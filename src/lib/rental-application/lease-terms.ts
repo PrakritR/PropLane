@@ -20,9 +20,13 @@ export const SHORT_TERM_LEASE_TERM = "Short-Term Stay";
 export const AIRBNB_LEASE_TERM = "Airbnb";
 /**
  * "Custom" is the escape hatch a manager/applicant reaches for when none of the
- * named terms fit, so it is always listed LAST — after Short-Term Stay — in
- * every place lease terms are displayed (application dropdown + listing form
- * checkboxes). Ordering only: its value, label, and behaviour are unchanged.
+ * named terms fit.
+ *
+ * It sits THIRD — after Long-term and Month-to-month, before the two stay types
+ * — by the captain's instruction of 2026-09-13, because the three lease shapes
+ * belong together and Short-term / Airbnb are a different kind of thing. It was
+ * previously pinned last; do not move it back without asking. Ordering only: its
+ * value, label, and behaviour are unchanged.
  */
 export const CUSTOM_LEASE_TERM = "Custom";
 
@@ -72,26 +76,28 @@ export const LISTING_LEASE_TERM_OPTION_SET = new Set<string>([
 
 /**
  * Canonical display order for every surface that lists lease terms (application
- * dropdown + listing "Lease lengths offered" checkboxes): ascending by length,
- * then Short-Term Stay, then Custom LAST. Derived from `LEASE_TERM_OPTIONS`
- * (already 3 → 9 → 12 → Month-to-Month) with Short-Term inserted before the
- * Custom escape hatch — never hand-ordered, so the surfaces can never disagree.
+ * dropdown + listing lease-type checkboxes + the Pricing tabs): retired lengths
+ * first, then Long-term → Month-to-month → Custom → Short-term → Airbnb. This
+ * list is the single authority, so the picker, its summary chips, the pricing
+ * tabs and the applicant's dropdown cannot disagree — they used to, each having
+ * hand-rolled its own order.
  * A listing's stored `allowedLeaseTerms` may be in any historical order (that is
  * how 9-Month and 12-Month showed up transposed in production); sorting by this
  * makes stored order irrelevant.
  */
 export const LEASE_TERM_DISPLAY_ORDER: string[] = [
   // Legacy lengths first so a listing that still carries one sorts sensibly,
-  // then the offered choices, then the escape hatch last.
+  // then the captain's order: the ordinary lease, then the open-ended one, then
+  // the escape hatch, then the two stay types.
   "3-Month",
   "6-Month",
   "9-Month",
   "12-Month",
   LONG_TERM_LEASE_TERM,
   "Month-to-Month",
+  CUSTOM_LEASE_TERM,
   SHORT_TERM_LEASE_TERM,
   AIRBNB_LEASE_TERM,
-  CUSTOM_LEASE_TERM,
 ];
 
 /**

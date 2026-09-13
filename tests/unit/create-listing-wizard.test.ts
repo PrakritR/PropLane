@@ -260,12 +260,13 @@ describe("listing fee and lease helpers", () => {
     expect(syncShortTermLeaseTermInAllowed(["12-Month", SHORT_TERM_LEASE_TERM], false)).toEqual(["12-Month"]);
   });
 
-  it("always lists Custom last — after Short-Term Stay — wherever lease terms are ordered", () => {
-    // Custom is the escape hatch: never wedged between real terms.
+  it("orders Custom with the lease shapes, before the stay types", () => {
+    // The three lease shapes (long-term, month-to-month, custom) belong
+    // together; Short-term and Airbnb are a different kind of thing and follow.
     expect(syncShortTermLeaseTermInAllowed(["12-Month", "Custom"], true)).toEqual([
       "12-Month",
-      SHORT_TERM_LEASE_TERM,
       "Custom",
+      SHORT_TERM_LEASE_TERM,
     ]);
     expect(syncShortTermLeaseTermInAllowed(["Custom", "3-Month"], false)).toEqual(["3-Month", "Custom"]);
   });

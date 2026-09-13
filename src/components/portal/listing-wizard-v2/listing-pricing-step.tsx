@@ -1,20 +1,22 @@
 "use client";
 
 /**
- * Pricing, in the order money happens.
+ * Pricing, in the order a manager sets it up.
  *
- * 1. **Before move-in** — the application fee, its waiver code, and who pays
- *    card processing. Three things a resident meets before a lease exists.
- *    "PropLane pays" asks for the promo code PropLane shared (unless the
- *    account already carries a grant); the code is stored on the listing so
- *    checkout re-validates it (`resolveAccountOrListingWaiverGranted`).
- * 2. **Each room** — one editable table, a tab per lease type. The top row is
+ * 1. **How you get paid** — the rails money arrives on, and who pays card
+ *    processing. First, because nothing below matters until money can move.
+ *    "PropLane pays" always asks for a processing coverage code; no plan and no
+ *    subscription promo can stand in for one.
+ * 2. **Applications** — the application fee, the short-term fee, and the
+ *    manager's own waiver code. Asked HERE and nowhere else: the Advanced tab
+ *    used to ask for the same three again, with a second, unsanitised input.
+ * 3. **Each room** — one editable table, a tab per lease type. The top row is
  *    **Every room**: same columns, same inputs; rooms follow it until changed
  *    (grey and dashed = following, ink with a dot = the room's own). Long-term
  *    carries a minimum term. Month-to-month and custom dates are "same as
  *    long-term" until the box is unticked. Short-term is rent per day, rent
  *    per week and a deposit — nothing else, the rate is all-in.
- * 3. **At signing** — what each lease type collects up front, beside the
+ * 4. **At signing** — what each lease type collects up front, beside the
  *    receipt, which is the same panel it always was.
  *
  * Nothing new is stored. Rent is `room.monthlyRent`; another lease type's own
@@ -28,6 +30,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Input, Select } from "@/components/ui/input";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { Field } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { ManagerApplicationFeeWaiverCodesModal } from "@/components/portal/pro-application-fee-waiver-codes-modal";
 import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
 import {
   expandFeeScope,
@@ -76,11 +79,19 @@ import { cn } from "@/lib/utils";
 type Patch = (next: Partial<ManagerListingSubmissionV1>) => void;
 
 const usd = (n: number) => `$${Math.round(n || 0).toLocaleString("en-US")}`;
-/** A stored money string, shown blank when it is zero or unset — never "0". */
-const moneyValue = (raw: string | undefined) => {
-  const text = (raw ?? "").replace(/^\$/, "").trim();
-  return text === "0" ? "" : text;
-};
+/**
+ * A stored money string, as typed.
+ *
+ * `"0"` is a real answer — "this room's utilities are included", "no deposit" —
+ * and it used to be scrubbed to `""` here, which the inheritance rule then read
+ * as "unset" and replaced with the house number. That is why $0 could not be
+ * entered anywhere on this screen (PRP-captain 2026-09-13). Absence is now the
+ * ONLY way to say "follow the row above": an empty box inherits, any number you
+ * type — zero included — is that room's own.
+ */
+const moneyValue = (raw: string | undefined) => (raw ?? "").replace(/^\$/, "").trim();
+/** True when a money string holds a real figure, including an explicit zero. */
+const moneyFilled = (raw: string | undefined) => moneyValue(raw).length > 0;
 const num = (raw: string) => {
   const n = Number(raw.replace(/[^0-9.]/g, ""));
   return Number.isFinite(n) ? n : 0;
@@ -89,10 +100,12 @@ const num = (raw: string) => {
 const MONTHLY_COLUMNS = "minmax(120px,1.2fr) 118px 118px 118px 124px minmax(150px,1.5fr)";
 const STAY_COLUMNS = "minmax(120px,1.2fr) 118px 118px 118px minmax(0,1fr)";
 
-const cell = (inherited: boolean) =>
+const cell = (inherited: boolean, zero = false) =>
   cn(
     "min-h-[36px] w-full rounded-lg border bg-card px-2 py-1 text-[13px] text-foreground outline-none focus:border-primary",
     inherited ? "border-dashed border-border text-muted" : "border-border",
+    /* An explicit $0 reads as deliberate, not as an empty box someone forgot. */
+    !inherited && zero ? "border-primary font-semibold text-primary" : "",
   );
 
 /** A money cell: `$` prefix, inherited shows the value as a placeholder in an empty box. */
@@ -122,7 +135,8 @@ function MoneyCell({
         value={inherited ? "" : value}
         placeholder={placeholder}
         onChange={(e) => onChange(sanitizeMoneyInput(e.target.value))}
-        className={cn(cell(inherited), "pl-5 tabular-nums")}
+        className={cn(cell(inherited, num(value) === 0 && moneyFilled(value)), "pl-5 tabular-nums")}
+        title={!inherited && moneyFilled(value) && num(value) === 0 ? "No charge — set deliberately, not inherited" : undefined}
       />
       {own ? <span aria-hidden className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full border-2 border-white bg-primary" /> : null}
     </span>
@@ -181,6 +195,29 @@ function writeTerm(
   if (Object.keys(entry).length === 0) delete all[term];
   else all[term] = entry;
   return { ...room, termPricing: Object.keys(all).length > 0 ? all : undefined };
+}
+
+/**
+ * Put one room back on the house numbers for this lease tab.
+ *
+ * Emptying a cell already re-inherits it, but nothing on the table said so — the
+ * captain's "I cant reset some of the information to default". On long-term this
+ * clears the room's own monthly fields; on any other tab it drops that tab's
+ * override so the row follows long-term again.
+ */
+function resetRoomToInherited(room: ManagerRoomSubmission, term: string): ManagerRoomSubmission {
+  if (!isBase(term)) {
+    const all = { ...(room.termPricing ?? {}) };
+    delete all[term];
+    return { ...room, termPricing: Object.keys(all).length > 0 ? all : undefined };
+  }
+  return {
+    ...room,
+    monthlyRent: 0,
+    utilitiesEstimate: "",
+    securityDeposit: undefined,
+    pricingMode: undefined,
+  };
 }
 
 /* ─────────────────────── the room table ─────────────────────── */
@@ -284,11 +321,25 @@ function MonthlyTable({
           const util = termValue(room, term, "util", defaults);
           const dep = termValue(room, term, "deposit", defaults);
           const modeOwn = base ? !roomInheritsDefault(room, defaults, "pricingMode") : false;
+          /* Reset only appears where there is something to undo. */
+          const rowHasOwn = rent.src === "own" || util.src === "own" || dep.src === "own" || modeOwn;
           return (
             <div key={room.id} className="grid items-center gap-2 border-b border-border px-3 py-2 last:border-b-0" style={{ gridTemplateColumns: MONTHLY_COLUMNS }} data-attr="listing-v2-price-row">
               <span className="min-w-0 leading-tight">
                 <b className="block truncate text-[13.5px] font-bold text-foreground">{name}</b>
-                <span className="block truncate text-[11.5px] text-muted">{room.floor?.trim()}</span>
+                {rowHasOwn ? (
+                  <button
+                    type="button"
+                    data-attr="listing-v2-price-row-reset"
+                    aria-label={`Reset ${name} to the house numbers on ${term}`}
+                    onClick={() => onRoom(room.id, resetRoomToInherited(room, term))}
+                    className="mt-0.5 rounded-full border border-primary/40 px-2 py-0 text-[10.5px] font-bold text-primary hover:bg-primary/10"
+                  >
+                    Reset
+                  </button>
+                ) : (
+                  <span className="block truncate text-[11.5px] text-muted">{room.floor?.trim()}</span>
+                )}
               </span>
               <MoneyCell
                 label={`${name} rent on ${term}`}
@@ -677,6 +728,7 @@ export function ListingPricingSections({
 
   /** "Same as long-term" is true when no room has its own price on this term. */
   const sameAsLongTerm = (term: string) => !rooms.some((r) => r.termPricing?.[term] && Object.keys(r.termPricing[term]!).length > 0);
+  const [waiverCodesOpen, setWaiverCodesOpen] = useState(false);
   const [showOwn, setShowOwn] = useState<Record<string, boolean>>({});
   const ownTable = (term: string) => showOwn[term] || !sameAsLongTerm(term);
   const stay = isStayLeaseTerm(activeLeaseTerm);
@@ -684,8 +736,14 @@ export function ListingPricingSections({
   return (
     <>
       <section className="mb-8">
-        <h3 className="mb-1 text-[14px] font-bold text-foreground">1 · Before move-in</h3>
-        <p className="mb-3 text-[12.5px] text-muted">What an applicant pays to apply, and who covers card processing.</p>
+        <h3 className="mb-1 text-[14px] font-bold text-foreground">1 · How you get paid</h3>
+        <p className="mb-3 text-[12.5px] text-muted">The rails money arrives on, and who covers card processing.</p>
+        {payments}
+      </section>
+
+      <section className="mb-8 border-t border-border pt-6">
+        <h3 className="mb-1 text-[14px] font-bold text-foreground">2 · Applications</h3>
+        <p className="mb-3 text-[12.5px] text-muted">What an applicant pays to apply. Asked here and nowhere else.</p>
         <div className="grid gap-4 sm:grid-cols-3">
           <Field label="Long-term application fee">
             <div className="relative">
@@ -701,12 +759,25 @@ export function ListingPricingSections({
           </Field>
           <Field label="Waiver code" optional hint="Applicants who enter it apply for free.">
             <Input style={{ textTransform: "uppercase" }} value={sub.applicationFeeWaiverCode ?? ""} placeholder="WELCOME50" onChange={(e) => patch({ applicationFeeWaiverCode: e.target.value.toUpperCase().replace(/\s+/g, "") })} />
+            {/* The multi-code system (usage caps, expiry, revoke, redemption log)
+                already existed and was never mounted anywhere — this is its only
+                way in. The single field above stays: it is the quick one-code
+                case, and every listing saved before this still reads from it. */}
+            <button
+              type="button"
+              data-attr="listing-v2-manage-waiver-codes"
+              onClick={() => setWaiverCodesOpen(true)}
+              className="mt-1 text-[12px] font-bold text-primary hover:underline"
+            >
+              Manage codes
+            </button>
           </Field>
         </div>
+        <div className="mt-4">{applications}</div>
       </section>
 
       <section className="mb-8 border-t border-border pt-6">
-        <h3 className="mb-1 text-[14px] font-bold text-foreground">2 · Each room</h3>
+        <h3 className="mb-1 text-[14px] font-bold text-foreground">3 · Each room</h3>
         <p className="mb-3 text-[12.5px] text-muted">Pick the leases you offer, then price each one. Grey follows the row above it; type in a cell and it becomes that room&apos;s own.</p>
         <div className="grid gap-4 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
           <div>{leaseTypesField}</div>
@@ -789,20 +860,20 @@ export function ListingPricingSections({
       </section>
 
       <section className="mb-8 border-t border-border pt-6">
-        <h3 className="mb-1 text-[14px] font-bold text-foreground">3 · At signing</h3>
+        <h3 className="mb-1 text-[14px] font-bold text-foreground">4 · At signing</h3>
         <p className="mb-3 text-[12.5px] text-muted">What {active.toLowerCase()} collects before move-in. Anything left out is billed later. The panel on the right shows the total.</p>
         <DueAtSigning sub={sub} patch={patch} term={active} />
       </section>
 
-      <section className="mb-8 border-t border-border pt-6">
-        <h3 className="mb-1 text-[14px] font-bold text-foreground">How you get paid</h3>
-        {payments}
-      </section>
-      <section className="mb-8 border-t border-border pt-6">
-        <h3 className="mb-1 text-[14px] font-bold text-foreground">Applications</h3>
-        {applications}
-      </section>
       <section className="border-t border-border pt-6">{leaseDocument}</section>
+
+      {/* Mounted only while open: the modal reads `useAppUi` at its top level, so
+          rendering it unconditionally drags a provider requirement into every
+          tree that renders Pricing — which is a dependency this screen does not
+          otherwise have. */}
+      {waiverCodesOpen ? (
+        <ManagerApplicationFeeWaiverCodesModal open onClose={() => setWaiverCodesOpen(false)} />
+      ) : null}
     </>
   );
 }

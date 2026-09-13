@@ -25,6 +25,7 @@
 
 import { parseMoneyAmount } from "@/lib/parse-money";
 import {
+  isListingFeeAmountFilled,
   listingFeeCadence,
   listingFeeMonthlyEquivalent,
   listingFeesForWizard,
@@ -210,7 +211,15 @@ export function buildListingQuote(
 
   for (const fee of applicable) {
     const amount = amountForTerm(fee, isStay);
-    if (amount <= 0) continue;
+    /*
+     * A fee the manager deliberately set to 0 is a real answer — "parking is
+     * included", "no move-in fee" — and dropping it left the resident guessing.
+     * An UNFILLED fee is still skipped: a blank row is a fee that was never
+     * priced, not a free one. Totals are unaffected either way, since the line
+     * adds zero.
+     */
+    if (amount < 0) continue;
+    if (amount === 0 && !isListingFeeAmountFilled(fee.amount ?? "")) continue;
     // The deposit is its own line on the receipt, never a fee line as well.
     if (fee.presetId === "security_deposit") continue;
     if (fee.presetId === "holding_deposit") {
