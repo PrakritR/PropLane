@@ -39,4 +39,32 @@ describe("active workspace scope", () => {
     expect(activeWorkspaceScope()).toMatchObject({ name: "My workspace", propertyCount: 2 });
     expect(propertiesOutsideActiveWorkspace()).toBe(0);
   });
+
+  it("excludes a property that only exists in a shared workspace", () => {
+    setWorkspaceSelection({
+      activeWorkspaceId: "w-default",
+      workspaces: [
+        {
+          id: "w-default",
+          name: "My workspace",
+          ownerUserId: "u",
+          owned: true,
+          isDefault: true,
+          propertyIds: ["p1"],
+          propertyPermissions: {},
+        },
+        {
+          id: "w-shared",
+          name: "Owner workspace",
+          ownerUserId: "owner",
+          owned: false,
+          isDefault: false,
+          propertyIds: ["p-co"],
+          propertyPermissions: { "p-co": {} },
+        },
+      ],
+    });
+    expect(workspaceContainsProperty("p-co")).toBe(false);
+    expect(workspaceContainsProperty("p1")).toBe(true);
+  });
 });

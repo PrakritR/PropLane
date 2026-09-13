@@ -8,6 +8,7 @@ import {
 } from "@/lib/household-charges";
 import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { collectLinkedPropertyIdsForModule } from "@/lib/manager-portfolio-access";
+import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
 /**
  * WHY THIS MODULE EXISTS
@@ -95,7 +96,9 @@ export function readManagerPaymentsLedgerCharges(managerUserId: string | null): 
   const charges = readChargesForManager(managerUserId, {
     linkedPropertyIds: collectLinkedPropertyIdsForModule(managerUserId ?? "", "payments"),
   });
-  return scopeChargesToManagerPaymentsLedger(charges, readManagerApplicationRows());
+  return scopeChargesToManagerPaymentsLedger(charges, readManagerApplicationRows()).filter((charge) =>
+    workspaceContainsProperty(charge.propertyId),
+  );
 }
 
 export type ManagerPaymentBucketCounts = { pending: number; overdue: number; paid: number };

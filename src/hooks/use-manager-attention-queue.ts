@@ -28,6 +28,11 @@ import {
 import { parseMoneyLabel } from "@/lib/portal-monthly-profit";
 import { isSubmittedPendingApplicationRow } from "@/lib/rental-application/in-progress-application";
 import { MANAGER_MESSAGING_SETTINGS_HREF } from "@/lib/sms/manager-messaging-number";
+import {
+  WORKSPACE_SELECTION_EVENT,
+  workspaceContainsProperty,
+  workspacePropertyIdFromRow,
+} from "@/lib/workspaces/selection";
 
 /**
  * Every read here is guarded: the assistant mounts on every portal page, and a
@@ -81,7 +86,7 @@ export function useManagerAttentionQueue(basePath = "/portal"): {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const bump = () => setTick((n) => n + 1);
-    const events = storeEvents();
+    const events = [...storeEvents(), WORKSPACE_SELECTION_EVENT];
     for (const name of events) window.addEventListener(name, bump);
     return () => {
       for (const name of events) window.removeEventListener(name, bump);
@@ -94,12 +99,20 @@ export function useManagerAttentionQueue(basePath = "/portal"): {
     const pendingApps = safe(
       () =>
         readManagerApplicationRows().filter(
-          (a) => applicationVisibleToPortalUser(a, userId) && isSubmittedPendingApplicationRow(a),
+          (a) =>
+            applicationVisibleToPortalUser(a, userId) &&
+            isSubmittedPendingApplicationRow(a) &&
+            workspaceContainsProperty(workspacePropertyIdFromRow(a) ?? undefined),
         ),
       [],
     );
     const managerSignatureLeaseCount = safe(
-      () => readLeasePipeline(userId).filter((l) => l.status === "Manager Signature Pending").length,
+      () =>
+        readLeasePipeline(userId).filter(
+          (l) =>
+            l.status === "Manager Signature Pending" &&
+            workspaceContainsProperty(l.propertyId?.trim() || l.application?.propertyId?.trim() || undefined),
+        ).length,
       0,
     );
     const overdueCharges = safe(
@@ -114,7 +127,13 @@ export function useManagerAttentionQueue(basePath = "/portal"): {
     const pendingTourCount = safe(
       () =>
         readPartnerInquiries()
-          .filter((r) => r.kind === "tour" && r.status === "pending" && r.managerUserId === userId)
+          .filter(
+            (r) =>
+              r.kind === "tour" &&
+              r.status === "pending" &&
+              r.managerUserId === userId &&
+              workspaceContainsProperty(r.propertyId?.trim() || undefined),
+          )
           .reduce((sum, r) => sum + getPartnerInquiryWindows(r).length, 0),
       0,
     );

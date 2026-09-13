@@ -87,6 +87,7 @@ import {
   parseMoneyLabel,
 } from "@/lib/portal-monthly-profit";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
+import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 import { expenseTaxStatusLabel, isCategoryDeductible, SYSTEM_CHART_ACCOUNTS } from "@/lib/reports/categories";
 import { cn } from "@/lib/utils";
 import { centsToUsd, dollarsToCents } from "@/lib/reports/money";
@@ -618,13 +619,16 @@ export function ManagerFinancesPanel({
     const months = lastNMonths(cashflowNowMs, 24);
     const charges = readChargesForManager(userId, {
       linkedPropertyIds: collectLinkedPropertyIdsForModule(userId, "payments"),
-    }).filter((c) => c.status === "paid");
+    })
+      .filter((c) => c.status === "paid")
+      .filter((c) => workspaceContainsProperty(c.propertyId));
     const scopedCharges = filters.propertyId
       ? charges.filter((c) => c.propertyId === filters.propertyId)
       : charges;
-    const expenses = readManagerOutgoingExpenses().filter((e) =>
-      filters.propertyId ? e.propertyId === filters.propertyId : true,
-    );
+    const expenses = readManagerOutgoingExpenses().filter((e) => {
+      if (filters.propertyId) return e.propertyId === filters.propertyId;
+      return !e.propertyId?.trim() || workspaceContainsProperty(e.propertyId.trim());
+    });
     const paymentsByMonth = bucketByMonth(
       scopedCharges,
       months,

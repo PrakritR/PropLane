@@ -16,6 +16,7 @@ import {
   managerPropertyRowsForStage,
   type AdminPropertyRow,
 } from "@/lib/demo-admin-property-inventory";
+import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
 export type PortfolioStage = "listed" | "unlisted" | "drafts";
 
@@ -76,6 +77,7 @@ export function readPortfolioSnapshot(userId: string | null): {
     for (const row of managerPropertyRowsForStage(buckets, userId)) {
       const key = row.listingId?.trim() || row.adminRefId.trim();
       if (!key) continue;
+      if (!workspaceContainsProperty(row.listingId?.trim() || row.adminRefId.trim())) continue;
       if (stage === "drafts") draftCount += 1;
       else rentableSpaces += rowSpaces(row);
       const spaces = rowSpaces(row);

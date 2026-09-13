@@ -10,20 +10,16 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
  * were measured at 15–23px on a 390px phone.
  */
 describe("PRP-350 dashboard phone tap targets", () => {
-  it("pads cash-flow month and range chips to min-h-11", () => {
+  it("pads cash-flow range tabs to min-h-11", () => {
     const chart = read("src/components/portal/monthly-profit-chart.tsx");
-    expect(chart).toContain("monthly-profit-month-");
-    // The range chips live in the shared CashflowRangeToggle (extracted for the
+    // The range tabs live in the shared CashflowRangeToggle (extracted for the
     // profitability card, PRP-278); its default data-attr prefix is the one the
     // cash-flow chart used to spell out inline.
     expect(chart).toContain('dataAttrPrefix = "cashflow-range"');
-    // Month + range buttons both use the 44px floor (PRP-350).
-    const monthBtn = chart.slice(chart.indexOf("{points.map((p, i)"));
-    expect(monthBtn).toContain("min-h-11");
-    const rangeBtn = chart.slice(
-      chart.indexOf("export function CashflowRangeToggle"),
-      chart.indexOf("{points.map((p, i)"),
-    );
+    // Month chips are gone (Robinhood-style underline ranges). Both appearances
+    // still use the 44px floor (PRP-350).
+    expect(chart).not.toContain("monthly-profit-month-");
+    const rangeBtn = chart.slice(chart.indexOf("export function CashflowRangeToggle"));
     expect(rangeBtn).toContain("min-h-11");
     expect(rangeBtn).toContain("min-w-11");
   });

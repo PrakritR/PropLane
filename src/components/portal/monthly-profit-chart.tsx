@@ -1,11 +1,19 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { cn } from "@/lib/utils";
 import {
   CASHFLOW_CHART_RANGE_MONTHS,
-  cashflowChartShowMonthLabel,
   cashflowMetricValue,
+  cashflowWindowDirection,
   type CashflowChartMetric,
   type CashflowChartRangeMonths,
   type MonthlyCashflowPoint,
@@ -29,7 +37,7 @@ function rangeLabel(months: CashflowChartRangeMonths): string {
 }
 
 /**
- * The 3M / 6M / 1Y / 2Y range pills. Shared by the cash-flow chart and the
+ * The 3M / 6M / 1Y / 2Y range control. Shared by the cash-flow chart and the
  * Profitability card so the two month selectors on Finances cannot drift apart.
  */
 export function CashflowRangeToggle({
@@ -38,17 +46,51 @@ export function CashflowRangeToggle({
   ariaLabel = "Chart time range",
   dataAttrPrefix = "cashflow-range",
   className,
+  appearance = "pills",
+  accent,
 }: {
   value: CashflowChartRangeMonths;
   onChange: (months: CashflowChartRangeMonths) => void;
   ariaLabel?: string;
   dataAttrPrefix?: string;
   className?: string;
+  appearance?: "pills" | "underline";
+  accent?: string;
 }) {
+  if (appearance === "underline") {
+    return (
+      <div
+        className={cn("flex justify-between gap-1 border-t border-border pt-1", className)}
+        role="tablist"
+        aria-label={ariaLabel}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {CASHFLOW_CHART_RANGE_MONTHS.map((months) => {
+          const selected = value === months;
+          return (
+            <button
+              key={months}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              data-attr={`${dataAttrPrefix}-${months}`}
+              className={cn(
+                "portal-pressable min-h-11 min-w-11 flex-1 border-b-2 px-1 text-[12px] font-bold tabular-nums transition-colors",
+                selected ? "text-foreground" : "border-transparent text-muted hover:text-foreground",
+              )}
+              style={selected ? { color: accent, borderBottomColor: accent } : undefined}
+              onClick={() => onChange(months)}
+            >
+              {rangeLabel(months)}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
     <div
-      // The same light segmented control the rest of the portal uses — a dark
-      // selected pill was the one black element on an otherwise blue page.
       className={cn("flex gap-0.5 rounded-full border border-border bg-[var(--pl-surface-muted)] p-0.5 [html[data-theme=dark]_&]:bg-white/[0.04]", className)}
       role="tablist"
       aria-label={ariaLabel}
@@ -62,7 +104,6 @@ export function CashflowRangeToggle({
           aria-selected={value === months}
           data-attr={`${dataAttrPrefix}-${months}`}
           className={cn(
-            // PRP-350: 44px in BOTH directions — "1Y"/"2Y" are narrow enough to fail on width alone.
             "portal-pressable min-h-11 min-w-11 rounded-full px-3 py-2 text-[11px] font-bold tabular-nums transition-colors sm:px-3.5 sm:text-xs",
             value === months
               ? "bg-card text-foreground shadow-[var(--shadow-sm)]"
@@ -98,18 +139,20 @@ function normalizePoints(
   }));
 }
 
-function strokeForMetric(metric: CashflowChartMetric, value: number): string {
-  if (metric === "expense") return "var(--status-pending-fg)";
-  return value >= 0 ? "var(--status-confirmed-fg)" : "var(--status-overdue-fg)";
+function strokeForWindow(metric: CashflowChartMetric, direction: "up" | "down" | "flat"): string {
+  if (metric === "expense") return "var(--foreground)";
+  if (direction === "down") return "var(--status-overdue-fg)";
+  return "var(--status-confirmed-fg)";
 }
 
-function heroClassForMetric(metric: CashflowChartMetric, value: number): string {
+function heroClassForWindow(metric: CashflowChartMetric, direction: "up" | "down" | "flat"): string {
   if (metric === "expense") return "text-foreground";
-  return value >= 0 ? "text-[var(--status-confirmed-fg)]" : "text-[var(--status-overdue-fg)]";
+  if (direction === "down") return "text-[var(--status-overdue-fg)]";
+  return "text-[var(--status-confirmed-fg)]";
 }
 
 /**
- * Robinhood-style cash flow chart: metric + range toggles, hero number, smooth area line.
+ * Mobbin-referenced cash flow chart: thin scrubbable line, hero number, underline ranges.
  */
 export function MonthlyProfitChart({
   points: rawPoints,
@@ -136,6 +179,8 @@ export function MonthlyProfitChart({
   const allPoints = useMemo(() => normalizePoints(rawPoints), [rawPoints]);
   const [metric, setMetric] = useState<CashflowChartMetric>(defaultMetric);
   const [rangeMonths, setRangeMonths] = useState<CashflowChartRangeMonths>(defaultRangeMonths);
+  const chartRef = useRef<SVGSVGElement | null>(null);
+  const dragging = useRef(false);
 
   const points = useMemo(
     () => allPoints.slice(-Math.min(rangeMonths, allPoints.length)),
@@ -150,20 +195,19 @@ export function MonthlyProfitChart({
 
   const active = points[activeIndex] ?? points[points.length - 1];
   const activeValue = active ? cashflowMetricValue(active, metric) : 0;
+  const values = useMemo(() => points.map((p) => cashflowMetricValue(p, metric)), [points, metric]);
+  const direction = cashflowWindowDirection(values);
+  const stroke = strokeForWindow(metric, direction);
 
-  const hasAny = useMemo(
-    () => allPoints.some((p) => p.revenue !== 0 || p.expense !== 0 || p.profit !== 0),
-    [allPoints],
-  );
+  const hasWindow = useMemo(() => values.some((v) => v !== 0), [values]);
 
   const chart = useMemo(() => {
     const w = aspect === "wide" ? 900 : 360;
     const h = aspect === "wide" ? 170 : 140;
-    const padX = 4;
-    const padY = 12;
-    const values = points.map((p) => cashflowMetricValue(p, metric));
-    const minV = Math.min(0, ...values);
-    const maxV = Math.max(0, ...values);
+    const padX = 8;
+    const padY = 14;
+    const minV = Math.min(...values, 0);
+    const maxV = Math.max(...values, 1);
     const range = Math.max(maxV - minV, 1);
     const innerW = w - padX * 2;
     const innerH = h - padY * 2;
@@ -171,17 +215,48 @@ export function MonthlyProfitChart({
     const xFor = (i: number) => padX + (points.length <= 1 ? innerW / 2 : (i / (points.length - 1)) * innerW);
 
     const coords = values.map((v, i) => ({ x: xFor(i), y: yFor(v), value: v }));
-    const zeroY = yFor(0);
-    const stroke = strokeForMetric(metric, activeValue);
-
+    const floorY = h - 4;
     const lineD = coords.map((c, i) => `${i === 0 ? "M" : "L"} ${c.x.toFixed(2)} ${c.y.toFixed(2)}`).join(" ");
     const areaD =
       coords.length > 0
-        ? `${lineD} L ${coords[coords.length - 1]!.x.toFixed(2)} ${zeroY.toFixed(2)} L ${coords[0]!.x.toFixed(2)} ${zeroY.toFixed(2)} Z`
+        ? `${lineD} L ${coords[coords.length - 1]!.x.toFixed(2)} ${floorY.toFixed(2)} L ${coords[0]!.x.toFixed(2)} ${floorY.toFixed(2)} Z`
         : "";
 
-    return { w, h, coords, zeroY, lineD, areaD, stroke, padX };
-  }, [points, metric, activeValue, aspect]);
+    return { w, h, coords, lineD, areaD, padX };
+  }, [points.length, values, aspect]);
+
+  const indexFromClientX = useCallback(
+    (clientX: number) => {
+      const el = chartRef.current;
+      if (!el || chart.coords.length === 0) return 0;
+      const rect = el.getBoundingClientRect();
+      const t = (clientX - rect.left) / Math.max(rect.width, 1);
+      return Math.max(0, Math.min(chart.coords.length - 1, Math.round(t * (chart.coords.length - 1))));
+    },
+    [chart.coords.length],
+  );
+
+  const onPointerDown = (e: ReactPointerEvent<SVGSVGElement>) => {
+    dragging.current = true;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setActiveIndex(indexFromClientX(e.clientX));
+  };
+  const onPointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (e.pointerType === "mouse" || dragging.current) {
+      setActiveIndex(indexFromClientX(e.clientX));
+    }
+  };
+  const onPointerUp = (e: ReactPointerEvent<SVGSVGElement>) => {
+    dragging.current = false;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+  };
+  const onPointerLeave = () => {
+    if (!dragging.current) setActiveIndex(Math.max(0, points.length - 1));
+  };
+
+  const cursor = chart.coords[activeIndex] ?? chart.coords[chart.coords.length - 1];
 
   return (
     <div
@@ -194,6 +269,7 @@ export function MonthlyProfitChart({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
           <h2 className="text-base font-semibold tracking-[-0.01em] text-foreground lg:text-lg">{title}</h2>
+          {subtitle ? <p className="text-sm text-muted">{subtitle}</p> : null}
           <div
             className="flex rounded-full border border-border bg-accent/25 p-0.5"
             role="tablist"
@@ -207,8 +283,8 @@ export function MonthlyProfitChart({
                 role="tab"
                 aria-selected={metric === opt.id}
                 data-attr={`cashflow-metric-${opt.id}`}
-            className={cn(
-              "portal-pressable min-h-11 min-w-0 rounded-full px-3 py-2 text-center text-[11px] font-semibold transition-colors sm:text-xs",
+                className={cn(
+                  "portal-pressable min-h-11 min-w-0 rounded-full px-3 py-2 text-center text-[11px] font-semibold transition-colors sm:text-xs",
                   metric === opt.id
                     ? "bg-card text-foreground shadow-[var(--shadow-sm)]"
                     : "text-muted hover:text-foreground",
@@ -222,17 +298,18 @@ export function MonthlyProfitChart({
         </div>
       </div>
 
-      {active ? (
-        <div className="mt-2 min-w-0" data-attr="cashflow-hero">
+      {hasWindow && active ? (
+        <>
+          <div className="mt-2 min-w-0" data-attr="cashflow-hero">
           <p
             className={cn(
-              "text-[2rem] font-light tabular-nums tracking-[-0.04em] transition-[color,opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none sm:text-[2.35rem]",
-              heroClassForMetric(metric, activeValue),
+              "text-[2rem] font-light tabular-nums tracking-[-0.04em] transition-[color] duration-200 motion-reduce:transition-none sm:text-[2.35rem]",
+              heroClassForWindow(metric, direction),
             )}
           >
             {formatUsd(activeValue)}
           </p>
-          <p className="mt-1 text-sm text-muted transition-opacity duration-300 motion-reduce:transition-none">
+          <p className="mt-1 text-sm text-muted">
             {active.label}
             <span className="hidden sm:inline">
               {" "}
@@ -240,102 +317,69 @@ export function MonthlyProfitChart({
             </span>
           </p>
         </div>
-      ) : null}
-
-      {hasAny ? (
         <div className="mt-3 lg:mt-4 -mx-1 sm:mx-0">
           <svg
+            ref={chartRef}
             viewBox={`0 0 ${chart.w} ${chart.h}`}
-            className="w-full touch-pan-y min-h-[9.5rem] sm:min-h-[10.5rem] lg:min-h-[12rem]"
+            className="w-full touch-none min-h-[9.5rem] cursor-crosshair sm:min-h-[10.5rem] lg:min-h-[12rem]"
             role="img"
             aria-label={`Monthly ${metric} trend`}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+            onPointerLeave={onPointerLeave}
           >
             <defs>
               <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={chart.stroke} stopOpacity="0.38" />
-                <stop offset="100%" stopColor={chart.stroke} stopOpacity="0.02" />
+                <stop offset="0%" stopColor={stroke} stopOpacity="0.18" />
+                <stop offset="100%" stopColor={stroke} stopOpacity="0" />
               </linearGradient>
             </defs>
-            <line
-              x1={chart.padX}
-              x2={chart.w - chart.padX}
-              y1={chart.zeroY}
-              y2={chart.zeroY}
-              stroke="var(--border)"
-              strokeWidth="1"
-              strokeDasharray="3 3"
-            />
             {chart.areaD ? <path d={chart.areaD} fill={`url(#${fillId})`} /> : null}
             {chart.lineD ? (
               <path
                 d={chart.lineD}
                 fill="none"
-                stroke={chart.stroke}
-                strokeWidth="2.5"
+                stroke={stroke}
+                strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
             ) : null}
-            {chart.coords.map((c, i) => (
-              <circle
-                key={points[i]!.key}
-                cx={c.x}
-                cy={c.y}
-                r={activeIndex === i ? 5 : 3}
-                fill={chart.stroke}
-                className="transition-[r] duration-150"
-              />
-            ))}
-            {chart.coords.map((c, i) => (
-              <rect
-                key={`hit-${points[i]!.key}`}
-                x={i === 0 ? chart.padX : (chart.coords[i - 1]!.x + c.x) / 2}
-                y={0}
-                width={
-                  i === 0
-                    ? (chart.coords[1]?.x ?? c.x) - chart.padX
-                    : i === chart.coords.length - 1
-                      ? chart.w - chart.padX - (chart.coords[i - 1]!.x + c.x) / 2
-                      : (chart.coords[i + 1]!.x - chart.coords[i - 1]!.x) / 2
-                }
-                height={chart.h}
-                fill="transparent"
-                className="cursor-pointer"
-                onClick={() => setActiveIndex(i)}
-              />
-            ))}
+            {cursor ? (
+              <>
+                <line
+                  x1={cursor.x}
+                  x2={cursor.x}
+                  y1={8}
+                  y2={chart.h - 4}
+                  stroke="currentColor"
+                  strokeOpacity="0.28"
+                  strokeWidth="1"
+                />
+                <circle
+                  cx={cursor.x}
+                  cy={cursor.y}
+                  r={4.5}
+                  fill={stroke}
+                  stroke="var(--card)"
+                  strokeWidth="2"
+                />
+              </>
+            ) : null}
           </svg>
 
           <CashflowRangeToggle
-            className="mt-2 justify-center px-1"
+            appearance="underline"
+            className="mt-1"
             value={rangeMonths}
             onChange={setRangeMonths}
             dataAttrPrefix="cashflow-range"
+            accent={stroke}
           />
-
-          <div className="mt-2 flex justify-between gap-0.5 px-0.5">
-            {points.map((p, i) => {
-              const showLabel = cashflowChartShowMonthLabel(i, points.length, rangeMonths);
-              return (
-              <button
-                key={p.key}
-                type="button"
-                onClick={() => setActiveIndex(i)}
-                aria-label={showLabel ? undefined : `${p.label} ${metric}`}
-                className={cn(
-                  // PRP-350: month chips were ~23px tall on a phone — pad to 44px hit height.
-                  "min-h-11 min-w-0 flex-1 rounded-md px-0.5 py-2 text-center text-[10px] font-medium transition-colors sm:text-[11px]",
-                  activeIndex === i ? "bg-primary/10 text-foreground" : "text-muted hover:text-foreground",
-                  !showLabel && "text-transparent",
-                )}
-                data-attr={`monthly-profit-month-${p.key}`}
-              >
-                {showLabel ? p.label : "\u00a0"}
-              </button>
-            );
-            })}
-          </div>
         </div>
+        </>
       ) : (
         <p className="mt-6 text-sm text-muted [html[data-native]_&]:text-xs">
           No cash flow data yet. Collected rent and logged expenses will chart here by month.

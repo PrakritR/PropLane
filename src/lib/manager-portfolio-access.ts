@@ -22,6 +22,7 @@ import { PROPERTY_PIPELINE_EVENT } from "@/lib/property-pipeline-events";
 import { MANAGER_APPLICATIONS_EVENT, readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { readProRelationships, syncProRelationshipsFromServer } from "@/lib/pro-relationships";
 import { readCachedAccountLinkInvites } from "@/lib/portal-data-store";
+import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 import {
   coManagerModuleAllowed,
   hasCoManagerPermission,
@@ -498,6 +499,7 @@ export function buildManagerPropertyFilterOptions(userId: string | null): Manage
   }
 
   return [...labelById.entries()]
+    .filter(([id]) => workspaceContainsProperty(id))
     .map(([id, label]) => ({ id, label }))
     .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
 }

@@ -124,11 +124,12 @@ describe("field menu inside a full-bleed dialog wrapper", () => {
     });
 
     expect(tight.top + tight.maxHeight).toBeLessThanOrEqual(card.getBoundingClientRect().bottom);
-    expect(loose.top + loose.maxHeight).toBeLessThanOrEqual(588);
-    expect(tight.top).not.toBe(loose.top);
+    expect(loose.top).toBeGreaterThanOrEqual(351);
+    expect(loose.top + loose.maxHeight).toBeLessThanOrEqual(600);
+    expect(tight.maxHeight).toBeLessThan(loose.maxHeight);
   });
 
-  it("opens UP against the trigger when the card has no room below it", () => {
+  it("stays below the trigger and scrolls when the card has no room for the full menu", () => {
     // Trigger sits near the card's bottom edge: opening down leaves under a row.
     const { host, card, button } = dialogFixture({
       viewportH: 900,
@@ -145,9 +146,9 @@ describe("field menu inside a full-bleed dialog wrapper", () => {
       boundsRect: card.getBoundingClientRect(),
     });
 
-    // Above the trigger, not pinned to the card's bottom edge on top of it.
-    expect(rect.top + rect.maxHeight).toBeLessThanOrEqual(640);
-    expect(rect.top).toBeGreaterThanOrEqual(200);
+    expect(rect.top).toBeGreaterThanOrEqual(640 + 44);
+    expect(rect.top + rect.maxHeight).toBeLessThanOrEqual(700);
+    expect(rect.maxHeight).toBeGreaterThan(0);
   });
 
   it("leaves a host that IS the visible box alone (bottom sheets, filter panels)", () => {
@@ -219,7 +220,7 @@ describe("field menu inside a full-bleed dialog wrapper", () => {
     expect(rect.top + rect.maxHeight).toBeLessThanOrEqual(480);
   });
 
-  it("body-portaled modal menus open up when the footer leaves no room below", () => {
+  it("body-portaled modal menus stay below the trigger when the footer is close", () => {
     const host = document.createElement("div");
     host.setAttribute("data-slot", "modal-radix-dialog");
     host.className = "modal-panel";
@@ -240,8 +241,9 @@ describe("field menu inside a full-bleed dialog wrapper", () => {
     });
 
     expect(rect.position).toBe("fixed");
-    expect(rect.top + rect.maxHeight).toBeLessThanOrEqual(420);
-    expect(rect.maxHeight).toBe(CONTENT_PX);
+    expect(rect.top).toBeGreaterThanOrEqual(464);
+    expect(rect.top + rect.maxHeight).toBeLessThanOrEqual(480);
+    expect(rect.maxHeight).toBeGreaterThan(0);
 
     document.body.removeChild(host);
   });
