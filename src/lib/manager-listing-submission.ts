@@ -16,6 +16,7 @@ import {
   SHORT_TERM_LEASE_TERM,
   sortLeaseTermsCanonical,
 } from "@/lib/rental-application/lease-terms";
+import { emptyHouseInfo, normalizeHouseInfo, type HouseInfoV1 } from "@/lib/house-info";
 import { roomIsDailyPriced } from "@/lib/room-pricing";
 import { RENTAL_APPLICATION_SECTION_IDS } from "@/lib/rental-application/application-sections";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
@@ -551,9 +552,19 @@ export type ManagerListingSubmissionV1 = {
   houseDescription?: string;
   /** Resident-only general house info (codes, tips) — shown in resident portal move-in only. */
   generalHouseInfo?: string;
-  /** Wi-Fi network name (SSID) — shown to placed residents on Move-in only. */
+  /**
+   * Structured, resident-only house details — door code, Wi-Fi, trash day,
+   * rules, contacts. See `src/lib/house-info.ts` for the section schema.
+   *
+   * The free-text `generalHouseInfo` / `houseRulesText` above stay as the
+   * fallback: a property nobody has migrated keeps rendering exactly as it did.
+   * NEVER public — `publicListingProjection` is an allowlist and this key is
+   * deliberately not on it.
+   */
+  houseInfo?: HouseInfoV1;
+  /** @deprecated Superseded by `houseInfo.wifi.network`; read once during migration. */
   wifiNetworkName?: string;
-  /** Wi-Fi password — shown to placed residents on Move-in only. */
+  /** @deprecated Superseded by `houseInfo.wifi.password`; read once during migration. */
   wifiPassword?: string;
   /** Earliest move-in for entire-home listings (YYYY-MM-DD). */
   houseMoveInAvailableDate?: string;
@@ -2054,6 +2065,7 @@ export function normalizeManagerListingSubmissionV1(
     generalHouseInfo: typeof sub.generalHouseInfo === "string" ? sub.generalHouseInfo : "",
     wifiNetworkName: typeof sub.wifiNetworkName === "string" ? sub.wifiNetworkName : "",
     wifiPassword: typeof sub.wifiPassword === "string" ? sub.wifiPassword : "",
+    houseInfo: normalizeHouseInfo((sub as { houseInfo?: unknown }).houseInfo),
     houseMoveInAvailableDate:
       typeof sub.houseMoveInAvailableDate === "string" ? sub.houseMoveInAvailableDate.trim() : "",
     houseMoveInInstructions:
@@ -2844,6 +2856,7 @@ export function createDefaultListingSubmission(): ManagerListingSubmissionV1 {
     housePhotoDataUrls: [],
     houseVideoDataUrl: null,
     houseRulesText: "",
+    houseInfo: emptyHouseInfo(),
     wifiNetworkName: "",
     wifiPassword: "",
     leaseTermsBody: "",

@@ -1,5 +1,7 @@
 /** Portal-only notes store — shared between the Properties panel and move-in resolver. */
 
+import type { HouseInfoV1 } from "@/lib/house-info";
+
 const PORTAL_NOTES_KEY = "axis_portal_notes_v1";
 
 export type PortalRoomNote = {
@@ -22,9 +24,11 @@ export type PortalListingNote = {
   houseDescription?: string;
   /** Resident-facing general house info (codes, tips) — stored on submission, carried here only as draft state. */
   generalHouseInfo?: string;
-  /** Resident-facing Wi-Fi network name — stored on submission, carried here only as draft state. */
+  /** Structured resident-facing house details — stored on submission, carried here only as draft state. */
+  houseInfo?: HouseInfoV1;
+  /** @deprecated Superseded by `houseInfo.wifi.network`. */
   wifiNetworkName?: string;
-  /** Resident-facing Wi-Fi password — stored on submission, carried here only as draft state. */
+  /** @deprecated Superseded by `houseInfo.wifi.password`. */
   wifiPassword?: string;
   rooms?: Record<string, PortalRoomNote>;
 };

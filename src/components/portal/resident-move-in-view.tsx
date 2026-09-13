@@ -3,6 +3,8 @@
 import { useEffect, useMemo } from "react";
 import { ResidentHousemateSharing } from "@/components/portal/resident-housemate-sharing";
 import { ResidentMoveInMediaGallery } from "@/components/portal/move-in-media-fields";
+import { HouseInfoReadSections, ResidentPortalHelpCard } from "@/components/portal/house-info-sections";
+import { houseInfoIsEmpty } from "@/lib/house-info";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
@@ -122,13 +124,22 @@ function HousematesTabContent({ resolved }: { resolved: ResidentMoveInResolved }
 }
 
 function InfoTabContent({ resolved }: { resolved: ResidentMoveInResolved }) {
-  if (!resolved.generalHouseInfo && !resolved.houseRulesText) {
+  const hasSections = !houseInfoIsEmpty(resolved.houseInfo);
+  const hasLegacyText = Boolean(resolved.generalHouseInfo || resolved.houseRulesText);
+
+  // "How your portal works" is PropLane's own copy, so it is worth showing even
+  // to a resident whose manager has filled in nothing — it is the one thing on
+  // this tab that is always true.
+  if (!hasSections && !hasLegacyText) {
     return (
       <div className={PORTAL_LIST_PAGE_BODY}>
         <PortalDataTableEmpty
           icon="default"
           message="Your property manager has not added house info or rules yet."
         />
+        <div className="mt-4">
+          <ResidentPortalHelpCard />
+        </div>
       </div>
     );
   }
@@ -136,9 +147,20 @@ function InfoTabContent({ resolved }: { resolved: ResidentMoveInResolved }) {
   return (
     <div className={PORTAL_LIST_PAGE_BODY}>
       <p className="mb-4 text-sm text-muted">Shared information from your property manager.</p>
-      <div className="space-y-4 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-        {resolved.generalHouseInfo ? <div>{resolved.generalHouseInfo}</div> : null}
-        {resolved.houseRulesText ? <div>{resolved.houseRulesText}</div> : null}
+      <div className="space-y-3">
+        <HouseInfoReadSections info={resolved.houseInfo} />
+
+        {/* A property nobody has migrated still reads exactly as it did before. */}
+        {hasLegacyText ? (
+          <section className="rounded-2xl border border-border bg-card px-4 py-3">
+            <div className="space-y-4 whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+              {resolved.generalHouseInfo ? <div>{resolved.generalHouseInfo}</div> : null}
+              {resolved.houseRulesText ? <div>{resolved.houseRulesText}</div> : null}
+            </div>
+          </section>
+        ) : null}
+
+        <ResidentPortalHelpCard />
       </div>
     </div>
   );

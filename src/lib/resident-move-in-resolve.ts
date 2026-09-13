@@ -3,6 +3,7 @@
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { splitLineList } from "@/data/manager-listing-presets";
 import type { MockProperty } from "@/data/types";
+import { getHouseInfoValue, normalizeHouseInfo, type HouseInfoV1 } from "@/lib/house-info";
 import { normalizeManagerListingSubmissionV1, isEntireHomeListing } from "@/lib/manager-listing-submission";
 import { parseRoomChoiceValue } from "@/lib/rental-application/data";
 
@@ -67,11 +68,19 @@ export type ResidentMoveInResolved = {
   houseInstructions: string | null;
   houseMoveInPhotoDataUrls: string[];
   houseMoveInVideoDataUrl: string | null;
+  /**
+   * Structured house details — door code, Wi-Fi, trash, rules, contacts.
+   * Empty when the manager has not filled any section in, in which case the
+   * free-text fields below are still what the resident reads.
+   */
+  houseInfo: HouseInfoV1;
   generalHouseInfo: string | null;
   houseRulesText: string | null;
   /** Property amenities offered (from the listing's amenitiesText), one entry per amenity. */
   amenities: string[];
+  /** @deprecated Read `houseInfo.wifi.network`. Kept so existing callers still compile. */
   wifiNetworkName: string | null;
+  /** @deprecated Read `houseInfo.wifi.password`. */
   wifiPassword: string | null;
   /** Other approved residents on the same property (for house details / messaging). */
   housemates: ResidentMoveInHousemate[];
@@ -283,12 +292,15 @@ export function resolveResidentMoveInFromApplications(
       firstNonEmpty(row.manualResidentDetails?.moveInDate, row.application?.leaseStart, listingMoveInDate) ?? "",
     ) || null;
   const instructions = firstNonEmpty(roomLevelInstructions, row.moveInInstructions);
+  const houseInfo = normalizeHouseInfo(sub?.houseInfo);
   const generalHouseInfo = sub?.generalHouseInfo?.trim() || null;
   const houseRulesText = sub?.houseRulesText?.trim() || null;
   const amenities = sub ? splitLineList(sub.amenitiesText ?? "") : [];
-  // Wi-Fi is no longer collected or shown on move-in.
-  const wifiNetworkName = null;
-  const wifiPassword = null;
+  // Wi-Fi lives in `houseInfo.wifi` now. These two stay only so the resident
+  // assistant and any other older caller keep resolving to the same value
+  // instead of the null they were pinned to while the fields were gone.
+  const wifiNetworkName = getHouseInfoValue(houseInfo, "wifi", "network") || null;
+  const wifiPassword = getHouseInfoValue(houseInfo, "wifi", "password") || null;
 
   return {
     propertyLabel:
@@ -306,6 +318,7 @@ export function resolveResidentMoveInFromApplications(
     houseInstructions,
     houseMoveInPhotoDataUrls,
     houseMoveInVideoDataUrl,
+    houseInfo,
     generalHouseInfo,
     houseRulesText,
     amenities,

@@ -8,6 +8,7 @@ import {
   checkMoveOutAvailabilityForLease,
   hasBothLeaseSignatures,
 } from "@/lib/lease-amendment.server";
+import { houseInfoRenderSections } from "@/lib/house-info";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import {
   asObject,
@@ -136,6 +137,16 @@ export const getMoveInInfoTool = defineTool({
         amenities: resolved.amenities,
         wifiNetworkName: resolved.wifiNetworkName,
         wifiPassword: resolved.wifiPassword,
+        // Structured house details, so "what is the door code" is answered from
+        // a field instead of by quoting a paragraph back at the resident. Still
+        // the manager's words, so still untrusted.
+        houseDetails: houseInfoRenderSections(resolved.houseInfo).map((section) => ({
+          section: section.label,
+          rows: section.rows.map((row) => ({
+            label: row.label,
+            value: untrustedText("your property manager", row.value),
+          })),
+        })),
         instructions: untrustedText("your property manager", resolved.instructions),
         generalHouseInfo: untrustedText("your property manager", resolved.generalHouseInfo),
         houseRules: untrustedText("your property manager", resolved.houseRulesText),

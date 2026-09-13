@@ -83,6 +83,7 @@ import {
 import { LONG_TERM_UTILITIES_PAYMENT_OPTIONS } from "@/lib/listing-utilities-payment";
 import {
 } from "@/lib/listing-room-derived-pricing";
+import { getHouseInfoValue, normalizeHouseInfo, setHouseInfoValue } from "@/lib/house-info";
 import { applyListingBedroomSlots } from "@/lib/manager-listing-submission";
 import { listingLeaseTypeScopeOptions } from "@/lib/listing-fee-scope";
 import { LONG_TERM_LEASE_TERM as DEFAULT_QUOTE_TERM } from "@/lib/rental-application/lease-terms";
@@ -2335,13 +2336,38 @@ function HouseMoveInGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
             onChange={(e) => patch({ houseMoveInAvailableDate: e.target.value })}
           />
         </Field>
+        {/* These used to write `wifiNetworkName` / `wifiPassword`, which the
+            resident portal stopped reading — a manager could fill them in and
+            no resident ever saw it. They now write the structured house info
+            the portal actually renders. */}
         <Field label="Wifi network" optional>
-          <Input value={sub.wifiNetworkName ?? ""} onChange={(e) => patch({ wifiNetworkName: e.target.value })} />
+          <Input
+            value={getHouseInfoValue(normalizeHouseInfo(sub.houseInfo), "wifi", "network")}
+            onChange={(e) =>
+              patch({ houseInfo: setHouseInfoValue(normalizeHouseInfo(sub.houseInfo), "wifi", "network", e.target.value) })
+            }
+          />
         </Field>
       </FieldRow>
-      <Field label="Wifi password" optional hint="Shown to a resident only once their lease is signed.">
-        <Input value={sub.wifiPassword ?? ""} onChange={(e) => patch({ wifiPassword: e.target.value })} />
-      </Field>
+      <FieldRow cols={2}>
+        <Field label="Wifi password" optional hint="Shown to a resident only once their residency starts.">
+          <Input
+            value={getHouseInfoValue(normalizeHouseInfo(sub.houseInfo), "wifi", "password")}
+            onChange={(e) =>
+              patch({ houseInfo: setHouseInfoValue(normalizeHouseInfo(sub.houseInfo), "wifi", "password", e.target.value) })
+            }
+          />
+        </Field>
+        <Field label="Front door code" optional hint="Residents only. Never shown on the public listing.">
+          <Input
+            value={getHouseInfoValue(normalizeHouseInfo(sub.houseInfo), "access", "doorCode")}
+            placeholder="001000"
+            onChange={(e) =>
+              patch({ houseInfo: setHouseInfoValue(normalizeHouseInfo(sub.houseInfo), "access", "doorCode", e.target.value) })
+            }
+          />
+        </Field>
+      </FieldRow>
       <FieldRow cols={2}>
         <Field label="Entry photos" optional hint="Key box, bins, parking.">
           <PhotoStrip
@@ -2477,19 +2503,16 @@ function HouseBuildingGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
           placeholder="Cozy room near UW — $1050&#10;Magnolia house share"
         />
       </Field>
-      <Field label="House rules" optional>
+      <Field
+        label="House rules"
+        optional
+        hint="Trash, contacts, laundry and the rest live on the property's House details tab."
+      >
         <Textarea
           rows={3}
           value={sub.houseRulesText}
           onChange={(e) => patch({ houseRulesText: e.target.value })}
           placeholder="Quiet hours, guests, smoking…"
-        />
-      </Field>
-      <Field label="General house info" optional hint="Anything a resident should know that is not a rule.">
-        <Textarea
-          rows={3}
-          value={sub.generalHouseInfo ?? ""}
-          onChange={(e) => patch({ generalHouseInfo: e.target.value })}
         />
       </Field>
       <Field label="Quick facts" optional hint="Rows in the listing sidebar. Leave empty and they are worked out for you.">

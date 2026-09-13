@@ -82,6 +82,17 @@ function storedListing(): MockProperty {
       wifiNetworkName: "AxisHome-5G",
       wifiPassword: "welcome-home-2026",
       generalHouseInfo: "Owner lives upstairs",
+      houseInfo: {
+        v: 1,
+        access: { doorCode: "001000", gateCode: "#4821", keyPickup: "Lockbox by the door", parking: "", notes: "" },
+        wifi: { network: "AxisHome-5G", password: "welcome-home-2026", notes: "" },
+        trash: { day: "Tuesday" },
+        rules: { quietFrom: "22:00", quietTo: "08:00" },
+        contacts: { groupChatUrl: "https://chat.whatsapp.com/secret-invite", emergency: "(206) 555-0142" },
+        laundry: {},
+        safety: { alarm: "4709 on the hall keypad" },
+        other: "Owner keeps a spare key under the mat",
+      },
       houseMoveInInstructions: "Garage remote in kitchen drawer",
       leaseConfigMode: "custom",
       leaseCustomKind: "document",
@@ -129,12 +140,31 @@ function allKeys(value: unknown, out = new Set<string>()): Set<string> {
 }
 
 describe("publicListingProjection", () => {
+  it("never leaks a door code, Wi-Fi password or house link into the public payload", () => {
+    // A key-name check alone would pass if `houseInfo` were ever flattened into
+    // the submission. These are the actual secrets, matched by value.
+    const payload = JSON.stringify(publicListingProjection(storedListing()));
+    for (const secret of [
+      "001000",
+      "#4821",
+      "Lockbox by the door",
+      "welcome-home-2026",
+      "AxisHome-5G",
+      "chat.whatsapp.com/secret-invite",
+      "4709 on the hall keypad",
+      "spare key under the mat",
+    ]) {
+      expect(payload, `public payload leaked: ${secret}`).not.toContain(secret);
+    }
+  });
+
   it("drops every manager- and resident-internal field, at any depth", () => {
     const keys = allKeys(publicListingProjection(storedListing()));
     for (const secret of [
       "wifiPassword",
       "wifiNetworkName",
       "generalHouseInfo",
+      "houseInfo",
       "houseMoveInInstructions",
       "leaseTemplateDocUrl",
       "leaseTemplateDocName",

@@ -137,9 +137,10 @@ export async function GET(req: Request) {
     const addressLine = moveIn?.addressLine ?? "";
     const instructions = moveIn?.instructions ?? null;
     const generalHouseInfo = moveIn?.generalHouseInfo ?? null;
+    const houseInfo = moveIn?.houseInfo ?? null;
 
-    const text = buildMoveInReminderText({ residentName: name || undefined, propertyLabel, addressLine, moveInDateLabel, instructions, generalHouseInfo });
-    const html = buildMoveInReminderHtml({ residentName: name || undefined, propertyLabel, addressLine, moveInDateLabel, instructions, generalHouseInfo });
+    const text = buildMoveInReminderText({ residentName: name || undefined, propertyLabel, addressLine, moveInDateLabel, instructions, generalHouseInfo, houseInfo });
+    const html = buildMoveInReminderHtml({ residentName: name || undefined, propertyLabel, addressLine, moveInDateLabel, instructions, generalHouseInfo, houseInfo });
 
     let emailSent = false;
     if (apiKey) {
