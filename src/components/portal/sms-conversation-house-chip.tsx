@@ -1,124 +1,121 @@
 "use client";
 
-/**
- * The house chip in a Communication thread header.
- *
- * One workspace number is shared by the whole team, and which members see a
- * thread is decided by the house(s) it is about — so the chip is both the
- * label ("5257 Brooklyn · from the leasing agent") and the one manual control.
- * Automatic tags come from records and the leasing agent; a pick here
- * replaces them and is the only way to clear a thread back to untagged.
- */
-import { useCallback, useState } from "react";
-import { CheckboxMultiSelect, type CheckboxMultiSelectOption } from "@/components/ui/checkbox-multi-select";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown, Search } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
+import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
+import { usePortalSession } from "@/hooks/use-portal-session";
+import { MANAGER_PORTFOLIO_REFRESH_EVENTS } from "@/lib/manager-portfolio-access";
 import { conversationHouseSourceLabel, type ConversationHouse } from "@/lib/manager-sms-messages";
 
 type WorkspaceHouse = { propertyId: string; label: string; ownerUserId: string };
 
-let housesCache: { at: number; houses: WorkspaceHouse[] } | null = null;
-
-async function loadWorkspaceHouses(): Promise<WorkspaceHouse[]> {
-  if (housesCache && Date.now() - housesCache.at < 60_000) return housesCache.houses;
-  const res = await fetch("/api/manager/sms-conversations/houses", { cache: "no-store" });
-  if (!res.ok) throw new Error("Could not load houses.");
-  const body = (await res.json()) as { houses?: WorkspaceHouse[] };
-  const houses = Array.isArray(body.houses) ? body.houses : [];
-  housesCache = { at: Date.now(), houses };
-  return houses;
-}
-
-export function SmsConversationHouseChip({
-  conversationKey,
-  ownerManagerUserId,
-  houses,
-  canEdit,
-  onChanged,
-}: {
+/** Assignment options are short-lived, authenticated results, never a global cache. */
+export function SmsConversationHouseChip({ conversationKey, ownerManagerUserId, houses, canEdit, onChanged }: {
   conversationKey: string;
   ownerManagerUserId: string | null | undefined;
   houses: ConversationHouse[];
   canEdit: boolean;
   onChanged?: () => void;
 }) {
-  const { showToast } = useAppUi();
-  const [options, setOptions] = useState<CheckboxMultiSelectOption[] | null>(null);
-  // Local selection only while a save is in flight; otherwise the server's
-  // houses are the truth, so a reload after a peer's change needs no effect.
-  const [pending, setPending] = useState<string[] | null>(null);
+  const { userId } = usePortalSession();
+  const [open, setOpen] = useState(false);
+  const [options, setOptions] = useState<WorkspaceHouse[]>([]);
+  const [draft, setDraft] = useState<string[]>([]);
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
   const [saving, setSaving] = useState(false);
-  const selected = pending ?? houses.map((h) => h.propertyId);
+  const generation = useRef(0);
+  const identity = `${userId ?? ""}:${ownerManagerUserId ?? ""}:${conversationKey}`;
 
-  const ensureOptions = useCallback(async () => {
-    if (options) return;
-    try {
-      const all = await loadWorkspaceHouses();
-      // Only this thread's workspace: a co-manager in two workspaces must not
-      // be offered the other owner's houses for this owner's thread.
-      const owner = String(ownerManagerUserId ?? "").trim();
-      setOptions(
-        all
-          .filter((h) => !owner || h.ownerUserId === owner)
-          .map((h) => ({ value: h.propertyId, label: h.label })),
-      );
-    } catch {
-      setOptions([]);
+  useEffect(() => {
+    generation.current += 1;
+    setOpen(false);
+    setOptions([]);
+    setError(null);
+    setSaving(false);
+  }, [identity]);
+
+  useEffect(() => {
+    const refresh = () => setRetry((n) => n + 1);
+    for (const name of MANAGER_PORTFOLIO_REFRESH_EVENTS) window.addEventListener(name, refresh);
+    return () => { for (const name of MANAGER_PORTFOLIO_REFRESH_EVENTS) window.removeEventListener(name, refresh); };
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const controller = new AbortController();
+    setLoading(true);
+    setOptions([]);
+    setError(null);
+    const owner = ownerManagerUserId?.trim();
+    if (!owner || !userId) {
+      setError("Could not verify this workspace. Please refresh and try again.");
+      setLoading(false);
+      return;
     }
-  }, [options, ownerManagerUserId]);
+    void fetch(`/api/manager/sms-conversations/houses?ownerId=${encodeURIComponent(owner)}`, {
+      credentials: "include", cache: "no-store", signal: controller.signal,
+    }).then(async (res) => {
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error || "Could not load houses.");
+      if (!controller.signal.aborted) setOptions((body.houses ?? []).filter((h: WorkspaceHouse) => h.ownerUserId === owner));
+    }).catch((e: unknown) => {
+      if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "Could not load houses.");
+    }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [open, identity, retry, ownerManagerUserId, userId]);
 
-  const save = useCallback(
-    async (next: string[]) => {
-      setPending(next);
-      setSaving(true);
-      try {
-        const res = await fetch("/api/manager/sms-conversations/houses", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ conversationKey, propertyIds: next }),
-        });
-        if (!res.ok) {
-          const body = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(body.error || "Could not save the house.");
-        }
-        onChanged?.();
-      } catch (e) {
-        showToast(e instanceof Error ? e.message : "Could not save the house.");
-      } finally {
-        setPending(null);
-        setSaving(false);
+  async function save() {
+    const currentGeneration = generation.current;
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/manager/sms-conversations/houses", {
+        method: "PATCH", headers: { "Content-Type": "application/json" }, credentials: "include",
+        body: JSON.stringify({ conversationKey, propertyIds: draft }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Could not save the house assignment.");
       }
-    },
-    [conversationKey, onChanged, showToast],
-  );
-
-  const primary = houses[0] ?? null;
-  const triggerLabel = primary
-    ? houses.length > 1
-      ? `${primary.label} +${houses.length - 1}`
-      : primary.label
-    : undefined;
-  const title = primary
-    ? `${houses.map((h) => h.label).join(", ")} · ${conversationHouseSourceLabel(primary.source)}`
-    : "No house yet — only teammates with every house can see this thread";
-
-  return (
-    <span title={title} onPointerDown={() => void ensureOptions()} onFocus={() => void ensureOptions()}>
-      <CheckboxMultiSelect
-        label="House"
-        hideLabel
-        variant="pill"
-        dataAttr="sms-conversation-house"
-        options={options ?? (primary ? houses.map((h) => ({ value: h.propertyId, label: h.label })) : [])}
-        selected={selected}
-        onChange={(next) => void save(next)}
-        disabled={saving}
-        readOnly={!canEdit}
-        emptyLabel="Assign a house"
-        emptyMenuText={options === null ? "Loading houses…" : "No houses in this workspace yet"}
-        selectionTriggerLabel={triggerLabel}
-        searchPlaceholder="Search houses…"
-        className="max-w-[12rem]"
-      />
-    </span>
-  );
+      if (generation.current === currentGeneration) { onChanged?.(); setOpen(false); }
+    } catch (e) {
+      if (generation.current === currentGeneration) setError(e instanceof Error ? e.message : "Could not save the house assignment.");
+    } finally {
+      if (generation.current === currentGeneration) setSaving(false);
+    }
+  }
+  const primary = houses[0];
+  const label = primary ? `${primary.label}${houses.length > 1 ? ` +${houses.length - 1}` : ""}` : "Assign a house";
+  return <>
+    <Button variant="outline" className="max-w-[12rem]" disabled={!canEdit}
+      title={primary ? `${houses.map((h) => h.label).join(", ")} · ${conversationHouseSourceLabel(primary.source)}` : "Assign a house"}
+      data-attr="sms-conversation-house" onClick={() => { setDraft(houses.map((h) => h.propertyId)); setQuery(""); setOpen(true); }}>
+      <span className="truncate">{label}</span><ChevronDown className="h-4 w-4 shrink-0" aria-hidden />
+    </Button>
+    <Modal open={open} onClose={() => { if (!saving) setOpen(false); }} title="Assign a house"
+      footer={<Button disabled={loading || saving || Boolean(error) || !canEdit || draft.some((id) => !options.some((h) => h.propertyId === id))} onClick={() => save()} data-attr="sms-house-assignment-save">Save assignment</Button>}>
+      <p className="mb-4 text-sm text-muted">Only houses you can manage in this workspace.</p>
+      <label className="mb-3 flex items-center gap-2 rounded-xl border border-border px-3">
+        <Search className="h-4 w-4 text-muted" aria-hidden />
+        <input className="min-h-11 min-w-0 flex-1 bg-transparent outline-none" aria-label="Search your houses" placeholder="Search your houses…" value={query} onChange={(e) => setQuery(e.target.value)} />
+      </label>
+      {loading ? <p role="status" className="py-4 text-sm text-muted">Loading houses…</p> : null}
+      {error ? <div role="alert" className="mb-3 rounded-xl border border-danger/20 bg-danger/5 p-3 text-sm"><p>{error}</p><Button variant="outline" onClick={() => setRetry((n) => n + 1)}>Refresh houses</Button></div> : null}
+      {!loading && !error && options.length === 0 ? <p className="py-4 text-sm text-muted">No houses are available with your current edit access.</p> : null}
+      {!loading && !error ? houses.filter((house) => draft.includes(house.propertyId) && !options.some((option) => option.propertyId === house.propertyId)).map((house) => <div key={house.propertyId} className="mb-2 flex items-center justify-between gap-3 rounded-xl border border-border p-3 text-sm">
+        <span>{house.label}<span className="block text-xs text-muted">No longer available for assignment</span></span>
+        <Button variant="ghost" disabled={saving} onClick={() => setDraft((ids) => ids.filter((id) => id !== house.propertyId))}>Remove</Button>
+      </div>) : null}
+      {options.filter((h) => h.label.toLowerCase().includes(query.toLowerCase())).map((h) => <div key={h.propertyId} className="flex min-h-16 items-center gap-4 rounded-xl border border-border px-5 py-3 mb-2">
+        <RowSelectCheckbox aria-label={`Assign ${h.label}`} checked={draft.includes(h.propertyId)} disabled={saving}
+          onChange={(e) => setDraft((ids) => e.target.checked ? [...ids, h.propertyId] : ids.filter((id) => id !== h.propertyId))} />
+        <div><p className="text-sm font-semibold">{h.label}</p><p className="text-xs text-muted">Communication · Can edit</p></div>
+      </div>)}
+    </Modal>
+  </>;
 }

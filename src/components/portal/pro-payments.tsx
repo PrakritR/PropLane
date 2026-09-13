@@ -895,7 +895,6 @@ export function ManagerPayments({
   return (
     <ManagerPortalPageShell
       title="Payments"
-      subtitle="Know what is due, what is paid, and what needs your attention."
       hideTitleOnMobileNav
       titleInlineFilter={null}
       compactFilterRow

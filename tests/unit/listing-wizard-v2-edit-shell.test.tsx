@@ -15,6 +15,7 @@ vi.mock("@/lib/demo-admin-property-inventory", () => ({
 vi.mock("@/lib/demo-property-pipeline", () => ({ submitManagerPendingPropertyToServer: vi.fn() }));
 
 import { ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
+import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assistant-context";
 import { createDefaultListingSubmission, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 
 function subWith(over: Partial<ManagerListingSubmissionV1>): ManagerListingSubmissionV1 {
@@ -23,15 +24,17 @@ function subWith(over: Partial<ManagerListingSubmissionV1>): ManagerListingSubmi
 
 function mount(sub: ManagerListingSubmissionV1, isEdit: boolean, onSaveExit = vi.fn(), onPublish = vi.fn()) {
   render(
-    <ListingEditorV2
-      title="Ash Flats 6"
-      submission={sub}
-      onChange={() => {}}
-      onClose={() => {}}
-      onSaveExit={onSaveExit}
-      onPublish={onPublish}
-      isEdit={isEdit}
-    />,
+    <PortalAssistantConfigProvider endpoint="/api/agent/chat" managerName={null}>
+      <ListingEditorV2
+        title="Ash Flats 6"
+        submission={sub}
+        onChange={() => {}}
+        onClose={() => {}}
+        onSaveExit={onSaveExit}
+        onPublish={onPublish}
+        isEdit={isEdit}
+      />
+    </PortalAssistantConfigProvider>,
   );
   return { onSaveExit, onPublish };
 }
@@ -94,5 +97,10 @@ describe("the footer on an edit", () => {
     expect(screen.getByRole("button", { name: /^Continue to Rooms$/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Save & exit" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();
+  });
+
+  it("shows Ask PropLane in the header when assistant config is present", () => {
+    mount(subWith({}), true);
+    expect(screen.getByRole("button", { name: /Ask PropLane/i })).toBeTruthy();
   });
 });

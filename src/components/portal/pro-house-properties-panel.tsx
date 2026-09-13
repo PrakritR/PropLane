@@ -1,4 +1,5 @@
 "use client";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { activeWorkspaceScope, propertiesOutsideActiveWorkspace, workspaceContainsProperty } from "@/lib/workspaces/selection";
 
@@ -70,7 +71,6 @@ import { PortalPropertyRecordRow, PortalRowStatusChip } from "@/components/porta
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { LEASE_PIPELINE_EVENT, readLeasePipeline } from "@/lib/lease-pipeline-storage";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
@@ -1724,84 +1724,8 @@ export function ManagerHousePropertiesPanel({
 
   return (
     <>
-      <div className={PORTAL_LIST_PAGE_BODY}>
-        {rows.map(({ sourceBucket, row, linked, attention }) => {
-          const rowKey = row.adminRefId + (row.listingId ?? "");
-          const thumb = propertyRowThumbnail(row);
-          const attentionParts = sourceBucket === 2 ? propertyAttentionParts(attention) : [];
-          return (
-            <PortalPropertyRecordRow
-              key={rowKey}
-              title={managerPropertyRowTitle(row, sourceBucket)}
-              address={propertyRowAddress(row)}
-              summary={propertyRowDetail(row)}
-              trailing={sourceBucket === 5 ? undefined : propertyRowRentLabel(row)}
-              chip={(() => {
-                // Drafts are not let; every other stage says how full the home is.
-                if (sourceBucket === 5) return undefined;
-                const rooms = row.submission?.rooms?.length ?? 0;
-                const spaces = row.submission?.listingPlaceCategoryId === "entire_home" ? 1 : Math.max(rooms, 1);
-                const occupied = Math.min(occupiedByProperty.get(propertyKeyFromRow(row)) ?? 0, spaces);
-                return (
-                  <PortalRowStatusChip
-                    tone={occupied >= spaces ? "ok" : occupied === 0 ? "warn" : "neutral"}
-                    dataAttr="property-row-occupancy"
-                  >
-                    {occupied === 0 && spaces === 1 ? "Vacant" : `${occupied} / ${spaces} occupied`}
-                  </PortalRowStatusChip>
-                );
-              })()}
-              leading={
-                thumb ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={thumb}
-                    alt=""
-                    className="h-14 w-[4.5rem] rounded-lg object-cover"
-                  />
-                ) : (
-                  <div
-                    aria-hidden
-                    className="grid h-14 w-[4.5rem] place-items-center rounded-lg bg-accent/60 text-muted"
-                  >
-                    <ImageOff className="h-4 w-4" />
-                  </div>
-                )
-              }
-              checked={selectedIds.has(rowKey)}
-              onSelectedChange={() => toggleSelected(rowKey)}
-              badge={
-                linked || attentionParts.length > 0 ? (
-                  <span className="flex flex-wrap gap-1.5">
-                    {attentionParts.map((part) => (
-                      <Badge key={part.text} tone={part.tone}>
-                        {part.text}
-                      </Badge>
-                    ))}
-                    {linked ? <Badge tone="info">Co-managed</Badge> : null}
-                  </span>
-                ) : undefined
-              }
-              onOpen={() => {
-                const routeKey = propertyKeyFromRow(row);
-                router.push(
-                  propertyDetailHref(
-                    propertiesBase,
-                    activeStage,
-                    routeKey,
-                    detailTabProp ?? "preview",
-                  ),
-                  { scroll: false },
-                );
-              }}
-              dataAttr="property-list-row"
-            />
-          );
-        })}
-        {rows.length === 0 ? renderEmptyState() : null}
-      </div>
-      {selectedIds.size > 0 ? (
-        <BulkActionBar count={selectedIds.size} hideCount variant="payments" onClear={clearSelection}>
+      <PortalRecordListSurface className="mt-0" onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
+        <>
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
             {canBulkEdit ? (
               <Button
@@ -1900,8 +1824,84 @@ export function ManagerHousePropertiesPanel({
               </Button>
             ) : null}
           </div>
-        </BulkActionBar>
-      ) : null}
+        </>
+      ) : null}><div className={PORTAL_LIST_PAGE_BODY}>
+        {rows.map(({ sourceBucket, row, linked, attention }) => {
+          const rowKey = row.adminRefId + (row.listingId ?? "");
+          const thumb = propertyRowThumbnail(row);
+          const attentionParts = sourceBucket === 2 ? propertyAttentionParts(attention) : [];
+          return (
+            <PortalPropertyRecordRow
+              key={rowKey}
+              title={managerPropertyRowTitle(row, sourceBucket)}
+              address={propertyRowAddress(row)}
+              summary={propertyRowDetail(row)}
+              trailing={sourceBucket === 5 ? undefined : propertyRowRentLabel(row)}
+              chip={(() => {
+                // Drafts are not let; every other stage says how full the home is.
+                if (sourceBucket === 5) return undefined;
+                const rooms = row.submission?.rooms?.length ?? 0;
+                const spaces = row.submission?.listingPlaceCategoryId === "entire_home" ? 1 : Math.max(rooms, 1);
+                const occupied = Math.min(occupiedByProperty.get(propertyKeyFromRow(row)) ?? 0, spaces);
+                return (
+                  <PortalRowStatusChip
+                    tone={occupied >= spaces ? "ok" : occupied === 0 ? "warn" : "neutral"}
+                    dataAttr="property-row-occupancy"
+                  >
+                    {occupied === 0 && spaces === 1 ? "Vacant" : `${occupied} / ${spaces} occupied`}
+                  </PortalRowStatusChip>
+                );
+              })()}
+              leading={
+                thumb ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={thumb}
+                    alt=""
+                    className="h-14 w-[4.5rem] rounded-lg object-cover"
+                  />
+                ) : (
+                  <div
+                    aria-hidden
+                    className="grid h-14 w-[4.5rem] place-items-center rounded-lg bg-accent/60 text-muted"
+                  >
+                    <ImageOff className="h-4 w-4" />
+                  </div>
+                )
+              }
+              checked={selectedIds.has(rowKey)}
+              onSelectedChange={() => toggleSelected(rowKey)}
+              badge={
+                linked || attentionParts.length > 0 ? (
+                  <span className="flex flex-wrap gap-1.5">
+                    {attentionParts.map((part) => (
+                      <Badge key={part.text} tone={part.tone}>
+                        {part.text}
+                      </Badge>
+                    ))}
+                    {linked ? <Badge tone="info">Co-managed</Badge> : null}
+                  </span>
+                ) : undefined
+              }
+              onOpen={() => {
+                const routeKey = propertyKeyFromRow(row);
+                router.push(
+                  propertyDetailHref(
+                    propertiesBase,
+                    activeStage,
+                    routeKey,
+                    detailTabProp ?? "preview",
+                  ),
+                  { scroll: false },
+                );
+              }}
+              dataAttr="property-list-row"
+            />
+          );
+        })}
+        {rows.length === 0 ? renderEmptyState() : null}
+      </div></PortalRecordListSurface>
+
       {bulkDestructiveModalCopy ? (
         <ConfirmDeleteModal
           open={pendingBulkDestructive !== null}

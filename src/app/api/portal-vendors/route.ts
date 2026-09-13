@@ -1,9 +1,9 @@
+import { vendorCatalogProjection } from "@/lib/vendor-catalog-projection";
 import { NextResponse } from "next/server";
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import { isVendorCategorySettingsRow, managerVendorCategorySettingsRowId } from "@/lib/manager-vendors-storage";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
-import { managerHasCoManagerPermissionForProperty } from "@/lib/auth/manager-lease-scope";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -72,7 +72,7 @@ export async function GET(req: Request) {
         .map((record) => {
           const row = record.row_data as ManagerVendorRow | null;
           if (!row?.id || row.name === "__vendor_category_settings__") return null;
-          return { ...row, managerUserId: record.manager_user_id };
+          return vendorCatalogProjection(row, record.manager_user_id);
         })
         .filter(Boolean) as ManagerVendorRow[];
       return NextResponse.json({ rows });
@@ -142,7 +142,7 @@ export async function GET(req: Request) {
           if (!row?.id || row.name === "__vendor_category_settings__") return null;
           const ownerId = record.manager_user_id;
           if (!ownerId) return null;
-          return normalizeRow(row, ownerId);
+          return vendorCatalogProjection(row, ownerId);
         })
         .filter((row): row is ManagerVendorRow => row !== null);
     }
@@ -183,63 +183,43 @@ export async function POST(req: Request) {
 
     const managerUserId = user.id;
 
-    // Security: ownership is decided by the STORED row's manager_user_id, never
-    // by client-supplied managerUserId. The vendors GET now returns a linked
-    // owner's rows to a co-manager, so trusting the body would let the mirror
-    // (or a crafted request) re-own another manager's vendor (adversarial-review
-    // HIGH). A co-manager may only touch a foreign row with services EDIT, and
-    // the owner is preserved.
+    // The directory is owner-keyed. A property supplied in a vendor body is
+    // never a grant on that vendor: derive services access from accepted links
+    // belonging to its stored owner and properties that owner still owns.
+    const sourceRows = (body.action === "replace" ? (Array.isArray(body.rows) ? body.rows : []) : body.row ? [body.row] : [])
+      .filter((row) => typeof row?.id === "string" && row.id.trim())
+      .map((row) => ({ ...row, id: isVendorCategorySettingsRow(row) ? managerVendorCategorySettingsRowId(managerUserId) : row.id.trim() }));
     const vendorOwnerById = new Map<string, string | null>();
-    if (!admin) {
-      const ids = [
-        ...new Set(
-          [...(Array.isArray(body.rows) ? body.rows : []), ...(body.row ? [body.row] : [])]
-            .map((r) => String(r?.id ?? "").trim())
-            .filter(Boolean),
-        ),
-      ];
-      if (ids.length > 0) {
-        const { data: existing } = await db.from("manager_vendor_records").select("id, manager_user_id").in("id", ids);
-        for (const r of existing ?? []) {
-          vendorOwnerById.set(String(r.id), r.manager_user_id ? String(r.manager_user_id) : null);
-        }
+    const ids = [...new Set(sourceRows.map((row) => row.id))];
+    if (ids.length > 0) {
+      const { data: existing, error: existingError } = await db.from("manager_vendor_records").select("id, manager_user_id").in("id", ids);
+      if (existingError) return NextResponse.json({ error: "Could not verify vendor ownership." }, { status: 503 });
+      for (const r of existing ?? []) {
+        vendorOwnerById.set(String(r.id), r.manager_user_id ? String(r.manager_user_id) : null);
       }
     }
-    const editableForeignVendorProperty = new Map<string, boolean>();
+    let servicesScope: Awaited<ReturnType<typeof linkedOwnerScopeForModule>> | undefined;
+    const editableOwners = new Map<string, boolean>();
     const mayWriteVendor = async (row: ManagerVendorRow): Promise<{ ok: boolean; owner: string }> => {
-      if (admin) return { ok: true, owner: managerUserId };
-      const owner = vendorOwnerById.get(String(row.id)) ?? null;
-      if (!owner || owner === managerUserId) return { ok: true, owner: managerUserId };
-      const pid = String((row as { propertyId?: string }).propertyId ?? "").trim();
-      let ok = false;
-      if (pid) {
-        if (editableForeignVendorProperty.has(pid)) ok = editableForeignVendorProperty.get(pid)!;
-        else {
-          ok = await managerHasCoManagerPermissionForProperty(db, managerUserId, pid, "services", "edit");
-          editableForeignVendorProperty.set(pid, ok);
+      if (!vendorOwnerById.has(row.id)) return { ok: true, owner: managerUserId };
+      const owner = vendorOwnerById.get(row.id);
+      // Existing ownerless rows are not unclaimed ids available for takeover.
+      if (!owner) return { ok: false, owner: managerUserId };
+      if (admin || owner === managerUserId) return { ok: true, owner };
+      if (!editableOwners.has(owner)) {
+        servicesScope ??= await linkedOwnerScopeForModule(db, managerUserId, "services", "edit", { throwOnError: true });
+        const propertyIds = [...(servicesScope.propertyIdsByOwner.get(owner) ?? [])];
+        let allowed = false;
+        if (propertyIds.length > 0) {
+          const { data: current, error: currentError } = await db.from("manager_property_records").select("id")
+            .eq("manager_user_id", owner).in("id", propertyIds).limit(1);
+          if (currentError) throw currentError;
+          allowed = Boolean(current?.length);
         }
+        editableOwners.set(owner, allowed);
       }
-      return { ok, owner };
+      return { ok: editableOwners.get(owner) === true, owner };
     };
-
-    if (body.action === "replace") {
-      for (const raw of Array.isArray(body.rows) ? body.rows : []) {
-        if (!raw?.id) continue;
-        const gate = await mayWriteVendor(raw);
-        if (!gate.ok) continue;
-        const row = normalizeRow(raw, gate.owner);
-        await db.from("manager_vendor_records").upsert(
-          {
-            id: row.id,
-            manager_user_id: gate.owner,
-            row_data: row,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "id" },
-        );
-      }
-      return NextResponse.json({ ok: true });
-    }
 
     if (body.action === "delete") {
       const id = body.id?.trim();
@@ -251,25 +231,25 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    if (!body.row?.id) return NextResponse.json({ error: "row required" }, { status: 400 });
-    const singleGate = await mayWriteVendor(body.row);
-    if (!singleGate.ok) {
-      return NextResponse.json({ error: "Cannot edit another manager's vendor." }, { status: 403 });
+    if (body.action !== "replace" && sourceRows.length === 0) return NextResponse.json({ error: "row required" }, { status: 400 });
+    const authorizedRows: ManagerVendorRow[] = [];
+    for (const raw of sourceRows) {
+      const gate = await mayWriteVendor(raw);
+      if (!gate.ok) return NextResponse.json({ error: "Cannot edit another manager's vendor." }, { status: 403 });
+      authorizedRows.push(normalizeRow(raw, gate.owner));
     }
-    const sourceRow = isVendorCategorySettingsRow(body.row)
-      ? { ...body.row, id: managerVendorCategorySettingsRowId(singleGate.owner) }
-      : body.row;
-    const row = normalizeRow(sourceRow, singleGate.owner);
-    const { error } = await db.from("manager_vendor_records").upsert(
-      {
-        id: row.id,
-        manager_user_id: singleGate.owner,
-        row_data: row,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "id" },
-    );
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    for (const row of authorizedRows) {
+      const record = { id: row.id, manager_user_id: row.managerUserId, row_data: row, updated_at: new Date().toISOString() };
+      // Never upsert after a read: a concurrent insert/transfer must conflict,
+      // not overwrite or re-own someone else's record.
+      const write = vendorOwnerById.has(row.id)
+        ? db.from("manager_vendor_records").update(record).eq("id", row.id).eq("manager_user_id", row.managerUserId)
+        : db.from("manager_vendor_records").insert(record);
+      const { data: saved, error } = await write.select("id").maybeSingle();
+      if (error) return NextResponse.json({ error: error.code === "23505" ? "Vendor changed. Refresh and try again." : "Could not save vendor." }, { status: error.code === "23505" ? 409 : 500 });
+      if (!saved) return NextResponse.json({ error: "Vendor ownership changed. Refresh and try again." }, { status: 409 });
+      vendorOwnerById.set(row.id, row.managerUserId);
+    }
     return NextResponse.json({ ok: true });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to save vendor.";

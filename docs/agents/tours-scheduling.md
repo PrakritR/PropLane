@@ -5,6 +5,15 @@ authoritative copy. Read it before changing code in this area.
 
 ## Approval-first automated tours
 
+Managers can opt in to one automated tour-interest follow-up. After the leasing
+assistant successfully offers current slots, PropLane schedules one message at
+least 24 hours later. A prospect reply, tour request, booking, application, or
+conversation archive cancels it; SMS quiet hours may delay delivery. The
+manager can edit or cancel a pending follow-up from the conversation. Keep the
+eligibility and cancellation decision in
+`src/lib/reminders/subjects/tour-interest.server.ts`, and keep provider delivery
+state in the SMS outbox rather than inferring it from the reminder row.
+
 When a manager opts in (`proposeTourConfirmations`, default OFF, on
 `manager_automation_settings`), a new pending tour inquiry generates a PROPOSAL
 to confirm it into the first matching open slot. It NEVER auto-books or emails —

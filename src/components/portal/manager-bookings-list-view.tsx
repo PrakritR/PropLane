@@ -88,6 +88,7 @@ export function ManagerBookingsListView({
             <p className="max-w-xs text-xs text-muted">{emptyCopy}</p>
           </div>
         }
+        onBulkClear={() => { for (const key of selectedKeys) onToggleSelected(key, false); }}
         bulkCount={selectedKeys.size}
         bulkActions={bulkActions}
         dataAttr="bookings-list-panel"

@@ -1,11 +1,12 @@
 "use client";
+import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { ResidentPortalDataList } from "@/components/portal/resident-portal-data-list";
-import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
 import {
   residentDocumentsDownloadAction,
   residentDocumentsOpenAction,
@@ -328,7 +329,7 @@ export function ResidentLeaseListTable({
   if (documentsListSurface) {
     return (
       <>
-        <div className={PORTAL_LIST_PAGE_BODY} data-attr="resident-documents-lease-list">
+        <PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of activeSelectedIds ?? []) activeToggleSelected?.(id); }} bulkCount={activeSelectedIds?.size ?? 0} bulkActions={<PortalAdaptiveActionRow actions={bulkActions} />}><div className={PORTAL_LIST_PAGE_BODY} data-attr="resident-documents-lease-list">
           <ResidentPortalDataList
             selectable
             rows={documentRows.map((entry) => {
@@ -348,12 +349,8 @@ export function ResidentLeaseListTable({
             })}
             columns={[{ id: "lease", header: "Lease", cell: () => "—" }]}
           />
-        </div>
-        <ResidentPortalListBottomBar
-          selectionCount={activeSelectedIds?.size ?? 0}
-          selectionActions={bulkActions}
-          selectionBarVariant="payments"
-        />
+        </div></PortalRecordListSurface>
+
       </>
     );
   }

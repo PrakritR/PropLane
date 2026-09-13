@@ -19,6 +19,22 @@ export function workspaceContainsProperty(propertyId: string | null | undefined)
   return !known && active.owned && active.isDefault;
 }
 
+/** Application / lease rows carry the property id in one of several fields. */
+export function workspacePropertyIdFromRow(row: {
+  assignedPropertyId?: string | null;
+  propertyId?: string | null;
+  application?: { propertyId?: string | null } | null;
+}): string | null {
+  return row.assignedPropertyId?.trim() || row.propertyId?.trim() || row.application?.propertyId?.trim() || null;
+}
+
+export function filterRowsInActiveWorkspace<T>(
+  rows: readonly T[],
+  propertyIdOf: (row: T) => string | null | undefined,
+): T[] {
+  return rows.filter((row) => workspaceContainsProperty(propertyIdOf(row)?.trim() || undefined));
+}
+
 /**
  * The active workspace as copy needs it: its name, and whether it is narrowing
  * the account at all. `null` until the selection has loaded or when there is no

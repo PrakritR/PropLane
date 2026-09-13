@@ -107,6 +107,48 @@ describe("POST /api/portal-tour-inquiries/delete", () => {
     expect(own?.status).toBe("declined");
   });
 
+  it("declines and reports a skipped inbox copy instead of failing the whole decline", async () => {
+    // A guest on account-deletion hold has a frozen resident inbox. The
+    // notification helper now reports that copy as skipped; the route must
+    // still decline the request and surface the skip in its response.
+    vi.mocked(notifyTenantTourRequestRemoved).mockResolvedValueOnce({
+      ok: true,
+      skipped: false,
+      inbox: { sent: false, error: "Could not create the resident property manager thread." },
+    });
+    const res = await deleteTourInquiry(
+      jsonRequest("http://localhost/api/portal-tour-inquiries/delete", {
+        method: "POST",
+        body: { id: "inq-own" },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const payload = (await res.json()) as { guestNotification?: { inbox?: { sent: boolean; error?: string } } };
+    expect(payload.guestNotification?.inbox?.sent).toBe(false);
+    expect(UPSERT_CALLS).toHaveLength(1);
+    const upserted = UPSERT_CALLS[0] as { row_data?: { payload?: Record<string, unknown>[] } };
+    expect(upserted.row_data?.payload?.find((row) => row.id === "inq-own")?.status).toBe("declined");
+  });
+
+  it("returns the notification failure reason when the guest email cannot be sent", async () => {
+    vi.mocked(notifyTenantTourRequestRemoved).mockResolvedValueOnce({
+      ok: false,
+      skipped: false,
+      error: "Email provider rejected the message.",
+    });
+    const res = await deleteTourInquiry(
+      jsonRequest("http://localhost/api/portal-tour-inquiries/delete", {
+        method: "POST",
+        body: { id: "inq-own" },
+      }),
+    );
+    expect(res.status).toBe(500);
+    expect(((await res.json()) as { error?: string }).error).toBe(
+      "Could not notify the guest: Email provider rejected the message.",
+    );
+    expect(UPSERT_CALLS).toHaveLength(0);
+  });
+
   it("skips guest notification when notifyTenant is false", async () => {
     const res = await deleteTourInquiry(
       jsonRequest("http://localhost/api/portal-tour-inquiries/delete", {

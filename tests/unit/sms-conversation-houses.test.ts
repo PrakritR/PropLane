@@ -6,7 +6,7 @@
  * outranks the rest and is the only thing that clears a thread.
  */
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createMemoryDb } from "./support/memory-supabase";
 import {
   loadConversationHouses,
@@ -31,17 +31,26 @@ describe("tagConversationHouse", () => {
     ]);
   });
 
-  it("a manual pick replaces every automatic tag, and an empty pick clears the thread", async () => {
-    const db = createMemoryDb({ manager_sms_conversation_houses: [] });
-    await tagConversationHouse(db as never, { managerUserId: owner, conversationKey: key, propertyId: "h1", source: "leasing" });
-    await tagConversationHouse(db as never, { managerUserId: owner, conversationKey: key, propertyId: "h2", source: "outbound" });
-    expect(await setConversationHousesManually(db as never, { managerUserId: owner, conversationKey: key, propertyIds: ["h3"], taggedByUserId: "co-1" })).toBe(true);
-    expect((await loadConversationHouses(db as never, [owner])).get(key)).toEqual([{ propertyId: "h3", source: "manual" }]);
-    // A later automatic tag on the same house cannot demote the manual one.
-    await tagConversationHouse(db as never, { managerUserId: owner, conversationKey: key, propertyId: "h3", source: "leasing" });
-    expect((await loadConversationHouses(db as never, [owner])).get(key)).toEqual([{ propertyId: "h3", source: "manual" }]);
-    expect(await setConversationHousesManually(db as never, { managerUserId: owner, conversationKey: key, propertyIds: [], taggedByUserId: "co-1" })).toBe(true);
-    expect((await loadConversationHouses(db as never, [owner])).get(key)).toBeUndefined();
+  it("delegates manual replacement to the atomic RPC with its authorized snapshot", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: true, error: null });
+    const expectedTags = [{ conversation_key: key, property_id: "h1" }];
+    expect(await setConversationHousesManually({ rpc } as never, {
+      managerUserId: owner, conversationKey: key, propertyIds: [" h3 ", "h3"], taggedByUserId: "co-1",
+      memberKeys: [key], expectedTags, accessRevision: "revision",
+    })).toBe(true);
+    expect(rpc).toHaveBeenCalledWith("replace_conversation_houses", {
+      p_owner: owner, p_actor: "co-1", p_key: key, p_member_keys: [key], p_next: ["h3"],
+      p_expected_tags: expectedTags, p_access_revision: "revision",
+    });
+  });
+
+  it("does not report an RPC error or stale authorization result as saved", async () => {
+    const rpc = vi.fn().mockResolvedValueOnce({ data: null, error: { message: "failed" } })
+      .mockResolvedValueOnce({ data: false, error: null });
+    const args = { managerUserId: owner, conversationKey: key, propertyIds: [], taggedByUserId: "co-1",
+      memberKeys: [key], expectedTags: [], accessRevision: "revision" };
+    expect(await setConversationHousesManually({ rpc } as never, args)).toBe(false);
+    expect(await setConversationHousesManually({ rpc } as never, args)).toBe(false);
   });
 
   it("ignores blank ids and keys instead of writing a junk row", async () => {

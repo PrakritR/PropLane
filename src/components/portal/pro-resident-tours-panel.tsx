@@ -1,7 +1,8 @@
 "use client";
+import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { useEffect, useMemo, useState } from "react";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Button } from "@/components/ui/button";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import {
@@ -165,7 +166,21 @@ export function ManagerResidentToursPanel({
         editDisabled={selectedTourRows.length !== 1 || !buildTourDetailHref}
       />
 
-      {rows.length === 0 ? (
+      <PortalRecordListSurface className="mt-0" onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
+        <>
+          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_BULK_BAR_BTN}
+              data-attr="resident-tour-bulk-clear"
+              onClick={clearSelection}
+            >
+              Clear selection
+            </Button>
+          </div>
+        </>
+      ) : null}>{rows.length === 0 ? (
         <PortalPropertyDetailSection>
           <PortalDataTableEmpty
             message={
@@ -180,9 +195,9 @@ export function ManagerResidentToursPanel({
           {rows.map((row) => (
             <div key={row.id} className="border-b border-border last:border-b-0">
               <div className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
-                <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
-                  <input
-                    type="checkbox"
+                <div className="flex min-w-0 flex-1 items-start gap-3">
+                  <RowSelectCheckbox
+                aria-label={`Select ${row.whenLabel}`}
                     className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
                     checked={selectedIds.has(row.id)}
                     data-attr={`resident-tour-select-${row.id}`}
@@ -202,28 +217,14 @@ export function ManagerResidentToursPanel({
                     <p className="text-sm font-semibold text-foreground">{row.whenLabel}</p>
                     <p className="mt-0.5 text-xs text-muted">{tourSubtitle(row)}</p>
                   </button>
-                </label>
+                </div>
               </div>
             </div>
           ))}
         </PortalPropertyDetailSection>
-      )}
+      )}</PortalRecordListSurface>
 
-      {selectedIds.size > 0 ? (
-        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
-          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_BULK_BAR_BTN}
-              data-attr="resident-tour-bulk-clear"
-              onClick={clearSelection}
-            >
-              Clear selection
-            </Button>
-          </div>
-        </BulkActionBar>
-      ) : null}
+
     </>
   );
 }

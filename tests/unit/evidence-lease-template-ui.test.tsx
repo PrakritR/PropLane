@@ -66,19 +66,15 @@ function writePanel(name: string, caption: string, body: string) {
  * a container-wide text search would read it as a failed delete.
  */
 function leaseRowLabels(container: HTMLElement): string[] {
-  return Array.from(
-    container.querySelectorAll<HTMLLabelElement>("label:has(input[data-attr^=\"property-lease-select-\"])"),
-  ).map((label) => label.querySelector("p")?.textContent?.trim() ?? "");
+  return Array.from(container.querySelectorAll<HTMLInputElement>('input[data-attr^="property-lease-select-"]'))
+    .map((input) => input.getAttribute("aria-label")!.replace(/^Select /, ""));
 }
 
 function selectLeaseRowByLabel(container: HTMLElement, label: string) {
-  const row = Array.from(
-    container.querySelectorAll<HTMLLabelElement>("label:has(input[data-attr^=\"property-lease-select-\"])"),
-  ).find((el) => el.querySelector("p")?.textContent?.trim() === label);
-  if (!row) throw new Error(`lease row not found: ${label}`);
-  const checkbox = row.querySelector<HTMLInputElement>("input[type=\"checkbox\"]");
-  if (!checkbox) throw new Error(`lease checkbox not found: ${label}`);
-  fireEvent.click(checkbox);
+  const trigger = Array.from(container.querySelectorAll<HTMLButtonElement>('[data-attr="record-actions-trigger"]'))
+    .find((button) => button.getAttribute("aria-label") === `Actions for ${label}`);
+  if (!trigger) throw new Error(`lease row not found: ${label}`);
+  fireEvent.keyDown(trigger, { key: "ArrowDown" });
 }
 
 /** Panel + a live `sub` so a Delete inside the modal really updates the list. */

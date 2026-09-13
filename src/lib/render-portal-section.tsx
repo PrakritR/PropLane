@@ -547,11 +547,17 @@ export async function renderPortalSection(
       redirect(`${def.basePath}/services/work-orders`);
     }
 
-    // Vendors moved to Teams — they are people a manager works with, not work items.
+    // Vendors: its own section. `/vendors` is the list, `/vendors/<id>` the detail page.
     if ((kind === "manager" || kind === "pro") && section === "vendors") {
-      const tail =
-        tabParts?.map((part) => `/${encodeURIComponent(decodeURIComponent(part))}`).join("") ?? "";
-      redirect(`${def.basePath}/teams/vendors${tail}`);
+      const vendorId = tabParts?.length ? decodeURIComponent(tabParts[0]!) : undefined;
+      if ((tabParts?.length ?? 0) > 1) notFound();
+      const ManagerVendorsPanel = await loadManagerVendorsPanel();
+      return subscriptionGated(
+        <ManagerVendorsPanel listBasePath={def.basePath} vendorId={vendorId} />,
+        kind,
+        "vendors",
+        managerOwnerSubscriptionTier,
+      );
     }
 
     if ((kind === "manager" || kind === "pro") && section === "relationships") {
@@ -578,19 +584,11 @@ export async function renderPortalSection(
         );
       }
       if (teamTab === "vendors") {
+        // Vendors were a Teams tab for a while; the path still resolves so bookmarks
+        // and links in sent messages keep working, carrying the vendor id through.
         const vendorId =
-          tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
-        if (tabParts.length > 2) notFound();
-        const ManagerVendorsPanel = await loadManagerVendorsPanel();
-        return subscriptionGated(
-          <ManagerVendorsPanel
-            listBasePath={def.basePath}
-            vendorId={vendorId}
-          />,
-          kind,
-          "vendors",
-          managerOwnerSubscriptionTier,
-        );
+          tabParts.length >= 2 ? `/${encodeURIComponent(decodeURIComponent(tabParts[1]!))}` : "";
+        redirect(`${def.basePath}/vendors${vendorId}`);
       }
       notFound();
     }
@@ -758,13 +756,13 @@ export async function renderPortalSection(
       if (servicesTab === "work-done") {
         redirect(`${def.basePath}/financials/expenses`);
       }
-      // Vendors moved to Team — they are people a manager works with, not work items. The old
+      // Vendors are their own section — people a manager works with, not work items. The old
       // path still resolves so bookmarks and links in sent messages keep working, carrying any
       // vendor id through to the detail.
       if (servicesTab === "vendors") {
         const vendorId =
           tabParts.length > 1 ? `/${encodeURIComponent(decodeURIComponent(tabParts[1]!))}` : "";
-        redirect(`${def.basePath}/teams/vendors${vendorId}`);
+        redirect(`${def.basePath}/vendors${vendorId}`);
       }
       if (!["requests", "work-orders"].includes(servicesTab)) notFound();
 

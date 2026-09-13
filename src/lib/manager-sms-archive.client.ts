@@ -30,17 +30,27 @@ export function persistManagerSmsArchivedIds(ids: Set<string>): void {
   writeIdSet(MANAGER_SMS_ARCHIVED_STORAGE_KEY, ids);
 }
 
-export function archiveManagerSmsConversation(conversationId: string): void {
+export async function archiveManagerSmsConversation(conversationId: string): Promise<void> {
   const id = conversationId.trim();
   if (!id) return;
+  const response = await fetch("/api/manager/tour-follow-ups", {
+    method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ conversationKey: id, action: "archive" }),
+  });
+  if (!response.ok) throw new Error("Could not archive this conversation. Please try again.");
   const next = loadManagerSmsArchivedIds();
   next.add(id);
   persistManagerSmsArchivedIds(next);
 }
 
-export function restoreManagerSmsConversation(conversationId: string): void {
+export async function restoreManagerSmsConversation(conversationId: string): Promise<void> {
   const id = conversationId.trim();
   if (!id) return;
+  const response = await fetch("/api/manager/tour-follow-ups", {
+    method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ conversationKey: id, action: "restore" }),
+  });
+  if (!response.ok) throw new Error("Could not restore this conversation. Please try again.");
   const next = loadManagerSmsArchivedIds();
   next.delete(id);
   persistManagerSmsArchivedIds(next);

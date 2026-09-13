@@ -1,4 +1,5 @@
 "use client";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
@@ -7,7 +8,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -759,7 +759,6 @@ export function ManagerTaskList({
   return (
     <ManagerPortalPageShell
       title="Tasks"
-      subtitle="What needs doing, who owns it, and when it is due."
       hideTitleOnMobileNav
       titleInlineFilter={null}
       compactFilterRow
@@ -795,7 +794,11 @@ export function ManagerTaskList({
         }
       />
 
-      <div className={PORTAL_LIST_PAGE_BODY}>
+      <PortalRecordListSurface className="mt-0" onBulkClear={clearSelection} bulkCount={selectedTaskIds.length} bulkActions={selectedTaskIds.length > 0 ? (
+        <>
+          <PortalAdaptiveActionRow actions={bulkSelectionActions} />
+        </>
+      ) : null}><div className={PORTAL_LIST_PAGE_BODY}>
         {loading ? <p className="text-sm text-muted">Loading…</p> : null}
 
         {!loading && visibleRows.length > 0 ? (
@@ -856,7 +859,7 @@ export function ManagerTaskList({
             dataAttr="manager-task-empty"
           />
         ) : null}
-      </div>
+      </div></PortalRecordListSurface>
 
       {userId ? (
         <ManagerTaskFormModal
@@ -900,11 +903,7 @@ export function ManagerTaskList({
         }}
       />
 
-      {selectedTaskIds.length > 0 ? (
-        <BulkActionBar count={selectedTaskIds.length} hideCount variant="payments">
-          <PortalAdaptiveActionRow actions={bulkSelectionActions} />
-        </BulkActionBar>
-      ) : null}
+
 
       <ManagerCommunicationComposeModal
         open={composeOpen}

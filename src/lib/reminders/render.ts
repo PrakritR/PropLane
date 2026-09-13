@@ -73,6 +73,7 @@ const SUBJECT_NOUN: Record<ReminderSubjectKind, string> = {
   inspection: "room photos",
   inspection_manager: "missing room photos",
   tour: "tour",
+  tour_interest: "tour interest",
   task: "task",
   service_order: "service visit",
   work_order: "maintenance visit",

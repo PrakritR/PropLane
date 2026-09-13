@@ -1,8 +1,8 @@
 /**
  * The Free plan advertises "1 property listing" (`MANAGER_PLAN_TIERS`), and
  * until now that was a sentence on a pricing card. The cap existed ONLY in the
- * browser — `manager-properties.tsx` disabled "+ Add property" and
- * `manager-add-listing-form.tsx` refused to submit — while
+ * browser — `pro-properties.tsx` disabled "+ Add property" and
+ * `pro-add-listing-form.tsx` refused to submit — while
  * `POST /api/property-records` was a plain upsert with no tier check at all.
  * Every client posts to that route directly, so publishing a second, fifth or
  * fiftieth listing on Free needed nothing more than skipping the interface

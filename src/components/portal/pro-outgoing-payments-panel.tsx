@@ -493,6 +493,7 @@ export function ManagerOutgoingPaymentsPanel({
             }
           : undefined
       }
+      onBulkClear={() => setSelectedIds(new Set())}
       bulkCount={showSelection ? selectedIds.size : 0}
       bulkActions={bulkSelectionActions}
       dataAttr="outgoing-payments-list"

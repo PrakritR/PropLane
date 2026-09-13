@@ -86,6 +86,7 @@ export function ManagerToursGroupedTable({
         id: row.id,
         data: row,
         primary: row.whenLabel,
+        actionLabel: `${row.guestName} · ${row.whenLabel}`,
         meta: tourLocationMeta(row, showPropertyColumn, groupMode, tourReminders),
         selected: selectedIds?.has(row.id),
         onSelectedChange:

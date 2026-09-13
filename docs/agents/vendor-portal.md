@@ -85,7 +85,9 @@ then:
 Going state-driven would make `pending-notice.ts` — the queue, its TTL and its
 destination guard — redundant.
 
-**Row-level isolation.** `manager_vendor_records`, `portal_work_order_records`,
+**Directory privacy.** Linked vendors cannot directly SELECT `manager_vendor_records`; `20260912230000_vendor_directory_private_fields.sql` removes that policy. Vendor portal readers use authorized service-role routes, and catalog responses use `vendorCatalogProjection`.
+
+**Row-level isolation (original foundation).** `manager_vendor_records`, `portal_work_order_records`,
 and `vendor_tax_profiles` all gained a `vendor_user_id` column (nullable,
 populated once the vendor signs up) plus a `..._vendor_read` RLS SELECT policy
 scoped to `vendor_user_id = auth.uid()` — defense in depth alongside the

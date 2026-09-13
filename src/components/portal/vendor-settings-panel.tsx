@@ -1343,7 +1343,6 @@ export function VendorSettingsPanel() {
     <ManagerPortalPageShell
       title="Settings"
       hideTitleOnMobileNav
-      subtitle="Manage your business profile, capabilities, and account preferences."
     >
       <div ref={layoutTopRef} className="lg:flex lg:items-start lg:gap-10">
         <PortalSettingsNav

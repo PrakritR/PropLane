@@ -65,29 +65,36 @@ export async function tagConversationHouse(
  */
 export async function setConversationHousesManually(
   db: SupabaseClient,
-  args: { managerUserId: string; conversationKey: string; propertyIds: string[]; taggedByUserId: string },
+  args: {
+    managerUserId: string; conversationKey: string; propertyIds: string[]; taggedByUserId: string;
+    memberKeys: string[]; expectedTags: { conversation_key: string; property_id: string }[];
+    accessRevision: string;
+  },
 ): Promise<boolean> {
-  const conversationKey = args.conversationKey.trim();
-  const managerUserId = args.managerUserId.trim();
-  if (!conversationKey || !managerUserId) return false;
-  const wanted = [...new Set(args.propertyIds.map((id) => id.trim()).filter(Boolean))];
-  const { error: clearError } = await db
-    .from(TABLE)
-    .delete()
-    .eq("conversation_key", conversationKey)
-    .eq("manager_user_id", managerUserId);
-  if (clearError) return false;
-  if (wanted.length === 0) return true;
-  const { error } = await db.from(TABLE).insert(
-    wanted.map((propertyId) => ({
-      manager_user_id: managerUserId,
-      conversation_key: conversationKey,
-      property_id: propertyId,
-      source: "manual" as const,
-      tagged_by_user_id: args.taggedByUserId,
-    })),
-  );
-  return !error;
+  if (!args.conversationKey.trim() || !args.managerUserId.trim() || !args.accessRevision) return false;
+  const { data, error } = await db.rpc("replace_conversation_houses", {
+    p_owner: args.managerUserId,
+    p_actor: args.taggedByUserId,
+    p_key: args.conversationKey,
+    p_member_keys: args.memberKeys,
+    p_next: [...new Set(args.propertyIds.map((id) => id.trim()).filter(Boolean))],
+    p_expected_tags: args.expectedTags,
+    p_access_revision: args.accessRevision,
+  });
+  return !error && data === true;
+}
+
+/** Read the exact persisted scope, never the inbox's display fallback or capped snapshot. */
+export async function loadConversationHouseScope(db: SupabaseClient, ownerId: string, keys: string[]) {
+  const rows: { conversation_key: string; property_id: string }[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await db.from(TABLE).select("conversation_key, property_id")
+      .eq("manager_user_id", ownerId).in("conversation_key", keys)
+      .order("conversation_key").order("property_id").range(offset, offset + 499);
+    if (error) throw error;
+    rows.push(...(data ?? []));
+    if ((data ?? []).length < 500) return rows;
+  }
 }
 
 /** Every tag on every thread owned by these managers, keyed by conversation key. */

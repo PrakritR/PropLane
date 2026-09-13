@@ -79,7 +79,7 @@ describe("pro portal nav grouping (leasing → tenancy → operations → market
   const sections = sectionIds(proPortal.sections);
   const leasingBlock = ["properties", "tours", "applications", "background-checks", "leases"];
   const tenancyBlock = ["residents", "inspections", "payments", "services"];
-  const operationsBlock = ["tasks", "calendar", "bookings", "communication"];
+  const operationsBlock = ["vendors", "tasks", "calendar", "bookings", "communication"];
   const financesBlock = ["financials", "documents"];
 
   it("places leasing workflow contiguously after dashboard", () => {
@@ -87,7 +87,7 @@ describe("pro portal nav grouping (leasing → tenancy → operations → market
   });
 
   it("groups tenancy after leasing", () => {
-    expectContiguousBlock(sections, tenancyBlock, "leases", "tasks");
+    expectContiguousBlock(sections, tenancyBlock, "leases", "vendors");
   });
 
   it("groups operations before marketing", () => {
@@ -107,7 +107,7 @@ describe("pro portal nav grouping (leasing → tenancy → operations → market
   });
 
   it("free operational sections precede the finances block", () => {
-    expect(sections.slice(0, 16)).toEqual([
+    expect(sections.slice(0, 17)).toEqual([
       "dashboard",
       "properties",
       "tours",
@@ -118,6 +118,7 @@ describe("pro portal nav grouping (leasing → tenancy → operations → market
       "inspections",
       "payments",
       "services",
+      "vendors",
       "tasks",
       "calendar",
       "bookings",
@@ -170,16 +171,16 @@ describe("pro portal documents section", () => {
     expect(financials?.tabs.map((t) => t.id)).toEqual(["income", "expenses"]);
   });
 
-  it("services is one list, with vendors its own section under Team", () => {
+  it("services is one list, with vendors its own section right after it", () => {
     // Add-on services and work orders are presented as a single queue — a manager thinks of them
-    // as one pile of work — and Vendors moved to Team, where the people are, rather than sitting
-    // beside the work behind a permanent "(soon)" placeholder.
+    // as one pile of work — and Vendors is the section beside it: the people the work goes to.
     const services = proPortal.sections.find((s) => s.section === "services");
     expect(services?.tabs.map((t) => t.id)).toEqual([]);
 
+    const vendors = proPortal.sections.find((s) => s.section === "vendors");
+    expect(vendors?.label).toBe("Vendors");
     const teams = proPortal.sections.find((s) => s.section === "teams");
-    expect(teams?.label).toBe("Teams");
-    expect(teams?.tabs.map((tab) => tab.id)).toEqual(["managers", "vendors"]);
+    expect(teams?.tabs.map((tab) => tab.id)).toEqual(["managers"]);
   });
 
   it("locks documents and financials for free tier", () => {

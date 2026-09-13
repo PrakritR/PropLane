@@ -21,9 +21,12 @@ const eslintConfig = defineConfig([
     // tsconfig for the same reason. CI never sees either - which is exactly why
     // they broke only local runs.
     "output/**",
+    ".lavish/**",
+    ".qa-tmp/**",
     ".main-green-validation/**",
   ]),
   {
+    files: ["**/*.{js,jsx,mjs,ts,tsx,mts,cts}"],
     rules: {
       // eslint-config-next 16 enables this React Compiler rule at "error".
       // The pre-existing codebase has ~20 legitimate reset-on-dependency

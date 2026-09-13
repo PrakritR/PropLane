@@ -1,8 +1,9 @@
 "use client";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/input";
 import { PortalPropertyDetailSection } from "@/components/portal/portal-property-detail-section";
@@ -416,7 +417,7 @@ export function ManagerPropertyRoomMoveInPanel({
      room rows, but the house itself is still selectable — the bulk bar is where Edit
      and Share live, so without the tick box those actions were unreachable there. */
   const moveInBulkBar = selectionActive ? (
-    <BulkActionBar count={selectionCount} hideCount variant="payments">
+    <>
       <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
         <Button
           type="button"
@@ -438,13 +439,13 @@ export function ManagerPropertyRoomMoveInPanel({
           Share
         </Button>
       </div>
-    </BulkActionBar>
+    </>
   ) : null;
 
   if (entireHome) {
     return (
       <>
-        <PortalPropertyDetailSection>
+        <PortalRecordListSurface className="mt-0" onBulkClear={canEdit ? () => { setSelectedRoomIds([]); setHouseSelected(false); } : undefined} bulkCount={selectionCount} bulkActions={moveInBulkBar}><PortalPropertyDetailSection>
           <p className="mb-3 px-1 text-sm text-muted">Whole-home move-in details shown to placed residents.</p>
           <div className="divide-y divide-border/50">
             <div className="px-1">
@@ -456,8 +457,7 @@ export function ManagerPropertyRoomMoveInPanel({
                 )}
               >
                 {canEdit ? (
-                  <input
-                    type="checkbox"
+                  <RowSelectCheckbox
                     className="mt-1 h-4 w-4 shrink-0 rounded border-border accent-primary"
                     checked={houseSelected}
                     aria-label="Select the whole house"
@@ -488,9 +488,9 @@ export function ManagerPropertyRoomMoveInPanel({
               </div>
             </div>
           </div>
-        </PortalPropertyDetailSection>
+        </PortalPropertyDetailSection></PortalRecordListSurface>
 
-        {moveInBulkBar}
+
       </>
     );
   }
@@ -505,7 +505,7 @@ export function ManagerPropertyRoomMoveInPanel({
 
   return (
     <>
-      <PortalPropertyDetailSection>
+      <PortalRecordListSurface className="mt-0" onBulkClear={canEdit ? () => { setSelectedRoomIds([]); setHouseSelected(false); } : undefined} bulkCount={selectionCount} bulkActions={moveInBulkBar}><PortalPropertyDetailSection>
         <p className="mb-3 px-1 text-sm text-muted">
           Set shared house details (front door code, parking, bins) for every resident. Tick individual rooms to copy
           saved house details into them, or open a row to edit move-in instructions, photos, and video.
@@ -520,8 +520,7 @@ export function ManagerPropertyRoomMoveInPanel({
               )}
             >
               {canEdit ? (
-                <input
-                  type="checkbox"
+                <RowSelectCheckbox
                   className="mt-1 h-4 w-4 shrink-0 rounded border-border accent-primary"
                   checked={houseSelected}
                   aria-label="Select the whole house"
@@ -571,8 +570,7 @@ export function ManagerPropertyRoomMoveInPanel({
                   )}
                 >
                   {canEdit ? (
-                    <input
-                      type="checkbox"
+                    <RowSelectCheckbox
                       className="mt-1 h-4 w-4 shrink-0 rounded border-border accent-primary"
                       checked={checked}
                       aria-label={`Select ${label}`}
@@ -607,9 +605,9 @@ export function ManagerPropertyRoomMoveInPanel({
             );
           })}
         </div>
-      </PortalPropertyDetailSection>
+      </PortalPropertyDetailSection></PortalRecordListSurface>
 
-      {moveInBulkBar}
+
     </>
   );
 }

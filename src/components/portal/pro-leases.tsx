@@ -280,8 +280,7 @@ export function ManagerLeases({
     <>
       <ManagerPortalPageShell
         title="Leases"
-        subtitle="Review, signatures, and executed agreements without losing context."
-        titleInlineFilter={null}
+          titleInlineFilter={null}
         hideTitleOnMobileNav
         compactFilterRow
         primaryAction={

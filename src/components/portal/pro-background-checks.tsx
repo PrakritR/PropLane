@@ -490,7 +490,7 @@ export function ManagerBackgroundChecks({
     <>
       <ManagerPortalPageShell
         title="Background check"
-        subtitle="Consent, report readiness, and review stay attached to each applicant."
+
         hideTitleOnMobileNav
         titleInlineFilter={null}
         compactFilterRow

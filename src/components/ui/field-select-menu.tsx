@@ -67,7 +67,7 @@ export const FIELD_SELECT_MENU_LISTBOX_SCROLL_CLASS =
   "min-h-0 overflow-y-auto overscroll-contain py-1 [-webkit-overflow-scrolling:touch] touch-pan-y";
 
 /** Short menus (≤5 options, no search) — size to content with no inner scrollbar. */
-export const FIELD_SELECT_MENU_LISTBOX_FIT_CLASS = "overflow-visible py-1";
+export const FIELD_SELECT_MENU_LISTBOX_FIT_CLASS = "min-h-0 overflow-y-auto overscroll-contain py-1";
 
 export function fieldSelectMenuFitsWithoutScroll(optionCount: number, searchPx = 0): boolean {
   return searchPx === 0 && optionCount <= FIELD_SELECT_MENU_VISIBLE_ITEMS;
@@ -320,6 +320,16 @@ export function computePortalFilterDropdownRect(
   return { top, left, width, maxHeight, position: "fixed" };
 }
 
+/** Explicit below-field placement for invite forms; preserve access by scrolling options. */
+export function computeFieldSelectMenuBelowRect(button: HTMLButtonElement, contentPx: number): FieldSelectMenuRect {
+  const rect = button.getBoundingClientRect();
+  const padding = 12;
+  const width = Math.min(rect.width, window.innerWidth - padding * 2);
+  const top = rect.bottom + 6;
+  return { top, left: Math.max(padding, Math.min(rect.left, window.innerWidth - width - padding)), width,
+    maxHeight: Math.max(0, Math.min(contentPx, window.innerHeight - top - padding)), position: "fixed" };
+}
+
 /** Position a field menu inside an open filter dropdown (or other non-body host). */
 export function computeFieldSelectMenuRectInHost(
   button: HTMLButtonElement,
@@ -427,21 +437,13 @@ export function computeFieldSelectMenuRectInHost(
     const hostMetricsReady = bounds.height > 0 && rect.height > 0;
     if (hostMetricsReady) {
       const hostBottom = boundsBottomInHost - gap;
-      let top = Math.max(safeTop, triggerBottomInHost + gap);
+      const top = Math.max(safeTop, triggerBottomInHost + gap);
       let maxHeight = Math.min(contentPx, hostBottom - top);
 
       if (maxHeight < contentPx) {
-        /* Not enough room below the trigger inside the box: open UP against it
-           instead. Falling straight to the bottom-pin below detaches the menu from
-           its trigger, which is what a manager reads as "the dropdown opened in the
-           wrong place". Pin only when neither side has room. */
-        const upMaxHeight = Math.min(contentPx, Math.max(0, spaceAbove));
-        if (upMaxHeight >= FIELD_SELECT_MENU_ITEM_HEIGHT_PX + 12) {
-          const upTop = Math.max(safeTop, triggerTopInHost - upMaxHeight - gap);
-          return { top: upTop, left, width, maxHeight: upMaxHeight, position: "absolute" };
-        }
-        maxHeight = Math.min(contentPx, effectiveBoundsHeight - topInset - gap * 2);
-        top = Math.max(safeTop, hostBottom - maxHeight);
+        /* Stay below the trigger and scroll. Flipping up covers the fields the
+           manager just opened the menu from ("the dropdown went up"). */
+        maxHeight = Math.min(contentPx, Math.max(0, hostBottom - top));
       }
 
       if (maxHeight > 0) {
@@ -500,10 +502,10 @@ export function computeFieldSelectMenuRectForModalPanel(
   const bottomInset = fieldSelectHostBottomInsetPx(boundsEl);
   return computeFieldSelectMenuRect(button, contentPx, document.body, {
     minWidth: options?.minWidth,
-    // Prefer opening upward inside modals: Start/End time fields sit above the
-    // footer, so "always down" left only a sliver under the trigger and the
-    // menu looked like it opened under the dialog (PRP-413).
-    preferOpenDown: false,
+    // Always open down inside modals. A short footer gap scrolls the list;
+    // flipping up covers the field the manager just opened (availability times).
+    preferOpenDown: true,
+    forceOpenDown: true,
     matchTriggerWidth: options?.matchTriggerWidth ?? true,
     topBoundPx: cardRect.top + topInset + gap,
     bottomBoundPx: cardRect.bottom - bottomInset - gap,
@@ -517,6 +519,8 @@ export function computeFieldSelectMenuRect(
   options?: {
     minWidth?: number;
     preferOpenDown?: boolean;
+    /** Never flip above the trigger — shrink and scroll below instead. */
+    forceOpenDown?: boolean;
     matchTriggerWidth?: boolean;
     /**
      * Height of the host's FIXED chrome measured from the host's top, exactly as in
@@ -550,11 +554,15 @@ export function computeFieldSelectMenuRect(
   const matchTriggerWidth = options?.matchTriggerWidth ?? false;
   const spaceBelow = bottomBound - rect.bottom - gap;
   const spaceAbove = rect.top - topBound;
-  const openUp = resolveOpenUp(spaceBelow, spaceAbove, contentHeight, preferOpenDown);
-  const maxHeight = Math.min(
-    contentHeight,
-    Math.max(FIELD_SELECT_MENU_ITEM_HEIGHT_PX + 12, openUp ? spaceAbove - 8 : spaceBelow - 8),
-  );
+  const openUp = options?.forceOpenDown
+    ? false
+    : resolveOpenUp(spaceBelow, spaceAbove, contentHeight, preferOpenDown);
+  const maxHeight = options?.forceOpenDown
+    ? Math.min(contentHeight, Math.max(0, spaceBelow))
+    : Math.min(
+        contentHeight,
+        Math.max(FIELD_SELECT_MENU_ITEM_HEIGHT_PX + 12, openUp ? spaceAbove - 8 : spaceBelow - 8),
+      );
   const minWidth = options?.minWidth ?? 0;
   const width = matchTriggerWidth
     ? rect.width
@@ -660,6 +668,11 @@ export function useFieldSelectMenu({
     const updateMenuRect = () => {
       const button = buttonRef.current;
       if (!button) return;
+      if (button.closest('[data-field-select-placement="below"]')) {
+        setPortalHost(document.body);
+        setMenuRect(computeFieldSelectMenuBelowRect(button, contentPx));
+        return;
+      }
       const modalPanel = button.closest<HTMLElement>(
         '[data-slot="modal-radix-dialog"], [data-slot="modal-vaul-drawer"]',
       );

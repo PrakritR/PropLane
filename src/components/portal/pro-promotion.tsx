@@ -1,4 +1,5 @@
 "use client";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -15,7 +16,6 @@ import {
   samePropertyId,
 } from "@/lib/manager-portfolio-access";
 import { Button } from "@/components/ui/button";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
@@ -918,7 +918,6 @@ export function ManagerPromotion({
   return (
     <ManagerPortalPageShell
       title="Promotion"
-      subtitle="Share tools, source labels, and where each listing is being seen."
       titleInlineFilter={null}
       hideTitleOnMobileNav
       compactFilterRow
@@ -929,7 +928,49 @@ export function ManagerPromotion({
         variant="command"
         actions={promotionCommandActions}
       />
-      <div data-attr="promotion-content-direct">
+      <PortalRecordListSurface className="mt-0" onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
+        <>
+          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+            {selectedIds.size === 1 &&
+            selectedAssets[0] &&
+            promotionAssetCanEdit(selectedAssets[0], openEditAsset) ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="promotion-bulk-edit"
+                onClick={() => openEditAsset(selectedAssets[0]!)}
+              >
+                Edit
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
+              data-attr="promotion-bulk-delete"
+              onClick={async () => {
+                if (selectedAssets.length === 0) return;
+                const label =
+                  selectedAssets.length === 1
+                    ? selectedAssets[0]!.flyerEntry?.title ??
+                      selectedAssets[0]!.textEntry?.title ??
+                      "this promotion"
+                    : `${selectedAssets.length} promotions`;
+                if (!(await confirm({ description: `Delete ${label}? This cannot be undone.` }))) return;
+                for (const asset of selectedAssets) deleteAsset(asset);
+                clearSelection();
+                setTick((n) => n + 1);
+                showToast(
+                  selectedAssets.length === 1 ? "Promotion deleted." : `${selectedAssets.length} promotions deleted.`,
+                );
+              }}
+            >
+              Delete
+            </Button>
+          </div>
+        </>
+      ) : null}><div data-attr="promotion-content-direct">
         {propertyScopedAssets.length === 0 ? (
           <div className="space-y-3">
             {assets.length > 0 ? (
@@ -978,51 +1019,9 @@ export function ManagerPromotion({
             <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{promotionListAddRow}</div>
           </div>
         )}
-      </div>
+      </div></PortalRecordListSurface>
 
-      {selectedIds.size > 0 ? (
-        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
-          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
-            {selectedIds.size === 1 &&
-            selectedAssets[0] &&
-            promotionAssetCanEdit(selectedAssets[0], openEditAsset) ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_BULK_BAR_BTN}
-                data-attr="promotion-bulk-edit"
-                onClick={() => openEditAsset(selectedAssets[0]!)}
-              >
-                Edit
-              </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
-              data-attr="promotion-bulk-delete"
-              onClick={async () => {
-                if (selectedAssets.length === 0) return;
-                const label =
-                  selectedAssets.length === 1
-                    ? selectedAssets[0]!.flyerEntry?.title ??
-                      selectedAssets[0]!.textEntry?.title ??
-                      "this promotion"
-                    : `${selectedAssets.length} promotions`;
-                if (!(await confirm({ description: `Delete ${label}? This cannot be undone.` }))) return;
-                for (const asset of selectedAssets) deleteAsset(asset);
-                clearSelection();
-                setTick((n) => n + 1);
-                showToast(
-                  selectedAssets.length === 1 ? "Promotion deleted." : `${selectedAssets.length} promotions deleted.`,
-                );
-              }}
-            >
-              Delete
-            </Button>
-          </div>
-        </BulkActionBar>
-      ) : null}
+
 
       {promotionModals}
     </ManagerPortalPageShell>

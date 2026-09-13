@@ -52,10 +52,9 @@ export function useUnifiedCommunicationBulk({
   const selectedRows = useMemo((): SelectedRow[] => {
     return mergedRows
       .filter((row) => selection.selectedIds.has(row.key))
-      .map((row) => ({
-        key: row.key,
-        channel: row.channel,
-        threadId: row.threadId,
+      .flatMap((row) => [...new Set([row.key, ...(row.memberKeys ?? [])])].flatMap((key) => {
+        const parsed = parseUnifiedInboxKey(key);
+        return parsed ? [{ key, ...parsed }] : [];
       }));
   }, [mergedRows, selection.selectedIds]);
 
@@ -108,10 +107,13 @@ export function useUnifiedCommunicationBulk({
     }
 
     if (smsIds.length > 0) {
-      const archived = loadManagerSmsArchivedIds();
-      for (const id of smsIds) archived.add(id);
-      persistManagerSmsArchivedIds(archived);
-      onSmsArchiveChange?.();
+      try {
+        for (const id of smsIds) await archiveManagerSmsConversation(id);
+        onSmsArchiveChange?.();
+      } catch {
+        showToast("Could not archive text conversations. Try again.");
+        return;
+      }
     }
 
     showToast("Archived.");
@@ -138,8 +140,11 @@ export function useUnifiedCommunicationBulk({
       onEmailThreadsChange(next);
     }
 
-    for (const id of smsIds) {
-      restoreManagerSmsConversation(id);
+    try {
+      for (const id of smsIds) await restoreManagerSmsConversation(id);
+    } catch {
+      showToast("Could not restore text conversations. Try again.");
+      return;
     }
     if (smsIds.length > 0) onSmsArchiveChange?.();
 
@@ -219,8 +224,8 @@ export function useUnifiedCommunicationBulk({
   );
 
   const archiveSmsConversation = useCallback(
-    (conversationId: string) => {
-      archiveManagerSmsConversation(conversationId);
+    async (conversationId: string) => {
+      await archiveManagerSmsConversation(conversationId);
       onSmsArchiveChange?.();
     },
     [onSmsArchiveChange],

@@ -298,6 +298,7 @@ export function AdminEventsClient() {
         <PortalRecordListSurface
           isEmpty={rows.length === 0}
           empty={<PortalDataTableEmpty icon="default" message={emptyCopy} />}
+          onBulkClear={() => setSelectedIds(new Set())}
           bulkCount={tab === "pending" ? pending.filter((r) => selectedIds.has(r.id)).length : 0}
           bulkActions={bulkActions}
           dataAttr="admin-meetings-list"

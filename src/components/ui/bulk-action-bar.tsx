@@ -1,141 +1,44 @@
 "use client";
 
-import { createContext, useEffect, type ReactNode } from "react";
-import { X } from "lucide-react";
+import { Children, Fragment, cloneElement, isValidElement, createContext, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-/** How many actions the floating pill shows before folding the rest into "…". */
-export const BULK_BAR_VISIBLE_ACTIONS = 5;
-
-/**
- * Read by {@link PortalAdaptiveActionRow}: inside the pill, show up to this
- * many actions by count rather than by measured width (the pill sizes itself
- * to its content, so a width measurement there is circular).
- */
+export const BULK_BAR_VISIBLE_ACTIONS = 2;
 export const BulkBarActionLimitContext = createContext<number | null>(null);
 
-/**
- * The floating bulk bar — a pill that appears above the list while rows are
- * selected: "Unlist · Share · Delete · ✕", the way Linear and Notion surface
- * bulk actions. It used to be a full-width light dock. The count label is
- * gone (round 3): the checked rows already say what is selected, and the
- * count made the pill read as a status line rather than a set of buttons.
- * The count still feeds the accessible name and `data-count`.
- *
- * `placement="list-pane"` keeps the older in-flow footer for Communication's
- * left column, which has its own scroll container.
- */
-export function BulkActionBar({
-  count,
-  children,
-  className,
-  /** Kept for callers; the pill no longer differs by variant. */
-  variant = "default",
-  /** Accepted for callers; the pill no longer shows a count at all. */
-  hideCount = false,
-  /** Accepted for callers; used only for the accessible name. */
-  countLabel,
-  /**
-   * `viewport` — floating pill above the portal bottom (default).
-   * `list-pane` — in-flow footer inside Communication's left list column only.
-   */
-  placement = "viewport",
-  /** Clears the selection — renders the ✕ at the end of the pill. */
-  onClear,
-}: {
-  count: number;
-  children: ReactNode;
-  className?: string;
-  variant?: "default" | "payments";
-  hideCount?: boolean;
-  countLabel?: (count: number) => string;
-  placement?: "viewport" | "list-pane";
-  onClear?: () => void;
-}) {
-  const listPane = placement === "list-pane";
-  void hideCount;
-
-  useEffect(() => {
-    if (listPane || count <= 0) return;
-    document.documentElement.setAttribute("data-bulk-action-bar", "");
-    if (variant !== "default") {
-      document.documentElement.setAttribute("data-bulk-action-variant", variant);
+function flattenActionContainers(children: ReactNode, prefix = "actions"): ReactNode[] {
+  return Children.toArray(children).flatMap((child, index) => {
+    const key = `${prefix}/${isValidElement(child) ? child.key ?? index : index}`;
+    if (isValidElement<{ children?: ReactNode }>(child) && (child.type === Fragment || child.type === "div")) {
+      return flattenActionContainers(child.props.children, key);
     }
-    return () => {
-      document.documentElement.removeAttribute("data-bulk-action-bar");
-      document.documentElement.removeAttribute("data-bulk-action-variant");
-    };
-  }, [count, listPane, variant]);
+    return [isValidElement(child) ? cloneElement(child, { key }) : child];
+  });
+}
 
+/** Contextual actions stay in document flow, beside the list selection controls. */
+export function BulkActionBar({ count, children, className, variant = "default", hideCount = false,
+  countLabel, placement = "viewport", onClear,
+}: { count: number; children: ReactNode; className?: string; variant?: "default" | "payments";
+  hideCount?: boolean; countLabel?: (count: number) => string;
+  placement?: "viewport" | "list-pane"; onClear?: () => void;
+}) {
   if (count <= 0) return null;
-
-  const label = countLabel ? countLabel(count) : `${count} selected`;
-
-  if (listPane) {
-    return (
-      <div
-        className={cn(
-          "relative shrink-0 border-t border-border bg-card/95 px-3 py-2.5 shadow-[var(--shadow-sm)] backdrop-blur-md sm:px-4",
-          className,
-        )}
-        data-slot="bulk-action-bar"
-        data-variant={variant}
-        role="region"
-        aria-label={count === 1 ? "Bulk actions, 1 item selected" : `Bulk actions, ${count} items selected`}
-      >
-        <div className="flex w-full min-w-0 flex-nowrap items-center gap-3">
-          <p className="shrink-0 text-[11px] font-semibold tabular-nums text-foreground">{label}</p>
-          <div className="relative min-w-0 flex-1">{children}</div>
-        </div>
+  const actions = flattenActionContainers(children);
+  return <div role="region" aria-label={`Bulk actions, ${count} items selected`}
+    data-slot="bulk-action-bar" data-variant={variant} data-count={count} data-placement={placement}
+    className={cn("flex min-w-0 basis-full flex-wrap items-center gap-2 border-t border-border pt-2", className)}>
+    {!hideCount ? <span className="text-sm font-semibold">{countLabel ? countLabel(count) : `${count} selected`}</span> : null}
+    <BulkBarActionLimitContext.Provider value={BULK_BAR_VISIBLE_ACTIONS}>
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        {actions.slice(0, BULK_BAR_VISIBLE_ACTIONS)}
+        {actions.length > BULK_BAR_VISIBLE_ACTIONS ? <details className="relative" onKeyDown={(event) => { if (event.key === "Escape") { event.currentTarget.open = false; event.currentTarget.querySelector("summary")?.focus(); } }}>
+          <summary className="flex min-h-11 cursor-pointer list-none items-center rounded-full border border-border px-4 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-primary" data-attr="list-selection-more">More</summary>
+          <div className="absolute left-0 top-full z-30 mt-2 flex min-w-48 flex-col items-stretch gap-1 rounded-xl border border-border bg-card p-2 shadow-lg">{actions.slice(BULK_BAR_VISIBLE_ACTIONS)}</div>
+        </details> : null}
       </div>
-    );
-  }
-
-  return (
-    <div
-      className={cn(
-        // Centred over the content column (the sidebar is 224px on desktop),
-        // above the assistant FAB (z-55) so every action stays clickable.
-        "pointer-events-none fixed inset-x-0 z-[56] flex justify-center px-3",
-        "bottom-[calc(var(--portal-native-bottom-nav-inset,0px)+var(--portal-floating-bottom-gap,1.25rem)+env(safe-area-inset-bottom,0px))] lg:bottom-6",
-        variant === "payments" && "lg:left-[224px]",
-        className,
-      )}
-      data-slot="bulk-action-bar"
-      data-variant={variant}
-      role="region"
-      aria-label={count === 1 ? "Bulk actions, 1 item selected" : `Bulk actions, ${count} items selected`}
-    >
-      <div
-        className={cn(
-          // A floating white pill in the site's own palette: hairline border, a
-          // soft lift. (Started life as a dark pill; the captain asked for the
-          // theme's colours instead.)
-          "pointer-events-auto flex max-w-full min-w-0 items-center gap-1 rounded-full border border-border bg-card p-1.5 text-foreground shadow-[0_16px_40px_-12px_rgba(11,27,58,0.35)] [html[data-theme=dark]_&]:shadow-[0_16px_40px_-12px_rgba(0,0,0,0.7)]",
-          "[&_button]:!h-9 [&_button]:!min-h-0 [&_button]:!rounded-full [&_button]:!px-3 [&_button]:!text-[13px] [&_button]:!shadow-none",
-        )}
-        data-count={count}
-        title={label}
-      >
-        <BulkBarActionLimitContext.Provider value={BULK_BAR_VISIBLE_ACTIONS}>
-          <div
-            className="flex min-w-0 flex-nowrap items-center gap-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          >
-            {children}
-          </div>
-        </BulkBarActionLimitContext.Provider>
-        {onClear ? (
-          <button
-            type="button"
-            onClick={onClear}
-            aria-label="Clear selection"
-            data-attr="bulk-bar-clear"
-            className="ml-1 grid h-9 w-9 shrink-0 place-items-center rounded-full text-muted hover:bg-accent/60 hover:text-foreground"
-          >
-            <X className="h-4 w-4" aria-hidden />
-          </button>
-        ) : null}
-      </div>
-    </div>
-  );
+    </BulkBarActionLimitContext.Provider>
+    {onClear ? <Button variant="ghost" onClick={onClear} aria-label="Clear selection">Done</Button> : null}
+  </div>;
 }

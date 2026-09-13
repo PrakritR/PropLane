@@ -2000,7 +2000,7 @@ export function ManagerApplications({
     <>
     <ManagerPortalPageShell
       title="Applications"
-      subtitle="A clear path from first application to a considered decision."
+
       hideTitleOnMobileNav
       titleInlineFilter={null}
       compactFilterRow
@@ -2082,6 +2082,7 @@ export function ManagerApplications({
             disabled: propertyOptions.length === 0,
             dataAttr: "applications-list-add",
           }}
+          onBulkClear={clearSelection}
           bulkCount={listSelectedCount}
           bulkActions={
             selectedListRows.length > 0 ? (

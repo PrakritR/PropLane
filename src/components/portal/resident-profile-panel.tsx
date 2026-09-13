@@ -441,7 +441,6 @@ export function ResidentProfilePanel({
   return (
     <ManagerPortalPageShell
       title="Settings"
-      subtitle="Manage your account settings and preferences."
       hideTitleOnMobileNav
     >
       <div ref={layoutTopRef} className="lg:flex lg:items-start lg:gap-10">

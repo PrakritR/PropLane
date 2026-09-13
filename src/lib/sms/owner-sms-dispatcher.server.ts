@@ -23,6 +23,7 @@ import { commsPlanBudget, reserveCommsCredit, finishCommsCredit } from "@/lib/co
 
 const CONVERSATION_DERIVED_TOUR_PURPOSES = new Set([
   "tour_request_received",
+  "tour_interest_followup",
   "tour_request_removed",
   "tour_confirmed",
   "tour_rescheduled",
@@ -82,6 +83,16 @@ async function loadSendPolicy(
   input: OwnerSmsEnqueueInput,
   now = new Date(),
 ): Promise<SendPolicy> {
+  if (input.purpose === "tour_interest_followup") {
+    const id = input.dedupeKey?.startsWith("tour-interest:") ? input.dedupeKey.slice("tour-interest:".length) : "";
+    if (!id) return { allowed: false, reason: "invalid_followup_identity" };
+    try {
+      const { tourInterestOutboxIsCurrent } = await import("@/lib/reminders/subjects/tour-interest.server");
+      if (!(await tourInterestOutboxIsCurrent(db, id, input))) return { allowed: false, reason: "tour_followup_cancelled" };
+    } catch {
+      return { allowed: false, reason: "followup_state_unavailable", deferUntil: new Date(now.getTime() + 300_000).toISOString() };
+    }
+  }
   if (process.env.SMS_RUNTIME_ENABLED?.trim() !== "1") {
     return { allowed: false, reason: "runtime_env_paused" };
   }
@@ -182,7 +193,7 @@ async function loadSendPolicy(
     }
   }
 
-  if (quietHoursBlocks(input.sendClass, now, { tz: input.recipientTimezone ?? "America/Los_Angeles", startHour: 21, endHour: 8 })) {
+  if (quietHoursBlocks(input.purpose === "tour_interest_followup" ? "automated" : input.sendClass, now, { tz: input.recipientTimezone ?? "America/Los_Angeles", startHour: 21, endHour: 8 })) {
     return { allowed: false, reason: "quiet_hours", deferUntil: new Date(now.getTime() + 60 * 60 * 1000).toISOString() };
   }
 
@@ -415,8 +426,20 @@ async function persistSubmittedConversationLog(
     counterpartyRole: isSmsCounterpartyRole(row.counterparty_role) ? row.counterparty_role : undefined,
     conversationKey: key.conversationKey ?? undefined,
   }).catch(() => false);
+  let followUpReady = true;
+  if (logged && row.counterparty_role === "prospect" && row.purpose !== "tour_interest_followup") {
+    try {
+      const { materializeTourInterestFromOutbox } = await import("@/lib/reminders/subjects/tour-interest.server");
+      await materializeTourInterestFromOutbox(db, row.id, now);
+    } catch {
+      // Retry materialization through the existing log-repair queue, never the
+      // provider send. The response was already accepted and must not repeat.
+      followUpReady = false;
+    }
+  }
+  const persisted = logged && followUpReady;
   const { data, error } = await db.from("sms_outbox").update(
-    logged
+    persisted
       ? { conversation_log_status: "persisted", conversation_log_attempts: priorAttempts + 1, conversation_log_next_attempt_at: null, conversation_log_last_error: null, updated_at: now.toISOString() }
       : { conversation_log_status: "failed", conversation_log_attempts: priorAttempts + 1, conversation_log_next_attempt_at: new Date(now.getTime() + Math.min(60 * 60_000, 5 * 60_000 * 2 ** Math.min(priorAttempts, 3))).toISOString(), conversation_log_last_error: "manager_sms_log_unavailable", updated_at: now.toISOString() },
   ).eq("id", row.id).eq("provider_message_sid", messageSid)
@@ -425,7 +448,7 @@ async function persistSubmittedConversationLog(
     .select("id").maybeSingle();
   if (error) return "failed";
   if (!data) return "stale";
-  return logged ? "persisted" : "failed";
+  return persisted ? "persisted" : "failed";
 }
 
 async function blockOrDeferClaim(
@@ -676,6 +699,12 @@ export async function dispatchOwnerSmsOutbox(
         result.blocked += 1;
         continue;
       }
+    } else if (row.purpose === "tour_interest_followup") {
+      const transition = await db.rpc("begin_tour_interest_submission", {
+        p_outbox_id: row.id, p_worker: workerId, p_from: policy.fromNumber,
+      });
+      startError = transition.error;
+      started = transition.data === true;
     } else {
       const transition = await db
         .from("sms_outbox")
@@ -773,6 +802,27 @@ export async function dispatchOwnerSmsOutbox(
       await db.from("sms_delivery_attempts").update({ state: "pre_dispatch_failed", finished_at: new Date().toISOString() }).eq("id", attempt.id);
       result.blocked += 1;
       continue;
+    }
+
+    // Recheck after budget/credit awaits, at the last boundary before external
+    // submission. Cancellation already fences the earlier state transition;
+    // this also catches a new inbound, opt-out, booking or revoked grant.
+    if (row.purpose === "tour_interest_followup") {
+      const finalPolicy = await loadSendPolicy(db, {
+        managerUserId: row.manager_user_id, actorUserId: row.actor_user_id ?? row.manager_user_id,
+        recipientPhone: row.recipient_phone, recipientEmail: row.recipient_email, body: row.body,
+        sendClass: row.send_class, purpose: row.purpose, conversationKey: row.conversation_key,
+        propertyId: row.property_id, dedupeKey: row.dedupe_key, recipientTimezone: row.recipient_timezone,
+      });
+      if (!finalPolicy.allowed || finalPolicy.fromNumber !== policy.fromNumber) {
+        await finishCommsCredit(db, row.manager_user_id, creditKey, true);
+        await db.from("sms_outbox").update({ status: "blocked", blocked_reason: finalPolicy.allowed ? "work_number_changed" : finalPolicy.reason,
+          lease_owner: null, lease_expires_at: null, updated_at: new Date().toISOString() })
+          .eq("id", row.id).eq("lease_owner", workerId).eq("status", "submitting");
+        await db.from("sms_delivery_attempts").update({ state: "pre_dispatch_failed", finished_at: new Date().toISOString() }).eq("id", attempt.id);
+        result.blocked += 1;
+        continue;
+      }
     }
 
     const sent = await sendSms(row.recipient_phone, row.body, policy.fromNumber, { skipOptOutCheck: true, creditReservationKey: creditKey });

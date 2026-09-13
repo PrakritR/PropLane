@@ -40,6 +40,7 @@ import {
  */
 const SUBJECT_DIRECTIONS: Record<ReminderSubjectKind, TimingDirection[]> = {
   tour: ["before"],
+  tour_interest: ["after"],
   task: ["before", "after"],
   service_order: ["before"],
   work_order: ["before"],

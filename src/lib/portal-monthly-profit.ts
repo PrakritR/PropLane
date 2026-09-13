@@ -87,6 +87,16 @@ export function cashflowMetricValue(point: MonthlyCashflowPoint, metric: Cashflo
   return point[metric];
 }
 
+/** Last vs first in the visible window — colors the line, not the scrubbed point. */
+export function cashflowWindowDirection(values: number[]): "up" | "down" | "flat" {
+  if (values.length === 0) return "flat";
+  const first = values[0] ?? 0;
+  const last = values[values.length - 1] ?? 0;
+  if (last > first) return "up";
+  if (last < first) return "down";
+  return "flat";
+}
+
 /** Parse a "$1,200.00" balance label into a numeric dollar amount. */
 export function parseMoneyLabel(label: string): number {
   const n = Number(String(label).replace(/[^0-9.]/g, ""));

@@ -7,6 +7,7 @@ import { appendResidentPortalLoginInstructions } from "@/lib/resident-portal-log
 export type PortalMessageDeliveryResult = {
   ok: boolean;
   skipped?: boolean;
+  uncertain?: boolean;
   error?: string;
 };
 
@@ -53,11 +54,11 @@ export async function deliverPortalInboxMessage(input: {
     });
     const data = (await res.json().catch(() => ({}))) as { ok?: boolean; skipped?: boolean; error?: string };
     if (!res.ok || !data.ok) {
-      return { ok: false, error: data.error ?? "Could not deliver message." };
+      return { ok: false, uncertain: res.status >= 500 || res.ok, error: data.error ?? "Could not deliver message." };
     }
     return { ok: true, skipped: data.skipped };
   } catch {
-    return { ok: false, error: "Could not deliver message." };
+    return { ok: false, uncertain: true, error: "Could not deliver message." };
   }
 }
 

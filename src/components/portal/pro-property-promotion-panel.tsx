@@ -1,8 +1,8 @@
 "use client";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import {
   PORTAL_LIST_ADD_ICONS,
@@ -582,7 +582,23 @@ export function ManagerPropertyPromotionPanel({
 
   return (
     <>
-      <PortalPropertyDetailSection contentClassName="space-y-0">
+      <PortalRecordListSurface className="mt-0" onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
+        <>
+          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+            {selectedIds.size === 1 && selectedAssets[0] && promotionAssetCanEdit(selectedAssets[0], openEditAsset) ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="property-promotion-bulk-edit"
+                onClick={() => openEditAsset(selectedAssets[0]!)}
+              >
+                Edit promotion
+              </Button>
+            ) : null}
+          </div>
+        </>
+      ) : null}><PortalPropertyDetailSection contentClassName="space-y-0">
         {headerActionsExtra ? <div className="mb-3">{headerActionsExtra}</div> : null}
         {assets.length === 0 ? (
           <p className="px-1 py-2 text-sm text-muted">No promotions yet. Add a suggested default below.</p>
@@ -598,7 +614,7 @@ export function ManagerPropertyPromotionPanel({
             onEdit={openEditAsset}
           />
         )}
-      </PortalPropertyDetailSection>
+      </PortalPropertyDetailSection></PortalRecordListSurface>
 
       <div className="px-3 pt-4 max-md:px-2.5 sm:pt-5">
         <PromotionHouseNotesCard
@@ -718,23 +734,7 @@ export function ManagerPropertyPromotionPanel({
         floating bar, one click from a row you may have ticked by accident, is
         the wrong distance from a destructive action.
       */}
-      {selectedIds.size > 0 ? (
-        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
-          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
-            {selectedIds.size === 1 && selectedAssets[0] && promotionAssetCanEdit(selectedAssets[0], openEditAsset) ? (
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_BULK_BAR_BTN}
-                data-attr="property-promotion-bulk-edit"
-                onClick={() => openEditAsset(selectedAssets[0]!)}
-              >
-                Edit promotion
-              </Button>
-            ) : null}
-          </div>
-        </BulkActionBar>
-      ) : null}
+
     </>
   );
 }

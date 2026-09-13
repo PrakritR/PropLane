@@ -13,16 +13,7 @@ vi.mock("@/components/portal/pro-portal-settings-modal", () => ({
 }));
 
 describe("ManagerPropertyLeasePanel", () => {
-  /**
-   * Selection first, then the action.
-   *
-   * This tab used to show an always-on "Edit lease" button and no way to pick a
-   * row. It is now the house convention every list follows: a checkbox on each
-   * row, and the action in a floating dock that exists only while something is
-   * selected — so the button always says what it will act on. Delete stays in
-   * the editor, which is why the dock carries Edit alone.
-   */
-  it("selects a lease with a checkbox, then offers Edit lease in the dock", () => {
+  it("offers lease editing from that row’s menu", async () => {
     // A property with a real lease template. The default submission has NONE —
     // an empty list is a legitimate state — so a test built on it renders no
     // rows and can assert nothing about selecting one.
@@ -53,17 +44,15 @@ describe("ManagerPropertyLeasePanel", () => {
       />,
     );
 
-    // Nothing selected: Settings is the only action, and the dock is absent.
+    // Record editing appears only inside that record’s menu.
     expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Edit lease" })).toBeNull();
 
-    const boxes = screen.getAllByRole("checkbox");
-    expect(boxes.length).toBeGreaterThan(0);
-    fireEvent.click(boxes[0]!);
-
-    // One row selected: the dock appears carrying Edit lease, and only that.
-    expect(screen.getByRole("button", { name: "Edit lease" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /delete/i })).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Long-term lease" }), { key: "ArrowDown" });
+    expect(await screen.findByRole("menuitem", { name: "Edit lease" })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: /delete/i })).toBeNull();
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
 
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByTestId("lease-settings-modal")).toBeTruthy();

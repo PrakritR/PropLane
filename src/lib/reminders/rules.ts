@@ -34,6 +34,7 @@ import { normalizeTimings, parseTimingKey, timingSendAt } from "@/lib/reminders/
 
 export const REMINDER_SUBJECT_KINDS = [
   "tour",
+  "tour_interest",
   "task",
   "service_order",
   "work_order",
@@ -233,6 +234,7 @@ export const REMINDER_SUBJECT_META: Record<ReminderSubjectKind, ReminderSubjectM
     anchorLabel: "the application was started",
     counterpartyLabel: "applicant",
   },
+  tour_interest: { kind: "tour_interest", label: "Tour interest follow-up", anchorLabel: "your tour response", counterpartyLabel: "prospect" },
   application_post_tour: {
     kind: "application_post_tour",
     label: "Post-tour follow-ups",
@@ -342,6 +344,11 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
     inbox: true,
     email: true,
     sms: false,
+  },
+  tour_interest: {
+    enabled: false, leadMinutes: [1440], timings: ["after:1440"],
+    audience: { manager: false, counterparty: true, team: false }, teamUserIds: [],
+    inbox: true, email: false, sms: true,
   },
   application_post_tour: {
     enabled: true,
@@ -507,6 +514,11 @@ export function normalizeReminderSettings(raw: unknown): ReminderSettings {
   const rules = {} as ReminderRules;
   for (const kind of REMINDER_SUBJECT_KINDS) {
     rules[kind] = normalizeRule(rulesRaw[kind], DEFAULT_REMINDER_RULES[kind]);
+    if (kind === "tour_interest") rules[kind] = {
+      ...rules[kind], leadMinutes: [1440], timings: ["after:1440"],
+      audience: { manager: false, counterparty: true, team: false }, teamUserIds: [],
+      inbox: true, email: false, sms: true,
+    };
   }
   return { rules: migrateLegacyReminderRules(rules), quietHours: normalizeQuietHours(row.quietHours) };
 }

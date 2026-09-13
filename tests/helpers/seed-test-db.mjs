@@ -32,6 +32,7 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
+import { assertCompleteSeedAuthDirectory, seedOrphanProfileIds } from "./seed-orphan-profile-scope.mjs";
 import {
   assertTestProjectUrl,
   DEMO_WORKFLOW_RESIDENT_EMAILS,
@@ -1368,7 +1369,8 @@ try {
   // Business-tier test manager (`manager@test`) carries 20 live listings: the five
   // workflow demo homes plus fifteen scale portfolio rows (manager2 keeps its own
   // browse catalog so E2E browse flows stay isolated).
-  for (let i = 1; i <= 15; i += 1) {
+  const scalePropertyCount = Math.max(0, Math.min(15, Number(process.env.SEED_SCALE_PROPERTY_COUNT ?? 15) || 0));
+  for (let i = 1; i <= scalePropertyCount; i += 1) {
     catalog.push(buildManagerScalePortfolioProperty(i, managerUserId));
   }
 
@@ -2579,6 +2581,7 @@ try {
   ];
   const { data: allUsersData, error: allUsersErr } = await supabase.auth.admin.listUsers({ perPage: 1000 });
   if (allUsersErr) throw new Error(`listUsers(prune): ${allUsersErr.message}`);
+  assertCompleteSeedAuthDirectory(allUsersData?.users);
 
   // The prune's model — "the canonical set is the truth, everything else is
   // litter" — is right for a CI run against a disposable database and WRONG for
@@ -2651,11 +2654,15 @@ try {
   // email the same way so the admin Accounts view can never resurrect them.
   const { data: allProfiles, error: allProfilesErr } = await supabase.from("profiles").select("id, email");
   if (allProfilesErr) throw new Error(`select profiles(prune): ${allProfilesErr.message}`);
-  const orphanProfileIds = (allProfiles ?? [])
-    .filter((p) => !canonicalEmails.has((p.email ?? "").trim().toLowerCase()))
-    .map((p) => p.id);
+  // Never treat a non-canonical account as an orphan. Shared developers and
+  // other test runs retain all profile/role records unless pruning is requested.
+  const orphanProfileIds = seedOrphanProfileIds({
+    profiles: allProfiles ?? [], users: allUsersData?.users ?? [], canonicalEmails,
+    testAccountDomain: TEST_ACCOUNT_DOMAIN, pruneAllowed,
+  });
   if (orphanProfileIds.length) {
-    await must(supabase.from("profile_roles").delete().in("user_id", orphanProfileIds), "prune orphan profile_roles");
+    // These profiles have no auth user, so auth-user FKs already rule out role rows.
+    // Never delete roles before a profile deletion that may fail on another FK.
     await must(supabase.from("profiles").delete().in("id", orphanProfileIds), "prune orphan profiles");
     console.error(`Pruned ${orphanProfileIds.length} orphan profiles`);
   }

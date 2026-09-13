@@ -13,7 +13,7 @@ export const runtime = "nodejs";
 /** Reading every owned table for a large portfolio, then scrypt, is well past the default. */
 export const maxDuration = 60;
 
-export const DATA_EXPORT_WINDOW_MS = 10 * 60 * 1000;
+const DATA_EXPORT_WINDOW_MS = 10 * 60 * 1000;
 
 /**
  * `POST /api/portal/data-export` `{ password }` → the manager's own data as ONE encrypted

@@ -718,6 +718,7 @@ export const AdminInboxClient = forwardRef<
           <PortalInboxEmptyState title={emptyCopy} />
         ) : (
           <PortalInboxMessageTable
+            rowActionMenus
             rows={tableRows}
             primaryPartyHeader={fromOrToHeader}
             onMarkRead={effectiveTabId === "unopened" || tabId === "all" ? markRead : undefined}
@@ -790,7 +791,7 @@ export const AdminInboxClient = forwardRef<
                       variant="outline"
                       className={PORTAL_DETAIL_BTN}
                       onClick={() => {
-                        void restoreInboxMessageFromTrash(row.id).then((ok) => {
+                        return restoreInboxMessageFromTrash(row.id).then((ok) => {
                           if (ok) {
                             showToast("Restored.");
                             setExpandedId(null);
@@ -808,7 +809,7 @@ export const AdminInboxClient = forwardRef<
                       variant="outline"
                       className={`${PORTAL_DETAIL_BTN} !border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)]`}
                       onClick={() => {
-                        void permanentlyDeleteInboxMessage(row.id).then((ok) => {
+                        return permanentlyDeleteInboxMessage(row.id).then((ok) => {
                           if (ok) {
                             showToast("Deleted permanently.");
                             setExpandedId(null);
@@ -830,7 +831,7 @@ export const AdminInboxClient = forwardRef<
                   variant="outline"
                   className={PORTAL_DETAIL_BTN}
                   onClick={() => {
-                    void moveInboxMessageToTrash(row.id).then((ok) => {
+                    return moveInboxMessageToTrash(row.id).then((ok) => {
                       if (ok) {
                         showToast("Moved to trash.");
                         setExpandedId(null);
