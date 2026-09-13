@@ -867,7 +867,13 @@ export function ListingPricingSections({
 
       <section className="border-t border-border pt-6">{leaseDocument}</section>
 
-      <ManagerApplicationFeeWaiverCodesModal open={waiverCodesOpen} onClose={() => setWaiverCodesOpen(false)} />
+      {/* Mounted only while open: the modal reads `useAppUi` at its top level, so
+          rendering it unconditionally drags a provider requirement into every
+          tree that renders Pricing — which is a dependency this screen does not
+          otherwise have. */}
+      {waiverCodesOpen ? (
+        <ManagerApplicationFeeWaiverCodesModal open onClose={() => setWaiverCodesOpen(false)} />
+      ) : null}
     </>
   );
 }
