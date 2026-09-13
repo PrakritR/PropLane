@@ -114,7 +114,9 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   ],
 }));
 vi.mock("@/components/portal/pro-inbox", () => ({
-  ManagerInbox: () => <div data-testid="embedded-email-thread" />,
+  ManagerInbox: ({ controlledExpandedId }: { controlledExpandedId?: string }) => (
+    <div data-testid="embedded-email-thread" data-thread-id={controlledExpandedId} />
+  ),
 }));
 vi.mock("@/components/portal/pro-resident-detail-inbox", () => ({
   ResidentDirectChatPane: ({ onSent }: { onSent: () => void }) => (
@@ -412,7 +414,7 @@ describe("unread results do not cascade", () => {
       fireEvent(window, new Event("portal-inbox-changed"));
       await waitFor(() => expect(screen.queryByText("Dana Ramirez")).toBeNull());
       expect(screen.getByText("Second Unread")).toBeTruthy();
-      expect(screen.queryByTestId("embedded-email-thread")).toBeNull();
+      expect(screen.getByTestId("embedded-email-thread").getAttribute("data-thread-id")).toBe(EMAIL_INBOX.id);
       expect(second.unread).toBe(true);
     } finally {
       EMAIL_INBOX.unread = true;

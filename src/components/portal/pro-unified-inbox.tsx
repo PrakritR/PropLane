@@ -669,6 +669,13 @@ export function ManagerUnifiedInbox({
   });
 
   const selection = useMemo(() => (selectedKey ? parseUnifiedInboxKey(selectedKey) : null), [selectedKey]);
+  const selectionSourceExists = useCallback((key: string) => {
+    const current = parseUnifiedInboxKey(key);
+    if (!current) return false;
+    return current.channel === "email"
+      ? emailThreads.some((thread) => thread.id === current.threadId)
+      : smsResidents.some((resident) => smsConversationId(resident) === current.threadId);
+  }, [emailThreads, smsResidents]);
 
   /**
    * The selected row, matched on ANY key it folded in — a merged conversation
@@ -752,7 +759,7 @@ export function ManagerUnifiedInbox({
     setQuery("");
     if (!routeThreadId) {
       setMobileThreadOpen(false);
-      if (!inboxUsesDesktopSplit()) {
+      if (listSegment === "unread" || !inboxUsesDesktopSplit()) {
         setSelectedKey(null);
       }
     }
@@ -764,7 +771,11 @@ export function ManagerUnifiedInbox({
       // A deep-linked / just-created thread may land before its SMS row is in
       // the merged list. Keep the pending route alive until the row arrives.
       if (!routeThreadId) {
-        setSelectedKey(null);
+        setSelectedKey((cur) =>
+          listSegment === "unread" && cur && selectionSourceExists(cur)
+            ? cur
+            : null,
+        );
         setMobileThreadOpen(false);
       }
       return;
@@ -782,11 +793,12 @@ export function ManagerUnifiedInbox({
         return null;
       }
       if (cur && listRows.some((r) => r.key === cur)) return cur;
+      if (listSegment === "unread" && cur && selectionSourceExists(cur)) return cur;
       // Filtering must not open and mark each unread result read in succession.
       if (listSegment !== "unread" && inboxUsesDesktopSplit()) return listRows[0]!.key;
       return null;
     });
-  }, [isClient, listRows, listSegment, routeThreadId]);
+  }, [isClient, listRows, listSegment, routeThreadId, selectionSourceExists]);
 
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
@@ -926,6 +938,7 @@ export function ManagerUnifiedInbox({
         controlledExpandedId={selection.threadId}
         onControlledExpandedIdChange={(id) => {
           if (!id) {
+            if (listSegment === "unread" && selectedKey && selectionSourceExists(selectedKey)) return;
             setSelectedKey(null);
             setMobileThreadOpen(false);
             onRouteThreadChange?.(undefined);
