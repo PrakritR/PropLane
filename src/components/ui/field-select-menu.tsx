@@ -3,6 +3,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { useIsClient } from "@/hooks/use-is-client";
+import { useSafeAreaInsets } from "@/hooks/use-safe-area-insets";
 import { FIELD_SELECT_MENU_DATA_ATTR, fieldSelectEventTargetElement } from "@/components/ui/field-select-portal-interaction";
 import { trimmedText } from "@/lib/trimmed-text";
 
@@ -263,6 +264,8 @@ export function computePortalFilterDropdownRect(
     preferOpenDown?: boolean;
     /** `start` pins the panel's left edge to the trigger; default `end` right-aligns. */
     alignToTrigger?: "start" | "end";
+    /** Device safe-area / native bottom-nav insets, added on top of the base viewport padding. */
+    insets?: { top?: number; right?: number; bottom?: number; left?: number; bottomNav?: number };
   },
 ): FieldSelectMenuRect {
   const rect = button.getBoundingClientRect();
@@ -270,13 +273,19 @@ export function computePortalFilterDropdownRect(
   const viewportW = window.innerWidth;
   const fullBleed = options?.fullBleed ?? false;
   const viewportPadding = fullBleed ? 0 : 12;
+  // With no `insets` passed, every pad below is byte-identical to the old bare
+  // `viewportPadding` (all 12, or 0 when `fullBleed`).
+  const padTop = viewportPadding + (options?.insets?.top ?? 0);
+  const padRight = viewportPadding + (options?.insets?.right ?? 0);
+  const padBottom = viewportPadding + (options?.insets?.bottom ?? 0) + (options?.insets?.bottomNav ?? 0);
+  const padLeft = viewportPadding + (options?.insets?.left ?? 0);
   const preferredWidth = options?.widthPx ?? 22 * 16;
   const boundaryLeft = fullBleed
     ? 0
-    : Math.max(viewportPadding, options?.horizontalBoundary?.left ?? viewportPadding);
+    : Math.max(padLeft, options?.horizontalBoundary?.left ?? padLeft);
   const boundaryRight = fullBleed
     ? viewportW
-    : Math.min(viewportW - viewportPadding, options?.horizontalBoundary?.right ?? viewportW - viewportPadding);
+    : Math.min(viewportW - padRight, options?.horizontalBoundary?.right ?? viewportW - padRight);
   const availableWidth = Math.max(0, boundaryRight - boundaryLeft);
   const width = fullBleed ? viewportW : Math.min(preferredWidth, availableWidth);
 
@@ -296,8 +305,8 @@ export function computePortalFilterDropdownRect(
   }
 
   const gap = 8;
-  const spaceBelow = viewportH - rect.bottom - viewportPadding;
-  const spaceAbove = rect.top - viewportPadding;
+  const spaceBelow = viewportH - rect.bottom - padBottom;
+  const spaceAbove = rect.top - padTop;
   const preferOpenDown = options?.preferOpenDown ?? false;
   const openUp = preferOpenDown
     ? false
@@ -314,7 +323,7 @@ export function computePortalFilterDropdownRect(
     Math.max(Math.min(120, roomiest), spaceFor),
   );
   const top = openUp
-    ? Math.max(viewportPadding, rect.top - maxHeight - gap)
+    ? Math.max(padTop, rect.top - maxHeight - gap)
     : rect.bottom + gap;
 
   return { top, left, width, maxHeight, position: "fixed" };
@@ -629,6 +638,7 @@ export function useFieldSelectMenu({
 }) {
   const listId = useId();
   const isClient = useIsClient();
+  const insets = useSafeAreaInsets();
   const wrapRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [menuRect, setMenuRect] = useState<FieldSelectMenuRect | null>(null);
@@ -705,6 +715,7 @@ export function useFieldSelectMenu({
               fullBleed,
               preferOpenDown: true,
               alignToTrigger: filterDropdownAlign,
+              insets,
               horizontalBoundary: constrainToTitleBand
                 ? (button
                     .closest('[data-slot="portal-page-title-band"], [data-slot="portal-page-shell"]')
@@ -745,9 +756,13 @@ export function useFieldSelectMenu({
     updateMenuRect();
     window.addEventListener("resize", updateMenuRect);
     window.addEventListener("scroll", updateMenuRect, true);
+    // An iOS keyboard shrinks the visual viewport without firing `resize` on `window` —
+    // reposition so the panel shifts with it instead of hiding behind the keyboard.
+    window.visualViewport?.addEventListener("resize", updateMenuRect);
     return () => {
       window.removeEventListener("resize", updateMenuRect);
       window.removeEventListener("scroll", updateMenuRect, true);
+      window.visualViewport?.removeEventListener("resize", updateMenuRect);
     };
   }, [
     align,
@@ -759,6 +774,7 @@ export function useFieldSelectMenu({
     fullBleed,
     constrainToTitleBand,
     filterDropdownAlign,
+    insets,
   ]);
 
   useEffect(() => {
