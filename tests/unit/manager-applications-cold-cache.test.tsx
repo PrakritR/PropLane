@@ -191,7 +191,7 @@ describe("manager Applications tab — pending application on a cold property ca
     // before asserting an absence — otherwise "not present yet" passes as
     // "correctly filtered out".
     await waitFor(() =>
-      expect(document.querySelector('[data-attr="applications-list-add"]')).not.toBeNull(),
+      expect(document.querySelector('[data-attr="applications-add-top"]')).not.toBeNull(),
     );
     expect(screen.queryByText("Not Your Applicant")).toBeNull();
 
@@ -206,7 +206,7 @@ describe("manager Applications tab — pending application on a cold property ca
 
     const { container } = render(<ManagerApplications />);
     await waitFor(() =>
-      expect(document.querySelector('[data-attr="applications-list-add"]')).not.toBeNull(),
+      expect(document.querySelector('[data-attr="applications-add-top"]')).not.toBeNull(),
     );
     expect(screen.queryByText("Not Your Applicant")).toBeNull();
     dumpHtml("co-manager-before-hydrate", container.innerHTML);
