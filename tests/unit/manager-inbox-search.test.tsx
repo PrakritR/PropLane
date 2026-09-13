@@ -65,12 +65,16 @@ const THREADS = [
 ];
 
 const storageTest = vi.hoisted(() => ({
+  realStorage: false,
+  upsert: vi.fn((..._args: unknown[]) => Promise.resolve(true)),
   pendingInboxSync: null as Promise<typeof THREADS> | null,
   persistInbox: vi.fn(),
 }));
 
-vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
-  ...(await importOriginal<Record<string, unknown>>()),
+vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/portal-inbox-storage")>();
+  return ({
+  ...actual,
   collapsePersonInboxThreads: (threads: unknown[]) => threads,
   resolveCollapsedInboxThread: (id: string | null, collapsed: Array<{ id: string }>) => collapsed.find((t) => t.id === id) ?? null,
   inboxThreadCounterpartyEmail: (t: { email?: string }) => t.email ?? "",
@@ -83,16 +87,16 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   RESIDENT_INBOX_STORAGE_KEY: "resident-inbox",
   VENDOR_INBOX_STORAGE_KEY: "vendor-inbox",
   MANAGER_INBOX_STORAGE_KEY: "manager-inbox",
-  PORTAL_INBOX_CHANGED_EVENT: "portal-inbox-changed",
-  loadPersistedInbox: () => THREADS,
-  syncPersistedInboxFromServer: () => storageTest.pendingInboxSync ?? Promise.resolve(THREADS),
-  persistInbox: storageTest.persistInbox,
+  PORTAL_INBOX_CHANGED_EVENT: actual.PORTAL_INBOX_CHANGED_EVENT,
+  loadPersistedInbox: (...args: Parameters<typeof actual.loadPersistedInbox>) => storageTest.realStorage ? actual.loadPersistedInbox(...args) : THREADS,
+  syncPersistedInboxFromServer: (...args: Parameters<typeof actual.syncPersistedInboxFromServer>) => storageTest.realStorage ? actual.syncPersistedInboxFromServer(...args) : storageTest.pendingInboxSync ?? Promise.resolve(THREADS),
+  persistInbox: (...args: Parameters<typeof actual.persistInbox>) => storageTest.realStorage ? actual.persistInbox(...args) : storageTest.persistInbox(...args),
   persistInboxAwait: () => Promise.resolve(),
   invalidatePersistedInboxCache: () => {},
   inboxMutationInFlight: () => false,
   runInboxMutation: (fn: () => unknown) => fn(),
   stagePersistedInboxRows: () => {},
-  upsertPersistedInboxRows: () => {},
+  upsertPersistedInboxRows: (...args: Parameters<typeof actual.upsertPersistedInboxRows>) => storageTest.realStorage ? actual.upsertPersistedInboxRows(...args) : storageTest.upsert(...args),
   deleteInboxThreadIds: () => Promise.resolve(),
   inboxThreadSortMs: (id: string, t?: string) => {
     const m = String(id ?? "").match(/(\d{10,})/);
@@ -103,7 +107,8 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   inboxThreadManagerReplyPending: () => false,
   inboxThreadMessages: () => [],
   appendReplyToInboxThread: () => THREADS,
-}));
+});
+});
 
 vi.mock("@/hooks/use-manager-user-id", () => ({
   useManagerUserId: () => ({ userId: "mgr-1", email: "mgr@example.com", ready: true }),
@@ -126,7 +131,7 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
         : window.confirm(typeof req?.description === "string" ? req.description : "Are you sure?"),
     ),
 
-  useAppUi: () => ({ showToast: (msg: string) => showToast(msg) }),
+  useAppUi: () => ({ showToast }),
 }));
 
 vi.mock("@/components/portal/payment-schedule-ui", () => ({
@@ -147,7 +152,7 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   // and a hand-listed mock silently breaks every time the module gains an
   // export a component calls at import time.
   ...(await importOriginal<typeof import("@/lib/demo/demo-session")>()),
-  isDemoModeActive: () => true,
+  isDemoModeActive: () => !storageTest.realStorage,
 }));
 
 import { ManagerInbox } from "@/components/portal/pro-inbox";
@@ -157,6 +162,9 @@ afterEach(() => {
   showToast.mockClear();
   storageTest.persistInbox.mockClear();
   storageTest.pendingInboxSync = null;
+  storageTest.realStorage = false;
+  storageTest.upsert.mockClear();
+  vi.unstubAllGlobals();
 });
 
 function searchBox() {
@@ -164,6 +172,33 @@ function searchBox() {
 }
 
 describe("manager inbox search", () => {
+  it("persists only the opened thread through the real storage layer", async () => {
+    storageTest.realStorage = true;
+    const persisted = THREADS.map((row) => ({ ...row }));
+    persisted[3]!.unread = true;
+    const writes: Array<{ action: string; row?: { id: string; unread: boolean } }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).startsWith("/api/portal-inbox-threads")) {
+        if (!init?.method) return Response.json({ rows: persisted });
+        const body = JSON.parse(String(init.body));
+        writes.push(body);
+        // An unrelated mailbox row rejects a full replacement. Opening A must
+        // not depend on being able to rewrite every other conversation.
+        if (body.action === "replace") return Response.json({ error: "Record not found" }, { status: 404 });
+        if (body.action === "upsert") Object.assign(persisted.find((row) => row.id === body.row.id)!, body.row);
+        return Response.json({ ok: true });
+      }
+      return Response.json({});
+    }));
+
+    const { rerender } = render(<ManagerInbox tabId="all" controlledExpandedId={null} suppressListPane />);
+    rerender(<ManagerInbox tabId="all" controlledExpandedId="thr-1000000001" suppressListPane />);
+    await waitFor(() => expect(persisted[0]!.unread).toBe(false));
+    expect(persisted[3]!.unread).toBe(true);
+    expect(writes).toEqual([expect.objectContaining({ action: "upsert", row: expect.objectContaining({ id: "thr-1000000001", unread: false }) })]);
+    expect(screen.getByPlaceholderText("Write a reply…")).toBeTruthy();
+  });
+
   it("persists read-on-open after inbox hydration", async () => {
     let finishSync!: (rows: typeof THREADS) => void;
     storageTest.pendingInboxSync = new Promise((resolve) => {
@@ -175,19 +210,22 @@ describe("manager inbox search", () => {
 
     finishSync(THREADS);
     await waitFor(() =>
-      expect(storageTest.persistInbox).toHaveBeenCalledWith(
+      expect(storageTest.upsert).toHaveBeenCalledWith(
         "manager-inbox",
+        [expect.objectContaining({ id: "thr-1000000001", unread: false })],
         expect.arrayContaining([expect.objectContaining({ id: "thr-1000000001", unread: false })]),
       ),
     );
 
-    fireEvent(window, new Event("portal-inbox-changed"));
+    const readsBeforeUnread = storageTest.upsert.mock.calls.length;
+    fireEvent(window, new Event("axis-portal-inbox-changed"));
     await waitFor(() =>
       expect(storageTest.persistInbox).toHaveBeenLastCalledWith(
         "manager-inbox",
         expect.arrayContaining([expect.objectContaining({ id: "thr-1000000001", unread: true })]),
       ),
     );
+    expect(storageTest.upsert).toHaveBeenCalledTimes(readsBeforeUnread);
   });
 
   it("renders the search box when Communication owns the shell", () => {
