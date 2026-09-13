@@ -39,14 +39,15 @@
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
   /* Bleed: the page below hides the bottom of the frame. */
   margin-bottom: -1px;
-  max-height: 440px;
+  margin-top: -12px;
+  max-height: 520px;
 }
 .site-hero-phone {
   position: absolute;
-  right: -12px;
-  bottom: 14px; /* sits fully inside the hero — the section edge must not clip it */
+  right: -72px;
+  bottom: 36px;
   z-index: 3;
-  width: 168px;
+  width: 178px;
   overflow: hidden;
   border: 6px solid #111;
   border-radius: 28px;
@@ -65,8 +66,8 @@
   box-shadow: 0 14px 34px rgba(8, 9, 11, 0.28);
 }
 @media (max-width: 767px) {
-  .site-hero-browser { max-height: 260px; }
-  .site-hero-phone { width: 118px; right: -6px; bottom: 10px; border-width: 4px; border-radius: 20px; }
+  .site-hero-browser { max-height: 300px; margin-top: 0; }
+  .site-hero-phone { width: 118px; right: -20px; bottom: 10px; border-width: 4px; border-radius: 20px; }
   .site-hero-draft { display: none; }
 }
 @media (prefers-reduced-motion: no-preference) {
