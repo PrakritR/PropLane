@@ -414,33 +414,17 @@ export function ManagerScreenings({
           </Button>
         </div>
       ) : null}
-      {!embedded ? (
-        <div className="mb-2 sm:hidden">
-          <label className="relative block">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-            <input
-              type="search"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search applicants"
-              className="h-9 w-full rounded-xl border border-border bg-background px-3 pl-9 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
-              data-attr="screenings-search-mobile"
-            />
-          </label>
-        </div>
-      ) : null}
       <PortalListControlStack
         className="mb-2"
-        search={
-          embedded
-            ? {
-                value: searchQuery,
-                onChange: setSearchQuery,
-                placeholder: "Search screenings",
-                dataAttr: "screenings-search",
-              }
-            : undefined
-        }
+        variant="command"
+        stickyDestinations={false}
+        filterRow={embedded ? undefined : filterSheet}
+        search={{
+          value: searchQuery,
+          onChange: setSearchQuery,
+          placeholder: embedded ? "Search screenings" : "Search applicants",
+          dataAttr: "screenings-search",
+        }}
         activeFilterChips={
           propertyFilters.length > 0 || statusFilter !== "all" ? (
             <PortalActiveFilterChips
@@ -464,27 +448,14 @@ export function ManagerScreenings({
       {!embedded ? (
         <ManagerPortalPageShell
           title="Screenings"
-          titleInlineFilter={filterSheet}
-          titleAside={
-            <div className="flex flex-wrap items-center gap-2">
-              <label className="relative hidden sm:block">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-                <input
-                  type="search"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search"
-                  className="h-9 w-44 rounded-full border border-border bg-card pl-9 pr-3 text-sm lg:w-52"
-                  data-attr="screenings-search"
-                />
-              </label>
-              <Button type="button" variant="outline" className={PORTAL_HEADER_PRIMARY_ACTION_BTN} onClick={() => setPickerOpen(true)}>
-                <Plus className="mr-1 h-4 w-4" />
-                New screening
-              </Button>
-            </div>
-          }
+          hideTitleOnMobileNav
           compactFilterRow
+          primaryAction={
+            <Button type="button" variant="outline" className={PORTAL_HEADER_PRIMARY_ACTION_BTN} onClick={() => setPickerOpen(true)}>
+              <Plus className="mr-1 h-4 w-4" />
+              New screening
+            </Button>
+          }
         >
           {screeningsControls}
           <InboxTwoPane list={listPane} thread={detailPane} threadOpen={Boolean(selectedRow)} heightMode="viewport" />

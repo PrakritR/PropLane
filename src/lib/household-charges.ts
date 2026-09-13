@@ -12,6 +12,7 @@ import {
   monthlyRentFoldInTotal,
   selfBillingPresetFees,
 } from "@/lib/rent-fold-in";
+import { listingFeeCadence } from "@/lib/listing-fees";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { paymentAtSigningPriceLabel } from "@/lib/rental-application/listing-fees-display";
@@ -1984,6 +1985,11 @@ function holdingDepositFallbackChargeId(residentEmail: string, propertyId: strin
  * surface wants the listing's configured holding-deposit amount; no
  * production call site remains.
  */
+/** True when the listing has a holding deposit amount managers can request per applicant. */
+export function listingHoldingDepositAvailable(propertyId: string): boolean {
+  return listingHoldingDepositAmount(propertyId).amount > 0;
+}
+
 export function listingHoldingDepositAmount(propertyId: string): { amount: number; displayLabel: string } {
   if (!propertyId.trim()) {
     return { amount: 0, displayLabel: "—" };
@@ -3312,7 +3318,7 @@ export function recordSubmittedApplicationFeeCharge(row: DemoApplicantRow, manag
 
 /** Custom fees the manager set to bill once (frequency "one-time"). */
 function oneTimeCustomFees(sub: ManagerListingSubmissionV1 | null | undefined): ManagerCustomFeeRow[] {
-  return genuinelyCustomFees(sub).filter((fee) => fee.frequency === "one-time");
+  return genuinelyCustomFees(sub).filter((fee) => listingFeeCadence(fee) === "one-time");
 }
 
 type ApprovedChargeDraft = {

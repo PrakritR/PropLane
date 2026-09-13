@@ -13,10 +13,21 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-export function applicationsForResidentEmail(email: string): DemoApplicantRow[] {
+export function applicationsForResident(
+  email: string,
+  residentUserId?: string | null,
+): DemoApplicantRow[] {
   const e = normalizeEmail(email);
-  if (!e) return [];
-  return readManagerApplicationRows().filter((row) => normalizeEmail(row.email ?? "") === e);
+  const userId = residentUserId?.trim() ?? "";
+  if (!e && !userId) return [];
+  return readManagerApplicationRows().filter((row) => {
+    if (userId && row.residentUserId?.trim() === userId) return true;
+    return e ? normalizeEmail(row.email ?? "") === e : false;
+  });
+}
+
+export function applicationsForResidentEmail(email: string): DemoApplicantRow[] {
+  return applicationsForResident(email);
 }
 
 /**
@@ -24,8 +35,12 @@ export function applicationsForResidentEmail(email: string): DemoApplicantRow[] 
  * `managerUserId` is provided, only applications attributed to that manager
  * count.
  */
-export function residentHasPriorApplication(email: string, managerUserId?: string | null): boolean {
-  return applicationsForResidentEmail(email).some(
+export function residentHasPriorApplication(
+  email: string,
+  managerUserId?: string | null,
+  residentUserId?: string | null,
+): boolean {
+  return applicationsForResident(email, residentUserId).some(
     (row) =>
       !isInProgressApplicationRow(row) &&
       (managerUserId == null || row.managerUserId === managerUserId),
@@ -73,7 +88,7 @@ export function shouldWaiveApplicationFeeForResident(input: {
   if (!managerUserId) return false;
   if (input.chargePolicy === "every_time") return false;
   return (
-    residentHasPriorApplication(email, managerUserId) ||
+    residentHasPriorApplication(email, managerUserId, input.residentUserId) ||
     residentHasPaidApplicationFee(email, input.residentUserId, managerUserId)
   );
 }

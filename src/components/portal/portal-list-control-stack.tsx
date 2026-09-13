@@ -5,15 +5,14 @@ import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { DestinationNav, type DestinationNavItem } from "@/components/ui/destination-nav";
 import { HorizontalScrollCapture, HORIZONTAL_SCROLL_ATTR } from "@/components/portal/portal-horizontal-scroll";
-import { usePublishTitleActions } from "@/components/portal/portal-title-actions-slot";
+import { PortalTitleActionsHost, usePublishTitleActions } from "@/components/portal/portal-title-actions-slot";
 import { syncPortalMobileTopChrome } from "@/lib/portal-mobile-top-chrome";
 import { cn } from "@/lib/utils";
 
 /**
- * Appendix F — Communication-style list chrome (exactly three bands above data):
- * 1. Title + axis switch + actions — {@link ManagerPortalPageShell} / {@link PageHeader}
- * 2. Routed destination tabs with counts — `destinations` below
- * 3. Filter & sort + search — `filterRow` + `search`; active filters as `activeFilterChips`
+ * List command chrome — `variant="command"` is one horizontal toolbar (tabs · search ·
+ * filters · utilities · + Add). {@link ManagerPortalPageShell} may inject `chromeTitle` /
+ * `chromePrimaryAction` so the headline row is not duplicated.
  */
 export function PortalListControlStack({
   filterRow,
@@ -36,6 +35,10 @@ export function PortalListControlStack({
   /** `command` composes destinations, search, filters, and utilities into one adaptive surface. */
   variant = "stacked",
   actions,
+  chromeTitle,
+  chromeTitleCount,
+  chromePrimaryAction,
+  chromeHideTitleOnMobile = false,
 }: {
   /** Typically {@link PortalFilterSortSheet} (mobile sheet; optional desktop inline pills or panel modal). */
   filterRow?: ReactNode;
@@ -62,6 +65,12 @@ export function PortalListControlStack({
   variant?: "stacked" | "command";
   /** Low-frequency utility controls that follow search/filter in the command layout. */
   actions?: ReactNode;
+  /** Injected by {@link ManagerPortalPageShell} — title beside tabs on one command row. */
+  chromeTitle?: string;
+  chromeTitleCount?: number;
+  chromePrimaryAction?: ReactNode;
+  /** When true, visual title hides on phones (nav already names the section). */
+  chromeHideTitleOnMobile?: boolean;
 }) {
   const showDestinations = Boolean(destinationRow) || (destinations && destinations.length > 0);
   const showFindRow = Boolean(filterRow || search);
@@ -154,14 +163,53 @@ export function PortalListControlStack({
      * phone the tabs (and chips) are a horizontally scrolling sticky strip and
      * the search sits on its own line beneath — the same pieces, stacked.
      */
-    const showToolRow = Boolean(filterRow || search || actions);
     const chipsNode = activeFilterChips ? (
       <div className="min-w-0 shrink-0" data-attr="portal-list-active-filter-chips">
         {activeFilterChips}
       </div>
     ) : null;
-    const searchNode = search ? (
-      <div className="relative min-w-[6rem] flex-1">
+    const controlsNode = filterRow || actions ? (
+      <div
+        className={cn(
+          "flex shrink-0 flex-nowrap items-center gap-0.5 sm:gap-1",
+          "[&_button]:shrink-0 [&_a]:shrink-0",
+        )}
+        data-attr="portal-list-command-actions"
+      >
+        {filterRow}
+        {actions}
+      </div>
+    ) : null;
+    const titleNode = chromeTitle ? (
+      <h1
+        className={cn(
+          "shrink-0 text-base font-semibold leading-tight tracking-[-0.02em] text-foreground sm:text-lg",
+          chromeHideTitleOnMobile && "max-lg:sr-only",
+        )}
+        data-slot="portal-page-headline-title"
+      >
+        {chromeTitle}
+        {typeof chromeTitleCount === "number" ? (
+          <span className="ml-1.5 inline-flex rounded-full bg-accent px-2 py-0.5 text-xs font-semibold tabular-nums text-muted">
+            {chromeTitleCount}
+          </span>
+        ) : null}
+      </h1>
+    ) : null;
+    const chromeInjection = Boolean(chromeTitle || chromePrimaryAction);
+    const primaryNode = chromePrimaryAction ? (
+      <div className="flex shrink-0 items-center gap-1 sm:gap-1.5" data-portal-action-slot="">
+        <PortalTitleActionsHost className="flex items-center gap-1 sm:gap-1.5" />
+        {chromePrimaryAction}
+      </div>
+    ) : null;
+    const inlineSearchNode = search ? (
+      <div
+        className={cn(
+          "relative min-w-[6rem]",
+          chromeInjection ? "hidden min-w-0 flex-1 sm:flex" : "min-w-0 flex-1",
+        )}
+      >
         <Search
           className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted"
           strokeWidth={1.75}
@@ -177,62 +225,61 @@ export function PortalListControlStack({
           data-attr={search.dataAttr ?? "portal-list-search"}
         />
       </div>
-    ) : (
-      <div className="min-w-0 flex-1" aria-hidden />
-    );
-    const controlsNode = filterRow || actions ? (
-      <div
-        className={cn(
-          "flex shrink-0 flex-nowrap items-center gap-0.5 overflow-x-auto sm:gap-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
-          "[&_button]:shrink-0 [&_a]:shrink-0",
-        )}
-        data-attr="portal-list-command-actions"
-      >
-        {filterRow}
-        {actions}
-      </div>
     ) : null;
     return (
       <div
         ref={stickyDestinations ? destinationRef : undefined}
         className={cn(
           "shrink-0",
-          // Sticky the whole command chrome (tabs + Settings/actions), not only the
-          // destination strip — Settings lived outside the old sticky wrapper (PRP-389).
           stickyDestinations &&
             "sticky z-[38] bg-background/95 backdrop-blur-md [top:var(--portal-mobile-top-chrome,0px)]",
           className,
         )}
         data-slot="portal-list-control-stack"
         data-variant="command"
+        data-unified-chrome={chromeInjection ? "" : undefined}
         data-sticky={stickyDestinations ? "" : undefined}
       >
-        <div className="flex min-w-0 flex-col rounded-xl border border-border bg-card shadow-sm lg:flex-row lg:items-center lg:gap-2 lg:pr-2">
-          {showDestinations ? (
-            <HorizontalScrollCapture
-              className={cn(
-                "min-w-0 border-border px-1 pt-1 lg:shrink-0 lg:border-b-0 lg:py-1",
-                showToolRow && "max-lg:border-b",
-              )}
-            >
-              <div className="flex items-center gap-2" data-portal-list-destination-nav>
+        <HorizontalScrollCapture className="min-w-0 rounded-xl border border-border bg-card px-1 py-1 shadow-sm sm:px-1.5">
+          <div
+            className="flex min-w-0 flex-nowrap items-center gap-1.5 sm:gap-2"
+            data-attr="portal-list-command-toolbar"
+          >
+            {titleNode}
+            {showDestinations ? (
+              <div className="flex min-w-0 shrink-0 items-center gap-2" data-portal-list-destination-nav>
                 {destinationContent}
-                {/* Chips ride in the scrolling strip on phones, beside search on desktop. */}
-                <span className="lg:hidden">{chipsNode}</span>
               </div>
-            </HorizontalScrollCapture>
-          ) : null}
-          {showToolRow || chipsNode ? (
-            <div
-              className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 px-1.5 py-1 sm:gap-1.5 sm:px-2 lg:px-0 lg:py-0"
-              data-attr="portal-list-command-utilities"
-            >
-              {searchNode}
-              <span className="hidden lg:contents">{chipsNode}</span>
-              {controlsNode}
+            ) : null}
+            {inlineSearchNode}
+            {chipsNode}
+            {controlsNode}
+            {primaryNode}
+          </div>
+        </HorizontalScrollCapture>
+        {chromeInjection && search ? (
+          <div
+            className="mt-1.5 flex min-w-0 flex-nowrap items-center gap-1 rounded-xl border border-border bg-card px-2 py-1 shadow-sm sm:hidden"
+            data-attr="portal-list-command-search-row"
+          >
+            <div className="relative min-w-0 flex-1">
+              <Search
+                className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted"
+                strokeWidth={1.75}
+                aria-hidden
+              />
+              <Input
+                type="search"
+                value={search.value}
+                onChange={(e) => search.onChange(e.target.value)}
+                placeholder={search.placeholder}
+                aria-label={search.ariaLabel ?? search.placeholder}
+                className="portal-list-search h-10 min-h-10 w-full rounded-lg border-0 bg-transparent py-2 pl-8 pr-2 text-sm shadow-none outline-none focus:bg-[var(--secondary)]/50 focus:ring-0"
+                data-attr={search.dataAttr ?? "portal-list-search"}
+              />
             </div>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
       </div>
     );
   }

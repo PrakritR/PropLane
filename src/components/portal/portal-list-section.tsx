@@ -38,7 +38,7 @@ export function PortalListSectionShell({
     <ManagerPortalPageShell
       title={title}
       subtitle={subtitle}
-      titleAside={primaryAction}
+      primaryAction={primaryAction}
       filterRow={filterRow}
       hideTitleOnMobileNav
     >

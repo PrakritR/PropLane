@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { resolveApplicationFeeItemization, resolveApplicationFeeProperty } from "@/lib/application-fee-checkout.server";
 import { previewApplicationFeeWaiverCode } from "@/lib/application-fee-waiver";
 import { loadManagerApplicationSettings } from "@/lib/manager-application-settings";
+import { resolveApplicationFeeChargePolicy } from "@/lib/rental-application/listing-application-fee-policy";
 import { shouldWaiveApplicationFeeForResidentServer } from "@/lib/rental-application/application-policy.server";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -87,6 +88,10 @@ export async function POST(req: Request) {
     );
 
     const managerSettings = await loadManagerApplicationSettings(db, ownerUserId);
+    const chargePolicy = resolveApplicationFeeChargePolicy(
+      resolved.value.listing,
+      managerSettings.applicationFeeChargePolicy,
+    );
 
     const waiverCode = typeof body.waiverCode === "string" ? body.waiverCode.trim() : "";
     const waiver = waiverCode ? await previewApplicationFeeWaiverCode(db, ownerUserId, waiverCode, propertyId) : null;
@@ -100,7 +105,7 @@ export async function POST(req: Request) {
           managerUserId: ownerUserId,
           residentEmail: applicant.email,
           residentUserId: applicant.userId,
-          chargePolicy: managerSettings.applicationFeeChargePolicy,
+          chargePolicy,
         });
       }
     }
@@ -111,7 +116,7 @@ export async function POST(req: Request) {
       serviceFeeCents: itemization.serviceFeeCents,
       totalCents: itemization.totalCents,
       feePayer: itemization.feePayer,
-      chargePolicy: managerSettings.applicationFeeChargePolicy,
+      chargePolicy,
       repeatApplicantFeeWaived,
       applicationFeeOtherEnabled: managerSettings.applicationFeeOtherEnabled,
       applicationFeeOtherInstructions: managerSettings.applicationFeeOtherEnabled

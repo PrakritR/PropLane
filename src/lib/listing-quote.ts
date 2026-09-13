@@ -26,7 +26,9 @@
 import { parseMoneyAmount } from "@/lib/parse-money";
 import {
   listingFeeCadence,
+  listingFeeMonthlyEquivalent,
   listingFeesForWizard,
+  type ListingFeeCadence,
   type ListingFeeRow,
 } from "@/lib/listing-fees";
 import {
@@ -37,7 +39,9 @@ import {
   isPaymentDueAtSigning,
 } from "@/lib/listing-fee-scope";
 import { listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
-import { SHORT_TERM_LEASE_TERM, AIRBNB_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import { listingApplicationFeeRaw } from "@/lib/listing-application-fee";
+import { houseDefaultsForSubmission, roomInheritsDefault } from "@/lib/listing-house-defaults";
+import { LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM, AIRBNB_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import type { ManagerListingSubmissionV1, ManagerRoomSubmission } from "@/lib/manager-listing-submission";
 
 /** One line on the move-in receipt. */
@@ -50,7 +54,7 @@ export type ListingQuoteLine = {
   dueAtSigning: boolean;
 };
 
-export type ListingQuoteFee = { id: string; label: string; amount: number };
+export type ListingQuoteFee = { id: string; label: string; amount: number; cadence?: ListingFeeCadence };
 
 export type ListingQuote = {
   leaseTerm: string;
@@ -94,7 +98,11 @@ function signingKeyForFee(fee: ListingFeeRow): string {
 
 /** A fee a resident never gets back. Only these count against a move-in cap. */
 function isRefundable(fee: ListingFeeRow): boolean {
-  return fee.presetId === "security_deposit" || Boolean(fee.creditsTowardSecurity);
+  return (
+    fee.presetId === "security_deposit" ||
+    Boolean(fee.refundable) ||
+    Boolean(fee.creditsTowardSecurity)
+  );
 }
 
 /** Is this term priced per night / per stay rather than per month? */
@@ -103,10 +111,26 @@ export function isStayLeaseTerm(leaseTerm: string | null | undefined): boolean {
   return term === SHORT_TERM_LEASE_TERM || term === AIRBNB_LEASE_TERM;
 }
 
-function roomRentForTerm(room: ManagerRoomSubmission, leaseTerm: string): number {
-  const override = room.termPricing?.[leaseTerm]?.monthlyRent;
-  if (typeof override === "number" && Number.isFinite(override)) return override;
-  return room.monthlyRent || 0;
+/** Long-term is the base row; per-term overrides live on other lease tabs only. */
+function isBaseLeaseTerm(leaseTerm: string): boolean {
+  return leaseTerm === LONG_TERM_LEASE_TERM;
+}
+
+function roomRentForTerm(
+  room: ManagerRoomSubmission,
+  leaseTerm: string,
+  sub: ManagerListingSubmissionV1,
+): number {
+  if (!isBaseLeaseTerm(leaseTerm)) {
+    const override = room.termPricing?.[leaseTerm]?.monthlyRent;
+    if (typeof override === "number" && Number.isFinite(override) && override > 0) return override;
+  }
+  const defaults = houseDefaultsForSubmission(sub);
+  if (isBaseLeaseTerm(leaseTerm) && roomInheritsDefault(room, defaults, "monthlyRent") && defaults.monthlyRent > 0) {
+    return defaults.monthlyRent;
+  }
+  if (room.monthlyRent > 0) return room.monthlyRent;
+  return 0;
 }
 
 function roomDepositForTerm(
@@ -119,16 +143,35 @@ function roomDepositForTerm(
     const stay = (room.shortTermDeposit ?? "").trim();
     if (stay) return parseMoneyAmount(stay);
   }
-  const override = room.termPricing?.[leaseTerm]?.securityDeposit;
-  if ((override ?? "").trim()) return parseMoneyAmount(override ?? "");
+  if (!isBaseLeaseTerm(leaseTerm)) {
+    const override = room.termPricing?.[leaseTerm]?.securityDeposit;
+    if ((override ?? "").trim()) return parseMoneyAmount(override ?? "");
+  }
+  const defaults = houseDefaultsForSubmission(sub);
+  if (isBaseLeaseTerm(leaseTerm) && roomInheritsDefault(room, defaults, "securityDeposit") && (defaults.securityDeposit ?? "").trim()) {
+    return parseMoneyAmount(defaults.securityDeposit);
+  }
   if ((room.securityDeposit ?? "").trim()) return parseMoneyAmount(room.securityDeposit ?? "");
+  if ((defaults.securityDeposit ?? "").trim()) return parseMoneyAmount(defaults.securityDeposit);
   return parseMoneyAmount(sub.securityDeposit ?? "");
 }
 
-function roomUtilitiesForTerm(room: ManagerRoomSubmission, leaseTerm: string): number {
-  const override = room.termPricing?.[leaseTerm]?.utilitiesEstimate;
-  if ((override ?? "").trim()) return parseMoneyAmount(override ?? "");
-  return parseMoneyAmount(room.utilitiesEstimate ?? "");
+function roomUtilitiesForTerm(
+  room: ManagerRoomSubmission,
+  leaseTerm: string,
+  sub: ManagerListingSubmissionV1,
+): number {
+  if (!isBaseLeaseTerm(leaseTerm)) {
+    const override = room.termPricing?.[leaseTerm]?.utilitiesEstimate;
+    if ((override ?? "").trim()) return parseMoneyAmount(override ?? "");
+  }
+  const defaults = houseDefaultsForSubmission(sub);
+  if (isBaseLeaseTerm(leaseTerm) && roomInheritsDefault(room, defaults, "utilitiesEstimate") && (defaults.utilitiesEstimate ?? "").trim()) {
+    return parseMoneyAmount(defaults.utilitiesEstimate);
+  }
+  if ((room.utilitiesEstimate ?? "").trim()) return parseMoneyAmount(room.utilitiesEstimate ?? "");
+  if ((defaults.utilitiesEstimate ?? "").trim()) return parseMoneyAmount(defaults.utilitiesEstimate);
+  return 0;
 }
 
 /**
@@ -148,9 +191,9 @@ export function buildListingQuote(
   const roomId = room?.id ?? null;
 
   const baseMonthlyRent = room
-    ? roomRentForTerm(room, leaseTerm)
-    : (sub.entireHomeMonthlyRent ?? 0) || (rooms[0] ? roomRentForTerm(rooms[0], leaseTerm) : 0);
-  const monthlyUtilities = isStay ? 0 : room ? roomUtilitiesForTerm(room, leaseTerm) : 0;
+    ? roomRentForTerm(room, leaseTerm, sub)
+    : (sub.entireHomeMonthlyRent ?? 0) || (rooms[0] ? roomRentForTerm(rooms[0], leaseTerm, sub) : 0);
+  const monthlyUtilities = isStay ? 0 : room ? roomUtilitiesForTerm(room, leaseTerm, sub) : 0;
   const securityDeposit = room
     ? roomDepositForTerm(room, leaseTerm, sub, isStay)
     : parseMoneyAmount(sub.securityDeposit ?? "");
@@ -175,23 +218,28 @@ export function buildListingQuote(
       continue;
     }
     const cadence = listingFeeCadence(fee);
-    if (cadence === "monthly") {
-      const entry = { id: fee.id, label: feeLabel(fee), amount };
-      if (foldMonthlyIntoRent || fee.includeInRent) folded.push(entry);
+    if (cadence === "monthly" || cadence === "weekly" || cadence === "daily") {
+      const entry = { id: fee.id, label: feeLabel(fee), amount, cadence };
+      if (cadence === "monthly" && (foldMonthlyIntoRent || fee.includeInRent)) folded.push(entry);
       else recurring.push(entry);
       continue;
     }
     oneTime.push(fee);
   }
 
-  const applicationFee = parseMoneyAmount(sub.applicationFee ?? "");
+  const applicationFee = parseMoneyAmount(
+    listingApplicationFeeRaw(sub, isStay ? "short_term" : "standard"),
+  );
   if (applicationFee > 0) {
     applicationFees.unshift({ id: "application_fee", label: "Application fee", amount: applicationFee });
   }
 
   const foldedTotal = folded.reduce((sum, f) => sum + f.amount, 0);
   const monthlyRent = baseMonthlyRent + foldedTotal;
-  const recurringTotal = recurring.reduce((sum, f) => sum + f.amount, 0);
+  const recurringTotal = recurring.reduce(
+    (sum, f) => sum + listingFeeMonthlyEquivalent(f.amount, f.cadence ?? "monthly"),
+    0,
+  );
   const monthlyTotal = monthlyRent + monthlyUtilities + recurringTotal;
 
   const rentKey = roomId
@@ -228,12 +276,16 @@ export function buildListingQuote(
       dueAtSigning: isPaymentDueAtSigning(sub, "first_month_utilities", leaseTerm),
     });
   }
-  if (securityDeposit > 0) {
+  const securityDepositCredit = oneTime
+    .filter((fee) => fee.creditsTowardSecurity)
+    .reduce((sum, fee) => sum + amountForTerm(fee, isStay), 0);
+  const netSecurityDeposit = Math.max(0, securityDeposit - securityDepositCredit);
+  if (netSecurityDeposit > 0) {
     signingLines.push({
       key: "security_deposit",
       label: "Security deposit",
-      note: "Refundable",
-      amount: securityDeposit,
+      note: securityDepositCredit > 0 ? "Refundable (after other deposit credits)" : "Refundable",
+      amount: netSecurityDeposit,
       dueAtSigning: isPaymentDueAtSigning(sub, "security_deposit", leaseTerm),
     });
   }
@@ -273,7 +325,7 @@ export function buildListingQuote(
     signingLines,
     signingTotal,
     applicationFees,
-    securityDeposit,
+    securityDeposit: netSecurityDeposit,
     nonRefundableAtSigning,
   };
 }

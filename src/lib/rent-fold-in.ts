@@ -29,7 +29,8 @@ import {
   type LeaseRecurringFeeBillingContext,
 } from "@/lib/custom-lease-billing";
 import { listingPresetFeeAmountIfEnabled } from "@/lib/listing-fee-term-toggles";
-import type { ListingFeePresetId } from "@/lib/listing-fees";
+import { listingPresetFeeAppliesToLeaseType } from "@/lib/listing-fee-scope";
+import { listingFeeCadence, listingFeeMonthlyEquivalent, type ListingFeePresetId } from "@/lib/listing-fees";
 import type { ManagerCustomFeeRow, ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { listingFoldsAllMonthlyFeesIntoRent, type RentRuleAddress } from "@/lib/seattle-rent-rule";
@@ -74,7 +75,8 @@ export function selfBillingPresetFees(
   return (sub.customFees ?? []).flatMap((fee) => {
     const presetId = (fee as { presetId?: string }).presetId as ListingFeePresetId | undefined;
     if (!presetId || !SELF_BILLING_PRESET_FEE_IDS.has(presetId)) return [];
-    const matchesCadence = cadence === "one-time" ? fee.frequency === "one-time" : fee.frequency !== "one-time";
+    const feeCadence = listingFeeCadence(fee);
+    const matchesCadence = cadence === "one-time" ? feeCadence === "one-time" : feeCadence === "monthly";
     if (!matchesCadence) return [];
     const amount = listingPresetFeeAmountIfEnabled(sub, presetId);
     if (!(amount > 0)) return [];
@@ -82,14 +84,21 @@ export function selfBillingPresetFees(
   });
 }
 
-function monthlyGenuinelyCustomFees(
+function recurringGenuinelyCustomFees(
   sub: ManagerListingSubmissionV1 | null | undefined,
   filter: (fee: ManagerCustomFeeRow) => boolean,
 ): MonthlyFeeLine[] {
   return genuinelyCustomFees(sub)
-    .filter((fee) => fee.frequency !== "one-time")
+    .filter((fee) => {
+      const cadence = listingFeeCadence(fee);
+      return cadence === "monthly" || cadence === "weekly" || cadence === "daily";
+    })
     .filter(filter)
-    .map((fee) => ({ id: fee.id, label: fee.label?.trim() || "Custom fee", amount: parseMoneyAmount(fee.amount ?? "") }))
+    .map((fee) => {
+      const cadence = listingFeeCadence(fee);
+      const amount = listingFeeMonthlyEquivalent(parseMoneyAmount(fee.amount ?? ""), cadence);
+      return { id: fee.id, label: fee.label?.trim() || "Custom fee", amount };
+    })
     .filter((fee) => fee.amount > 0);
 }
 
@@ -135,17 +144,23 @@ export function monthlyRentFoldInLines(
 ): MonthlyFeeLine[] {
   if (!sub) return [];
   if (!listingFoldsAllMonthlyFeesIntoRent(sub, listingProperty)) {
-    return monthlyGenuinelyCustomFees(sub, (fee) => fee.includeInRent === true);
+    return recurringGenuinelyCustomFees(sub, (fee) => fee.includeInRent === true);
   }
   const lines: MonthlyFeeLine[] = [
-    ...monthlyGenuinelyCustomFees(sub, () => true),
+    ...recurringGenuinelyCustomFees(sub, () => true),
     ...selfBillingPresetFees(sub, "monthly"),
   ];
-  if (shouldBillMonthToMonthSurcharge(ctx)) {
+  if (
+    shouldBillMonthToMonthSurcharge(ctx) &&
+    listingPresetFeeAppliesToLeaseType(sub, "mtm_surcharge", ctx.leaseTerm)
+  ) {
     const mtm = surchargePresetLine(sub, "mtm_surcharge");
     if (mtm) lines.push(mtm);
   }
-  if (shouldBillCustomLeaseSurcharge(ctx)) {
+  if (
+    shouldBillCustomLeaseSurcharge(ctx, sub) &&
+    listingPresetFeeAppliesToLeaseType(sub, "custom_lease_surcharge", ctx.leaseTerm)
+  ) {
     const custom = surchargePresetLine(sub, "custom_lease_surcharge");
     if (custom) lines.push(custom);
   }
@@ -179,7 +194,7 @@ export function monthlyFeesBilledSeparately(
   const own = [
     // A fee folded into rent must NOT also bill separately — that is the one way this
     // feature could overcharge, so the exclusion lives next to the inclusion.
-    ...monthlyGenuinelyCustomFees(sub, (fee) => fee.includeInRent !== true),
+    ...recurringGenuinelyCustomFees(sub, (fee) => fee.includeInRent !== true),
     ...selfBillingPresetFees(sub, "monthly"),
   ];
   return recurringMonthlyFeesForLease(sub, own, ctx);

@@ -63,6 +63,10 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   DEMO_GUIDED_USER_ID: "demo-everything",
   resolveManagerScopeUserId: (id: string | null) => id,
 }));
+vi.mock("@/lib/household-charges", () => ({
+  findHoldingDepositCharge: () => undefined,
+  listingHoldingDepositAvailable: () => false,
+}));
 
 import { ManagerApplications } from "@/components/portal/pro-applications";
 

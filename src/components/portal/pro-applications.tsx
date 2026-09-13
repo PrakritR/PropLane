@@ -41,10 +41,9 @@ import { UploadedLeasePdfPreview } from "@/components/portal/uploaded-lease-pdf-
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
 import { ApplicationDetailReviewBody } from "@/components/portal/application-detail-review-body";
 import { downloadBackgroundCheckForApplication, ApplicationScreeningPanel } from "@/components/portal/application-screening-panel";
-import { ApplicationHoldingFeeModal } from "@/components/portal/application-holding-fee-box";
+import { ApplicationHoldingFeeToggle } from "@/components/portal/application-holding-fee-box";
 import { ManagerEditApplicationModal } from "@/components/portal/pro-edit-application-modal";
 import { ManagerApplicationOnBehalfModal } from "@/components/portal/pro-application-on-behalf-modal";
-import { PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { CheckrScreeningModal } from "@/components/portal/checkr-screening-modal";
@@ -576,10 +575,6 @@ export function ManagerApplications({
   const [checkrScreeningRowId, setCheckrScreeningRowId] = useState<string | null>(null);
   const [checkrScreeningCosignerId, setCheckrScreeningCosignerId] = useState<string | null>(null);
   const [cosignerSubmissionsTick, setCosignerSubmissionsTick] = useState(0);
-  // Holding fee lives in the detail's top-right action row, not inline in the
-  // body: it is an occasional manager action, and inline it pushed the
-  // applicant's own answers below the fold.
-  const [holdingFeeRowId, setHoldingFeeRowId] = useState<string | null>(null);
   const [checkrScreeningShowPicker, setCheckrScreeningShowPicker] = useState(false);
   const [screeningSubjectId, setScreeningSubjectId] = useState<string | null>(null);
   useEffect(() => {
@@ -818,10 +813,6 @@ export function ManagerApplications({
   );
   const canBulkApprove = selectedApprovableRows.length === 1;
   const canBulkReject = selectedRejectableRows.length > 0;
-  const canBulkHoldingFee =
-    singleListSelectedRow != null &&
-    singleListSelectedRow.bucket !== "rejected" &&
-    !isWithdrawnApplicationRow(singleListSelectedRow);
   const canBulkDelete = listSelectedCount > 0;
 
   const openDetailScreeningModal = useCallback((row: DemoApplicantRow, opts?: { showPackagePicker?: boolean; cosignerSubmissionId?: string }) => {
@@ -1426,31 +1417,6 @@ export function ManagerApplications({
       });
     }
 
-    if (row.bucket !== "rejected" && !isWithdrawnApplicationRow(row)) {
-      actions.push({
-        id: "holding-fee",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={actionBtnClass}
-            data-attr="application-holding-fee-open"
-            onClick={() => setHoldingFeeRowId(row.id)}
-          >
-            Holding fee
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem
-            data-attr="application-holding-fee-open"
-            onSelect={() => setHoldingFeeRowId(row.id)}
-          >
-            Holding fee
-          </DropdownMenuItem>
-        ),
-      });
-    }
-
     actions.push({
       id: "download",
       button: (
@@ -1634,6 +1600,15 @@ export function ManagerApplications({
           PropLane does not automatically refund it. Handle any refund directly with the applicant per your lease
           terms.
         </div>
+      ) : null}
+
+      {row.bucket !== "rejected" && !isWithdrawnApplicationRow(row) ? (
+        <ApplicationHoldingFeeToggle
+          row={{ ...row, managerUserId: userId ?? null }}
+          onChanged={() => {
+            void syncHouseholdChargesFromServer({ force: true, managerUserId: userId });
+          }}
+        />
       ) : null}
 
       {/*
@@ -1891,16 +1866,6 @@ export function ManagerApplications({
           }}
         />
       ) : null}
-      <ApplicationHoldingFeeModal
-        row={
-          holdingFeeRowId
-            ? scopedRows.find((r) => r.id === holdingFeeRowId) ??
-              (detailRow?.id === holdingFeeRowId ? detailRow : null)
-            : null
-        }
-        open={holdingFeeRowId !== null}
-        onClose={() => setHoldingFeeRowId(null)}
-      />
       {checkrScreeningModal}
     </>
   );
@@ -2074,14 +2039,6 @@ export function ManagerApplications({
               <PortalDataTableEmpty icon="application" message={applicationsListEmptyMessage(bucket)} />
             )
           }
-          add={{
-            label: "Add",
-            ariaLabel: "Add application on behalf",
-            icon: PORTAL_LIST_ADD_ICONS.application,
-            onClick: openAddApplication,
-            disabled: propertyOptions.length === 0,
-            dataAttr: "applications-list-add",
-          }}
           onBulkClear={clearSelection}
           bulkCount={listSelectedCount}
           bulkActions={
@@ -2130,17 +2087,6 @@ export function ManagerApplications({
                     onClick={() => setRejectPreviewRows(selectedRejectableRows)}
                   >
                     Reject
-                  </Button>
-                ) : null}
-                {canBulkHoldingFee && singleListSelectedRow ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={PORTAL_BULK_BAR_BTN}
-                    data-attr="applications-bulk-holding-fee"
-                    onClick={() => setHoldingFeeRowId(singleListSelectedRow.id)}
-                  >
-                    Holding fee
                   </Button>
                 ) : null}
                 {canBulkDownload && singleListSelectedRow ? (
