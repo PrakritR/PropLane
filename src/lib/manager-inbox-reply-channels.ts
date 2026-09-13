@@ -126,6 +126,17 @@ export function resolveManagerInboxReplyChannels(args: {
   return { viaEmail, viaSms };
 }
 
+/** User-visible reason when Text is disabled in Send via — missing phone vs deployment off. */
+export function inboxSmsUnavailableReason(args: {
+  smsAvailable: boolean;
+  smsOutboundEnabled: boolean;
+  smsUiEnabled: boolean;
+}): string | undefined {
+  if (args.smsAvailable) return undefined;
+  if (!args.smsUiEnabled || !args.smsOutboundEnabled) return "Texting is off for this conversation";
+  return "No phone number on this conversation";
+}
+
 /** Unified Communication composer: deliver on every channel the counterparty can receive. */
 export function resolvePropLaneUnifiedReplyChannels(args: {
   emailAvailable: boolean;
