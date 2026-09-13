@@ -94,14 +94,14 @@ describe("ManagerTaskList", () => {
   });
 
   it("renders the task list shell and add row", async () => {
-    render(<ManagerTaskList tabId="in-progress" basePath="/portal" />);
-    expect(screen.getByRole("heading", { name: "Tasks" })).toBeInTheDocument();
+    const { container } = render(<ManagerTaskList tabId="in-progress" basePath="/portal" />);
+    expect(container.querySelector('[data-slot="portal-page-headline"]')).toBeNull();
+    expect(container.querySelector('[data-slot="portal-page-headline-title"]')).toHaveTextContent("Tasks");
     expect(screen.getByRole("link", { name: /^Open/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Overdue/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /^Done/i })).toBeInTheDocument();
-    // The dashed ADD row is the only add path — the toolbar's Add button was
-    // the same action a second time on the same screen.
     await waitFor(() => {
+      expect(document.querySelector('[data-attr="manager-task-add-top"]')).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Add task" })).toBeInTheDocument();
     });
     expect(screen.queryByTestId("manager-task-list-header-add")).not.toBeInTheDocument();
