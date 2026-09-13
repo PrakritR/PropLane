@@ -15,7 +15,7 @@
 //  3. Rows must be labelled from their own folder, not the active tab, or a
 //     sent thread surfaced from Unopened is shown as if its recipient sent it.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 
 const THREADS = [
   {
@@ -64,6 +64,11 @@ const THREADS = [
   },
 ];
 
+const storageTest = vi.hoisted(() => ({
+  pendingInboxSync: null as Promise<typeof THREADS> | null,
+  persistInbox: vi.fn(),
+}));
+
 vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   collapsePersonInboxThreads: (threads: unknown[]) => threads,
@@ -80,8 +85,8 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   MANAGER_INBOX_STORAGE_KEY: "manager-inbox",
   PORTAL_INBOX_CHANGED_EVENT: "portal-inbox-changed",
   loadPersistedInbox: () => THREADS,
-  syncPersistedInboxFromServer: () => Promise.resolve(THREADS),
-  persistInbox: () => {},
+  syncPersistedInboxFromServer: () => storageTest.pendingInboxSync ?? Promise.resolve(THREADS),
+  persistInbox: storageTest.persistInbox,
   persistInboxAwait: () => Promise.resolve(),
   invalidatePersistedInboxCache: () => {},
   inboxMutationInFlight: () => false,
@@ -134,6 +139,7 @@ vi.mock("@/components/portal/pro-inbox-schedule-panel", () => ({
 
 vi.mock("@/lib/manager-inbox-contacts", () => ({
   buildManagerInboxLiveContacts: () => [],
+  inboxCounterpartyName: (_email: string, fallback: string | null) => fallback,
 }));
 
 vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
@@ -149,6 +155,8 @@ import { ManagerInbox } from "@/components/portal/pro-inbox";
 afterEach(() => {
   cleanup();
   showToast.mockClear();
+  storageTest.persistInbox.mockClear();
+  storageTest.pendingInboxSync = null;
 });
 
 function searchBox() {
@@ -156,6 +164,32 @@ function searchBox() {
 }
 
 describe("manager inbox search", () => {
+  it("persists read-on-open after inbox hydration", async () => {
+    let finishSync!: (rows: typeof THREADS) => void;
+    storageTest.pendingInboxSync = new Promise((resolve) => {
+      finishSync = resolve;
+    });
+
+    render(<ManagerInbox tabId="unopened" controlledExpandedId="thr-1000000001" />);
+    expect(storageTest.persistInbox).not.toHaveBeenCalled();
+
+    finishSync(THREADS);
+    await waitFor(() =>
+      expect(storageTest.persistInbox).toHaveBeenCalledWith(
+        "manager-inbox",
+        expect.arrayContaining([expect.objectContaining({ id: "thr-1000000001", unread: false })]),
+      ),
+    );
+
+    fireEvent(window, new Event("portal-inbox-changed"));
+    await waitFor(() =>
+      expect(storageTest.persistInbox).toHaveBeenLastCalledWith(
+        "manager-inbox",
+        expect.arrayContaining([expect.objectContaining({ id: "thr-1000000001", unread: true })]),
+      ),
+    );
+  });
+
   it("renders the search box when Communication owns the shell", () => {
     render(<ManagerInbox tabId="unopened" embeddedInCommunication externalTitleActions suppressCompose commBase="/portal/communication" />);
     expect(searchBox()).toBeTruthy();

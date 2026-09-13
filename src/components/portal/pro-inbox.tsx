@@ -1136,9 +1136,9 @@ export const ManagerInbox = forwardRef<
 
   // Opening a thread in the unified Communication list marks it read (dot clears).
   useEffect(() => {
-    if (!activeThread || activeThread.folder !== "inbox" || !activeThread.unread) return;
+    if (!inboxSynced || !activeThread || activeThread.folder !== "inbox" || !activeThread.unread) return;
     markReadSilent(activeThread.id);
-  }, [activeThread?.id]);
+  }, [activeThread?.id, inboxSynced]);
 
   // A draft per conversation — restored when the manager comes back to it.
   // The text and the conversation it belongs to travel as one value, so the
