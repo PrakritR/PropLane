@@ -27,7 +27,7 @@ is a `"draft"` value on the existing `ManagerPropertyRecordStatus`
   (final "Submit listing") re-upserts the SAME id `draft → live` and drops it
   from the drafts bucket — no orphaned duplicate. A brand-new wizard that was
   closed mid-way also publishes-in-place via the remembered id (`draftIdRef`
-  in `manager-add-listing-form.tsx`), never a second row.
+  in `pro-add-listing-form.tsx`), never a second row.
 - **That id is therefore a permanent public URL, so it is never minted from a
   blank name.** A save made before the manager typed a property name gets a
   neutral `mgr-listing-<rand>` id flagged `draftIdProvisional`, never a
@@ -44,7 +44,7 @@ is a `"draft"` value on the existing `ManagerPropertyRecordStatus`
   draft" in the list.
 - **Closing the wizard also saves — there is no "Save draft" button.** Every
   close affordance (footer Close, header ✕, backdrop click) routes through
-  `closeWizard` in `manager-add-listing-form.tsx`, which flushes any unsaved
+  `closeWizard` in `pro-add-listing-form.tsx`, which flushes any unsaved
   edits as a draft and only then calls `onClose`. While the wizard stays open,
   **background autosave** debounces (`LISTING_DRAFT_AUTOSAVE_DEBOUNCE_MS` in
   `manager-listing-draft-autosave.ts`) and persists in-progress work to Drafts
@@ -75,7 +75,7 @@ is a `"draft"` value on the existing `ManagerPropertyRecordStatus`
 - **Draft saving is unvalidated** (partial-friendly, on every step) and does NOT
   count toward the plan property limit; **publishing** runs full validation +
   the limit gate like any new listing — so the wizard's `skuTier`/`skuLoaded`
-  come from the one `/api/manager/subscription` load in `manager-properties.tsx`
+  come from the one `/api/manager/subscription` load in `pro-properties.tsx`
   (a null tier reads as "no limit", so Continue editing waits for `skuLoaded`).
   Saving also persists the wizard position (`draftStepIndex` /
   `draftMaxStepReached`) so resuming reopens on the saved step with the earlier
