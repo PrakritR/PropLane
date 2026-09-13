@@ -21,7 +21,7 @@ import "@/components/marketing/site/site.css";
 export function SiteHero() {
   return (
     <section
-      className="site-hero relative overflow-hidden bg-[#0b1120] text-white"
+      className="site-hero relative overflow-hidden bg-[#0b1120] pb-16 text-white sm:pb-20 lg:pb-24"
       aria-labelledby="site-hero-title"
       data-site-hero
     >
@@ -68,7 +68,7 @@ export function SiteHero() {
         </div>
 
         {/* Media: the real product, bleeding off the fold. */}
-        <div className="relative mx-auto mt-12 max-w-[920px] sm:mt-14">
+        <div className="relative mx-auto mt-8 max-w-[min(100%,980px)] overflow-visible sm:mt-10">
           <div className="site-hero-browser">
             <div className="flex items-center gap-1.5 border-b border-black/5 bg-[#f1f3f7] px-3 py-2 text-[11px] text-[#4a4e56]">
               <i className="h-2.5 w-2.5 rounded-full bg-[#d9dde5]" aria-hidden />
@@ -82,7 +82,7 @@ export function SiteHero() {
               width={1440}
               height={900}
               priority
-              sizes="(max-width: 920px) 100vw, 920px"
+              sizes="(max-width: 980px) 100vw, 980px"
               className="block h-auto w-full"
             />
           </div>
