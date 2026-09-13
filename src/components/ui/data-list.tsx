@@ -2,6 +2,7 @@
 
 import { MoreHorizontal } from "lucide-react";
 import { RecordActionContext } from "./record-action-context";
+import { RECORD_ACTION_TRIGGER_BUTTON_CLASS, RECORD_ACTION_TRIGGER_ICON_CLASS } from "./record-action-menu";
 import { RowSelectCheckbox } from "./row-select-checkbox";
 import { Fragment, useContext, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -101,10 +102,13 @@ function DataListOverflowMenu({ actions }: { actions: DataListRowAction[] }) {
       <DropdownMenuTrigger
         type="button"
         aria-label="Row actions"
-        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted transition hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className={cn(
+          "inline-flex items-center justify-center rounded-lg text-muted transition hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          RECORD_ACTION_TRIGGER_BUTTON_CLASS,
+        )}
         data-portal-row-ignore
       >
-        <MoreHorizontal className="h-5 w-5" aria-hidden />
+        <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         {actions.map((action) => (
