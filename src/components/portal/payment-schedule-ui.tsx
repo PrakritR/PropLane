@@ -54,10 +54,37 @@ import {
   scheduledReminderShortLabel,
   type ScheduledPaymentMessage,
 } from "@/lib/scheduled-payment-messages";
-import { combineScheduledPaymentMessages } from "@/lib/combined-payment-reminders";
+import { combineScheduledPaymentMessages, scheduledPaymentMessageChargeIds } from "@/lib/combined-payment-reminders";
 import { cn } from "@/lib/utils";
 
 export { formatFriendlyReminderSchedule };
+
+type ReminderHistoryOccurrence = {
+  id: string;
+  createdAt: string;
+  coveredChargeIds: string[];
+  channels: Array<{
+    channel: "email" | "sms" | "inbox";
+    effectiveStatus: string;
+    attempts: number;
+    submittedAt: string | null;
+    providerAcceptance: "confirmed" | "not_confirmed" | "not_applicable";
+    errorCode: string | null;
+  }>;
+};
+
+function reminderChannelStatusLabel(channel: ReminderHistoryOccurrence["channels"][number]): string {
+  switch (channel.effectiveStatus) {
+    case "submitted":
+      if (channel.channel === "inbox") return "saved";
+      return channel.providerAcceptance === "confirmed" ? "accepted by provider" : channel.channel === "sms" ? "queued" : "submitted";
+    case "claimed": return "sending";
+    case "failed": return "failed";
+    case "unknown": return "outcome unknown";
+    case "skipped": return "skipped";
+    default: return "pending";
+  }
+}
 
 /** Ledger link label — opens per-charge reminder editor. */
 export function summarizeChargeReminders(messages: ScheduledPaymentMessage[]): string {
@@ -227,6 +254,7 @@ export function ChargeRemindersModal({
   onClose,
   residentName,
   chargeTitle,
+  chargeId,
   dueDate,
   messages,
   scheduleSummary,
@@ -238,6 +266,7 @@ export function ChargeRemindersModal({
   onClose: () => void;
   residentName: string;
   chargeTitle: string;
+  chargeId: string;
   dueDate: string;
   messages: ScheduledPaymentMessage[];
   /** Default schedule label shown above the per-charge timeline. */
@@ -250,6 +279,46 @@ export function ChargeRemindersModal({
   const { showToast } = useAppUi();
   const [editingMessage, setEditingMessage] = useState<ScheduledPaymentMessage | null>(null);
   const [detailBusy, setDetailBusy] = useState(false);
+  const [capability, setCapability] = useState<{
+    status: "loading" | "ready" | "error";
+    email?: { available: boolean; reason: string | null };
+    sms?: { available: boolean; reason: string | null; fromNumber: string | null };
+  }>({ status: "loading" });
+  const [capabilityRefresh, setCapabilityRefresh] = useState(0);
+  const [history, setHistory] = useState<{ status: "loading" | "ready" | "error"; occurrences: ReminderHistoryOccurrence[] }>({ status: "loading", occurrences: [] });
+  const [historyRefresh, setHistoryRefresh] = useState(0);
+  useEffect(() => {
+    if (!open || !chargeId) return;
+    const controller = new AbortController();
+    queueMicrotask(() => setCapability({ status: "loading" }));
+    void fetch(`/api/portal/send-payment-reminder?chargeId=${encodeURIComponent(chargeId)}`, {
+      credentials: "include", cache: "no-store", signal: controller.signal,
+    }).then(async (res) => {
+      if (!res.ok) throw new Error("Capability unavailable");
+      return await res.json() as { email: { available: boolean; reason: string | null }; sms: { available: boolean; reason: string | null; fromNumber: string | null } };
+    }).then((value) => {
+      if (!controller.signal.aborted) setCapability({ status: "ready", ...value });
+    }).catch(() => {
+      if (!controller.signal.aborted) setCapability({ status: "error" });
+    });
+    return () => controller.abort();
+  }, [open, chargeId, capabilityRefresh]);
+  useEffect(() => {
+    if (!open || !chargeId) return;
+    const controller = new AbortController();
+    queueMicrotask(() => setHistory({ status: "loading", occurrences: [] }));
+    void fetch(`/api/portal/payment-reminder-history?chargeId=${encodeURIComponent(chargeId)}`, {
+      credentials: "include", cache: "no-store", signal: controller.signal,
+    }).then(async (res) => {
+      if (!res.ok) throw new Error("History unavailable");
+      return await res.json() as { occurrences: ReminderHistoryOccurrence[] };
+    }).then((value) => {
+      if (!controller.signal.aborted) setHistory({ status: "ready", occurrences: value.occurrences ?? [] });
+    }).catch(() => {
+      if (!controller.signal.aborted) setHistory({ status: "error", occurrences: [] });
+    });
+    return () => controller.abort();
+  }, [open, chargeId, historyRefresh]);
   const manageableFromProps = useMemo(
     () => messages.filter((m) => m.status === "scheduled" || m.status === "cancelled"),
     [messages],
@@ -302,9 +371,18 @@ export function ChargeRemindersModal({
             {residentName} · due {dueDate}
           </p>
           <p className="mt-2 text-xs text-muted">
-            Changes here apply only to this payment. Default timing: {scheduleSummary ?? "Standard"}.
+            {manageable.some((m) => scheduledPaymentMessageChargeIds(m).length > 1)
+              ? "A shared reminder updates every covered charge."
+              : "Changes here apply to this payment."} Default timing: {scheduleSummary ?? "Standard"}.
           </p>
         </div>
+        {capability.status === "loading" ? (
+          <p className="text-xs text-muted">Checking this workspace’s message channels…</p>
+        ) : capability.status === "error" ? (
+          <p className="text-xs text-red-600">Could not check message access. <button type="button" className="font-semibold underline" onClick={() => setCapabilityRefresh((n) => n + 1)}>Retry</button></p>
+        ) : capability.sms?.available && capability.sms.fromNumber ? (
+          <p className="text-xs text-muted">SMS from this workspace: {capability.sms.fromNumber}</p>
+        ) : null}
         {manageable.length === 0 ? (
           <p className="text-sm text-muted">No upcoming reminders for this charge.</p>
         ) : (
@@ -340,6 +418,9 @@ export function ChargeRemindersModal({
                         </span>
                       </div>
                       <span className="mt-1 block text-xs text-muted">Sends {formatSendDate(m.sendAt)}</span>
+                      {scheduledPaymentMessageChargeIds(m).length > 1 ? (
+                        <span className="mt-0.5 block text-[11px] text-muted">1 reminder · {scheduledPaymentMessageChargeIds(m).length} charges</span>
+                      ) : null}
                       <span className="mt-0.5 block text-[11px] font-medium text-primary">Update message</span>
                     </button>
                     <Button
@@ -360,6 +441,31 @@ export function ChargeRemindersModal({
             </ul>
           </div>
         )}
+        {history.status === "loading" ? (
+          <p className="text-xs text-muted">Loading delivery history…</p>
+        ) : history.status === "error" ? (
+          <p className="text-xs text-muted">Delivery history is unavailable. <button type="button" className="font-semibold text-primary underline" onClick={() => setHistoryRefresh((n) => n + 1)}>Retry</button></p>
+        ) : history.occurrences.length > 0 ? (
+          <div className="rounded-xl border border-border bg-card px-3 py-3">
+            <p className="text-xs font-semibold text-foreground">Delivery history</p>
+            {history.occurrences.map((occurrence) => (
+              <details key={occurrence.id} className="mt-2 border-t border-border pt-2 text-xs">
+                <summary className="cursor-pointer font-medium text-foreground">
+                  1 reminder · {occurrence.coveredChargeIds.length} charge{occurrence.coveredChargeIds.length === 1 ? "" : "s"} · {occurrence.channels.map((channel) => `${channel.channel === "inbox" ? "PropLane" : channel.channel.toUpperCase()} ${reminderChannelStatusLabel(channel)}`).join(" · ")}
+                </summary>
+                <ul className="mt-2 space-y-2 pl-3 text-muted">
+                  {occurrence.channels.map((channel) => (
+                    <li key={channel.channel}>
+                      <strong className="text-foreground">{channel.channel === "inbox" ? "PropLane" : channel.channel.toUpperCase()}</strong>: {reminderChannelStatusLabel(channel)}
+                      {channel.attempts > 1 ? ` · ${channel.attempts} attempts` : null}
+                      {channel.effectiveStatus === "unknown" ? " · held for review; no automatic retry" : null}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ))}
+          </div>
+        ) : null}
         {onOpenSettings ? (
           <button
             type="button"
@@ -388,6 +494,12 @@ export function ChargeRemindersModal({
           meta={editingScheduled.meta}
           source="automation"
           editable={editingMessage.status === "scheduled"}
+          emailAvailable={capability.status === "ready" && capability.email?.available === true}
+          smsAvailable={capability.status === "ready" && capability.sms?.available === true}
+          smsDisabledReason={capability.status === "loading" ? "Checking this workspace’s SMS capability…" : capability.status === "error" ? "Could not check SMS capability." : capability.sms?.reason ?? undefined}
+          smsSenderPhone={capability.status === "ready" ? capability.sms?.fromNumber ?? undefined : undefined}
+          deliverViaEmail={editingMessage.deliverViaEmail}
+          deliverViaSms={editingMessage.deliverViaSms}
           busy={detailBusy}
           presentation="detail"
           recipient={editingMessage.residentEmail}

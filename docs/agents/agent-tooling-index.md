@@ -101,7 +101,8 @@ Match PropLane visual language when mocking UI — copy from real components
 
 Paste into security-review, bugbot, explore:
 
-> Phases ①–② required: Linear ticket + Lavish plan approved before build.
+> Lavish plan approval is required before build. Prakrit's standing instruction
+> forbids creating a Linear ticket unless he explicitly asks for one.
 > Dev/test data only. Read `docs/agents/<area>.md` + `docs/portal-ui-system.md`
 > for UI. Keeper branch only; no promote to `prakrit` without captain.
 

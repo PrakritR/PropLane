@@ -1031,6 +1031,9 @@ export const ResidentInboxPanel = forwardRef<
       if (tabId === "schedule") {
         const message = scheduledRows.find((item) => item.id === row.id);
         const cancelled = message?.status === "cancelled";
+        if (message?.status === "sending") {
+          return <span className="text-xs font-medium text-amber-700">Sending / needs review</span>;
+        }
         return (
           <>
             {message?.status === "scheduled" ? (
@@ -1327,8 +1330,8 @@ export const ResidentInboxPanel = forwardRef<
                 busy={scheduledBusyId === item.id}
                 recipient={activeThread.email}
                 sendAt={item.sendAt}
-                onCancel={() => void cancelResidentScheduled(item.id)}
-                onSendNow={() => void sendResidentScheduledNow(item.id)}
+                onCancel={() => { if (item.deliveryStatus !== "sending") void cancelResidentScheduled(item.id); }}
+                onSendNow={() => { if (item.deliveryStatus !== "sending") void sendResidentScheduledNow(item.id); }}
               />
             ))}
           </InboxScheduledThreadList>

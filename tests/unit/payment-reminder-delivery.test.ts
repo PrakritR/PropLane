@@ -24,6 +24,12 @@ vi.mock("@/lib/stripe-household-charge-checkout.server", () => ({
   createHouseholdChargeCheckout: vi.fn(),
 }));
 
+vi.mock("@/lib/payment-reminder-occurrence.server", () => ({
+  paymentReminderOccurrenceId: (managerId: string, dedupId: string) => `payment:${managerId}:${dedupId}`,
+  claimPaymentReminderChannel: vi.fn().mockResolvedValue({ outcome: "claimed", token: "claim-1" }),
+  resolvePaymentReminderChannel: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("@/lib/observability/langfuse", () => ({
   traceSystemNotification: vi.fn(async (opts: { run: () => Promise<unknown> }) => opts.run()),
 }));
@@ -49,11 +55,12 @@ vi.mock("@/lib/notification-preferences", async (importOriginal) => {
 });
 
 import { sendPushToUser } from "@/lib/push-notifications.server";
-import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
 import { notifyPropertyScopedManagersFromAgent } from "@/lib/co-manager-notification-recipients.server";
 import { traceSystemNotification } from "@/lib/observability/langfuse";
 import { sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
 import { createHouseholdChargeCheckout } from "@/lib/stripe-household-charge-checkout.server";
+import { claimPaymentReminderChannel, resolvePaymentReminderChannel } from "@/lib/payment-reminder-occurrence.server";
+import { deliverPortalMessageThreadSide } from "@/lib/portal-inbox-delivery";
 import { deliverPaymentReminder, reminderHtmlFromText } from "@/lib/payment-reminder-delivery";
 import type { HouseholdCharge } from "@/lib/household-charges";
 
@@ -81,6 +88,9 @@ describe("deliverPaymentReminder", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
+    vi.mocked(claimPaymentReminderChannel).mockResolvedValue({ outcome: "claimed", token: "claim-1" });
+    vi.mocked(resolvePaymentReminderChannel).mockResolvedValue(undefined);
+    vi.mocked(sendResidentOutboundSms).mockResolvedValue({ sent: true, channel: "managed" });
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }),
@@ -110,6 +120,7 @@ describe("deliverPaymentReminder", () => {
   });
 
   it("sends push to resident profile when delivery succeeds", async () => {
+    vi.stubEnv("SMS_RUNTIME_ENABLED", "1");
     const upsert = vi.fn().mockResolvedValue({ error: null });
     const maybeSingle = vi.fn().mockResolvedValue({ data: { id: "user-res-1" } });
     const eq = vi.fn().mockReturnValue({ maybeSingle });
@@ -137,6 +148,11 @@ describe("deliverPaymentReminder", () => {
     });
 
     expect(result.sent).toBe(true);
+    expect(deliverPortalMessageThreadSide).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      scope: "axis_portal_inbox_manager_v1",
+      folder: "sent",
+      fallbackId: "payment_auto_reminder_sent_payment_reminder_test",
+    }));
     expect(sendPushToUser).toHaveBeenCalledWith("user-res-1", {
       title: "Rent due in 3 days",
       body: "Your rent for July is due in 3 days.",
@@ -296,6 +312,95 @@ describe("deliverPaymentReminder", () => {
     expect(sendResidentOutboundSms).toHaveBeenCalledWith(
       expect.objectContaining({ text: "(Rent due)\nYour July rent is due." }),
     );
+  });
+
+  it("resumes only a confirmed failed SMS channel after email and inbox submitted", async () => {
+    const statuses = new Map<string, string>();
+    vi.mocked(claimPaymentReminderChannel).mockImplementation(async (_db, _occurrence, channel) => {
+      const status = statuses.get(channel);
+      return status === "submitted"
+        ? { outcome: "submitted", token: null }
+        : { outcome: "claimed", token: `claim-${channel}` };
+    });
+    vi.mocked(resolvePaymentReminderChannel).mockImplementation(async (_db, _id, channel, _token, status) => {
+      statuses.set(channel, status);
+    });
+    vi.mocked(sendResidentOutboundSms)
+      .mockResolvedValueOnce({ sent: false, error: "recipient_opted_out" })
+      .mockResolvedValueOnce({ sent: true, channel: "managed" });
+    const upsert = vi.fn().mockResolvedValue({ error: null });
+    const maybeSingle = vi.fn().mockResolvedValue({
+      data: { id: "user-res-1", phone: "+12065550113", phone_verified_at: "2026-07-01T00:00:00.000Z" },
+    });
+    const from = vi.fn().mockImplementation((table: string) =>
+      table === "profiles" ? { select: () => ({ eq: () => ({ maybeSingle }) }) } : { upsert },
+    );
+    const args = {
+      db: { from } as never,
+      charge: makeCharge(),
+      managerId: "mgr-1",
+      dedupId: "payment_reminder_retry",
+      managerName: "Manager",
+      managerSmsFromNumber: "+12065550111",
+      apiKey: "test-key",
+      from: "PropLane <test@example.com>",
+      subject: "Rent due",
+      text: "Your July rent is due.",
+      html: "<p>test</p>",
+      slotLabel: "due_date",
+      managerDeliverViaSms: true,
+    };
+
+    const first = await deliverPaymentReminder(args);
+    const second = await deliverPaymentReminder(args);
+
+    expect(first).toEqual({ sent: true, error: "partial_delivery" });
+    expect(second).toEqual({ sent: true });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(sendResidentOutboundSms).toHaveBeenCalledTimes(2);
+    expect(sendResidentOutboundSms).toHaveBeenCalledWith(expect.objectContaining({
+      purpose: "payment_reminder",
+      dedupeKey: "payment:mgr-1:payment_reminder_retry:sms",
+    }));
+    const aliases = upsert.mock.calls.filter((call) => Array.isArray(call[0]));
+    expect(aliases[0]?.[0]?.[0]?.row_data.deliveryComplete).toBe(false);
+    expect(aliases[1]?.[0]?.[0]?.row_data.deliveryComplete).toBe(true);
+  });
+
+  it("holds an unknown email outcome instead of submitting it again", async () => {
+    const statuses = new Map<string, string>();
+    vi.mocked(claimPaymentReminderChannel).mockImplementation(async (_db, _occurrence, channel) => {
+      const status = statuses.get(channel);
+      return status ? { outcome: status, token: null } : { outcome: "claimed", token: `claim-${channel}` };
+    });
+    vi.mocked(resolvePaymentReminderChannel).mockImplementation(async (_db, _id, channel, _token, status) => {
+      statuses.set(channel, status);
+    });
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("connection reset")));
+    const upsert = vi.fn().mockResolvedValue({ error: null });
+    const maybeSingle = vi.fn().mockResolvedValue({ data: null });
+    const from = vi.fn().mockImplementation((table: string) =>
+      table === "profiles" ? { select: () => ({ eq: () => ({ maybeSingle }) }) } : { upsert },
+    );
+    const args = {
+      db: { from } as never,
+      charge: makeCharge(),
+      managerId: "mgr-1",
+      dedupId: "payment_reminder_unknown",
+      managerName: "Manager",
+      managerSmsFromNumber: "",
+      apiKey: "test-key",
+      from: "PropLane <test@example.com>",
+      subject: "Rent due",
+      text: "Your July rent is due.",
+      html: "<p>test</p>",
+      slotLabel: "due_date",
+      managerDeliverViaInbox: false,
+    };
+    await deliverPaymentReminder(args);
+    await deliverPaymentReminder(args);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(statuses.get("email")).toBe("unknown");
   });
 
   it("escapes HTML in reminder bodies", () => {

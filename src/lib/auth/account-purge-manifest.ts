@@ -477,6 +477,11 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    table: "scheduled_inbox_channel_deliveries",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
     table: "portal_scheduled_inbox_message_records",
     phase: 2,
     manager: { ids: ["manager_user_id"] },
@@ -494,6 +499,12 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
     resident: { emails: ["recipient_email"] },
     vendor: { emails: ["recipient_email"] },
+  },
+  {
+    table: "payment_reminder_occurrences",
+    phase: 2,
+    manager: { ids: ["manager_user_id"] },
+    resident: { emails: ["recipient_email"] },
   },
   {
     table: "portal_outbound_mail_records",
@@ -743,6 +754,8 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
  * entry here as a decision; an unlisted table is a gap.
  */
 export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
+  payment_reminder_channel_deliveries: "Child of payment_reminder_occurrences; deleted by cascade.",
+  payment_reminder_channel_coverage: "Child of payment_reminder_occurrences; deleted by cascade.",
   comms_credit_policy: "Global credit-policy cutover timestamp; contains no account data.",
   account_recovery_retired_source_keys: "Hashes of obsolete physical file paths; stop delayed uploads after logical recovery.",
   account_recovery_objects: "Private retained file generations and active logical-path mappings; lifecycle-managed.",

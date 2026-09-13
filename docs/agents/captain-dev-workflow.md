@@ -3,46 +3,47 @@
 **Prakrit's pipeline.** Short copy for agents: [`AGENTS-prakrit.md`](AGENTS-prakrit.md).
 Akhil's agents skip this unless he asks: [`AGENTS-akhil.md`](AGENTS-akhil.md).
 
-The captain reviews plans in **Lavish** before any build. Share **`ticket.md`**
-with friends via `docs/share/proplane-collaborator-workflow.md`.
+The captain reviews plans in **Lavish** before any build. Linear tickets are
+off by default; create one only when Prakrit explicitly asks for it.
 
 ## The three gates (always in order)
 
 ```
-① TICKET  →  ② PLAN + SHARE  →  ③ EXECUTE  →  ④ REVIEW  →  ⑤ PROMOTE
+① LAVISH PLAN  →  ② ITERATE  →  ③ EXECUTE  →  ④ REVIEW  →  ⑤ PROMOTE
 ```
 
 | Phase | Agent does | Captain does |
 | --- | --- | --- |
-| **① Ticket** | File Linear issue from chat | Skim **PRP-###** in Linear |
-| **② Plan + share** | Lavish `plan.html` + optional `ticket.md` | Review Lavish; share `ticket.md` if needed |
+| **① Plan** | Create a standalone Lavish `plan.html` | Review the interactive plan |
+| **② Iterate** | Apply feedback to the same artifact and session | Annotate, chat, and explicitly approve build when ready |
 | **③ Execute** | Build on keeper branch; wire MCP/tools | — |
 | **④ Review** | Test sandbox port; summarize | Review localhost + diff |
 | **⑤ Promote** | Push keeper branch; captain runs `ship:to-prakrit` + main ladder | Approve integration; verify :3000 on review route |
 
-**Do not skip ① or ②** unless the captain says **"no ticket"** or **"skip plan"**
-(hotfix only).
+**Do not skip ① or ②** unless the captain explicitly says **"skip plan"** or
+**"just do it"** for that task. A ticket is not part of the default path.
 
 **Visual workflow board:** `npm run lavish:workflow`
 
 ---
 
-## ① + ② Ticket and plan (preferred one-shot)
+## ① + ② Standalone plan and review
 
 ```bash
-npm run workflow:plan -- --chat "<captain message>"
+npm run lavish:plan -- --title "<task>" --summary "<captain request>"
 ```
 
-Creates **PRP-###**, scaffolds `.lavish/plans/PRP-###-slug/plan.html`, links the
-plan on the Linear ticket, opens Lavish. **No product code** until approval.
+This scaffolds `.lavish/plans/PLAN-…/plan.html` without a ticket. Fill the
+scaffold, open the real Lavish review session, and attach the feedback poll.
+**No product code** until explicit approval.
 
-**Existing ticket:**
+**When Prakrit explicitly names an existing ticket:**
 
 ```bash
-npm run workflow:plan -- --ticket PRP-### --title "..." --summary "..." --image /path.png
+npm run lavish:plan -- --id PRP-### --title "..." --summary "..." --image /path.png
 ```
 
-**Ticket only** (plan later): `npm run linear:ticket -- --chat "…"`
+Create a new ticket only when Prakrit explicitly requests it.
 
 **Priority when filing** (auto unless you pass `--priority 1-4`):
 
@@ -59,7 +60,7 @@ UI polish is **Low** unless the screen is unusable. Full matrix + backlog sort o
 Manual enrich + poll:
 
 1. `npx -y lavish-axi playbook plan` (and `comparison` / `diagram` if needed).
-2. **Images:** `--image` on `workflow:plan` or `lavish:plan` (stored in `assets/`).
+2. **Images:** `--image` on `lavish:plan` (stored in `assets/`).
 3. `npm run lavish:poll` — **mandatory** on every agent turn while `.lavish/active-session.json` exists.
 4. **Stop** until captain says **approved — build**.
 
@@ -111,9 +112,8 @@ Commit and push **only** the pane's keeper branch.
 2. **`npm run sandbox:open -- </route>`** — mandatory before handoff; opens browser + records `.proplane-review-path` (`docs/agents/sandbox-open-review.md`).
 3. Happy path + edge cases (`docs/ship-gate.md`).
 4. Targeted `npm run test:unit`; smoke e2e when UI/routes changed.
-5. Linear comment: commit SHA + what was tested + Review URL. When the fix covers
-   the **whole** ticket and `tsc` + unit are green on this tip, mark **Done**.
-   Do not move issues back to Backlog after a peer marked them Done for a verified tip.
+5. Report commit SHA, tests, and Review URL in the handoff. Update Linear only
+   when Prakrit pointed this work at an existing ticket.
 
 ```bash
 npm run linear:comment -- --ticket PRP-### --sha <commit> --lane <keeper>
@@ -148,9 +148,9 @@ URL (QA) before a live ship.
 | What | Path / command |
 | --- | --- |
 | Workflow board | `docs/lavish/captain-workflow.html` → `npm run lavish:workflow` |
-| Per-ticket folder | `.lavish/plans/PRP-###-slug/` (`plan.html`, `ticket.md`, `assets/`) |
-| One-shot ticket+plan | `npm run workflow:plan` |
-| Ticket export | `npm run linear:export` |
+| Plan folder | `.lavish/plans/PLAN-…-slug/` (`plan.html`, `assets/`) |
+| Standalone plan | `npm run lavish:plan` |
+| Existing ticket export, when requested | `npm run linear:export` |
 | Collaborator guide | `docs/share/proplane-collaborator-workflow.md` |
 | MCP index | `docs/agents/agent-tooling-index.md` |
 | Linear folders | `docs/linear-ticket-system.md` |

@@ -14,6 +14,12 @@ import { notifyPropertyScopedManagersFromAgent } from "@/lib/co-manager-notifica
 import { resolveShareableAppOrigin } from "@/lib/app-url";
 import { traceSystemNotification } from "@/lib/observability/langfuse";
 import { createHouseholdChargeCheckout } from "@/lib/stripe-household-charge-checkout.server";
+import {
+  claimPaymentReminderChannel,
+  paymentReminderOccurrenceId,
+  resolvePaymentReminderChannel,
+  type PaymentReminderChannel,
+} from "@/lib/payment-reminder-occurrence.server";
 
 type ServiceDb = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -50,7 +56,35 @@ export async function deliverPaymentReminder(input: {
   if (!isUnpaidHouseholdCharge(charge)) {
     return { sent: false, error: "charge_paid" };
   }
+  if (!managerId) return { sent: false, error: "manager_missing" };
+  const ownerManagerId = managerId;
   const residentLower = charge.residentEmail.trim().toLowerCase();
+  const dedupEntries = [{ dedupId, chargeId: charge.id }, ...(input.bundledDedupEntries ?? [])];
+  const occurrence = {
+    id: paymentReminderOccurrenceId(ownerManagerId, dedupId),
+    managerUserId: ownerManagerId,
+    recipientEmail: residentLower,
+    chargeIds: [...new Set(dedupEntries.map((entry) => entry.chargeId))],
+    dedupIds: [...new Set(dedupEntries.map((entry) => entry.dedupId))],
+    subject,
+    body: text,
+  };
+  const states = new Map<PaymentReminderChannel, string>();
+  const claim = async (channel: PaymentReminderChannel) => {
+    const result = await claimPaymentReminderChannel(db, occurrence, channel);
+    states.set(channel, result.outcome);
+    return result;
+  };
+  const resolve = async (
+    channel: PaymentReminderChannel,
+    token: string,
+    status: "submitted" | "failed" | "unknown" | "skipped",
+    providerReference?: string | null,
+    errorMessage?: string | null,
+  ) => {
+    await resolvePaymentReminderChannel(db, occurrence.id, channel, token, status, providerReference, errorMessage);
+    states.set(channel, status);
+  };
 
   // Resolve the resident's account + saved preferences once. Account-less
   // residents (no profile row) fall back to the category default (email ON,
@@ -78,35 +112,50 @@ export async function deliverPaymentReminder(input: {
 
   let emailSent = false;
   if (apiKey && emailAllowed) {
-    try {
-      const res = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ from, to: [residentLower], subject, text, html }),
-      });
-      emailSent = res.ok;
-      // Soft-fail: still write Axis inbox + SMS when Resend rejects the address.
-    } catch {
-      emailSent = false;
+    const emailClaim = await claim("email");
+    if (emailClaim.outcome === "submitted") {
+      emailSent = true;
+    } else if (emailClaim.outcome === "claimed" && emailClaim.token) {
+      try {
+        const res = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ from, to: [residentLower], subject, text, html }),
+        });
+        if (res.ok) {
+          const response = await res.json().catch(() => null) as { id?: string } | null;
+          await resolve("email", emailClaim.token, "submitted", response?.id ?? null);
+          emailSent = true;
+        } else {
+          // Server errors can follow an accepted request. Hold for reconciliation.
+          await resolve("email", emailClaim.token, res.status >= 500 ? "unknown" : "failed", null, `resend_http_${res.status}`);
+        }
+      } catch (error) {
+        // Network timeouts do not prove non-submission. Never retry them blindly.
+        await resolve("email", emailClaim.token, "unknown", null, error instanceof Error ? error.message : String(error));
+      }
     }
   }
 
-  const ts = Date.now();
-  const rand = crypto.randomUUID().slice(0, 8);
   const when = formatPacificDateTime(new Date());
   const preview = text.slice(0, 100).replace(/\n/g, " ");
   const managerEmail = from.match(/<([^>]+)>/)?.[1] ?? from;
 
   let inboxWritten = false;
-  try {
-    if (inboxAllowed) {
+  let inboxWrittenNow = false;
+  if (inboxAllowed && residentUserId) {
+    const inboxClaim = await claim("inbox");
+    if (inboxClaim.outcome === "submitted") {
+      inboxWritten = true;
+    } else if (inboxClaim.outcome === "claimed" && inboxClaim.token) {
+      try {
       await deliverPortalMessageThreadSide(db, {
         scope: "axis_portal_inbox_resident_v1",
         folder: "inbox",
         ownerUserId: residentUserId,
         participantEmail: residentLower,
         otherPartyEmail: managerEmail.trim().toLowerCase(),
-        fallbackId: `payment_auto_reminder_inbox_${ts}_${rand}`,
+        fallbackId: `payment_auto_reminder_inbox_${dedupId}`,
         fromName: managerName,
         subject,
         body: text,
@@ -115,21 +164,13 @@ export async function deliverPaymentReminder(input: {
         unread: true,
         outbound: false,
       });
-      inboxWritten = true;
-    }
-  } catch {
-    /* non-critical */
-  }
-
-  try {
-    if (managerId && process.env.SMS_RUNTIME_ENABLED?.trim() !== "1") {
       await deliverPortalMessageThreadSide(db, {
         scope: "axis_portal_inbox_manager_v1",
         folder: "sent",
         ownerUserId: managerId,
         participantEmail: null,
         otherPartyEmail: residentLower,
-        fallbackId: `payment_auto_reminder_sent_${ts}_${rand}`,
+        fallbackId: `payment_auto_reminder_sent_${dedupId}`,
         fromName: managerName,
         subject,
         body: text,
@@ -138,43 +179,23 @@ export async function deliverPaymentReminder(input: {
         unread: false,
         outbound: true,
       });
-    }
-  } catch {
-    /* non-critical */
-  }
-
-  const dedupEntries = [{ dedupId, chargeId: charge.id }, ...(input.bundledDedupEntries ?? [])];
-
-  try {
-    const sentAt = new Date().toISOString();
-    await db.from("portal_outbound_mail_records").upsert(
-      dedupEntries.map((entry) => ({
-        id: entry.dedupId,
-        recipient_email: residentLower,
-        subject,
-        channel: "email",
-        row_data: {
-          id: entry.dedupId,
-          to: residentLower,
-          subject,
-          body: text,
-          sentAt,
-          emailSent,
-          chargeId: entry.chargeId,
-          slot: slotLabel,
-        },
-      })),
-      { onConflict: "id" },
-    );
-  } catch {
-    if (!emailSent && !apiKey) {
-      return { sent: false, error: "Could not record the reminder send." };
+      await resolve("inbox", inboxClaim.token, "submitted");
+      inboxWritten = true;
+      inboxWrittenNow = true;
+      } catch (error) {
+        // The thread write may have committed before its result was lost.
+        await resolve("inbox", inboxClaim.token, "unknown", null, error instanceof Error ? error.message : String(error));
+      }
     }
   }
 
   let smsDelivered = false;
   if (canSendResidentOutboundSms(managerSmsFromNumber) && smsAllowed) {
-    try {
+    const smsClaim = await claim("sms");
+    if (smsClaim.outcome === "submitted") {
+      smsDelivered = true;
+    } else if (smsClaim.outcome === "claimed" && smsClaim.token) {
+      try {
       const residentPhone = String(residentProfile?.phone ?? "").trim();
       if (residentPhone) {
         let checkoutUrl: string | null = null;
@@ -208,6 +229,8 @@ export async function deliverPaymentReminder(input: {
             to: residentPhone,
             text: smsBody,
             fromNumber: managerSmsFromNumber,
+            purpose: "payment_reminder",
+            dedupeKey: `${occurrence.id}:sms`,
             linkKind: category === "leases" ? "lease" : "payments",
             openThread: managerId
               ? {
@@ -234,7 +257,8 @@ export async function deliverPaymentReminder(input: {
               }),
             })
           : await sendSms();
-        if (smsResult.sent) {
+        if (smsResult.sent || smsResult.accepted) {
+          await resolve("sms", smsClaim.token, "submitted", smsResult.sid ?? null);
           smsDelivered = true;
           const smsLogId = `${dedupId}_sms`;
           await db.from("portal_outbound_mail_records").upsert(
@@ -249,7 +273,8 @@ export async function deliverPaymentReminder(input: {
                 subject,
                 body: smsBody,
                 sentAt: new Date().toISOString(),
-                smsSent: true,
+                smsSent: smsResult.sent,
+                smsAccepted: Boolean(smsResult.accepted),
                 smsChannel: smsResult.channel ?? null,
                 chargeId: charge.id,
                 slot: slotLabel,
@@ -257,15 +282,58 @@ export async function deliverPaymentReminder(input: {
             },
             { onConflict: "id" },
           );
+        } else {
+          const safeFailure = ["invalid_to", "recipient_opted_out", "empty_body", "invalid_message", "scoped_consent_missing"].includes(smsResult.error ?? "");
+          await resolve("sms", smsClaim.token, safeFailure ? "failed" : "unknown", null, smsResult.error ?? "sms_not_accepted");
+        }
+      } else {
+        await resolve("sms", smsClaim.token, "failed", null, "recipient_phone_missing");
+      }
+      } catch (error) {
+        if (states.get("sms") === "claimed") {
+          await resolve("sms", smsClaim.token, "unknown", null, error instanceof Error ? error.message : String(error));
         }
       }
-    } catch {
-      /* non-critical */
     }
   }
 
+  const inboxDelivered = inboxWritten && Boolean(residentUserId);
+  const anyChannelEnabled = emailAllowed || smsAllowed || (inboxAllowed && Boolean(residentUserId));
+  const deliveryComplete =
+    (!emailAllowed || states.get("email") === "submitted") &&
+    (!smsAllowed || states.get("sms") === "submitted") &&
+    (!(inboxAllowed && residentUserId) || states.get("inbox") === "submitted");
+  const anySubmitted = emailSent || smsDelivered || inboxDelivered;
+  const sentAt = new Date().toISOString();
+  const { error: dedupError } = await db.from("portal_outbound_mail_records").upsert(
+    dedupEntries.map((entry) => ({
+      id: entry.dedupId,
+      recipient_email: residentLower,
+      subject,
+      channel: "email",
+      row_data: {
+        id: entry.dedupId,
+        to: residentLower,
+        subject,
+        body: text,
+        ...(anySubmitted ? { sentAt } : { attemptedAt: sentAt }),
+        emailSent,
+        smsSubmitted: smsDelivered,
+        inboxWritten: inboxDelivered,
+        deliveryComplete: deliveryComplete || !anyChannelEnabled,
+        occurrenceId: occurrence.id,
+        chargeId: entry.chargeId,
+        slot: slotLabel,
+      },
+    })),
+    { onConflict: "id" },
+  );
+  if (dedupError) {
+    return { sent: anySubmitted, error: `Could not record the reminder send: ${dedupError.message}` };
+  }
+
   try {
-    if (managerId) {
+    if (anySubmitted) {
       await notifyPropertyScopedManagersFromAgent(db, {
         ownerManagerUserId: managerId,
         propertyId: charge.propertyId,
@@ -282,7 +350,7 @@ export async function deliverPaymentReminder(input: {
   }
 
   try {
-    if (residentUserId && inboxAllowed) {
+    if (residentUserId && inboxWrittenNow) {
       const pushBody = text.replace(/\s+/g, " ").trim().slice(0, 180);
       await sendPushToUser(residentUserId, {
         title: subject,
@@ -297,41 +365,24 @@ export async function deliverPaymentReminder(input: {
 
   // The inbox write sits in a swallowing try/catch, so "allowed" is not
   // "delivered" — reporting the former marked a throw as a successful send.
-  const inboxDelivered = inboxWritten && Boolean(residentUserId);
-
   // Nothing was even ATTEMPTED: the manager turned every channel off, or the
   // resident's own preferences leave none open. Retrying cannot change that, so
   // keep the dedup rows. Deleting them here made the cron re-process this same
   // charge on every run, forever, delivering nothing each time.
-  const anyChannelEnabled = emailAllowed || smsAllowed || (inboxAllowed && Boolean(residentUserId));
   if (!anyChannelEnabled) {
     return { sent: false, error: "no_channel_enabled" };
   }
 
-  // An account-less resident (no profile row) can't see the portal inbox — if
-  // the email failed and no SMS went out, nothing actually reached them. Drop
-  // every dedup row this send wrote (a bundle records one per charge, and the
-  // cron skips the whole bundle if ANY of them survives) so the next run
-  // retries instead of recording a phantom send.
+  // A partial or failed occurrence retains its row with deliveryComplete=false.
+  // The next run re-projects it, and only channels with a confirmed safe failure
+  // are claimable again. Unknown provider outcomes stay held for reconciliation.
   if (!emailSent && !smsDelivered && !inboxDelivered) {
-    try {
-      await db
-        .from("portal_outbound_mail_records")
-        .delete()
-        .in(
-          "id",
-          dedupEntries.map((entry) => entry.dedupId),
-        );
-    } catch {
-      /* keep the row — a duplicate reminder beats silently never retrying */
-    }
     return {
       sent: false,
       error: residentUserId ? "no_channel_delivered" : "email_failed_no_other_channel",
     };
   }
-
-  return { sent: true };
+  return { sent: true, ...(deliveryComplete ? {} : { error: "partial_delivery" }) };
 }
 
 function escapeHtmlText(value: string): string {

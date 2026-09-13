@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalFooter, MODAL_INSET_BOX_CLASS, MODAL_WARNING_BOX_CLASS } from "@/components/ui/modal";
 import { PortalComposeScheduledMessagesSection } from "@/components/portal/portal-compose-scheduled-messages-section";
@@ -73,6 +73,8 @@ export function PortalNotificationPreviewModal({
   showChannelPicker = true,
   emailAvailable = true,
   smsAvailable = true,
+  smsSetupOverride,
+  channelStatus,
   defaultViaEmail = true,
   defaultViaSms = true,
   deliverViaKind,
@@ -116,6 +118,9 @@ export function PortalNotificationPreviewModal({
   showChannelPicker?: boolean;
   emailAvailable?: boolean;
   smsAvailable?: boolean;
+  /** Charge-scoped sender capability, resolved for the selected workspace. */
+  smsSetupOverride?: { phone: string | null; canSend: boolean };
+  channelStatus?: ReactNode;
   defaultViaEmail?: boolean;
   defaultViaSms?: boolean;
   /** When set, pre-selects Send via from saved Communication settings for this category. */
@@ -165,7 +170,8 @@ export function PortalNotificationPreviewModal({
 
   const showAssigneePicker = Boolean(assigneeKind && assigneeTeamMembers);
 
-  const effectiveSmsAvailable = smsAvailable && smsSetup?.canSend !== false;
+  const effectiveSmsSetup = smsSetupOverride ?? smsSetup;
+  const effectiveSmsAvailable = smsAvailable && effectiveSmsSetup?.canSend !== false;
 
   useEffect(() => {
     if (!open) return;
@@ -206,6 +212,7 @@ export function PortalNotificationPreviewModal({
       setSmsSetup(null);
       return;
     }
+    if (smsSetupOverride) return;
     let active = true;
     void fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" })
       .then(async (res) => (res.ok ? ((await res.json()) as ManagerMessagingNumberStatus) : null))
@@ -222,7 +229,7 @@ export function PortalNotificationPreviewModal({
     return () => {
       active = false;
     };
-  }, [open]);
+  }, [open, smsSetupOverride]);
 
   const confirmDraft = useMemo(
     (): NotificationConfirmDraft => ({
@@ -239,7 +246,7 @@ export function PortalNotificationPreviewModal({
     : confirmLabel;
 
   const { viaEmail, viaSms } = portalMessageChannelsFromSelection(sendVia);
-  const smsBlocked = viaSms && smsSetup !== null && !smsSetup.canSend;
+  const smsBlocked = viaSms && effectiveSmsSetup !== null && !effectiveSmsSetup.canSend;
 
   const channelsOk =
     !showChannelPicker ||
@@ -323,7 +330,7 @@ export function PortalNotificationPreviewModal({
   const sendViaFooterNote = hideSendViaFooterNote
     ? ""
     : footerNote?.trim() ||
-      portalMessageSendViaFooterNote(Boolean(smsAvailable && smsSetup?.canSend !== false));
+      portalMessageSendViaFooterNote(effectiveSmsAvailable);
 
   const footer = (
     <ModalFooter>
@@ -399,13 +406,14 @@ export function PortalNotificationPreviewModal({
 
         <ManagerSmsWorkNumberHint
           show={Boolean(showChannelPicker && !skipMessage && viaSms)}
-          phone={smsSetup?.phone ?? null}
-          canSend={smsSetup?.canSend === true}
+          phone={effectiveSmsSetup?.phone ?? null}
+          canSend={effectiveSmsSetup?.canSend === true}
         />
 
         {showChannelPicker && !skipMessage && !channelsOk ? (
           <p className="text-xs font-medium text-red-600">Choose at least one channel.</p>
         ) : null}
+        {channelStatus ? <div aria-live="polite">{channelStatus}</div> : null}
 
         {showAssigneePicker && assigneeKind ? (
           <WorkAssignmentPicker
@@ -488,6 +496,8 @@ export function PortalNotificationPreviewModal({
 export type BulkPaymentReminderPreviewItem = {
   /** The row this card is SENT against — the anchor charge for a combined card. */
   id: string;
+  /** Stable across a retry of this reviewed draft. */
+  requestId?: string;
   /** Every row the card covers. One entry unless charges were combined. */
   coveredRowIds?: string[];
   recipient: string;
@@ -563,4 +573,3 @@ export function PortalBulkPaymentReminderPreviewModal({
     </Modal>
   );
 }
-

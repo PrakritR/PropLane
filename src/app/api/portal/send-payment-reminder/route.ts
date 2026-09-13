@@ -1,65 +1,40 @@
-import { formatPacificDateTime } from "@/lib/pacific-time";
 import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
-import { collectLinkedPropertyIdsForUser } from "@/lib/auth/manager-lease-scope";
+import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
+import { loadPaymentReminderChargeForActor, resolvePaymentReminderCapability } from "@/lib/payment-reminder-capability.server";
 import { track } from "@/lib/analytics/posthog";
-import { chargeDueLabel, isUnpaidHouseholdCharge, type HouseholdCharge } from "@/lib/household-charges";
+import { chargeDueLabel, isUnpaidHouseholdCharge } from "@/lib/household-charges";
 import { buildManualPaymentInstructionLines, buildPaymentReminderBody } from "@/lib/manual-payment-instructions";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { canSendResidentOutboundSms, sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
-import { deliverPortalMessageThreadSide } from "@/lib/portal-inbox-delivery";
+import { deliverManualPaymentReminder } from "@/lib/manual-payment-reminder-delivery.server";
 
 export const runtime = "nodejs";
-
-function canSendPaymentReminder(role: string | null | undefined): boolean {
-  return role === "admin" || role === "manager" || role === "owner" || role === "pro";
-}
-
-function escapeHtmlText(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
 
 function isUsableEmail(email: string): boolean {
   return Boolean(email && email.includes("@"));
 }
 
-async function loadChargeForReminder(
-  db: ReturnType<typeof createSupabaseServiceRoleClient>,
-  userId: string,
-  chargeId: string,
-  admin: boolean,
-): Promise<{ charge: HouseholdCharge; managerUserId: string } | null> {
-  const { data, error } = await db
-    .from("portal_household_charge_records")
-    .select("row_data, manager_user_id")
-    .eq("id", chargeId)
-    .maybeSingle();
-  if (error || !data?.row_data) return null;
-
-  const charge = data.row_data as HouseholdCharge;
-  const managerUserId = data.manager_user_id?.trim() || charge.managerUserId?.trim() || "";
-  if (admin || (managerUserId && managerUserId === userId)) {
-    return { charge, managerUserId };
+/** The composer checks a charge's actual workspace before offering SMS. */
+export async function GET(req: Request) {
+  try {
+    const actor = await requireManagerRouteUser();
+    if (!actor) return NextResponse.json({ error: "Unauthorized." }, { status: 403 });
+    const chargeId = new URL(req.url).searchParams.get("chargeId")?.trim() ?? "";
+    if (!chargeId) return NextResponse.json({ error: "chargeId is required." }, { status: 400 });
+    const admin = await isAdminUser(actor.userId);
+    const context = await loadPaymentReminderChargeForActor(actor.db, actor.userId, chargeId, admin);
+    if (!context) return NextResponse.json({ error: "Charge not found." }, { status: 404 });
+    const capability = await resolvePaymentReminderCapability(actor.db, context);
+    return NextResponse.json(capability, { headers: { "Cache-Control": "private, no-store" } });
+  } catch {
+    return NextResponse.json({ error: "Could not check messaging access." }, { status: 503 });
   }
-
-  const propertyId = charge.propertyId?.trim() ?? "";
-  if (propertyId) {
-    const linked = await collectLinkedPropertyIdsForUser(db, userId);
-    if (linked.has(propertyId)) return { charge, managerUserId };
-  }
-
-  return null;
 }
 
 export async function POST(req: Request) {
   try {
-    const auth = await createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await auth.auth.getUser();
-    if (!user) return NextResponse.json({ ok: false, error: "Not authenticated." }, { status: 401 });
+    const actor = await requireManagerRouteUser();
+    if (!actor) return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 403 });
 
     const body = (await req.json().catch(() => ({}))) as {
       chargeId?: string;
@@ -67,27 +42,48 @@ export async function POST(req: Request) {
       viaSms?: boolean;
       subject?: string;
       text?: string;
+      requestId?: string;
+      chargeIds?: string[];
     };
-
-    const db = createSupabaseServiceRoleClient();
-    const [{ data: requestor }, admin] = await Promise.all([
-      db.from("profiles").select("role, full_name, email, sms_from_number").eq("id", user.id).maybeSingle(),
-      isAdminUser(user.id),
-    ]);
-    if (!admin && !canSendPaymentReminder(requestor?.role)) {
-      return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 403 });
+    const requestId = String(body.requestId ?? "").trim();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId)) {
+      return NextResponse.json({ ok: false, code: "invalid_request_id", error: "A valid reminder request ID is required." }, { status: 400 });
     }
+
+    const db = actor.db;
+    const [{ data: requestor }, admin] = await Promise.all([
+      db.from("profiles").select("full_name, email").eq("id", actor.userId).maybeSingle(),
+      isAdminUser(actor.userId),
+    ]);
 
     const chargeId = String(body.chargeId ?? "").trim();
     if (!chargeId) {
       return NextResponse.json({ ok: false, error: "chargeId is required." }, { status: 400 });
     }
 
-    const loaded = await loadChargeForReminder(db, user.id, chargeId, admin);
+    const loaded = await loadPaymentReminderChargeForActor(db, actor.userId, chargeId, admin);
     if (!loaded) {
       return NextResponse.json({ ok: false, error: "Charge not found." }, { status: 404 });
     }
     const ownedCharge = loaded.charge;
+    const coveredChargeIds = [...new Set([chargeId, ...(Array.isArray(body.chargeIds) ? body.chargeIds : [])]
+      .map((id) => String(id ?? "").trim()).filter(Boolean))].sort();
+    if (coveredChargeIds.length > 25) {
+      return NextResponse.json({ ok: false, error: "Too many charges in one reminder." }, { status: 400 });
+    }
+    for (const coveredId of coveredChargeIds) {
+      if (coveredId === chargeId) continue;
+      const covered = await loadPaymentReminderChargeForActor(db, actor.userId, coveredId, admin);
+      if (!covered || covered.ownerUserId !== loaded.ownerUserId ||
+          String(covered.charge.residentEmail ?? "").trim().toLowerCase() !== String(ownedCharge.residentEmail ?? "").trim().toLowerCase() ||
+          !isUnpaidHouseholdCharge(covered.charge)) {
+        return NextResponse.json({ ok: false, error: "The reminder group changed. Refresh payments and try again." }, { status: 409 });
+      }
+    }
+    const { data: ownerProfile } = await db.from("profiles")
+      .select("email")
+      .eq("id", loaded.ownerUserId)
+      .maybeSingle();
     if (!isUnpaidHouseholdCharge(ownedCharge)) {
       return NextResponse.json(
         { ok: false, error: "This charge is already paid. Reminders are not sent for paid charges.", code: "charge_paid" },
@@ -104,7 +100,8 @@ export async function POST(req: Request) {
     const managerProfile = requestor;
     const managerName =
       managerProfile?.full_name?.trim() || managerProfile?.email?.trim() || "Your property manager";
-    const smsFromNumber = String(managerProfile?.sms_from_number ?? "").trim();
+    const capability = await resolvePaymentReminderCapability(db, loaded);
+    const smsFromNumber = capability.sms.fromNumber;
 
     const chargeResidentUserId = String(ownedCharge.residentUserId ?? "").trim() || null;
     let residentProfile: {
@@ -118,7 +115,7 @@ export async function POST(req: Request) {
         .select("id, email, phone")
         .eq("id", chargeResidentUserId)
         .maybeSingle();
-      if (data) {
+      if (data && String(data.email ?? "").trim().toLowerCase() === residentEmail) {
         residentProfile = {
           id: String(data.id),
           email: (data.email as string | null) ?? null,
@@ -146,16 +143,29 @@ export async function POST(req: Request) {
       String(residentProfile?.email ?? "").trim().toLowerCase() ||
       "";
     const residentPhone = String(residentProfile?.phone ?? "").trim();
-    const residentUserId = residentProfile?.id?.trim() || chargeResidentUserId;
+    // A stale charge user ID is never authority to deliver into that account.
+    const residentUserId = residentProfile?.id?.trim() || null;
 
     const wantEmail = body.viaEmail !== false;
     const wantSms = body.viaSms === true;
+    if (!wantEmail && !wantSms) {
+      return NextResponse.json({ ok: false, error: "Choose email or SMS to send a reminder." }, { status: 400 });
+    }
+    if (wantEmail && !capability.email.available) {
+      return NextResponse.json({ ok: false, error: capability.email.reason ?? "Email is unavailable." }, { status: 409 });
+    }
     const canEmailExternally =
       wantEmail &&
       isUsableEmail(inboxEmail) &&
       !shouldSkipOutboundEmail(inboxEmail) &&
-      inboxEmail !== (user.email ?? "").trim().toLowerCase();
-    const canSms = wantSms && Boolean(residentPhone) && canSendResidentOutboundSms(smsFromNumber);
+      inboxEmail !== String(requestor?.email ?? "").trim().toLowerCase();
+    if (wantSms && !capability.sms.available) {
+      return NextResponse.json(
+        { ok: false, error: capability.sms.reason ?? "Text delivery is unavailable." },
+        { status: 409 },
+      );
+    }
+    const canSms = wantSms && Boolean(residentPhone) && Boolean(smsFromNumber);
 
     if (!inboxEmail && !canSms) {
       return NextResponse.json(
@@ -182,177 +192,65 @@ export async function POST(req: Request) {
         manualPaymentLines: buildManualPaymentInstructionLines(ownedCharge),
       });
 
-    // Always write Axis inbox when we have any email key (real or sandbox).
-    if (inboxEmail) {
-      await deliverToPortalInbox({
-        db,
-        userId: user.id,
-        managerEmail: user.email ?? "",
-        residentEmail: inboxEmail,
-        subject,
-        messageBody,
-        managerName,
-        residentUserId,
-      });
+    // Honor an edited draft on both channels. The occurrence snapshot binds
+    // this body and the covered charges to requestId before any provider call.
+    const smsBody =
+      String(body.text ?? "").trim() ||
+      `Hi ${residentName}, this is a payment reminder: ${chargeTitle}${balanceDue ? ` — ${balanceDue}` : ""}${propertyLabel ? ` (${propertyLabel})` : ""}. Reply here with questions. — ${managerName}`;
+    const delivery = await deliverManualPaymentReminder({
+      db,
+      ownerUserId: loaded.ownerUserId,
+      actorUserId: actor.userId,
+      requestId,
+      chargeIds: coveredChargeIds,
+      propertyId: loaded.propertyId,
+      recipientEmail: inboxEmail || `sms:${residentPhone}`,
+      inboxEmail,
+      recipientPhone: residentPhone,
+      residentUserId,
+      managerEmail: String(ownerProfile?.email ?? ""),
+      managerName,
+      subject,
+      text: messageBody,
+      smsText: smsBody,
+      wantEmail,
+      wantSms: canSms,
+      canEmailExternally,
+      smsFromNumber,
+    });
+    if (delivery.conflict) {
+      return NextResponse.json({ ok: false, code: "revision_conflict", error: "This reminder changed after sending started. Open a new draft to send again." }, { status: 409 });
     }
-
-    let emailSent = false;
-    const apiKey = process.env.RESEND_API_KEY?.trim();
-    if (canEmailExternally && apiKey) {
-      const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
-      const html = `<p style="white-space:pre-wrap;font-family:sans-serif;font-size:15px;line-height:1.6;color:#1e293b">${escapeHtmlText(messageBody)}</p><hr style="margin:24px 0;border:none;border-top:1px solid #e2e8f0"><p style="font-family:sans-serif;font-size:12px;color:#94a3b8">Sent via PropLane portal by ${escapeHtmlText(managerName)}</p>`;
-      try {
-        const res = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ from, to: [inboxEmail], subject, text: messageBody, html }),
-          signal: AbortSignal.timeout(15_000),
-        });
-        emailSent = res.ok;
-      } catch {
-        emailSent = false;
-      }
-    }
-
-    const outboundId = `outbound_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    await db.from("portal_outbound_mail_records").upsert(
-      {
-        id: outboundId,
-        recipient_email: inboxEmail || `sms:${residentPhone}`,
-        subject,
-        channel: emailSent ? "email" : canSms ? "sms" : "portal",
-        row_data: {
-          id: outboundId,
-          to: inboxEmail || residentPhone,
-          subject,
-          body: messageBody,
-          sentAt: new Date().toISOString(),
-          emailSent,
-          chargeId,
-        },
-      },
-      { onConflict: "id" },
-    );
-
-    let smsSent = false;
-    if (canSms) {
-      // Honor the manager's edited message on the SMS leg too — only fall
-      // back to the canned copy when no custom text was provided.
-      const smsBody =
-        String(body.text ?? "").trim() ||
-        `Hi ${residentName}, this is a payment reminder: ${chargeTitle}${balanceDue ? ` — ${balanceDue}` : ""}${propertyLabel ? ` (${propertyLabel})` : ""}. Reply here with questions. — ${managerName}`;
-      const smsResult = await sendResidentOutboundSms({
-        to: residentPhone,
-        text: smsBody,
-        fromNumber: smsFromNumber,
-        linkKind: "payments",
-        sendClass: "transactional",
-        openThread: {
-          managerUserId: user.id,
-          residentUserId: residentUserId ?? null,
-          residentEmail: inboxEmail || null,
-          topic: "payment",
-        },
-      });
-      smsSent = Boolean(smsResult.sent);
-      if (smsSent) {
-        const smsLogId = `outbound_sms_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        await db.from("portal_outbound_mail_records").upsert(
-          {
-            id: smsLogId,
-            recipient_email: inboxEmail || `sms:${residentPhone}`,
-            subject,
-            channel: "sms",
-            row_data: {
-              id: smsLogId,
-              to: residentPhone,
-              subject,
-              body: smsBody,
-              sentAt: new Date().toISOString(),
-              smsSent: true,
-              smsChannel: smsResult.channel ?? null,
-            },
-          },
-          { onConflict: "id" },
-        );
-      }
-    }
-
-    const skippedExternal = !emailSent && !smsSent;
-    track("payment_reminder_sent", user.id, {
+    const emailSent = delivery.email.status === "submitted";
+    const smsSent = delivery.sms.sent;
+    const smsQueued = delivery.sms.queued;
+    const inboxSent = delivery.inbox.status === "submitted";
+    const externalUnknown = delivery.email.status === "unknown" || delivery.sms.status === "unknown";
+    const skippedExternal = !emailSent && !smsQueued;
+    const accepted = emailSent || smsQueued || inboxSent;
+    const inFlight = [delivery.email.status, delivery.sms.status, delivery.inbox.status].includes("claimed");
+    const status = externalUnknown ? "unknown" : inFlight || (smsQueued && !smsSent) ? "pending" : !accepted ? "failed" :
+      delivery.email.status === "failed" || delivery.sms.status === "failed" ? "partial" : "submitted";
+    track("payment_reminder_sent", actor.userId, {
       email_sent: emailSent,
       sms_sent: smsSent,
+      sms_queued: smsQueued,
     });
     return NextResponse.json({
-      ok: true,
+      ok: accepted && !externalUnknown && !inFlight,
+      status,
+      occurrenceId: delivery.occurrenceId,
+      coveredChargeIds,
+      channels: { email: delivery.email, sms: delivery.sms, inbox: delivery.inbox },
       emailSent,
       smsSent,
+      smsQueued,
       skipped: skippedExternal,
-      reason: skippedExternal ? "Saved to PropLane inbox (external email/SMS not sent)." : undefined,
-    });
+      reason: externalUnknown ? "Delivery outcome is unknown. Check the reminder history before trying again." :
+        skippedExternal && inboxSent ? "Saved to PropLane inbox (external email/SMS not sent)." : undefined,
+    }, { status: externalUnknown ? 409 : status === "pending" ? 202 : accepted ? 200 : 409 });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
-  }
-}
-
-async function deliverToPortalInbox({
-  db,
-  userId,
-  managerEmail,
-  residentEmail,
-  subject,
-  messageBody,
-  managerName,
-  residentUserId,
-}: {
-  db: ReturnType<typeof createSupabaseServiceRoleClient>;
-  userId: string;
-  managerEmail: string;
-  residentEmail: string;
-  subject: string;
-  messageBody: string;
-  managerName: string;
-  residentUserId?: string | null;
-}) {
-  const ts = Date.now();
-  const rand = Math.random().toString(36).slice(2, 6);
-  const residentLower = residentEmail.toLowerCase();
-  const senderLower = (managerEmail || "manager@example.com").toLowerCase();
-  const when = formatPacificDateTime(new Date());
-  const preview = messageBody.slice(0, 100).replace(/\n/g, " ");
-
-  await deliverPortalMessageThreadSide(db, {
-    scope: "axis_portal_inbox_manager_v1",
-    folder: "sent",
-    ownerUserId: userId,
-    participantEmail: null,
-    otherPartyEmail: residentLower,
-    fallbackId: `payment_sent_${userId}_${ts}_${rand}`,
-    fromName: managerName,
-    subject,
-    body: messageBody,
-    preview,
-    when,
-    unread: false,
-    outbound: true,
-  });
-
-  if (residentLower !== senderLower) {
-    await deliverPortalMessageThreadSide(db, {
-      scope: "axis_portal_inbox_resident_v1",
-      folder: "inbox",
-      ownerUserId: residentUserId || null,
-      participantEmail: residentLower,
-      otherPartyEmail: senderLower,
-      fallbackId: `payment_inbox_${ts}_${rand}`,
-      fromName: managerName,
-      subject,
-      body: messageBody,
-      preview,
-      when,
-      unread: true,
-      outbound: false,
-    });
   }
 }

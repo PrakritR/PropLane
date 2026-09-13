@@ -16,10 +16,9 @@ his message  →  plan (Lavish)  →  he annotates / edits / picks  →  you pol
 ```
 
 ```bash
-npm run workflow:plan -- --chat "<his exact message>"   # scaffold + open + listen
-# fill the scaffold, then:
-npm run lavish:listen                                    # UI shows "listening"
-npm run lavish:poll                                      # FIRST command every turn
+npm run lavish:plan -- --title "<task>" --summary "<his request>"
+# fill the scaffold, then open the artifact and attach the current Lavish poll
+npm run lavish:poll                                      # drain feedback first on later turns
 npm run lavish:poll -- --reply "Applied — reload the plan"
 npm run lavish:poll -- --clear                           # only after approval
 ```
@@ -28,11 +27,10 @@ Rules that are not negotiable:
 
 - **Never end a turn with a plan open and no poll.** Lavish then shows *"your
   agent is not listening"* and his annotations sit unread.
-- **One poller at a time.** In Claude Code, run the long poll as a tracked
-  background Bash task (`npm run lavish:poll -- --wait`) — the harness wakes you
-  when he sends something. `npm run lavish:listen` is the fallback for hosts
-  without tracked background jobs; do not run both, they race for the same
-  delivery.
+- **One poller at a time.** In Codex, keep `lavish-axi poll <plan.html>`
+  attached to the active turn; a detached listener does not reliably wake the
+  agent. In other hosts, a tracked background task is acceptable only when its
+  completion reliably resumes the same agent. Do not run competing pollers.
 - While `.lavish/active-session.json` exists, `npm run lavish:poll` is the
   **first** command of every turn — before reading files, before anything.
 - Answer in the plan's own chat with `--reply`, not only in the terminal.

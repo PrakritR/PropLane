@@ -18,6 +18,7 @@ import { combineScheduledPaymentMessages } from "@/lib/combined-payment-reminder
 export type ThreadScheduledItem = {
   id: string;
   source: "manual" | "automation";
+  deliveryStatus?: "scheduled" | "sending";
   sendAt: string;
   /** Human "sends <when>" label. */
   sendLabel: string;
@@ -53,11 +54,12 @@ export function threadScheduledItemFromManualMessage(
   return {
     id: message.id,
     source: "manual",
+    deliveryStatus: message.status === "sending" ? "sending" : "scheduled",
     sendAt: message.sendAt,
-    sendLabel: formatScheduledSendAt(message.sendAt),
+    sendLabel: message.status === "sending" ? "Sending / needs review" : formatScheduledSendAt(message.sendAt),
     subject: message.subject,
     body: message.body,
-    editable: !isResidentOriginatedScheduledMessage(message),
+    editable: message.status === "scheduled" && !isResidentOriginatedScheduledMessage(message),
     channel: message.deliverViaSms && !message.deliverViaEmail ? "sms" : "email",
     deliverViaEmail: message.deliverViaEmail !== false,
     deliverViaSms: message.deliverViaSms === true,
@@ -109,7 +111,7 @@ export function scheduledItemsForRecipient(
   const items: ThreadScheduledItem[] = [];
 
   for (const message of manual) {
-    if (message.status !== "scheduled") continue;
+    if (message.status !== "scheduled" && message.status !== "sending") continue;
     if (!isUpcomingScheduledInboxMessage(message.sendAt, message.status)) continue;
     if (normalizeEmail(message.recipientEmail) !== target) continue;
     items.push(threadScheduledItemFromManualMessage(message));

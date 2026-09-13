@@ -216,8 +216,8 @@ export function PortalComposeScheduledMessagesSection({
             presentation="detail"
             recipient={recipientEmail}
             sendAt={editing.sendAt}
-            onCancel={() => void cancelItem(editing)}
-            onSendNow={() => void sendNow(editing)}
+            onCancel={() => { if (editing.deliveryStatus !== "sending") void cancelItem(editing); }}
+            onSendNow={() => { if (editing.deliveryStatus !== "sending") void sendNow(editing); }}
             onSaveEdit={
               editing.editable ? (next) => saveEdit(editing, next) : undefined
             }

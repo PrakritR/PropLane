@@ -2191,6 +2191,8 @@ export type InboxScheduledCardProps = {
   source: "manual" | "automation";
   emailAvailable?: boolean;
   smsAvailable?: boolean;
+  smsDisabledReason?: string;
+  smsSenderPhone?: string;
   channelEditable?: boolean;
   editable: boolean;
   busy?: boolean;
@@ -2266,6 +2268,8 @@ export function InboxScheduledCard({
   source: _source,
   emailAvailable = true,
   smsAvailable = false,
+  smsDisabledReason,
+  smsSenderPhone,
   channelEditable,
   editable,
   busy = false,
@@ -2298,19 +2302,16 @@ export function InboxScheduledCard({
   const canCompose = Boolean(editable && onSaveEdit);
 
   const viewSendVia = useMemo(
-    () =>
-      defaultPortalMessageChannelSelection(
-        emailAvailable,
-        smsAvailable,
-        deliverViaEmail !== false,
-        deliverViaSms === true,
-      ),
+    () => deliverViaEmail !== undefined || deliverViaSms !== undefined
+      ? [deliverViaEmail ? "email" : "", deliverViaSms ? "sms" : ""].filter(Boolean)
+      : defaultPortalMessageChannelSelection(emailAvailable, smsAvailable, true, false),
     [deliverViaEmail, deliverViaSms, emailAvailable, smsAvailable],
   );
 
   const activeSendVia = canCompose ? draftSendVia : viewSendVia;
   const draftChannels = portalMessageChannelsFromSelection(activeSendVia);
-  const draftChannelsOk = !canEditChannels || draftChannels.viaEmail || draftChannels.viaSms;
+  const draftChannelsOk = (!canEditChannels || draftChannels.viaEmail || draftChannels.viaSms) &&
+    (!draftChannels.viaEmail || emailAvailable) && (!draftChannels.viaSms || smsAvailable);
 
   const recipientDisplay =
     portalMessageRecipientDisplay({
@@ -2423,6 +2424,12 @@ export function InboxScheduledCard({
           dataAttr="inbox-scheduled-edit-send-via"
         />
       </div>
+
+      {smsSenderPhone && smsAvailable ? (
+        <p className="text-xs text-muted">SMS from this workspace: {smsSenderPhone}</p>
+      ) : smsDisabledReason ? (
+        <p className="text-xs text-muted">SMS unavailable: {smsDisabledReason}</p>
+      ) : null}
 
       <PortalMessageBodyField
         value={canCompose ? draftBody : body}

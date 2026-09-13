@@ -88,6 +88,23 @@ const PAYMENTS_BULK_BAR_BTN =
 
 const PAYMENTS_BULK_MORE_BTN = cn(PAYMENTS_BULK_BAR_BTN, "min-w-9 px-0");
 
+type ReminderCapability = {
+  chargeId: string;
+  ownerUserId: string;
+  email: { available: boolean; reason: string | null };
+  sms: { available: boolean; reason: string | null; fromNumber: string | null };
+};
+
+type ReminderCapabilityState =
+  | { status: "loading"; chargeId: string }
+  | { status: "ready"; chargeId: string; value: ReminderCapability }
+  | { status: "error"; chargeId: string };
+
+type BulkReminderCapabilityState =
+  | { status: "loading"; key: string }
+  | { status: "ready"; key: string; values: Record<string, ReminderCapability> }
+  | { status: "error"; key: string };
+
 function isMarkableAsPaid(row: DemoManagerPaymentLedgerRow): boolean {
   return row.statusLabel !== "Paid" && parseMoneyLabel(row.balanceDue) > 0;
 }
@@ -280,10 +297,39 @@ export function ManagerPaymentsLedgerPanel({
   const [editDueDateDraft, setEditDueDateDraft] = useState("");
   const [editNightsDraft, setEditNightsDraft] = useState("");
   const [sendingReminderId, setSendingReminderId] = useState<string | null>(null);
-  const [reminderPreview, setReminderPreview] = useState<{ row: DemoManagerPaymentLedgerRow; subject: string; body: string } | null>(null);
+  const [reminderPreview, setReminderPreview] = useState<{ row: DemoManagerPaymentLedgerRow; subject: string; body: string; requestId: string } | null>(null);
+  const [reminderCapability, setReminderCapability] = useState<ReminderCapabilityState | null>(null);
+  const [capabilityRefresh, setCapabilityRefresh] = useState(0);
   const [bulkReminderPreview, setBulkReminderPreview] = useState<BulkPaymentReminderPreviewItem[] | null>(null);
+  const [bulkReminderCapability, setBulkReminderCapability] = useState<BulkReminderCapabilityState | null>(null);
   const [chargeRemindersRow, setChargeRemindersRow] = useState<DemoManagerPaymentLedgerRow | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+
+  const reminderChargeId = reminderPreview?.row.householdChargeId ?? null;
+  useEffect(() => {
+    if (!reminderChargeId) {
+      queueMicrotask(() => setReminderCapability(null));
+      return;
+    }
+    const controller = new AbortController();
+    queueMicrotask(() => setReminderCapability({ status: "loading", chargeId: reminderChargeId }));
+    void fetch(`/api/portal/send-payment-reminder?chargeId=${encodeURIComponent(reminderChargeId)}`, {
+      credentials: "include",
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error("Messaging capability unavailable.");
+        return (await res.json()) as ReminderCapability;
+      })
+      .then((value) => {
+        if (!controller.signal.aborted) setReminderCapability({ status: "ready", chargeId: reminderChargeId, value });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setReminderCapability({ status: "error", chargeId: reminderChargeId });
+      });
+    return () => controller.abort();
+  }, [reminderChargeId, capabilityRefresh]);
 
   const selectedRows = useMemo(
     () => rows.filter((row) => selectedIds.has(row.id)),
@@ -294,6 +340,60 @@ export function ManagerPaymentsLedgerPanel({
     () => selectedRows.filter(isRemindableRow),
     [selectedRows],
   );
+
+  const bulkChargeKey = useMemo(() => JSON.stringify(
+    bulkReminderPreview?.map((item) => ({
+      id: item.id,
+      chargeId: remindableSelectedRows.find((row) => row.id === item.id)?.householdChargeId?.trim() || item.id,
+    })) ?? [],
+  ), [bulkReminderPreview, remindableSelectedRows]);
+  useEffect(() => {
+    const entries = JSON.parse(bulkChargeKey) as { id: string; chargeId: string }[];
+    if (entries.length === 0) return;
+    const controller = new AbortController();
+    queueMicrotask(() => setBulkReminderCapability({ status: "loading", key: bulkChargeKey }));
+    void Promise.all(entries.map(async ({ id, chargeId }) => {
+      if (!chargeId) throw new Error("Missing charge ID");
+      const res = await fetch(`/api/portal/send-payment-reminder?chargeId=${encodeURIComponent(chargeId)}`, {
+        credentials: "include",
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      if (!res.ok) throw new Error("Messaging capability unavailable");
+      return [id, (await res.json()) as ReminderCapability] as const;
+    }))
+      .then((entries) => {
+        if (!controller.signal.aborted) setBulkReminderCapability({ status: "ready", key: bulkChargeKey, values: Object.fromEntries(entries) });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setBulkReminderCapability({ status: "error", key: bulkChargeKey });
+      });
+    return () => controller.abort();
+  }, [bulkChargeKey, capabilityRefresh]);
+  const bulkCapabilityReady = bulkReminderCapability?.status === "ready" && bulkReminderCapability.key === bulkChargeKey;
+  const bulkModalItems = useMemo(() => bulkReminderPreview?.map((item) => {
+    const capability = bulkCapabilityReady ? bulkReminderCapability.values[item.id] : undefined;
+    return {
+      id: item.id,
+      label: item.chargeLabel,
+      recipient: item.recipient,
+      subject: item.subject,
+      body: item.body,
+      emailAvailable: capability?.email.available ?? false,
+      smsAvailable: capability?.sms.available ?? false,
+      channelNote: capability
+        ? [
+            capability.email.reason ? `Email unavailable: ${capability.email.reason}` : null,
+            capability.sms.reason
+              ? `SMS unavailable: ${capability.sms.reason}`
+              : capability.sms.fromNumber
+                ? `SMS from this workspace: ${capability.sms.fromNumber}`
+                : null,
+          ].filter(Boolean).join(" · ")
+        : undefined,
+    };
+  }) ?? [], [bulkReminderPreview, bulkCapabilityReady, bulkReminderCapability]);
+
   const showSelection = !paymentIdProp;
   const rowIdSet = useMemo(() => new Set(rows.map((row) => row.id)), [rows]);
   const ledgerClusters = useMemo(
@@ -589,6 +689,7 @@ export function ManagerPaymentsLedgerPanel({
     const chargeLabel = [chargeTitle, row.propertyName].filter(Boolean).join(" · ");
     return {
       id: row.id,
+      requestId: crypto.randomUUID(),
       recipient: paymentReminderRecipientLabel(row),
       chargeLabel,
       subject,
@@ -602,7 +703,7 @@ export function ManagerPaymentsLedgerPanel({
       showToast("This payment is missing a charge id. Sync payments and try again.");
       return;
     }
-    setReminderPreview({ row, subject: preview.subject, body: preview.body });
+    setReminderPreview({ row, subject: preview.subject, body: preview.body, requestId: preview.requestId! });
   };
 
   /**
@@ -618,16 +719,36 @@ export function ManagerPaymentsLedgerPanel({
    * people can share a name and must never share a reminder; a row with no
    * email falls back to its own id, which groups with nothing.
    */
-  const openBulkReminderPreview = () => {
+  const openBulkReminderPreview = async () => {
     const targets = remindableSelectedRows;
     if (targets.length === 0) {
       showToast("Select unpaid charges to remind.");
       return;
     }
 
+    // The same resident may have charges in different owner workspaces. Group
+    // only after the server has identified each charge's authoritative owner.
+    let owners: Map<string, string>;
+    try {
+      owners = new Map(await Promise.all(targets.map(async (row) => {
+        const chargeId = row.householdChargeId?.trim() || row.id?.trim();
+        if (!chargeId) throw new Error("Missing charge ID");
+        const res = await fetch(`/api/portal/send-payment-reminder?chargeId=${encodeURIComponent(chargeId)}`, {
+          credentials: "include",
+          cache: "no-store",
+        });
+        if (!res.ok) throw new Error("Workspace unavailable");
+        const capability = (await res.json()) as ReminderCapability;
+        return [row.id, capability.ownerUserId] as const;
+      })));
+    } catch {
+      showToast("Could not check the selected workspaces. Try again.");
+      return;
+    }
+
     const groups = new Map<string, DemoManagerPaymentLedgerRow[]>();
     for (const row of targets) {
-      const key = row.residentEmail?.trim().toLowerCase() || `row:${row.id}`;
+      const key = `${owners.get(row.id)}:${row.residentEmail?.trim().toLowerCase() || `row:${row.id}`}`;
       const bucket = groups.get(key);
       if (bucket) bucket.push(row);
       else groups.set(key, [row]);
@@ -651,6 +772,7 @@ export function ManagerPaymentsLedgerPanel({
       }));
       items.push({
         id: anchor.id,
+        requestId: crypto.randomUUID(),
         coveredRowIds: rows.map((row) => row.id),
         recipient: paymentReminderRecipientLabel(anchor),
         chargeLabel: `${rows.length} payments · ${anchor.propertyName}`,
@@ -677,7 +799,9 @@ export function ManagerPaymentsLedgerPanel({
     row: DemoManagerPaymentLedgerRow,
     channels?: { viaEmail?: boolean; viaSms?: boolean },
     draft?: { subject?: string; body?: string },
-  ): Promise<{ ok: boolean; skipped?: boolean; chargePaid?: boolean; error?: string; emailSent?: boolean; smsSent?: boolean }> => {
+    requestId?: string,
+    chargeIds?: string[],
+  ): Promise<{ ok: boolean; skipped?: boolean; chargePaid?: boolean; error?: string; emailSent?: boolean; smsSent?: boolean; smsQueued?: boolean }> => {
     const chargeId = row.householdChargeId?.trim() || row.id?.trim();
     if (!chargeId) return { ok: false, error: "Missing charge id." };
     try {
@@ -692,6 +816,8 @@ export function ManagerPaymentsLedgerPanel({
           viaSms: channels?.viaSms === true,
           subject: draft?.subject?.trim() || undefined,
           text: draft?.body?.trim() || undefined,
+          requestId: requestId ?? crypto.randomUUID(),
+          chargeIds,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {
@@ -699,8 +825,10 @@ export function ManagerPaymentsLedgerPanel({
         skipped?: boolean;
         code?: string;
         error?: string;
+        reason?: string;
         emailSent?: boolean;
         smsSent?: boolean;
+        smsQueued?: boolean;
       };
       if (res.status === 409 && data.code === "charge_paid") {
         return { ok: false, chargePaid: true };
@@ -708,9 +836,10 @@ export function ManagerPaymentsLedgerPanel({
       return {
         ok: Boolean(data.ok),
         skipped: data.skipped,
-        error: data.error,
+        error: data.error ?? data.reason,
         emailSent: data.emailSent,
         smsSent: data.smsSent,
+        smsQueued: data.smsQueued,
       };
     } catch (error) {
       const timedOut = error instanceof Error && error.name === "TimeoutError";
@@ -721,7 +850,7 @@ export function ManagerPaymentsLedgerPanel({
   const sendBulkReminders = async (
     targets: Array<
       | DemoManagerPaymentLedgerRow
-      | { row: DemoManagerPaymentLedgerRow; subject: string; body: string; channels?: { viaEmail?: boolean; viaSms?: boolean } }
+      | { row: DemoManagerPaymentLedgerRow; subject: string; body: string; requestId?: string; chargeIds?: string[]; channels?: { viaEmail?: boolean; viaSms?: boolean } }
     > = remindableSelectedRows,
   ) => {
     if (targets.length === 0) {
@@ -741,7 +870,9 @@ export function ManagerPaymentsLedgerPanel({
           "row" in target && target.channels
             ? target.channels
             : { viaEmail: true, viaSms: false };
-        const result = await sendReminderForRow(row, channels, draft);
+        const requestId = "row" in target ? target.requestId : undefined;
+        const chargeIds = "row" in target ? target.chargeIds : undefined;
+        const result = await sendReminderForRow(row, channels, draft, requestId, chargeIds);
         if (result.chargePaid) continue;
         if (result.ok) {
           ok += 1;
@@ -788,13 +919,14 @@ export function ManagerPaymentsLedgerPanel({
     setReminderPreview(null);
     setSendingReminderId(row.id);
     try {
-      const result = await sendReminderForRow(row, channels, draft);
+      const result = await sendReminderForRow(row, channels, draft, reminderPreview.requestId);
       if (result.chargePaid) {
         showToast("This charge is already paid. No reminder was sent.");
       } else if (result.ok) {
         const parts: string[] = ["PropLane inbox"];
         if (result.emailSent) parts.push("email");
         if (result.smsSent) parts.push("Messages");
+        else if (result.smsQueued) parts.push("SMS queued");
         showToast(
           result.skipped
             ? "Reminder saved to PropLane inbox."
@@ -1075,11 +1207,13 @@ export function ManagerPaymentsLedgerPanel({
               row,
               subject: draft?.subject?.trim() || item.subject,
               body: draft?.body?.trim() || item.body,
+              requestId: item.requestId,
+              chargeIds: item.coveredRowIds?.map((id) => byId.get(id)?.householdChargeId?.trim() || byId.get(id)?.id?.trim() || "").filter(Boolean),
               channels: options.channels,
             }
           : null;
       })
-      .filter((entry): entry is { row: DemoManagerPaymentLedgerRow; subject: string; body: string; channels: { viaEmail: boolean; viaSms: boolean } } =>
+      .filter((entry): entry is { row: DemoManagerPaymentLedgerRow; subject: string; body: string; requestId: string | undefined; chargeIds: string[] | undefined; channels: { viaEmail: boolean; viaSms: boolean } } =>
         Boolean(entry),
       );
     setBulkReminderPreview(null);
@@ -1397,7 +1531,7 @@ export function ManagerPaymentsLedgerPanel({
           openReminderPreview(remindableSelectedRows[0]!);
           return;
         }
-        openBulkReminderPreview();
+        return openBulkReminderPreview();
       };
       actions.push({
         id: "send-reminder",
@@ -1710,6 +1844,18 @@ export function ManagerPaymentsLedgerPanel({
     </div>
   );
 
+  const activeReminderCapability =
+    reminderCapability?.status === "ready" && reminderCapability.chargeId === reminderChargeId
+      ? reminderCapability.value
+      : null;
+  const reminderCapabilityLoading =
+    Boolean(reminderPreview) &&
+    (!reminderCapability || reminderCapability.chargeId !== reminderChargeId || reminderCapability.status === "loading");
+  const reminderCapabilityError =
+    Boolean(reminderPreview) &&
+    reminderCapability?.chargeId === reminderChargeId &&
+    reminderCapability.status === "error";
+
   return (
     <>
     {renderEditPaymentModal()}
@@ -1723,15 +1869,32 @@ export function ManagerPaymentsLedgerPanel({
         body={reminderPreview.body}
         showSkipMessage={false}
         showChannelPicker
-        emailAvailable={Boolean(reminderPreview.row.residentEmail?.includes("@"))}
-        smsAvailable
+        emailAvailable={activeReminderCapability?.email.available ?? false}
+        smsAvailable={activeReminderCapability?.sms.available ?? false}
+        smsSetupOverride={{
+          phone: activeReminderCapability?.sms.fromNumber ?? null,
+          canSend: activeReminderCapability?.sms.available ?? false,
+        }}
+        channelStatus={
+          reminderCapabilityLoading ? (
+            <p className="text-xs text-muted">Checking this workspace’s message channels…</p>
+          ) : reminderCapabilityError ? (
+            <p className="text-xs text-red-600">
+              Could not check message access. <button type="button" className="font-semibold underline" onClick={() => setCapabilityRefresh((n) => n + 1)}>Retry</button>
+            </p>
+          ) : activeReminderCapability?.sms.reason ? (
+            <p className="text-xs text-muted">SMS unavailable: {activeReminderCapability.sms.reason}</p>
+          ) : activeReminderCapability?.sms.fromNumber ? (
+            <p className="text-xs text-muted">SMS from this workspace: {activeReminderCapability.sms.fromNumber}</p>
+          ) : null
+        }
         deliverViaKind="payment_reminder"
         hideSendViaFooterNote
         dynamicSendLabel
         assistantContext="Payment reminder compose"
         confirmLabel="Send reminder"
-        confirmBusy={sendingReminderId === reminderPreview.row.id}
-        confirmBusyLabel="Sending…"
+        confirmBusy={sendingReminderId === reminderPreview.row.id || reminderCapabilityLoading || reminderCapabilityError}
+        confirmBusyLabel={reminderCapabilityLoading ? "Checking…" : reminderCapabilityError ? "Unavailable" : "Sending…"}
         onConfirm={(skipMessage, channels, draft) => void doSendReminder(skipMessage, channels, draft)}
       />
     )}
@@ -1743,24 +1906,27 @@ export function ManagerPaymentsLedgerPanel({
             ? "Send payment reminder"
             : `Send ${bulkReminderPreview.length} payment reminders`
         }
-        items={bulkReminderPreview.map((item) => ({
-          id: item.id,
-          label: item.chargeLabel,
-          recipient: item.recipient,
-          subject: item.subject,
-          body: item.body,
-          emailAvailable: Boolean(
-            remindableSelectedRows.find((row) => row.id === item.id)?.residentEmail?.includes("@"),
-          ),
-          smsAvailable: true,
-        }))}
+        items={bulkModalItems}
         confirmLabel="Send reminder"
         confirmLabelSingle="Send this reminder"
         showSkipMessage={false}
         showChannelPicker
         hideSendViaFooterNote
         onClose={() => setBulkReminderPreview(null)}
-        confirmBusy={sendingReminderId === "bulk"}
+        channelStatus={
+          !bulkCapabilityReady ? (
+            <p className="text-xs text-muted">
+              {bulkReminderCapability?.status === "error" && bulkReminderCapability.key === bulkChargeKey
+                ? "Could not check message access. "
+                : "Checking each workspace’s message channels… "}
+              {bulkReminderCapability?.status === "error" && bulkReminderCapability.key === bulkChargeKey ? (
+                <button type="button" className="font-semibold underline" onClick={() => setCapabilityRefresh((n) => n + 1)}>Retry</button>
+              ) : null}
+            </p>
+          ) : null
+        }
+        confirmBusy={sendingReminderId === "bulk" || !bulkCapabilityReady}
+        confirmBusyLabel={bulkCapabilityReady ? "Sending…" : "Checking…"}
         onConfirm={(scope, options) => void doSendBulkReminders(scope, options)}
       />
     ) : null}
@@ -1770,6 +1936,7 @@ export function ManagerPaymentsLedgerPanel({
         onClose={() => setChargeRemindersRow(null)}
         residentName={chargeRemindersRow.residentName}
         chargeTitle={chargeRemindersRow.chargeTitle}
+        chargeId={chargeRemindersRow.householdChargeId ?? chargeRemindersRow.id}
         dueDate={chargeRemindersRow.dueDate ?? "—"}
         messages={manageableRemindersForCharge(
           scheduledMessages,

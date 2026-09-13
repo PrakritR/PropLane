@@ -15,17 +15,42 @@ Full pipeline: [`captain-dev-workflow.md`](captain-dev-workflow.md),
 
 Visual board: `npm run lavish:workflow`.
 
-**Every message from Prakrit becomes a Lavish plan before any product code.**
-A bug, an idea, a screenshot, one line in chat — plan it and open it, even when
-he did not ask for a plan. Not a markdown file, not a chat outline: an opened
-Lavish artifact he can click through and annotate. Skip it only when he says
-**"skip plan"** / **"just do it"**, the ask is a one-line factual answer, the
-work is read-only investigation, or it is an urgent production fix. When in
-doubt, build the plan.
+## Codex agent hierarchy
+
+For Prakrit's substantive work when model-selectable nested collaboration is
+available, use this chain:
+
+1. **GPT-6 Astra owns the task.** Keep the user's intent, the Lavish plan and
+   feedback session, final integration, and release decisions with Astra.
+2. **GPT-5.6 Sol coordinates bounded work.** Astra delegates a concrete scope
+   to Sol. Sol divides independent tasks, reconciles results, and reports the
+   evidence and unresolved issues back to Astra.
+3. **GPT-5.6 Terra executes a bounded implementation or investigation.**
+   **GPT-5.6 Luna independently checks behavior, tests, edge cases, or the
+   proposed design.** Sol owns their briefs and keeps file ownership separate.
+
+Set the exact model on each spawn (`gpt-5.6-sol`, `gpt-5.6-terra`,
+`gpt-5.6-luna`); a role name alone does not select a model. Use nested
+delegation only when the work has concrete independent parts and the host has
+capacity. If model selection or nesting is unavailable, proceed with the
+available agents and state the deviation; never imply a model was used based
+only on its task name. Astra remains the single writer of a Lavish artifact and
+the single attached feedback poller. Delegation does not grant build approval,
+create a Linear ticket, or change any production, ship, or review gate below.
+
+**Every new product, feature, UI, or implementation request gets a Lavish plan
+before product code.** A bug, an idea, a screenshot, one line in chat — plan
+it and open it, even when he did not ask for a plan. Not a markdown file, not
+a chat outline: an opened Lavish artifact he can click through and annotate.
+Skip this phase only when Prakrit explicitly says **"skip plan"** for that task.
+Read-only investigation and factual answers are outside the build phase.
 
 ```bash
-npm run workflow:plan -- --chat "<his exact message>"
+npm run lavish:plan -- --title "<task>" --summary "<his request>"
 ```
+
+Fill the scaffold before opening it. Do not use a combined ticket-and-plan
+helper; the standalone Lavish artifact is the plan.
 
 Reply with the plan URL and the `plan.html` path, then **stop** until he says
 **`approved - build`** (or `LGTM build` / `ship it`). Do not write product code
@@ -91,11 +116,15 @@ desktop/mobile toggles let him check the screen without asking.
 
 ## Lavish chat (mandatory while a plan is open)
 
-1. `npm run lavish:listen` right after opening (UI shows "listening")
-2. `npm run lavish:poll` before ending the turn
+In Codex, keep `lavish-axi poll <plan.html>` attached to the active turn after
+opening the plan. A detached listener badge does not prove that feedback wakes
+this agent. Read every returned prompt, edit the same artifact, reply through
+`--agent-reply`, and immediately resume the attached poll. Other hosts may use
+a tracked listener only when completion reliably resumes the same agent.
 
 Every later turn while `.lavish/active-session.json` exists: **first command**
-is `npm run lavish:poll`. After approval: `npm run lavish:poll -- --clear`.
+is `npm run lavish:poll` to drain queued feedback. After approval:
+`npm run lavish:poll -- --clear`.
 
 Iterating is the normal case, not an exception:
 
