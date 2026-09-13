@@ -294,9 +294,22 @@ export function paymentAtSigningMatrix(
   const stored = sub.paymentAtSigningByLeaseType;
   const legacy = (sub.paymentAtSigningIncludes ?? []).map(String);
   const out: Record<string, string[]> = {};
+  /*
+   * Keyed by the term the SCREEN shows, not the one the listing stored.
+   *
+   * A listing that still holds "12-Month" is presented as Long-term everywhere —
+   * the pricing tab, the signing heading, the applicant's dropdown. Keying this
+   * by the stored value meant the screen read and wrote `Long-term` while the
+   * only row was `12-Month`, so every tick was written and then dropped on the
+   * next render and the control sat on "Nothing due at signing" forever.
+   * A row already stored under the presented name wins; otherwise a row saved
+   * under the retired name is carried onto it, so nothing set before is lost.
+   */
   for (const term of terms) {
-    const row = stored?.[term];
-    out[term] = Array.isArray(row) ? [...row] : [...legacy];
+    const presented = isLegacyFixedLeaseTerm(term) ? LONG_TERM_LEASE_TERM : term;
+    if (out[presented]) continue;
+    const row = Array.isArray(stored?.[presented]) ? stored?.[presented] : stored?.[term];
+    out[presented] = Array.isArray(row) ? [...row] : [...legacy];
   }
   return out;
 }

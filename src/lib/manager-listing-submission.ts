@@ -13,7 +13,9 @@ import {
   AIRBNB_LEASE_TERM,
   LEASE_TERM_OPTIONS,
   LISTING_LEASE_TERM_OPTION_SET,
+  LONG_TERM_LEASE_TERM,
   SHORT_TERM_LEASE_TERM,
+  isLegacyFixedLeaseTerm,
   sortLeaseTermsCanonical,
 } from "@/lib/rental-application/lease-terms";
 import { emptyHouseInfo, normalizeHouseInfo, type HouseInfoV1 } from "@/lib/house-info";
@@ -1467,10 +1469,19 @@ function normalizeSigningMatrix(
     return false;
   };
   const out: Record<string, string[]> = {};
+  /*
+   * Keys are the PRESENTED term (see `paymentAtSigningMatrix`). Iterating the
+   * stored terms alone deleted the `Long-term` row the screen had just written
+   * on a listing that still holds a retired length, which is the other half of
+   * why ticking a payment at signing never stuck.
+   */
   for (const term of present.terms) {
-    const value = (raw as Record<string, unknown>)[term];
+    const presented = isLegacyFixedLeaseTerm(term) ? LONG_TERM_LEASE_TERM : term;
+    if (out[presented]) continue;
+    const source = raw as Record<string, unknown>;
+    const value = Array.isArray(source[presented]) ? source[presented] : source[term];
     if (!Array.isArray(value)) continue;
-    out[term] = [
+    out[presented] = [
       ...new Set(
         value
           .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
