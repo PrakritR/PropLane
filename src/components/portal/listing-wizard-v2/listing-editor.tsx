@@ -723,8 +723,13 @@ function FurnishingField({ value, onChange }: { value: string; onChange: (next: 
  * is entered in exactly one place.
  */
 
+/* Chevron · Room · People · Bathroom · Beds · Floor · Furnishing · Rent · ✕
+   People leads the data columns: how many a room sleeps is what a manager sets,
+   and the grid scrolls sideways on a phone, so the first column after the name
+   is the only one they are guaranteed to see. It is 76px rather than the 66px
+   it had as a minor column, or a two-digit value and the override dot crowd. */
 const ROOM_GRID_COLUMNS =
-  "22px minmax(104px,1fr) minmax(84px,0.75fr) minmax(88px,0.75fr) minmax(112px,1.05fr) 66px minmax(116px,1.05fr) 82px 26px";
+  "22px minmax(104px,1fr) 76px minmax(88px,0.75fr) minmax(112px,1.05fr) minmax(84px,0.75fr) minmax(116px,1.05fr) 82px 26px";
 
 /** The fields the inline editor and the grid both know how to mark. */
 type RoomInheritField = Extract<
@@ -1190,7 +1195,7 @@ function StepRooms({
       <div className="overflow-x-auto rounded-2xl border border-border">
       <div className="min-w-[780px]">
         <div className="grid items-center gap-2 border-b border-border bg-accent/25 px-3 py-2 text-[10.5px] font-extrabold uppercase tracking-wide text-muted" style={{ gridTemplateColumns: ROOM_GRID_COLUMNS }}>
-          <span /><span>Room</span><span>Floor</span><span>Bathroom</span><span>Beds</span><span>People</span><span>Furnishing</span><span className="text-right">Rent</span><span />
+          <span /><span>Room</span><span>People</span><span>Bathroom</span><span>Beds</span><span>Floor</span><span>Furnishing</span><span className="text-right">Rent</span><span />
         </div>
 
         {/* Every room — the defaults, in a room's clothes. */}
@@ -1201,16 +1206,16 @@ function StepRooms({
               <b className="block text-[13.5px] font-bold text-foreground">Every room</b>
               <span className="block text-[11.5px] text-muted">Rooms follow this until you change them</span>
             </span>
-            <RowSelectCell ariaLabel="Floor for every room" value={defaults.floor} options={floorOptions} placeholder="Floor…" onChange={(v) => editDefault("floor", v)} />
-            {accessSelect(rooms[0] ? accessForRoom(rooms[0].id) : "", setAccessForAllRooms, "Bathroom access for every room", false)}
-            <button type="button" onClick={() => toggle("defaults")} className={cn(cellSelect(false), "truncate text-left")} aria-label="Beds for every room">
-              {defaults.bedsLine || "Choose beds…"}
-            </button>
             <select value={String(defaults.occupancyCapacity)} onChange={(e) => editDefault("occupancyCapacity", Number(e.target.value) || 1)} aria-label="Residents per room for every room" className={cellSelect(false)}>
               {Array.from({ length: 8 }, (_, i) => i + 1).map((n) => (
                 <option key={n} value={n}>{n}</option>
               ))}
             </select>
+            {accessSelect(rooms[0] ? accessForRoom(rooms[0].id) : "", setAccessForAllRooms, "Bathroom access for every room", false)}
+            <button type="button" onClick={() => toggle("defaults")} className={cn(cellSelect(false), "truncate text-left")} aria-label="Beds for every room">
+              {defaults.bedsLine || "Choose beds…"}
+            </button>
+            <RowSelectCell ariaLabel="Floor for every room" value={defaults.floor} options={floorOptions} placeholder="Floor…" onChange={(v) => editDefault("floor", v)} />
             <button type="button" onClick={() => toggle("defaults")} className={cn(cellSelect(false), "truncate text-left")} aria-label="Furnishing for every room">
               {furnishingSummary(defaults.furnishing)}
             </button>
@@ -1237,8 +1242,12 @@ function StepRooms({
                   onChange={(e) => writeRoom(room.id, { name: e.target.value })}
                   className="min-h-[36px] w-full rounded-lg border border-border bg-card px-2 text-[13px] font-semibold text-foreground outline-none focus:border-primary"
                 />
-                <GridCell own={!inh("floor")}>
-                  <RowSelectCell ariaLabel={`Floor for ${label}`} value={room.floor} options={floorOptions} placeholder="Floor…" inherited={inh("floor")} onChange={(v) => writeRoom(room.id, { floor: v })} />
+                <GridCell own={!inh("occupancyCapacity")}>
+                  <select value={String(room.occupancyCapacity ?? defaults.occupancyCapacity)} onChange={(e) => writeRoom(room.id, { occupancyCapacity: Number(e.target.value) || 1 })} aria-label={`Residents per room for ${label}`} className={cellSelect(inh("occupancyCapacity"))}>
+                    {Array.from({ length: 8 }, (_, i2) => i2 + 1).map((n) => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
                 </GridCell>
                 {accessSelect(accessForRoom(room.id), (v) => setAccessForRoom(room.id, v), `Bathroom access for ${label}`, false)}
                 <GridCell own={!inh("bedsLine")}>
@@ -1246,12 +1255,8 @@ function StepRooms({
                     {bedsLine(room.beds) || defaults.bedsLine || "Choose beds…"}
                   </button>
                 </GridCell>
-                <GridCell own={!inh("occupancyCapacity")}>
-                  <select value={String(room.occupancyCapacity ?? defaults.occupancyCapacity)} onChange={(e) => writeRoom(room.id, { occupancyCapacity: Number(e.target.value) || 1 })} aria-label={`Residents per room for ${label}`} className={cellSelect(inh("occupancyCapacity"))}>
-                    {Array.from({ length: 8 }, (_, i2) => i2 + 1).map((n) => (
-                      <option key={n} value={n}>{n}</option>
-                    ))}
-                  </select>
+                <GridCell own={!inh("floor")}>
+                  <RowSelectCell ariaLabel={`Floor for ${label}`} value={room.floor} options={floorOptions} placeholder="Floor…" inherited={inh("floor")} onChange={(v) => writeRoom(room.id, { floor: v })} />
                 </GridCell>
                 <GridCell own={!inh("furnishing")}>
                   <button type="button" onClick={() => toggle(room.id)} className={cn(cellSelect(inh("furnishing")), "truncate text-left")} aria-label={`Furnishing for ${label}`}>
