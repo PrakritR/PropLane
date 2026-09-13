@@ -249,13 +249,19 @@ export const SERVICE_FEE_PAYER_OPTION_LABELS: Record<ServiceFeePayer, string> = 
 export const LISTING_PROCESSING_FEE_PAYER_HELP =
   "This is Stripe's card/ACH processing cost on each resident payment — not PropLane's subscription. PropLane covers it with a promo code; otherwise the resident pays, or on Pro and Business you can pay it yourself.";
 
-/** Under the promo-code field. Never print the code itself in product copy. */
+/** Under the coverage-code field. Never print the code itself in product copy. */
 export const LISTING_PROCESSING_FEE_WAIVER_CODE_HELP =
-  "Enter the promo code PropLane gave you. Without a valid code this listing bills the resident.";
+  "Enter the processing coverage code PropLane gave you. Without a valid code this listing bills the resident.";
 
-/** Shown when a typed promo code does not match. Never print the code itself. */
+/**
+ * Shown when a typed code does not match. Never print the code itself.
+ *
+ * It names the FAMILY, because the likeliest mistake is now pasting a
+ * subscription promo or the manager's own application-fee waiver code in here —
+ * codes that used to be accepted and deliberately no longer are.
+ */
 export const LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID =
-  "That promo code is not valid. Check with PropLane if you were given one.";
+  "That is not a processing coverage code. Check with PropLane if you were given one.";
 
 export const LISTING_PROCESSING_FEE_PROPLANE_NOT_ALLOWED =
   "PropLane pays needs a promo code, or a grant on your account.";
