@@ -22,6 +22,28 @@ import {
   LISTING_LEASE_TERM_OPTION_SET,
 } from "@/lib/rental-application/lease-terms";
 
+/**
+ * Built-in fee slots that may be collected at signing.
+ *
+ * Declared here as plain ids rather than derived from `LISTING_FEE_PRESETS`
+ * because `listing-fees.ts` imports THIS module — importing it back would be a
+ * cycle. `tests/unit/listing-at-signing-presets.test.ts` asserts this set stays
+ * in step with the preset catalogue, so the two cannot drift apart silently.
+ *
+ * Excluded on purpose: `security_deposit` and `move_in_fee` (already standard
+ * rows, would appear twice), the `short_term_*` slots (priced on the Short-term
+ * tab's own grid), and `break_lease_fee` / `holdover_daily` (charged when a
+ * lease ends, never at signing).
+ */
+export const PRESET_IDS_OFFERED_AT_SIGNING: ReadonlySet<string> = new Set([
+  "holding_deposit",
+  "parking_monthly",
+  "hoa_monthly",
+  "other_monthly",
+  "mtm_surcharge",
+  "custom_lease_surcharge",
+]);
+
 /** A fee scope list that is absent, empty, or covers every option means "all". */
 export function feeScopeIsAll(scope: readonly string[] | null | undefined): boolean {
   return !Array.isArray(scope) || scope.length === 0;
@@ -117,7 +139,11 @@ export function listingLeaseTypeScopeOptions(
  * Lease-type tabs on Pricing → Rent and deposits.
  *
  * Legacy listings still store 3/6/9/12-Month separately, but every fixed monthly
- * length bills off the same rent — one "12-Month" tab is enough on this screen.
+ * length bills off the same rent, so they collapse onto ONE tab. That tab is
+ * labelled "Long-term", not "12-Month": the product stopped offering named
+ * lengths, the move-in and move-out dates are the term, and naming a length a
+ * manager can no longer pick just confuses them (the captain's "should not
+ * specify what lengths are offered"). Tabs follow the canonical display order.
  */
 export function listingPricingLeaseTabs(
   sub: Pick<
@@ -128,7 +154,7 @@ export function listingPricingLeaseTabs(
   const raw = listingLeaseTypeScopeOptions(sub);
   const tabs: string[] = [];
   const hasFixedMonthly = raw.some((t) => isLegacyFixedLeaseTerm(t) || t === LONG_TERM_LEASE_TERM);
-  if (hasFixedMonthly) tabs.push("12-Month");
+  if (hasFixedMonthly) tabs.push(LONG_TERM_LEASE_TERM);
   for (const term of raw) {
     if (isLegacyFixedLeaseTerm(term) || term === LONG_TERM_LEASE_TERM) continue;
     if (!tabs.includes(term)) tabs.push(term);
@@ -138,7 +164,9 @@ export function listingPricingLeaseTabs(
 
 /** Map a pricing tab to the lease term the room record uses for monthly rent. */
 export function listingPricingTabToLeaseTerm(tab: string): string {
-  if (tab === "12-Month") return LONG_TERM_LEASE_TERM;
+  /* "12-Month" was this tab's id before it was renamed; still accepted so any
+     persisted or in-flight tab selection keeps resolving. */
+  if (tab === "12-Month" || isLegacyFixedLeaseTerm(tab)) return LONG_TERM_LEASE_TERM;
   return tab;
 }
 
@@ -206,7 +234,22 @@ export function paymentAtSigningRows(
 
   for (const fee of sub.customFees ?? []) {
     const presetId = (fee as { presetId?: string }).presetId;
-    if (presetId && presetId !== "custom") continue;
+    /*
+     * Every fee the property actually has can be due at signing — not just the
+     * manager's own rows. Parking, HOA, other monthly, holding deposit and the
+     * lease surcharges used to be skipped entirely here, so a manager could not
+     * say "collect parking up front" and the receipt silently under-counted
+     * (the captain's "Due at signing does not include all the fees").
+     *
+     * Two families stay out, and deliberately:
+     *   - security_deposit / move_in_fee already have a standard row above, so
+     *     including them again would show the same fee twice.
+     *   - the short-term section presets are priced on the Short-term tab's own
+     *     grid, which already collects them.
+     * Termination fees are charged when a lease ENDS, so they are not offered
+     * as something to collect at signing.
+     */
+    if (presetId && presetId !== "custom" && !PRESET_IDS_OFFERED_AT_SIGNING.has(presetId)) continue;
     // A fee the manager has not named yet still gets its row, so the table visibly grows
     // the moment a fee is added rather than only once it is typed into.
     rows.push({

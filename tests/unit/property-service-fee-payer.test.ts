@@ -39,8 +39,11 @@ describe("the stored value", () => {
     expect(withFeePayer("proplane", "FREE100")).toBe("proplane");
   });
 
-  it("preserves grant-backed PropLane absorb without a per-listing code on read paths", () => {
-    expect(withFeePayer("proplane")).toBe("proplane");
+  it("refuses codeless PropLane absorb rather than preserving it", () => {
+    // Coverage is money PropLane spends, so an unanswered question resolves to
+    // the option that does not spend it — and does not tell the manager we are
+    // covering a fee the resident is in fact being billed for.
+    expect(withFeePayer("proplane")).toBe("resident");
     // A typed code that does not match is a typo, not a grant.
     expect(withFeePayer("proplane", "WRONG")).toBe("resident");
     expect(

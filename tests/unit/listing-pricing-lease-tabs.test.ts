@@ -7,23 +7,26 @@ import { LONG_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { normalizeLongTermLengths } from "@/lib/manager-listing-submission";
 
 describe("listingPricingLeaseTabs", () => {
-  it("collapses legacy fixed lengths and Long-term onto one 12-Month tab", () => {
+  it("collapses legacy fixed lengths onto one tab, named for the term and not a length", () => {
     const tabs = listingPricingLeaseTabs({
       allowedLeaseTerms: ["3-Month", "6-Month", "9-Month", "12-Month", LONG_TERM_LEASE_TERM, "Month-to-Month"],
       leaseTermsBody: "",
       shortTermRentalsAllowed: false,
       airbnbRentalsAllowed: false,
     });
-    expect(tabs).toContain("12-Month");
+    // The product stopped offering named lengths — the dates are the term — so
+    // the tab must not advertise one the manager can no longer pick.
+    expect(tabs).toContain(LONG_TERM_LEASE_TERM);
+    expect(tabs).not.toContain("12-Month");
     expect(tabs).not.toContain("3-Month");
     expect(tabs).not.toContain("6-Month");
     expect(tabs).not.toContain("9-Month");
-    expect(tabs).not.toContain(LONG_TERM_LEASE_TERM);
     expect(tabs).toContain("Month-to-Month");
   });
 
-  it("maps the 12-Month tab to Long-term for rent reads", () => {
+  it("still resolves the retired 12-Month tab id to Long-term", () => {
     expect(listingPricingTabToLeaseTerm("12-Month")).toBe(LONG_TERM_LEASE_TERM);
+    expect(listingPricingTabToLeaseTerm(LONG_TERM_LEASE_TERM)).toBe(LONG_TERM_LEASE_TERM);
   });
 });
 
