@@ -189,10 +189,10 @@ and `rounded-lg` radius.
 | Section | Label | File |
 |---------|-------|------|
 | Properties (Listed tab) | Add property | `pro-properties.tsx` |
-| Residents | Add resident | `manager-residents.tsx` |
-| Applications | Create application | `manager-applications.tsx` |
-| Leases | Create lease | `manager-leases.tsx` |
-| Tours | Schedule tour | `manager-tours.tsx` |
+| Residents | Add resident | `pro-residents.tsx` |
+| Applications | Create application | `pro-applications.tsx` |
+| Leases | Create lease | `pro-leases.tsx` |
+| Tours | Schedule tour | `pro-tours.tsx` |
 
 Constants live in `portal-metrics.tsx`; hover rule in `globals.css`
 (`.portal-command-primary:hover`).

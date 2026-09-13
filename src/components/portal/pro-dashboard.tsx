@@ -582,6 +582,7 @@ function formatUsd(amount: number): string {
 }
 
 export function ManagerDashboard({ displayName: _displayName = "there" }: { displayName?: string }) {
+  void _displayName;
   const router = useRouter();
   const { userId, email, ready: authReady } = useManagerUserId();
   const [tick, setTick] = useState(0);

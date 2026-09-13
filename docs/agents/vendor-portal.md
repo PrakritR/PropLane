@@ -87,12 +87,12 @@ destination guard — redundant.
 
 **Directory privacy.** Linked vendors cannot directly SELECT `manager_vendor_records`; `20260912230000_vendor_directory_private_fields.sql` removes that policy. Vendor portal readers use authorized service-role routes, and catalog responses use `vendorCatalogProjection`.
 
-**Row-level isolation (original foundation).** `manager_vendor_records`, `portal_work_order_records`,
-and `vendor_tax_profiles` all gained a `vendor_user_id` column (nullable,
-populated once the vendor signs up) plus a `..._vendor_read` RLS SELECT policy
-scoped to `vendor_user_id = auth.uid()` — defense in depth alongside the
-existing service-role API routes, matching the `auth.uid()` pattern on the
-financials tables. `/api/portal-work-orders` resolves `vendorId` (a
+**Row-level isolation (original foundation).** `manager_vendor_records`,
+`portal_work_order_records`, and `vendor_tax_profiles` all gained a nullable
+`vendor_user_id` column populated once the vendor signs up. Work orders and tax
+profiles retain vendor-scoped SELECT policies; the directory policy was removed
+as described above because its rows contain manager-private fields.
+`/api/portal-work-orders` resolves `vendorId` (a
 `manager_vendor_records.id` string) → `vendor_user_id` via
 `resolveVendorUserId()` scoped to the work order's owning manager (never
 trusting a client-supplied directory id from another landlord) at write time so
