@@ -18,7 +18,7 @@
  */
 
 import { useEffect, useId, useRef, type ReactNode } from "react";
-import { Camera, RotateCcw, type LucideIcon } from "lucide-react";
+import { Camera, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /* ─────────────────────────── shell ─────────────────────────── */
@@ -424,55 +424,17 @@ export function PanelLine({
 }
 
 /** The heading block at the top of every step body. */
-export function StepHeading({
-  title,
-  subtitle,
-  action,
-}: {
-  title: string;
-  subtitle?: string;
-  /** Small tertiary control — e.g. reset every row to the top defaults. */
-  action?: ReactNode;
-}) {
+export function StepHeading({ title, subtitle }: { title: string; subtitle?: string }) {
   /*
    * No "Step 3 of 6" here. The rail says where the manager is and the footer
    * counts the steps; a third copy in the body was the same fact three times on
    * one screen.
    */
   return (
-    <div className="mb-5 flex items-start justify-between gap-3">
-      <div className="min-w-0 flex-1">
-        <h2 className="text-[23px] font-bold leading-tight tracking-tight text-foreground">{title}</h2>
-        {subtitle ? <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">{subtitle}</p> : null}
-      </div>
-      {action ? <div className="shrink-0 pt-0.5">{action}</div> : null}
+    <div className="mb-5">
+      <h2 className="text-[23px] font-bold leading-tight tracking-tight text-foreground">{title}</h2>
+      {subtitle ? <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">{subtitle}</p> : null}
     </div>
-  );
-}
-
-/** Compact ghost control for "make every row follow the top defaults again". */
-export function ResetAllInheritanceButton({
-  label = "Reset all",
-  onClick,
-  disabled,
-  dataAttr,
-}: {
-  label?: string;
-  onClick: () => void;
-  disabled?: boolean;
-  dataAttr: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      data-attr={dataAttr}
-      className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-semibold text-muted transition-colors hover:border-primary/35 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-    >
-      <RotateCcw className="h-3 w-3 shrink-0" aria-hidden />
-      {label}
-    </button>
   );
 }
 

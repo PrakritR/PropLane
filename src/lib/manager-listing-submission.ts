@@ -316,7 +316,7 @@ export type ManagerCustomFeeRow = {
   label: string;
   amount: string;
   /** Default monthly when unset. */
-  frequency?: "one-time" | "monthly" | "weekly" | "daily";
+  frequency?: "one-time" | "monthly";
   /**
    * Optional SHORT-TERM amount (money string). A custom fee can apply to long-term only
    * ({@link amount} set), short-term only (this set), or both with different amounts. On a
@@ -353,13 +353,6 @@ export type ManagerCustomFeeRow = {
    * silently drop the fee from it. Only a real narrowing is stored.
    */
   roomIds?: string[];
-  /** One-time fee the resident can get back (shown on the signing receipt). */
-  refundable?: boolean;
-  /**
-   * When true, this one-time fee counts toward the security deposit instead of
-   * stacking on top of it (holding deposit uses this by default).
-   */
-  creditsTowardSecurity?: boolean;
 };
 
 /** Rows for the public “Bundles & leasing” table (optional — defaults are generated from rooms). */
@@ -645,16 +638,13 @@ export type ManagerListingSubmissionV1 = {
    */
   allowMultiplePropertyApplications?: boolean;
   /**
-   * @deprecated Use {@link waiveApplicationFeeForReturningResidents}. Kept so
-   * older saves still normalize into the new flag.
+   * @deprecated Inert. The application fee is now always collected ONCE per
+   * resident per manager (repeat applicants are waived) — hard-coded in
+   * `shouldWaiveApplicationFeeForResident`
+   * (`src/lib/rental-application/application-policy.ts`), no longer read from
+   * the listing. Kept so stored submissions still normalize; no UI sets it.
    */
   applicationFeeOnlyFirstApplication?: boolean;
-  /**
-   * When true, a resident who already applied to or paid an application fee on
-   * any of this manager's listings (same email or signed-in account) is waived
-   * on this listing. When false, every new application owes the fee.
-   */
-  waiveApplicationFeeForReturningResidents?: boolean;
   securityDeposit: string;
   moveInFee: string;
   /** Charges included in “payment due at signing” (multi-select). */
@@ -2175,16 +2165,10 @@ export function normalizeManagerListingSubmissionV1(
     })(),
     longTermMinimumMonths: (() => {
       const n = Number((sub as { longTermMinimumMonths?: unknown }).longTermMinimumMonths);
-      return Number.isInteger(n) && n >= 1 && n <= 36 ? n : undefined;
+      return Number.isInteger(n) && n >= 2 && n <= 36 ? n : undefined;
     })(),
     allowMultiplePropertyApplications: sub.allowMultiplePropertyApplications === true,
     applicationFeeOnlyFirstApplication: sub.applicationFeeOnlyFirstApplication === true,
-    waiveApplicationFeeForReturningResidents: (() => {
-      if (sub.waiveApplicationFeeForReturningResidents === true) return true;
-      if (sub.waiveApplicationFeeForReturningResidents === false) return false;
-      if (sub.applicationFeeOnlyFirstApplication === true) return true;
-      return undefined;
-    })(),
     rentDueDayMode: sub.rentDueDayMode === "last_of_month" ? "last_of_month" : "first_of_month",
     // Null, not a default payer: absence means this property follows the manager's account
     // setting, so an untouched property keeps tracking it rather than pinning today's value.

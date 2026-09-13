@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  dedupePlacementSegments,
   formatCompactChargeLine,
   formatCompactPlacementLine,
   portalListPreviewLimit,
@@ -17,12 +16,6 @@ describe("portal mobile preview helpers", () => {
 
   it("strips room-count suffix from property titles", () => {
     expect(stripPropertyRoomCountSuffix("5259 Brooklyn Ave NE · 9 rooms")).toBe("5259 Brooklyn Ave NE");
-  });
-
-  it("dedupes repeated property segments in placement labels", () => {
-    expect(
-      dedupePlacementSegments("5259 Brooklyn Ave NE · 9 rooms · 5259 Brooklyn Ave NE"),
-    ).toBe("5259 Brooklyn Ave NE · 9 rooms");
   });
 
   it("compacts lease placement labels to room + rent", () => {

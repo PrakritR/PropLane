@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import {
   clusterManagerLeaseListRows,
-  leaseGroupedRowPrimary,
   leaseRowSortMs,
   sortManagerLeaseClustersForBucket,
   sortManagerLeaseRowsForBucket,
@@ -41,26 +40,6 @@ describe("manager-lease-list", () => {
     expect(clusters).toHaveLength(2);
     const alex = clusters.find((cluster) => cluster.residentEmail === "alex@example.com");
     expect(alex?.rows).toHaveLength(2);
-  });
-
-  it("compacts grouped row primary when property is already in the cluster header", () => {
-    const duplicateAddress = row({
-      id: "lease-dup",
-      residentName: "Alex Kim",
-      residentEmail: "alex@example.com",
-      unit: "5259 Brooklyn Ave NE · 9 rooms · 5259 Brooklyn Ave NE",
-    });
-    expect(leaseGroupedRowPrimary(duplicateAddress, "5259 Brooklyn Ave NE · 9 rooms")).toBe(
-      "9 rooms",
-    );
-
-    const withRoom = row({
-      id: "lease-room",
-      residentName: "Alex Kim",
-      residentEmail: "alex@example.com",
-      unit: "5259 Brooklyn Ave NE · 9 rooms · Room 8",
-    });
-    expect(leaseGroupedRowPrimary(withRoom, "5259 Brooklyn Ave NE · 9 rooms")).toBe("Room 8");
   });
 
   it("sorts active pipeline tabs oldest first and signed newest first", () => {

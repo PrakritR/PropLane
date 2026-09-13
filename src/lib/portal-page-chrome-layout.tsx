@@ -1,4 +1,4 @@
-import { Children, cloneElement, isValidElement, type ReactElement, type ReactNode } from "react";
+import { Children, isValidElement, type ReactElement, type ReactNode } from "react";
 
 export const PORTAL_PAGE_SCROLL_BODY_CLASS = "portal-list-page-scroll";
 
@@ -67,37 +67,6 @@ export function partitionPortalPageChildren(children: ReactNode): {
     chrome: items.slice(0, scrollIdx),
     body: items.slice(scrollIdx),
   };
-}
-
-/** Merge shell title + primary CTA into the first command {@link PortalListControlStack}. */
-export function injectUnifiedListChromeIntoChildren(
-  children: ReactNode,
-  inject: {
-    title?: string;
-    titleCount?: number;
-    primaryAction?: ReactNode;
-    hideTitleOnMobile?: boolean;
-    skipTitle?: boolean;
-  },
-): { children: ReactNode; merged: boolean } {
-  if (!inject.primaryAction) {
-    return { children, merged: false };
-  }
-  let merged = false;
-  const next = Children.map(children, (child) => {
-    if (merged || !isValidElement(child)) return child;
-    if (!isListControlStackElement(child)) return child;
-    const variant = (child.props as { variant?: string }).variant ?? "stacked";
-    if (variant !== "command") return child;
-    merged = true;
-    return cloneElement(child as ReactElement<Record<string, unknown>>, {
-      chromeTitle: inject.skipTitle ? undefined : inject.title,
-      chromeTitleCount: inject.skipTitle ? undefined : inject.titleCount,
-      chromePrimaryAction: inject.primaryAction,
-      chromeHideTitleOnMobile: inject.hideTitleOnMobile,
-    });
-  });
-  return { children: next, merged };
 }
 
 export function renderPortalStickyBody(children: ReactNode): ReactNode {

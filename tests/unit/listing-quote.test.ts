@@ -5,7 +5,7 @@ import {
   normalizeManagerListingSubmissionV1,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
-import { LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import { LONG_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 
 const MONTH_TO_MONTH = "Month-to-Month";
 
@@ -150,50 +150,5 @@ describe("buildListingQuote", () => {
     const quote = buildListingQuote(listing(), { roomId: "room-a", leaseTerm: LONG_TERM_LEASE_TERM });
     expect(quote.signingLines.some((l) => l.label === "Application fee")).toBe(false);
     expect(quote.applicationFees.map((f) => f.label)).toContain("Application fee");
-  });
-
-  it("quotes inherited rent from house defaults when a room row is still blank", () => {
-    const sub = listing({
-      rooms: [
-        { ...listing().rooms![0]!, id: "room-a", name: "Room A", monthlyRent: 1200, utilitiesEstimate: "150" },
-        { ...listing().rooms![0]!, id: "room-b", name: "Room B", monthlyRent: 0, utilitiesEstimate: "" },
-      ],
-      houseDefaults: { monthlyRent: 1200, utilitiesEstimate: "150" },
-    } as ManagerListingSubmissionV1);
-    const quote = buildListingQuote(sub, { roomId: "room-b", leaseTerm: LONG_TERM_LEASE_TERM });
-    expect(quote.monthlyRent).toBe(1200);
-    expect(quote.monthlyUtilities).toBe(150);
-  });
-
-  it("quotes the short-term application fee on a stay lease", () => {
-    const sub = listing({
-      applicationFee: "50",
-      shortTermApplicationFee: "35",
-      allowedLeaseTerms: [SHORT_TERM_LEASE_TERM],
-    } as ManagerListingSubmissionV1);
-    const quote = buildListingQuote(sub, { roomId: "room-a", leaseTerm: SHORT_TERM_LEASE_TERM });
-    expect(quote.applicationFees).toEqual([{ id: "application_fee", label: "Application fee", amount: 35 }]);
-  });
-
-  it("quotes inherited deposit from house defaults, not stale long-term termPricing", () => {
-    const sub = listing({
-      securityDeposit: "500",
-      houseDefaults: { securityDeposit: "250", monthlyRent: 1200, utilitiesEstimate: "150" },
-      rooms: [
-        {
-          ...listing().rooms![0]!,
-          id: "room-a",
-          name: "Room A",
-          monthlyRent: 1200,
-          utilitiesEstimate: "150",
-          securityDeposit: "250",
-          termPricing: { [LONG_TERM_LEASE_TERM]: { securityDeposit: "500" } },
-        },
-      ],
-    } as ManagerListingSubmissionV1);
-    const quote = buildListingQuote(sub, { roomId: "room-a", leaseTerm: LONG_TERM_LEASE_TERM });
-    expect(quote.securityDeposit).toBe(250);
-    const depositLine = quote.signingLines.find((l) => l.key === "security_deposit");
-    expect(depositLine?.amount).toBe(250);
   });
 });

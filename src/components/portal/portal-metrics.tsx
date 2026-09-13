@@ -13,7 +13,7 @@ import { formatCompactChargeLine, formatCompactPlacementLine } from "@/lib/porta
 import { PORTAL_HORIZONTAL_SCROLL_ROW_CLASS } from "@/lib/horizontal-scroll";
 import { PortalTitleActionsHost, PortalTitleActionsProvider } from "@/components/portal/portal-title-actions-slot";
 import { cn } from "@/lib/utils";
-import { injectUnifiedListChromeIntoChildren, renderPortalStickyBody } from "@/lib/portal-page-chrome-layout";
+import { renderPortalStickyBody } from "@/lib/portal-page-chrome-layout";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
 import { usePortalStickyPageChrome } from "@/hooks/use-portal-sticky-page-chrome";
 
@@ -687,18 +687,7 @@ export function ManagerPortalPageShell({
   usePortalStickyPageChrome(pinChrome);
   const fillBody = viewportFillBody || mobileThreadFill || pinChrome;
   const chromeShrink = viewportFillBody || pinChrome ? "shrink-0" : "";
-  const { children: listChromeChildren, merged: mergedListChrome } = injectUnifiedListChromeIntoChildren(
-    children,
-    {
-      title,
-      titleCount: count,
-      primaryAction,
-      hideTitleOnMobile: hideTitleOnMobileNavEffective,
-      skipTitle: navigationProvidesTitle,
-    },
-  );
-  const showHeadline = useHeadline && !mergedListChrome;
-  const bodyChildren = pinChrome ? renderPortalStickyBody(listChromeChildren) : listChromeChildren;
+  const bodyChildren = pinChrome ? renderPortalStickyBody(children) : children;
   return (
     <PortalTitleActionsProvider>
     <div
@@ -714,7 +703,7 @@ export function ManagerPortalPageShell({
     >
       {navigationProvidesTitle ? (
         <h1 className="sr-only">{title}</h1>
-      ) : showHeadline ? (
+      ) : useHeadline ? (
         <PortalPageHeadline
           className={cn(chromeShrink, hideTitleOnNative && "[html[data-native]_&_h1]:sr-only")}
           title={title}

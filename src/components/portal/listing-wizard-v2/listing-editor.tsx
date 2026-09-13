@@ -21,18 +21,10 @@
  * downstream reader keep working exactly as before.
  */
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { isDemoModeActive } from "@/lib/demo/demo-session";
-import { loadManagerPaymentWaiverGrantedClient } from "@/lib/manager-subscription-client";
-import {
-  LISTING_PROCESSING_FEE_WAIVER_CODE_HELP,
-  LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID,
-  listingPaymentWaiverCodeMatches,
-  listingProplaneAbsorbNeedsWaiverCode,
-  normalizeListingPaymentWaiverCode,
-} from "@/lib/payment-policy";
+import { listingPaymentWaiverCodeMatches } from "@/lib/payment-policy";
 import { InlineCheckboxGroup } from "@/components/ui/inline-checkbox-group";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { uploadListingImageFiles } from "@/lib/listing-media-client";
@@ -119,7 +111,6 @@ import {
   SectionGroup,
   SideBelow,
   StepColumn,
-  ResetAllInheritanceButton,
   StepHeading,
   StepRail,
   ListingWorkspace,
@@ -733,15 +724,6 @@ type RoomInheritField = Extract<
   "floor" | "bedsLine" | "occupancyCapacity" | "furnishing" | "roomAmenitiesText" | "sizeSqft"
 >;
 
-const ROOM_INHERIT_FIELDS: readonly RoomInheritField[] = [
-  "floor",
-  "bedsLine",
-  "occupancyCapacity",
-  "furnishing",
-  "roomAmenitiesText",
-  "sizeSqft",
-];
-
 function InheritTag({
   room,
   defaults,
@@ -1093,20 +1075,6 @@ function StepRooms({
   const resetField = (id: string, field: RoomInheritField) =>
     writeRooms(applyHouseDefaultsToRooms(rooms, defaults, { onlyFields: [field], roomIds: [id] }));
 
-  const roomsHaveOverrides =
-    touched.size > 0 ||
-    rooms.some((room) => ROOM_INHERIT_FIELDS.some((field) => !roomInheritsDefault(room, defaults, field)));
-  const resetAllRooms = () => {
-    if (rooms.length === 0) return;
-    setTouched(new Set());
-    writeRooms(
-      applyHouseDefaultsToRooms(rooms, defaults, {
-        onlyFields: ROOM_INHERIT_FIELDS,
-        roomIds: rooms.map((room) => room.id),
-      }),
-    );
-  };
-
   const floorOptions = floorLevelSelectOptions(sub.listingStoriesId, "").map((l) => ({ value: l, label: l }));
 
   /* Bathroom access lives on the BATHROOM (`assignedRoomIds`), shown from the room's side. */
@@ -1177,15 +1145,6 @@ function StepRooms({
       <StepHeading
         title={`Your ${rooms.length} ${rooms.length === 1 ? "room" : "rooms"}`}
         subtitle="Set what is true for every room once, at the top. Change only the rooms that differ — grey follows the top row, ink with a dot is the room's own."
-        action={
-          rooms.length > 0 ? (
-            <ResetAllInheritanceButton
-              dataAttr="listing-v2-rooms-reset-all"
-              disabled={!roomsHaveOverrides}
-              onClick={resetAllRooms}
-            />
-          ) : null
-        }
       />
 
       <div className="overflow-x-auto rounded-2xl border border-border">
@@ -1343,8 +1302,7 @@ function useOwnFields() {
       return { ...prev, [id]: next };
     });
   const has = (id: string, field: string) => own[id]?.has(field) ?? false;
-  const resetAll = () => setOwn({});
-  return { mark, clear, has, resetAll };
+  return { mark, clear, has };
 }
 
 function GridChevron({ open, onClick, label, dataAttr }: { open: boolean; onClick: () => void; label: string; dataAttr: string }) {
@@ -1563,21 +1521,6 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
     own.clear(bath.id, field);
     writeBath(bath.id, writeBathroomField(bath, field, defaultValue(field)));
   };
-  const bathroomFields: readonly BathroomInheritField[] = ["location", "type", "amenitiesText"];
-  const bathroomsHaveOverrides = baths.some((bath) => bathroomFields.some((field) => isOwn(bath, field)));
-  const resetAllBathrooms = () => {
-    if (baths.length === 0) return;
-    own.resetAll();
-    patch({
-      bathrooms: baths.map((bath) => {
-        let next = bath;
-        for (const field of bathroomFields) {
-          next = writeBathroomField(next, field, defaultValue(field));
-        }
-        return next;
-      }),
-    });
-  };
   function editDefault(field: BathroomInheritField, value: string) {
     // Followers are judged against the PREVIOUS default, then moved with it.
     const followers = baths.filter((b) => !isOwn(b, field));
@@ -1595,15 +1538,6 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
       <StepHeading
         title={`Your ${baths.length} ${baths.length === 1 ? "bathroom" : "bathrooms"}`}
         subtitle="Set what is true for every bathroom once, at the top. Change only the ones that differ — grey follows the top row, ink with a dot is the bathroom's own."
-        action={
-          baths.length > 0 ? (
-            <ResetAllInheritanceButton
-              dataAttr="listing-v2-bathrooms-reset-all"
-              disabled={!bathroomsHaveOverrides}
-              onClick={resetAllBathrooms}
-            />
-          ) : null
-        }
       />
       <div className="overflow-x-auto rounded-2xl border border-border">
         <div className="min-w-[700px]">
@@ -1826,19 +1760,6 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
     own.clear(space.id, "location");
     writeSpace(space.id, { ...space, location: defaults.location });
   };
-  const sharedSpaceFields: readonly SharedSpaceInheritField[] = ["location", "access"];
-  const spacesHaveOverrides = spaces.some((space) => sharedSpaceFields.some((field) => isOwn(space, field)));
-  const resetAllSharedSpaces = () => {
-    if (spaces.length === 0) return;
-    own.resetAll();
-    patch({
-      sharedSpaces: spaces.map((space) => ({
-        ...space,
-        location: defaults.location,
-        roomAccessIds: rooms.map((room) => room.id),
-      })),
-    });
-  };
   const editDefaultFloor = (value: string) => {
     const followers = spaces.filter((sp) => !isOwn(sp, "location"));
     setDefaults({ location: value });
@@ -1856,15 +1777,6 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
       <StepHeading
         title="Kitchen, laundry and the rest"
         subtitle="Everything every resident can use. Set the floor once at the top; open a space for what is in it, photos and who may use it."
-        action={
-          spaces.length > 0 ? (
-            <ResetAllInheritanceButton
-              dataAttr="listing-v2-spaces-reset-all"
-              disabled={!spacesHaveOverrides}
-              onClick={resetAllSharedSpaces}
-            />
-          ) : null
-        }
       />
       <div className="overflow-x-auto rounded-2xl border border-border">
         <div className="min-w-[700px]">
@@ -2231,95 +2143,51 @@ function HousePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
         </>
       ) : null}
 
-      <HouseStripePaymentsGroup sub={sub} patch={patch} />
-    </>
-  );
-}
-
-function HouseStripePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
-  const stripeOn = sub.axisPaymentsEnabled !== false;
-  const payer = sub.serviceFeePayer ?? "resident";
-  const [accountGranted, setAccountGranted] = useState<boolean | null>(null);
-  useEffect(() => {
-    if (isDemoModeActive()) return;
-    let live = true;
-    void loadManagerPaymentWaiverGrantedClient().then((granted) => {
-      if (live) setAccountGranted(granted);
-    });
-    return () => {
-      live = false;
-    };
-  }, []);
-  const needsPromoCode = stripeOn && listingProplaneAbsorbNeedsWaiverCode("free", payer, accountGranted === true);
-  const promoCodeTyped = (sub.serviceFeeWaiverCode ?? "").length > 0;
-  const promoCodeValid = listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode);
-
-  return (
-    <>
+      {/*
+       * One answer for every payment. "Where does the money land" used to be
+       * asked twice — once for rent, once for the application fee — with two
+       * near-identical lists that also offered Zelle, Venmo and an ACH link,
+       * every one of which the normalizer has switched off since checkout went
+       * Stripe-only (`zelleEnabled = false`, bc91cc80): a manager could tick
+       * them and the save silently dropped them. What is offered here is what
+       * actually works, and ticking it turns it on for rent, deposits and the
+       * application fee together (`applicationFeeStripeEnabled` already follows
+       * `axisPaymentsEnabled` on save).
+       */}
       <Field
-        label="Payment method"
-        hint="Accepted for rent, deposits, and the application fee."
+        label="Accepted for rent, deposits and the application fee"
+        hint="Card or bank on PropLane is on unless you turn it off. Amounts are set above."
       >
-        <CheckboxOption
-          label="Stripe (card or bank on PropLane)"
-          checked={stripeOn}
+        <CheckboxMultiSelect
+          hideLabel
+          label="How you get paid"
+          dataAttr="listing-v2-how-you-get-paid"
+          options={[
+            { value: "axis", label: "Card or bank on PropLane" },
+            { value: "other", label: "Another way for the application fee", hint: "You write the instructions an applicant follows" },
+          ]}
+          selected={[
+            ...(sub.axisPaymentsEnabled !== false ? ["axis"] : []),
+            ...(sub.applicationFeeOtherEnabled ? ["other"] : []),
+          ]}
+          emptyLabel="No payment method chosen"
           onChange={(next) =>
             patch({
-              axisPaymentsEnabled: next,
-              applicationFeeStripeEnabled: next,
-              applicationFeeOtherEnabled: false,
+              axisPaymentsEnabled: next.includes("axis"),
+              applicationFeeStripeEnabled: next.includes("axis"),
+              applicationFeeOtherEnabled: next.includes("other"),
             })
           }
         />
       </Field>
-      {stripeOn ? (
-        <>
-          <Field
-            label="Stripe processing fee"
-            hint={
-              payer === "proplane"
-                ? accountGranted
-                  ? "Your account already has PropLane coverage — no code needed."
-                  : "PropLane pays only with a valid promo code."
-                : payer === "manager"
-                  ? "Taken out of your payout."
-                  : "Added to the resident's payment."
-            }
-          >
-            <Select
-              value={payer}
-              data-attr="listing-v2-service-fee-payer"
-              onChange={(e) =>
-                patch({
-                  serviceFeePayer: e.target.value as ManagerListingSubmissionV1["serviceFeePayer"],
-                  serviceFeeWaiverCode: undefined,
-                })
-              }
-            >
-              <option value="resident">Resident pays</option>
-              <option value="manager">I pay</option>
-              <option value="proplane">PropLane pays</option>
-            </Select>
-          </Field>
-          {needsPromoCode ? (
-            <Field
-              label="Promo code"
-              hint={LISTING_PROCESSING_FEE_WAIVER_CODE_HELP}
-              error={promoCodeTyped && !promoCodeValid ? LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID : undefined}
-            >
-              <Input
-                style={{ textTransform: "uppercase" }}
-                autoComplete="off"
-                value={sub.serviceFeeWaiverCode ?? ""}
-                placeholder="Promo code"
-                data-attr="listing-v2-service-fee-code"
-                onChange={(e) =>
-                  patch({ serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(e.target.value) || undefined })
-                }
-              />
-            </Field>
-          ) : null}
-        </>
+      {sub.applicationFeeOtherEnabled ? (
+        <Field label="How to pay the application fee another way" hint="Shown to an applicant who picks it. Left blank, the option is not offered.">
+          <Textarea
+            rows={2}
+            value={sub.applicationFeeOtherInstructions ?? ""}
+            onChange={(e) => patch({ applicationFeeOtherInstructions: e.target.value })}
+          />
+        </Field>
       ) : null}
     </>
   );
@@ -2382,36 +2250,24 @@ function HouseApplicationsGroup({ sub, patch }: { sub: ManagerListingSubmissionV
           <Input
             value={sub.applicationFeeWaiverCode ?? ""}
             placeholder="E.G. WELCOME50"
-            onChange={(e) =>
-              patch({
-                applicationFeeWaiverCode: e.target.value.toUpperCase().replace(/\s+/g, ""),
-              })
-            }
+            onChange={(e) => patch({ applicationFeeWaiverCode: e.target.value.toUpperCase() })}
           />
         </Field>
-        <Field label="Long-term application fee" hint="Also on the Payments section.">
+        <Field label="Application fee" hint="Also on the Payments section.">
           <Input value={money(sub.applicationFee)} onChange={(e) => patch({ applicationFee: e.target.value })} />
         </Field>
       </FieldRow>
-      <FieldRow cols={2}>
-        <Field label="Short-term application fee" optional hint="Uses the long-term fee when blank.">
-          <Input
-            value={money(sub.shortTermApplicationFee ?? "")}
-            onChange={(e) => patch({ shortTermApplicationFee: e.target.value })}
-          />
-        </Field>
-      </FieldRow>
-      <Field group label="Returning residents">
+      <Field group label="Applying to several of your homes">
         <CheckboxOption
-          label="Waive the application fee for returning residents"
-          description="If someone already applied to or paid an application fee on any of your homes — with the same account, or the same email they used as a guest — they won't pay again on this listing."
-          checked={Boolean(sub.waiveApplicationFeeForReturningResidents)}
-          onChange={(next) =>
-            patch({
-              waiveApplicationFeeForReturningResidents: next,
-              applicationFeeOnlyFirstApplication: next,
-            })
-          }
+          label="One application may name several homes"
+          checked={Boolean(sub.allowMultiplePropertyApplications)}
+          onChange={(next) => patch({ allowMultiplePropertyApplications: next })}
+        />
+        <CheckboxOption
+          label="Charge the fee only once"
+          description="An applicant naming three homes pays once, not three times."
+          checked={Boolean(sub.applicationFeeOnlyFirstApplication)}
+          onChange={(next) => patch({ applicationFeeOnlyFirstApplication: next })}
         />
       </Field>
       <p className="mt-4 rounded-xl border border-border bg-card px-4 py-3 text-[12px] leading-relaxed text-muted">
@@ -2565,13 +2421,11 @@ function StepPricing({
   patch,
   defaults,
   setDefaults,
-  onActiveLeaseTermChange,
 }: {
   sub: ManagerListingSubmissionV1;
   patch: Patch;
   defaults: ListingHouseDefaults;
   setDefaults: (next: ListingHouseDefaults) => void;
-  onActiveLeaseTermChange?: (leaseTerm: string) => void;
 }) {
   const [leaseDocOpen, setLeaseDocOpen] = useState(false);
   return (
@@ -2598,7 +2452,6 @@ function StepPricing({
         }
         payments={<HousePaymentsGroup sub={sub} patch={patch} />}
         applications={<HouseApplicationsGroup sub={sub} patch={patch} />}
-        onActiveLeaseTermChange={onActiveLeaseTermChange}
         leaseDocument={
           <AdvancedPanel
             summary="What the lease says — break-lease, holdover, quiet hours, venue"
@@ -2954,15 +2807,7 @@ export function ListingEditorV2({
       case "spaces":
         return <StepSharedSpaces sub={submission} patch={patch} />;
       case "pricing":
-        return (
-          <StepPricing
-            sub={submission}
-            patch={patch}
-            defaults={defaults}
-            setDefaults={setDefaults}
-            onActiveLeaseTermChange={setQuoteTerm}
-          />
-        );
+        return <StepPricing sub={submission} patch={patch} defaults={defaults} setDefaults={setDefaults} />;
       default:
         return <StepReview sub={submission} onJump={(id) => goTo(LISTING_V2_STEPS.findIndex((s) => s.id === id))} />;
     }
@@ -2993,7 +2838,6 @@ export function ListingEditorV2({
             leaseTerms={leaseTerms.length > 0 ? leaseTerms : [DEFAULT_QUOTE_TERM]}
             onRoomChange={setQuoteRoomId}
             onLeaseTermChange={setQuoteTerm}
-            lockLeaseTerm
           />
         );
       default:

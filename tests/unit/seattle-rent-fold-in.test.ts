@@ -221,21 +221,6 @@ describe("which fees fold (everywhere else) — unchanged", () => {
     const custom = monthlyFeesBilledSeparately(listing("tacoma"), null, { ...CUSTOM_DATES, rentalType: "standard" });
     expect(custom.map((l) => l.id).sort()).toEqual([CUSTOM_LEASE_SURCHARGE_FEE_ID, "fee-parking", "fee-storage"].sort());
   });
-
-  it("weekly custom fees bill separately using their monthly equivalent", () => {
-    const weeklyFee: ListingFeeRow = {
-      id: "fee-trash",
-      presetId: "custom",
-      label: "Trash pickup",
-      amount: "10",
-      cadence: "weekly",
-      frequency: "monthly",
-    };
-    const sub = listing("tacoma", { fees: [...FEES, weeklyFee] });
-    const separate = monthlyFeesBilledSeparately(sub, null, { ...MONTH_TO_MONTH, rentalType: "standard" });
-    const trash = separate.find((line) => line.id === "fee-trash");
-    expect(trash?.amount).toBeCloseTo(10 * (52 / 12), 2);
-  });
 });
 
 describe("ledger: a Seattle resident is billed ONE rent line and no monthly fee charges", () => {

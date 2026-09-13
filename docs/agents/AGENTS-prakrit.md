@@ -111,65 +111,6 @@ Iterating is the normal case, not an exception:
 Never tell Prakrit to annotate in Lavish unless you have polled at least once.
 Never start a second plan for the same request.
 
-## The agent system: astra → sol → terra + luna
-
-Captain's standing structure for anything bigger than a one-file edit. The model
-ladder is deliberate: **thinking is expensive, typing is not.** Spend the big
-model where a wrong call compounds (the plan, the judgement) and the cheap model
-where the work is mechanical and its output is checkable.
-
-```
-                    ┌──────────────────────┐
-   the captain ───► │  astra    · fable    │   plan · owns the Lavish artifact
-                    └──────────┬───────────┘
-                               │
-                    ┌──────────▼───────────┐
-                    │  sol      · opus     │   judge · owns the breakdown
-                    └──────────┬───────────┘
-                     ┌─────────┴─────────┐
-          ┌──────────▼──────┐   ┌────────▼────────┐
-          │ terra  · sonnet │   │ luna   · sonnet │
-          │ build           │   │ prove           │
-          └─────────────────┘   └─────────────────┘
-```
-
-| Agent | Model | Owns | Never does |
-| --- | --- | --- | --- |
-| **astra** | Fable | The captain's request end to end. Writes and iterates the Lavish plan, holds the build contract, is the **only** tier that speaks to the captain. | Write product code. Relay raw sub-agent output. |
-| **sol** | Opus | Turning an approved plan into work: file-by-file breakdown, sequencing, and **every judgement call** — is this diff right, is this evidence sufficient, is this finding inside the contract. | Talk to the captain. Re-plan; a departure goes back to astra. |
-| **terra** | Sonnet | Writing the code, in an isolated worktree. One coherent change per run, scope handed to it. | Decide scope. Declare itself done. |
-| **luna** | Sonnet | Gathering proof: seeded real data, the browser, the edges, raw `tsc` / unit exit codes, the diff. Reports **evidence, verbatim**. | Write product code. Render a verdict, or soften a failure into a caveat. |
-
-### Why the cheap tier is safe here
-
-A Sonnet that *judges* is the failure mode — it calls a red suite "mostly green".
-So the leaves never judge. terra produces a diff; luna produces evidence; **sol
-is the only tier that turns either into a verdict.** That keeps the expensive
-model reading two short artifacts instead of doing the work, which is where the
-token saving actually comes from.
-
-### Rules that make it work
-
-- **One voice.** Only astra reports to the captain, in outcomes — never a
-  relayed transcript, never a task id.
-- **Fan out at the leaves, not the trunk.** terra and luna parallelize freely
-  (one terra per independent ticket, each in its own worktree). astra and sol
-  stay singular — two orchestrators means two plans.
-- **luna is not optional.** An unproven terra run is unfinished work, and sol
-  reports it as unfinished. Green `tsc` is not proof; the feature driven in a
-  browser on seeded data is.
-- **The plan is still the gate.** astra does not release sol before the captain
-  says **`approved — build`**. The hierarchy speeds ② → ③; it never skips ①.
-- **Escalate, don't improvise.** A leaf that hits something the plan did not
-  anticipate stops and returns the finding. sol decides if it is inside the
-  contract; if not it goes to astra, and astra puts it to the captain.
-- **Brief like the model is cheap and the context is not.** A leaf gets the
-  files, the acceptance test, and the constraint — not the conversation.
-- Sub-agents inherit every hard stop in the root `AGENTS.md` — production lock,
-  the staging ladder, RLS, the tool layer, no fabricated listing photos, no
-  Linear tickets. Delegation never launders a boundary.
-
-
 ## Execute / review / status
 
 - Keeper branch + sandbox port: local pane instructions, never hard-coded here.
@@ -221,8 +162,6 @@ unless he waives that named step.
 ## Do not
 
 - Write product code before **`approved — build`**
-- Let a Sonnet leaf render a verdict — evidence up, judgement at `sol`
-- Run two orchestrators on one request
 - File a Linear ticket he did not ask for
 - Show him a plan whose UI tab describes the screen instead of drawing it
 - End a turn with a plan open and no `npm run lavish:poll`

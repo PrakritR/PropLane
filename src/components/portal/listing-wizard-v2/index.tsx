@@ -32,8 +32,6 @@ import {
   normalizeManagerListingSubmissionV1,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
-import { loadManagerPaymentWaiverGrantedClient } from "@/lib/manager-subscription-client";
-import { prepareListingSubmissionForPersist } from "@/lib/prepare-listing-submission-for-persist";
 
 export { listingReadiness } from "@/components/portal/listing-wizard-v2/listing-editor";
 
@@ -127,11 +125,6 @@ export function ListingWizardV2({
    * because time has passed. It reports what actually happened: unsaved from the
    * first edit until a save comes back ok, and saved again only then.
    */
-  const [paymentWaiverGranted, setPaymentWaiverGranted] = useState<boolean | null>(null);
-  useEffect(() => {
-    void loadManagerPaymentWaiverGrantedClient().then(setPaymentWaiverGranted);
-  }, []);
-
   const [dirty, setDirty] = useState(false);
   /*
    * The submission as it last stood on the server. Compared by reference, not by
@@ -148,21 +141,6 @@ export function ListingWizardV2({
   };
   const saveState = busy ? "Saving…" : dirty ? "Unsaved changes" : editing ? "Saved" : "Not saved yet";
 
-  async function persistSubmission(raw: ManagerListingSubmissionV1): Promise<
-    | { ok: true; submission: ManagerListingSubmissionV1; droppedMediaCount: number }
-    | { ok: false; message: string }
-  > {
-    try {
-      const prepared = await prepareListingSubmissionForPersist(raw, {
-        accountPaymentWaiverGranted: paymentWaiverGranted ?? undefined,
-      });
-      return { ok: true, ...prepared };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Could not prepare this listing to save.";
-      return { ok: false, message };
-    }
-  }
-
   return (
     <PortalAssistantConfigProvider endpoint="/api/agent/chat" managerName={null}>
       <ListingEditorV2
@@ -174,64 +152,37 @@ export function ListingWizardV2({
         isEdit={editing}
         saveState={saveState}
         onSaveExit={async (stepIndex) => {
-        const prepared = await persistSubmission(submission);
-        if (!prepared.ok) {
-          showToast?.(prepared.message);
-          return;
-        }
-        if (prepared.droppedMediaCount > 0) {
-          setSubmission(prepared.submission);
-        }
         if (editListingId?.trim()) {
           // There is no draft behind an edit — "save and exit" writes the
           // listing itself, which is the same write Publish makes.
-          const result = await publish(prepared.submission);
+          const result = await publish(submission);
           if (!result.ok) {
             showToast?.(result.message);
             return;
           }
-          markSaved(prepared.submission);
-          onSaved?.(prepared.submission);
-          showToast?.(
-            prepared.droppedMediaCount > 0
-              ? "Changes saved. Some attachments could not upload and were removed."
-              : "Changes saved.",
-          );
+          markSaved();
+          onSaved?.(submission);
+          showToast?.("Changes saved.");
           onClose();
           return;
         }
-        const result = await saveDraft(prepared.submission, stepIndex);
+        const result = await saveDraft(submission, stepIndex);
         if (!result.ok) {
           // The manager's work stays on screen; a failed save must never look
           // like a successful one.
           showToast?.(result.message);
           return;
         }
-        markSaved(prepared.submission);
-        onSaved?.(prepared.submission);
-        showToast?.(
-          prepared.droppedMediaCount > 0
-            ? "Saved to Drafts. Some attachments could not upload and were removed."
-            : "Saved to Drafts.",
-        );
+        markSaved();
+        onSaved?.(submission);
+        showToast?.("Saved to Drafts.");
         onClose();
       }}
       onPublish={async () => {
-        const prepared = await persistSubmission(submission);
-        if (!prepared.ok) {
-          showToast?.(prepared.message);
-          return;
-        }
-        if (prepared.droppedMediaCount > 0) {
-          setSubmission(prepared.submission);
-        }
-        const result = await publish(prepared.submission);
+        const result = await publish(submission);
         if (!result.ok) {
           showToast?.(result.message);
           return;
-        }
-        if (prepared.droppedMediaCount > 0) {
-          showToast?.("Published. Some attachments could not upload and were removed.");
         }
         onPublished?.(result.id);
       }}

@@ -40,14 +40,7 @@ export function isListingFeeAmountFilled(raw: string): boolean {
 }
 
 /** Cadence for a listing fee row. `frequency` on stored rows is kept in sync for older readers. */
-export type ListingFeeCadence = "one-time" | "monthly" | "weekly" | "daily" | "nightly";
-
-export const LISTING_FEE_WIZARD_CADENCE_OPTIONS: readonly { value: ListingFeeCadence; label: string }[] = [
-  { value: "monthly", label: "Every month" },
-  { value: "weekly", label: "Every week" },
-  { value: "daily", label: "Every day" },
-  { value: "one-time", label: "One-time" },
-];
+export type ListingFeeCadence = "one-time" | "monthly" | "nightly";
 
 /** Built-in fee slots — custom rows use presetId `custom`. */
 export type ListingFeePresetId =
@@ -70,6 +63,7 @@ export type ListingFeeRow = ManagerCustomFeeRow & {
   presetId?: ListingFeePresetId | "custom";
   dueAtSigning?: boolean;
   shortTermOnly?: boolean;
+  creditsTowardSecurity?: boolean;
 };
 
 export type ListingFeePresetMeta = {
@@ -187,37 +181,12 @@ export function listingFeeWizardFieldKey(feeId: string): string {
 }
 
 export function listingFeeCadence(row: Pick<ListingFeeRow, "cadence" | "frequency">): ListingFeeCadence {
-  if (
-    row.cadence === "one-time" ||
-    row.cadence === "monthly" ||
-    row.cadence === "weekly" ||
-    row.cadence === "daily" ||
-    row.cadence === "nightly"
-  ) {
-    return row.cadence;
-  }
-  if (row.frequency === "weekly" || row.frequency === "daily" || row.frequency === "monthly" || row.frequency === "one-time") {
-    return row.frequency;
-  }
-  return "monthly";
+  if (row.cadence === "one-time" || row.cadence === "monthly" || row.cadence === "nightly") return row.cadence;
+  return row.frequency === "one-time" ? "one-time" : "monthly";
 }
 
-export function listingFeeCadenceHint(cadence: ListingFeeCadence): string {
-  if (cadence === "monthly") return "Charged every month";
-  if (cadence === "weekly") return "Charged every week";
-  if (cadence === "daily") return "Charged every day";
-  if (cadence === "nightly") return "Charged nightly";
-  return "Charged once";
-}
-
-export function patchListingFeeCadence(cadence: ListingFeeCadence): Pick<ListingFeeRow, "cadence" | "frequency"> {
-  if (cadence === "nightly") return { cadence, frequency: "one-time" };
-  return { cadence, frequency: cadence };
-}
-
-function cadenceToLegacyFrequency(cadence: ListingFeeCadence): ManagerCustomFeeRow["frequency"] {
-  if (cadence === "monthly" || cadence === "weekly" || cadence === "daily") return cadence;
-  return "one-time";
+function cadenceToLegacyFrequency(cadence: ListingFeeCadence): "one-time" | "monthly" {
+  return cadence === "monthly" ? "monthly" : "one-time";
 }
 
 function rid(prefix: string): string {
@@ -252,7 +221,7 @@ export function normalizeListingFeeRow(raw: ListingFeeRow): ListingFeeRow {
     label: typeof row.label === "string" ? row.label.trim() : preset?.defaultLabel ?? "",
     amount: typeof row.amount === "string" ? row.amount.trim() : "",
     cadence,
-    frequency: cadenceToLegacyFrequency(cadence),
+    frequency: cadenceToLegacyFrequency(cadence === "nightly" ? "one-time" : cadence),
     presetId: resolvedPresetId ?? "custom",
     dueAtSigning: row.dueAtSigning ?? preset?.dueAtSigning ?? false,
     shortTermOnly: row.shortTermOnly ?? preset?.shortTermOnly ?? false,
@@ -264,7 +233,6 @@ export function normalizeListingFeeRow(raw: ListingFeeRow): ListingFeeRow {
         ? row.shortTermAmount.trim()
         : undefined,
     includeInRent: row.includeInRent === true,
-    refundable: row.refundable === true,
     // Scope (PRP-463). This normalizer rebuilds the row as a fresh literal, so a field
     // it does not name is DROPPED — which is how `leaseTypes` was silently lost on every
     // save. Absent stays absent, and absent means "every lease type / every room".
@@ -303,7 +271,7 @@ export function presetListingFeeRow(presetId: ListingFeePresetId, amount = ""): 
     label: meta.defaultLabel,
     amount,
     cadence: meta.cadence,
-    frequency: cadenceToLegacyFrequency(meta.cadence),
+    frequency: cadenceToLegacyFrequency(meta.cadence === "nightly" ? "one-time" : meta.cadence),
     presetId,
     dueAtSigning: meta.dueAtSigning,
     shortTermOnly: meta.shortTermOnly,
@@ -1113,50 +1081,20 @@ function listingFeeToDisplayRow(
   }
 
   const status =
-    cadence === "nightly"
-      ? "Nightly"
-      : cadence === "monthly"
-        ? "Monthly"
-        : cadence === "weekly"
-          ? "Weekly"
-          : cadence === "daily"
-            ? "Daily"
-            : fee.dueAtSigning
-              ? "At signing"
-              : "One-time";
+    cadence === "nightly" ? "Nightly" : cadence === "monthly" ? "Monthly" : fee.dueAtSigning ? "At signing" : "One-time";
   return {
     id: `fee-${fee.id}`,
     icon: "💵",
     title,
-    detail:
-      cadence === "nightly"
-        ? "Short-term stays"
-        : cadence === "monthly"
-          ? "Additional monthly charge"
-          : cadence === "weekly"
-            ? "Additional weekly charge"
-            : cadence === "daily"
-              ? "Additional daily charge"
-              : "One-time charge",
-    price:
-      cadence === "nightly"
-        ? `${price}/night`
-        : cadence === "weekly"
-          ? `${price}/week`
-          : cadence === "daily"
-            ? `${price}/day`
-            : price,
+    detail: cadence === "nightly" ? "Short-term stays" : cadence === "monthly" ? "Additional monthly charge" : "One-time charge",
+    price: cadence === "nightly" ? `${price}/night` : price,
     status,
     body:
       cadence === "nightly"
         ? `${title}: ${price} per night.`
         : cadence === "monthly"
           ? `${title}: ${price} per month.`
-          : cadence === "weekly"
-            ? `${title}: ${price} per week.`
-            : cadence === "daily"
-              ? `${title}: ${price} per day.`
-              : `${title}: ${price} (one-time).`,
+          : `${title}: ${price} (one-time).`,
   };
 }
 
@@ -1254,7 +1192,7 @@ export function leaseDocumentFeeLines(
     if (
       billingContext &&
       presetId === "custom_lease_surcharge" &&
-      !shouldBillCustomLeaseSurcharge(billingContext, sub)
+      !shouldBillCustomLeaseSurcharge(billingContext)
     ) {
       continue;
     }
@@ -1326,17 +1264,7 @@ export function listingFeeDisplayRows(
 export function cadenceLabel(cadence: ListingFeeCadence): string {
   if (cadence === "one-time") return "One-time";
   if (cadence === "nightly") return "Nightly";
-  if (cadence === "weekly") return "Weekly";
-  if (cadence === "daily") return "Daily";
   return "Monthly";
-}
-
-/** Monthly-equivalent amount for quote totals when a fee bills weekly or daily. */
-export function listingFeeMonthlyEquivalent(amount: number, cadence: ListingFeeCadence): number {
-  if (!(amount > 0)) return 0;
-  if (cadence === "weekly") return Number((amount * (52 / 12)).toFixed(2));
-  if (cadence === "daily") return Number((amount * (365 / 12)).toFixed(2));
-  return amount;
 }
 
 

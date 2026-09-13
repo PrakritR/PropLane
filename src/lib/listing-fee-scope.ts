@@ -62,14 +62,6 @@ export function pruneFeeScope(
   return narrowFeeScope(scope as readonly string[], allowed);
 }
 
-/** Legacy fixed lengths and Long-term are the same rent on the pricing screen. */
-function leaseTypeScopeMatches(stored: string, leaseTerm: string): boolean {
-  if (stored === leaseTerm) return true;
-  if (leaseTerm === LONG_TERM_LEASE_TERM && isLegacyFixedLeaseTerm(stored)) return true;
-  if (stored === LONG_TERM_LEASE_TERM && isLegacyFixedLeaseTerm(leaseTerm)) return true;
-  return false;
-}
-
 /** Does this fee bill on a lease of `leaseTerm`? Unscoped fees bill on every term. */
 export function feeAppliesToLeaseType(
   fee: Pick<ManagerCustomFeeRow, "leaseTypes">,
@@ -78,18 +70,7 @@ export function feeAppliesToLeaseType(
   if (feeScopeIsAll(fee.leaseTypes)) return true;
   const term = String(leaseTerm ?? "").trim();
   if (!term) return true;
-  return (fee.leaseTypes ?? []).some((stored) => leaseTypeScopeMatches(stored, term));
-}
-
-/** Preset fee row scope, when the row exists; absent row means every lease type (legacy). */
-export function listingPresetFeeAppliesToLeaseType(
-  sub: Pick<ManagerListingSubmissionV1, "customFees">,
-  presetId: string,
-  leaseTerm: string | null | undefined,
-): boolean {
-  const row = (sub.customFees ?? []).find((fee) => (fee as { presetId?: string }).presetId === presetId);
-  if (!row) return true;
-  return feeAppliesToLeaseType(row, leaseTerm);
+  return (fee.leaseTypes ?? []).includes(term);
 }
 
 /** Does this fee apply to `roomId`? Unscoped fees apply to every room. */

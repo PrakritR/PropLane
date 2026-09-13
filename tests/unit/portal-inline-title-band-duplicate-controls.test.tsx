@@ -325,11 +325,7 @@ function deriveWrapperSpec(name: string, body: string, known: ShellSpec[]): Shel
       if (value === undefined || value === true) return null;
       return paramBehind(value, params, body);
     };
-    const innerAsideProp =
-      inner.component === "ManagerPortalPageShell" && props.primaryAction !== undefined
-        ? "primaryAction"
-        : inner.asideProp;
-    const asideProp = forwarded(innerAsideProp);
+    const asideProp = forwarded(inner.asideProp);
     if (!asideProp) return null;
     const written = inner.hideTitleProp ? props[inner.hideTitleProp] : undefined;
     const hideTitleParam = typeof written === "string" ? paramBehind(written, params, body) : null;

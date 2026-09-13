@@ -33,10 +33,9 @@ describe("applications list bulk bar mirrors detail footer actions", () => {
     expect(PANEL).toContain("isApprovableApplicationRow");
   });
 
-  it("puts holding fee on the detail body when the listing offers one", () => {
-    expect(PANEL).toContain("ApplicationHoldingFeeToggle");
-    expect(PANEL).toContain('row.bucket !== "rejected"');
-    expect(PANEL).toContain("!isWithdrawnApplicationRow(row)");
+  it("aligns holding fee with detail (non-rejected, non-withdrawn)", () => {
+    expect(PANEL).toContain('singleListSelectedRow.bucket !== "rejected"');
+    expect(PANEL).toContain("!isWithdrawnApplicationRow(singleListSelectedRow)");
   });
 
   it("keeps delete on any selection", () => {

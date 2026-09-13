@@ -118,30 +118,6 @@ describe("custom lease surcharge billing", () => {
     ).toBe(false);
   });
 
-  it("does not bill on long-term when the preset is scoped to Custom only", () => {
-    const sub = normalizeManagerListingSubmissionV1({
-      ...createDefaultListingSubmission(),
-      customFees: [
-        {
-          id: "fee-cl",
-          label: "Custom lease",
-          amount: "100",
-          frequency: "monthly",
-          presetId: "custom_lease_surcharge",
-          leaseTypes: ["Custom"],
-        },
-      ],
-    });
-    const ctx = {
-      leaseStart: "2026-06-15",
-      leaseEnd: "2027-06-14",
-      leaseTerm: "Long-term",
-      rentalType: "standard",
-    };
-    expect(shouldBillCustomLeaseSurcharge(ctx, sub)).toBe(false);
-    expect(shouldBillCustomLeaseSurcharge({ ...ctx, leaseTerm: "Custom" }, sub)).toBe(true);
-  });
-
   it("adds a recurring Custom lease fee on approval when dates are custom", () => {
     const email = "custom-calendar@example.com";
     removeResidentHouseholdPaymentData(email);

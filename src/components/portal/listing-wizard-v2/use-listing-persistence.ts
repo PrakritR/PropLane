@@ -33,7 +33,6 @@ import {
 import { isNativeRuntimeSync } from "@/lib/native/detect-native";
 import { managerPropertyLimitMessage, managerTierPropertyLimitReached } from "@/lib/manager-access";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import { listingSaveFailureMessage } from "@/lib/prepare-listing-submission-for-persist";
 
 export type ListingPersistenceResult = { ok: true; id: string } | { ok: false; message: string };
 
@@ -123,7 +122,10 @@ export function useListingPersistence({
           });
           return ok
             ? { ok: true, id: editing }
-            : { ok: false, message: listingSaveFailureMessage(serverReason) };
+            : {
+                ok: false,
+                message: serverReason || "Could not save your changes. Check your connection and try again.",
+              };
         } finally {
           setBusy(false);
         }

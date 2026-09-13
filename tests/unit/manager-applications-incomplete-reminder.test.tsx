@@ -59,7 +59,6 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
 }));
 vi.mock("@/lib/household-charges", () => ({
   findHoldingDepositCharge: () => undefined,
-  listingHoldingDepositAvailable: () => false,
 }));
 
 import { ManagerApplications } from "@/components/portal/pro-applications";

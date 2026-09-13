@@ -1,4 +1,3 @@
-import { listingPresetFeeAppliesToLeaseType } from "@/lib/listing-fee-scope";
 import { listingPresetFeeAmount } from "@/lib/listing-fees";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { isCustomCalendarLease } from "@/lib/rental-application/lease-dates";
@@ -18,14 +17,10 @@ export function shouldBillMonthToMonthSurcharge(input: LeaseRecurringFeeBillingC
   return input.leaseTerm?.trim() === "Month-to-Month";
 }
 
-export function shouldBillCustomLeaseSurcharge(
-  input: LeaseRecurringFeeBillingContext,
-  sub?: ManagerListingSubmissionV1 | null,
-): boolean {
+export function shouldBillCustomLeaseSurcharge(input: LeaseRecurringFeeBillingContext): boolean {
   if (input.rentalType === "short_term" || input.rentalType === "airbnb") return false;
   const term = input.leaseTerm?.trim();
   if (!term || term === "Month-to-Month") return false;
-  if (sub && !listingPresetFeeAppliesToLeaseType(sub, "custom_lease_surcharge", term)) return false;
   return isCustomCalendarLease(input.leaseStart, input.leaseEnd);
 }
 
@@ -40,7 +35,7 @@ export function recurringMonthlyFeesForLease(
   billingContext: LeaseRecurringFeeBillingContext,
 ): { id: string; label: string; amount: number }[] {
   const fees = monthlyCustomFees.filter((fee) => fee.id !== CUSTOM_LEASE_SURCHARGE_FEE_ID);
-  if (!shouldBillCustomLeaseSurcharge(billingContext, sub)) return fees;
+  if (!shouldBillCustomLeaseSurcharge(billingContext)) return fees;
   const amount = customLeaseSurchargeAmount(sub);
   if (!(amount > 0)) return fees;
   return [

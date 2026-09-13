@@ -15,7 +15,6 @@ import {
   resolveServiceFeePayerFor,
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
-import { listingApplicationFeeRaw } from "@/lib/listing-application-fee";
 import { listingApplicationFeeChannels } from "@/lib/rental-application/application-fee-channel";
 import {
   APPLICATION_FEE_CHECKOUT_PURPOSE,
@@ -62,7 +61,19 @@ function clampAmountCents(n: number): number {
   return x;
 }
 
-export { listingApplicationFeeRaw } from "@/lib/listing-application-fee";
+/** Raw per-listing application fee label before manager-default fallback. */
+export function listingApplicationFeeRaw(
+  listing: ManagerListingSubmissionV1 | null | undefined,
+  rentalType?: "standard" | "short_term",
+): string {
+  if (!listing) return "";
+  if (rentalType === "short_term") {
+    const st = String(listing.shortTermApplicationFee ?? "").trim();
+    if (st !== "") return st;
+    return String(listing.applicationFee ?? "").trim();
+  }
+  return String(listing.applicationFee ?? "").trim();
+}
 
 export type ResolvedApplicationFeeProperty = {
   managerUserId: string;
