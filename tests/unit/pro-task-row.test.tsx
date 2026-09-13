@@ -36,11 +36,13 @@ describe("taskDueState", () => {
 describe("TaskTableRow", () => {
   it("chips an overdue task with how late it is, and names Normal priority", () => {
     render(
-      <TaskTableRow task={task({ dueDate: "2026-09-08" })} propertyLabel="Ash Flats 6" viewerUserId="u1" nowMs={NOW} onOpen={() => {}} />,
+      <TaskTableRow task={task({ dueDate: "2026-09-08" })} propertyLabel="Ash Flats 6" viewerUserId="u1" nowMs={NOW} onOpen={() => {}} dataAttr="manager-task-row" />,
     );
     expect(screen.getByText("Overdue · 3d")).toBeTruthy();
     expect(screen.getByText("Normal")).toBeTruthy();
     expect(screen.getByText("Unassigned")).toBeTruthy();
+    const row = document.querySelector('[data-attr="manager-task-row"]');
+    expect(row?.querySelectorAll('[aria-hidden="true"].rounded-full').length).toBe(0);
   });
 
   it("says You for the viewer's own task and shows no phone avatar for it", () => {

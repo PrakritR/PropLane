@@ -110,6 +110,7 @@ import {
   resolveManagerInboxPortalRecipient,
   resolveManagerInboxSmsTarget,
   resolvePropLaneUnifiedReplyChannels,
+  inboxSmsUnavailableReason,
 } from "@/lib/manager-inbox-reply-channels";
 import {
   resolveCommunicationInboxThread,
@@ -1183,6 +1184,15 @@ export const ManagerInbox = forwardRef<
     [activeThread, smsRecipients, smsOutboundEnabled],
   );
   const activeSmsAvailable = Boolean(activeSmsTarget?.phone?.trim());
+  const smsDisabledReason = useMemo(
+    () =>
+      inboxSmsUnavailableReason({
+        smsAvailable: activeSmsAvailable,
+        smsOutboundEnabled,
+        smsUiEnabled,
+      }),
+    [activeSmsAvailable, smsOutboundEnabled, smsUiEnabled],
+  );
   const activeIsAssistantThread = Boolean(
     activeThread && isPropLaneAssistantInboxThread(activeThread),
   );
@@ -1196,6 +1206,14 @@ export const ManagerInbox = forwardRef<
    */
   const canAddThreadPhone = Boolean(
     smsUiEnabled && !activeSmsAvailable && activeThread?.email?.trim() && !embeddedResidentChat,
+  );
+  const canAddThreadEmail = Boolean(
+    smsUiEnabled &&
+      smsOutboundEnabled &&
+      !activeEmailAvailable &&
+      activeThread &&
+      !activeIsAssistantThread &&
+      !embeddedResidentChat,
   );
   const canEditThreadContact = Boolean(
     activeThread &&
@@ -1845,7 +1863,9 @@ export const ManagerInbox = forwardRef<
       emailAvailable={activeEmailAvailable}
       smsAvailable={activeSmsAvailable}
       proplaneAvailable={activeProplaneAvailable}
+      onAddEmail={canAddThreadEmail ? openThreadPhone : undefined}
       onAddPhone={canAddThreadPhone ? openThreadPhone : undefined}
+      smsDisabledReason={smsDisabledReason}
       sendingAs={replySendingAs}
     />
   );
@@ -1861,7 +1881,9 @@ export const ManagerInbox = forwardRef<
       emailAvailable={activeEmailAvailable}
       smsAvailable={activeSmsAvailable}
       proplaneAvailable={activeProplaneAvailable}
+      onAddEmail={canAddThreadEmail ? openThreadPhone : undefined}
       onAddPhone={canAddThreadPhone ? openThreadPhone : undefined}
+      smsDisabledReason={smsDisabledReason}
       sendingAs={replySendingAs}
     />
   );
@@ -1877,7 +1899,9 @@ export const ManagerInbox = forwardRef<
       emailAvailable={activeEmailAvailable}
       smsAvailable={activeSmsAvailable}
       proplaneAvailable={activeProplaneAvailable}
+      onAddEmail={canAddThreadEmail ? openThreadPhone : undefined}
       onAddPhone={canAddThreadPhone ? openThreadPhone : undefined}
+      smsDisabledReason={smsDisabledReason}
       sendingAs={replySendingAs}
     />
   );

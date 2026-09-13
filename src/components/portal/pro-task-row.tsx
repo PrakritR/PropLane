@@ -3,7 +3,7 @@
 /**
  * The shared task row — a table on desktop, two lines on a phone.
  *
- * Columns: status dot · task (title + one line of context) · property ·
+ * Columns: task (title + one line of context) · property ·
  * assignee (avatar + name) · due (a chip when it is today or overdue) ·
  * priority (High / Normal / Low). Linear's issue list is the reference: one
  * row per task, the identifying facts in fixed columns so the eye can run
@@ -106,18 +106,9 @@ export function TaskPriorityChip({ priority }: { priority?: ManagerTaskPriority 
   );
 }
 
-const STATUS_DOT: Record<TaskDueState, string> = {
-  overdue: "bg-[var(--status-overdue-fg)]",
-  today: "bg-[var(--status-pending-fg)]",
-  soon: "bg-primary",
-  later: "bg-primary/60",
-  none: "border border-muted/50",
-  done: "bg-[var(--status-confirmed-fg)]",
-};
-
 /** The desktop grid every row and the header share. */
 export const TASK_ROW_GRID =
-  "md:grid md:grid-cols-[28px_14px_minmax(0,1fr)_minmax(0,150px)_minmax(0,150px)_112px_84px] md:items-center md:gap-x-3";
+  "md:grid md:grid-cols-[28px_minmax(0,1fr)_minmax(0,150px)_minmax(0,150px)_112px_84px] md:items-center md:gap-x-3";
 
 export function TaskTableHeader() {
   return (
@@ -125,7 +116,6 @@ export function TaskTableHeader() {
       className={cn("hidden px-3 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted/70", TASK_ROW_GRID)}
       aria-hidden
     >
-      <span />
       <span />
       <span>Task</span>
       <span>Property</span>
@@ -162,7 +152,6 @@ export function TaskTableRow({
   onOpen: () => void;
   dataAttr?: string;
 }) {
-  const state = taskDueState(task, nowMs);
   const assigneeName = task.assignee?.name?.trim() || "";
   const onViewer = Boolean(task.assignee && viewerUserId && task.assignee.id === viewerUserId);
   const assignee: ReactNode = assigneeName ? (
@@ -193,7 +182,6 @@ export function TaskTableRow({
       ) : (
         <span className="hidden md:block" />
       )}
-      <span className={cn("mt-2 h-2.5 w-2.5 shrink-0 rounded-full md:mt-0", STATUS_DOT[state])} aria-hidden />
       <button type="button" onClick={onOpen} className="flex min-h-9 min-w-0 flex-1 flex-col justify-center text-left md:min-w-0">
         <span className="flex min-w-0 items-center gap-1">
           <span className={cn("truncate text-[14px] font-semibold text-foreground", task.completed && "text-muted line-through")}>

@@ -106,6 +106,7 @@ describe("ManagerTaskList", () => {
     });
     expect(screen.queryByTestId("manager-task-list-header-add")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Filter\b/i })).toBeInTheDocument();
+    expect(document.querySelector('[data-attr="manager-task-group-by"]')).toBeNull();
     expect(screen.queryByRole("button", { name: /^All\b/i })).not.toBeInTheDocument();
   });
 
