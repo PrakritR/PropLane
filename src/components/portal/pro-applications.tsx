@@ -44,7 +44,6 @@ import { downloadBackgroundCheckForApplication, ApplicationScreeningPanel } from
 import { ApplicationHoldingFeeModal } from "@/components/portal/application-holding-fee-box";
 import { ManagerEditApplicationModal } from "@/components/portal/pro-edit-application-modal";
 import { ManagerApplicationOnBehalfModal } from "@/components/portal/pro-application-on-behalf-modal";
-import { PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { CheckrScreeningModal } from "@/components/portal/checkr-screening-modal";
@@ -2074,14 +2073,6 @@ export function ManagerApplications({
               <PortalDataTableEmpty icon="application" message={applicationsListEmptyMessage(bucket)} />
             )
           }
-          add={{
-            label: "Add",
-            ariaLabel: "Add application on behalf",
-            icon: PORTAL_LIST_ADD_ICONS.application,
-            onClick: openAddApplication,
-            disabled: propertyOptions.length === 0,
-            dataAttr: "applications-list-add",
-          }}
           onBulkClear={clearSelection}
           bulkCount={listSelectedCount}
           bulkActions={
