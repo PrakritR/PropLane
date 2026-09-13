@@ -237,13 +237,20 @@ export function ManagerUnifiedInbox({
   const query = onSearchQueryChange ? (searchQueryProp ?? "") : internalQuery;
   const setQuery = onSearchQueryChange ?? setInternalQuery;
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const explicitlyOpenedKey = useRef<string | null>(null);
+  const explicitlyOpened = useRef<{ key: string; context: string } | null>(null);
   const [mobileThreadOpen, setMobileThreadOpen] = useState(Boolean(routeThreadId));
   const statusFilter = threadFilters?.status ?? listSegmentProp;
   const listSegment = statusFilter === "read" ? "active" : statusFilter;
   const appUi = useOptionalAppUi();
   const { userId } = usePortalSession();
   const viewerId = resolveCommunicationViewerId(null, userId);
+  const selectionContext = JSON.stringify({
+    viewerId,
+    statusFilter,
+    query: query.trim().toLowerCase(),
+    filters: threadFilters ?? null,
+    scope: commBase,
+  });
   const assistantThreadId = viewerId ? propLaneAssistantThreadIdForPortal("manager", viewerId) : null;
 
   const threadListHref = useCallback(
@@ -257,7 +264,7 @@ export function ManagerUnifiedInbox({
   );
 
   const closeActiveThread = useCallback(() => {
-    explicitlyOpenedKey.current = null;
+    explicitlyOpened.current = null;
     setSelectedKey(null);
     setMobileThreadOpen(false);
     onRouteThreadChange?.(undefined);
@@ -277,7 +284,7 @@ export function ManagerUnifiedInbox({
     const identityChanged = loadedViewer.current !== viewerId;
     if (identityChanged) {
       setEmailReady(false); setSmsReady(!smsUiEnabled);
-      setEmailThreads([]); setSmsResidents([]); explicitlyOpenedKey.current = null; setSelectedKey(null);
+      setEmailThreads([]); setSmsResidents([]); explicitlyOpened.current = null; setSelectedKey(null);
       smsPollHaltedRef.current = false; setSmsPollHalted(false);
       loadedViewer.current = viewerId;
       setSourceViewer(viewerId);
@@ -671,7 +678,7 @@ export function ManagerUnifiedInbox({
     onSmsArchiveChange: () => setSmsArchivedIds(loadManagerSmsArchivedIds()),
     showToast: appUi?.showToast,
     onSelectionCleared: () => {
-      explicitlyOpenedKey.current = null;
+      explicitlyOpened.current = null;
       setSelectedKey(null);
       setMobileThreadOpen(false);
       onRouteThreadChange?.(undefined);
@@ -752,17 +759,17 @@ export function ManagerUnifiedInbox({
     if (!isClient || !routeThreadId) return;
     const match = listRows.find((r) => r.threadId === routeThreadId);
     if (match) {
-      explicitlyOpenedKey.current = match.key;
+      explicitlyOpened.current = { key: match.key, context: selectionContext };
       setSelectedKey(match.key);
       setMobileThreadOpen(true);
     }
-  }, [isClient, listRows, routeThreadId]);
+  }, [isClient, listRows, routeThreadId, selectionContext]);
 
   // Toggling the segment is a different result set — clear search; return to list on phones.
   useEffect(() => {
     setQuery("");
     if (!routeThreadId) {
-      explicitlyOpenedKey.current = null;
+      explicitlyOpened.current = null;
       setMobileThreadOpen(false);
       if (listSegment === "unread" || !inboxUsesDesktopSplit()) {
         setSelectedKey(null);
@@ -771,21 +778,16 @@ export function ManagerUnifiedInbox({
   }, [listSegment, routeThreadId]);
 
   useEffect(() => {
-    if (!isClient) return;
-    if (listRows.length === 0) {
-      // A deep-linked / just-created thread may land before its SMS row is in
-      // the merged list. Keep the pending route alive until the row arrives.
-      if (!routeThreadId) {
-        setSelectedKey((cur) => {
-          if (listSegment === "unread" && cur && explicitlyOpenedKey.current === cur && selectedRow && !selectedRow.unread) return cur;
-          explicitlyOpenedKey.current = null;
-          return null;
-        });
-        setMobileThreadOpen(false);
-      }
-      return;
-    }
+    if (!isClient || !sourcesReady) return;
     setSelectedKey((cur) => {
+      const retained = explicitlyOpened.current;
+      const canRetain =
+        listSegment === "unread" &&
+        cur !== null &&
+        retained?.key === cur &&
+        retained.context === selectionContext &&
+        selectedRow !== null &&
+        !selectedRow.unread;
       if (routeThreadId) {
         const routed = listRows.find((r) => r.threadId === routeThreadId);
         if (routed) return routed.key;
@@ -796,18 +798,19 @@ export function ManagerUnifiedInbox({
           if (current?.threadId === routeThreadId) return cur;
         }
         const current = cur ? parseUnifiedInboxKey(cur) : null;
-        if (listSegment === "unread" && cur && explicitlyOpenedKey.current === cur && selectedRow && !selectedRow.unread && current?.threadId === routeThreadId) return cur;
-        explicitlyOpenedKey.current = null;
+        if (canRetain && current?.threadId === routeThreadId) return cur;
+        explicitlyOpened.current = null;
         return null;
       }
       if (cur && listRows.some((r) => r.key === cur)) return cur;
-      if (listSegment === "unread" && cur && explicitlyOpenedKey.current === cur && selectedRow && !selectedRow.unread) return cur;
+      if (canRetain) return cur;
       // Filtering must not open and mark each unread result read in succession.
-      if (listSegment !== "unread" && inboxUsesDesktopSplit()) return listRows[0]!.key;
-      explicitlyOpenedKey.current = null;
+      if (listSegment !== "unread" && inboxUsesDesktopSplit() && listRows[0]) return listRows[0].key;
+      explicitlyOpened.current = null;
       return null;
     });
-  }, [isClient, listRows, listSegment, routeThreadId, selectedRow]);
+    if (listRows.length === 0 && !routeThreadId) setMobileThreadOpen(false);
+  }, [isClient, listRows, listSegment, routeThreadId, selectedRow, selectionContext, sourcesReady]);
 
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
@@ -874,7 +877,7 @@ export function ManagerUnifiedInbox({
               category={row.category}
               selected={selectedKey === row.key}
               onOpen={() => {
-                explicitlyOpenedKey.current = row.key;
+                explicitlyOpened.current = { key: row.key, context: selectionContext };
                 setSelectedKey(row.key);
                 setMobileThreadOpen(true);
                 onRouteThreadChange?.(row.threadId);
