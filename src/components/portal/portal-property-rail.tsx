@@ -29,6 +29,7 @@ export function PortalPropertyRail({
   activeId,
   backHref,
   backLabel = "All properties",
+  showBackLink = true,
   title,
   subtitle,
   className,
@@ -41,6 +42,8 @@ export function PortalPropertyRail({
   activeId?: string;
   backHref: string;
   backLabel?: string;
+  /** False when a back control already exists elsewhere on the page (e.g. the page header chevron). */
+  showBackLink?: boolean;
   title: string;
   subtitle?: string;
   className?: string;
@@ -69,15 +72,17 @@ export function PortalPropertyRail({
       data-slot="portal-property-rail"
       aria-label={ariaLabel}
     >
-      <Link
-        href={backHref}
-        className="inline-flex min-h-11 items-center gap-1.5 px-3 text-sm font-semibold text-primary transition hover:underline"
-        data-attr={dataAttrBack}
-      >
-        <ArrowLeft className="size-4" aria-hidden />
-        {backLabel}
-      </Link>
-      <div className="flex items-center gap-2.5 border-t border-border px-3 py-3">
+      {showBackLink ? (
+        <Link
+          href={backHref}
+          className="inline-flex min-h-11 items-center gap-1.5 px-3 text-sm font-semibold text-primary transition hover:underline"
+          data-attr={dataAttrBack}
+        >
+          <ArrowLeft className="size-4" aria-hidden />
+          {backLabel}
+        </Link>
+      ) : null}
+      <div className={cn("flex items-center gap-2.5 px-3 py-3", showBackLink && "border-t border-border")}>
         {leading ? <span className="shrink-0">{leading}</span> : null}
         <span className="min-w-0">
           <p className="truncate text-[13px] font-semibold text-foreground">{title}</p>
