@@ -1,9 +1,10 @@
 "use client";
+import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Button } from "@/components/ui/button";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal } from "@/components/ui/modal";
@@ -1832,8 +1833,7 @@ export function ProAccountLinksPanel({
         <div className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 flex-1 items-start gap-3">
             {showSelection ? (
-              <input
-                type="checkbox"
+              <RowSelectCheckbox
                 checked={selectedDetailPropertyIds.has(propertyId)}
                 onChange={() => toggleDetailProperty(propertyId)}
                 className="mt-0.5 h-4 w-4 shrink-0 rounded border-border text-primary"
@@ -2797,10 +2797,8 @@ export function ProAccountLinksPanel({
           actions={renderDetailHeaderActions(routeEntry)}
           footer={renderDetailFooter(routeEntry)}
         >
-          {renderDetailBody(routeEntry)}
-        </PortalRecordDetailPage>
-        {detailPropertiesEditable && selectedDetailPropertyIds.size > 0 ? (
-          <BulkActionBar count={selectedDetailPropertyIds.size} hideCount variant="payments">
+          <PortalRecordListSurface className="mt-0" onBulkClear={detailPropertiesEditable ? clearDetailPropertySelection : undefined} bulkCount={selectedDetailPropertyIds.size} bulkActions={detailPropertiesEditable && selectedDetailPropertyIds.size > 0 ? (
+          <>
             {selectedDetailPropertyIds.size === 1 ? (
               <>
                 <Button
@@ -2832,8 +2830,10 @@ export function ProAccountLinksPanel({
             >
               Remove access
             </Button>
-          </BulkActionBar>
-        ) : null}
+          </>
+        ) : null}>{renderDetailBody(routeEntry)}</PortalRecordListSurface>
+        </PortalRecordDetailPage>
+
       </>
     );
   }
@@ -2891,9 +2891,8 @@ export function ProAccountLinksPanel({
   if (bare) {
     return (
       <div className="min-w-0" data-attr="settings-team-managers">
-        {teamBody}
-        {selectedIds.size > 0 ? (
-          <BulkActionBar count={selectedIds.size} hideCount variant="payments">
+        <PortalRecordListSurface className="mt-0" onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
+          <>
             <Button
               type="button"
               variant="outline"
@@ -2904,8 +2903,9 @@ export function ProAccountLinksPanel({
             >
               Remove
             </Button>
-          </BulkActionBar>
-        ) : null}
+          </>
+        ) : null}>{teamBody}</PortalRecordListSurface>
+
         {teamModals}
       </div>
     );
@@ -2914,14 +2914,13 @@ export function ProAccountLinksPanel({
   return (
     <ManagerPortalPageShell
       title="Teams"
-      subtitle="Managers who share this workspace, and exactly what each one can do."
+
       hideTitleOnMobileNav
       compactFilterRow
       primaryAction={inviteAction}
     >
-      {teamBody}
-      {selectedIds.size > 0 ? (
-        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
+      <PortalRecordListSurface className="mt-0" onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
+        <>
           <Button
             type="button"
             variant="outline"
@@ -2932,8 +2931,9 @@ export function ProAccountLinksPanel({
           >
             Remove
           </Button>
-        </BulkActionBar>
-      ) : null}
+        </>
+      ) : null}>{teamBody}</PortalRecordListSurface>
+
       {teamModals}
     </ManagerPortalPageShell>
   );

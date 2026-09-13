@@ -1,6 +1,7 @@
 "use client";
 
-import type { Dispatch, ReactNode, SetStateAction } from "react";
+import { useContext, type Dispatch, type ReactNode, type SetStateAction } from "react";
+import { RecordActionContext } from "@/components/ui/record-action-context";
 import { Badge } from "@/components/ui/badge";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
@@ -40,6 +41,8 @@ export function PortalListSelectAllRow({
   label?: string;
   dataAttr?: string;
 }) {
+  const recordActions = useContext(RecordActionContext);
+  if (recordActions) return null;
   return (
     <label className="mb-2 flex items-center gap-2 px-2.5 text-sm max-md:px-0 sm:px-4 lg:px-5">
       <input

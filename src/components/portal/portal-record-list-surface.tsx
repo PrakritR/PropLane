@@ -1,24 +1,14 @@
 "use client";
 
-/**
- * The canonical portal list surface.
- *
- * Properties was the first list to get this shape — a flat run of selectable
- * record rows, a dashed ADD footer, and a floating bulk bar that only exists
- * while something is selected — and it is now the shape every list tab in
- * every portal uses. It lives here rather than being re-typed per panel so the
- * gutters, the add-row padding, and the bulk-bar variant cannot drift apart
- * again; the previous state of the code had each tab re-deriving them by hand
- * and no two agreed.
- *
- * This composes existing primitives, it does not replace them: a panel that
- * needs something the surface does not model still renders its own rows as
- * `children`. The surface only owns the wrapper, the footer, and the bar.
- */
+/** Canonical portal list shell. Per-record menus reuse each panel's existing
+ * action handlers; internal single-record selection is never a user-facing mode.
+ * Loading/error/empty states share this surface across portals. */
 
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
+import { RowSelectionModeContext } from "@/components/ui/row-selection-mode";
 import type { LucideIcon } from "lucide-react";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
+import { RecordActionContext } from "@/components/ui/record-action-context";
 import { Button } from "@/components/ui/button";
 import {
   PortalListAddRow,
@@ -31,6 +21,8 @@ import {
   type PortalListEmptySibling,
 } from "@/components/portal/portal-list-empty-card";
 import { cn } from "@/lib/utils";
+import { WORKSPACE_SELECTION_EVENT } from "@/lib/workspaces/selection";
+import { onPortalSessionViewerChange } from "@/lib/auth/portal-session-gate";
 
 export type PortalListAddConfig = {
   /** Legacy visible text. The surface now always shows "Add"; keep `ariaLabel` specific. */
@@ -55,14 +47,13 @@ export type PortalListAddConfig = {
 export function PortalRecordListSurface({
   children,
   add,
-  bulkCount = 0,
   bulkActions,
   onBulkClear,
   empty,
   emptyCard,
   isEmpty = false,
   className,
-  dataAttr,
+  dataAttr, loading = false, loadError, onRetry,
 }: {
   /** The record rows. Rendered as-is so each tab keeps its own row variant. */
   children?: ReactNode;
@@ -76,7 +67,7 @@ export function PortalRecordListSurface({
   add?: PortalListAddConfig;
   bulkCount?: number;
   bulkActions?: ReactNode;
-  /** Clears the selection — the ✕ at the end of the floating bulk bar. */
+  /** Clears all selected IDs, including rows removed by a filter or refresh. */
   onBulkClear?: () => void;
   /** Shown instead of `children` when `isEmpty`. Takes precedence over `emptyCard`. */
   empty?: ReactNode;
@@ -94,7 +85,22 @@ export function PortalRecordListSurface({
   isEmpty?: boolean;
   className?: string;
   dataAttr?: string;
+  loading?: boolean;
+  loadError?: string;
+  onRetry?: () => void;
 }) {
+  const [scopeRevision, setScopeRevision] = useState(0);
+  const clearRef = useRef(onBulkClear);
+  useEffect(() => { clearRef.current = onBulkClear; }, [onBulkClear]);
+  const pathname = usePathname();
+  const selectable = Boolean(onBulkClear || bulkActions);
+  useEffect(() => { clearRef.current?.(); }, [pathname]);
+  useEffect(() => {
+    const reset = () => { setScopeRevision((n) => n + 1); clearRef.current?.(); };
+    window.addEventListener(WORKSPACE_SELECTION_EVENT, reset);
+    const unsubscribe = onPortalSessionViewerChange(reset);
+    return () => { window.removeEventListener(WORKSPACE_SELECTION_EVENT, reset); unsubscribe(); };
+  }, []);
   const addAction = add
     ? { label: add.ariaLabel, onClick: add.onClick, disabled: add.disabled, dataAttr: add.dataAttr }
     : null;
@@ -131,12 +137,18 @@ export function PortalRecordListSurface({
     <PortalListEmptyCard title="Nothing here yet" actions={[addAction]} />
   ) : null;
   return (
-    <>
+    <RowSelectionModeContext.Provider value={selectable ? false : null}>
+      <RecordActionContext.Provider value={selectable ? { actions: bulkActions, clear: () => clearRef.current?.(), scope: `${pathname}:${scopeRevision}` } : null}>
       <div className={cn(PORTAL_LIST_PAGE_BODY, className)} data-attr={dataAttr}>
-        {isEmpty ? emptyBody : children}
+        {loading ? <div role="status" aria-label="Loading records" className="space-y-3 rounded-2xl border border-border bg-card p-5">
+          <span className="sr-only">Loading records…</span>
+          {[0, 1, 2].map((i) => <div key={i} className="h-16 animate-pulse rounded-xl bg-accent/50 motion-reduce:animate-none" />)}
+        </div> : loadError ? <div role="alert" className="rounded-2xl border border-border bg-card p-6 text-center">
+          <p className="mb-3 text-sm">{loadError}</p><Button variant="outline" onClick={onRetry}>Try again</Button>
+        </div> : <div>{isEmpty ? emptyBody : children}</div>}
         {/* The dashed row survives only for a call site with an explicit `inline` — a
             ledger embedded in a resident record, which has no page head to add from. */}
-        {add && add.inline != null && !isEmpty ? (
+        {add && add.inline != null && !isEmpty && !loading && !loadError ? (
           <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
             <PortalListAddRow
               // Every list footer reads "+ Add"; the per-list glyph and long label
@@ -154,13 +166,7 @@ export function PortalRecordListSurface({
           </div>
         ) : null}
       </div>
-      {bulkCount > 0 && bulkActions ? (
-        <BulkActionBar count={bulkCount} hideCount variant="payments" onClear={onBulkClear}>
-          <div className="flex min-w-0 flex-nowrap items-center justify-start gap-2">
-            {bulkActions}
-          </div>
-        </BulkActionBar>
-      ) : null}
-    </>
+      </RecordActionContext.Provider>
+    </RowSelectionModeContext.Provider>
   );
 }

@@ -1,6 +1,8 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useContext, type ReactNode } from "react";
+import { RecordActionItemsContext } from "@/components/ui/record-action-context";
+import { RecordActionItems } from "@/components/ui/record-action-menu";
 import { PortalTitleActionsHost } from "@/components/portal/portal-title-actions-slot";
 import { cn } from "@/lib/utils";
 import { HORIZONTAL_SCROLL_ATTR, PORTAL_HORIZONTAL_SCROLL_ROW_CLASS } from "@/lib/horizontal-scroll";
@@ -241,6 +243,8 @@ export function PortalSectionActionRow({
   destructive?: ReactNode;
   variant?: "toolbar" | "header" | "grid";
 }) {
+  const inRecordMenu = useContext(RecordActionItemsContext);
+  if (inRecordMenu) return <RecordActionItems>{children}{destructive}</RecordActionItems>;
   if (variant === "header") {
     return (
       <div

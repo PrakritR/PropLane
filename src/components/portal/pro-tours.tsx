@@ -1133,7 +1133,7 @@ export function ManagerTours({
               data-attr="tours-bulk-decline"
               onClick={() => openDeclinePreview(selectedTourRows)}
             >
-              Decline
+              Reject
             </Button>
             <Button
               type="button"
@@ -1156,7 +1156,7 @@ export function ManagerTours({
               disabled={proposalBusy}
               onClick={() => decideTourProposals(selectedTourRows, "discard")}
             >
-              Decline
+              Reject
             </Button>
             <Button
               type="button"
@@ -1414,6 +1414,7 @@ export function ManagerTours({
           disabled: !authReady || scopedPropertyIds.length === 0,
           dataAttr: "tours-list-add",
         }}
+        onBulkClear={() => setSelectedIds(new Set())}
         bulkCount={selectedIds.size}
         bulkActions={listBulkActions}
       >
@@ -1473,7 +1474,7 @@ export function ManagerTours({
   return (
     <ManagerPortalPageShell
       title="Tours"
-      subtitle="Keep availability, guests, and hosts in step."
+
       hideTitleOnMobileNav
       titleInlineFilter={null}
       compactFilterRow

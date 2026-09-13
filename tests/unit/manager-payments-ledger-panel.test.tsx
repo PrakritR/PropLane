@@ -232,8 +232,8 @@ describe("ManagerPaymentsLedgerPanel", () => {
     expect(screen.getByRole("button", { name: /Add charge/i })).toBeTruthy();
   });
 
-  it("renders selection checkboxes on grouped charge rows", () => {
-    const { container } = render(
+  it("renders action menus on grouped charge rows", () => {
+    render(
       <ManagerPaymentsLedgerPanel
         rows={[
           sampleRow({ id: "hc_a", chargeTitle: "Move-in cost" }),
@@ -246,10 +246,11 @@ describe("ManagerPaymentsLedgerPanel", () => {
       />,
     );
 
-    expect(container.querySelectorAll('input[type="checkbox"]').length).toBeGreaterThan(0);
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.getAllByRole("button", { name: /^Actions for/ }).length).toBe(2);
   });
 
-  it("shows bulk actions when a charge is selected", () => {
+  it("offers actions for a charge from its menu", async () => {
     render(
       <ManagerPaymentsLedgerPanel
         rows={[sampleRow()]}
@@ -260,20 +261,13 @@ describe("ManagerPaymentsLedgerPanel", () => {
       />,
     );
 
-    // A group "Select all charges for …" checkbox now sits alongside the per-row
-    // ones, so `getByRole("checkbox")` is ambiguous. This test is about selecting
-    // ONE charge, so pick the row checkbox rather than the group toggle.
-    const rowCheckbox = screen
-      .getAllByRole("checkbox")
-      .find((el) => !/^Select all/i.test(el.getAttribute("aria-label") ?? ""));
-    expect(rowCheckbox).toBeTruthy();
-    fireEvent.click(rowCheckbox!);
-    expect(screen.getByRole("button", { name: /Mark as paid/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Delete$/i })).toBeTruthy();
-    expect(document.querySelector('[data-slot="bulk-action-bar"]')).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("button", { name: /^Actions for/ }), { key: "ArrowDown" });
+    expect(await screen.findByRole("menuitem", { name: /Mark as paid/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /^Delete$/i })).toBeTruthy();
+    expect(document.querySelector('[data-slot="bulk-action-bar"]')).toBeNull();
   });
 
-  it("keeps selection when the same charge ids reorder", () => {
+  it("keeps the opened record’s actions when the same charge ids reorder", async () => {
     const first = sampleRow({ id: "hc_a", chargeTitle: "Move-in cost" });
     const second = sampleRow({
       id: "hc_b",
@@ -291,9 +285,8 @@ describe("ManagerPaymentsLedgerPanel", () => {
       />,
     );
 
-    const boxes = screen.getAllByRole("checkbox").filter((el) => !/^Select all/i.test(el.getAttribute("aria-label") ?? ""));
-    fireEvent.click(boxes[0]!);
-    expect(screen.getByRole("button", { name: /Mark as paid/i })).toBeTruthy();
+    fireEvent.keyDown(screen.getAllByRole("button", { name: /^Actions for/ })[0]!, { key: "ArrowDown" });
+    expect(await screen.findByRole("menuitem", { name: /Mark as paid/i })).toBeTruthy();
 
     rerender(
       <ManagerPaymentsLedgerPanel
@@ -304,8 +297,8 @@ describe("ManagerPaymentsLedgerPanel", () => {
         onAddPayment={() => undefined}
       />,
     );
-    expect(screen.getByRole("button", { name: /Mark as paid/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Delete$/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /Mark as paid/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /^Delete$/i })).toBeTruthy();
   });
 
   it("renders a dashed list add row when embedded in resident", () => {
@@ -335,7 +328,7 @@ describe("ManagerPaymentsLedgerPanel", () => {
 
     const mobileRow = container.querySelector('[data-slot="data-list-mobile-row"]');
     expect(mobileRow).toBeTruthy();
-    const recordButton = mobileRow!.querySelector("button");
+    const recordButton = mobileRow!.querySelector('button:not([data-attr="record-actions-trigger"])');
     expect(recordButton).toBeTruthy();
     fireEvent.click(recordButton!);
     expect(navigate).toHaveBeenCalledWith("/portal/residents/approved/r1/payments/pending/hc_test_1");

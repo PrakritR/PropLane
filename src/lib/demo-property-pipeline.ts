@@ -1,3 +1,4 @@
+import { onPortalSessionViewerChange, portalSessionViewerId } from "@/lib/auth/portal-session-gate";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import { MANAGER_PROPERTY_LIMIT_ERROR_CODE } from "@/lib/manager-access";
@@ -41,7 +42,9 @@ const memoryStore = new Map<string, unknown>();
 const SESSION_CACHE_PREFIX = "axis_property_pipeline_cache_v1:";
 const PROPERTY_PIPELINE_SYNC_META_KEY = `${SESSION_CACHE_PREFIX}__synced_at`;
 const PROPERTY_PIPELINE_SYNC_TTL_MS = 15_000;
-let propertyPipelineSyncPromise: Promise<boolean> | null = null;
+const propertyPipelineSyncPromises = new Map<string, Promise<boolean>>();
+let propertyPipelineGeneration = 0;
+let propertyPipelineReadyViewer: string | null = null;
 // Forced syncs bypass the TTL by design, so several panels mounting at once each
 // used to issue their own `/api/property-records` fetch (measured: 5 on one
 // `/portal/properties` load). The refreshers below collapse those into at most
@@ -60,6 +63,16 @@ const pendingPipelineLinkedIds = new Map<string, Set<string>>();
 // so dispatching on every sync — even an unchanged one — is an infinite refetch loop.
 // Mirrors the change-guard in pro-relationships.ts.
 let lastPipelineSnapshotSig: string | null = null;
+
+if (typeof window !== "undefined") {
+  let previousViewer = portalSessionViewerId();
+  onPortalSessionViewerChange((viewer) => {
+    // Initial session hydration may confirm an explicitly scoped request that
+    // is already running. Later actor changes invalidate even A → B → A.
+    if (previousViewer !== null && !isDemoModeActive()) resetPropertyPipelineClientCache();
+    previousViewer = viewer;
+  });
+}
 
 export type ManagerPendingPropertyRow = {
   id: string;
@@ -355,7 +368,12 @@ export function hasCachedPropertyPipeline(): boolean {
 /** Drop cached pipeline data when the signed-in portal user changes. */
 export function resetPropertyPipelineClientCache(): void {
   if (!isBrowser()) return;
-  memoryStore.delete(PENDING_BY_USER_KEY);
+  propertyPipelineGeneration++;
+  propertyPipelineReadyViewer = null;
+  propertyPipelineSyncPromises.clear();
+  propertyPipelineRefreshers.clear();
+  pendingPipelineLinkedIds.clear();
+  memoryStore.clear();
   memoryStore.delete(EXTRAS_BY_USER_KEY);
   memoryStore.delete("axis_admin_property_buckets_v1");
   lastPipelineSnapshotSig = null;
@@ -380,11 +398,12 @@ export async function syncPropertyPipelineFromServer(opts?: {
   if (isDemoModeActive()) return true;
   const force = opts?.force === true;
   const lastSyncedAt = readPropertyPipelineSyncedAt();
-  if (!force && propertyPipelineSyncPromise) return propertyPipelineSyncPromise;
-  if (!force && lastSyncedAt > 0 && Date.now() - lastSyncedAt < PROPERTY_PIPELINE_SYNC_TTL_MS) {
+  const viewerKey = opts?.userId?.trim() || portalSessionViewerId() || "";
+  const inflight = propertyPipelineSyncPromises.get(viewerKey);
+  if (!force && inflight) return inflight;
+  if (!force && propertyPipelineReadyViewer === viewerKey && lastSyncedAt > 0 && Date.now() - lastSyncedAt < PROPERTY_PIPELINE_SYNC_TTL_MS) {
     return true;
   }
-  const viewerKey = opts?.userId?.trim() ?? "";
   // The refresher outlives any one call, so it must scope with every queued
   // caller's linked ids rather than closing over one caller's — otherwise a
   // joined caller's ids would be silently dropped from the union below.
@@ -414,14 +433,22 @@ async function runPropertyPipelineSync(opts?: {
   userId?: string | null;
   linkedPropertyIds?: Iterable<string>;
 }): Promise<boolean> {
+  const viewerKey = opts?.userId?.trim() || portalSessionViewerId() || "";
+  const sessionViewer = portalSessionViewerId();
+  const generation = propertyPipelineGeneration;
+  const isCurrent = () => generation === propertyPipelineGeneration && (
+    portalSessionViewerId() === sessionViewer ||
+    (sessionViewer === null && viewerKey !== "" && portalSessionViewerId() === viewerKey)
+  );
+  let ownPromise: Promise<boolean> | undefined;
   try {
-    propertyPipelineSyncPromise = (async () => {
+    ownPromise = (async () => {
       const res = await fetch("/api/property-records", { credentials: "include", cache: "no-store" });
       const body = (await res.json()) as {
         snapshot?: PropertyPipelineSnapshot;
         linkedPropertyIds?: string[];
       };
-      if (!res.ok || !body.snapshot) return false;
+      if (!isCurrent() || !res.ok || !body.snapshot) return false;
       const viewerUserId = opts?.userId?.trim() ?? "";
       // Prefer server-authoritative linked ids (from account_link_invites) and
       // union with any client-known ids. Scoping with only a stale empty client
@@ -451,6 +478,7 @@ async function runPropertyPipelineSync(opts?: {
         memoryStore.set(key, side);
         writeSessionJson(key, side);
       }
+      propertyPipelineReadyViewer = viewerKey;
       writePropertyPipelineSyncedAt(Date.now());
       // Legacy pending/review rows auto-publish (admin approval queue removed).
       const promoted = await promoteLegacyPendingListingsToLive();
@@ -458,16 +486,17 @@ async function runPropertyPipelineSync(opts?: {
       // dispatch here loops with force-syncing listeners (see lastPipelineSnapshotSig).
       // Tagged as sync-originated: the fresh snapshot is already in the local
       // store above, so listeners must NOT force another server round trip.
-      if (changed || promoted > 0) {
+      if (isCurrent() && (changed || promoted > 0)) {
         window.dispatchEvent(serverSyncOriginatedEvent(PROPERTY_PIPELINE_EVENT));
       }
-      return true;
-    })();
-    return await propertyPipelineSyncPromise;
+      return isCurrent();
+    })().catch(() => false);
+    propertyPipelineSyncPromises.set(viewerKey, ownPromise);
+    return await ownPromise;
   } catch {
     return false;
   } finally {
-    propertyPipelineSyncPromise = null;
+    if (propertyPipelineSyncPromises.get(viewerKey) === ownPromise) propertyPipelineSyncPromises.delete(viewerKey);
   }
 }
 

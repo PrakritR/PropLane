@@ -1,4 +1,6 @@
 "use client";
+import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -27,7 +29,6 @@ import {
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
 import {
   ResidentPortalGroupedDataList,
   RESIDENT_PORTAL_DEFAULT_GROUP_MODE,
@@ -1455,15 +1456,9 @@ export function ResidentPaymentsPanel({
             Pay rent through PropLane secure checkout — bank transfer, card, Apple Pay, or Google Pay.
           </p>
         ) : null}
-        {paymentsBody}
+        {showPayActions && selectedIds.size === 0 ? <div className="mb-3 flex justify-end">{payButton}</div> : null}<PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={<PortalAdaptiveActionRow actions={paySelectionActions} />}>{paymentsBody}</PortalRecordListSurface>
       </ManagerPortalPageShell>
-      <ResidentPortalListBottomBar
-        showDefaultBar={showPayActions && selectedIds.size === 0}
-        defaultActions={payButton}
-        selectionCount={selectedIds.size}
-        selectionActions={paySelectionActions}
-        selectionBarVariant="payments"
-      />
+
       {paymentModals}
     </>
   );

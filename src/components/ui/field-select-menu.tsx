@@ -67,7 +67,7 @@ export const FIELD_SELECT_MENU_LISTBOX_SCROLL_CLASS =
   "min-h-0 overflow-y-auto overscroll-contain py-1 [-webkit-overflow-scrolling:touch] touch-pan-y";
 
 /** Short menus (≤5 options, no search) — size to content with no inner scrollbar. */
-export const FIELD_SELECT_MENU_LISTBOX_FIT_CLASS = "overflow-visible py-1";
+export const FIELD_SELECT_MENU_LISTBOX_FIT_CLASS = "min-h-0 overflow-y-auto overscroll-contain py-1";
 
 export function fieldSelectMenuFitsWithoutScroll(optionCount: number, searchPx = 0): boolean {
   return searchPx === 0 && optionCount <= FIELD_SELECT_MENU_VISIBLE_ITEMS;
@@ -318,6 +318,16 @@ export function computePortalFilterDropdownRect(
     : rect.bottom + gap;
 
   return { top, left, width, maxHeight, position: "fixed" };
+}
+
+/** Explicit below-field placement for invite forms; preserve access by scrolling options. */
+export function computeFieldSelectMenuBelowRect(button: HTMLButtonElement, contentPx: number): FieldSelectMenuRect {
+  const rect = button.getBoundingClientRect();
+  const padding = 12;
+  const width = Math.min(rect.width, window.innerWidth - padding * 2);
+  const top = rect.bottom + 6;
+  return { top, left: Math.max(padding, Math.min(rect.left, window.innerWidth - width - padding)), width,
+    maxHeight: Math.max(0, Math.min(contentPx, window.innerHeight - top - padding)), position: "fixed" };
 }
 
 /** Position a field menu inside an open filter dropdown (or other non-body host). */
@@ -660,6 +670,11 @@ export function useFieldSelectMenu({
     const updateMenuRect = () => {
       const button = buttonRef.current;
       if (!button) return;
+      if (button.closest('[data-field-select-placement="below"]')) {
+        setPortalHost(document.body);
+        setMenuRect(computeFieldSelectMenuBelowRect(button, contentPx));
+        return;
+      }
       const modalPanel = button.closest<HTMLElement>(
         '[data-slot="modal-radix-dialog"], [data-slot="modal-vaul-drawer"]',
       );

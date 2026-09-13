@@ -1,4 +1,5 @@
 "use client";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
 
@@ -12,7 +13,6 @@ import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
 import {
@@ -628,12 +628,12 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   const body = (
     <>
       {modals}
-      {listBody}
-      {selectedVendors.length > 0 ? (
-        <BulkActionBar count={selectedVendors.length} hideCount variant="payments">
+      <PortalRecordListSurface className="mt-0" onBulkClear={clearSelection} bulkCount={selectedVendors.length} bulkActions={selectedVendors.length > 0 ? (
+        <>
           <PortalAdaptiveActionRow actions={bulkSelectionActions} />
-        </BulkActionBar>
-      ) : null}
+        </>
+      ) : null}>{listBody}</PortalRecordListSurface>
+
     </>
   );
 
@@ -677,7 +677,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   return (
     <ManagerPortalPageShell
       title="Teams"
-      subtitle={embedded ? undefined : "Vendors you dispatch to, and the defaults that route them."}
       hideTitleOnMobileNav
       compactFilterRow
       primaryAction={addVendorAction}

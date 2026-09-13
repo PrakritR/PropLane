@@ -297,10 +297,19 @@ export function writeManagerVendorRows(rows: ManagerVendorRow[], managerUserId?:
   mirrorVendorsToServer(rows, managerUserId);
 }
 
-export function upsertManagerVendor(row: ManagerVendorRow, managerUserId?: string | null): void {
+export function upsertManagerVendor(row: ManagerVendorRow, managerUserId?: string | null, options?: { persist?: boolean }): void {
   const rows = readManagerVendorRows();
   const idx = rows.findIndex((r) => r.id === row.id);
   const next = idx === -1 ? [...rows, row] : rows.map((r, i) => (i === idx ? row : r));
+  if (options?.persist === false) {
+    // Apply an already-authorized server write without issuing a second write or
+    // replacing the entire directory from a stale client snapshot.
+    memoryRows = next;
+    persistVendorsToSession(next);
+    managerVendorsLastSyncedAt = Date.now();
+    emit();
+    return;
+  }
   writeManagerVendorRows(next, managerUserId ?? row.managerUserId);
   mirrorVendorRowToServer(row);
 }

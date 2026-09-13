@@ -26,7 +26,7 @@ const PANELS = {
   vendor: "src/components/portal/vendor-communication.tsx",
   // The manager's list pane, where its rail is mounted. `pro-communication.tsx`
   // is the page shell above it and owns no segments of its own.
-  manager: "src/components/portal/pro-unified-inbox.tsx",
+
 } as const;
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
@@ -65,5 +65,17 @@ describe.each(Object.entries(PANELS))("%s Communication segments", (_portal, pat
   it("does not re-declare its own destinations", () => {
     expect(src).not.toContain('dataAttr: "communication-segment-active"');
     expect(src).not.toContain('dataAttr: "communication-segment-unread"');
+  });
+});
+
+
+describe("manager communication uses the Status filter", () => {
+  it("removes the rail while retaining route-compatible status filtering", () => {
+    const manager = read("src/components/portal/pro-unified-inbox.tsx");
+    expect(manager).not.toContain("<InboxListSegmentRail");
+    expect(manager).toContain("threadFilters?.status ?? listSegmentProp");
+    expect(manager).toContain('statusFilter !== "read" || !row.unread');
+    const fields = read("src/components/portal/communication-filter-sort-fields.tsx");
+    for (const label of ["All conversations", "Read", "Unread", "Archived"]) expect(fields).toContain(`label: "${label}"`);
   });
 });

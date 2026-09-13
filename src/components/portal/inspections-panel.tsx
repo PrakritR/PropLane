@@ -151,7 +151,6 @@ export function ResidentInspectionsPage({ kind = "move-in", reportId, basePath =
   return (
     <ManagerPortalPageShell
       title="Inspections"
-      subtitle="Move-in and move-out condition reports for your room. Complete each one before its due date."
       hideTitleOnMobileNav
       compactFilterRow
     >
@@ -165,7 +164,6 @@ export function ManagerInspectionsPage({ kind = "move-in", reportId, basePath = 
   return (
     <ManagerPortalPageShell
       title="Inspections"
-      subtitle="Move-in and move-out condition reports, organized by resident."
       hideTitleOnMobileNav
       compactFilterRow
     >
@@ -342,6 +340,7 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
       empty={<p className="p-5 text-sm text-muted">{isDemoModeActive() ? "Open your signed-in portal to add and read residency inspection photos." : kind === "move-in" ? "No one is moving in or living here yet. Approve an application and give it a property placement to start." : "No one is living here or has moved out yet."}</p>}
       /* No ADD: every resident with an assigned room already has a report waiting on their
          row, so a "＋ Add inspection" footer would only offer to duplicate one. */
+      onBulkClear={() => setSelected(new Set())}
       bulkCount={selected.size}
       bulkActions={<PortalSectionActionRow variant="header">
         <Button variant="outline" disabled={busy || selectedReports.length === 0} onClick={() => run(async () => { for (const report of selectedReports) await downloadInspection(role, report.id); })} data-attr="inspection-bulk-download">Download PDF</Button>

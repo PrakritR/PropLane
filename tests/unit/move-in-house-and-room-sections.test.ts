@@ -91,7 +91,8 @@ describe("manager move-in panel", () => {
     expect(panel).toContain("property-move-in-room-select-");
     expect(panel).toContain('data-attr="property-move-in-bulk-edit"');
     expect(panel).toContain('data-attr="property-move-in-share"');
-    expect(panel).toContain("<BulkActionBar");
+    expect(panel).toContain("<PortalRecordListSurface");
+    expect(panel).toContain("bulkActions={moveInBulkBar}");
     expect(panel).not.toContain(">Clear<");
   });
 

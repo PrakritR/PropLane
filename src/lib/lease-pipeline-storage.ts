@@ -82,7 +82,7 @@ import {
   type BundleGroupRowInput,
 } from "@/lib/bundle-group/bundle-group-application";
 import { applyLeaseBillingToContext } from "@/lib/lease-billing-snapshot";
-import { notePortalResponse, portalSessionEnded } from "@/lib/auth/portal-session-gate";
+import { notePortalResponse, onPortalSessionViewerChange, portalSessionEnded, portalSessionViewerId } from "@/lib/auth/portal-session-gate";
 import { buildJointLeaseMembers, buildJointLeasePipelineRow, jointLeaseRowIncludesMember } from "@/lib/bundle-group/joint-lease";
 import type { JointLeaseMember, LeaseKind } from "@/lib/bundle-group/types";
 
@@ -93,6 +93,8 @@ const LEASE_PIPELINE_SUPPRESSED_KEY_PREFIX = "axis:lease-pipeline-suppressed:v1"
 let memoryRows: LeasePipelineRow[] = [];
 let suppressedLeaseKeys: Set<string> = new Set();
 let activeLeasePipelineScopeUserId: string | undefined;
+let leaseScopeGeneration = 0;
+let leaseReadSucceeded = false;
 const LEASE_PIPELINE_SYNC_TTL_MS = 15_000;
 let leasePipelineLastSyncedAt = 0;
 let leasePipelineSyncPromise: Promise<LeasePipelineRow[]> | null = null;
@@ -1133,6 +1135,7 @@ export function normalizeLeasePipelineRow(raw: unknown): LeasePipelineRow {
 }
 
 function leasePipelineSessionKey(scopeUserId?: string | null): string {
+  scopeUserId = scopeUserId ?? portalSessionViewerId();
   // Demo sandbox: one shared store for every scope, so the demo manager and
   // demo resident read/write the SAME lease rows (a resident signature is
   // immediately visible on the manager side and vice versa).
@@ -1142,9 +1145,11 @@ function leasePipelineSessionKey(scopeUserId?: string | null): string {
 }
 
 function ensureLeasePipelineScope(scopeUserId?: string | null) {
-  const nextScope = isDemoModeActive() ? undefined : scopeUserId ?? undefined;
+  const nextScope = isDemoModeActive() ? undefined : scopeUserId ?? portalSessionViewerId() ?? undefined;
   if (activeLeasePipelineScopeUserId !== nextScope) {
     activeLeasePipelineScopeUserId = nextScope;
+    leaseScopeGeneration++;
+    leaseReadSucceeded = false;
     memoryRows = [];
     leasePipelineLastSyncedAt = 0;
     leasePipelineLastServerIds = null;
@@ -1154,7 +1159,14 @@ function ensureLeasePipelineScope(scopeUserId?: string | null) {
   }
 }
 
+if (typeof window !== "undefined") {
+  onPortalSessionViewerChange((viewerId) => {
+    if (!isDemoModeActive()) ensureLeasePipelineScope(viewerId);
+  });
+}
+
 function leaseSuppressionSessionKey(scopeUserId?: string | null): string {
+  scopeUserId = scopeUserId ?? portalSessionViewerId();
   if (isDemoModeActive()) return `${LEASE_PIPELINE_SUPPRESSED_KEY_PREFIX}:shared`;
   if (scopeUserId) return `${LEASE_PIPELINE_SUPPRESSED_KEY_PREFIX}:${scopeUserId}`;
   return `${LEASE_PIPELINE_SUPPRESSED_KEY_PREFIX}:shared`;
@@ -1964,6 +1976,11 @@ function mergeLeasePipelineRows(local: LeasePipelineRow[], remote: LeasePipeline
   return [...byId.values()];
 }
 
+export function leasePipelineReadSucceeded(managerUserId?: string | null) {
+  const scope = managerUserId ?? portalSessionViewerId() ?? activeLeasePipelineScopeUserId;
+  return isDemoModeActive() || (leaseReadSucceeded && activeLeasePipelineScopeUserId === scope);
+}
+
 export async function syncLeasePipelineFromServer(managerUserId?: string | null, opts?: { force?: boolean }): Promise<LeasePipelineRow[]> {
   if (!canUseStorage()) return [];
   ensureLeasePipelineScope(managerUserId);
@@ -1979,18 +1996,21 @@ export async function syncLeasePipelineFromServer(managerUserId?: string | null,
   // WIPED the rows the manager-scoped caller had just been handed — Bookings
   // drew zero stays on a fresh route load and every stay after a tab click.
   const scope = activeLeasePipelineScopeUserId;
+  const generation = leaseScopeGeneration;
   if (!force && leasePipelineSyncPromise && leasePipelineSyncPromiseScope === scope) return leasePipelineSyncPromise;
-  if (!force && leasePipelineLastSyncedAt > 0 && Date.now() - leasePipelineLastSyncedAt < LEASE_PIPELINE_SYNC_TTL_MS) {
+  if (!force && leaseReadSucceeded && leasePipelineLastSyncedAt > 0 && Date.now() - leasePipelineLastSyncedAt < LEASE_PIPELINE_SYNC_TTL_MS) {
     return readLeasePipeline(managerUserId);
   }
   const ownPromise: Promise<LeasePipelineRow[]> = (async () => {
       const localSnapshot = readLeasePipeline(managerUserId);
       const res = await fetch("/api/portal-lease-pipeline", { credentials: "include", cache: "no-store" });
-      notePortalResponse(res.status);
       // Another scope took over while this request was out: its own sync owns
       // the store now. Touching it here would reset the scope under that caller.
-      if (activeLeasePipelineScopeUserId !== scope) return [];
+      if (generation !== leaseScopeGeneration) return [];
+      notePortalResponse(res.status);
       if (!res.ok) {
+        leaseReadSucceeded = false;
+        leasePipelineLastSyncedAt = 0;
         // Still notify listeners: Residents classifies Current vs Potential off
         // this cache, and a failed GET must not leave the UI stuck on a
         // pre-sync classification (PRP-458).
@@ -1998,6 +2018,8 @@ export async function syncLeasePipelineFromServer(managerUserId?: string | null,
         return localSnapshot;
       }
       const body = (await res.json()) as { rows?: unknown[] };
+      if (generation !== leaseScopeGeneration) return [];
+      if (!Array.isArray(body.rows)) throw new Error("Lease response is incomplete");
       const fetched = filterLeasesForManager((body.rows ?? []).map(normalizeLeasePipelineRow), managerUserId);
       leasePipelineLastServerIds = new Set(fetched.map((row) => row.id));
       approvalSeedSyncAttempted = new Set();
@@ -2011,10 +2033,19 @@ export async function syncLeasePipelineFromServer(managerUserId?: string | null,
       );
       memoryRows = merged;
       persistLeasePipelineToSession(merged, managerUserId);
+      leaseReadSucceeded = true;
       leasePipelineLastSyncedAt = Date.now();
       emit();
       return readLeasePipeline(managerUserId);
-    })();
+    })().catch(() => {
+      if (generation !== leaseScopeGeneration) return [];
+      leaseReadSucceeded = false;
+      leasePipelineLastSyncedAt = 0;
+      // Handle failures on the shared promise itself: joined background callers
+      // must receive the same cached result rather than an uncaught rejection.
+      emit();
+      return readLeasePipeline(managerUserId);
+    });
   leasePipelineSyncPromise = ownPromise;
   leasePipelineSyncPromiseScope = scope;
   try {

@@ -17,6 +17,7 @@ import {
 
 export type ReminderRecipient = {
   email: string;
+  phone?: string;
   role: "manager" | "counterparty" | "team";
   userId?: string | null;
   /** Shown in the greeting. Falls back to a neutral phrase when unknown. */
@@ -30,6 +31,7 @@ export type ReminderQueueRow = {
   subjectId: string;
   leadMinutes: number;
   recipientEmail: string;
+  recipientPhone?: string;
   recipientRole: "manager" | "counterparty" | "team";
   sendAt: string;
   attempts: number;
@@ -54,7 +56,8 @@ function rowFromDb(row: Record<string, unknown>): ReminderQueueRow {
     kind: String(row.kind) as ReminderSubjectKind,
     subjectId: String(row.subject_id),
     leadMinutes: Number(row.lead_minutes),
-    recipientEmail: String(row.recipient_email),
+    recipientEmail: String(row.recipient_email ?? ""),
+    recipientPhone: row.recipient_phone ? String(row.recipient_phone) : undefined,
     recipientRole: String(row.recipient_role) as "manager" | "counterparty" | "team",
     sendAt: String(row.send_at),
     attempts: Number(row.attempts ?? 0),
@@ -88,7 +91,7 @@ export async function materializeReminders(
   if (sends.length === 0) return 0;
 
   const recipients = input.recipients.filter((recipient) => {
-    if (!recipient.email.trim()) return false;
+    if (!recipient.email.trim() && !(input.kind === "tour_interest" && /^\+[1-9]\d{7,14}$/.test(recipient.phone ?? ""))) return false;
     if (recipient.role === "manager") return rule.audience.manager;
     if (recipient.role === "counterparty") return rule.audience.counterparty;
     if (recipient.role === "team") {
@@ -107,7 +110,8 @@ export async function materializeReminders(
       kind: input.kind,
       subject_id: input.subjectId,
       lead_minutes: leadMinutes,
-      recipient_email: recipient.email.trim().toLowerCase(),
+      recipient_email: recipient.email.trim().toLowerCase() || null,
+      ...(input.kind === "tour_interest" ? { recipient_phone: recipient.phone ?? null } : {}),
       recipient_role: recipient.role,
       send_at: sendAt.toISOString(),
       status: "scheduled",
@@ -115,7 +119,7 @@ export async function materializeReminders(
         kind: input.kind,
         subjectId: input.subjectId,
         leadMinutes,
-        recipient: recipient.email,
+        recipient: recipient.phone ? `sms:${recipient.phone}` : recipient.email,
       }),
       payload: {
         ...input.payload,
@@ -189,7 +193,7 @@ export async function resolveReminder(
   db: SupabaseClient,
   id: string,
   workerId: string,
-  status: "sent" | "failed" | "scheduled",
+  status: "sent" | "failed" | "scheduled" | "cancelled",
   error?: string,
 ): Promise<boolean> {
   const { data, error: rpcError } = await db.rpc("resolve_reminder", {

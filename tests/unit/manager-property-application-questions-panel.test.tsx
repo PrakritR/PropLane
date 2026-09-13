@@ -14,7 +14,7 @@ vi.mock("@/components/portal/pro-portal-settings-modal", () => ({
 }));
 
 describe("ManagerPropertyApplicationQuestionsPanel", () => {
-  it("property tab shows checkboxes and Settings only — not Edit application", () => {
+  it("property tab shows per-template action menus and Settings", () => {
     const sub = addApplicationTemplateFromSeed(
       addApplicationTemplateFromSeed(createDefaultListingSubmission(), "standard"),
       "short-term",
@@ -33,7 +33,8 @@ describe("ManagerPropertyApplicationQuestionsPanel", () => {
 
     expect(screen.queryByRole("button", { name: "Edit application" })).toBeNull();
     expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
-    expect(screen.queryAllByRole("checkbox").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.getAllByRole("button", { name: /^Actions for/ }).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByTestId("application-settings-modal")).toBeTruthy();

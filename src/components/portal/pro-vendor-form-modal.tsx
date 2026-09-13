@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { Modal, MODAL_FIELD_LABEL_CLASS, PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS, PORTAL_MODAL_FORM_GRID_CLASS } from "@/components/ui/modal";
-import { PortalInviteChoiceStep } from "@/components/portal/portal-invite-choice-step";
 import { ManagerInviteLinkModal } from "@/components/portal/manager-invite-link-modal";
 import {
   PortalNotificationPreviewModal,
@@ -19,8 +18,8 @@ import {
   deliverManagerVendorInvite,
   fetchManagerVendorInviteDraft,
   fetchManagerVendorRemovalDraft,
-  type ManagerVendorInvitePreview,
   type ManagerVendorRemovalPreview,
+  type ManagerVendorInvitePreview,
 } from "@/lib/manager-vendor-invite-client";
 import {
   deleteManagerVendorRow,
@@ -32,7 +31,6 @@ import {
 } from "@/lib/manager-vendors-storage";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
 
-type VendorInvitePreview = ManagerVendorInvitePreview;
 
 export type ManagerVendorFormDraft = {
   name: string;
@@ -177,7 +175,7 @@ export function ManagerVendorOptionalFields({
             onChange={(e) => onPatch({ active: e.target.checked })}
             data-attr="vendor-optional-active"
           />
-          <span className="text-sm font-medium text-foreground">Active — available for work orders and payments</span>
+          <span className="text-sm font-medium text-foreground">Active — available for services and payments</span>
         </label>
         <fieldset className="space-y-2">
           <legend className={MODAL_FIELD_LABEL_CLASS}>Priority for this trade</legend>
@@ -315,7 +313,7 @@ export function ManagerVendorFormFields({
             checked={draft.active}
             onChange={(e) => onPatch({ active: e.target.checked })}
           />
-          <span className="text-sm font-medium text-foreground">Active — available for work orders and payments</span>
+          <span className="text-sm font-medium text-foreground">Active — available for services and payments</span>
         </label>
         <fieldset className="space-y-2">
           <legend className={MODAL_FIELD_LABEL_CLASS}>Priority for this trade</legend>
@@ -392,10 +390,14 @@ export function ManagerVendorFormModal({
   const [draft, setDraft] = useState<ManagerVendorFormDraft>(EMPTY_MANAGER_VENDOR_FORM_DRAFT);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [invitePreview, setInvitePreview] = useState<VendorInvitePreview | null>(null);
+  const [invitationMessage, setInvitationMessage] = useState("Please join our vendor directory on PropLane so we can coordinate upcoming services.");
+  const submitRef = useRef(false);
+  const preparedInviteRef = useRef<{ key: string; preview: ManagerVendorInvitePreview } | null>(null);
+  const requestGeneration = useRef(0);
+  const [deliveryUncertain, setDeliveryUncertain] = useState(false);
+  useEffect(() => () => { requestGeneration.current += 1; }, []);
   const [removePreview, setRemovePreview] = useState<ManagerVendorRemovalPreview | null>(null);
   const [createdVendorId, setCreatedVendorId] = useState<string | null>(null);
-  const [addStep, setAddStep] = useState<"essentials" | "options">("essentials");
   const [inviteLinkOpen, setInviteLinkOpen] = useState(false);
   // Houses the vendor link can be scoped to — read when the link dialog opens
   // so a property added mid-session is offered.
@@ -405,7 +407,10 @@ export function ManagerVendorFormModal({
   );
 
   useEffect(() => {
+    requestGeneration.current += 1;
     if (!open) return;
+    preparedInviteRef.current = null;
+    setDeliveryUncertain(false);
     if (mode === "edit" && vendor) {
       setDraft(draftFromVendor(vendor));
     } else {
@@ -416,12 +421,11 @@ export function ManagerVendorFormModal({
     }
     setError(null);
     setSaving(false);
-    setInvitePreview(null);
+    setInvitationMessage("Please join our vendor directory on PropLane so we can coordinate upcoming services.");
     setRemovePreview(null);
     setCreatedVendorId(null);
-    setAddStep("essentials");
     setInviteLinkOpen(false);
-  }, [open, mode, vendor, initialTrade]);
+  }, [open, mode, vendor, initialTrade, userId]);
 
   const patch = (next: Partial<ManagerVendorFormDraft>) => setDraft((prev) => ({ ...prev, ...next }));
 
@@ -457,67 +461,76 @@ export function ManagerVendorFormModal({
 
   const persistRow = async (row: ManagerVendorRow): Promise<boolean> => {
     if (!userId) return false;
-    upsertManagerVendor(row, userId);
-    if (draft.vendorPriority === "primary") {
+    const generation = requestGeneration.current;
+    if (!await persistManagerVendorToServer(row) || generation !== requestGeneration.current) return false;
+    upsertManagerVendor(row, userId, { persist: false });
+    if (draft.vendorPriority === "primary" && vendor?.vendorPriority !== "primary") {
       setManagerVendorPriority(row.id, "primary", userId);
     }
-    const persisted = await persistManagerVendorToServer(row);
-    if (!persisted) {
-      showToast("Vendor saved locally; syncing to the server failed. Try again before sending the invite.");
-      return false;
-    }
-    if (mode === "add") setCreatedVendorId(row.id);
     return true;
   };
 
   const saveEdit = async () => {
+    if (submitRef.current) return;
     const row = buildRow();
     if (!row) return;
+    const generation = requestGeneration.current;
+    const current = () => requestGeneration.current === generation;
+    submitRef.current = true;
     setSaving(true);
-    await persistRow(row);
-    setSaving(false);
-    showToast("Vendor updated.");
-    onClose();
-    onSaved?.();
+    try {
+      if (!await persistRow(row)) { if (current()) setError("Could not save the vendor. Please try again."); return; }
+      if (!current()) return;
+      showToast("Vendor updated.");
+      onClose();
+      onSaved?.();
+    } catch { if (current()) setError("Could not save the vendor. Your details are still here."); }
+    finally { if (current()) setSaving(false); submitRef.current = false; }
   };
 
   const addOnly = async () => {
+    if (submitRef.current) return;
     const row = buildRow();
     if (!row) return;
     const email = row.email.trim().toLowerCase();
-    const validEmail = vendorEmailLooksValid(email);
-    if (validEmail) {
-      await openInvitePreview();
-      return;
-    }
+    if (email && !vendorEmailLooksValid(email)) { setError("Enter a valid email address."); return; }
+    if (email && !invitationMessage.trim()) { setError("Enter an invitation message."); return; }
+    const generation = requestGeneration.current;
+    const current = () => requestGeneration.current === generation;
+    submitRef.current = true;
     setSaving(true);
     setError(null);
-    const persisted = await persistRow(row);
-    setSaving(false);
-    if (!persisted) return;
-    showToast("Vendor added.");
-    onClose();
-    onSaved?.();
-  };
-
-  const continueFromEssentials = () => {
-    const name = draft.name.trim();
-    if (!name) {
-      setError("Vendor name is required.");
-      return;
-    }
-    const email = draft.email.trim();
-    if (email && !vendorEmailLooksValid(email)) {
-      setError("Enter a valid email address, or leave it blank to add without an invite.");
-      return;
-    }
-    setError(null);
-    setAddStep("options");
-  };
-
-  const backToEssentials = () => {
-    setError(null);
-    setAddStep("essentials");
+    // Keep the same record id on a retry, including an uncertain network response.
+    setCreatedVendorId(row.id);
+    try {
+      if (!await persistRow(row)) { if (current()) setError("Could not save the vendor. Please try again."); return; }
+      if (!current()) return;
+      if (email) {
+        const key = `${row.id}:${email}:${row.name}`;
+        let preview = preparedInviteRef.current?.key === key ? preparedInviteRef.current.preview : null;
+        if (!preview) {
+          const result = await fetchManagerVendorInviteDraft({ vendorId: row.id, vendorName: row.name, vendorEmail: email });
+          if (!current()) return;
+          if (!result.ok) { setError(result.error); return; }
+          preview = { ...result.preview, phone: row.phone };
+          preparedInviteRef.current = { key, preview };
+        }
+        const body = preview.linkUrl
+          ? `${invitationMessage.trim()}\n\nJoin PropLane: ${preview.linkUrl}`
+          : `${invitationMessage.trim()}\n\n${preview.body}`;
+        const sent = await deliverManagerVendorInvite(preview, false, { viaEmail: true, viaInbox: true, viaSms: false }, { subject: preview.subject, body });
+        if (!current()) return;
+        if (!sent.ok) {
+          setDeliveryUncertain(sent.uncertain === true);
+          setError(sent.uncertain ? "Delivery could not be confirmed. Check Communication before sending again. Your message is still here." : `Vendor saved, but ${sent.message} Your message is still here.`);
+          return;
+        }
+        showToast(sent.message || "Vendor invitation sent.");
+      } else showToast("Vendor added.");
+      onClose();
+      onSaved?.();
+    } catch { if (current()) setError("Could not complete the invitation. Your details are still here; please try again."); }
+    finally { if (current()) setSaving(false); submitRef.current = false; }
   };
 
   const openRemovePreview = async () => {
@@ -573,79 +586,17 @@ export function ManagerVendorFormModal({
     void openRemovePreview();
   };
 
-  const openInvitePreview = async () => {
-    const row = buildRow();
-    if (!row) return;
-    const email = row.email.trim().toLowerCase();
-    if (!email || !vendorEmailLooksValid(email)) {
-      setError("A valid email is required to preview the vendor portal invite.");
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    const persisted = await persistRow(row);
-    if (!persisted) {
-      setSaving(false);
-      return;
-    }
-    try {
-      const result = await fetchManagerVendorInviteDraft({
-        vendorId: row.id,
-        vendorName: row.name,
-        vendorEmail: email,
-      });
-      if (!result.ok) {
-        showToast(result.error);
-        setSaving(false);
-        return;
-      }
-      setInvitePreview({
-        ...result.preview,
-        phone: row.phone,
-      });
-    } catch {
-      showToast("Could not prepare the vendor onboarding message.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const confirmVendorInvite = async (
-    skipMessage: boolean,
-    channels?: NotificationDeliveryChannels,
-    messageDraft?: NotificationConfirmDraft,
-  ) => {
-    if (!invitePreview || saving) return;
-    setSaving(true);
-    try {
-      if (!skipMessage) {
-        const result = await deliverManagerVendorInvite(invitePreview, skipMessage, channels, messageDraft);
-        if (!result.ok) {
-          showToast(`Vendor added, but ${result.message}`);
-          return;
-        }
-        showToast(result.message ? `Vendor added. ${result.message}` : "Vendor added.");
-      } else {
-        showToast("Vendor added.");
-      }
-      setInvitePreview(null);
-      onClose();
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const title = mode === "edit" ? "Edit vendor" : addStep === "options" ? "Send invite" : "Invite vendor";
+  const title = mode === "edit" ? "Edit vendor" : "Invite vendor";
   const addHasValidEmail = vendorEmailLooksValid(draft.email);
 
   return (
     <>
       <Modal
-        open={open && invitePreview === null && removePreview === null}
+        open={open && !inviteLinkOpen && removePreview === null}
         title={title}
         assistantContext={mode === "add" ? "Invite vendor" : "Edit vendor"}
         assistantStorageScopeKey={mode === "add" ? "Invite vendor" : "Edit vendor"}
-        onClose={onClose}
+        onClose={() => { if (!submitRef.current) onClose(); }}
         panelClassName={mode === "add" ? "max-w-2xl" : "max-w-lg"}
         dense
         footer={
@@ -660,51 +611,21 @@ export function ManagerVendorFormModal({
               >
                 Delete
               </Button>
-            ) : mode === "add" && addStep === "options" ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="rounded-full"
-                onClick={backToEssentials}
-                data-attr="vendor-form-back"
-              >
-                Back
-              </Button>
             ) : (
               <span aria-hidden />
             )}
             {mode === "add" ? (
-              addStep === "essentials" ? (
-                <Button
-                  type="button"
-                  variant="primary"
-                  className="rounded-full"
-                  disabled={saving}
-                  onClick={continueFromEssentials}
-                  data-attr="vendor-form-continue"
-                >
-                  Continue
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  variant="primary"
-                  className="rounded-full"
-                  disabled={saving}
-                  loading={saving}
-                  onClick={() => void addOnly()}
-                  data-attr={addHasValidEmail ? "vendor-form-send-invite" : "vendor-form-add-only"}
-                >
-                  {saving ? "Saving…" : addHasValidEmail ? "Send invite" : "Add vendor"}
-                </Button>
-              )
+              <Button type="button" variant="primary" className="rounded-full" disabled={saving} loading={saving}
+                onClick={() => addOnly()} data-attr={addHasValidEmail ? "vendor-form-send-invite" : "vendor-form-add-only"}>
+                {addHasValidEmail ? deliveryUncertain ? "Send again" : "Send invite" : "Add vendor"}
+              </Button>
             ) : (
               <Button
                 type="button"
                 variant="primary"
                 className="ml-auto rounded-full"
                 disabled={saving}
-                onClick={() => void saveEdit()}
+                onClick={() => saveEdit()}
                 data-attr="vendor-form-save"
               >
                 {saving ? "Saving…" : "Save"}
@@ -723,7 +644,9 @@ export function ManagerVendorFormModal({
                     type="button"
                     className="font-semibold text-primary hover:underline"
                     data-attr="vendor-form-browse-catalog"
+                    disabled={saving}
                     onClick={() => {
+                      if (submitRef.current) return;
                       onClose();
                       onBrowseCatalog();
                     }}
@@ -732,37 +655,20 @@ export function ManagerVendorFormModal({
                   </button>
                 </p>
               ) : null}
-              <PortalInviteChoiceStep
-                inviteTitle="Invite by link"
-                inviteDescription="Create a shareable link so a vendor can join your directory without typing their email first."
-                onCreateInviteLink={() => setInviteLinkOpen(true)}
-                inviteLinkDataAttr="vendor-create-invite-link"
-                secondaryTitle="Invite by email"
-                secondaryDescription="Enter the vendor's name and email to send a portal signup invite."
-                secondaryIcon="person"
-              >
-                {addStep === "options" ? (
-                  <div className="rounded-xl border border-primary/25 bg-primary/[0.05] px-4 py-3">
-                    <p className="text-sm font-semibold text-foreground">{draft.name.trim()}</p>
-                    <p className="mt-0.5 text-sm text-muted">
-                      {[draft.trade, draft.email.trim() || "No email"].filter(Boolean).join(" · ")}
-                    </p>
-                  </div>
-                ) : (
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      continueFromEssentials();
-                    }}
-                  >
-                    <ManagerVendorEssentialFields draft={draft} onPatch={patch} idPrefix="vendor-choice" />
-                  </form>
-                )}
-              </PortalInviteChoiceStep>
-
-              {addStep === "options" ? (
-                <ManagerVendorOptionalFields draft={draft} onPatch={patch} idPrefix="vendor-options" />
-              ) : null}
+              <div className="grid grid-cols-2 gap-1 rounded-xl bg-accent/50 p-1">
+                <Button type="button" variant="ghost" className="rounded-lg bg-card shadow-sm text-primary" aria-current="page">Invite by email</Button>
+                <Button type="button" variant="ghost" className="rounded-lg" disabled={saving} onClick={() => { if (!submitRef.current) setInviteLinkOpen(true); }} data-attr="vendor-create-invite-link">Create invite link</Button>
+              </div>
+              <form id="vendor-invite-form" className="space-y-4" data-field-select-placement="below" onSubmit={(event) => { event.preventDefault(); void addOnly(); }}>
+                <fieldset disabled={saving} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <label className="space-y-1"><span className="text-sm font-semibold">Vendor name</span><Input value={draft.name} onChange={(e) => patch({ name: e.target.value })} required autoFocus data-attr="vendor-essential-name" /></label>
+                  <label className="space-y-1"><span className="text-sm font-semibold">Email</span><Input type="email" value={draft.email} onChange={(e) => patch({ email: e.target.value })} autoComplete="email" data-attr="vendor-essential-email" /></label>
+                  <label className="space-y-1"><span className="text-sm font-semibold">Trade</span><Select value={draft.trade} onChange={(e) => patch({ trade: e.target.value })} data-attr="vendor-essential-trade">{VENDOR_TRADE_OPTIONS.map((trade) => <option key={trade} value={trade}>{trade}</option>)}</Select></label>
+                  <div className="space-y-1"><label htmlFor="vendor-invite-phone" className="text-sm font-semibold">Phone <span className="font-normal text-muted">(optional)</span></label><PhoneNumberField id="vendor-invite-phone" value={draft.phone} onChange={(phone) => patch({ phone })} dataAttr="vendor-optional-phone" /></div>
+                  <label className="space-y-1 sm:col-span-2"><span className="text-sm font-semibold">Invitation message</span><Textarea aria-label="Invitation message" value={invitationMessage} onChange={(e) => setInvitationMessage(e.target.value)} rows={3} data-attr="vendor-invitation-message" /><span className="block text-xs text-muted">Included in the email with a secure signup link.</span></label>
+                  <details className="sm:col-span-2"><summary className="cursor-pointer text-sm text-muted">Private notes (optional)</summary><Textarea aria-label="Private notes" value={draft.notes} onChange={(e) => patch({ notes: e.target.value })} rows={2} className="mt-2" data-attr="vendor-optional-notes" /><p className="mt-1 text-xs text-muted">Only your team sees these.</p></details>
+                </fieldset>
+              </form>
             </>
           ) : (
             <>
@@ -773,7 +679,9 @@ export function ManagerVendorFormModal({
                     type="button"
                     className="font-semibold text-primary hover:underline"
                     data-attr="vendor-form-browse-catalog"
+                    disabled={saving}
                     onClick={() => {
+                      if (submitRef.current) return;
                       onClose();
                       onBrowseCatalog();
                     }}
@@ -785,30 +693,10 @@ export function ManagerVendorFormModal({
               <ManagerVendorFormFields draft={draft} onPatch={patch} />
             </>
           )}
-          {error ? <p className="text-sm text-red-600">{error}</p> : null}
+          {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
         </div>
       </Modal>
 
-      <PortalNotificationPreviewModal
-        open={invitePreview !== null}
-        title="Add vendor — notification preview"
-        onClose={() => setInvitePreview(null)}
-        recipient={invitePreview?.email ?? ""}
-        recipientPhone={invitePreview?.phone ?? ""}
-        subject={invitePreview?.subject ?? ""}
-        body={invitePreview?.body ?? ""}
-        showChannelPicker
-        emailAvailable={Boolean(invitePreview?.email?.includes("@"))}
-        smsAvailable={Boolean(invitePreview?.phone?.trim())}
-        defaultViaSms={false}
-        confirmLabel="Add vendor & send invite"
-        confirmLabelWithoutMessage="Add vendor only"
-        skipMessageLabel="Don't message vendor"
-        confirmBusy={saving}
-        confirmBusyLabel="Adding…"
-        cancelLabel="Back"
-        onConfirm={(skipMessage, channels, messageDraft) => void confirmVendorInvite(skipMessage, channels, messageDraft)}
-      />
       <PortalNotificationPreviewModal
         open={removePreview !== null}
         title="Remove vendor — notification preview"

@@ -1,4 +1,6 @@
 "use client";
+import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
@@ -6,7 +8,6 @@ import { Modal, MODAL_FIELD_LABEL_CLASS, ModalFooter } from "@/components/ui/mod
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useNativeCamera } from "@/lib/native/use-native-camera";
 import type { ManagerDocumentDTO } from "@/lib/documents/manager-documents";
-import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { PortalListAddRow, PORTAL_LIST_ADD_ICONS, PORTAL_LIST_ADD_ROW_WRAP_CLASS } from "@/components/portal/portal-list-add-row";
 import { ResidentPortalDataList } from "@/components/portal/resident-portal-data-list";
@@ -575,7 +576,7 @@ export function ResidentOtherDocumentsTable({
 
   return (
     <>
-      <div className={PORTAL_LIST_PAGE_BODY} data-attr="resident-documents-other-list">
+      <PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={<PortalAdaptiveActionRow actions={bulkActions} />}><div className={PORTAL_LIST_PAGE_BODY} data-attr="resident-documents-other-list">
         <ResidentPortalDataList
           selectable
           rows={rows.map((row) => ({
@@ -593,12 +594,8 @@ export function ResidentOtherDocumentsTable({
           }))}
           columns={[{ id: "document", header: "Document", cell: () => "—" }]}
         />
-      </div>
-      <ResidentPortalListBottomBar
-        selectionCount={selectedIds.size}
-        selectionActions={bulkActions}
-        selectionBarVariant="payments"
-      />
+      </div></PortalRecordListSurface>
+
     </>
   );
 }

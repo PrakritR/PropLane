@@ -99,6 +99,8 @@ export const PORTAL_INBOX_CHANGED_EVENT = "axis-portal-inbox-changed";
 const memoryByKey = new Map<string, PersistedInboxThread[]>();
 const inboxLastSyncedAtByKey = new Map<string, number>();
 const inboxSyncPromiseByKey = new Map<string, Promise<PersistedInboxThread[]>>();
+const inboxReadSuccess = new Map<string, boolean>();
+let inboxViewerGeneration = 0;
 
 /**
  * Every cache in this module is keyed by the VIEWER as well as the inbox scope.
@@ -122,6 +124,8 @@ function viewerCacheKey(key: string): string {
 /** Drop every cached row when the account changes, so nothing outlives a sign-out. */
 function purgeInboxCaches(): void {
   memoryByKey.clear();
+  inboxViewerGeneration++;
+  inboxReadSuccess.clear();
   inboxLastSyncedAtByKey.clear();
   inboxSyncPromiseByKey.clear();
   if (!canUse()) return;
@@ -275,6 +279,10 @@ export function countUnopenedPersistedInbox(key: string, fallback: PersistedInbo
   return loadPersistedInbox(key, fallback).filter((t) => t.folder === "inbox" && t.unread).length;
 }
 
+export function persistedInboxReadSucceeded(key: string) {
+  return isDemoModeActive() || inboxReadSuccess.get(viewerCacheKey(key)) === true;
+}
+
 export async function syncPersistedInboxFromServer(
   key: string,
   opts?: { force?: boolean; excludeIds?: Set<string> },
@@ -284,35 +292,46 @@ export async function syncPersistedInboxFromServer(
   if (isDemoModeActive()) return memoryByKey.get(viewerCacheKey(key)) ?? [];
   // Signed out: stop the interval-driven refetch instead of 401ing forever.
   if (portalSessionEnded()) return memoryByKey.get(viewerCacheKey(key)) ?? [];
+  const scopedKey = viewerCacheKey(key);
+  const generation = inboxViewerGeneration;
   const force = opts?.force === true;
-  const inflight = inboxSyncPromiseByKey.get(viewerCacheKey(key));
+  const inflight = inboxSyncPromiseByKey.get(scopedKey);
   if (!force && inflight) return inflight;
-  const lastSyncedAt = inboxLastSyncedAtByKey.get(viewerCacheKey(key)) ?? 0;
+  const lastSyncedAt = inboxLastSyncedAtByKey.get(scopedKey) ?? 0;
   if (!force && lastSyncedAt > 0 && Date.now() - lastSyncedAt < PORTAL_INBOX_SYNC_TTL_MS) {
-    return memoryByKey.get(viewerCacheKey(key)) ?? [];
+    return memoryByKey.get(scopedKey) ?? [];
   }
   const promise = (async () => {
     const res = await fetch(`/api/portal-inbox-threads?scope=${encodeURIComponent(key)}`, { credentials: "include", cache: "no-store" });
+    if (generation !== inboxViewerGeneration || viewerCacheKey(key) !== scopedKey) return [];
     notePortalResponse(res.status);
-    if (!res.ok) return memoryByKey.get(viewerCacheKey(key)) ?? [];
+    if (!res.ok) { inboxReadSuccess.set(scopedKey, false); inboxLastSyncedAtByKey.delete(scopedKey); return memoryByKey.get(scopedKey) ?? []; }
     const body = (await res.json()) as { rows?: PersistedInboxThread[] };
+    if (generation !== inboxViewerGeneration || viewerCacheKey(key) !== scopedKey) return [];
+    if (!Array.isArray(body.rows)) throw new Error("Inbox response is incomplete");
     const rows = inboxThreadsFromUnknown(body.rows);
-    const existing = memoryByKey.get(viewerCacheKey(key)) ?? [];
+    const existing = memoryByKey.get(scopedKey) ?? [];
     const merged = mergeInboxRowsWithLocalTrash(rows, existing, { excludeIds: opts?.excludeIds });
     const collapsed = applyInboxCollapseForScope(key, merged);
-    memoryByKey.set(viewerCacheKey(key), collapsed);
+    memoryByKey.set(scopedKey, collapsed);
     persistInboxToSession(key, collapsed);
-    inboxLastSyncedAtByKey.set(viewerCacheKey(key), Date.now());
+    inboxReadSuccess.set(scopedKey, true);
+    inboxLastSyncedAtByKey.set(scopedKey, Date.now());
     if (inboxRowsChanged(existing, collapsed)) {
       window.dispatchEvent(new CustomEvent<{ key: string }>(PORTAL_INBOX_CHANGED_EVENT, { detail: { key } }));
     }
     return collapsed;
   })();
-  inboxSyncPromiseByKey.set(viewerCacheKey(key), promise);
+  inboxSyncPromiseByKey.set(scopedKey, promise);
   try {
     return await promise;
+  } catch (error) {
+    if (generation !== inboxViewerGeneration) return [];
+    inboxReadSuccess.set(scopedKey, false);
+    inboxLastSyncedAtByKey.delete(scopedKey);
+    throw error;
   } finally {
-    inboxSyncPromiseByKey.delete(viewerCacheKey(key));
+    if (inboxSyncPromiseByKey.get(scopedKey) === promise) inboxSyncPromiseByKey.delete(scopedKey);
   }
 }
 

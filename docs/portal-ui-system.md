@@ -561,3 +561,9 @@ and `@2xl:flex-row` on the same element silently no-ops (it stays column no
 matter how wide the container gets). Cost real debugging time once; verify any
 new container-query layout with a computed-style check
 (`getComputedStyle(el).flexDirection`), not just a class-list read.
+
+### Per-record actions (September 2026)
+
+`PortalRecordListSurface` provides one ⋯ menu per record. There is no Select strip, list checkbox mode, or floating bulk bar. The existing `bulkActions` and `onBulkClear` adapters remain internal: opening a row menu clears prior IDs and targets only that record before rendering its current permitted actions. `RowSelectCheckbox` and `DataList` adapt existing handlers; form and permission checkboxes outside record lists remain checkboxes. Do not clear the internal target when a menu closes: an editor opened by its action may still need it. Route/workspace changes clear it; every next menu chooses a fresh single target.
+
+Use the shared liquid-glass dropdown surface, 44px triggers, keyboard-navigable menu items, and a bottom sheet on mobile. Custom action wrappers must render `RecordActionItems` when `RecordActionItemsContext` is active. Keep original permission checks, validation, and destructive confirmations. Loading/error states must precede the empty state.

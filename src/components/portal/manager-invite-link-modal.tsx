@@ -222,7 +222,7 @@ export function ManagerInviteLinkModal({
         </ModalFooter>
       }
     >
-      <div className="space-y-5">
+      <div className="space-y-5" data-field-select-placement="below">
         {mintedUrl ? (
           <div className="rounded-2xl border border-primary/25 bg-primary/[0.05] p-4">
             <p className="text-sm font-semibold text-foreground">Your invite link</p>

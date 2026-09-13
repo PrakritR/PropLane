@@ -519,7 +519,6 @@ export function PortalProfileClient({
   return (
     <ManagerPortalPageShell
       title="Settings"
-      subtitle="Manage your account settings and preferences."
       // Billing has its own compact plan status + pricing hierarchy. Keeping
       // the generic Settings header above it wastes the first viewport and
       // competes with the financial decision the manager came to make.

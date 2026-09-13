@@ -169,8 +169,10 @@ describe("residents directory hydration (PRP-458)", () => {
 
   it("bumps leaseTick when the initial Residents sync batch settles", () => {
     expect(residentsSrc).toContain("directorySourcesReady");
-    expect(residentsSrc).toMatch(/Promise\.allSettled\(\[[\s\S]*syncLeasePipelineFromServer\(userId\)/);
-    expect(residentsSrc).toMatch(/setLeaseTick\(\(n\) => n \+ 1\);\s*\n\s*setDirectorySourcesReady\(true\)/);
+    expect(residentsSrc).toMatch(/Promise\.all\(\[[\s\S]*syncLeasePipelineFromServer\(userId\)/);
+    expect(residentsSrc).toContain("managerApplicationsReadSucceeded(userId)");
+    expect(residentsSrc).toContain("leasePipelineReadSucceeded(userId)");
+    expect(residentsSrc).toMatch(/setLeaseTick\(\(n\) => n \+ 1\);\s*setDirectoryLoadedFor\(userId\);\s*setDirectorySourcesReady\(true\)/);
   });
 
   it("holds directory rows until applications and leases have both settled", () => {
@@ -179,6 +181,6 @@ describe("residents directory hydration (PRP-458)", () => {
   });
 
   it("emits the lease-pipeline event even when the lease GET fails", () => {
-    expect(leaseSrc).toMatch(/if \(!res\.ok\) \{\s*\n\s*\/\/ Still notify listeners[\s\S]*?\n\s*emit\(\);\s*\n\s*return localSnapshot;/);
+    expect(leaseSrc).toMatch(/if \(!res\.ok\) \{\s*leaseReadSucceeded = false;\s*leasePipelineLastSyncedAt = 0;[\s\S]*?emit\(\);\s*return localSnapshot;/);
   });
 });

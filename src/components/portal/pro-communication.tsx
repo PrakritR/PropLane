@@ -1,4 +1,5 @@
 "use client";
+import { loadManagerSmsConversationsClient } from "@/lib/manager-sms-conversations-client";
 
 import { PenSquare } from "lucide-react";
 
@@ -65,7 +66,7 @@ export function communicationFilterTouches(
   filters: CommunicationThreadFilters,
   listSort: CommunicationListSort,
 ): number {
-  let n = 0;
+  let n = filters.status && filters.status !== "active" ? 1 : 0;
   if (filters.propertyIds.length > 0) n += 1;
   if (filters.roles.length > 0) n += 1;
   if (filters.contactIds.length > 0) n += 1;
@@ -102,13 +103,15 @@ export function ManagerCommunication({
   const { activeThreadId, setActiveThreadId } = useCommunicationThreadId(commBase, threadId);
   const inboxRef = useRef<ManagerInboxHandle>(null);
   const smsRef = useRef<ManagerSmsPanelHandle>(null);
-  const [filters, setFilters] = useState<CommunicationThreadFilters>(EMPTY_COMMUNICATION_THREAD_FILTERS);
+  const [filters, setFilters] = useState<CommunicationThreadFilters>({ ...EMPTY_COMMUNICATION_THREAD_FILTERS, status: listSegment });
+  useEffect(() => { setFilters((current) => ({ ...current, status: listSegment })); }, [listSegment]);
   const [listSort, setListSort] = useState<CommunicationListSort>("recent");
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeChannel, setComposeChannel] = useState<CommunicationComposeChannel>("email");
   const [composeDraft, setComposeDraft] = useState<ManagerComposePrefill | null>(null);
   const [communicationSettingsOpen, setCommunicationSettingsOpen] = useState(false);
-  const [smsRecipients, setSmsRecipients] = useState<ManagerSmsResidentConversation[]>([]);
+  const [smsDirectory, setSmsDirectory] = useState<{ viewer: string | null; rows: ManagerSmsResidentConversation[] }>({ viewer: null, rows: [] });
+  const smsRecipients = smsDirectory.viewer === userId ? smsDirectory.rows : [];
   const [smsCanSend, setSmsCanSend] = useState(false);
   const smsOutboundEnabled = smsUiEnabled || smsCanSend;
   const [threadOpen, setThreadOpen] = useState(Boolean(threadId));
@@ -144,16 +147,18 @@ export function ManagerCommunication({
     [userId, propertyTick],
   );
 
+  const smsRecipientViewer = useRef(userId);
+  useEffect(() => { smsRecipientViewer.current = userId; }, [userId]);
   const loadSmsRecipients = useCallback(async () => {
     // Load conversation directory when SMS UI is on OR the work number can send
     // (inbox replies to inbound texts need rows even while the SMS panel is hidden).
     if (!sessionReady || !userId || !smsOutboundEnabled) return;
     try {
-      const res = await fetch("/api/manager/sms-conversations", { credentials: "include", cache: "no-store" });
+      const res = await loadManagerSmsConversationsClient(userId);
       if (!res.ok) return;
       const body = (await res.json()) as { residents?: ManagerSmsResidentConversation[] };
       const normalized = normalizeManagerSmsConversationsPayload(body);
-      setSmsRecipients(normalized.residents);
+      if (smsRecipientViewer.current === userId) setSmsDirectory({ viewer: userId, rows: normalized.residents });
     } catch {
       /* keep prior list */
     }
@@ -218,6 +223,7 @@ export function ManagerCommunication({
 
   const activeFilterChips = useMemo((): PortalActiveFilterChip[] => {
     const chips: PortalActiveFilterChip[] = [];
+    if (filters.status && filters.status !== "active") chips.push({ id: "status", label: filters.status === "read" ? "Read" : filters.status === "unread" ? "Unread" : "Archived", onRemove: () => setFilters((f) => ({ ...f, status: "active" })) });
     for (const propertyId of filters.propertyIds) {
       const label = propertyOptions.find((p) => p.value === propertyId)?.label ?? propertyId;
       chips.push({
@@ -258,7 +264,7 @@ export function ManagerCommunication({
     <CommunicationFilterSortFields
       propertyOptions={propertyOptions}
       roleOptions={ROLE_OPTIONS}
-      filters={filters}
+      filters={{ ...filters, status: filters.status ?? listSegment }}
       onFiltersChange={setFilters}
       listSort={listSort}
       onListSortChange={setListSort}
@@ -269,7 +275,7 @@ export function ManagerCommunication({
     <PortalFilterSortSheet
       activeCount={filterTouchCount}
       compactPanel
-      filterFieldCount={3}
+      filterFieldCount={4}
       // Three filter fields plus sort do not fit inside the title band's own
       // height. Constraining the panel to the band clips the last field, which
       // is what tests/unit/finance-documents-title-row-controls.test.ts pins.
@@ -280,7 +286,7 @@ export function ManagerCommunication({
       className="md:w-auto md:max-w-none"
       mobileFlushBody={true}
       onReset={() => {
-        setFilters(EMPTY_COMMUNICATION_THREAD_FILTERS);
+        setFilters({ ...EMPTY_COMMUNICATION_THREAD_FILTERS, status: "active" });
         setListSort("recent");
       }}
       dataAttr="communication-filter-sheet-open"
@@ -330,7 +336,6 @@ export function ManagerCommunication({
   return (
     <PortalCommunicationShell
       title="Communication"
-      subtitle="Residents, applicants and vendors, in one place."
       titleAside={communicationCommandActions}
       hideTitleOnMobileNav
       controlStack={controlStack}

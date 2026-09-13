@@ -47,6 +47,12 @@ export function CommunicationFilterSortFields({
 
   return (
     <FilterFieldsAccordion>
+      <FilterCollapsibleSection sectionId="status" label="Status"
+        summary={draftFilters.status === "read" ? "Read" : draftFilters.status === "unread" ? "Unread" : draftFilters.status === "archived" ? "Archived" : "All conversations"}
+        empty={!draftFilters.status || draftFilters.status === "active"} menuOptionCount={4}>
+        <FilterSingleSelectList options={[{ value: "active", label: "All conversations" }, { value: "unread", label: "Unread" }, { value: "read", label: "Read" }, { value: "archived", label: "Archived" }]}
+          value={draftFilters.status ?? "active"} onChange={(value) => setDraftFilters({ ...draftFilters, status: value as CommunicationThreadFilters["status"] })} dataAttr="communication-filter-status" />
+      </FilterCollapsibleSection>
       <FilterCollapsibleSection
         sectionId="house"
         label="House"

@@ -540,7 +540,6 @@ export function ManagerBookings({
   return (
     <ManagerPortalPageShell
       title="Bookings"
-      subtitle="Stays, blocked dates, and channel calendars for every space."
       hideTitleOnMobileNav
       titleInlineFilter={null}
       compactFilterRow

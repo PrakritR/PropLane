@@ -524,7 +524,7 @@ export function ResidentCommunication({
   return (
     <PortalCommunicationShell
       title="Inbox"
-      subtitle="Message your property manager, get updates, and ask questions — all in one place."
+
       titleAside={communicationCommandActions}
       hideTitleOnMobileNav
       hideMobileFilterRow={threadOpen}

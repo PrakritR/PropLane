@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { ManagerSmsComposeModal } from "@/components/portal/pro-sms-compose-modal";
+import { TourInterestFollowUpCard } from "./tour-interest-follow-up-card";
 import { SmsConversationHouseChip } from "@/components/portal/sms-conversation-house-chip";
 import {
   PortalContactDetailsModal,
@@ -480,9 +481,9 @@ export const ManagerSmsPanel = forwardRef<
   }, [load, onSentNavigate]);
 
   const archiveConversation = useCallback(
-    (resident: ManagerSmsResidentConversation) => {
+    async (resident: ManagerSmsResidentConversation) => {
       const rowId = conversationId(resident);
-      archiveManagerSmsConversation(rowId);
+      try { await archiveManagerSmsConversation(rowId); } catch (error) { showToast(error instanceof Error ? error.message : "Could not archive conversation."); return; }
       setArchivedConversationIds(loadManagerSmsArchivedIds());
       setActiveId(null);
       onArchived?.();
@@ -492,9 +493,9 @@ export const ManagerSmsPanel = forwardRef<
   );
 
   const restoreConversation = useCallback(
-    (resident: ManagerSmsResidentConversation) => {
+    async (resident: ManagerSmsResidentConversation) => {
       const rowId = conversationId(resident);
-      restoreManagerSmsConversation(rowId);
+      try { await restoreManagerSmsConversation(rowId); } catch (error) { showToast(error instanceof Error ? error.message : "Could not restore conversation."); return; }
       setArchivedConversationIds(loadManagerSmsArchivedIds());
       setActiveId(null);
       onArchived?.();
@@ -1042,6 +1043,7 @@ export const ManagerSmsPanel = forwardRef<
           </div>
         );
         })()}
+        {active.resident.conversationKey ? <TourInterestFollowUpCard conversationKey={active.resident.conversationKey} conversationKeys={active.resident.memberKeys} messageCount={active.messages.length} /> : null}
         <div ref={threadEndRef} className="h-px shrink-0" aria-hidden />
       </div>
 

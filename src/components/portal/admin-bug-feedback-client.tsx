@@ -320,6 +320,7 @@ export function AdminBugFeedbackClient({ embedded = false }: { embedded?: boolea
 
   const renderList = (listRows: PortalBugFeedbackRow[]) => (
     <PortalRecordListSurface
+      onBulkClear={() => setSelectedIds(new Set())}
       bulkCount={listRows.filter((r) => selectedIds.has(r.id)).length}
       bulkActions={bulkActions}
       dataAttr="admin-feedback-list"

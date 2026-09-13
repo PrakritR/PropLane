@@ -21,6 +21,7 @@
  * reader are unchanged. Nothing here is a second source of truth for a listing.
  */
 
+import { useEffect, useRef, useState } from "react";
 import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assistant-context";
 import type { AddPropertyResult } from "@/components/portal/listing-wizard-v2/add-property-flow";
 import { ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";

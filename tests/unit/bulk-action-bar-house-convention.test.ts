@@ -3,8 +3,8 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * AGENTS.md: "Floating bulk bar — `BulkActionBar variant="payments" hideCount`,
- * present only while something is selected."
+ * Selection toolbars show a selected count; their nested contextual actions
+ * use `BulkActionBar variant="payments" hideCount` to avoid repeating it.
  *
  * Every bulk bar in the product follows that except when one drifts, and the
  * drift is invisible to a build: the panel still compiles, its tests still
@@ -12,9 +12,8 @@ import { join } from "node:path";
  * "N selected" label while every other tab's sit on the left gutter. The
  * Move-in tab shipped that way. This scan is the guard.
  *
- * The count label is dropped on purpose rather than kept for information: the
- * selection is already visible in the rows themselves, and the label pushes the
- * actions off the gutter every other list aligns to.
+ * The selected count belongs in the parent toolbar. The action group stays
+ * in document flow above the rows.
  */
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {

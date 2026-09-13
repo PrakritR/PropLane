@@ -4,8 +4,13 @@ const mocks = vi.hoisted(() => ({
   sendSms: vi.fn(),
   log: vi.fn(),
   readSuppression: vi.fn(),
+  followupCurrent: vi.fn(),
 }));
 
+vi.mock("@/lib/reminders/subjects/tour-interest.server", () => ({
+  tourInterestOutboxIsCurrent: mocks.followupCurrent,
+  materializeTourInterestFromOutbox: vi.fn(async () => 0),
+}));
 vi.mock("@/lib/twilio", () => ({
   sendSms: mocks.sendSms,
   normalizeE164: (phone: string) => phone.startsWith("+") ? phone : `+1${phone.replace(/\D/g, "")}`,
@@ -147,6 +152,7 @@ function dispatchDb({
   };
   return {
     outbox,
+    consentEvents,
     reclaim() {
       claimAvailable = true;
       Object.assign(outbox, { status: "claimed", lease_owner: "worker-1", lease_expires_at: "2999-01-01T00:00:00.000Z" });
@@ -159,6 +165,12 @@ function dispatchDb({
           if (!claimAvailable) return { data: [], error: null };
           claimAvailable = false;
           return { data: [{ ...outbox }], error: null };
+        }
+        if (name === "begin_tour_interest_submission") {
+          if (outbox.status !== "claimed") return { data: false, error: null };
+          outbox.status = "submitting";
+          outbox.dispatch_started_at = new Date().toISOString();
+          return { data: true, error: null };
         }
         if (name === "spend_sms_outbox_segment_budget") {
           const today = new Date().toISOString().slice(0, 10);
@@ -180,10 +192,25 @@ describe("dispatcher conversation-log repair handoff", () => {
     process.env.SMS_OUTBOX_SCHEDULER_READY = "1";
     process.env.TWILIO_MESSAGING_SERVICE_SID = "MG1";
     process.env.TWILIO_CAMPAIGN_SID = "CP1";
+    mocks.followupCurrent.mockReset().mockResolvedValue(true);
     mocks.sendSms.mockReset().mockResolvedValue({ sent: true, sid: "SM-original" });
     mocks.log.mockReset().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     mocks.readSuppression.mockReset().mockResolvedValue({ ok: true, optedOut: false });
     vi.mocked(reserveCommsCredit).mockReset().mockResolvedValue({ allowed: true, duplicate: false, state: "reserved" });
+  });
+
+  it("rechecks tour eligibility after credit reservation and before calling the provider", async () => {
+    const fixture = dispatchDb({ derivedTourConsent: "allowed" });
+    fixture.outbox.purpose = "tour_interest_followup";
+    fixture.outbox.dedupe_key = "tour-interest:reminder";
+    fixture.consentEvents[0].purpose = "tour_interest_followup";
+    mocks.followupCurrent.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    const result = await dispatchOwnerSmsOutbox({ workerId: "worker-1" }, fixture.db);
+    expect(result).toMatchObject({ claimed: 1, submitted: 0, blocked: 1 });
+    expect(reserveCommsCredit).toHaveBeenCalledTimes(1);
+    expect(mocks.followupCurrent).toHaveBeenCalledTimes(2);
+    expect(mocks.sendSms).not.toHaveBeenCalled();
+    expect(fixture.outbox).toMatchObject({ status: "blocked", blocked_reason: "tour_followup_cancelled" });
   });
 
   it("submits once, snapshots the original sender, then repairs the same SID without a provider resend", async () => {
@@ -308,6 +335,7 @@ describe("dispatcher credit reservation outcomes", () => {
     process.env.SMS_OUTBOX_SCHEDULER_READY = "1";
     process.env.TWILIO_MESSAGING_SERVICE_SID = "MG1";
     process.env.TWILIO_CAMPAIGN_SID = "CP1";
+    mocks.followupCurrent.mockReset().mockResolvedValue(true);
     mocks.sendSms.mockReset().mockResolvedValue({ sent: true, sid: "SM-original" });
     mocks.log.mockReset().mockResolvedValue(true);
     vi.mocked(reserveCommsCredit).mockReset();

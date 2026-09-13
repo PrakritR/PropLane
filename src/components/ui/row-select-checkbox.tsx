@@ -1,7 +1,10 @@
 "use client";
 
-import type { InputHTMLAttributes, MouseEvent, Ref } from "react";
-import { PORTAL_LIST_CHECKBOX_HIT_CLASS } from "@/components/ui/data-list";
+import { useContext, useRef, type InputHTMLAttributes, type MouseEvent, type Ref } from "react";
+import { RowSelectionModeContext } from "./row-selection-mode";
+import { RecordActionContext } from "./record-action-context";
+import { RecordActionMenu } from "./record-action-menu";
+const PORTAL_LIST_CHECKBOX_HIT_CLASS = "-m-3 inline-flex shrink-0 cursor-pointer items-center justify-center p-3";
 import { cn } from "@/lib/utils";
 
 /**
@@ -39,16 +42,32 @@ export function RowSelectCheckbox({
   className,
   wrapperClassName,
   onClick,
+  onOpenRecord,
   ref,
   ...props
 }: Omit<InputHTMLAttributes<HTMLInputElement>, "type"> & {
   wrapperClassName?: string;
+  onOpenRecord?: () => void;
   /** Reaches the `<input>` — a group checkbox sets `indeterminate` through it. */
   ref?: Ref<HTMLInputElement>;
 }) {
+  const selectionMode = useContext(RowSelectionModeContext);
+  const actions = useContext(RecordActionContext);
+  const inputRef = useRef<HTMLInputElement>(null);
+  if (actions) {
+    const label = String(props["aria-label"] ?? "record");
+    if (/^Select (all|group|cluster|visible)\b/i.test(label)) return null;
+    return <>
+      <input {...props} type="checkbox" hidden
+        ref={(node) => { inputRef.current = node; if (typeof ref === "function") return ref(node); if (ref) ref.current = node; }}
+        onClick={(event) => { event.stopPropagation(); onClick?.(event); }} tabIndex={-1} aria-hidden />
+      <RecordActionMenu label={label.replace(/^Select\s+/i, "")} disabled={props.disabled} onOpen={onOpenRecord} activate={() => inputRef.current?.click()} />
+    </>;
+  }
   return (
     <label
-      className={cn(ROW_SELECT_HIT_PAD_CLASS, wrapperClassName)}
+      hidden={selectionMode === false}
+      className={cn(ROW_SELECT_HIT_PAD_CLASS, "min-h-11 min-w-11", wrapperClassName, selectionMode === false && "hidden")}
       onClick={(event) => event.stopPropagation()}
       data-portal-row-ignore
       data-row-select-hit-pad

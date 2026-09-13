@@ -1,4 +1,6 @@
 "use client";
+import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -9,7 +11,6 @@ import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/por
 import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
 import { Input } from "@/components/ui/input";
 import { ResidentPortalDataList } from "@/components/portal/resident-portal-data-list";
-import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
 import {
   residentDocumentsDownloadAction,
   useResidentDocumentSelection,
@@ -218,7 +219,7 @@ function ApplicationDocumentsTable({ basePath }: { basePath: string }) {
 
   return (
     <>
-      <div className={PORTAL_LIST_PAGE_BODY} data-attr="resident-documents-application-list">
+      <PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={<PortalAdaptiveActionRow actions={bulkActions} />}><div className={PORTAL_LIST_PAGE_BODY} data-attr="resident-documents-application-list">
         <ResidentPortalDataList
           selectable
           rows={rows.map((row) => ({
@@ -238,12 +239,8 @@ function ApplicationDocumentsTable({ basePath }: { basePath: string }) {
             <PortalDataTableEmpty icon="application" message="No applications are linked to your account yet." />
           }
         />
-      </div>
-      <ResidentPortalListBottomBar
-        selectionCount={selectedIds.size}
-        selectionActions={bulkActions}
-        selectionBarVariant="payments"
-      />
+      </div></PortalRecordListSurface>
+
     </>
   );
 }
@@ -802,7 +799,7 @@ function RentReceiptsTab({
 
   return (
     <>
-      <div className="space-y-4">
+      <PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={<PortalAdaptiveActionRow actions={bulkActions} />}><div className="space-y-4">
         {loading && !generated ? (
           <ReportGeneratePrompt loading loadingTitle="Loading rent receipts…" />
         ) : receipts.length === 0 ? (
@@ -824,12 +821,8 @@ function RentReceiptsTab({
             />
           </div>
         )}
-      </div>
-      <ResidentPortalListBottomBar
-        selectionCount={selectedIds.size}
-        selectionActions={bulkActions}
-        selectionBarVariant="payments"
-      />
+      </div></PortalRecordListSurface>
+
     </>
   );
 }

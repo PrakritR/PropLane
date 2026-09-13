@@ -227,7 +227,7 @@ function greeting(language: string, name: string): string {
 }
 
 function jobLabel(row: DemoManagerWorkOrderRow): { status: string; tone: "ok" | "warn" | "mut" } {
-  if (row.bucket === "done" || /done|complete/i.test(row.status ?? "")) return { status: "Done", tone: "ok" };
+  if (row.bucket === "completed" || /done|complete/i.test(row.status ?? "")) return { status: "Done", tone: "ok" };
   if (row.scheduledAtIso) return { status: `Scheduled · ${formatPacificDateTime(row.scheduledAtIso)}`, tone: "mut" };
   return { status: "Assigned · no time yet", tone: "warn" };
 }

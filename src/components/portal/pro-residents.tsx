@@ -1,5 +1,7 @@
 "use client";
 
+import { managerApplicationsReadSucceeded } from "@/lib/manager-applications-storage";
+import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
 import { Link2, Settings2 } from "lucide-react";
@@ -422,9 +424,14 @@ export function ManagerResidents({
   // applications-only redraw classifies every approved tenant as Potential
   // (PRP-458). Demo and unit tests skip the hold (static markup never runs
   // the sync effect).
-  const [directorySourcesReady, setDirectorySourcesReady] = useState(
+  const [directoryError, setDirectoryError] = useState(false);
+  const [directoryRetry, setDirectoryRetry] = useState(0);
+  const [directoryLoadedFor, setDirectoryLoadedFor] = useState<string | null>(null);
+  const [directoryRefreshing, setDirectoryRefreshing] = useState(false);
+  const [directoryReady, setDirectorySourcesReady] = useState(
     () => isDemoModeActive() || process.env.NODE_ENV === "test",
   );
+  const directorySourcesReady = directoryReady && (isDemoModeActive() || process.env.NODE_ENV === "test" || directoryLoadedFor === userId);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
   const RESIDENT_LIST_DEFAULT_GROUP_MODE: PortalListGroupMode = "house";
   const [groupMode, setGroupMode] = useState<PortalListGroupMode>(RESIDENT_LIST_DEFAULT_GROUP_MODE);
@@ -620,31 +627,38 @@ export function ManagerResidents({
   useEffect(() => {
     if (!authReady || !userId) return;
     let cancelled = false;
-    if (!isDemoModeActive()) setDirectorySourcesReady(false);
+    setDirectoryRefreshing(true);
+    setDirectoryError(false);
+    // Membership needs only properties, applications and leases. Ancillary
+    // detail data may refresh independently without holding up this directory.
     void Promise.allSettled([
-      syncPropertyPipelineFromServer(),
-      syncManagerApplicationsFromServer({ managerUserId: userId }),
-      syncLeasePipelineFromServer(userId),
       syncManagerWorkOrdersFromServer(),
       syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY),
       syncHouseholdChargesFromServer(),
     ]).then(() => {
-      if (!cancelled) {
-        setPropertyTick((n) => n + 1);
-        setInboxTick((n) => n + 1);
-        setWorkOrderTick((n) => n + 1);
-        setHcTick((n) => n + 1);
-        // Lease stage membership must refresh with applications — relying only
-        // on LEASE_PIPELINE_EVENT left Current empty when that emit raced or
-        // the GET failed (PRP-458).
-        setLeaseTick((n) => n + 1);
-        setDirectorySourcesReady(true);
-      }
+      if (cancelled) return;
+      setInboxTick((n) => n + 1); setWorkOrderTick((n) => n + 1); setHcTick((n) => n + 1);
     });
+    void Promise.all([
+      syncPropertyPipelineFromServer({ userId }),
+      syncManagerApplicationsFromServer({ managerUserId: userId }),
+      syncLeasePipelineFromServer(userId),
+    ]).then(([propertiesReady]) => {
+      if (cancelled) return;
+      if (!propertiesReady || !managerApplicationsReadSucceeded(userId) || !leasePipelineReadSucceeded(userId)) {
+        setDirectoryError(true);
+        return;
+      }
+      setPropertyTick((n) => n + 1);
+      setLeaseTick((n) => n + 1);
+      setDirectoryLoadedFor(userId);
+      setDirectorySourcesReady(true);
+    }).catch(() => { if (!cancelled) setDirectoryError(true); })
+      .finally(() => { if (!cancelled) setDirectoryRefreshing(false); });
     return () => {
       cancelled = true;
     };
-  }, [authReady, userId]);
+  }, [authReady, userId, directoryRetry]);
 
   useEffect(() => {
     const emails = [
@@ -748,7 +762,7 @@ export function ManagerResidents({
     return executedLeaseIdentities(userId);
   }, [leaseTick, userId]);
 
-  const residentDirectoryRows = useMemo<ActiveResident[]>(() => {
+  const loadedDirectoryRows = useMemo<ActiveResident[]>(() => {
     void hcTick;
     // `propertyTick` is a cache-invalidation signal, not a value read here:
     // `applicationVisibleToPortalUser` consults the module-level property
@@ -817,6 +831,13 @@ export function ManagerResidents({
     }
     return built;
   }, [userId, hcTick, propertyTick, executedLeaseKeys, directorySourcesReady]);
+
+  const [directorySnapshot, setDirectorySnapshot] = useState<{ viewer: string | null; rows: ActiveResident[] } | null>(null);
+  useEffect(() => {
+    if (directorySourcesReady && !directoryRefreshing && !directoryError) setDirectorySnapshot({ viewer: userId, rows: loadedDirectoryRows });
+  }, [directorySourcesReady, directoryRefreshing, directoryError, userId, loadedDirectoryRows]);
+  const residentDirectoryRows = directorySourcesReady && (directoryRefreshing || directoryError) && directorySnapshot?.viewer === userId
+    ? directorySnapshot.rows : loadedDirectoryRows;
 
   const residents = useMemo(
     () => dedupeResidentsByEmail(residentDirectoryRows),
@@ -4005,8 +4026,7 @@ export function ManagerResidents({
       ) : (
       <ManagerPortalPageShell
         title="Residents"
-        subtitle="People connected to their home, agreement, and next step."
-        hideTitleOnMobileNav
+          hideTitleOnMobileNav
         titleInlineFilter={null}
         compactFilterRow
         primaryAction={
@@ -4027,7 +4047,7 @@ export function ManagerResidents({
           id: tab,
           label: RESIDENT_DIRECTORY_TAB_LABELS[tab],
           href: residentListHref(portalBase, tab),
-          count: residentTabCounts[tab],
+          count: directorySourcesReady ? residentTabCounts[tab] : undefined,
           dataAttr: `manager-residents-tab-${tab}`,
         }))}
         activeDestinationId={residentsTab}
@@ -4081,7 +4101,11 @@ export function ManagerResidents({
         onApproved={() => setPropertyTick((n) => n + 1)}
         showToast={showToast}
       />
+      {directoryError && directorySourcesReady ? <div role="alert" className="mb-3 rounded-xl border border-border bg-card p-3 text-sm">Could not refresh residents. Showing the last loaded records. <Button variant="ghost" onClick={() => setDirectoryRetry((n) => n + 1)}>Try again</Button></div> : null}
       <PortalRecordListSurface
+        loading={!directorySourcesReady && !directoryError}
+        loadError={directoryError && !directorySourcesReady ? "Could not load residents. Your records are still saved." : undefined}
+        onRetry={() => setDirectoryRetry((n) => n + 1)}
         isEmpty={filtered.length === 0}
         empty={
           residentDirectoryRows.length > 0 || propertyFilters.length > 0 ? (
@@ -4095,6 +4119,7 @@ export function ManagerResidents({
           onClick: () => setAddResidentOpen(true),
           dataAttr: "residents-list-add",
         }}
+        onBulkClear={clearSelection}
         bulkCount={listSelectedCount}
         bulkActions={
           // Delete is here, and it is also inside Edit resident. What made it

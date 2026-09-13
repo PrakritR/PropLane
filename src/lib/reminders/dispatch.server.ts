@@ -51,6 +51,7 @@ const CATEGORY_BY_KIND: Record<ReminderSubjectKind, NotificationCategory> = {
   inspection: "leases",
   inspection_manager: "leases",
   tour: "leases",
+  tour_interest: "leases",
   task: "messages",
   service_order: "maintenance",
   work_order: "maintenance",
@@ -118,6 +119,10 @@ export async function dispatchReminderRow(
   sender: SenderIdentity | undefined,
   channels: { inbox: boolean; email: boolean; sms: boolean },
 ): Promise<"sent" | "failed" | "retried"> {
+  if (row.kind === "tour_interest") {
+    const { dispatchTourInterestReminder } = await import("./subjects/tour-interest.server");
+    return dispatchTourInterestReminder(db, workerId, row);
+  }
   // Without a sender identity there is no thread to write into and no From to
   // send as. That cannot fix itself on a retry, so stop rather than spin.
   if (!sender) {
