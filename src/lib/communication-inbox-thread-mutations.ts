@@ -2,9 +2,9 @@ import { smsNoticeIdentity } from "@/lib/sms-inbox-identity";
 import { MANAGER_INBOX_STORAGE_KEY } from "@/lib/portal-inbox-storage";
 import {
   deleteInboxThreadIds,
+  changePersistedInboxThreadFolders,
   loadPersistedInbox,
   stagePersistedInboxRows,
-  upsertPersistedInboxRows,
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
 
@@ -39,9 +39,11 @@ export async function archivePersistedInboxThreads(
   });
 
   if (changed.length === 0) return { ok: true, next: prev };
+  const noticeIds = new Set<string>();
   if (storageKey === MANAGER_INBOX_STORAGE_KEY) {
     for (const thread of changed) {
       if (!smsNoticeIdentity(thread)) continue;
+      noticeIds.add(thread.id);
       try {
         const response = await fetch("/api/manager/tour-follow-ups", {
           method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" },
@@ -53,9 +55,12 @@ export async function archivePersistedInboxThreads(
       }
     }
   }
+  const ordinaryIds = clean.filter((id) => !noticeIds.has(id));
+  if (ordinaryIds.length > 0 && !(await changePersistedInboxThreadFolders(storageKey, ordinaryIds, "archive"))) {
+    return { ok: false, next: prev };
+  }
   stagePersistedInboxRows(storageKey, next);
-  const ok = await upsertPersistedInboxRows(storageKey, changed, next);
-  return { ok, next: ok ? next : prev };
+  return { ok: true, next };
 }
 
 export async function restorePersistedInboxThreads(
@@ -81,9 +86,11 @@ export async function restorePersistedInboxThreads(
   });
 
   if (changed.length === 0) return { ok: true, next: prev };
+  const noticeIds = new Set<string>();
   if (storageKey === MANAGER_INBOX_STORAGE_KEY) {
     for (const thread of changed) {
       if (!smsNoticeIdentity(thread)) continue;
+      noticeIds.add(thread.id);
       try {
         const response = await fetch("/api/manager/tour-follow-ups", {
           method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" },
@@ -95,9 +102,12 @@ export async function restorePersistedInboxThreads(
       }
     }
   }
+  const ordinaryIds = clean.filter((id) => !noticeIds.has(id));
+  if (ordinaryIds.length > 0 && !(await changePersistedInboxThreadFolders(storageKey, ordinaryIds, "restore"))) {
+    return { ok: false, next: prev };
+  }
   stagePersistedInboxRows(storageKey, next);
-  const ok = await upsertPersistedInboxRows(storageKey, changed, next);
-  return { ok, next: ok ? next : prev };
+  return { ok: true, next };
 }
 
 export async function deletePersistedInboxThreadsForever(

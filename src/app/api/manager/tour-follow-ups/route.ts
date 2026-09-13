@@ -1,4 +1,4 @@
-import { storedSmsNoticeIdentity } from "@/lib/sms-inbox-state.server";
+import { smsNoticeMembers, storedSmsNoticeIdentity } from "@/lib/sms-inbox-state.server";
 import { smsNoticePhone } from "@/lib/sms-inbox-identity";
 import { NextResponse } from "next/server";
 import { getPortalAccessContext, hasRole, hasAdminRole } from "@/lib/auth/portal-access";
@@ -27,12 +27,13 @@ async function context(key: string, inboxThreadId?: string) {
     const phone = smsNoticePhone(notice.row_data?.smsNoticePhone || notice.row_data?.from);
     const matches = inbox.residents.filter(item => item.ownerManagerUserId === notice.owner_user_id && smsNoticePhone(item.phone) === phone);
     const keys = [...new Set(matches.flatMap(item => [item.conversationKey!, ...(item.memberKeys ?? [])]).filter(Boolean))];
-    return { db, actor: access.user.id, owner: notice.owner_user_id as string, keys };
+    const members = await smsNoticeMembers(db, notice);
+    return { db, actor: access.user.id, owner: notice.owner_user_id as string, keys, inboxIds: members.map((member) => member.id) };
   }
   const thread = inbox.residents.find((item) => item.conversationKey === key || item.memberKeys?.includes(key));
   if (!thread?.ownerManagerUserId) return null;
   const keys = [...new Set([thread.conversationKey!, ...(thread.memberKeys ?? [])])];
-  return { db, actor: access.user.id, owner: thread.ownerManagerUserId, keys };
+  return { db, actor: access.user.id, owner: thread.ownerManagerUserId, keys, inboxIds: undefined };
 }
 
 export async function GET(req: Request) {
@@ -106,12 +107,14 @@ export async function PATCH(req: Request) {
       }
       sendAt = new Date(desired).toISOString();
     }
-    const result = await ctx.db.rpc("change_tour_interest_followup", {
+    const rpcName = ctx.inboxIds ? "change_sms_notice_folder_and_tour_followup" : "change_tour_interest_followup";
+    const result = await ctx.db.rpc(rpcName, {
       p_owner: ctx.owner, p_actor: ctx.actor, p_keys: ctx.keys, p_action: body.action,
       p_id: ["edit", "cancel"].includes(body.action) ? body.id : null,
       p_text: body.action === "edit" ? body.text.trim() : null, p_send_at: sendAt,
       p_access_revision: revision.data, p_expected_tags: expectedTags,
       p_allowed_properties: [...access.assignable].filter(([,house]) => house.ownerUserId === ctx.owner).map(([id]) => id),
+      ...(ctx.inboxIds ? { p_inbox_ids: ctx.inboxIds } : {}),
     });
     if (result.error?.code === "42501") return NextResponse.json({ error: "You do not have permission to change this follow-up." }, { status: 403, headers });
     if (result.error) throw result.error;

@@ -5,6 +5,10 @@ vi.mock("@/lib/supabase/service",()=>({createSupabaseServiceRoleClient:()=>({fro
 vi.mock("@/lib/manager-sms-messages.server",()=>({fetchManagerSmsConversations:mocks.fetch}));
 vi.mock("@/lib/auth/co-manager-module-scope",()=>({linkedOwnerScopeForModule:mocks.scope}));
 vi.mock("@/lib/sms/conversation-houses.server",()=>({loadConversationHouseScope:mocks.tags}));
+vi.mock("@/lib/sms-inbox-state.server",()=>({
+ storedSmsNoticeIdentity:(row:{thread_type?:string})=>row.thread_type==="sms_relay"?"notice":undefined,
+ smsNoticeMembers:async()=>[{id:"sms_notice_one"},{id:"sms_notice_two"}],
+}));
 vi.mock("@/lib/sms/conversation-house-access.server",async(original)=>({...await original<typeof import("@/lib/sms/conversation-house-access.server")>(),loadAssignableConversationHouses:mocks.access}));
 import { GET,PATCH } from "@/app/api/manager/tour-follow-ups/route";
 const id="00000000-0000-0000-0000-000000000001",key="owner:prospect:+12065550100",url=`https://example.test/api/manager/tour-follow-ups?conversationKey=${encodeURIComponent(key)}`;
@@ -76,7 +80,7 @@ function storedNotice(owner = "owner") {
 it("archives SMS notices using only stored owner and phone matches", async () => {
   storedNotice();
   expect((await PATCH(request({ inboxThreadId: "sms_notice_one", action: "archive" }))).status).toBe(200);
-  expect(mocks.rpc).toHaveBeenCalledWith("change_tour_interest_followup", expect.objectContaining({ p_owner: "owner", p_keys: [key], p_action: "archive" }));
+  expect(mocks.rpc).toHaveBeenCalledWith("change_sms_notice_folder_and_tour_followup", expect.objectContaining({ p_owner: "owner", p_keys: [key], p_action: "archive", p_inbox_ids: ["sms_notice_one", "sms_notice_two"] }));
 });
 it("rejects a notice belonging to an unauthorized owner", async () => {
   storedNotice("stranger");
@@ -87,5 +91,14 @@ it("retains property authorization for notice archives", async () => {
   storedNotice();
   mocks.tags.mockResolvedValue([{ conversation_key: key, property_id: "unauthorized" }]);
   expect((await PATCH(request({ inboxThreadId: "sms_notice_one", action: "archive" }))).status).toBe(403);
+  expect(mocks.rpc).not.toHaveBeenCalledWith("change_tour_interest_followup", expect.anything());
+});
+it("returns failure from the single combined SMS transaction", async () => {
+  storedNotice();
+  mocks.rpc.mockImplementation(async(name)=>name==="conversation_house_access_revision"
+    ? {data:"revision",error:null}
+    : {data:null,error:{message:"injected folder failure"}});
+  expect((await PATCH(request({ inboxThreadId: "sms_notice_one", action: "archive" }))).status).toBe(503);
+  expect(mocks.rpc).toHaveBeenCalledTimes(2);
   expect(mocks.rpc).not.toHaveBeenCalledWith("change_tour_interest_followup", expect.anything());
 });
