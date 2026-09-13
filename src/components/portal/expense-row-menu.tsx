@@ -7,6 +7,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { RECORD_ACTION_TRIGGER_ICON_CLASS } from "@/components/ui/record-action-menu";
 
 // The edit/delete dialog owns modal focus and pointer locking after selection.
 export function ExpenseRowMenu({
@@ -22,11 +23,11 @@ export function ExpenseRowMenu({
       <DropdownMenuTrigger
         type="button"
         aria-label="Expense actions"
-        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-muted transition hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted transition hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         data-portal-row-ignore
         data-attr="expense-row-menu"
       >
-        <MoreHorizontal className="h-5 w-5" aria-hidden />
+        <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" backdrop>
         {onEdit ? (
