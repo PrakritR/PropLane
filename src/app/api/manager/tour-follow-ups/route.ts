@@ -1,3 +1,5 @@
+import { smsNoticeMembers, storedSmsNoticeIdentity } from "@/lib/sms-inbox-state.server";
+import { smsNoticePhone } from "@/lib/sms-inbox-identity";
 import { NextResponse } from "next/server";
 import { getPortalAccessContext, hasRole, hasAdminRole } from "@/lib/auth/portal-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -10,15 +12,28 @@ import { TOUR_INTEREST_DELAY_MS, followupDelivery } from "@/lib/reminders/tour-i
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const headers = { "Cache-Control": "private, no-store" };
-async function context(key: string) {
+async function context(key: string, inboxThreadId?: string) {
   const access = await getPortalAccessContext();
   if (!access.user || (!hasRole(access, "manager") && !hasAdminRole(access))) return null;
   const db = createSupabaseServiceRoleClient();
   const inbox = await fetchManagerSmsConversations(db, access.user.id);
+  if (inboxThreadId) {
+    const { data: notice, error } = await db.from("portal_inbox_thread_records")
+      .select("id, owner_user_id, scope, thread_type, row_data").eq("id", inboxThreadId).maybeSingle();
+    if (error) throw error;
+    if (!notice || !storedSmsNoticeIdentity(notice)) return null;
+    const scope = await linkedOwnerScopeForModule(db, access.user.id, "inbox", "edit", { throwOnError: true });
+    if (notice.owner_user_id !== access.user.id && !scope.ownerIds.has(notice.owner_user_id)) return null;
+    const phone = smsNoticePhone(notice.row_data?.smsNoticePhone || notice.row_data?.from);
+    const matches = inbox.residents.filter(item => item.ownerManagerUserId === notice.owner_user_id && smsNoticePhone(item.phone) === phone);
+    const keys = [...new Set(matches.flatMap(item => [item.conversationKey!, ...(item.memberKeys ?? [])]).filter(Boolean))];
+    const members = await smsNoticeMembers(db, notice);
+    return { db, actor: access.user.id, owner: notice.owner_user_id as string, keys, inboxIds: members.map((member) => member.id) };
+  }
   const thread = inbox.residents.find((item) => item.conversationKey === key || item.memberKeys?.includes(key));
   if (!thread?.ownerManagerUserId) return null;
   const keys = [...new Set([thread.conversationKey!, ...(thread.memberKeys ?? [])])];
-  return { db, actor: access.user.id, owner: thread.ownerManagerUserId, keys };
+  return { db, actor: access.user.id, owner: thread.ownerManagerUserId, keys, inboxIds: undefined };
 }
 
 export async function GET(req: Request) {
@@ -58,12 +73,24 @@ export async function GET(req: Request) {
 export async function PATCH(req: Request) {
   try {
     const body = await req.json().catch(() => null);
-    if (!body || typeof body.conversationKey !== "string" || !["cancel", "edit", "archive", "restore"].includes(body.action) ||
+    if (!body || (typeof body.conversationKey !== "string" && !(typeof body.inboxThreadId === "string" && ["archive", "restore"].includes(body.action))) || !["cancel", "edit", "archive", "restore"].includes(body.action) ||
       (["cancel", "edit"].includes(body.action) && (typeof body.id !== "string" || !/^[0-9a-f-]{36}$/i.test(body.id)))) {
       return NextResponse.json({ error: "Choose a conversation and action." }, { status: 400, headers });
     }
-    const ctx = await context(body.conversationKey);
+    const ctx = await context(body.conversationKey, body.inboxThreadId);
     if (!ctx) return NextResponse.json({ error: "Conversation not found." }, { status: 404, headers });
+    if (ctx.keys.length === 0) {
+      if (!ctx.inboxIds?.length || !["archive", "restore"].includes(body.action)) {
+        return NextResponse.json({ error: "Conversation not found." }, { status: 404, headers });
+      }
+      const result = await ctx.db.rpc("change_portal_inbox_thread_folders", {
+        p_ids: ctx.inboxIds, p_scope: "axis_portal_inbox_manager_v1", p_action: body.action,
+      });
+      if (result.error?.code === "42501") return NextResponse.json({ error: "You do not have permission to change this conversation." }, { status: 403, headers });
+      if (result.error) throw result.error;
+      if (result.data !== "ok") return NextResponse.json({ error: "The conversation changed. Refresh and try again." }, { status: 409, headers });
+      return NextResponse.json({ ok: true }, { headers });
+    }
     const revision = await ctx.db.rpc("conversation_house_access_revision", { p_actor: ctx.actor });
     if (revision.error || typeof revision.data !== "string") throw new Error("Access unavailable");
     const access = await loadAssignableConversationHouses(ctx.db, ctx.actor);
@@ -91,12 +118,14 @@ export async function PATCH(req: Request) {
       }
       sendAt = new Date(desired).toISOString();
     }
-    const result = await ctx.db.rpc("change_tour_interest_followup", {
+    const rpcName = ctx.inboxIds ? "change_sms_notice_folder_and_tour_followup" : "change_tour_interest_followup";
+    const result = await ctx.db.rpc(rpcName, {
       p_owner: ctx.owner, p_actor: ctx.actor, p_keys: ctx.keys, p_action: body.action,
       p_id: ["edit", "cancel"].includes(body.action) ? body.id : null,
       p_text: body.action === "edit" ? body.text.trim() : null, p_send_at: sendAt,
       p_access_revision: revision.data, p_expected_tags: expectedTags,
       p_allowed_properties: [...access.assignable].filter(([,house]) => house.ownerUserId === ctx.owner).map(([id]) => id),
+      ...(ctx.inboxIds ? { p_inbox_ids: ctx.inboxIds } : {}),
     });
     if (result.error?.code === "42501") return NextResponse.json({ error: "You do not have permission to change this follow-up." }, { status: 403, headers });
     if (result.error) throw result.error;

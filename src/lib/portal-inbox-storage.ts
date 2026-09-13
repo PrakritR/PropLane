@@ -423,6 +423,28 @@ export async function upsertPersistedInboxRows(
   return true;
 }
 
+export async function changePersistedInboxThreadFolders(
+  key: string,
+  ids: string[],
+  action: "archive" | "restore",
+): Promise<boolean> {
+  if (!canUse() || ids.length === 0) return false;
+  if (isDemoModeActive()) return true;
+  try {
+    const res = await fetch("/api/portal-inbox-threads", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "changeFolder", scope: key, ids, folderAction: action }),
+    });
+    if (!res.ok) return false;
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean };
+    return data.ok !== false;
+  } catch {
+    return false;
+  }
+}
+
 export async function persistInboxAwait(key: string, threads: PersistedInboxThread[]): Promise<boolean> {
   if (!canUse()) return false;
   const existing = memoryByKey.get(viewerCacheKey(key)) ?? [];

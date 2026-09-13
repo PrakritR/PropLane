@@ -47,3 +47,13 @@ describe("MonthlyProfitChart", () => {
     expect(container.querySelector("[data-attr='cashflow-hero'] p")?.className).toContain("status-confirmed-fg");
   });
 });
+
+it("can expand an empty period to reach older cash flow", () => {
+  render(<MonthlyProfitChart defaultRangeMonths={3} points={[
+    points[0],
+    ...["May", "Jun", "Jul"].map((label, i) => ({ key: `2026-0${i + 5}`, label, revenue: 0, expense: 0, profit: 0 })),
+  ]} />);
+  expect(screen.getByText(/No cash flow data yet/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("tab", { name: "6M" }));
+  expect(screen.getByRole("img", { name: "Monthly revenue trend" })).toBeTruthy();
+});

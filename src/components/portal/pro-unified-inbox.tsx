@@ -485,6 +485,7 @@ export function ManagerUnifiedInbox({
         key: unifiedInboxKey("email", t.id),
         channel: "email" as const,
         threadId: t.id,
+        memberKeys: (t.sourceThreadIds ?? [t.id]).map((id) => unifiedInboxKey("email", id)),
         // Who this is with, so a text thread with the same person folds in.
         personKey: unifiedInboxSmsBindingKey(t.smsConversationKey) ?? unifiedInboxPersonKey(t.email),
         personEmail: t.email?.trim() || undefined,

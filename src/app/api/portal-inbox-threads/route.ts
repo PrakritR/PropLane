@@ -111,7 +111,9 @@ export async function GET(request: Request) {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as {
-      action?: "upsert" | "delete" | "deleteIds" | "replace";
+      action?: "upsert" | "delete" | "deleteIds" | "replace" | "changeFolder";
+      scope?: string;
+      folderAction?: "archive" | "restore";
       id?: string;
       ids?: unknown[];
       row?: Record<string, unknown>;
@@ -123,11 +125,38 @@ export async function POST(req: Request) {
         ? (body.rows?.[0]?.scope ?? "")
         : body.action === "upsert"
           ? (body.row?.scope ?? "")
-          : "",
+          : body.action === "changeFolder" ? body.scope : "",
     ).trim();
 
     const ctx = await resolveInboxScopeUser(scopeKey);
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+
+    if (body.action === "changeFolder") {
+      const ids = [...new Set((Array.isArray(body.ids) ? body.ids : []).map(String).map((id) => id.trim()).filter(Boolean))];
+      if (ids.length === 0 || ids.length > 100 || !["archive", "restore"].includes(body.folderAction ?? "")) {
+        return NextResponse.json({ error: "Choose conversations and an action." }, { status: 400 });
+      }
+      const extraOwnerIds = scopeKey === MANAGER_INBOX_SCOPE
+        ? await viewerAndLinkedOwnerIdsForModule(ctx.db, ctx.user.id, "inbox", "edit")
+        : [];
+      let query = ctx.db.from("portal_inbox_thread_records")
+        .select("id, owner_user_id, scope, row_data").in("id", ids);
+      query = applyPortalInboxThreadScope(query, ctx.user, extraOwnerIds) as typeof query;
+      const { data, error } = await query;
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (!data || data.length !== ids.length || data.some((row) => row.scope !== scopeKey)) {
+        return NextResponse.json({ error: "Record not found." }, { status: 404 });
+      }
+      if (data.some((row) => storedSmsNoticeIdentity(row))) {
+        return NextResponse.json({ error: "Use the SMS archive action." }, { status: 400 });
+      }
+      const result = await ctx.db.rpc("change_portal_inbox_thread_folders", {
+        p_ids: ids, p_scope: scopeKey, p_action: body.folderAction,
+      });
+      if (result.error) throw result.error;
+      if (result.data !== "ok") return NextResponse.json({ error: "Conversations changed. Refresh and try again." }, { status: 409 });
+      return NextResponse.json({ ok: true });
+    }
 
     if (body.action === "delete" || body.action === "deleteIds") {
       const ids =

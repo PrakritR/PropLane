@@ -370,6 +370,14 @@ export function MonthlyProfitChart({
             ) : null}
           </svg>
 
+
+        </div>
+        </>
+      ) : (
+        <p className="mt-6 text-sm text-muted [html[data-native]_&]:text-xs">
+          No cash flow data yet. Collected rent and logged expenses will chart here by month.
+        </p>
+      )}
           <CashflowRangeToggle
             appearance="underline"
             className="mt-1"
@@ -378,13 +386,6 @@ export function MonthlyProfitChart({
             dataAttrPrefix="cashflow-range"
             accent={stroke}
           />
-        </div>
-        </>
-      ) : (
-        <p className="mt-6 text-sm text-muted [html[data-native]_&]:text-xs">
-          No cash flow data yet. Collected rent and logged expenses will chart here by month.
-        </p>
-      )}
     </div>
   );
 }

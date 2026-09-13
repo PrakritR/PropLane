@@ -5,6 +5,10 @@ vi.mock("@/lib/supabase/service",()=>({createSupabaseServiceRoleClient:()=>({fro
 vi.mock("@/lib/manager-sms-messages.server",()=>({fetchManagerSmsConversations:mocks.fetch}));
 vi.mock("@/lib/auth/co-manager-module-scope",()=>({linkedOwnerScopeForModule:mocks.scope}));
 vi.mock("@/lib/sms/conversation-houses.server",()=>({loadConversationHouseScope:mocks.tags}));
+vi.mock("@/lib/sms-inbox-state.server",()=>({
+ storedSmsNoticeIdentity:(row:{thread_type?:string})=>row.thread_type==="sms_relay"?"notice":undefined,
+ smsNoticeMembers:async()=>[{id:"sms_notice_one"},{id:"sms_notice_two"}],
+}));
 vi.mock("@/lib/sms/conversation-house-access.server",async(original)=>({...await original<typeof import("@/lib/sms/conversation-house-access.server")>(),loadAssignableConversationHouses:mocks.access}));
 import { GET,PATCH } from "@/app/api/manager/tour-follow-ups/route";
 const id="00000000-0000-0000-0000-000000000001",key="owner:prospect:+12065550100",url=`https://example.test/api/manager/tour-follow-ups?conversationKey=${encodeURIComponent(key)}`;
@@ -59,4 +63,66 @@ it("requires an explicit reminder id to cancel instead of canceling all history"
 it("turns a permission race rejected inside the transaction into 403",async()=>{
  mocks.rpc.mockImplementation(async(name)=>name==="conversation_house_access_revision"?{data:"revision",error:null}:{data:null,error:{code:"42501"}});
  expect((await PATCH(request({conversationKey:key,id,action:"cancel"}))).status).toBe(403);
+});
+
+function storedNotice(owner = "owner") {
+  const notice = { id: "sms_notice_one", owner_user_id: owner, scope: "axis_portal_inbox_manager_v1", thread_type: "sms_relay", row_data: { smsNoticePhone: "+12065550100" } };
+  mocks.from.mockImplementation(() => {
+    const q = { select: () => q, eq: () => q, maybeSingle: async () => ({ data: notice, error: null }) };
+    return q;
+  });
+  mocks.fetch.mockResolvedValue({ residents: [
+    { conversationKey: key, ownerManagerUserId: "owner", phone: "+12065550100" },
+    { conversationKey: "other-owner", ownerManagerUserId: "other", phone: "+12065550100" },
+    { conversationKey: "other-phone", ownerManagerUserId: "owner", phone: "+12065550101" },
+  ] });
+}
+it("archives SMS notices using only stored owner and phone matches", async () => {
+  storedNotice();
+  expect((await PATCH(request({ inboxThreadId: "sms_notice_one", action: "archive" }))).status).toBe(200);
+  expect(mocks.rpc).toHaveBeenCalledWith("change_sms_notice_folder_and_tour_followup", expect.objectContaining({ p_owner: "owner", p_keys: [key], p_action: "archive", p_inbox_ids: ["sms_notice_one", "sms_notice_two"] }));
+});
+it("rejects a notice belonging to an unauthorized owner", async () => {
+  storedNotice("stranger");
+  expect((await PATCH(request({ inboxThreadId: "sms_notice_one", action: "archive" }))).status).toBe(404);
+  expect(mocks.rpc).not.toHaveBeenCalled();
+});
+it("retains property authorization for notice archives", async () => {
+  storedNotice();
+  mocks.tags.mockResolvedValue([{ conversation_key: key, property_id: "unauthorized" }]);
+  expect((await PATCH(request({ inboxThreadId: "sms_notice_one", action: "archive" }))).status).toBe(403);
+  expect(mocks.rpc).not.toHaveBeenCalledWith("change_tour_interest_followup", expect.anything());
+});
+it("returns failure from the single combined SMS transaction", async () => {
+  storedNotice();
+  mocks.rpc.mockImplementation(async(name)=>name==="conversation_house_access_revision"
+    ? {data:"revision",error:null}
+    : {data:null,error:{message:"injected folder failure"}});
+  expect((await PATCH(request({ inboxThreadId: "sms_notice_one", action: "archive" }))).status).toBe(503);
+  expect(mocks.rpc).toHaveBeenCalledTimes(2);
+  expect(mocks.rpc).not.toHaveBeenCalledWith("change_tour_interest_followup", expect.anything());
+});
+it.each(["archive", "restore"])("persists authorized notice folders without conversation keys for %s", async (action) => {
+  storedNotice();
+  mocks.fetch.mockResolvedValue({ residents: [] });
+  expect((await PATCH(request({ inboxThreadId: "sms_notice_one", action }))).status).toBe(200);
+  expect(mocks.rpc).toHaveBeenCalledExactlyOnceWith("change_portal_inbox_thread_folders", {
+    p_ids: ["sms_notice_one", "sms_notice_two"], p_scope: "axis_portal_inbox_manager_v1", p_action: action,
+  });
+});
+it.each([
+  { data: null, error: { message: "database unavailable" }, status: 503 },
+  { data: null, error: { code: "42501" }, status: 403 },
+  { data: "stale", error: null, status: 409 },
+])("reports a keyless folder failure as $status", async ({ data, error, status }) => {
+  storedNotice();
+  mocks.fetch.mockResolvedValue({ residents: [] });
+  mocks.rpc.mockResolvedValue({ data, error });
+  expect((await PATCH(request({ inboxThreadId: "sms_notice_one", action: "archive" }))).status).toBe(status);
+});
+it("rejects unauthorized keyless notices before persisting folders", async () => {
+  storedNotice("stranger");
+  mocks.fetch.mockResolvedValue({ residents: [] });
+  expect((await PATCH(request({ inboxThreadId: "sms_notice_one", action: "restore" }))).status).toBe(404);
+  expect(mocks.rpc).not.toHaveBeenCalled();
 });
