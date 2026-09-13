@@ -7,6 +7,13 @@ import { Button } from "@/components/ui/button";
 import { RecordActionContext, RecordActionItemsContext, RecordActionCloseContext } from "./record-action-context";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "./dropdown-menu";
 
+/** Trailing ⋯ on list rows — shared sitewide (portal lists, DataList overflow, expense rows). */
+export const RECORD_ACTION_TRIGGER_ICON_CLASS = "size-8 shrink-0 text-foreground stroke-[2.75]";
+
+/** Ghost circle trigger for row ⋯ menus (44×44 tap target). */
+export const RECORD_ACTION_TRIGGER_BUTTON_CLASS =
+  "h-11 w-11 shrink-0 rounded-full p-0 text-foreground hover:text-foreground";
+
 /** Preserve each screen's existing handler and disabled state inside a real menu. */
 export function RecordActionItems({ children }: { children: ReactNode }) {
   const close = useContext(RecordActionCloseContext);
@@ -54,8 +61,8 @@ export function RecordActionMenu({ label, activate, disabled = false, onOpen }: 
       setOpenScope(next ? context.scope : null);
     }}>
       <DropdownMenuTrigger asChild>
-        <Button ref={triggerRef} type="button" variant="ghost" disabled={disabled && !onOpen} aria-label={`Actions for ${label}`} className="h-11 w-11 shrink-0 rounded-full p-0" data-attr="record-actions-trigger">
-          <MoreHorizontal className="size-5" aria-hidden />
+        <Button ref={triggerRef} type="button" variant="ghost" disabled={disabled && !onOpen} aria-label={`Actions for ${label}`} className={RECORD_ACTION_TRIGGER_BUTTON_CLASS} data-attr="record-actions-trigger">
+          <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent onCloseAutoFocus={(event) => { if (actionClosingRef.current) event.preventDefault(); }} align="end" glass mobileSheet data-attr="record-actions-menu" className="record-action-menu max-h-[min(70dvh,28rem)] w-64 overflow-y-auto">
