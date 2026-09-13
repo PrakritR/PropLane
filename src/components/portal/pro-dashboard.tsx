@@ -139,6 +139,11 @@ import {
 import { syncManagerPortfolioFromServer } from "@/lib/manager-portfolio-access";
 import { propertyListHref } from "@/lib/portal-detail-routes";
 import { MANAGER_ATTENTION_MAX_ROWS, buildManagerAttentionRows } from "@/lib/manager-attention-queue";
+import {
+  WORKSPACE_SELECTION_EVENT,
+  workspaceContainsProperty,
+  workspacePropertyIdFromRow,
+} from "@/lib/workspaces/selection";
 
 const BASE = "/portal";
 
@@ -775,6 +780,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     window.addEventListener(MANAGER_WORK_ORDERS_EVENT, bump);
     window.addEventListener(SERVICE_REQUESTS_EVENT, bump);
     window.addEventListener(MANAGER_OUTGOING_PAYMENTS_EVENT, bump);
+    window.addEventListener(WORKSPACE_SELECTION_EVENT, bump);
     window.addEventListener("storage", bump);
     return () => {
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, bump);
@@ -786,6 +792,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
       window.removeEventListener(MANAGER_WORK_ORDERS_EVENT, bump);
       window.removeEventListener(SERVICE_REQUESTS_EVENT, bump);
       window.removeEventListener(MANAGER_OUTGOING_PAYMENTS_EVENT, bump);
+      window.removeEventListener(WORKSPACE_SELECTION_EVENT, bump);
       window.removeEventListener("storage", bump);
     };
   }, [userId, authReady]);
@@ -794,10 +801,14 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     void tick;
     if (!userId) return null;
 
-    const allApps = readManagerApplicationRows().filter((a) => applicationVisibleToPortalUser(a, userId));
+    const allApps = readManagerApplicationRows()
+      .filter((a) => applicationVisibleToPortalUser(a, userId))
+      .filter((a) => workspaceContainsProperty(workspacePropertyIdFromRow(a) ?? undefined));
     const pendingApps = allApps.filter((a) => isSubmittedPendingApplicationRow(a));
 
-    const leases = readLeasePipeline(userId);
+    const leases = readLeasePipeline(userId).filter((l) =>
+      workspaceContainsProperty(l.propertyId?.trim() || l.application?.propertyId?.trim() || undefined),
+    );
     const pendingLeaseRows = leases
       .filter((l) => l.status === "Manager Signature Pending" || l.status === "Resident Signature Pending")
       .sort((a, b) => new Date(b.updatedAtIso).getTime() - new Date(a.updatedAtIso).getTime());
@@ -815,7 +826,10 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
       moduleRowVisibleToPortalUser(w, userId, "services"),
     );
     const pendingServiceRequests = readAllServiceRequests().filter(
-      (r) => moduleRowVisibleToPortalUser(r, userId, "services") && r.status === "pending",
+      (r) =>
+        moduleRowVisibleToPortalUser(r, userId, "services") &&
+        r.status === "pending" &&
+        workspaceContainsProperty(r.propertyId),
     );
     const pendingWorkOrders = managerWorkOrders.filter((w) => w.bucket === "open" || w.bucket === "scheduled");
     const serviceItems: DashboardServiceAttentionItem[] = [
@@ -849,7 +863,13 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     const cutoff = nowMs - 30 * 60 * 1000;
     const tours = [
       ...readPartnerInquiries()
-        .filter((r) => r.kind === "tour" && r.status === "pending" && r.managerUserId === userId)
+        .filter(
+          (r) =>
+            r.kind === "tour" &&
+            r.status === "pending" &&
+            r.managerUserId === userId &&
+            workspaceContainsProperty(r.propertyId?.trim() || undefined),
+        )
         .flatMap((r) =>
           getPartnerInquiryWindows(r).map((w) => ({
             id: `${r.id}-${w.start}`,
@@ -861,7 +881,12 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
           })),
         ),
       ...readPlannedEvents()
-        .filter((e) => e.kind === "tour" && e.managerUserId === userId)
+        .filter(
+          (e) =>
+            e.kind === "tour" &&
+            e.managerUserId === userId &&
+            workspaceContainsProperty(e.propertyId?.trim() || undefined),
+        )
         .map((e) => ({
           id: e.id,
           label: e.attendeeName ?? "Confirmed tour",
@@ -875,7 +900,7 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
       .sort((a, b) => a.startMs - b.startMs);
 
     const livePropertyCount = readScopedExtraListings(userId).filter(
-      (p) => p.adminPublishLive === true,
+      (p) => p.adminPublishLive === true && workspaceContainsProperty(p.id),
     ).length;
 
     const activeResidents = leases
@@ -893,7 +918,9 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
       (c) => parseMoneyLabel(c.amountLabel || c.balanceLabel),
     );
     const expensesByMonth = bucketByMonth(
-      readManagerOutgoingExpenses(),
+      readManagerOutgoingExpenses().filter(
+        (e) => !e.propertyId?.trim() || workspaceContainsProperty(e.propertyId.trim()),
+      ),
       months,
       (e) => e.expenseDate,
       (e) => e.amountCents / 100,
