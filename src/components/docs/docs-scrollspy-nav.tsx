@@ -124,7 +124,7 @@ export function DocsScrollspyNav({ groups, ariaLabel = "Docs sections", dataAttr
   return (
     <nav
       aria-label={ariaLabel}
-      className="rounded-xl border border-border bg-card p-4 lg:sticky lg:top-24 lg:h-fit lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"
+      className="rounded-xl border border-border bg-card p-4 lg:sticky lg:top-24 lg:h-fit lg:max-h-[calc(100dvh-7rem)] lg:overflow-y-auto lg:overscroll-contain lg:rounded-none lg:border-0 lg:bg-transparent lg:px-1 lg:pb-1 lg:pt-0"
     >
       <div className="mb-3 px-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted/60 lg:hidden">
         On this page

@@ -97,6 +97,21 @@ describe("DocsScrollspyNav", () => {
     expect(document.querySelectorAll('[aria-current="location"]')).toHaveLength(1);
   });
 
+  it("keeps the desktop index scrollable on short viewports", () => {
+    render(
+      <DocsScrollspyNav groups={[{
+        group: "Guide",
+        links: sectionIds.map((id) => ({ id, label: id })),
+      }]} />,
+    );
+
+    const nav = screen.getByRole("navigation", { name: "Docs sections" });
+    expect(nav.className).toContain("lg:max-h-[calc(100dvh-7rem)]");
+    expect(nav.className).toContain("lg:overflow-y-auto");
+    expect(nav.className).toContain("lg:px-1");
+    expect(nav.className).toContain("lg:pb-1");
+  });
+
   it("falls back to the first link when the initial hash is not a docs section", () => {
     window.history.replaceState(null, "", "#unknown-section");
     render(
