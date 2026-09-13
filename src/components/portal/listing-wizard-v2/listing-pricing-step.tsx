@@ -76,11 +76,19 @@ import { cn } from "@/lib/utils";
 type Patch = (next: Partial<ManagerListingSubmissionV1>) => void;
 
 const usd = (n: number) => `$${Math.round(n || 0).toLocaleString("en-US")}`;
-/** A stored money string, shown blank when it is zero or unset — never "0". */
-const moneyValue = (raw: string | undefined) => {
-  const text = (raw ?? "").replace(/^\$/, "").trim();
-  return text === "0" ? "" : text;
-};
+/**
+ * A stored money string, as typed.
+ *
+ * `"0"` is a real answer — "this room's utilities are included", "no deposit" —
+ * and it used to be scrubbed to `""` here, which the inheritance rule then read
+ * as "unset" and replaced with the house number. That is why $0 could not be
+ * entered anywhere on this screen (PRP-captain 2026-09-13). Absence is now the
+ * ONLY way to say "follow the row above": an empty box inherits, any number you
+ * type — zero included — is that room's own.
+ */
+const moneyValue = (raw: string | undefined) => (raw ?? "").replace(/^\$/, "").trim();
+/** True when a money string holds a real figure, including an explicit zero. */
+const moneyFilled = (raw: string | undefined) => moneyValue(raw).length > 0;
 const num = (raw: string) => {
   const n = Number(raw.replace(/[^0-9.]/g, ""));
   return Number.isFinite(n) ? n : 0;
@@ -89,10 +97,12 @@ const num = (raw: string) => {
 const MONTHLY_COLUMNS = "minmax(120px,1.2fr) 118px 118px 118px 124px minmax(150px,1.5fr)";
 const STAY_COLUMNS = "minmax(120px,1.2fr) 118px 118px 118px minmax(0,1fr)";
 
-const cell = (inherited: boolean) =>
+const cell = (inherited: boolean, zero = false) =>
   cn(
     "min-h-[36px] w-full rounded-lg border bg-card px-2 py-1 text-[13px] text-foreground outline-none focus:border-primary",
     inherited ? "border-dashed border-border text-muted" : "border-border",
+    /* An explicit $0 reads as deliberate, not as an empty box someone forgot. */
+    !inherited && zero ? "border-primary font-semibold text-primary" : "",
   );
 
 /** A money cell: `$` prefix, inherited shows the value as a placeholder in an empty box. */
@@ -122,7 +132,8 @@ function MoneyCell({
         value={inherited ? "" : value}
         placeholder={placeholder}
         onChange={(e) => onChange(sanitizeMoneyInput(e.target.value))}
-        className={cn(cell(inherited), "pl-5 tabular-nums")}
+        className={cn(cell(inherited, num(value) === 0 && moneyFilled(value)), "pl-5 tabular-nums")}
+        title={!inherited && moneyFilled(value) && num(value) === 0 ? "No charge — set deliberately, not inherited" : undefined}
       />
       {own ? <span aria-hidden className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full border-2 border-white bg-primary" /> : null}
     </span>
@@ -181,6 +192,29 @@ function writeTerm(
   if (Object.keys(entry).length === 0) delete all[term];
   else all[term] = entry;
   return { ...room, termPricing: Object.keys(all).length > 0 ? all : undefined };
+}
+
+/**
+ * Put one room back on the house numbers for this lease tab.
+ *
+ * Emptying a cell already re-inherits it, but nothing on the table said so — the
+ * captain's "I cant reset some of the information to default". On long-term this
+ * clears the room's own monthly fields; on any other tab it drops that tab's
+ * override so the row follows long-term again.
+ */
+function resetRoomToInherited(room: ManagerRoomSubmission, term: string): ManagerRoomSubmission {
+  if (!isBase(term)) {
+    const all = { ...(room.termPricing ?? {}) };
+    delete all[term];
+    return { ...room, termPricing: Object.keys(all).length > 0 ? all : undefined };
+  }
+  return {
+    ...room,
+    monthlyRent: 0,
+    utilitiesEstimate: "",
+    securityDeposit: undefined,
+    pricingMode: undefined,
+  };
 }
 
 /* ─────────────────────── the room table ─────────────────────── */
@@ -284,11 +318,25 @@ function MonthlyTable({
           const util = termValue(room, term, "util", defaults);
           const dep = termValue(room, term, "deposit", defaults);
           const modeOwn = base ? !roomInheritsDefault(room, defaults, "pricingMode") : false;
+          /* Reset only appears where there is something to undo. */
+          const rowHasOwn = rent.src === "own" || util.src === "own" || dep.src === "own" || modeOwn;
           return (
             <div key={room.id} className="grid items-center gap-2 border-b border-border px-3 py-2 last:border-b-0" style={{ gridTemplateColumns: MONTHLY_COLUMNS }} data-attr="listing-v2-price-row">
               <span className="min-w-0 leading-tight">
                 <b className="block truncate text-[13.5px] font-bold text-foreground">{name}</b>
-                <span className="block truncate text-[11.5px] text-muted">{room.floor?.trim()}</span>
+                {rowHasOwn ? (
+                  <button
+                    type="button"
+                    data-attr="listing-v2-price-row-reset"
+                    aria-label={`Reset ${name} to the house numbers on ${term}`}
+                    onClick={() => onRoom(room.id, resetRoomToInherited(room, term))}
+                    className="mt-0.5 rounded-full border border-primary/40 px-2 py-0 text-[10.5px] font-bold text-primary hover:bg-primary/10"
+                  >
+                    Reset
+                  </button>
+                ) : (
+                  <span className="block truncate text-[11.5px] text-muted">{room.floor?.trim()}</span>
+                )}
               </span>
               <MoneyCell
                 label={`${name} rent on ${term}`}
