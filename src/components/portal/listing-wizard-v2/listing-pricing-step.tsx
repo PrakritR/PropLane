@@ -226,7 +226,18 @@ function MonthlyTable({
             <b className="block text-[13.5px] font-bold text-foreground">Every room</b>
             <span className="block text-[11.5px] text-muted">{base ? "Rooms follow these" : "Follows long-term"}</span>
           </span>
-          <span className="text-[12px] text-muted">Per room</span>
+          {base ? (
+            <MoneyCell
+              label="Rent for every room"
+              value={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : ""}
+              inherited={false}
+              own={false}
+              placeholder="1,100"
+              onChange={(v) => onDefault("monthlyRent", num(v))}
+            />
+          ) : (
+            <span className="text-[13px] text-muted">{defaults.monthlyRent > 0 ? usd(defaults.monthlyRent) : "—"}</span>
+          )}
           {base ? (
             <MoneyCell label="Utilities for every room" value={moneyValue(defaults.utilitiesEstimate)} inherited={false} own={false} placeholder="150" onChange={(v) => onDefault("utilitiesEstimate", v)} />
           ) : (
