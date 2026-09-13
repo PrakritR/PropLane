@@ -97,8 +97,18 @@ export const VENDOR_INBOX_STORAGE_KEY = "axis_portal_inbox_vendor_v1";
 /** Fired after `persistInbox` writes (same tab). `detail.key` is the storage key. */
 export const PORTAL_INBOX_CHANGED_EVENT = "axis-portal-inbox-changed";
 const memoryByKey = new Map<string, PersistedInboxThread[]>();
-const inboxLastSyncedAtByKey = new Map<string, number>();
-const inboxSyncPromiseByKey = new Map<string, Promise<PersistedInboxThread[]>>();
+const inboxSuccessfulServerSyncAtByKey = new Map<string, number>();
+
+export type PersistedInboxSyncResult = {
+  rows: PersistedInboxThread[];
+  /** Only a current viewer's completed server response is ready for an initial list. */
+  ok: boolean;
+  /** A request that belonged to an older auth generation must never publish. */
+  stale?: boolean;
+};
+
+const inboxSyncPromiseByKey = new Map<string, Promise<PersistedInboxSyncResult>>();
+let inboxViewerGeneration = 0;
 
 /**
  * Every cache in this module is keyed by the VIEWER as well as the inbox scope.
@@ -121,8 +131,9 @@ function viewerCacheKey(key: string): string {
 
 /** Drop every cached row when the account changes, so nothing outlives a sign-out. */
 function purgeInboxCaches(): void {
+  inboxViewerGeneration += 1;
   memoryByKey.clear();
-  inboxLastSyncedAtByKey.clear();
+  inboxSuccessfulServerSyncAtByKey.clear();
   inboxSyncPromiseByKey.clear();
   if (!canUse()) return;
   try {
@@ -275,45 +286,69 @@ export function countUnopenedPersistedInbox(key: string, fallback: PersistedInbo
   return loadPersistedInbox(key, fallback).filter((t) => t.folder === "inbox" && t.unread).length;
 }
 
+export async function syncPersistedInboxFromServerWithStatus(
+  key: string,
+  opts?: { force?: boolean; excludeIds?: Set<string> },
+): Promise<PersistedInboxSyncResult> {
+  if (!canUse()) return { rows: [], ok: false };
+  hydrateInboxFromSession(key);
+  const cacheKey = viewerCacheKey(key);
+  const viewerGeneration = inboxViewerGeneration;
+  const isCurrentRequest = () => viewerGeneration === inboxViewerGeneration && cacheKey === viewerCacheKey(key);
+  if (isDemoModeActive()) return { rows: memoryByKey.get(cacheKey) ?? [], ok: true };
+  // Signed out: stop the interval-driven refetch instead of 401ing forever.
+  if (portalSessionEnded()) return { rows: memoryByKey.get(cacheKey) ?? [], ok: false };
+  const force = opts?.force === true;
+  const inflight = inboxSyncPromiseByKey.get(cacheKey);
+  if (!force && inflight) return inflight;
+  const successfulSyncAt = inboxSuccessfulServerSyncAtByKey.get(cacheKey) ?? 0;
+  if (!force && successfulSyncAt > 0 && Date.now() - successfulSyncAt < PORTAL_INBOX_SYNC_TTL_MS) {
+    return { rows: memoryByKey.get(cacheKey) ?? [], ok: true };
+  }
+  const promise = (async (): Promise<PersistedInboxSyncResult> => {
+    try {
+      const res = await fetch(`/api/portal-inbox-threads?scope=${encodeURIComponent(key)}`, { credentials: "include", cache: "no-store" });
+      // An older viewer may complete after A -> B -> A. Do not let its 401
+      // latch the new session or let any of its data touch the new cache slot.
+      if (!isCurrentRequest()) return { rows: [], ok: false, stale: true };
+      notePortalResponse(res.status);
+      if (!res.ok) return { rows: memoryByKey.get(cacheKey) ?? [], ok: false };
+      const body = (await res.json()) as { rows?: PersistedInboxThread[] };
+      if (!isCurrentRequest()) return { rows: [], ok: false, stale: true };
+      if (!body || !Array.isArray(body.rows)) return { rows: memoryByKey.get(cacheKey) ?? [], ok: false };
+      const rows = inboxThreadsFromUnknown(body.rows);
+      const existing = memoryByKey.get(cacheKey) ?? [];
+      const merged = mergeInboxRowsWithLocalTrash(rows, existing, { excludeIds: opts?.excludeIds });
+      const collapsed = applyInboxCollapseForScope(key, merged);
+      memoryByKey.set(cacheKey, collapsed);
+      persistInboxToSession(key, collapsed);
+      const syncedAt = Date.now();
+      inboxSuccessfulServerSyncAtByKey.set(cacheKey, syncedAt);
+      if (inboxRowsChanged(existing, collapsed)) {
+        window.dispatchEvent(new CustomEvent<{ key: string }>(PORTAL_INBOX_CHANGED_EVENT, { detail: { key } }));
+      }
+      return { rows: collapsed, ok: true };
+    } catch {
+      return isCurrentRequest()
+        ? { rows: memoryByKey.get(cacheKey) ?? [], ok: false }
+        : { rows: [], ok: false, stale: true };
+    }
+  })();
+  inboxSyncPromiseByKey.set(cacheKey, promise);
+  try {
+    return await promise;
+  } finally {
+    // A force refresh can replace this entry. Never clear its newer promise.
+    if (inboxSyncPromiseByKey.get(cacheKey) === promise) inboxSyncPromiseByKey.delete(cacheKey);
+  }
+}
+
+/** Legacy array-only API for existing refresh consumers. */
 export async function syncPersistedInboxFromServer(
   key: string,
   opts?: { force?: boolean; excludeIds?: Set<string> },
 ): Promise<PersistedInboxThread[]> {
-  if (!canUse()) return [];
-  hydrateInboxFromSession(key);
-  if (isDemoModeActive()) return memoryByKey.get(viewerCacheKey(key)) ?? [];
-  // Signed out: stop the interval-driven refetch instead of 401ing forever.
-  if (portalSessionEnded()) return memoryByKey.get(viewerCacheKey(key)) ?? [];
-  const force = opts?.force === true;
-  const inflight = inboxSyncPromiseByKey.get(viewerCacheKey(key));
-  if (!force && inflight) return inflight;
-  const lastSyncedAt = inboxLastSyncedAtByKey.get(viewerCacheKey(key)) ?? 0;
-  if (!force && lastSyncedAt > 0 && Date.now() - lastSyncedAt < PORTAL_INBOX_SYNC_TTL_MS) {
-    return memoryByKey.get(viewerCacheKey(key)) ?? [];
-  }
-  const promise = (async () => {
-    const res = await fetch(`/api/portal-inbox-threads?scope=${encodeURIComponent(key)}`, { credentials: "include", cache: "no-store" });
-    notePortalResponse(res.status);
-    if (!res.ok) return memoryByKey.get(viewerCacheKey(key)) ?? [];
-    const body = (await res.json()) as { rows?: PersistedInboxThread[] };
-    const rows = inboxThreadsFromUnknown(body.rows);
-    const existing = memoryByKey.get(viewerCacheKey(key)) ?? [];
-    const merged = mergeInboxRowsWithLocalTrash(rows, existing, { excludeIds: opts?.excludeIds });
-    const collapsed = applyInboxCollapseForScope(key, merged);
-    memoryByKey.set(viewerCacheKey(key), collapsed);
-    persistInboxToSession(key, collapsed);
-    inboxLastSyncedAtByKey.set(viewerCacheKey(key), Date.now());
-    if (inboxRowsChanged(existing, collapsed)) {
-      window.dispatchEvent(new CustomEvent<{ key: string }>(PORTAL_INBOX_CHANGED_EVENT, { detail: { key } }));
-    }
-    return collapsed;
-  })();
-  inboxSyncPromiseByKey.set(viewerCacheKey(key), promise);
-  try {
-    return await promise;
-  } finally {
-    inboxSyncPromiseByKey.delete(viewerCacheKey(key));
-  }
+  return (await syncPersistedInboxFromServerWithStatus(key, opts)).rows;
 }
 
 /** Load inbox JSON or return fallback when missing / invalid. */
@@ -351,7 +386,8 @@ export async function deleteInboxThreadIds(ids: string[]): Promise<boolean> {
 /** Clear cached inbox rows so the next sync always refetches from the server. */
 export function invalidatePersistedInboxCache(key: string): void {
   if (!canUse()) return;
-  inboxLastSyncedAtByKey.set(viewerCacheKey(key), 0);
+  const cacheKey = viewerCacheKey(key);
+  inboxSuccessfulServerSyncAtByKey.set(cacheKey, 0);
 }
 
 async function postInboxRows(
@@ -383,7 +419,6 @@ async function postInboxRows(
 function commitInboxMemory(key: string, threads: PersistedInboxThread[]): void {
   memoryByKey.set(viewerCacheKey(key), threads);
   persistInboxToSession(key, threads);
-  inboxLastSyncedAtByKey.set(viewerCacheKey(key), Date.now());
   if (canUse()) {
     window.dispatchEvent(new CustomEvent<{ key: string }>(PORTAL_INBOX_CHANGED_EVENT, { detail: { key } }));
   }
@@ -422,7 +457,6 @@ export function seedDemoInbox(key: string, threads: PersistedInboxThread[]): voi
   if (!canUse()) return;
   memoryByKey.set(viewerCacheKey(key), threads);
   persistInboxToSession(key, threads);
-  inboxLastSyncedAtByKey.set(viewerCacheKey(key), Date.now());
   window.dispatchEvent(new CustomEvent<{ key: string }>(PORTAL_INBOX_CHANGED_EVENT, { detail: { key } }));
 }
 
@@ -434,7 +468,6 @@ export function persistInbox(key: string, threads: PersistedInboxThread[]): void
   const removedIds = existing.map((t) => t.id).filter((id) => !newIds.has(id));
   memoryByKey.set(viewerCacheKey(key), threads);
   persistInboxToSession(key, threads);
-  inboxLastSyncedAtByKey.set(viewerCacheKey(key), Date.now());
   window.dispatchEvent(new CustomEvent<{ key: string }>(PORTAL_INBOX_CHANGED_EVENT, { detail: { key } }));
   if (isDemoModeActive()) return;
   void (async () => {

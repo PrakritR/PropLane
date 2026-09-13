@@ -92,6 +92,7 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   PORTAL_INBOX_CHANGED_EVENT: "portal-inbox-changed",
   loadPersistedInbox: () => ALL_THREADS,
   syncPersistedInboxFromServer: () => Promise.resolve(ALL_THREADS),
+  syncPersistedInboxFromServerWithStatus: () => Promise.resolve({ rows: ALL_THREADS, ok: true }),
   persistInbox: () => {},
   persistInboxAwait: () => Promise.resolve(),
   invalidatePersistedInboxCache: () => {},
@@ -110,6 +111,13 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   inboxThreadMessages: (t: { id: string; from: string; body: string; time: string }) => [
     { id: `${t.id}-root`, from: t.from, body: t.body, at: t.time },
   ],
+}));
+vi.mock("@/lib/manager-applications-storage", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  syncManagerApplicationsFromServerWithStatus: () => Promise.resolve({ rows: [], ok: true }),
+}));
+vi.mock("@/hooks/use-portal-session", () => ({
+  usePortalSession: () => ({ userId: "manager-test", email: "manager@example.com", ready: true }),
 }));
 vi.mock("@/components/portal/pro-inbox", () => ({
   ManagerInbox: () => <div data-testid="embedded-email-thread" />,
@@ -131,7 +139,7 @@ afterEach(() => {
 });
 
 describe("conversation rows carry no select checkbox", () => {
-  it("renders rows without a leading checkbox", () => {
+  it("renders rows without a leading checkbox", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
     const { container } = render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" />);
 
@@ -140,17 +148,17 @@ describe("conversation rows carry no select checkbox", () => {
     // Per-conversation archive and delete live in the thread header.
     expect(container.querySelectorAll('.portal-inbox-row input[type="checkbox"]').length).toBe(0);
     // The rows themselves are still there — this is not an empty-list false pass.
-    expect(screen.getByText("Dana Ramirez")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("Dana Ramirez")).toBeTruthy());
   });
 });
 
 describe("unified conversation inbox (no folder tabs)", () => {
-  it("shows live inbox + sent conversations in one list and archives via a toggle", () => {
+  it("shows live inbox + sent conversations in one list and archives via a toggle", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" />);
 
     // Inbox and sent conversations appear together — no folder segregation.
-    expect(screen.getByText("Dana Ramirez")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("Dana Ramirez")).toBeTruthy());
     expect(screen.getByText("sam@example.com")).toBeTruthy();
     // Trashed conversation is NOT in the default view.
     expect(screen.queryByText("Old Flyer")).toBeNull();
@@ -162,17 +170,17 @@ describe("unified conversation inbox (no folder tabs)", () => {
 
     cleanup();
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment="unread" />);
-    expect(screen.getByText("Dana Ramirez")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("Dana Ramirez")).toBeTruthy());
     expect(screen.queryByText("sam@example.com")).toBeNull();
     expect(screen.queryByText("Old Flyer")).toBeNull();
 
     cleanup();
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment="archived" />);
-    expect(screen.getByText("Old Flyer")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("Old Flyer")).toBeTruthy());
     expect(screen.queryByText("Dana Ramirez")).toBeNull();
   });
 
-  it("keeps search scoped to Unread instead of leaking matching read threads", () => {
+  it("keeps search scoped to Unread instead of leaking matching read threads", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
     render(
       <ManagerUnifiedInbox
@@ -185,7 +193,7 @@ describe("unified conversation inbox (no folder tabs)", () => {
     );
 
     expect(screen.queryByText("sam@example.com")).toBeNull();
-    expect(screen.getByText(/No messages match/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(/No messages match/)).toBeTruthy());
   });
 
   it("never fetches SMS and shows no SMS row when the SMS UI flag is off (default)", async () => {

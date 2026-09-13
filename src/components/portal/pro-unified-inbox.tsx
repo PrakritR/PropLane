@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   clearCommunicationThreadUrl,
   selectCommunicationThreadUrl,
@@ -16,9 +16,11 @@ import {
 } from "@/components/portal/portal-contact-details-modal";
 import { dispatchManagerSmsContactsChanged } from "@/lib/manager-sms-messages";
 import { pollShouldHaltAfterStatus } from "@/lib/poll-halt";
+import { createCoalescedRefresher, type CoalescedRefresher } from "@/lib/coalesced-refresh";
 import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
 import { useIsClient } from "@/hooks/use-is-client";
 import { usePortalSession } from "@/hooks/use-portal-session";
+import { CommunicationInboxInitialState } from "@/components/portal/communication-inbox-initial-state";
 import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
 import {
   INBOX_LIST_SCROLL,
@@ -67,9 +69,11 @@ import {
   inboxThreadSortMs,
   inboxMessageOutbound,
   stagePersistedInboxRows,
-  syncPersistedInboxFromServer,
+  syncPersistedInboxFromServerWithStatus,
+  type PersistedInboxSyncResult,
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
+import { syncManagerApplicationsFromServerWithStatus } from "@/lib/manager-applications-storage";
 import { inboxThreadLastTurnDirection } from "@/lib/inbox-turn-direction";
 import {
   mergeUnifiedInboxItems,
@@ -188,6 +192,7 @@ export function ManagerUnifiedInbox({
   onSearchQueryChange,
   listChrome = "internal",
   onAddConversation,
+  onApplicationsLoaded,
 }: {
   tabId: string;
   commBase: string;
@@ -214,6 +219,8 @@ export function ManagerUnifiedInbox({
   listChrome?: "internal" | "external";
   /** Opens the new-message / compose flow when the list is empty on Active. */
   onAddConversation?: () => void;
+  /** Rebuild the parent-owned contact directory after its source has completed. */
+  onApplicationsLoaded?: () => void;
 }) {
   const isClient = useIsClient();
   const [emailThreads, setEmailThreads] = useState<PersistedInboxThread[]>([]);
@@ -228,9 +235,43 @@ export function ManagerUnifiedInbox({
   const [mobileThreadOpen, setMobileThreadOpen] = useState(Boolean(routeThreadId));
   const listSegment = listSegmentProp;
   const appUi = useOptionalAppUi();
-  const { userId } = usePortalSession();
+  const { userId, ready: sessionReady } = usePortalSession();
   const viewerId = resolveCommunicationViewerId(null, userId);
+  const viewerEpochRef = useRef(0);
+  const viewerAuthority = useMemo(() => ({ viewerId }), [viewerId]);
+  const currentViewerAuthorityRef = useRef(viewerAuthority);
+  const currentViewerIdRef = useRef(viewerId);
+  const smsResidentsViewerEpochRef = useRef(0);
+  const directSendRefreshGeneration = useRef(0);
+  const directSendInboxRefreshersRef = useRef(
+    new Map<object, CoalescedRefresher<PersistedInboxSyncResult>>(),
+  );
+  // Set once the SMS poll has been refused for an auth reason. The next tick
+  // would be refused identically, so the loop stops instead of failing every
+  // 20 seconds for the life of the tab. A 5xx still retries — see
+  // pollShouldHaltAfterStatus.
+  const smsPollHaltedRef = useRef(false);
+  const [smsPollHalted, setSmsPollHalted] = useState(false);
+  useLayoutEffect(() => {
+    const nextViewerEpoch = viewerEpochRef.current + 1;
+    currentViewerAuthorityRef.current = viewerAuthority;
+    currentViewerIdRef.current = viewerId;
+    viewerEpochRef.current = nextViewerEpoch;
+    smsResidentsViewerEpochRef.current = nextViewerEpoch;
+    directSendRefreshGeneration.current += 1;
+    directSendInboxRefreshersRef.current.clear();
+    // SMS contacts and a refused-poll latch are viewer-owned. A retained
+    // component can switch sessions without remounting, so neither may carry
+    // a previous viewer's contact metadata or authorization state forward.
+    setSmsResidents([]);
+    smsPollHaltedRef.current = false;
+    setSmsPollHalted(false);
+  }, [viewerAuthority, viewerId]);
   const assistantThreadId = viewerId ? propLaneAssistantThreadIdForPortal("manager", viewerId) : null;
+  const [initialListState, setInitialListState] = useState<"loading" | "ready" | "error">("loading");
+  const [initialListViewerId, setInitialListViewerId] = useState<string | null>(null);
+  const initialLoadGeneration = useRef(0);
+  const initialListReady = isClient && initialListState === "ready" && initialListViewerId === viewerId;
 
   const threadListHref = useCallback(
     () => `${commBase}/${listSegment}`,
@@ -258,9 +299,6 @@ export function ManagerUnifiedInbox({
   useEffect(() => {
     if (!isClient) return;
     setEmailThreads(loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []));
-    void syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY).then((rows) => {
-      setEmailThreads(rows);
-    });
   }, [isClient]);
 
   useEffect(() => {
@@ -288,29 +326,40 @@ export function ManagerUnifiedInbox({
     }
   }, [isClient, listSegment, viewerId]);
 
-  // Set once the SMS poll has been refused for an auth reason. The next tick
-  // would be refused identically, so the loop stops instead of failing every
-  // 20 seconds for the life of the tab. A 5xx still retries — see
-  // pollShouldHaltAfterStatus.
-  const smsPollHaltedRef = useRef(false);
-  const [smsPollHalted, setSmsPollHalted] = useState(false);
-
-  const loadSms = useCallback(async () => {
+  const loadSms = useCallback(async (requestGeneration?: number): Promise<boolean> => {
+    const requestViewerEpoch = viewerEpochRef.current;
+    const requestViewerId = viewerId;
     // SMS UI hidden until A2P clears — never fetch SMS conversations. Inbound
     // texts still land as inbox notices and fall through to the unified list
     // (see filterEmailInboxThreads keepSmsLike below); transport is unaffected.
-    if (!smsUiEnabled || smsPollHaltedRef.current) return;
+    if (!smsUiEnabled) return true;
+    if (smsPollHaltedRef.current) return false;
     try {
       const res = await fetch("/api/manager/sms-conversations", { credentials: "include", cache: "no-store" });
+      if (
+        currentViewerIdRef.current !== requestViewerId ||
+        viewerEpochRef.current !== requestViewerEpoch ||
+        (requestGeneration !== undefined && requestGeneration !== initialLoadGeneration.current)
+      ) {
+        return false;
+      }
       if (pollShouldHaltAfterStatus(res.status)) {
         smsPollHaltedRef.current = true;
         setSmsPollHalted(true);
-        return;
+        return false;
       }
-      if (!res.ok) return;
+      if (!res.ok) return false;
       const body = (await res.json()) as { residents?: ManagerSmsResidentConversation[] };
+      if (!body || !Array.isArray(body.residents)) return false;
+      if (
+        viewerEpochRef.current !== requestViewerEpoch ||
+        (requestGeneration !== undefined && requestGeneration !== initialLoadGeneration.current)
+      ) {
+        return false;
+      }
       const normalized = normalizeManagerSmsConversationsPayload(body);
       setSmsResidents((current) => {
+        if (smsResidentsViewerEpochRef.current !== requestViewerEpoch) return current;
         const server = normalized.residents;
         const serverKeys = new Set(
           server.flatMap((row) =>
@@ -330,16 +379,47 @@ export function ManagerUnifiedInbox({
         });
         return pendingOptimistic.length > 0 ? [...pendingOptimistic, ...server] : server;
       });
+      return true;
     } catch {
       /* keep prior */
+      return false;
     }
-  }, [smsUiEnabled]);
+  }, [smsUiEnabled, viewerId]);
+
+  const loadInitialList = useCallback(async (): Promise<void> => {
+    const requestGeneration = ++initialLoadGeneration.current;
+    if (!isClient || !sessionReady || !viewerId?.trim()) {
+      setInitialListViewerId(null);
+      setInitialListState("loading");
+      setSelectedKey(null);
+      setMobileThreadOpen(false);
+      return;
+    }
+    setInitialListViewerId(viewerId);
+    setInitialListState("loading");
+    const [inbox, applications, smsOk] = await Promise.all([
+      syncPersistedInboxFromServerWithStatus(MANAGER_INBOX_STORAGE_KEY),
+      syncManagerApplicationsFromServerWithStatus({ managerUserId: viewerId }),
+      smsUiEnabled ? loadSms(requestGeneration) : Promise.resolve(true),
+    ]);
+    if (requestGeneration !== initialLoadGeneration.current) return;
+    if (inbox.stale || applications.stale) return;
+    if (applications.ok) onApplicationsLoaded?.();
+    if (inbox.ok) setEmailThreads(inbox.rows);
+    setInitialListState(inbox.ok && applications.ok && smsOk ? "ready" : "error");
+  }, [isClient, loadSms, onApplicationsLoaded, sessionReady, smsUiEnabled, viewerId]);
+
+  useEffect(() => {
+    void loadInitialList();
+    return () => {
+      initialLoadGeneration.current += 1;
+    };
+  }, [loadInitialList]);
 
   useEffect(() => {
     // smsUiEnabled is a stable server prop; when off, loadSms no-ops and
     // smsResidents stays its initial [] — no fetch, no polling.
-    if (!smsUiEnabled || smsPollHalted) return;
-    void loadSms();
+    if (!smsUiEnabled || smsPollHalted || initialListState !== "ready") return;
     // Poll for inbound texts, but skip while the tab is backgrounded (no point
     // spending egress on a hidden page) and refetch immediately on refocus so
     // the list is fresh the moment the manager returns.
@@ -356,15 +436,17 @@ export function ManagerUnifiedInbox({
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [loadSms, smsUiEnabled, smsPollHalted]);
+  }, [initialListState, loadSms, smsUiEnabled, smsPollHalted]);
 
   useEffect(() => {
     if (!smsUiEnabled) return;
     const refreshContacts = (event: Event) => {
+      const requestViewerEpoch = viewerEpochRef.current;
       const detail = (event as CustomEvent<ManagerSmsContactsChangedDetail>).detail;
       const optimistic = detail?.optimisticResident;
       if (optimistic?.conversationKey) {
         setSmsResidents((current) => {
+          if (smsResidentsViewerEpochRef.current !== requestViewerEpoch) return current;
           const key = optimistic.conversationKey!;
           const phone = String(optimistic.phone ?? "").trim();
           let matched = false;
@@ -629,7 +711,7 @@ export function ManagerUnifiedInbox({
   }, [assistantThreadId, emailListItems, listSort, placeholderListItems, smsListItems]);
 
   // SSR and the first client paint must agree — local inbox + contact rows load only after mount.
-  const listRows = isClient ? mergedRows : [];
+  const listRows = initialListReady ? mergedRows : [];
 
   const bulk = useUnifiedCommunicationBulk({
     mergedRows: listRows,
@@ -647,7 +729,10 @@ export function ManagerUnifiedInbox({
     },
   });
 
-  const selection = useMemo(() => (selectedKey ? parseUnifiedInboxKey(selectedKey) : null), [selectedKey]);
+  const selection = useMemo(
+    () => (initialListReady && selectedKey ? parseUnifiedInboxKey(selectedKey) : null),
+    [initialListReady, selectedKey],
+  );
 
   /**
    * The selected row, matched on ANY key it folded in — a merged conversation
@@ -656,12 +741,12 @@ export function ManagerUnifiedInbox({
    */
   const selectedRow = useMemo(
     () =>
-      selectedKey
+      initialListReady && selectedKey
         ? (mergedRows.find(
             (row) => row.key === selectedKey || (row.memberKeys ?? []).includes(selectedKey),
           ) ?? null)
         : null,
-    [mergedRows, selectedKey],
+    [initialListReady, mergedRows, selectedKey],
   );
 
   /**
@@ -681,7 +766,36 @@ export function ManagerUnifiedInbox({
   }, [filterContacts, selection]);
 
   const refreshAfterDirectSend = useCallback(() => {
-    void syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY, { force: true }).then((rows) => {
+    const requestViewerId = viewerId;
+    const requestViewerAuthority = viewerAuthority;
+    const isCurrentViewer = () =>
+      currentViewerAuthorityRef.current === requestViewerAuthority &&
+      currentViewerIdRef.current === requestViewerId;
+
+    // A retained direct-pane callback can outlive its viewer. Reject it before
+    // it creates a refresh, so it cannot use its contact or route context for
+    // a later A-B-A session with the same viewer id.
+    if (!requestViewerId?.trim() || !isCurrentViewer()) return;
+
+    const requestGeneration = ++directSendRefreshGeneration.current;
+    const isCurrentRequest = () =>
+      isCurrentViewer() && directSendRefreshGeneration.current === requestGeneration;
+
+    let refresher = directSendInboxRefreshersRef.current.get(requestViewerAuthority);
+    if (!refresher) {
+      refresher = createCoalescedRefresher(() =>
+        syncPersistedInboxFromServerWithStatus(MANAGER_INBOX_STORAGE_KEY, { force: true }),
+      );
+      directSendInboxRefreshersRef.current.set(requestViewerAuthority, refresher);
+    }
+
+    void refresher.run(true).then((inbox) => {
+      // Status alone is insufficient for A-B-A: a prior A result may be
+      // successful for its own cache slot after the retained component has
+      // returned to A. Require both the captured viewer authority and this direct
+      // refresh generation before changing rows, selection, or the URL.
+      if (!isCurrentRequest() || !inbox.ok || inbox.stale) return;
+      const rows = inbox.rows;
       setEmailThreads(rows);
       const contact = placeholderContact;
       if (!contact) return;
@@ -696,19 +810,11 @@ export function ManagerUnifiedInbox({
       setMobileThreadOpen(true);
       onRouteThreadChange?.(thread.id);
       selectCommunicationThreadUrl(threadDetailHref(thread.id), { replaceExisting: true });
+    }).catch(() => {
+      // A failed refresh keeps the currently usable list and selected thread.
     });
-    if (smsUiEnabled) {
-      void fetch("/api/manager/sms-conversations", { credentials: "include", cache: "no-store" })
-        .then(async (res) => {
-          if (!res.ok) return;
-          const body = (await res.json()) as { residents?: ManagerSmsResidentConversation[] };
-          setSmsResidents(normalizeManagerSmsConversationsPayload(body).residents);
-        })
-        .catch(() => {
-          /* keep */
-        });
-    }
-  }, [onRouteThreadChange, placeholderContact, smsUiEnabled, threadDetailHref]);
+    if (smsUiEnabled) void loadSms();
+  }, [loadSms, onRouteThreadChange, placeholderContact, smsUiEnabled, threadDetailHref, viewerAuthority, viewerId]);
 
   const threadOpen = Boolean(selection);
 
@@ -725,13 +831,13 @@ export function ManagerUnifiedInbox({
   }, [routeThreadId]);
 
   useEffect(() => {
-    if (!isClient || !routeThreadId) return;
+    if (!initialListReady || !routeThreadId) return;
     const match = listRows.find((r) => r.threadId === routeThreadId);
     if (match) {
       setSelectedKey(match.key);
       setMobileThreadOpen(true);
     }
-  }, [isClient, listRows, routeThreadId]);
+  }, [initialListReady, listRows, routeThreadId]);
 
   // Toggling the segment is a different result set — clear search; return to list on phones.
   useEffect(() => {
@@ -745,7 +851,7 @@ export function ManagerUnifiedInbox({
   }, [listSegment, routeThreadId]);
 
   useEffect(() => {
-    if (!isClient) return;
+    if (!initialListReady) return;
     if (listRows.length === 0) {
       // A deep-linked / just-created thread may land before its SMS row is in
       // the merged list. Keep the pending route alive until the row arrives.
@@ -771,12 +877,12 @@ export function ManagerUnifiedInbox({
       if (inboxUsesDesktopSplit()) return listRows[0]!.key;
       return null;
     });
-  }, [isClient, listRows, routeThreadId]);
+  }, [initialListReady, listRows, routeThreadId]);
 
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <ManagerWorkNumberCard onTellResidents={onAddConversation} />
-      <InboxListSegmentRail commBase={commBase} listSegment={listSegment} counts={segmentCounts} />
+      <InboxListSegmentRail commBase={commBase} listSegment={listSegment} counts={initialListReady ? segmentCounts : undefined} />
       {listChrome === "internal" ? (
         <div className={PORTAL_INBOX_LIST_TOOLBAR_CLASS}>
           <div className="relative min-w-0">
@@ -802,8 +908,11 @@ export function ManagerUnifiedInbox({
         </p>
       ) : null}
       <div className={`${INBOX_LIST_SCROLL} min-h-0 flex-1`} data-communication-inbox-list>
-        {!isClient ? (
-          <div className="min-h-[12rem]" aria-hidden />
+        {!initialListReady ? (
+          <CommunicationInboxInitialState
+            error={initialListState === "error"}
+            onRetry={loadInitialList}
+          />
         ) : listRows.length === 0 ? (
           query.trim() ? (
             <div className="p-4">

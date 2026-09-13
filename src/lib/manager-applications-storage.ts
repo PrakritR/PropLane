@@ -30,7 +30,14 @@ let memoryRows: DemoApplicantRow[] = [];
 let activeApplicationsScopeUserId: string | undefined;
 const MANAGER_APPLICATIONS_SYNC_TTL_MS = 15_000;
 let managerApplicationsLastSyncedAt = 0;
-let managerApplicationsSyncPromise: Promise<DemoApplicantRow[]> | null = null;
+let managerApplicationsSuccessfulServerSyncAt = 0;
+export type ManagerApplicationsSyncResult = {
+  rows: DemoApplicantRow[];
+  /** A completed current-scope server response, including a successful empty list. */
+  ok: boolean;
+  stale?: boolean;
+};
+let managerApplicationsSyncPromise: Promise<ManagerApplicationsSyncResult> | null = null;
 let publicApprovedApplicationsLastSyncedAt = 0;
 
 let applicationsScopeGeneration = 0;
@@ -41,6 +48,7 @@ function clearSensitiveApplicationCache() {
   memoryRows = [];
   applicationsScopeGeneration++;
   managerApplicationsLastSyncedAt = 0;
+  managerApplicationsSuccessfulServerSyncAt = 0;
   publicApprovedApplicationsLastSyncedAt = 0;
   managerApplicationsSyncPromise = null;
   replacePublicRoomOccupancy([]);
@@ -747,63 +755,78 @@ export async function deleteManagerApplicationFromServer(id: string): Promise<{ 
   }
 }
 
-export async function syncManagerApplicationsFromServer(opts?: {
+export async function syncManagerApplicationsFromServerWithStatus(opts?: {
   force?: boolean;
   managerUserId?: string | null;
   /** Resident portal: read only the caller's own applicant rows. */
   selfScope?: boolean;
-}): Promise<DemoApplicantRow[]> {
-  if (!canUseStorage()) return [];
+}): Promise<ManagerApplicationsSyncResult> {
+  if (!canUseStorage()) return { rows: [], ok: false };
   const managerUserId = opts?.managerUserId ?? undefined;
   ensureApplicationsScope(managerUserId);
   hydrateManagerApplicationsFromSession(managerUserId);
-  if (isDemoModeActive()) return readManagerApplicationRows();
+  if (isDemoModeActive()) return { rows: readManagerApplicationRows(), ok: true };
   // Stop polling once the session is gone — this loader runs on an interval and
   // otherwise keeps 401ing for as long as the signed-out tab stays open.
   if (activeApplicationsScopeUserId && portalSessionEnded()) {
     clearQueuedApplicationIdentity();
     clearSensitiveApplicationCache();
-    return [];
+    return { rows: [], ok: false };
   }
   const force = opts?.force === true;
   if (!force && managerApplicationsSyncPromise) return managerApplicationsSyncPromise;
-  if (!force && managerApplicationsLastSyncedAt > 0 && Date.now() - managerApplicationsLastSyncedAt < MANAGER_APPLICATIONS_SYNC_TTL_MS) {
-    return readManagerApplicationRows();
+  if (!force && managerApplicationsSuccessfulServerSyncAt > 0 && Date.now() - managerApplicationsSuccessfulServerSyncAt < MANAGER_APPLICATIONS_SYNC_TTL_MS) {
+    return { rows: readManagerApplicationRows(), ok: true };
   }
   const generation = applicationsScopeGeneration;
-  let currentRequest: Promise<DemoApplicantRow[]> | null = null;
+  let currentRequest: Promise<ManagerApplicationsSyncResult> | null = null;
   try {
-    currentRequest = (async () => {
+    currentRequest = (async (): Promise<ManagerApplicationsSyncResult> => {
       const url = opts?.selfScope ? "/api/manager-applications?scope=self" : "/api/manager-applications";
       const res = await fetch(url, { credentials: "include" });
-      if (generation !== applicationsScopeGeneration) return [];
+      if (generation !== applicationsScopeGeneration) return { rows: [], ok: false, stale: true };
       notePortalResponse(res.status);
       if (res.status === 401 || res.status === 403) {
         clearQueuedApplicationIdentity();
         clearSensitiveApplicationCache();
-        return [];
+        return { rows: [], ok: false };
       }
-      if (!res.ok) return readManagerApplicationRows();
+      if (!res.ok) return { rows: readManagerApplicationRows(), ok: false };
       const body = (await res.json()) as { rows?: DemoApplicantRow[] };
-      if (generation !== applicationsScopeGeneration) return [];
+      if (generation !== applicationsScopeGeneration) return { rows: [], ok: false, stale: true };
+      if (!body || !Array.isArray(body.rows)) return { rows: readManagerApplicationRows(), ok: false };
       // Union with the CURRENT cache, not `[]` — a locally-created row whose
       // upsert POST hasn't landed yet must survive this force refetch (see
       // `mergeApplicationRows`'s doc comment).
-      const rows = mergeApplicationRows(memoryRows, Array.isArray(body.rows) ? body.rows : []);
+      const rows = mergeApplicationRows(memoryRows, body.rows);
       const changed = applicationRowsChanged(memoryRows, rows);
       memoryRows = rows;
       persistManagerApplicationsToSession(rows, managerUserId);
       managerApplicationsLastSyncedAt = Date.now();
+      managerApplicationsSuccessfulServerSyncAt = managerApplicationsLastSyncedAt;
       if (changed) emit();
-      return rows;
-    })().catch(() => generation === applicationsScopeGeneration ? readManagerApplicationRows() : []);
+      return { rows, ok: true };
+    })().catch(() =>
+      generation === applicationsScopeGeneration
+        ? { rows: readManagerApplicationRows(), ok: false }
+        : { rows: [], ok: false, stale: true },
+    );
     managerApplicationsSyncPromise = currentRequest;
     return await currentRequest;
   } catch {
-    return readManagerApplicationRows();
+    return { rows: readManagerApplicationRows(), ok: false };
   } finally {
     if (managerApplicationsSyncPromise === currentRequest) managerApplicationsSyncPromise = null;
   }
+}
+
+/** Legacy array-only API for portal consumers that do not own initial readiness. */
+export async function syncManagerApplicationsFromServer(opts?: {
+  force?: boolean;
+  managerUserId?: string | null;
+  selfScope?: boolean;
+}): Promise<DemoApplicantRow[]> {
+  return (await syncManagerApplicationsFromServerWithStatus(opts)).rows;
 }
 
 const publicOccupancyRefresh = createCoalescedRefresher(async (): Promise<DemoApplicantRow[]> => {

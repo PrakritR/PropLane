@@ -26,6 +26,7 @@ vi.mock("@/lib/portal-inbox-storage", () => ({
   PORTAL_INBOX_CHANGED_EVENT: "portal-inbox-changed",
   loadPersistedInbox: () => [],
   syncPersistedInboxFromServer: () => Promise.resolve([]),
+  syncPersistedInboxFromServerWithStatus: () => Promise.resolve({ rows: [], ok: true }),
   persistInbox: () => {},
   persistInboxAwait: () => Promise.resolve(),
   invalidatePersistedInboxCache: () => {},
@@ -42,6 +43,13 @@ vi.mock("@/lib/portal-inbox-storage", () => ({
     return Number.isNaN(p) ? 0 : p;
   },
   inboxThreadMessages: () => [],
+}));
+vi.mock("@/lib/manager-applications-storage", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  syncManagerApplicationsFromServerWithStatus: () => Promise.resolve({ rows: [], ok: true }),
+}));
+vi.mock("@/hooks/use-portal-session", () => ({
+  usePortalSession: () => ({ userId: "manager-test", email: "manager@example.com", ready: true }),
 }));
 vi.mock("@/components/portal/pro-inbox", () => ({ ManagerInbox: () => <div /> }));
 vi.mock("@/components/portal/pro-sms-panel", () => ({ ManagerSmsPanel: () => <div /> }));

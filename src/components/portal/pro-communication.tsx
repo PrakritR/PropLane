@@ -114,6 +114,7 @@ export function ManagerCommunication({
   const [threadOpen, setThreadOpen] = useState(Boolean(threadId));
   const [threadSelected, setThreadSelected] = useState(Boolean(threadId));
   const [propertyTick, setPropertyTick] = useState(0);
+  const refreshDirectory = useCallback(() => setPropertyTick((n) => n + 1), []);
 
   // Rebuilt on every portfolio / applications event (`propertyTick`): the
   // directory is read from the applications cache, which is usually still
@@ -131,13 +132,12 @@ export function ManagerCommunication({
   }, [userId, propertyTick]);
 
   useEffect(() => {
-    const bump = () => setPropertyTick((n) => n + 1);
     const events = [...MANAGER_PORTFOLIO_REFRESH_EVENTS, PROPERTY_PIPELINE_EVENT, MANAGER_APPLICATIONS_EVENT];
-    for (const eventName of events) window.addEventListener(eventName, bump);
+    for (const eventName of events) window.addEventListener(eventName, refreshDirectory);
     return () => {
-      for (const eventName of events) window.removeEventListener(eventName, bump);
+      for (const eventName of events) window.removeEventListener(eventName, refreshDirectory);
     };
-  }, []);
+  }, [refreshDirectory]);
 
   const propertyOptions = useMemo(
     () => buildManagerPropertyFilterOptions(userId).map((option) => ({ value: option.id, label: option.label })),
@@ -370,6 +370,7 @@ export function ManagerCommunication({
         onThreadSelectedChange={setThreadSelected}
         listChrome="internal"
         onAddConversation={() => openCompose("email")}
+        onApplicationsLoaded={refreshDirectory}
       />
       <ManagerPortalSettingsModal
         open={communicationSettingsOpen}

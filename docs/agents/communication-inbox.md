@@ -81,6 +81,15 @@ conversations) plus the archive toggle. Invariants:
   tabbed panels survive only for the /demo path and legacy route redirects — on
   those three portals every legacy `inbox` / `email` / `sms` path now folds into a
   segment rather than resolving a tab.
+- **Initial Communication membership reveals only after every enabled source succeeds.**
+  Manager readiness requires inbox threads, applications/contact-directory rows,
+  and SMS when its UI is enabled. Resident readiness requires inbox threads and
+  enabled SMS. A successful empty response is ready; a failed or malformed response
+  is an error with Retry. Published rows, optimistic SMS contacts, request status,
+  and SMS authorization-stop latches stay scoped to the current viewer generation,
+  so a retained component cannot carry them across an account change. Background
+  refresh failures preserve an already usable list. Coverage:
+  `tests/unit/inbox-initial-loading-readiness.test.tsx`.
 - **Scheduled messages render INLINE in the recipient's thread** as a COMPACT,
   collapsible "Scheduled · sends <when> · <subject>" card (`InboxScheduledCard`)
   that expands for the full body + Send now / Cancel send / Edit; Edit is an
