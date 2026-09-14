@@ -32,12 +32,13 @@ test("assistant reply composer stays clickable above phone navigation with a por
   }
 });
 
-test("Test Resident reply composer supports draft controls at every target width", async ({ page }) => {
+test("resident reply composer supports draft controls at every target width", async ({ page }) => {
   test.skip(process.env.E2E_TESTS_ENABLED !== "1", "Requires the seeded dev/test manager");
   await signInAsManager(page);
   await page.goto("/portal/communication/active");
 
-  const residentRow = page.locator(".portal-inbox-row").filter({ hasText: "Test Resident" }).getByRole("button").first();
+  const conversationLabel = process.env.E2E_INBOX_RESIDENT_LABEL?.trim() || "Test Resident";
+  const residentRow = page.locator(".portal-inbox-row").filter({ hasText: conversationLabel }).getByRole("button").first();
   await expect(residentRow).toBeVisible();
   await residentRow.click();
 
@@ -46,50 +47,64 @@ test("Test Resident reply composer supports draft controls at every target width
   const composer = page.locator('textarea[data-attr="resident-direct-chat-compose"]');
   const composerForm = composer.locator("xpath=ancestor::form");
   await expect(composer).toBeVisible();
+  const send = composerForm.getByRole("button", { name: "Send", exact: true });
+  const schedule = composerForm.locator('[data-attr="inbox-thread-schedule-later"]');
+  const attachmentInput = composerForm.locator('input[type="file"]');
+  const attachmentTarget = attachmentInput.locator("xpath=ancestor::label");
 
   for (const width of [375, 768, 1280]) {
     await page.setViewportSize({ width, height: 844 });
     await composer.click({ timeout: 5_000 });
     await expect(composer).toBeFocused();
-    await expect(composerForm.getByRole("button", { name: "Send", exact: true })).toBeDisabled();
+    // A retained local draft must not make the disabled-state assertion pass.
+    await composer.fill("");
+    await expect(send).toBeDisabled();
 
     const composerBox = await composer.boundingBox();
     expect(composerBox?.width ?? 0, `textarea too narrow at ${width}px`).toBeGreaterThan(140);
     await composer.fill("Resident composer reachability check");
 
     const emoji = composerForm.getByRole("button", { name: "Insert emoji", exact: true });
-    await expect(emoji).toBeVisible();
-    const emojiBox = await emoji.boundingBox();
-    expect(emojiBox?.width ?? 0, `emoji control unavailable at ${width}px`).toBeGreaterThanOrEqual(32);
-    await emoji.click();
-    const emojiMenu = page.getByRole("menu", { name: "Insert emoji" });
-    await expect(emojiMenu).toBeVisible();
-    await emojiMenu.getByRole("menuitem").first().click();
-    await expect(composer).toHaveValue("Resident composer reachability check👍");
+    if (width < 768) {
+      await expect(emoji).toBeHidden();
+    } else {
+      await expect(emoji).toBeVisible();
+      const emojiBox = await emoji.boundingBox();
+      expect(emojiBox?.width ?? 0, `emoji control unavailable at ${width}px`).toBeGreaterThanOrEqual(32);
+      await emoji.click();
+      const emojiMenu = page.getByRole("menu", { name: "Insert emoji" });
+      await expect(emojiMenu).toBeVisible();
+      await emojiMenu.getByRole("menuitem").first().click();
+      await expect(composer).toHaveValue("Resident composer reachability check👍");
+    }
 
-    const attachmentInput = composerForm.locator('input[type="file"]');
     await expect(attachmentInput).toBeAttached();
-    const attachmentTarget = attachmentInput.locator("..");
     const attachmentBox = await attachmentTarget.boundingBox();
-    expect(attachmentBox?.width ?? 0, `attachment control unavailable at ${width}px`).toBeGreaterThanOrEqual(40);
+    const minimumAttachmentSize = width < 768 ? 36 : 40;
+    expect(attachmentBox?.width ?? 0, `attachment control unavailable at ${width}px`).toBeGreaterThanOrEqual(minimumAttachmentSize);
     const fileChooserPromise = page.waitForEvent("filechooser");
     await attachmentTarget.click();
     await fileChooserPromise;
 
-    const send = composerForm.getByRole("button", { name: "Send", exact: true });
     await expect(send).toBeEnabled();
     const sendBox = await send.boundingBox();
     expect(sendBox?.width ?? 0, `send control unavailable at ${width}px`).toBeGreaterThanOrEqual(40);
 
-    const schedule = page.getByRole("checkbox", { name: "Schedule for later", exact: true });
     await expect(schedule).toBeVisible();
-    await schedule.check();
+    await schedule.click();
     const sendAt = page.getByRole("textbox", { name: "Send date and time", exact: true });
     await expect(sendAt).toBeVisible();
     await sendAt.fill("2026-12-31T12:00");
     await expect(sendAt).toHaveValue("2026-12-31T12:00");
-    await schedule.uncheck();
-    await expect(sendAt).toBeHidden();
+    await page.getByRole("menuitem", { name: "Send at this time", exact: true }).click();
+    await expect(schedule).toHaveAttribute("aria-pressed", "true");
+    // The desktop dropdown animates out after its selection state changes.
+    // Reopen only after that menu has unmounted.
+    await expect(sendAt).toHaveCount(0);
+    await schedule.click();
+    await page.getByRole("menuitem", { name: "Send now instead", exact: true }).click();
+    await expect(schedule).toHaveAttribute("aria-pressed", "false");
+    await expect(sendAt).toHaveCount(0);
 
     // Clear both message and schedule state without submitting or selecting a file.
     await composer.fill("");

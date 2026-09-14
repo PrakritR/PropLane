@@ -17,6 +17,15 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { GET, POST } from "@/app/api/portal-vendors/route";
 
+function noAcceptedLinks() {
+  return {
+    select: vi.fn().mockReturnThis(),
+    eq: vi.fn().mockReturnThis(),
+    data: [],
+    error: null,
+  };
+}
+
 describe("/api/portal-vendors", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -66,6 +75,7 @@ describe("/api/portal-vendors", () => {
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
       from: vi.fn((table: string) => {
         if (table === "profiles") return profileChain;
+        if (table === "account_link_invites") return noAcceptedLinks();
         if (table === "manager_vendor_records") {
           vendorQuery += 1;
           return vendorQuery === 1 ? ownChain : sharedChain;
@@ -96,6 +106,7 @@ describe("/api/portal-vendors", () => {
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
       from: vi.fn((table: string) => {
         if (table === "profiles") return profileChain;
+        if (table === "account_link_invites") return noAcceptedLinks();
         if (table === "manager_vendor_records") return ownerLookup;
         throw new Error(`Unexpected table ${table}`);
       }),
@@ -124,7 +135,11 @@ describe("/api/portal-vendors", () => {
   });
 
   it("POST upsert persists sharedWithManagers on own vendor", async () => {
-    const upsert = vi.fn().mockResolvedValue({ error: null });
+    const savedRow = {
+      select: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: { id: "v-share" }, error: null }),
+    };
+    const insert = vi.fn().mockReturnValue(savedRow);
     const profileChain = {
       select: vi.fn().mockReturnThis(),
       eq: vi.fn().mockReturnThis(),
@@ -133,12 +148,13 @@ describe("/api/portal-vendors", () => {
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
       from: vi.fn((table: string) => {
         if (table === "profiles") return profileChain;
+        if (table === "account_link_invites") return noAcceptedLinks();
         if (table === "manager_vendor_records")
           return {
             // Ownership pre-read: no stored row → the caller becomes the owner.
             select: vi.fn().mockReturnThis(),
             in: vi.fn().mockResolvedValue({ data: [], error: null }),
-            upsert,
+            insert,
           };
         throw new Error(`Unexpected table ${table}`);
       }),
@@ -163,11 +179,11 @@ describe("/api/portal-vendors", () => {
     });
     const res = await POST(req);
     expect(res.status).toBe(200);
-    expect(upsert).toHaveBeenCalledWith(
+    expect(insert).toHaveBeenCalledWith(
       expect.objectContaining({
+        manager_user_id: "mgr-a",
         row_data: expect.objectContaining({ sharedWithManagers: true, name: "Shared Vendor" }),
       }),
-      expect.anything(),
     );
   });
 });

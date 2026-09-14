@@ -1676,7 +1676,7 @@ export function InboxComposer({
             })}
           </div>
         ) : null}
-        <div className={cn("portal-inbox-composer-row flex items-end gap-2 max-md:flex-wrap", trailingControls && "max-md:gap-1.5 max-md:flex-nowrap")}>
+        <div className={cn("portal-inbox-composer-row flex items-end gap-2 max-md:flex-wrap", trailingControls && "max-sm:gap-1 sm:max-md:gap-1.5 max-md:flex-nowrap")}>
           {leadingControl}
           {onAttachmentsPick ? (
             <label
@@ -1732,7 +1732,7 @@ export function InboxComposer({
             />
           </div>
           {trailingControls ? (
-            <div className="mb-0.5 flex shrink-0 items-center gap-1 md:gap-1.5" data-attr="inbox-composer-tools">
+            <div className="mb-0.5 flex shrink-0 items-center gap-1 max-sm:gap-0 md:gap-1.5" data-attr="inbox-composer-tools">
               {trailingControls}
             </div>
           ) : null}

@@ -100,10 +100,15 @@ test.describe("Mobile resident portal layout", () => {
         timeout: 25_000,
       });
 
-      const overflow = await page.evaluate(() => {
-        const doc = document.documentElement;
-        return doc.scrollWidth > doc.clientWidth + 2;
-      });
+      // A stage redirect can replace the document after the landmark appears.
+      // Retry the measurement, not the overflow assertion, across that navigation.
+      let overflow = false;
+      await expect(async () => {
+        overflow = await page.evaluate(() => {
+          const doc = document.documentElement;
+          return doc.scrollWidth > doc.clientWidth + 2;
+        });
+      }).toPass({ timeout: 10_000 });
       // Collected, so one run names every broken screen instead of stopping at the first.
       if (overflow) overflowing.push(path);
     }
