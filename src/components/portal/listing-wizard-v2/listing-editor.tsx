@@ -147,6 +147,39 @@ export const LISTING_V2_STEPS = [
   { id: "review", label: "Review" },
 ] as const;
 
+export type ListingV2StepId = (typeof LISTING_V2_STEPS)[number]["id"];
+
+/**
+ * "For listing only have title, pictures, price and description."
+ * "There is too much on the listing."
+ *
+ * The steps a listing HAS to pass through. Basics already carries the title,
+ * the photos and the description; Pricing carries the price; Review publishes.
+ * Rooms, Bathrooms and Shared spaces are detail a manager adds when they want
+ * to — Continue skips them, the rail marks them optional, and Basics offers
+ * them under Add details.
+ *
+ * The one exception is deliberate: a home let BY THE ROOM keeps Rooms on the
+ * path, because there the rooms are the product and each carries its own price.
+ * That choice is the manager's own answer on Basics — never inferred from a
+ * blank — which is why it, and not a room count, decides this.
+ *
+ * A detail step the manager has already filled in stays on the path too: work
+ * they did should not disappear from Continue.
+ */
+export function listingV2PathStepIds(sub: ManagerListingSubmissionV1): ListingV2StepId[] {
+  const byTheRoom = sub.listingPlaceCategoryId === "shared_home";
+  const hasRooms = byTheRoom || (sub.rooms?.length ?? 0) > 0;
+  const hasBathrooms = (sub.bathrooms?.length ?? 0) > 0;
+  const hasSpaces = (sub.sharedSpaces?.length ?? 0) > 0;
+  return LISTING_V2_STEPS.map((step) => step.id).filter((id) => {
+    if (id === "rooms") return hasRooms;
+    if (id === "bathrooms") return hasBathrooms;
+    if (id === "spaces") return hasSpaces;
+    return true;
+  });
+}
+
 /** How a room reaches its bathroom. Mirrors ManagerBathroomRoomAccessKind. */
 const BATHROOM_ACCESS_OPTIONS = [
   { value: "ensuite", label: "En-suite" },
@@ -1049,6 +1082,57 @@ function RoomInlineEditor({
           </div>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+/**
+ * The way into the optional detail steps from Basics. Each row says what the
+ * section holds today, so a manager can see at a glance whether there is
+ * anything to add — and a step already on the path (by-the-room rooms, or one
+ * already filled in) is listed as a section, not as an offer.
+ */
+function AddDetailsRow({
+  sub,
+  pathIds,
+  onOpen,
+}: {
+  sub: ManagerListingSubmissionV1;
+  pathIds: ListingV2StepId[];
+  onOpen: (id: ListingV2StepId) => void;
+}) {
+  const rooms = sub.rooms?.length ?? 0;
+  const baths = sub.bathrooms?.length ?? 0;
+  const spaces = sub.sharedSpaces?.length ?? 0;
+  const rows: Array<{ id: ListingV2StepId; label: string; hint: string }> = [
+    { id: "rooms", label: "Rooms", hint: rooms ? `${rooms} room${rooms === 1 ? "" : "s"}` : "Name and price each room" },
+    { id: "bathrooms", label: "Bathrooms", hint: baths ? `${baths} bathroom${baths === 1 ? "" : "s"}` : "Which rooms share which bathroom" },
+    { id: "spaces", label: "Shared spaces", hint: spaces ? `${spaces} shared space${spaces === 1 ? "" : "s"}` : "Kitchen, living room, yard" },
+  ];
+  const optional = rows.filter((row) => !pathIds.includes(row.id));
+  if (optional.length === 0) return null;
+  return (
+    <div className="mt-8 max-w-[860px]" data-attr="listing-v2-add-details">
+      <p className="mb-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-muted">Add details</p>
+      <p className="mb-3 text-[13.5px] text-muted">Optional. Everything a renter needs to see is already above.</p>
+      <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+        {optional.map((row) => (
+          <li key={row.id}>
+            <button
+              type="button"
+              onClick={() => onOpen(row.id)}
+              data-attr={`listing-v2-add-details-${row.id}`}
+              className="flex min-h-[52px] w-full items-center justify-between gap-3 px-4 text-left hover:bg-foreground/[0.03]"
+            >
+              <span className="min-w-0">
+                <span className="block text-[14px] font-semibold text-foreground">{row.label}</span>
+                <span className="block truncate text-[12.5px] text-muted">{row.hint}</span>
+              </span>
+              <span aria-hidden className="text-primary">›</span>
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -2843,6 +2927,25 @@ export function ListingEditorV2({
     setVisited((prev) => (prev.has(target.id) ? prev : new Set(prev).add(target.id)));
   };
 
+  // The short path (see listingV2PathStepIds). A step reached from the rail
+  // that is not on it still gets Back/Continue that make sense: Continue goes
+  // to the next step on the path after it, Back to the one before.
+  const pathIds = listingV2PathStepIds(submission);
+  const pathIndexOf = (id: ListingV2StepId) => pathIds.indexOf(id);
+  const stepIndexOf = (id: ListingV2StepId) => LISTING_V2_STEPS.findIndex((s) => s.id === id);
+  const nextOnPath = (): number | null => {
+    const after = pathIds.find((id) => stepIndexOf(id) > step);
+    return after ? stepIndexOf(after) : null;
+  };
+  const prevOnPath = (): number | null => {
+    const before = [...pathIds].reverse().find((id) => stepIndexOf(id) < step);
+    return before != null ? stepIndexOf(before) : null;
+  };
+  const nextStep = nextOnPath();
+  const prevStep = prevOnPath();
+  const onPath = pathIndexOf(stepId) !== -1;
+  const pathPosition = onPath ? pathIndexOf(stepId) + 1 : null;
+
   const rooms = useMemo(() => submission.rooms ?? [], [submission.rooms]);
   const leaseTerms = useMemo(() => listingLeaseTypeScopeOptions(submission), [submission]);
   const receiptTerm = quoteTerm && leaseTerms.includes(quoteTerm) ? quoteTerm : leaseTerms[0] ?? DEFAULT_QUOTE_TERM;
@@ -2927,6 +3030,7 @@ export function ListingEditorV2({
     label: s.label,
     attention: attention[s.id] ?? 0,
     summary: summaries[s.id],
+    optional: !pathIds.includes(s.id),
   }));
 
   const coverUrl = (submission.housePhotoDataUrls ?? [])[0] ?? rooms.flatMap((r) => r.photoDataUrls ?? [])[0] ?? null;
@@ -2941,6 +3045,11 @@ export function ListingEditorV2({
         return (
           <>
             <StepBasics sub={submission} patch={patch} isEdit={isEdit} />
+            <AddDetailsRow
+              sub={submission}
+              pathIds={pathIds}
+              onOpen={(id) => goTo(stepIndexOf(id))}
+            />
             <div className="mt-8 max-w-[860px]">
               <AdvancedPanel
                 summary="The building · Move-in · Local compliance"
@@ -3041,8 +3150,8 @@ export function ListingEditorV2({
           <div className="flex items-center gap-2.5">
             <button
               type="button"
-              disabled={step === 0}
-              onClick={() => goTo(step - 1)}
+              disabled={prevStep == null}
+              onClick={() => prevStep != null && goTo(prevStep)}
               className="min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground disabled:opacity-45"
             >
               Back
@@ -3060,7 +3169,7 @@ export function ListingEditorV2({
             )}
           </div>
           <span className="hidden text-[12.5px] text-muted sm:inline">
-            Step {step + 1} of {LISTING_V2_STEPS.length}
+            {pathPosition != null ? `Step ${pathPosition} of ${pathIds.length}` : "Optional detail"}
           </span>
           {isEdit ? (
             /*
@@ -3070,16 +3179,16 @@ export function ListingEditorV2({
              * next section is an offer, not the only way forward.
              */
             <div className="flex gap-2.5">
-              {step === last ? null : (
+              {nextStep == null ? null : (
                 <button
                   type="button"
-                  onClick={() => goTo(step + 1)}
+                  onClick={() => goTo(nextStep)}
                   data-attr="listing-v2-next"
                   // A phone footer holds Back and Save; the next section is a
                   // tap away in the strip above.
                   className="hidden min-h-[44px] rounded-full border border-border bg-card px-5 text-[14px] font-bold text-foreground sm:inline-flex sm:items-center"
                 >
-                  Next: {LISTING_V2_STEPS[step + 1]!.label}
+                  Next: {LISTING_V2_STEPS[nextStep]!.label}
                 </button>
               )}
               <button
@@ -3117,14 +3226,14 @@ export function ListingEditorV2({
           ) : (
             <button
               type="button"
-              onClick={() => goTo(step + 1)}
+              onClick={() => nextStep != null && goTo(nextStep)}
               data-attr="listing-v2-next"
-              aria-label={`Continue to ${LISTING_V2_STEPS[step + 1]!.label}`}
+              aria-label={`Continue to ${LISTING_V2_STEPS[nextStep ?? last]!.label}`}
               className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white"
             >
               {/* A phone footer has no room for the step's name beside Back and Save. */}
               <span className="sm:hidden">Continue</span>
-              <span className="hidden sm:inline">Continue to {LISTING_V2_STEPS[step + 1]!.label}</span>
+              <span className="hidden sm:inline">Continue to {LISTING_V2_STEPS[nextStep ?? last]!.label}</span>
             </button>
           )}
         </>

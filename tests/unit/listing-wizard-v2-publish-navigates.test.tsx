@@ -65,15 +65,17 @@ function Harness({
 /**
  * Walk to the last step.
  *
- * Derived from the step list so adding a step cannot rot this, and driven by the
- * stable `data-attr` rather than the button's words — the footer names the step
- * it is going to ("Continue to Rooms"), and this test is about publishing, not
- * about copy.
+ * Continue follows the SHORT path (listingV2PathStepIds) — a whole-place listing
+ * is Basics → Pricing → Review, a by-the-room one adds Rooms — so this presses
+ * Continue until it is gone rather than assuming every step is on the way. The
+ * bound is the full step list, so a footer that never reaches Review still fails
+ * loudly instead of looping. Driven by the stable `data-attr` rather than the
+ * button's words — this test is about publishing, not about copy.
  */
 async function goToReview() {
-  for (let i = 0; i < LISTING_V2_STEPS.length - 1; i++) {
+  for (let i = 0; i < LISTING_V2_STEPS.length; i++) {
     const next = document.querySelector('[data-attr="listing-v2-next"]');
-    if (!next) throw new Error(`no Continue button on step ${i + 1}`);
+    if (!next) break;
     fireEvent.click(next);
   }
   await waitFor(() => expect(document.querySelector('[data-attr="listing-v2-publish"]')).not.toBeNull());

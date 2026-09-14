@@ -187,6 +187,8 @@ export function SideBelow({ children }: { children: ReactNode }) {
 export type StepRailItem = {
   id: string;
   label: string;
+  /** Off the short path — Continue skips it; the manager opens it when they want to. */
+  optional?: boolean;
   /** Rooms, bathrooms, spaces, lease types — how many this step holds. */
   count?: number;
   /** Things the manager should look at before publishing. */
@@ -267,6 +269,9 @@ export function StepRail({
                   >
                     {step.label}
                   </span>
+                  {step.optional ? (
+                    <span className="shrink-0 text-[11px] font-semibold text-muted/75">optional</span>
+                  ) : null}
                   {step.count != null ? (
                     <span className="hidden shrink-0 text-[12px] tabular-nums text-muted lg:inline">{step.count}</span>
                   ) : null}
