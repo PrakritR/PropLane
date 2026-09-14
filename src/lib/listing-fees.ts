@@ -85,6 +85,18 @@ export type ListingFeePresetMeta = {
   shortTermSection?: boolean;
 };
 
+/**
+ * `requiredInWizard` forces a typed amount before the listing can be saved, and the
+ * error it raises says the quiet part out loud: "enter 0 if there is no fee." Seven
+ * presets used it, so a landlord with no HOA, no parking and no month-to-month
+ * surcharge still had to answer for all three — the "much customization is bulky"
+ * complaint, in one flag.
+ *
+ * A blank amount now simply means the fee does not exist. Only the security deposit
+ * still asks, because it is the one number on the simplified Price screen and it is
+ * pre-filled with one month's rent (see listing-fee-defaults.ts) — so answering it
+ * costs nothing and leaving it wrong costs a deposit dispute.
+ */
 export const LISTING_FEE_PRESETS: readonly ListingFeePresetMeta[] = [
   {
     presetId: "holding_deposit",
@@ -105,37 +117,37 @@ export const LISTING_FEE_PRESETS: readonly ListingFeePresetMeta[] = [
     defaultLabel: "Move-in fee",
     cadence: "one-time",
     dueAtSigning: true,
-    requiredInWizard: true,
+    requiredInWizard: false,
   },
   {
     presetId: "parking_monthly",
     defaultLabel: "Parking",
     cadence: "monthly",
-    requiredInWizard: true,
+    requiredInWizard: false,
   },
   {
     presetId: "hoa_monthly",
     defaultLabel: "HOA / community",
     cadence: "monthly",
-    requiredInWizard: true,
+    requiredInWizard: false,
   },
   {
     presetId: "other_monthly",
     defaultLabel: "Other monthly fees",
     cadence: "monthly",
-    requiredInWizard: true,
+    requiredInWizard: false,
   },
   {
     presetId: "mtm_surcharge",
     defaultLabel: "Month-to-month surcharge",
     cadence: "monthly",
-    requiredInWizard: true,
+    requiredInWizard: false,
   },
   {
     presetId: "custom_lease_surcharge",
     defaultLabel: "Custom lease",
     cadence: "monthly",
-    requiredInWizard: true,
+    requiredInWizard: false,
   },
   {
     presetId: "short_term_nightly",
