@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
 import { createDefaultListingSubmission, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { STANDARD_APPLICATION_FIELD_CATALOG } from "@/lib/rental-application/application-field-catalog";
 
 const persistOnServer = vi.fn<(...args: unknown[]) => Promise<boolean>>();
 
@@ -199,5 +200,99 @@ describe("question packs", () => {
     const keys = (persistedNext.customApplicationFields ?? []).map((f) => f.key);
     expect(new Set(keys).size).toBe(keys.length);
     expect(keys.filter((k) => k === "emergency-contact-full-name").length).toBe(1);
+  });
+});
+
+describe("Edit / Preview toggle", () => {
+  function editToggle(): HTMLElement {
+    return document.querySelector('[data-attr="application-preview-toggle-edit"]') as HTMLElement;
+  }
+  function previewToggle(): HTMLElement {
+    return document.querySelector('[data-attr="application-preview-toggle-preview"]') as HTMLElement;
+  }
+  function previewPane(): HTMLElement | null {
+    return document.querySelector('[data-attr="application-preview-pane"]');
+  }
+
+  it("toggling to Preview renders the open section's questions through the real applicant control, and toggling back returns to editing", () => {
+    renderEditor();
+    expandHouseholdSection();
+
+    // Edit is the default view — no preview pane mounted yet.
+    expect(editToggle().getAttribute("aria-selected")).toBe("true");
+    expect(previewToggle().getAttribute("aria-selected")).toBe("false");
+    expect(previewPane()).toBeNull();
+
+    fireEvent.click(previewToggle());
+
+    expect(previewToggle().getAttribute("aria-selected")).toBe("true");
+    const pane = previewPane();
+    expect(pane).not.toBeNull();
+    // The open section (household) and its two built-in questions, through the
+    // real applicant control.
+    expect(within(pane!).getByText("Household application")).toBeTruthy();
+    expect(within(pane!).getByText("Group application")).toBeTruthy();
+    expect(within(pane!).getByText("Co-signer planned")).toBeTruthy();
+    // The REAL applicant control, wrapped read-only — never a hand-drawn imitation.
+    expect(pane!.querySelector("[inert]")).not.toBeNull();
+    // Read-only preview never persists.
+    expect(persistOnServer).not.toHaveBeenCalled();
+
+    fireEvent.click(editToggle());
+
+    expect(editToggle().getAttribute("aria-selected")).toBe("true");
+    expect(previewToggle().getAttribute("aria-selected")).toBe("false");
+    expect(previewPane()).toBeNull();
+    expect(persistOnServer).not.toHaveBeenCalled();
+  });
+
+  it("reflects an UNSAVED edit — proving the pane reads the live buffered draft, not saved data", () => {
+    renderEditor();
+    expandHouseholdSection();
+    expandFirstQuestion();
+
+    const labelInput = document.querySelector('[data-attr="application-question-label"]') as HTMLInputElement;
+    fireEvent.change(labelInput, { target: { value: "Group application (edited)" } });
+
+    fireEvent.click(previewToggle());
+    const pane = previewPane()!;
+    expect(within(pane).getByText("Group application (edited)")).toBeTruthy();
+    expect(within(pane).queryByText("Group application")).toBeNull();
+    expect(persistOnServer).not.toHaveBeenCalled();
+  });
+
+  it("a section with no questions shows the empty state", () => {
+    const sub: ManagerListingSubmissionV1 = {
+      ...createDefaultListingSubmission(),
+      applicationConfigMode: "custom",
+      disabledStandardApplicationKeys: STANDARD_APPLICATION_FIELD_CATALOG.map((def) => def.standardKey),
+      customApplicationFields: [],
+    };
+    renderEditor(sub);
+
+    fireEvent.click(previewToggle());
+    const pane = previewPane()!;
+    expect(within(pane).getByText("No questions in this section yet.")).toBeTruthy();
+    expect(pane.querySelector("[inert]")).toBeNull();
+  });
+
+  it("a question with a blank label and an empty option row renders without throwing", () => {
+    const sub: ManagerListingSubmissionV1 = {
+      ...createDefaultListingSubmission(),
+      applicationConfigMode: "custom",
+      customApplicationFields: [
+        { id: "blank1", key: "", label: "", type: "select", required: false, options: [""], section: "additional" },
+      ],
+    };
+    renderEditor(sub);
+    const additionalToggle = document.querySelector(
+      '[data-attr="application-section-toggle-additional"]',
+    ) as HTMLElement;
+    fireEvent.click(additionalToggle);
+
+    expect(() => fireEvent.click(previewToggle())).not.toThrow();
+    const pane = previewPane()!;
+    expect(within(pane).getByText("Untitled question")).toBeTruthy();
+    expect(persistOnServer).not.toHaveBeenCalled();
   });
 });

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ApplicationFormBuilder } from "@/components/portal/application-form-builder";
+import { ApplicationFormBuilder, ApplicationSectionPreviewPane } from "@/components/portal/application-form-builder";
 import { sanitizeCustomApplicationFieldsForSave, validateField } from "@/components/portal/application-question-edit-modal";
 import {
   PORTAL_EDIT_ROW_ICON_BUTTON_CLASS,
@@ -50,6 +50,7 @@ import {
   buildQuestionsFromPack,
 } from "@/lib/rental-application/application-question-packs";
 import { useConfirm } from "@/components/providers/app-ui-provider";
+import { cn } from "@/lib/utils";
 import {
   createPropertyApplicationTemplate,
   withPropertyApplicationTemplatesExplicit,
@@ -148,6 +149,7 @@ export function ManagerApplicationQuestionsEditorModal({
   saveTarget,
   propertyIds,
   managerUserId,
+  applicationPreviewPropertyId,
   initialVariant = "standard",
   lockVariant = false,
   templateEditorMode,
@@ -167,6 +169,13 @@ export function ManagerApplicationQuestionsEditorModal({
   /** When set, each save applies the same application config to every id (bulk edit). */
   propertyIds?: string[];
   managerUserId: string;
+  /**
+   * Property the Preview pane's applicant control binds to — resolved by the
+   * caller via `resolveApplicationPreviewPropertyId` (it needs `listingId`,
+   * which this modal does not itself receive). May be "" when unresolved;
+   * the pane still renders the questions, it just never blocks on it.
+   */
+  applicationPreviewPropertyId?: string;
   /** Which stay-type form opens first (long-term vs short-term). */
   initialVariant?: ApplicationFormVariant;
   /** Property detail row edit — one stay type only; hide the long-term / short-term switcher. */
@@ -197,6 +206,9 @@ export function ManagerApplicationQuestionsEditorModal({
   // The ADD flow's template chooser — which section it targets, or null when closed.
   const [addChooserSectionId, setAddChooserSectionId] = useState<string | null>(null);
   const [addChoice, setAddChoice] = useState<string>(RECOMMENDED_QUESTION_PACK?.id ?? "blank");
+  // Edit | Preview workspace toggle — Preview renders the real applicant control
+  // for the currently open section, bound to the unsaved buffered draft below.
+  const [workspaceView, setWorkspaceView] = useState<"edit" | "preview">("edit");
   // Round 31: every edit stays local until an explicit Save. `dirty` gates the Save button
   // and drives the discard confirmation so a stray click can never overwrite properties.
   const [dirty, setDirty] = useState(false);
@@ -214,6 +226,7 @@ export function ManagerApplicationQuestionsEditorModal({
     setExpandedQuestionIds(new Set());
     setAddChooserSectionId(null);
     setAddChoice(RECOMMENDED_QUESTION_PACK?.id ?? "blank");
+    setWorkspaceView("edit");
     setDirty(templateEditorMode === "add");
     setSaving(false);
     setSaveError(null);
@@ -262,6 +275,26 @@ export function ManagerApplicationQuestionsEditorModal({
     return errors;
   }, [applicationFields]);
   const hasFieldErrors = fieldErrors.size > 0;
+
+  // The Preview pane always targets ONE section: whichever is currently open in
+  // the editor (first, in canonical section order, when more than one is open),
+  // falling back to the first section that has any questions at all.
+  const previewSectionId = useMemo((): RentalApplicationSectionId | null => {
+    const openSection = RENTAL_APPLICATION_SECTIONS.find((s) => expandedSectionIds.has(s.id));
+    if (openSection) return openSection.id;
+    const firstWithQuestions = RENTAL_APPLICATION_SECTIONS.find((s) =>
+      applicationFields.some((f) => (f.section ?? "additional") === s.id),
+    );
+    return (firstWithQuestions ?? RENTAL_APPLICATION_SECTIONS[0])?.id ?? null;
+  }, [expandedSectionIds, applicationFields]);
+  const previewSection = useMemo(
+    () => RENTAL_APPLICATION_SECTIONS.find((s) => s.id === previewSectionId) ?? null,
+    [previewSectionId],
+  );
+  const previewFields = useMemo(
+    () => applicationFields.filter((f) => (f.section ?? "additional") === previewSectionId),
+    [applicationFields, previewSectionId],
+  );
 
   // Apply an edit to LOCAL state only — nothing is persisted until Save.
   const applySlice = (nextSlice: ApplicationConfigSlice): void => {
@@ -559,7 +592,45 @@ export function ManagerApplicationQuestionsEditorModal({
             replaced when you save changes.
           </p>
         ) : null}
-        <div className="mx-auto w-full max-w-3xl space-y-3">
+        <div className={cn("mx-auto w-full space-y-3", workspaceView === "preview" ? "max-w-6xl" : "max-w-3xl")}>
+          <div className="flex justify-end">
+            <div
+              className="flex gap-1 rounded-full border border-border bg-accent/30 p-1"
+              role="tablist"
+              aria-label="Workspace view"
+            >
+              {(
+                [
+                  { id: "edit", label: "Edit" },
+                  { id: "preview", label: "Preview" },
+                ] as const
+              ).map((v) => {
+                const active = workspaceView === v.id;
+                return (
+                  <button
+                    key={v.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    data-attr={`application-preview-toggle-${v.id}`}
+                    onClick={() => setWorkspaceView(v.id)}
+                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                      active ? "bg-card text-foreground shadow-sm" : "text-muted hover:text-foreground"
+                    }`}
+                  >
+                    {v.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div
+            className={cn(
+              workspaceView === "preview" ? "gap-6 xl:grid xl:grid-cols-[minmax(0,1fr)_22rem] xl:items-start" : undefined,
+            )}
+          >
+          <div className={cn("space-y-3", workspaceView === "preview" ? "hidden xl:block" : "block")}>
           {isTemplateEditor ? (
             <div>
               <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="application-template-name">
@@ -693,6 +764,18 @@ export function ManagerApplicationQuestionsEditorModal({
               </PortalCollapsibleEditRow>
             );
           })}
+          </div>
+
+          {workspaceView === "preview" ? (
+            <div className="xl:sticky xl:top-4">
+              <ApplicationSectionPreviewPane
+                section={previewSection}
+                fields={previewFields}
+                applicationPreviewPropertyId={applicationPreviewPropertyId}
+              />
+            </div>
+          ) : null}
+          </div>
         </div>
 
       <Modal

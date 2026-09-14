@@ -110,6 +110,66 @@ function CustomQuestionsDivider() {
   return <p className="px-1 text-xs font-medium text-muted">Your questions appear after PropLane&apos;s.</p>;
 }
 
+/**
+ * A question mid-edit is normal — the editor deliberately keeps a blank label
+ * or an empty option row while the manager is still typing. Guard the display
+ * label only; type/options/required stay the REAL unsaved values so the
+ * rendered control is still the true applicant control, never a mock.
+ */
+function previewSafeField(field: ResolvedApplicationField): ResolvedApplicationField {
+  return field.label.trim() ? field : { ...field, label: "Untitled question" };
+}
+
+/**
+ * Live read-only preview of ONE application section, bound to the manager's
+ * UNSAVED buffered draft — the entire point of the side pane (see the editor
+ * modal's Edit/Preview toggle). Renders the exact same `CustomQuestionField`
+ * control the applicant wizard uses, in the section's true order (built-ins
+ * first in catalogue order, then custom questions in their persisted array
+ * order — already how `applicationFields` is filtered by section). Never
+ * writes: `onChange` is a no-op and nothing here can trigger a persist call.
+ */
+export function ApplicationSectionPreviewPane({
+  section,
+  fields,
+  applicationPreviewPropertyId,
+}: {
+  section: RentalApplicationSection | null;
+  fields: ResolvedApplicationField[];
+  /** Resolved by `resolveApplicationPreviewPropertyId` — may be "" (unresolved); never blocks rendering. */
+  applicationPreviewPropertyId?: string;
+}) {
+  return (
+    <div
+      className="space-y-4 rounded-2xl border border-border bg-accent/10 p-4"
+      data-attr="application-preview-pane"
+    >
+      <div>
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">Applicant sees</p>
+        <h3 className="text-sm font-bold text-foreground">{section?.title ?? "Application"}</h3>
+      </div>
+      {fields.length === 0 ? (
+        <p className="text-sm text-muted" data-attr="application-preview-empty">
+          No questions in this section yet.
+        </p>
+      ) : (
+        <div className="space-y-4">
+          {fields.map((field) => (
+            <CustomQuestionField
+              key={field.id}
+              field={previewSafeField(field)}
+              value=""
+              onChange={() => {}}
+              readOnly
+              getApplicationId={() => applicationPreviewPropertyId ?? ""}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BuilderQuestionCard({
   field,
   expanded,
