@@ -40,6 +40,8 @@ import { VendorSettingsPanel } from "@/components/portal/vendor-settings-panel";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalTierPaywall, ResidentTierPaywall } from "@/components/portal/portal-tier-paywall";
 import { PortalWorkspaceClient } from "@/components/portal/portal-workspace-client";
+import { PortalSettingsSectionClient } from "@/components/portal/portal-settings-section-client";
+import { DEFAULT_MANAGER_SETTINGS_TAB, parseManagerSettingsAreaTab } from "@/lib/portal-settings-section";
 import {
   loadManagerAllServicesPanel,
   loadManagerTaskList,
@@ -423,6 +425,25 @@ export async function renderPortalSection(
     if (tabParts.length > 1) notFound();
     const PortalCalendar = await loadPortalCalendar();
     return <PortalCalendar portal="manager" calendarView="availability" />;
+  }
+
+  // Per-module settings ("bookings", "tours", "applications", …), NOT account settings — that
+  // is "profile", already registered in `proPortal.sections` under the "Settings" label. A
+  // second `proPortal.sections` entry called "settings" would put two rows labeled "Settings" in
+  // the same sidebar, so this section is handled entirely here, before `findSection`/`meta` even
+  // exist, exactly like `calendar` and `work-orders` above. Two more things fall out of that for
+  // free: it never reaches `managerTierPaywall` below, so Settings is never paywalled for a
+  // free-tier manager (the deliberate choice — a manager cannot fix their plan from a screen
+  // they cannot open), and it needs no new entry in `FREE_SUBSCRIPTION_SECTIONS`. Reachable only
+  // by a direct/bookmarked link or a section's own gear's "Open in Settings" link — there is no
+  // dedicated top-level nav row for it, to avoid exactly that duplicate-"Settings" row.
+  if ((kind === "manager" || kind === "pro") && section === "settings") {
+    if (!tabParts?.length) {
+      redirect(`${def.basePath}/settings/${DEFAULT_MANAGER_SETTINGS_TAB}`);
+    }
+    if (tabParts.length > 1) notFound();
+    const tab = parseManagerSettingsAreaTab(tabParts[0]);
+    return <PortalSettingsSectionClient tab={tab} basePath={def.basePath} />;
   }
 
   const meta = findSection(def, section);

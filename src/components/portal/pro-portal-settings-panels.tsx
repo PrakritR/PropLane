@@ -1,11 +1,19 @@
 "use client";
 
 import { TourInterestSettings } from "./tour-interest-settings";
-import { useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { Minus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect, CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import {
+  PortalSettingsGroup,
+  PortalSettingsRow,
+  PortalSettingsScopeTag,
+  PortalSettingsSection,
+  PortalSettingsToggle,
+} from "@/components/portal/portal-settings-ui";
 import {
   DEFAULT_APPLICATION_AUTOMATION,
   normalizeApplicationAutomation,
@@ -21,7 +29,6 @@ import {
 import {
   MANAGER_COMMUNICATION_SEND_VIA_SECTIONS,
   deliverViaFromManagerSettings,
-  patchDeliverViaForKind,
 } from "@/lib/manager-communication-deliver-via";
 import {
   ManagerSmsWorkNumberHint,
@@ -36,7 +43,8 @@ import {
   type ReminderPresetId,
 } from "@/lib/payment-reminder-presets";
 import { DEFAULT_MANAGER_TOUR_SETTINGS, type ManagerTourSettings } from "@/lib/manager-tour-settings";
-import { TOUR_NOTICE_DAY_SELECT_OPTIONS } from "@/lib/tour-notice-labels";
+import { tourNoticeDaysLabel } from "@/lib/tour-notice-labels";
+import { normalizeTourNoticeDays } from "@/lib/tour-slot-math";
 import { fillTourReminderTemplate } from "@/lib/tour-reminder";
 
 import {
@@ -68,6 +76,10 @@ import {
   DEFAULT_LIFECYCLE_AUTOMATION,
   type LifecycleTaskAutomation,
 } from "@/lib/task-lifecycle-automation";
+import {
+  useFlushSettingsAutosaveOnUnmount,
+  useReportSettingsSaveStatus,
+} from "@/components/portal/settings-save-status-context";
 
 const TOUR_PREVIEW_CONTEXT = {
   guestName: "Alex Prospect",
@@ -96,6 +108,24 @@ function tourAutomationSnapshot(settings: ManagerAutomationSettings) {
 }
 
 export type TourSettingsHandle = {
+  saveIfDirty: () => Promise<boolean>;
+};
+
+/**
+ * Same shape as `TourSettingsHandle`, for the two panels whose own per-control autosave used to
+ * be invisible to `SettingsModulePage.flushPendingSaves()` entirely — `TaskSettingsPanel` and
+ * `CommunicationSettingsPanel` never registered a handle, so the explicit flush the standalone
+ * page's `goToArea` and the modal's `selectTab`/`closeAndSave` already run BEFORE switching
+ * modules or closing found nothing to flush for either one. A real module switch on the
+ * standalone page is a full page navigation (`window.location.assign`), which does not reliably
+ * let an unmount-time fetch finish — the registry has to actually know about the pending write
+ * so the AWAITED flush covers it before that navigation ever fires.
+ */
+export type TaskSettingsHandle = {
+  saveIfDirty: () => Promise<boolean>;
+};
+
+export type CommunicationSettingsHandle = {
   saveIfDirty: () => Promise<boolean>;
 };
 
@@ -173,6 +203,116 @@ export function ManagerSettingsPropertyField({
   );
 }
 
+/** Scope tag copy for a property-scoped module's section header. */
+function propertyScopeTagLabel(selectedCount: number): string {
+  if (selectedCount === 0) return "No properties selected";
+  if (selectedCount === 1) return "1 property";
+  return `${selectedCount} properties`;
+}
+
+/**
+ * The FIRST row of a per-property module's settings group: which properties
+ * the automation below actually applies to. Multi-select (Applications) or
+ * single-select (Lease) render the same "Applies to" row so scope is never
+ * buried mid-panel.
+ *
+ * When `propertyOptions` is empty this renders an honest explanation instead
+ * of a picker that looks live but can never select anything — the standalone
+ * `/portal/settings/applications` and `/portal/settings/lease` pages
+ * currently reach this with an empty list (see `ApplicationsSettingsPanel`'s
+ * and `LeaseSettingsPanel`'s own doc comments for why that gap could not be
+ * closed from this file).
+ */
+function PropertyScopeRow({
+  multiSelect,
+  propertyOptions,
+  selectedIds,
+  onPropertyIdChange,
+  onPropertyIdsChange,
+  disabled,
+}: {
+  multiSelect: boolean;
+  propertyOptions: { id: string; label: string }[];
+  selectedIds: string[];
+  onPropertyIdChange?: (propertyId: string) => void;
+  onPropertyIdsChange?: (propertyIds: string[]) => void;
+  disabled: boolean;
+}) {
+  const noOptions = propertyOptions.length === 0;
+
+  return (
+    <PortalSettingsRow
+      className="flex-wrap items-start gap-y-2.5"
+      label="Applies to"
+      meta={
+        noOptions
+          ? "Add a property listing before configuring these settings."
+          : multiSelect
+            ? "The settings below apply only to the properties checked here."
+            : "The settings below apply only to this property."
+      }
+    >
+      {noOptions ? null : multiSelect ? (
+        <CheckboxMultiSelect
+          label="Properties"
+          hideLabel
+          options={propertyOptions.map((option) => ({ value: option.id, label: option.label }))}
+          selected={selectedIds}
+          onChange={onPropertyIdsChange ?? (() => {})}
+          disabled={disabled}
+          emptyLabel="Select properties…"
+          searchPlaceholder="Search properties…"
+          dataAttr="manager-settings-properties"
+          className="w-56"
+          menuFooter={
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="text-xs font-semibold text-primary hover:underline"
+                data-attr="manager-settings-properties-select-all"
+                disabled={disabled}
+                onClick={() => onPropertyIdsChange?.(propertyOptions.map((option) => option.id))}
+              >
+                Select all
+              </button>
+              <button
+                type="button"
+                className="text-xs font-semibold text-muted hover:underline"
+                data-attr="manager-settings-properties-clear"
+                disabled={disabled || selectedIds.length === 0}
+                onClick={() => onPropertyIdsChange?.([])}
+              >
+                Clear
+              </button>
+            </div>
+          }
+        />
+      ) : (
+        <FieldSingleSelect
+          label="Property"
+          hideLabel
+          value={selectedIds[0] ?? ""}
+          options={propertyOptions.map((option) => ({ value: option.id, label: option.label }))}
+          onChange={onPropertyIdChange ?? (() => {})}
+          disabled={disabled}
+          dataAttr="manager-settings-property"
+          wrapperClassName="w-56"
+        />
+      )}
+    </PortalSettingsRow>
+  );
+}
+
+/**
+ * The standalone `/portal/settings/applications` host (`portal-settings-section-client.tsx`,
+ * off limits to this file) never fetches or passes `propertyOptions`, so it always reaches
+ * this component with an empty list even when the manager has properties — the gear on a
+ * property's own Application tab passes real options and hides this row entirely
+ * (`hidePropertyField`). Closing that gap means fetching properties in `portal-settings-section-client.tsx`
+ * or `settings-module-page.tsx`, both outside this file's ownership; `PropertyScopeRow` above
+ * renders the honest "add a property listing" explanation rather than a picker that always
+ * looks empty.
+ */
 export function ApplicationsSettingsPanel({
   automation,
   loading,
@@ -213,108 +353,87 @@ export function ApplicationsSettingsPanel({
   const multiSelect = Boolean(onPropertyIdsChange);
   const selectedIds = propertyIds ?? (propertyId ? [propertyId] : []);
   const hasSelection = selectedIds.length > 0;
-  const selectableIds = propertyOptions.map((o) => o.id);
+  const disabled = loading || saving;
 
   return (
     <div className="space-y-6">
-      {hidePropertyField ? null : multiSelect ? (
-        <CheckboxMultiSelect
-          label="Properties"
-          options={propertyOptions.map((option) => ({ value: option.id, label: option.label }))}
-          selected={selectedIds}
-          onChange={onPropertyIdsChange!}
-          disabled={loading || saving || propertyOptions.length === 0}
-          emptyLabel="Select properties…"
-          searchPlaceholder="Search properties…"
-          dataAttr="manager-settings-properties"
-          menuFooter={
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className="text-xs font-semibold text-primary hover:underline"
-                data-attr="manager-settings-properties-select-all"
-                disabled={loading || saving || selectableIds.length === 0}
-                onClick={() => onPropertyIdsChange?.(selectableIds)}
-              >
-                Select all
-              </button>
-              <button
-                type="button"
-                className="text-xs font-semibold text-muted hover:underline"
-                data-attr="manager-settings-properties-clear"
-                disabled={loading || saving || selectedIds.length === 0}
-                onClick={() => onPropertyIdsChange?.([])}
-              >
-                Clear
-              </button>
-            </div>
-          }
-        />
-      ) : (
-        <ManagerSettingsPropertyField
-          propertyOptions={propertyOptions}
-          propertyId={propertyId ?? ""}
-          onPropertyIdChange={onPropertyIdChange ?? (() => {})}
-          disabled={loading || saving || propertyOptions.length === 0}
-        />
-      )}
-      {onWaiverCodeChange ? (
-        <div className="space-y-2">
-          <label className="block text-[13px] font-medium text-foreground" htmlFor="manager-application-promo-code">
-            Promo code
-          </label>
-          <input
-            id="manager-application-promo-code"
-            type="text"
-            className="w-full rounded-xl border border-border bg-background px-3 py-2 font-mono text-sm uppercase text-foreground"
-            value={waiverCode}
-            disabled={loading || saving || !hasSelection}
-            placeholder="E.G. WELCOME50"
-            data-attr="manager-application-settings-promo-code"
-            onChange={(e) => onWaiverCodeChange(e.target.value.toUpperCase())}
-            onBlur={() => onWaiverCodeCommit?.()}
-          />
-          <p className="text-xs text-muted">
-            {selectedIds.length > 1
-              ? `Applicants who enter this code on any of the ${selectedIds.length} selected properties waive the application fee. Leave empty to turn it off for those listings.`
-              : "Applicants who enter this code on this property's application waive the application fee. Leave empty to turn it off."}
+      <PortalSettingsSection
+        title="Application handling"
+        description="Automation for approving applications and waiving the application fee."
+        action={<PortalSettingsScopeTag>{propertyScopeTagLabel(selectedIds.length)}</PortalSettingsScopeTag>}
+      >
+        <PortalSettingsGroup>
+          {hidePropertyField ? null : (
+            <PropertyScopeRow
+              multiSelect={multiSelect}
+              propertyOptions={propertyOptions}
+              selectedIds={selectedIds}
+              onPropertyIdChange={onPropertyIdChange}
+              onPropertyIdsChange={onPropertyIdsChange}
+              disabled={disabled || propertyOptions.length === 0}
+            />
+          )}
+          {onWaiverCodeChange ? (
+            <PortalSettingsRow
+              label="Promo code"
+              meta={
+                selectedIds.length > 1
+                  ? `Applicants who enter this code on any of the ${selectedIds.length} selected properties waive the application fee. Leave empty to turn it off for those listings.`
+                  : "Applicants who enter this code on this property's application waive the application fee. Leave empty to turn it off."
+              }
+            >
+              <input
+                id="manager-application-promo-code"
+                type="text"
+                className="w-32 rounded-xl border border-border bg-background px-3 py-2 font-mono text-sm uppercase text-foreground sm:w-40"
+                value={waiverCode}
+                disabled={disabled || !hasSelection}
+                placeholder="E.G. WELCOME50"
+                data-attr="manager-application-settings-promo-code"
+                onChange={(e) => onWaiverCodeChange(e.target.value.toUpperCase())}
+                onBlur={() => onWaiverCodeCommit?.()}
+              />
+            </PortalSettingsRow>
+          ) : null}
+          <PortalSettingsRow
+            label="Auto-approve applications"
+            meta={
+              "Approve a submitted application without reviewing it first. Withdrawn applications are never approved." +
+              (selectedIds.length > 1 ? " Applies to every selected property." : "")
+            }
+          >
+            {/* No confirm() gate. The consequence is stated in this row's meta line
+                and again in the banner once it is on, and the setting is one click
+                to undo — a browser dialog restating the caption is a step to click
+                past, not a safeguard. */}
+            <PortalSettingsToggle
+              checked={automation.autoApproveApplications}
+              onChange={(next) => onAutomationChange({ ...automation, autoApproveApplications: next })}
+              label="Auto-approve applications"
+              disabled={disabled || !hasSelection}
+              dataAttr="manager-application-automation-autoApproveApplications"
+            />
+          </PortalSettingsRow>
+        </PortalSettingsGroup>
+        {automation.autoApproveApplications ? (
+          <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-foreground">
+            Auto-approve is on{selectedIds.length > 1 ? " for the selected properties" : " for this property"}. New
+            submissions are approved without a manual review step.
           </p>
-        </div>
-      ) : null}
-      <label className="flex items-start gap-3">
-        <input
-          type="checkbox"
-          className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
-          checked={automation.autoApproveApplications}
-          disabled={loading || saving || !hasSelection}
-          data-attr="manager-application-automation-autoApproveApplications"
-          // No confirm() gate. The consequence is stated under the label and
-          // again in the banner once it is on, and the setting is one click to
-          // undo — a browser dialog restating the caption is a step to click
-          // past, not a safeguard.
-          onChange={(e) =>
-            onAutomationChange({ ...automation, autoApproveApplications: e.target.checked })
-          }
+        ) : null}
+      </PortalSettingsSection>
+
+      <PortalSettingsSection
+        title="Reminders"
+        description="Nudge applicants to finish, alert yourself when one stalls, or follow up after a tour."
+        action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+      >
+        <ApplicationRemindersSettingsBundle
+          teamMembers={teamMembers}
+          formRef={reminderFormRef}
+          disabled={loading || saving}
         />
-        <span className="min-w-0">
-          <span className="block text-[13px] font-medium text-foreground">Auto-approve applications</span>
-          <span className="block text-xs text-muted">
-            Approve a submitted application without reviewing it first. Withdrawn applications are never approved.
-            {selectedIds.length > 1 ? " Applies to every selected property." : null}
-          </span>
-        </span>
-      </label>
-      {automation.autoApproveApplications ? (
-        <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-foreground">
-          Auto-approve is on{selectedIds.length > 1 ? " for the selected properties" : " for this property"}. New
-          submissions are approved without a manual review step.
-        </p>
-      ) : null}
-      <ApplicationRemindersSettingsBundle
-        teamMembers={teamMembers}
-        formRef={reminderFormRef}
-        disabled={loading || saving}
-      />
+      </PortalSettingsSection>
     </div>
   );
 }
@@ -324,17 +443,21 @@ export function TaskSettingsPanel({
   onFooterReady,
   onSaved,
   reminderFormRef,
+  formRef,
 }: {
   teamMembers: WorkAssignmentTeamMember[];
   onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
   onSaved?: () => void;
   reminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
+  formRef?: React.Ref<TaskSettingsHandle>;
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
+  const reportSaveStatus = useReportSettingsSaveStatus();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [automation, setAutomation] = useState<LifecycleTaskAutomation>(DEFAULT_LIFECYCLE_AUTOMATION);
+  const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(DEFAULT_LIFECYCLE_AUTOMATION));
 
   useEffect(() => {
     let cancelled = false;
@@ -342,13 +465,20 @@ export function TaskSettingsPanel({
       setLoading(true);
       try {
         if (demo) {
-          if (!cancelled) setAutomation(DEFAULT_LIFECYCLE_AUTOMATION);
+          if (!cancelled) {
+            setAutomation(DEFAULT_LIFECYCLE_AUTOMATION);
+            setSavedSnapshot(JSON.stringify(DEFAULT_LIFECYCLE_AUTOMATION));
+          }
           return;
         }
         const res = await fetch("/api/portal/task-automation-settings", { credentials: "include", cache: "no-store" });
         if (!res.ok) throw new Error("Could not load task settings.");
         const body = (await res.json()) as { automation?: LifecycleTaskAutomation };
-        if (!cancelled) setAutomation(body.automation ?? DEFAULT_LIFECYCLE_AUTOMATION);
+        const next = body.automation ?? DEFAULT_LIFECYCLE_AUTOMATION;
+        if (!cancelled) {
+          setAutomation(next);
+          setSavedSnapshot(JSON.stringify(next));
+        }
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not load task settings.");
       } finally {
@@ -360,64 +490,107 @@ export function TaskSettingsPanel({
     };
   }, [demo, showToast]);
 
-  const save = useCallback(async () => {
-    setSaving(true);
-    try {
-      if (demo) {
-        showToast("Task settings saved (demo).");
+  const isDirty = useMemo(() => JSON.stringify(automation) !== savedSnapshot, [automation, savedSnapshot]);
+
+  const save = useCallback(
+    async (options?: { silent?: boolean }): Promise<boolean> => {
+      if (!isDirty) return true;
+      setSaving(true);
+      reportSaveStatus({ type: "start" });
+      try {
+        if (demo) {
+          setSavedSnapshot(JSON.stringify(automation));
+          if (!options?.silent) showToast("Task settings saved (demo).");
+          onSaved?.();
+          reportSaveStatus({ type: "success" });
+          return true;
+        }
+        const res = await fetch("/api/portal/task-automation-settings", {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ automation }),
+          // A hard page unload (real reload/close, not a same-app route change) can abort an
+          // ordinary in-flight fetch before it lands — this is exactly the write the
+          // `pagehide`/`visibilitychange` flush in `settings-module-page.tsx` exists to send;
+          // `keepalive` is what lets the browser actually finish it after the document goes away.
+          keepalive: true,
+        });
+        const body = (await res.json().catch(() => ({}))) as { automation?: LifecycleTaskAutomation; error?: string };
+        if (!res.ok) throw new Error(body.error ?? "Could not save task settings.");
+        const next = body.automation ?? automation;
+        setAutomation(next);
+        setSavedSnapshot(JSON.stringify(next));
+        if (!options?.silent) showToast("Task settings saved.");
         onSaved?.();
-        return;
+        reportSaveStatus({ type: "success" });
+        return true;
+      } catch (e) {
+        // Unconditional — silent only suppresses the SUCCESS toast, never the
+        // failure one. A per-control autosave that fails must still surface.
+        const message = e instanceof Error ? e.message : "Could not save task settings.";
+        showToast(message);
+        reportSaveStatus({ type: "failure", reason: message });
+        return false;
+      } finally {
+        setSaving(false);
       }
-      const res = await fetch("/api/portal/task-automation-settings", {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ automation }),
-      });
-      const body = (await res.json().catch(() => ({}))) as { automation?: LifecycleTaskAutomation; error?: string };
-      if (!res.ok) throw new Error(body.error ?? "Could not save task settings.");
-      if (body.automation) setAutomation(body.automation);
-      showToast("Task settings saved.");
-      onSaved?.();
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not save task settings.");
-    } finally {
-      setSaving(false);
-    }
-  }, [automation, demo, onSaved, showToast]);
-
-  const triggerSave = useCallback(() => {
-    void save();
-  }, [save]);
-
-  const footerState = useMemo(
-    (): ManagerSettingsPanelFooter | null =>
-      loading
-        ? null
-        : {
-            saving,
-            onSave: triggerSave,
-            dataAttr: "manager-task-automation-save",
-          },
-    [loading, saving, triggerSave],
+    },
+    [automation, demo, isDirty, onSaved, reportSaveStatus, showToast],
   );
 
-  useReportSettingsPanelFooter(onFooterReady, footerState);
+  // `save` already checks `isDirty` itself, so it doubles directly as `saveIfDirty` — this is
+  // what makes the pending write survive the standalone page's flush-before-switch (`goToArea`)
+  // and the modal's `selectTab`/`closeAndSave`, not just this panel's own unmount.
+  const saveIfDirty = useCallback((): Promise<boolean> => save({ silent: true }), [save]);
+  useImperativeHandle(formRef, () => ({ saveIfDirty }), [saveIfDirty]);
+
+  // Autosaves on close — no explicit Save button in the footer.
+  useReportSettingsPanelFooter(onFooterReady, null);
+
+  /** Per-control autosave, same debounced-effect shape as `TourSettingsPanel` and
+   *  `ManagerReminderRuleSettingsPanel` — no Save button. */
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (loading || !isDirty) return;
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(() => {
+      void save({ silent: true });
+    }, 600);
+    return () => {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    };
+  }, [isDirty, loading, save]);
+
+  // A debounced write still pending when this module goes away (tab switch the host didn't
+  // explicitly flush, or leaving Settings outright) must still land — see
+  // `useFlushSettingsAutosaveOnUnmount`'s own doc comment for why this has to live here and not
+  // one level up.
+  useFlushSettingsAutosaveOnUnmount(save, isDirty);
 
   if (loading) return <p className="text-sm text-muted">Loading…</p>;
 
   return (
     <div className="space-y-6">
-      <ManagerReminderRuleSettingsPanel
-        kind="task"
-        audienceMode="manager"
-        sectionTitle="Task reminders"
-        teamMembers={teamMembers}
-        formRef={reminderFormRef}
-        disabled={saving}
-      />
-      <div className="border-t border-border pt-4">
-        <p className="mb-3 text-[13.5px] font-semibold text-foreground">Lifecycle automation</p>
+      <PortalSettingsSection
+        title="Task reminders"
+        description="Nudge the assignee before a task is due, or after it lapses."
+        action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+      >
+        <ManagerReminderRuleSettingsPanel
+          kind="task"
+          audienceMode="manager"
+          teamMembers={teamMembers}
+          formRef={reminderFormRef}
+          disabled={saving}
+        />
+      </PortalSettingsSection>
+
+      <PortalSettingsSection
+        title="Lifecycle automation"
+        description="Auto-create and auto-assign the routine tasks that follow an application, lease, or inspection."
+        action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+      >
         <TaskAutomationSettingsFields
           automation={automation}
           teamMembers={teamMembers}
@@ -425,11 +598,16 @@ export function TaskSettingsPanel({
           saving={saving}
           onChange={setAutomation}
         />
-      </div>
+      </PortalSettingsSection>
     </div>
   );
 }
 
+/**
+ * See `ApplicationsSettingsPanel`'s doc comment above `PropertyScopeRow` —
+ * the same standalone-host `propertyOptions` gap applies here and is
+ * likewise not fixable from this file.
+ */
 export function LeaseSettingsPanel({
   automation,
   loading,
@@ -453,55 +631,62 @@ export function LeaseSettingsPanel({
   teamMembers?: WorkAssignmentTeamMember[];
   reminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
 }) {
+  const disabled = loading || saving;
+  const LEASE_TOGGLE_ROWS = [
+    {
+      step: "autoGenerateLease" as const,
+      label: "Auto-generate the lease on approval",
+      meta: "Build the lease document as soon as an application is approved.",
+    },
+    {
+      step: "autoSendLease" as const,
+      label: "Auto-send the lease to the resident",
+      meta: "Send the generated lease for signature when it is ready.",
+    },
+  ];
+
   return (
     <div className="space-y-6">
-      {hidePropertyField ? null : (
-        <ManagerSettingsPropertyField
-          propertyOptions={propertyOptions}
-          propertyId={propertyId}
-          onPropertyIdChange={onPropertyIdChange}
-          disabled={loading || saving || propertyOptions.length === 0}
+      <PortalSettingsSection
+        title="Lease documents"
+        description="After you approve an application, PropLane can build and send the lease for you. Every safety check that applies when you do this manually still applies. The landlord named on generated leases comes from your full name in Settings → Profile."
+        action={<PortalSettingsScopeTag>{propertyScopeTagLabel(propertyId ? 1 : 0)}</PortalSettingsScopeTag>}
+      >
+        <PortalSettingsGroup>
+          {hidePropertyField ? null : (
+            <PropertyScopeRow
+              multiSelect={false}
+              propertyOptions={propertyOptions}
+              selectedIds={propertyId ? [propertyId] : []}
+              onPropertyIdChange={onPropertyIdChange}
+              disabled={disabled || propertyOptions.length === 0}
+            />
+          )}
+          {LEASE_TOGGLE_ROWS.map(({ step, label, meta }) => (
+            <PortalSettingsRow key={step} label={label} meta={meta}>
+              <PortalSettingsToggle
+                checked={automation[step]}
+                onChange={(next) => onAutomationChange({ ...automation, [step]: next })}
+                label={label}
+                disabled={disabled}
+                dataAttr={`manager-application-automation-${step}`}
+              />
+            </PortalSettingsRow>
+          ))}
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+
+      <PortalSettingsSection
+        title="Reminders"
+        description="Nudge residents to sign, or alert yourself when a lease needs attention."
+        action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+      >
+        <LeaseRemindersSettingsBundle
+          teamMembers={teamMembers}
+          formRef={reminderFormRef}
+          disabled={loading || saving}
         />
-      )}
-      <p className="text-xs text-muted">
-        After you approve an application, PropLane can build and send the lease for you. Every safety check
-        that applies when you do this manually still applies. The landlord named on generated leases comes
-        from your full name in Settings → Profile.
-      </p>
-      {(
-        [
-          {
-            step: "autoGenerateLease" as const,
-            label: "Auto-generate the lease on approval",
-            hint: "Build the lease document as soon as an application is approved.",
-          },
-          {
-            step: "autoSendLease" as const,
-            label: "Auto-send the lease to the resident",
-            hint: "Send the generated lease for signature when it is ready.",
-          },
-        ] as const
-      ).map(({ step, label, hint }) => (
-        <label key={step} className="flex items-start gap-3">
-          <input
-            type="checkbox"
-            className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
-            checked={automation[step]}
-            disabled={loading || saving}
-            data-attr={`manager-application-automation-${step}`}
-            onChange={(e) => onAutomationChange({ ...automation, [step]: e.target.checked })}
-          />
-          <span className="min-w-0">
-            <span className="block text-[13px] font-medium text-foreground">{label}</span>
-            <span className="block text-xs text-muted">{hint}</span>
-          </span>
-        </label>
-      ))}
-      <LeaseRemindersSettingsBundle
-        teamMembers={teamMembers}
-        formRef={reminderFormRef}
-        disabled={loading || saving}
-      />
+      </PortalSettingsSection>
     </div>
   );
 }
@@ -520,11 +705,17 @@ export function ServicesSettingsPanel({
   useReportSettingsPanelFooter(onFooterReady, null);
 
   return (
-    <ServiceRemindersSettingsBundle
-      teamMembers={teamMembers}
-      workOrderFormRef={workOrderReminderFormRef}
-      serviceOrderFormRef={serviceOrderReminderFormRef}
-    />
+    <PortalSettingsSection
+      title="Service reminders"
+      description="Reminders before a scheduled service visit or an add-on service return date."
+      action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+    >
+      <ServiceRemindersSettingsBundle
+        teamMembers={teamMembers}
+        workOrderFormRef={workOrderReminderFormRef}
+        serviceOrderFormRef={serviceOrderReminderFormRef}
+      />
+    </PortalSettingsSection>
   );
 }
 
@@ -556,11 +747,17 @@ export function InspectionsSettingsPanel({
   useReportSettingsPanelFooter(onFooterReady, null);
 
   return (
-    <InspectionRemindersSettingsBundle
-      teamMembers={teamMembers}
-      dueFormRef={dueReminderFormRef}
-      reviewFormRef={reviewReminderFormRef}
-    />
+    <PortalSettingsSection
+      title="Inspection reminders"
+      description="Reminders around a move-in or move-out condition report."
+      action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+    >
+      <InspectionRemindersSettingsBundle
+        teamMembers={teamMembers}
+        dueFormRef={dueReminderFormRef}
+        reviewFormRef={reviewReminderFormRef}
+      />
+    </PortalSettingsSection>
   );
 }
 
@@ -576,24 +773,117 @@ export function BookingsSettingsPanel({
   useReportSettingsPanelFooter(onFooterReady, null);
 
   return (
-    <div className="space-y-4">
+    <PortalSettingsSection
+      title="Booking reminders"
+      description="Nudge yourself before a booking on your calendar. An imported channel booking carries no guest contact, so there is no resident-facing reminder here."
+      action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+    >
       <ManagerReminderRuleSettingsPanel
         kind="booking"
         audienceMode="manager"
-        sectionTitle="Booking reminders"
         teamMembers={teamMembers}
         formRef={reminderFormRef}
       />
-    </div>
+    </PortalSettingsSection>
   );
 }
 
+/**
+ * Resident settings has no controls of its own today: portfolio-wide payment
+ * reminder presets live under Payments settings, and a single household's
+ * reminders are customized from that resident's own Payments tab — there is
+ * no portfolio-wide resident preference to hold on this module yet. Redrawn
+ * to say that plainly on the kit (a scope tag plus two pointer rows) rather
+ * than leave an unexplained blank panel. Revisit this once a real
+ * resident-scoped preference exists to configure.
+ */
 export function ResidentSettingsPanel() {
   return (
-    <p className="text-sm text-muted">
-      Portfolio-wide payment reminder presets live under Payments settings. To customize reminders for one
-      household, open that resident and use Reminders on their Payments tab.
-    </p>
+    <PortalSettingsSection
+      title="Where resident settings live"
+      description="This module has no settings of its own yet — resident-facing reminders live with the settings they belong to."
+      action={<PortalSettingsScopeTag variant="muted">Informational</PortalSettingsScopeTag>}
+    >
+      <PortalSettingsGroup>
+        <PortalSettingsRow
+          label="Payment reminder presets"
+          meta="Portfolio-wide payment reminder presets live under Payments settings."
+        />
+        <PortalSettingsRow
+          label="One household's reminders"
+          meta="Open that resident and use Reminders on their Payments tab to customize just their household."
+        />
+      </PortalSettingsGroup>
+    </PortalSettingsSection>
+  );
+}
+
+/** Days of notice a stepper will accept — 0 keeps same-day tours open; 30 mirrors `normalizeTourNoticeDays`'s own cap. */
+const TOUR_NOTICE_MIN_DAYS = 0;
+const TOUR_NOTICE_MAX_DAYS = 30;
+
+/**
+ * −/+ stepper for `tourNoticeDays`. A real `<input type="number">` drives the
+ * value (native accessible name + value, no hand-rolled `aria-valuenow`
+ * bookkeeping to keep in sync), flanked by icon buttons that nudge it by one
+ * day; typing a value directly still works and is clamped the same way.
+ */
+function TourNoticeStepper({
+  value,
+  onChange,
+  disabled,
+  dataAttr,
+}: {
+  value: number;
+  onChange: (next: number) => void;
+  disabled?: boolean;
+  dataAttr: string;
+}) {
+  const clamp = (n: number) => Math.min(TOUR_NOTICE_MAX_DAYS, Math.max(TOUR_NOTICE_MIN_DAYS, Math.round(n)));
+  const commit = (n: number) => {
+    if (!Number.isFinite(n)) return;
+    onChange(clamp(n));
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        aria-label="Decrease notice required"
+        disabled={disabled || value <= TOUR_NOTICE_MIN_DAYS}
+        onClick={() => commit(value - 1)}
+        data-attr={`${dataAttr}-decrement`}
+        className="grid size-8 shrink-0 place-items-center rounded-full border border-border bg-card text-foreground transition hover:border-primary/40 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <Minus className="size-3.5" aria-hidden />
+      </button>
+      <div className="flex flex-col items-center">
+        <input
+          type="number"
+          inputMode="numeric"
+          aria-label="Notice required"
+          min={TOUR_NOTICE_MIN_DAYS}
+          max={TOUR_NOTICE_MAX_DAYS}
+          step={1}
+          value={value}
+          disabled={disabled}
+          data-attr={dataAttr}
+          onChange={(e) => commit(Number(e.target.value))}
+          className="h-8 w-14 rounded-lg border border-border bg-card text-center text-sm font-semibold tabular-nums text-foreground [appearance:textfield] focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        />
+        <span className="mt-0.5 text-[10px] leading-none text-muted">{tourNoticeDaysLabel(value)}</span>
+      </div>
+      <button
+        type="button"
+        aria-label="Increase notice required"
+        disabled={disabled || value >= TOUR_NOTICE_MAX_DAYS}
+        onClick={() => commit(value + 1)}
+        data-attr={`${dataAttr}-increment`}
+        className="grid size-8 shrink-0 place-items-center rounded-full border border-border bg-card text-foreground transition hover:border-primary/40 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <Plus className="size-3.5" aria-hidden />
+      </button>
+    </div>
   );
 }
 
@@ -612,6 +902,7 @@ export function TourSettingsPanel({
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
+  const reportSaveStatus = useReportSettingsSaveStatus();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [tourSettings, setTourSettings] = useState<ManagerTourSettings>(DEFAULT_MANAGER_TOUR_SETTINGS);
@@ -686,7 +977,9 @@ export function TourSettingsPanel({
       automation.tourReminderMinutesBefore,
     );
     if (minutesBeforeList.length === 0) {
-      showToast("Choose at least one tour reminder timing.");
+      const message = "Choose at least one tour reminder timing.";
+      showToast(message);
+      reportSaveStatus({ type: "failure", reason: message });
       return false;
     }
     if (
@@ -694,22 +987,30 @@ export function TourSettingsPanel({
       automation.tourReminderDeliverViaEmail === false &&
       automation.tourReminderDeliverViaSms !== true
     ) {
-      showToast("Choose at least one channel under Tour reminders → Send via.");
+      const message = "Choose at least one channel under Tour reminders → Send via.";
+      showToast(message);
+      reportSaveStatus({ type: "failure", reason: message });
       return false;
     }
     setSaving(true);
+    reportSaveStatus({ type: "start" });
     try {
       if (demo) {
         if (!options?.silent) showToast("Tour settings saved (demo).");
         onSaved?.();
+        reportSaveStatus({ type: "success" });
         return true;
       }
+      // `keepalive` on both: a hard page unload (a real reload/close, not a same-app route
+      // change) can abort an ordinary in-flight fetch before it lands — exactly the write the
+      // `pagehide`/`visibilitychange` flush in `settings-module-page.tsx` exists to send.
       const [tourRes, autoRes] = await Promise.all([
         fetch("/api/portal/manager-tour-settings", {
           method: "PATCH",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(tourSettings),
+          keepalive: true,
         }),
         fetch("/api/portal/automation-settings", {
           method: "PATCH",
@@ -725,6 +1026,7 @@ export function TourSettingsPanel({
             tourReminderDeliverViaInbox: automation.tourReminderDeliverViaInbox,
             templates: { tourReminder: automation.templates.tourReminder },
           }),
+          keepalive: true,
         }),
       ]);
       if (!tourRes.ok || !autoRes.ok) throw new Error("Could not save calendar settings.");
@@ -733,14 +1035,17 @@ export function TourSettingsPanel({
       setSavedAutomationSnapshot(tourAutomationSnapshot(automation));
       if (!options?.silent) showToast("Tour settings saved.");
       onSaved?.();
+      reportSaveStatus({ type: "success" });
       return true;
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not save tour settings.");
+      const message = e instanceof Error ? e.message : "Could not save tour settings.";
+      showToast(message);
+      reportSaveStatus({ type: "failure", reason: message });
       return false;
     } finally {
       setSaving(false);
     }
-  }, [automation, demo, onSaved, showToast, tourSettings]);
+  }, [automation, demo, onSaved, reportSaveStatus, showToast, tourSettings]);
 
   const saveIfDirty = useCallback(async (): Promise<boolean> => {
     if (!isDirty) return true;
@@ -752,108 +1057,146 @@ export function TourSettingsPanel({
   // Autosaves on close — no explicit Save button in the modal footer.
   useReportSettingsPanelFooter(onFooterReady, null);
 
+  /**
+   * Per-control autosave for the redrawn rows below: the notice stepper and
+   * the auto-confirm toggle both write straight into `tourSettings` /
+   * `automation` via their own `onChange`, and this debounced effect turns
+   * that dirty state into a save shortly after — no Save button. `saveIfDirty`
+   * above is unchanged and is still what the flush-before-close path in
+   * `SettingsModulePage` calls; this effect is just an earlier caller of the
+   * same `save`.
+   */
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (loading || !isDirty) return;
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(() => {
+      void save({ silent: true });
+    }, 600);
+    return () => {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    };
+  }, [isDirty, loading, save]);
+
+  // A debounced write still pending when this module goes away (tab switch the host didn't
+  // explicitly flush, or leaving Settings outright) must still land — see
+  // `useFlushSettingsAutosaveOnUnmount`'s own doc comment for why this has to live here and not
+  // one level up.
+  useFlushSettingsAutosaveOnUnmount(save, isDirty);
+
   if (loading) return <p className="text-sm text-muted">Loading…</p>;
+
+  const disabled = saving;
+  const noticeDays = normalizeTourNoticeDays(tourSettings.tourNoticeDays);
 
   return (
     <>
-      <div className="space-y-5">
-        <div className="space-y-2">
-          <FieldSingleSelect
-            label="Notice required"
-            value={String(tourSettings.tourNoticeDays)}
-            options={TOUR_NOTICE_DAY_SELECT_OPTIONS.map((opt) => ({
-              value: String(opt.value),
-              label: opt.label,
-            }))}
-            onChange={(value) =>
-              setTourSettings((prev) => ({
-                ...prev,
-                tourNoticeDays: Number.parseInt(value, 10) || 0,
-              }))
-            }
-            dataAttr="manager-tour-notice-days"
-          />
-        </div>
+      <div className="space-y-6">
+        <PortalSettingsSection
+          title="Tour booking"
+          description="How prospects book a tour on your calendar."
+          action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+        >
+          <PortalSettingsGroup>
+            <PortalSettingsRow
+              label="Notice required"
+              meta="Tours can't be booked less than this many days out — same-day requests stay hidden until this window passes."
+            >
+              <TourNoticeStepper
+                value={noticeDays}
+                disabled={disabled}
+                dataAttr="manager-tour-notice-days"
+                onChange={(next) => setTourSettings((prev) => ({ ...prev, tourNoticeDays: next }))}
+              />
+            </PortalSettingsRow>
+            <PortalSettingsRow
+              label="Auto confirm tours"
+              meta="Tours book straight into your calendar without asking you first."
+            >
+              <PortalSettingsToggle
+                checked={automation.proposeTourConfirmations}
+                onChange={(next) => setAutomation((prev) => ({ ...prev, proposeTourConfirmations: next }))}
+                label="Auto confirm tours"
+                disabled={disabled}
+                dataAttr="manager-tour-auto-confirm-proposals"
+              />
+            </PortalSettingsRow>
+          </PortalSettingsGroup>
+        </PortalSettingsSection>
 
-        <label className="flex items-start gap-3 border-t border-border pt-4">
-          <input
-            type="checkbox"
-            className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
-            checked={automation.proposeTourConfirmations}
-            data-attr="manager-tour-auto-confirm-proposals"
-            onChange={(e) => setAutomation((prev) => ({ ...prev, proposeTourConfirmations: e.target.checked }))}
-          />
-          <span className="min-w-0 text-[13px] font-medium text-foreground">Auto confirm tours</span>
-        </label>
-
-        <div className="space-y-4 border-t border-border pt-4">
-          <p className="text-[13.5px] font-semibold text-foreground">Tour reminders</p>
-          <ReminderTypePicker
-            value={tourReminderType}
-            options={[
-              {
-                value: "guest",
-                label: "Guest tour reminders",
-                description: "Sent to prospects before their scheduled tour.",
-              },
-              {
-                value: "manager",
-                label: "Your tour reminders",
-                description: "Nudges you before tours on your calendar.",
-              },
-            ]}
-            onChange={setTourReminderType}
-            dataAttr="tour-reminder-type"
-          />
-          {tourReminderType === "guest" ? (
-            <div className="space-y-3">
-              <TourReminderTimingSelect
-                minutesBeforeList={normalizeTourReminderMinutesBeforeList(
-                  automation.tourReminderMinutesBeforeList,
-                  automation.tourReminderMinutesBefore,
-                )}
-                onChangeMinutesList={(minutesBeforeList) =>
-                  setAutomation((prev) => ({
-                    ...prev,
-                    tourReminderMinutesBeforeList: minutesBeforeList,
-                    tourReminderMinutesBefore: minutesBeforeList.length
-                      ? Math.min(...minutesBeforeList)
-                      : prev.tourReminderMinutesBefore,
-                  }))
-                }
-              />
-              <ReminderSendViaField
-                showProplaneChannel
-                viaInbox={automation.tourReminderDeliverViaInbox !== false}
-                viaEmail={automation.tourReminderDeliverViaEmail !== false}
-                viaSms={automation.tourReminderDeliverViaSms === true}
-                smsLabel="SMS (when guest opted in)"
-                onChange={({ viaEmail, viaSms, viaInbox }) =>
-                  setAutomation((prev) => ({
-                    ...prev,
-                    tourReminderDeliverViaInbox: viaInbox !== false,
-                    tourReminderDeliverViaEmail: viaEmail,
-                    tourReminderDeliverViaSms: viaSms,
-                  }))
-                }
-                dataAttr="tour-reminder-send-via"
-              />
-              <ReminderMessagePreviewCard
-                subject={templatePreview.subject}
-                body={templatePreview.body}
-                onUpdate={() => setMessageModalOpen(true)}
-                dataAttr="tour-reminder-update-message"
-              />
-            </div>
-          ) : (
-            <ManagerReminderRuleSettingsPanel
-              kind="tour"
-              audienceMode="manager"
-              teamMembers={teamMembers}
-              formRef={managerReminderFormRef}
+        <PortalSettingsSection
+          title="Tour reminders"
+          description="Nudge either the prospect before their tour, or yourself before tours on your calendar."
+          action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+        >
+          <div className="space-y-4">
+            <ReminderTypePicker
+              value={tourReminderType}
+              options={[
+                {
+                  value: "guest",
+                  label: "Guest tour reminders",
+                  description: "Sent to prospects before their scheduled tour.",
+                },
+                {
+                  value: "manager",
+                  label: "Your tour reminders",
+                  description: "Nudges you before tours on your calendar.",
+                },
+              ]}
+              onChange={setTourReminderType}
+              dataAttr="tour-reminder-type"
             />
-          )}
-        </div>
+            {tourReminderType === "guest" ? (
+              <div className="space-y-3">
+                <TourReminderTimingSelect
+                  minutesBeforeList={normalizeTourReminderMinutesBeforeList(
+                    automation.tourReminderMinutesBeforeList,
+                    automation.tourReminderMinutesBefore,
+                  )}
+                  onChangeMinutesList={(minutesBeforeList) =>
+                    setAutomation((prev) => ({
+                      ...prev,
+                      tourReminderMinutesBeforeList: minutesBeforeList,
+                      tourReminderMinutesBefore: minutesBeforeList.length
+                        ? Math.min(...minutesBeforeList)
+                        : prev.tourReminderMinutesBefore,
+                    }))
+                  }
+                />
+                <ReminderSendViaField
+                  showProplaneChannel
+                  viaInbox={automation.tourReminderDeliverViaInbox !== false}
+                  viaEmail={automation.tourReminderDeliverViaEmail !== false}
+                  viaSms={automation.tourReminderDeliverViaSms === true}
+                  smsLabel="SMS (when guest opted in)"
+                  onChange={({ viaEmail, viaSms, viaInbox }) =>
+                    setAutomation((prev) => ({
+                      ...prev,
+                      tourReminderDeliverViaInbox: viaInbox !== false,
+                      tourReminderDeliverViaEmail: viaEmail,
+                      tourReminderDeliverViaSms: viaSms,
+                    }))
+                  }
+                  dataAttr="tour-reminder-send-via"
+                />
+                <ReminderMessagePreviewCard
+                  subject={templatePreview.subject}
+                  body={templatePreview.body}
+                  onUpdate={() => setMessageModalOpen(true)}
+                  dataAttr="tour-reminder-update-message"
+                />
+              </div>
+            ) : (
+              <ManagerReminderRuleSettingsPanel
+                kind="tour"
+                audienceMode="manager"
+                teamMembers={teamMembers}
+                formRef={managerReminderFormRef}
+              />
+            )}
+          </div>
+        </PortalSettingsSection>
       </div>
 
       <TourInterestSettings />
@@ -915,54 +1258,67 @@ export function PaymentsSettingsPanel({
 
   if (mode === "outgoing") {
     return (
-      <OutgoingPaymentRemindersSettingsBundle
-        teamMembers={teamMembers}
-        formRef={outgoingReminderFormRef}
-      />
+      <PortalSettingsSection
+        title="Outgoing payment reminders"
+        description="Nudge yourself before a bill you owe is due — never sent to payees."
+        action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+      >
+        <OutgoingPaymentRemindersSettingsBundle
+          teamMembers={teamMembers}
+          formRef={outgoingReminderFormRef}
+        />
+      </PortalSettingsSection>
     );
   }
 
   return (
-    <IncomingPaymentRemindersSettingsBundle
-      teamMembers={teamMembers}
-      onSaved={onSaved}
-      formRef={formRef}
-    />
+    <PortalSettingsSection
+      title="Rent reminders"
+      description="Remind residents before rent is due, and alert yourself when it's still unpaid."
+      action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+    >
+      <IncomingPaymentRemindersSettingsBundle
+        teamMembers={teamMembers}
+        onSaved={onSaved}
+        formRef={formRef}
+      />
+    </PortalSettingsSection>
   );
 }
 
+/**
+ * Communication used to carry a second "Send via for" editor covering seven
+ * categories (default, messages, leases, applications, maintenance, payment
+ * reminders, tour reminders) that duplicated the channel choice each of
+ * those events already exposes at its own reminder rule (the inline Inbox /
+ * Email / Text cells on every `ManagerReminderRuleSettingsPanel` audience
+ * row) or, for the guest tour reminder, directly on `TourSettingsPanel`'s own
+ * reminder card. Two screens editing one setting meant they could silently
+ * disagree, so that editor is gone — what is left here (AI drafts, the work
+ * number) is genuinely Communication-specific. Nothing else in this file
+ * read `activeSendViaSectionId`/`patchDeliverViaForKind`, and the deleted
+ * editor was the only writer of the `…DeliverViaEmail/Sms/Inbox` fields for
+ * those seven categories from this screen — their stored values are simply
+ * no longer editable from Communication, and `anySmsEnabled` below still
+ * reads them (unchanged) to decide whether the work-number hint applies.
+ */
 export function CommunicationSettingsPanel({
   onSaved,
   onFooterReady,
+  formRef,
 }: {
   onSaved?: () => void;
   onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
+  formRef?: React.Ref<CommunicationSettingsHandle>;
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
+  const reportSaveStatus = useReportSettingsSaveStatus();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<ManagerAutomationSettings>(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
+  const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(DEFAULT_MANAGER_AUTOMATION_SETTINGS));
   const [smsSetup, setSmsSetup] = useState<{ phone: string | null; canSend: boolean } | null>(null);
-  const [activeSendViaSectionId, setActiveSendViaSectionId] = useState<
-    (typeof MANAGER_COMMUNICATION_SEND_VIA_SECTIONS)[number]["id"]
-  >(MANAGER_COMMUNICATION_SEND_VIA_SECTIONS[0].id);
-
-  const activeSendViaSection = useMemo(
-    () =>
-      MANAGER_COMMUNICATION_SEND_VIA_SECTIONS.find((section) => section.id === activeSendViaSectionId) ??
-      MANAGER_COMMUNICATION_SEND_VIA_SECTIONS[0],
-    [activeSendViaSectionId],
-  );
-
-  const sendViaSectionOptions = useMemo(
-    () =>
-      MANAGER_COMMUNICATION_SEND_VIA_SECTIONS.map((section) => ({
-        value: section.id,
-        label: section.label,
-      })),
-    [],
-  );
 
   const anySmsEnabled = useMemo(
     () =>
@@ -980,6 +1336,7 @@ export function CommunicationSettingsPanel({
         if (demo) {
           if (!cancelled) {
             setDraft(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
+            setSavedSnapshot(JSON.stringify(DEFAULT_MANAGER_AUTOMATION_SETTINGS));
             setSmsSetup(null);
           }
           return;
@@ -992,7 +1349,11 @@ export function CommunicationSettingsPanel({
         ]);
         if (!settingsRes.ok) throw new Error("Could not load communication settings.");
         const body = (await settingsRes.json()) as { settings: ManagerAutomationSettings };
-        if (!cancelled) setDraft(normalizeManagerAutomationSettings(body.settings));
+        const nextSettings = normalizeManagerAutomationSettings(body.settings);
+        if (!cancelled) {
+          setDraft(nextSettings);
+          setSavedSnapshot(JSON.stringify(nextSettings));
+        }
         if (!cancelled) {
           const status =
             numberRes && numberRes.ok
@@ -1018,148 +1379,123 @@ export function CommunicationSettingsPanel({
     };
   }, [demo, showToast]);
 
-  const save = useCallback(async () => {
-    for (const section of MANAGER_COMMUNICATION_SEND_VIA_SECTIONS) {
-      const channels = deliverViaFromManagerSettings(draft, section.kind);
-      const allowsInbox = section.kind === "payment_reminder" || section.kind === "tour_reminder";
-      const hasChannel =
-        channels.viaEmail ||
-        channels.viaSms ||
-        (allowsInbox && channels.viaInbox !== false);
-      if (!hasChannel) {
-        showToast(`Choose at least one channel under ${section.label}.`);
-        return;
-      }
-    }
-    setSaving(true);
-    try {
-      if (demo) {
-        showToast("Communication settings saved (demo).");
+  const isDirty = useMemo(() => JSON.stringify(draft) !== savedSnapshot, [draft, savedSnapshot]);
+
+  const save = useCallback(
+    async (options?: { silent?: boolean }): Promise<boolean> => {
+      if (!isDirty) return true;
+      setSaving(true);
+      reportSaveStatus({ type: "start" });
+      try {
+        if (demo) {
+          setSavedSnapshot(JSON.stringify(draft));
+          if (!options?.silent) showToast("Communication settings saved (demo).");
+          onSaved?.();
+          reportSaveStatus({ type: "success" });
+          return true;
+        }
+        // Only the field this screen can still edit — the seven "Send via for"
+        // categories are no longer writable from here (see the doc comment above).
+        const res = await fetch("/api/portal/automation-settings", {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ inboxAiDraftAutoSend: draft.inboxAiDraftAutoSend }),
+          // A hard page unload can abort an ordinary in-flight fetch before it lands — exactly
+          // the write the `pagehide`/`visibilitychange` flush in `settings-module-page.tsx`
+          // exists to send.
+          keepalive: true,
+        });
+        const body = (await res.json().catch(() => ({}))) as {
+          settings?: ManagerAutomationSettings;
+          error?: string;
+        };
+        if (!res.ok) throw new Error(body.error ?? "Could not save communication settings.");
+        const next = body.settings ? normalizeManagerAutomationSettings(body.settings) : draft;
+        setDraft(next);
+        setSavedSnapshot(JSON.stringify(next));
+        window.dispatchEvent(new Event(PAYMENT_AUTOMATION_SETTINGS_EVENT));
+        if (!options?.silent) showToast("Communication settings saved.");
         onSaved?.();
-        return;
+        reportSaveStatus({ type: "success" });
+        return true;
+      } catch (e) {
+        // Unconditional — silent only suppresses the SUCCESS toast, never the
+        // failure one. A per-control autosave that fails must still surface.
+        const message = e instanceof Error ? e.message : "Could not save communication settings.";
+        showToast(message);
+        reportSaveStatus({ type: "failure", reason: message });
+        return false;
+      } finally {
+        setSaving(false);
       }
-      const res = await fetch("/api/portal/automation-settings", {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          inboxDefaultDeliverViaEmail: draft.inboxDefaultDeliverViaEmail,
-          inboxDefaultDeliverViaSms: draft.inboxDefaultDeliverViaSms,
-          messagesDeliverViaEmail: draft.messagesDeliverViaEmail,
-          messagesDeliverViaSms: draft.messagesDeliverViaSms,
-          leasesDeliverViaEmail: draft.leasesDeliverViaEmail,
-          leasesDeliverViaSms: draft.leasesDeliverViaSms,
-          applicationsDeliverViaEmail: draft.applicationsDeliverViaEmail,
-          applicationsDeliverViaSms: draft.applicationsDeliverViaSms,
-          maintenanceDeliverViaEmail: draft.maintenanceDeliverViaEmail,
-          maintenanceDeliverViaSms: draft.maintenanceDeliverViaSms,
-          paymentReminderDeliverViaEmail: draft.paymentReminderDeliverViaEmail,
-          paymentReminderDeliverViaSms: draft.paymentReminderDeliverViaSms,
-          paymentReminderDeliverViaInbox: draft.paymentReminderDeliverViaInbox,
-          tourReminderDeliverViaEmail: draft.tourReminderDeliverViaEmail,
-          tourReminderDeliverViaSms: draft.tourReminderDeliverViaSms,
-          tourReminderDeliverViaInbox: draft.tourReminderDeliverViaInbox,
-          inboxAiDraftAutoSend: draft.inboxAiDraftAutoSend,
-        }),
-      });
-      if (!res.ok) throw new Error("Could not save communication settings.");
-      window.dispatchEvent(new Event(PAYMENT_AUTOMATION_SETTINGS_EVENT));
-      showToast("Communication settings saved.");
-      onSaved?.();
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not save communication settings.");
-    } finally {
-      setSaving(false);
-    }
-  }, [demo, draft, onSaved, showToast]);
-
-  const triggerSave = useCallback(() => {
-    void save();
-  }, [save]);
-
-  const footerState = useMemo(
-    (): ManagerSettingsPanelFooter | null =>
-      loading
-        ? null
-        : {
-            saving,
-            onSave: triggerSave,
-            dataAttr: "communication-settings-save",
-          },
-    [loading, saving, triggerSave],
+    },
+    [demo, draft, isDirty, onSaved, reportSaveStatus, showToast],
   );
 
-  useReportSettingsPanelFooter(onFooterReady, footerState);
+  // `save` already checks `isDirty` itself, so it doubles directly as `saveIfDirty` — this is
+  // what makes the pending write survive the standalone page's flush-before-switch (`goToArea`)
+  // and the modal's `selectTab`/`closeAndSave`, not just this panel's own unmount.
+  const saveIfDirty = useCallback((): Promise<boolean> => save({ silent: true }), [save]);
+  useImperativeHandle(formRef, () => ({ saveIfDirty }), [saveIfDirty]);
+
+  // Autosaves on close — no explicit Save button in the footer.
+  useReportSettingsPanelFooter(onFooterReady, null);
+
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (loading || !isDirty) return;
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(() => {
+      void save({ silent: true });
+    }, 600);
+    return () => {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    };
+  }, [isDirty, loading, save]);
+
+  // A debounced write still pending when this module goes away (tab switch the host didn't
+  // explicitly flush, or leaving Settings outright) must still land — see
+  // `useFlushSettingsAutosaveOnUnmount`'s own doc comment for why this has to live here and not
+  // one level up.
+  useFlushSettingsAutosaveOnUnmount(save, isDirty);
 
   if (loading) return <p className="text-sm text-muted">Loading…</p>;
 
   return (
-    <div className="space-y-5">
+    <PortalSettingsSection
+      title="Inbox automation"
+      description="What is genuinely specific to Communication — per-event channel choice now lives with each event's own reminder."
+      action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+    >
+      <PortalSettingsGroup>
+        <PortalSettingsRow
+          label="Auto-send AI drafts"
+          meta="When PropLane AI finishes a draft reply, send it without waiting for Approve. The same toggle appears on each draft card in your inbox."
+        >
+          <PortalSettingsToggle
+            checked={draft.inboxAiDraftAutoSend}
+            onChange={(next) => setDraft((prev) => ({ ...prev, inboxAiDraftAutoSend: next }))}
+            label="Auto-send AI drafts"
+            disabled={saving}
+            dataAttr="communication-inbox-ai-draft-auto-send"
+          />
+        </PortalSettingsRow>
+      </PortalSettingsGroup>
       {smsSetup?.phone ? (
         <ManagerWorkNumberCopyControl
           phone={smsSetup.phone}
-          className="rounded-xl border border-border bg-accent/30 px-3 py-2.5"
+          className="mt-4 rounded-xl border border-border bg-accent/30 px-3 py-2.5"
           dataAttr="communication-work-number-copy"
         />
       ) : null}
-      <label className="flex items-start gap-3">
-        <input
-          type="checkbox"
-          className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
-          checked={draft.inboxAiDraftAutoSend}
-          onChange={(e) => {
-            setDraft((prev) => ({ ...prev, inboxAiDraftAutoSend: e.target.checked }));
-          }}
-          data-attr="communication-inbox-ai-draft-auto-send"
-        />
-        <span className="min-w-0">
-          <span className="block text-[13px] font-medium text-foreground">Auto-send AI drafts</span>
-          <span className="block text-xs text-muted">
-            When PropLane AI finishes a draft reply, send it without waiting for Approve. The same toggle appears on
-            each draft card in your inbox.
-          </span>
-        </span>
-      </label>
       <ManagerSmsWorkNumberHint
         show={anySmsEnabled && !(smsSetup?.canSend === true && Boolean(smsSetup?.phone))}
         phone={smsSetup?.phone ?? null}
         canSend={smsSetup?.canSend === true}
-        className="rounded-xl border border-border bg-accent/30 px-3 py-2.5"
+        className="mt-4 rounded-xl border border-border bg-accent/30 px-3 py-2.5"
       />
-      <div className="space-y-3 border-t border-border pt-4">
-        <FieldSingleSelect
-          label="Send via for"
-          value={activeSendViaSection.id}
-          options={sendViaSectionOptions}
-          onChange={(value) => {
-            const match = MANAGER_COMMUNICATION_SEND_VIA_SECTIONS.find((section) => section.id === value);
-            if (match) setActiveSendViaSectionId(match.id);
-          }}
-          dataAttr="communication-send-via-category"
-        />
-        <ReminderSendViaField
-          showProplaneChannel={
-            activeSendViaSection.kind === "payment_reminder" || activeSendViaSection.kind === "tour_reminder"
-          }
-          viaInbox={deliverViaFromManagerSettings(draft, activeSendViaSection.kind).viaInbox}
-          viaEmail={deliverViaFromManagerSettings(draft, activeSendViaSection.kind).viaEmail}
-          viaSms={deliverViaFromManagerSettings(draft, activeSendViaSection.kind).viaSms}
-          smsLabel={
-            activeSendViaSection.kind === "payment_reminder"
-              ? "SMS (when resident opted in)"
-              : activeSendViaSection.kind === "tour_reminder"
-                ? "SMS (when guest opted in)"
-                : "SMS"
-          }
-          onChange={({ viaEmail, viaSms, viaInbox }) =>
-            setDraft((prev) =>
-              patchDeliverViaForKind(prev, activeSendViaSection.kind, { viaEmail, viaSms, viaInbox }),
-            )
-          }
-          dataAttr={`communication-${activeSendViaSection.id}-send-via`}
-        />
-      </div>
-    </div>
+    </PortalSettingsSection>
   );
 }
 

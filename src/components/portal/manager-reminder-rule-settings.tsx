@@ -23,14 +23,25 @@ import {
   reminderSubjectSettingsMeta,
   type ReminderAudienceMode,
 } from "@/lib/reminders/subject-settings-meta";
+import { fixedRuleFields, isRuleFieldFixed } from "@/lib/reminders/fixed-rule-fields";
 import type { WorkAssignmentTeamMember } from "@/hooks/use-work-assignment-directory";
 import {
   ReminderMessagePreviewCard,
   ReminderMessageUpdateModal,
-  ReminderSendViaField,
   ReminderTimingMultiSelect,
   REMINDER_FIELD_LABEL_CLASS,
 } from "@/components/portal/reminder-settings-shared";
+import {
+  PortalSettingsGroup,
+  PortalSettingsLockedRow,
+  PortalSettingsRow,
+  PortalSettingsToggle,
+} from "@/components/portal/portal-settings-ui";
+import {
+  useFlushSettingsAutosaveOnUnmount,
+  useReportSettingsSaveStatus,
+} from "@/components/portal/settings-save-status-context";
+import { cn } from "@/lib/utils";
 
 export type ManagerReminderRuleSettingsHandle = {
   saveIfDirty: () => Promise<boolean>;
@@ -50,6 +61,91 @@ function resolveTemplate(
   return fillReminderTemplate(base, meta.previewContext);
 }
 
+/**
+ * One compact pill in the inline channel cluster on an audience row. Inbox is
+ * rendered permanently active and non-interactive — it is the durable record
+ * (`ReminderRule.inbox` docs in `rules.ts`) and this control is the one place
+ * that guarantee is enforced in the UI, so it can never be switched off here
+ * regardless of what a caller passes for `active`.
+ */
+function ReminderChannelCell({
+  active,
+  label,
+  locked,
+  disabled,
+  onToggle,
+  dataAttr,
+}: {
+  active: boolean;
+  label: string;
+  locked?: boolean;
+  disabled?: boolean;
+  onToggle?: () => void;
+  dataAttr: string;
+}) {
+  const inert = locked || !onToggle;
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={active}
+      aria-label={label}
+      disabled={disabled || inert}
+      data-attr={dataAttr}
+      onClick={onToggle}
+      className={cn(
+        "rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-[-0.01em] transition-colors",
+        active ? "border-primary/25 bg-primary/10 text-primary" : "border-border bg-card text-muted",
+        disabled || inert ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:border-primary/30",
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
+/**
+ * Inbox / Email / Text as compact inline cells. All three channels are
+ * rule-wide (one `inbox`/`email`/`sms` triple on `ReminderRule`, not one per
+ * audience — see `rules.ts`), so this must be rendered exactly ONCE per rule,
+ * in its own "Send via" row below the audience list, never inside an
+ * individual audience row. Drawing it per audience row previously told the
+ * manager the channels were independent per audience when they are actually
+ * one shared value — toggling "You → Text" silently flipped "Resident → Text"
+ * too. Do not reintroduce a per-audience instance of this component.
+ */
+function ReminderAudienceChannelCells({
+  rule,
+  disabled,
+  dataAttr,
+  onChange,
+}: {
+  rule: ReminderRule;
+  disabled?: boolean;
+  dataAttr: string;
+  onChange: (next: { email: boolean; sms: boolean }) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Delivery channels">
+      <ReminderChannelCell active label="Inbox" locked disabled={disabled} dataAttr={`${dataAttr}-inbox`} />
+      <ReminderChannelCell
+        active={rule.email}
+        label="Email"
+        disabled={disabled}
+        onToggle={() => onChange({ email: !rule.email, sms: rule.sms })}
+        dataAttr={`${dataAttr}-email`}
+      />
+      <ReminderChannelCell
+        active={rule.sms}
+        label="Text"
+        disabled={disabled}
+        onToggle={() => onChange({ email: rule.email, sms: !rule.sms })}
+        dataAttr={`${dataAttr}-sms`}
+      />
+    </div>
+  );
+}
+
 export function ManagerReminderRuleSettingsPanel({
   kind,
   audienceMode,
@@ -67,6 +163,7 @@ export function ManagerReminderRuleSettingsPanel({
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
+  const reportSaveStatus = useReportSettingsSaveStatus();
   const meta = reminderSubjectSettingsMeta(kind);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -127,10 +224,12 @@ export function ManagerReminderRuleSettingsPanel({
     async (options?: { silent?: boolean }): Promise<boolean> => {
       if (!isDirty) return true;
       setSaving(true);
+      reportSaveStatus({ type: "start" });
       try {
         if (demo) {
           setSavedSnapshot(ruleSnapshot(rule));
           if (!options?.silent) showToast("Reminder settings saved (demo).");
+          reportSaveStatus({ type: "success" });
           return true;
         }
         const res = await fetch("/api/portal/reminder-settings", {
@@ -138,6 +237,10 @@ export function ManagerReminderRuleSettingsPanel({
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ kind, rule }),
+          // A hard page unload can abort an ordinary in-flight fetch before it lands — exactly
+          // the write the `pagehide`/`visibilitychange` flush in `settings-module-page.tsx`
+          // exists to send.
+          keepalive: true,
         });
         const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
         if (!res.ok) throw new Error(body.error ?? "Could not save reminder settings.");
@@ -146,24 +249,54 @@ export function ManagerReminderRuleSettingsPanel({
         setRule(next);
         setSavedSnapshot(ruleSnapshot(next));
         if (!options?.silent) showToast("Reminder settings saved.");
+        reportSaveStatus({ type: "success" });
         return true;
       } catch (e) {
-        showToast(e instanceof Error ? e.message : "Could not save reminder settings.");
+        // Unconditional — silent only suppresses the SUCCESS toast, never the
+        // failure one. A per-control autosave that fails must still surface.
+        const message = e instanceof Error ? e.message : "Could not save reminder settings.";
+        showToast(message);
+        reportSaveStatus({ type: "failure", reason: message });
         return false;
       } finally {
         setSaving(false);
       }
     },
-    [demo, isDirty, kind, rule, showToast],
+    [demo, isDirty, kind, reportSaveStatus, rule, showToast],
   );
 
   const saveIfDirty = useCallback(async (): Promise<boolean> => save({ silent: true }), [save]);
 
   useImperativeHandle(formRef, () => ({ saveIfDirty }), [saveIfDirty]);
 
-  const showManager = audienceMode === "manager" || audienceMode === "both";
-  const showCounterparty = audienceMode === "counterparty" || audienceMode === "both";
-  const showTeam = teamMembers.length > 1;
+  /**
+   * Per-control autosave: every row's `onChange` already updates `rule`
+   * directly (`patchRule`), and this effect turns that into a save shortly
+   * after — no Save button. Debounced so a burst of edits (e.g. toggling two
+   * channel cells back to back) collapses into one PATCH rather than one per
+   * click. `saveIfDirty` (above) still exists and is still what
+   * `SettingsModulePage`'s flush-before-close calls — that contract is
+   * unchanged; this effect is a second, earlier caller of the same `save`.
+   */
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (loading || !isDirty) return;
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(() => {
+      void save({ silent: true });
+    }, 600);
+    return () => {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    };
+  }, [isDirty, loading, save]);
+
+  // A debounced write still pending when this panel goes away (tab switch the host didn't
+  // explicitly flush, or leaving Settings outright) must still land — see
+  // `useFlushSettingsAutosaveOnUnmount`'s own doc comment for why this has to live here and not
+  // one level up.
+  useFlushSettingsAutosaveOnUnmount(save, isDirty);
+
+  const showTeamOption = teamMembers.length > 1;
 
   if (!meta) {
     return <p className="text-sm text-muted">Reminder settings are not available for this subject yet.</p>;
@@ -171,139 +304,181 @@ export function ManagerReminderRuleSettingsPanel({
 
   if (loading) return <p className="text-sm text-muted">Loading…</p>;
 
+  const fixed = fixedRuleFields(kind);
+  const timingsFixed = isRuleFieldFixed(kind, "timings");
+  const audienceFixed = isRuleFieldFixed(kind, "audience");
+  const channelsFixed = isRuleFieldFixed(kind, "channels");
+
+  const showManagerAudience = audienceMode === "manager" || audienceMode === "both";
+  const showCounterpartyAudience = audienceMode === "counterparty" || audienceMode === "both";
+
+  const managerLockedReason = `This reminder doesn't notify you — it's meant for the ${meta.notifyCounterpartyLabel.toLowerCase()} only.`;
+  const counterpartyLockedReason = `This reminder stays internal — the ${meta.notifyCounterpartyLabel.toLowerCase()} is never notified for it.`;
+  const teamLockedReason = "Add co-managers under Team settings to notify them here.";
+
+  const channelDataAttr = `reminder-rule-${kind}-channels`;
+  const onChannelChange = ({ email, sms }: { email: boolean; sms: boolean }) =>
+    // `inbox: true` — the durable record cannot be switched off from this panel;
+    // see `ReminderAudienceChannelCells` / `ReminderChannelCell` above.
+    patchRule({ inbox: true, email, sms });
+
   return (
     <>
       <div className="space-y-4">
         {sectionTitle ? <p className="text-[13.5px] font-semibold text-foreground">{sectionTitle}</p> : null}
 
-        <label className="flex items-start gap-3">
-          <input
-            type="checkbox"
-            className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
-            checked={rule.enabled}
-            disabled={disabled}
-            data-attr={`reminder-rule-${kind}-enabled`}
-            onChange={(e) => patchRule({ enabled: e.target.checked })}
-          />
-          <span className="min-w-0">
-            <span className="block text-[13px] font-medium text-foreground">Send reminders</span>
-            <span className="block text-xs text-muted">Automated nudges relative to {meta.timingLabel.toLowerCase()}.</span>
-          </span>
-        </label>
+        <PortalSettingsGroup>
+          <PortalSettingsRow
+            label="Send reminders"
+            meta="Turns this reminder on or off. Every setting below is ignored while it's off."
+          >
+            <PortalSettingsToggle
+              checked={rule.enabled}
+              onChange={(next) => patchRule({ enabled: next })}
+              label="Send reminders"
+              disabled={disabled}
+              dataAttr={`reminder-rule-${kind}-enabled`}
+            />
+          </PortalSettingsRow>
+        </PortalSettingsGroup>
 
         {rule.enabled ? (
           <>
-            <ReminderTimingMultiSelect
-              timings={selectedTimings}
-              directions={meta.directions}
-              label={meta.timingLabel}
-              disabled={disabled}
-              dataAttr={`reminder-rule-${kind}-timings`}
-              onChangeTimings={(timings) => patchRule({ timings })}
-            />
+            {timingsFixed && fixed ? (
+              <PortalSettingsGroup>
+                <PortalSettingsLockedRow label={meta.timingLabel} reason={fixed.reason} />
+              </PortalSettingsGroup>
+            ) : (
+              <ReminderTimingMultiSelect
+                timings={selectedTimings}
+                directions={meta.directions}
+                label={meta.timingLabel}
+                disabled={disabled}
+                dataAttr={`reminder-rule-${kind}-timings`}
+                onChangeTimings={(timings) => patchRule({ timings })}
+              />
+            )}
 
             <div>
               <p className={REMINDER_FIELD_LABEL_CLASS}>Notify</p>
-              <div className="mt-2 flex flex-wrap gap-4">
-                {showManager ? (
-                  <label className="flex items-center gap-2 text-[13px] text-foreground">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 accent-primary"
-                      checked={rule.audience.manager}
-                      disabled={disabled}
-                      data-attr={`reminder-rule-${kind}-notify-manager`}
-                      onChange={(e) =>
-                        patchRule({ audience: { ...rule.audience, manager: e.target.checked } })
-                      }
-                    />
-                    {meta.notifyYouLabel}
-                  </label>
-                ) : null}
-                {showTeam ? (
-                  <label className="flex items-center gap-2 text-[13px] text-foreground">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 accent-primary"
-                      checked={rule.audience.team}
-                      disabled={disabled}
-                      data-attr={`reminder-rule-${kind}-notify-team`}
-                      onChange={(e) =>
-                        patchRule({ audience: { ...rule.audience, team: e.target.checked } })
-                      }
-                    />
-                    {meta.notifyTeamLabel}
-                  </label>
-                ) : null}
-                {showCounterparty ? (
-                  <label className="flex items-center gap-2 text-[13px] text-foreground">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 accent-primary"
-                      checked={rule.audience.counterparty}
-                      disabled={disabled}
-                      data-attr={`reminder-rule-${kind}-notify-counterparty`}
-                      onChange={(e) =>
-                        patchRule({ audience: { ...rule.audience, counterparty: e.target.checked } })
-                      }
-                    />
-                    {meta.notifyCounterpartyLabel}
-                  </label>
-                ) : null}
-              </div>
-            </div>
-
-            {showTeam && rule.audience.team ? (
-              <div>
-                <p className={REMINDER_FIELD_LABEL_CLASS}>Team members</p>
-                <div className="mt-2 flex flex-wrap gap-3">
-                  {teamMembers.map((member) => {
-                    const selected =
-                      rule.teamUserIds.length === 0 || rule.teamUserIds.includes(member.userId);
-                    return (
-                      <label key={member.userId} className="flex items-center gap-2 text-[13px] text-foreground">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 accent-primary"
-                          checked={selected}
+              <PortalSettingsGroup className="mt-2">
+                {audienceFixed && fixed ? (
+                  <PortalSettingsLockedRow label="Who's notified" reason={fixed.reason} />
+                ) : (
+                  <>
+                    {showManagerAudience ? (
+                      <PortalSettingsRow
+                        className="flex-wrap items-start gap-y-2.5"
+                        label={meta.notifyYouLabel}
+                        meta="Notifies you, through the channels set below."
+                      >
+                        <PortalSettingsToggle
+                          checked={rule.audience.manager}
+                          onChange={(next) => patchRule({ audience: { ...rule.audience, manager: next } })}
+                          label={`Notify ${meta.notifyYouLabel}`}
                           disabled={disabled}
-                          data-attr={`reminder-rule-${kind}-team-${member.userId}`}
-                          onChange={(e) => {
-                            const allIds = teamMembers.map((row) => row.userId);
-                            const current =
-                              rule.teamUserIds.length === 0 ? allIds : [...rule.teamUserIds];
-                            const next = e.target.checked
-                              ? [...new Set([...current, member.userId])]
-                              : current.filter((id) => id !== member.userId);
-                            patchRule({
-                              teamUserIds:
-                                next.length === allIds.length || next.length === 0 ? [] : next,
-                            });
-                          }}
+                          dataAttr={`reminder-rule-${kind}-notify-manager`}
                         />
-                        {member.name?.trim() || member.email?.trim() || "Team member"}
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
+                      </PortalSettingsRow>
+                    ) : (
+                      <PortalSettingsLockedRow label={meta.notifyYouLabel} reason={managerLockedReason} />
+                    )}
 
-            <ReminderSendViaField
-              showProplaneChannel
-              viaInbox={rule.inbox}
-              viaEmail={rule.email}
-              viaSms={rule.sms}
-              disabled={disabled}
-              onChange={({ viaEmail, viaSms, viaInbox }) =>
-                patchRule({
-                  inbox: viaInbox !== false,
-                  email: viaEmail,
-                  sms: viaSms,
-                })
-              }
-              dataAttr={`reminder-rule-${kind}-send-via`}
-            />
+                    {showTeamOption ? (
+                      <PortalSettingsRow
+                        className="flex-wrap items-start gap-y-2.5"
+                        label={meta.notifyTeamLabel}
+                        meta="Notifies your team, through the channels set below."
+                      >
+                        <PortalSettingsToggle
+                          checked={rule.audience.team}
+                          onChange={(next) => patchRule({ audience: { ...rule.audience, team: next } })}
+                          label={`Notify ${meta.notifyTeamLabel}`}
+                          disabled={disabled}
+                          dataAttr={`reminder-rule-${kind}-notify-team`}
+                        />
+                      </PortalSettingsRow>
+                    ) : (
+                      <PortalSettingsLockedRow label={meta.notifyTeamLabel} reason={teamLockedReason} />
+                    )}
+
+                    {showCounterpartyAudience ? (
+                      <PortalSettingsRow
+                        className="flex-wrap items-start gap-y-2.5"
+                        label={meta.notifyCounterpartyLabel}
+                        meta={`Notifies the ${meta.notifyCounterpartyLabel.toLowerCase()}, through the channels set below.`}
+                      >
+                        <PortalSettingsToggle
+                          checked={rule.audience.counterparty}
+                          onChange={(next) => patchRule({ audience: { ...rule.audience, counterparty: next } })}
+                          label={`Notify ${meta.notifyCounterpartyLabel}`}
+                          disabled={disabled}
+                          dataAttr={`reminder-rule-${kind}-notify-counterparty`}
+                        />
+                      </PortalSettingsRow>
+                    ) : (
+                      <PortalSettingsLockedRow label={meta.notifyCounterpartyLabel} reason={counterpartyLockedReason} />
+                    )}
+                  </>
+                )}
+              </PortalSettingsGroup>
+
+              {channelsFixed && fixed ? (
+                <PortalSettingsGroup className="mt-2">
+                  <PortalSettingsLockedRow label="Delivery channel" reason={fixed.reason} />
+                </PortalSettingsGroup>
+              ) : (
+                <PortalSettingsGroup className="mt-2">
+                  <PortalSettingsRow
+                    label="Send via"
+                    meta="Applies to everyone notified above — these channels are shared by the whole reminder, not chosen per person."
+                  >
+                    <ReminderAudienceChannelCells
+                      rule={rule}
+                      disabled={disabled}
+                      dataAttr={channelDataAttr}
+                      onChange={onChannelChange}
+                    />
+                  </PortalSettingsRow>
+                </PortalSettingsGroup>
+              )}
+
+              {!audienceFixed && showTeamOption && rule.audience.team ? (
+                <div className="mt-3">
+                  <p className={REMINDER_FIELD_LABEL_CLASS}>Team members</p>
+                  <div className="mt-2 flex flex-wrap gap-3">
+                    {teamMembers.map((member) => {
+                      const selected =
+                        rule.teamUserIds.length === 0 || rule.teamUserIds.includes(member.userId);
+                      return (
+                        <label key={member.userId} className="flex items-center gap-2 text-[13px] text-foreground">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 accent-primary"
+                            checked={selected}
+                            disabled={disabled}
+                            data-attr={`reminder-rule-${kind}-team-${member.userId}`}
+                            onChange={(e) => {
+                              const allIds = teamMembers.map((row) => row.userId);
+                              const current =
+                                rule.teamUserIds.length === 0 ? allIds : [...rule.teamUserIds];
+                              const next = e.target.checked
+                                ? [...new Set([...current, member.userId])]
+                                : current.filter((id) => id !== member.userId);
+                              patchRule({
+                                teamUserIds:
+                                  next.length === allIds.length || next.length === 0 ? [] : next,
+                              });
+                            }}
+                          />
+                          {member.name?.trim() || member.email?.trim() || "Team member"}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </div>
 
             <ReminderMessagePreviewCard
               subject={templatePreview.subject}

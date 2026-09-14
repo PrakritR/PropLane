@@ -6,14 +6,25 @@ const SRC = readFileSync(
   join(process.cwd(), "src/components/portal/pro-portal-settings-modal.tsx"),
   "utf8",
 );
+// Panel rendering (and the mount gate this first test checks) moved out of the modal into
+// `SettingsModulePage` — the one component both the dialog and the standalone
+// `/portal/settings/<tab>` page render. Its `active` prop is the same guard the modal used to
+// apply itself under the name `open`; the modal now just forwards its own `open` state into it
+// (`active={open}` in pro-portal-settings-modal.tsx) rather than gating each tab inline.
+const PAGE_SRC = readFileSync(
+  join(process.cwd(), "src/components/portal/settings-module-page.tsx"),
+  "utf8",
+);
 
 describe("ManagerPortalSettingsModal mount gating", () => {
-  it("mounts self-loading panels only while the modal is open", () => {
-    expect(SRC).toMatch(/\{open && tab === "tours" \?/);
-    expect(SRC).toMatch(/\{open && tab === "payments" \?/);
-    expect(SRC).toMatch(/\{open && tab === "communication" \?/);
-    expect(SRC).toMatch(/\{open && tab === "automation" \?/);
-    expect(SRC).toMatch(/\{open && tab === "tasks" \?/);
+  it("mounts self-loading panels only while the module page is active", () => {
+    expect(PAGE_SRC).toMatch(/\{active && tab === "tours" \?/);
+    expect(PAGE_SRC).toMatch(/\{active && tab === "payments" \?/);
+    expect(PAGE_SRC).toMatch(/\{active && tab === "communication" \?/);
+    expect(PAGE_SRC).toMatch(/\{active && tab === "automation" \?/);
+    expect(PAGE_SRC).toMatch(/\{active && tab === "tasks" \?/);
+    // The modal no longer decides this itself — it just forwards `open` straight through.
+    expect(SRC).toMatch(/active=\{open\}/);
   });
 
   it("pins Save in Modal footer so tall tab bodies scroll (PRP-334)", () => {
