@@ -40,7 +40,7 @@ import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/por
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { Settings2 } from "lucide-react";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
@@ -602,16 +602,6 @@ export function ManagerAllServicesPanel({
       hideTitleOnMobileNav
       titleInlineFilter={null}
       compactFilterRow
-      primaryAction={
-        <Button
-          type="button"
-          className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
-          data-attr="services-add-top"
-          onClick={() => setAddServiceOpen(true)}
-        >
-          + Add service
-        </Button>
-      }
     >
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
@@ -627,6 +617,13 @@ export function ManagerAllServicesPanel({
               onClick={() => setServicesSettingsOpen(true)}
             />
           </>
+        }
+        primary={
+          <PortalPrimaryIconAction
+            label="Add service"
+            data-attr="services-add-top"
+            onClick={() => setAddServiceOpen(true)}
+          />
         }
         activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
       />

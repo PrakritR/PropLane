@@ -13,7 +13,7 @@ import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { Settings2 } from "lucide-react";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import {
@@ -803,16 +803,6 @@ export function ManagerTaskList({
       hideTitleOnMobileNav
       titleInlineFilter={null}
       compactFilterRow
-      primaryAction={
-        <Button
-          type="button"
-          className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
-          data-attr="manager-task-add-top"
-          onClick={openAddTask}
-        >
-          + Add task
-        </Button>
-      }
     >
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
@@ -832,6 +822,7 @@ export function ManagerTaskList({
             />
           </>
         }
+        primary={<PortalPrimaryIconAction label="Add task" data-attr="manager-task-add-top" onClick={openAddTask} />}
       />
 
       <PortalRecordListSurface className="mt-0" onBulkClear={clearSelection} bulkCount={selectedTaskIds.length} bulkActions={selectedTaskIds.length > 0 ? (

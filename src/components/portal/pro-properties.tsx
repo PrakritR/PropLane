@@ -13,8 +13,7 @@ import {
 } from "@/components/portal/pro-house-properties-panel";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
-import { Button } from "@/components/ui/button";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { Settings2, Share2 } from "lucide-react";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import {
@@ -442,17 +441,6 @@ export function ManagerProperties({
               hideTitleOnMobileNav
           titleInlineFilter={null}
           compactFilterRow
-          primaryAction={
-            <Button
-              type="button"
-              className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
-              disabled={!skuLoaded}
-              data-attr="manager-properties-add-top"
-              onClick={tryOpenAdd}
-            >
-              + Add property
-            </Button>
-          }
         >
           <PortalListControlStack
             className="mb-2"
@@ -496,6 +484,14 @@ export function ManagerProperties({
                   onClick={() => openShareListing()}
                 />
               </>
+            }
+            primary={
+              <PortalPrimaryIconAction
+                label="Add property"
+                disabled={!skuLoaded}
+                data-attr="manager-properties-add-top"
+                onClick={tryOpenAdd}
+              />
             }
           />
           <ManagerPortalSettingsModal

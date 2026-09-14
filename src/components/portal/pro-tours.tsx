@@ -19,9 +19,9 @@ import {
   getSettingsEntryPoint,
   settingsDialogTitlePrefix,
 } from "@/components/portal/settings-entry-points";
-import { ManagerPortalPageShell, PORTAL_COMMAND_ACTION_BTN } from "@/components/portal/portal-metrics";
-import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
-import { Settings2, Share2 } from "lucide-react";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { CalendarPlus, Settings2, Share2 } from "lucide-react";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -1388,16 +1388,13 @@ export function ManagerTours({
         actions={
           <>
             {filterSheet}
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_COMMAND_ACTION_BTN}
+            <PortalIconAction
+              icon={CalendarPlus}
+              label="Add availability"
               data-attr="tours-add-availability-open"
               onClick={() => setAvailabilityOpen(true)}
               disabled={!authReady || scopedPropertyIds.length === 0}
-            >
-              Add availability
-            </Button>
+            />
             <PortalIconAction
               icon={Settings2}
               label={toursSettingsEntry.label}
@@ -1412,6 +1409,14 @@ export function ManagerTours({
               onClick={() => setShareTourOpen(true)}
             />
           </>
+        }
+        primary={
+          <PortalPrimaryIconAction
+            label="Add tour"
+            disabled={!authReady || scopedPropertyIds.length === 0}
+            data-attr="tours-add-open"
+            onClick={() => setAddTourOpen(true)}
+          />
         }
         activeFilterChips={activeFilterChips}
       />
@@ -1490,17 +1495,6 @@ export function ManagerTours({
       hideTitleOnMobileNav
       titleInlineFilter={null}
       compactFilterRow
-      primaryAction={
-        <Button
-          type="button"
-          className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
-          disabled={!authReady || scopedPropertyIds.length === 0}
-          data-attr="tours-add-open"
-          onClick={() => setAddTourOpen(true)}
-        >
-          + Add tour
-        </Button>
-      }
     >
       {listPageContent}
     </ManagerPortalPageShell>

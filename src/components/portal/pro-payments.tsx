@@ -15,7 +15,7 @@ import {
 } from "@/lib/portal-list-grouping";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { Settings2, Wrench } from "lucide-react";
 import type { DemoManagerOutgoingPaymentRow, DemoManagerPaymentLedgerRow } from "@/data/demo-portal";
 import { parseMoneyLabel } from "@/lib/portal-monthly-profit";
@@ -903,29 +903,6 @@ export function ManagerPayments({
       hideTitleOnMobileNav
       titleInlineFilter={null}
       compactFilterRow
-      primaryAction={
-        direction === "incoming" ? (
-          canCreatePayment ? (
-            <Button
-              type="button"
-              className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
-              data-attr="payments-add-top"
-              onClick={() => setAddOpen(true)}
-            >
-              + Add charge
-            </Button>
-          ) : undefined
-        ) : (
-          <Button
-            type="button"
-            className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
-            data-attr="payments-add-outgoing-top"
-            onClick={() => setAddOutgoingOpen(true)}
-          >
-            + Add payment
-          </Button>
-        )
-      }
     >
       <PortalListControlStack
         className="mb-2 max-lg:mb-2"
@@ -941,6 +918,15 @@ export function ManagerPayments({
         activeDestinationId={bucket}
         destinationAriaLabel="Payment status"
         actions={paymentsListActions}
+        primary={
+          direction === "incoming" ? (
+            canCreatePayment ? (
+              <PortalPrimaryIconAction label="Add charge" data-attr="payments-add-top" onClick={() => setAddOpen(true)} />
+            ) : undefined
+          ) : (
+            <PortalPrimaryIconAction label="Add payment" data-attr="payments-add-outgoing-top" onClick={() => setAddOutgoingOpen(true)} />
+          )
+        }
         activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
       />
       {paymentsPanel}

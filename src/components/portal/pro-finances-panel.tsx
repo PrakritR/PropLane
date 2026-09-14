@@ -530,7 +530,7 @@ function FinancesFilterSheet({
       filterFieldCount={filterFieldCount}
       constrainDropdownToTitleBand
       mobileFlushBody
-      className="min-w-0 w-auto shrink-0 max-md:w-full max-md:[&_button]:w-full max-md:[&_button]:px-2.5 md:!w-auto md:!max-w-none"
+      commandStripTrigger
       onReset={onReset}
       dataAttr="finances-filter-sheet-open"
       open={open}

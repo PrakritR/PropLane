@@ -2,7 +2,8 @@
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
-import { PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { Link2, UserPlus } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -2839,31 +2840,26 @@ export function ProAccountLinksPanel({
   }
 
   const inviteAction = (
-    <Button
-      type="button"
-      className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+    <PortalPrimaryIconAction
+      label="Invite manager"
+      icon={UserPlus}
       data-attr="co-manager-invite-top"
       disabled={linkAccountBlocked}
       onClick={openLinkModal}
-    >
-      + Invite manager
-    </Button>
+    />
   );
 
   // One door each: email invite is the primary, the shareable link is the
   // secondary beside it. Neither is repeated inside the members block or as
   // its own card below the list.
   const inviteLinkAction = (
-    <Button
-      type="button"
-      variant="outline"
-      className="rounded-full"
+    <PortalIconAction
+      icon={Link2}
+      label="Copy invite link"
       data-attr="team-invite-link-create"
       disabled={inviteLinkBlocked}
       onClick={openInviteLinkModal}
-    >
-      Copy invite link
-    </Button>
+    />
   );
 
   const teamBody = (
@@ -2876,9 +2872,9 @@ export function ProAccountLinksPanel({
           <>
             {teamFilterSheet}
             {inviteLinkAction}
-            {bare ? inviteAction : null}
           </>
         }
+        primary={inviteAction}
         activeFilterChips={teamActiveFilterChips}
       />
       <div className="space-y-4">
@@ -2917,7 +2913,6 @@ export function ProAccountLinksPanel({
 
       hideTitleOnMobileNav
       compactFilterRow
-      primaryAction={inviteAction}
     >
       <PortalRecordListSurface className="mt-0" onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
         <>
