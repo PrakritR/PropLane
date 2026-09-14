@@ -25,6 +25,7 @@ import {
   loadWorkspacePaymentSettings,
   saveWorkspacePaymentSettings,
 } from "@/lib/workspace-payment-settings.server";
+import { assertManualPaymentSettingsCoManagerAccess } from "@/lib/auth/manager-settings-module-access.server";
 
 export const runtime = "nodejs";
 
@@ -99,6 +100,8 @@ export async function GET(req: Request) {
   try {
     const ctx = await requireManager();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    const access = await assertManualPaymentSettingsCoManagerAccess(ctx.db, ctx.userId, "read");
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
     const settings = await loadManagerManualPaymentSettings(ctx.db, ctx.userId);
     const propertyIds = parsePropertyIdsQuery(req);
     const propertyServiceFeePayers =
@@ -122,6 +125,8 @@ export async function PATCH(req: Request) {
   try {
     const ctx = await requireManager();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    const access = await assertManualPaymentSettingsCoManagerAccess(ctx.db, ctx.userId, "edit");
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
     const body = (await req.json()) as Record<string, unknown>;
     const { propertyIds, propertyServiceFeePayers, workspaceId, workspaceServiceFeePayer, ...rest } = body;
     const feePayerUpdates = parsePropertyServiceFeePayerUpdates(propertyServiceFeePayers);
