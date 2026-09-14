@@ -418,6 +418,15 @@ export function ManagerUnifiedInbox({
     setInitialListState(inbox.ok && applications.ok && smsOk ? "ready" : "error");
   }, [isClient, loadSms, onApplicationsLoaded, sessionReady, smsUiEnabled, viewerId]);
 
+  const retryInitialList = useCallback(async (): Promise<void> => {
+    // An authorization refusal pauses automatic SMS polling for this viewer.
+    // A person explicitly retrying is the only same-viewer path allowed to
+    // clear that pause after access has recovered.
+    smsPollHaltedRef.current = false;
+    setSmsPollHalted(false);
+    return loadInitialList();
+  }, [loadInitialList]);
+
   useEffect(() => {
     void loadInitialList();
     return () => {
@@ -936,7 +945,7 @@ export function ManagerUnifiedInbox({
         {!initialListReady ? (
           <CommunicationInboxInitialState
             error={initialListState === "error"}
-            onRetry={loadInitialList}
+            onRetry={retryInitialList}
           />
         ) : listRows.length === 0 ? (
           query.trim() ? (

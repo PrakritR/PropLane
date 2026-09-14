@@ -521,6 +521,89 @@ describe("PRP-470 initial Communication readiness", () => {
     expect(screen.queryByText("Could not load conversations.")).toBeNull();
   });
 
+  it.each([401, 403])("retries a same-viewer initial SMS %s refusal only when requested", async (status) => {
+    let smsCalls = 0;
+    fetchMock.mockImplementation((url: string) => {
+      if (!url.includes("/api/manager/sms-conversations")) return Promise.resolve(Response.json({}));
+      smsCalls += 1;
+      return smsCalls === 1
+        ? Promise.resolve(new Response(null, { status }))
+        : Promise.resolve(Response.json({ residents: [{
+          residentUserId: null, residentEmail: "recovered@example.com", name: "Recovered same viewer",
+          savedContactName: null, phone: "+12025550112", propertyLabel: null,
+          conversationKey: "viewer-ui:unknown:+12025550112", messages: [],
+        }] }));
+    });
+    vi.doMock("@/lib/portal-inbox-storage", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("@/lib/portal-inbox-storage")>()),
+      loadPersistedInbox: () => [], syncPersistedInboxFromServerWithStatus: async () => ({ rows: [], ok: true }),
+      stagePersistedInboxRows: () => {},
+    }));
+    vi.doMock("@/lib/manager-applications-storage", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("@/lib/manager-applications-storage")>()),
+      syncManagerApplicationsFromServerWithStatus: async () => ({ rows: [], ok: true }), readManagerApplicationRows: () => [],
+    }));
+    const { ManagerUnifiedInbox } = await import("@/components/portal/pro-unified-inbox");
+    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
+
+    await waitFor(() => expect(screen.getByText("Could not load conversations.")).toBeTruthy());
+    expect(screen.queryByText("Recovered same viewer")).toBeNull();
+    expect(smsCalls).toBe(1);
+
+    await act(async () => screen.getByRole("button", { name: /retry/i }).click());
+    await waitFor(() => expect(smsCalls).toBe(2));
+    await waitFor(() => expect(screen.getByText("Recovered same viewer")).toBeTruthy());
+    expect(screen.queryByText("Could not load conversations.")).toBeNull();
+  });
+
+  it("keeps a same-viewer auth refusal paused through automatic refreshes until a later explicit retry", async () => {
+    const statuses = [401, 403, 200];
+    let smsCalls = 0;
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    fetchMock.mockImplementation((url: string) => {
+      if (!url.includes("/api/manager/sms-conversations")) return Promise.resolve(Response.json({}));
+      const status = statuses[smsCalls++]!;
+      return status === 200
+        ? Promise.resolve(Response.json({ residents: [{
+          residentUserId: null, residentEmail: "later@example.com", name: "Later explicit retry",
+          savedContactName: null, phone: "+12025550113", propertyLabel: null,
+          conversationKey: "viewer-ui:unknown:+12025550113", messages: [],
+        }] }))
+        : Promise.resolve(new Response(null, { status }));
+    });
+    vi.doMock("@/lib/portal-inbox-storage", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("@/lib/portal-inbox-storage")>()),
+      loadPersistedInbox: () => [], syncPersistedInboxFromServerWithStatus: async () => ({ rows: [], ok: true }),
+      stagePersistedInboxRows: () => {},
+    }));
+    vi.doMock("@/lib/manager-applications-storage", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("@/lib/manager-applications-storage")>()),
+      syncManagerApplicationsFromServerWithStatus: async () => ({ rows: [], ok: true }), readManagerApplicationRows: () => [],
+    }));
+    const { ManagerUnifiedInbox } = await import("@/components/portal/pro-unified-inbox");
+    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
+
+    await waitFor(() => expect(screen.getByText("Could not load conversations.")).toBeTruthy());
+    // Initial failures never install the 20-second background timer, and
+    // refocusing the tab cannot bypass the current-viewer auth pause.
+    expect(setIntervalSpy.mock.calls.filter(([, ms]) => ms === 20_000)).toHaveLength(0);
+    expect(smsCalls).toBe(1);
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(smsCalls).toBe(1);
+
+    await act(async () => screen.getByRole("button", { name: /retry/i }).click());
+    await waitFor(() => expect(smsCalls).toBe(2));
+    await waitFor(() => expect(screen.getByText("Could not load conversations.")).toBeTruthy());
+    expect(setIntervalSpy.mock.calls.filter(([, ms]) => ms === 20_000)).toHaveLength(0);
+    expect(smsCalls).toBe(2);
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(smsCalls).toBe(2);
+
+    await act(async () => screen.getByRole("button", { name: /retry/i }).click());
+    await waitFor(() => expect(smsCalls).toBe(3));
+    await waitFor(() => expect(screen.getByText("Later explicit retry")).toBeTruthy());
+  });
+
   it("resets a legitimate A SMS auth halt when B signs in", async () => {
     let smsCalls = 0;
     fetchMock.mockImplementation((url: string) => {

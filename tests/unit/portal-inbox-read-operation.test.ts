@@ -316,6 +316,61 @@ describe("observed inbox read operation", () => {
   );
 
   it.each([
+    ["newer success then older failed envelope", false],
+    ["older failed envelope then newer success", true],
+  ] as const)(
+    "preserves newer confirmed truth when overlapping aliases settle with %s",
+    async (_label, settleOlderFirst) => {
+      const harness = runActualReconciliationHarness();
+      const oldSources = [
+        { id: "A1", observation: "obs-A1", unread: true },
+        { id: "B1", observation: "obs-B1", unread: true },
+      ];
+      harness.begin(oldSources);
+      harness.rows = [
+        aliasThread(harness.aliases.a, "A1", "obs-A1"),
+        aliasThread(harness.aliases.b, "B2", "obs-B2"),
+      ];
+      const newerSources = [
+        { id: "A1", observation: "obs-A1", unread: true },
+        { id: "B2", observation: "obs-B2", unread: true },
+      ];
+      harness.begin(newerSources);
+
+      const settleOlder = () => harness.oldRequest.resolve([
+        { id: "A1", status: "failed", unread: true },
+        { id: "B1", status: "failed", unread: true },
+      ]);
+      const settleNewer = () => harness.newerRequest.resolve([
+        { id: "A1", status: "read", unread: false },
+        { id: "B2", status: "read", unread: false },
+      ]);
+      if (settleOlderFirst) {
+        settleOlder();
+        await settle();
+        // The failed envelope only withdraws the older A1 overlay; B1 is no
+        // longer an exact observation after the B2 refresh.
+        expect(sourceState(harness.rows, "A1")?.unread).toBe(true);
+        expect(sourceState(harness.rows, "B2")?.unread).toBe(true);
+        settleNewer();
+      } else {
+        settleNewer();
+        await settle();
+        settleOlder();
+      }
+      await settle();
+
+      expect(sourceState(harness.rows, "A1")?.unread).toBe(false);
+      expect(sourceState(harness.rows, "B2")?.unread).toBe(false);
+      expect(aggregateUnread(harness.rows)).toBe(false);
+      expect(harness.rows.flatMap((row) => row.readSources ?? [])
+        .every((source) => source.optimistic === undefined)).toBe(true);
+      expect(harness.pending.size).toBe(0);
+      expect(harness.notifications).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each([
     ["missing", null],
     ["malformed", [{ id: "unexpected", status: "read", unread: "false" }]],
   ] as const)(
@@ -367,6 +422,7 @@ describe("observed inbox read operation", () => {
     expect(sourceState(harness.rows, "A1")?.unread).toBe(false);
     expect(sourceState(harness.rows, "B1")?.unread).toBe(true);
     expect(aggregateUnread(harness.rows)).toBe(true);
+    expect(harness.notifications).toHaveBeenCalledTimes(1);
 
     harness.begin([
       { id: "A1", observation: "obs-A1", unread: false },

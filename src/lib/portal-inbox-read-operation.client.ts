@@ -104,8 +104,15 @@ export function startObservedInboxReadOperation({
         "failed",
       ]);
       const confirmedUnread = new Map<string, boolean>();
-      const duplicateOrMalformed = new Set<string>();
+      const unknownSourceIds = new Set<string>();
       for (const result of results ?? []) {
+        // The route derives `failed.unread` from the record it observed before
+        // the RPC. That value may predate a newer operation, so this status is
+        // an unknown outcome rather than confirmed server truth.
+        if (result?.status === "failed") {
+          unknownSourceIds.add(result.id);
+          continue;
+        }
         if (
           !result ||
           typeof result.id !== "string" ||
@@ -115,17 +122,17 @@ export function startObservedInboxReadOperation({
           confirmedUnread.has(result.id)
         ) {
           if (result && typeof result.id === "string" && requested.has(result.id)) {
-            duplicateOrMalformed.add(result.id);
+            unknownSourceIds.add(result.id);
           }
           continue;
         }
         confirmedUnread.set(result.id, result.unread);
       }
-      for (const id of duplicateOrMalformed) confirmedUnread.delete(id);
+      for (const id of unknownSourceIds) confirmedUnread.delete(id);
 
       // Only an individually valid server result advances confirmed truth.
-      // Missing or malformed source outcomes are unknown, even if another
-      // source in the same request committed successfully.
+      // Failed, missing, or malformed source outcomes are unknown, even if
+      // another source in the same request committed successfully.
       if (confirmedUnread.size > 0) {
         applyIfCurrent(confirmedUnread, { token: signature, phase: "settled", settled: "confirmed" });
       }
