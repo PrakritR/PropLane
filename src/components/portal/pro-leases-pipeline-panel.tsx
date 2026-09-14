@@ -66,6 +66,9 @@ import {
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { retryUploadedLeaseParse, uploadAndParseLeasePdf } from "@/lib/uploaded-lease-parse.client";
+import { leaseCanBeMarkedSignedOffPlatform } from "@/lib/lease-execution-evidence";
+import { markLeaseSignedOffPlatform } from "@/lib/lease-mark-signed.client";
+import { LeaseMarkSignedModal } from "@/components/portal/lease-mark-signed-modal";
 import { UploadedLeaseReviewModal } from "@/components/portal/uploaded-lease-review-modal";
 import type { UploadedLeaseFieldKey } from "@/lib/uploaded-lease-extraction";
 
@@ -75,6 +78,18 @@ function leaseRowAllowsGeneratedBodyEdit(row: LeasePipelineRow): boolean {
     Boolean(row.generatedHtml) &&
     !row.managerUploadedPdf?.dataUrl &&
     !row.templateDocumentUrl
+  );
+}
+
+/**
+ * Upload PDF is the manager's while the document is theirs to change, and also
+ * while the lease is out for signature but unsigned — there the upload withdraws
+ * the request first (`handleLeaseFileUpload`). Never once a signature exists.
+ */
+function leaseUploadAllowedForRow(row: LeasePipelineRow): boolean {
+  return (
+    leaseAllowsManagerDocumentEdits(row) ||
+    (row.status === "Resident Signature Pending" && leaseCanBeMarkedSignedOffPlatform(row))
   );
 }
 
@@ -140,6 +155,7 @@ export function ManagerLeasesPipelinePanel({
   const [generateLeaseRow, setGenerateLeaseRow] = useState<LeasePipelineRow | null>(null);
   const [generateTemplateId, setGenerateTemplateId] = useState<string | null>(null);
   const [importReviewRowId, setImportReviewRowId] = useState<string | null>(null);
+  const [markSignedRowId, setMarkSignedRowId] = useState<string | null>(null);
   const [bulkLeaseSendRows, setBulkLeaseSendRows] = useState<LeasePipelineRow[] | null>(null);
   const { selectedIds, setSelectedIds, toggleSelected } = usePortalRowSelection(tab);
 
@@ -322,8 +338,12 @@ export function ManagerLeasesPipelinePanel({
     bulkSingleRowActions && bulkSingleRowActions.status !== "Fully Signed"
       ? bulkSingleRowActions
       : null;
+  const bulkMarkSignedRow =
+    bulkSingleRowActions && leaseCanBeMarkedSignedOffPlatform(bulkSingleRowActions)
+      ? bulkSingleRowActions
+      : null;
   const bulkUploadRow =
-    bulkSingleRowActions && leaseAllowsManagerDocumentEdits(bulkSingleRowActions)
+    bulkSingleRowActions && leaseUploadAllowedForRow(bulkSingleRowActions)
       ? bulkSingleRowActions
       : null;
   const bulkRenewalsRow =
@@ -601,6 +621,26 @@ export function ManagerLeasesPipelinePanel({
 
   const handleLeaseFileUpload = useCallback(
     async (rowId: string, file: File) => {
+      const target = rows.find((r) => r.id === rowId) ?? null;
+      // Out for signature but unsigned: the upload withdraws the request and
+      // replaces the document in one step, so a paper-signed copy can be filed
+      // without a detour through "Move to review". Any signature makes this
+      // path unavailable (`leaseCanBeMarkedSignedOffPlatform`), and
+      // `sendLeaseBackToManager` refuses it again server-side.
+      if (target && target.status === "Resident Signature Pending" && leaseCanBeMarkedSignedOffPlatform(target)) {
+        const proceed = await confirm({
+          description: `This withdraws the signing request sent to ${target.residentName} and replaces the lease document. Continue?`,
+        });
+        if (!proceed) return;
+        setPendingRowId(rowId);
+        const recalled = await sendLeaseBackToManager(rowId, managerUserId);
+        if (!recalled.ok) {
+          setPendingRowId(null);
+          showToast(recalled.error);
+          return;
+        }
+        appendLeaseThreadMessage(rowId, "manager", "Withdrew the signing request to replace the lease document.", managerUserId);
+      }
       setPendingRowId(rowId);
       const res = await uploadAndParseLeasePdf(rowId, file, managerUserId);
       setPendingRowId(null);
@@ -623,7 +663,7 @@ export function ManagerLeasesPipelinePanel({
           : `Lease PDF saved, but PropLane could not read its text. ${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}`,
       );
     },
-    [managerUserId, showToast],
+    [confirm, managerUserId, rows, showToast],
   );
 
   const onPickUpload = async (rowId: string, files: FileList | null) => {
@@ -674,7 +714,7 @@ export function ManagerLeasesPipelinePanel({
           }
           onReviewImportedLease={() => setImportReviewRowId(row.id)}
           onUploadPdf={
-            leaseAllowsManagerDocumentEdits(row)
+            leaseUploadAllowedForRow(row)
               // RETURN the promise rather than `void`-ing it: `onUploadPdf` is
               // typed `(file: File) => Promise<void>`, and the header action
               // awaits it to drive its own busy state. Discarding it made the
@@ -684,6 +724,8 @@ export function ManagerLeasesPipelinePanel({
               : undefined
           }
           uploadPdfBusy={pendingRowId === row.id}
+          onMarkSigned={leaseCanBeMarkedSignedOffPlatform(row) ? () => setMarkSignedRowId(row.id) : undefined}
+          markSignedDataAttr="lease-mark-signed"
           onRenewLease={() => setAmendLeaseRow(row)}
           onExtendMoveOut={() => setAmendLeaseRow(row)}
         />
@@ -700,8 +742,34 @@ export function ManagerLeasesPipelinePanel({
     [importReviewRowId, rows],
   );
 
+  const markSignedRow = useMemo(
+    () => (markSignedRowId ? (rows.find((r) => r.id === markSignedRowId) ?? null) : null),
+    [markSignedRowId, rows],
+  );
+
   const leaseModals = (
     <>
+      <LeaseMarkSignedModal
+        key={markSignedRowId ?? "closed"}
+        open={markSignedRow !== null}
+        row={markSignedRow}
+        onClose={() => setMarkSignedRowId(null)}
+        onConfirm={async ({ file, signedOn }) => {
+          if (!markSignedRow) return "Lease not found.";
+          const result = await markLeaseSignedOffPlatform(markSignedRow.id, {
+            file,
+            signedOn,
+            managerUserId: managerUserId ?? null,
+          });
+          if (!result.ok) return result.error;
+          setMarkSignedRowId(null);
+          setSelectedIds(new Set());
+          showToast(`Lease marked as signed. ${markSignedRow.residentName}'s portal is unlocked.`);
+          // "completed" is the Signed tab; "signed" is Manager signature.
+          if (listBasePath) navigate(leaseListHref(listBasePath, "completed"));
+          return null;
+        }}
+      />
       {importReviewRow?.uploadedLeaseParse ? (
         <UploadedLeaseReviewModal
           open
@@ -1071,6 +1139,17 @@ export function ManagerLeasesPipelinePanel({
                   onClick={() => onDeleteLease(bulkDeleteRow)}
                 >
                   Delete
+                </Button>
+              ) : null}
+              {bulkMarkSignedRow ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_BULK_BAR_BTN}
+                  data-attr="leases-bulk-mark-signed"
+                  onClick={() => setMarkSignedRowId(bulkMarkSignedRow.id)}
+                >
+                  Mark as signed
                 </Button>
               ) : null}
               {bulkMoveToReviewRow ? (

@@ -12,6 +12,7 @@ import {
   type PortalFooterFitAction,
 } from "@/components/portal/portal-footer-fit-action-row";
 import { RESIDENT_DETAIL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
+import { leaseCanBeMarkedSignedOffPlatform } from "@/lib/lease-execution-evidence";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import {
   hasBothLeaseSignatures,
@@ -48,6 +49,13 @@ type LeasePrimaryHeaderActionsProps = {
   generateLeaseTitle?: string;
   onUploadPdf?: (file: File) => Promise<void>;
   uploadPdfBusy?: boolean;
+  /**
+   * Files the lease as executed off-platform. Offered only while the row carries
+   * no execution evidence (`leaseCanBeMarkedSignedOffPlatform`); the route
+   * re-checks the same predicate.
+   */
+  onMarkSigned?: () => void;
+  markSignedDataAttr?: string;
   /** Opens the imported-lease review. Shown whenever the row carries a parse. */
   onReviewImportedLease?: () => void;
   /** Section editor for this lease packet only — never the property template. */
@@ -91,6 +99,8 @@ export function LeasePrimaryHeaderActions({
   generateLeaseTitle,
   onUploadPdf,
   uploadPdfBusy = false,
+  onMarkSigned,
+  markSignedDataAttr = "lease-primary-mark-signed",
   onReviewImportedLease,
   onRenewLease,
   onExtendMoveOut,
@@ -117,7 +127,13 @@ export function LeasePrimaryHeaderActions({
   const showSigningReminder = row.status === "Resident Signature Pending" && Boolean(onSigningReminder);
   const showMoveToReview = row.status === "Resident Signature Pending" && Boolean(onMoveToManagerReview);
   const showGenerate = canEditDocument && Boolean(onGenerateLease);
-  const showUpload = canEditDocument && Boolean(onUploadPdf);
+  const canMarkSigned = leaseCanBeMarkedSignedOffPlatform(row);
+  // Upload is also offered while the lease is out for signature but unsigned:
+  // the caller withdraws the request and replaces the document in one step,
+  // so a paper-signed copy can be filed without a detour through "Move to
+  // review". Once any signature exists, `canMarkSigned` is false and so is this.
+  const showUpload = (canEditDocument || (canMarkSigned && row.status === "Resident Signature Pending")) && Boolean(onUploadPdf);
+  const showMarkSigned = canMarkSigned && Boolean(onMarkSigned);
   const showEditLease =
     canEditDocument &&
     Boolean(row.generatedHtml) &&
@@ -404,6 +420,28 @@ export function LeasePrimaryHeaderActions({
       });
     }
 
+    if (showMarkSigned) {
+      actions.push({
+        id: "mark-signed",
+        button: (
+          <Button
+            type="button"
+            variant="outline"
+            className={compactBtnClass}
+            data-attr={markSignedDataAttr}
+            onClick={onMarkSigned}
+          >
+            Mark as signed
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem data-attr={markSignedDataAttr} onClick={onMarkSigned}>
+            Mark as signed
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
     if (showRenewals && onRenewLease) {
       actions.push({
         id: "renew",
@@ -497,6 +535,9 @@ export function LeasePrimaryHeaderActions({
     generateLeaseTitle,
     onGenerateLease,
     uploadPdfBusy,
+    showMarkSigned,
+    markSignedDataAttr,
+    onMarkSigned,
     showReviewImport,
     reviewImportLabel,
     importNeedsReview,

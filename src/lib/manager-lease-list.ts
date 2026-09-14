@@ -81,6 +81,11 @@ export function leaseUpdatedLabel(row: LeasePipelineRow): string {
   if (row.pendingRenewal && row.status === "Manager Review") {
     return `${row.updated} · Renewal requested`;
   }
+  // An executed filing (paper or another tool) is signed, but not by PropLane's
+  // e-sign — say so where the manager scans the list.
+  if (row.externallySignedLease === true && row.fullySignedAt && row.status === "Fully Signed") {
+    return `${row.updated?.trim() || "—"} · Signed off-platform`;
+  }
   return row.updated?.trim() || "—";
 }
 

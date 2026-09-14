@@ -153,6 +153,42 @@ export function leaseRowHasDocumentBody(row: LeasePipelineRow): boolean {
 }
 
 /**
+ * May a manager mark this lease as executed OFF-platform — signed on paper or
+ * in another tool, with the signed PDF filed here as the executed document?
+ *
+ * Only while the row carries NO execution evidence of its own. A resident
+ * e-signature, a returned offline-signed PDF, `fullySignedAt`, or a void all
+ * close the window: marking over any of them would replace real evidence with
+ * an assertion. Draft, Manager Review and Resident Signature Pending are the
+ * three states with nothing to protect yet — a sent-but-unsigned request is
+ * simply withdrawn by the marking.
+ *
+ * ONE predicate, read by the footer, the selection bar and the mark-signed
+ * route, so the action a manager is offered and the action the server accepts
+ * cannot drift apart.
+ */
+export function leaseCanBeMarkedSignedOffPlatform(
+  row: Pick<
+    LeasePipelineRow,
+    | "bucket"
+    | "status"
+    | "managerSignature"
+    | "residentSignature"
+    | "signatureName"
+    | "signedAtIso"
+    | "fullySignedAt"
+    | "voidedAt"
+    | "residentReturnedSignedPdfAt"
+  >,
+): boolean {
+  if (row.voidedAt || row.status === "Voided" || row.status === "Fully Signed") return false;
+  if (row.status === "Manager Signature Pending" || row.status === "Admin Review") return false;
+  if (leaseClaimsExecution(row)) return false;
+  if (row.residentReturnedSignedPdfAt) return false;
+  return row.bucket === "manager" || row.bucket === "resident";
+}
+
+/**
  * True when `next` erases execution that `stored` already carries without
  * supplying a superseding document — the shape a stale empty-browser lease
  * mirror posts after `syncApprovedApplications` materializes draft rows.

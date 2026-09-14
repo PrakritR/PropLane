@@ -494,6 +494,29 @@ signature.
   That is correct (nothing was executed through the portal), but it means a
   present signature does not imply a present fingerprint.
 
+# Mark as signed: the one way a lease is born Signed without e-signatures (Sep 2026)
+
+A lease signed on paper or in another tool is filed from the Leases tab: upload the
+PDF (allowed in Manager Review, and in Resident Signature Pending while unsigned —
+there the upload withdraws the request first), then **Mark as signed** in the detail
+footer or the list's selection bar. `leaseCanBeMarkedSignedOffPlatform`
+(`lease-execution-evidence.ts`) is the one predicate behind the button AND the
+route: it opens only while the row carries no execution evidence at all (no
+signature object, no legacy `signatureName`, no `fullySignedAt`, no returned PDF,
+no void). A resident who already e-signed is countersigned, never marked over.
+
+The write is `POST /api/portal-lease-pipeline/mark-signed`, deliberately not the
+generic upsert: that route refuses a signature on a never-sent row and a body plus
+an execution claim in one request, and both refusals must stay. The dedicated
+route loads the stored row pinned to the caller, optionally files the supplied PDF
+(only while no signature exists), and writes both signatures with
+`externallySignedLease: true` and the manager's optional signed-on date — the same
+shape existing-resident onboarding seeds, so every reader already understands it.
+`sentToResidentAt` is left as stored so a never-sent lease does not emit a
+"lease sent" transition. Client side, `lease-mark-signed.client.ts` re-syncs the
+pipeline and posts the signed-lease charges. Tests:
+`tests/unit/lease-mark-signed-route.test.ts`, `tests/unit/lease-mark-signed-predicate.test.ts`.
+
 # Uploaded leases: parsed into PropLane format, held until a human confirms (Aug 2026)
 
 A manager-uploaded lease (`managerUploadLeasePdf` → `LeasePipelineRow.managerUploadedPdf`)
