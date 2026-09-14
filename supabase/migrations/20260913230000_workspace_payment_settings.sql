@@ -1,3 +1,24 @@
+-- Renumbered from 20260913170000 on 2026-09-13, and this is the whole point of
+-- the file's name: a sibling migration already claimed that version, and a
+-- version number is the ONLY thing `db:push` matches on. Staging and production
+-- therefore both recorded 20260913170000 as applied and skipped this file
+-- forever, while dev happened to run this one and got the column. Every gate
+-- stayed green because every gate runs against dev.
+--
+-- Measured 2026-09-13: portal_workspaces.payment_settings exists on dev, and
+-- does NOT exist on staging or production, with 20260913170000 recorded as
+-- applied on all three.
+--
+-- Two checkout paths read this column and rethrow the PostgREST error
+-- (`stripe-household-charge-checkout.server.ts`,
+-- `application-fee-checkout.server.ts`), so shipping the code onto a database
+-- without it stops residents paying rent and applicants paying application
+-- fees. This renumber is what lets `db:push` reach those two databases.
+--
+-- Safe to re-run: the column add is `if not exists` and the backfill only
+-- touches rows whose payment_settings is still null, so applying it again on
+-- dev changes nothing.
+
 -- Payment setup is answered once per WORKSPACE, not per property.
 --
 -- Payment setup used to ask which PROPERTIES a processing-fee choice applied
