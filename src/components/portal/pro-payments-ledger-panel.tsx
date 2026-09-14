@@ -65,6 +65,7 @@ import { PaymentScheduledMessagesLead } from "@/components/portal/payment-schedu
 import type { ScheduledPaymentMessage } from "@/lib/scheduled-payment-messages";
 import { manageableRemindersForCharge, formatScheduledSendAt } from "@/lib/scheduled-payment-messages";
 import { scheduledSendBadgeLabel, summariseScheduledSends } from "@/lib/scheduled-send-summary";
+import { moveInSubtotalForLedgerRows } from "@/lib/move-in-charge-group";
 import {
   combineScheduledPaymentMessages,
   scheduledMessagesTouchingCharges,
@@ -1644,6 +1645,19 @@ export function ManagerPaymentsLedgerPanel({
     );
   };
 
+  // The resident pays their move-in as ONE total; the manager reads the same
+  // number over the same lines. The lines below it stay separate ledger entries.
+  const renderMoveInSubtotal = (clusterRows: DemoManagerPaymentLedgerRow[]) => {
+    const subtotal = moveInSubtotalForLedgerRows(clusterRows);
+    if (!subtotal) return null;
+    return (
+      <span className="truncate text-xs text-muted" data-attr="payments-cluster-move-in-total">
+        Move-in total <span className="font-semibold tabular-nums text-foreground">{subtotal.totalLabel}</span> ·{" "}
+        {subtotal.count} items
+      </span>
+    );
+  };
+
   const renderManagerGroupedLedger = () => (
     <div
       className="space-y-3"
@@ -1669,6 +1683,7 @@ export function ManagerPaymentsLedgerPanel({
                     {cluster.propertyLabel}
                   </span>
                   <span className="sr-only">{cluster.rows.length === 1 ? "1 charge" : `${cluster.rows.length} charges`}</span>
+                  {renderMoveInSubtotal(cluster.rows)}
                   {(() => {
                     const chargeIds = new Set(
                       cluster.rows
@@ -1712,6 +1727,7 @@ export function ManagerPaymentsLedgerPanel({
                     <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
                   ) : null}
                   <span className="sr-only">{cluster.rows.length === 1 ? "1 charge" : `${cluster.rows.length} charges`}</span>
+                  {renderMoveInSubtotal(cluster.rows)}
                   {(() => {
                     const chargeIds = new Set(
                       cluster.rows

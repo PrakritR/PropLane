@@ -158,6 +158,8 @@ export type DemoManagerPaymentLedgerRow = {
   roomNumber: string;
   /** Household charge kind when the row is backed by a charge (e.g. stay_total). */
   chargeKind?: string;
+  /** True for a still-owed line the lease signature billed up front (deposit, first month, move-in fees). */
+  moveInSchedule?: boolean;
   residentName: string;
   residentEmail?: string;
   chargeTitle: string;
