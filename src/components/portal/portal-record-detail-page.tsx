@@ -26,6 +26,8 @@ export function PortalRecordDetailPage({
   suppressMobileActions = false,
   inlineActions = false,
   inlineActionsClassName,
+  /** Phone: published actions render as icon buttons in the title row, no band beneath. */
+  mobileActionsInTitleRow = false,
   children,
   fillBody = false,
   /**
@@ -59,6 +61,7 @@ export function PortalRecordDetailPage({
   suppressMobileActions?: boolean;
   inlineActions?: boolean;
   inlineActionsClassName?: string;
+  mobileActionsInTitleRow?: boolean;
   children: ReactNode;
   /**
    * Opt in when `children` is a self-contained fill layout (a chat pane that
@@ -104,6 +107,7 @@ export function PortalRecordDetailPage({
         suppressMobileActions={suppressMobileActions}
         inlineActions={inlineActions}
         inlineActionsClassName={inlineActionsClassName}
+        mobileActionsInTitleRow={mobileActionsInTitleRow}
       />
       </div>
       <div className={cn(bodyFill && "flex min-h-0 flex-1 flex-col")}>{body}</div>
