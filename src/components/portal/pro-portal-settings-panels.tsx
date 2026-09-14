@@ -358,7 +358,7 @@ export function ApplicationsSettingsPanel({
   return (
     <div className="space-y-6">
       <PortalSettingsSection
-        title="Applications"
+        title="Application handling"
         description="Automation for approving applications and waiving the application fee."
         action={<PortalSettingsScopeTag>{propertyScopeTagLabel(selectedIds.length)}</PortalSettingsScopeTag>}
       >
@@ -648,7 +648,7 @@ export function LeaseSettingsPanel({
   return (
     <div className="space-y-6">
       <PortalSettingsSection
-        title="Lease"
+        title="Lease documents"
         description="After you approve an application, PropLane can build and send the lease for you. Every safety check that applies when you do this manually still applies. The landlord named on generated leases comes from your full name in Settings → Profile."
         action={<PortalSettingsScopeTag>{propertyScopeTagLabel(propertyId ? 1 : 0)}</PortalSettingsScopeTag>}
       >
@@ -706,7 +706,7 @@ export function ServicesSettingsPanel({
 
   return (
     <PortalSettingsSection
-      title="Services"
+      title="Service reminders"
       description="Reminders before a scheduled service visit or an add-on service return date."
       action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
     >
@@ -748,7 +748,7 @@ export function InspectionsSettingsPanel({
 
   return (
     <PortalSettingsSection
-      title="Inspections"
+      title="Inspection reminders"
       description="Reminders around a move-in or move-out condition report."
       action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
     >
@@ -774,7 +774,7 @@ export function BookingsSettingsPanel({
 
   return (
     <PortalSettingsSection
-      title="Bookings"
+      title="Booking reminders"
       description="Nudge yourself before a booking on your calendar. An imported channel booking carries no guest contact, so there is no resident-facing reminder here."
       action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
     >
@@ -800,7 +800,7 @@ export function BookingsSettingsPanel({
 export function ResidentSettingsPanel() {
   return (
     <PortalSettingsSection
-      title="Residents"
+      title="Where resident settings live"
       description="This module has no settings of its own yet — resident-facing reminders live with the settings they belong to."
       action={<PortalSettingsScopeTag variant="muted">Informational</PortalSettingsScopeTag>}
     >
@@ -1259,7 +1259,7 @@ export function PaymentsSettingsPanel({
   if (mode === "outgoing") {
     return (
       <PortalSettingsSection
-        title="Payments"
+        title="Outgoing payment reminders"
         description="Nudge yourself before a bill you owe is due — never sent to payees."
         action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
       >
@@ -1273,7 +1273,7 @@ export function PaymentsSettingsPanel({
 
   return (
     <PortalSettingsSection
-      title="Payments"
+      title="Rent reminders"
       description="Remind residents before rent is due, and alert yourself when it's still unpaid."
       action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
     >
@@ -1464,7 +1464,7 @@ export function CommunicationSettingsPanel({
 
   return (
     <PortalSettingsSection
-      title="Communication"
+      title="Inbox automation"
       description="What is genuinely specific to Communication — per-event channel choice now lives with each event's own reminder."
       action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
     >

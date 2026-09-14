@@ -105,12 +105,14 @@ function ReminderChannelCell({
 }
 
 /**
- * Inbox / Email / Text as compact inline cells, meant to sit directly on an
- * audience row instead of a separate "Send via" block underneath. All three
- * channels are rule-wide (one `inbox`/`email`/`sms` triple on `ReminderRule`,
- * not one per audience — see `rules.ts`), so every row that renders this
- * reads and writes the SAME state; that is intentional; there is no
- * per-audience channel to invent one for.
+ * Inbox / Email / Text as compact inline cells. All three channels are
+ * rule-wide (one `inbox`/`email`/`sms` triple on `ReminderRule`, not one per
+ * audience — see `rules.ts`), so this must be rendered exactly ONCE per rule,
+ * in its own "Send via" row below the audience list, never inside an
+ * individual audience row. Drawing it per audience row previously told the
+ * manager the channels were independent per audience when they are actually
+ * one shared value — toggling "You → Text" silently flipped "Resident → Text"
+ * too. Do not reintroduce a per-audience instance of this component.
  */
 function ReminderAudienceChannelCells({
   rule,
@@ -368,25 +370,15 @@ export function ManagerReminderRuleSettingsPanel({
                       <PortalSettingsRow
                         className="flex-wrap items-start gap-y-2.5"
                         label={meta.notifyYouLabel}
-                        meta="Notifies you through the channels selected here."
+                        meta="Notifies you, through the channels set below."
                       >
-                        <div className="flex flex-wrap items-center gap-3">
-                          <PortalSettingsToggle
-                            checked={rule.audience.manager}
-                            onChange={(next) => patchRule({ audience: { ...rule.audience, manager: next } })}
-                            label={`Notify ${meta.notifyYouLabel}`}
-                            disabled={disabled}
-                            dataAttr={`reminder-rule-${kind}-notify-manager`}
-                          />
-                          {!channelsFixed ? (
-                            <ReminderAudienceChannelCells
-                              rule={rule}
-                              disabled={disabled}
-                              dataAttr={channelDataAttr}
-                              onChange={onChannelChange}
-                            />
-                          ) : null}
-                        </div>
+                        <PortalSettingsToggle
+                          checked={rule.audience.manager}
+                          onChange={(next) => patchRule({ audience: { ...rule.audience, manager: next } })}
+                          label={`Notify ${meta.notifyYouLabel}`}
+                          disabled={disabled}
+                          dataAttr={`reminder-rule-${kind}-notify-manager`}
+                        />
                       </PortalSettingsRow>
                     ) : (
                       <PortalSettingsLockedRow label={meta.notifyYouLabel} reason={managerLockedReason} />
@@ -396,25 +388,15 @@ export function ManagerReminderRuleSettingsPanel({
                       <PortalSettingsRow
                         className="flex-wrap items-start gap-y-2.5"
                         label={meta.notifyTeamLabel}
-                        meta="Notifies your team through the channels selected here."
+                        meta="Notifies your team, through the channels set below."
                       >
-                        <div className="flex flex-wrap items-center gap-3">
-                          <PortalSettingsToggle
-                            checked={rule.audience.team}
-                            onChange={(next) => patchRule({ audience: { ...rule.audience, team: next } })}
-                            label={`Notify ${meta.notifyTeamLabel}`}
-                            disabled={disabled}
-                            dataAttr={`reminder-rule-${kind}-notify-team`}
-                          />
-                          {!channelsFixed ? (
-                            <ReminderAudienceChannelCells
-                              rule={rule}
-                              disabled={disabled}
-                              dataAttr={channelDataAttr}
-                              onChange={onChannelChange}
-                            />
-                          ) : null}
-                        </div>
+                        <PortalSettingsToggle
+                          checked={rule.audience.team}
+                          onChange={(next) => patchRule({ audience: { ...rule.audience, team: next } })}
+                          label={`Notify ${meta.notifyTeamLabel}`}
+                          disabled={disabled}
+                          dataAttr={`reminder-rule-${kind}-notify-team`}
+                        />
                       </PortalSettingsRow>
                     ) : (
                       <PortalSettingsLockedRow label={meta.notifyTeamLabel} reason={teamLockedReason} />
@@ -424,25 +406,15 @@ export function ManagerReminderRuleSettingsPanel({
                       <PortalSettingsRow
                         className="flex-wrap items-start gap-y-2.5"
                         label={meta.notifyCounterpartyLabel}
-                        meta={`Notifies the ${meta.notifyCounterpartyLabel.toLowerCase()} through the channels selected here.`}
+                        meta={`Notifies the ${meta.notifyCounterpartyLabel.toLowerCase()}, through the channels set below.`}
                       >
-                        <div className="flex flex-wrap items-center gap-3">
-                          <PortalSettingsToggle
-                            checked={rule.audience.counterparty}
-                            onChange={(next) => patchRule({ audience: { ...rule.audience, counterparty: next } })}
-                            label={`Notify ${meta.notifyCounterpartyLabel}`}
-                            disabled={disabled}
-                            dataAttr={`reminder-rule-${kind}-notify-counterparty`}
-                          />
-                          {!channelsFixed ? (
-                            <ReminderAudienceChannelCells
-                              rule={rule}
-                              disabled={disabled}
-                              dataAttr={channelDataAttr}
-                              onChange={onChannelChange}
-                            />
-                          ) : null}
-                        </div>
+                        <PortalSettingsToggle
+                          checked={rule.audience.counterparty}
+                          onChange={(next) => patchRule({ audience: { ...rule.audience, counterparty: next } })}
+                          label={`Notify ${meta.notifyCounterpartyLabel}`}
+                          disabled={disabled}
+                          dataAttr={`reminder-rule-${kind}-notify-counterparty`}
+                        />
                       </PortalSettingsRow>
                     ) : (
                       <PortalSettingsLockedRow label={meta.notifyCounterpartyLabel} reason={counterpartyLockedReason} />
@@ -455,7 +427,21 @@ export function ManagerReminderRuleSettingsPanel({
                 <PortalSettingsGroup className="mt-2">
                   <PortalSettingsLockedRow label="Delivery channel" reason={fixed.reason} />
                 </PortalSettingsGroup>
-              ) : null}
+              ) : (
+                <PortalSettingsGroup className="mt-2">
+                  <PortalSettingsRow
+                    label="Send via"
+                    meta="Applies to everyone notified above — these channels are shared by the whole reminder, not chosen per person."
+                  >
+                    <ReminderAudienceChannelCells
+                      rule={rule}
+                      disabled={disabled}
+                      dataAttr={channelDataAttr}
+                      onChange={onChannelChange}
+                    />
+                  </PortalSettingsRow>
+                </PortalSettingsGroup>
+              )}
 
               {!audienceFixed && showTeamOption && rule.audience.team ? (
                 <div className="mt-3">

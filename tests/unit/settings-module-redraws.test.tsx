@@ -15,6 +15,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DEFAULT_MANAGER_AUTOMATION_SETTINGS } from "@/lib/payment-automation-settings";
 import { DEFAULT_LIFECYCLE_AUTOMATION } from "@/lib/task-lifecycle-automation";
+import { MANAGER_PORTAL_SETTINGS_TABS } from "@/lib/portal-settings-section";
 import {
   DEFAULT_APPLICATION_AUTOMATION,
   type ApplicationAutomationPreferences,
@@ -159,7 +160,39 @@ describe("settings module redraws — scope tags", () => {
   it("Resident says plainly it has no settings of its own, tagged Informational", async () => {
     render(<ResidentSettingsPanel />);
     expect(await screen.findByText("Informational")).toBeTruthy();
-    expect(screen.getByText("Residents")).toBeTruthy();
+    // Titled for what the section contains rather than repeating the module
+    // name. Both hosts already name the module — the standalone page's own
+    // heading and the gear sheet's dialog title — so a section titled
+    // "Residents" inside a page titled "Residents" rendered the word twice.
+    expect(screen.getByText("Where resident settings live")).toBeTruthy();
+  });
+});
+
+describe("a section is never titled the same as the module that contains it", () => {
+  /**
+   * Both hosts already name the module: the standalone `/portal/settings/<area>`
+   * page renders the rail label as its own heading, and the gear sheet's dialog
+   * title comes from the settings registry. So a panel whose first section
+   * repeats that name draws the word twice, one line apart -- which is exactly
+   * what Bookings, Lease, Applications, Services, Inspections and Residents did.
+   *
+   * Tours ("Tour booking" / "Tour reminders") and Tasks ("Task reminders" /
+   * "Lifecycle automation") were always right: a section is titled for what it
+   * contains, not for where it lives.
+   */
+  it("no panel's section title is just its rail label", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/components/portal/pro-portal-settings-panels.tsx"),
+      "utf8",
+    );
+    const sectionTitles = Array.from(source.matchAll(/title="([^"]+)"/g)).map((m) => m[1]!);
+    const railLabels = MANAGER_PORTAL_SETTINGS_TABS.map((tab) => tab.label);
+
+    const duplicated = sectionTitles.filter((title) => railLabels.includes(title));
+    expect(
+      duplicated,
+      `these section titles repeat the module name the host already shows: ${duplicated.join(", ")}`,
+    ).toEqual([]);
   });
 });
 

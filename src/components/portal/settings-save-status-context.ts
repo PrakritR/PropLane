@@ -6,8 +6,9 @@ import { createContext, useContext, useEffect, useRef } from "react";
  * How a per-control autosave inside a settings module reports itself to the
  * host's `SaveStatus` mark — Tours' notice stepper and auto-confirm toggle,
  * Task's lifecycle fields, Communication's AI-draft switch, every
- * `ManagerReminderRuleSettingsPanel` audience row (directly and through the
- * reminder bundles that wrap it), and the Applications/Lease automation
+ * `ManagerReminderRuleSettingsPanel` row (directly and through the reminder
+ * bundles that wrap it), `PaymentAutomationSettingsForm` (schedule, Send via,
+ * and the late-fee-notices gate), and the Applications/Lease automation
  * toggles handled directly in `settings-module-page.tsx`.
  *
  * This is deliberately NOT a second status mechanism: `SettingsModulePage` is
@@ -42,7 +43,7 @@ const NOOP_REPORT: ReportSettingsSaveStatus = () => {};
 
 /**
  * A debounced per-control autosave (Tours, Tasks, Communication, every
- * `ManagerReminderRuleSettingsPanel`) is lost if its panel unmounts before the debounce timer
+ * `ManagerReminderRuleSettingsPanel`, `PaymentAutomationSettingsForm`) is lost if its panel unmounts before the debounce timer
  * fires — a switched tab that the host DIDN'T explicitly flush first, or leaving Settings
  * entirely through a nav link this task does not own. `SettingsModulePage.flushPendingSaves()`
  * cannot fix this from a level above: React tears down a subtree bottom-up, so by the time any

@@ -29,6 +29,10 @@ import { readPortalApiError } from "@/lib/portal-api-error";
 import { InboxScheduledCard, ScheduledMessageDetailModal } from "@/components/portal/portal-inbox-ui";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { ReminderMessagePreviewCard, ReminderMessageUpdateModal, ReminderSendViaField } from "@/components/portal/reminder-settings-shared";
+import {
+  useFlushSettingsAutosaveOnUnmount,
+  useReportSettingsSaveStatus,
+} from "@/components/portal/settings-save-status-context";
 import { sendAutomationScheduledMessageNow } from "@/components/portal/portal-inbox-selection";
 import { threadScheduledItemFromAutomationMessage } from "@/lib/inbox-scheduled-thread";
 import { applyReminderTemplate, type ReminderTemplateParams } from "@/lib/payment-reminder-email";
@@ -805,6 +809,7 @@ function PaymentAutomationSettingsForm({
   formRef?: React.Ref<PaymentAutomationSettingsHandle>;
 }) {
   const { showToast } = useAppUi();
+  const reportSaveStatus = useReportSettingsSaveStatus();
   const copy = SCHEDULE_SETTINGS_COPY[variant];
   const [draft, setDraft] = useState(initialSettings);
   const [selectedPreset, setSelectedPreset] = useState<ReminderPresetId>(() => detectReminderPreset(initialSettings));
@@ -858,12 +863,18 @@ function PaymentAutomationSettingsForm({
       return false;
     }
     setBusy(true);
+    reportSaveStatus({ type: "start" });
     try {
       const payload = currentPayload;
       const res = await fetch("/api/portal/automation-settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
+        // A hard page unload (reload, tab close) can abort an ordinary in-flight fetch before it
+        // lands — exactly the write the `pagehide`/`visibilitychange` flush in
+        // `settings-module-page.tsx` exists to send. See the same note in
+        // `manager-reminder-rule-settings.tsx`'s `save`.
+        keepalive: true,
         body: JSON.stringify({
           ...payload,
           ...(variant === "payments"
@@ -894,14 +905,20 @@ function PaymentAutomationSettingsForm({
       if (variant === "payments") {
         setApplyToExistingChoice(false);
       }
+      reportSaveStatus({ type: "success" });
       return true;
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not save settings.");
+      // Unconditional — silent only suppresses the SUCCESS toast above, never the failure one. A
+      // per-control autosave that fails must still surface, same contract as
+      // `manager-reminder-rule-settings.tsx`'s `save`.
+      const message = e instanceof Error ? e.message : "Could not save settings.";
+      showToast(message);
+      reportSaveStatus({ type: "failure", reason: message });
       return false;
     } finally {
       setBusy(false);
     }
-  }, [copy.savedToast, currentPayload, onAfterSave, onSaved, applyToExisting, scheduleHasReminders, showToast, variant]);
+  }, [copy.savedToast, currentPayload, onAfterSave, onSaved, applyToExisting, reportSaveStatus, scheduleHasReminders, showToast, variant]);
 
   const saveIfDirty = useCallback(async (): Promise<boolean> => {
     if (!isDirty) return true;
@@ -911,6 +928,35 @@ function PaymentAutomationSettingsForm({
   useImperativeHandle(formRef, () => ({ saveIfDirty }), [saveIfDirty]);
 
   const saveVisible = !autoSaveOnClose;
+
+  /**
+   * Per-control autosave, same contract as `manager-reminder-rule-settings.tsx` and Tours'
+   * notice-stepper effect: every control below (`applySchedulePatch`, the late fee toggle, Send
+   * via, …) already writes straight into `draft` via its own `onChange`, and this debounced
+   * effect turns that dirty state into a save shortly after — there is no Save button when
+   * `autoSaveOnClose` is set (`saveVisible` above), so without this nothing but a hard page
+   * unload or the modal's own close handler ever wrote the change, and a plain in-page toggle
+   * (no reload, no modal close) saved nothing. `saveIfDirty` above is unchanged and is still what
+   * `SettingsModulePage`'s flush-before-close path and `ReminderSettingsModal`'s close-and-save
+   * call; this effect is a second, earlier caller of the same `save`.
+   */
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (saveVisible || !isDirty) return;
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(() => {
+      void save({ silent: true });
+    }, 600);
+    return () => {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    };
+  }, [isDirty, save, saveVisible]);
+
+  // A debounced write still pending when this panel goes away (tab switch the host didn't
+  // explicitly flush, or leaving Settings outright) must still land — see
+  // `useFlushSettingsAutosaveOnUnmount`'s own doc comment for why this has to live here and not
+  // one level up.
+  useFlushSettingsAutosaveOnUnmount(save, isDirty);
 
   const applySchedulePatch = (patch: ReturnType<typeof settingsPatchFromReminderScheduleTokens>) => {
     setDraft((prev) => {
@@ -1021,10 +1067,16 @@ function PaymentAutomationSettingsForm({
         <>
           <ReminderPresetDropdown activePreset={activePreset} busy={busy} onSelect={selectPreset} />
           <UnifiedReminderScheduleSelect draft={draft} busy={busy} onChange={applySchedulePatch} />
-          <label className="flex items-center gap-2 text-sm sm:col-span-2">
-            <input type="checkbox" checked={draft.lateFeeNoticeEnabled} onChange={(e) => setDraft({ ...draft, lateFeeNoticeEnabled: e.target.checked })} disabled={busy} />
-            Late fee notices
-          </label>
+          <div className="flex items-center justify-between gap-2 text-sm sm:col-span-2">
+            <span>Late fee notices</span>
+            <PortalSettingsToggle
+              checked={draft.lateFeeNoticeEnabled}
+              onChange={(next) => setDraft({ ...draft, lateFeeNoticeEnabled: next })}
+              label="Late fee notices"
+              disabled={busy}
+              dataAttr="payment-late-fee-notices"
+            />
+          </div>
 
           {draft.overdueDailyEnabled ? (
             <label className="block text-xs font-semibold text-muted">
