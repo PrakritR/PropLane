@@ -12,6 +12,7 @@ import {
   type ResidentAxisPaymentMethod,
 } from "@/lib/payment-policy";
 import { getStripe } from "@/lib/stripe";
+import { loadWorkspaceServiceFeePayerForProperty } from "@/lib/workspace-payment-settings.server";
 import { createAxisAchCheckoutSession, stripeNotConfiguredError } from "@/lib/stripe-axis-ach-checkout";
 import {
   isStripeConnectAccountAccessError,
@@ -234,10 +235,21 @@ export async function createHouseholdChargeCheckout(
       };
     }
 
+    /* Payment setup is answered per workspace, so a house with no choice of its
+       own follows the workspace it belongs to before falling back to the
+       account. Every charge here is on one property (the mixed-payer guard
+       above), so one lookup answers for the batch. */
+    const workspaceChoice = await loadWorkspaceServiceFeePayerForProperty(
+      db,
+      managerUserId,
+      loaded[0]?.charge.propertyId,
+    );
+
     const feePayer = resolveServiceFeePayerFor({
       tier: managerTier,
       adminOverride: managerSettings.adminServiceFeeOverride,
       propertyChoice: loaded[0]?.propertyFeePayer ?? null,
+      workspaceChoice,
       managerChoice: managerSettings.serviceFeePayer,
       waiverGranted: resolveAccountOrListingWaiverGranted(promoCode, loaded[0]?.propertyFeeWaiverCode),
     });

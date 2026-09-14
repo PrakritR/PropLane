@@ -4,9 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CreditCard } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
-import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { openStripeConnectOnboarding } from "@/lib/stripe-connect-onboarding-client";
 import {
   DEFAULT_MANAGER_MANUAL_PAYMENT_SETTINGS,
@@ -32,7 +33,6 @@ import {
 import { stripeSetupStateFromStatus, type StripeSetupState } from "@/lib/stripe-setup-state";
 
 const DEMO_INBOX = "payments+demo-token@prop-lane.space";
-const SELECT_ALL_PROPERTIES = "__select_all_properties__";
 
 function draftFromSettings(settings: ManagerManualPaymentSettingsView | null): ManagerManualPaymentSettingsView {
   return settings ?? { ...DEFAULT_MANAGER_MANUAL_PAYMENT_SETTINGS, paymentInboxAddress: DEMO_INBOX };
@@ -65,7 +65,26 @@ export function ManagerPaymentSetupModal({
   const [isCoManagerForPayout, setIsCoManagerForPayout] = useState(false);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [propertyFeePayers, setPropertyFeePayers] = useState<Record<string, ServiceFeePayer | null>>({});
-  const [selectedPropertyIds, setSelectedPropertyIds] = useState<string[]>([]);
+  /*
+   * Payment setup is answered once per WORKSPACE (captain, 2026-09-13). The
+   * screen used to ask which properties a choice applied to, which let a
+   * manager set three of nine houses and leave the rest on whatever they had.
+   */
+  const [workspaceFeePayers, setWorkspaceFeePayers] = useState<Record<string, ServiceFeePayer | null>>({});
+  const workspaceCtx = useWorkspaces();
+  /* Only workspaces the signed-in manager owns can have their payment setup
+     changed here; a co-manager's access to someone else's house is unchanged. */
+  const ownedWorkspaces = useMemo(
+    () => (workspaceCtx?.workspaces ?? []).filter((w) => w.owned),
+    [workspaceCtx?.workspaces],
+  );
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>("");
+  const activeWorkspaceId =
+    selectedWorkspaceId ||
+    (workspaceCtx?.active?.owned ? workspaceCtx.active.id : "") ||
+    ownedWorkspaces[0]?.id ||
+    "";
+  const activeWorkspace = ownedWorkspaces.find((w) => w.id === activeWorkspaceId) ?? null;
   /*
     A manager PropLane has given a promo code to, but whose grant is not on the account
     yet, still needs a door. The option itself only appears once the grant is
@@ -144,23 +163,28 @@ export function ManagerPaymentSetupModal({
       setPropertyFeePayers(
         Object.fromEntries(visibleProperties.map((property) => [property.id, null] as const)),
       );
-      setSettingsLoaded(true);
-      return;
-    }
-    if (!propertyIdsKey) {
-      setPropertyFeePayers({});
+      setWorkspaceFeePayers({});
       setSettingsLoaded(true);
       return;
     }
     setLoading(true);
     try {
+      /*
+       * Asked even with no properties yet. The fee now belongs to the WORKSPACE,
+       * and a workspace with no homes in it still has a payment setup worth
+       * reading — returning early here left a new account showing a blank
+       * control it could never fill in.
+       */
       const res = await fetch(
-        `/api/portal/manager-manual-payment-settings?propertyIds=${encodeURIComponent(propertyIdsKey)}`,
+        propertyIdsKey
+          ? `/api/portal/manager-manual-payment-settings?propertyIds=${encodeURIComponent(propertyIdsKey)}`
+          : "/api/portal/manager-manual-payment-settings",
         { credentials: "include" },
       );
       const data = (await res.json().catch(() => ({}))) as {
         settings?: ManagerManualPaymentSettingsView;
         propertyServiceFeePayers?: Record<string, ServiceFeePayer | null>;
+        workspacePaymentSettings?: Record<string, { serviceFeePayer?: ServiceFeePayer | null }>;
         error?: string;
       };
       if (!res.ok) {
@@ -169,6 +193,14 @@ export function ManagerPaymentSetupModal({
       }
       setDraft(draftFromSettings(data.settings ?? null));
       setPropertyFeePayers(data.propertyServiceFeePayers ?? {});
+      setWorkspaceFeePayers(
+        Object.fromEntries(
+          Object.entries(data.workspacePaymentSettings ?? {}).map(([id, value]) => [
+            id,
+            value?.serviceFeePayer ?? null,
+          ]),
+        ),
+      );
       setSettingsLoaded(true);
     } catch {
       showToast("Could not load payment setup.");
@@ -207,17 +239,11 @@ export function ManagerPaymentSetupModal({
     void loadTier();
   }, [open, loadStripeStatus, loadSettings, loadTier]);
 
+  /* Reopening the modal drops any workspace the manager had switched to, so it
+     always opens on the workspace they are actually working in. */
   useEffect(() => {
-    if (!open) {
-      setSelectedPropertyIds([]);
-      return;
-    }
-    if (lockPropertySelection && presetPropertyIds?.[0]) {
-      setSelectedPropertyIds([presetPropertyIds[0]]);
-      return;
-    }
-    setSelectedPropertyIds(visibleProperties.map((property) => property.id));
-  }, [lockPropertySelection, open, presetPropertyIds, visibleProperties]);
+    if (!open) setSelectedWorkspaceId("");
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -229,6 +255,10 @@ export function ManagerPaymentSetupModal({
   async function persistSettings(
     patch: Partial<ManagerManualPaymentSettingsView> & {
       propertyServiceFeePayers?: Array<{ propertyId: string; serviceFeePayer: ServiceFeePayer | null }>;
+      /* A workspace-scoped save: the route re-checks the id against the
+         signed-in owner, so this is a scope, never an authorization claim. */
+      workspaceId?: string;
+      workspaceServiceFeePayer?: ServiceFeePayer | null;
     },
     savingId: string,
   ) {
@@ -246,6 +276,9 @@ export function ManagerPaymentSetupModal({
           }
           return next;
         });
+      }
+      if (patch.workspaceId && patch.workspaceServiceFeePayer !== undefined) {
+        setWorkspaceFeePayers((prev) => ({ ...prev, [patch.workspaceId!]: patch.workspaceServiceFeePayer ?? null }));
       }
       if (patch.serviceFeePayer) {
         setDraft((prev) => draftFromSettings({ ...prev, ...patch, axisPaymentsEnabled: true }));
@@ -349,44 +382,6 @@ export function ManagerPaymentSetupModal({
     [canSelectManagerAbsorb, canSelectProplane],
   );
 
-  const propertyMultiOptions = useMemo(() => {
-    const rows = visibleProperties.map((property) => ({ value: property.id, label: property.label }));
-    if (visibleProperties.length <= 1) return rows;
-    return [{ value: SELECT_ALL_PROPERTIES, label: "Select all" }, ...rows];
-  }, [visibleProperties]);
-
-  const propertySelectionTriggerLabel = useMemo(() => {
-    if (selectedPropertyIds.length === 0) return undefined;
-    if (
-      visibleProperties.length > 1 &&
-      selectedPropertyIds.length === visibleProperties.length
-    ) {
-      return "All properties";
-    }
-    if (selectedPropertyIds.length === 1) {
-      return visibleProperties.find((property) => property.id === selectedPropertyIds[0])?.label;
-    }
-    return `${selectedPropertyIds.length} properties`;
-  }, [selectedPropertyIds, visibleProperties]);
-
-  const propertyCheckboxSelected = useMemo(() => {
-    if (visibleProperties.length <= 1) return selectedPropertyIds;
-    const allSelected =
-      selectedPropertyIds.length === visibleProperties.length && visibleProperties.length > 0;
-    return allSelected ? [SELECT_ALL_PROPERTIES, ...selectedPropertyIds] : selectedPropertyIds;
-  }, [selectedPropertyIds, visibleProperties.length]);
-
-  const handlePropertySelectionChange = (next: string[]) => {
-    const allIds = visibleProperties.map((property) => property.id);
-    const includesSelectAll = next.includes(SELECT_ALL_PROPERTIES);
-    const wasAllSelected = selectedPropertyIds.length === allIds.length && allIds.length > 0;
-    if (includesSelectAll !== wasAllSelected) {
-      setSelectedPropertyIds(includesSelectAll ? allIds : []);
-      return;
-    }
-    setSelectedPropertyIds(next.filter((id) => id !== SELECT_ALL_PROPERTIES));
-  };
-
   const effectivePayerForProperty = useCallback(
     (propertyId: string): ServiceFeePayer =>
       resolveServiceFeePayerFor({
@@ -399,59 +394,63 @@ export function ManagerPaymentSetupModal({
     [accountDefaultPayer, draft.adminServiceFeeOverride, paymentWaiverGranted, propertyFeePayers, tier],
   );
 
-  const selectedPropertiesFeeValue = useMemo((): ServiceFeePayer | "" => {
-    if (selectedPropertyIds.length === 0) return "";
-    const values = selectedPropertyIds.map((propertyId) => effectivePayerForProperty(propertyId));
-    const first = values[0];
-    if (!values.every((value) => value === first)) return "";
-    return first;
-  }, [effectivePayerForProperty, selectedPropertyIds]);
-
   async function applyWaiverCode() {
     const code = normalizeListingPaymentWaiverCode(waiverCodeDraft);
     if (!listingPaymentWaiverCodeMatches(code)) {
       setWaiverCodeError(LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID);
       return;
     }
-    if (selectedPropertyIds.length === 0) {
-      showToast("Select at least one property.");
-      return;
-    }
     setWaiverCodeError(null);
+    /*
+     * The code establishes the grant on the ACCOUNT; the workspace then records
+     * that PropLane covers it, which is the scope the fee is answered at.
+     *
+     * With no workspace resolved — the modal rendered outside the workspace
+     * provider, or its first load still in flight — this saves the account
+     * setting alone rather than refusing. Entering a valid code must never
+     * silently do nothing.
+     */
     await persistSettings(
       {
         serviceFeePayer: "proplane",
         serviceFeeWaiverCode: code,
-        propertyServiceFeePayers: selectedPropertyIds.map((propertyId) => ({
-          propertyId,
-          serviceFeePayer: null,
-        })),
+        ...(activeWorkspaceId
+          ? { workspaceId: activeWorkspaceId, workspaceServiceFeePayer: "proplane" as const }
+          : {}),
       },
       "fee-payer",
     );
+    if (activeWorkspaceId) {
+      setWorkspaceFeePayers((prev) => ({ ...prev, [activeWorkspaceId]: "proplane" }));
+    }
     setPaymentWaiverGranted(true);
     setWaiverPromptOpen(false);
   }
 
-  const applyFeeToSelectedProperties = (raw: ServiceFeePayer) => {
-    if (selectedPropertyIds.length === 0) {
-      showToast("Select at least one property.");
-      return;
-    }
+  /**
+   * Save the processing fee for the workspace being edited.
+   *
+   * One write, one scope. The old handler fanned the choice out across each
+   * selected property and left every unselected one behind; here the workspace
+   * holds the answer and a house only differs when it has been given its own.
+   */
+  const applyFeeToWorkspace = (raw: ServiceFeePayer) => {
     if (raw === "manager" && !canSelectManagerAbsorb) return;
     if (raw === "proplane" && !canSelectProplane) return;
-    const alreadyApplied =
-      raw === accountDefaultPayer &&
-      selectedPropertyIds.every((propertyId) => (propertyFeePayers[propertyId] ?? null) === null);
-    if (alreadyApplied) return;
+    if (!activeWorkspaceId) {
+      /* No workspace resolved yet: save the account setting, which is what the
+         workspace would inherit anyway. Refusing here would make the control
+         look broken while the provider is still loading. */
+      if (accountDefaultPayer === raw) return;
+      void persistSettings({ serviceFeePayer: raw }, "fee-payer");
+      return;
+    }
+    if ((workspaceFeePayers[activeWorkspaceId] ?? null) === raw) return;
+    /* Optimistic, then reconciled from the save's own response — the control
+       must never show a choice the server did not actually take. */
+    setWorkspaceFeePayers((prev) => ({ ...prev, [activeWorkspaceId]: raw }));
     void persistSettings(
-      {
-        serviceFeePayer: raw,
-        propertyServiceFeePayers: selectedPropertyIds.map((propertyId) => ({
-          propertyId,
-          serviceFeePayer: null,
-        })),
-      },
+      { workspaceId: activeWorkspaceId, workspaceServiceFeePayer: raw },
       "fee-payer",
     );
   };
@@ -511,41 +510,40 @@ export function ManagerPaymentSetupModal({
                 <span className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Property · </span>
                 {visibleProperties[0]?.label ?? "Property"}
               </p>
-            ) : (
-              <CheckboxMultiSelect
-                label="Properties"
-                options={propertyMultiOptions}
-                selected={propertyCheckboxSelected}
-                onChange={handlePropertySelectionChange}
-                selectionTriggerLabel={propertySelectionTriggerLabel}
-                disabled={loading || Boolean(savingKey) || visibleProperties.length === 0}
-                emptyLabel="Select properties…"
-                searchPlaceholder="Search properties…"
-                dataAttr="manager-payment-setup-properties"
+            ) : ownedWorkspaces.length > 1 ? (
+              <FieldSingleSelect
+                label="Workspace"
+                value={activeWorkspaceId}
+                options={ownedWorkspaces.map((w) => ({ value: w.id, label: w.name }))}
+                placeholder="Select a workspace…"
+                onChange={(next) => setSelectedWorkspaceId(next)}
+                disabled={loading || Boolean(savingKey)}
+                dataAttr="manager-payment-setup-workspace"
               />
+            ) : (
+              /* One workspace is what every live account has, and a dropdown
+                 with a single entry is a decision you cannot make. Name what is
+                 being edited instead; the picker returns with a second one. */
+              <p className="text-sm text-foreground" data-attr="manager-payment-setup-workspace-name">
+                <span className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Workspace · </span>
+                {activeWorkspace?.name ?? "My workspace"}
+              </p>
             )}
 
             <FieldSingleSelect
               label="Processing fee paid by"
-              value={selectedPropertiesFeeValue}
+              value={workspaceFeePayers[activeWorkspaceId] ?? accountDefaultPayer ?? ""}
               options={feePayerOptions}
-              placeholder={
-                selectedPropertyIds.length > 1 && selectedPropertiesFeeValue === ""
-                  ? "Mixed — choose to apply"
-                  : "Select…"
-              }
-              onChange={(next) => applyFeeToSelectedProperties(next as ServiceFeePayer)}
-              disabled={
-                loading ||
-                (!settingsLoaded && !demo) ||
-                selectedPropertyIds.length === 0 ||
-                savingKey === "fee-payer"
-              }
+              placeholder="Select…"
+              onChange={(next) => applyFeeToWorkspace(next as ServiceFeePayer)}
+              disabled={loading || (!settingsLoaded && !demo) || savingKey === "fee-payer"}
               dataAttr="manager-service-fee-payer-select"
             />
 
             <p className="text-xs leading-relaxed text-muted">
-              Processing fee applies to every selected property. Rent still deposits to the owner&apos;s bank either
+              Applies to every home in{" "}
+              <span className="font-semibold text-foreground">{activeWorkspace?.name ?? "this workspace"}</span>. A
+              single home can still be given its own on that listing. Rent deposits to the owner&apos;s bank either
               way.
             </p>
 
