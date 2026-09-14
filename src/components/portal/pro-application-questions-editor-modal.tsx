@@ -12,7 +12,7 @@ import {
 } from "@/components/portal/portal-collapsible-edit-row";
 import { PortalEditRow } from "@/components/portal/portal-edit-row";
 import {
-  CUSTOM_APPLICATION_FIELD_TYPE_OPTIONS,
+  customApplicationFieldTypeLabel,
   normalizeCustomApplicationFields,
   type ManagerCustomApplicationFieldType,
   type ManagerListingSubmissionV1,
@@ -68,7 +68,7 @@ const APPLICATION_FORM_VARIANTS: ReadonlyArray<{ id: ApplicationFormVariant; lab
 ];
 
 function typeLabel(type: ManagerCustomApplicationFieldType): string {
-  return CUSTOM_APPLICATION_FIELD_TYPE_OPTIONS.find((o) => o.id === type)?.label ?? type;
+  return customApplicationFieldTypeLabel(type);
 }
 
 export { typeLabel as applicationQuestionTypeLabel };

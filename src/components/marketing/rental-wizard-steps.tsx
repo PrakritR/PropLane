@@ -42,7 +42,7 @@ import {
   paymentAtSigningPriceLabel,
   utilitiesListingEstimateLabel,
 } from "@/lib/rental-application/listing-fees-display";
-import type { RentalWizardErrors, RentalWizardFormState, YesNo } from "@/lib/rental-application/types";
+import type { RentalWizardErrors, RentalWizardFormState } from "@/lib/rental-application/types";
 import { makeApplicationGroupId } from "@/lib/rental-application/application-groups";
 import { digitsOnly, formatMoneyBlur } from "@/lib/rental-application/masks";
 import {
@@ -50,16 +50,14 @@ import {
   customFieldErrorKey,
   customFieldsForWizardStep,
   displayableCustomFieldAnswers,
-  encodeCustomFieldAttachment,
   formatCustomFieldAnswerDisplay,
-  isFileCustomFieldType,
   listingCustomApplicationFields,
-  parseCustomFieldAttachment,
   upsertCustomFieldAnswer,
 } from "@/lib/rental-application/custom-fields";
-import { normalizeCustomApplicationFields, type ManagerCustomApplicationField } from "@/lib/manager-listing-submission";
+import { normalizeCustomApplicationFields } from "@/lib/manager-listing-submission";
 import { RENTAL_APPLICATION_SECTIONS } from "@/lib/rental-application/application-sections";
-import { wizardSectionErrorClass } from "@/lib/wizard-field-errors";
+import { Label, FieldError, YesNoPills } from "@/components/rental-application/form-field-controls";
+import { CustomQuestionField } from "@/components/rental-application/custom-question-field";
 import {
   activeApplicationWizardSteps,
   applicationConfigForVariant,
@@ -75,40 +73,11 @@ const CUSTOM_QUESTION_WIZARD_STEPS = new Set(
   RENTAL_APPLICATION_SECTIONS.map((section) => section.wizardStep),
 );
 
-const pillWrap = "flex flex-wrap gap-2 rounded-full border border-border bg-accent/30 p-1 [html[data-theme=dark]_&]:border-white/12 [html[data-theme=dark]_&]:bg-white/6";
-const pillActive = "rounded-full px-4 py-2.5 text-sm font-semibold bg-primary text-primary-foreground shadow-sm transition min-h-[44px] sm:min-h-0";
-const pillIdle =
-  "rounded-full px-4 py-2.5 text-sm font-semibold text-muted transition hover:bg-card hover:text-foreground min-h-[44px] sm:min-h-0 [html[data-theme=dark]_&]:text-white/72 [html[data-theme=dark]_&]:hover:bg-white/10 [html[data-theme=dark]_&]:hover:text-white";
 const groupRoleStack = "flex flex-col gap-2 sm:flex-row sm:items-stretch";
 const choiceActive =
   "w-full rounded-xl border border-primary bg-primary/12 px-4 py-3.5 text-left text-sm font-semibold leading-snug text-foreground transition sm:flex-1 sm:py-2.5 sm:text-center [html[data-theme=dark]_&]:border-primary/70 [html[data-theme=dark]_&]:bg-primary/22 [html[data-theme=dark]_&]:text-white";
 const choiceIdle =
   "w-full rounded-xl border border-border bg-card/80 px-4 py-3.5 text-left text-sm font-semibold leading-snug text-foreground transition hover:border-primary/35 hover:bg-accent/25 sm:flex-1 sm:py-2.5 sm:text-center [html[data-theme=dark]_&]:border-white/14 [html[data-theme=dark]_&]:bg-white/5 [html[data-theme=dark]_&]:text-white/82 [html[data-theme=dark]_&]:hover:border-primary/45 [html[data-theme=dark]_&]:hover:bg-white/8";
-
-function Label({
-  children,
-  required,
-  optional,
-  htmlFor,
-}: {
-  children: React.ReactNode;
-  required?: boolean;
-  optional?: boolean;
-  htmlFor?: string;
-}) {
-  return (
-    <label htmlFor={htmlFor} className="block text-sm font-semibold text-foreground">
-      {children}
-      {required ? <span className="text-primary"> *</span> : null}
-      {optional ? <span className="pl-1 font-normal text-muted/70">(optional)</span> : null}
-    </label>
-  );
-}
-
-function FieldError({ msg }: { msg?: string }) {
-  if (!msg) return null;
-  return <p className="mt-1.5 text-sm text-red-600">{msg}</p>;
-}
 
 function WizardFieldGate({
   fieldKey,
@@ -125,49 +94,6 @@ function WizardFieldGate({
 
 function StepIntro({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <p className={`text-sm leading-relaxed text-muted ${className}`}>{children}</p>;
-}
-
-function YesNoPills({
-  value,
-  onChange,
-  error,
-  name,
-  fieldKey,
-  suppressError = false,
-}: {
-  value: YesNo;
-  onChange: (v: "yes" | "no") => void;
-  error?: string;
-  name: string;
-  fieldKey?: string;
-  /** When a parent row (e.g. ApplyFieldRow) renders the error message. */
-  suppressError?: boolean;
-}) {
-  return (
-    <div data-wizard-field={fieldKey} className={wizardSectionErrorClass(Boolean(error))}>
-      {/* aria-pressed is what tells a screen reader which pill is chosen — the
-          active styling alone is invisible to assistive tech. */}
-      <div className={pillWrap} role="group" aria-label={name}>
-        <button
-          type="button"
-          aria-pressed={value === "yes"}
-          className={value === "yes" ? pillActive : pillIdle}
-          onClick={() => onChange("yes")}
-        >
-          Yes
-        </button>
-        <button
-          type="button"
-          aria-pressed={value === "no"}
-          className={value === "no" ? pillActive : pillIdle}
-          onClick={() => onChange("no")}
-        >
-          No
-        </button>
-      </div>
-      {suppressError ? null : <FieldError msg={error} />}
-    </div>
-  );
 }
 
 export type WizardStepsProps = {
@@ -280,110 +206,6 @@ function ReviewRow({ k, v }: { k: string; v: ReactNode }) {
     <div className="grid gap-1 border-b border-border/80 pb-3 last:border-0 last:pb-0 sm:grid-cols-[minmax(0,38%)_1fr] sm:gap-4">
       <dt className="font-medium text-muted">{k}</dt>
       <dd className="text-foreground">{v}</dd>
-    </div>
-  );
-}
-
-/** One manager-defined application question, rendered by its configured type. */
-export function CustomQuestionField({
-  field,
-  value,
-  error,
-  onChange,
-  getApplicationId,
-  setupTokenRequired,
-  getSetupToken,
-  readOnly,
-}: {
-  field: ManagerCustomApplicationField;
-  value: string;
-  error?: string;
-  onChange: (next: string) => void;
-  /**
-   * Only required for `field.type === "file" | "photos"` — threaded straight
-   * through to {@link ApplicationPhotoField}, which mints/reads the stable
-   * application id and (for a guest) the resident-setup token the upload is
-   * authorized by.
-   */
-  getApplicationId?: () => string;
-  setupTokenRequired?: boolean;
-  getSetupToken?: () => string | null;
-  readOnly?: boolean;
-}) {
-  const inputId = `custom-${field.key}`;
-  const errorClass = error ? "border-red-400 ring-2 ring-red-100" : "";
-
-  if (isFileCustomFieldType(field.type)) {
-    return (
-      <div className="space-y-2" data-wizard-field={customFieldErrorKey(field.key)}>
-        <ApplicationPhotoField
-          slot="custom"
-          fieldKey={field.key}
-          label={`${field.label}${field.required ? " *" : " (optional)"}`}
-          attachment={parseCustomFieldAttachment(value)}
-          onChange={(next) => onChange(encodeCustomFieldAttachment(next))}
-          getApplicationId={getApplicationId ?? (() => "")}
-          setupTokenRequired={setupTokenRequired}
-          getSetupToken={getSetupToken}
-          uploadOnly={field.type === "file"}
-          readOnly={readOnly}
-          dataAttr={`application-custom-file-${field.key}`}
-        />
-        <FieldError msg={error} />
-      </div>
-    );
-  }
-
-  if (field.type === "checkbox") {
-    return (
-      <div className="space-y-2" data-wizard-field={customFieldErrorKey(field.key)}>
-        <label
-          className={`flex cursor-pointer items-start gap-3 rounded-xl border bg-card p-4 ${
-            error ? "border-red-300 bg-red-50/50 ring-2 ring-red-100" : "border-border"
-          }`}
-        >
-          <input
-            type="checkbox"
-            className="mt-1 h-4 w-4 rounded border-border text-primary"
-            checked={value === "yes"}
-            onChange={(e) => onChange(e.target.checked ? "yes" : "")}
-          />
-          <span className="text-sm font-medium text-foreground">
-            {field.label}
-            {field.required ? <span className="text-primary"> *</span> : null}
-          </span>
-        </label>
-        <FieldError msg={error} />
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-2" data-wizard-field={customFieldErrorKey(field.key)}>
-      <Label htmlFor={inputId} required={field.required} optional={!field.required}>
-        {field.label}
-      </Label>
-      {field.type === "select" ? (
-        <Select id={inputId} value={value} onChange={(e) => onChange(e.target.value)} className={errorClass}>
-          <option value="">Select</option>
-          {field.options.map((opt) => (
-            <option key={opt} value={opt}>
-              {opt}
-            </option>
-          ))}
-        </Select>
-      ) : field.type === "date" ? (
-        <DateField id={inputId} value={value} onChange={onChange} className={errorClass} />
-      ) : (
-        <Input
-          id={inputId}
-          inputMode={field.type === "number" ? "decimal" : undefined}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className={errorClass}
-        />
-      )}
-      <FieldError msg={error} />
     </div>
   );
 }

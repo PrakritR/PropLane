@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import {
-  CUSTOM_APPLICATION_FIELD_TYPE_OPTIONS,
+  customApplicationFieldTypeOptionsFor,
   customApplicationFieldKeyFromLabel,
   emptyCustomApplicationField,
   normalizeCustomApplicationFields,
@@ -41,6 +41,11 @@ function parseOptionsText(raw: string): string[] {
   return out;
 }
 
+/** Types whose answer choices come from the `options` array. */
+function fieldTypeUsesOptions(type: ManagerCustomApplicationFieldType): boolean {
+  return type === "select" || type === "multi_select";
+}
+
 export function ApplicationQuestionFields({
   field,
   optionsText,
@@ -73,7 +78,7 @@ export function ApplicationQuestionFields({
             onChange={(e) => onPatch({ type: e.target.value as ManagerCustomApplicationFieldType })}
             className="mt-1"
           >
-            {CUSTOM_APPLICATION_FIELD_TYPE_OPTIONS.map((o) => (
+            {customApplicationFieldTypeOptionsFor(field.type).map((o) => (
               <option key={o.id} value={o.id}>
                 {o.label}
               </option>
@@ -90,9 +95,11 @@ export function ApplicationQuestionFields({
           <span className="text-sm font-medium text-foreground">Required</span>
         </label>
       </div>
-      {field.type === "select" ? (
+      {fieldTypeUsesOptions(field.type) ? (
         <div>
-          <p className="text-sm font-medium text-foreground">Dropdown options</p>
+          <p className="text-sm font-medium text-foreground">
+            {field.type === "multi_select" ? "Multi-select choices" : "Dropdown options"}
+          </p>
           <Input
             value={optionsText}
             onChange={(e) => onOptionsTextChange(e.target.value)}
@@ -113,8 +120,10 @@ function validateField(
   if (!field.isStandard) {
     const label = field.label.trim();
     if (!label) return "Question label is required.";
-    if (field.type === "select" && field.options.length === 0) {
-      return "Add at least one dropdown option (comma-separated).";
+    if (fieldTypeUsesOptions(field.type) && field.options.length === 0) {
+      return field.type === "multi_select"
+        ? "Add at least one choice (comma-separated)."
+        : "Add at least one dropdown option (comma-separated).";
     }
     const key = field.key.trim() || customApplicationFieldKeyFromLabel(label, usedKeys);
     if (usedKeys.has(key)) return "Duplicate question. Rename or remove one of the copies.";

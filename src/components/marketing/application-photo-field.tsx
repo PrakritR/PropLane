@@ -214,6 +214,12 @@ type SinglePhotoFieldProps = {
   dataAttr?: string;
   /** Manager-defined question key — required when `slot === "custom"`. */
   fieldKey?: string;
+  /**
+   * Overrides the file picker's `accept` attribute — otherwise derived from
+   * `acceptForSlot(slot)`. Narrows what the browser's picker offers only; the
+   * server keeps validating against the slot's own (broader) allowance.
+   */
+  accept?: string;
 };
 
 /** One capture-or-upload slot with preview, retake and remove. */
@@ -231,6 +237,7 @@ export function ApplicationPhotoField({
   readOnly,
   dataAttr,
   fieldKey,
+  accept,
 }: SinglePhotoFieldProps) {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -423,7 +430,7 @@ export function ApplicationPhotoField({
       <input
         ref={fileInputRef}
         type="file"
-        accept={acceptForSlot(slot)}
+        accept={accept ?? acceptForSlot(slot)}
         className="sr-only"
         onChange={(e) => {
           void handleFile(e.target.files?.[0]);

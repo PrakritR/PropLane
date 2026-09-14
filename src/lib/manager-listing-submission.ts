@@ -1028,25 +1028,97 @@ export type ManagerListingServiceOption = {
 
 export type ManagerCustomApplicationFieldType =
   | "text"
+  | "long_text"
   | "number"
+  | "currency"
+  | "yes_no"
   | "select"
+  | "multi_select"
   | "checkbox"
   | "date"
+  | "phone"
+  | "email"
   | "photos"
   | "file";
 
+/**
+ * Every type `normalizeCustomApplicationFields` accepts as valid stored data —
+ * NOT the same set the manager picker offers (see
+ * {@link CUSTOM_APPLICATION_FIELD_TYPE_OPTIONS}). `"photos"` is retired from
+ * the picker but a listing can still hold a `photos` question a manager
+ * created before the retirement, and it must keep normalizing to `"photos"`,
+ * never silently downgrade to `"text"`.
+ */
+export const CUSTOM_APPLICATION_FIELD_TYPES: readonly ManagerCustomApplicationFieldType[] = [
+  "text",
+  "long_text",
+  "number",
+  "currency",
+  "yes_no",
+  "select",
+  "multi_select",
+  "checkbox",
+  "date",
+  "phone",
+  "email",
+  "photos",
+  "file",
+];
+
+/** Types the manager question-type picker offers for a NEW or edited question. */
 export const CUSTOM_APPLICATION_FIELD_TYPE_OPTIONS: readonly {
   id: ManagerCustomApplicationFieldType;
   label: string;
 }[] = [
   { id: "text", label: "Text" },
+  { id: "long_text", label: "Long text" },
   { id: "number", label: "Number" },
+  { id: "currency", label: "Currency" },
+  { id: "yes_no", label: "Yes / No" },
   { id: "select", label: "Dropdown" },
-  { id: "checkbox", label: "Checkbox" },
+  { id: "multi_select", label: "Multi-select" },
   { id: "date", label: "Date" },
-  { id: "photos", label: "Photos" },
+  { id: "phone", label: "Phone" },
+  { id: "email", label: "Email" },
+  { id: "checkbox", label: "Checkbox" },
   { id: "file", label: "File" },
 ];
+
+/**
+ * Display label for ANY valid stored type, including ones the picker no longer
+ * offers. Reading labels straight off {@link CUSTOM_APPLICATION_FIELD_TYPE_OPTIONS}
+ * is wrong for a retired type: a `photos` question a manager created before the
+ * retirement would render its raw id ("photos") as its own type label.
+ */
+const RETIRED_CUSTOM_APPLICATION_FIELD_TYPE_LABELS: Partial<
+  Record<ManagerCustomApplicationFieldType, string>
+> = {
+  photos: "Photos",
+};
+
+export function customApplicationFieldTypeLabel(type: ManagerCustomApplicationFieldType): string {
+  return (
+    CUSTOM_APPLICATION_FIELD_TYPE_OPTIONS.find((o) => o.id === type)?.label ??
+    RETIRED_CUSTOM_APPLICATION_FIELD_TYPE_LABELS[type] ??
+    type
+  );
+}
+
+/**
+ * Type choices to render for a question that is ALREADY this type. A retired
+ * type stays selectable while it is the question's current value, so opening an
+ * older question's editor cannot silently re-type it: a `<Select>` whose `value`
+ * matches no `<option>` falls back to showing the first one, and saving that
+ * form would rewrite a working `photos` question as plain text.
+ */
+export function customApplicationFieldTypeOptionsFor(
+  current: ManagerCustomApplicationFieldType,
+): readonly { id: ManagerCustomApplicationFieldType; label: string }[] {
+  if (CUSTOM_APPLICATION_FIELD_TYPE_OPTIONS.some((o) => o.id === current)) {
+    return CUSTOM_APPLICATION_FIELD_TYPE_OPTIONS;
+  }
+  return [...CUSTOM_APPLICATION_FIELD_TYPE_OPTIONS, { id: current, label: customApplicationFieldTypeLabel(current) }];
+}
 
 /** Manager-defined application question asked during the rental application for this listing. */
 export type ManagerCustomApplicationField = {
@@ -1056,17 +1128,23 @@ export type ManagerCustomApplicationField = {
   label: string;
   type: ManagerCustomApplicationFieldType;
   required: boolean;
-  /** Choices for `select` fields; ignored for other types. Array order is display order. */
+  /** Choices for `select` / `multi_select` fields; ignored for other types. Array order is display order. */
   options: string[];
   /** Application section this question belongs to (RentalApplicationSectionId). Absent = Additional details. */
   section?: string;
   /** When set, this row customizes a built-in Axis application question. */
   standardKey?: string;
+  /** Manager-authored help text shown under the question label. Absent when unset. */
+  description?: string;
 };
 
-const CUSTOM_APPLICATION_FIELD_TYPES = new Set<string>(
-  CUSTOM_APPLICATION_FIELD_TYPE_OPTIONS.map((o) => o.id),
-);
+const CUSTOM_APPLICATION_FIELD_TYPES_SET = new Set<string>(CUSTOM_APPLICATION_FIELD_TYPES);
+
+/** Question types whose `options` array carries the answer choices. */
+const CUSTOM_APPLICATION_FIELD_TYPES_WITH_OPTIONS = new Set<ManagerCustomApplicationFieldType>([
+  "select",
+  "multi_select",
+]);
 
 /** Kebab-case answer key from a question label, unique against `taken`. */
 export function customApplicationFieldKeyFromLabel(label: string, taken: Iterable<string>): string {
@@ -1099,7 +1177,7 @@ export function normalizeCustomApplicationFields(
     const label = typeof o.label === "string" ? o.label.trim() : "";
     if (!label && !includeIncomplete) continue;
     const id = typeof o.id === "string" && o.id.trim() ? o.id.trim() : rid("caf");
-    const type = CUSTOM_APPLICATION_FIELD_TYPES.has(String(o.type))
+    const type = CUSTOM_APPLICATION_FIELD_TYPES_SET.has(String(o.type))
       ? (o.type as ManagerCustomApplicationFieldType)
       : "text";
     const key =
@@ -1110,8 +1188,9 @@ export function normalizeCustomApplicationFields(
           : `draft-${id}`;
     if (usedKeys.has(key)) continue;
     usedKeys.add(key);
+    const hasOptions = CUSTOM_APPLICATION_FIELD_TYPES_WITH_OPTIONS.has(type);
     const options =
-      type === "select" && Array.isArray(o.options)
+      hasOptions && Array.isArray(o.options)
         ? (o.options as unknown[])
             .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
             .map((v) => v.trim())
@@ -1119,9 +1198,10 @@ export function normalizeCustomApplicationFields(
     const standardKey =
       typeof o.standardKey === "string" && o.standardKey.trim() ? o.standardKey.trim() : undefined;
     // Built-in overrides may be dynamic selects (property, rooms) with no fixed option list.
-    if (type === "select" && options.length === 0 && !includeIncomplete && !standardKey) continue;
+    if (hasOptions && options.length === 0 && !includeIncomplete && !standardKey) continue;
     const section =
       typeof o.section === "string" && RENTAL_APPLICATION_SECTION_IDS.has(o.section) ? o.section : undefined;
+    const description = typeof o.description === "string" && o.description.trim() ? o.description.trim() : undefined;
     out.push({
       id,
       key,
@@ -1131,6 +1211,7 @@ export function normalizeCustomApplicationFields(
       options,
       section,
       standardKey,
+      description,
     });
   }
   return out;

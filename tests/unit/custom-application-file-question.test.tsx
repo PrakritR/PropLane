@@ -10,7 +10,7 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { CustomQuestionField } from "@/components/marketing/rental-wizard-steps";
+import { CustomQuestionField } from "@/components/rental-application/custom-question-field";
 import { ManagerApplicationReadonlyReview } from "@/components/portal/pro-application-readonly-review";
 import {
   encodeCustomFieldAttachment,

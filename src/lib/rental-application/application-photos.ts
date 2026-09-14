@@ -56,6 +56,16 @@ export function acceptForSlot(slot: ApplicationPhotoSlot): string {
   return allowedMimeTypesForSlot(slot).join(",");
 }
 
+/**
+ * `accept` attribute restricted to images only — narrower than the `custom`
+ * slot's own image+PDF allowance, for a manager-defined `photos` question
+ * (server-side, the `custom` slot still allows a PDF; this only narrows what
+ * the picker offers, a safe superset stays enforced on upload).
+ */
+export function imageOnlyAccept(): string {
+  return IMAGE_MIME_TYPES.join(",");
+}
+
 export type ApplicationPhotoUploadValidation = { ok: true; mime: string; ext: string } | { ok: false; error: string };
 
 /**

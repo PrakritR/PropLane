@@ -6,6 +6,8 @@ import {
   type ManagerCustomApplicationField,
   type ManagerCustomApplicationFieldType,
 } from "@/lib/manager-listing-submission";
+import { isLegitimateEmail } from "@/lib/email-address";
+import { isCompletePhoneNumber } from "@/lib/phone-number-field";
 import { applicationWizardStepForSection } from "./application-sections";
 import type { ApplicationPhotoAttachment, RentalCustomFieldAnswer } from "./types";
 
@@ -69,6 +71,33 @@ export function encodeCustomFieldAttachment(attachment: ApplicationPhotoAttachme
   return attachment ? JSON.stringify(attachment) : "";
 }
 
+/**
+ * Decode a `multi_select` custom question answer. The answer's `value` stays a
+ * `string` (like every other custom-field answer) but holds
+ * `JSON.stringify(string[])` — this parses it back. Tolerates "" (→ []), a
+ * value that parses to something other than an array (→ [], e.g. legacy `"0"`
+ * or a stray object), and a value that fails to parse as JSON at all — that
+ * covers both truly malformed JSON and a legacy plain-string answer from
+ * before `multi_select` existed, and either way a non-empty string survives
+ * as a single-item selection ([thatString]) rather than throwing or vanishing.
+ */
+export function parseMultiSelectAnswer(value: string): string[] {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) return [];
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((v): v is string => typeof v === "string" && v.length > 0);
+  } catch {
+    return [trimmed];
+  }
+}
+
+/** Encode a `multi_select` answer's selections as the answer's string value. */
+export function encodeMultiSelectAnswer(values: string[]): string {
+  return JSON.stringify(values.filter((v) => typeof v === "string" && v.length > 0));
+}
+
 export function customFieldAnswerValue(
   answers: RentalCustomFieldAnswer[] | undefined,
   fieldKey: string,
@@ -110,6 +139,21 @@ export function validateCustomFieldAnswers(
       }
       continue;
     }
+    if (field.type === "yes_no") {
+      if (field.required && value !== "yes" && value !== "no") {
+        errors[customFieldErrorKey(field.key)] = `${field.label} is required.`;
+      }
+      continue;
+    }
+    if (field.type === "multi_select") {
+      // The raw string value is JSON (often "[]"), never blank for a "nothing
+      // picked" answer, so required-ness has to check the decoded selections
+      // rather than the generic `if (!value)` below.
+      if (field.required && parseMultiSelectAnswer(customFieldAnswerValue(answers, field.key)).length === 0) {
+        errors[customFieldErrorKey(field.key)] = `${field.label} is required.`;
+      }
+      continue;
+    }
     if (isFileCustomFieldType(field.type)) {
       const attached = parseCustomFieldAttachment(customFieldAnswerValue(answers, field.key));
       if (field.required && !attached) {
@@ -129,6 +173,18 @@ export function validateCustomFieldAnswers(
         errors[customFieldErrorKey(field.key)] = "Enter a valid number.";
       }
     }
+    if (field.type === "currency") {
+      const n = Number(value.replace(/[$,]/g, ""));
+      if (!Number.isFinite(n)) {
+        errors[customFieldErrorKey(field.key)] = "Enter a valid amount.";
+      }
+    }
+    if (field.type === "email" && !isLegitimateEmail(value)) {
+      errors[customFieldErrorKey(field.key)] = "Enter a valid email address.";
+    }
+    if (field.type === "phone" && !isCompletePhoneNumber(value)) {
+      errors[customFieldErrorKey(field.key)] = "Enter a valid phone number.";
+    }
     if (field.type === "select" && field.options.length > 0 && !field.options.includes(value)) {
       errors[customFieldErrorKey(field.key)] = "Choose one of the listed options.";
     }
@@ -145,6 +201,14 @@ export function validateCustomFieldAnswers(
 export function formatCustomFieldAnswerDisplay(answer: RentalCustomFieldAnswer): string {
   const value = String(answer.value ?? "").trim();
   if (answer.type === "checkbox") return value === "yes" ? "Yes" : value === "no" || !value ? "No" : value;
+  if (answer.type === "yes_no") return value === "yes" ? "Yes" : value === "no" ? "No" : value;
+  if (answer.type === "multi_select") return parseMultiSelectAnswer(value).join(", ");
+  if (answer.type === "currency") {
+    if (!value) return "";
+    const n = Number(value.replace(/[$,]/g, ""));
+    if (!Number.isFinite(n)) return value;
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
+  }
   if (isFileCustomFieldType(answer.type)) {
     return parseCustomFieldAttachment(value)?.fileName ?? "";
   }

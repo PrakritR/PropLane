@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ApplicationQuestionFields } from "@/components/portal/application-question-edit-modal";
 import type { ManagerCustomApplicationField, ManagerCustomApplicationFieldType } from "@/lib/manager-listing-submission";
-import { CUSTOM_APPLICATION_FIELD_TYPE_OPTIONS } from "@/lib/manager-listing-submission";
+import { customApplicationFieldTypeLabel } from "@/lib/manager-listing-submission";
 import {
   RENTAL_APPLICATION_SECTIONS,
   type RentalApplicationSection,
@@ -15,7 +15,7 @@ import type { ResolvedApplicationField } from "@/lib/rental-application/applicat
 import { cn } from "@/lib/utils";
 
 function typeLabel(type: ManagerCustomApplicationFieldType): string {
-  return CUSTOM_APPLICATION_FIELD_TYPE_OPTIONS.find((o) => o.id === type)?.label ?? type;
+  return customApplicationFieldTypeLabel(type);
 }
 
 /** Sections that have at least one active or disabled question. */
