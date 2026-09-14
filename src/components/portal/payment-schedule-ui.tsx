@@ -4,7 +4,9 @@ import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState 
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { GMAIL_PAYMENTS_ENABLED } from "@/lib/gmail-payments/enabled";
 import { Button } from "@/components/ui/button";
-import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { Check, X } from "lucide-react";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { TOGGLE_CHIP_CLASS, ToggleChips, ToggleChipsGroupLabel } from "@/components/ui/toggle-chips";
 import { Input, Textarea } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { MODAL_TALL_PANEL_CLASS, PORTAL_MODAL_BODY_SCROLL_CLASS } from "@/components/ui/modal-styles";
@@ -42,9 +44,9 @@ import {
   buildReminderPreviewLines,
   detectReminderPreset,
   formatFriendlyReminderSchedule,
-  labelForReminderScheduleToken,
   reminderScheduleTokensFromSettings,
   settingsPatchFromReminderScheduleTokens,
+  summarizeReminderSchedule,
   REMINDER_BEFORE_DUE_DAY_OPTIONS,
   PAYMENT_REMINDER_PRESETS,
   type ReminderPresetId,
@@ -656,17 +658,16 @@ const REMINDER_PRESET_OPTIONS = [
   { value: "custom", label: "Custom" },
 ] as const;
 
-function sortReminderScheduleTokens(tokens: ReminderScheduleToken[]): ReminderScheduleToken[] {
-  const before = tokens
-    .filter((t): t is `before:${number}` => t.startsWith("before:"))
-    .sort((a, b) => Number(b.slice("before:".length)) - Number(a.slice("before:".length)));
-  const ordered: ReminderScheduleToken[] = [...before];
-  if (tokens.includes("due_date")) ordered.push("due_date");
-  if (tokens.includes("every_day_late")) ordered.push("every_day_late");
-  return ordered;
-}
-
-function UnifiedReminderScheduleSelect({
+/**
+ * The reminder schedule as chips — every option on the screen, one tap each.
+ *
+ * This replaced a searchable checkbox dropdown that showed a truncated
+ * "21 days before due, 14 days before due, 3 da…" when closed and, when open,
+ * covered Late fee notices, Send via and the message preview beneath it. The
+ * chips are the control; the sentence under them is generated from the same
+ * tokens the save uses, so it can never disagree with what is stored.
+ */
+export function ReminderScheduleChips({
   draft,
   busy,
   onChange,
@@ -675,94 +676,161 @@ function UnifiedReminderScheduleSelect({
   busy: boolean;
   onChange: (patch: ReturnType<typeof settingsPatchFromReminderScheduleTokens>) => void;
 }) {
+  const [customOpen, setCustomOpen] = useState(false);
   const [customDayInput, setCustomDayInput] = useState("");
+  const [customError, setCustomError] = useState(false);
+  const customInputRef = useRef<HTMLInputElement | null>(null);
 
+  useEffect(() => {
+    if (customOpen) customInputRef.current?.focus();
+  }, [customOpen]);
+
+  const selected = reminderScheduleTokensFromSettings(draft);
+  const selectedBefore = selected.filter((token): token is `before:${number}` => token.startsWith("before:"));
+  const selectedAfter = selected.filter((token) => !token.startsWith("before:"));
+
+  // A custom day only exists while it is on — turning it off removes the chip,
+  // exactly as the stored `preDueReminderDays` list would drop it.
   const beforeDueOptions = useMemo(() => {
     const known = new Set<number>(REMINDER_BEFORE_DUE_DAY_OPTIONS);
     const extras = draft.preDueReminderDays.filter((day) => !known.has(day));
     const days = [...extras, ...REMINDER_BEFORE_DUE_DAY_OPTIONS].sort((a, b) => b - a);
     return days.map((day) => ({
       value: `before:${day}` satisfies ReminderScheduleToken,
-      label: labelForReminderScheduleToken(`before:${day}`),
+      label: `${day} day${day === 1 ? "" : "s"}`,
+      title: known.has(day) ? undefined : "Custom day — turn off to remove",
     }));
   }, [draft.preDueReminderDays]);
-
-  const selected = reminderScheduleTokensFromSettings(draft);
-  const selectionTriggerLabel = useMemo(() => {
-    const sorted = sortReminderScheduleTokens(selected);
-    if (!sorted.length) return undefined;
-    return sorted.map((token) => labelForReminderScheduleToken(token)).join(", ");
-  }, [selected]);
 
   const commitSchedule = (tokens: ReminderScheduleToken[]) => {
     onChange(settingsPatchFromReminderScheduleTokens(tokens));
   };
 
+  const closeCustom = () => {
+    setCustomOpen(false);
+    setCustomDayInput("");
+    setCustomError(false);
+  };
+
   const addCustomDay = () => {
     const day = Math.round(Number(customDayInput.trim()));
-    if (!Number.isFinite(day) || day < 1 || day > 60) return;
+    if (!customDayInput.trim() || !Number.isFinite(day) || day < 1 || day > 60) {
+      setCustomError(true);
+      customInputRef.current?.focus();
+      return;
+    }
     const token = `before:${day}` as ReminderScheduleToken;
     const nextTokens = selected.includes(token) ? selected : [...selected, token];
     const patch = settingsPatchFromReminderScheduleTokens(nextTokens);
     patch.preDueReminderDays = [...new Set([...patch.preDueReminderDays, day])].sort((a, b) => b - a);
     onChange(patch);
-    setCustomDayInput("");
+    closeCustom();
   };
 
-  return (
-    <CheckboxMultiSelect
-      label="Reminders"
-      labelClassName={PORTAL_FIELD_LABEL_CLASS}
-      groups={[
-        { label: "Before due", options: beforeDueOptions },
-        {
-          label: "Due & after",
-          options: [
-            { value: "due_date", label: "Due date" },
-            { value: "every_day_late", label: "Every day late" },
-          ],
-        },
-      ]}
-      selected={selected}
-      selectionTriggerLabel={selectionTriggerLabel}
-      onChange={(next) => commitSchedule(next as ReminderScheduleToken[])}
+  const customAffordance = customOpen ? (
+    <span
+      className="inline-flex h-9 items-center gap-1.5 rounded-full border border-primary bg-card pl-3 pr-1.5 text-xs text-muted"
+      data-attr="payment-reminder-custom-day"
+    >
+      <input
+        ref={customInputRef}
+        type="number"
+        min={1}
+        max={60}
+        inputMode="numeric"
+        aria-label="Custom days before due"
+        aria-invalid={customError || undefined}
+        placeholder="days"
+        className="h-7 w-12 border-0 border-b border-border bg-transparent text-center text-sm font-semibold text-foreground outline-none focus:border-primary"
+        value={customDayInput}
+        disabled={busy}
+        onChange={(e) => {
+          setCustomDayInput(e.target.value);
+          if (customError) setCustomError(false);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            addCustomDay();
+          }
+          if (e.key === "Escape") {
+            e.preventDefault();
+            closeCustom();
+          }
+        }}
+      />
+      <span>before due</span>
+      <button
+        type="button"
+        aria-label="Add custom day"
+        className="inline-flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50"
+        disabled={busy}
+        onClick={addCustomDay}
+      >
+        <Check className="size-3.5" strokeWidth={2.5} aria-hidden />
+      </button>
+      <button
+        type="button"
+        aria-label="Cancel custom day"
+        className="inline-flex size-7 items-center justify-center rounded-full text-muted hover:text-foreground"
+        onClick={closeCustom}
+      >
+        <X className="size-3.5" aria-hidden />
+      </button>
+    </span>
+  ) : (
+    <button
+      type="button"
+      className={cn(TOGGLE_CHIP_CLASS, "border-dashed border-border bg-card text-primary hover:border-primary hover:bg-accent/40")}
       disabled={busy}
-      emptyLabel="Choose reminders…"
-      dataAttr="payment-reminder-schedule"
-      menuFooter={
-        <div className="px-3 py-2">
-          <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-muted">Custom day</p>
-          <div className="flex gap-2">
-            <Input
-              type="number"
-              min={1}
-              max={60}
-              className="h-9 min-h-0 flex-1"
-              placeholder="Days before due"
-              value={customDayInput}
-              disabled={busy}
-              data-attr="payment-reminder-custom-day"
-              onChange={(e) => setCustomDayInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  addCustomDay();
-                }
-              }}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              className="h-9 shrink-0 rounded-full px-3 text-xs"
-              disabled={busy || !customDayInput.trim()}
-              onClick={addCustomDay}
-            >
-              Add
-            </Button>
-          </div>
-        </div>
-      }
-    />
+      data-attr="payment-reminder-custom-day"
+      onClick={() => setCustomOpen(true)}
+    >
+      + Custom
+    </button>
+  );
+
+  return (
+    <div className="space-y-1">
+      <p className={PORTAL_FIELD_LABEL_CLASS}>Reminders</p>
+      <div className="pt-1">
+        <ToggleChipsGroupLabel>Before due</ToggleChipsGroupLabel>
+        <ToggleChips
+          label="Days before due"
+          options={beforeDueOptions}
+          selected={selectedBefore}
+          onChange={(nextBefore) => commitSchedule([...nextBefore, ...selectedAfter])}
+          disabled={busy}
+          dataAttr="payment-reminder-schedule"
+          trailing={customAffordance}
+        />
+        {customError ? (
+          <p className="mt-1.5 text-xs text-destructive" role="alert">
+            Pick a number of days from 1 to 60.
+          </p>
+        ) : null}
+      </div>
+      <div className="pt-2">
+        <ToggleChipsGroupLabel>On &amp; after</ToggleChipsGroupLabel>
+        <ToggleChips
+          label="On and after the due date"
+          options={[
+            { value: "due_date" as ReminderScheduleToken, label: "Due date" },
+            { value: "every_day_late" as ReminderScheduleToken, label: "Every day late" },
+          ]}
+          selected={selectedAfter}
+          onChange={(nextAfter) => commitSchedule([...selectedBefore, ...nextAfter])}
+          disabled={busy}
+          dataAttr="payment-reminder-schedule-after"
+        />
+      </div>
+      <p
+        className={cn("pt-1 text-xs", selected.length ? "text-muted" : "text-amber-700")}
+        data-attr="payment-reminder-schedule-summary"
+      >
+        {summarizeReminderSchedule(selected)}
+      </p>
+    </div>
   );
 }
 
@@ -998,7 +1066,7 @@ function PaymentAutomationSettingsForm({
   const paymentsReminderSection =
     compact && variant === "payments" ? (
       <div className={embeddedInBundle ? "space-y-3" : "space-y-3 border-t border-border pt-4"}>
-        <UnifiedReminderScheduleSelect draft={draft} busy={busy} onChange={applySchedulePatch} />
+        <ReminderScheduleChips draft={draft} busy={busy} onChange={applySchedulePatch} />
         <div className="flex items-start justify-between gap-2 text-sm text-foreground">
           <span>
             <span className="font-medium">Late fee notices</span>
@@ -1066,7 +1134,7 @@ function PaymentAutomationSettingsForm({
       ) : (
         <>
           <ReminderPresetDropdown activePreset={activePreset} busy={busy} onSelect={selectPreset} />
-          <UnifiedReminderScheduleSelect draft={draft} busy={busy} onChange={applySchedulePatch} />
+          <ReminderScheduleChips draft={draft} busy={busy} onChange={applySchedulePatch} />
           <div className="flex items-center justify-between gap-2 text-sm sm:col-span-2">
             <span>Late fee notices</span>
             <PortalSettingsToggle

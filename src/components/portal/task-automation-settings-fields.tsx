@@ -1,16 +1,16 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { ChoiceChips } from "@/components/ui/choice-chips";
+import { ToggleChips } from "@/components/ui/toggle-chips";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
+import { CustomChipInput, REMINDER_FIELD_LABEL_CLASS } from "@/components/portal/reminder-settings-shared";
 import type { WorkAssignmentTeamMember } from "@/hooks/use-work-assignment-directory";
 import {
   DEFAULT_LIFECYCLE_AUTOMATION,
   describeLifecycleRule,
   formatOffset,
-  formatTaskReminderTimingLabel,
   LIFECYCLE_SECTION_LABELS,
   LIFECYCLE_SECTIONS,
   LIFECYCLE_TASK_META,
@@ -24,10 +24,6 @@ import {
   type LifecycleTaskKey,
 } from "@/lib/task-lifecycle-automation";
 
-function sectionSelectLabel(section: LifecycleSection): string {
-  return `Tasks for ${LIFECYCLE_SECTION_LABELS[section]}`;
-}
-
 function offsetSelectOptions() {
   return OFFSET_PRESETS.map((minutes) => ({
     value: String(minutes),
@@ -35,21 +31,16 @@ function offsetSelectOptions() {
   }));
 }
 
-function reminderSelectOptions(selected: number[]) {
-  const presetOptions = TASK_REMINDER_TIMING_PRESETS.map((minutes) => ({
-    value: String(minutes),
-    label: formatTaskReminderTimingLabel(minutes),
-  }));
-  const customOptions = selected
-    .filter(
-      (minutes) =>
-        !TASK_REMINDER_TIMING_PRESETS.includes(minutes as (typeof TASK_REMINDER_TIMING_PRESETS)[number]),
-    )
+/** Presets plus any stored custom minutes, shortest first, as chip options. */
+function reminderChipOptions(selected: number[]) {
+  const presets = new Set<number>(TASK_REMINDER_TIMING_PRESETS);
+  return [...new Set([...selected, ...TASK_REMINDER_TIMING_PRESETS])]
+    .sort((a, b) => a - b)
     .map((minutes) => ({
       value: String(minutes),
-      label: formatTaskReminderTimingLabel(minutes),
+      label: formatReminderTriggerLabel(minutes),
+      title: presets.has(minutes) ? undefined : "Custom time — turn off to remove",
     }));
-  return [...customOptions, ...presetOptions];
 }
 
 function formatReminderTriggerLabel(minutes: number): string {
@@ -74,13 +65,13 @@ export function TaskAutomationSettingsFields({
   onChange: (next: LifecycleTaskAutomation) => void;
 }) {
   const [section, setSection] = useState<LifecycleSection>("applications");
-  const [customReminderMinutes, setCustomReminderMinutes] = useState("");
+  const [customOpenFor, setCustomOpenFor] = useState<LifecycleTaskKey | null>(null);
 
   const sectionOptions = useMemo(
     () =>
       LIFECYCLE_SECTIONS.map((id) => ({
         value: id,
-        label: sectionSelectLabel(id),
+        label: LIFECYCLE_SECTION_LABELS[id],
       })),
     [],
   );
@@ -96,25 +87,27 @@ export function TaskAutomationSettingsFields({
 
   return (
     <div className="space-y-4">
-      <FieldSingleSelect
-        label="Category"
-        value={section}
-        options={sectionOptions}
-        onChange={(value) => {
-          if (LIFECYCLE_SECTIONS.includes(value as LifecycleSection)) setSection(value as LifecycleSection);
-        }}
-        disabled={loading || saving}
-        dataAttr="task-automation-section"
-      />
+      <div className="space-y-1.5">
+        <p className={REMINDER_FIELD_LABEL_CLASS}>Tasks for</p>
+        <ChoiceChips
+          label="Tasks for"
+          value={section}
+          options={sectionOptions}
+          onChange={(value) => {
+            if (LIFECYCLE_SECTIONS.includes(value)) setSection(value);
+          }}
+          disabled={loading || saving}
+          dataAttr="task-automation-section"
+        />
+      </div>
 
       {keys.map((key) => {
         const config = automation[key];
         const meta = LIFECYCLE_TASK_META[key];
         const reminderSorted = normalizeTaskReminderMinutesBeforeList(config.reminderMinutesBeforeList, []);
         const reminderTokens = reminderSorted.map(String);
-        const reminderTriggerLabel = reminderSorted.length
-          ? reminderSorted.map((m) => formatReminderTriggerLabel(m)).join(", ")
-          : undefined;
+        const commitReminderMinutes = (minutes: number[]) =>
+          patchTask(key, { reminderMinutesBeforeList: normalizeTaskReminderMinutesBeforeList(minutes, []) });
 
         return (
           <div key={key} className="space-y-3 rounded-xl border border-border p-3">
@@ -177,76 +170,35 @@ export function TaskAutomationSettingsFields({
                   />
                 </div>
 
-                <CheckboxMultiSelect
-                  label="Remind before due"
-                  options={reminderSelectOptions(reminderSorted)}
-                  selected={reminderTokens}
-                  selectionTriggerLabel={reminderTriggerLabel}
-                  onChange={(tokens) =>
-                    patchTask(key, {
-                      reminderMinutesBeforeList: normalizeTaskReminderMinutesBeforeList(
-                        tokens.map((t) => Number(t)),
-                        [],
-                      ),
-                    })
-                  }
-                  disabled={loading || saving}
-                  emptyLabel="Choose reminder times…"
-                  dataAttr={`task-automation-${key}-reminder-before`}
-                  menuFooter={
-                    <div className="px-3 py-2">
-                      <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
-                        Custom minutes
-                      </p>
-                      <div className="flex gap-2">
-                        <Input
-                          type="number"
-                          min={5}
-                          max={1440}
-                          className="h-9 min-h-0 flex-1"
-                          placeholder="Minutes before due"
-                          value={customReminderMinutes}
-                          disabled={loading || saving}
-                          data-attr={`task-automation-${key}-reminder-custom`}
-                          onChange={(e) => setCustomReminderMinutes(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              const minutes = Math.round(Number(customReminderMinutes.trim()));
-                              if (!Number.isFinite(minutes) || minutes < 5 || minutes > 1440) return;
-                              patchTask(key, {
-                                reminderMinutesBeforeList: normalizeTaskReminderMinutesBeforeList(
-                                  [...reminderSorted, minutes],
-                                  [],
-                                ),
-                              });
-                              setCustomReminderMinutes("");
-                            }
-                          }}
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-9 shrink-0 rounded-full px-3 text-xs"
-                          disabled={loading || saving}
-                          onClick={() => {
-                            const minutes = Math.round(Number(customReminderMinutes.trim()));
-                            if (!Number.isFinite(minutes) || minutes < 5 || minutes > 1440) return;
-                            patchTask(key, {
-                              reminderMinutesBeforeList: normalizeTaskReminderMinutesBeforeList(
-                                [...reminderSorted, minutes],
-                                [],
-                              ),
-                            });
-                            setCustomReminderMinutes("");
-                          }}
-                        >
-                          Add
-                        </Button>
-                      </div>
-                    </div>
-                  }
-                />
+                <div className="sm:col-span-2">
+                  <p className={REMINDER_FIELD_LABEL_CLASS}>Remind before due</p>
+                  <ToggleChips
+                    label="Remind before due"
+                    className="mt-1.5"
+                    options={reminderChipOptions(reminderSorted)}
+                    selected={reminderTokens}
+                    onChange={(tokens) => commitReminderMinutes(tokens.map((t) => Number(t)))}
+                    disabled={loading || saving}
+                    dataAttr={`task-automation-${key}-reminder-before`}
+                    trailing={
+                      <CustomChipInput
+                        open={customOpenFor === key}
+                        onOpen={() => setCustomOpenFor(key)}
+                        onClose={() => setCustomOpenFor(null)}
+                        onCommit={(minutes) => {
+                          commitReminderMinutes([...reminderSorted, minutes]);
+                          return true;
+                        }}
+                        unit="min"
+                        min={5}
+                        max={1440}
+                        disabled={loading || saving}
+                        dataAttr={`task-automation-${key}-reminder-custom`}
+                        placeholder="Custom minutes before due"
+                      />
+                    }
+                  />
+                </div>
               </div>
             ) : null}
           </div>

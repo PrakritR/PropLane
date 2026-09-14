@@ -264,12 +264,12 @@ export function OutgoingPaymentRemindersSettingsBundle({
 const INCOMING_PAYMENT_REMINDER_TYPES = [
   {
     value: "resident" as const,
-    label: "Resident notification for payment",
+    label: "Resident notification",
     description: "Remind residents before rent is due, on the due date, and when overdue.",
   },
   {
     value: "manager" as const,
-    label: "Manager notification for payment",
+    label: "Manager notification",
     description: "Alert you when rent is still unpaid after the due date.",
   },
 ];

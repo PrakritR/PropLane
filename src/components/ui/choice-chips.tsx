@@ -45,6 +45,7 @@ export function ChoiceChips<T extends string>({
   onChange,
   className,
   dataAttr,
+  disabled = false,
 }: {
   /** Accessible group name — the same words the field label shows. */
   label: string;
@@ -53,6 +54,7 @@ export function ChoiceChips<T extends string>({
   onChange: (value: T) => void;
   className?: string;
   dataAttr?: string;
+  disabled?: boolean;
 }) {
   return (
     <div
@@ -71,12 +73,13 @@ export function ChoiceChips<T extends string>({
             role="radio"
             aria-checked={selected}
             data-selected={selected ? "true" : "false"}
+            disabled={disabled}
             onClick={() => onChange(option.value)}
             className={cn(
               // 36px tall: the same target as every other control in a filter
               // panel, so a chip row does not read as a different class of thing.
               "inline-flex h-9 min-w-0 items-center rounded-full border px-3 text-xs font-semibold transition",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
               selected
                 ? "border-primary bg-primary text-primary-foreground"
                 : "border-border bg-card text-muted hover:border-foreground/20 hover:text-foreground",

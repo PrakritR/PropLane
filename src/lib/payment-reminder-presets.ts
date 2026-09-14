@@ -192,3 +192,38 @@ export function labelForReminderScheduleToken(token: ReminderScheduleToken): str
   const days = Number(token.slice("before:".length));
   return `${days} day${days === 1 ? "" : "s"} before due`;
 }
+
+function joinHuman(parts: string[]): string {
+  if (parts.length <= 1) return parts.join("");
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+/**
+ * One plain sentence for a reminder schedule — "Sends 21, 14, 3 and 2 days
+ * before, and on the due date." It is generated from the same tokens the save
+ * uses, so it can never disagree with what is stored; the chip control shows
+ * it under the chips and the payments list shows it as the settings summary.
+ * An empty schedule is a legal setting, and its sentence says what that means.
+ */
+export const EMPTY_REMINDER_SCHEDULE_SUMMARY =
+  "No automatic reminders — residents only hear from you when you message them.";
+
+export function summarizeReminderSchedule(tokens: ReminderScheduleToken[]): string {
+  const days = [
+    ...new Set(
+      tokens
+        .filter((token): token is `before:${number}` => token.startsWith("before:"))
+        .map((token) => Number(token.slice("before:".length)))
+        .filter((day) => Number.isFinite(day) && day >= 1),
+    ),
+  ].sort((a, b) => b - a);
+  const bits: string[] = [];
+  if (days.length) {
+    const unit = days.length === 1 && days[0] === 1 ? "day" : "days";
+    bits.push(`${joinHuman(days.map(String))} ${unit} before`);
+  }
+  if (tokens.includes("due_date")) bits.push("on the due date");
+  if (tokens.includes("every_day_late")) bits.push("every day it's late");
+  if (!bits.length) return EMPTY_REMINDER_SCHEDULE_SUMMARY;
+  return `Sends ${joinHuman(bits)}.`;
+}

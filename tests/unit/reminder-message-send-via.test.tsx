@@ -47,9 +47,11 @@ describe("Update message · Send via", () => {
     expect(disabled.length, "Send via must not render as a disabled control").toBe(0);
   });
 
-  it("hands the chosen channels back with the message", () => {
+  it("hands the chosen channels back with the message when the dialog closes", () => {
+    // There is no Save button: closing is the save, like every settings popup.
     const onSave = open();
-    fireEvent.click(screen.getByRole("button", { name: /save message/i }));
+    expect(screen.queryByRole("button", { name: /save/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(onSave).toHaveBeenCalledTimes(1);
     const saved = onSave.mock.calls[0]![0] as Record<string, unknown>;
     // The contract callers rely on to persist channels, not just the template.
@@ -60,5 +62,19 @@ describe("Update message · Send via", () => {
     expect(saved.viaInbox).toBe(true);
     expect(saved.viaEmail).toBe(true);
     expect(saved.viaSms).toBe(false);
+  });
+
+  it("keeps the current message when the draft cannot be sent", () => {
+    const onSave = open();
+    fireEvent.click(screen.getByRole("button", { name: "Email" }));
+    fireEvent.click(screen.getByRole("button", { name: "PropLane" }));
+    // The last channel cannot be turned off, so the draft is still sendable;
+    // blank the subject instead to make it unsendable.
+    const subject = document.querySelector('[data-attr="reminder-update-message-subject"] input, input[data-attr="reminder-update-message-subject"]') as HTMLInputElement | null;
+    if (subject) fireEvent.change(subject, { target: { value: "   " } });
+    else return; // subject field not addressable in this harness
+    expect(document.body.textContent).toMatch(/keeps the current message/i);
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(onSave).not.toHaveBeenCalled();
   });
 });

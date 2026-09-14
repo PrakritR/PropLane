@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
-import { Input } from "@/components/ui/input";
-import { Modal, ModalFooter } from "@/components/ui/modal";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, X } from "lucide-react";
+import { TOGGLE_CHIP_CLASS, ToggleChips, ToggleChipsGroupLabel } from "@/components/ui/toggle-chips";
+import { Modal } from "@/components/ui/modal";
 import {
   PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS,
   PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS,
@@ -14,6 +13,7 @@ import {
   PortalMessageSubjectField,
 } from "@/components/portal/portal-message-compose-fields";
 import { normalizeTourReminderMinutesBeforeList } from "@/lib/payment-automation-settings";
+import { cn } from "@/lib/utils";
 import {
   normalizeTimings,
   summarizeTimings,
@@ -23,6 +23,14 @@ import {
 
 export const REMINDER_FIELD_LABEL_CLASS = "text-xs font-semibold text-muted";
 
+/**
+ * Which channels a reminder goes out on — three fixed options as chips.
+ *
+ * This was a checkbox dropdown that read "PropLane & Email" until opened. The
+ * rule inside is unchanged: at least one channel stays on, a tap that would
+ * turn the last one off is refused (and says so), and an SMS chip a workspace
+ * cannot use is shown disabled rather than hidden so the manager knows why.
+ */
 export function ReminderSendViaField({
   viaEmail,
   viaSms,
@@ -44,6 +52,7 @@ export function ReminderSendViaField({
   dataAttr?: string;
   disabled?: boolean;
 }) {
+  const [lastChannelRefused, setLastChannelRefused] = useState(false);
   const options = [
     ...(showProplaneChannel ? [{ value: "proplane", label: "PropLane" }] : []),
     { value: "email", label: "Email" },
@@ -65,25 +74,22 @@ export function ReminderSendViaField({
       : ["sms"];
   const effectiveSelected = selected.length > 0 ? selected : fallback;
 
-  const labels: string[] = [];
-  if (effectiveSelected.includes("proplane")) labels.push("PropLane");
-  if (effectiveSelected.includes("email")) labels.push("Email");
-  if (effectiveSelected.includes("sms")) labels.push("SMS");
-  const selectionTriggerLabel =
-    labels.length > 1 ? labels.join(" & ") : labels[0] ?? "Email";
-
   return (
     <div>
-      <CheckboxMultiSelect
+      <p className={REMINDER_FIELD_LABEL_CLASS}>Send via</p>
+      <ToggleChips
         label="Send via"
-        labelClassName={REMINDER_FIELD_LABEL_CLASS}
+        className="mt-1.5"
         options={options}
         selected={effectiveSelected}
-        selectionTriggerLabel={selectionTriggerLabel}
         onChange={(next) => {
           if (disabled) return;
           const enabled = next.filter((value) => value !== "sms" || smsAvailable);
-          if (enabled.length === 0) return;
+          if (enabled.length === 0) {
+            setLastChannelRefused(true);
+            return;
+          }
+          setLastChannelRefused(false);
           onChange({
             viaInbox: showProplaneChannel ? enabled.includes("proplane") : viaInbox,
             viaEmail: enabled.includes("email"),
@@ -91,9 +97,13 @@ export function ReminderSendViaField({
           });
         }}
         disabled={disabled}
-        emptyLabel="Choose channels…"
         dataAttr={dataAttr}
       />
+      {lastChannelRefused ? (
+        <p className="mt-1.5 text-xs text-destructive" role="alert">
+          Keep at least one channel on.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -189,37 +199,38 @@ export function ReminderMessageUpdateModal({
   const anyChannel = draftInbox || draftEmail || (draftSms && smsAvailable);
   const canSave = draftSubject.trim().length > 0 && draftBody.trim().length > 0 && anyChannel;
 
+  // No Save button: closing the dialog is the save, the same rule every settings
+  // popup follows. A draft that cannot be sent (blank subject or body, every
+  // channel off) is left where it was rather than half-applied, and the line
+  // under the fields says so while it is in that state.
+  // The header × and the dialog's own dismiss both call this for one click
+  // (the settings modal carries the same note), so apply at most once per open.
+  const appliedRef = useRef(false);
+  useEffect(() => {
+    if (open) appliedRef.current = false;
+  }, [open]);
+  const applyAndClose = () => {
+    if (canSave && !appliedRef.current) {
+      appliedRef.current = true;
+      onSave({
+        subject: draftSubject.trim(),
+        body: draftBody.trim(),
+        viaInbox: draftInbox,
+        viaEmail: draftEmail,
+        viaSms: draftSms && smsAvailable,
+      });
+    }
+    onClose();
+  };
+
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={applyAndClose}
       title="Update message"
       dense
       assistantContext="Automated reminder message template"
       panelClassName={PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS}
-      footer={
-        <ModalFooter>
-          <Button
-            type="button"
-            variant="primary"
-            className="rounded-full"
-            data-attr="reminder-update-message-save"
-            disabled={!canSave}
-            onClick={() => {
-              onSave({
-                subject: draftSubject.trim(),
-                body: draftBody.trim(),
-                viaInbox: draftInbox,
-                viaEmail: draftEmail,
-                viaSms: draftSms && smsAvailable,
-              });
-              onClose();
-            }}
-          >
-            Save message
-          </Button>
-        </ModalFooter>
-      }
     >
       <PortalMessageComposeModalBody>
         <PortalMessageRecipientLockedField
@@ -258,6 +269,15 @@ export function ReminderMessageUpdateModal({
         />
 
         <p className="text-[11px] text-muted">{placeholders}</p>
+        {!canSave ? (
+          <p className="text-xs text-amber-700" role="status" data-attr="reminder-update-message-incomplete">
+            {anyChannel
+              ? "Add a subject and a message — closing without them keeps the current message."
+              : "Keep at least one channel on — closing with none keeps the current message."}
+          </p>
+        ) : (
+          <p className="text-xs text-muted">Saved when you close this.</p>
+        )}
       </PortalMessageComposeModalBody>
     </Modal>
   );
@@ -285,6 +305,143 @@ function sortTourReminderMinutes(minutes: number[]): number[] {
   return normalizeTourReminderMinutesBeforeList(minutes);
 }
 
+/**
+ * A small inline "N before …" box that lives at the end of a chip row — the
+ * custom-value affordance the chip pickers share. Opens on "+ Custom", commits
+ * on Enter or the check, closes on Escape or the cross, and refuses an
+ * out-of-range number with a sentence rather than silently doing nothing.
+ */
+export function CustomChipInput({
+  open,
+  onOpen,
+  onClose,
+  onCommit,
+  unit,
+  min,
+  max,
+  disabled,
+  dataAttr,
+  placeholder,
+}: {
+  open: boolean;
+  onOpen: () => void;
+  onClose: () => void;
+  /** Returns false when the value is rejected. */
+  onCommit: (value: number) => boolean;
+  unit: string;
+  min: number;
+  max: number;
+  disabled?: boolean;
+  dataAttr: string;
+  placeholder: string;
+}) {
+  const [value, setValue] = useState("");
+  const [error, setError] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (open) inputRef.current?.focus();
+  }, [open]);
+
+  const close = () => {
+    setValue("");
+    setError(false);
+    onClose();
+  };
+
+  const commit = () => {
+    const n = Math.round(Number(value.trim()));
+    if (!value.trim() || !Number.isFinite(n) || n < min || n > max || !onCommit(n)) {
+      setError(true);
+      inputRef.current?.focus();
+      return;
+    }
+    close();
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className={cn(TOGGLE_CHIP_CLASS, "border-dashed border-border bg-card text-primary hover:border-primary hover:bg-accent/40")}
+        disabled={disabled}
+        data-attr={dataAttr}
+        onClick={onOpen}
+      >
+        + Custom
+      </button>
+    );
+  }
+
+  return (
+    <>
+      <span
+        className={cn(
+          "inline-flex h-9 items-center gap-1.5 rounded-full border bg-card pl-3 pr-1.5 text-xs text-muted",
+          error ? "border-destructive" : "border-primary",
+        )}
+        data-attr={dataAttr}
+      >
+        <input
+          ref={inputRef}
+          type="number"
+          min={min}
+          max={max}
+          inputMode="numeric"
+          aria-label={placeholder}
+          aria-invalid={error || undefined}
+          placeholder={unit}
+          className="h-7 w-14 border-0 border-b border-border bg-transparent text-center text-sm font-semibold text-foreground outline-none focus:border-primary"
+          value={value}
+          disabled={disabled}
+          onChange={(e) => {
+            setValue(e.target.value);
+            if (error) setError(false);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commit();
+            }
+            if (e.key === "Escape") {
+              e.preventDefault();
+              close();
+            }
+          }}
+        />
+        <span>{placeholder.replace(/^custom /i, "")}</span>
+        <button
+          type="button"
+          aria-label="Add"
+          className="inline-flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50"
+          disabled={disabled}
+          onClick={commit}
+        >
+          <Check className="size-3.5" strokeWidth={2.5} aria-hidden />
+        </button>
+        <button
+          type="button"
+          aria-label="Cancel"
+          className="inline-flex size-7 items-center justify-center rounded-full text-muted hover:text-foreground"
+          onClick={close}
+        >
+          <X className="size-3.5" aria-hidden />
+        </button>
+      </span>
+      {error ? (
+        <p className="basis-full text-xs text-destructive" role="alert">
+          Pick a number from {min} to {max}.
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * Tour reminder lead times as chips (15 · 30 · 60 · 120 minutes, plus any
+ * custom minutes already stored). Same shape as the payment schedule: every
+ * option visible, one tap each, custom inline instead of in a menu footer.
+ */
 export function TourReminderTimingSelect({
   minutesBeforeList,
   disabled,
@@ -294,87 +451,66 @@ export function TourReminderTimingSelect({
   disabled?: boolean;
   onChangeMinutesList: (minutes: number[]) => void;
 }) {
-  const [customMinutesInput, setCustomMinutesInput] = useState("");
+  const [customOpen, setCustomOpen] = useState(false);
   const sorted = useMemo(() => sortTourReminderMinutes(minutesBeforeList), [minutesBeforeList]);
   const selectedTokens = sorted.map(String);
-  const selectionTriggerLabel = sorted.length
-    ? sorted.map((minutes) => formatTourReminderTimingTriggerLabel(minutes)).join(", ")
-    : undefined;
 
-  const presetOptions = TOUR_REMINDER_TIMING_PRESETS.map((minutes) => ({
+  const presets = new Set<number>(TOUR_REMINDER_TIMING_PRESETS);
+  const allMinutes = [...new Set([...sorted, ...TOUR_REMINDER_TIMING_PRESETS])].sort((a, b) => a - b);
+  const options = allMinutes.map((minutes) => ({
     value: String(minutes),
-    label: formatTourReminderTimingLabel(minutes),
+    label: formatTourReminderTimingTriggerLabel(minutes),
+    title: presets.has(minutes) ? undefined : "Custom time — turn off to remove",
   }));
-  const customOptions = sorted
-    .filter((minutes) => !TOUR_REMINDER_TIMING_PRESETS.includes(minutes as (typeof TOUR_REMINDER_TIMING_PRESETS)[number]))
-    .map((minutes) => ({
-      value: String(minutes),
-      label: formatTourReminderTimingLabel(minutes),
-    }));
-  const options = [...customOptions, ...presetOptions];
 
   const commitSelection = (tokens: string[]) => {
     const next = sortTourReminderMinutes(tokens.map((token) => Number(token)).filter((n) => Number.isFinite(n)));
     onChangeMinutesList(next);
   };
 
-  const addCustomMinutes = () => {
-    const minutes = Math.round(Number(customMinutesInput.trim()));
-    if (!Number.isFinite(minutes) || minutes < 5 || minutes > 1440) return;
-    commitSelection([...selectedTokens, String(minutes)]);
-    setCustomMinutesInput("");
-  };
-
   return (
-    <div className="space-y-2">
-      <CheckboxMultiSelect
-        label="Reminders"
-        labelClassName={REMINDER_FIELD_LABEL_CLASS}
+    <div>
+      <p className={REMINDER_FIELD_LABEL_CLASS}>Reminders</p>
+      <ToggleChipsGroupLabel>Before the tour</ToggleChipsGroupLabel>
+      <ToggleChips
+        label="Reminders before the tour"
         options={options}
         selected={selectedTokens}
-        selectionTriggerLabel={selectionTriggerLabel}
         onChange={commitSelection}
         disabled={disabled}
-        emptyLabel="Choose reminders…"
         dataAttr="tour-reminder-timing"
-        menuFooter={
-          <div className="px-3 py-2">
-            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-muted">Custom minutes</p>
-            <div className="flex gap-2">
-              <Input
-                type="number"
-                min={5}
-                max={1440}
-                className="h-9 min-h-0 flex-1"
-                placeholder="Minutes before tour"
-                value={customMinutesInput}
-                disabled={disabled}
-                data-attr="tour-reminder-custom-minutes"
-                onChange={(e) => setCustomMinutesInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    addCustomMinutes();
-                  }
-                }}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                className="h-9 shrink-0 rounded-full px-3 text-xs"
-                disabled={disabled || !customMinutesInput.trim()}
-                onClick={addCustomMinutes}
-              >
-                Add
-              </Button>
-            </div>
-          </div>
+        trailing={
+          <CustomChipInput
+            open={customOpen}
+            onOpen={() => setCustomOpen(true)}
+            onClose={() => setCustomOpen(false)}
+            onCommit={(minutes) => {
+              commitSelection([...selectedTokens, String(minutes)]);
+              return true;
+            }}
+            unit="min"
+            min={5}
+            max={1440}
+            disabled={disabled}
+            dataAttr="tour-reminder-custom-minutes"
+            placeholder="Custom minutes before tour"
+          />
         }
       />
+      <p className="mt-1.5 text-xs text-muted">
+        {sorted.length
+          ? `Sends ${sorted.map(formatTourReminderTimingTriggerLabel).join(", ")} before the tour.`
+          : "No tour reminders."}
+      </p>
     </div>
   );
 }
 
+/**
+ * Generic reminder timings as chips, one row per direction the subject
+ * allows ("Before" runs a week down to fifteen minutes; "After" runs the
+ * other way — the same ordering `timingOptions` has always used).
+ */
 export function ReminderTimingMultiSelect({
   timings,
   directions,
@@ -392,19 +528,38 @@ export function ReminderTimingMultiSelect({
 }) {
   const normalized = useMemo(() => normalizeTimings(timings, []), [timings]);
   const options = useMemo(() => timingOptions(directions), [directions]);
-  const selectionTriggerLabel = normalized.length ? summarizeTimings(normalized) : undefined;
+  const rows = directions.map((direction) => ({
+    direction,
+    options: options
+      .filter((option) => option.value.startsWith(`${direction}:`))
+      .map((option) => ({ value: option.value, label: option.label.replace(new RegExp(` ${direction}$`), "") })),
+  }));
+  const selectedFor = (direction: TimingDirection) => normalized.filter((key) => key.startsWith(`${direction}:`));
 
   return (
-    <CheckboxMultiSelect
-      label={label}
-      labelClassName={REMINDER_FIELD_LABEL_CLASS}
-      options={options}
-      selected={normalized}
-      selectionTriggerLabel={selectionTriggerLabel}
-      onChange={(next) => onChangeTimings(normalizeTimings(next, normalized))}
-      disabled={disabled}
-      emptyLabel="Choose reminders…"
-      dataAttr={dataAttr}
-    />
+    <div>
+      <p className={REMINDER_FIELD_LABEL_CLASS}>{label}</p>
+      {rows.map((row) => (
+        <div key={row.direction} className="pt-1.5">
+          {directions.length > 1 ? (
+            <ToggleChipsGroupLabel>{row.direction === "before" ? "Before" : "After"}</ToggleChipsGroupLabel>
+          ) : null}
+          <ToggleChips
+            label={`${label} ${row.direction}`}
+            options={row.options}
+            selected={selectedFor(row.direction)}
+            onChange={(nextForRow) => {
+              const others = normalized.filter((key) => !key.startsWith(`${row.direction}:`));
+              onChangeTimings(normalizeTimings([...others, ...nextForRow], normalized));
+            }}
+            disabled={disabled}
+            dataAttr={directions.length > 1 ? `${dataAttr}-${row.direction}` : dataAttr}
+          />
+        </div>
+      ))}
+      <p className="mt-1.5 text-xs text-muted">
+        {normalized.length ? `Sends ${summarizeTimings(normalized)}.` : "No reminders."}
+      </p>
+    </div>
   );
 }
