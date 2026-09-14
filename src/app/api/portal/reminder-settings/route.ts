@@ -16,6 +16,11 @@ import {
 } from "@/lib/reminders/rules";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import {
+  ALL_REMINDER_SUBJECT_KINDS,
+  assertReminderKindCoManagerAccess,
+  assertReminderKindsCoManagerAccess,
+} from "@/lib/auth/manager-settings-module-access.server";
 
 export const runtime = "nodejs";
 
@@ -42,6 +47,11 @@ export async function GET() {
   try {
     const ctx = await requireManager();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    // A GET always returns every subject's rule (loadReminderSettings fills in
+    // every kind), so read access must be checked against every kind's module —
+    // never just the loosest one.
+    const access = await assertReminderKindsCoManagerAccess(ctx.db, ctx.userId, ALL_REMINDER_SUBJECT_KINDS, "read");
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
     const settings = await loadReminderSettings(ctx.db, ctx.userId);
     return NextResponse.json({ settings });
   } catch (e) {
@@ -59,13 +69,15 @@ export async function PATCH(req: Request) {
       rule?: unknown;
     };
 
-    const current = await loadReminderSettings(ctx.db, ctx.userId);
-
     if (body.kind && body.rule && typeof body.kind === "string") {
       const kind = body.kind as ReminderSubjectKind;
       if (!REMINDER_SUBJECT_KINDS.includes(kind)) {
         return NextResponse.json({ error: "Unknown reminder subject." }, { status: 400 });
       }
+      // Authorize exactly the one subject this PATCH touches.
+      const access = await assertReminderKindCoManagerAccess(ctx.db, ctx.userId, kind, "edit");
+      if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+      const current = await loadReminderSettings(ctx.db, ctx.userId);
       const settings = await saveReminderSettings(ctx.db, ctx.userId, {
         ...current,
         rules: {
@@ -84,10 +96,31 @@ export async function PATCH(req: Request) {
       body.settings && typeof body.settings === "object" && !Array.isArray(body.settings)
         ? (body.settings as Record<string, unknown>)
         : {};
+    const incomingRules =
+      incoming.rules && typeof incoming.rules === "object" && !Array.isArray(incoming.rules)
+        ? (incoming.rules as Record<string, unknown>)
+        : {};
+    // `quietHours` applies across every subject's send window, so a change to
+    // it is authorized like a change to every kind; a bulk `rules` merge is
+    // authorized per the specific kinds it names, rejecting the whole request
+    // if any named kind's module is not permitted (never falling through to
+    // the widest grant available).
+    const touchedKinds: readonly ReminderSubjectKind[] =
+      "quietHours" in incoming
+        ? ALL_REMINDER_SUBJECT_KINDS
+        : (Object.keys(incomingRules).filter((k): k is ReminderSubjectKind =>
+            (REMINDER_SUBJECT_KINDS as readonly string[]).includes(k),
+          ) as ReminderSubjectKind[]);
+    if (touchedKinds.length > 0) {
+      const access = await assertReminderKindsCoManagerAccess(ctx.db, ctx.userId, touchedKinds, "edit");
+      if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+    }
+
+    const current = await loadReminderSettings(ctx.db, ctx.userId);
     const settings = await saveReminderSettings(ctx.db, ctx.userId, {
       ...current,
       ...incoming,
-      rules: { ...current.rules, ...((incoming.rules as Record<string, unknown>) ?? {}) },
+      rules: { ...current.rules, ...incomingRules },
     });
     return NextResponse.json({ settings });
   } catch (e) {

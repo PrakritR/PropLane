@@ -1,7 +1,7 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { ChevronRight } from "lucide-react";
+import { useId, useState, type ReactNode } from "react";
+import { ChevronRight, Lock } from "lucide-react";
 import Link from "next/link";
 
 import { PortalTitleActionsHost, PortalTitleActionsProvider } from "@/components/portal/portal-title-actions-slot";
@@ -50,11 +50,14 @@ export function PortalSettingsGroup({ children, className }: { children: ReactNo
 export function PortalSettingsRow({
   label,
   description,
+  meta,
   children,
   className,
 }: {
   label: ReactNode;
   description?: ReactNode;
+  /** Optional third line under `description` — smaller and quieter still (e.g. "Last changed 3 days ago"). */
+  meta?: ReactNode;
   children?: ReactNode;
   className?: string;
 }) {
@@ -68,8 +71,180 @@ export function PortalSettingsRow({
       <div className="min-w-0">
         <p className="text-sm font-medium text-foreground">{label}</p>
         {description ? <p className="mt-0.5 text-xs leading-relaxed text-muted">{description}</p> : null}
+        {meta ? <p className="mt-0.5 text-[11px] leading-relaxed text-muted/70">{meta}</p> : null}
       </div>
       {children ? <div className="shrink-0">{children}</div> : null}
+    </div>
+  );
+}
+
+/**
+ * Sliding on/off switch for a settings row. Promoted from the module-private
+ * `Toggle` in `pro-portal-automation-settings-panel.tsx` — keep `role="switch"`
+ * and `aria-checked`, that accessibility contract is the reason this is the
+ * right control for a boolean preference (never use it for list/multi-select;
+ * see `RowSelectCheckbox` / `CheckboxMultiSelect` for that).
+ */
+export function PortalSettingsToggle({
+  checked,
+  onChange,
+  label,
+  disabled,
+  id,
+  dataAttr,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  label: string;
+  disabled?: boolean;
+  id?: string;
+  dataAttr?: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      id={id}
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      data-attr={dataAttr}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        "relative h-[21px] w-[36px] shrink-0 rounded-full transition-colors",
+        checked ? "bg-primary" : "bg-border",
+        disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
+      )}
+    >
+      <span
+        className={cn(
+          "absolute top-[2.5px] h-4 w-4 rounded-full bg-white transition-all",
+          checked ? "right-[2.5px]" : "left-[2.5px]",
+        )}
+      />
+    </button>
+  );
+}
+
+/**
+ * A row that expands in place to reveal detail. Collapsed by default,
+ * keyboard operable (a real `<button>` trigger), and the content is genuinely
+ * removed from the accessibility tree when collapsed (the `hidden` attribute,
+ * never opacity/visibility) so a screen reader never announces hidden detail.
+ */
+export function PortalSettingsDisclosureRow({
+  label,
+  description,
+  children,
+  defaultOpen = false,
+  dataAttr,
+  className,
+}: {
+  label: ReactNode;
+  description?: ReactNode;
+  children: ReactNode;
+  defaultOpen?: boolean;
+  dataAttr?: string;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const contentId = useId();
+  return (
+    <div className={cn("border-b border-border last:border-0", className)}>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={contentId}
+        data-attr={dataAttr}
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-4 px-4 py-3.5 text-left"
+      >
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground">{label}</p>
+          {description ? <p className="mt-0.5 text-xs leading-relaxed text-muted">{description}</p> : null}
+        </div>
+        <ChevronRight
+          className={cn("h-4 w-4 shrink-0 text-muted transition-transform", open ? "rotate-90" : undefined)}
+          aria-hidden
+        />
+      </button>
+      <div id={contentId} hidden={!open} className="space-y-3 px-4 pb-4">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+const SCOPE_TAG_VARIANT_CLASS: Record<"default" | "muted", string> = {
+  default: "bg-primary/10 text-primary",
+  muted: "bg-accent/60 text-muted",
+};
+
+/**
+ * Small inline tag stating what a setting applies to, e.g. "All properties"
+ * vs "This property". Purely presentational.
+ */
+export function PortalSettingsScopeTag({
+  children,
+  label,
+  variant = "default",
+  className,
+}: {
+  children?: ReactNode;
+  label?: string;
+  variant?: "default" | "muted";
+  className?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold tracking-[-0.01em]",
+        SCOPE_TAG_VARIANT_CLASS[variant],
+        className,
+      )}
+    >
+      {children ?? label}
+    </span>
+  );
+}
+
+/**
+ * A row whose control is unavailable, with the reason always shown. A locked
+ * row with no visible reason is the bug this exists to prevent — never render
+ * one without `reason`.
+ *
+ * Critical: an UNKNOWN plan must never drive this component. Plan quotas are
+ * read only through `resolveEffectiveManagerSkuTier`, and when it cannot
+ * determine the plan, callers must treat the limit as unknown and show no
+ * limit (defer to the server), never lock the control. Do not wire a
+ * `planUnknown`/`tierUnknown` condition into `PortalSettingsLockedRow`.
+ */
+export function PortalSettingsLockedRow({
+  label,
+  reason,
+  action,
+  className,
+}: {
+  label: ReactNode;
+  reason: ReactNode;
+  action?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-between gap-4 border-b border-border px-4 py-3.5 last:border-0",
+        className,
+      )}
+    >
+      <div className="min-w-0">
+        <p className="flex items-center gap-1.5 text-sm font-medium text-foreground/70">
+          <Lock className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
+          {label}
+        </p>
+        <p className="mt-0.5 text-xs leading-relaxed text-muted">{reason}</p>
+      </div>
+      {action ? <div className="shrink-0">{action}</div> : null}
     </div>
   );
 }

@@ -6,6 +6,8 @@ import {
   PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
 } from "@/components/portal/portal-property-detail-section";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
+import { ROW_SELECT_INPUT_CLASS } from "@/components/ui/row-select-checkbox";
+import { cn } from "@/lib/utils";
 import {
   promotionAssetKindIndices,
   promotionAssetListTitle,
@@ -76,7 +78,7 @@ export function PromotionAssetStack({
               <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
                 <input
                   type="checkbox"
-                  className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                  className={cn(ROW_SELECT_INPUT_CLASS, "mt-0.5 shrink-0")}
                   checked={selectedIds!.has(asset.id)}
                   data-attr={`promotion-select-${asset.id}`}
                   onChange={() => onToggleSelected!(asset.id)}

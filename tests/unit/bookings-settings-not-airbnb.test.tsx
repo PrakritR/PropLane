@@ -72,13 +72,16 @@ describe("Bookings → Settings", () => {
       return v;
     })();
 
-    fireEvent.click(view.container.querySelector('[data-attr="bookings-settings-open"]')!);
+    fireEvent.click(view.container.querySelector('[data-attr="settings-open-bookings"]')!);
     await settle();
 
     const text = document.body.textContent ?? "";
     expect(text).not.toContain("Airbnb import URL");
     expect(text).not.toContain("paste the Airbnb export URL");
-    expect(text).toContain("Bookings settings");
+    // Was "Bookings settings" (plural) here while the button beside it said
+    // "Booking settings" (singular) — the two are now the same entry (see
+    // settings-entry-points.ts), so the dialog matches the button exactly.
+    expect(text).toContain("Booking settings");
   });
 
   it("Link Airbnb still opens the Link Airbnb dialog", async () => {

@@ -514,6 +514,11 @@ export function normalizeReminderSettings(raw: unknown): ReminderSettings {
   const rules = {} as ReminderRules;
   for (const kind of REMINDER_SUBJECT_KINDS) {
     rules[kind] = normalizeRule(rulesRaw[kind], DEFAULT_REMINDER_RULES[kind]);
+    // Keeps stored settings equal to what the dispatcher actually does: these
+    // fields are hardcoded in `subjects/tour-interest.server.ts` and can never
+    // be honoured from a saved rule. See `fixed-rule-fields.ts` for the
+    // declaration this overwrite must match, and its reason — the Settings UI
+    // marks these fields read-only rather than letting them silently revert.
     if (kind === "tour_interest") rules[kind] = {
       ...rules[kind], leadMinutes: [1440], timings: ["after:1440"],
       audience: { manager: false, counterparty: true, team: false }, teamUserIds: [],
@@ -592,6 +597,24 @@ export function isQuietHour(quietHours: QuietHours, hour: number): boolean {
 }
 
 /**
+ * The wall-clock hour (0-23) `at` reads as in `America/Los_Angeles`.
+ *
+ * Quiet hours are presented to the manager as their own clock, but
+ * `Date.getHours()` / `setHours()` are the SERVER's local zone — UTC on
+ * Vercel. Reading the zoned hour explicitly is what makes "9pm-8am" mean 9pm
+ * Pacific rather than 9pm wherever the dispatcher happens to run.
+ */
+function losAngelesHour(at: Date): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    hour: "numeric",
+    hourCycle: "h23",
+  }).formatToParts(at);
+  const hour = parts.find((part) => part.type === "hour")?.value;
+  return hour ? Number(hour) : at.getHours();
+}
+
+/**
  * Push a send time forward out of the quiet window.
  *
  * Deliberately forward-only. Sending a 7 a.m. reminder early at 6 a.m. to dodge
@@ -600,13 +623,17 @@ export function isQuietHour(quietHours: QuietHours, hour: number): boolean {
  * is the dispatcher's problem, not this function's.
  */
 export function applyQuietHours(sendAt: Date, quietHours: QuietHours): Date {
-  if (!isQuietHour(quietHours, sendAt.getHours())) return sendAt;
-  const out = new Date(sendAt);
+  if (!isQuietHour(quietHours, losAngelesHour(sendAt))) return sendAt;
+  let out = sendAt;
   // Walk hour by hour rather than jumping, so a window that wraps midnight
-  // lands on the correct day without date arithmetic special cases.
+  // lands on the correct day without date arithmetic special cases. Each step
+  // adds real elapsed time and re-reads the LA wall-clock hour — not
+  // `setHours`, which would snap to the SERVER's local hour — so a DST
+  // transition that skips an hour (spring forward) or repeats one (fall back)
+  // is walked correctly rather than assumed to be 60 real minutes per step.
   for (let i = 0; i < 24; i += 1) {
-    out.setHours(out.getHours() + 1, 0, 0, 0);
-    if (!isQuietHour(quietHours, out.getHours())) return out;
+    out = new Date(out.getTime() + 3_600_000);
+    if (!isQuietHour(quietHours, losAngelesHour(out))) return out;
   }
   return sendAt;
 }

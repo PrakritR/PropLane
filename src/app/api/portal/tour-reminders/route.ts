@@ -8,6 +8,7 @@ import {
   reconcileDuplicateTourReminders,
   upsertTourReminderForPlannedEvent,
 } from "@/lib/tour-reminder.server";
+import { assertTourSettingsCoManagerAccess } from "@/lib/auth/manager-settings-module-access.server";
 
 export const runtime = "nodejs";
 
@@ -37,6 +38,8 @@ export async function GET(req: Request) {
   try {
     const ctx = await requireManager();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    const access = await assertTourSettingsCoManagerAccess(ctx.db, ctx.userId, "read");
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
     const plannedEventId = new URL(req.url).searchParams.get("plannedEventId")?.trim() ?? "";
     if (!plannedEventId) return NextResponse.json({ error: "plannedEventId required." }, { status: 400 });
     await reconcileDuplicateTourReminders(ctx.db, ctx.userId, plannedEventId);
@@ -53,6 +56,8 @@ export async function PUT(req: Request) {
   try {
     const ctx = await requireManager();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    const access = await assertTourSettingsCoManagerAccess(ctx.db, ctx.userId, "edit");
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
     const body = (await req.json()) as {
       plannedEventId?: string;
       tourStartIso?: string;
@@ -104,6 +109,8 @@ export async function DELETE(req: Request) {
   try {
     const ctx = await requireManager();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    const access = await assertTourSettingsCoManagerAccess(ctx.db, ctx.userId, "edit");
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
     const plannedEventId = new URL(req.url).searchParams.get("plannedEventId")?.trim() ?? "";
     if (!plannedEventId) return NextResponse.json({ error: "plannedEventId required." }, { status: 400 });
     await cancelTourReminderForPlannedEvent(ctx.db, ctx.userId, plannedEventId);

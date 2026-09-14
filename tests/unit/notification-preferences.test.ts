@@ -34,8 +34,28 @@ function mockDb(rows: {
 const WITH_PHONE = { phone: "5551234567", phone_verified_at: null };
 const NO_PHONE = { phone: "", phone_verified_at: null };
 
-describe("resolveChannels — always-on delivery (not user-tunable)", () => {
-  it("inbox + email + SMS are all on for every category when a phone is on file", async () => {
+/**
+ * DELIBERATE REVERSAL — read before changing these two tests back.
+ *
+ * This block used to be titled "always-on delivery (not user-tunable)" and
+ * asserted that a saved `email: false` was IGNORED. That was a real product
+ * decision, deliberately locked in by a test.
+ *
+ * It has been reversed on purpose: residents now have a notification
+ * preferences page, and a control that saves a setting delivery then ignores
+ * is exactly the class of lying control this work exists to remove. Email and
+ * SMS now follow the saved preference.
+ *
+ * What has NOT changed, and must not:
+ *   - `inbox` is still always true. It is the durable record.
+ *   - a STOP opt-out still beats a saved `sms: true`. Consent is not a
+ *     preference (see the opt-out tests below, which are untouched).
+ *   - an absent row still means "receive everything", so no existing resident's
+ *     delivery changed: `notification_preferences` had zero writers before the
+ *     preferences page shipped, so in practice every row is absent.
+ */
+describe("resolveChannels — delivery follows the resident's saved preferences", () => {
+  it("inbox + email + SMS are all on for every category when a phone is on file and nothing is saved", async () => {
     const db = mockDb({});
     for (const category of NOTIFICATION_CATEGORIES) {
       const ch = await resolveChannels(db, "u1", category, WITH_PHONE);
@@ -45,13 +65,18 @@ describe("resolveChannels — always-on delivery (not user-tunable)", () => {
     }
   });
 
-  it("saved 'off' preferences are ignored — delivery is not tunable", async () => {
+  it("a saved 'off' preference is honoured for that category, and only that category", async () => {
     const db = mockDb({
       notification_preferences: { row_data: { payments: { email: false, sms: false } } },
     });
     const ch = await resolveChannels(db, "u1", "payments", WITH_PHONE);
-    expect(ch.email).toBe(true);
-    expect(ch.sms).toBe(true);
+    expect(ch.email).toBe(false);
+    expect(ch.sms).toBe(false);
+    // The durable record is never suppressible, whatever the row says.
+    expect(ch.inbox).toBe(true);
+    // An untouched category keeps the default.
+    const other = await resolveChannels(db, "u1", "messages", WITH_PHONE);
+    expect(other.email).toBe(true);
   });
 
   it("no phone on the profile → no SMS (email + inbox still deliver)", async () => {

@@ -4,6 +4,7 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
 
 import { BookOpen, Settings2 } from "lucide-react";
+import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
 import {
@@ -58,6 +59,8 @@ import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
 
+const vendorsSettingsEntry = getSettingsEntryPoint("vendors");
+
 export type ManagerVendorsPanelHandle = {
   openCatalog: () => void;
   openDefaults: (trade?: string) => void;
@@ -83,9 +86,9 @@ export function ManagerVendorsToolbar({
       />
       <PortalIconAction
         icon={Settings2}
-        label="Vendor defaults"
+        label={vendorsSettingsEntry.label}
         onClick={onDefaults}
-        data-attr="manager-vendor-defaults-open"
+        data-attr={vendorsSettingsEntry.dataAttr}
       />
     </>
   );

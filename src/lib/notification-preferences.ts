@@ -157,15 +157,36 @@ export async function resolveChannels(
     return resolveManagerNotificationChannels(db, userId, category, profile);
   }
 
+  // Load the recipient's saved preferences for this category. Fail OPEN on a
+  // read error — deliberately the opposite of the usual fail-closed rule
+  // elsewhere in this codebase: a broken preferences lookup must never be the
+  // reason a resident silently stops getting mail, so an unreadable table
+  // falls back to today's default (email on, sms following only the
+  // phone/consent gate below) rather than suppressing delivery.
+  let categoryPreference: ChannelPreference = DEFAULT_NOTIFICATION_PREFERENCES[category];
+  try {
+    const prefs = await loadNotificationPreferences(db, userId);
+    categoryPreference = prefs[category];
+  } catch {
+    categoryPreference = DEFAULT_NOTIFICATION_PREFERENCES[category];
+  }
+
   const phone = String(profile?.phone ?? "").trim();
+  // Consent wins over preference, always: a saved sms:true never overrides a
+  // STOP. Only check the opt-out (an extra DB/lookup call) when a phone is on
+  // file AND the saved preference wants SMS in the first place.
   let sms = false;
-  if (phone) {
+  if (phone && categoryPreference.sms) {
     sms = !(await isPhoneOptedOut(db, phone));
   }
 
   return {
+    // Inbox is always on for residents/vendors — the durable record is not
+    // user-suppressible, even by a legacy row that somehow stored inbox: false
+    // (normalizeNotificationPreferences already clamps this, but pin it here
+    // too as the final word).
     inbox: true,
-    email: true,
+    email: categoryPreference.email,
     sms,
   };
 }

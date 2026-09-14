@@ -79,6 +79,11 @@ import {
   ProPortalSettingsModal,
   type ManagerPortalSettingsTab,
 } from "@/components/portal/pro-portal-settings-modal";
+import {
+  getSettingsEntryPoint,
+  getSettingsEntryPointForTab,
+  settingsDialogTitlePrefix,
+} from "@/components/portal/settings-entry-points";
 import { PortalServiceRecordRow, PortalPersonRecordRow } from "@/components/portal/portal-record-row";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
@@ -304,6 +309,11 @@ import {
   shortTermStayChargeTitle,
   shortTermStayNightCount,
 } from "@/lib/short-term-stay-pricing";
+
+const residentsSettingsEntry = getSettingsEntryPoint("residents");
+const leasesSettingsEntry = getSettingsEntryPoint("leases");
+const applicationsSettingsEntry = getSettingsEntryPoint("applications");
+const paymentsSettingsEntry = getSettingsEntryPoint("payments");
 
 function residentRoomRentSuffix(
   room: { monthlyRent?: number; shortTermRent?: string },
@@ -3475,6 +3485,8 @@ export function ManagerResidents({
                                 bucketAriaLabel="Lease pipeline stage"
                                 denseEqualRow
                                 onSettings={() => openResidentDetailSettings("lease")}
+                                settingsLabel={leasesSettingsEntry.label}
+                                settingsDataAttr={leasesSettingsEntry.dataAttr}
                                 onEdit={() => {
                                   if (
                                     residentLease &&
@@ -3562,6 +3574,8 @@ export function ManagerResidents({
                                 }
                                 bucketAriaLabel="Application status"
                                 onSettings={() => openResidentDetailSettings("applications")}
+                                settingsLabel={applicationsSettingsEntry.label}
+                                settingsDataAttr={applicationsSettingsEntry.dataAttr}
                                 onEdit={() => {
                                   if (selectedApplicationRow?.application) {
                                     setApplicationEditOpen(true);
@@ -3714,6 +3728,8 @@ export function ManagerResidents({
                                   onBucketChange={(id) => setChargeBucket(id as ManagerPaymentBucket)}
                                   bucketAriaLabel="Payment status"
                                   onSettings={() => setResidentPaymentSettingsOpen(true)}
+                                  settingsLabel={paymentsSettingsEntry.label}
+                                  settingsDataAttr={paymentsSettingsEntry.dataAttr}
                                   onEdit={() => openResidentPaymentSetup()}
                                 />
                               ) : null}
@@ -3811,6 +3827,8 @@ export function ManagerResidents({
                                 }
                                 bucketAriaLabel="Service status"
                                 onSettings={() => openResidentDetailSettings("resident")}
+                                settingsLabel={residentsSettingsEntry.label}
+                                settingsDataAttr={residentsSettingsEntry.dataAttr}
                                 onEdit={() => {
                                   if (canAddResidentServiceItem) {
                                     setAddResidentServiceOpen(true);
@@ -4057,8 +4075,8 @@ export function ManagerResidents({
             {residentsFilterSheet}
             <PortalIconAction
               icon={Settings2}
-              label="Resident settings"
-              data-attr="residents-settings-open"
+              label={residentsSettingsEntry.label}
+              data-attr={residentsSettingsEntry.dataAttr}
               onClick={() => openResidentDetailSettings("resident")}
             />
           </>
@@ -4257,7 +4275,7 @@ export function ManagerResidents({
         open={residentPaymentSettingsOpen}
         onClose={() => setResidentPaymentSettingsOpen(false)}
         initialTab="payments"
-        scopedTitle="Payments"
+        scopedTitle={settingsDialogTitlePrefix(paymentsSettingsEntry)}
         paymentsMode="incoming"
       />
       <ManagerPaymentSetupModal
@@ -5079,11 +5097,19 @@ export function ManagerResidents({
         }}
       />
 
+      {/*
+        Shared by every resident-detail Settings gear that routes through
+        `openResidentDetailSettings` (lease, applications, resident, and the
+        embedded tours subsection) — one dialog instance, so its title is
+        resolved per-tab from the same registry the triggering button's own
+        label (where we control it) comes from, instead of a fixed string.
+      */}
       <ProPortalSettingsModal
         open={residentDetailSettingsOpen}
         onClose={() => setResidentDetailSettingsOpen(false)}
         initialTab={residentDetailSettingsTab}
         scoped
+        scopedTitle={settingsDialogTitlePrefix(getSettingsEntryPointForTab(residentDetailSettingsTab))}
         propertyOptions={propertyOptions}
         initialPropertyId={selected?.propertyId?.trim() || propertyOptions[0]?.id}
       />

@@ -23,6 +23,7 @@ import {
 import { ApplicationScreeningPanel } from "@/components/portal/application-screening-panel";
 import { CheckrScreeningModal } from "@/components/portal/checkr-screening-modal";
 import { ManagerScreeningSettingsModal } from "@/components/portal/pro-screening-settings";
+import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
 import { ManagerBackgroundChecksGroupedTable } from "@/components/portal/pro-background-checks-grouped-table";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { useCosignerSubmissionsMap } from "@/hooks/use-cosigner-submissions-map";
@@ -76,6 +77,8 @@ import {
 import { PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
 import { applicantDisplayName } from "@/lib/rental-application/applicant-name";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+
+const backgroundChecksSettingsEntry = getSettingsEntryPoint("backgroundChecks");
 
 function applicationRowPropertyId(row: DemoApplicantRow): string {
   return row.assignedPropertyId?.trim() || row.propertyId?.trim() || row.application?.propertyId?.trim() || "";
@@ -365,8 +368,8 @@ export function ManagerBackgroundChecks({
   const settingsButton = (
     <PortalIconAction
       icon={Settings2}
-      label="Background check settings"
-      data-attr="background-check-settings-open"
+      label={backgroundChecksSettingsEntry.label}
+      data-attr={backgroundChecksSettingsEntry.dataAttr}
       onClick={() => setScreeningSettingsOpen(true)}
     />
   );

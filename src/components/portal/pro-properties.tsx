@@ -18,6 +18,10 @@ import { Button } from "@/components/ui/button";
 import { Settings2, Share2 } from "lucide-react";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import {
+  getSettingsEntryPoint,
+  settingsDialogTitlePrefix,
+} from "@/components/portal/settings-entry-points";
+import {
   ManagerPortalPageShell,
 } from "@/components/portal/portal-metrics";
 import { propertyDetailHref, propertyListHref, type PropertyDetailTabId } from "@/lib/portal-detail-routes";
@@ -58,6 +62,16 @@ import {
   readFirstListingPortfolioSnapshot,
   shouldSkipFirstListingOnboarding,
 } from "@/lib/manager-first-listing-onboarding";
+
+/**
+ * This gear has never opened property-level settings — it has always opened
+ * the Applications settings tab (`initialTab="applications"` below). No
+ * property-settings surface exists in this codebase (checked: no
+ * `pro-property-*-panel.tsx` settings panel, no unused `ManagerPortalSettingsTab`
+ * for it, no `editAction` usage that leads there). Reuse the Applications entry
+ * so the label finally tells the truth instead of inventing a new page.
+ */
+const propertiesSettingsEntry = getSettingsEntryPoint("applications");
 
 export function ManagerProperties({
   stage: stageProp = "listed",
@@ -457,10 +471,18 @@ export function ManagerProperties({
             }}
             actions={
               <>
+                {/*
+                  This button has never opened property-level settings — there is
+                  no such surface in the codebase (see settings-entry-points.ts and
+                  the applications entry it reuses here). It opens the Applications
+                  settings tab, so it is now labeled for that honestly instead of
+                  claiming to be "Property settings". A genuine per-property
+                  settings surface is a product gap, not something to invent here.
+                */}
                 <PortalIconAction
                   icon={Settings2}
-                  label="Property settings"
-                  data-attr="manager-properties-settings-open"
+                  label={propertiesSettingsEntry.label}
+                  data-attr={propertiesSettingsEntry.dataAttr}
                   onClick={() => setListSettingsOpen(true)}
                 />
                 <PortalIconAction
@@ -476,6 +498,7 @@ export function ManagerProperties({
             open={listSettingsOpen}
             onClose={() => setListSettingsOpen(false)}
             initialTab="applications"
+            scopedTitle={settingsDialogTitlePrefix(propertiesSettingsEntry)}
           />
           {atPropertyLimit && limitMax != null ? (
             <p className="mb-4 shrink-0 rounded-2xl border px-4 py-3 text-sm portal-banner-danger lg:mb-4">

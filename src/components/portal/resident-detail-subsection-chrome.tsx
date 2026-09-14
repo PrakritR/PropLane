@@ -4,6 +4,15 @@ import type { ReactNode } from "react";
 import { Pencil, Settings2, SlidersHorizontal } from "lucide-react";
 import { LocalDestinationNav, type LocalDestinationNavItem } from "@/components/ui/destination-nav";
 import { cn } from "@/lib/utils";
+import { MANAGER_SETTINGS_ENTRY_POINTS } from "@/components/portal/settings-entry-points";
+
+/**
+ * Default Settings label/data-attr when a caller does not resolve a specific
+ * settings module (see `settings-entry-points.tsx`'s `residentDetail` entry).
+ * A caller that knows which module its Settings action opens should pass
+ * `settingsLabel`/`settingsDataAttr` from that module's own entry instead.
+ */
+const DEFAULT_SETTINGS_ENTRY = MANAGER_SETTINGS_ENTRY_POINTS.residentDetail;
 
 /**
  * One compact button in the record-detail command strip: an icon, and the word
@@ -57,7 +66,8 @@ export function ResidentDetailCommandToolbar({
   onEdit,
   settingsDisabled,
   editDisabled,
-  settingsLabel = "Settings",
+  settingsLabel = DEFAULT_SETTINGS_ENTRY.label,
+  settingsDataAttr = DEFAULT_SETTINGS_ENTRY.dataAttr,
   editLabel = "Edit",
 }: {
   filter?: ReactNode;
@@ -66,6 +76,8 @@ export function ResidentDetailCommandToolbar({
   settingsDisabled?: boolean;
   editDisabled?: boolean;
   settingsLabel?: string;
+  /** `data-attr` for the Settings action; pass the resolved module's own entry when the caller knows which settings module it opens. */
+  settingsDataAttr?: string;
   editLabel?: string;
 }) {
   return (
@@ -82,7 +94,7 @@ export function ResidentDetailCommandToolbar({
       <ChromeAction
         icon={Settings2}
         label={settingsLabel}
-        dataAttr="resident-detail-settings"
+        dataAttr={settingsDataAttr}
         disabled={settingsDisabled || !onSettings}
         onClick={onSettings}
       />
@@ -118,6 +130,7 @@ export function ResidentDetailSubsectionChrome({
   settingsDisabled,
   editDisabled,
   settingsLabel,
+  settingsDataAttr,
   editLabel,
   activeFilterChips,
   className,
@@ -133,6 +146,8 @@ export function ResidentDetailSubsectionChrome({
   settingsDisabled?: boolean;
   editDisabled?: boolean;
   settingsLabel?: string;
+  /** `data-attr` for the Settings action; pass the resolved module's own entry when the caller knows which settings module it opens. */
+  settingsDataAttr?: string;
   editLabel?: string;
   activeFilterChips?: ReactNode;
   className?: string;
@@ -167,6 +182,7 @@ export function ResidentDetailSubsectionChrome({
             settingsDisabled={settingsDisabled}
             editDisabled={editDisabled}
             settingsLabel={settingsLabel}
+            settingsDataAttr={settingsDataAttr}
             editLabel={editLabel}
           />
         </div>

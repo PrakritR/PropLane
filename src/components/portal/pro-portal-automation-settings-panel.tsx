@@ -23,6 +23,7 @@ import {
   type ReminderSettings,
   type ReminderSubjectKind,
 } from "@/lib/reminders/rules";
+import { fixedRuleFields } from "@/lib/reminders/fixed-rule-fields";
 import {
   formatMinutes,
   summarizeTimings,
@@ -63,11 +64,13 @@ function TimingMultiSelect({
   onChange,
   directions,
   dataAttr,
+  disabled,
 }: {
   value: string[];
   onChange: (next: string[]) => void;
   directions: TimingDirection[];
   dataAttr: string;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -99,14 +102,20 @@ function TimingMultiSelect({
         type="button"
         aria-haspopup="listbox"
         aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
+        disabled={disabled}
+        onClick={() => {
+          if (disabled) return;
+          setOpen((o) => !o);
+        }}
         data-attr={`${dataAttr}-trigger`}
-        className="flex w-full min-w-0 items-center justify-between gap-2 rounded-xl border border-border bg-transparent px-3 py-2 text-left text-[13px] text-foreground"
+        className={`flex w-full min-w-0 items-center justify-between gap-2 rounded-xl border border-border bg-transparent px-3 py-2 text-left text-[13px] text-foreground ${
+          disabled ? "cursor-not-allowed opacity-60" : ""
+        }`}
       >
         <span className="min-w-0 truncate">{summarizeTimings(value)}</span>
         <ChevronDown className="h-4 w-4 shrink-0 text-muted" aria-hidden />
       </button>
-      {open ? (
+      {open && !disabled ? (
         <div
           role="listbox"
           aria-multiselectable
@@ -250,6 +259,12 @@ export function ManagerPortalAutomationSettingsPanel() {
           // so an existing selection still shows rather than reading as empty.
           const selected =
             rule.timings ?? rule.leadMinutes.map((m) => timingKey({ direction: "before", minutes: m }));
+          // A kind can declare fields the dispatcher hardcodes (currently only
+          // `tour_interest`'s timing) — this row is read-only for those fields
+          // rather than showing a control that would silently revert on the
+          // next load. See `fixed-rule-fields.ts`.
+          const fixed = fixedRuleFields(kind);
+          const timingsFixed = fixed?.fields.includes("timings") ?? false;
           return (
             <div key={kind} className="border-b border-border py-3 last:border-b-0" data-attr={`settings-row-${kind}`}>
               <div className="flex items-center justify-between gap-3">
@@ -268,10 +283,16 @@ export function ManagerPortalAutomationSettingsPanel() {
                     value={selected}
                     directions={SUBJECT_DIRECTIONS[kind]}
                     dataAttr={`settings-timings-${kind}`}
+                    disabled={timingsFixed}
                     onChange={(timings) =>
                       setSettings((c) => ({ ...c, rules: { ...c.rules, [kind]: { ...c.rules[kind], timings } } }))
                     }
                   />
+                  {timingsFixed && fixed ? (
+                    <p className="mt-2 text-xs text-muted" data-attr={`settings-fixed-reason-${kind}`}>
+                      {fixed.reason}
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
             </div>

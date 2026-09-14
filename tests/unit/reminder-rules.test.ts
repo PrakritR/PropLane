@@ -196,6 +196,59 @@ describe("quiet hours", () => {
     const noon = new Date(2026, 7, 30, 12, 0, 0, 0);
     expect(applyQuietHours(noon, wrapping).getTime()).toBe(noon.getTime());
   });
+
+  // The server's local zone is UTC on Vercel, but quiet hours are presented to
+  // the manager as their own (Pacific) clock. Every instant below is built
+  // from an explicit UTC ISO string — never `new Date(y, m, d, h)` — so these
+  // cases stay meaningful regardless of the machine running the suite.
+  describe("evaluates the window in America/Los_Angeles, not server/UTC time", () => {
+    it("moves a send that is quiet in LA but not in UTC", () => {
+      // 2026-07-15T08:12Z is 01:12 PDT (quiet, inside 21:00-08:00) but 08:00 UTC
+      // (not quiet under the old server-time bug — the 08:00 boundary is the
+      // window's own exclusive end).
+      const sendAt = new Date("2026-07-15T08:12:00.000Z");
+      const moved = applyQuietHours(sendAt, wrapping);
+      expect(moved.getTime()).toBeGreaterThan(sendAt.getTime());
+      // Pushed to 08:00 Pacific, i.e. 15:00 UTC that same day.
+      expect(moved.toISOString()).toBe("2026-07-15T15:12:00.000Z");
+    });
+
+    it("leaves a send that is quiet in UTC but not in LA exactly where it was", () => {
+      // 2026-07-15T02:12Z is 02:12 UTC (quiet under the old server-time bug)
+      // but 19:12 PDT the prior evening — squarely inside the daytime, not the
+      // 21:00-08:00 window.
+      const sendAt = new Date("2026-07-15T02:12:00.000Z");
+      expect(applyQuietHours(sendAt, wrapping).getTime()).toBe(sendAt.getTime());
+    });
+  });
+
+  describe("walks real elapsed time across a DST boundary", () => {
+    it("spring-forward (2026-03-08, 2am -> 3am PST->PDT skips the 2 o'clock hour)", () => {
+      // 2026-03-08T09:12Z is 01:12 PST, inside a 01:00-03:00 quiet window.
+      // The next Pacific hour after 1am is 3am (2am never happens that day),
+      // so walking forward by ONE real hour already lands outside the window —
+      // proof the walk reads the actual Pacific clock each step rather than
+      // assuming a fixed 60 real minutes moves the Pacific hour by exactly one.
+      const quiet = { enabled: true, startHour: 1, endHour: 3 };
+      const sendAt = new Date(Date.UTC(2026, 2, 8, 9, 12));
+      const moved = applyQuietHours(sendAt, quiet);
+      expect(moved.getTime() - sendAt.getTime()).toBe(60 * 60_000);
+      expect(moved.toISOString()).toBe("2026-03-08T10:12:00.000Z");
+    });
+
+    it("fall-back (2026-11-01, 2am -> 1am PDT->PST repeats the 1 o'clock hour)", () => {
+      // 2026-11-01T07:12Z is 00:12 PDT, inside a 00:00-02:00 quiet window. The
+      // 1am hour occurs twice that morning (PDT, then PST), so escaping to a
+      // real non-quiet Pacific hour (2am) takes THREE real hours, not two —
+      // and the walk must still terminate within its 24-iteration cap rather
+      // than looping on the repeated hour.
+      const quiet = { enabled: true, startHour: 0, endHour: 2 };
+      const sendAt = new Date(Date.UTC(2026, 10, 1, 7, 12));
+      const moved = applyQuietHours(sendAt, quiet);
+      expect(moved.getTime() - sendAt.getTime()).toBe(3 * 60 * 60_000);
+      expect(moved.toISOString()).toBe("2026-11-01T10:12:00.000Z");
+    });
+  });
 });
 
 describe("reminderSendTimes", () => {

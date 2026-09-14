@@ -17,8 +17,12 @@ export const MINUTE = 1;
 export const HOUR = 60;
 export const DAY = 24 * 60;
 
+/** The dispatcher's tick. `vercel.json`'s cron for /api/cron/dispatch-reminders must match this. */
+export const REMINDER_DISPATCH_INTERVAL_MINUTES = 5;
+export const REMINDER_DISPATCH_CRON = `*/${REMINDER_DISPATCH_INTERVAL_MINUTES} * * * *`;
+
 /** Below five minutes a reminder cannot beat its own dispatch tick. */
-export const MIN_TIMING_MINUTES = 5;
+export const MIN_TIMING_MINUTES = REMINDER_DISPATCH_INTERVAL_MINUTES;
 /** 30 days. Past this it is a campaign, not a reminder. */
 export const MAX_TIMING_MINUTES = 30 * DAY;
 /** More than this per subject is a mailing list. */

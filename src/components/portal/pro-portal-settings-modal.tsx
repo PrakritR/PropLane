@@ -2,9 +2,11 @@
 
 import { ChevronRight, Pencil } from "lucide-react";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import type { PaymentAutomationSettingsHandle } from "@/components/portal/payment-schedule-ui";
 import { Modal, ModalFooter } from "@/components/ui/modal";
+import { SaveStatus } from "@/components/ui/save-status";
+import type { AutosaveState } from "@/hooks/use-autosave-draft";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
@@ -32,6 +34,34 @@ import { CANONICAL_DEMO_MANAGER_NAME } from "@/lib/demo/demo-canonical-accounts"
 import { cacheLandlordLegalName } from "@/lib/manager-landlord-profile";
 import { PORTAL_TOOLBAR_PILL_BUTTON, PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE } from "@/components/portal/portal-metrics";
 import { ManagerPortalAutomationSettingsPanel } from "@/components/portal/pro-portal-automation-settings-panel";
+
+type PendingSaveHandle = { saveIfDirty: () => Promise<boolean> };
+
+/**
+ * Registers one autosaving panel's handle into the modal's shared save
+ * registry, keyed by a stable id — this is what makes `flushPendingSaves`
+ * generic instead of a hand-written call per panel.
+ *
+ * Returns a CALLBACK ref, not a `RefObject`. React invokes a callback ref
+ * during commit (mount, update, and `null` on unmount), which is the allowed
+ * place to write a ref; reading or writing a `RefObject`'s `.current` (or
+ * lazily creating one) directly in a render body — which an earlier version
+ * of this tried — is exactly what React's rules forbid. Module-level and
+ * name-prefixed `use…` so it is itself a proper hook: called the same fixed
+ * number of times, in the same order, on every render.
+ */
+function useSaveRegistryEntry<T extends PendingSaveHandle>(
+  registryRef: RefObject<Map<string, PendingSaveHandle>>,
+  id: string,
+): (instance: T | null) => void {
+  return useCallback(
+    (instance: T | null) => {
+      if (instance) registryRef.current.set(id, instance);
+      else registryRef.current.delete(id);
+    },
+    [registryRef, id],
+  );
+}
 
 export type ManagerPortalSettingsTab =
   | "applications"
@@ -242,54 +272,151 @@ export function ProPortalSettingsModal({
 
   /**
    * Payments and Tours settings autosave on close — closing the dialog commits changes.
+   *
+   * One registry instead of twelve named refs: every autosaving panel is
+   * mounted only while ITS tab is selected, so a tab switch (or dialog close)
+   * unmounts it and unregisters. `useSaveRegistryEntry` hands each panel a
+   * stable slot in one map, keyed by id, so `flushPendingSaves` can walk
+   * "whatever is currently registered" — adding a thirteenth panel means one
+   * more `useSaveRegistryEntry<Handle>(saveRegistryRef, "its-id")` call here,
+   * never editing a hand-written flush list that is easy to forget a line in.
    */
-  const paymentsFormRef = useRef<PaymentAutomationSettingsHandle | null>(null);
-  const toursFormRef = useRef<TourSettingsHandle | null>(null);
-  const applicationsReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
-  const leaseReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
-  const tourManagerReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
-  const taskReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
-  const outgoingPaymentReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
-  const workOrderReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
-  const serviceOrderReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
-  const inspectionDueReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
-  const inspectionReviewReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
-  const bookingReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
+  const saveRegistryRef = useRef(new Map<string, PendingSaveHandle>());
+  const paymentsFormRef = useSaveRegistryEntry<PaymentAutomationSettingsHandle>(saveRegistryRef, "payments");
+  const toursFormRef = useSaveRegistryEntry<TourSettingsHandle>(saveRegistryRef, "tours");
+  const applicationsReminderFormRef = useSaveRegistryEntry<ManagerReminderRuleSettingsHandle>(
+    saveRegistryRef,
+    "applications-reminder",
+  );
+  const leaseReminderFormRef = useSaveRegistryEntry<ManagerReminderRuleSettingsHandle>(
+    saveRegistryRef,
+    "lease-reminder",
+  );
+  const tourManagerReminderFormRef = useSaveRegistryEntry<ManagerReminderRuleSettingsHandle>(
+    saveRegistryRef,
+    "tour-manager-reminder",
+  );
+  const taskReminderFormRef = useSaveRegistryEntry<ManagerReminderRuleSettingsHandle>(
+    saveRegistryRef,
+    "task-reminder",
+  );
+  const outgoingPaymentReminderFormRef = useSaveRegistryEntry<ManagerReminderRuleSettingsHandle>(
+    saveRegistryRef,
+    "outgoing-payment-reminder",
+  );
+  const workOrderReminderFormRef = useSaveRegistryEntry<ManagerReminderRuleSettingsHandle>(
+    saveRegistryRef,
+    "work-order-reminder",
+  );
+  const serviceOrderReminderFormRef = useSaveRegistryEntry<ManagerReminderRuleSettingsHandle>(
+    saveRegistryRef,
+    "service-order-reminder",
+  );
+  const inspectionDueReminderFormRef = useSaveRegistryEntry<ManagerReminderRuleSettingsHandle>(
+    saveRegistryRef,
+    "inspection-due-reminder",
+  );
+  const inspectionReviewReminderFormRef = useSaveRegistryEntry<ManagerReminderRuleSettingsHandle>(
+    saveRegistryRef,
+    "inspection-review-reminder",
+  );
+  const bookingReminderFormRef = useSaveRegistryEntry<ManagerReminderRuleSettingsHandle>(
+    saveRegistryRef,
+    "booking-reminder",
+  );
+
+  /** Idle/saving/saved/failed for the `SaveStatus` mark beside the modal title. */
+  const [saveStatus, setSaveStatus] = useState<{
+    state: AutosaveState;
+    reason: string | null;
+    savedAt: number | null;
+  }>({ state: "idle", reason: null, savedAt: null });
+  // Radix's Dialog.Close fires both its own dismiss (onOpenChange) AND the
+  // header button's explicit onClick, so `closeAndSave` can be entered twice
+  // for one user click. `flushInFlightRef` already collapses both into one
+  // save; this collapses them into one `onClose()` too.
+  const closeCalledRef = useRef(false);
+  useEffect(() => {
+    if (open) {
+      setSaveStatus({ state: "idle", reason: null, savedAt: null });
+      closeCalledRef.current = false;
+    }
+  }, [open]);
+
+  // One flush in flight at a time — a second trigger (double click on close, a
+  // tab click while already closing) awaits the same run instead of firing every
+  // panel's save twice.
+  const flushInFlightRef = useRef<Promise<{ ok: boolean }> | null>(null);
+
   /**
-   * Every autosaving panel is mounted only while ITS tab is selected, so a tab
-   * switch unmounts it and nulls its ref — after which closeAndSave has nothing
-   * left to call and the edits are silently discarded. Flush before the switch,
-   * while the outgoing panel is still mounted and its ref still resolves.
+   * Await every registered panel's save before the caller is allowed to act on
+   * the result. `allSettled` so one panel rejecting can never stop another's
+   * save from running. A panel's own `saveIfDirty` already toasts its own
+   * specific failure reason (see payment-schedule-ui.tsx / manager-reminder-rule-
+   * settings.tsx); this only toasts an unexpected rejection nothing else caught,
+   * and always updates the header status either way. Returns `ok: false` on any
+   * failure so the caller keeps the dialog open instead of discarding the edit.
    */
-  const flushPendingSaves = useCallback(() => {
-    void paymentsFormRef.current?.saveIfDirty();
-    void toursFormRef.current?.saveIfDirty();
-    void applicationsReminderFormRef.current?.saveIfDirty();
-    void leaseReminderFormRef.current?.saveIfDirty();
-    void tourManagerReminderFormRef.current?.saveIfDirty();
-    void taskReminderFormRef.current?.saveIfDirty();
-    void outgoingPaymentReminderFormRef.current?.saveIfDirty();
-    void workOrderReminderFormRef.current?.saveIfDirty();
-    void serviceOrderReminderFormRef.current?.saveIfDirty();
-    void inspectionDueReminderFormRef.current?.saveIfDirty();
-    void inspectionReviewReminderFormRef.current?.saveIfDirty();
-    void bookingReminderFormRef.current?.saveIfDirty();
-  }, []);
+  const flushPendingSaves = useCallback((): Promise<{ ok: boolean }> => {
+    if (flushInFlightRef.current) return flushInFlightRef.current;
+    const run = async (): Promise<{ ok: boolean }> => {
+      const handles = Array.from(saveRegistryRef.current.values());
+      if (handles.length === 0) return { ok: true };
+      setSaveStatus({ state: "saving", reason: null, savedAt: null });
+      const results = await Promise.allSettled(handles.map((handle) => handle.saveIfDirty()));
+      let failureReason: string | null = null;
+      for (const result of results) {
+        if (result.status === "rejected") {
+          const message = result.reason instanceof Error ? result.reason.message : "Could not save settings.";
+          failureReason = failureReason ?? message;
+          showToast(message);
+        } else if (result.value === false) {
+          failureReason = failureReason ?? "A setting could not be saved. Check the highlighted tab and try again.";
+        }
+      }
+      if (failureReason) {
+        setSaveStatus({ state: "error", reason: failureReason, savedAt: null });
+        return { ok: false };
+      }
+      setSaveStatus({ state: "saved", reason: null, savedAt: Date.now() });
+      return { ok: true };
+    };
+    const promise = run().finally(() => {
+      flushInFlightRef.current = null;
+    });
+    flushInFlightRef.current = promise;
+    return promise;
+  }, [showToast]);
 
   // Not inside the setTab updater: React may invoke an updater twice, which
-  // would fire every save a second time.
+  // would fire every save a second time. Flush and AWAIT before switching —
+  // switching to an empty map while a save is still in flight would unmount
+  // the outgoing panel and drop its edit exactly like the close bug this
+  // guards against.
   const selectTab = useCallback(
-    (next: (typeof TABS)[number]["id"]) => {
-      if (tab !== next) flushPendingSaves();
+    async (next: (typeof TABS)[number]["id"]) => {
+      if (tab === next) return;
+      const { ok } = await flushPendingSaves();
+      if (!ok) return; // keep the manager on the tab that failed to save
       setTab(next);
     },
     [tab, flushPendingSaves],
   );
 
-  const closeAndSave = useCallback(() => {
+  /**
+   * `onClose` used to run BEFORE the flush, so a panel that unmounts
+   * synchronously on close had already nulled its ref by the time the save
+   * fired — the edit vanished, and because every save was `void`-ed, a
+   * rejected save looked exactly like a successful one. Flush and await FIRST;
+   * only close once every panel's save has actually landed.
+   */
+  const closeAndSave = useCallback(async () => {
+    const { ok } = await flushPendingSaves();
+    if (!ok) return; // stay open — the failure is already surfaced via toast + header status
+    if (closeCalledRef.current) return;
+    closeCalledRef.current = true;
     onClose();
-    flushPendingSaves();
-  }, [onClose, flushPendingSaves]);
+  }, [flushPendingSaves, onClose]);
 
   const changeAutomation = useCallback(
     (next: ApplicationAutomationPreferences) => {
@@ -321,6 +448,26 @@ export function ProPortalSettingsModal({
           : "Portal settings"
       }
       panelClassName="max-w-lg p-3 sm:p-4"
+      status={
+        <SaveStatus
+          status={{
+            state: saveStatus.state,
+            reason: saveStatus.reason,
+            savedAt: saveStatus.savedAt,
+            retry: () => {
+              void flushPendingSaves();
+            },
+            flush: async () => {
+              await flushPendingSaves();
+            },
+            dirty: saveStatus.state === "saving",
+          }}
+        />
+      }
+      // A save in flight must not be raced by an outside click or Escape closing
+      // the dialog out from under it — the flush already keeps the panel's edit
+      // safe, but blocking dismissal here keeps the "saving…" mark truthful.
+      dismissBlocked={saveStatus.state === "saving"}
       footer={
         inlineFooter ? (
           <ModalFooter>
@@ -335,8 +482,15 @@ export function ProPortalSettingsModal({
           className="mb-3 flex w-full items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5 text-left transition hover:border-primary/40 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
           data-attr={editAction.dataAttr ?? "manager-settings-edit-configuration"}
           onClick={() => {
-            onClose();
-            editAction.onSelect();
+            // Same ordering fix as closeAndSave: flush and await before this
+            // dialog closes, so opening the per-property editor can never
+            // step on a still-pending save from the tab just left.
+            void (async () => {
+              const { ok } = await flushPendingSaves();
+              if (!ok) return;
+              onClose();
+              editAction.onSelect();
+            })();
           }}
         >
           <Pencil className="size-4 shrink-0 text-primary" strokeWidth={1.75} aria-hidden />

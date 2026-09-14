@@ -94,7 +94,7 @@ describe("Bookings page chrome stays pinned while the list scrolls", () => {
     const headline = view.container.querySelector('[data-slot="portal-page-headline"]')!;
     expect(headline.querySelector('[data-attr="portfolio-bookings-link-airbnb"]')).not.toBeNull();
     const actions = view.container.querySelector('[data-attr="portal-list-command-actions"]')!;
-    expect(actions.querySelector('[data-attr="bookings-settings-open"]')).not.toBeNull();
+    expect(actions.querySelector('[data-attr="settings-open-bookings"]')).not.toBeNull();
     expect(scroller.contains(headline)).toBe(false);
     expect(scroller.contains(actions)).toBe(false);
   });

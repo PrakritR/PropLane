@@ -27,6 +27,7 @@ import {
 } from "@/lib/client-scheduled-message-overrides";
 import { readPortalApiError } from "@/lib/portal-api-error";
 import { InboxScheduledCard, ScheduledMessageDetailModal } from "@/components/portal/portal-inbox-ui";
+import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { ReminderMessagePreviewCard, ReminderMessageUpdateModal, ReminderSendViaField } from "@/components/portal/reminder-settings-shared";
 import { sendAutomationScheduledMessageNow } from "@/components/portal/portal-inbox-selection";
 import { threadScheduledItemFromAutomationMessage } from "@/lib/inbox-scheduled-thread";
@@ -952,15 +953,7 @@ function PaymentAutomationSettingsForm({
     compact && variant === "payments" ? (
       <div className={embeddedInBundle ? "space-y-3" : "space-y-3 border-t border-border pt-4"}>
         <UnifiedReminderScheduleSelect draft={draft} busy={busy} onChange={applySchedulePatch} />
-        <label className="flex items-start gap-2 text-sm text-foreground">
-          <input
-            type="checkbox"
-            className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
-            checked={draft.lateFeeNoticeEnabled}
-            onChange={(e) => setDraft({ ...draft, lateFeeNoticeEnabled: e.target.checked })}
-            disabled={busy}
-            data-attr="payment-late-fee-notices"
-          />
+        <div className="flex items-start justify-between gap-2 text-sm text-foreground">
           <span>
             <span className="font-medium">Late fee notices</span>
             <span className="mt-0.5 block text-xs font-normal text-muted">
@@ -968,7 +961,14 @@ function PaymentAutomationSettingsForm({
               on in Pricing (grace days and amount are per property).
             </span>
           </span>
-        </label>
+          <PortalSettingsToggle
+            checked={draft.lateFeeNoticeEnabled}
+            onChange={(next) => setDraft({ ...draft, lateFeeNoticeEnabled: next })}
+            label="Late fee notices"
+            disabled={busy}
+            dataAttr="payment-late-fee-notices"
+          />
+        </div>
         <ReminderSendViaField
           showProplaneChannel
           viaInbox={draft.paymentReminderDeliverViaInbox !== false}
