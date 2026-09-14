@@ -170,10 +170,10 @@ export async function POST(req: Request) {
     // `managerUserId`) issues no 403 at all. A delete that fell into it was
     // therefore unauthenticated in everything but name, and still ran
     // `clearHousingAccessForDeletedProperty` with the SERVICE-ROLE client —
-    // a globally scoped helper that scans and rewrites `account_link_invites`,
-    // `manager_application_records` and `portal_pro_relationship_records`
-    // across EVERY manager. Any signed-in account could aim that at an
-    // arbitrary id. (The helper now also matches ids EXACTLY, which closes the
+    // a globally scoped helper that strips co-manager grants and DELETES
+    // residents, leases, charges, and other housing rows for that exact
+    // property id across EVERY manager. Any signed-in account could aim that
+    // at an arbitrary id. (The helper matches ids EXACTLY, which closes the
     // neighbouring step of the same attack — see its own doc comment.)
     //
     // Refusing here is what keeps the invariant simple: the cleanup helper is

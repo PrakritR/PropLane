@@ -17,6 +17,7 @@ import {
   shouldNotifyManagerOfApplicationSubmit,
 } from "@/lib/application-submitted-notification.server";
 import { syncApplicationLifecycleTasks } from "@/lib/manager-default-tasks.server";
+import { purgeOrphanHousingRecordsForManager } from "@/lib/auth/clear-property-housing-access";
 import { purgeApplicationPortalData } from "@/lib/auth/purge-portal-account-data";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { residentOwnsApplicationRow } from "@/lib/rental-application/resident-application-ownership";
@@ -445,6 +446,7 @@ async function fetchApplicationsForManagerUser(
   // doesn't" gap. Property ownership (not the frozen attribution stamp) is the
   // source of truth for who should see the row.
   const propertyScopedIds = new Set<string>([...ownedPropertyIds, ...appIds, ...resIds]);
+  await purgeOrphanHousingRecordsForManager(db, userId, propertyScopedIds);
   const select = "id, row_data, occupancy_start, updated_at, manager_user_id, resident_email, property_id, assigned_property_id";
 
   const { data: ownedRows, error: ownedError } = await db
@@ -457,7 +459,13 @@ async function fetchApplicationsForManagerUser(
 
   const byId = new Map<string, (typeof ownedRows)[number]>();
   for (const row of ownedRows ?? []) {
-    if (row.id) byId.set(row.id, row);
+    if (!row.id) continue;
+    const liveIds = [
+      String(row.property_id ?? "").trim(),
+      String(row.assigned_property_id ?? "").trim(),
+    ].filter(Boolean);
+    if (liveIds.length === 0 || liveIds.every((id) => !propertyScopedIds.has(id))) continue;
+    byId.set(row.id, row);
   }
 
   if (propertyScopedIds.size > 0) {

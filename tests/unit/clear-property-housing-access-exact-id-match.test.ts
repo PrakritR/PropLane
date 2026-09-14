@@ -1,23 +1,19 @@
 /**
  * `clearHousingAccessForDeletedProperty` runs with the SERVICE-ROLE client and
- * rewrites `account_link_invites`, `manager_application_records` and
- * `portal_pro_relationship_records` across EVERY manager. It used to match ids
- * through a normalizing token (`id.replace(/[^a-zA-Z0-9_-]/g,"").slice(0,80)`),
- * which made one manager's id fold onto another's.
+ * rewrites `account_link_invites` / `portal_pro_relationship_records` and
+ * DELETES housing rows (applications, leases, charges, …) across EVERY manager.
+ * It used to match ids through a normalizing token, which made one manager's id
+ * fold onto another's.
  *
- * That turned "delete my own listing" into a cross-manager primitive:
- * `mgr-victim-house-1.` is a DISTINCT primary key, so any signed-in account
- * could create a record under it, become its owner, and delete it — a fully
- * authorized delete of their own row — and the cleanup would then strip the
- * victim's co-manager grants and scrub the victim's residents to "Moved out".
- *
- * The route's `isDelete && !existing` 404 guard closes a different step of the
- * same attack (deleting an id with no row at all). Both must hold; this file
- * drives the helper itself, with the row present, exactly as that attacker
- * would reach it.
+ * That turned "delete my own listing" into a cross-manager primitive.
+ * Ids now match EXACTLY. A colliding suffix must not delete the victim's
+ * residents, leases, or grants.
  */
 import { beforeEach, describe, expect, it } from "vitest";
-import { clearHousingAccessForDeletedProperty } from "@/lib/auth/clear-property-housing-access";
+import {
+  clearHousingAccessForDeletedProperty,
+  purgeOrphanHousingRecordsForManager,
+} from "@/lib/auth/clear-property-housing-access";
 
 const VICTIM_PROPERTY = "mgr-victim-house-1";
 /** The attacker's own listing id. Differs by one trailing character. */
@@ -31,15 +27,21 @@ type InviteRow = {
 };
 type AppRow = {
   id: string;
+  manager_user_id?: string;
   property_id: string | null;
   assigned_property_id: string | null;
   row_data: Record<string, unknown>;
 };
 type RelRow = { id: string; row_data: Record<string, unknown> };
+type LeaseRow = { id: string; manager_user_id?: string; property_id: string | null; row_data?: Record<string, unknown> };
+type ChargeRow = { id: string; manager_user_id?: string; property_id: string | null; row_data?: Record<string, unknown> };
 
 let invites: InviteRow[] = [];
 let apps: AppRow[] = [];
 let rels: RelRow[] = [];
+let leases: LeaseRow[] = [];
+let charges: ChargeRow[] = [];
+const emptyTables = new Map<string, Array<{ id: string }>>();
 
 function seed() {
   invites = [
@@ -54,9 +56,8 @@ function seed() {
   ];
   apps = [
     {
-      // Legacy shape: the property id survives only inside row_data, which is
-      // the fallback path that matched through the normalizing token.
       id: "app-victim-resident",
+      manager_user_id: "mgr-victim",
       property_id: null,
       assigned_property_id: null,
       row_data: {
@@ -68,9 +69,17 @@ function seed() {
     },
     {
       id: "app-bystander-resident",
+      manager_user_id: "mgr-victim",
       property_id: null,
       assigned_property_id: null,
       row_data: { propertyId: BYSTANDER_PROPERTY, stage: "Approved" },
+    },
+    {
+      id: "app-column-resident",
+      manager_user_id: "mgr-other",
+      property_id: VICTIM_PROPERTY,
+      assigned_property_id: null,
+      row_data: { propertyId: VICTIM_PROPERTY, stage: "Approved" },
     },
   ];
   rels = [
@@ -85,6 +94,15 @@ function seed() {
       },
     },
   ];
+  leases = [
+    { id: "lease-victim", manager_user_id: "mgr-victim", property_id: VICTIM_PROPERTY },
+    { id: "lease-bystander", manager_user_id: "mgr-victim", property_id: BYSTANDER_PROPERTY },
+  ];
+  charges = [
+    { id: "charge-victim", manager_user_id: "mgr-victim", property_id: VICTIM_PROPERTY },
+    { id: "charge-bystander", manager_user_id: "mgr-victim", property_id: BYSTANDER_PROPERTY },
+  ];
+  emptyTables.clear();
 }
 
 type Filters = { eq: Array<[string, unknown]>; is: Array<[string, unknown]> };
@@ -110,6 +128,16 @@ function query(resolve: (filters: Filters) => { data: unknown[] | null; error: n
   return chain;
 }
 
+function matchesFilters(row: Record<string, unknown>, filters: Filters): boolean {
+  for (const [column, value] of filters.eq) {
+    if (row[column] !== value) return false;
+  }
+  for (const [column, value] of filters.is) {
+    if (row[column] !== value) return false;
+  }
+  return true;
+}
+
 function updateBy<T extends { id: string }>(rows: T[], patch: Record<string, unknown>) {
   return {
     eq: async (_column: string, value: string) => {
@@ -120,47 +148,87 @@ function updateBy<T extends { id: string }>(rows: T[], patch: Record<string, unk
   };
 }
 
+function deleteFrom<T extends Record<string, unknown>>(rows: T[]) {
+  return {
+    eq: async (column: string, value: string) => {
+      const keep = rows.filter((row) => row[column] !== value);
+      rows.length = 0;
+      rows.push(...keep);
+      return { error: null };
+    },
+  };
+}
+
+function emptyStore(table: string): Array<{ id: string } & Record<string, unknown>> {
+  if (!emptyTables.has(table)) emptyTables.set(table, []);
+  return emptyTables.get(table) as Array<{ id: string } & Record<string, unknown>>;
+}
+
 /** A Supabase-shaped stub whose SELECT filters behave like the real database:
  *  `.eq` is an exact column comparison, so only the helper's own id matching is
- *  under test. */
+ *  under test. Unknown tables start empty so cascade deletes stay isolated. */
 const db = {
   from(table: string) {
     if (table === "account_link_invites") {
       return {
         select: () => query(() => ({ data: invites, error: null })),
         update: (patch: Record<string, unknown>) => updateBy(invites, patch),
+        delete: () => deleteFrom(invites as unknown as Array<Record<string, unknown>>),
       };
     }
     if (table === "manager_application_records") {
       return {
         select: () =>
           query((filters) => ({
-            data: apps.filter((row) => {
-              for (const [column, value] of filters.eq) {
-                if ((row as unknown as Record<string, unknown>)[column] !== value) return false;
-              }
-              for (const [column, value] of filters.is) {
-                if ((row as unknown as Record<string, unknown>)[column] !== value) return false;
-              }
-              return true;
-            }),
+            data: apps.filter((row) => matchesFilters(row as unknown as Record<string, unknown>, filters)),
             error: null,
           })),
         update: (patch: Record<string, unknown>) => updateBy(apps, patch),
+        delete: () => deleteFrom(apps as unknown as Array<Record<string, unknown>>),
       };
     }
     if (table === "portal_pro_relationship_records") {
       return {
         select: () => query(() => ({ data: rels, error: null })),
         update: (patch: Record<string, unknown>) => updateBy(rels, patch),
+        delete: () => deleteFrom(rels as unknown as Array<Record<string, unknown>>),
       };
     }
-    throw new Error(`unexpected table ${table}`);
+    if (table === "portal_lease_pipeline_records") {
+      return {
+        select: () =>
+          query((filters) => ({
+            data: leases.filter((row) => matchesFilters(row as unknown as Record<string, unknown>, filters)),
+            error: null,
+          })),
+        delete: () => deleteFrom(leases as unknown as Array<Record<string, unknown>>),
+      };
+    }
+    if (table === "portal_household_charge_records") {
+      return {
+        select: () =>
+          query((filters) => ({
+            data: charges.filter((row) => matchesFilters(row as unknown as Record<string, unknown>, filters)),
+            error: null,
+          })),
+        delete: () => deleteFrom(charges as unknown as Array<Record<string, unknown>>),
+      };
+    }
+    const rows = emptyStore(table);
+    return {
+      select: () =>
+        query((filters) => ({
+          data: rows.filter((row) => matchesFilters(row, filters)),
+          error: null,
+        })),
+      update: (patch: Record<string, unknown>) => updateBy(rows, patch),
+      delete: () => deleteFrom(rows),
+    };
   },
 } as unknown as Parameters<typeof clearHousingAccessForDeletedProperty>[0];
 
 const victimInvite = () => invites.find((row) => row.id === "invite-victim-co-manager")!;
-const victimApp = () => apps.find((row) => row.id === "app-victim-resident")!;
+const victimApp = () => apps.find((row) => row.id === "app-victim-resident");
 const victimRel = () => rels.find((row) => row.id === "rel-victim-co-manager")!;
 
 beforeEach(seed);
@@ -176,13 +244,20 @@ describe("clearHousingAccessForDeletedProperty — a colliding id must not reach
     });
   });
 
-  it("does not scrub the victim's resident to Moved out", async () => {
+  it("does not delete the victim's resident", async () => {
     await clearHousingAccessForDeletedProperty(db, COLLIDING_PROPERTY);
 
-    expect(victimApp().row_data.stage).toBe("Approved");
-    expect(victimApp().row_data.propertyId).toBe(VICTIM_PROPERTY);
-    expect(victimApp().row_data.property).toBe("12 Victim Way · 4 rooms");
-    expect(victimApp().row_data.assignedRoomChoice).toBe("Room 2");
+    expect(victimApp()?.row_data.stage).toBe("Approved");
+    expect(victimApp()?.row_data.propertyId).toBe(VICTIM_PROPERTY);
+    expect(victimApp()?.row_data.property).toBe("12 Victim Way · 4 rooms");
+    expect(victimApp()?.row_data.assignedRoomChoice).toBe("Room 2");
+  });
+
+  it("does not delete the victim's lease or charge", async () => {
+    await clearHousingAccessForDeletedProperty(db, COLLIDING_PROPERTY);
+
+    expect(leases.map((row) => row.id)).toEqual(["lease-victim", "lease-bystander"]);
+    expect(charges.map((row) => row.id)).toEqual(["charge-victim", "charge-bystander"]);
   });
 
   it("does not clear the victim's pro-relationship property assignments", async () => {
@@ -198,7 +273,9 @@ describe("clearHousingAccessForDeletedProperty — a colliding id must not reach
   it("reports that it changed nothing", async () => {
     const result = await clearHousingAccessForDeletedProperty(db, COLLIDING_PROPERTY);
 
-    expect(result).toEqual({ invitesUpdated: 0, applicationsCleared: 0 });
+    expect(result.invitesUpdated).toBe(0);
+    expect(result.applicationsCleared).toBe(0);
+    expect(result.recordsDeleted).toBe(0);
   });
 });
 
@@ -213,16 +290,19 @@ describe("clearHousingAccessForDeletedProperty — the exact id still cleans up"
     expect(result.invitesUpdated).toBe(1);
   });
 
-  it("scrubs the legacy row_data-only application to Moved out", async () => {
+  it("deletes the legacy row_data-only application instead of leaving a Moved-out ghost", async () => {
     const result = await clearHousingAccessForDeletedProperty(db, VICTIM_PROPERTY);
 
-    expect(victimApp().property_id).toBeNull();
-    expect(victimApp().assigned_property_id).toBeNull();
-    expect(victimApp().row_data.stage).toBe("Moved out");
-    expect(victimApp().row_data.propertyId).toBe("");
-    expect(victimApp().row_data.property).toBe("");
-    expect(victimApp().row_data.assignedRoomChoice).toBe("");
-    expect(result.applicationsCleared).toBe(1);
+    expect(victimApp()).toBeUndefined();
+    expect(apps.find((row) => row.id === "app-column-resident")).toBeUndefined();
+    expect(result.applicationsCleared).toBe(2);
+  });
+
+  it("deletes leases and charges for that property only", async () => {
+    await clearHousingAccessForDeletedProperty(db, VICTIM_PROPERTY);
+
+    expect(leases.map((row) => row.id)).toEqual(["lease-bystander"]);
+    expect(charges.map((row) => row.id)).toEqual(["charge-bystander"]);
   });
 
   it("clears the pro-relationship assignment for that property only", async () => {
@@ -240,5 +320,30 @@ describe("clearHousingAccessForDeletedProperty — the exact id still cleans up"
     const bystander = apps.find((row) => row.id === "app-bystander-resident")!;
     expect(bystander.row_data.stage).toBe("Approved");
     expect(bystander.row_data.propertyId).toBe(BYSTANDER_PROPERTY);
+  });
+});
+
+describe("purgeOrphanHousingRecordsForManager", () => {
+  it("deletes this manager's residents, leases, and charges when the house is gone", async () => {
+    const result = await purgeOrphanHousingRecordsForManager(
+      db,
+      "mgr-victim",
+      new Set([BYSTANDER_PROPERTY]),
+    );
+
+    expect(apps.find((row) => row.id === "app-victim-resident")).toBeUndefined();
+    expect(apps.find((row) => row.id === "app-bystander-resident")).toBeDefined();
+    expect(leases.map((row) => row.id)).toEqual(["lease-bystander"]);
+    expect(charges.map((row) => row.id)).toEqual(["charge-bystander"]);
+    expect(result.applicationsCleared).toBe(1);
+  });
+
+  it("deletes every housing row for the manager when they have no live properties", async () => {
+    const result = await purgeOrphanHousingRecordsForManager(db, "mgr-victim", new Set());
+
+    expect(apps.filter((row) => row.manager_user_id === "mgr-victim")).toEqual([]);
+    expect(leases).toEqual([]);
+    expect(charges).toEqual([]);
+    expect(result.applicationsCleared).toBe(2);
   });
 });
