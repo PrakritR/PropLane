@@ -1690,6 +1690,9 @@ export function ManagerHousePropertiesPanel({
     const emptyWorkspace = scope && !searchQuery.trim() && scope.propertyCount === 0 && elsewhere > 0;
     return (
       <PortalListEmptyCard
+        // Properties writes its own workspace copy: it is the one list where
+        // adding a home in the empty workspace is exactly the right next step.
+        workspaceAware={false}
         title={searchQuery.trim() ? "No homes match that search" : emptyWorkspace ? `Nothing in ${scope.name} yet` : c.title}
         description={
           searchQuery.trim()

@@ -16,6 +16,7 @@ import { ManagerPortalPageShell, ManagerPortalStatusPills } from "@/components/p
 import { InspectionEditor } from "@/components/portal/inspection-editor";
 import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import { usePortalSession } from "@/hooks/use-portal-session";
+import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { downloadInspection, inspectionRequest, loadInspectionList, INSPECTIONS_CHANGED, type InspectionList } from "@/lib/inspections/client";
 import { inspectionRoomLabel, type InspectionDetail, type InspectionKind, type InspectionPhotoCounts, type InspectionResidency, type InspectionRole, type InspectionSummary } from "@/lib/inspections/model";
@@ -250,13 +251,24 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
     setSelected(new Set()); setDetail(null); setKind(next);
     if (routeBase) router.push(`${routeBase}/${next}`);
   };
-  const visible = data.residencies.filter(r => !applicationId || r.id === applicationId);
+  // The roster is the account's; the active workspace narrows it to its own houses.
+  const residencyById = new Map(data.residencies.map(r => [r.id, r]));
+  const visible = data.residencies.filter(
+    r => (!applicationId || r.id === applicationId) && workspaceContainsProperty(r.propertyId),
+  );
+  // A filed report outlives its residency, so it is narrowed by the house its
+  // residency names. One whose residency is gone has no house to test and keeps
+  // the behavior it had before workspaces existed.
+  const visibleReports = data.reports.filter(report => {
+    const residency = residencyById.get(report.application_id);
+    return workspaceContainsProperty(residency?.propertyId);
+  });
   const embeddedScope = embeddedInResident && applicationId;
   const embeddedResidency = embeddedScope ? visible.find(r => r.id === applicationId) : undefined;
   const embeddedPrimaryReport = pickPrimaryInspectionReport(
     embeddedScope ? data.reports.filter(r => r.application_id === applicationId && r.kind === kind) : [],
   );
-  const rowsFor = (which: InspectionKind) => buildInspectionRows(which, visible, data.reports);
+  const rowsFor = (which: InspectionKind) => buildInspectionRows(which, visible, visibleReports);
   const rows = rowsFor(kind);
   const selectedRows = rows.filter(row => selected.has(row.key));
   const selectedReports = selectedRows.filter(row => row.report).map(row => row.report!);

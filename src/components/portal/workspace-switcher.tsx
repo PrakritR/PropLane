@@ -142,7 +142,13 @@ export function WorkspaceSwitcher({
             </span>
             <span className="min-w-0 flex-1 truncate">
               {workspace.name}
-              <span className="ml-2 text-xs text-muted">{workspace.owned ? "Owned" : "Shared"}</span>
+              {/* The home count is what tells a manager WHERE their portfolio
+                  is: a workspace showing nothing is answered by the row that
+                  holds the homes, without opening settings first. */}
+              <span className="ml-2 text-xs text-muted">
+                {workspace.owned ? "Owned" : "Shared"} ·{" "}
+                {workspace.propertyIds.length} {workspace.propertyIds.length === 1 ? "home" : "homes"}
+              </span>
             </span>
             {workspace.id === ctx.active?.id && <Check className="size-4" aria-hidden />}
           </DropdownMenuItem>

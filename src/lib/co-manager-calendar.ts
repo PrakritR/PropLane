@@ -36,13 +36,18 @@ export type ScheduledTourFilter = {
   viewerUserId: string;
   /** Single-property scope (availability peers, legacy callers). */
   propertyId: string | null;
-  /** When set, tours are limited to these properties (multi-select calendar filter). */
+  /**
+   * When set, tours are limited to these properties (multi-select calendar
+   * filter, workspace scope). An EMPTY ARRAY means the scope holds no houses
+   * and nothing matches — it is not the same as omitting the field, which is
+   * what made an empty workspace show every tour in the account.
+   */
   propertyIds?: string[];
   peers: PropertyCalendarPeer[];
 };
 
 function scheduledTourPropertyIds(filter: ScheduledTourFilter): string[] | null {
-  if (filter.propertyIds?.length) return filter.propertyIds;
+  if (filter.propertyIds) return filter.propertyIds;
   const single = filter.propertyId?.trim();
   return single ? [single] : null;
 }
@@ -53,6 +58,7 @@ function eventMatchesScheduledTourProperty(
 ): boolean {
   const ids = scheduledTourPropertyIds(filter);
   if (!ids) return true;
+  if (ids.length === 0) return false;
   if (!eventPropertyId) return false;
   return ids.some((id) => samePropertyId(id, eventPropertyId));
 }

@@ -386,18 +386,24 @@ export function ManagerTours({
   const allRows = useMemo(() => {
     void tick;
     if (!userId) return [];
+    // The workspace is the scope (applied inside the builder); the property
+    // OPTIONS are a filter control, so an account that has not finished syncing
+    // its houses must not read as "no tours".
     return buildManagerTourRows({
       viewerUserId: userId,
-      propertyIds: scopedPropertyIds,
+      propertyIds: scopedPropertyId ? [scopedPropertyId] : null,
     }).filter((row) => workspaceContainsProperty(row.propertyId));
-  }, [tick, userId, scopedPropertyIds]);
+  }, [tick, userId, scopedPropertyId]);
 
   const counts = useMemo(() => countManagerTourRowsByBucket(allRows), [allRows]);
 
   const pendingProposalRows = useMemo(() => {
     if (bucket !== "pending" && !counts.pending) return [];
     const inquiryRows = allRows.filter((row) => row.bucket === "pending" && row.source === "inquiry");
-    let rows = managerTourRowsFromProposals(tourProposals, inquiryRows);
+    let rows = managerTourRowsFromProposals(tourProposals, inquiryRows)
+      // Proposals come back from the server for the whole account; the active
+      // workspace narrows them the same way it narrows the inquiries above.
+      .filter((row) => workspaceContainsProperty(row.propertyId));
     if (effectivePropertyFilters.length > 0) {
       rows = rows.filter((row) => row.propertyId && effectivePropertyFilters.includes(row.propertyId));
     }

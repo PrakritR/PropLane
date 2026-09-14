@@ -29,6 +29,7 @@ import {
   queryOwnerStatement,
 } from "@/lib/reports/queries/ap-reports";
 import { queryProfitability } from "@/lib/reports/profitability.server";
+import { applyReportPropertyScope } from "@/lib/reports/workspace-scope";
 
 function defaultDateRange(from?: string, to?: string): { from: string; to: string } {
   const now = new Date();
@@ -46,24 +47,24 @@ function daysInclusive(from: Date, to: Date): number {
 
 const RENT_RECEIPT_CATEGORIES = new Set(["rent_income", "late_fees", "pet_rent", "application_fee", "other_income"]);
 
-async function loadCharges(db: SupabaseClient, managerUserId: string, propertyId?: string) {
+async function loadCharges(db: SupabaseClient, managerUserId: string, filters: ManagerReportFilters) {
   let query = db
     .from("portal_household_charge_records")
     .select("row_data")
     .eq("manager_user_id", managerUserId)
     .limit(2000);
-  if (propertyId) query = query.eq("property_id", propertyId);
+  query = applyReportPropertyScope(query, filters);
   const { data } = await query;
   return (data ?? []).map((r) => r.row_data as HouseholdCharge).filter(Boolean);
 }
 
-async function loadRentProfiles(db: SupabaseClient, managerUserId: string, propertyId?: string) {
+async function loadRentProfiles(db: SupabaseClient, managerUserId: string, filters: ManagerReportFilters) {
   let query = db
     .from("portal_recurring_rent_profile_records")
     .select("row_data")
     .eq("manager_user_id", managerUserId)
     .limit(500);
-  if (propertyId) query = query.eq("property_id", propertyId);
+  query = applyReportPropertyScope(query, filters);
   const { data } = await query;
   return (data ?? [])
     .map((r) => r.row_data as RecurringRentProfile)
@@ -144,8 +145,8 @@ export async function queryRentRoll(
   managerUserId: string,
   filters: ManagerReportFilters,
 ): Promise<ReportResult> {
-  const profiles = await loadRentProfiles(db, managerUserId, filters.propertyId);
-  const charges = await loadCharges(db, managerUserId, filters.propertyId);
+  const profiles = await loadRentProfiles(db, managerUserId, filters);
+  const charges = await loadCharges(db, managerUserId, filters);
 
   const depositByResident = new Map<string, number>();
   for (const c of charges) {
@@ -207,7 +208,7 @@ export async function queryDelinquency(
   managerUserId: string,
   filters: ManagerReportFilters,
 ): Promise<ReportResult> {
-  const charges = (await loadCharges(db, managerUserId, filters.propertyId)).filter((c) => c.status === "pending");
+  const charges = (await loadCharges(db, managerUserId, filters)).filter((c) => c.status === "pending");
   const today = new Date();
 
   const rows = charges.map((c) => {
@@ -265,7 +266,7 @@ export async function queryIncomeStatement(
     .eq("entry_type", "payment")
     .gte("posted_date", from)
     .lte("posted_date", to);
-  if (filters.propertyId) incomeQuery = incomeQuery.eq("property_id", filters.propertyId);
+  incomeQuery = applyReportPropertyScope(incomeQuery, filters);
 
   let expenseQuery = db
     .from("manager_expense_entries")
@@ -273,7 +274,7 @@ export async function queryIncomeStatement(
     .eq("manager_user_id", managerUserId)
     .gte("expense_date", from)
     .lte("expense_date", to);
-  if (filters.propertyId) expenseQuery = expenseQuery.eq("property_id", filters.propertyId);
+  expenseQuery = applyReportPropertyScope(expenseQuery, filters);
 
   const [{ data: incomeRows }, { data: expenseRows }] = await Promise.all([incomeQuery, expenseQuery]);
 
@@ -380,8 +381,7 @@ export async function queryExpenses(
     .order("expense_date", { ascending: false })
     // Bound egress on the Supabase free plan (matches loadCharges / loadExpenseWorkOrders).
     .limit(2000);
-  if (scope === "property" && propertyId) query = query.eq("property_id", propertyId);
-  if ((scope === "tenant" || scope === "room") && propertyId) query = query.eq("property_id", propertyId);
+  query = applyReportPropertyScope(query, filters, scope === "portfolio" ? undefined : propertyId);
 
   const { data } = await query;
   const filtered = (data ?? []).filter((expense) => expenseMatchesScope(expense, scope, filters, workOrdersById));
@@ -451,7 +451,7 @@ export async function queryRentReceipts(
     .gte("posted_date", from)
     .lte("posted_date", to)
     .order("posted_date", { ascending: false });
-  if (filters.propertyId) query = query.eq("property_id", filters.propertyId);
+  query = applyReportPropertyScope(query, filters);
 
   const [{ data }, display] = await Promise.all([query, displayPromise]);
   const rows = (data ?? [])
@@ -501,7 +501,7 @@ export async function queryRentalDays(
   const { from, to } = defaultDateRange(filters.from, filters.to);
   const rangeStart = new Date(from);
   const rangeEnd = new Date(to);
-  const profiles = await loadRentProfiles(db, managerUserId, filters.propertyId);
+  const profiles = await loadRentProfiles(db, managerUserId, filters);
 
   const rows = profiles
     .filter((p) => p.active !== false)
@@ -568,7 +568,7 @@ export async function queryTaxSummary(
   ]);
 
   const [profiles, display] = await Promise.all([
-    loadRentProfiles(db, managerUserId, filters.propertyId),
+    loadRentProfiles(db, managerUserId, filters),
     loadManagerReportDisplayContext(db, managerUserId),
   ]);
   const propertyLabels = new Map<string, string>();
@@ -590,7 +590,7 @@ export async function queryTaxSummary(
     .eq("entry_type", "payment")
     .gte("posted_date", from)
     .lte("posted_date", to);
-  if (filters.propertyId) incomeQuery = incomeQuery.eq("property_id", filters.propertyId);
+  incomeQuery = applyReportPropertyScope(incomeQuery, filters);
   const { data: incomeRows } = await incomeQuery;
   for (const row of incomeRows ?? []) {
     if (!RENT_RECEIPT_CATEGORIES.has(String(row.category_code))) continue;
@@ -609,7 +609,7 @@ export async function queryTaxSummary(
     .eq("manager_user_id", managerUserId)
     .gte("expense_date", from)
     .lte("expense_date", to);
-  if (filters.propertyId) expenseQuery = expenseQuery.eq("property_id", filters.propertyId);
+  expenseQuery = applyReportPropertyScope(expenseQuery, filters);
   const { data: expenseRows } = await expenseQuery;
   for (const row of expenseRows ?? []) {
     const key = labelForPropertyId(String(row.property_id ?? "Unassigned"));
@@ -705,7 +705,7 @@ export async function queryLeaseExpiration(
     .select("row_data")
     .eq("manager_user_id", managerUserId)
     .limit(500);
-  if (filters.propertyId) query = query.eq("property_id", filters.propertyId);
+  query = applyReportPropertyScope(query, filters);
 
   const { data } = await query;
   const rows = (data ?? [])
@@ -753,7 +753,7 @@ export async function queryVendorSpend(
     .gte("expense_date", from)
     .lte("expense_date", to)
     .not("vendor_id", "is", null);
-  if (filters.propertyId) query = query.eq("property_id", filters.propertyId);
+  query = applyReportPropertyScope(query, filters);
   if (filters.vendorId) query = query.eq("vendor_id", filters.vendorId);
 
   const { data: expenses } = await query;

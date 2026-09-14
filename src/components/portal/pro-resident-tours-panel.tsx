@@ -108,7 +108,7 @@ export function ManagerResidentToursPanel({
 
   const allRows = useMemo(() => {
     if (!managerUserId || !normalizedEmail.includes("@")) return [];
-    return buildManagerTourRows({ viewerUserId: managerUserId, propertyIds: propertyIds ?? [] })
+    return buildManagerTourRows({ viewerUserId: managerUserId, propertyIds: propertyIds ?? null })
       .filter((row) => row.guestEmail?.trim().toLowerCase() === normalizedEmail);
   }, [managerUserId, normalizedEmail, propertyIds, tick]);
 

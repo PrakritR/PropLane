@@ -11,6 +11,7 @@ import {
   RESIDENT_REPORT_IDS,
 } from "@/lib/reports/types";
 import { runManagerReport, queryResidentLedger } from "@/lib/reports/queries";
+import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
 
 export const runtime = "nodejs";
 
@@ -55,7 +56,11 @@ export async function GET(
         ? searchParams.get("managerUserId")?.trim() || auth.userId
         : await resolveManagerReportOwnerId(auth.db, auth.userId);
 
-    const report = await runManagerReport(auth.db, managerUserId, reportId, parseManagerReportFilters(searchParams));
+    // The active workspace narrows every manager report, read from the viewer's
+    // own selection cookie so the request cannot widen its own scope.
+    const filters = parseManagerReportFilters(searchParams);
+    filters.workspacePropertyIds = await activeWorkspacePropertyScope(auth.db, auth.userId);
+    const report = await runManagerReport(auth.db, managerUserId, reportId, filters);
     if (!report) return NextResponse.json({ error: "Unknown report." }, { status: 404 });
     return NextResponse.json(report);
   } catch (e) {
