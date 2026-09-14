@@ -87,7 +87,13 @@ describe("active workspace scope", () => {
     expect(activeWorkspacePropertyIds()).toEqual(["p1", "p2"]);
   });
 
-  it("keeps a single-workspace account exactly as it was", () => {
+  /**
+   * The second time this bug was reported it was on a single-workspace
+   * account with zero properties and eight tours. Membership is the only test
+   * now, at any workspace count: a house the workspace does not hold does not
+   * show, and a workspace with no houses shows nothing that names one.
+   */
+  it("shows nothing that names a house the workspace does not hold, even with one workspace", () => {
     setWorkspaceSelection({
       activeWorkspaceId: "w-default",
       workspaces: [
@@ -102,12 +108,24 @@ describe("active workspace scope", () => {
         },
       ],
     });
-    // One workspace is the whole account, so a house it has not recorded yet
-    // and a row with no house at all both still show.
-    expect(workspaceContainsProperty("not-synced-yet")).toBe(true);
+    expect(workspaceContainsProperty("p1")).toBe(true);
+    expect(workspaceContainsProperty("mgr-demo-cascade")).toBe(false);
+    // Account-level rows with no house still live in the owned default workspace.
     expect(workspaceContainsProperty(undefined)).toBe(true);
-    expect(activeWorkspacePropertyIds()).toBeNull();
+    // The scope is the workspace's houses, so an empty workspace is an empty scope.
+    expect(activeWorkspacePropertyIds()).toEqual(["p1"]);
     expect(activeWorkspaceScope()).toMatchObject({ narrowing: false });
+  });
+
+  it("gives an empty single workspace an empty scope, never no scope", () => {
+    setWorkspaceSelection({
+      activeWorkspaceId: "w-default",
+      workspaces: [
+        { id: "w-default", name: "My workspace", ownerUserId: "u", owned: true, isDefault: true, propertyIds: [], propertyPermissions: {} },
+      ],
+    });
+    expect(activeWorkspacePropertyIds()).toEqual([]);
+    expect(workspaceContainsProperty("mgr-scale-06")).toBe(false);
   });
 
   it("keeps an account-level row out of a second workspace", () => {
