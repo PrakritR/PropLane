@@ -2,7 +2,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { sanitizePaymentContactInput } from "@/lib/listing-form-inputs";
 import {
-  listingPaymentWaiverCodeMatches,
   normalizeListingPaymentWaiverCode,
   normalizeServiceFeeChoice,
   type ServiceFeePayer,
@@ -97,9 +96,19 @@ export function resolveSavedServiceFeeSelection(
   incoming: ServiceFeeSelection,
   stored: ServiceFeeSelection | null,
   accountWaiverGranted = false,
+  /**
+   * Whether the incoming code is a REAL coverage code, resolved by the caller
+   * against `payment-policy.server.ts`.
+   *
+   * This module is bundled for the browser (the payment-setup modal imports its
+   * constants), so it must not hold the codes — that is how one of them ended up
+   * readable in a client chunk. Absent means "not established", which is the
+   * safe answer: coverage is money PropLane spends.
+   */
+  codeMatches = false,
 ): ServiceFeeSelection {
   if (incoming.serviceFeePayer !== "proplane") return { serviceFeePayer: incoming.serviceFeePayer };
-  if (listingPaymentWaiverCodeMatches(incoming.serviceFeeWaiverCode)) {
+  if (codeMatches) {
     return {
       serviceFeePayer: "proplane",
       serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(incoming.serviceFeeWaiverCode ?? ""),
@@ -132,10 +141,14 @@ export function normalizeManagerManualPaymentSettings(raw: unknown): ManagerManu
     ...(paymentInboxToken ? { paymentInboxToken } : {}),
     receiptAutoMarkEnabled: row.receiptAutoMarkEnabled === false ? false : true,
     serviceFeePayer: normalizeServiceFeeChoice(row.serviceFeePayer),
-    // Kept only while it is actually a valid code; a garbage value is not evidence of a
-    // grant. The payer itself is NOT downgraded here — this function is also the READ
-    // path, and an account already absorbing fees must not silently flip who pays them.
-    ...(listingPaymentWaiverCodeMatches(row.serviceFeeWaiverCode as string | null | undefined)
+    /*
+     * The stored code is carried through as-is. Judging it needs the coverage
+     * codes, which this module deliberately no longer holds, and every place
+     * the code actually DECIDES anything re-validates it server-side. The payer
+     * is not downgraded here either — this is also the READ path, and an account
+     * already absorbing fees must not silently flip who pays them.
+     */
+    ...(String(row.serviceFeeWaiverCode ?? "").trim()
       ? { serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(String(row.serviceFeeWaiverCode ?? "")) }
       : {}),
     // Absent means staff have not intervened, which is different from staff choosing `resident`.
@@ -224,12 +237,15 @@ export async function saveManagerManualPaymentSettings(
   db: SupabaseClient,
   managerUserId: string,
   settings: ManagerManualPaymentSettings,
-  opts?: { accountWaiverGranted?: boolean },
+  opts?: { accountWaiverGranted?: boolean; codeMatches?: boolean },
 ): Promise<ManagerManualPaymentSettings> {
   const stored = await loadManagerManualPaymentSettings(db, managerUserId).catch(() => null);
   const normalized = normalizeManagerManualPaymentSettings(settings);
   delete normalized.adminServiceFeeOverride;
   const accountWaiverGranted = opts?.accountWaiverGranted === true;
+  /* Resolved by the caller against the server-only code list — see
+     `resolveSavedServiceFeeSelection`. */
+  const codeMatches = opts?.codeMatches === true;
   // A failed read is not evidence of a new selection. Without the stored value a legacy
   // account already absorbing fees is indistinguishable from a code-less new choice, and
   // resolving to `resident` would silently move Stripe's cost onto that manager's residents
@@ -237,12 +253,12 @@ export async function saveManagerManualPaymentSettings(
   if (
     stored === null &&
     normalized.serviceFeePayer === "proplane" &&
-    !listingPaymentWaiverCodeMatches(normalized.serviceFeeWaiverCode) &&
+    !codeMatches &&
     !accountWaiverGranted
   ) {
     throw new Error("Could not read stored payment settings; refusing to change who pays the service fee.");
   }
-  const feeSelection = resolveSavedServiceFeeSelection(normalized, stored, accountWaiverGranted);
+  const feeSelection = resolveSavedServiceFeeSelection(normalized, stored, accountWaiverGranted, codeMatches);
   normalized.serviceFeePayer = feeSelection.serviceFeePayer;
   if (feeSelection.serviceFeeWaiverCode) normalized.serviceFeeWaiverCode = feeSelection.serviceFeeWaiverCode;
   else delete normalized.serviceFeeWaiverCode;

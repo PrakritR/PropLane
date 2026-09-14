@@ -5,6 +5,10 @@ import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { loadResidentMoveInForEmail } from "@/lib/resident-move-in-info";
 import {
+  loadResidentLeaseSignedStatus,
+  loadResidentManagerAttestedTenancy,
+} from "@/lib/resident-portal-access";
+import {
   MOVE_IN_REMINDER_SUBJECT,
   buildMoveInReminderText,
   buildMoveInReminderHtml,
@@ -44,6 +48,27 @@ function tomorrowUtc(): string {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() + 1);
   return d.toISOString().slice(0, 10);
+}
+
+/**
+ * The portal's own My home unlock, for an email that has no session to read it
+ * from: a signed lease, or a manager-attested off-platform tenancy — the exact
+ * pair `loadResidentPortalAccessState` combines into `leaseAccessUnlocked`.
+ *
+ * Approval is NOT this gate. `STAGE_UNLOCKED_SECTIONS` keeps `move-in` locked
+ * until `post_lease`, so mailing house access details to everyone in the
+ * approved bucket hands the door, gate and alarm codes to an applicant who may
+ * still decline or never sign. A lookup that fails says nothing about the
+ * lease, so it counts as locked and the codes stay unsent.
+ */
+async function houseAccessUnlockedForEmail(email: string, managerUserId: string | null): Promise<boolean> {
+  const scope = managerUserId ?? undefined;
+  try {
+    if (await loadResidentLeaseSignedStatus(email, scope)) return true;
+    return await loadResidentManagerAttestedTenancy(email, scope);
+  } catch {
+    return false;
+  }
 }
 
 function formatDateLabel(iso: string): string {
@@ -131,13 +156,17 @@ export async function GET(req: Request) {
     }
 
     // Resolve full move-in details (property, address, instructions, house info).
-    const moveIn = await loadResidentMoveInForEmail(email);
+    // Scoped to the manager whose approved row set this move-in date: unscoped,
+    // the loader ranks every approved application for this address across ALL
+    // managers, so an applicant approved by two managers gets the other
+    // manager's property and door codes under this manager's date.
+    const moveIn = await loadResidentMoveInForEmail(email, { managerUserId: managerUserId ?? undefined });
 
     const propertyLabel = moveIn?.propertyLabel ?? "your property";
     const addressLine = moveIn?.addressLine ?? "";
     const instructions = moveIn?.instructions ?? null;
     const generalHouseInfo = moveIn?.generalHouseInfo ?? null;
-    const houseInfo = moveIn?.houseInfo ?? null;
+    const houseInfo = (await houseAccessUnlockedForEmail(email, managerUserId)) ? moveIn?.houseInfo ?? null : null;
 
     const text = buildMoveInReminderText({ residentName: name || undefined, propertyLabel, addressLine, moveInDateLabel, instructions, generalHouseInfo, houseInfo });
     const html = buildMoveInReminderHtml({ residentName: name || undefined, propertyLabel, addressLine, moveInDateLabel, instructions, generalHouseInfo, houseInfo });

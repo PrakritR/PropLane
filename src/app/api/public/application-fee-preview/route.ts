@@ -85,6 +85,10 @@ export async function POST(req: Request) {
       resolved.value.applicationFeeCents,
       channel,
       resolved.value.listing,
+      // Same property the checkout mint passes. Without it the workspace's
+      // fee-payer choice never loads here, so a listing whose workspace says
+      // "manager pays" was quoted a total the applicant was then not charged.
+      propertyId,
     );
 
     const managerSettings = await loadManagerApplicationSettings(db, ownerUserId);

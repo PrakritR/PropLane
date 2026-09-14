@@ -30,6 +30,7 @@ import {
   listingPaymentWaiverCodeMatches,
   normalizeListingPaymentWaiverCode,
 } from "@/lib/payment-policy";
+import { isProcessingCoverageCodeShape } from "@/lib/processing-coverage-codes";
 import { InlineCheckboxGroup } from "@/components/ui/inline-checkbox-group";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { uploadListingImageFiles } from "@/lib/listing-media-client";
@@ -2259,7 +2260,7 @@ function HouseStripePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissio
    */
   const needsCoverageCode = stripeOn && payer === "proplane";
   const coverageCodeTyped = (sub.serviceFeeWaiverCode ?? "").length > 0;
-  const coverageCodeValid = listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode);
+  const coverageCodeValid = isProcessingCoverageCodeShape(sub.serviceFeeWaiverCode);
 
   return (
     <>
@@ -2707,7 +2708,7 @@ export function listingReadiness(sub: ManagerListingSubmissionV1): ListingReadin
     // unless the account itself carries a grant — say so rather than let the
     // manager believe the fee is covered. A warning, not a blocker: an account
     // grant (staff approval or signup promo) satisfies it without any code.
-    ...(sub.serviceFeePayer === "proplane" && !listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode)
+    ...(sub.serviceFeePayer === "proplane" && !isProcessingCoverageCodeShape(sub.serviceFeeWaiverCode)
       ? [
           {
             id: "processing",

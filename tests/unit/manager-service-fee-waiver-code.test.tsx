@@ -17,7 +17,13 @@ import { LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID } from "@/lib/payment-policy
 describe("resolveSavedServiceFeeSelection", () => {
   it("keeps PropLane absorb when the promo code is valid", () => {
     expect(
-      resolveSavedServiceFeeSelection({ serviceFeePayer: "proplane", serviceFeeWaiverCode: "free100" }, null),
+      resolveSavedServiceFeeSelection(
+        { serviceFeePayer: "proplane", serviceFeeWaiverCode: "free100" },
+        null,
+        false,
+        // The server resolved the code; the helper no longer holds the list.
+        true,
+      ),
     ).toEqual({ serviceFeePayer: "proplane", serviceFeeWaiverCode: "FREE100" });
   });
 
@@ -180,13 +186,27 @@ describe("payment setup: PropLane covers it", () => {
     expect(patches).toHaveLength(0);
   });
 
-  it("refuses a wrong code and saves nothing", async () => {
+  it("refuses malformed input locally and saves nothing", async () => {
+    // Shape is all the browser may judge: the coverage codes are server-only,
+    // because one of them was readable in a client chunk and a code is a
+    // credential. Something too short to be a code never leaves the page.
     await openWaiverEntry();
-    await typeCode("NOPE");
+    await typeCode("NO");
     await click("manager-service-fee-waiver-apply");
 
     expect(patches).toHaveLength(0);
     expect(screen.getByText(LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID)).toBeTruthy();
+  });
+
+  it("sends a well-formed but wrong code for the SERVER to refuse", async () => {
+    // The browser cannot tell `NOPE` from a real code and must not pretend to.
+    // It sends it; the route checks it against the server-only list and 400s.
+    await openWaiverEntry();
+    await typeCode("NOPE");
+    await click("manager-service-fee-waiver-apply");
+
+    expect(patches).toHaveLength(1);
+    expect(patches[0]).toMatchObject({ serviceFeePayer: "proplane", serviceFeeWaiverCode: "NOPE" });
   });
 
   it("saves the choice with the code once it checks out", async () => {

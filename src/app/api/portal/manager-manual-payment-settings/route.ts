@@ -17,10 +17,13 @@ import { getManagerPurchaseSku } from "@/lib/manager-access-server";
 import {
   LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID,
   type ServiceFeePayer,
-  waiverGrantedFromPromoCode,
 } from "@/lib/payment-policy";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import {
+  listingPaymentWaiverCodeMatchesServer,
+  waiverGrantedFromPromoCodeServer,
+} from "@/lib/payment-policy.server";
 import {
   loadWorkspacePaymentSettings,
   saveWorkspacePaymentSettings,
@@ -92,7 +95,7 @@ async function accountWaiverGranted(
   if (purchase.readFailed) {
     throw new Error("Could not read account promo status.");
   }
-  return waiverGrantedFromPromoCode(purchase.promoCode);
+  return waiverGrantedFromPromoCodeServer(purchase.promoCode);
 }
 
 export async function GET(req: Request) {
@@ -135,14 +138,18 @@ export async function PATCH(req: Request) {
       // Only look the grant up when the answer can change the save: a `proplane`
       // selection needs one, and everything else is stored as typed.
       const grant = rest.serviceFeePayer === "proplane" ? await accountWaiverGranted(ctx.db, ctx.userId, settings) : false;
+      /* The code is checked HERE, against the server-only list — the browser
+         cannot see the codes and its claim is never taken as the answer. */
+      const codeMatches = listingPaymentWaiverCodeMatchesServer(normalized.serviceFeeWaiverCode);
       if (
         rest.serviceFeePayer === "proplane" &&
-        resolveSavedServiceFeeSelection(normalized, settings, grant).serviceFeePayer !== "proplane"
+        resolveSavedServiceFeeSelection(normalized, settings, grant, codeMatches).serviceFeePayer !== "proplane"
       ) {
         return NextResponse.json({ error: LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID }, { status: 400 });
       }
       settings = await saveManagerManualPaymentSettings(ctx.db, ctx.userId, normalized, {
         accountWaiverGranted: grant,
+        codeMatches,
       });
     }
     /*

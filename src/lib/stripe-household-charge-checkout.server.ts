@@ -7,11 +7,11 @@ import { getManagerPurchaseSku } from "@/lib/manager-access-server";
 import { loadManagerManualPaymentSettings } from "@/lib/manager-manual-payment-settings";
 import {
   axisPaymentsEnabledOnListing,
-  resolveAccountOrListingWaiverGranted,
   resolveServiceFeePayerFor,
   type ResidentAxisPaymentMethod,
 } from "@/lib/payment-policy";
 import { getStripe } from "@/lib/stripe";
+import { resolveAccountOrListingWaiverGrantedServer } from "@/lib/payment-policy.server";
 import { loadWorkspaceServiceFeePayerForProperty } from "@/lib/workspace-payment-settings.server";
 import { createAxisAchCheckoutSession, stripeNotConfiguredError } from "@/lib/stripe-axis-ach-checkout";
 import {
@@ -251,7 +251,7 @@ export async function createHouseholdChargeCheckout(
       propertyChoice: loaded[0]?.propertyFeePayer ?? null,
       workspaceChoice,
       managerChoice: managerSettings.serviceFeePayer,
-      waiverGranted: resolveAccountOrListingWaiverGranted(promoCode, loaded[0]?.propertyFeeWaiverCode),
+      waiverGranted: resolveAccountOrListingWaiverGrantedServer(promoCode, loaded[0]?.propertyFeeWaiverCode),
     });
     const stripe = getStripe();
     const connect = await resolveAndValidateManagerConnectForPayments(stripe, db, managerUserId);

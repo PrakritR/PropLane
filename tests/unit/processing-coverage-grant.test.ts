@@ -1,13 +1,8 @@
 import { describe, expect, it } from "vitest";
-import {
-  isProcessingCoverageCode,
-  normalizeProcessingCoverageCode,
-} from "@/lib/processing-coverage-codes";
-import {
-  persistListingServiceFeePayer,
-  resolveServiceFeePayerFor,
-  waiverGrantedFromPromoCode,
-} from "@/lib/payment-policy";
+import { normalizeProcessingCoverageCode } from "@/lib/processing-coverage-codes";
+import { isProcessingCoverageCode } from "@/lib/processing-coverage-codes.server";
+import { persistListingServiceFeePayer, resolveServiceFeePayerFor } from "@/lib/payment-policy";
+import { waiverGrantedFromPromoCodeServer as waiverGrantedFromPromoCode } from "@/lib/payment-policy.server";
 import { isWaiverGrantedManagerPurchase } from "@/lib/manager-access";
 import { PRO_MONTHLY_FIRST_FREE_PROMO_CODE } from "@/lib/stripe-promos";
 
@@ -69,6 +64,17 @@ describe("an unresolved grant never spends PropLane's money", () => {
     expect(persistListingServiceFeePayer("proplane", "")).toEqual({
       serviceFeePayer: "resident",
       serviceFeeWaiverCode: undefined,
+    });
+    // And a code the caller has NOT had the server verify is not a grant either:
+    // the browser cannot answer this, so "unresolved" must read as "no".
+    expect(persistListingServiceFeePayer("proplane", "FREE100")).toEqual({
+      serviceFeePayer: "resident",
+      serviceFeeWaiverCode: undefined,
+    });
+    // With the server's verdict passed in, it is kept.
+    expect(persistListingServiceFeePayer("proplane", "FREE100", undefined, true)).toEqual({
+      serviceFeePayer: "proplane",
+      serviceFeeWaiverCode: "FREE100",
     });
   });
 

@@ -12,7 +12,7 @@ import {
   resolveEffectiveManagerSkuTier,
 } from "@/lib/manager-access";
 import { getManagerPurchaseSku } from "@/lib/manager-access-server";
-import { waiverGrantedFromPromoCode } from "@/lib/payment-policy";
+import { waiverGrantedFromPromoCodeServer } from "@/lib/payment-policy.server";
 import { isAppleBilledManagerPurchase } from "@/lib/manager-apple-purchase";
 import { getStripe } from "@/lib/stripe";
 import {
@@ -145,7 +145,7 @@ export async function GET() {
       // the account's promo grant. A listing can still add its own promo code on top.
       paymentWaiverGranted:
         paymentSettings && !readFailed
-          ? paymentSettings.adminServiceFeeOverride === "proplane" || waiverGrantedFromPromoCode(promoCode)
+          ? paymentSettings.adminServiceFeeOverride === "proplane" || waiverGrantedFromPromoCodeServer(promoCode)
           : null,
       paymentCoverageUnknown: paymentSettings === null || readFailed,
       stripeManaged,
