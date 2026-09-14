@@ -962,6 +962,7 @@ function ManagerPropertyInlineDetails({
         activeId={activeTopNavId}
         backHref={propertyListHref(propertiesBase, stage)}
         showBackLink={false}
+        showTitleBlock={false}
         title={managerPropertyRowTitle(row, bucket)}
         subtitle={row.address}
         className="lg:mr-5 lg:rounded-xl lg:border lg:bg-card"
