@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
@@ -12,7 +12,11 @@ import type { ReactNode } from "react";
 
 
 import { resolveSavedServiceFeeSelection } from "@/lib/manager-manual-payment-settings";
-import { LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID } from "@/lib/payment-policy";
+import {
+  LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID,
+  PROCESSING_FEE_PROPLANE_PENDING_LABEL,
+  SERVICE_FEE_PAYER_OPTION_LABELS,
+} from "@/lib/payment-policy";
 
 describe("resolveSavedServiceFeeSelection", () => {
   it("keeps PropLane absorb when the promo code is valid", () => {
@@ -94,6 +98,7 @@ import { ManagerPaymentSetupModal } from "@/components/portal/pro-payment-setup-
 
 let patches: Record<string, unknown>[] = [];
 let settingsReadFails = false;
+let patchRefusal: string | null = null;
 
 function respond(url: string, init?: RequestInit) {
   if (url.startsWith("/api/stripe/connect/status")) {
@@ -106,6 +111,9 @@ function respond(url: string, init?: RequestInit) {
     if (init?.method === "PATCH") {
       const body = JSON.parse(String(init.body ?? "{}")) as Record<string, unknown>;
       patches.push(body);
+      if (patchRefusal) {
+        return { ok: false, status: 400, json: async () => ({ error: patchRefusal }) };
+      }
       return { ok: true, status: 200, json: async () => ({ settings: { ...body } }) };
     }
     if (settingsReadFails) {
@@ -124,6 +132,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   patches = [];
   settingsReadFails = false;
+  patchRefusal = null;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => respond(String(input), init)),
@@ -158,15 +167,28 @@ function click(dataAttr: string) {
 
 describe("payment setup: PropLane covers it", () => {
   /*
-    The dialog only OFFERS "PropLane covers it" once the account's grant is
-    server-verified, so the code entry is the door for a manager who was given a
-    code but has no grant yet. It never prints the code back — only asks for one.
+    PropLane pays is applied only by a code at the moment it is chosen (captain,
+    2026-09-14). The option is always offered; picking it saves NOTHING and opens
+    the code field, and the answer already in force stays in force until the
+    server accepts the code. The dialog never prints a code back — only asks.
+
+    The modal is mounted here without a workspace provider, so the save falls
+    to the account scope (`serviceFeePayer` + `serviceFeeWaiverCode`), which the
+    route validates the same way. The workspace-scoped pair is covered by
+    `evidence-manual-payment-settings-route-waiver`.
   */
-  async function openWaiverEntry() {
+  async function pickProplane() {
     await mountModal();
-    expect(document.querySelector('[data-attr="manager-service-fee-payer-proplane"]')).toBeNull();
     expect(document.body.textContent).not.toContain("FREE100");
-    await click("manager-service-fee-waiver-open");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Processing fee paid by", expanded: false }));
+    });
+    const listbox = screen.getByRole("listbox");
+    const option = within(listbox).getByText(SERVICE_FEE_PAYER_OPTION_LABELS.proplane);
+    await act(async () => {
+      fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
+      fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
+    });
   }
 
   function typeCode(value: string) {
@@ -178,11 +200,29 @@ describe("payment setup: PropLane covers it", () => {
     });
   }
 
-  it("asks for a code rather than offering the choice outright", async () => {
-    await openWaiverEntry();
+  function selectedLabel(): string {
+    return screen.getByRole("button", { name: "Processing fee paid by" }).textContent ?? "";
+  }
+
+  it("offers the choice, but picking it only asks for a code and saves nothing", async () => {
+    await pickProplane();
 
     expect(document.querySelector('[data-attr="manager-service-fee-waiver-code"]')).toBeTruthy();
+    expect(screen.getByText(PROCESSING_FEE_PROPLANE_PENDING_LABEL)).toBeTruthy();
+    // The helper names the answer still in force, so a pending pick never reads as saved.
+    expect(document.body.textContent).toContain("Resident pays stays in effect until it is applied.");
     expect(document.body.textContent).not.toContain("FREE100");
+    expect(patches).toHaveLength(0);
+  });
+
+  it("cancelling the pick puts the saved answer back", async () => {
+    await pickProplane();
+    expect(selectedLabel()).toContain(SERVICE_FEE_PAYER_OPTION_LABELS.proplane);
+
+    await click("manager-service-fee-waiver-cancel");
+
+    expect(document.querySelector('[data-attr="manager-service-fee-waiver-code"]')).toBeNull();
+    expect(selectedLabel()).toContain(SERVICE_FEE_PAYER_OPTION_LABELS.resident);
     expect(patches).toHaveLength(0);
   });
 
@@ -190,7 +230,7 @@ describe("payment setup: PropLane covers it", () => {
     // Shape is all the browser may judge: the coverage codes are server-only,
     // because one of them was readable in a client chunk and a code is a
     // credential. Something too short to be a code never leaves the page.
-    await openWaiverEntry();
+    await pickProplane();
     await typeCode("NO");
     await click("manager-service-fee-waiver-apply");
 
@@ -198,24 +238,31 @@ describe("payment setup: PropLane covers it", () => {
     expect(screen.getByText(LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID)).toBeTruthy();
   });
 
-  it("sends a well-formed but wrong code for the SERVER to refuse", async () => {
+  it("sends a well-formed but wrong code for the SERVER to refuse, and stays pending", async () => {
     // The browser cannot tell `NOPE` from a real code and must not pretend to.
-    // It sends it; the route checks it against the server-only list and 400s.
-    await openWaiverEntry();
+    // It sends it; the route checks it against the server-only list and 400s,
+    // and that refusal lands under the field rather than as a toast.
+    patchRefusal = LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID;
+    await pickProplane();
     await typeCode("NOPE");
     await click("manager-service-fee-waiver-apply");
 
     expect(patches).toHaveLength(1);
     expect(patches[0]).toMatchObject({ serviceFeePayer: "proplane", serviceFeeWaiverCode: "NOPE" });
+    expect(screen.getByText(LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID)).toBeTruthy();
+    expect(document.querySelector('[data-attr="manager-service-fee-waiver-code"]')).toBeTruthy();
+    expect(showToast).not.toHaveBeenCalledWith(LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID);
   });
 
   it("saves the choice with the code once it checks out", async () => {
-    await openWaiverEntry();
+    await pickProplane();
     await typeCode("free100");
     await click("manager-service-fee-waiver-apply");
 
     expect(patches).toHaveLength(1);
     expect(patches[0]).toMatchObject({ serviceFeePayer: "proplane", serviceFeeWaiverCode: "FREE100" });
+    expect(document.querySelector('[data-attr="manager-service-fee-waiver-code"]')).toBeNull();
+    expect(selectedLabel()).toContain(SERVICE_FEE_PAYER_OPTION_LABELS.proplane);
   });
 });
 

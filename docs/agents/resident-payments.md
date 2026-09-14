@@ -91,10 +91,16 @@ settings row, drops any caller-supplied override, re-applies the stored one, and
 downgrades `proplane` to `resident` unless the server passed `p_coverage_granted`
 or the stored override approves it — so a manager save that overlaps a staff
 revocation can never restore the approval, and the grant answer is never taken from
-the client. The Payment setup modal offers PropLane coverage outright only when
-`GET /api/manager/subscription` reports `paymentWaiverGranted: true`; otherwise it
-shows "Have a PropLane promo code?" and asks for one; a failed read
-(`paymentCoverageUnknown`) disables the option rather than guessing. Per-property
+the client. **The Payment setup modal applies `proplane` for a WORKSPACE only by a
+code at the moment it is chosen** (captain, 2026-09-14): "PropLane pays" is always
+in the select, picking it saves nothing and opens the coverage-code field, and the
+route refuses `workspaceServiceFeePayer: "proplane"` with **400** unless
+`workspaceServiceFeeWaiverCode` matches the server-only list (the staff override
+is the one thing that still needs no code). A grant already on the account never
+flips a workspace on by itself. The matched code is kept with the workspace
+(`portal_workspaces.payment_settings.serviceFeeWaiverCode`) and counts toward
+`waiverGranted` at both checkouts — next to the account grant and a listing's own
+code — and is never echoed back in `workspacePaymentSettings`. Per-property
 choices saved from Payment settings are written onto each listing by
 `applyPropertyServiceFeePayersToListings` through that same helper, so the grant
 must be forwarded into that pass or an approved `proplane` choice downgrades to

@@ -74,15 +74,24 @@ export async function loadWorkspaceIdForProperty(
   return typeof workspaceId === "string" && workspaceId ? workspaceId : null;
 }
 
-/** The processing-fee choice that applies to one property through its workspace. */
-export async function loadWorkspaceServiceFeePayerForProperty(
+/**
+ * The payment setup that applies to one property through its workspace — the
+ * choice AND the coverage code it was applied with.
+ *
+ * The code matters at checkout: PropLane pays is applied per workspace by a
+ * code at the moment it is chosen (captain, 2026-09-14), so the workspace's
+ * own code is one of the things that lets `proplane` actually be `proplane`,
+ * next to the account grant and a listing's own code. Without it a workspace
+ * answered by code on an account with no grant would quietly bill the resident.
+ */
+export async function loadWorkspacePaymentSettingsForProperty(
   db: SupabaseClient,
   ownerUserId: string,
   propertyId: string | null | undefined,
-): Promise<ServiceFeePayer | null> {
-  if (!propertyId) return null;
+): Promise<WorkspacePaymentSettings> {
+  if (!propertyId) return { serviceFeePayer: null };
   const workspaceId = await loadWorkspaceIdForProperty(db, ownerUserId, propertyId);
-  if (!workspaceId) return null;
+  if (!workspaceId) return { serviceFeePayer: null };
   const { data, error } = await db
     .from("portal_workspaces")
     .select("payment_settings")
@@ -90,7 +99,16 @@ export async function loadWorkspaceServiceFeePayerForProperty(
     .eq("id", workspaceId)
     .maybeSingle();
   if (error) throw error;
-  return readSettings(data?.payment_settings).serviceFeePayer;
+  return readSettings(data?.payment_settings);
+}
+
+/** The processing-fee choice that applies to one property through its workspace. */
+export async function loadWorkspaceServiceFeePayerForProperty(
+  db: SupabaseClient,
+  ownerUserId: string,
+  propertyId: string | null | undefined,
+): Promise<ServiceFeePayer | null> {
+  return (await loadWorkspacePaymentSettingsForProperty(db, ownerUserId, propertyId)).serviceFeePayer;
 }
 
 /**

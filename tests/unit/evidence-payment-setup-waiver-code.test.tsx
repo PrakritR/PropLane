@@ -11,7 +11,7 @@
 //
 // Set EVIDENCE_DIR to dump each state's HTML so it can be screenshotted with
 // the app's real stylesheet.
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdirSync, writeFileSync } from "node:fs";
 import type { ReactNode } from "react";
@@ -62,7 +62,11 @@ vi.mock("@/components/ui/modal", () => ({
 }));
 
 import { ManagerPaymentSetupModal } from "@/components/portal/pro-payment-setup-modal";
-import { LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID } from "@/lib/payment-policy";
+import {
+  LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID,
+  PROCESSING_FEE_PROPLANE_PENDING_LABEL,
+  SERVICE_FEE_PAYER_OPTION_LABELS,
+} from "@/lib/payment-policy";
 
 let patches: Record<string, unknown>[] = [];
 
@@ -143,14 +147,24 @@ describe("evidence · PropLane covers it requires the promo code", () => {
       feeCard(),
     );
 
-    // 1. The code entry is the door, because the dialog only OFFERS the choice
-    //    outright once the account grant is server-verified. Opening it saves NOTHING.
-    await click("manager-service-fee-waiver-open");
+    // 1. PropLane pays is offered outright, but PICKING it is not a save: the
+    //    select holds the pick, the code field opens, and the answer in force is
+    //    named so the pending pick never reads as saved.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Processing fee paid by", expanded: false }));
+    });
+    const option = within(screen.getByRole("listbox")).getByText(SERVICE_FEE_PAYER_OPTION_LABELS.proplane);
+    await act(async () => {
+      fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
+      fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
+    });
     expect(document.querySelector('[data-attr="manager-service-fee-waiver-code"]')).toBeTruthy();
+    expect(document.body.textContent).toContain(PROCESSING_FEE_PROPLANE_PENDING_LABEL);
+    expect(document.body.textContent).toContain("Resident pays stays in effect until it is applied.");
     expect(patches).toHaveLength(0);
     shot(
       "payment-setup-02-code-required",
-      "Asking for PropLane to cover the fee opens the inline waiver-code field. No save was sent (0 PATCH requests).",
+      "Picking 'PropLane pays' opens the coverage-code field under the select, marked 'Not applied yet'. No save was sent (0 PATCH requests); Resident pays is still in force.",
       feeCard(),
     );
 
@@ -177,7 +191,7 @@ describe("evidence · PropLane covers it requires the promo code", () => {
     expect(patches[0]).toMatchObject({ serviceFeePayer: "proplane", serviceFeeWaiverCode: "FREE100" });
     shot(
       "payment-setup-04-code-applied",
-      "FREE100 checks out: 'PropLane covers it' is selected and saved with the code (PATCH serviceFeePayer=proplane, serviceFeeWaiverCode=FREE100).",
+      "FREE100 checks out: the code field closes and 'PropLane pays' is the saved answer (PATCH serviceFeePayer=proplane, serviceFeeWaiverCode=FREE100).",
       feeCard(),
     );
   });

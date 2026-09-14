@@ -11,8 +11,11 @@ import {
   type ResidentAxisPaymentMethod,
 } from "@/lib/payment-policy";
 import { getStripe } from "@/lib/stripe";
-import { resolveAccountOrListingWaiverGrantedServer } from "@/lib/payment-policy.server";
-import { loadWorkspaceServiceFeePayerForProperty } from "@/lib/workspace-payment-settings.server";
+import {
+  listingPaymentWaiverCodeMatchesServer,
+  resolveAccountOrListingWaiverGrantedServer,
+} from "@/lib/payment-policy.server";
+import { loadWorkspacePaymentSettingsForProperty } from "@/lib/workspace-payment-settings.server";
 import { createAxisAchCheckoutSession, stripeNotConfiguredError } from "@/lib/stripe-axis-ach-checkout";
 import {
   isStripeConnectAccountAccessError,
@@ -239,7 +242,7 @@ export async function createHouseholdChargeCheckout(
        own follows the workspace it belongs to before falling back to the
        account. Every charge here is on one property (the mixed-payer guard
        above), so one lookup answers for the batch. */
-    const workspaceChoice = await loadWorkspaceServiceFeePayerForProperty(
+    const workspace = await loadWorkspacePaymentSettingsForProperty(
       db,
       managerUserId,
       loaded[0]?.charge.propertyId,
@@ -249,9 +252,13 @@ export async function createHouseholdChargeCheckout(
       tier: managerTier,
       adminOverride: managerSettings.adminServiceFeeOverride,
       propertyChoice: loaded[0]?.propertyFeePayer ?? null,
-      workspaceChoice,
+      workspaceChoice: workspace.serviceFeePayer,
       managerChoice: managerSettings.serviceFeePayer,
-      waiverGranted: resolveAccountOrListingWaiverGrantedServer(promoCode, loaded[0]?.propertyFeeWaiverCode),
+      /* The workspace's own code counts alongside the account grant and the
+         listing's code: PropLane pays is applied per workspace by a code. */
+      waiverGranted:
+        resolveAccountOrListingWaiverGrantedServer(promoCode, loaded[0]?.propertyFeeWaiverCode) ||
+        listingPaymentWaiverCodeMatchesServer(workspace.serviceFeeWaiverCode),
     });
     const stripe = getStripe();
     const connect = await resolveAndValidateManagerConnectForPayments(stripe, db, managerUserId);
