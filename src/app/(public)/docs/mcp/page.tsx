@@ -1,13 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { DocsScrollspyNav, type DocsNavGroup } from "@/components/docs/docs-scrollspy-nav";
 import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
 import { mcpToolCatalog, mcpToolCounts } from "@/lib/mcp/catalog";
 
 export const metadata: Metadata = {
   title: "MCP server & API",
   description:
-    "Connect your own AI agent to PropLane. An MCP server and a plain HTTP API over the same tools the built-in assistant uses, authenticated with a scoped API key.",
+    "Connect an AI agent to PropLane with browser-authorized MCP or a scoped REST API key.",
 };
 
 /**
@@ -15,19 +16,17 @@ export const metadata: Metadata = {
  * /docs: server component, sticky anchor nav, local arbitrary-value Tailwind
  * so it never touches the signed-in portal theme.
  *
- * The tool reference is GENERATED from the live registry (`mcpToolCatalog`),
- * never typed by hand — a renamed tool cannot leave a lie behind on this page.
+ * The tool reference is generated from the live registry (`mcpToolCatalog`),
+ * never typed by hand, so renamed tools cannot leave stale copy on this page.
  */
 
-type NavGroup = { group: string; links: { id: string; label: string }[] };
-
-const NAV_GROUPS: NavGroup[] = [
+const NAV_GROUPS: DocsNavGroup[] = [
   {
     group: "Start here",
     links: [
-      { id: "overview", label: "What this is" },
-      { id: "keys", label: "Create an API key" },
       { id: "connect", label: "Connect your agent" },
+      { id: "keys", label: "Create an API key" },
+      { id: "overview", label: "Choose a connection" },
     ],
   },
   {
@@ -56,7 +55,7 @@ const CURL_SNIPPET = `curl -X POST ${MCP_URL} \\
   -H "Content-Type: application/json" \\
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`;
 
-const ACTION_SNIPPET = `# 1. Propose. Nothing is written.
+const ACTION_SNIPPET = `# 1. Propose the action. Nothing changes yet.
 POST /api/v1/tools/send_rent_reminder
 { "chargeIds": ["charge_id_from_get_overdue_charges"] }
 
@@ -72,8 +71,8 @@ POST /api/v1/tools/send_rent_reminder
   }
 }
 
-# 2. Nothing else can execute this with the API key.
-# A signed-in manager reviews and approves the proposal in PropLane’s AI drafts.`;
+# 2. A signed-in manager reviews and approves it in PropLane’s AI drafts.
+# The API key cannot execute or approve the proposal.`;
 
 const REST_SNIPPET = `# Every tool the key can reach, with JSON Schema
 GET  /api/v1/tools
@@ -89,7 +88,7 @@ export default function McpDocsPage() {
   const writeTools = tools.filter((t) => t.kind === "write");
 
   return (
-    <div className="relative min-h-screen bg-background text-foreground">
+    <div className="relative min-h-screen overflow-x-clip bg-background text-foreground">
       <div
         aria-hidden
         className="pointer-events-none absolute -top-32 left-1/2 h-[420px] w-[820px] max-w-[130%] -translate-x-1/2 opacity-70"
@@ -108,74 +107,34 @@ export default function McpDocsPage() {
           MCP server &amp; API
         </h1>
         <p className="mt-4 max-w-2xl text-[15.5px] leading-relaxed text-muted">
-          Run PropLane from your own AI agent. The same {counts.total} tools that power the built-in
-          assistant, exposed over the Model Context Protocol and a plain HTTP API, so you can bring
-          whatever harness you already use.
+          Connect your agent to {counts.total} manager tools through MCP or a scoped REST API key.
+          Both use the same tool layer as PropLane’s assistant.
         </p>
       </header>
 
       <div className="relative mx-auto grid max-w-6xl gap-10 px-5 pb-24 sm:px-6 lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-14">
-        <nav
-          aria-label="Docs sections"
-          className="rounded-xl border border-border bg-card p-4 lg:sticky lg:top-24 lg:h-fit lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"
-        >
-          <div className="mb-3 px-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted/60 lg:hidden">
-            On this page
-          </div>
-          {NAV_GROUPS.map((g) => (
-            <div key={g.group} className="mb-5 last:mb-0">
-              <div className="px-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted/60">
-                {g.group}
-              </div>
-              <ul className="mt-1.5 space-y-0.5 border-l border-border lg:pl-0">
-                {g.links.map((l) => (
-                  <li key={l.id}>
-                    <a
-                      href={`#${l.id}`}
-                      className="-ml-px block border-l border-transparent px-3 py-1.5 text-[13px] text-muted transition-colors hover:border-primary hover:text-foreground"
-                    >
-                      {l.label}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </nav>
+        <DocsScrollspyNav groups={NAV_GROUPS} dataAttrPrefix="mcp-docs-toc" />
 
         <div className="min-w-0 max-w-3xl">
-          <DocSection id="overview" kicker="Start here" title="What this is">
+          <DocSection id="connect" kicker="Start here" title="Connect your agent">
             <p>
-              PropLane exposes its whole capability surface as typed, permission-scoped tools. The
-              assistant inside the product calls those tools; this page is how <em>your</em> agent
-              calls the same ones, with the same per-account scoping and the same confirmation gate
-              on anything that changes data.
+              Connect an MCP client by adding <Chip>{MCP_URL}</Chip>. On first use, the client opens
+              PropLane so you can sign in and approve access.
             </p>
-            <DocList>
-              <DocLi>
-                <b className="font-medium text-foreground">One endpoint</b>: <Chip>{MCP_URL}</Chip>,
-                stateless Streamable HTTP. No install, no local process, nothing to keep running.
-              </DocLi>
-              <DocLi>
-                <b className="font-medium text-foreground">Browser sign-in for MCP</b>: paste the
-                server URL, then authenticate and approve the connection in PropLane.
-              </DocLi>
-              <DocLi>
-                <b className="font-medium text-foreground">Every number is tool-grounded.</b>{" "}
-                Balances, dates and statuses come from tool results, so your agent reports what
-                PropLane actually holds rather than an estimate.
-              </DocLi>
-            </DocList>
+            <p>Claude Code can add the remote server with:</p>
+            <CodeBlock label="terminal">{CLAUDE_CODE_SNIPPET}</CodeBlock>
             <p>
-              Today the server covers the <b className="font-medium text-foreground">manager</b>{" "}
-              account: your properties, residents, applications, leases, charges, services,
-              vendors, calendar and messages. Resident and vendor endpoints are not open yet.
+              Any Streamable HTTP client can use the same URL. MCP uses browser authorization, not
+              a long-lived API key in your client configuration.
             </p>
+            <p>To inspect the protocol directly, send JSON-RPC over POST:</p>
+            <CodeBlock label="curl">{CURL_SNIPPET}</CodeBlock>
           </DocSection>
 
-          <DocSection id="keys" kicker="Start here" title="Connect MCP or create an API key">
+          <DocSection id="keys" kicker="Start here" title="Create a REST API key">
             <p>
-              In the portal, go to{" "}
+              Create a REST API key when an integration needs only selected product areas or tools.
+              Go to{" "}
               <Link
                 href="/portal/profile"
                 data-attr="mcp-docs-settings-link"
@@ -183,54 +142,59 @@ export default function McpDocsPage() {
               >
                 Settings &rarr; API &amp; MCP
               </Link>{" "}
-              and copy the MCP server URL. Your client opens PropLane in a browser to sign in and approve
-              the complete manager assistant connection. Choose <b className="font-medium text-foreground">Create API key</b>
-              when you need to grant only the product areas and tools an integration needs:
+              and choose <b className="font-medium text-foreground">Create API key</b>.
             </p>
             <DocList>
               <DocLi>
-                <Chip>Read</Chip> Look up the selected product area. This is right for reporting,
-                dashboards and question-answering.
+                <Chip>Read</Chip> grants lookup tools for the selected product area.
               </DocLi>
               <DocLi>
-                <Chip>Write</Chip> Also proposes changes for that area and includes its read tools.
-                Use Advanced tools to choose an exact subset. A write still cannot happen in one step,
-                see <a href="#actions" className="text-primary underline-offset-2 hover:underline">Write actions</a>.
+                <Chip>Write</Chip> adds proposal tools and includes that area’s read tools.
               </DocLi>
+              <DocLi>Advanced tools narrows either choice to exact tool names.</DocLi>
             </DocList>
             <p>
-              The key is shown <b className="font-medium text-foreground">once</b>. PropLane stores
-              only a hash of it, so it cannot be recovered or re-displayed. If you lose it, revoke it
-              and create another. Revoking takes effect on the next request.
+              PropLane shows the key once and stores only its hash. If you lose it, revoke it and
+              create another. See <a href="#actions" className="text-primary underline-offset-2 hover:underline">Write actions</a>{" "}
+              before granting write tools.
             </p>
           </DocSection>
 
-          <DocSection id="connect" kicker="Start here" title="Connect your agent">
+          <DocSection id="overview" kicker="Start here" title="Choose a connection">
             <p>
-              Any client that speaks Streamable HTTP connects directly. Claude Code, Cursor,
-              Windsurf and VS Code all take the same server URL. Claude Code can add it with:
+              Choose MCP for the complete manager assistant surface. Choose REST for an explicit
+              tool allowlist. Credentials for one transport do not work on the other.
             </p>
-            <CodeBlock label="terminal">{CLAUDE_CODE_SNIPPET}</CodeBlock>
-            <p>On first use, the client follows the secure browser sign-in and consent flow. PropLane never asks you to paste a long-lived API key into an MCP configuration.</p>
-            <p>
-              Building your own loop, or just checking it works? It is ordinary JSON-RPC over POST:
-            </p>
-            <CodeBlock label="curl">{CURL_SNIPPET}</CodeBlock>
+            <DocList>
+              <DocLi>
+                <b className="font-medium text-foreground">MCP</b> uses OAuth 2.1, dynamic client
+                registration, PKCE S256, short-lived access tokens, and rotating refresh tokens.
+              </DocLi>
+              <DocLi>
+                <b className="font-medium text-foreground">REST</b> uses a manually created bearer
+                key and exposes only its saved tool allowlist.
+              </DocLi>
+              <DocLi>
+                Both derive account scope from the credential and require in-product approval for
+                writes.
+              </DocLi>
+            </DocList>
             <p className="text-[14px]">
-              The server implements <Chip>initialize</Chip>, <Chip>tools/list</Chip>,{" "}
-              <Chip>tools/call</Chip> and <Chip>ping</Chip>. It is stateless, so there is no session
-              header and <Chip>GET</Chip> returns <Chip>405</Chip>. Protocol versions{" "}
-              <Chip>2024-11-05</Chip> through <Chip>2025-06-18</Chip> are negotiated; newer clients
-              are answered with the latest version supported here.
+              MCP is stateless Streamable HTTP. It supports <Chip>initialize</Chip>,{" "}
+              <Chip>tools/list</Chip>, <Chip>tools/call</Chip>, and <Chip>ping</Chip>. <Chip>GET</Chip>{" "}
+              returns <Chip>405</Chip>. It negotiates versions <Chip>2024-11-05</Chip> through{" "}
+              <Chip>2025-06-18</Chip> and answers newer clients with the latest supported version.
             </p>
           </DocSection>
 
           <DocSection id="tools" kicker="Reference" title="Tools">
             <p>
-              An MCP connection sees the complete manager catalog after browser authorization. A REST API key sees only its selected
-              tools. Write tools return an approval preview rather than executing. Call <Chip>tools/list</Chip>
-              for the full JSON Schema of each one; this reference has {counts.read}
-              read and {counts.write} write tools and is generated from the live registry.
+              Call <Chip>tools/list</Chip> for each tool’s JSON Schema. This live registry contains{" "}
+              {counts.read} read and {counts.write} write tools.
+            </p>
+            <p>
+              MCP lists the complete manager catalog. REST lists only the key’s allowlist, and the
+              gateway rejects any hidden tool name you try to guess.
             </p>
             <ToolTable title="Read" caption="Available when selected in a product area or Advanced tools." tools={readTools} />
             <ToolTable
@@ -242,49 +206,51 @@ export default function McpDocsPage() {
 
           <DocSection id="actions" kicker="Reference" title="Write actions">
             <p>
-              Anything that changes data is a two-step. Calling an action tool does not perform it:
-              it validates the input, builds a preview of exactly what would happen, and returns an{" "}
-              <Chip>actionId</Chip>. The manager then approves it from PropLane’s AI drafts; an external credential cannot execute it.
+              Every external write has two steps. The tool validates input, stores it server-side,
+              and returns a preview with an <Chip>actionId</Chip>. Nothing changes yet.
             </p>
             <CodeBlock label="propose, then approve in PropLane">{ACTION_SNIPPET}</CodeBlock>
             <DocList>
               <DocLi>
-                The proposal stores the validated input <b className="font-medium text-foreground">server-side</b>.
-                PropLane’s signed-in approval sends only the id, so nothing between the two steps can alter what runs.
+                Only a signed-in manager can approve or reject the proposal in PropLane. Bearer
+                credentials cannot call <Chip>confirm_action</Chip> or self-approve.
               </DocLi>
               <DocLi>
-                A proposal expires after 15 minutes and can be approved once. A second approval gets{" "}
+                Approval sends only the id. PropLane revalidates the stored input before running it.
+              </DocLi>
+              <DocLi>
+                A proposal expires after 15 minutes and can run once. A repeat approval returns{" "}
                 <Chip>410</Chip>.
-              </DocLi>
-              <DocLi>
-                The manager reviews the same card the built-in assistant renders, then approves or rejects it in PropLane.
               </DocLi>
             </DocList>
             <p>
-              Approving a rental application and creating a listing are deliberately{" "}
-              <b className="font-medium text-foreground">not</b> available as tools. Both need
-              browser-side steps that would otherwise leave a resident without their rent charges.
+              External tools can approve or reject applications, create properties and listing drafts,
+              and update drafts or property details. Drafts and new, pending, or in-review listings cannot
+              be published through these tools: PropLane admin review is required. A previously published
+              listing can be switched between live and unlisted.
             </p>
           </DocSection>
 
           <DocSection id="rest" kicker="Reference" title="REST API">
             <p>
-              If you are not using MCP, create a REST API key. Its selected tools are reachable over
-              plain HTTP; MCP OAuth tokens are deliberately refused here. Writes still stage the same manager-approved confirmation gate.
+              Call a REST key’s selected tools over plain HTTP. MCP OAuth tokens are refused on
+              these routes.
             </p>
             <CodeBlock label="HTTP">{REST_SNIPPET}</CodeBlock>
             <p className="text-[14px]">
-              A staged write answers <Chip>202</Chip>; a completed call answers <Chip>200</Chip>; a
-              refused or invalid call answers <Chip>400</Chip> with an <Chip>error</Chip> string you
-              can hand straight back to your model.
+              A completed read returns <Chip>200</Chip>. A staged write returns <Chip>202</Chip>. An
+              invalid or refused call returns <Chip>400</Chip> with an <Chip>error</Chip> string.
             </p>
           </DocSection>
 
           <DocSection id="limits" kicker="Operating" title="Limits & errors">
+            <p>Use the status code to decide whether to retry, reauthorize, or change the request.</p>
             <DocList>
               <DocLi>
-                <b className="font-medium text-foreground">120 requests per minute</b> per key, plus
-                a lower unauthenticated limit per IP. Over it, <Chip>429</Chip>.
+                <Chip>429</Chip> means the rate limiter denied the request. A shared 60-request-per-minute
+                IP limit runs before authentication, including for valid bearer requests. Authenticated
+                credentials also have a 120-request-per-minute per-credential limit. The limiter fails
+                closed if its backing service is unavailable.
               </DocLi>
               <DocLi>
                 <Chip>401</Chip> means the key is missing, unknown, revoked or expired. These are
@@ -294,36 +260,34 @@ export default function McpDocsPage() {
                 <Chip>403</Chip> means the key is valid but the account no longer has manager access.
               </DocLi>
               <DocLi>
-                A tool that fails returns a normal MCP result with <Chip>isError: true</Chip> and a
-                readable message, not a transport error, so your model can correct itself and retry.
+                MCP tool failures return a normal result with <Chip>isError: true</Chip> and a
+                readable message, not a transport error.
               </DocLi>
             </DocList>
           </DocSection>
 
           <DocSection id="security" kicker="Operating" title="Security">
+            <p>Treat each credential as a revocable key to one manager’s permitted tool surface.</p>
             <DocList>
               <DocLi>
-                <b className="font-medium text-foreground">A key only ever reaches your own data.</b>{" "}
-                Every tool derives the account from the authenticated key, never from anything the
-                model supplies, so no argument can widen the scope.
+                PropLane derives the account from the credential, never model input. Arguments
+                cannot widen that scope.
+              </DocLi>
+              <DocLi>MCP and REST use bearer authentication. Ambient cookies are ignored.</DocLi>
+              <DocLi>
+                A REST key is a credential, not standing authorization. PropLane revalidates the
+                manager role on every request.
               </DocLi>
               <DocLi>
-                <b className="font-medium text-foreground">A key is a credential, not a standing
-                grant.</b>{" "}
-                Your manager role is re-checked on every single request. Lose the role and every key
-                stops working with it, immediately.
+                REST keys are stored hashed and cannot be displayed again.
               </DocLi>
               <DocLi>
-                <b className="font-medium text-foreground">Keys are stored hashed.</b> Nobody,
-                including PropLane, can read one back after it is created.
+                Disconnecting an OAuth client in Settings &rarr; API &amp; MCP revokes its active
+                tokens immediately. Clients can also use the advertised RFC 7009 endpoint.
               </DocLi>
               <DocLi>
-                <b className="font-medium text-foreground">MCP connections are revocable.</b> Disconnect
-                any OAuth-connected client from Settings → API & MCP to immediately invalidate its tokens.
-              </DocLi>
-              <DocLi>
-                Treat resident- and applicant-submitted text as untrusted. It reaches your agent as
-                data, and it must never be allowed to trigger a write on its own.
+                Treat resident and applicant text as untrusted data. It must never trigger a write
+                on its own.
               </DocLi>
             </DocList>
             <p className="text-[14px]">
@@ -424,7 +388,7 @@ function ToolTable({
           <li key={tool.name} className="px-4 py-3">
             <code className="font-mono text-[12.5px] text-foreground">{tool.name}</code>
             <p className="mt-1 text-[13px] leading-relaxed text-muted">
-              {firstSentence(tool.description)}
+              {publicToolDescription(tool.description)}
             </p>
           </li>
         ))}
@@ -433,9 +397,18 @@ function ToolTable({
   );
 }
 
-/** Tool descriptions are written for a model and run long; the table wants the lede. */
-function firstSentence(text: string): string {
+/** Keep the generated lede concise and use product vocabulary without changing tool identifiers. */
+function publicToolDescription(text: string): string {
   const trimmed = text.trim();
   const end = trimmed.search(/\.\s/);
-  return end === -1 ? trimmed : trimmed.slice(0, end + 1);
+  const sentence = end === -1 ? trimmed : trimmed.slice(0, end + 1);
+  const legacyServiceTerm = new RegExp(`\\b${["work", "order"].join("[ -]?")}s?\\b`, "gi");
+
+  return sentence
+    .replace(/\s*\u2014\s*/g, " - ")
+    .replace(/\bAxis\b/g, "PropLane")
+    .replace(legacyServiceTerm, (match) =>
+      match.toLowerCase().endsWith("s") ? "services" : "service",
+    )
+    .replace(/\bWO reference\b/g, "service reference");
 }
