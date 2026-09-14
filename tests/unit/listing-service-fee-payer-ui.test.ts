@@ -10,6 +10,7 @@ import {
   managerCanSelectProplaneServiceFee,
   persistListingServiceFeePayer,
 } from "@/lib/payment-policy";
+import { listingPaymentWaiverCodeMatchesServer } from "@/lib/payment-policy.server";
 
 describe("listing service fee payer UI helpers", () => {
   it("needs a promo grant (or staff approval) on every plan — a paid plan alone never unlocks it", () => {
@@ -45,13 +46,13 @@ describe("listing service fee payer UI helpers", () => {
   });
 
   it("persists PropLane absorb only with a real coverage code or a known grant", () => {
-    expect(persistListingServiceFeePayer("proplane", "FREE100")).toEqual({
+    expect(persistListingServiceFeePayer("proplane", "FREE100", undefined, true)).toEqual({
       serviceFeePayer: "proplane",
       serviceFeeWaiverCode: "FREE100",
     });
     // The code travels with the listing even when the account is granted, so
     // checkout can re-validate it without a second lookup.
-    expect(persistListingServiceFeePayer("proplane", "free 100", false)).toEqual({
+    expect(persistListingServiceFeePayer("proplane", "free 100", false, true)).toEqual({
       serviceFeePayer: "proplane",
       serviceFeeWaiverCode: "FREE100",
     });
@@ -82,12 +83,12 @@ describe("listing service fee payer UI helpers", () => {
   });
 
   it("accepts only the shared promo code, in any casing or spacing", () => {
-    expect(listingPaymentWaiverCodeMatches("free100")).toBe(true);
-    expect(listingPaymentWaiverCodeMatches("FREE 100")).toBe(true);
-    expect(listingPaymentWaiverCodeMatches("waiveprocess1")).toBe(true);
-    expect(listingPaymentWaiverCodeMatches("wrong")).toBe(false);
-    expect(listingPaymentWaiverCodeMatches("")).toBe(false);
-    expect(listingPaymentWaiverCodeMatches(null)).toBe(false);
+    expect(listingPaymentWaiverCodeMatchesServer("free100")).toBe(true);
+    expect(listingPaymentWaiverCodeMatchesServer("FREE 100")).toBe(true);
+    expect(listingPaymentWaiverCodeMatchesServer("waiveprocess1")).toBe(true);
+    expect(listingPaymentWaiverCodeMatchesServer("wrong")).toBe(false);
+    expect(listingPaymentWaiverCodeMatchesServer("")).toBe(false);
+    expect(listingPaymentWaiverCodeMatchesServer(null)).toBe(false);
   });
 
 });

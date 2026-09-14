@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { isProcessingCoverageCodeShape } from "@/lib/processing-coverage-codes";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { openStripeConnectOnboarding } from "@/lib/stripe-connect-onboarding-client";
 import {
@@ -19,7 +20,6 @@ import {
   LISTING_PROCESSING_FEE_WAIVER_CODE_HELP,
   LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID,
   SERVICE_FEE_PAYER_OPTION_LABELS,
-  listingPaymentWaiverCodeMatches,
   managerCanSelectManagerAbsorbServiceFee,
   managerCanSelectProplaneServiceFee,
   normalizeListingPaymentWaiverCode,
@@ -396,7 +396,13 @@ export function ManagerPaymentSetupModal({
 
   async function applyWaiverCode() {
     const code = normalizeListingPaymentWaiverCode(waiverCodeDraft);
-    if (!listingPaymentWaiverCodeMatches(code)) {
+    /*
+     * Shape only. Whether this is a REAL coverage code is the server's answer —
+     * the codes are server-only now, because one of them was readable in a
+     * client chunk and that is a credential. A wrong code comes back as the
+     * route's 400 below rather than being judged here.
+     */
+    if (!isProcessingCoverageCodeShape(code)) {
       setWaiverCodeError(LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID);
       return;
     }

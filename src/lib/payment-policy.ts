@@ -2,7 +2,7 @@ import { parseMoneyAmount } from "@/lib/parse-money";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { platformFeeCents } from "@/lib/platform-fees";
 import { type ManagerSkuTier } from "@/lib/manager-access";
-import { isProcessingCoverageCode, normalizeProcessingCoverageCode } from "@/lib/processing-coverage-codes";
+import { normalizeProcessingCoverageCode } from "@/lib/processing-coverage-codes";
 
 export type RentDueDayMode = "first_of_month" | "last_of_month";
 
@@ -153,12 +153,21 @@ export function persistListingServiceFeePayer(
   payer: ServiceFeePayer | null | undefined,
   waiverCode: string | null | undefined,
   accountWaiverGranted?: boolean,
+  /**
+   * Whether the typed code is a REAL coverage code, resolved by the caller.
+   *
+   * The browser cannot answer this and must not pretend to: it stores the
+   * manager's intent and the server re-derives it on write. Absent means
+   * "not established", which is why a codeless `proplane` falls to `resident`
+   * rather than being preserved.
+   */
+  codeMatches?: boolean,
 ): { serviceFeePayer: ServiceFeePayer | null; serviceFeeWaiverCode?: string } {
   if (payer === "resident" || payer === "manager") {
     return { serviceFeePayer: payer, serviceFeeWaiverCode: undefined };
   }
   if (payer === "proplane") {
-    if (listingPaymentWaiverCodeMatches(waiverCode)) {
+    if (codeMatches === true) {
       return {
         serviceFeePayer: "proplane",
         serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(waiverCode ?? ""),
@@ -198,7 +207,17 @@ export function persistListingServiceFeePayer(
  * nobody loses the plan they were granted.
  */
 export function waiverGrantedFromPromoCode(promoCode: string | null | undefined): boolean {
-  return isProcessingCoverageCode(promoCode);
+  /*
+   * Deliberately NOT the answer any more.
+   *
+   * Deciding needs the coverage codes, and this module is bundled for the
+   * browser — which is how `WAIVEPROCESS1` ended up readable in a client chunk.
+   * Server callers import `waiverGrantedFromPromoCodeServer` from
+   * `payment-policy.server.ts`; anything that reaches the client gets `false`,
+   * so a browser can never conclude on its own that coverage is granted.
+   */
+  void promoCode;
+  return false;
 }
 
 /**
@@ -213,14 +232,7 @@ export function resolveAccountOrListingWaiverGranted(
   return waiverGrantedFromPromoCode(accountPromoCode) || listingPaymentWaiverCodeMatches(listingWaiverCode);
 }
 
-/**
- * The promo code PropLane shares out-of-band that has it cover the processing fee.
- * Never printed in product copy — the field asks for it, it does not show it.
- */
-export const LISTING_PAYMENT_WAIVER_CODE = "FREE100";
 
-/** Listing-wizard promo that unlocks PropLane-absorbed Stripe processing fees. */
-export const LISTING_PROCESSING_FEE_PROMO_CODE = "WAIVEPROCESS1";
 
 export function normalizeListingPaymentWaiverCode(code: string): string {
   return normalizeProcessingCoverageCode(code);
@@ -233,7 +245,9 @@ export function normalizeListingPaymentWaiverCode(code: string): string {
  * and a manager's own application-fee waiver code both fail here, on purpose.
  */
 export function listingPaymentWaiverCodeMatches(code: string | null | undefined): boolean {
-  return isProcessingCoverageCode(code);
+  /* See `waiverGrantedFromPromoCode`: the real check is server-side. */
+  void code;
+  return false;
 }
 
 /**

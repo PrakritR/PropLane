@@ -1,31 +1,16 @@
 /**
- * Processing coverage codes — the ONLY thing that makes PropLane pay Stripe's fee.
+ * Processing coverage codes — the client-safe half.
  *
- * Three unrelated kinds of code used to be able to turn this on, because the
- * account-level check was `Boolean(manager_purchases.promo_code)` — any non-empty
- * string counted as a coverage grant. On the live production database that meant
- * 19 of 61 accounts had PropLane-funded processing, and two of them had only ever
- * redeemed a SUBSCRIPTION discount (`FIRST20`, `ONBOARD_FREE_PRO`). Nobody chose
- * that; one column quietly meant two things.
+ * The codes THEMSELVES live in `processing-coverage-codes.server.ts` and are
+ * never bundled: they are credentials, and one of them was verifiably sitting
+ * in a browser chunk, readable by any manager with devtools. This module holds
+ * only what the browser legitimately needs — how to normalize what someone
+ * typed, and whether it is the right SHAPE to be worth sending.
  *
- * So coverage now has a namespace of its own, checked here and nowhere else:
- *
- *   - a **subscription promo** (`FREEFIRST` and friends, `stripe-promos.ts`)
- *     discounts the manager's own plan and grants no coverage;
- *   - a **manager's application-fee waiver code** is theirs, invented by them,
- *     and waives an APPLICANT's fee — it can never satisfy this;
- *   - a **processing coverage code** is ours, issued deliberately, and is the
- *     only key that fits this lock.
- *
- * Deliberately not printed in product copy: the field asks for a code, it never
- * shows one.
+ * Shape is not validity. A well-formed code still has to be checked by the
+ * server (`POST /api/portal/verify-coverage-code`), which is the only place
+ * that knows the answer.
  */
-
-/** Codes PropLane issues out-of-band that make us absorb the processing fee. */
-const PROCESSING_COVERAGE_CODES: ReadonlySet<string> = new Set([
-  "FREE100",
-  "WAIVEPROCESS1",
-]);
 
 /** Upper-case, strip anything that is not a letter or digit. */
 export function normalizeProcessingCoverageCode(code: string | null | undefined): string {
@@ -36,13 +21,14 @@ export function normalizeProcessingCoverageCode(code: string | null | undefined)
 }
 
 /**
- * Is this a real processing coverage code?
+ * Could this be a coverage code at all?
  *
- * Empty is false, and so is a code from any other family. A caller must never
- * fall back to "it is non-empty, so it probably counts" — that is the exact
- * mistake this module exists to stop.
+ * Used only to decide whether to bother asking the server and to keep the
+ * field from submitting obvious noise. It deliberately tells the caller nothing
+ * about which codes are real — answering that in the browser is the bug this
+ * split exists to fix.
  */
-export function isProcessingCoverageCode(code: string | null | undefined): boolean {
+export function isProcessingCoverageCodeShape(code: string | null | undefined): boolean {
   const normalized = normalizeProcessingCoverageCode(code);
-  return normalized.length > 0 && PROCESSING_COVERAGE_CODES.has(normalized);
+  return normalized.length >= 4 && normalized.length <= 32;
 }

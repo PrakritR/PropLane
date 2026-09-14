@@ -1577,6 +1577,16 @@ function normalizeSigningMatrix(
 /** Coerces older saved submissions into the current v1 shape (preserves listing data where possible). */
 export type NormalizeManagerListingSubmissionOptions = {
   accountPaymentWaiverGranted?: boolean;
+  /**
+   * Whether the submission's coverage code is REAL, resolved by the caller.
+   *
+   * This normalizer runs in the browser too, and the codes are server-only —
+   * one of them was readable in a client chunk, which is what let a manager
+   * self-grant PropLane-funded processing. Absent means "not established",
+   * so a client-side normalize never upgrades a listing to `proplane`; the
+   * write path re-derives it (`listing-service-fee-write.server.ts`).
+   */
+  codeMatches?: boolean;
 };
 
 export function normalizeManagerListingSubmissionV1(
@@ -2297,6 +2307,7 @@ export function normalizeManagerListingSubmissionV1(
         sub.serviceFeePayer,
         sub.serviceFeeWaiverCode,
         opts.accountPaymentWaiverGranted,
+        opts.codeMatches,
       );
       return {
         serviceFeePayer: persisted.serviceFeePayer,

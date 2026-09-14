@@ -1,10 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { LISTING_PAYMENT_WAIVER_CODE } from "@/lib/processing-coverage-codes.server";
+import { listingPaymentWaiverCodeMatchesServer } from "@/lib/payment-policy.server";
 
 import type { ManagerManualPaymentSettings } from "@/lib/manager-manual-payment-settings";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import {
-  LISTING_PAYMENT_WAIVER_CODE,
   persistListingServiceFeePayer,
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
@@ -128,7 +129,14 @@ function patchListingServiceFeePayer(
     payer === "proplane" && accountWaiverGranted
       ? LISTING_PAYMENT_WAIVER_CODE
       : submission.serviceFeeWaiverCode;
-  const persisted = persistListingServiceFeePayer(payer, waiverCode, accountWaiverGranted);
+  /* The server resolves the code — the shared helper no longer holds the list,
+     because the browser bundles it. */
+  const persisted = persistListingServiceFeePayer(
+    payer,
+    waiverCode,
+    accountWaiverGranted,
+    listingPaymentWaiverCodeMatchesServer(waiverCode),
+  );
   return { ...submission, ...persisted };
 }
 

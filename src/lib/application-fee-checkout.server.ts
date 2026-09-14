@@ -11,7 +11,6 @@ import { loadManagerManualPaymentSettings } from "@/lib/manager-manual-payment-s
 import { parseMoneyAmount } from "@/lib/parse-money";
 import {
   residentServiceFeeBreakdown,
-  resolveAccountOrListingWaiverGranted,
   resolveServiceFeePayerFor,
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
@@ -23,6 +22,7 @@ import {
 } from "@/lib/stripe-axis-ach-checkout";
 import { resolveAndValidateManagerConnectForPayments } from "@/lib/stripe-connect";
 import { loadWorkspaceServiceFeePayerForProperty } from "@/lib/workspace-payment-settings.server";
+import { resolveAccountOrListingWaiverGrantedServer } from "@/lib/payment-policy.server";
 
 /**
  * The Stripe Checkout core for the rental application fee, extracted from
@@ -187,7 +187,7 @@ export async function resolveApplicationFeeItemization(
     propertyChoice: listing?.serviceFeePayer ?? null,
     workspaceChoice,
     managerChoice: managerSettings.serviceFeePayer,
-    waiverGranted: resolveAccountOrListingWaiverGranted(promoCode, listing?.serviceFeeWaiverCode),
+    waiverGranted: resolveAccountOrListingWaiverGrantedServer(promoCode, listing?.serviceFeeWaiverCode),
   });
   const fee =
     channel === "manual" || applicationFeeCents <= 0
