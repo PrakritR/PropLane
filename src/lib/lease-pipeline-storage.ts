@@ -1942,6 +1942,11 @@ export function executedLeaseIdentities(managerUserId?: string | null): {
   return { emails, axisIds };
 }
 
+/** Every fully executed lease this manager can see — the rows whose money terms are settled facts. */
+export function executedLeaseRows(managerUserId?: string | null): LeasePipelineRow[] {
+  return readLeasePipeline(managerUserId).filter(leaseIsFullyExecuted);
+}
+
 export function readLeasePipeline(managerUserId?: string | null): LeasePipelineRow[] {
   try {
     return computeLeasePipelineRows(managerUserId);

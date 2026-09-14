@@ -985,10 +985,15 @@ export function ManagerResidents({
     }
   }
 
+  // Resolved through getPropertyById — the same lookup isPropertyRentedByRoom and the
+  // bundle/lease-term readers use — not the signed-in user's own listing map. A property
+  // shared into this workspace by another owner is "rented by room" to those readers but
+  // absent from the user's map, which left the modal saying "add rooms" for a listing
+  // that has them.
   const arRoomOptions = useMemo(() => {
     void propertyTick;
-    if (!arPropertyId || !userId) return [];
-    const listing = readExtraListingsForUser(userId).find((p) => p.id === arPropertyId);
+    if (!arPropertyId) return [];
+    const listing = getPropertyById(arPropertyId);
     if (!listing?.listingSubmission) return [];
     const sub = normalizeManagerListingSubmissionV1(listing.listingSubmission);
     return sub.rooms.map((r) => ({
@@ -997,12 +1002,12 @@ export function ManagerResidents({
       monthlyRent: r.monthlyRent,
       shortTermRent: r.shortTermRent,
     }));
-  }, [arPropertyId, userId, propertyTick]);
+  }, [arPropertyId, propertyTick]);
 
   const erRoomOptions = useMemo(() => {
     void propertyTick;
-    if (!erPropertyId || !userId) return [];
-    const listing = readExtraListingsForUser(userId).find((p) => p.id === erPropertyId);
+    if (!erPropertyId) return [];
+    const listing = getPropertyById(erPropertyId);
     if (!listing?.listingSubmission) return [];
     const sub = normalizeManagerListingSubmissionV1(listing.listingSubmission);
     return sub.rooms.map((r) => ({
@@ -1011,7 +1016,7 @@ export function ManagerResidents({
       monthlyRent: r.monthlyRent,
       shortTermRent: r.shortTermRent,
     }));
-  }, [erPropertyId, userId, propertyTick]);
+  }, [erPropertyId, propertyTick]);
 
   const arLeaseTermOptions = useMemo(
     () => residentLeaseTermOptionsForProperty(arPropertyId),
