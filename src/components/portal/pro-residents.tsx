@@ -4130,13 +4130,6 @@ export function ManagerResidents({
             <PortalDataTableEmpty icon="residents" message={residentsListEmptyMessage} />
           ) : null
         }
-        add={{
-          label: "Add resident",
-          ariaLabel: "Add resident",
-          icon: PORTAL_LIST_ADD_ICONS.resident,
-          onClick: () => setAddResidentOpen(true),
-          dataAttr: "residents-list-add",
-        }}
         onBulkClear={clearSelection}
         bulkCount={listSelectedCount}
         bulkActions={
