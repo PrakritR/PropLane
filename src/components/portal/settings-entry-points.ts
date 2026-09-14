@@ -67,6 +67,15 @@ export const MANAGER_SETTINGS_ENTRY_POINTS = {
   // either, this module has only ever had defaults, not a settings tab.
   vendors: entryPoint("vendors", "Vendor defaults"),
   residents: entryPoint("residents", "Resident settings", "resident"),
+  // The Notifications hub — reminders grouped by module plus manager alert
+  // routing and quiet hours. The tab id stays `automation` (that union lives
+  // in `pro-portal-settings-modal.tsx`, owned elsewhere, and
+  // `/portal/settings/automation` is a real URL today) — only the id here and
+  // the nav label in `portal-settings-section.ts` changed to "notifications".
+  notifications: entryPoint("notifications", "Notification settings", "automation"),
+  // Every other section has a settings gear; Communication did not. This
+  // entry is what that new gear (in `pro-communication.tsx`) opens.
+  communication: entryPoint("communication", "Communication settings", "communication"),
   /**
    * The generic default for `ResidentDetailSubsectionChrome`'s Settings
    * action when a caller does not resolve a specific module (e.g. the
@@ -91,8 +100,11 @@ export function getSettingsEntryPoint(id: ManagerSettingsModuleId): ManagerSetti
  * Look up the entry that opens a given `ManagerPortalSettingsTab`, for a
  * caller that only knows which tab it is about to open (e.g. a shared modal
  * instance reused across several resident-detail subsections). Falls back to
- * the generic resident-detail entry for a tab with no dedicated entry point
- * (communication, automation — neither has its own gear today).
+ * the generic resident-detail entry only for a tab with no dedicated entry
+ * point at all — every one of the eleven `ManagerPortalSettingsTab` values
+ * has its own gear today (`communication` and `automation`/`notifications`
+ * included); the fallback exists for defensiveness, not because any current
+ * tab still needs it.
  */
 export function getSettingsEntryPointForTab(
   tab: ManagerPortalSettingsTab,

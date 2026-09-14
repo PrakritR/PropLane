@@ -1,7 +1,7 @@
 "use client";
 import { loadManagerSmsConversationsClient } from "@/lib/manager-sms-conversations-client";
 
-import { PenSquare } from "lucide-react";
+import { PenSquare, Settings2 } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,8 @@ import { ManagerWorkNumberButton } from "@/components/portal/pro-work-number-but
 import { PortalCommunicationShell } from "@/components/portal/portal-communication-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { getSettingsEntryPoint, settingsDialogTitlePrefix } from "@/components/portal/settings-entry-points";
 import {
   PORTAL_HEADER_ACTION_BTN,
   PORTAL_HEADER_PRIMARY_ACTION_BTN,
@@ -54,6 +56,8 @@ export type ManagerInboxTabId = "unopened" | "opened" | "schedule" | "sent" | "t
 export type ManagerCommunicationChannel = "inbox" | "sms";
 /** @deprecated Legacy SMS folder URLs redirect to unified inbox. */
 export type ManagerSmsTabId = "all" | "unopened" | "opened" | "schedule" | "sent";
+
+const communicationSettingsEntry = getSettingsEntryPoint("communication");
 
 const ROLE_OPTIONS: { value: CommunicationFilterRole; label: string }[] = [
   { value: "resident", label: "Residents & applicants" },
@@ -320,10 +324,20 @@ export function ManagerCommunication({
           the free-tier upsell behind it). */}
       <ManagerWorkNumberButton className={PORTAL_HEADER_ACTION_BTN} />
       {/*
-        No Settings here. The panel behind it was phone verification, which is
-        the resident's own Settings → Messaging — asking for it again from the
-        Communication toolbar made one number look like two separate settings.
+        Every other section has a settings gear; Communication didn't. The
+        panel this used to point at was phone verification — the resident's
+        own Settings → Messaging, which really was a duplicate — but the
+        settings tab now holds real Communication-wide preferences
+        (`CommunicationSettingsPanel`), so the gear belongs back on the
+        toolbar. Label/title/data-attr all come from one registry entry
+        (`settings-entry-points.ts`) so they cannot drift from each other.
       */}
+      <PortalIconAction
+        icon={Settings2}
+        label={communicationSettingsEntry.label}
+        data-attr={communicationSettingsEntry.dataAttr}
+        onClick={() => setCommunicationSettingsOpen(true)}
+      />
       {communicationNewMessageButton}
     </>
   );
@@ -380,7 +394,7 @@ export function ManagerCommunication({
         open={communicationSettingsOpen}
         onClose={() => setCommunicationSettingsOpen(false)}
         initialTab="communication"
-        scopedTitle="Communication"
+        scopedTitle={settingsDialogTitlePrefix(communicationSettingsEntry)}
       />
     </PortalCommunicationShell>
   );

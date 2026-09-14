@@ -94,12 +94,16 @@ describe("settings entry points registry", () => {
     }
   });
 
-  it("falls back to the generic resident-detail entry for a tab with no dedicated gear", () => {
+  it("communication and automation now resolve to their own dedicated gear, not the generic fallback", () => {
+    // The Notifications hub (automation) and Communication's new settings gear
+    // both got dedicated registry entries — neither falls back to the generic
+    // resident-detail entry anymore. `getSettingsEntryPointForTab` still keeps
+    // that fallback for a tab with no entry at all; every current tab has one.
     expect(getSettingsEntryPointForTab("communication")).toBe(
-      MANAGER_SETTINGS_ENTRY_POINTS.residentDetail,
+      MANAGER_SETTINGS_ENTRY_POINTS.communication,
     );
     expect(getSettingsEntryPointForTab("automation")).toBe(
-      MANAGER_SETTINGS_ENTRY_POINTS.residentDetail,
+      MANAGER_SETTINGS_ENTRY_POINTS.notifications,
     );
   });
 });

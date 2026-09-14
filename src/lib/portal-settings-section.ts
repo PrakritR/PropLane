@@ -31,7 +31,15 @@ export const MANAGER_PORTAL_SETTINGS_TABS: readonly { id: ManagerPortalSettingsT
   { id: "communication", label: "Communication" },
   { id: "bookings", label: "Bookings" },
   { id: "inspections", label: "Inspections" },
-  { id: "automation", label: "Automation" },
+  // Renamed from "Automation": this module is the Notifications hub — the
+  // reminder matrix plus manager alert routing and quiet hours — not a
+  // generic "automation" catch-all. The tab id stays `automation` on
+  // purpose: it is the `ManagerPortalSettingsTab` union value (owned by
+  // `pro-portal-settings-modal.tsx`) and the live `/portal/settings/automation`
+  // URL segment; renaming the id would either break that URL or require
+  // editing a file this module does not own. See `settings-entry-points.ts`'s
+  // `notifications` entry for the gear button's own label.
+  { id: "automation", label: "Notifications" },
 ];
 
 /**
