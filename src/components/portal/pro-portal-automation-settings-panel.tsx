@@ -28,6 +28,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Button } from "@/components/ui/button";
 import {
   DEFAULT_REMINDER_SETTINGS,
@@ -64,6 +65,9 @@ import { CO_MANAGER_PERMISSION_OPTIONS, type CoManagerPermissionId } from "@/lib
  * is chased after it arrives. Tasks get both: a nudge before the due date and a
  * chase after it passes.
  */
+/** 00:00 … 23:00 — the quiet-hours pickers, Pacific wall time. */
+const QUIET_HOUR_OPTIONS = Array.from({ length: 24 }, (_, h) => ({ value: String(h), label: `${String(h).padStart(2, "0")}:00` }));
+
 const SUBJECT_DIRECTIONS: Record<ReminderSubjectKind, TimingDirection[]> = {
   tour: ["before"],
   tour_interest: ["after"],
@@ -501,37 +505,37 @@ export function ManagerPortalAutomationSettingsPanel() {
               >
                 <label className="flex items-center gap-2">
                   From
-                  <select
-                    className="rounded-lg border border-border bg-transparent px-2 py-1 text-foreground"
-                    value={settings.quietHours.startHour}
-                    onChange={(e) =>
+                  <FieldSingleSelect
+                    variant="cell"
+                    hideLabel
+                    label="Quiet hours start"
+                    value={String(settings.quietHours.startHour)}
+                    onChange={(next) =>
                       setSettings((c) => ({
                         ...c,
-                        quietHours: { ...c.quietHours, startHour: Number(e.target.value) },
+                        quietHours: { ...c.quietHours, startHour: Number(next) },
                       }))
                     }
-                  >
-                    {Array.from({ length: 24 }, (_, h) => (
-                      <option key={h} value={h}>{`${String(h).padStart(2, "0")}:00`}</option>
-                    ))}
-                  </select>
+                    options={QUIET_HOUR_OPTIONS}
+                    wrapperClassName="w-24"
+                  />
                 </label>
                 <label className="flex items-center gap-2">
                   until
-                  <select
-                    className="rounded-lg border border-border bg-transparent px-2 py-1 text-foreground"
-                    value={settings.quietHours.endHour}
-                    onChange={(e) =>
+                  <FieldSingleSelect
+                    variant="cell"
+                    hideLabel
+                    label="Quiet hours end"
+                    value={String(settings.quietHours.endHour)}
+                    onChange={(next) =>
                       setSettings((c) => ({
                         ...c,
-                        quietHours: { ...c.quietHours, endHour: Number(e.target.value) },
+                        quietHours: { ...c.quietHours, endHour: Number(next) },
                       }))
                     }
-                  >
-                    {Array.from({ length: 24 }, (_, h) => (
-                      <option key={h} value={h}>{`${String(h).padStart(2, "0")}:00`}</option>
-                    ))}
-                  </select>
+                    options={QUIET_HOUR_OPTIONS}
+                    wrapperClassName="w-24"
+                  />
                 </label>
                 <span className="text-muted">({formatMinutes(60)} blocks, Pacific time)</span>
               </div>

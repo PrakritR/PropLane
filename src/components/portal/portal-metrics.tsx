@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronDown } from "lucide-react";
 import { PortalPageFooterActions, PortalPageTitleBand } from "@/components/portal/portal-section-action-row";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { Fragment, type CSSProperties, type ReactNode } from "react";
@@ -856,31 +855,6 @@ export const PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE =
 
 /** Label used before toolbar selects (Property/Sort/etc.). */
 export const PORTAL_TOOLBAR_LABEL = "text-xs font-semibold text-muted";
-
-/** Shared dropdown style for toolbar selects. */
-export const PORTAL_TOOLBAR_SELECT =
-  "h-10 appearance-none rounded-full border border-border bg-card px-3.5 pr-9 text-sm text-foreground outline-none focus:border-primary focus:ring-2 focus:ring-ring";
-
-/** Wraps a native `<select>` with a trailing chevron (toolbar / filter pills). */
-export function PortalToolbarSelectWrap({
-  className,
-  children,
-}: {
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div
-      className={`relative inline-grid min-w-0 [&>*:first-child]:col-start-1 [&>*:first-child]:row-start-1 ${className ?? ""}`.trim()}
-    >
-      {children}
-      <ChevronDown
-        className="pointer-events-none col-start-1 row-start-1 mr-3 self-center justify-self-end h-4 w-4 text-muted"
-        aria-hidden
-      />
-    </div>
-  );
-}
 
 /** Shared action button sizing for page header controls. */
 export const PORTAL_HEADER_ACTION_BTN =

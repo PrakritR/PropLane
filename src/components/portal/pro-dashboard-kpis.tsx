@@ -12,7 +12,9 @@
  */
 
 import Link from "next/link";
-import { ArrowDownRight, ArrowUpRight, ChevronDown, Minus } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS } from "@/components/ui/field-select-styles";
 import { cn } from "@/lib/utils";
 import type { ManagerAttentionRow } from "@/lib/manager-attention-queue";
 import { DASHBOARD_PERIOD_LABELS, type DashboardPeriodKind, type KpiDelta } from "@/lib/dashboard-kpis";
@@ -29,24 +31,15 @@ export function DashboardPeriodSelect({
   onChange: (next: DashboardPeriodKind) => void;
 }) {
   return (
-    <label className="relative inline-flex min-h-9 items-center rounded-full border border-border bg-card pl-3 pr-8 text-[12.5px] font-semibold text-foreground">
-      <span className="sr-only">Period</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value as DashboardPeriodKind)}
-        data-attr="dashboard-period"
-        className="absolute inset-0 cursor-pointer opacity-0"
-        aria-label="Period"
-      >
-        {PERIOD_ORDER.map((k) => (
-          <option key={k} value={k}>
-            {DASHBOARD_PERIOD_LABELS[k].current}
-          </option>
-        ))}
-      </select>
-      <span aria-hidden>{DASHBOARD_PERIOD_LABELS[value].current}</span>
-      <ChevronDown className="pointer-events-none absolute right-2.5 size-3.5 text-muted" aria-hidden />
-    </label>
+    <FieldSingleSelect
+      variant="pill"
+      label="Period"
+      value={value}
+      onChange={(next) => onChange(next as DashboardPeriodKind)}
+      options={PERIOD_ORDER.map((k) => ({ value: k, label: DASHBOARD_PERIOD_LABELS[k].current }))}
+      dataAttr="dashboard-period"
+      triggerClassName={FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS}
+    />
   );
 }
 

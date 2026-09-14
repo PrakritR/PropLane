@@ -67,6 +67,10 @@ const FEE_MONEY_INPUT_WIDTH = "w-full min-w-[5.5rem] max-w-[9.5rem]";
  * inside `FEE_CONTROL_ROW` until "One-time" clips behind the native arrow.
  */
 const FEE_CADENCE_SELECT_WIDTH = "w-full min-w-[6rem] max-w-[7.5rem]";
+const FEE_CADENCE_OPTIONS = [
+  { value: "monthly", label: "Monthly" },
+  { value: "one-time", label: "One-time" },
+];
 
 /**
  * Grid columns: fee | amount(s) | lease type(s) | rooms? | remove.
@@ -173,18 +177,15 @@ function FeeCadenceSelect({
   ariaLabel: string;
 }) {
   return (
-    <select
-      className={cn(
-        "h-9 rounded-lg border border-border bg-card px-2 text-xs text-foreground",
-        FEE_CADENCE_SELECT_WIDTH,
-      )}
+    <FieldSingleSelect
+      variant="cell"
+      hideLabel
+      label={ariaLabel}
       value={value}
-      onChange={(e) => onChange(e.target.value === "one-time" ? "one-time" : "monthly")}
-      aria-label={ariaLabel}
-    >
-      <option value="monthly">Monthly</option>
-      <option value="one-time">One-time</option>
-    </select>
+      onChange={(next) => onChange(next === "one-time" ? "one-time" : "monthly")}
+      options={FEE_CADENCE_OPTIONS}
+      wrapperClassName={FEE_CADENCE_SELECT_WIDTH}
+    />
   );
 }
 

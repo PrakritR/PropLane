@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
-import { Input, NativeSelect } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import {
   Modal,
   ModalFooter,
@@ -426,8 +426,9 @@ export function ManagerPipelineLeaseEditModal({
                 regenerate.
               </p>
             ) : (
-              <NativeSelect
+              <Select
                 id="resident-lease-generate-type"
+                aria-label="Lease format"
                 value={selectedChoiceId ?? ""}
                 onChange={(e) => setSelectedChoiceId(e.target.value || null)}
                 data-attr="resident-lease-generate-type-select"
@@ -437,7 +438,7 @@ export function ManagerPipelineLeaseEditModal({
                     {choice.label}
                   </option>
                 ))}
-              </NativeSelect>
+              </Select>
             )}
           </div>
         ) : null}

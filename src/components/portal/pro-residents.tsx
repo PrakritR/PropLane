@@ -21,7 +21,7 @@ import {
   type ResidentOverviewServiceItem,
 } from "@/components/portal/pro-resident-overview-panel";
 import { PortalPageChrome, PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
-import {Input, Textarea, Select, NativeSelect} from "@/components/ui/input";
+import {Input, Textarea, Select} from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import {
   Modal,
@@ -4710,7 +4710,8 @@ export function ManagerResidents({
             </div>
             <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
               <span className="font-medium text-muted">Lease term</span>
-              <NativeSelect
+              <Select
+                aria-label="Lease term"
                 value={erLeaseTermSelectValue}
                 onChange={(e) => {
                   const selected = e.target.value;
@@ -4731,7 +4732,7 @@ export function ManagerResidents({
                     {opt.label}
                   </option>
                 ))}
-              </NativeSelect>
+              </Select>
               {erLeaseTermSelectValue === RESIDENT_LEASE_TERM_CUSTOM ? (
                 <Input
                   className="mt-2"
@@ -4744,7 +4745,8 @@ export function ManagerResidents({
             {erShowBundleSelect ? (
               <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
                 <span className="font-medium text-muted">Lease bundle</span>
-                <NativeSelect
+                <Select
+                  aria-label="Lease bundle"
                   value={erBundleId}
                   disabled={!erPropertyId || !erLeaseTerm}
                   onChange={(e) => {
@@ -4763,7 +4765,7 @@ export function ManagerResidents({
                       {o.label}
                     </option>
                   ))}
-                </NativeSelect>
+                </Select>
                 <p className="mt-1 text-xs text-muted">
                   {erRentedByRoom
                     ? "Choose a bundle instead of a single room, or leave as none."
@@ -4774,7 +4776,8 @@ export function ManagerResidents({
             {erShowRoomSelect ? (
               <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
                 <span className="font-medium text-muted">Room</span>
-                <NativeSelect
+                <Select
+                  aria-label="Room"
                   value={erRoomId}
                   onChange={(e) => {
                     setErRoomId(e.target.value);
@@ -4788,7 +4791,7 @@ export function ManagerResidents({
                       {residentRoomRentSuffix(r, erIsShortTermStay)}
                     </option>
                   ))}
-                </NativeSelect>
+                </Select>
               </label>
             ) : erShowRoomSetupNote ? (
               <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>

@@ -8,9 +8,12 @@ import {
   type ReactNode,
   type SelectHTMLAttributes,
 } from "react";
-import { ChevronDown } from "lucide-react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
-import type { CheckboxMultiSelectGroup, CheckboxMultiSelectOption } from "@/components/ui/checkbox-multi-select";
+import type {
+  CheckboxMultiSelectGroup,
+  CheckboxMultiSelectOption,
+  FieldSelectVariant,
+} from "@/components/ui/checkbox-multi-select";
 import { partitionFieldSelectClasses } from "@/components/ui/field-select-styles";
 
 const fieldBase =
@@ -68,24 +71,6 @@ export function Textarea({ className = "", ...props }: React.TextareaHTMLAttribu
   return <textarea className={`${textareaBase} ${className}`} {...props} />;
 }
 
-/** Real `<select>` — OS-native picker. Avoid in portal UI; use {@link Select} instead. */
-export function NativeSelect({ className = "", children, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
-  return (
-    <div className="relative w-full">
-      <select
-        className={`${fieldBase} appearance-none pr-10 ${className}`.trim()}
-        {...props}
-      >
-        {children}
-      </select>
-      <ChevronDown
-        className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
-        aria-hidden
-      />
-    </div>
-  );
-}
-
 /** Native-select API backed by the shared portaled field dropdown (opaque white menu + search). */
 export function Select({
   className = "",
@@ -93,8 +78,16 @@ export function Select({
   value,
   onChange,
   disabled,
+  variant,
+  inherited,
   ...props
-}: SelectHTMLAttributes<HTMLSelectElement> & { "data-attr"?: string }) {
+}: SelectHTMLAttributes<HTMLSelectElement> & {
+  "data-attr"?: string;
+  /** `cell` sits inside a 36px grid row; `pill` is a toolbar filter. Default is the 44px form field. */
+  variant?: FieldSelectVariant;
+  /** Grid-row cell still following its shared default — dashed, grey. */
+  inherited?: boolean;
+}) {
   const { options, groups } = useMemo(() => optionsFromSelectChildren(children), [children]);
   const flatOptions = groups.length > 0 ? groups.flatMap((group) => group.options) : options;
   const emptyOption = flatOptions.find((o) => o.value === "");
@@ -120,6 +113,8 @@ export function Select({
       groups={groups.length > 0 ? groups : undefined}
       disabled={disabled}
       placeholder={placeholder}
+      variant={variant}
+      inherited={inherited}
       dataAttr={props.id ? `select-${props.id}` : props["data-attr"] ? String(props["data-attr"]) : undefined}
     />
   );

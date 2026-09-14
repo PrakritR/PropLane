@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowDownRight, ArrowRight, ArrowUpRight, ChevronDown, Minus } from "lucide-react";
+import { ArrowDownRight, ArrowRight, ArrowUpRight, Minus } from "lucide-react";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS } from "@/components/ui/field-select-styles";
 import { useEffect, useMemo, useState } from "react";
 
 import { MonthlyProfitChart } from "@/components/portal/monthly-profit-chart";
@@ -270,26 +272,19 @@ export function FinancesPeriodSelect({
   onChange: (next: FinancesPeriodKind) => void;
 }) {
   return (
-    <label className="relative inline-flex h-9 shrink-0 items-center rounded-full border border-border bg-card pl-3 pr-8 text-[12.5px] font-semibold text-foreground">
-      <span className="sr-only">Period</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value as FinancesPeriodKind)}
-        data-attr="finances-period"
-        className="absolute inset-0 cursor-pointer opacity-0"
-        aria-label="Period"
-      >
-        {(Object.keys(FINANCES_PERIOD_LABELS) as FinancesPeriodKind[]).map((k) => (
-          <option key={k} value={k}>
-            {FINANCES_PERIOD_LABELS[k]}
-          </option>
-        ))}
-      </select>
-      <span aria-hidden>{FINANCES_PERIOD_LABELS[value]}</span>
-      <ChevronDown className="pointer-events-none absolute right-2.5 size-3.5 text-muted" aria-hidden />
-    </label>
+    <FieldSingleSelect
+      variant="pill"
+      label="Period"
+      value={value}
+      onChange={(next) => onChange(next as FinancesPeriodKind)}
+      options={(Object.keys(FINANCES_PERIOD_LABELS) as FinancesPeriodKind[]).map((k) => ({ value: k, label: FINANCES_PERIOD_LABELS[k] }))}
+      dataAttr="finances-period"
+      triggerClassName={FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS}
+    />
   );
 }
+
+const ALL_PROPERTIES = "__all__";
 
 export function FinancesPropertySelect({
   value,
@@ -301,29 +296,18 @@ export function FinancesPropertySelect({
   onChange: (next: string) => void;
 }) {
   if (options.length === 0) return null;
-  const label = options.find((o) => o.id === value)?.label ?? "All properties";
+  // "" (every property) rides as its own option so the pill never reads as an empty placeholder.
   return (
-    <label className="relative hidden h-9 max-w-[14rem] shrink-0 items-center rounded-full border border-border bg-card pl-3 pr-8 text-[12.5px] font-semibold text-foreground md:inline-flex">
-      <span className="sr-only">Property</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        data-attr="finances-property"
-        className="absolute inset-0 cursor-pointer opacity-0"
-        aria-label="Property"
-      >
-        <option value="">All properties</option>
-        {options.map((o) => (
-          <option key={o.id} value={o.id}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-      <span aria-hidden className="truncate">
-        {label}
-      </span>
-      <ChevronDown className="pointer-events-none absolute right-2.5 size-3.5 text-muted" aria-hidden />
-    </label>
+    <FieldSingleSelect
+      variant="pill"
+      label="Property"
+      value={value || ALL_PROPERTIES}
+      onChange={(next) => onChange(next === ALL_PROPERTIES ? "" : next)}
+      options={[{ value: ALL_PROPERTIES, label: "All properties" }, ...options.map((o) => ({ value: o.id, label: o.label }))]}
+      dataAttr="finances-property"
+      wrapperClassName="hidden max-w-[14rem] md:block"
+      triggerClassName={`${FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS} max-w-[14rem]`}
+    />
   );
 }
 

@@ -29,7 +29,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Input, Select } from "@/components/ui/input";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
-import { Field } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { Field, RowSelectCell } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { ManagerApplicationFeeWaiverCodesModal } from "@/components/portal/pro-application-fee-waiver-codes-modal";
 import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
 import {
@@ -99,6 +99,11 @@ const num = (raw: string) => {
 
 const MONTHLY_COLUMNS = "minmax(120px,1.2fr) 118px 118px 118px 124px minmax(150px,1.5fr)";
 const STAY_COLUMNS = "minmax(120px,1.2fr) 118px 118px 118px minmax(0,1fr)";
+
+const PRICING_MODE_OPTIONS = [
+  { value: "fixed", label: "Fixed" },
+  { value: "flexible", label: "Flexible" },
+] as const;
 
 const cell = (inherited: boolean, zero = false) =>
   cn(
@@ -306,10 +311,7 @@ function MonthlyTable({
             <span className="text-[13px] text-muted">{moneyValue(defaults.securityDeposit) ? usd(num(defaults.securityDeposit)) : "—"}</span>
           )}
           {base ? (
-            <select aria-label="Listed rent for every room" value={defaults.pricingMode || "fixed"} onChange={(e) => onDefault("pricingMode", e.target.value)} className={cell(false)}>
-              <option value="fixed">Fixed</option>
-              <option value="flexible">Flexible</option>
-            </select>
+            <RowSelectCell ariaLabel="Listed rent for every room" value={defaults.pricingMode || "fixed"} options={PRICING_MODE_OPTIONS} onChange={(v) => onDefault("pricingMode", v)} />
           ) : (
             <span className="text-[13px] text-muted">{defaults.pricingMode === "flexible" ? "Flexible" : "Fixed"}</span>
           )}
@@ -366,16 +368,14 @@ function MonthlyTable({
                 onChange={(v) => onRoom(room.id, base ? { ...room, securityDeposit: v } : writeTerm(room, term, "securityDeposit", v))}
               />
               <span className="relative min-w-0">
-                <select
-                  aria-label={`Listed rent for ${name}`}
+                <RowSelectCell
+                  ariaLabel={`Listed rent for ${name}`}
                   value={room.pricingMode ?? defaults.pricingMode ?? "fixed"}
+                  options={PRICING_MODE_OPTIONS}
+                  inherited={!modeOwn}
                   disabled={!base}
-                  onChange={(e) => onRoom(room.id, { ...room, pricingMode: e.target.value as ManagerRoomSubmission["pricingMode"] })}
-                  className={cn(cell(!modeOwn), "disabled:opacity-70")}
-                >
-                  <option value="fixed">Fixed</option>
-                  <option value="flexible">Flexible</option>
-                </select>
+                  onChange={(v) => onRoom(room.id, { ...room, pricingMode: v as ManagerRoomSubmission["pricingMode"] })}
+                />
                 {modeOwn ? <span aria-hidden className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full border-2 border-white bg-primary" /> : null}
               </span>
               {feeChips(room.id)}
