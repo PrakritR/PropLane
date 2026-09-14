@@ -21,6 +21,10 @@ import {
 } from "@/lib/payment-policy";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import {
+  loadWorkspacePaymentSettings,
+  saveWorkspacePaymentSettings,
+} from "@/lib/workspace-payment-settings.server";
 
 export const runtime = "nodejs";
 
@@ -103,6 +107,9 @@ export async function GET(req: Request) {
         : undefined;
     return NextResponse.json({
       settings: managerManualPaymentSettingsPublic(settings),
+      /* Payment setup is answered per workspace; the modal reads this to show
+         which workspace it is editing and what that workspace currently says. */
+      workspacePaymentSettings: await loadWorkspacePaymentSettings(ctx.db, ctx.userId),
       ...(propertyServiceFeePayers ? { propertyServiceFeePayers } : {}),
     });
   } catch (e) {
@@ -116,7 +123,7 @@ export async function PATCH(req: Request) {
     const ctx = await requireManager();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const body = (await req.json()) as Record<string, unknown>;
-    const { propertyIds, propertyServiceFeePayers, ...rest } = body;
+    const { propertyIds, propertyServiceFeePayers, workspaceId, workspaceServiceFeePayer, ...rest } = body;
     const feePayerUpdates = parsePropertyServiceFeePayerUpdates(propertyServiceFeePayers);
     const hasSettingsPatch = Object.keys(rest).length > 0;
     let settings = await loadManagerManualPaymentSettings(ctx.db, ctx.userId);
@@ -138,6 +145,32 @@ export async function PATCH(req: Request) {
         accountWaiverGranted: grant,
       });
     }
+    /*
+     * A workspace-scoped save. The id is re-checked against the signed-in
+     * owner inside `saveWorkspacePaymentSettings`, so an id from the body can
+     * never reach another account's workspace — ids in a request are not
+     * authorization, as everywhere else in this route.
+     */
+    let workspaceSaved = false;
+    if (typeof workspaceId === "string" && workspaceId.trim()) {
+      const choice =
+        workspaceServiceFeePayer === "resident" ||
+        workspaceServiceFeePayer === "manager" ||
+        workspaceServiceFeePayer === "proplane"
+          ? (workspaceServiceFeePayer as ServiceFeePayer)
+          : null;
+      if (choice === "proplane" && !(await accountWaiverGranted(ctx.db, ctx.userId, settings))) {
+        return NextResponse.json({ error: LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID }, { status: 400 });
+      }
+      const result = await saveWorkspacePaymentSettings(ctx.db, ctx.userId, workspaceId.trim(), {
+        serviceFeePayer: choice,
+      });
+      if (!result.saved) {
+        return NextResponse.json({ error: "That workspace is not available." }, { status: 404 });
+      }
+      workspaceSaved = true;
+    }
+
     const requestedPropertyIds = Array.isArray(propertyIds)
       ? propertyIds.filter((id): id is string => typeof id === "string")
       : undefined;
@@ -158,6 +191,9 @@ export async function PATCH(req: Request) {
         : { listingsUpdated: 0 };
     return NextResponse.json({
       settings: managerManualPaymentSettingsPublic(settings),
+      ...(workspaceSaved
+        ? { workspacePaymentSettings: await loadWorkspacePaymentSettings(ctx.db, ctx.userId) }
+        : {}),
       listingsUpdated: propagation.listingsUpdated + feePayerPropagation.listingsUpdated,
       chargesUpdated: propagation.chargesUpdated,
       ...(feePayerUpdates.length > 0
