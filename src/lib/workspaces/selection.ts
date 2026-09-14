@@ -13,11 +13,10 @@ function activeWorkspace() {
 }
 
 /**
- * True while the account is a single workspace — the workspace IS the account,
- * so nothing can bleed between workspaces and a record the server has not
- * placed yet keeps showing exactly where it always did. The moment a second
- * workspace exists the portfolio is partitioned and membership is the only
- * test: an unplaced record belongs to no workspace and appears in none.
+ * True once the account holds more than one workspace. Only account-level
+ * rows (no house at all) consult this: they live in the owned default
+ * workspace of a single-workspace account and nowhere once it is partitioned.
+ * A row that names a house never does — see `workspaceContainsProperty`.
  */
 function accountIsPartitioned(): boolean {
   return (selection?.workspaces.length ?? 0) > 1;
@@ -31,12 +30,16 @@ export function workspaceContainsProperty(propertyId: string | null | undefined)
   // its only home, so it never appears in a second workspace.
   const id = propertyId?.trim();
   if (!id) return active.owned && active.isDefault && !accountIsPartitioned();
-  if (active.propertyIds.some((known) => known.trim() === id)) return true;
-  // A house this workspace does not hold never bleeds in — not one that belongs
-  // to another workspace, and not one no workspace claims. Before workspaces
-  // were partitioned, an unplaced house fell back to the default workspace;
-  // that fallback is what made an empty workspace show the whole account.
-  return !accountIsPartitioned() && active.owned && active.isDefault;
+  // Membership is the only test. A house this workspace does not hold never
+  // shows here — not one that belongs to another workspace, and not one no
+  // workspace claims at all. There used to be a fallback that let an unplaced
+  // house into a single-workspace account's default workspace, on the theory
+  // that a record the server had not placed yet should not vanish. In practice
+  // every row that names a house (a tour, an application, a lease) names a
+  // house the server already holds, so the only thing the fallback ever let
+  // through was seed data for houses that do not exist — which is exactly how
+  // a workspace with zero properties came to show eight tours, twice.
+  return active.propertyIds.some((known) => known.trim() === id);
 }
 
 /** Application / lease rows carry the property id in one of several fields. */
@@ -57,15 +60,14 @@ export function filterRowsInActiveWorkspace<T>(
 
 /**
  * The houses the active workspace holds, as a scope every list can pass down.
- * `null` means "not narrowing" — the selection has not loaded, or the account
- * is a single workspace. An EMPTY ARRAY means the workspace genuinely holds no
- * houses, which is not the same thing: a caller that treats it as "no filter"
- * shows the whole account in an empty workspace.
+ * `null` means "not narrowing" — the selection has not loaded yet. An EMPTY
+ * ARRAY means the workspace genuinely holds no houses, which is not the same
+ * thing: a caller that treats it as "no filter" shows the whole account in an
+ * empty workspace.
  */
 export function activeWorkspacePropertyIds(): string[] | null {
   const active = activeWorkspace();
   if (!active) return null;
-  if (!accountIsPartitioned()) return null;
   return active.propertyIds.map((id) => id.trim()).filter(Boolean);
 }
 
