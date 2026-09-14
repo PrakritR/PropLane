@@ -16,7 +16,7 @@ vi.mock("@/lib/auth/co-manager-module-scope", () => ({
   }),
 }));
 
-import { loadManagerTasks, patchManagerTaskRow } from "@/lib/manager-tasks.server";
+import { OWNER_ONLY_TASK_CHANGE_ERROR, loadManagerTasks, patchManagerTaskRow } from "@/lib/manager-tasks.server";
 import { managerTasksStorageKey } from "@/lib/manager-tasks";
 
 type Task = Record<string, unknown>;
@@ -101,13 +101,50 @@ describe("manager task assignee scope", () => {
     expect(saved[0]!.id).toBe(OWNER_KEY);
   });
 
-  it("the assignee cannot reassign it away or move it to another house", async () => {
+  it("the assignee cannot reassign it away or move it to another house — and is told so", async () => {
     const db = mockDb({ [CM_KEY]: [], [OWNER_KEY]: [task("assigned-1", "cm-1")] });
     await expect(
       patchManagerTaskRow(db as never, "cm-1", "assigned-1", {
         assignee: { type: "team", id: "cm-2", name: "Other" },
       }),
-    ).rejects.toThrow("Task not found.");
+    ).rejects.toThrow(OWNER_ONLY_TASK_CHANGE_ERROR);
+    await expect(
+      patchManagerTaskRow(db as never, "cm-1", "assigned-1", { propertyId: "house-2" }),
+    ).rejects.toThrow(OWNER_ONLY_TASK_CHANGE_ERROR);
+    expect(saved).toHaveLength(0);
+  });
+
+  it("the assignee can edit the rest even though the popup re-sends assignee + property unchanged", async () => {
+    // The edit popup autosaves the WHOLE form on every keystroke — assignee and
+    // property included, untouched. That must read as "no change", not as a
+    // reassignment: refusing it left every assigned task uneditable ("Couldn't save").
+    const db = mockDb({
+      [CM_KEY]: [],
+      [OWNER_KEY]: [{ ...task("assigned-1", "cm-1"), propertyId: "house-1", notes: "old" }],
+    });
+    const next = await patchManagerTaskRow(db as never, "cm-1", "assigned-1", {
+      notes: "door code is 4321",
+      assignee: { type: "team", id: "cm-1", name: "Someone (renamed)" },
+      propertyId: "house-1",
+    });
+    expect(next.notes).toBe("door code is 4321");
+    expect(next.assignee).toMatchObject({ type: "team", id: "cm-1" });
+    expect(next.propertyId).toBe("house-1");
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.id).toBe(OWNER_KEY);
+  });
+
+  it("the assignee cannot clear the property or unassign themselves either", async () => {
+    const db = mockDb({
+      [CM_KEY]: [],
+      [OWNER_KEY]: [{ ...task("assigned-1", "cm-1"), propertyId: "house-1" }],
+    });
+    await expect(
+      patchManagerTaskRow(db as never, "cm-1", "assigned-1", { propertyId: "" }),
+    ).rejects.toThrow(OWNER_ONLY_TASK_CHANGE_ERROR);
+    await expect(
+      patchManagerTaskRow(db as never, "cm-1", "assigned-1", { assignee: null }),
+    ).rejects.toThrow(OWNER_ONLY_TASK_CHANGE_ERROR);
     expect(saved).toHaveLength(0);
   });
 

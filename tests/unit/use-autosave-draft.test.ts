@@ -159,6 +159,7 @@ describe("useAutosaveDraft", () => {
       await Promise.resolve();
     });
     expect(result.current.state).toBe("error");
+    expect(result.current.reason).toBe("offline");
     expect(result.current.dirty).toBe(true);
     fail = false;
     await act(async () => {
@@ -169,6 +170,22 @@ describe("useAutosaveDraft", () => {
     expect(save).toHaveBeenCalledTimes(2);
     expect(save).toHaveBeenLastCalledWith({ title: "Fix sink", notes: "bring a wrench" });
     expect(result.current.state).toBe("saved");
+    expect(result.current.reason).toBeNull();
+  });
+
+  it("a failed write with no message leaves reason empty, so the mark stays a bare retry", async () => {
+    const save = vi.fn(async () => {
+      throw new Error("");
+    });
+    const { result, rerender, initial } = setup({ save });
+    rerender({ draft: { ...initial, title: "X" }, enabled: true });
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.state).toBe("error");
+    expect(result.current.reason).toBeNull();
   });
 
   it("flush() sends the pending draft immediately, for the close handler", async () => {
@@ -192,5 +209,6 @@ describe("useAutosaveDraft", () => {
       await Promise.resolve();
     });
     expect(result.current.state).toBe("error");
+    expect(result.current.reason).toBe("nope");
   });
 });

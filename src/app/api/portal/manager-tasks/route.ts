@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 import { processDueTaskReminders } from "@/lib/manager-default-tasks.server";
 import {
+  OWNER_ONLY_TASK_CHANGE_ERROR,
   createManagerTaskRow,
   deleteManagerTaskRow,
   loadManagerTasks,
@@ -16,6 +17,7 @@ const USER_FACING_TASK_ERRORS = new Set([
   "Task not found.",
   "id required.",
   "Assignee is required.",
+  OWNER_ONLY_TASK_CHANGE_ERROR,
 ]);
 
 function taskRouteError(e: unknown, fallback: string): string {
