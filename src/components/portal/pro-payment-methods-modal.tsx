@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Modal, ModalFooter } from "@/components/ui/modal";
-import { Button } from "@/components/ui/button";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/input";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
@@ -132,23 +131,26 @@ export function ManagerPaymentMethodsModal({
     });
   };
 
-  const handleClose = () => {
-    setPropertyId("");
-    onClose();
-  };
+  const storedMethods = useMemo(
+    () => new Set(acceptedPaymentMethodsForListing(selectedProperty?.submission)),
+    [selectedProperty],
+  );
+  const isDirty =
+    !!selectedProperty &&
+    (selectedMethods.size !== storedMethods.size || [...selectedMethods].some((m) => !storedMethods.has(m)));
 
-  async function save() {
-    if (!managerUserId || !selectedProperty) {
-      showToast("Select a property first.");
-      return;
-    }
+  // No Save button: closing the dialog (or switching to another property) is
+  // the save. A selection with no method left is refused with the same toast
+  // an explicit save used to raise, and the dialog stays open so it can be fixed.
+  async function saveIfDirty(): Promise<boolean> {
+    if (!isDirty || !managerUserId || !selectedProperty) return true;
     if (!selectedProperty.submission) {
       showToast("Could not find this property's payment settings.");
-      return;
+      return false;
     }
     if (selectedMethods.size === 0) {
       showToast("Select at least one payment method.");
-      return;
+      return false;
     }
     setSaving(true);
     const nextSubmission = {
@@ -159,11 +161,31 @@ export function ManagerPaymentMethodsModal({
     setSaving(false);
     if (!ok) {
       showToast("Could not save payment methods. Try again.");
-      return;
+      return false;
     }
     showToast("Accepted payment methods saved.");
-    handleClose();
+    return true;
   }
+
+  // One click can reach here twice (header × plus the dialog's own dismiss);
+  // the ref keeps that from saving — and toasting — twice.
+  const closingRef = useRef(false);
+  const handleClose = () => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    void saveIfDirty().then((ok) => {
+      closingRef.current = false;
+      if (!ok) return;
+      setPropertyId("");
+      onClose();
+    });
+  };
+
+  const changeProperty = (nextPropertyId: string) => {
+    void saveIfDirty().then((ok) => {
+      if (ok) setPropertyId(nextPropertyId);
+    });
+  };
 
   const noProperties = propertyOptions.length === 0;
 
@@ -172,20 +194,7 @@ export function ManagerPaymentMethodsModal({
       open={open}
       title="Set payment methods"
       onClose={handleClose}
-      footer={
-        <ModalFooter>
-          <Button
-            type="button"
-            variant="primary"
-            className="rounded-full"
-            onClick={() => save()}
-            disabled={saving || !propertyId}
-            data-attr="manager-payment-methods-save"
-          >
-            {saving ? "Saving…" : "Save"}
-          </Button>
-        </ModalFooter>
-      }
+      dismissBlocked={saving}
     >
       <div className="space-y-4 text-sm">
         <p className="text-muted">Choose which payment methods residents can select for this property.</p>
@@ -193,8 +202,8 @@ export function ManagerPaymentMethodsModal({
           <span className="font-medium text-muted">Property</span>
           <Select
             value={propertyId}
-            onChange={(e) => setPropertyId(e.target.value)}
-            disabled={noProperties}
+            onChange={(e) => changeProperty(e.target.value)}
+            disabled={noProperties || saving}
             data-attr="manager-payment-methods-property-select"
           >
             <option value="">{noProperties ? "No properties in portfolio" : "Select property"}</option>
@@ -213,13 +222,14 @@ export function ManagerPaymentMethodsModal({
                 className="h-4 w-4 shrink-0 rounded border-border"
                 checked={selectedMethods.has(method)}
                 onChange={() => toggleMethod(method)}
-                disabled={!propertyId}
+                disabled={!propertyId || saving}
                 data-attr={`manager-accepted-payment-method-${method}`}
               />
               <span className="text-sm font-medium text-foreground">{RESIDENT_ACCEPTED_PAYMENT_METHOD_LABELS[method]}</span>
             </label>
           ))}
         </div>
+        <p className="text-xs text-muted">{saving ? "Saving…" : "Saved when you close this."}</p>
       </div>
     </Modal>
   );
