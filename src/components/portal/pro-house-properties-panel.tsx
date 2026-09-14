@@ -1,7 +1,7 @@
 "use client";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
-import { activeWorkspaceScope, propertiesOutsideActiveWorkspace, workspaceContainsProperty } from "@/lib/workspaces/selection";
+import { WORKSPACE_SELECTION_EVENT, activeWorkspaceScope, propertiesOutsideActiveWorkspace, workspaceContainsProperty } from "@/lib/workspaces/selection";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -1323,14 +1323,20 @@ export function ManagerHousePropertiesPanel({
         setTick((t) => t + 1);
       });
     };
+    // Workspace membership decides which rows show; when it is re-read (a home
+    // created in this session just became a member) the rows must be re-read
+    // too, without another server round trip.
+    const onWorkspace = () => setTick((t) => t + 1);
     window.addEventListener(PROPERTY_PIPELINE_EVENT, on);
     window.addEventListener("axis-pro-relationships", on);
     // A lease signed elsewhere changes the occupancy chip on its row.
     window.addEventListener(LEASE_PIPELINE_EVENT, on);
+    window.addEventListener(WORKSPACE_SELECTION_EVENT, onWorkspace);
     return () => {
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, on);
       window.removeEventListener("axis-pro-relationships", on);
       window.removeEventListener(LEASE_PIPELINE_EVENT, on);
+      window.removeEventListener(WORKSPACE_SELECTION_EVENT, onWorkspace);
     };
   }, [scopeUserId]);
 

@@ -79,7 +79,8 @@ export function ListingWizardV2({
 }: {
   onClose: () => void;
   /** Called once the draft is safely on the server. */
-  onSaved?: (sub: ManagerListingSubmissionV1) => void;
+  /** After "Save & exit". `savedId` is the record the draft or listing was written to. */
+  onSaved?: (sub: ManagerListingSubmissionV1, savedId?: string) => void;
   /**
    * Receives the PUBLISHED LISTING ID, not the submission.
    *
@@ -191,7 +192,7 @@ export function ListingWizardV2({
             return;
           }
           markSaved(prepared.submission);
-          onSaved?.(prepared.submission);
+          onSaved?.(prepared.submission, result.id);
           showToast?.(
             prepared.droppedMediaCount > 0
               ? "Changes saved. Some attachments could not upload and were removed."
@@ -208,7 +209,7 @@ export function ListingWizardV2({
           return;
         }
         markSaved(prepared.submission);
-        onSaved?.(prepared.submission);
+        onSaved?.(prepared.submission, result.id);
         showToast?.(
           prepared.droppedMediaCount > 0
             ? "Saved to Drafts. Some attachments could not upload and were removed."

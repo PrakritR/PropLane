@@ -529,7 +529,18 @@ export function ManagerProperties({
         <ListingWizardOverlay>
           <ListingWizardV2
             onClose={dismissFirstListingWizard}
-            onSaved={() => refreshPending()}
+            onSaved={(_sub, savedId) => {
+              // "Save & exit" on a NEW property opens that property, exactly as
+              // Publish does — a manager who just made a home expects to land in
+              // it, not back on a list that may not even show it yet.
+              void refreshPending().then(() => {
+                const id = savedId?.trim();
+                if (!id) return;
+                setWizardOpen(false);
+                setResumeDraftId(null);
+                router.push(propertyDetailHref(basePath, "drafts", id, "preview"), { scroll: false });
+              });
+            }}
             onPublished={(listingId) => {
               setWizardOpen(false);
               setResumeDraftId(null);
