@@ -13,6 +13,7 @@ import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
 import { PortalTextNotificationsBlock } from "@/components/portal/portal-text-notifications-block";
+import { ResidentNotificationPreferencesSettings } from "@/components/portal/resident-notification-preferences-settings";
 import {
   PortalSettingsField,
   PortalSettingsFormBody,
@@ -425,6 +426,7 @@ export function ResidentProfilePanel({
                 </PortalSettingsRow>
               </PortalSettingsGroup>
             </PortalSettingsSection>
+            <ResidentNotificationPreferencesSettings />
             <AssistantCustomInstructionsSetting role="resident" />
             <NotificationsToggle />
           </>
