@@ -12,7 +12,10 @@ describe("PRP-427 guest Stripe apply finish + multi-property waive", () => {
   const WIZARD = read("src/components/marketing/rental-application-wizard.tsx");
   const CHECKOUT = read("src/app/api/stripe/application-fee-checkout/route.ts");
   const SETTINGS = read("src/components/portal/pro-portal-settings-panels.tsx");
-  const MODAL = read("src/components/portal/pro-portal-settings-modal.tsx");
+  // The Applications panel's property-selection wiring moved out of the modal into
+  // `SettingsModulePage`, the one component both the dialog and the standalone
+  // `/portal/settings/<tab>` page render — see that file's own header comment.
+  const MODULE_PAGE = read("src/components/portal/settings-module-page.tsx");
 
   it("renders the finish panel before the manager-link gate", () => {
     const finishIdx = WIZARD.indexOf("{postSubmit ? (");
@@ -43,7 +46,7 @@ describe("PRP-427 guest Stripe apply finish + multi-property waive", () => {
     expect(SETTINGS).toContain("CheckboxMultiSelect");
     expect(SETTINGS).toContain('data-attr="manager-settings-properties-select-all"');
     expect(SETTINGS).toContain("Select all");
-    expect(MODAL).toContain("onPropertyIdsChange");
-    expect(MODAL).toContain("onWaiverCodeCommit");
+    expect(MODULE_PAGE).toContain("onPropertyIdsChange");
+    expect(MODULE_PAGE).toContain("onWaiverCodeCommit");
   });
 });

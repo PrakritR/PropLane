@@ -154,8 +154,12 @@ const nextConfig: NextConfig = {
       { source: "/resident/announcements/:path*", destination: "/resident/dashboard", permanent: false },
       { source: "/resident/settings", destination: "/resident/profile", permanent: false },
       { source: "/resident/settings/:path*", destination: "/resident/profile", permanent: false },
-      { source: "/portal/settings", destination: "/portal/profile", permanent: false },
-      { source: "/portal/settings/:path*", destination: "/portal/profile", permanent: false },
+      // `/portal/settings/*` is deliberately NOT redirected — it is a real section (per-module
+      // settings, e.g. `/portal/settings/tours`), handled in render-portal-section.tsx's own
+      // "settings" branch, which owns bare `/portal/settings`'s own redirect to a default module.
+      // Do not reintroduce a catch-all redirect here: `redirects()` outranks the app router, so it
+      // would swallow the section before it ever renders (this is exactly what happened before —
+      // see tests/unit/portal-settings-section-route.test.ts's redirect-config guard).
       { source: "/admin/settings", destination: "/admin/profile", permanent: false },
       { source: "/admin/settings/:path*", destination: "/admin/profile", permanent: false },
       { source: "/resident/support", destination: "/resident/dashboard", permanent: false },
