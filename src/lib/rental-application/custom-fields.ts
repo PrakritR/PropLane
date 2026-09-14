@@ -8,7 +8,7 @@ import {
 } from "@/lib/manager-listing-submission";
 import { isLegitimateEmail } from "@/lib/email-address";
 import { isCompletePhoneNumber } from "@/lib/phone-number-field";
-import { applicationWizardStepForSection } from "./application-sections";
+import { applicationWizardStepForSection, RENTAL_APPLICATION_SECTIONS } from "./application-sections";
 import type { ApplicationPhotoAttachment, RentalCustomFieldAnswer } from "./types";
 
 /** Error-map key for a custom question (RentalWizardErrors is a flat string map). */
@@ -106,8 +106,8 @@ export function customFieldAnswerValue(
 }
 
 /**
- * Set one answer, snapshotting the question's label/type alongside the value.
- * Keeps answer order aligned with the question order the applicant saw.
+ * Set one answer, snapshotting the question's label/type/section alongside the
+ * value. Keeps answer order aligned with the question order the applicant saw.
  */
 export function upsertCustomFieldAnswer(
   answers: RentalCustomFieldAnswer[],
@@ -118,6 +118,7 @@ export function upsertCustomFieldAnswer(
     key: field.key,
     label: field.label,
     type: field.type,
+    section: field.section,
     value,
   };
   const idx = answers.findIndex((a) => a.key === field.key);
@@ -223,4 +224,48 @@ export function displayableCustomFieldAnswers(
   return answers.filter(
     (a) => a && typeof a.key === "string" && typeof a.label === "string" && a.label.trim() && (a.type === "checkbox" || String(a.value ?? "").trim()),
   );
+}
+
+/** Section id used for a displayable custom answer that has one; null groups it as sectionless. */
+function knownSectionIdOrNull(answer: RentalCustomFieldAnswer): string | null {
+  const section = answer.section;
+  if (!section) return null;
+  return RENTAL_APPLICATION_SECTIONS.some((s) => s.id === section) ? section : null;
+}
+
+/**
+ * Custom answers grouped by the section that asked them, for section-headed
+ * review UI. Groups follow {@link RENTAL_APPLICATION_SECTIONS} order; an
+ * answer stored before `section` existed, or tagged with a section id that no
+ * longer exists, is never dropped — it lands in a trailing "Other questions"
+ * group instead of throwing or vanishing. Uses
+ * {@link displayableCustomFieldAnswers} first so blank answers stay filtered
+ * exactly as the flat list did.
+ */
+export function groupCustomFieldAnswersBySection(
+  answers: RentalCustomFieldAnswer[] | undefined,
+): Array<{ sectionId: string | null; title: string; answers: RentalCustomFieldAnswer[] }> {
+  const displayable = displayableCustomFieldAnswers(answers);
+  if (displayable.length === 0) return [];
+
+  const bySection = new Map<string, RentalCustomFieldAnswer[]>();
+  const sectionless: RentalCustomFieldAnswer[] = [];
+  for (const answer of displayable) {
+    const sectionId = knownSectionIdOrNull(answer);
+    if (sectionId === null) {
+      sectionless.push(answer);
+      continue;
+    }
+    const bucket = bySection.get(sectionId);
+    if (bucket) bucket.push(answer);
+    else bySection.set(sectionId, [answer]);
+  }
+
+  const groups: Array<{ sectionId: string | null; title: string; answers: RentalCustomFieldAnswer[] }> = [];
+  for (const section of RENTAL_APPLICATION_SECTIONS) {
+    const bucket = bySection.get(section.id);
+    if (bucket && bucket.length > 0) groups.push({ sectionId: section.id, title: section.title, answers: bucket });
+  }
+  if (sectionless.length > 0) groups.push({ sectionId: null, title: "Other questions", answers: sectionless });
+  return groups;
 }
