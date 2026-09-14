@@ -57,6 +57,8 @@ import { resolvedFieldValue } from "@/lib/uploaded-lease-extraction";
 export type ExecutedLeaseTermsSource = {
   axisId?: string | null;
   residentEmail: string;
+  propertyId?: string | null;
+  fullySignedAt?: string | null;
   generatedHtml?: string | null;
   uploadedLeaseParse?: UploadedLeaseParse | null;
   signedLeaseSnapshots?: { generatedHtml?: string | null }[];
@@ -73,14 +75,22 @@ export type SignedLeaseTerms = {
 
 const SUMMARY_ROW = (label: string) =>
   new RegExp(
-    String.raw`<t[hd][^>]*>\s*${label}\s*</t[hd]>\s*<td[^>]*>\s*(?:<strong>)?\s*(\$\s?\d[\d,]*(?:\.\d{2})?)`,
+    String.raw`<t[hd][^>]*>\s*${label}\s*</t[hd]>\s*<td[^>]*>([\s\S]*?)</td>`,
     "i",
   );
 
-function moneyFromHtml(html: string, label: string): number | undefined {
-  const match = SUMMARY_ROW(label).exec(html);
-  if (!match) return undefined;
-  const amount = parseMoneyAmount(match[1]!);
+const COMPACT_PARAGRAPH = (label: string) =>
+  new RegExp(
+    String.raw`<p\b[^>]*>\s*<strong\b[^>]*>\s*${label}\s*:\s*</strong>([\s\S]*?)</p>`,
+    "i",
+  );
+
+function moneyFromHtml(html: string, label: string, compactLabel = label): number | undefined {
+  const value = SUMMARY_ROW(label).exec(html)?.[1] ?? COMPACT_PARAGRAPH(compactLabel).exec(html)?.[1];
+  if (value == null) return undefined;
+  const plain = value.trim().replace(/^<strong\b[^>]*>([\s\S]*)<\/strong>$/i, "$1").trim();
+  if (!/^\$\s*(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{2})?$/.test(plain)) return undefined;
+  const amount = parseMoneyAmount(plain);
   return Number.isFinite(amount) && amount >= 0 ? amount : undefined;
 }
 
@@ -95,7 +105,7 @@ export function signedTermsFromLeaseHtml(html: string | null | undefined): Signe
   const out: SignedLeaseTerms = {};
   const rent = moneyFromHtml(html, "Monthly rent");
   if (rent !== undefined && rent > 0) out.monthlyRent = rent;
-  const utilities = moneyFromHtml(html, "Monthly utilities");
+  const utilities = moneyFromHtml(html, "Monthly utilities", "Utilit(?:y|ies)");
   if (utilities !== undefined) out.monthlyUtilities = utilities;
   const deposit = moneyFromHtml(html, "Security deposit");
   if (deposit !== undefined) out.securityDeposit = deposit;
@@ -134,20 +144,36 @@ export function signedTermsFromExecutedLease(lease: ExecutedLeaseTermsSource | n
 
 /** The executed lease that covers this application row, by axis id or email (joint members included). */
 export function executedLeaseForRow(
-  row: Pick<DemoApplicantRow, "id" | "email">,
+  row: Pick<DemoApplicantRow, "id" | "email" | "assignedPropertyId" | "propertyId" | "application">,
   leases: readonly ExecutedLeaseTermsSource[],
 ): ExecutedLeaseTermsSource | null {
   const axisId = normalizeApplicationAxisId(row.id);
+  const exact = axisId ? leases.find((lease) =>
+    (lease.axisId && normalizeApplicationAxisId(lease.axisId) === axisId) ||
+    lease.jointLeaseMembers?.some((member) =>
+      member.applicationId && normalizeApplicationAxisId(member.applicationId) === axisId,
+    ),
+  ) : undefined;
+  if (exact) return exact;
+
   const email = row.email?.trim().toLowerCase() ?? "";
-  for (const lease of leases) {
-    if (axisId && lease.axisId && normalizeApplicationAxisId(lease.axisId) === axisId) return lease;
-    if (email && lease.residentEmail.trim().toLowerCase() === email) return lease;
-    for (const member of lease.jointLeaseMembers ?? []) {
-      if (axisId && member.applicationId && normalizeApplicationAxisId(member.applicationId) === axisId) return lease;
-      if (email && member.residentEmail.trim().toLowerCase() === email) return lease;
-    }
-  }
-  return null;
+  if (!email) return null;
+  const propertyId = row.assignedPropertyId?.trim() || row.propertyId?.trim() || row.application?.propertyId?.trim();
+  const matches = leases.filter((lease) =>
+    lease.residentEmail.trim().toLowerCase() === email ||
+    lease.jointLeaseMembers?.some((member) => member.residentEmail.trim().toLowerCase() === email),
+  );
+  const signedAt = (lease: ExecutedLeaseTermsSource): number => {
+    const time = Date.parse(lease.fullySignedAt ?? "");
+    return Number.isFinite(time) ? time : -Infinity;
+  };
+  return matches.reduce<ExecutedLeaseTermsSource | null>((best, lease) => {
+    if (!best) return lease;
+    const matchesProperty = Boolean(propertyId && lease.propertyId?.trim() === propertyId);
+    const bestMatchesProperty = Boolean(propertyId && best.propertyId?.trim() === propertyId);
+    if (matchesProperty !== bestMatchesProperty) return matchesProperty ? lease : best;
+    return signedAt(lease) > signedAt(best) ? lease : best;
+  }, null);
 }
 
 function hasAmount(raw: string | undefined | null): boolean {
