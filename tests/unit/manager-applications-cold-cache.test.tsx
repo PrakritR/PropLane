@@ -11,7 +11,7 @@
 // Set APPLICATIONS_COLD_CACHE_HTML_DIR to dump each rendered surface's HTML so
 // it can be screenshotted with the app's real stylesheet.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, cleanup } from "@testing-library/react";
 import fs from "node:fs";
 import path from "node:path";
 import type { DemoApplicantRow } from "@/data/demo-portal";
@@ -170,9 +170,7 @@ describe("manager Applications tab — pending application on a cold property ca
     expect(screen.getAllByText("The Magnolia · 2B").length).toBeGreaterThan(0);
     // Two assertions that used to live here are gone, because neither can be
     // read off this surface any more:
-    //   - "No applications yet" — an empty bucket now renders an inline
-    //     `PortalListAddRow`, and that row ALSO renders under a populated list,
-    //     so it is a render-settled signal, never an emptiness signal.
+    //   - "No applications yet" — empty copy alone is not a render-settled signal.
     //   - the Pending pill's count — routed `DestinationNav` items render the
     //     label only. The item type still accepts `count` and this panel still
     //     passes one, but nothing renders it, so the read only ever saw
@@ -189,9 +187,7 @@ describe("manager Applications tab — pending application on a cold property ca
 
     // Wait for the page shell before asserting an absence — otherwise "not
     // present yet" passes as "correctly filtered out".
-    await waitFor(() =>
-      expect(document.querySelector('[data-attr="applications-add-top"]')).not.toBeNull(),
-    );
+    await screen.findByRole("link", { name: /Pending/i });
     expect(screen.queryByText("Not Your Applicant")).toBeNull();
 
     dumpHtml("other-manager-hidden", container.innerHTML);
@@ -204,9 +200,7 @@ describe("manager Applications tab — pending application on a cold property ca
     ROWS = [{ ...RESIDENT_APPLICATION, managerUserId: "owner-user" }];
 
     const { container } = render(<ManagerApplications />);
-    await waitFor(() =>
-      expect(document.querySelector('[data-attr="applications-add-top"]')).not.toBeNull(),
-    );
+    await screen.findByRole("link", { name: /Pending/i });
     expect(screen.queryByText("Not Your Applicant")).toBeNull();
     dumpHtml("co-manager-before-hydrate", container.innerHTML);
 
