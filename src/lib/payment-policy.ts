@@ -98,6 +98,10 @@ export type ServiceFeePayerInputs = {
    * pick three of nine houses and leave the other six on whatever they had. A
    * single home may still be given its own answer above this, the way a room
    * may differ from the house it is in.
+   *
+   * A workspace `proplane` is written only through a coverage code at the
+   * moment it is chosen (captain, 2026-09-14); the code is kept with the
+   * workspace and re-checked at checkout as part of `waiverGranted`.
    */
   workspaceChoice?: ServiceFeePayer | null;
   /** The manager's account-wide default. */
@@ -286,6 +290,25 @@ export const LISTING_PROCESSING_FEE_WAIVER_CODE_HELP =
  */
 export const LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID =
   "That is not a processing coverage code. Check with PropLane if you were given one.";
+
+/**
+ * Under the Payment setup code field while PropLane pays is picked but not yet
+ * applied. Names the answer still in force so nobody reads a pending pick as
+ * a saved one.
+ */
+export function processingFeeProplanePendingHelp(previousPayerLabel: string): string {
+  return `Enter the processing coverage code PropLane gave you. ${previousPayerLabel} stays in effect until it is applied.`;
+}
+
+/** Pill next to the Payment setup select while a PropLane pays pick awaits its code. */
+export const PROCESSING_FEE_PROPLANE_PENDING_LABEL = "Not applied yet";
+
+/** Short names for the pending helper ("Resident pays stays in effect …"). */
+export const SERVICE_FEE_PAYER_SHORT_LABELS: Record<ServiceFeePayer, string> = {
+  resident: "Resident pays",
+  manager: "Manager pays",
+  proplane: "PropLane pays",
+};
 
 export const LISTING_PROCESSING_FEE_PROPLANE_NOT_ALLOWED =
   "PropLane pays needs a promo code, or a grant on your account.";

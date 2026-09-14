@@ -17,12 +17,13 @@ import {
 } from "@/lib/manager-manual-payment-settings";
 import { normalizeManagerSkuTier, type ManagerSkuTier } from "@/lib/manager-access";
 import {
-  LISTING_PROCESSING_FEE_WAIVER_CODE_HELP,
   LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID,
+  PROCESSING_FEE_PROPLANE_PENDING_LABEL,
   SERVICE_FEE_PAYER_OPTION_LABELS,
+  SERVICE_FEE_PAYER_SHORT_LABELS,
   managerCanSelectManagerAbsorbServiceFee,
-  managerCanSelectProplaneServiceFee,
   normalizeListingPaymentWaiverCode,
+  processingFeeProplanePendingHelp,
   resolveServiceFeePayerFor,
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
@@ -86,14 +87,20 @@ export function ManagerPaymentSetupModal({
     "";
   const activeWorkspace = ownedWorkspaces.find((w) => w.id === activeWorkspaceId) ?? null;
   /*
-    A manager PropLane has given a promo code to, but whose grant is not on the account
-    yet, still needs a door. The option itself only appears once the grant is
-    server-verified, so without this the code is unusable — and the server accepts one
-    (`resolveSavedServiceFeeSelection`). The field asks for a code; it never prints one.
+    PropLane pays is applied only by a code at the moment it is chosen (captain,
+    2026-09-14). Picking it holds the select on that answer and opens the code
+    field; nothing is saved until the server accepts the code, and the answer
+    already in force stays in force. The field asks for a code; it never prints one.
   */
-  const [waiverPromptOpen, setWaiverPromptOpen] = useState(false);
+  const [proplanePending, setProplanePending] = useState(false);
   const [waiverCodeDraft, setWaiverCodeDraft] = useState("");
   const [waiverCodeError, setWaiverCodeError] = useState<string | null>(null);
+
+  const cancelProplanePending = useCallback(() => {
+    setProplanePending(false);
+    setWaiverCodeDraft("");
+    setWaiverCodeError(null);
+  }, []);
 
   const visibleProperties = useMemo(() => {
     if (presetPropertyIds?.length) {
@@ -240,10 +247,14 @@ export function ManagerPaymentSetupModal({
   }, [open, loadStripeStatus, loadSettings, loadTier]);
 
   /* Reopening the modal drops any workspace the manager had switched to, so it
-     always opens on the workspace they are actually working in. */
+     always opens on the workspace they are actually working in. A pick that was
+     never applied is dropped with it, so it cannot reappear looking saved. */
   useEffect(() => {
-    if (!open) setSelectedWorkspaceId("");
-  }, [open]);
+    if (!open) {
+      setSelectedWorkspaceId("");
+      cancelProplanePending();
+    }
+  }, [open, cancelProplanePending]);
 
   useEffect(() => {
     if (!open) return;
@@ -259,12 +270,19 @@ export function ManagerPaymentSetupModal({
          signed-in owner, so this is a scope, never an authorization claim. */
       workspaceId?: string;
       workspaceServiceFeePayer?: ServiceFeePayer | null;
+      /* Sent with a `proplane` workspace choice; the route checks it against
+         the server-only list and refuses the save without a match. */
+      workspaceServiceFeeWaiverCode?: string;
     },
     savingId: string,
-  ) {
+    opts?: {
+      /* A refusal the caller shows in place (the code field) instead of a toast. */
+      onRefused?: (error: string) => void;
+    },
+  ): Promise<boolean> {
     if (!settingsLoaded && !demo) {
       showToast("Couldn't read your current payment setup, so nothing was changed. Reopen this window to try again.");
-      return;
+      return false;
     }
     setSavingKey(savingId);
     if (demo) {
@@ -285,7 +303,7 @@ export function ManagerPaymentSetupModal({
       }
       showToast("Saved (demo).");
       setSavingKey(null);
-      return;
+      return true;
     }
     try {
       const res = await fetch("/api/portal/manager-manual-payment-settings", {
@@ -305,8 +323,10 @@ export function ManagerPaymentSetupModal({
         error?: string;
       };
       if (!res.ok) {
-        showToast(data.error ?? "Could not save payment setup.");
-        return;
+        const error = data.error ?? "Could not save payment setup.";
+        if (opts?.onRefused) opts.onRefused(error);
+        else showToast(error);
+        return false;
       }
       if (data.settings) {
         setDraft(draftFromSettings({ ...data.settings, axisPaymentsEnabled: true }));
@@ -316,8 +336,10 @@ export function ManagerPaymentSetupModal({
         setPropertyFeePayers((prev) => ({ ...prev, ...data.propertyServiceFeePayers }));
       }
       showToast("Payment setup saved.");
+      return true;
     } catch {
       showToast("Could not save payment setup.");
+      return false;
     } finally {
       setSavingKey(null);
     }
@@ -338,7 +360,6 @@ export function ManagerPaymentSetupModal({
 
   const tier = skuTier ?? "free";
   const canSelectManagerAbsorb = managerCanSelectManagerAbsorbServiceFee(tier);
-  const canSelectProplane = managerCanSelectProplaneServiceFee(tier, paymentWaiverGranted === true);
   const showFeePayerSection =
     tier === "pro" || tier === "business" || (tier === "free" && paymentWaiverGranted);
   const accountDefaultPayer = resolveServiceFeePayerFor({
@@ -364,22 +385,21 @@ export function ManagerPaymentSetupModal({
         ? busyLabel(stripeBusy, "Finish setup")
         : busyLabel(stripeBusy, "Link Stripe");
 
+  /* PropLane pays is always offered: the option itself is the door to the code
+     field, and the code — not a grant on the account — is what applies it. */
   const feePayerOptions = useMemo(
-    () =>
-      [
-        { value: "resident" as const, label: SERVICE_FEE_PAYER_OPTION_LABELS.resident },
-        {
-          value: "manager" as const,
-          label: canSelectManagerAbsorb
-            ? SERVICE_FEE_PAYER_OPTION_LABELS.manager
-            : `${SERVICE_FEE_PAYER_OPTION_LABELS.manager} — needs paid plan`,
-          disabled: !canSelectManagerAbsorb,
-        },
-        ...(canSelectProplane
-          ? [{ value: "proplane" as const, label: SERVICE_FEE_PAYER_OPTION_LABELS.proplane }]
-          : []),
-      ],
-    [canSelectManagerAbsorb, canSelectProplane],
+    () => [
+      { value: "resident" as const, label: SERVICE_FEE_PAYER_OPTION_LABELS.resident },
+      {
+        value: "manager" as const,
+        label: canSelectManagerAbsorb
+          ? SERVICE_FEE_PAYER_OPTION_LABELS.manager
+          : `${SERVICE_FEE_PAYER_OPTION_LABELS.manager} — needs paid plan`,
+        disabled: !canSelectManagerAbsorb,
+      },
+      { value: "proplane" as const, label: SERVICE_FEE_PAYER_OPTION_LABELS.proplane },
+    ],
+    [canSelectManagerAbsorb],
   );
 
   const effectivePayerForProperty = useCallback(
@@ -393,6 +413,10 @@ export function ManagerPaymentSetupModal({
       }),
     [accountDefaultPayer, draft.adminServiceFeeOverride, paymentWaiverGranted, propertyFeePayers, tier],
   );
+
+  /** The answer in force for the workspace being edited — what a pending pick has not replaced. */
+  const savedWorkspacePayer: ServiceFeePayer =
+    workspaceFeePayers[activeWorkspaceId] ?? accountDefaultPayer ?? "resident";
 
   async function applyWaiverCode() {
     const code = normalizeListingPaymentWaiverCode(waiverCodeDraft);
@@ -408,29 +432,33 @@ export function ManagerPaymentSetupModal({
     }
     setWaiverCodeError(null);
     /*
-     * The code establishes the grant on the ACCOUNT; the workspace then records
-     * that PropLane covers it, which is the scope the fee is answered at.
-     *
-     * With no workspace resolved — the modal rendered outside the workspace
-     * provider, or its first load still in flight — this saves the account
-     * setting alone rather than refusing. Entering a valid code must never
-     * silently do nothing.
+     * One save, one scope: the workspace records PropLane pays together with
+     * the code that applied it, and the route refuses the pair unless the code
+     * checks out. With no workspace resolved — the modal rendered outside the
+     * workspace provider, or its first load still in flight — the account
+     * setting takes the same pair instead, which is what the workspace would
+     * inherit anyway. Entering a valid code must never silently do nothing.
      */
-    await persistSettings(
-      {
-        serviceFeePayer: "proplane",
-        serviceFeeWaiverCode: code,
-        ...(activeWorkspaceId
-          ? { workspaceId: activeWorkspaceId, workspaceServiceFeePayer: "proplane" as const }
-          : {}),
-      },
+    const saved = await persistSettings(
+      activeWorkspaceId
+        ? {
+            workspaceId: activeWorkspaceId,
+            workspaceServiceFeePayer: "proplane" as const,
+            workspaceServiceFeeWaiverCode: code,
+          }
+        : { serviceFeePayer: "proplane", serviceFeeWaiverCode: code },
       "fee-payer",
+      { onRefused: (error) => setWaiverCodeError(error) },
     );
+    if (!saved) return;
     if (activeWorkspaceId) {
       setWorkspaceFeePayers((prev) => ({ ...prev, [activeWorkspaceId]: "proplane" }));
     }
+    /* A code the server just accepted is a grant this screen may show: without
+       it the account-scoped answer would resolve back to "resident" on screen
+       while the server had in fact recorded PropLane pays. */
     setPaymentWaiverGranted(true);
-    setWaiverPromptOpen(false);
+    cancelProplanePending();
   }
 
   /**
@@ -442,7 +470,15 @@ export function ManagerPaymentSetupModal({
    */
   const applyFeeToWorkspace = (raw: ServiceFeePayer) => {
     if (raw === "manager" && !canSelectManagerAbsorb) return;
-    if (raw === "proplane" && !canSelectProplane) return;
+    if (raw === "proplane") {
+      /* Not a save. The select holds the pick and asks for the code; the
+         answer already in force stays in force until the code is accepted. */
+      setWaiverCodeDraft("");
+      setWaiverCodeError(null);
+      setProplanePending(true);
+      return;
+    }
+    cancelProplanePending();
     if (!activeWorkspaceId) {
       /* No workspace resolved yet: save the account setting, which is what the
          workspace would inherit anyway. Refusing here would make the control
@@ -522,7 +558,10 @@ export function ManagerPaymentSetupModal({
                 value={activeWorkspaceId}
                 options={ownedWorkspaces.map((w) => ({ value: w.id, label: w.name }))}
                 placeholder="Select a workspace…"
-                onChange={(next) => setSelectedWorkspaceId(next)}
+                onChange={(next) => {
+                  cancelProplanePending();
+                  setSelectedWorkspaceId(next);
+                }}
                 disabled={loading || Boolean(savingKey)}
                 dataAttr="manager-payment-setup-workspace"
               />
@@ -538,13 +577,78 @@ export function ManagerPaymentSetupModal({
 
             <FieldSingleSelect
               label="Processing fee paid by"
-              value={workspaceFeePayers[activeWorkspaceId] ?? accountDefaultPayer ?? ""}
+              value={proplanePending ? "proplane" : savedWorkspacePayer}
               options={feePayerOptions}
               placeholder="Select…"
               onChange={(next) => applyFeeToWorkspace(next as ServiceFeePayer)}
               disabled={loading || (!settingsLoaded && !demo) || savingKey === "fee-payer"}
               dataAttr="manager-service-fee-payer-select"
+              triggerClassName={proplanePending ? "border-primary ring-2 ring-primary/20" : undefined}
             />
+
+            {proplanePending ? (
+              <div
+                className="space-y-2 rounded-xl border border-primary/40 bg-primary/5 px-3 py-3"
+                data-testid="manager-service-fee-waiver-entry"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="block text-xs font-semibold text-foreground" htmlFor="manager-service-fee-waiver-code">
+                    Processing coverage code
+                  </label>
+                  <Badge tone="pending">{PROCESSING_FEE_PROPLANE_PENDING_LABEL}</Badge>
+                </div>
+                <input
+                  id="manager-service-fee-waiver-code"
+                  value={waiverCodeDraft}
+                  onChange={(event) => {
+                    setWaiverCodeDraft(normalizeListingPaymentWaiverCode(event.target.value));
+                    setWaiverCodeError(null);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void applyWaiverCode();
+                    }
+                  }}
+                  placeholder="Enter code"
+                  autoComplete="off"
+                  autoFocus
+                  disabled={savingKey === "fee-payer"}
+                  data-attr="manager-service-fee-waiver-code"
+                  aria-invalid={Boolean(waiverCodeError)}
+                  aria-describedby={waiverCodeError ? "manager-service-fee-waiver-error" : undefined}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm uppercase text-foreground placeholder:normal-case disabled:opacity-60 sm:max-w-xs"
+                />
+                <p className="text-xs text-muted">
+                  {processingFeeProplanePendingHelp(SERVICE_FEE_PAYER_SHORT_LABELS[savedWorkspacePayer])}
+                </p>
+                {waiverCodeError ? (
+                  <p id="manager-service-fee-waiver-error" className="text-xs text-destructive">
+                    {waiverCodeError}
+                  </p>
+                ) : null}
+                <div className="flex items-center gap-2 pt-0.5">
+                  <button
+                    type="button"
+                    disabled={savingKey === "fee-payer" || (!settingsLoaded && !demo)}
+                    data-attr="manager-service-fee-waiver-apply"
+                    onClick={() => void applyWaiverCode()}
+                    className="rounded-full bg-primary px-4 py-1.5 text-[13px] font-semibold text-primary-foreground disabled:opacity-60"
+                  >
+                    {savingKey === "fee-payer" ? "Checking…" : "Apply code"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={savingKey === "fee-payer"}
+                    data-attr="manager-service-fee-waiver-cancel"
+                    onClick={cancelProplanePending}
+                    className="rounded-full border border-border px-4 py-1.5 text-[13px] font-semibold text-foreground disabled:opacity-60"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : null}
 
             <p className="text-xs leading-relaxed text-muted">
               Applies to every home in{" "}
@@ -553,70 +657,6 @@ export function ManagerPaymentSetupModal({
               way.
             </p>
 
-            {!paymentWaiverGranted ? (
-              waiverPromptOpen ? (
-                <div className="space-y-2 rounded-xl border border-primary/40 bg-primary/5 px-3 py-3">
-                  <label className="block text-xs font-semibold text-foreground" htmlFor="manager-service-fee-waiver-code">
-                    Promo code
-                  </label>
-                  <input
-                    id="manager-service-fee-waiver-code"
-                    value={waiverCodeDraft}
-                    onChange={(event) => {
-                      setWaiverCodeDraft(normalizeListingPaymentWaiverCode(event.target.value));
-                      setWaiverCodeError(null);
-                    }}
-                    placeholder="Promo code"
-                    autoComplete="off"
-                    data-attr="manager-service-fee-waiver-code"
-                    aria-invalid={Boolean(waiverCodeError)}
-                    aria-describedby={waiverCodeError ? "manager-service-fee-waiver-error" : undefined}
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm uppercase text-foreground sm:max-w-xs"
-                  />
-                  <p className="text-xs text-muted">{LISTING_PROCESSING_FEE_WAIVER_CODE_HELP}</p>
-                  {waiverCodeError ? (
-                    <p id="manager-service-fee-waiver-error" className="text-xs text-destructive">
-                      {waiverCodeError}
-                    </p>
-                  ) : null}
-                  <div className="flex items-center gap-2 pt-0.5">
-                    <button
-                      type="button"
-                      disabled={savingKey === "fee-payer" || (!settingsLoaded && !demo)}
-                      data-attr="manager-service-fee-waiver-apply"
-                      onClick={() => void applyWaiverCode()}
-                      className="rounded-full bg-primary px-4 py-1.5 text-[13px] font-semibold text-primary-foreground disabled:opacity-60"
-                    >
-                      Apply code
-                    </button>
-                    <button
-                      type="button"
-                      data-attr="manager-service-fee-waiver-cancel"
-                      onClick={() => {
-                        setWaiverPromptOpen(false);
-                        setWaiverCodeError(null);
-                      }}
-                      className="rounded-full border border-border px-4 py-1.5 text-[13px] font-semibold text-foreground"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  data-attr="manager-service-fee-waiver-open"
-                  onClick={() => {
-                    setWaiverCodeDraft("");
-                    setWaiverCodeError(null);
-                    setWaiverPromptOpen(true);
-                  }}
-                  className="text-xs font-semibold text-primary hover:underline"
-                >
-                  Have a PropLane promo code?
-                </button>
-              )
-            ) : null}
           </section>
         ) : (
           <p className="text-xs leading-relaxed text-muted">

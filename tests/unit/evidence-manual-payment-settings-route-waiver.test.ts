@@ -74,6 +74,33 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/manager-manual-payment-settings.server", () => ({
   applyManagerManualPaymentsToListings: async () => ({ listingsUpdated: 0, chargesUpdated: 0 }),
 }));
+/** The one workspace's `portal_workspaces.payment_settings`, keyed by workspace id. */
+let workspaceStored: Record<string, Record<string, unknown> | null> = {};
+vi.mock("@/lib/workspace-payment-settings.server", () => ({
+  loadWorkspacePaymentSettings: async () =>
+    Object.fromEntries(
+      Object.entries(workspaceStored).map(([id, value]) => [
+        id,
+        {
+          serviceFeePayer: value?.serviceFeePayer ?? null,
+          ...(typeof value?.serviceFeeWaiverCode === "string" ? { serviceFeeWaiverCode: value.serviceFeeWaiverCode } : {}),
+        },
+      ]),
+    ),
+  saveWorkspacePaymentSettings: async (
+    _db: unknown,
+    _owner: string,
+    workspaceId: string,
+    next: { serviceFeePayer: string | null; serviceFeeWaiverCode?: string },
+  ) => {
+    workspaceStored[workspaceId] =
+      next.serviceFeePayer === null
+        ? null
+        : { serviceFeePayer: next.serviceFeePayer, ...(next.serviceFeeWaiverCode ? { serviceFeeWaiverCode: next.serviceFeeWaiverCode } : {}) };
+    return { saved: true };
+  },
+}));
+
 vi.mock("@/lib/manager-access-server", () => ({
   getManagerPurchaseSku: async () => ({
     tier: "free",
@@ -122,6 +149,7 @@ async function patch(label: string, body: Record<string, unknown>) {
 beforeEach(() => {
   stored = null;
   accountPromoCode = null;
+  workspaceStored = {};
   transcript.length = 0;
 });
 
@@ -181,5 +209,71 @@ describe("evidence · PATCH manager-manual-payment-settings", () => {
       mkdirSync(OUT, { recursive: true });
       writeFileSync(`${OUT}/manual-payment-settings-route.transcript.txt`, transcript.join("\n"), "utf8");
     }
+  });
+});
+
+describe("evidence · PATCH manager-manual-payment-settings, workspace scope", () => {
+  /*
+   * PropLane pays is applied per workspace only by a code at the moment it is
+   * chosen (captain, 2026-09-14). A grant already on the account used to be
+   * enough to flip a workspace on with nothing asked; it no longer is. The
+   * code is checked against the server-only list, kept with the workspace so
+   * checkout can re-validate it, and never echoed back to the browser.
+   */
+  const WS = "ws-1";
+
+  it("refuses a workspace PropLane pays without a code — even on a granted account", async () => {
+    accountPromoCode = "FREE100";
+    const refused = await patch("Workspace 'PropLane pays', no code, account granted", {
+      ...BASE,
+      workspaceId: WS,
+      workspaceServiceFeePayer: "proplane",
+    });
+    expect(refused.status).toBe(400);
+    expect(refused.json.error).toBe(LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID);
+    expect(workspaceStored[WS]).toBeUndefined();
+
+    const wrong = await patch("…with a WRONG code", {
+      ...BASE,
+      workspaceId: WS,
+      workspaceServiceFeePayer: "proplane",
+      workspaceServiceFeeWaiverCode: "NOPE123",
+    });
+    expect(wrong.status).toBe(400);
+    expect(workspaceStored[WS]).toBeUndefined();
+  });
+
+  it("applies it with the code, keeps the code with the workspace, and never echoes it", async () => {
+    const ok = await patch("Workspace 'PropLane pays' with the code", {
+      ...BASE,
+      workspaceId: WS,
+      workspaceServiceFeePayer: "proplane",
+      workspaceServiceFeeWaiverCode: "free100",
+    });
+    expect(ok.status).toBe(200);
+    expect(workspaceStored[WS]).toEqual({ serviceFeePayer: "proplane", serviceFeeWaiverCode: "FREE100" });
+    const echoed = ok.json.workspacePaymentSettings as Record<string, Record<string, unknown>>;
+    expect(echoed[WS]).toEqual({ serviceFeePayer: "proplane" });
+    expect(JSON.stringify(ok.json)).not.toContain("FREE100");
+  });
+
+  it("switching a workspace away needs no code, and staff coverage still needs none", async () => {
+    workspaceStored[WS] = { serviceFeePayer: "proplane", serviceFeeWaiverCode: "FREE100" };
+    const away = await patch("Workspace back to 'Resident pays'", {
+      ...BASE,
+      workspaceId: WS,
+      workspaceServiceFeePayer: "resident",
+    });
+    expect(away.status).toBe(200);
+    expect(workspaceStored[WS]).toEqual({ serviceFeePayer: "resident" });
+
+    stored = { ...BASE, serviceFeePayer: "resident", adminServiceFeeOverride: "proplane" };
+    const staff = await patch("Workspace 'PropLane pays' under the staff override, no code", {
+      ...BASE,
+      workspaceId: WS,
+      workspaceServiceFeePayer: "proplane",
+    });
+    expect(staff.status).toBe(200);
+    expect(workspaceStored[WS]).toEqual({ serviceFeePayer: "proplane" });
   });
 });

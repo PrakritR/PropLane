@@ -16,6 +16,7 @@ import {
 import { getManagerPurchaseSku } from "@/lib/manager-access-server";
 import {
   LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID,
+  normalizeListingPaymentWaiverCode,
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -79,6 +80,22 @@ function parsePropertyServiceFeePayerUpdates(
 }
 
 /**
+ * What the browser gets to see of each workspace's payment setup: the choice,
+ * never the code it was applied with. The modal only needs to show which
+ * answer is in force, and a code the manager typed once does not need to come
+ * back down in every read.
+ */
+async function workspacePaymentSettingsPublic(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  userId: string,
+): Promise<Record<string, { serviceFeePayer: ServiceFeePayer | null }>> {
+  const all = await loadWorkspacePaymentSettings(db, userId);
+  return Object.fromEntries(
+    Object.entries(all).map(([id, value]) => [id, { serviceFeePayer: value.serviceFeePayer }]),
+  );
+}
+
+/**
  * Whether something already on the account lets PropLane cover the fee: staff approval,
  * or the account's own promo grant (`manager_purchases.promo_code`, written only by
  * server-side flows that validated it). A failed purchase read throws rather than
@@ -115,7 +132,7 @@ export async function GET(req: Request) {
       settings: managerManualPaymentSettingsPublic(settings),
       /* Payment setup is answered per workspace; the modal reads this to show
          which workspace it is editing and what that workspace currently says. */
-      workspacePaymentSettings: await loadWorkspacePaymentSettings(ctx.db, ctx.userId),
+      workspacePaymentSettings: await workspacePaymentSettingsPublic(ctx.db, ctx.userId),
       ...(propertyServiceFeePayers ? { propertyServiceFeePayers } : {}),
     });
   } catch (e) {
@@ -131,7 +148,14 @@ export async function PATCH(req: Request) {
     const access = await assertManualPaymentSettingsCoManagerAccess(ctx.db, ctx.userId, "edit");
     if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
     const body = (await req.json()) as Record<string, unknown>;
-    const { propertyIds, propertyServiceFeePayers, workspaceId, workspaceServiceFeePayer, ...rest } = body;
+    const {
+      propertyIds,
+      propertyServiceFeePayers,
+      workspaceId,
+      workspaceServiceFeePayer,
+      workspaceServiceFeeWaiverCode,
+      ...rest
+    } = body;
     const feePayerUpdates = parsePropertyServiceFeePayerUpdates(propertyServiceFeePayers);
     const hasSettingsPatch = Object.keys(rest).length > 0;
     let settings = await loadManagerManualPaymentSettings(ctx.db, ctx.userId);
@@ -171,11 +195,28 @@ export async function PATCH(req: Request) {
         workspaceServiceFeePayer === "proplane"
           ? (workspaceServiceFeePayer as ServiceFeePayer)
           : null;
-      if (choice === "proplane" && !(await accountWaiverGranted(ctx.db, ctx.userId, settings))) {
+      /*
+       * PropLane pays is applied only by a code at the moment it is chosen
+       * (captain, 2026-09-14). A standing grant on the account used to flip a
+       * workspace on with nothing asked; now the code travels with this save
+       * and is checked here, against the server-only list. Staff choosing to
+       * absorb (`adminServiceFeeOverride`) is the one thing that still needs no
+       * code — that is the whole point of that control.
+       */
+      const workspaceCode =
+        typeof workspaceServiceFeeWaiverCode === "string"
+          ? normalizeListingPaymentWaiverCode(workspaceServiceFeeWaiverCode)
+          : "";
+      const workspaceCodeMatches = choice === "proplane" && listingPaymentWaiverCodeMatchesServer(workspaceCode);
+      if (choice === "proplane" && !workspaceCodeMatches && settings.adminServiceFeeOverride !== "proplane") {
         return NextResponse.json({ error: LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID }, { status: 400 });
       }
+      /* The code is kept with the workspace so checkout can re-validate it —
+         the same way a listing keeps its own. A `proplane` the staff override
+         backs is stored codeless; the override answers first at checkout. */
       const result = await saveWorkspacePaymentSettings(ctx.db, ctx.userId, workspaceId.trim(), {
         serviceFeePayer: choice,
+        ...(workspaceCodeMatches ? { serviceFeeWaiverCode: workspaceCode } : {}),
       });
       if (!result.saved) {
         return NextResponse.json({ error: "That workspace is not available." }, { status: 404 });
@@ -204,7 +245,7 @@ export async function PATCH(req: Request) {
     return NextResponse.json({
       settings: managerManualPaymentSettingsPublic(settings),
       ...(workspaceSaved
-        ? { workspacePaymentSettings: await loadWorkspacePaymentSettings(ctx.db, ctx.userId) }
+        ? { workspacePaymentSettings: await workspacePaymentSettingsPublic(ctx.db, ctx.userId) }
         : {}),
       listingsUpdated: propagation.listingsUpdated + feePayerPropagation.listingsUpdated,
       chargesUpdated: propagation.chargesUpdated,

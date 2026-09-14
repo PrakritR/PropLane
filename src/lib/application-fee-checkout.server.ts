@@ -21,8 +21,11 @@ import {
   createAxisAchCheckoutSession,
 } from "@/lib/stripe-axis-ach-checkout";
 import { resolveAndValidateManagerConnectForPayments } from "@/lib/stripe-connect";
-import { loadWorkspaceServiceFeePayerForProperty } from "@/lib/workspace-payment-settings.server";
-import { resolveAccountOrListingWaiverGrantedServer } from "@/lib/payment-policy.server";
+import { loadWorkspacePaymentSettingsForProperty } from "@/lib/workspace-payment-settings.server";
+import {
+  listingPaymentWaiverCodeMatchesServer,
+  resolveAccountOrListingWaiverGrantedServer,
+} from "@/lib/payment-policy.server";
 
 /**
  * The Stripe Checkout core for the rental application fee, extracted from
@@ -180,14 +183,18 @@ export async function resolveApplicationFeeItemization(
     if (readFailed) throw new Error("Payment plan could not be verified. Try again.");
   const managerTier = normalizeManagerSkuTier(managerTierRaw) ?? "free";
   const managerSettings = await loadManagerManualPaymentSettings(db, managerUserId);
-  const workspaceChoice = await loadWorkspaceServiceFeePayerForProperty(db, managerUserId, propertyId);
+  const workspace = await loadWorkspacePaymentSettingsForProperty(db, managerUserId, propertyId);
   const feePayer = resolveServiceFeePayerFor({
     tier: managerTier,
     adminOverride: managerSettings.adminServiceFeeOverride,
     propertyChoice: listing?.serviceFeePayer ?? null,
-    workspaceChoice,
+    workspaceChoice: workspace.serviceFeePayer,
     managerChoice: managerSettings.serviceFeePayer,
-    waiverGranted: resolveAccountOrListingWaiverGrantedServer(promoCode, listing?.serviceFeeWaiverCode),
+    /* The workspace's own code counts alongside the account grant and the
+       listing's code: PropLane pays is applied per workspace by a code. */
+    waiverGranted:
+      resolveAccountOrListingWaiverGrantedServer(promoCode, listing?.serviceFeeWaiverCode) ||
+      listingPaymentWaiverCodeMatchesServer(workspace.serviceFeeWaiverCode),
   });
   const fee =
     channel === "manual" || applicationFeeCents <= 0
