@@ -5,6 +5,10 @@ import { ApplicationFilterSortFields } from "@/components/portal/application-fil
 import { BookingsBlockDatesModal, type BlockDatesDraft } from "@/components/portal/bookings-block-dates-modal";
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
 import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
+import {
+  getSettingsEntryPoint,
+  settingsDialogTitlePrefix,
+} from "@/components/portal/settings-entry-points";
 import { ManagerBookingsListView } from "@/components/portal/manager-bookings-list-view";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
@@ -44,6 +48,8 @@ import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-f
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 
 const BULK_BAR_BTN = PORTAL_BULK_BAR_BTN;
+
+const bookingsSettingsEntry = getSettingsEntryPoint("bookings");
 
 const BOOKING_BUCKET_LABELS = MANAGER_BOOKING_BUCKETS.map((id) => ({
   id,
@@ -363,8 +369,8 @@ function useBookingsWorkspace({
           />
           <PortalIconAction
             icon={Settings2}
-            label="Booking settings"
-            data-attr="bookings-settings-open"
+            label={bookingsSettingsEntry.label}
+            data-attr={bookingsSettingsEntry.dataAttr}
             disabled={linkDisabled}
             onClick={() => setSettingsModalOpen(true)}
           />
@@ -444,6 +450,7 @@ function useBookingsWorkspace({
         onClose={() => setSettingsModalOpen(false)}
         initialTab="bookings"
         scoped
+        scopedTitle={settingsDialogTitlePrefix(bookingsSettingsEntry)}
         propertyOptions={propertyOptions}
         initialPropertyId={propertyFilters.length === 1 ? propertyFilters[0] : undefined}
       />

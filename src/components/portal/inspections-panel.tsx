@@ -15,10 +15,16 @@ import { PortalSectionActionRow } from "@/components/portal/portal-section-actio
 import { ManagerPortalPageShell, ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
 import { InspectionEditor } from "@/components/portal/inspection-editor";
 import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
+import {
+  getSettingsEntryPoint,
+  settingsDialogTitlePrefix,
+} from "@/components/portal/settings-entry-points";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { downloadInspection, inspectionRequest, loadInspectionList, INSPECTIONS_CHANGED, type InspectionList } from "@/lib/inspections/client";
 import { inspectionRoomLabel, type InspectionDetail, type InspectionKind, type InspectionPhotoCounts, type InspectionResidency, type InspectionRole, type InspectionSummary } from "@/lib/inspections/model";
+
+const inspectionsSettingsEntry = getSettingsEntryPoint("inspections");
 
 const kindLabel = (kind: InspectionKind) => kind === "move-in" ? "Move-in" : "Move-out";
 /**
@@ -291,6 +297,8 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
             ? () => setSettingsOpen(true)
             : undefined
         }
+        settingsLabel={inspectionsSettingsEntry.label}
+        settingsDataAttr={inspectionsSettingsEntry.dataAttr}
         onEdit={openEmbeddedInspection}
         editDisabled={embeddedEditDisabled}
         editLabel={embeddedPrimaryReport ? "Edit" : "Create inspection"}
@@ -300,7 +308,7 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
       destinations={routeBase ? (["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, href: `${routeBase}/${id}`, dataAttr: `inspection-type-${id}` })) : undefined}
       destinationRow={!routeBase ? <ManagerPortalStatusPills activeId={kind} mobileSelect={false} onChange={id => changeKind(id as InspectionKind)} tabs={(["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, dataAttr: `inspection-type-${id}` }))} /> : undefined}
       actions={role === "manager" && !isDemoModeActive()
-        ? <PortalIconAction icon={Settings2} label="Inspection settings" data-attr="inspections-settings-open" onClick={() => setSettingsOpen(true)} />
+        ? <PortalIconAction icon={Settings2} label={inspectionsSettingsEntry.label} data-attr={inspectionsSettingsEntry.dataAttr} onClick={() => setSettingsOpen(true)} />
         : undefined}
     />
     )}
@@ -350,6 +358,6 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
       onSelectedChange={checked => setSelected(current => { const next = new Set(current); if (checked) next.add(row.key); else next.delete(row.key); return next; })}
       onOpen={() => openRow(row)}
       dataAttr="inspection-row" />)}</PortalRecordListSurface>}
-    {role === "manager" && <ProPortalSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} initialTab="inspections" scoped />}
+    {role === "manager" && <ProPortalSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} initialTab="inspections" scoped scopedTitle={settingsDialogTitlePrefix(inspectionsSettingsEntry)} />}
   </div>;
 }

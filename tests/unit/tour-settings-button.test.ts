@@ -22,7 +22,11 @@ describe("tour settings entry point", () => {
 
   it("is on Tours, scoped to the Tours tab", () => {
     expect(TOURS).toContain('initialTab="tours"');
-    expect(TOURS).toContain('scopedTitle="Tours"');
+    // The literal scopedTitle="Tours" was the drift bug (dialog said "Tours
+    // settings" while the button beside it said "Tour settings"): it now
+    // comes from the shared settings-entry-points registry instead, so the
+    // button and the dialog cannot say two different things.
+    expect(TOURS).toContain("settingsDialogTitlePrefix(toursSettingsEntry)");
     expect(TOURS).not.toContain('scopedTitle="Calendar settings"');
   });
 });

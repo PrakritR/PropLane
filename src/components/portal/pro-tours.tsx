@@ -15,6 +15,10 @@ import { Modal, ModalFooter } from "@/components/ui/modal";
 import { PortalBulkMessageCarouselModal } from "@/components/portal/portal-bulk-message-carousel-modal";
 import { Input } from "@/components/ui/input";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
+import {
+  getSettingsEntryPoint,
+  settingsDialogTitlePrefix,
+} from "@/components/portal/settings-entry-points";
 import { ManagerPortalPageShell, PORTAL_COMMAND_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
 import { Settings2, Share2 } from "lucide-react";
@@ -90,6 +94,8 @@ import {
 } from "@/lib/tour-notifications";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
+
+const toursSettingsEntry = getSettingsEntryPoint("tours");
 
 const TOUR_BUCKET_LABELS = MANAGER_TOUR_BUCKETS.map((id) => ({
   id,
@@ -1388,8 +1394,8 @@ export function ManagerTours({
             </Button>
             <PortalIconAction
               icon={Settings2}
-              label="Tour settings"
-              data-attr="tours-settings-open"
+              label={toursSettingsEntry.label}
+              data-attr={toursSettingsEntry.dataAttr}
               onClick={() => setSettingsOpen(true)}
             />
             <PortalIconAction
@@ -1462,7 +1468,7 @@ export function ManagerTours({
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         initialTab="tours"
-        scopedTitle="Tours"
+        scopedTitle={settingsDialogTitlePrefix(toursSettingsEntry)}
       />
     </>
   );

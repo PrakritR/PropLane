@@ -184,7 +184,7 @@ describe("evidence · Payments action rows", () => {
   it("the Payments section publishes Settings and Setup, and no Check", () => {
     const html = renderToStaticMarkup(<ManagerPayments direction="incoming" bucket="pending" />);
 
-    expect(html).toContain('data-attr="payments-settings-open"');
+    expect(html).toContain('data-attr="settings-open-payments"');
     expect(html).toContain('data-attr="payments-setup"');
     // The Check button is gone from the action row entirely.
     expect(html).not.toContain('data-attr="manager-check-manual-payments"');
@@ -199,7 +199,7 @@ describe("evidence · Payments action rows", () => {
 
     // Same Filter · Settings · Edit strip as every other resident-detail tab —
     // not a second dock pair of Settings / Setup under the list.
-    expect(html).toContain('data-attr="resident-detail-settings"');
+    expect(html).toContain('data-attr="settings-open-payments"');
     expect(html).toContain('data-attr="resident-detail-edit"');
     expect(html).toContain('data-attr="resident-detail-filter"');
     expect(html).not.toContain('data-attr="resident-payments-settings-open"');

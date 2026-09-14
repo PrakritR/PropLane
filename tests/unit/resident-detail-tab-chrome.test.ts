@@ -9,6 +9,7 @@ import {
   RESIDENT_DETAIL_LEASE_PIPELINE_TABS,
   RESIDENT_DETAIL_TOUR_BUCKET_TABS,
 } from "@/lib/resident-detail-subsection-tabs";
+import { MANAGER_SETTINGS_ENTRY_POINTS } from "@/components/portal/settings-entry-points";
 
 describe("resident detail tab chrome", () => {
   it("lands on Overview, with tours immediately after (round 3)", () => {
@@ -88,9 +89,18 @@ describe("resident detail tab chrome", () => {
     // The strip's three actions keep their stable data-attrs, however the
     // buttons are drawn (they are icon buttons with a label from md up).
     expect(chrome).toContain('"resident-detail-filter"');
-    expect(chrome).toContain('"resident-detail-settings"');
     expect(chrome).toContain('"resident-detail-edit"');
     expect(chrome).toContain("Status filters live in the pills above");
+    // Settings' data-attr moved out of a literal in this component and into the
+    // shared settings-entry-points registry, so the source grep above can no
+    // longer see its value. Grepping for the import name instead would only
+    // prove the module is imported, not that the attribute is still stable --
+    // and stability is the entire point of these three assertions, because
+    // data-attr is an analytics and QA selector.
+    //
+    // So pin the resolved VALUE at its source. Renaming it still fails a test.
+    expect(chrome).toContain("DEFAULT_SETTINGS_ENTRY");
+    expect(MANAGER_SETTINGS_ENTRY_POINTS.residentDetail.dataAttr).toBe("settings-open-resident-detail");
 
     const residents = readFileSync(
       `${process.cwd()}/src/components/portal/pro-residents.tsx`,

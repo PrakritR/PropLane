@@ -39,6 +39,10 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { ManagerAddPaymentModal } from "@/components/portal/pro-add-payment-modal";
 import { ManagerPaymentSetupModal } from "@/components/portal/pro-payment-setup-modal";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
+import {
+  getPaymentsSettingsEntryPoint,
+  settingsDialogTitlePrefix,
+} from "@/components/portal/settings-entry-points";
 import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
 import {
   MANAGER_APPLICATIONS_EVENT,
@@ -693,11 +697,12 @@ export function ManagerPayments({
     other. Payments settings now IS the reminder schedule, and the menu that
     offered a choice between them has nothing left to choose.
   */
+  const paymentsSettingsEntry = getPaymentsSettingsEntryPoint(direction);
   const paymentsSettingsMenu = (
     <PortalIconAction
       icon={Settings2}
-      label="Payment settings"
-      data-attr="payments-settings-open"
+      label={paymentsSettingsEntry.label}
+      data-attr={paymentsSettingsEntry.dataAttr}
       onClick={() => setPaymentSettingsOpen(true)}
     />
   );
@@ -851,7 +856,7 @@ export function ManagerPayments({
         open={paymentSettingsOpen}
         onClose={() => setPaymentSettingsOpen(false)}
         initialTab="payments"
-        scopedTitle={direction === "outgoing" ? "Outgoing payments" : "Payments"}
+        scopedTitle={settingsDialogTitlePrefix(paymentsSettingsEntry)}
         paymentsMode={direction === "outgoing" ? "outgoing" : "incoming"}
       />
       <ManagerAddPaymentModal

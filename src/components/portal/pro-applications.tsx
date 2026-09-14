@@ -49,6 +49,10 @@ import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { CheckrScreeningModal } from "@/components/portal/checkr-screening-modal";
 import { ManagerScreeningSettingsModal } from "@/components/portal/pro-screening-settings";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
+import {
+  getSettingsEntryPoint,
+  settingsDialogTitlePrefix,
+} from "@/components/portal/settings-entry-points";
 import type { DemoApplicantRow, ManagerApplicationBucket } from "@/data/demo-portal";
 import type { ApplicationBackgroundCheck } from "@/lib/checkr/types";
 import {
@@ -152,6 +156,8 @@ import {
   portalPropertyFilterIdsEqual,
   sanitizePortalPropertyFilterIds,
 } from "@/lib/portal-property-list-filters";
+const applicationsSettingsEntry = getSettingsEntryPoint("applications");
+
 function isApprovableApplicationRow(row: DemoApplicantRow): boolean {
   if (isWithdrawnApplicationRow(row) || isInProgressApplicationRow(row)) return false;
   return row.bucket === "pending" || row.bucket === "rejected";
@@ -1692,8 +1698,8 @@ export function ManagerApplications({
   const applicationsSettingsButton = (
     <PortalIconAction
       icon={Settings2}
-      label="Application settings"
-      data-attr="application-settings-open"
+      label={applicationsSettingsEntry.label}
+      data-attr={applicationsSettingsEntry.dataAttr}
       onClick={() => setApplicationSettingsOpen(true)}
     />
   );
@@ -2015,6 +2021,7 @@ export function ManagerApplications({
         onClose={() => setApplicationSettingsOpen(false)}
         initialTab="applications"
         scoped
+        scopedTitle={settingsDialogTitlePrefix(applicationsSettingsEntry)}
         propertyOptions={propertyOptions}
         initialPropertyId={propertyFilters.length === 1 ? propertyFilters[0] : undefined}
         editAction={{

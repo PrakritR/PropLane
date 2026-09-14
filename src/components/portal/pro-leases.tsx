@@ -7,6 +7,10 @@ import { ManagerAddLeaseModal } from "@/components/portal/pro-add-lease-modal";
 import { ManagerLeasesPipelinePanel } from "@/components/portal/pro-leases-pipeline-panel";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
+import {
+  getSettingsEntryPoint,
+  settingsDialogTitlePrefix,
+} from "@/components/portal/settings-entry-points";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
@@ -33,6 +37,8 @@ import { getPropertyById } from "@/lib/rental-application/data";
 import { leaseDetailHref, leaseListHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { AGENT_PENDING_ACTIONS_EVENT } from "@/lib/axis-assistant/pending-actions-events";
+
+const leasesSettingsEntry = getSettingsEntryPoint("leases");
 
 const LEASE_LABELS: { id: ManagerLeaseTab; label: string; dataAttr: string }[] = [
   { id: "manager", label: "Manager review", dataAttr: "leases-tab-manager" },
@@ -207,8 +213,8 @@ export function ManagerLeases({
       {leasesFilterSheet}
       <PortalIconAction
         icon={Settings2}
-        label="Lease settings"
-        data-attr="leases-settings-open"
+        label={leasesSettingsEntry.label}
+        data-attr={leasesSettingsEntry.dataAttr}
         onClick={() => setLeaseSettingsOpen(true)}
       />
     </>
@@ -245,7 +251,7 @@ export function ManagerLeases({
         open={leaseSettingsOpen}
         onClose={() => setLeaseSettingsOpen(false)}
         initialTab="lease"
-        scopedTitle="Leases"
+        scopedTitle={settingsDialogTitlePrefix(leasesSettingsEntry)}
         propertyOptions={propertyOptions}
         initialPropertyId={propertyFilters.length === 1 ? propertyFilters[0] : undefined}
         editAction={{

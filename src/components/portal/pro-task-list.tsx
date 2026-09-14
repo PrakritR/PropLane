@@ -16,6 +16,10 @@ import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
 import { Settings2 } from "lucide-react";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
+import {
+  getSettingsEntryPoint,
+  settingsDialogTitlePrefix,
+} from "@/components/portal/settings-entry-points";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -85,6 +89,8 @@ type TaskListRow =
   | { kind: "service"; id: string; request: ServiceRequest };
 
 type TaskListClusterRow = TaskListRow & ResidentIdentityFields & PropertyClusterFields;
+
+const tasksSettingsEntry = getSettingsEntryPoint("tasks");
 
 function taskListRowClusterFields(
   row: TaskListRow,
@@ -745,8 +751,8 @@ export function ManagerTaskList({
             {tasksFilterSheet}
             <PortalIconAction
               icon={Settings2}
-              label="Task settings"
-              data-attr="manager-task-automation-open"
+              label={tasksSettingsEntry.label}
+              data-attr={tasksSettingsEntry.dataAttr}
               onClick={() => setSettingsOpen(true)}
             />
           </>
@@ -883,7 +889,7 @@ export function ManagerTaskList({
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         initialTab="tasks"
-        scopedTitle="Tasks"
+        scopedTitle={settingsDialogTitlePrefix(tasksSettingsEntry)}
       />
     </ManagerPortalPageShell>
   );

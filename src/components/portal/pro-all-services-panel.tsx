@@ -75,6 +75,10 @@ import {
 import { ManagerAddServiceModal } from "@/components/portal/pro-add-service-modal";
 import { ManagerEditServiceRequestsModal } from "@/components/portal/pro-edit-service-requests-modal";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
+import {
+  getSettingsEntryPoint,
+  settingsDialogTitlePrefix,
+} from "@/components/portal/settings-entry-points";
 import { ScheduleServiceVisitModal } from "@/components/portal/schedule-service-visit-modal";
 import { EditServiceWorkOrderModal } from "@/components/portal/edit-service-work-order-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -89,6 +93,8 @@ type FilterType = "requests" | "work-orders";
 type RequestBucket = ManagerServiceRequestBucket;
 
 const SERVICES_TAB_IDS = ["requests", "work-orders"] as const;
+
+const servicesSettingsEntry = getSettingsEntryPoint("services");
 
 function unifiedServiceRowKey(row: { kind: string; id: string }): string {
   return `${row.kind}::${row.id}`;
@@ -616,8 +622,8 @@ export function ManagerAllServicesPanel({
             {servicesFilterSheet}
             <PortalIconAction
               icon={Settings2}
-              label="Service settings"
-              data-attr="services-settings-open"
+              label={servicesSettingsEntry.label}
+              data-attr={servicesSettingsEntry.dataAttr}
               onClick={() => setServicesSettingsOpen(true)}
             />
           </>
@@ -700,7 +706,7 @@ export function ManagerAllServicesPanel({
         open={servicesSettingsOpen}
         onClose={() => setServicesSettingsOpen(false)}
         initialTab="services"
-        scopedTitle="Services"
+        scopedTitle={settingsDialogTitlePrefix(servicesSettingsEntry)}
         editAction={
           propertyOptions.length > 0
             ? {
