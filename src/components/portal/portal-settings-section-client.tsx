@@ -1,6 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
+import { resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import {
@@ -52,6 +55,22 @@ export function PortalSettingsSectionClient({
     savedAt: null,
   });
   const pageRef = useRef<SettingsModulePageHandle>(null);
+
+  /**
+   * The Applications and Lease modules are per-property, so without these the
+   * standalone page renders an "Applies to" row with nothing in it and tells a
+   * manager who already owns properties to go and add one — the same host
+   * reached through a section's gear had the real list all along.
+   *
+   * This is the identical call `pro-applications.tsx` makes. It reads locally
+   * cached portfolio state synchronously rather than fetching, so it costs
+   * nothing here and needs no loading state. Every other module ignores it.
+   */
+  const { userId } = useManagerUserId();
+  const propertyOptions = useMemo(
+    () => buildManagerPropertyFilterOptions(resolveManagerScopeUserId(userId)),
+    [userId],
+  );
 
   useEffect(() => {
     setFooter(null);
@@ -155,6 +174,7 @@ export function PortalSettingsSectionClient({
                 <SettingsModulePage
                   ref={pageRef}
                   tab={tab}
+                  propertyOptions={propertyOptions}
                   onFooterChange={setFooter}
                   onSaveStatusChange={setSaveStatus}
                 />

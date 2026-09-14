@@ -89,7 +89,7 @@ describe("Applications settings", () => {
 
     expect(screen.queryByRole("button", { name: /^save$/i })).toBeNull();
 
-    const toggle = await screen.findByRole("checkbox", { name: /auto-approve applications/i });
+    const toggle = await screen.findByRole("switch", { name: /auto-approve applications/i });
     await userEvent.click(toggle);
 
     await waitFor(() => expect(patches).toHaveLength(1));
@@ -111,7 +111,7 @@ describe("Applications settings", () => {
         initialPropertyId="prop-1"
       />,
     );
-    await userEvent.click(await screen.findByRole("checkbox", { name: /auto-approve applications/i }));
+    await userEvent.click(await screen.findByRole("switch", { name: /auto-approve applications/i }));
     expect(confirmSpy).not.toHaveBeenCalled();
     await waitFor(() => expect(patches).toHaveLength(1));
   });
@@ -126,11 +126,11 @@ describe("Applications settings", () => {
         initialPropertyId="prop-1"
       />,
     );
-    const toggle = await screen.findByRole("checkbox", { name: /auto-approve applications/i });
+    const toggle = await screen.findByRole("switch", { name: /auto-approve applications/i });
     await userEvent.click(toggle);
     await waitFor(() => expect(patches).toHaveLength(1));
     // The stub still reports the OLD value on any re-read; the switch must not
     // flip back to it.
-    await waitFor(() => expect((toggle as HTMLInputElement).checked).toBe(true));
+    await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("true"));
   });
 });
