@@ -3400,6 +3400,9 @@ export function ManagerResidents({
                             activeId={resolvedDetailTab}
                             backHref={residentListHref(portalBase, residentsTab)}
                             backLabel="All residents"
+                            // The page header already carries the back chevron; a second
+                            // arrow in the rail read as two ways to do one thing.
+                            showBackLink={false}
                             title={selected.name || "Resident"}
                             subtitle={[selected.propertyLabel, selected.roomLabel].filter(Boolean).join(" · ") || selected.email}
                             groups={RESIDENT_RAIL_GROUPS}
