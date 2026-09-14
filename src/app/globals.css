@@ -2713,31 +2713,14 @@ html[data-rental-wizard-active] {
   --portal-assistant-fab-clearance: 0px;
 }
 
-/* Desktop portal pages have no bottom nav, but the FAB still covers the
-   bottom-right — pad main so the last attention CTA stays clickable (PRP-377). */
-@media (min-width: 1024px) {
-  html:has(.portal-shell):not([data-hide-assistant-fab]):not([data-rental-wizard-active]) #portal-main-content {
-    padding-bottom: calc(var(--portal-assistant-fab-clearance) + 1.25rem);
-    scroll-padding-bottom: calc(var(--portal-assistant-fab-clearance) + 1.25rem);
-  }
-
-  /*
-   * ...except Communication, which is a CLIPPED fixed-height surface rather
-   * than a scrolling page of CTAs. Reserving FAB clearance on a clipped element
-   * does not protect anything — it just shortens the panel and leaves 80px of
-   * dead canvas under the two cards. The composer's own FAB overlap is already
-   * handled by `.portal-communication-inbox .portal-inbox-composer-row`'s
-   * right padding.
-   *
-   * Specificity has to match the rule above (four class-level parts) or it
-   * loses, so the two :not() guards are repeated deliberately.
-   */
-  html[data-communication-surface]:has(.portal-shell):not([data-hide-assistant-fab]):not([data-rental-wizard-active])
-    #portal-main-content {
-    padding-bottom: 0;
-    scroll-padding-bottom: 0;
-  }
-}
+/* Desktop portal pages reserve NOTHING under the content for the Ask PropLane
+   button. A padding-bottom on #portal-main-content (PRP-377) was meant to keep
+   the last CTA of a page-scrolling surface clickable, but almost every portal
+   tab is a CLIPPED fixed-height surface (record lists, record detail, the
+   inbox) whose own inner scroller does the scrolling — on those the padding
+   cannot scroll away and is just an 80px band of dead canvas under the cards,
+   on every tab of every portal. The button is a 56px circle in the corner;
+   what it may cover is the corner of one row, not the page. */
 
 html[data-communication-surface] {
   --portal-mobile-scroll-bottom-inset: calc(var(--portal-native-bottom-nav-inset) + 0.75rem);

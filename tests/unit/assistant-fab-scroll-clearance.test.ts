@@ -16,9 +16,19 @@ describe("assistant FAB scroll clearance (PRP-377)", () => {
     );
   });
 
-  it("pads desktop #portal-main-content when the FAB is visible", () => {
-    expect(css).toMatch(
-      /min-width:\s*1024px[\s\S]*#portal-main-content[\s\S]*portal-assistant-fab-clearance/,
-    );
+  /**
+   * The desktop half of PRP-377 is deliberately gone. Padding #portal-main-content
+   * only helps a page that scrolls in main; almost every portal tab is a clipped
+   * fixed-height surface with its own inner scroller, where that padding could
+   * never scroll away and was an 80px band of dead canvas under the cards on
+   * every tab of every portal (captain, 14 Sep). A rule that pads
+   * #portal-main-content by the FAB clearance must not come back.
+   */
+  it("never pads desktop #portal-main-content for the FAB", () => {
+    const desktop = css.slice(css.indexOf("@media (min-width: 1024px)"));
+    const padsMain =
+      /#portal-main-content\s*\{[^}]*padding-bottom:\s*calc\(var\(--portal-assistant-fab-clearance\)/;
+    expect(desktop).not.toMatch(padsMain);
+    expect(css).not.toMatch(padsMain);
   });
 });
