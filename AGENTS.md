@@ -387,6 +387,7 @@ answer. Fail closed to `true`.
 | Rent basis | `docs/agents/rent-basis.md` | `rentBasis` alone; daily never wins unless the manager set it |
 | Send listing modal | `docs/agents/send-listing-modal.md` | Server re-authorizes every id; reject the whole send if any fails |
 | Marketing mocks | `docs/agents/marketing-mocks.md` | Depict a real screen; derive counts from the rows drawn |
+| House printables | `docs/agents/house-printables.md` | The public page and both public printables render only `HOUSE_PUBLIC_SECTIONS`; a code or password never becomes a URL |
 
 ## There are no "work orders" in the product — only services
 

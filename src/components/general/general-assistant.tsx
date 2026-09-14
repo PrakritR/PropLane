@@ -100,9 +100,13 @@ export function GeneralAssistantTrigger() {
  * question in hand.
  */
 const MARKETING_PATHS = ["/", "/pricing", "/why-proplane", "/partner", "/vendors", "/reviews", "/about", "/app", "/contact", "/security"];
+/** A sheet about to be printed, and the page a door-card QR opens, carry no chat bubble either. */
+const CHROMELESS_PATHS = ["/print", "/h"];
 export function isMarketingPath(pathname: string | null): boolean {
   if (!pathname) return false;
-  return MARKETING_PATHS.some((p) => (p === "/" ? pathname === "/" : pathname === p || pathname.startsWith(`${p}/`)));
+  return [...MARKETING_PATHS, ...CHROMELESS_PATHS].some((p) =>
+    p === "/" ? pathname === "/" : pathname === p || pathname.startsWith(`${p}/`),
+  );
 }
 
 /** Floating chat control for public pages — bottom-right, hidden when the portal assistant is active. */

@@ -15,7 +15,7 @@ export const ACCOUNT_RECOVERY_NEVER_RESTORE = new Set([
   "manager_api_keys", "mcp_oauth_authorization_codes", "mcp_oauth_tokens",
   "phone_verifications", "device_push_tokens", "sms_consent", "sms_consent_events",
   "agent_pending_actions", "action_events", "action_event_deliveries",
-  "document_share_links", "portal_record_share_links", "vendor_invites",
+  "document_share_links", "portal_record_share_links", "manager_house_public_links", "vendor_invites",
   "manager_invite_links", "manager_invite_link_redemptions", "resident_invite_claims", "account_link_invites",
   "portal_pro_relationship_records", "manager_property_access", "manager_property_owners",
   "sms_relay_bindings", "sms_relay_threads", "sms_relay_messages", "sms_relay_numbers", "sms_outbox",

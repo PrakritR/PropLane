@@ -90,6 +90,7 @@ export const DELETE_ORDER = [
   "application_fee_waiver_redemptions",
   "document_share_links",
   "portal_record_share_links",
+  "manager_house_public_links",
   "cosigner_submission_records",
   "screening_orders",
   "work_order_bids",

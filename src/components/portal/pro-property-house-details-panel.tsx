@@ -7,6 +7,7 @@ import {
 } from "@/components/portal/portal-property-detail-section";
 import { HouseInfoEditor } from "@/components/portal/house-info-sections";
 import { HouseInfoSplitReview } from "@/components/portal/house-info-split-review";
+import { HousePrintablesCard } from "@/components/portal/house-printables-card";
 import { updateRequestChangeProperty } from "@/lib/demo-admin-property-inventory";
 import {
   updateExtraListingFromSubmission,
@@ -50,12 +51,17 @@ export function ManagerPropertyHouseDetailsPanel({
   saveTarget,
   managerUserId,
   onUpdated,
+  propertyId,
+  showToast,
 }: {
   noteKey: string | null;
   sub: ManagerListingSubmissionV1;
   saveTarget: HouseSaveTarget;
   managerUserId: string | null;
   onUpdated: () => void;
+  /** The server record id — what the print routes and the public QR link are keyed on. */
+  propertyId?: string | null;
+  showToast?: (message: string) => void;
 }) {
   const [notesTick, setNotesTick] = useState(0);
   const [dirty, setDirty] = useState(false);
@@ -342,6 +348,10 @@ export function ManagerPropertyHouseDetailsPanel({
             />
           </div>
         </details>
+
+        {propertyId ? (
+          <HousePrintablesCard propertyId={propertyId} rooms={sub.rooms ?? []} showToast={showToast} />
+        ) : null}
 
         <div className="rounded-2xl border border-dashed border-border px-4 py-3">
           <p className="text-xs text-muted">
