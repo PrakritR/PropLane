@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import type { WorkAssignmentTeamMember } from "@/hooks/use-work-assignment-directory";
 import {
   DEFAULT_LIFECYCLE_AUTOMATION,
@@ -117,20 +118,19 @@ export function TaskAutomationSettingsFields({
 
         return (
           <div key={key} className="space-y-3 rounded-xl border border-border p-3">
-            <label className="flex items-start gap-3">
-              <input
-                type="checkbox"
-                className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
-                checked={config.enabled}
-                disabled={loading || saving}
-                data-attr={`task-automation-${key}-enabled`}
-                onChange={(e) => patchTask(key, { enabled: e.target.checked })}
-              />
+            <div className="flex items-start justify-between gap-3">
               <span className="min-w-0">
                 <span className="block text-[13px] font-medium text-foreground">{meta.label}</span>
                 <span className="block text-xs text-muted">{describeLifecycleRule(key, config)}</span>
               </span>
-            </label>
+              <PortalSettingsToggle
+                checked={config.enabled}
+                onChange={(next) => patchTask(key, { enabled: next })}
+                label={meta.label}
+                disabled={loading || saving}
+                dataAttr={`task-automation-${key}-enabled`}
+              />
+            </div>
 
             {config.enabled ? (
               <div className="grid gap-3 sm:grid-cols-2">
@@ -164,19 +164,18 @@ export function TaskAutomationSettingsFields({
                   dataAttr={`task-automation-${key}-assignee`}
                 />
 
-                <label className="flex items-start gap-3 sm:col-span-2">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
-                    checked={config.sendEmailReminder}
-                    disabled={loading || saving}
-                    data-attr={`task-automation-${key}-reminder`}
-                    onChange={(e) => patchTask(key, { sendEmailReminder: e.target.checked })}
-                  />
+                <div className="flex items-start justify-between gap-3 sm:col-span-2">
                   <span className="text-xs text-muted">
                     Email the assignee when the task is created and again on the due date.
                   </span>
-                </label>
+                  <PortalSettingsToggle
+                    checked={config.sendEmailReminder}
+                    onChange={(next) => patchTask(key, { sendEmailReminder: next })}
+                    label="Email the assignee when the task is created and again on the due date."
+                    disabled={loading || saving}
+                    dataAttr={`task-automation-${key}-reminder`}
+                  />
+                </div>
 
                 <CheckboxMultiSelect
                   label="Remind before due"

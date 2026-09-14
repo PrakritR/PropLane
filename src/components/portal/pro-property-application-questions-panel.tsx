@@ -379,7 +379,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
             <div className="flex min-w-0 flex-1 items-start gap-3">
               <RowSelectCheckbox
                 aria-label={`Select ${template.label}`}
-                className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
                 checked={selectedIds.has(template.id)}
                 data-attr={`property-application-select-${template.id}`}
                 onChange={() => toggleSelected(template.id)}

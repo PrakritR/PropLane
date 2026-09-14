@@ -7,11 +7,16 @@ describe("late fee notices in Payments settings (PRP-319)", () => {
       `${process.cwd()}/src/components/portal/payment-schedule-ui.tsx`,
       "utf8",
     );
-    expect(src).toContain('data-attr="payment-late-fee-notices"');
+    // The literal attribute moved from an inline `data-attr="..."` on a raw
+    // `<input>` to a `dataAttr="..."` prop on the shared `PortalSettingsToggle`,
+    // which forwards it to `data-attr` on the rendered switch — the DOM
+    // guarantee this test protects (a QA/analytics selector on the control) is
+    // unchanged, only the source spelling of the prop that carries it.
+    expect(src).toContain('dataAttr="payment-late-fee-notices"');
     expect(src).toContain("lateFeeNoticeEnabled");
     // Compact payments branch must include the control (not only the non-compact layout).
     const compactIdx = src.indexOf("compact && variant === \"payments\"");
-    const attrIdx = src.indexOf('data-attr="payment-late-fee-notices"');
+    const attrIdx = src.indexOf('dataAttr="payment-late-fee-notices"');
     expect(compactIdx).toBeGreaterThan(-1);
     expect(attrIdx).toBeGreaterThan(compactIdx);
   });

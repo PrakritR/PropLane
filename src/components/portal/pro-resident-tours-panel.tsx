@@ -197,8 +197,7 @@ export function ManagerResidentToursPanel({
               <div className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
                 <div className="flex min-w-0 flex-1 items-start gap-3">
                   <RowSelectCheckbox
-                aria-label={`Select ${row.whenLabel}`}
-                    className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                    aria-label={`Select ${row.whenLabel}`}
                     checked={selectedIds.has(row.id)}
                     data-attr={`resident-tour-select-${row.id}`}
                     onChange={() => toggleSelected(row.id)}

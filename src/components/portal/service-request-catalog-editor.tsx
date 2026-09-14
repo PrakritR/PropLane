@@ -192,8 +192,7 @@ export function ServiceRequestCatalogEditor({
             <div key={offer.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
               <div className="flex min-w-0 flex-1 items-start gap-3">
                 <RowSelectCheckbox
-                aria-label={`Select ${offer.name || "request type"}`}
-                  className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                  aria-label={`Select ${offer.name || "request type"}`}
                   checked={selectedIds.has(offer.id)}
                   data-attr={`catalog-request-select-${offer.id}`}
                   onChange={() => toggleSelected(offer.id)}
