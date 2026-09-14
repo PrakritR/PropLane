@@ -4,7 +4,14 @@ import { createCoalescedRefresher } from "@/lib/coalesced-refresh";
 import { onPortalSessionViewerChange } from "@/lib/auth/portal-session-gate";
 
 const readers = new Map<string, ReturnType<typeof createCoalescedRefresher<Response>>>();
-onPortalSessionViewerChange(() => readers.clear());
+
+export function invalidateManagerSmsConversationsClient(viewerId?: string | null): void {
+  const normalized = String(viewerId ?? "").trim();
+  if (normalized) readers.delete(normalized);
+  else readers.clear();
+}
+
+onPortalSessionViewerChange(() => invalidateManagerSmsConversationsClient());
 
 /** The inbox and composer share a directory read; every consumer owns its body. */
 export async function loadManagerSmsConversationsClient(viewerId: string, force = false): Promise<Response> {

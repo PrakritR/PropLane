@@ -94,6 +94,7 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   persistedInboxReadSucceeded: () => true,
   loadPersistedInbox: () => ALL_THREADS,
   syncPersistedInboxFromServer: () => Promise.resolve(ALL_THREADS),
+  syncPersistedInboxFromServerWithStatus: () => Promise.resolve({ rows: ALL_THREADS, ok: true }),
   persistInbox: () => {},
   persistInboxAwait: () => Promise.resolve(),
   invalidatePersistedInboxCache: () => {},
@@ -112,6 +113,13 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   inboxThreadMessages: (t: { id: string; from: string; body: string; time: string }) => [
     { id: `${t.id}-root`, from: t.from, body: t.body, at: t.time },
   ],
+}));
+vi.mock("@/lib/manager-applications-storage", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  syncManagerApplicationsFromServerWithStatus: () => Promise.resolve({ rows: [], ok: true }),
+}));
+vi.mock("@/hooks/use-portal-session", () => ({
+  usePortalSession: () => ({ userId: "manager-test", email: "manager@example.com", ready: true }),
 }));
 vi.mock("@/components/portal/pro-inbox", () => ({
   ManagerInbox: () => <div data-testid="embedded-email-thread" />,

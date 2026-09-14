@@ -48,6 +48,8 @@ vi.mock("@/lib/portal-inbox-storage", async () => {
     RESIDENT_INBOX_STORAGE_KEY: "resident-inbox",
     inboxThreadSortMs: actual.inboxThreadSortMs,
     loadPersistedInbox: () => [EMAIL_INBOX, EMAIL_ARCHIVED],
+    syncPersistedInboxFromServerWithStatus: () =>
+      Promise.resolve({ rows: [EMAIL_INBOX, EMAIL_ARCHIVED], ok: true }),
     inboxThreadMessages: (t: { id: string; from: string; body: string; time: string }) => [
       { id: `${t.id}-root`, from: t.from, body: t.body, at: t.time },
     ],
@@ -55,6 +57,9 @@ vi.mock("@/lib/portal-inbox-storage", async () => {
 });
 vi.mock("@/components/portal/resident-inbox-panel", () => ({
   ResidentInboxPanel: () => <div data-testid="resident-thread" />,
+}));
+vi.mock("@/hooks/use-portal-session", () => ({
+  usePortalSession: () => ({ userId: "resident-test", email: "resident@example.com", ready: true }),
 }));
 vi.mock("@/components/portal/role-sms-panel", () => ({ RoleSmsPanel: () => <div data-testid="role-sms" /> }));
 

@@ -9,12 +9,13 @@ const rows = [
   { id: "archived", folder: "trash", from: "Archived person", email: "archived@example.test", subject: "Archived subject", body: "Archived body", preview: "Archived body", unread: false, time: "Sep 09, 2026" },
 ];
 vi.mock("next/navigation", () => ({ usePathname: () => "/resident/communication/active", useRouter: () => ({ push: vi.fn(), replace: vi.fn() }), useSearchParams: () => new URLSearchParams() }));
-vi.mock("@/hooks/use-portal-session", () => ({ usePortalSession: () => ({ ready: false, user: null }) }));
+vi.mock("@/hooks/use-portal-session", () => ({ usePortalSession: () => ({ ready: true, userId: "status-viewer", user: { id: "status-viewer" } }) }));
 vi.mock("@/hooks/use-resident-manager-contacts", () => ({ useResidentManagerContacts: () => [] }));
 vi.mock("@/lib/portal-inbox-storage", async (original) => ({
   ...await original<typeof import("@/lib/portal-inbox-storage")>(),
   loadPersistedInbox: () => rows,
   syncPersistedInboxFromServer: async () => rows,
+  syncPersistedInboxFromServerWithStatus: async () => ({ rows, ok: true }),
   inboxThreadMessages: () => [],
 }));
 vi.mock("@/components/portal/portal-communication-shell", () => ({ PortalCommunicationShell: ({ children, titleAside }: { children: ReactNode; titleAside: ReactNode }) => <>{titleAside}{children}</> }));

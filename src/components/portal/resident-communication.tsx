@@ -1,14 +1,13 @@
 "use client";
 
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CommunicationStatusFilterDraft, type CommunicationStatus } from "@/components/portal/communication-status-filter";
 
 import { CommunicationRowActions } from "@/components/portal/communication-row-actions";
-
-import { useEffect, useMemo, useRef, useState } from "react";
-
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
 import { Button } from "@/components/ui/button";
+import { CommunicationInboxInitialState } from "@/components/portal/communication-inbox-initial-state";
 import { ResidentInboxPanel, type ResidentInboxPanelHandle } from "@/components/portal/resident-inbox-panel";
 import { RoleSmsPanel } from "@/components/portal/role-sms-panel";
 import { ResidentManagerNumberCard } from "@/components/portal/resident-manager-number-card";
@@ -36,7 +35,7 @@ import {
   inboxThreadSortMs,
   inboxMessageOutbound,
   loadPersistedInbox,
-  syncPersistedInboxFromServer,
+  syncPersistedInboxFromServerWithStatus,
   stagePersistedInboxRows,
 } from "@/lib/portal-inbox-storage";
 import { isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
@@ -121,8 +120,12 @@ function ResidentUnifiedInbox({
   onAddConversation?: () => void;
   residentUserId?: string | null;
 }) {
-  const { userId } = usePortalSession({ userId: residentUserId ?? null });
+  const { userId, ready: sessionReady } = usePortalSession({ userId: residentUserId ?? null });
   const viewerId = resolveCommunicationViewerId(residentUserId, userId);
+  const viewerEpochRef = useRef(0);
+  useEffect(() => {
+    viewerEpochRef.current += 1;
+  }, [viewerId]);
   // The resident has ONE house, so every row carries the same street line. The
   // lookup is shared with the contact card above the list, not re-fetched.
   const managerContacts = useResidentManagerContacts();
@@ -135,6 +138,10 @@ function ResidentUnifiedInbox({
   const [smsMessages, setSmsMessages] = useState<ManagerSmsMessageRow[]>([]);
   const [smsOpened, setSmsOpened] = useState<Set<string>>(() => new Set());
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [initialListState, setInitialListState] = useState<"loading" | "ready" | "error">("loading");
+  const [initialListViewerId, setInitialListViewerId] = useState<string | null>(null);
+  const initialLoadGeneration = useRef(0);
+  const initialListReady = initialListState === "ready" && initialListViewerId === viewerId;
   const assistantThreadId = viewerId ? propLaneAssistantThreadIdForPortal("resident", viewerId) : null;
 
   useEffect(() => {
@@ -144,13 +151,6 @@ function ResidentUnifiedInbox({
     window.addEventListener(PORTAL_INBOX_CHANGED_EVENT, syncEmail as EventListener);
     return () => window.removeEventListener(PORTAL_INBOX_CHANGED_EVENT, syncEmail as EventListener);
   }, []);
-
-  useEffect(() => {
-    if (!viewerId) return;
-    void syncPersistedInboxFromServer(RESIDENT_INBOX_STORAGE_KEY, { force: true }).then((rows) => {
-      setEmailThreads(rows);
-    });
-  }, [viewerId]);
 
   useEffect(() => {
     if (!viewerId?.trim() || listSegment !== "active") return;
@@ -171,19 +171,61 @@ function ResidentUnifiedInbox({
     }
   }, [listSegment, viewerId]);
 
-  useEffect(() => {
-    if (!smsUiEnabled) return;
-    void (async () => {
-      try {
-        const res = await fetch("/api/resident/sms-conversations", { credentials: "include", cache: "no-store" });
-        if (!res.ok) return;
-        const body = await res.json();
-        setSmsMessages(normalizeRoleSmsPayload(body).messages);
-      } catch {
-        /* keep */
+  const loadResidentSms = useCallback(async (requestGeneration?: number): Promise<boolean> => {
+    const requestViewerEpoch = viewerEpochRef.current;
+    if (!smsUiEnabled) return true;
+    try {
+      const res = await fetch("/api/resident/sms-conversations", { credentials: "include", cache: "no-store" });
+      if (!res.ok) return false;
+      const body = (await res.json()) as { messages?: ManagerSmsMessageRow[] };
+      if (!body || !Array.isArray(body.messages)) return false;
+      if (
+        viewerEpochRef.current !== requestViewerEpoch ||
+        (requestGeneration !== undefined && requestGeneration !== initialLoadGeneration.current)
+      ) {
+        return false;
       }
-    })();
-  }, [smsUiEnabled]);
+      setSmsMessages(normalizeRoleSmsPayload(body).messages);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [setSmsMessages, smsUiEnabled]);
+
+  const loadInitialList = useCallback(async (): Promise<void> => {
+    const requestGeneration = ++initialLoadGeneration.current;
+    if (!sessionReady || !viewerId?.trim()) {
+      setInitialListViewerId(null);
+      setInitialListState("loading");
+      setSelectedKey(null);
+      return;
+    }
+    setInitialListViewerId(viewerId);
+    setInitialListState("loading");
+    const [inbox, smsOk] = await Promise.all([
+      syncPersistedInboxFromServerWithStatus(RESIDENT_INBOX_STORAGE_KEY),
+      smsUiEnabled ? loadResidentSms(requestGeneration) : Promise.resolve(true),
+    ]);
+    if (requestGeneration !== initialLoadGeneration.current || inbox.stale) return;
+    if (inbox.ok) setEmailThreads(inbox.rows);
+    setInitialListState(inbox.ok && smsOk ? "ready" : "error");
+  }, [
+    loadResidentSms,
+    sessionReady,
+    setEmailThreads,
+    setInitialListState,
+    setInitialListViewerId,
+    setSelectedKey,
+    smsUiEnabled,
+    viewerId,
+  ]);
+
+  useEffect(() => {
+    void loadInitialList();
+    return () => {
+      initialLoadGeneration.current += 1;
+    };
+  }, [loadInitialList]);
 
   useEffect(() => {
     setSelectedKey(null);
@@ -294,13 +336,17 @@ function ResidentUnifiedInbox({
     },
   });
 
-  const selection = useMemo(() => (selectedKey ? parseUnifiedInboxKey(selectedKey) : null), [selectedKey]);
+  const selection = useMemo(
+    () => (initialListReady && selectedKey ? parseUnifiedInboxKey(selectedKey) : null),
+    [initialListReady, selectedKey],
+  );
 
   useEffect(() => {
+    if (!initialListReady) return;
     if (!routeThreadId) return;
     const match = merged.find((r) => r.threadId === routeThreadId);
     if (match) setSelectedKey(match.key);
-  }, [routeThreadId, merged]);
+  }, [initialListReady, routeThreadId, merged]);
 
   useEffect(() => {
     onThreadOpenChange?.(Boolean(selection));
@@ -311,6 +357,7 @@ function ResidentUnifiedInbox({
   }, [onThreadSelectedChange, selection]);
 
   useEffect(() => {
+    if (!initialListReady) return;
     if (merged.length === 0) {
       if (!routeThreadId) setSelectedKey(null);
       return;
@@ -326,7 +373,7 @@ function ResidentUnifiedInbox({
       if (inboxUsesDesktopSplit()) return merged[0]!.key;
       return null;
     });
-  }, [merged, routeThreadId]);
+  }, [initialListReady, merged, routeThreadId]);
 
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
@@ -343,7 +390,7 @@ function ResidentUnifiedInbox({
             data-attr="resident-inbox-search"
           />
         </div>
-        {merged.length > 0 ? (
+        {initialListReady && merged.length > 0 ? (
           <p className="hidden px-1 text-[11px] text-muted sm:block">
             {merged.length} conversation{merged.length === 1 ? "" : "s"}
             {query.trim() ? ` matching \u201C${query.trim()}\u201D` : ""}
@@ -351,7 +398,12 @@ function ResidentUnifiedInbox({
         ) : null}
       </div>
       <div className={`${INBOX_LIST_SCROLL} min-h-0 flex-1`} data-communication-inbox-list>
-        {merged.length === 0 ? (
+        {!initialListReady ? (
+          <CommunicationInboxInitialState
+            error={initialListState === "error"}
+            onRetry={loadInitialList}
+          />
+        ) : merged.length === 0 ? (
           query.trim() ? (
             <div className="p-4">
               <PortalInboxEmptyState title={`No messages match \u201C${query.trim()}\u201D.`} />

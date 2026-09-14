@@ -3,7 +3,7 @@ import { loadManagerSmsConversationsClient } from "@/lib/manager-sms-conversatio
 
 import { PenSquare, Settings2 } from "lucide-react";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { CommunicationFilterSortFields } from "@/components/portal/communication-filter-sort-fields";
@@ -121,6 +121,7 @@ export function ManagerCommunication({
   const [threadOpen, setThreadOpen] = useState(Boolean(threadId));
   const [threadSelected, setThreadSelected] = useState(Boolean(threadId));
   const [propertyTick, setPropertyTick] = useState(0);
+  const refreshDirectory = useCallback(() => setPropertyTick((n) => n + 1), []);
 
   // Rebuilt on every portfolio / applications event (`propertyTick`): the
   // directory is read from the applications cache, which is usually still
@@ -138,13 +139,12 @@ export function ManagerCommunication({
   }, [userId, propertyTick]);
 
   useEffect(() => {
-    const bump = () => setPropertyTick((n) => n + 1);
     const events = [...MANAGER_PORTFOLIO_REFRESH_EVENTS, PROPERTY_PIPELINE_EVENT, MANAGER_APPLICATIONS_EVENT];
-    for (const eventName of events) window.addEventListener(eventName, bump);
+    for (const eventName of events) window.addEventListener(eventName, refreshDirectory);
     return () => {
-      for (const eventName of events) window.removeEventListener(eventName, bump);
+      for (const eventName of events) window.removeEventListener(eventName, refreshDirectory);
     };
-  }, []);
+  }, [refreshDirectory]);
 
   const propertyOptions = useMemo(
     () => buildManagerPropertyFilterOptions(userId).map((option) => ({ value: option.id, label: option.label })),
@@ -152,17 +152,24 @@ export function ManagerCommunication({
   );
 
   const smsRecipientViewer = useRef(userId);
-  useEffect(() => { smsRecipientViewer.current = userId; }, [userId]);
+  const smsRecipientEpoch = useRef(0);
+  useLayoutEffect(() => {
+    smsRecipientViewer.current = userId;
+    smsRecipientEpoch.current += 1;
+  }, [userId]);
   const loadSmsRecipients = useCallback(async () => {
     // Load conversation directory when SMS UI is on OR the work number can send
     // (inbox replies to inbound texts need rows even while the SMS panel is hidden).
     if (!sessionReady || !userId || !smsOutboundEnabled) return;
+    const requestEpoch = smsRecipientEpoch.current;
     try {
       const res = await loadManagerSmsConversationsClient(userId);
       if (!res.ok) return;
       const body = (await res.json()) as { residents?: ManagerSmsResidentConversation[] };
       const normalized = normalizeManagerSmsConversationsPayload(body);
-      if (smsRecipientViewer.current === userId) setSmsDirectory({ viewer: userId, rows: normalized.residents });
+      if (smsRecipientViewer.current === userId && smsRecipientEpoch.current === requestEpoch) {
+        setSmsDirectory({ viewer: userId, rows: normalized.residents });
+      }
     } catch {
       /* keep prior list */
     }
@@ -389,6 +396,7 @@ export function ManagerCommunication({
         onThreadSelectedChange={setThreadSelected}
         listChrome="internal"
         onAddConversation={() => openCompose("email")}
+        onApplicationsLoaded={refreshDirectory}
       />
       <ManagerPortalSettingsModal
         open={communicationSettingsOpen}
