@@ -442,6 +442,24 @@ export async function fetchManagerTasks(managerUserId: string): Promise<ManagerT
   return tasks;
 }
 
+/**
+ * A task write. A fetch that never reaches the server throws the browser's own
+ * "Failed to fetch"; the autosave mark shows a write's reason verbatim, so give
+ * it something a person can act on instead.
+ */
+async function postManagerTasks(input: { method: "POST" | "PATCH"; body: unknown }): Promise<Response> {
+  try {
+    return await fetch("/api/portal/manager-tasks", {
+      method: input.method,
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input.body),
+    });
+  } catch {
+    throw new Error("Check your connection.");
+  }
+}
+
 export async function createManagerTask(
   managerUserId: string,
   input: ManagerTaskInput,
@@ -490,12 +508,7 @@ export async function createManagerTask(
     return task;
   }
 
-  const res = await fetch("/api/portal/manager-tasks", {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(task),
-  });
+  const res = await postManagerTasks({ method: "POST", body: task });
   const data = (await res.json().catch(() => ({}))) as { task?: unknown; error?: string };
   if (!res.ok) throw new Error(data.error ?? "Could not create task.");
   const saved = normalizeTask(data.task);
@@ -586,12 +599,7 @@ export async function updateManagerTask(
     return next;
   }
 
-  const res = await fetch("/api/portal/manager-tasks", {
-    method: "PATCH",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id: taskId, ...patch }),
-  });
+  const res = await postManagerTasks({ method: "PATCH", body: { id: taskId, ...patch } });
   const data = (await res.json().catch(() => ({}))) as { task?: unknown; nextOccurrence?: unknown; error?: string };
   if (!res.ok) throw new Error(data.error ?? "Could not update task.");
   const saved = normalizeTask(data.task);

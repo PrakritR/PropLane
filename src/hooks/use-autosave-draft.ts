@@ -12,7 +12,8 @@
  *   invalid  a required field is empty — nothing is written, the mark says why
  *   saving   a write is in flight (× still works; the write finishes anyway)
  *   saved    the last write landed
- *   error    the write failed; the draft is kept, `retry()` re-sends it
+ *   error    the write failed; the draft is kept, `retry()` re-sends it, and
+ *            `reason` carries the server's message when it gave one
  *
  * `flush()` sends whatever is pending right now — call it from the close
  * handler so the last keystroke is not lost to the debounce window.
@@ -27,7 +28,11 @@ export type AutosaveState = "idle" | "invalid" | "saving" | "saved" | "error";
 
 export type AutosaveStatus = {
   state: AutosaveState;
-  /** Why nothing is being written (state === "invalid"). */
+  /**
+   * Why the draft is not saved: the missing field (state === "invalid") or the
+   * message the failed write came back with (state === "error"; null when the
+   * failure had none, e.g. the network dropped).
+   */
   reason: string | null;
   /** When the last write landed. */
   savedAt: number | null;
@@ -116,6 +121,7 @@ export function useAutosaveDraft<T>(input: {
         }
         setState("saving");
         stateRef.current = "saving";
+        setReason(null);
         try {
           const result = await saveRef.current(next);
           if (result && typeof result === "object" && result.ok === false) {
@@ -126,9 +132,13 @@ export function useAutosaveDraft<T>(input: {
           setState("saved");
           stateRef.current = "saved";
           onSavedRef.current?.(next);
-        } catch {
-          // Keep the draft so retry() can re-send exactly what failed.
+        } catch (error) {
+          // Keep the draft so retry() can re-send exactly what failed, and the
+          // message so the mark can say why ("Only the owner can…") instead of
+          // a bare "Couldn't save" the user cannot act on.
           if (pendingRef.current === null) pendingRef.current = next;
+          const message = error instanceof Error ? error.message.trim() : "";
+          setReason(message || null);
           setState("error");
           stateRef.current = "error";
           break;

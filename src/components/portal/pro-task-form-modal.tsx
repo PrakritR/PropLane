@@ -13,7 +13,7 @@ import {
   PORTAL_MODAL_FORM_GRID_CLASS,
 } from "@/components/ui/modal";
 import { PORTAL_MODAL_BODY_SCROLL_CLASS } from "@/components/ui/modal-styles";
-import { SaveStatus } from "@/components/ui/save-status";
+import { SaveStatus, saveErrorReason } from "@/components/ui/save-status";
 import { useAutosaveDraft } from "@/hooks/use-autosave-draft";
 import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
 import {
@@ -511,6 +511,7 @@ export function ManagerTaskFormModal({
       dense
       assistantContext={editingId ? "Edit task" : "Add task"}
       status={useServiceIntakeForm ? undefined : <SaveStatus status={autosave} />}
+      description={useServiceIntakeForm ? undefined : saveErrorReason(autosave)}
       footer={
         useServiceIntakeForm && serviceFooter ? (
           <ModalFooter>

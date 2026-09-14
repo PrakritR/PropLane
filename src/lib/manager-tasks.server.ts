@@ -109,6 +109,23 @@ export async function loadManagerTasks(db: SupabaseClient, managerUserId: string
   return [...own, ...assigned];
 }
 
+/** The refusal an assignee sees for the two fields only the owner may change. */
+export const OWNER_ONLY_TASK_CHANGE_ERROR = "Only the owner can reassign or move this task.";
+
+/** True when a patch would put the task on a different assignee or property than it has now. */
+function assigneeWriteWouldMoveTask(current: ManagerTask, patch: Record<string, unknown>): boolean {
+  if (patch.assignee !== undefined) {
+    const next = normalizeAssignee(patch.assignee);
+    const now = current.assignee ?? null;
+    if (!next || !now || next.type !== now.type || next.id !== now.id.trim()) return true;
+  }
+  if (patch.propertyId !== undefined) {
+    const next = typeof patch.propertyId === "string" ? patch.propertyId.trim() : "";
+    if (next !== (current.propertyId ?? "").trim()) return true;
+  }
+  return false;
+}
+
 /**
  * The owner whose record holds a task this viewer may WRITE — their own record
  * first, then a linked owner's record but ONLY for a task assigned to them.
@@ -218,9 +235,11 @@ export async function patchManagerTaskRow(
   const current = tasks.find((row) => row.id === taskId);
   if (!current) throw new Error("Task not found.");
   // An assignee may work their own task, not reassign it away or move it to
-  // another house — that stays the owner's call.
-  if (ownerUserId !== managerUserId && (patch.assignee !== undefined || patch.propertyId !== undefined)) {
-    throw new Error("Task not found.");
+  // another house — that stays the owner's call. The edit popup re-sends the
+  // whole form on every keystroke, assignee and property included, so the test
+  // is whether either would CHANGE, not whether the patch mentions it.
+  if (ownerUserId !== managerUserId && assigneeWriteWouldMoveTask(current, patch)) {
+    throw new Error(OWNER_ONLY_TASK_CHANGE_ERROR);
   }
   const start =
     patch.start !== undefined
