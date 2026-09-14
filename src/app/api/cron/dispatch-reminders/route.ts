@@ -16,6 +16,7 @@ import { sweepTaskReminders } from "@/lib/reminders/subjects/tasks.server";
 import { sweepApplicationReminders, sweepApplicationPostTourReminders } from "@/lib/reminders/subjects/applications.server";
 import { sweepLeaseReminders } from "@/lib/reminders/subjects/leases.server";
 import { sweepOutgoingPaymentReminders } from "@/lib/reminders/subjects/outgoing-payments.server";
+import { sweepPaymentManagerReminders } from "@/lib/reminders/subjects/payments.server";
 import {
   sweepServiceOrderReminders,
   sweepWorkOrderReminders,
@@ -76,6 +77,7 @@ export async function GET(req: Request) {
       ["application_post_tour", sweepApplicationPostTourReminders],
       ["lease", sweepLeaseReminders],
       ["outgoing_payment", sweepOutgoingPaymentReminders],
+      ["payment_manager", sweepPaymentManagerReminders],
       ["booking", sweepBookingReminders],
       ["inspection", sweepInspectionReminders],
     ] as const) {
