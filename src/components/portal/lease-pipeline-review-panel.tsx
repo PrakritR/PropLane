@@ -150,6 +150,7 @@ export function LeasePipelineReviewPanel({
           applicationRow ? (
             <ManagerApplicationReadonlyReview
               partial={applicationRow.application ?? {}}
+              applicationId={applicationRow.id}
               assignedPropertyId={applicationRow.assignedPropertyId}
               assignedRoomChoice={applicationRow.assignedRoomChoice}
               embedded

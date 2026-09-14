@@ -195,6 +195,33 @@ export function persistApplicationConfigToPropertyIds(
   return { saved, failed };
 }
 
+/** Server-confirmed twin of persistApplicationConfigToPropertyIds — application edits must survive reload. */
+export async function persistApplicationConfigToPropertyIdsOnServer(
+  managerUserId: string,
+  propertyIds: string[],
+  configFields: ApplicationConfigFields,
+): Promise<{ saved: number; failed: number }> {
+  let saved = 0;
+  let failed = 0;
+  for (const propertyId of propertyIds) {
+    const hit = resolveManagerListingSubmissionForPropertyId(managerUserId, propertyId);
+    if (!hit) {
+      failed += 1;
+      continue;
+    }
+    const next: ManagerListingSubmissionV1 = {
+      ...hit.sub,
+      ...configFields,
+    };
+    if (await persistManagerListingSubmissionOnServer(hit.saveTarget, managerUserId, next)) {
+      saved += 1;
+    } else {
+      failed += 1;
+    }
+  }
+  return { saved, failed };
+}
+
 export function resolveManagerListingSubmissionForPropertyId(
   managerUserId: string | null,
   propertyId: string,

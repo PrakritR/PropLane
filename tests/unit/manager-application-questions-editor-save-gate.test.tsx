@@ -8,14 +8,14 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
-const persistBulk = vi.fn(() => ({ saved: 4, failed: 0 }));
+const persistBulk = vi.fn(async () => ({ saved: 4, failed: 0 }));
 
 vi.mock("@/lib/manager-property-save-target", async (importActual) => {
   const actual = await importActual<typeof import("@/lib/manager-property-save-target")>();
   return {
     ...actual,
-    persistApplicationConfigToPropertyIds: (...args: unknown[]) => persistBulk(...(args as [])),
-    persistManagerListingSubmission: vi.fn(() => true),
+    persistApplicationConfigToPropertyIdsOnServer: (...args: unknown[]) => persistBulk(...(args as [])),
+    persistManagerListingSubmissionOnServer: vi.fn(async () => true),
   };
 });
 

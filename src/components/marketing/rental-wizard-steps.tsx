@@ -50,8 +50,11 @@ import {
   customFieldErrorKey,
   customFieldsForWizardStep,
   displayableCustomFieldAnswers,
+  encodeCustomFieldAttachment,
   formatCustomFieldAnswerDisplay,
+  isFileCustomFieldType,
   listingCustomApplicationFields,
+  parseCustomFieldAttachment,
   upsertCustomFieldAnswer,
 } from "@/lib/rental-application/custom-fields";
 import { normalizeCustomApplicationFields, type ManagerCustomApplicationField } from "@/lib/manager-listing-submission";
@@ -282,19 +285,54 @@ function ReviewRow({ k, v }: { k: string; v: ReactNode }) {
 }
 
 /** One manager-defined application question, rendered by its configured type. */
-function CustomQuestionField({
+export function CustomQuestionField({
   field,
   value,
   error,
   onChange,
+  getApplicationId,
+  setupTokenRequired,
+  getSetupToken,
+  readOnly,
 }: {
   field: ManagerCustomApplicationField;
   value: string;
   error?: string;
   onChange: (next: string) => void;
+  /**
+   * Only required for `field.type === "file" | "photos"` — threaded straight
+   * through to {@link ApplicationPhotoField}, which mints/reads the stable
+   * application id and (for a guest) the resident-setup token the upload is
+   * authorized by.
+   */
+  getApplicationId?: () => string;
+  setupTokenRequired?: boolean;
+  getSetupToken?: () => string | null;
+  readOnly?: boolean;
 }) {
   const inputId = `custom-${field.key}`;
   const errorClass = error ? "border-red-400 ring-2 ring-red-100" : "";
+
+  if (isFileCustomFieldType(field.type)) {
+    return (
+      <div className="space-y-2" data-wizard-field={customFieldErrorKey(field.key)}>
+        <ApplicationPhotoField
+          slot="custom"
+          fieldKey={field.key}
+          label={`${field.label}${field.required ? " *" : " (optional)"}`}
+          attachment={parseCustomFieldAttachment(value)}
+          onChange={(next) => onChange(encodeCustomFieldAttachment(next))}
+          getApplicationId={getApplicationId ?? (() => "")}
+          setupTokenRequired={setupTokenRequired}
+          getSetupToken={getSetupToken}
+          uploadOnly={field.type === "file"}
+          readOnly={readOnly}
+          dataAttr={`application-custom-file-${field.key}`}
+        />
+        <FieldError msg={error} />
+      </div>
+    );
+  }
 
   if (field.type === "checkbox") {
     return (
@@ -432,6 +470,10 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             onChange={(next) =>
               patch({ customFieldAnswers: upsertCustomFieldAnswer(form.customFieldAnswers, field, next) })
             }
+            getApplicationId={getApplicationId}
+            setupTokenRequired={p.photoSetupTokenRequired}
+            getSetupToken={p.getPhotoSetupToken}
+            readOnly={photosReadOnly}
           />
         ))}
       </div>

@@ -32,8 +32,13 @@ export type ApplicationPhotoAttachment = {
   uploadedAt: string;
 };
 
-/** Slots that accept an {@link ApplicationPhotoAttachment}. Used to scope uploads/reads. */
-export type ApplicationPhotoSlot = "idFront" | "idBack" | "income";
+/**
+ * Slots that accept an {@link ApplicationPhotoAttachment}. Used to scope uploads/reads.
+ * `"custom"` is a manager-defined `photos`/`file` application question — it has no
+ * fixed answer key, so a `"custom"` upload/read always carries the question's
+ * stable `key` alongside the slot (see `fieldKey` in the photo upload/read API).
+ */
+export type ApplicationPhotoSlot = "idFront" | "idBack" | "income" | "custom";
 
 /**
  * Applicant answer to one manager-defined application question. Label and type are

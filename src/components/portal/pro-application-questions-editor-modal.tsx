@@ -19,8 +19,8 @@ import {
 } from "@/lib/manager-listing-submission";
 import {
   applicationConfigFieldsFromSubmission,
-  persistApplicationConfigToPropertyIds,
-  persistManagerListingSubmission,
+  persistApplicationConfigToPropertyIdsOnServer,
+  persistManagerListingSubmissionOnServer,
   type ManagerPropertySaveTarget,
 } from "@/lib/manager-property-save-target";
 import {
@@ -77,7 +77,7 @@ function questionSubtitle(field: ResolvedApplicationField): string {
   return `${field.isStandard ? "Built-in" : "Custom"} · ${typeLabel(field.type)}${field.required ? " · Required" : " · Optional"}`;
 }
 
-function persistApplicationConfig({
+async function persistApplicationConfig({
   next,
   saveTarget,
   propertyIds,
@@ -91,10 +91,10 @@ function persistApplicationConfig({
   managerUserId: string;
   showToast: (m: string) => void;
   singleSuccessMessage: string;
-}): boolean {
+}): Promise<boolean> {
   const bulkIds = propertyIds?.filter((id) => id.trim()) ?? [];
   if (bulkIds.length > 0) {
-    const { saved, failed } = persistApplicationConfigToPropertyIds(
+    const { saved, failed } = await persistApplicationConfigToPropertyIdsOnServer(
       managerUserId,
       bulkIds,
       applicationConfigFieldsFromSubmission(next),
@@ -117,7 +117,7 @@ function persistApplicationConfig({
     showToast("Could not save application settings.");
     return false;
   }
-  if (!persistManagerListingSubmission(saveTarget, managerUserId, next)) {
+  if (!(await persistManagerListingSubmissionOnServer(saveTarget, managerUserId, next))) {
     showToast("Could not save application settings.");
     return false;
   }
@@ -170,7 +170,7 @@ export function ManagerApplicationQuestionsEditorModal({
   onPersistSubmission?: (
     merged: ManagerListingSubmissionV1,
     opts: { message: string },
-  ) => boolean;
+  ) => boolean | Promise<boolean>;
   /** Property template edit — removes the application (defaults show Delete but toast on click). */
   onDelete?: () => void;
   /** Mirrors lease modal — Delete is shown only when more than one template exists. */
@@ -194,6 +194,7 @@ export function ManagerApplicationQuestionsEditorModal({
   // and drives the discard confirmation so a stray click can never overwrite properties.
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -208,6 +209,7 @@ export function ManagerApplicationQuestionsEditorModal({
     setIsNewField(false);
     setDirty(templateEditorMode === "add");
     setSaving(false);
+    setSaveError(null);
   }, [open, sub, initialVariant, templateEditorMode, applicationTemplate]);
 
   const bulkIds = propertyIds?.filter((id) => id.trim()) ?? [];
@@ -296,22 +298,22 @@ export function ManagerApplicationQuestionsEditorModal({
         });
       }
       const merged = withPropertyApplicationTemplatesExplicit(localSub, nextTemplates);
-      if (
-        !onPersistSubmission(merged, {
-          message: templateEditorMode === "add" ? "Application added." : "Application saved.",
-        })
-      ) {
-        setSaving(false);
+      const okSaved = await onPersistSubmission(merged, {
+        message: templateEditorMode === "add" ? "Application added." : "Application saved.",
+      });
+      setSaving(false);
+      if (!okSaved) {
+        setSaveError("Could not save. Your changes are still here — try again.");
         return;
       }
-      setSaving(false);
+      setSaveError(null);
       setDirty(false);
       onSaved();
       onClose();
       return;
     }
 
-    const okSaved = persistApplicationConfig({
+    const okSaved = await persistApplicationConfig({
       next: localSub,
       saveTarget,
       propertyIds: isBulkSave ? bulkIds : undefined,
@@ -320,7 +322,11 @@ export function ManagerApplicationQuestionsEditorModal({
       singleSuccessMessage: "Application settings saved.",
     });
     setSaving(false);
-    if (!okSaved) return;
+    if (!okSaved) {
+      setSaveError("Could not save. Your changes are still here — try again.");
+      return;
+    }
+    setSaveError(null);
     setDirty(false);
     onSaved();
     onClose();
@@ -432,7 +438,17 @@ export function ManagerApplicationQuestionsEditorModal({
         dense
         panelClassName="flex max-h-[min(90vh,56rem)] w-full max-w-4xl flex-col"
         footer={
-          <ModalFooter className="w-full">
+          <>
+            {saveError ? (
+              <p
+                className="mb-2 w-full text-sm text-rose-600"
+                role="alert"
+                data-attr="application-questions-save-error"
+              >
+                {saveError}
+              </p>
+            ) : null}
+            <ModalFooter className="w-full">
             {showDelete ? (
               <Button
                 type="button"
@@ -455,7 +471,8 @@ export function ManagerApplicationQuestionsEditorModal({
             >
               {saving ? "Saving…" : templateEditorMode === "add" ? "Add application" : "Save"}
             </Button>
-          </ModalFooter>
+            </ModalFooter>
+          </>
         }
       >
         {isBulkSave ? (

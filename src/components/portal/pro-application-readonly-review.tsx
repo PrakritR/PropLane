@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { getBundleChoiceLabel, getPropertyById, getRoomChoiceLabel, isPropertyRentedByRoom } from "@/lib/rental-application/data";
 import { paymentAtSigningPriceLabel, utilitiesListingEstimateLabel } from "@/lib/rental-application/listing-fees-display";
 import { formatLeaseDateLabel } from "@/lib/rental-application/lease-dates";
@@ -9,6 +9,8 @@ import type { RentalWizardFormState } from "@/lib/rental-application/types";
 import {
   displayableCustomFieldAnswers,
   formatCustomFieldAnswerDisplay,
+  isFileCustomFieldType,
+  parseCustomFieldAttachment,
 } from "@/lib/rental-application/custom-fields";
 import { digitsOnly } from "@/lib/rental-application/masks";
 
@@ -56,6 +58,41 @@ export function ReviewRow({ k, v }: { k: string; v: ReactNode }) {
   );
 }
 
+/**
+ * Manager-review thumbnail for a manager-defined `file`/`photos` question
+ * answer. Falls back to a plain file-name chip when there is no application id
+ * to build the authorized read URL from, or the attachment does not parse — it
+ * must NEVER show a broken image.
+ */
+function CustomFieldAttachmentThumbnail({
+  applicationId,
+  fieldKey,
+  fileName,
+}: {
+  applicationId?: string;
+  fieldKey: string;
+  fileName: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  const label = fileName || "File attached";
+  if (!applicationId || failed) {
+    return <span className="text-[13.5px] font-semibold text-foreground">{label}</span>;
+  }
+  const params = new URLSearchParams({ applicationId, slot: "custom", key: fieldKey });
+  return (
+    <div className="flex items-center gap-2">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={`/api/portal/application-photos?${params.toString()}`}
+        alt={label}
+        onError={() => setFailed(true)}
+        className="h-20 w-20 shrink-0 rounded-lg border border-border object-cover [html[data-theme=dark]_&]:border-white/12"
+      />
+      <span className="min-w-0 truncate text-[13.5px] font-semibold text-foreground">{label}</span>
+    </div>
+  );
+}
+
 export function ApplicationManagerPlacementCard({
   assignedPropertyId,
   assignedRoomChoice,
@@ -87,12 +124,15 @@ export function ApplicationCosignerPlannedCard({ hasCosigner }: { hasCosigner?: 
 /** Read-only review matching the rental application “Review” step (step 11). */
 export function ManagerApplicationReadonlyReview({
   partial,
+  applicationId,
   assignedPropertyId,
   assignedRoomChoice,
   omitSections,
   embedded = false,
 }: {
   partial: Partial<RentalWizardFormState>;
+  /** Axis application id — required to render a manager-question file/photos thumbnail; text-only fallback without it. */
+  applicationId?: string;
   assignedPropertyId?: string;
   assignedRoomChoice?: string;
   /** Hide roster-style sections when the parent already shows household cards above the toggle. */
@@ -244,9 +284,23 @@ export function ManagerApplicationReadonlyReview({
       ) : null}
       {!omit.has("custom") && displayableCustomFieldAnswers(form.customFieldAnswers).length > 0 ? (
         <ReviewSection title="Manager questions">
-          {displayableCustomFieldAnswers(form.customFieldAnswers).map((answer) => (
-            <ReviewRow key={answer.key} k={answer.label} v={displayOrDash(formatCustomFieldAnswerDisplay(answer))} />
-          ))}
+          {displayableCustomFieldAnswers(form.customFieldAnswers).map((answer) =>
+            isFileCustomFieldType(answer.type) && parseCustomFieldAttachment(answer.value) ? (
+              <ReviewRow
+                key={answer.key}
+                k={answer.label}
+                v={
+                  <CustomFieldAttachmentThumbnail
+                    applicationId={applicationId}
+                    fieldKey={answer.key}
+                    fileName={formatCustomFieldAnswerDisplay(answer)}
+                  />
+                }
+              />
+            ) : (
+              <ReviewRow key={answer.key} k={answer.label} v={displayOrDash(formatCustomFieldAnswerDisplay(answer))} />
+            ),
+          )}
         </ReviewSection>
       ) : null}
       {!omit.has("consent") ? (

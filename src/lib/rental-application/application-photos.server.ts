@@ -115,12 +115,15 @@ export function isPathInApplicationFolder(path: string, applicationId: string): 
 }
 
 /**
- * Per-application object quota. The meaningful maximum is 5 (front + back ID
- * plus 3 income documents); 6 leaves headroom for the transient retake overlap
- * (new object uploaded before the replaced one is removed) while still bounding
- * what any one application id can ever cost in storage.
+ * Per-application object quota. Front + back ID plus 3 income documents is 5;
+ * manager-defined `photos`/`file` application questions ("custom" slot) also
+ * consume this same per-application quota, and a listing can define several of
+ * them, so 12 leaves headroom for a handful of custom-question answers plus the
+ * transient retake overlap (new object uploaded before the replaced one is
+ * removed) while still bounding what any one application id can ever cost in
+ * storage.
  */
-export const MAX_APPLICATION_PHOTO_OBJECTS = 6;
+export const MAX_APPLICATION_PHOTO_OBJECTS = 12;
 
 /** How many objects already live under an application's folder. */
 export async function countApplicationPhotoObjects(db: ServiceClient, applicationId: string): Promise<number> {

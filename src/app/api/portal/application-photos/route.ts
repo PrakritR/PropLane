@@ -3,6 +3,7 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { isApplicationPhotoSlot, validateApplicationPhotoUpload } from "@/lib/rental-application/application-photos";
+import { parseCustomFieldAttachment } from "@/lib/rental-application/custom-fields";
 import {
   accessiblePropertyIdsForManager,
   APPLICATION_DOCUMENTS_BUCKET,
@@ -31,6 +32,20 @@ import { APPLICATION_DOCUMENT_ENCRYPTED_SUFFIX } from "@/lib/security/applicatio
 import { resolveApplicationDocumentStoragePath } from "@/lib/security/application-document-aliases.server";
 
 export const runtime = "nodejs";
+
+/**
+ * A manager-defined custom question's stable `key` (see
+ * `customApplicationFieldKeyFromLabel`), as carried on a `"custom"` slot
+ * upload/read. Kept narrow (lowercase kebab-case) since it becomes part of the
+ * stored object's file name — `buildApplicationPhotoPath` is not the auth
+ * boundary, but a permissive key could otherwise produce a path segment that
+ * fails `isPathInApplicationFolder`'s own filename check.
+ */
+const CUSTOM_FIELD_KEY_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+function isValidCustomFieldKey(value: unknown): value is string {
+  return typeof value === "string" && CUSTOM_FIELD_KEY_PATTERN.test(value.trim());
+}
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -167,6 +182,7 @@ export async function POST(req: Request) {
       action?: string;
       applicationId?: string;
       slot?: string;
+      fieldKey?: string;
       fileName?: string;
       mimeType?: string;
       sizeBytes?: number;
@@ -184,6 +200,12 @@ export async function POST(req: Request) {
     if (!applicationId) return NextResponse.json({ error: "applicationId required." }, { status: 400 });
     if (!isApplicationPhotoSlot(body.slot)) return NextResponse.json({ error: "Invalid slot." }, { status: 400 });
     const slot: ApplicationPhotoSlot = body.slot;
+    // A "custom" upload answers one manager-defined question — the question's
+    // stable key must accompany the upload so a later GET can find it back
+    // inside the application's stored customFieldAnswers.
+    if (slot === "custom" && !isValidCustomFieldKey(body.fieldKey)) {
+      return NextResponse.json({ error: "Invalid question." }, { status: 400 });
+    }
 
     const validated = validateApplicationPhotoUpload(slot, body.mimeType, body.sizeBytes);
     if (!validated.ok) return NextResponse.json({ error: validated.error }, { status: 400 });
@@ -253,6 +275,10 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Not found." }, { status: 404 });
     }
     const slot: ApplicationPhotoSlot = slotParam;
+    const fieldKeyParam = url.searchParams.get("key") ?? "";
+    if (slot === "custom" && !isValidCustomFieldKey(fieldKeyParam)) {
+      return NextResponse.json({ error: "Not found." }, { status: 404 });
+    }
 
     const db = createSupabaseServiceRoleClient();
     const session = await resolveSession(db);
@@ -271,7 +297,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Not found." }, { status: 404 });
     }
 
-    const attachment = resolveAttachment(row.application, slot, index);
+    const attachment = resolveAttachment(row.application, slot, index, fieldKeyParam);
     const storagePath = attachment?.storagePath?.trim();
     if (!storagePath || !isPathInApplicationFolder(storagePath, applicationId)) {
       return NextResponse.json({ error: "Not found." }, { status: 404 });
@@ -365,7 +391,17 @@ function resolveAttachment(
   application: Record<string, unknown>,
   slot: ApplicationPhotoSlot,
   index: number,
+  fieldKey: string,
 ): ApplicationPhotoAttachment | null {
+  if (slot === "custom") {
+    const answers = application.customFieldAnswers;
+    if (!Array.isArray(answers)) return null;
+    const entry = answers.find(
+      (a) => a && typeof a === "object" && (a as { key?: unknown }).key === fieldKey,
+    ) as { value?: unknown } | undefined;
+    if (!entry || typeof entry.value !== "string") return null;
+    return parseCustomFieldAttachment(entry.value);
+  }
   if (slot === "income") {
     const list = application.incomeProofPhotos;
     if (!Array.isArray(list)) return null;

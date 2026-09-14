@@ -63,6 +63,8 @@ async function uploadApplicationPhoto(params: {
   slot: ApplicationPhotoSlot;
   file: File;
   setupToken?: string | null;
+  /** Manager-defined question key — required by the server when `slot === "custom"`. */
+  fieldKey?: string | null;
 }): Promise<{ ok: true; attachment: ApplicationPhotoAttachment } | { ok: false; error: string }> {
   if (params.file.type && !isAllowedApplicationPhotoMime(params.file.type, params.slot)) {
     return { ok: false, error: "That file type isn’t supported. Use a JPG, PNG, or PDF." };
@@ -82,6 +84,7 @@ async function uploadApplicationPhoto(params: {
         encryptionVersion: 1,
         applicationId: params.applicationId,
         slot: params.slot,
+        fieldKey: params.fieldKey || undefined,
         fileName: prepared.fileName,
         mimeType: validated.mime,
         sizeBytes: prepared.blob.size,
@@ -126,6 +129,7 @@ async function deleteApplicationPhoto(params: {
   applicationId: string;
   storagePath: string;
   setupToken?: string | null;
+  fieldKey?: string | null;
 }): Promise<void> {
   try {
     await fetch("/api/portal/application-photos", {
@@ -134,6 +138,7 @@ async function deleteApplicationPhoto(params: {
       body: JSON.stringify({
         applicationId: params.applicationId,
         storagePath: params.storagePath,
+        fieldKey: params.fieldKey || undefined,
         setupToken: params.setupToken || undefined,
       }),
     });
@@ -144,8 +149,9 @@ async function deleteApplicationPhoto(params: {
   }
 }
 
-function readUrlFor(applicationId: string, slot: ApplicationPhotoSlot, index: number): string {
+function readUrlFor(applicationId: string, slot: ApplicationPhotoSlot, index: number, fieldKey?: string | null): string {
   const params = new URLSearchParams({ applicationId, slot, index: String(index) });
+  if (fieldKey) params.set("key", fieldKey);
   return `/api/portal/application-photos?${params.toString()}`;
 }
 
@@ -206,6 +212,8 @@ type SinglePhotoFieldProps = {
   uploadOnly?: boolean;
   readOnly?: boolean;
   dataAttr?: string;
+  /** Manager-defined question key — required when `slot === "custom"`. */
+  fieldKey?: string;
 };
 
 /** One capture-or-upload slot with preview, retake and remove. */
@@ -222,6 +230,7 @@ export function ApplicationPhotoField({
   uploadOnly = false,
   readOnly,
   dataAttr,
+  fieldKey,
 }: SinglePhotoFieldProps) {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -248,7 +257,7 @@ export function ApplicationPhotoField({
       // the credential read below is the one the server currently holds.
       if (setupTokenRequired) await settlePendingApplicationRowUpserts(applicationId);
       const setupToken = getSetupToken?.() ?? null;
-      const result = await uploadApplicationPhoto({ applicationId, slot, file, setupToken });
+      const result = await uploadApplicationPhoto({ applicationId, slot, file, setupToken, fieldKey });
       if (!result.ok) {
         // A failed upload must never look like a success: leave the field as-is
         // and keep the file so Retry can re-run it.
@@ -267,10 +276,10 @@ export function ApplicationPhotoField({
       setBusy(false);
       // Retake: reclaim the object we just replaced (best-effort).
       if (previous?.storagePath && previous.storagePath !== result.attachment.storagePath) {
-        void deleteApplicationPhoto({ applicationId, storagePath: previous.storagePath, setupToken });
+        void deleteApplicationPhoto({ applicationId, storagePath: previous.storagePath, setupToken, fieldKey });
       }
     },
-    [attachment, getApplicationId, getSetupToken, onChange, setupTokenRequired, slot],
+    [attachment, fieldKey, getApplicationId, getSetupToken, onChange, setupTokenRequired, slot],
   );
 
   const handleRemove = useCallback(async () => {
@@ -290,13 +299,14 @@ export function ApplicationPhotoField({
         applicationId,
         storagePath: removed.storagePath,
         setupToken: getSetupToken?.() ?? null,
+        fieldKey,
       });
     }
     setBusy(false);
-  }, [attachment, getApplicationId, getSetupToken, onChange, setupTokenRequired]);
+  }, [attachment, fieldKey, getApplicationId, getSetupToken, onChange, setupTokenRequired]);
 
   // Only resolves (never mints) an id here — an attachment already implies one exists.
-  const readUrl = attachment ? readUrlFor(getApplicationId(), slot, index) : "";
+  const readUrl = attachment ? readUrlFor(getApplicationId(), slot, index, fieldKey) : "";
 
   return (
     <div className="space-y-2" data-attr={dataAttr}>

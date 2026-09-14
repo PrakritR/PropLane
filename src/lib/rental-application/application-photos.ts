@@ -28,7 +28,7 @@ export const APPLICATION_PHOTO_MIME_EXT: Record<string, string> = {
 
 const IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
 
-export const APPLICATION_PHOTO_SLOTS: readonly ApplicationPhotoSlot[] = ["idFront", "idBack", "income"];
+export const APPLICATION_PHOTO_SLOTS: readonly ApplicationPhotoSlot[] = ["idFront", "idBack", "income", "custom"];
 
 export function isApplicationPhotoSlot(value: unknown): value is ApplicationPhotoSlot {
   return typeof value === "string" && (APPLICATION_PHOTO_SLOTS as readonly string[]).includes(value);
@@ -40,10 +40,11 @@ export function applicationPhotoExtForMime(mime: string): string | null {
 
 /**
  * MIME types allowed for a given slot. ID photos are images only (a picture of
- * the card); proof of income additionally allows a PDF pay stub / statement.
+ * the card); proof of income and manager-defined file/photos questions
+ * additionally allow a PDF pay stub / statement / document.
  */
 export function allowedMimeTypesForSlot(slot: ApplicationPhotoSlot): string[] {
-  return slot === "income" ? [...IMAGE_MIME_TYPES, "application/pdf"] : [...IMAGE_MIME_TYPES];
+  return slot === "income" || slot === "custom" ? [...IMAGE_MIME_TYPES, "application/pdf"] : [...IMAGE_MIME_TYPES];
 }
 
 export function isAllowedApplicationPhotoMime(mime: string, slot: ApplicationPhotoSlot): boolean {

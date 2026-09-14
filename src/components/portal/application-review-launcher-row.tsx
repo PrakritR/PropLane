@@ -128,6 +128,7 @@ export function ApplicationReviewLauncherRow({
             {row.application ? (
               <ManagerApplicationReadonlyReview
                 partial={row.application}
+                applicationId={row.id}
                 assignedPropertyId={row.assignedPropertyId}
                 assignedRoomChoice={row.assignedRoomChoice}
                 omitSections={omitReviewSections}
@@ -142,6 +143,7 @@ export function ApplicationReviewLauncherRow({
         ) : row.application ? (
           <ManagerApplicationReadonlyReview
             partial={row.application}
+            applicationId={row.id}
             assignedPropertyId={row.assignedPropertyId}
             assignedRoomChoice={row.assignedRoomChoice}
             omitSections={omitReviewSections}

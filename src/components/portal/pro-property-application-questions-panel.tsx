@@ -20,7 +20,7 @@ import {
 } from "@/lib/manager-listing-submission";
 import {
   applicationConfigFieldsFromSubmission,
-  persistManagerListingSubmission,
+  persistManagerListingSubmissionOnServer,
   resolveManagerListingSubmissionForPropertyId,
 } from "@/lib/manager-property-save-target";
 import {
@@ -127,7 +127,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
   }, [settingsPropertyId, settingsPropertyLabel]);
 
   const persistSubmission = useCallback(
-    (merged: ManagerListingSubmissionV1, opts: { message: string }) => {
+    async (merged: ManagerListingSubmissionV1, opts: { message: string }) => {
       if (!managerUserId) return false;
 
       if (bulkPropertyIds.length > 0) {
@@ -148,7 +148,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
           { ...base, ...configFields },
           nextTemplates,
         );
-          if (persistManagerListingSubmission(hit.saveTarget, managerUserId, next)) saved += 1;
+          if (await persistManagerListingSubmissionOnServer(hit.saveTarget, managerUserId, next)) saved += 1;
           else failed += 1;
         }
         if (saved === 0) {
@@ -166,7 +166,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
       }
 
       if (!saveTarget) return false;
-      if (!persistManagerListingSubmission(saveTarget, managerUserId, merged)) {
+      if (!(await persistManagerListingSubmissionOnServer(saveTarget, managerUserId, merged))) {
         showToast("Could not save application settings.");
         return false;
       }
@@ -176,7 +176,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
     [bulkPropertyIds, managerUserId, saveTarget, showToast],
   );
 
-  const persistRemoval = (nextTemplates: PropertyApplicationTemplate[]) => {
+  const persistRemoval = async (nextTemplates: PropertyApplicationTemplate[]) => {
     if (!managerUserId) return false;
 
     if (bulkPropertyIds.length > 0) {
@@ -191,7 +191,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
         const base = hit.sub.propertyApplicationTemplatesExplicit
           ? hit.sub
           : syncPropertyApplicationTemplatesFromListing(hit.sub);
-        const persisted = persistManagerListingSubmission(
+        const persisted = await persistManagerListingSubmissionOnServer(
           hit.saveTarget,
           managerUserId,
           submissionAfterRemovingApplicationTemplate(base, nextTemplates),
@@ -203,7 +203,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
     }
 
     if (!saveTarget) return false;
-    return persistManagerListingSubmission(
+    return persistManagerListingSubmissionOnServer(
       saveTarget,
       managerUserId,
       submissionAfterRemovingApplicationTemplate(
@@ -221,7 +221,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
   const availableSeeds = useMemo(() => availableApplicationTemplateSeeds(syncedSub), [syncedSub]);
 
   const addSeedTemplate = useCallback(
-    (seedKey: string) => {
+    async (seedKey: string) => {
       if (!managerUserId) return;
 
       if (bulkPropertyIds.length > 0) {
@@ -242,7 +242,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
             skipped += 1;
             continue;
           }
-          if (persistManagerListingSubmission(hit.saveTarget, managerUserId, next)) saved += 1;
+          if (await persistManagerListingSubmissionOnServer(hit.saveTarget, managerUserId, next)) saved += 1;
           else failed += 1;
         }
         if (saved === 0) {
@@ -275,7 +275,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
         return;
       }
       const label = availableSeeds.find((s) => s.seedKey === seedKey)?.label ?? "Application";
-      if (!persistManagerListingSubmission(saveTarget, managerUserId, next)) {
+      if (!(await persistManagerListingSubmissionOnServer(saveTarget, managerUserId, next))) {
         showToast("Could not add application.");
         return;
       }
@@ -333,9 +333,9 @@ export function ManagerPropertyApplicationQuestionsPanel({
     modalBulkActions,
   );
 
-  const handleDeleteTemplate = (templateId: string) => {
+  const handleDeleteTemplate = async (templateId: string) => {
     const next = removePropertyApplicationTemplate(templates, templateId);
-    const persisted = persistRemoval(next);
+    const persisted = await persistRemoval(next);
     if (!persisted) {
       showToast("Could not delete application.");
       return;
