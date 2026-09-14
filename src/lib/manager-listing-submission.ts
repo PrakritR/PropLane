@@ -2491,9 +2491,20 @@ export function emptyCustomFeeRow(): ManagerCustomFeeRow {
   };
 }
 
+/**
+ * Mint a custom-application-question id. Exported because pack expansion mints
+ * these too: a second module reproducing this format with its OWN counter can
+ * emit an identical id within the same millisecond, and question ids are React
+ * keys and the lookup used to patch or remove a question — so a collision makes
+ * editing one question edit another. One counter, one minter.
+ */
+export function mintCustomApplicationFieldId(): string {
+  return rid("caf");
+}
+
 export function emptyCustomApplicationField(section?: string): ManagerCustomApplicationField {
   return {
-    id: rid("caf"),
+    id: mintCustomApplicationFieldId(),
     key: "",
     label: "",
     type: "text",
