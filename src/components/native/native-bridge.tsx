@@ -9,6 +9,7 @@ import { handleNativeOAuthReturnUrl, isNativeOAuthInProgress } from "@/lib/nativ
 import { nativeOAuthMarketingSiteMessage } from "@/lib/auth/oauth-failure-messages";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { getNativeInfo, registerPushIfGranted, resendCachedToken } from "@/lib/native/push-client";
+import { recordAppLaunch } from "@/lib/native/app-review";
 import { useEffect } from "react";
 
 async function redirectNativeFromMarketingPage(): Promise<void> {
@@ -55,6 +56,7 @@ export function NativeBridge() {
         if (disposed || !isNative) return;
 
         tagHtmlNativePlatform(platform);
+        recordAppLaunch();
         void loadPublicExtraListingsFromServer().catch(() => {});
         const removeZoomLock = installNativeZoomLock();
         cleanups.push(removeZoomLock);
@@ -92,6 +94,7 @@ export function NativeBridge() {
           }
 
           const resume = await App.addListener("resume", () => {
+            recordAppLaunch();
             void resendCachedToken().catch(() => {});
             void redirectNativeFromMarketingPage().catch(() => {});
             void recoverFromMarketingDuringOAuth().catch(() => {});

@@ -1,5 +1,6 @@
 "use client";
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
+import { recordDelightMoment } from "@/lib/native/app-review";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import Link from "next/link";
@@ -494,6 +495,7 @@ export function ResidentPaymentsPanel({
         setCheckout(null);
         setSelectedIds(new Set());
         showToast("Payment received. Thank you.");
+        recordDelightMoment("charge_paid");
       } else if (data.processing) {
         showToast("Bank transfer submitted. We will mark this paid when the transfer clears (usually 3–5 business days).");
       } else {

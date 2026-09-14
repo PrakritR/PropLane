@@ -4,6 +4,7 @@ import { AxisAssistant } from "@/components/portal/axis-assistant";
 import { PortalAssistantDockRail } from "@/components/portal/portal-assistant-dock-rail";
 import { PortalDataPrefetch } from "@/components/portal/portal-data-prefetch";
 import { PortalMobileNavBar } from "@/components/portal/portal-mobile-nav-bar";
+import { RateAppPrompt } from "@/components/native/rate-app-prompt";
 import { PortalSessionKeepalive } from "@/components/portal/portal-session-keepalive";
 import { PortalClientSessionGuard } from "@/components/portal/portal-client-session-guard";
 import { ResidentPreApplicationGuard } from "@/components/portal/resident-pre-application-guard";
@@ -70,6 +71,7 @@ export default async function ResidentLayout({ children }: { children: React.Rea
       <PortalDataPrefetch kind="resident" />
       <PortalSessionKeepalive />
       <PortalClientSessionGuard />
+      <RateAppPrompt reporterRole="resident" />
       <div className="relative isolate flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:flex-row">
         <PortalSkipLink />
         <PortalSidebar

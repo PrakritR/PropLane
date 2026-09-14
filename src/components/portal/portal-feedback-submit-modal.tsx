@@ -17,6 +17,8 @@ export function PortalFeedbackSubmitModal({
   reporterEmail,
   reporterName,
   onSubmitted,
+  /** Pre-filled title (e.g. the in-app rating sheet's "Rated 2/5 in the app"). Empty for every ordinary caller. */
+  initialTitle = "",
 }: {
   open: boolean;
   onClose: () => void;
@@ -25,16 +27,19 @@ export function PortalFeedbackSubmitModal({
   reporterEmail: string;
   reporterName: string;
   onSubmitted: () => void | Promise<void>;
+  initialTitle?: string;
 }) {
   const { showToast } = useAppUi();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [title, setTitle] = useState("");
+  // Read at mount and on reset only; a caller that needs a different
+  // pre-filled title later remounts the modal (`key`).
+  const [title, setTitle] = useState(initialTitle);
   const [description, setDescription] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
   const [busy, setBusy] = useState(false);
 
   const resetForm = () => {
-    setTitle("");
+    setTitle(initialTitle);
     setDescription("");
     setAttachments([]);
     if (fileInputRef.current) fileInputRef.current.value = "";

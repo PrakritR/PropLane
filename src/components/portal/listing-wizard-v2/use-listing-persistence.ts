@@ -22,6 +22,7 @@
  */
 
 import { useCallback, useRef, useState } from "react";
+import { recordDelightMoment } from "@/lib/native/app-review";
 import {
   publishManagerPropertyDraftToServer,
   saveManagerPropertyDraftToServer,
@@ -150,6 +151,7 @@ export function useListingPersistence({
           : await submitManagerPendingPropertyToServer(submission, userId, opts);
         if (!id) return { ok: false, message: serverError || "Could not publish this listing." };
         draftIdRef.current = null;
+        recordDelightMoment("listing_published");
         return { ok: true, id };
       } finally {
         setBusy(false);

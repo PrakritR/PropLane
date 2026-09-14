@@ -9,6 +9,7 @@
  */
 
 import { track } from "@/lib/analytics/track-client";
+import { recordDelightMoment } from "@/lib/native/app-review";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { recordApprovedApplicationCharges } from "@/lib/household-charges";
 import { readLeasePipeline, syncLeasePipelineFromServer, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
@@ -69,6 +70,7 @@ export async function markLeaseSignedOffPlatform(
   if (!res.ok) return { ok: false, error: payload.error?.trim() || "Could not mark the lease as signed." };
 
   track("lease_marked_signed", { stage: row.status ?? "unknown", attachedPdf: Boolean(opts.file) });
+  recordDelightMoment("lease_signed");
 
   const serverRows = await syncLeasePipelineFromServer(opts.managerUserId, { force: true }).catch(() => []);
   const marked = serverRows.find((r) => r.id === rowId) ?? null;

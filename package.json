@@ -59,7 +59,6 @@
     "linear:comment": "node scripts/linear-comment.mjs",
     "linear:triage": "node scripts/linear-triage.mjs",
     "linear:cleanup": "node scripts/linear-cleanup.mjs",
-
     "qa:portal-audit": "node scripts/qa-full-portal-audit.mjs",
     "qa:portal-deep": "node scripts/qa-deep-portal-interactions.mjs",
     "qa:mobile": "node scripts/qa-mobile-portal-audit.mjs",
@@ -131,6 +130,7 @@
     "@capacitor/push-notifications": "^8.1.1",
     "@capacitor/splash-screen": "^8.0.1",
     "@capacitor/status-bar": "^8.0.2",
+    "@capawesome/capacitor-app-review": "^8.0.2",
     "@langfuse/otel": "^5.10.0",
     "@langfuse/tracing": "^5.10.0",
     "@opentelemetry/sdk-node": "^0.221.0",

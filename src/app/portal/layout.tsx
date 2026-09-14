@@ -1,3 +1,4 @@
+import { RateAppPrompt } from "@/components/native/rate-app-prompt";
 import { AccountLinksSync } from "@/components/portal/account-links-sync";
 import { LandlordLegalNameCacheSync } from "@/components/portal/landlord-legal-name-cache-sync";
 import { PropertyPipelineAccountSync } from "@/components/portal/property-pipeline-account-sync";
@@ -52,6 +53,7 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
         <LandlordLegalNameCacheSync />
         <PropertyPipelineAccountSync />
         <AccountLinksSync />
+        <RateAppPrompt reporterRole="manager" />
         <div className="relative isolate flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:flex-row">
           <PortalSkipLink />
           <PortalSidebar

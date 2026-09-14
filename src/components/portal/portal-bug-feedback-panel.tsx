@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { MessageSquarePlus } from "lucide-react";
+import { ChevronRight, MessageSquarePlus, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
@@ -32,6 +32,9 @@ import {
 } from "@/lib/portal-bug-feedback";
 import { feedbackStatusLabel } from "@/lib/portal-bug-feedback-utils";
 import { usePortalSession } from "@/hooks/use-portal-session";
+import { useIsNativeApp } from "@/hooks/use-is-native-app";
+import { track } from "@/lib/analytics/track-client";
+import { openNativeStoreListing, requestNativeReview } from "@/lib/native/app-review";
 import { cn } from "@/lib/utils";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 
@@ -72,6 +75,7 @@ export function PortalBugFeedbackPanel({
   const { showToast } = useAppUi();
   const confirm = useConfirm();
   const session = usePortalSession();
+  const { isNative } = useIsNativeApp();
   const [rows, setRows] = useState<PortalBugFeedbackRow[]>(() => readBugFeedbackRows());
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -194,9 +198,35 @@ export function PortalBugFeedbackPanel({
     </div>
   );
 
+  // App only: a standing way to rate, so the App Store is never gated behind
+  // the "Enjoying PropLane?" sheet. Tap → the OS's own rating sheet; the store
+  // page when the OS declines to draw it.
+  const rateAppRow = isNative ? (
+    <button
+      type="button"
+      className={cn(PORTAL_MOBILE_CARD_CLASS, "flex w-full items-center gap-3 text-left active:scale-[0.99]")}
+      data-attr="rate-app-settings"
+      onClick={async () => {
+        track("app_review_requested", { shown: true, source: "settings" });
+        const asked = await requestNativeReview();
+        if (!asked) await openNativeStoreListing();
+      }}
+    >
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-primary/10 text-primary">
+        <Star className="h-[18px] w-[18px]" aria-hidden />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-semibold text-foreground">Rate PropLane on the App Store</span>
+        <span className="block text-xs text-muted">Ten seconds. Helps other landlords find us.</span>
+      </span>
+      <ChevronRight className="h-5 w-5 shrink-0 text-muted" aria-hidden />
+    </button>
+  ) : null;
+
   const body = (
     <div className="space-y-2">
       {feedbackCards}
+      {rateAppRow}
       {addFeedbackRow}
     </div>
   );

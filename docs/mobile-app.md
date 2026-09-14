@@ -498,6 +498,45 @@ The iOS permission prompts (`NSCameraUsageDescription`,
 already committed in `ios/App/App/Info.plist` — edit them there. They are
 user-visible at the permission prompt, so they must read **PropLane**.
 
+### 5. "Enjoying PropLane?" — the in-app rating sheet (native only)
+
+After a good moment — a listing published, a resident's charge paid, a lease
+marked signed — the app may show a bottom sheet with five stars.
+**4–5 stars** hand off to the OS's own rating sheet (`requestReview` via
+`@capawesome/capacitor-app-review`; Play In-App Review on Android). **1–3 stars**
+open the existing Add feedback form pre-titled `Rated N/5 in the app`, so the
+reason comes to admin Feedback instead of the store. Settings → Feedback also
+carries a standing **Rate PropLane on the App Store** row (app only), so the
+store is never gated behind the sheet. Our star pick is an in-app survey and
+is never sent to Apple.
+
+Pieces: `src/lib/native/app-review-eligibility.ts` (pure rules, unit-tested in
+`tests/unit/app-review-eligibility.test.ts`), `src/lib/native/app-review.ts`
+(per-device record + lazy plugin calls), `src/components/native/rate-app-prompt.tsx`
+(the sheet, mounted in the manager / resident / vendor layouts), and
+`recordDelightMoment(...)` at the three trigger sites. `NativeBridge` counts
+launches and resumes.
+
+Rules (per device, localStorage key `proplane:app-review:v1`): ≥ 3 days since
+first open, ≥ 5 opens, never on the web, never when another sheet is open,
+≥ 90 days between sheets, at most 3 sheets ever; a 4–5 pick is terminal, 1–3
+is quiet for 180 days, "Not now" for 30. Apple separately caps its sheet at
+three shows per year and honours the user's In-App Ratings switch.
+
+To drive it on a device for QA, from Safari → Develop → the app's WebView:
+
+```js
+localStorage.setItem("proplane:app-review:v1", JSON.stringify({
+  firstOpenAt: Date.now() - 4 * 864e5, opens: 5, lastPromptAt: 0,
+  promptCount: 0, stars: 0, answeredAt: 0, lastAnswer: null,
+}));
+```
+
+then publish a listing (or pay a charge / mark a lease signed). Remove the key
+to reset. On the simulator Apple's sheet renders but the Submit is inert —
+that is expected; only a device that installed from TestFlight or the store
+can post a rating.
+
 ---
 
 ## Shipping to the stores

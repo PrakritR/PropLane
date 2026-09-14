@@ -1,5 +1,6 @@
 import { AxisAssistant } from "@/components/portal/axis-assistant";
 import { PortalAssistantRail } from "@/components/portal/portal-assistant-rail";
+import { RateAppPrompt } from "@/components/native/rate-app-prompt";
 import { PortalClientSessionGuard } from "@/components/portal/portal-client-session-guard";
 import { PortalDataPrefetch } from "@/components/portal/portal-data-prefetch";
 import { PortalMobileNavBar } from "@/components/portal/portal-mobile-nav-bar";
@@ -37,6 +38,7 @@ export default async function VendorLayout({ children }: { children: React.React
       <PublicHomePrefetch />
       <PortalDataPrefetch kind="vendor" />
       <PortalClientSessionGuard />
+      <RateAppPrompt reporterRole="vendor" />
       <div className="relative isolate flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:flex-row">
         <PortalSkipLink />
         <PortalSidebar
