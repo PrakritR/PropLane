@@ -28,6 +28,7 @@ import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { ProAccountLinksPanel } from "@/components/portal/pro-account-links-panel";
 import { ManagerVendorsPanel } from "@/components/portal/pro-vendors-panel";
 import {
+  PortalSettingsAutosaveField,
   PortalSettingsField,
   PortalSettingsFormBody,
   PortalSettingsGroup,
@@ -37,6 +38,7 @@ import {
   PortalSettingsRow,
   PortalSettingsSection,
   PortalSettingsSections,
+  type PortalSettingsSaveState,
 } from "@/components/portal/portal-settings-ui";
 import { ManagerPaymentMethodsPanel } from "@/components/portal/manager-payment-methods-panel";
 import { ManagerCommsBillingPanel } from "@/components/portal/manager-comms-billing-panel";
@@ -52,7 +54,6 @@ import { AssistantCustomInstructionsSetting } from "@/components/portal/assistan
 import { ManagerNotificationRoutingSetting } from "@/components/portal/pro-notification-routing-setting";
 import { NotificationsToggle } from "@/components/native/notifications-toggle";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
-import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import type { PortalKind } from "@/lib/portal-types";
 import { formatProplaneIdForDisplay } from "@/lib/manager-id";
@@ -83,6 +84,9 @@ function emptyToDash(v: unknown) {
  * phones without a server round trip.
  */
 const SETTINGS_TAB_PARAM = "tab";
+
+/** The two fields on this screen a person may write. */
+type ProfileField = "fullName" | "phone";
 
 type SettingsGroupId =
   | "workspaces"
@@ -138,146 +142,142 @@ export function PortalProfileClient({
   idLabel: string;
   idValue: string;
 }) {
-  const { showToast } = useAppUi();
   const demo = isDemoModeActive();
   const { userId: settingsUserId } = useManagerUserId();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [editing, setEditing] = useState(false);
   const [fullName, setFullName] = useState(dashToEmpty(initialFullName));
   const [phone, setPhone] = useState(phoneDashToEmpty(initialPhone));
-  const [saving, setSaving] = useState(false);
-  const skipNextServerPropsSync = useRef(false);
-  const [pendingSkipServerPropsSync, setPendingSkipServerPropsSync] = useState(false);
+  /** Per-field outcome, so a failure is reported on the row it happened to. */
+  const [fieldState, setFieldState] = useState<Record<ProfileField, PortalSettingsSaveState>>({
+    fullName: "idle",
+    phone: "idle",
+  });
+  const [fieldError, setFieldError] = useState<Partial<Record<ProfileField, string>>>({});
+  /** What the server last confirmed. A field differing from this is unsaved. */
+  const savedRef = useRef({ fullName: dashToEmpty(initialFullName), phone: phoneDashToEmpty(initialPhone) });
+  const savedTimersRef = useRef<Partial<Record<ProfileField, ReturnType<typeof setTimeout>>>>({});
+  const inFlightRef = useRef(false);
+
+  // Fresh server props may arrive at any time. They may only overwrite a field
+  // the person is not in the middle of changing — an unsaved edit outranks a
+  // re-render, or typing a name would be undone by a background refresh.
+  useEffect(() => {
+    const nextName = dashToEmpty(initialFullName);
+    const nextPhone = phoneDashToEmpty(initialPhone);
+    if (inFlightRef.current) return;
+    setFullName((current) => (current === savedRef.current.fullName ? nextName : current));
+    setPhone((current) => (current === savedRef.current.phone ? nextPhone : current));
+    savedRef.current = { fullName: nextName, phone: nextPhone };
+  }, [initialFullName, initialPhone]);
 
   useEffect(() => {
-    if (!pendingSkipServerPropsSync) return;
-    skipNextServerPropsSync.current = true;
-    queueMicrotask(() => setPendingSkipServerPropsSync(false));
-  }, [pendingSkipServerPropsSync]);
+    const timers = savedTimersRef.current;
+    return () => {
+      for (const timer of Object.values(timers)) if (timer) clearTimeout(timer);
+    };
+  }, []);
 
-  useEffect(() => {
-    if (editing) return;
-    if (skipNextServerPropsSync.current) {
-      skipNextServerPropsSync.current = false;
-      return;
-    }
-    setFullName(dashToEmpty(initialFullName));
-    setPhone(phoneDashToEmpty(initialPhone));
-  }, [initialFullName, initialPhone, editing]);
+  const markSaved = useCallback((field: ProfileField) => {
+    setFieldState((prev) => ({ ...prev, [field]: "saved" }));
+    const existing = savedTimersRef.current[field];
+    if (existing) clearTimeout(existing);
+    savedTimersRef.current[field] = setTimeout(() => {
+      setFieldState((prev) => (prev[field] === "saved" ? { ...prev, [field]: "idle" } : prev));
+    }, 2000);
+  }, []);
 
-  const save = useCallback(async () => {
+  /**
+   * Write the profile because `field` was just left. Both values go in the one
+   * request the API already takes; only the field that changed reports back.
+   */
+  const commit = useCallback(async (field: ProfileField) => {
+    const next = { fullName, phone };
+    if (next[field] === savedRef.current[field]) return;
     if (demo) {
-      showToast("Profile changes are simulated in this demo.");
-      setPendingSkipServerPropsSync(true);
-      setEditing(false);
+      savedRef.current = next;
+      markSaved(field);
       return;
     }
-    setSaving(true);
+    setFieldState((prev) => ({ ...prev, [field]: "saving" }));
+    setFieldError((prev) => ({ ...prev, [field]: undefined }));
+    inFlightRef.current = true;
     try {
       const res = await fetch("/api/profile", {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fullName, phone }),
+        body: JSON.stringify(next),
       });
       const raw = await res.text();
       let body: { error?: string; ok?: boolean } = {};
       try {
         body = raw ? (JSON.parse(raw) as { error?: string; ok?: boolean }) : {};
       } catch {
-        showToast("Save failed (invalid response).");
+        setFieldState((prev) => ({ ...prev, [field]: "error" }));
+        setFieldError((prev) => ({ ...prev, [field]: "The server sent something unreadable." }));
         return;
       }
       if (!res.ok) {
-        showToast(body.error ?? "Could not save profile.");
+        setFieldState((prev) => ({ ...prev, [field]: "error" }));
+        setFieldError((prev) => ({ ...prev, [field]: body.error ?? "Could not save." }));
         return;
       }
       if (variant === "manager") {
-        cacheLandlordLegalName(landlordLegalNameFromAccountFullName(fullName));
+        cacheLandlordLegalName(landlordLegalNameFromAccountFullName(next.fullName));
       }
-      showToast("Profile saved.");
-      setPendingSkipServerPropsSync(true);
-      setEditing(false);
+      savedRef.current = next;
+      markSaved(field);
     } catch {
-      showToast("Network error.");
+      setFieldState((prev) => ({ ...prev, [field]: "error" }));
+      setFieldError((prev) => ({ ...prev, [field]: "No connection. Your change is still here." }));
     } finally {
-      setSaving(false);
+      inFlightRef.current = false;
     }
-  }, [demo, fullName, phone, showToast, variant]);
-
-  const editAction = editing ? (
-    <div className="flex flex-wrap gap-2">
-      <Button type="button" variant="primary" className="px-4 text-[13px]" disabled={saving} onClick={() => save()}>
-        {saving ? "Saving…" : "Save"}
-      </Button>
-    </div>
-  ) : (
-    <Button type="button" variant="outline" className="px-4 text-[13px]" onClick={() => setEditing(true)}>
-      Edit
-    </Button>
-  );
+  }, [demo, fullName, phone, markSaved, variant]);
 
   const personalInfoSection = (
-    <PortalSettingsSection
-      title="Personal information"
-      description="Your name and contact details."
-      action={editAction}
-    >
+    <PortalSettingsSection title="Personal information">
       <PortalSettingsGroup>
-        {editing ? (
-          <PortalSettingsFormBody>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground" htmlFor="pf-name">
-                  Full name
-                </label>
-                <Input id="pf-name" value={fullName} onChange={(e) => setFullName(e.target.value)} autoComplete="name" />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground" htmlFor="pf-email">
-                  Email
-                </label>
-                <Input id="pf-email" value={initialEmail} readOnly className="bg-muted/40" />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground" htmlFor="pf-phone">
-                  Phone
-                </label>
-                <PhoneNumberField
-                  id="pf-phone"
-                  value={phone}
-                  onChange={setPhone}
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground" htmlFor="pf-id">
-                  {idLabel}
-                </label>
-                <Input
-                  id="pf-id"
-                  value={formatProplaneIdForDisplay(idValue)}
-                  readOnly
-                  className="bg-muted/40 font-mono text-sm"
-                />
-              </div>
-            </div>
-          </PortalSettingsFormBody>
-        ) : (
-          <>
-            <PortalSettingsField label="Full name" value={emptyToDash(fullName)} />
-            <PortalSettingsField label="Email" value={initialEmail} />
-            <PortalSettingsField label="Phone" value={formatSmsPhoneLabel(phone) || emptyToDash(phone)} />
-            {/*
-              Through the display formatter. Accounts created before the rebrand
-              still STORE an `AXIS-` id — every lookup accepts both prefixes and
-              renaming the stored value is a migration, not a label change — but
-              a field captioned "PropLane ID" must never read AXIS to the person
-              whose id it is.
-            */}
-            <PortalSettingsField label={idLabel} value={formatProplaneIdForDisplay(idValue)} mono />
-          </>
-        )}
+        <PortalSettingsAutosaveField
+          label="Full name"
+          htmlFor="pf-name"
+          state={fieldState.fullName}
+          error={fieldError.fullName}
+          onRetry={() => void commit("fullName")}
+        >
+          <Input
+            id="pf-name"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            onBlur={() => void commit("fullName")}
+            autoComplete="name"
+            data-attr="settings-full-name"
+          />
+        </PortalSettingsAutosaveField>
+        <PortalSettingsField label="Email" value={initialEmail} />
+        <PortalSettingsAutosaveField
+          label="Phone"
+          htmlFor="pf-phone"
+          state={fieldState.phone}
+          error={fieldError.phone}
+          onRetry={() => void commit("phone")}
+        >
+          <PhoneNumberField
+            id="pf-phone"
+            value={phone}
+            onChange={setPhone}
+            onBlur={() => void commit("phone")}
+          />
+        </PortalSettingsAutosaveField>
+        {/*
+          Through the display formatter. Accounts created before the rebrand
+          still STORE an `AXIS-` id — every lookup accepts both prefixes and
+          renaming the stored value is a migration, not a label change — but
+          a field captioned "PropLane ID" must never read AXIS to the person
+          whose id it is.
+        */}
+        <PortalSettingsField label={idLabel} value={formatProplaneIdForDisplay(idValue)} mono />
       </PortalSettingsGroup>
     </PortalSettingsSection>
   );
