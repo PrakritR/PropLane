@@ -92,14 +92,19 @@ export function validateListingWizardStep(
     if (!stateCheck.ok) errs.state = stateCheck.message;
     if (!sub.zip.trim()) errs.zip = "ZIP is required.";
     else if (!isValidZipInput(sub.zip)) errs.zip = "Enter a valid 5-digit ZIP or ZIP+4.";
-    if (!isEditMode) {
-      if (!sub.listingPropertyTypeId?.trim()) errs.listingPropertyTypeId = "Choose a property type.";
-      if (!sub.listingStoriesId?.trim()) errs.listingStoriesId = "Select how many floors or levels the home has.";
-      if (!sub.listingTotalBathroomsId?.trim()) errs.listingTotalBathroomsId = "Select how many bathrooms the home has.";
-      if (!sub.listingBedroomSlots || sub.listingBedroomSlots < 1) {
-        errs.listingBedroomSlots = "Select how many bedrooms you will list for rent.";
-      }
-    }
+    /*
+     * "For listing only have title, pictures, price and description."
+     * "There is too much on the listing."
+     *
+     * Floors, total bathrooms, bedroom count and property type are facts about a
+     * HOUSE, not things a renter needs before a listing can exist — and three of
+     * them duplicate sections (Rooms, Bathrooms) that are already optional. They
+     * stay on the form, and an existing listing keeps whatever it answered; they
+     * simply no longer stop a manager publishing.
+     *
+     * What is still required is the address, because a rental nobody can find is
+     * not a listing, and the lease is written against it.
+     */
   }
 
   if (stepIndex === 1) {

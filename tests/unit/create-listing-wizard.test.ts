@@ -66,30 +66,36 @@ describe("create listing wizard", () => {
     expect(zipErrs.zip).toMatch(/valid/i);
   });
 
-  it("requires property setup fields on new listing home step", () => {
+  /*
+   * These four used to block a new listing. A landlord told us the form asks for
+   * too much — "for listing only have title, pictures, price and description" —
+   * and floors, total bathrooms, bedroom count and property type are facts about
+   * a house rather than things a renter needs before the listing can exist. They
+   * are still on the form and still saved; they no longer stop a publish.
+   */
+  it("does not block a new listing on floors, bathrooms, bedrooms or property type", () => {
     const sub = createDefaultListingSubmission();
     sub.address = "123 Main St";
     sub.city = "Seattle";
     sub.state = "WA";
     sub.zip = "98101";
-    const errs = validateListingWizardStep(0, sub);
-    expect(errs.listingPropertyTypeId).toBeTruthy();
-    expect(errs.listingStoriesId).toBeTruthy();
-    expect(errs.listingTotalBathroomsId).toBeTruthy();
-  });
-
-  it("requires bedroom slots when unset on new listing home step", () => {
-    const sub = createDefaultListingSubmission();
-    sub.address = "123 Main St";
-    sub.city = "Seattle";
-    sub.state = "WA";
-    sub.zip = "98101";
-    sub.listingPropertyTypeId = "house";
-    sub.listingStoriesId = "2";
-    sub.listingTotalBathroomsId = "2";
+    sub.buildingName = "123 Main St";
     sub.listingBedroomSlots = 0;
     const errs = validateListingWizardStep(0, sub);
-    expect(errs.listingBedroomSlots).toMatch(/bedroom/i);
+    expect(errs.listingPropertyTypeId).toBeUndefined();
+    expect(errs.listingStoriesId).toBeUndefined();
+    expect(errs.listingTotalBathroomsId).toBeUndefined();
+    expect(errs.listingBedroomSlots).toBeUndefined();
+    expect(errs).toEqual({});
+  });
+
+  it("still requires the address — a rental nobody can find is not a listing", () => {
+    const sub = createDefaultListingSubmission();
+    sub.buildingName = "Somewhere";
+    const errs = validateListingWizardStep(0, sub);
+    expect(errs.address).toBeTruthy();
+    expect(errs.city).toBeTruthy();
+    expect(errs.zip).toBeTruthy();
   });
 
   it("requires property name in edit mode too", () => {
