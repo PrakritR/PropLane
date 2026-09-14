@@ -6,12 +6,14 @@ import { WORKSPACE_SELECTION_EVENT, activeWorkspaceScope, propertiesOutsideActiv
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, ImageOff } from "lucide-react";
+import { ChevronDown, Home } from "lucide-react";
 import {
   propertyRowAddress,
-  propertyRowDetail,
+  propertyRowAddressLine,
+  propertyRowMeta,
   propertyRowRentLabel,
   propertyRowThumbnail,
+  propertyRowTitle,
 } from "@/lib/property-row-summary";
 import {
   propertyAttention,
@@ -221,9 +223,15 @@ const MANAGER_STAGES = [
 
 export type ManagerStageKey = (typeof MANAGER_STAGES)[number]["key"];
 
-/** A draft can be saved before it has a name — never render an empty title cell. */
+/**
+ * A draft can be saved before it has a name — never render an empty title cell.
+ * A blank or bare-number name falls back to the street (see `propertyRowTitle`);
+ * only a home with no address at all shows the placeholder.
+ */
 function managerPropertyRowTitle(row: AdminPropertyRow, bucket: AdminPropertyBucketIndex): string {
-  return row.buildingName.trim() || (bucket === 5 ? "Untitled draft" : "Untitled property");
+  const title = propertyRowTitle(row);
+  if (title !== "Untitled property") return title;
+  return bucket === 5 ? "Untitled draft" : "Untitled property";
 }
 
 function propertyRowDeleteFromQueueAllowed(
@@ -1775,7 +1783,7 @@ export function ManagerHousePropertiesPanel({
     }
     const { sourceBucket, row } = routePropertyEntry;
     const rowKey = row.adminRefId + (row.listingId ?? "");
-    const address = `${row.address}${row.zip ? `, ${row.zip}` : ""}`;
+    const address = propertyRowAddress(row);
     return (
       <PortalRecordDetailPage
         title={managerPropertyRowTitle(row, sourceBucket)}
@@ -1966,8 +1974,8 @@ export function ManagerHousePropertiesPanel({
             <PortalPropertyRecordRow
               key={rowKey}
               title={managerPropertyRowTitle(row, sourceBucket)}
-              address={propertyRowAddress(row)}
-              summary={propertyRowDetail(row)}
+              address={propertyRowAddressLine(row)}
+              meta={propertyRowMeta(row)}
               trailing={
                 sourceBucket === 5 ? (
                   activeStage === "all" ? (
@@ -2021,14 +2029,16 @@ export function ManagerHousePropertiesPanel({
                   <img
                     src={thumb}
                     alt=""
-                    className="h-14 w-[4.5rem] rounded-lg object-cover"
+                    className="h-[4.125rem] w-[5.5rem] rounded-[10px] object-cover max-md:h-[3.125rem] max-md:w-16"
                   />
                 ) : (
+                  // "No photo yet" is a house, not a broken image — the crossed-out
+                  // frame read as an error on every draft.
                   <div
                     aria-hidden
-                    className="grid h-14 w-[4.5rem] place-items-center rounded-lg bg-accent/60 text-muted"
+                    className="grid h-[4.125rem] w-[5.5rem] place-items-center rounded-[10px] bg-accent/60 text-muted/80 max-md:h-[3.125rem] max-md:w-16"
                   >
-                    <ImageOff className="h-4 w-4" />
+                    <Home className="size-[22px]" strokeWidth={1.5} />
                   </div>
                 )
               }
