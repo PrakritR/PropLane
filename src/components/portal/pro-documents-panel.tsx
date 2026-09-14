@@ -10,7 +10,8 @@ import {
   MANAGER_TABLE_TH,
   PORTAL_COMMAND_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
-import { PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { FileBarChart, Upload } from "lucide-react";
 import {
   PORTAL_DATA_TABLE,
   PORTAL_DATA_TABLE_WRAP,
@@ -343,7 +344,7 @@ export function ManagerDocumentsPanel({
       filterFieldCount={propertyOptions.length > 0 ? 1 : 0}
       constrainDropdownToTitleBand
       mobileFlushBody
-      className="min-w-0 w-auto shrink-0 max-md:w-full max-md:[&_button]:w-full max-md:[&_button]:px-2.5 md:!w-auto md:!max-w-none"
+      commandStripTrigger
       onReset={resetLeasingFilters}
       dataAttr="documents-leasing-filter-sheet-open"
     >
@@ -371,7 +372,7 @@ export function ManagerDocumentsPanel({
       filterFieldCount={propertyOptions.length > 0 ? 4 : 3}
       constrainDropdownToTitleBand
       mobileFlushBody
-      className="min-w-0 w-auto shrink-0 max-md:w-full max-md:[&_button]:w-full max-md:[&_button]:px-2.5 md:!w-auto md:!max-w-none"
+      commandStripTrigger
       onReset={resetLibraryFilters}
       dataAttr="documents-library-filter-sheet-open"
     >
@@ -514,24 +515,20 @@ export function ManagerDocumentsPanel({
   // The page's one prominent action follows the tab: report tabs generate,
   // document tabs upload.
   const documentsPrimaryAction = isReportTab ? (
-    <Button
-      type="button"
-      className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+    <PortalPrimaryIconAction
+      icon={FileBarChart}
+      label={loading ? "Generating report…" : "Generate report"}
       onClick={() => setGenerateModalOpen(true)}
       disabled={loading}
       data-attr="documents-generate-report"
-    >
-      {loading ? "Generating…" : "Generate report"}
-    </Button>
+    />
   ) : isLeasingDocumentsTab || isOtherDocumentsTab ? (
-    <Button
-      type="button"
-      className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+    <PortalPrimaryIconAction
+      icon={Upload}
+      label="Upload document"
       onClick={openDocumentUpload}
       data-attr="documents-upload-top"
-    >
-      + Upload
-    </Button>
+    />
   ) : undefined;
 
   if (tabId === "applications" && applicationId) {
@@ -552,7 +549,6 @@ export function ManagerDocumentsPanel({
       titleInlineFilter={null}
       hideTitleOnMobileNav
       compactFilterRow
-      primaryAction={documentsPrimaryAction}
     >
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
@@ -567,6 +563,7 @@ export function ManagerDocumentsPanel({
         activeDestinationId={activeDestinationId}
         destinationAriaLabel="Document view"
         actions={documentsCommandActions}
+        primary={documentsPrimaryAction}
         activeFilterChips={
           activeDocumentsFilterChips.length > 0 ? (
             <PortalActiveFilterChips chips={activeDocumentsFilterChips} />
@@ -582,13 +579,11 @@ export function ManagerDocumentsPanel({
                 userId={userId ?? null}
                 basePath={basePath}
                 propertyFilter={leasingPropertyFilter}
-                onAddDocument={openDocumentUpload}
               />
             ) : (
               <ManagerLeaseDocumentsTab
                 userId={userId ?? null}
                 propertyFilter={leasingPropertyFilter}
-                onAddDocument={openDocumentUpload}
               />
             )}
             <ManagerDocumentLibrary ref={libraryRef} userId={userId ?? null} listHidden hideFilterChrome />

@@ -3,7 +3,6 @@ import { RecordActionItems } from "@/components/ui/record-action-menu";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileUp } from "lucide-react";
 import {
   ApplicationDocumentPreview,
   downloadApplicationPdf,
@@ -11,11 +10,6 @@ import {
 import { DocumentInlineViewer } from "@/components/portal/resident-other-documents";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { FilterCollapsibleSection, FilterFieldsAccordion, FilterSingleSelectList, filterSingleSelectSummary } from "@/components/portal/filter-field-lists";
-import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
 import { DataList } from "@/components/ui/data-list";
 import { Button } from "@/components/ui/button";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
@@ -50,8 +44,6 @@ import {
   type LeasePipelineRow,
 } from "@/lib/lease-pipeline-storage";
 import { safeFormatDateTime } from "@/lib/pacific-time";
-import { isDemoModeActive } from "@/lib/demo/demo-session";
-import { cn } from "@/lib/utils";
 
 function applicationStatusLabel(bucket: ManagerApplicationBucket): string {
   if (bucket === "approved") return "Approved";
@@ -77,26 +69,6 @@ function applicationPropertyId(row: DemoApplicantRow): string {
   );
 }
 
-function LeasingDocumentsAddRow({
-  onAdd,
-  dataAttr,
-}: {
-  onAdd: () => void;
-  dataAttr: string;
-}) {
-  if (isDemoModeActive()) return null;
-  return (
-    <div className={cn(PORTAL_LIST_PAGE_BODY, PORTAL_LIST_ADD_ROW_WRAP_CLASS)}>
-      <PortalListAddRow
-        label="Add"
-        ariaLabel="Add document"
-        icon={FileUp}
-        onClick={onAdd}
-        dataAttr={dataAttr}
-      />
-    </div>
-  );
-}
 
 export function LeasingDocumentsPropertyFilterFields({
   propertyFilter,
@@ -170,12 +142,10 @@ export function ManagerApplicationDocumentsTab({
   userId,
   basePath = "/portal",
   propertyFilter = "",
-  onAddDocument,
 }: {
   userId: string | null;
   basePath?: string;
   propertyFilter?: string;
-  onAddDocument?: () => void;
 }) {
   const navigate = usePortalNavigate();
   const { showToast } = useAppUi();
@@ -315,9 +285,6 @@ export function ManagerApplicationDocumentsTab({
           ]}
         />
       )}</PortalRecordListSurface>
-      {onAddDocument ? (
-        <LeasingDocumentsAddRow onAdd={onAddDocument} dataAttr="documents-applications-list-add" />
-      ) : null}
 
     </>
   );
@@ -424,11 +391,9 @@ export function ManagerApplicationDocumentDetail({
 export function ManagerLeaseDocumentsTab({
   userId,
   propertyFilter = "",
-  onAddDocument,
 }: {
   userId: string | null;
   propertyFilter?: string;
-  onAddDocument?: () => void;
 }) {
   const { showToast } = useAppUi();
   const [tick, setTick] = useState(0);
@@ -593,9 +558,6 @@ export function ManagerLeaseDocumentsTab({
           ]}
         />
       )}</PortalRecordListSurface>
-      {onAddDocument ? (
-        <LeasingDocumentsAddRow onAdd={onAddDocument} dataAttr="documents-leases-list-add" />
-      ) : null}
 
     </>
   );

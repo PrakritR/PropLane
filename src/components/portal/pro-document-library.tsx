@@ -60,13 +60,7 @@ import {
 import { loadDocumentExpirationSummary } from "@/lib/manager-document-expiry-client";
 import { useSearchParams } from "next/navigation";
 import { MANAGER_VENDORS_EVENT, syncManagerVendorsFromServer, type ManagerVendorRow } from "@/lib/manager-vendors-storage";
-import { FileUp } from "lucide-react";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
-import { cn } from "@/lib/utils";
-import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 
 const SCOPE_FILTERS: { id: string; label: string }[] = [
   { id: "", label: "All scopes" },
@@ -642,16 +636,14 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
   const empty = !loading && filteredDocuments.length === 0;
   const hasLibraryQuery = Boolean(search.trim() || categoryFilter || scopeFilter || propertyFilter || expiryFilter);
 
-  const addDocumentRow = demo ? null : (
-    <div className={cn(PORTAL_LIST_PAGE_BODY, PORTAL_LIST_ADD_ROW_WRAP_CLASS)}>
-      <PortalListAddRow
-        label="Add"
-        ariaLabel="Add document"
-        icon={FileUp}
-        onClick={() => setUploadOpen(true)}
-        dataAttr="documents-list-add"
-      />
-    </div>
+  // The dashed "+ Add" row is gone (PLAN-0914-1345): the command bar's upload
+  // glyph adds, and an empty library says so with one button.
+  const emptyLibraryCard = demo ? null : (
+    <PortalListEmptyCard
+      title="No documents yet"
+      description="Leases, IDs, insurance and anything else you keep on file for a home or a resident."
+      actions={[{ label: "Upload document", onClick: () => setUploadOpen(true), dataAttr: "documents-list-add" }]}
+    />
   );
 
   const complianceBanner =
@@ -756,15 +748,14 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
           <div className="flex items-center justify-center px-6 py-16 text-sm text-muted">Loading documents…</div>
         </div>
       ) : empty ? (
-        <div className="space-y-3">
-          {hasLibraryQuery ? (
-            <PortalDataTableEmpty
-              message="No documents match your search or filters."
-              icon="document"
-            />
-          ) : null}
-          {addDocumentRow}
-        </div>
+        hasLibraryQuery ? (
+          <PortalDataTableEmpty
+            message="No documents match your search or filters."
+            icon="document"
+          />
+        ) : (
+          emptyLibraryCard
+        )
       ) : (
         <>
           {/* Mobile cards */}
@@ -868,7 +859,6 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
               </table>
             </div>
           </div>
-          {addDocumentRow}
         </>
       )}
 

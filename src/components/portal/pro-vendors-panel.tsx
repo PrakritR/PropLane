@@ -1,7 +1,7 @@
 "use client";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
-import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 
 import { BookOpen, Settings2 } from "lucide-react";
 import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
@@ -16,11 +16,6 @@ import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import type { PortalAdaptiveAction } from "@/lib/portal-adaptive-actions";
 import { collectLinkedOwnerIdsForModule } from "@/lib/manager-portfolio-access";
@@ -67,8 +62,8 @@ export type ManagerVendorsPanelHandle = {
   openAddVendor: (trade?: string) => void;
 };
 
-/** Vendor catalog and Defaults. Adding happens through the list's own ADD row —
- *  a toolbar Add beside it was the same action twice on one screen. */
+/** Vendor catalog and Defaults as plain icons; "Add vendor" is the bar's
+ *  filled primary beside them (the dashed ADD row under the list is gone). */
 export function ManagerVendorsToolbar({
   onCatalog,
   onDefaults,
@@ -529,21 +524,9 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     );
   }
 
-  const vendorListAddRow = (
-    <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-      <PortalListAddRow
-        label="Add"
-        ariaLabel="Add vendor"
-        icon={PORTAL_LIST_ADD_ICONS.vendor}
-        onClick={() => openAddVendorForm()}
-        dataAttr="vendors-list-add"
-      />
-    </div>
-  );
-
   const listBody =
     vendors.length === 0 ? (
-      // An empty list says so in words; "+ Add vendor" is already in the header.
+      // An empty list says so in words; "Add vendor" is the bar's filled primary.
       <PortalListEmptyCard
         title="No vendors yet."
         description="Add the tradespeople you dispatch to. Each one gets their own sign-in, and you assign houses per vendor."
@@ -565,7 +548,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
             dataAttr="vendor-list-row"
           />
         ))}
-        {vendorListAddRow}
       </div>
     );
 
@@ -648,14 +630,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   );
 
   const addVendorAction = (
-    <Button
-      type="button"
-      className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
-      data-attr="manager-vendor-add-top"
-      onClick={() => openAddVendorForm()}
-    >
-      + Add vendor
-    </Button>
+    <PortalPrimaryIconAction label="Add vendor" data-attr="manager-vendor-add-top" onClick={() => openAddVendorForm()} />
   );
 
   if (bare) {
@@ -665,12 +640,8 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           className="mb-2 max-lg:mb-1.5"
           variant="command"
           stickyDestinations={false}
-          actions={
-            <>
-              {vendorToolbar}
-              {addVendorAction}
-            </>
-          }
+          actions={vendorToolbar}
+          primary={addVendorAction}
         />
         {body}
       </div>
@@ -682,12 +653,12 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       title="Teams"
       hideTitleOnMobileNav
       compactFilterRow
-      primaryAction={addVendorAction}
     >
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
         variant="command"
         actions={vendorToolbar}
+        primary={addVendorAction}
       />
       {body}
     </ManagerPortalPageShell>

@@ -4,7 +4,7 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ManagerPortalPageShell, PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
-import { PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
@@ -28,11 +28,7 @@ import {
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PromotionAssetStack, promotionAssetCanEdit } from "@/components/portal/promotion-asset-list";
 import {
   PromotionFlyerAssetDetail,
@@ -896,23 +892,7 @@ export function ManagerPromotion({
   const promotionCommandActions = <>{promotionFilterSheet}</>;
 
   const promotionPrimaryAction = (
-    <Button
-      type="button"
-      className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
-      onClick={() => openNewPromotion()}
-      data-attr="promotion-new"
-    >
-      + New promotion
-    </Button>
-  );
-
-  const promotionListAddRow = (
-    <PortalListAddRow
-      label="Add"
-      icon={PORTAL_LIST_ADD_ICONS.promotion}
-      onClick={() => openNewPromotion()}
-      dataAttr="promotion-list-add"
-    />
+    <PortalPrimaryIconAction label="New promotion" onClick={() => openNewPromotion()} data-attr="promotion-new" />
   );
 
   return (
@@ -921,12 +901,12 @@ export function ManagerPromotion({
       titleInlineFilter={null}
       hideTitleOnMobileNav
       compactFilterRow
-      primaryAction={promotionPrimaryAction}
     >
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
         variant="command"
         actions={promotionCommandActions}
+        primary={promotionPrimaryAction}
       />
       <PortalRecordListSurface className="mt-0" onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
         <>
@@ -972,12 +952,17 @@ export function ManagerPromotion({
         </>
       ) : null}><div data-attr="promotion-content-direct">
         {propertyScopedAssets.length === 0 ? (
-          <div className="space-y-3">
-            {assets.length > 0 ? (
-              <PortalDataTableEmpty icon="data" message="No promotions match these filters." />
-            ) : null}
-            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{promotionListAddRow}</div>
-          </div>
+          // The dashed "+ Add" box is gone: the bar's + adds, and an empty tab
+          // says what it holds like every other section (§15 titled empty card).
+          assets.length > 0 ? (
+            <PortalDataTableEmpty icon="data" message="No promotions match these filters." />
+          ) : (
+            <PortalListEmptyCard
+              title="No promotions yet"
+              description="A flyer, a text blast or a listing boost — pick a home and start one."
+              actions={[{ label: "New promotion", onClick: () => openNewPromotion(), dataAttr: "promotion-list-add" }]}
+            />
+          )
         ) : (
           <div className={PORTAL_LIST_PAGE_BODY}>
             {groupMode === "house" ? (
@@ -1016,7 +1001,6 @@ export function ManagerPromotion({
                 onToggleSelected={toggleSelected}
               />
             )}
-            <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{promotionListAddRow}</div>
           </div>
         )}
       </div></PortalRecordListSurface>
