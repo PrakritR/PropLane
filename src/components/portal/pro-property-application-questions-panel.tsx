@@ -120,6 +120,16 @@ export function ManagerPropertyApplicationQuestionsPanel({
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(templates.length);
 
   const bulkPropertyIds = propertyIds?.filter((id) => id.trim()) ?? [];
+  const applicationPreviewPropertyId = useMemo(
+    () =>
+      resolveApplicationPreviewPropertyId({
+        listingId,
+        saveTarget,
+        managerUserId,
+        bulkPropertyIds,
+      }),
+    [listingId, saveTarget, managerUserId, bulkPropertyIds],
+  );
   const settingsPropertyOptions = useMemo(() => {
     const id = settingsPropertyId?.trim();
     if (!id) return [];
@@ -445,6 +455,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
           saveTarget={saveTarget ?? undefined}
           propertyIds={bulkPropertyIds.length > 0 ? bulkPropertyIds : undefined}
           managerUserId={managerUserId}
+          applicationPreviewPropertyId={applicationPreviewPropertyId}
           initialVariant={editingTemplate?.formVariant ?? "standard"}
           lockVariant={Boolean(editingTemplate)}
           templateEditorMode={editorMode}

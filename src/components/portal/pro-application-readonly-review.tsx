@@ -5,14 +5,16 @@ import { getBundleChoiceLabel, getPropertyById, getRoomChoiceLabel, isPropertyRe
 import { paymentAtSigningPriceLabel, utilitiesListingEstimateLabel } from "@/lib/rental-application/listing-fees-display";
 import { formatLeaseDateLabel } from "@/lib/rental-application/lease-dates";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
-import type { RentalWizardFormState } from "@/lib/rental-application/types";
+import type { RentalCustomFieldAnswer, RentalWizardFormState } from "@/lib/rental-application/types";
 import {
-  displayableCustomFieldAnswers,
   formatCustomFieldAnswerDisplay,
+  groupCustomFieldAnswersBySection,
   isFileCustomFieldType,
   parseCustomFieldAttachment,
+  parseMultiSelectAnswer,
 } from "@/lib/rental-application/custom-fields";
 import { digitsOnly } from "@/lib/rental-application/masks";
+import { Badge } from "@/components/ui/badge";
 
 function displayOrDash(v: string | null | undefined) {
   const t = (v ?? "").trim();
@@ -91,6 +93,51 @@ function CustomFieldAttachmentThumbnail({
       <span className="min-w-0 truncate text-[13.5px] font-semibold text-foreground">{label}</span>
     </div>
   );
+}
+
+/**
+ * Manager-review value for one custom question answer, rendered by its
+ * snapshotted TYPE rather than as plain text. `formatCustomFieldAnswerDisplay`
+ * still owns currency formatting and the plain-text fallback (its output is
+ * also printed verbatim by the manager application PDF/HTML builders, so it
+ * must never itself change to emit markup).
+ */
+function CustomAnswerValue({
+  answer,
+  applicationId,
+}: {
+  answer: RentalCustomFieldAnswer;
+  applicationId?: string;
+}) {
+  if (answer.type === "yes_no") {
+    const value = String(answer.value ?? "").trim();
+    if (value !== "yes" && value !== "no") return displayOrDash("");
+    return <Badge tone={value === "yes" ? "success" : "neutral"}>{value === "yes" ? "Yes" : "No"}</Badge>;
+  }
+  if (answer.type === "multi_select") {
+    const selections = parseMultiSelectAnswer(answer.value);
+    if (selections.length === 0) return displayOrDash("");
+    return (
+      <div className="flex flex-wrap justify-end gap-1.5 sm:justify-start">
+        {selections.map((selection) => (
+          <Badge key={selection} tone="neutral">
+            {selection}
+          </Badge>
+        ))}
+      </div>
+    );
+  }
+  if (isFileCustomFieldType(answer.type) && parseCustomFieldAttachment(answer.value)) {
+    return (
+      <CustomFieldAttachmentThumbnail
+        applicationId={applicationId}
+        fieldKey={answer.key}
+        fileName={formatCustomFieldAnswerDisplay(answer)}
+      />
+    );
+  }
+  // currency, checkbox, and every other type: plain text, same formatting as before.
+  return displayOrDash(formatCustomFieldAnswerDisplay(answer));
 }
 
 export function ApplicationManagerPlacementCard({
@@ -282,27 +329,19 @@ export function ManagerApplicationReadonlyReview({
         <ReviewRow k="Criminal history" v={form.criminalHistory === "yes" ? `Yes: ${form.criminalDetails}` : form.criminalHistory === "no" ? "No" : "—"} />
       </ReviewSection>
       ) : null}
-      {!omit.has("custom") && displayableCustomFieldAnswers(form.customFieldAnswers).length > 0 ? (
-        <ReviewSection title="Manager questions">
-          {displayableCustomFieldAnswers(form.customFieldAnswers).map((answer) =>
-            isFileCustomFieldType(answer.type) && parseCustomFieldAttachment(answer.value) ? (
-              <ReviewRow
-                key={answer.key}
-                k={answer.label}
-                v={
-                  <CustomFieldAttachmentThumbnail
-                    applicationId={applicationId}
-                    fieldKey={answer.key}
-                    fileName={formatCustomFieldAnswerDisplay(answer)}
-                  />
-                }
-              />
-            ) : (
-              <ReviewRow key={answer.key} k={answer.label} v={displayOrDash(formatCustomFieldAnswerDisplay(answer))} />
-            ),
-          )}
-        </ReviewSection>
-      ) : null}
+      {!omit.has("custom")
+        ? groupCustomFieldAnswersBySection(form.customFieldAnswers).map((group) => (
+            <ReviewSection key={group.sectionId ?? "other-questions"} title={group.title}>
+              {group.answers.map((answer) => (
+                <ReviewRow
+                  key={answer.key}
+                  k={answer.label}
+                  v={<CustomAnswerValue answer={answer} applicationId={applicationId} />}
+                />
+              ))}
+            </ReviewSection>
+          ))
+        : null}
       {!omit.has("consent") ? (
       <ReviewSection title="Consent & signature">
         <ReviewRow k="Credit / background" v={form.consentCredit ? "Authorized" : "Not checked"} />

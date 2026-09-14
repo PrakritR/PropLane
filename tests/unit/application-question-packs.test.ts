@@ -4,6 +4,7 @@ import {
   CUSTOM_APPLICATION_FIELD_TYPES,
   emptyCustomApplicationField,
   normalizeCustomApplicationFields,
+  normalizeCustomApplicationFieldsForEditor,
 } from "@/lib/manager-listing-submission";
 import {
   APPLICATION_QUESTION_PACKS,
@@ -149,5 +150,31 @@ describe("application-question-packs", () => {
     }
     const minted = 200 * (buildQuestionsFromPack(APPLICATION_QUESTION_PACKS[0]!, []).length + 1);
     expect(ids.size).toBe(minted);
+  });
+});
+
+// The question editor deliberately KEEPS a blank option row while a manager is
+// typing into it (it would otherwise vanish on the first keystroke). That
+// leniency must not reach stored data: a blank option is dropped again on the
+// way in, so a saved multi-select can never carry an empty choice.
+describe("blank option rows never reach stored data", () => {
+  it("drops blank options on the strict normalize even if one is present", () => {
+    const withBlank = [
+      {
+        id: "caf-1",
+        key: "shift",
+        label: "Typical schedule",
+        type: "multi_select",
+        required: false,
+        options: ["Days", "", "   ", "Nights"],
+        section: "household",
+      },
+    ];
+    const strict = normalizeCustomApplicationFields(withBlank);
+    expect(strict).toHaveLength(1);
+    expect(strict[0]!.options).toEqual(["Days", "Nights"]);
+
+    const editor = normalizeCustomApplicationFieldsForEditor(withBlank);
+    expect(editor[0]!.options).toEqual(["Days", "", "   ", "Nights"]);
   });
 });

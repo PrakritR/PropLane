@@ -48,7 +48,26 @@ function FieldDescription({ text }: { text?: string }) {
   return <p className="text-xs text-muted">{text}</p>;
 }
 
-export function CustomQuestionField({
+/**
+ * Additive read-only wrapper: renders the exact same real control (so a
+ * builder preview never drifts from the applicant wizard) but strips
+ * interaction. `pointer-events-none` blocks clicks/taps; `inert` (React 19,
+ * ignored by older engines) additionally drops it from tab order and the
+ * accessibility tree, since a read-only preview has nothing to submit.
+ * Existing (non-`readOnly`) callers are unaffected — this only wraps output
+ * when the caller opts in.
+ */
+export function CustomQuestionField(props: CustomQuestionFieldProps) {
+  const rendered = <CustomQuestionFieldControl {...props} />;
+  if (!props.readOnly) return rendered;
+  return (
+    <div className="pointer-events-none" inert>
+      {rendered}
+    </div>
+  );
+}
+
+function CustomQuestionFieldControl({
   field,
   value,
   error,

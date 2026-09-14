@@ -49,6 +49,16 @@ export type RentalCustomFieldAnswer = {
   key: string;
   label: string;
   type: ManagerCustomApplicationFieldType;
+  /**
+   * Application section the question belonged to at answer time (a
+   * `RentalApplicationSectionId`), snapshotted like `label`/`type` so review
+   * screens can group the answer under the right heading even after the
+   * manager edits or removes the question. Optional so answers stored before
+   * this field existed keep parsing — read them with
+   * {@link groupCustomFieldAnswersBySection}, which treats an absent or
+   * unrecognized section as sectionless rather than throwing.
+   */
+  section?: string;
   /** Raw answer; checkbox answers are "yes" / "" (unchecked). */
   value: string;
 };

@@ -1,19 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ApplicationQuestionEditModal } from "@/components/portal/application-question-edit-modal";
-import { Modal, ModalFooter, MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
+import { ApplicationFormBuilder, ApplicationSectionPreviewPane } from "@/components/portal/application-form-builder";
+import { sanitizeCustomApplicationFieldsForSave, validateField } from "@/components/portal/application-question-edit-modal";
 import {
-  PortalCollapsibleEditRow,
   PORTAL_EDIT_ROW_ICON_BUTTON_CLASS,
 } from "@/components/portal/portal-collapsible-edit-row";
-import { PortalEditRow } from "@/components/portal/portal-edit-row";
+import { PortalCollapsibleEditRow } from "@/components/portal/portal-collapsible-edit-row";
+import { Modal, ModalFooter, MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
 import {
   customApplicationFieldTypeLabel,
-  normalizeCustomApplicationFields,
+  emptyCustomApplicationField,
+  normalizeCustomApplicationFieldsForEditor,
+  type ManagerCustomApplicationField,
   type ManagerCustomApplicationFieldType,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
@@ -24,12 +26,16 @@ import {
   type ManagerPropertySaveTarget,
 } from "@/lib/manager-property-save-target";
 import {
+  addListingApplicationField,
   applicationConfigForVariant,
+  canMoveCustomApplicationField,
   customApplicationConfigWithAllStandardQuestions,
   mergeApplicationConfigForVariant,
+  moveCustomApplicationField,
+  moveCustomApplicationFieldToSection,
+  patchListingApplicationField,
   reenableListingApplicationField,
   removeListingApplicationField,
-  resolveDisabledStandardApplicationFields,
   editorVisibleDisabledApplicationFields,
   resolveListingApplicationFields,
   restoreDefaultApplicationConfig,
@@ -38,11 +44,15 @@ import {
   type ApplicationFormVariant,
   type ResolvedApplicationField,
 } from "@/lib/rental-application/application-field-catalog";
-import { RENTAL_APPLICATION_SECTIONS } from "@/lib/rental-application/application-sections";
+import { RENTAL_APPLICATION_SECTIONS, type RentalApplicationSectionId } from "@/lib/rental-application/application-sections";
+import {
+  APPLICATION_QUESTION_PACKS,
+  buildQuestionsFromPack,
+} from "@/lib/rental-application/application-question-packs";
 import { useConfirm } from "@/components/providers/app-ui-provider";
+import { cn } from "@/lib/utils";
 import {
   createPropertyApplicationTemplate,
-  syncLegacyApplicationFieldsFromTemplates,
   withPropertyApplicationTemplatesExplicit,
   updatePropertyApplicationTemplate,
   type PropertyApplicationTemplate,
@@ -72,10 +82,6 @@ function typeLabel(type: ManagerCustomApplicationFieldType): string {
 }
 
 export { typeLabel as applicationQuestionTypeLabel };
-
-function questionSubtitle(field: ResolvedApplicationField): string {
-  return `${field.isStandard ? "Built-in" : "Custom"} · ${typeLabel(field.type)}${field.required ? " · Required" : " · Optional"}`;
-}
 
 async function persistApplicationConfig({
   next,
@@ -132,7 +138,10 @@ function submissionForNewCustomApplication(sub: ManagerListingSubmissionV1): Man
   };
 }
 
-/** Shared application-question editor — property templates and bulk Applications edit. */
+/** The pack offered pre-selected in the ADD flow. */
+const RECOMMENDED_QUESTION_PACK = APPLICATION_QUESTION_PACKS.find((p) => p.recommended) ?? null;
+
+/** Shared application-question editor — one full-page workspace, property templates and bulk Applications edit. */
 export function ManagerApplicationQuestionsEditorModal({
   open,
   title = "Application",
@@ -140,6 +149,7 @@ export function ManagerApplicationQuestionsEditorModal({
   saveTarget,
   propertyIds,
   managerUserId,
+  applicationPreviewPropertyId,
   initialVariant = "standard",
   lockVariant = false,
   templateEditorMode,
@@ -159,6 +169,13 @@ export function ManagerApplicationQuestionsEditorModal({
   /** When set, each save applies the same application config to every id (bulk edit). */
   propertyIds?: string[];
   managerUserId: string;
+  /**
+   * Property the Preview pane's applicant control binds to — resolved by the
+   * caller via `resolveApplicationPreviewPropertyId` (it needs `listingId`,
+   * which this modal does not itself receive). May be "" when unresolved;
+   * the pane still renders the questions, it just never blocks on it.
+   */
+  applicationPreviewPropertyId?: string;
   /** Which stay-type form opens first (long-term vs short-term). */
   initialVariant?: ApplicationFormVariant;
   /** Property detail row edit — one stay type only; hide the long-term / short-term switcher. */
@@ -185,11 +202,13 @@ export function ManagerApplicationQuestionsEditorModal({
   const [templateLabel, setTemplateLabel] = useState("");
   const [templateLabelError, setTemplateLabelError] = useState<string | null>(null);
   const [expandedSectionIds, setExpandedSectionIds] = useState<Set<string>>(() => new Set());
-  const [editOpen, setEditOpen] = useState(false);
-  const childClosingRef = useRef(false);
-  const [editingField, setEditingField] = useState<ResolvedApplicationField | null>(null);
-  const [isNewField, setIsNewField] = useState(false);
-  const [newFieldSectionId, setNewFieldSectionId] = useState("additional");
+  const [expandedQuestionIds, setExpandedQuestionIds] = useState<Set<string>>(() => new Set());
+  // The ADD flow's template chooser — which section it targets, or null when closed.
+  const [addChooserSectionId, setAddChooserSectionId] = useState<string | null>(null);
+  const [addChoice, setAddChoice] = useState<string>(RECOMMENDED_QUESTION_PACK?.id ?? "blank");
+  // Edit | Preview workspace toggle — Preview renders the real applicant control
+  // for the currently open section, bound to the unsaved buffered draft below.
+  const [workspaceView, setWorkspaceView] = useState<"edit" | "preview">("edit");
   // Round 31: every edit stays local until an explicit Save. `dirty` gates the Save button
   // and drives the discard confirmation so a stray click can never overwrite properties.
   const [dirty, setDirty] = useState(false);
@@ -204,9 +223,10 @@ export function ManagerApplicationQuestionsEditorModal({
     setTemplateLabel(applicationTemplate?.label ?? "");
     setTemplateLabelError(null);
     setExpandedSectionIds(collapsedApplicationSections());
-    setEditOpen(false);
-    setEditingField(null);
-    setIsNewField(false);
+    setExpandedQuestionIds(new Set());
+    setAddChooserSectionId(null);
+    setAddChoice(RECOMMENDED_QUESTION_PACK?.id ?? "blank");
+    setWorkspaceView("edit");
     setDirty(templateEditorMode === "add");
     setSaving(false);
     setSaveError(null);
@@ -229,13 +249,51 @@ export function ManagerApplicationQuestionsEditorModal({
   // other.
   const configSlice = useMemo(() => applicationConfigForVariant(localSub, variant), [localSub, variant]);
 
+  // `normalizeCustomApplicationFieldsForEditor` (not the plain normalizer) keeps
+  // an in-progress row with an empty label or no options yet — it must stay
+  // visible IN PLACE while the manager is still filling it in, not vanish on
+  // every re-render before Save.
   const applicationFields = useMemo(
-    () => resolveListingApplicationFields(configSlice, normalizeCustomApplicationFields),
+    () => resolveListingApplicationFields(configSlice, normalizeCustomApplicationFieldsForEditor),
     [configSlice],
   );
   const disabledFields = useMemo(
     () => editorVisibleDisabledApplicationFields(variant, configSlice),
     [configSlice, variant],
+  );
+
+  // Inline per-row validation (duplicate key, empty label, options required) —
+  // the old per-question modal's `validateField` run once per field in
+  // question order, so the SECOND row to claim a key is the one flagged.
+  const fieldErrors = useMemo(() => {
+    const usedKeys = new Set<string>();
+    const errors = new Map<string, string>();
+    for (const f of applicationFields) {
+      const err = validateField(f, usedKeys);
+      if (err) errors.set(f.id, err);
+    }
+    return errors;
+  }, [applicationFields]);
+  const hasFieldErrors = fieldErrors.size > 0;
+
+  // The Preview pane always targets ONE section: whichever is currently open in
+  // the editor (first, in canonical section order, when more than one is open),
+  // falling back to the first section that has any questions at all.
+  const previewSectionId = useMemo((): RentalApplicationSectionId | null => {
+    const openSection = RENTAL_APPLICATION_SECTIONS.find((s) => expandedSectionIds.has(s.id));
+    if (openSection) return openSection.id;
+    const firstWithQuestions = RENTAL_APPLICATION_SECTIONS.find((s) =>
+      applicationFields.some((f) => (f.section ?? "additional") === s.id),
+    );
+    return (firstWithQuestions ?? RENTAL_APPLICATION_SECTIONS[0])?.id ?? null;
+  }, [expandedSectionIds, applicationFields]);
+  const previewSection = useMemo(
+    () => RENTAL_APPLICATION_SECTIONS.find((s) => s.id === previewSectionId) ?? null,
+    [previewSectionId],
+  );
+  const previewFields = useMemo(
+    () => applicationFields.filter((f) => (f.section ?? "additional") === previewSectionId),
+    [applicationFields, previewSectionId],
   );
 
   // Apply an edit to LOCAL state only — nothing is persisted until Save.
@@ -284,6 +342,19 @@ export function ManagerApplicationQuestionsEditorModal({
     }
     setSaving(true);
 
+    // Drop blank option rows / case-insensitive duplicates across every
+    // variant's custom questions before anything is persisted.
+    const sanitizedSub: ManagerListingSubmissionV1 = {
+      ...localSub,
+      customApplicationFields: sanitizeCustomApplicationFieldsForSave(localSub.customApplicationFields ?? []),
+      shortTermCustomApplicationFields: sanitizeCustomApplicationFieldsForSave(
+        localSub.shortTermCustomApplicationFields ?? [],
+      ),
+      cosignerCustomApplicationFields: sanitizeCustomApplicationFieldsForSave(
+        localSub.cosignerCustomApplicationFields ?? [],
+      ),
+    };
+
     if (isTemplateEditor && templates && onPersistSubmission) {
       const trimmed = templateLabel.trim();
       let nextTemplates: PropertyApplicationTemplate[];
@@ -297,7 +368,7 @@ export function ManagerApplicationQuestionsEditorModal({
           label: trimmed,
         });
       }
-      const merged = withPropertyApplicationTemplatesExplicit(localSub, nextTemplates);
+      const merged = withPropertyApplicationTemplatesExplicit(sanitizedSub, nextTemplates);
       const okSaved = await onPersistSubmission(merged, {
         message: templateEditorMode === "add" ? "Application added." : "Application saved.",
       });
@@ -314,7 +385,7 @@ export function ManagerApplicationQuestionsEditorModal({
     }
 
     const okSaved = await persistApplicationConfig({
-      next: localSub,
+      next: sanitizedSub,
       saveTarget,
       propertyIds: isBulkSave ? bulkIds : undefined,
       managerUserId,
@@ -337,34 +408,9 @@ export function ManagerApplicationQuestionsEditorModal({
     onClose();
   };
 
-  const openEdit = (field: ResolvedApplicationField) => {
-    setEditingField(field);
-    setIsNewField(false);
-    setEditOpen(true);
-  };
-
-  const openAdd = (sectionId: string) => {
-    setEditingField(null);
-    setIsNewField(true);
-    setNewFieldSectionId(sectionId);
-    setEditOpen(true);
-    setExpandedSectionIds((prev) => new Set(prev).add(sectionId));
-  };
-
-  const closeEdit = () => {
-    childClosingRef.current = true;
-    setEditOpen(false);
-    setEditingField(null);
-    setIsNewField(false);
-    queueMicrotask(() => {
-      childClosingRef.current = false;
-    });
-  };
-
   const handleParentClose = () => {
-    if (childClosingRef.current) return;
-    if (editOpen) {
-      closeEdit();
+    if (addChooserSectionId) {
+      setAddChooserSectionId(null);
       return;
     }
     requestClose();
@@ -377,6 +423,76 @@ export function ManagerApplicationQuestionsEditorModal({
   const reenableField = (field: ResolvedApplicationField) => {
     if (!field.standardKey) return;
     applyEditedSlice(reenableListingApplicationField(configSlice, field.standardKey));
+  };
+
+  const patchField = (field: ResolvedApplicationField, patch: Partial<ManagerCustomApplicationField>) => {
+    applyEditedSlice(patchListingApplicationField(configSlice, field, patch));
+  };
+
+  const toggleQuestionExpand = (fieldId: string) => {
+    setExpandedQuestionIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(fieldId)) next.delete(fieldId);
+      else next.add(fieldId);
+      return next;
+    });
+  };
+
+  const canMoveField = (field: ResolvedApplicationField, direction: "up" | "down"): boolean => {
+    if (field.isStandard) return false;
+    return canMoveCustomApplicationField(configSlice, field.id, direction, normalizeCustomApplicationFieldsForEditor);
+  };
+
+  const moveField = (field: ResolvedApplicationField, direction: "up" | "down"): void => {
+    if (field.isStandard) return;
+    applyEditedSlice(moveCustomApplicationField(configSlice, field.id, direction, normalizeCustomApplicationFieldsForEditor));
+  };
+
+  const moveFieldToSection = (field: ResolvedApplicationField, sectionId: RentalApplicationSectionId): void => {
+    if (field.isStandard) return;
+    applyEditedSlice(
+      moveCustomApplicationFieldToSection(configSlice, field.id, sectionId, normalizeCustomApplicationFieldsForEditor),
+    );
+    setExpandedSectionIds((prev) => new Set(prev).add(sectionId));
+  };
+
+  const openAddChooser = (sectionId: string) => {
+    setAddChooserSectionId(sectionId);
+    setAddChoice(RECOMMENDED_QUESTION_PACK?.id ?? "blank");
+    setExpandedSectionIds((prev) => new Set(prev).add(sectionId));
+  };
+
+  const confirmAddChoice = () => {
+    const sectionId = addChooserSectionId;
+    if (!sectionId) return;
+
+    if (addChoice === "blank") {
+      // `emptyCustomApplicationField` already returns a raw ManagerCustomApplicationField
+      // (no `isStandard`/`standardKey`) — store it as-is, not wrapped as a ResolvedApplicationField.
+      const blank = emptyCustomApplicationField(sectionId);
+      applyEditedSlice({ ...configSlice, ...addListingApplicationField(configSlice, blank) });
+      setExpandedQuestionIds((prev) => new Set(prev).add(blank.id));
+    } else {
+      const pack = APPLICATION_QUESTION_PACKS.find((p) => p.id === addChoice);
+      if (pack) {
+        // Every existing question key in the slice — passing the wrong set
+        // here produces duplicate answer keys that silently collide.
+        const takenKeys = applicationFields.map((f) => f.key);
+        const built = buildQuestionsFromPack(pack, takenKeys).map((f) => ({ ...f, section: sectionId }));
+        let nextConfig: { customApplicationFields: ManagerCustomApplicationField[]; applicationConfigMode: "custom" } = {
+          customApplicationFields: configSlice.customApplicationFields,
+          applicationConfigMode: "custom",
+        };
+        for (const f of built) nextConfig = addListingApplicationField(nextConfig, f);
+        applyEditedSlice({ ...configSlice, ...nextConfig });
+        setExpandedQuestionIds((prev) => {
+          const next = new Set(prev);
+          for (const f of built) next.add(f.id);
+          return next;
+        });
+      }
+    }
+    setAddChooserSectionId(null);
   };
 
   const restoreDefaults = () => {
@@ -405,11 +521,6 @@ export function ManagerApplicationQuestionsEditorModal({
     setExpandedSectionIds(collapsedApplicationSections());
   };
 
-  const onQuestionSaved = (next: ManagerListingSubmissionV1) => {
-    setLocalSub(next);
-    setDirty(true);
-  };
-
   const sectionAddButton = (sectionId: string) => (
     <button
       type="button"
@@ -417,7 +528,7 @@ export function ManagerApplicationQuestionsEditorModal({
       title="Add question"
       aria-label="Add question"
       data-attr="application-questions-add"
-      onClick={() => openAdd(sectionId)}
+      onClick={() => openAddChooser(sectionId)}
     >
       <Plus className="h-4 w-4" strokeWidth={2.25} aria-hidden />
     </button>
@@ -428,15 +539,15 @@ export function ManagerApplicationQuestionsEditorModal({
       open={open}
       title={title}
       onClose={handleParentClose}
-      dismissBlocked={editOpen}
+      dismissBlocked={Boolean(addChooserSectionId)}
+      fullPage
       description={
           isTemplateEditor
             ? "Name your application, then adjust questions below. Every custom application includes all standard questions."
-            : "Expand a section to see its questions. Tap a question to edit; use × to remove."
+            : "Expand a section to see its questions. Tap a question to edit in place; use × to remove."
         }
         presentation="dialog"
         dense
-        panelClassName="flex max-h-[min(90vh,56rem)] w-full max-w-4xl flex-col"
         footer={
           <>
             {saveError ? (
@@ -466,7 +577,7 @@ export function ManagerApplicationQuestionsEditorModal({
               variant="primary"
               className="ml-auto rounded-full"
               data-attr="application-questions-save"
-              disabled={saving || (isTemplateEditor ? !templateLabel.trim() : !dirty)}
+              disabled={saving || (isTemplateEditor ? !templateLabel.trim() : !dirty) || hasFieldErrors}
               onClick={commitSave}
             >
               {saving ? "Saving…" : templateEditorMode === "add" ? "Add application" : "Save"}
@@ -481,7 +592,45 @@ export function ManagerApplicationQuestionsEditorModal({
             replaced when you save changes.
           </p>
         ) : null}
-        <div className="space-y-3">
+        <div className={cn("mx-auto w-full space-y-3", workspaceView === "preview" ? "max-w-6xl" : "max-w-3xl")}>
+          <div className="flex justify-end">
+            <div
+              className="flex gap-1 rounded-full border border-border bg-accent/30 p-1"
+              role="tablist"
+              aria-label="Workspace view"
+            >
+              {(
+                [
+                  { id: "edit", label: "Edit" },
+                  { id: "preview", label: "Preview" },
+                ] as const
+              ).map((v) => {
+                const active = workspaceView === v.id;
+                return (
+                  <button
+                    key={v.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    data-attr={`application-preview-toggle-${v.id}`}
+                    onClick={() => setWorkspaceView(v.id)}
+                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                      active ? "bg-card text-foreground shadow-sm" : "text-muted hover:text-foreground"
+                    }`}
+                  >
+                    {v.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div
+            className={cn(
+              workspaceView === "preview" ? "gap-6 xl:grid xl:grid-cols-[minmax(0,1fr)_22rem] xl:items-start" : undefined,
+            )}
+          >
+          <div className={cn("space-y-3", workspaceView === "preview" ? "hidden xl:block" : "block")}>
           {isTemplateEditor ? (
             <div>
               <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="application-template-name">
@@ -520,6 +669,7 @@ export function ManagerApplicationQuestionsEditorModal({
                   onClick={() => {
                     setVariant(v.id);
                     setExpandedSectionIds(collapsedApplicationSections());
+                    setExpandedQuestionIds(new Set());
                   }}
                   className={`flex-1 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
                     active
@@ -594,67 +744,106 @@ export function ManagerApplicationQuestionsEditorModal({
                 {sectionQuestions.length === 0 && sectionDisabled.length === 0 ? (
                   <p className="text-sm text-muted">No questions in this section yet.</p>
                 ) : (
-                  <div className="space-y-2">
-                    {sectionQuestions.map((field) => (
-                      <PortalEditRow
-                        key={field.id}
-                        title={field.label.trim() || "Untitled question"}
-                        subtitle={questionSubtitle(field)}
-                        titleVariant="semibold"
-                        className="border-0 bg-accent/15 shadow-none"
-                        clickDataAttr={`application-question-edit-${field.id}`}
-                        onClick={() => openEdit(field)}
-                        onRemove={() => removeField(field)}
-                        removeIconOnly
-                        removeTitle="Remove question"
-                        removeDataAttr="application-question-remove"
-                      />
-                    ))}
-                    {sectionDisabled.map((field) => (
-                      <div
-                        key={field.id}
-                        className="flex items-center justify-between gap-2 rounded-xl border border-dashed border-border bg-accent/20 px-3 py-2.5"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm text-muted line-through">
-                            {field.label.trim() || "Untitled question"}
-                          </p>
-                          <p className="text-xs text-muted/80">Off · not asked on this application</p>
-                        </div>
-                        <button
-                          type="button"
-                          className={PORTAL_EDIT_ROW_ICON_BUTTON_CLASS}
-                          title="Add question back"
-                          aria-label="Add question back"
-                          data-attr="application-question-reenable"
-                          onClick={() => reenableField(field)}
-                        >
-                          <Plus className="h-4 w-4" strokeWidth={2.25} aria-hidden />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
+                  <ApplicationFormBuilder
+                    applicationFields={applicationFields}
+                    disabledFields={disabledFields}
+                    activeSectionId={section.id}
+                    showSectionChrome={false}
+                    expandedQuestionIds={expandedQuestionIds}
+                    onToggleExpand={toggleQuestionExpand}
+                    fieldErrors={fieldErrors}
+                    onAddQuestion={openAddChooser}
+                    onRemoveField={removeField}
+                    onReenableField={reenableField}
+                    onPatchField={patchField}
+                    onMoveField={moveField}
+                    onMoveFieldToSection={moveFieldToSection}
+                    canMoveField={canMoveField}
+                  />
                 )}
               </PortalCollapsibleEditRow>
             );
           })}
+          </div>
+
+          {workspaceView === "preview" ? (
+            <div className="xl:sticky xl:top-4">
+              <ApplicationSectionPreviewPane
+                section={previewSection}
+                fields={previewFields}
+                applicationPreviewPropertyId={applicationPreviewPropertyId}
+              />
+            </div>
+          ) : null}
+          </div>
         </div>
 
-      <ApplicationQuestionEditModal
-        open={editOpen}
-        field={editingField}
-        isNew={isNewField}
-        sectionId={newFieldSectionId}
-        sub={localSub}
-        variant={variant}
-        saveTarget={saveTarget}
-        propertyIds={isBulkSave ? bulkIds : undefined}
-        managerUserId={managerUserId}
-        onClose={closeEdit}
-        onSaved={onQuestionSaved}
-        showToast={showToast}
-        deferPersist
-      />
+      <Modal
+        open={Boolean(addChooserSectionId)}
+        title="Add question"
+        onClose={() => setAddChooserSectionId(null)}
+        presentation="dialog"
+        dense
+        panelClassName="max-w-xl"
+        stackClassName="fixed inset-0 z-[80] overflow-y-auto overscroll-contain"
+        footer={
+          <ModalFooter>
+            <Button
+              type="button"
+              variant="primary"
+              className="rounded-full"
+              data-attr="application-questions-add-confirm"
+              onClick={confirmAddChoice}
+            >
+              {addChoice === "blank" ? "Add question" : "Add questions"}
+            </Button>
+          </ModalFooter>
+        }
+      >
+        <div className="space-y-2">
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-card p-3 transition has-[:checked]:border-primary has-[:checked]:ring-1 has-[:checked]:ring-primary/30">
+            <input
+              type="radio"
+              name="application-add-choice"
+              className="mt-1 h-4 w-4 text-primary"
+              checked={addChoice === "blank"}
+              onChange={() => setAddChoice("blank")}
+              data-attr="application-question-add-choice-blank"
+            />
+            <span>
+              <span className="block text-sm font-semibold text-foreground">Blank question</span>
+              <span className="block text-xs text-muted">Start from an empty question.</span>
+            </span>
+          </label>
+          <p className="px-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted">Question packs</p>
+          {APPLICATION_QUESTION_PACKS.map((pack) => (
+            <label
+              key={pack.id}
+              className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-card p-3 transition has-[:checked]:border-primary has-[:checked]:ring-1 has-[:checked]:ring-primary/30"
+            >
+              <input
+                type="radio"
+                name="application-add-choice"
+                className="mt-1 h-4 w-4 text-primary"
+                checked={addChoice === pack.id}
+                onChange={() => setAddChoice(pack.id)}
+                data-attr={`application-question-add-choice-${pack.id}`}
+              />
+              <span>
+                <span className="block text-sm font-semibold text-foreground">
+                  {pack.label}
+                  {pack.recommended ? (
+                    <span className="ml-1.5 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase text-primary">
+                      Recommended
+                    </span>
+                  ) : null}
+                </span>
+                <span className="block text-xs text-muted">{pack.blurb}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </Modal>
     </Modal>
   );
 }

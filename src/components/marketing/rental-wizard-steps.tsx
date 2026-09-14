@@ -49,13 +49,13 @@ import {
   customFieldAnswerValue,
   customFieldErrorKey,
   customFieldsForWizardStep,
-  displayableCustomFieldAnswers,
   formatCustomFieldAnswerDisplay,
+  groupCustomFieldAnswersBySection,
   listingCustomApplicationFields,
   upsertCustomFieldAnswer,
 } from "@/lib/rental-application/custom-fields";
 import { normalizeCustomApplicationFields } from "@/lib/manager-listing-submission";
-import { RENTAL_APPLICATION_SECTIONS } from "@/lib/rental-application/application-sections";
+import { applicationWizardStepForSection, RENTAL_APPLICATION_SECTIONS } from "@/lib/rental-application/application-sections";
 import { Label, FieldError, YesNoPills } from "@/components/rental-application/form-field-controls";
 import { CustomQuestionField } from "@/components/rental-application/custom-question-field";
 import {
@@ -2085,13 +2085,18 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             <ReviewRow k="Criminal history" v={form.criminalHistory === "yes" ? `Yes: ${form.criminalDetails}` : form.criminalHistory === "no" ? "No" : "—"} />
           </ReviewSection>
           ) : null}
-          {displayableCustomFieldAnswers(form.customFieldAnswers).length > 0 ? (
-            <ReviewSection title="Manager questions" stepTarget={8} onEdit={editFromReview}>
-              {displayableCustomFieldAnswers(form.customFieldAnswers).map((answer) => (
+          {groupCustomFieldAnswersBySection(form.customFieldAnswers).map((group) => (
+            <ReviewSection
+              key={group.sectionId ?? "other-questions"}
+              title={group.title}
+              stepTarget={applicationWizardStepForSection(group.sectionId ?? undefined)}
+              onEdit={editFromReview}
+            >
+              {group.answers.map((answer) => (
                 <ReviewRow key={answer.key} k={answer.label} v={displayOrDash(formatCustomFieldAnswerDisplay(answer))} />
               ))}
             </ReviewSection>
-          ) : null}
+          ))}
           {activeStepSet.has(9) ? (
           <ReviewSection title="Consent and signature" stepTarget={9} onEdit={editFromReview}>
             {showWizardField("consentCredit") ? (

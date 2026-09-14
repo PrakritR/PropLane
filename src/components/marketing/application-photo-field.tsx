@@ -166,15 +166,24 @@ function AttachmentPreview({
   readUrl: string;
 }) {
   const [failed, setFailed] = useState(false);
+  // `readUrl` is resolved in an effect, so it is briefly "" on first paint.
+  // Rendering `src=""` points the <img> at the current page, which answers with
+  // HTML, fires onError, and latches `failed` — leaving a real attachment stuck
+  // on the text chip forever. Wait for a source before rendering the image, and
+  // clear a previous failure when a new source arrives.
+  const source = localPreview ?? (readUrl || "");
+  useEffect(() => {
+    if (source) setFailed(false);
+  }, [source]);
   // Only render an <img> for browser-displayable formats. A HEIC/PDF (even one
   // just captured) would show a broken image, so it falls through to the chip —
   // as does a read-route fetch that can't be served (e.g. a guest with no
   // session after re-mount), via onError.
-  if (DISPLAYABLE_IMAGE_MIME.has(attachment.mimeType) && (localPreview || !failed)) {
+  if (source && DISPLAYABLE_IMAGE_MIME.has(attachment.mimeType) && (localPreview || !failed)) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={localPreview ?? readUrl}
+        src={source}
         alt={attachment.fileName}
         loading="lazy"
         onError={() => setFailed(true)}
@@ -312,8 +321,27 @@ export function ApplicationPhotoField({
     setBusy(false);
   }, [attachment, fieldKey, getApplicationId, getSetupToken, onChange, setupTokenRequired]);
 
-  // Only resolves (never mints) an id here — an attachment already implies one exists.
-  const readUrl = attachment ? readUrlFor(getApplicationId(), slot, index, fieldKey) : "";
+  // Resolving the application id can MINT one, and minting sets state on the
+  // wizard — so it must not happen while this component renders. The wizard
+  // hands `ensureApplicationId` in as `getApplicationId`, so the original claim
+  // here that it "only resolves, never mints" was not true of the prop actually
+  // passed, and calling it inline produced React's "Cannot update a component
+  // while rendering a different component" against this very component. Resolve
+  // in an effect instead, after the commit.
+  const [readUrl, setReadUrl] = useState("");
+  const getApplicationIdRef = useRef(getApplicationId);
+  useEffect(() => {
+    getApplicationIdRef.current = getApplicationId;
+  });
+  useEffect(() => {
+    if (!attachment) {
+      setReadUrl("");
+      return;
+    }
+    // Guarded so a re-render that resolves the same URL does not cascade.
+    const next = readUrlFor(getApplicationIdRef.current(), slot, index, fieldKey);
+    setReadUrl((prev) => (prev === next ? prev : next));
+  }, [attachment, fieldKey, index, slot]);
 
   return (
     <div className="space-y-2" data-attr={dataAttr}>

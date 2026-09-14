@@ -1,9 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { type KeyboardEvent } from "react";
+import { MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ApplicationQuestionFields } from "@/components/portal/application-question-edit-modal";
+import { CustomQuestionField } from "@/components/rental-application/custom-question-field";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { RECORD_ACTION_TRIGGER_BUTTON_CLASS, RECORD_ACTION_TRIGGER_ICON_CLASS } from "@/components/ui/record-action-menu";
+import {
+  PortalCollapsibleEditRow,
+} from "@/components/portal/portal-collapsible-edit-row";
 import type { ManagerCustomApplicationField, ManagerCustomApplicationFieldType } from "@/lib/manager-listing-submission";
 import { customApplicationFieldTypeLabel } from "@/lib/manager-listing-submission";
 import {
@@ -12,7 +27,6 @@ import {
   type RentalApplicationSectionId,
 } from "@/lib/rental-application/application-sections";
 import type { ResolvedApplicationField } from "@/lib/rental-application/application-field-catalog";
-import { cn } from "@/lib/utils";
 
 function typeLabel(type: ManagerCustomApplicationFieldType): string {
   return customApplicationFieldTypeLabel(type);
@@ -31,7 +45,7 @@ export function visibleApplicationFormSections(
   });
 }
 
-/** Read-only applicant-facing control preview for one question row. */
+/** Read-only applicant-facing control preview for one question row (compact / collapsed use). */
 export function ApplicationFormFieldPreview({ field }: { field: ResolvedApplicationField }) {
   const label = field.label.trim() || "Untitled question";
 
@@ -91,98 +105,232 @@ export function ApplicationFormFieldPreview({ field }: { field: ResolvedApplicat
   );
 }
 
+/** Divider marking where a manager's own questions start, after PropLane's built-ins, in one section. */
+function CustomQuestionsDivider() {
+  return <p className="px-1 text-xs font-medium text-muted">Your questions appear after PropLane&apos;s.</p>;
+}
+
+/**
+ * A question mid-edit is normal — the editor deliberately keeps a blank label
+ * or an empty option row while the manager is still typing. Guard the display
+ * label only; type/options/required stay the REAL unsaved values so the
+ * rendered control is still the true applicant control, never a mock.
+ */
+function previewSafeField(field: ResolvedApplicationField): ResolvedApplicationField {
+  return field.label.trim() ? field : { ...field, label: "Untitled question" };
+}
+
+/**
+ * Live read-only preview of ONE application section, bound to the manager's
+ * UNSAVED buffered draft — the entire point of the side pane (see the editor
+ * modal's Edit/Preview toggle). Renders the exact same `CustomQuestionField`
+ * control the applicant wizard uses, in the section's true order (built-ins
+ * first in catalogue order, then custom questions in their persisted array
+ * order — already how `applicationFields` is filtered by section). Never
+ * writes: `onChange` is a no-op and nothing here can trigger a persist call.
+ */
+export function ApplicationSectionPreviewPane({
+  section,
+  fields,
+  applicationPreviewPropertyId,
+}: {
+  section: RentalApplicationSection | null;
+  fields: ResolvedApplicationField[];
+  /** Resolved by `resolveApplicationPreviewPropertyId` — may be "" (unresolved); never blocks rendering. */
+  applicationPreviewPropertyId?: string;
+}) {
+  return (
+    <div
+      className="space-y-4 rounded-2xl border border-border bg-accent/10 p-4"
+      data-attr="application-preview-pane"
+    >
+      <div>
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">Applicant sees</p>
+        <h3 className="text-sm font-bold text-foreground">{section?.title ?? "Application"}</h3>
+      </div>
+      {fields.length === 0 ? (
+        <p className="text-sm text-muted" data-attr="application-preview-empty">
+          No questions in this section yet.
+        </p>
+      ) : (
+        <div className="space-y-4">
+          {fields.map((field) => (
+            <CustomQuestionField
+              key={field.id}
+              field={previewSafeField(field)}
+              value=""
+              onChange={() => {}}
+              readOnly
+              getApplicationId={() => applicationPreviewPropertyId ?? ""}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BuilderQuestionCard({
   field,
   expanded,
+  onToggleExpand,
+  error,
   onRemove,
   onPatch,
+  canMoveUp,
+  canMoveDown,
+  onMoveUp,
+  onMoveDown,
+  availableSections,
+  onMoveToSection,
 }: {
   field: ResolvedApplicationField;
   expanded: boolean;
+  onToggleExpand: () => void;
+  error?: string | null;
   onRemove: () => void;
   onPatch: (patch: Partial<ManagerCustomApplicationField>) => void;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  availableSections: ReadonlyArray<{ id: RentalApplicationSectionId; title: string }>;
+  onMoveToSection: (sectionId: RentalApplicationSectionId) => void;
 }) {
-  const [optionsText, setOptionsText] = useState(field.options.join(", "));
+  // Built-ins are never reorderable — no ⋯ menu for them.
+  const showReorderMenu = !field.isStandard;
 
-  useEffect(() => {
-    setOptionsText(field.options.join(", "));
-  }, [field.id, field.options]);
-
-  const onOptionsTextChange = (text: string) => {
-    setOptionsText(text);
-    const options = text
-      .split(/[\n,]/)
-      .map((part) => part.trim())
-      .filter(Boolean);
-    onPatch({ options });
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!event.altKey || field.isStandard) return;
+    if (event.key === "ArrowUp" && canMoveUp) {
+      event.preventDefault();
+      onMoveUp();
+    } else if (event.key === "ArrowDown" && canMoveDown) {
+      event.preventDefault();
+      onMoveDown();
+    }
   };
 
-  return (
-    <article
-      data-attr={`application-form-question-${field.id}`}
-      className={cn(
-        "rounded-2xl border border-border bg-card p-4 shadow-[var(--shadow-sm)] sm:p-5",
-        expanded && "ring-1 ring-primary/15",
-      )}
-    >
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
-          {field.isStandard ? "Built-in" : "Custom"} · {typeLabel(field.type)}
-        </p>
+  const reorderMenu = showReorderMenu ? (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
         <Button
           type="button"
-          variant="outline"
-          className="h-7 rounded-full px-2.5 text-xs"
-          data-attr="application-question-remove"
-          onClick={onRemove}
+          variant="ghost"
+          aria-label={`Reorder ${field.label.trim() || "question"}`}
+          className={RECORD_ACTION_TRIGGER_BUTTON_CLASS}
+          data-attr={`application-question-reorder-${field.id}`}
         >
-          Remove
+          <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
         </Button>
-      </div>
+      </DropdownMenuTrigger>
+      {/*
+        This menu lives inside the full-page question workspace, which is a
+        Modal stacked at z-[70]/z-[71]. The dropdown portals to document.body
+        at the default z-50, so it painted BEHIND the workspace: the menu was
+        visible but every click landed on whatever row sat on top of it, and
+        reordering by mouse silently did nothing. Keyboard reorder (Alt+Arrow)
+        never goes through this menu, which is why unit tests passed. Lift it
+        above the workspace, matching the z used elsewhere for portalled
+        content that must clear a modal. `backdrop` is dropped for the same
+        reason — its z-40 scrim rendered under the workspace where it only
+        blurred the wrong layer.
+      */}
+      <DropdownMenuContent align="end" className="z-[10060]">
+        <DropdownMenuItem disabled={!canMoveUp} data-attr="application-question-move-up" onSelect={onMoveUp}>
+          Move up
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={!canMoveDown} data-attr="application-question-move-down" onSelect={onMoveDown}>
+          Move down
+        </DropdownMenuItem>
+        {availableSections.length > 0 ? (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger data-attr="application-question-move-to-section">
+              Move to section
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="z-[10060]">
+              {availableSections.map((s) => (
+                <DropdownMenuItem
+                  key={s.id}
+                  data-attr={`application-question-move-to-${s.id}`}
+                  onSelect={() => onMoveToSection(s.id)}
+                >
+                  {s.title}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ) : null;
 
-      {expanded ? (
-        <div className="space-y-4">
-          <ApplicationQuestionFields
-            field={field}
-            optionsText={optionsText}
-            onPatch={onPatch}
-            onOptionsTextChange={onOptionsTextChange}
-          />
-          <div className="border-t border-border/70 pt-4">
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Preview</p>
-            <ApplicationFormFieldPreview field={field} />
-          </div>
+  return (
+    <div onKeyDown={onKeyDown}>
+      <PortalCollapsibleEditRow
+        title={field.label.trim() || "Untitled question"}
+        subtitle={`${field.isStandard ? "Built-in" : "Custom"} · ${typeLabel(field.type)}${
+          field.required ? " · Required" : " · Optional"
+        }`}
+        expanded={expanded}
+        onExpandedChange={onToggleExpand}
+        onRemove={onRemove}
+        removeIconOnly
+        removeTitle="Remove question"
+        removeDataAttr="application-question-remove"
+        headerActions={reorderMenu}
+        toggleDataAttr={`application-question-edit-${field.id}`}
+        error={Boolean(error)}
+        contentClassName="space-y-4"
+      >
+        <ApplicationQuestionFields field={field} onPatch={onPatch} error={error} />
+        <div className="border-t border-border/70 pt-4">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">Applicant sees</p>
+          {/* The REAL applicant control, read-only — never a hand-drawn imitation, so the
+              builder preview and the real wizard can never drift (see the component doc). */}
+          <CustomQuestionField field={field} value="" onChange={() => {}} readOnly />
         </div>
-      ) : (
-        <ApplicationFormFieldPreview field={field} />
-      )}
-    </article>
+      </PortalCollapsibleEditRow>
+    </div>
   );
 }
 
 /**
- * Application form builder — all sections, or one section at a time with every question expanded for editing.
+ * Application form builder — renders every section, or one section at a time
+ * (`activeSectionId`), with each question an in-place expanding row.
  */
 export function ApplicationFormBuilder({
   applicationFields,
   disabledFields,
   activeSectionId = null,
-  alwaysExpandQuestions = false,
+  /** When false, the caller supplies its own section title / add-question chrome. */
+  showSectionChrome = true,
+  expandedQuestionIds,
+  onToggleExpand,
+  fieldErrors,
   onAddQuestion,
   onRemoveField,
   onReenableField,
   onPatchField,
+  onMoveField,
+  onMoveFieldToSection,
+  canMoveField,
 }: {
   applicationFields: ResolvedApplicationField[];
   disabledFields: ResolvedApplicationField[];
   /** When set, only this section is shown (section-by-section wizard). */
   activeSectionId?: RentalApplicationSectionId | null;
-  /** When true, every question shows inline edit controls (no click-to-expand). */
-  alwaysExpandQuestions?: boolean;
+  showSectionChrome?: boolean;
+  expandedQuestionIds: ReadonlySet<string>;
+  onToggleExpand: (fieldId: string) => void;
+  fieldErrors?: ReadonlyMap<string, string>;
   onAddQuestion: (sectionId: string) => void;
   onRemoveField: (field: ResolvedApplicationField) => void;
   onReenableField: (field: ResolvedApplicationField) => void;
   onPatchField: (field: ResolvedApplicationField, patch: Partial<ManagerCustomApplicationField>) => void;
+  onMoveField?: (field: ResolvedApplicationField, direction: "up" | "down") => void;
+  onMoveFieldToSection?: (field: ResolvedApplicationField, sectionId: RentalApplicationSectionId) => void;
+  canMoveField?: (field: ResolvedApplicationField, direction: "up" | "down") => boolean;
 }) {
   const sectionsToRender = activeSectionId
     ? RENTAL_APPLICATION_SECTIONS.filter((section) => section.id === activeSectionId)
@@ -195,30 +343,48 @@ export function ApplicationFormBuilder({
         const sectionDisabled = disabledFields.filter((f) => (f.section ?? "additional") === section.id);
         if (sectionQuestions.length === 0 && sectionDisabled.length === 0) return null;
 
+        const firstCustomIndex = sectionQuestions.findIndex((f) => !f.isStandard);
+        const availableSections = RENTAL_APPLICATION_SECTIONS.filter((s) => s.id !== section.id).map((s) => ({
+          id: s.id,
+          title: s.title,
+        }));
+
         return (
           <section key={section.id} className="space-y-3" data-attr={`application-form-section-${section.id}`}>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-bold text-foreground">{section.title}</h3>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-8 rounded-full px-3 text-xs"
-                data-attr="application-questions-add"
-                onClick={() => onAddQuestion(section.id)}
-              >
-                + Add question
-              </Button>
-            </div>
+            {showSectionChrome ? (
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-bold text-foreground">{section.title}</h3>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 rounded-full px-3 text-xs"
+                  data-attr="application-questions-add"
+                  onClick={() => onAddQuestion(section.id)}
+                >
+                  + Add question
+                </Button>
+              </div>
+            ) : null}
 
-            <div className="space-y-3">
-              {sectionQuestions.map((field) => (
-                <BuilderQuestionCard
-                  key={field.id}
-                  field={field}
-                  expanded={alwaysExpandQuestions}
-                  onRemove={() => onRemoveField(field)}
-                  onPatch={(patch) => onPatchField(field, patch)}
-                />
+            <div className="space-y-2">
+              {sectionQuestions.map((field, index) => (
+                <div key={field.id} className="space-y-2">
+                  {index === firstCustomIndex ? <CustomQuestionsDivider /> : null}
+                  <BuilderQuestionCard
+                    field={field}
+                    expanded={expandedQuestionIds.has(field.id)}
+                    onToggleExpand={() => onToggleExpand(field.id)}
+                    error={fieldErrors?.get(field.id) ?? null}
+                    onRemove={() => onRemoveField(field)}
+                    onPatch={(patch) => onPatchField(field, patch)}
+                    canMoveUp={canMoveField ? canMoveField(field, "up") : false}
+                    canMoveDown={canMoveField ? canMoveField(field, "down") : false}
+                    onMoveUp={() => onMoveField?.(field, "up")}
+                    onMoveDown={() => onMoveField?.(field, "down")}
+                    availableSections={availableSections}
+                    onMoveToSection={(sectionId) => onMoveFieldToSection?.(field, sectionId)}
+                  />
+                </div>
               ))}
 
               {sectionDisabled.map((field) => (
