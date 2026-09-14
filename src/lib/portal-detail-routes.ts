@@ -55,6 +55,27 @@ export const PROPERTY_DETAIL_SCOPE_LABELS: Record<PropertyDetailSectionTabId, st
 
 export type PropertyDetailTopTabId = keyof typeof PROPERTY_DETAIL_TOP_TAB_LABELS;
 
+/**
+ * What each destination is FOR, in one line.
+ *
+ * A tab label alone never explained itself — "Apply" and "Promo" say nothing to
+ * someone who has not used the product. On a phone the nine tabs are a list
+ * rather than a strip (see `PortalPropertySectionList`), and a list has room to
+ * say what the row does. This is not decoration: it is the difference between a
+ * label and an answer.
+ */
+export const PROPERTY_DETAIL_TOP_TAB_DESCRIPTIONS: Record<PropertyDetailTopTabId, string> = {
+  preview: "How renters see this home",
+  "house-details": "Rooms, floors, amenities and rules",
+  "move-in": "What a new resident does first",
+  tours: "Let renters book a viewing",
+  bookings: "Nightly and short stays",
+  application: "Screen renters online",
+  lease: "Draft, send and e-sign",
+  requests: "Repairs and resident requests",
+  promotion: "Share and syndicate the listing",
+};
+
 export const PROPERTY_DETAIL_TOP_TAB_SHORT_LABELS: Partial<
   Record<PropertyDetailTopTabId, string>
 > = {

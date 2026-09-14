@@ -6,7 +6,7 @@ import { activeWorkspaceScope, propertiesOutsideActiveWorkspace, workspaceContai
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
-import { ImageOff } from "lucide-react";
+import { ChevronDown, ImageOff } from "lucide-react";
 import {
   propertyRowAddress,
   propertyRowDetail,
@@ -51,9 +51,14 @@ import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import { PortalPageChrome, PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
 import { cn } from "@/lib/utils";
+import {
+  PortalPropertySectionList,
+  type PortalPropertySectionItem,
+} from "@/components/portal/portal-property-section-list";
 import { PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS } from "@/components/portal/portal-property-detail-section";
 import { PortalRecordActions, PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import {
+  PROPERTY_DETAIL_TOP_TAB_DESCRIPTIONS,
   PROPERTY_DETAIL_TOP_TAB_LABELS,
   PROPERTY_DETAIL_TOP_TAB_SHORT_LABELS,
   propertyDetailHref,
@@ -612,6 +617,40 @@ function ManagerPropertyInlineDetails({
     pushTopTab("promotion", "promotion");
     return items;
   }, [availableTabs, propertiesBase, propertyRouteKey, stage]);
+  /**
+   * The same nine destinations as `topNavItems`, but NONE are dropped: a
+   * section this home cannot use yet stays on the list and says why. The strip
+   * hid them, which is how three features became invisible on a phone.
+   */
+  const sectionListItems = useMemo<PortalPropertySectionItem[]>(() => {
+    const order: Array<[PropertyDetailTopTabId, PropertyDetailTabId]> = [
+      ["preview", "preview"],
+      ["house-details", "house-details"],
+      ["move-in", "move-in"],
+      ["tours", "tours"],
+      ["bookings", "bookings"],
+      ["application", "application"],
+      ["lease", "lease"],
+      ["requests", "requests"],
+      ["promotion", "promotion"],
+    ];
+    return order.map(([id, tab]) => {
+      const available = availableTabs.includes(tab);
+      const href =
+        tab === "tours"
+          ? propertyTourListHref(propertiesBase, stage, propertyRouteKey, "pending")
+          : propertyDetailHref(propertiesBase, stage, propertyRouteKey, tab);
+      return {
+        id,
+        label: PROPERTY_DETAIL_TOP_TAB_LABELS[id],
+        description: PROPERTY_DETAIL_TOP_TAB_DESCRIPTIONS[id],
+        href,
+        dataAttr: `property-section-row-${id}`,
+        unavailableReason: available ? undefined : "Available once this home is listed",
+      } satisfies PortalPropertySectionItem;
+    });
+  }, [availableTabs, propertiesBase, propertyRouteKey, stage]);
+
   const activeTopNavId = propertyDetailTopNavId(activeDetailTab);
   const isListingPreview = activeDetailTab === "preview";
 
@@ -923,14 +962,6 @@ function ManagerPropertyInlineDetails({
           className="border-b border-border/40 bg-background"
           data-portal-property-detail-chrome
         >
-          <PortalDetailDestinationNav
-            items={topNavItems}
-            activeId={activeTopNavId}
-            ariaLabel="Property sections"
-            denseEqualRow
-            appearance="command"
-            className="lg:hidden"
-          />
           {isListingPreview && hasPreview ? (
             <div className="w-full border-t border-border/60 bg-accent/30 px-1 py-1">
               <ListingStickySubnav
@@ -950,6 +981,31 @@ function ManagerPropertyInlineDetails({
           hasPinnedPropertyFooter && "pb-3",
         )}
       >
+      {/*
+        Phones get the list, not the strip. It sits in the SCROLLING body, not
+        the pinned chrome: the chrome is a fixed band, so a disclosure opening
+        inside it expanded to nothing at all. Open on the landing tab so
+        arriving at a property shows everything it can do; collapsed on a deeper
+        tab so the nav never buries the content. Desktop keeps its left rail.
+      */}
+      <details
+        className="group mb-3 lg:hidden"
+        open={activeDetailTab === "preview"}
+        data-attr="property-sections-disclosure"
+      >
+        <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-lg border border-border bg-card px-3 text-[13.5px] font-semibold text-foreground [&::-webkit-details-marker]:hidden">
+          <span className="min-w-0 flex-1 truncate">
+            {PROPERTY_DETAIL_TOP_TAB_LABELS[activeTopNavId]}
+          </span>
+          <span className="text-[12px] font-medium text-muted">All sections</span>
+          <ChevronDown className="size-4 shrink-0 text-muted transition-transform group-open:rotate-180" aria-hidden />
+        </summary>
+        <PortalPropertySectionList
+          items={sectionListItems}
+          activeId={activeTopNavId}
+          className="mt-2"
+        />
+      </details>
       {isListingPreview ? (
         hasPreview ? (
           <>
