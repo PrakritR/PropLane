@@ -526,10 +526,10 @@ export function SiteStory() {
   return (
     <SiteSection id="product" tone="muted" ariaLabelledBy="site-story-title" className="site-story-band">
       <SiteIntro
-        eyebrow="The feature · try it"
+        eyebrow="The inbox"
         id="site-story-title"
         title="Every message answered. Every workflow run."
-        lede="Prospects, residents and vendors all write to one inbox. PropLane answers from your listings, leases and jobs, books the tour, dispatches the vendor, writes back — and lands it all in one queue. The frame on the right is live: press ✦."
+        lede="One inbox for prospects, residents and vendors."
       />
 
       <div className="site-story" data-active={active}>

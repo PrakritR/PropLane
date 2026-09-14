@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { loadFormalDocumentScopeOptions } from "@/lib/reports/formal-documents/scoped-queries";
 import { assertManagerFinancialsAccess, getReportsAuthContext } from "@/lib/reports/auth";
+import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
 
 export const runtime = "nodejs";
 
@@ -13,7 +14,13 @@ export async function GET(req: Request) {
 
     const url = new URL(req.url);
     const propertyId = url.searchParams.get("propertyId") || undefined;
-    const options = await loadFormalDocumentScopeOptions(auth.db, auth.userId, propertyId);
+    const options = await loadFormalDocumentScopeOptions(
+      auth.db,
+      auth.userId,
+      propertyId,
+      // The pickers only offer houses the active workspace holds.
+      await activeWorkspacePropertyScope(auth.db, auth.userId),
+    );
     return NextResponse.json(options);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed.";

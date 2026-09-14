@@ -1,3 +1,5 @@
+import { activeWorkspaceScope } from "@/lib/workspaces/selection";
+
 /** Dev-only placeholder rows when the manager has no resident directory entries yet. */
 export type DevResidentListFixture = {
   id: string;
@@ -115,6 +117,13 @@ export const DEV_RESIDENT_LIST_FIXTURES: DevResidentListFixture[] = [
   },
 ];
 
+/**
+ * Development-only stand-ins so an empty Residents list still shows the shape of
+ * the page. They are suppressed the moment a workspace is narrowing the account:
+ * an empty workspace that answers with five residents reads as a data leak, and
+ * the whole point of the workspace is that it holds only its own houses.
+ */
 export function shouldShowDevResidentListFixtures(): boolean {
-  return process.env.NODE_ENV === "development";
+  if (process.env.NODE_ENV !== "development") return false;
+  return !activeWorkspaceScope()?.narrowing;
 }

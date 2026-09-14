@@ -23,6 +23,7 @@ export function PhoneNumberField({
   id,
   value,
   onChange,
+  onBlur,
   disabled = false,
   required = false,
   placeholder,
@@ -35,6 +36,8 @@ export function PhoneNumberField({
   id?: string;
   value: unknown;
   onChange: (e164: string) => void;
+  /** Fired when focus leaves the whole control — the country select included. */
+  onBlur?: () => void;
   disabled?: boolean;
   /** Marks the number box required for assistive tech, matching the form's own validation. */
   required?: boolean;
@@ -74,7 +77,20 @@ export function PhoneNumberField({
   };
 
   return (
-    <div className={`flex min-w-0 items-stretch ${className}`.trim()} data-attr={dataAttr}>
+    <div
+      className={`flex min-w-0 items-stretch ${className}`.trim()}
+      data-attr={dataAttr}
+      // Moving between the country select and the number box is not leaving the
+      // field, so an autosave caller must not see a blur for it.
+      onBlur={
+        onBlur
+          ? (event) => {
+              if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+              onBlur();
+            }
+          : undefined
+      }
+    >
       <FieldSingleSelect
         hideLabel
         variant="pill"

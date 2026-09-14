@@ -3,6 +3,7 @@ import { chartAccountLabel } from "@/lib/reports/categories";
 import { primeSystemChartOfAccounts, systemChartAccountByCode } from "@/lib/reports/chart-of-accounts-store";
 import { centsToUsd } from "@/lib/reports/money";
 import type { ManagerReportFilters, ReportResult } from "@/lib/reports/types";
+import { applyReportPropertyScope } from "@/lib/reports/workspace-scope";
 
 function defaultDateRange(from?: string, to?: string): { from: string; to: string } {
   const now = new Date();
@@ -38,7 +39,7 @@ async function loadJournalEntriesThrough(
   db: SupabaseClient,
   managerUserId: string,
   to: string,
-  propertyId?: string,
+  filters: ManagerReportFilters,
 ): Promise<JournalEntryRow[]> {
   let query = db
     .from("gl_journal_entries")
@@ -49,7 +50,7 @@ async function loadJournalEntriesThrough(
     .order("entry_date", { ascending: true })
     .limit(5000);
 
-  if (propertyId) query = query.eq("property_id", propertyId);
+  query = applyReportPropertyScope(query, filters);
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);
@@ -78,7 +79,7 @@ export async function queryTrialBalance(
   await primeSystemChartOfAccounts(db);
   const { to } = defaultDateRange(filters.from, filters.to);
 
-  const entries = await loadJournalEntriesThrough(db, managerUserId, to, filters.propertyId);
+  const entries = await loadJournalEntriesThrough(db, managerUserId, to, filters);
   const totals = aggregateAccountTotals(entries);
 
   const rows: Record<string, string | number | boolean | null>[] = [];
@@ -132,7 +133,7 @@ export async function queryBalanceSheet(
   await primeSystemChartOfAccounts(db);
   const { to } = defaultDateRange(filters.from, filters.to);
 
-  const entries = await loadJournalEntriesThrough(db, managerUserId, to, filters.propertyId);
+  const entries = await loadJournalEntriesThrough(db, managerUserId, to, filters);
   const totals = aggregateAccountTotals(entries);
 
   const rows: Record<string, string | number | boolean | null>[] = [];
@@ -206,7 +207,7 @@ export async function queryGeneralLedger(
     .order("entry_date", { ascending: true })
     .limit(5000);
 
-  if (filters.propertyId) query = query.eq("property_id", filters.propertyId);
+  query = applyReportPropertyScope(query, filters);
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);
@@ -265,7 +266,7 @@ export async function queryCashFlowStatement(
     .lte("entry_date", to)
     .limit(5000);
 
-  if (filters.propertyId) query = query.eq("property_id", filters.propertyId);
+  query = applyReportPropertyScope(query, filters);
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);
@@ -368,14 +369,14 @@ export async function queryTrustAccountBalance(
   await primeSystemChartOfAccounts(db);
   const { to } = defaultDateRange(filters.from, filters.to);
 
-  const entries = await loadJournalEntriesThrough(db, managerUserId, to, filters.propertyId);
+  const entries = await loadJournalEntriesThrough(db, managerUserId, to, filters);
   const totals = aggregateAccountTotals(entries);
 
   const glTrustCashCents = glAssetBalanceCents(totals, TRUST_CASH_CODE);
   const glLiabilityCents = glLiabilityBalanceCents(totals, TRUST_LIABILITY_CODE);
 
   const { sumHeldDepositsCents } = await import("@/lib/reports/security-deposits");
-  const subLedgerCents = await sumHeldDepositsCents(db, managerUserId, filters.propertyId);
+  const subLedgerCents = await sumHeldDepositsCents(db, managerUserId, filters);
 
   let bankBalanceCents = glTrustCashCents;
   const { data: trustAccounts } = await db
@@ -431,7 +432,7 @@ export async function queryFinancialDiagnostics(
   const { to } = defaultDateRange(filters.from, filters.to);
   const rows: Record<string, string | boolean>[] = [];
 
-  const entries = await loadJournalEntriesThrough(db, managerUserId, to, filters.propertyId);
+  const entries = await loadJournalEntriesThrough(db, managerUserId, to, filters);
   const totals = aggregateAccountTotals(entries);
   let totalDebits = 0;
   let totalCredits = 0;

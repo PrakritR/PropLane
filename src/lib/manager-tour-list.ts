@@ -20,6 +20,7 @@ import {
   type ResidentCluster,
 } from "@/lib/resident-row-clustering";
 import { clusterPortalListRows, type PortalListGroupMode } from "@/lib/portal-list-grouping";
+import { activeWorkspacePropertyIds } from "@/lib/workspaces/selection";
 import type { ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages";
 import { formatScheduledSendAt } from "@/lib/scheduled-payment-messages";
 import { summariseScheduledSends, type ScheduledSendSummary } from "@/lib/scheduled-send-summary";
@@ -62,15 +63,30 @@ function isUpcomingEnd(endMs: number): boolean {
 
 function buildFilter(
   viewerUserId: string,
-  propertyIds: string[],
+  propertyIds: string[] | null,
   peers: PropertyCalendarPeer[],
 ): ScheduledTourFilter {
   return {
     viewerUserId,
     propertyId: null,
-    propertyIds: propertyIds.length ? propertyIds : undefined,
+    // `null` is "the caller named no houses"; an empty array is "the scope holds
+    // no houses". Collapsing the second into the first is what showed every tour
+    // in the account inside a workspace with no houses in it.
+    propertyIds: propertyIds ?? undefined,
     peers,
   };
+}
+
+/**
+ * The caller's own scope narrowed by the active workspace. Either side may be
+ * `null` ("not narrowing"); two real scopes intersect, so a workspace can never
+ * widen what a caller asked for, and a caller can never escape the workspace.
+ */
+function narrowScope(callerIds: string[] | null, workspaceIds: string[] | null): string[] | null {
+  if (!callerIds) return workspaceIds;
+  if (!workspaceIds) return callerIds;
+  const allowed = new Set(workspaceIds);
+  return callerIds.filter((id) => allowed.has(id));
 }
 
 function inquiryRows(filter: ScheduledTourFilter): ManagerTourRow[] {
@@ -184,17 +200,19 @@ function plannedRow(event: PlannedEvent): ManagerTourRow | null {
 
 export function buildManagerTourRows(input: {
   viewerUserId: string;
-  propertyIds: string[];
+  /** Houses to limit to; `null` (or omitted) leaves the workspace as the only scope. */
+  propertyIds?: string[] | null;
 }): ManagerTourRow[] {
+  const scope = narrowScope(input.propertyIds ?? null, activeWorkspacePropertyIds());
   const peersByProperty = new Map<string, PropertyCalendarPeer[]>();
-  for (const propertyId of input.propertyIds) {
+  for (const propertyId of scope ?? []) {
     peersByProperty.set(propertyId, listPropertyCalendarPeers(input.viewerUserId, propertyId));
   }
   const peers = [...new Map(
     [...peersByProperty.values()].flat().map((peer) => [peer.userId, peer] as const),
   ).values()];
 
-  const filter = buildFilter(input.viewerUserId, input.propertyIds, peers);
+  const filter = buildFilter(input.viewerUserId, scope, peers);
   const rows = [...inquiryRows(filter), ...plannedRows(filter)];
   return rows.sort((a, b) => b.startMs - a.startMs);
 }

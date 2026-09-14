@@ -104,6 +104,23 @@ export function PortalSegmentedControl<T extends string>({
 /** Primary page title in portal workspaces (aligned with Axis dashboard). */
 export const PORTAL_PAGE_TITLE = "text-[2rem] font-semibold tracking-[-0.03em] text-foreground";
 
+/**
+ * Portal pages do not print their own name.
+ *
+ * The sidebar already highlights the section and the phone app bar already
+ * prints it, so a 2rem <h1> saying the same word cost ~90px of every first
+ * viewport. The heading stays in the document for screen readers and for the
+ * page outline — only its pixels go.
+ *
+ * This is deliberately NOT `navigationProvidesTitle`: that flag drops the whole
+ * title ROW, taking the page's primary action ("+ Add property") with it, which
+ * is why its own contract says to move the actions out first. Hiding the text
+ * keeps every button exactly where it is.
+ */
+export const PORTAL_PAGE_TITLE_HIDDEN = true;
+/** Applied to a header block whose <h1> should be present but unpainted. */
+export const PORTAL_HIDDEN_TITLE_CLASS = "[&_h1]:sr-only";
+
 /** Matches admin Managers / Properties filter row (status + tier pill groups). */
 export type PortalTierFilterId = "all" | "free" | "pro" | "business";
 
@@ -682,6 +699,8 @@ export function ManagerPortalPageShell({
     Boolean(titleAside && filterRow) || Boolean(titleAside && hideTitleOnMobileNavEffective && !useInlineTitleBand);
   const showMobileFooterActions = titleAsideDesktopOnly;
   const showTitleOnMobile = !hideTitleOnMobileNavEffective;
+  // The title text goes; the row, its actions and its filters stay.
+  const hideTitleText = PORTAL_PAGE_TITLE_HIDDEN && !navigationProvidesTitle;
   const filterRowBorder = surfaceCard ? "border-b border-border" : "";
   const pinChrome = stickyPageChrome && !viewportFillBody;
   usePortalStickyPageChrome(pinChrome);
@@ -705,7 +724,11 @@ export function ManagerPortalPageShell({
         <h1 className="sr-only">{title}</h1>
       ) : useHeadline ? (
         <PortalPageHeadline
-          className={cn(chromeShrink, hideTitleOnNative && "[html[data-native]_&_h1]:sr-only")}
+          className={cn(
+            chromeShrink,
+            hideTitleText && PORTAL_HIDDEN_TITLE_CLASS,
+            hideTitleOnNative && "[html[data-native]_&_h1]:sr-only",
+          )}
           title={title}
           subtitle={subtitle}
           count={count}
@@ -717,6 +740,7 @@ export function ManagerPortalPageShell({
           className={cn(
             chromeShrink,
             compactFilterRow && "max-lg:mb-0",
+            hideTitleText && PORTAL_HIDDEN_TITLE_CLASS,
             hideTitleOnNative && "[html[data-native]_&_h1]:sr-only",
           )}
           title={title}
@@ -736,6 +760,7 @@ export function ManagerPortalPageShell({
           className={cn(
             chromeShrink,
             compactFilterRow && "!space-y-1.5 max-lg:!space-y-1",
+            hideTitleText && PORTAL_HIDDEN_TITLE_CLASS,
             hideTitleOnNative && "[html[data-native]_&_h1]:sr-only",
             !showTitleOnMobile && "max-md:[&_h1]:sr-only",
             !showTitleOnMobile && titleAside && !titleAsideDesktopOnly && "max-md:mt-3 max-md:w-full [html[data-native]_&]:mt-2",
@@ -749,6 +774,8 @@ export function ManagerPortalPageShell({
             welcomeSubtitle
               ? "mt-1 text-base font-medium leading-snug text-foreground max-md:text-lg [html[data-native]_&]:text-base"
               : "mt-1 line-clamp-2 text-sm text-muted [html[data-native]_&]:text-xs",
+            // The descriptive line belongs to the header that just went away.
+            hideTitleText && !welcomeSubtitle && "sr-only",
             hideTitleOnNative && "[html[data-native]_&]:sr-only",
             !showTitleOnMobile && !welcomeSubtitle && "max-md:sr-only",
           )}

@@ -55,23 +55,12 @@ function ContactInner() {
     });
   };
 
-  const onCall = [
-    "Twenty minutes, on a call — no deck.",
-    "Bring one address. We list it live and show the first drafts land in your queue.",
-    "You approve one. Then you decide.",
-  ];
-  const onMessage = [
-    "A person reads it — the same team that runs PropLane on their own homes.",
-    "Expect a reply within one business day.",
-    `Prefer email? ${PUBLIC_SUPPORT_EMAIL} reaches the same inbox.`,
-  ];
   return (
     <MarketingPageShell>
       <header className="lp-page-hero lp-page-hero--start">
         <div className={`${SITE_MEASURE} max-w-[860px]`}>
           <p className="lp-page-eyebrow">Contact</p>
           <h1 className="lp-page-title lp-page-title-wide">Talk to the people who built it.</h1>
-          <p className="lp-page-lede">Text or call, email, or book twenty minutes with your homes on screen.</p>
         </div>
       </header>
 
@@ -84,7 +73,6 @@ function ContactInner() {
         >
           <p className="text-[12px] font-bold uppercase tracking-[0.08em] text-primary">Text or call</p>
           <p className="mt-2 text-[17px] font-bold tabular-nums tracking-tight text-foreground">{PUBLIC_SUPPORT_PHONE_DISPLAY}</p>
-          <p className="mt-1 text-[13px] text-muted">Weekdays, Pacific time.</p>
         </a>
         <a
           href={`mailto:${PUBLIC_SUPPORT_EMAIL}`}
@@ -93,7 +81,6 @@ function ContactInner() {
         >
           <p className="text-[12px] font-bold uppercase tracking-[0.08em] text-primary">Email support</p>
           <p className="mt-2 break-words text-[17px] font-bold tracking-tight text-foreground">{PUBLIC_SUPPORT_EMAIL}</p>
-          <p className="mt-1 text-[13px] text-muted">Within one business day.</p>
         </a>
         <Link
           href="/partner/contact"
@@ -102,12 +89,11 @@ function ContactInner() {
         >
           <p className="text-[12px] font-bold uppercase tracking-[0.08em] text-primary">Partner inquiries</p>
           <p className="mt-2 text-[17px] font-bold tracking-tight text-foreground">Property companies &amp; vendors at scale</p>
-          <p className="mt-1 text-[13px] text-muted">A separate door for partnerships.</p>
         </Link>
       </div>
 
-      <section className={`${SITE_MEASURE} grid items-start gap-10 pb-20 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-16`}>
-        <div className="min-w-0">
+      <section className={`${SITE_MEASURE} pb-20`}>
+        <div className="min-w-0 max-w-[720px]">
           <SegmentedTwo
             value={tab}
             onChange={setTab}
@@ -124,19 +110,11 @@ function ContactInner() {
             )}
           </div>
         </div>
-        <aside className="rounded-2xl border border-border bg-[var(--pl-surface-muted)] p-6 [html[data-theme=dark]_&]:bg-white/[0.03] lg:sticky lg:top-24">
-          <p className="text-[12px] font-bold uppercase tracking-[0.08em] text-primary">
-            {tab === "schedule" ? "What happens on the call" : "What happens next"}
-          </p>
-          <ul className="mt-3 space-y-3">
-            {(tab === "schedule" ? onCall : onMessage).map((line) => (
-              <li key={line} className="flex items-start gap-2.5 text-[14.5px] leading-relaxed text-foreground/90">
-                <span aria-hidden className="mt-[8px] h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-                {line}
-              </li>
-            ))}
-          </ul>
-        </aside>
+        {/*
+          "What happens on the call" was four bullets explaining a twenty-minute
+          call the button already offers. The form is the page; the explanation
+          belonged to the booking step, not beside it.
+        */}
       </section>
     </MarketingPageShell>
   );

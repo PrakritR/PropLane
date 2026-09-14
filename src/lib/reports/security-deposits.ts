@@ -3,6 +3,8 @@ import type { HouseholdCharge } from "@/lib/household-charges";
 import { dollarsToCents } from "@/lib/reports/money";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { postGlReclassifyDeposit } from "@/lib/reports/gl-posting";
+import { applyReportPropertyScope } from "@/lib/reports/workspace-scope";
+import type { ManagerReportFilters } from "@/lib/reports/types";
 
 export type SecurityDepositStatus =
   | "held"
@@ -173,7 +175,7 @@ export async function importSecurityDepositHistory(db: SupabaseClient, managerUs
 export async function listSecurityDeposits(
   db: SupabaseClient,
   managerUserId: string,
-  filters?: { propertyId?: string; status?: SecurityDepositStatus },
+  filters?: { propertyId?: string; status?: SecurityDepositStatus; workspacePropertyIds?: string[] | null },
 ): Promise<SecurityDepositLedgerRow[]> {
   let query = db
     .from("security_deposit_ledger")
@@ -182,7 +184,7 @@ export async function listSecurityDeposits(
     .order("received_date", { ascending: false })
     .limit(500);
 
-  if (filters?.propertyId) query = query.eq("property_id", filters.propertyId);
+  query = applyReportPropertyScope(query, filters ?? {});
   if (filters?.status) query = query.eq("status", filters.status);
 
   const { data, error } = await query;
@@ -350,7 +352,7 @@ export async function reclassifyMisclassifiedDeposits(
 export async function sumHeldDepositsCents(
   db: SupabaseClient,
   managerUserId: string,
-  propertyId?: string,
+  filters: ManagerReportFilters = {},
 ): Promise<number> {
   let query = db
     .from("security_deposit_ledger")
@@ -358,7 +360,7 @@ export async function sumHeldDepositsCents(
     .eq("manager_user_id", managerUserId)
     .gt("amount_held_cents", 0);
 
-  if (propertyId) query = query.eq("property_id", propertyId);
+  query = applyReportPropertyScope(query, filters);
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);

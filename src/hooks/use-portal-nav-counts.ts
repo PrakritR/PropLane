@@ -36,7 +36,6 @@ import { readBugFeedbackRows } from "@/lib/portal-bug-feedback";
 import { prefetchPortalData } from "@/lib/portal-data-store";
 import type { PortalKind } from "@/lib/portal-types";
 import { countManagerManagedPropertiesInWorkspace } from "@/lib/demo-property-pipeline";
-import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import { managerPaymentBucketCounts, readManagerPaymentsLedgerCharges } from "@/lib/manager-payments-scope";
 import { MANAGER_TASKS_EVENT, readManagerTasksLocal } from "@/lib/manager-tasks";
 import { buildManagerTourRows, countManagerTourRowsByBucket } from "@/lib/manager-tour-list";
@@ -152,10 +151,11 @@ export function usePortalNavCounts(kind: PortalKind): Partial<Record<string, num
       const tours = safeCount(
         () =>
           countManagerTourRowsByBucket(
-            buildManagerTourRows({
-              viewerUserId: userId,
-              propertyIds: buildManagerPropertyFilterOptions(userId).map((o) => o.id),
-            }),
+            // Same scope as the Tours page: the workspace, not the property
+            // filter options, so the badge and the tab can never disagree.
+            buildManagerTourRows({ viewerUserId: userId, propertyIds: null }).filter((row) =>
+              workspaceContainsProperty(row.propertyId),
+            ),
           ).pending,
       );
       const payments = safeCount(() => {

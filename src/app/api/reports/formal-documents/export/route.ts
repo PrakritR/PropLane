@@ -14,6 +14,7 @@ import {
 } from "@/lib/reports/export/formal/rent-receipt-pdf";
 import type { DocumentScope, FormalDocumentKind } from "@/lib/reports/types";
 import { assertManagerFinancialsAccess, getReportsAuthContext } from "@/lib/reports/auth";
+import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
 
 export const runtime = "nodejs";
 
@@ -40,6 +41,8 @@ export async function GET(req: Request) {
 
     const scope = (url.searchParams.get("scope") || "portfolio") as DocumentScope;
     const filters = applyFormalDocumentScope({
+      // Narrowed by the viewer's active workspace, resolved server-side.
+      workspacePropertyIds: await activeWorkspacePropertyScope(auth.db, auth.userId),
       scope,
       propertyId: url.searchParams.get("propertyId") || undefined,
       residentEmail: url.searchParams.get("residentEmail") || undefined,

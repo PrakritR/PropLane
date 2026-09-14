@@ -14,6 +14,8 @@ import {
   RESIDENT_REPORT_IDS,
 } from "@/lib/reports/types";
 import { runManagerReport, queryResidentLedger } from "@/lib/reports/queries";
+import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
+import type { ManagerReportFilters } from "@/lib/reports/types";
 
 export const runtime = "nodejs";
 
@@ -33,6 +35,7 @@ export async function GET(
 
     // Co-managers granted `financials` export the owning manager's books (owner-level scope).
     let managerUserId = auth.userId;
+    let managerFilters: ManagerReportFilters | null = null;
     let report;
     if (isResidentReport) {
       const gate = await assertResidentFinancialsAccess(auth);
@@ -52,7 +55,11 @@ export async function GET(
         auth.role === "admin"
           ? searchParams.get("managerUserId")?.trim() || auth.userId
           : await resolveManagerReportOwnerId(auth.db, auth.userId);
-      report = await runManagerReport(auth.db, managerUserId, reportId, parseManagerReportFilters(searchParams));
+      // Same workspace narrowing as the on-screen report, so an export can
+      // never carry rows the page itself would not show.
+      managerFilters = parseManagerReportFilters(searchParams);
+      managerFilters.workspacePropertyIds = await activeWorkspacePropertyScope(auth.db, auth.userId);
+      report = await runManagerReport(auth.db, managerUserId, reportId, managerFilters);
     }
 
     if (!report) return NextResponse.json({ error: "Unknown report." }, { status: 404 });
@@ -78,7 +85,7 @@ export async function GET(
       const qbCsv = await buildQuickBooksJournalCsv(
         auth.db,
         managerUserId,
-        parseManagerReportFilters(searchParams),
+        managerFilters ?? parseManagerReportFilters(searchParams),
       );
       return new NextResponse(qbCsv, {
         headers: {

@@ -7,12 +7,15 @@ import {
 } from "@/lib/reports/formal-documents/scoped-queries";
 import type { DocumentScope, FormalDocumentKind } from "@/lib/reports/types";
 import { assertManagerFinancialsAccess, getReportsAuthContext } from "@/lib/reports/auth";
+import { activeWorkspacePropertyScope } from "@/lib/workspaces/scope.server";
 
 export const runtime = "nodejs";
 
-function parseFilters(url: URL) {
+function parseFilters(url: URL, workspacePropertyIds: string[] | null) {
   const scope = (url.searchParams.get("scope") || "portfolio") as DocumentScope;
   return applyFormalDocumentScope({
+    // Narrowed by the viewer's active workspace, resolved server-side.
+    workspacePropertyIds,
     scope,
     propertyId: url.searchParams.get("propertyId") || undefined,
     residentEmail: url.searchParams.get("residentEmail") || undefined,
@@ -39,7 +42,7 @@ export async function GET(req: Request) {
       );
     }
 
-    const filters = parseFilters(url);
+    const filters = parseFilters(url, await activeWorkspacePropertyScope(auth.db, auth.userId));
 
     if (kind === "rent_receipt") {
       const { documents, preview } = await queryFormalRentReceipts(auth.db, auth.userId, filters);

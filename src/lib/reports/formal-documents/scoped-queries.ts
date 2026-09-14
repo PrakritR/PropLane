@@ -14,6 +14,7 @@ import {
 } from "@/lib/reports/formal-documents/spec";
 import { centsToUsd } from "@/lib/reports/money";
 import type { DocumentScope, FormalDocumentFilters, ManagerReportFilters, ReportResult } from "@/lib/reports/types";
+import { applyReportPropertyScope } from "@/lib/reports/workspace-scope";
 
 const RENT_RECEIPT_CATEGORIES = new Set(["rent_income", "late_fees", "pet_rent", "application_fee", "other_income"]);
 
@@ -52,13 +53,18 @@ async function loadManagerTaxProfile(db: SupabaseClient, managerUserId: string) 
   return { name, address: parts.join("\n") || "—" };
 }
 
-async function loadRentProfiles(db: SupabaseClient, managerUserId: string, propertyId?: string) {
+async function loadRentProfiles(
+  db: SupabaseClient,
+  managerUserId: string,
+  filters: ManagerReportFilters,
+  propertyId?: string,
+) {
   let query = db
     .from("portal_recurring_rent_profile_records")
     .select("row_data")
     .eq("manager_user_id", managerUserId)
     .limit(500);
-  if (propertyId) query = query.eq("property_id", propertyId);
+  query = applyReportPropertyScope(query, filters, propertyId);
   const { data } = await query;
   return (data ?? []).map((r) => r.row_data as RecurringRentProfile).filter(Boolean);
 }
@@ -112,7 +118,7 @@ export async function queryFormalPropertyRentReceipts(
   const [landlord, display, profiles] = await Promise.all([
     loadManagerTaxProfile(db, managerUserId),
     loadManagerReportDisplayContext(db, managerUserId),
-    loadRentProfiles(db, managerUserId, scope === "property" ? filters.propertyId : undefined).then((rows) =>
+    loadRentProfiles(db, managerUserId, filters, scope === "property" ? filters.propertyId : undefined).then((rows) =>
       rows.filter((p) => p.active !== false).filter((p) => profileMatchesScope(p, scope, filters)),
     ),
   ]);
@@ -124,7 +130,7 @@ export async function queryFormalPropertyRentReceipts(
     .eq("entry_type", "payment")
     .gte("posted_date", from)
     .lte("posted_date", to);
-  if (scope === "property" && filters.propertyId) ledgerQuery = ledgerQuery.eq("property_id", filters.propertyId);
+  ledgerQuery = applyReportPropertyScope(ledgerQuery, filters, scope === "property" ? filters.propertyId : undefined);
   if (scope === "tenant" && filters.residentEmail) {
     ledgerQuery = ledgerQuery.eq("resident_email", filters.residentEmail.trim());
   }
@@ -326,7 +332,7 @@ export async function queryFormalRentReceipts(
   const [landlord, display, profiles] = await Promise.all([
     loadManagerTaxProfile(db, managerUserId),
     loadManagerReportDisplayContext(db, managerUserId),
-    loadRentProfiles(db, managerUserId, scope === "property" ? filters.propertyId : undefined),
+    loadRentProfiles(db, managerUserId, filters, scope === "property" ? filters.propertyId : undefined),
   ]);
   const profileByEmail = new Map(profiles.map((p) => [p.residentEmail?.toLowerCase(), p]));
 
@@ -339,7 +345,7 @@ export async function queryFormalRentReceipts(
     .lte("posted_date", to)
     .order("posted_date", { ascending: false });
 
-  if (scope === "property" && filters.propertyId) query = query.eq("property_id", filters.propertyId);
+  query = applyReportPropertyScope(query, filters, scope === "property" ? filters.propertyId : undefined);
   if (scope === "tenant" && filters.residentEmail) {
     query = query.eq("resident_email", filters.residentEmail.trim());
   }
@@ -439,7 +445,7 @@ export async function queryFormalDaysRented(
   const rangeEnd = new Date(to);
   const daysAvailableInPeriod = daysInclusive(rangeStart, rangeEnd);
   const landlord = await loadManagerTaxProfile(db, managerUserId);
-  const profiles = await loadRentProfiles(db, managerUserId, scope === "property" ? filters.propertyId : undefined);
+  const profiles = await loadRentProfiles(db, managerUserId, filters, scope === "property" ? filters.propertyId : undefined);
 
   const rows = profiles
     .filter((p) => p.active !== false)
@@ -517,9 +523,10 @@ export async function loadFormalDocumentScopeOptions(
   db: SupabaseClient,
   managerUserId: string,
   propertyId?: string,
+  workspacePropertyIds: string[] | null = null,
 ) {
   const [profiles, display] = await Promise.all([
-    loadRentProfiles(db, managerUserId, propertyId),
+    loadRentProfiles(db, managerUserId, { workspacePropertyIds }, propertyId),
     loadManagerReportDisplayContext(db, managerUserId),
   ]);
   const tenants = new Map<string, string>();
@@ -561,7 +568,7 @@ export async function queryOccupancyReport(
   const [landlord, display, allProfiles] = await Promise.all([
     loadManagerTaxProfile(db, managerUserId),
     loadManagerReportDisplayContext(db, managerUserId),
-    loadRentProfiles(db, managerUserId, scope === "property" ? filters.propertyId : undefined),
+    loadRentProfiles(db, managerUserId, filters, scope === "property" ? filters.propertyId : undefined),
   ]);
   const profiles = allProfiles.filter((p) => profileMatchesScope(p, scope, filters));
 
