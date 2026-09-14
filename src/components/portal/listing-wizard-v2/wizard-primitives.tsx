@@ -19,6 +19,7 @@
 
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { Camera, RotateCcw, type LucideIcon } from "lucide-react";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { cn } from "@/lib/utils";
 
 /* ─────────────────────────── shell ─────────────────────────── */
@@ -1068,39 +1069,43 @@ export function RowCell({
   );
 }
 
-/** A dropdown inside a grid row — used for floor and bathroom, which are choices. */
+/**
+ * A dropdown inside a grid row — floor, bathroom access, residents, pricing
+ * mode. The PropLane field dropdown at cell size: same height and radius as
+ * the text inputs beside it, the shared white menu instead of the OS picker.
+ */
 export function RowSelectCell({
   value,
   options,
   placeholder,
   inherited,
+  disabled,
   onChange,
   ariaLabel,
+  className,
 }: {
   value: string;
   options: readonly { value: string; label: string }[];
   placeholder?: string;
   inherited?: boolean;
+  disabled?: boolean;
   onChange: (next: string) => void;
   ariaLabel: string;
+  className?: string;
 }) {
   return (
-    <select
+    <FieldSingleSelect
+      variant="cell"
+      hideLabel
+      label={ariaLabel}
       value={value}
-      onChange={(e) => onChange(e.target.value)}
-      aria-label={ariaLabel}
-      className={cn(
-        "min-h-[38px] w-full rounded-lg border px-2 py-1.5 text-[13px] text-foreground outline-none focus:border-primary",
-        inherited ? "border-dashed border-border bg-accent/15 text-muted" : "border-border bg-card",
-      )}
-    >
-      <option value="">{placeholder ?? "Select…"}</option>
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
+      onChange={onChange}
+      options={options.map((o) => ({ value: o.value, label: o.label }))}
+      placeholder={placeholder ?? "Select…"}
+      inherited={inherited}
+      disabled={disabled}
+      wrapperClassName={cn("min-w-0", className)}
+    />
   );
 }
 

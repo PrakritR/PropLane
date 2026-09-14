@@ -77,6 +77,13 @@ export async function resolveWorkspaceOwnerForWorkNumber(
 }
 
 /**
+ * The workspace a work EMAIL answers for. Same rule, same tie-break, same
+ * function as the number: an address held by a pure co-manager (requested
+ * before addresses became workspace-owned) answers as the owner's workspace.
+ */
+export const resolveWorkspaceOwnerForWorkEmail = resolveWorkspaceOwnerForWorkNumber;
+
+/**
  * Every workspace a co-manager belongs to, most houses first. Order matters:
  * it is the tie-break for which workspace a legacy co-manager line answers for
  * and the order the Communication header lists shared numbers in.

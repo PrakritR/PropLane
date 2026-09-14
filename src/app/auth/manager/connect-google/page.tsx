@@ -24,6 +24,7 @@ import {
 import { assistantEmailUpsellMessage } from "@/lib/manager-assistant-email/assistant-email-eligibility-copy";
 import {
   isManagerAssistantEmailStatus,
+  managerWorkEmailInUse,
   type ManagerAssistantEmailStatus,
 } from "@/lib/manager-assistant-email/manager-assistant-email-status";
 
@@ -290,7 +291,7 @@ function GoogleServicesContent() {
   const phoneVerified = Boolean(phoneSettings?.phoneVerifiedAt);
   const phoneDisplay = formatUsPhone(phoneSettings?.phone);
   const offerWorkNumber = shouldOfferWorkNumberSetup(workNumber);
-  const workEmailAddress = workEmail?.address?.trim() || "";
+  const workEmailAddress = workEmail ? (managerWorkEmailInUse(workEmail) ?? "") : "";
   const workEmailReady = Boolean(workEmailAddress);
   const workEmailUpsell =
     workEmail && !workEmail.canRequest

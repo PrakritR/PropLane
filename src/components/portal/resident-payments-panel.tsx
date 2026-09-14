@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { track } from "@/lib/analytics/track-client";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { MODAL_LARGE_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -19,8 +20,6 @@ import {
   PORTAL_INLINE_STATUS_NOTICE_CLASS,
   PORTAL_INLINE_UNLOCK_NOTICE_CLASS,
   PORTAL_INLINE_UNLOCK_NOTICE_STACKED_CLASS,
-  PORTAL_TOOLBAR_SELECT,
-  PortalToolbarSelectWrap,
   formatCompactChargeLine,
 } from "@/components/portal/portal-metrics";
 import {
@@ -959,23 +958,21 @@ export function ResidentPaymentsPanel({
           Payment method
         </label>
         <div className="flex items-stretch gap-2 sm:gap-3">
-          <PortalToolbarSelectWrap className="min-w-0 flex-1">
-            <select
-              id="resident-payments-pay-method-select"
-              className={`${PORTAL_TOOLBAR_SELECT} h-11 w-full`}
-              value={payConfirm.method}
-              data-attr="resident-payments-pay-method-select"
-              onChange={(event) => {
-                selectPayModalMethod(event.target.value as ResidentAxisPaymentMethod);
-              }}
-            >
-              {payMethodDropdownOptions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.title}
-                </option>
-              ))}
-            </select>
-          </PortalToolbarSelectWrap>
+          <Select
+            aria-label="Payment method"
+            className="min-w-0 flex-1"
+            value={payConfirm.method}
+            data-attr="resident-payments-pay-method-select"
+            onChange={(event) => {
+              selectPayModalMethod(event.target.value as ResidentAxisPaymentMethod);
+            }}
+          >
+            {payMethodDropdownOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.title}
+              </option>
+            ))}
+          </Select>
           <Button
             type="button"
             variant="primary"

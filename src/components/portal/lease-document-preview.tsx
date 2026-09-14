@@ -177,7 +177,13 @@ export function LeaseDocumentPreview({
       ) : null}
       {pdfSrc ? (
         <div className={flexibleHeight ? "relative flex min-h-0 flex-1 flex-col" : undefined}>
-          {(row.residentSignature || row.managerSignature) && row.managerUploadedPdf?.dataUrl ? (
+          {row.externallySignedLease && row.managerUploadedPdf?.dataUrl ? (
+            // No certificate page exists for a lease executed outside PropLane:
+            // the upload IS the executed document, byte for byte.
+            <p className="shrink-0 border-b px-3 py-2 text-xs portal-banner-success">
+              Signed off-platform — this PDF is the executed lease exactly as filed.
+            </p>
+          ) : (row.residentSignature || row.managerSignature) && row.managerUploadedPdf?.dataUrl ? (
             <p className="shrink-0 border-b px-3 py-2 text-xs portal-banner-success">
               Signature certificate page appended to this PDF.
             </p>

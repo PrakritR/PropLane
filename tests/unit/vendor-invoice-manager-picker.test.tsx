@@ -7,7 +7,7 @@
 // `managerUserId` and there was no picker, so that refusal was unreachable to satisfy. Serving
 // several clients is the normal condition for a contractor, so this blocked the base case.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { VendorFinancesPanel } from "@/components/portal/vendor-finances-panel";
 
 const state = vi.hoisted(() => ({
@@ -63,8 +63,21 @@ async function openSubmitModal() {
   fireEvent.click(document.querySelector('[data-attr="vendor-invoice-new"]') as HTMLElement);
 }
 
-function picker(): HTMLSelectElement | null {
+/** The Bill-to control is the PropLane dropdown: a button that opens a portaled listbox. */
+function picker(): HTMLButtonElement | null {
   return document.querySelector('[data-attr="vendor-invoice-manager"]');
+}
+
+function openPicker(): HTMLElement {
+  const trigger = picker()!;
+  fireEvent.click(trigger);
+  return document.getElementById(trigger.getAttribute("aria-controls")!)!;
+}
+
+function pickManager(managerUserId: string) {
+  const option = openPicker().querySelector(`[data-field-select-option-value="${managerUserId}"]`)!;
+  fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
+  fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
 }
 
 describe("vendor invoice manager picker", () => {
@@ -77,8 +90,9 @@ describe("vendor invoice manager picker", () => {
     await openSubmitModal();
 
     await waitFor(() => expect(picker()).toBeTruthy());
-    expect(screen.getByText("Alex Manager")).toBeTruthy();
-    expect(screen.getByText("Blair Manager")).toBeTruthy();
+    const listbox = openPicker();
+    expect(within(listbox).getByText("Alex Manager")).toBeTruthy();
+    expect(within(listbox).getByText("Blair Manager")).toBeTruthy();
   });
 
   it("does not ask when there is only one manager to bill", async () => {
@@ -99,7 +113,7 @@ describe("vendor invoice manager picker", () => {
     await openSubmitModal();
     await waitFor(() => expect(picker()).toBeTruthy());
 
-    fireEvent.change(picker()!, { target: { value: "mgr-b" } });
+    pickManager("mgr-b");
     fireEvent.change(screen.getByPlaceholderText("Description"), { target: { value: "Labor" } });
     fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "1" } });
     fireEvent.change(screen.getByLabelText("Unit amount in dollars"), { target: { value: "100" } });

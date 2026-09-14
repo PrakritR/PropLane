@@ -786,6 +786,9 @@ function GridCell({ own, children }: { own: boolean | null; children: ReactNode 
   );
 }
 
+/** 1–8 residents per room; the same list on the "every room" row and each room. */
+const OCCUPANCY_OPTIONS = Array.from({ length: 8 }, (_, i) => ({ value: String(i + 1), label: String(i + 1) }));
+
 const cellSelect = (inherited: boolean) =>
   cn(
     "min-h-[36px] w-full rounded-lg border bg-card px-2 py-1 text-[13px] text-foreground outline-none focus:border-primary",
@@ -1147,14 +1150,15 @@ function StepRooms({
   };
 
   const accessSelect = (value: string, onChange: (v: string) => void, label: string, inherited: boolean) => (
-    <select value={value} onChange={(e) => onChange(e.target.value)} disabled={baths.length === 0} aria-label={label} className={cn(cellSelect(inherited), "disabled:opacity-60")}>
-      <option value="">{baths.length === 0 ? "Add a bathroom" : "Select…"}</option>
-      {BATHROOM_ACCESS_OPTIONS.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
+    <RowSelectCell
+      ariaLabel={label}
+      value={value}
+      options={BATHROOM_ACCESS_OPTIONS}
+      placeholder={baths.length === 0 ? "Add a bathroom" : "Select…"}
+      inherited={inherited}
+      disabled={baths.length === 0}
+      onChange={onChange}
+    />
   );
 
   const furnishingSummary = (text: string) => {
@@ -1207,11 +1211,7 @@ function StepRooms({
               <b className="block text-[13.5px] font-bold text-foreground">Every room</b>
               <span className="block text-[11.5px] text-muted">Rooms follow this until you change them</span>
             </span>
-            <select value={String(defaults.occupancyCapacity)} onChange={(e) => editDefault("occupancyCapacity", Number(e.target.value) || 1)} aria-label="Residents per room for every room" className={cellSelect(false)}>
-              {Array.from({ length: 8 }, (_, i) => i + 1).map((n) => (
-                <option key={n} value={n}>{n}</option>
-              ))}
-            </select>
+            <RowSelectCell ariaLabel="Residents per room for every room" value={String(defaults.occupancyCapacity)} options={OCCUPANCY_OPTIONS} onChange={(v) => editDefault("occupancyCapacity", Number(v) || 1)} />
             {accessSelect(rooms[0] ? accessForRoom(rooms[0].id) : "", setAccessForAllRooms, "Bathroom access for every room", false)}
             <button type="button" onClick={() => toggle("defaults")} className={cn(cellSelect(false), "truncate text-left")} aria-label="Beds for every room">
               {defaults.bedsLine || "Choose beds…"}
@@ -1244,11 +1244,7 @@ function StepRooms({
                   className="min-h-[36px] w-full rounded-lg border border-border bg-card px-2 text-[13px] font-semibold text-foreground outline-none focus:border-primary"
                 />
                 <GridCell own={!inh("occupancyCapacity")}>
-                  <select value={String(room.occupancyCapacity ?? defaults.occupancyCapacity)} onChange={(e) => writeRoom(room.id, { occupancyCapacity: Number(e.target.value) || 1 })} aria-label={`Residents per room for ${label}`} className={cellSelect(inh("occupancyCapacity"))}>
-                    {Array.from({ length: 8 }, (_, i2) => i2 + 1).map((n) => (
-                      <option key={n} value={n}>{n}</option>
-                    ))}
-                  </select>
+                  <RowSelectCell ariaLabel={`Residents per room for ${label}`} value={String(room.occupancyCapacity ?? defaults.occupancyCapacity)} options={OCCUPANCY_OPTIONS} inherited={inh("occupancyCapacity")} onChange={(v) => writeRoom(room.id, { occupancyCapacity: Number(v) || 1 })} />
                 </GridCell>
                 {accessSelect(accessForRoom(room.id), (v) => setAccessForRoom(room.id, v), `Bathroom access for ${label}`, false)}
                 <GridCell own={!inh("bedsLine")}>

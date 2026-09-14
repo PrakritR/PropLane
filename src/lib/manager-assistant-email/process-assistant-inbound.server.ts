@@ -38,6 +38,13 @@ import {
 } from "@/lib/manager-assistant-email/manager-assistant-email.server";
 import { mirrorAssistantEmailConversation } from "@/lib/manager-assistant-email/mirror-assistant-email-conversation.server";
 import { mirrorAssistantEmailTurnToInbox } from "@/lib/manager-assistant-email/mirror-assistant-email-to-inbox.server";
+import {
+  findOrCreateResidentEmailSession,
+  loadResidentEmailHistory,
+  recordResidentEmailInbound,
+  recordResidentEmailReply,
+} from "@/lib/agent/resident-email-session.server";
+import { resolveWorkspaceOwnerForWorkEmail } from "@/lib/sms/manager-workspace-role.server";
 import { resolveManagerSmsAgentContext } from "@/lib/tools/manager-sms-context";
 
 export type AssistantInboundEmailResult =
@@ -101,8 +108,15 @@ export async function processManagerAssistantInboundEmail(
 ): Promise<AssistantInboundEmailResult> {
   if (!isAssistantEmailAddress(parsed.toEmails)) return { handled: false };
 
-  const managerUserId = await resolveManagerIdByAssistantInboundAddresses(db, parsed.toEmails);
-  if (!managerUserId) return { handled: true, replied: false };
+  const mailboxUserId = await resolveManagerIdByAssistantInboundAddresses(db, parsed.toEmails);
+  if (!mailboxUserId) return { handled: true, replied: false };
+
+  /* One work email per WORKSPACE. An address still held by a pure co-manager
+     (requested before addresses became workspace-owned) answers as the owner's
+     workspace — the same collapse the SMS webhook does for a legacy line —
+     BEFORE the sender is classified, so the writer reaches the owner's
+     residents and listings and the thread lands in the owner's Communication. */
+  const { ownerUserId: managerUserId } = await resolveWorkspaceOwnerForWorkEmail(db, mailboxUserId);
 
   const claim = await claimInboundEmail(db, parsed.emailId, managerUserId);
   if (claim === "duplicate") return { handled: true, replied: false, idempotent: true };
@@ -116,7 +130,12 @@ export async function processManagerAssistantInboundEmail(
     fromEmail: parsed.fromEmail,
   });
 
-  const mailbox = await loadManagerAssistantEmail(db, managerUserId);
+  /* Reply from the workspace's address when it has one; a legacy co-manager
+     address that collapsed to an owner without their own falls back to the
+     mailbox that was actually written to, so the reply never comes from nowhere. */
+  const mailbox =
+    (await loadManagerAssistantEmail(db, managerUserId)) ??
+    (managerUserId !== mailboxUserId ? await loadManagerAssistantEmail(db, mailboxUserId) : null);
   const senderEmail = parsed.fromEmail.trim().toLowerCase();
   const senderName = parsed.fromName?.trim() || senderEmail;
 
@@ -139,10 +158,13 @@ export async function processManagerAssistantInboundEmail(
     }
     /* The manager's own mail belongs in their assistant thread, not in a
        conversation "with themselves" — that is the one place they already look
-       for what they asked the assistant. */
+       for what they asked the assistant. THEIR thread: on a shared workspace
+       address a co-manager's questions must land in the co-manager's
+       Communication, not the owner's, or the owner reads a teammate's private
+       exchange with the assistant. */
     try {
       await mirrorAssistantEmailTurnToInbox(db, {
-        managerUserId,
+        managerUserId: sender.identity.actorUserId,
         managerDisplayName: senderName,
         inboundText,
         replyText,
@@ -153,12 +175,31 @@ export async function processManagerAssistantInboundEmail(
     }
   } else {
     if (sender.role === "resident") {
+      /* Same memory the prospect branch has: the last turns of this resident's
+         email thread, persisted per turn, so "and the month after?" is answered
+         by a model that saw the first question. */
+      const session = await findOrCreateResidentEmailSession(db, {
+        landlordId: managerUserId,
+        residentEmail: senderEmail,
+      });
+      const history = session ? await loadResidentEmailHistory(db, session.id) : [];
+      if (session) {
+        await recordResidentEmailInbound(db, session, {
+          text: inboundText,
+          inboundEmailId: parsed.emailId,
+        });
+      }
       const answer = await autoRespondToResidentInboxMessage(db, {
         managerUserId,
         residentEmail: senderEmail,
         incomingText: inboundText,
+        history,
+        sessionId: session?.id,
       });
       replyText = answer.ok ? answer.reply.trim() : "";
+      if (session && answer.ok && replyText) {
+        await recordResidentEmailReply(db, session, { text: replyText, traceId: answer.traceId });
+      }
     } else {
       const turn = await runLeasingEmailAgentTurn(db, {
         landlordId: managerUserId,

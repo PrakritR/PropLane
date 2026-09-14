@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { NativeSelect } from "@/components/ui/input";
+import { Select } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
@@ -91,7 +91,7 @@ function ManagerScreeningSettingsForm({
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted">Choose when background checks run for new applications.</p>
-      <NativeSelect
+      <Select
         value={settings.mode}
         disabled={busy}
         onChange={(event) => void saveMode(event.target.value as ScreeningMode)}
@@ -103,7 +103,7 @@ function ManagerScreeningSettingsForm({
             {option.label}
           </option>
         ))}
-      </NativeSelect>
+      </Select>
     </div>
   );
 }

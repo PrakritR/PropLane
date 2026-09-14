@@ -19,7 +19,7 @@
 
 import { useMemo } from "react";
 import { Image as ImageIcon, ImageOff, Check, AlertTriangle } from "lucide-react";
-import { PanelLine, PanelSection } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { PanelLine, PanelSection, RowSelectCell } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { buildListingQuote } from "@/lib/listing-quote";
 import { applyPaymentAtSigningCell } from "@/lib/listing-fees";
 import type { ManagerListingSubmissionV1, ManagerRoomSubmission } from "@/lib/manager-listing-submission";
@@ -308,18 +308,12 @@ export function PricingReceiptPanel({
       <PanelSection title="What a resident pays">
         <div className="mb-3 grid grid-cols-2 gap-2">
           {rooms.length > 0 ? (
-            <select
-              aria-label="Room to quote"
+            <RowSelectCell
+              ariaLabel="Room to quote"
               value={roomId ?? ""}
-              onChange={(e) => onRoomChange(e.target.value || null)}
-              className="h-9 w-full rounded-lg border border-border bg-card px-2 text-[13px] text-foreground"
-            >
-              {rooms.map((room) => (
-                <option key={room.id} value={room.id}>
-                  {room.name?.trim() || "Room"}
-                </option>
-              ))}
-            </select>
+              options={rooms.map((room) => ({ value: room.id, label: room.name?.trim() || "Room" }))}
+              onChange={(v) => onRoomChange(v || null)}
+            />
           ) : (
             <span className="text-[12.5px] text-muted">Whole place</span>
           )}
@@ -328,18 +322,12 @@ export function PricingReceiptPanel({
               {leaseTerm}
             </span>
           ) : (
-            <select
-              aria-label="Lease type to quote"
+            <RowSelectCell
+              ariaLabel="Lease type to quote"
               value={leaseTerm}
-              onChange={(e) => onLeaseTermChange(e.target.value)}
-              className="h-9 w-full rounded-lg border border-border bg-card px-2 text-[13px] text-foreground"
-            >
-              {leaseTerms.map((term) => (
-                <option key={term} value={term}>
-                  {term}
-                </option>
-              ))}
-            </select>
+              options={leaseTerms.map((term) => ({ value: term, label: term }))}
+              onChange={onLeaseTermChange}
+            />
           )}
         </div>
         <p className="mb-1 text-[11.5px] text-muted">Due at signing. Untick anything you collect later.</p>

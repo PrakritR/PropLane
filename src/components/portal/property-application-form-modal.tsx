@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import {
   PROPERTY_LEASE_TYPE_OPTIONS,
@@ -128,9 +128,9 @@ export function PropertyApplicationFormModal({
           <label className={fieldLabelClass} htmlFor="property-application-kind">
             Application type
           </label>
-          <select
+          <Select
             id="property-application-kind"
-            className="w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm"
+            aria-label="Application type"
             value={kind}
             onChange={(e) => {
               const nextKind = normalizeLeaseTemplateKind(e.target.value);
@@ -146,7 +146,7 @@ export function PropertyApplicationFormModal({
                 {opt.label}
               </option>
             ))}
-          </select>
+          </Select>
           {typeMeta ? <p className="mt-1.5 text-xs text-muted">{typeMeta.description}</p> : null}
         </div>
         <div>

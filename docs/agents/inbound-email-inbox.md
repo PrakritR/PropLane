@@ -15,6 +15,44 @@ To address:
    scope), so support mail is handled inside the app next to the rest of the
    unified inbox.
 
+## One work email per WORKSPACE (a co-manager never gets an address of their own)
+
+Same rule as the work number (`docs/agents/sms-system.md` "One work number per
+WORKSPACE"), same helpers underneath. The owner's `manager_assistant_emails` row
+IS the workspace's address. `resolveWorkspaceWorkEmails` /
+`resolveWorkspaceWorkEmail` (`src/lib/manager-assistant-email/manager-assistant-email.server.ts`)
+are the one answer to "whose address is this"; every reader below goes through them.
+
+- A pure co-manager (accepted link, no owned houses) reads and sends from the
+  owner's address. `GET /api/manager/assistant-email` returns it as
+  `workspaceEmail` with `ownerName`; `canRequest` is false and `POST
+  request_address` is a 409 (`workspace_email_shared`). `ensureManagerAssistantEmail`
+  refuses at the write as well, so no other caller can mint one.
+- Every manager-sent Communication email — both `deliverPortalInboxMessage` and
+  `POST /api/portal/send-inbox-message` — carries `From: <sender's name>
+  <workspace address>` via `resolveManagerOutboundFrom`. The name is who wrote;
+  the address is the workspace's. That is the email form of the number's
+  "Sent by <teammate>".
+- Inbound on an address still held by a pure co-manager (requested before this
+  rule) collapses to the workspace owner BEFORE the sender is classified
+  (`resolveWorkspaceOwnerForWorkEmail`), so the writer reaches the owner's
+  residents and listings and the thread lands in the owner's Communication.
+  Retire such addresses with `scripts/release-co-manager-work-emails.ts`
+  (dry-run by default).
+- A manager or co-manager writing to the shared address is still recognised by
+  their OWN profile email and scoped to their assigned houses; their exchange
+  is mirrored into THEIR PropLane Assistant thread, not the owner's.
+- A resident writing in gets memory: one `agent_sessions` row of kind
+  `resident_email` per (workspace owner, resident email), last twelve turns
+  (`src/lib/agent/resident-email-session.server.ts`) — the same shape the
+  prospect's `leasing_email` session has.
+- "Can this address answer?" means BOTH directions. `resolveActiveManagerWorkEmail`
+  (what the resident card, listings and welcome email read) requires
+  `isAssistantEmailChannelEnabled()`: `RESEND_API_KEY` to send AND, on Vercel,
+  `RESEND_INBOUND_WEBHOOK_SECRET` to receive. Without the secret the Settings
+  card says "Assigned — replies off" and the address is shown to nobody.
+  Coverage: `tests/unit/workspace-work-email-routing.test.ts`.
+
 ## How it works
 
 1. `support@prop-lane.space` is routed to **Resend Inbound**.
@@ -198,7 +236,11 @@ The code is ready; these steps must be done in the Resend dashboard + DNS:
    **`email.received`** event, and copy the endpoint's **signing secret** (`whsec_…`).
 3. **Secret.** Set `RESEND_INBOUND_WEBHOOK_SECRET=<whsec_…>` in Vercel (Production,
    and Preview if you want staging to accept inbound). Confirm `RESEND_API_KEY` is
-   already set (used to fetch the email body).
+   already set (used to fetch the email body). Until the secret is set, every
+   manager work email reports "Assigned — replies off" and is hidden from
+   residents and listings — the address can send but nothing can reach it.
+   Work addresses live at `ASSISTANT_EMAIL_DOMAIN` (default `prop-lane.space`,
+   the root), so the MX in step 1 must cover that domain, not only `support@`.
 
 4. **Conversation replies (optional).** Add the reply subdomain (e.g.
    `in.prop-lane.space`) to Resend **Receiving** with its own MX record, and set

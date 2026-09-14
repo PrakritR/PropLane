@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   isAssistantEmailProvisioningEnabled: vi.fn(),
   isPureCoManagerWorkspace: vi.fn(),
   probeAssistantEmailStorageReady: vi.fn(),
+  resolveWorkspaceWorkEmails: vi.fn(),
   track: vi.fn(),
 }));
 
@@ -29,13 +30,25 @@ vi.mock("@/lib/sms/manager-sms-entitlement.server", () => ({
   reconcileManagerSmsEntitlement: mocks.reconcileManagerSmsEntitlement,
 }));
 
+const { WorkspaceEmailSharedError } = vi.hoisted(() => ({
+  WorkspaceEmailSharedError: class WorkspaceEmailSharedError extends Error {
+    readonly code = "workspace_email_shared";
+  },
+}));
+
 vi.mock("@/lib/manager-assistant-email/manager-assistant-email.server", () => ({
   loadManagerAssistantEmail: mocks.loadManagerAssistantEmail,
   ensureManagerAssistantEmail: mocks.ensureManagerAssistantEmail,
   isAssistantEmailProvisioningEnabled: mocks.isAssistantEmailProvisioningEnabled,
+  // Same env reads as the real module, so vi.stubEnv keeps driving the states.
+  isAssistantEmailSendingEnabled: () => Boolean(process.env.RESEND_API_KEY?.trim()),
+  isAssistantEmailReceivingEnabled: () =>
+    process.env.VERCEL ? Boolean(process.env.RESEND_INBOUND_WEBHOOK_SECRET?.trim()) : true,
   isAssistantEmailStorageError: (error: { code?: string; message?: string }) =>
     error.code === "PGRST205" || /manager_assistant_emails/i.test(error.message ?? ""),
   probeAssistantEmailStorageReady: mocks.probeAssistantEmailStorageReady,
+  resolveWorkspaceWorkEmails: mocks.resolveWorkspaceWorkEmails,
+  WorkspaceEmailSharedError,
 }));
 
 vi.mock("@/lib/sms/manager-workspace-role.server", () => ({
@@ -100,6 +113,7 @@ beforeEach(() => {
   mocks.isAssistantEmailProvisioningEnabled.mockReturnValue(true);
   mocks.probeAssistantEmailStorageReady.mockResolvedValue(true);
   mocks.isPureCoManagerWorkspace.mockResolvedValue(false);
+  mocks.resolveWorkspaceWorkEmails.mockResolvedValue({ role: "primary", emails: [] });
 });
 
 /**
@@ -247,5 +261,101 @@ describe("POST /api/manager/assistant-email", () => {
     expect(response.status).toBe(200);
     expect(mocks.reconcileManagerSmsEntitlement).toHaveBeenCalled();
     expect(mocks.ensureManagerAssistantEmail).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * One work email per WORKSPACE, exactly like the work number. A co-manager who
+ * owns no houses reads the owner's address, never sees a Request button, and a
+ * POST is refused before billing or storage is touched.
+ */
+describe("one work email per workspace", () => {
+  beforeEach(() => {
+    vi.stubEnv("RESEND_API_KEY", "test-key");
+    mocks.isPureCoManagerWorkspace.mockResolvedValue(true);
+    mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({
+      eligible: true,
+      tier: "pro",
+      source: "stripe",
+    });
+    mocks.resolveWorkspaceWorkEmails.mockResolvedValue({
+      role: "co_manager",
+      emails: [{ ownerUserId: "owner-1", ownerName: "Jane Smith", address: "assist-jane-smith@prop-lane.space" }],
+    });
+  });
+
+  it("GET hands a co-manager the owner's address and no Request button", async () => {
+    const res = await GET();
+    const body = await res.json();
+    expect(body.workspaceRole).toBe("co_manager");
+    expect(body.workspaceEmail).toEqual({
+      address: "assist-jane-smith@prop-lane.space",
+      ownerUserId: "owner-1",
+      ownerName: "Jane Smith",
+    });
+    expect(body.canRequest).toBe(false);
+    expect(body.address).toBeNull();
+  });
+
+  it("GET hides the workspace address while the deployment cannot receive", async () => {
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("RESEND_INBOUND_WEBHOOK_SECRET", "");
+    const res = await GET();
+    const body = await res.json();
+    expect(body.receivingAvailable).toBe(false);
+    expect(body.workspaceEmail?.address).toBeNull();
+    expect(body.workspaceEmail?.ownerName).toBe("Jane Smith");
+  });
+
+  it("POST refuses a co-manager with workspace_email_shared before any billing work", async () => {
+    const res = await POST(
+      new Request("http://localhost/api/manager/assistant-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "request_address" }),
+      }),
+    );
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("workspace_email_shared");
+    expect(mocks.reconcileManagerSmsEntitlement).not.toHaveBeenCalled();
+    expect(mocks.ensureManagerAssistantEmail).not.toHaveBeenCalled();
+  });
+
+  it("POST surfaces a refusal the write itself makes as the same 409", async () => {
+    mocks.isPureCoManagerWorkspace.mockResolvedValue(false);
+    mocks.ensureManagerAssistantEmail.mockRejectedValue(new WorkspaceEmailSharedError("shared"));
+    const res = await POST(
+      new Request("http://localhost/api/manager/assistant-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "request_address" }),
+      }),
+    );
+    expect(res.status).toBe(409);
+    expect((await res.json()).code).toBe("workspace_email_shared");
+  });
+});
+
+/**
+ * "Working" is both directions. Production advertised addresses that could send
+ * and never hear a reply; the card must say "replies off", not "ready".
+ */
+describe("an address the deployment cannot receive at is assigned, not ready", () => {
+  it("reports assigned_send_off on Vercel without the inbound webhook secret", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test-key");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("RESEND_INBOUND_WEBHOOK_SECRET", "");
+    mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({ eligible: true, tier: "pro", source: "stripe" });
+    mocks.loadManagerAssistantEmail.mockResolvedValue({
+      managerUserId: MANAGER,
+      inboxToken: "tok123456789",
+      address: "assist-jane@prop-lane.space",
+      provisionState: "active",
+    });
+    const body = await (await GET()).json();
+    expect(body.sendingAvailable).toBe(true);
+    expect(body.receivingAvailable).toBe(false);
+    expect(body.state).toBe("assigned_send_off");
+    expect(body.canUse).toBe(false);
   });
 });

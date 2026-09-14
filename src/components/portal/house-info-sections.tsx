@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Input, NativeSelect, Textarea } from "@/components/ui/input";
+import { Input, Select, Textarea } from "@/components/ui/input";
 import {
   HOUSE_INFO_SECTIONS,
   getHouseInfoValue,
@@ -76,7 +76,7 @@ function FieldControl({
     // snapped to the nearest one — the manager's own wording survives.
     const custom = value && !options.includes(value) ? value : null;
     return (
-      <NativeSelect
+      <Select
         aria-label={field.label}
         value={value}
         onChange={(e) => onChange(field.key, e.target.value)}
@@ -88,7 +88,7 @@ function FieldControl({
             {option}
           </option>
         ))}
-      </NativeSelect>
+      </Select>
     );
   }
 

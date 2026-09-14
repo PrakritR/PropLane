@@ -362,7 +362,7 @@ export function ManagerAddLeaseModal({
           if (!busy) onClose();
         }}
         title="Add lease"
-        description="Choose a property and resident, then upload a signed PDF or generate a lease."
+        description="Choose a property and resident, then upload a lease PDF or generate a lease. A lease already signed on paper: upload it, then Mark as signed."
         dataAttr="manager-add-lease-modal"
         footer={
           <ModalFooter>

@@ -35,13 +35,17 @@ test.describe("Manual payment verification UI", () => {
     const payButton = page.getByRole("button", { name: /^pay /i }).first();
     if (await payButton.isVisible().catch(() => false)) {
       await payButton.click();
+      // The method picker is the PropLane dropdown: open the trigger, pick from its listbox.
       const methodSelect = page.locator('[data-attr="resident-payments-pay-method-select"]');
       if (await methodSelect.isVisible().catch(() => false)) {
-        const zelleOption = methodSelect.locator('option[value="zelle"]');
+        await methodSelect.click();
+        const zelleOption = page.locator('[role="option"][data-field-select-option-value="zelle"]');
         if (await zelleOption.count()) {
-          await methodSelect.selectOption("zelle");
+          await zelleOption.click();
           await page.locator('[data-attr="resident-payments-confirm-manual"]').click();
           await expect(page.getByRole("button", { name: /check payment/i })).toBeVisible();
+        } else {
+          await page.keyboard.press("Escape");
         }
       }
     }

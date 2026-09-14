@@ -5,6 +5,7 @@ import { TabNav } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
+import { Select } from "@/components/ui/input";
 import {
   ManagerPortalFilterRow,
   ManagerPortalPageShell,
@@ -446,8 +447,8 @@ function SubmitInvoiceModal({
         {showManagerPicker && !editingInvoice ? (
           <label className="block space-y-1">
             <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted">Bill to</span>
-            <select
-              className={INVOICE_FORM_INPUT}
+            <Select
+              aria-label="Bill to"
               value={managerUserId}
               onChange={(e) => setManagerUserId(e.target.value)}
               data-attr="vendor-invoice-manager"
@@ -458,7 +459,7 @@ function SubmitInvoiceModal({
                   {manager.label}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         ) : null}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

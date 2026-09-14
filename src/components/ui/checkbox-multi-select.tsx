@@ -3,11 +3,15 @@
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
+  FIELD_SELECT_CHEVRON_CELL_CLASS,
   FIELD_SELECT_CHEVRON_CLASS,
   FIELD_SELECT_LABEL_CLASS,
   FIELD_SELECT_MENU_OPTION_CLASS,
+  FIELD_SELECT_TRIGGER_CELL_CLASS,
   FIELD_SELECT_TRIGGER_CLASS,
+  FIELD_SELECT_TRIGGER_INHERITED_CLASS,
   FIELD_SELECT_TRIGGER_PILL_CLASS,
   FIELD_SELECT_TRIGGER_INLINE_CLASS,
   partitionFieldSelectClasses,
@@ -62,14 +66,19 @@ function summarizeSelection(
   return `${selected.length} selected`;
 }
 
-function triggerClassForVariant(variant: "field" | "pill", hideLabel: boolean, extra?: string) {
+export type FieldSelectVariant = "field" | "pill" | "cell";
+
+function triggerClassForVariant(variant: FieldSelectVariant, hideLabel: boolean, extra?: string) {
   const base =
     variant === "pill"
       ? FIELD_SELECT_TRIGGER_PILL_CLASS
-      : hideLabel
-        ? FIELD_SELECT_TRIGGER_INLINE_CLASS
-        : FIELD_SELECT_TRIGGER_CLASS;
-  return extra ? `${base} ${extra}`.trim() : base;
+      : variant === "cell"
+        ? FIELD_SELECT_TRIGGER_CELL_CLASS
+        : hideLabel
+          ? FIELD_SELECT_TRIGGER_INLINE_CLASS
+          : FIELD_SELECT_TRIGGER_CLASS;
+  // twMerge so a caller's size override (a 36px toolbar pill) beats the base tokens.
+  return cn(base, extra);
 }
 
 /** Compact multi-select dropdown with checkboxes (opaque menu). */
@@ -330,6 +339,7 @@ export function FieldSingleSelect({
   labelClassName,
   hideLabel = false,
   variant = "field",
+  inherited = false,
 }: {
   label: string;
   options?: CheckboxMultiSelectOption[];
@@ -346,14 +356,19 @@ export function FieldSingleSelect({
   triggerClassName?: string;
   labelClassName?: string;
   hideLabel?: boolean;
-  variant?: "field" | "pill";
+  variant?: FieldSelectVariant;
+  /** The value still follows a shared default (listing editor "every room" rows) — dashed, grey trigger. */
+  inherited?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const pill = variant === "pill";
+  const cell = variant === "cell";
   const partitioned = partitionFieldSelectClasses(className);
   const wrapperClassName = wrapperClassNameProp ?? partitioned.wrapperClassName;
-  const triggerClassName = triggerClassNameProp ?? partitioned.triggerClassName;
+  const triggerClassName = [inherited ? FIELD_SELECT_TRIGGER_INHERITED_CLASS : "", triggerClassNameProp ?? partitioned.triggerClassName]
+    .filter(Boolean)
+    .join(" ");
 
   const flatOptions = useMemo(() => {
     if (groups?.length) return groups.flatMap((group) => group.options);
@@ -377,11 +392,14 @@ export function FieldSingleSelect({
     if (!next) setQuery("");
   };
 
+  // A grid cell is narrow (a 120px Floor column); its menu grows to the longest
+  // option instead of wrapping "Shower only" onto two lines, the way a pill does.
+  const growToContent = pill || cell;
   const { listId, isClient, wrapRef, buttonRef, menuRect, portalHost } = useFieldSelectMenu({
     open,
     onOpenChange: setOpenAndReset,
     contentPx,
-    matchTriggerWidth: !pill,
+    matchTriggerWidth: !growToContent,
     preferOpenDown: !pill,
   });
 
@@ -450,13 +468,13 @@ export function FieldSingleSelect({
       <div
         id={listId}
         {...{ [FIELD_SELECT_MENU_DATA_ATTR]: "" }}
-        className={`${FIELD_SELECT_MENU_SHELL_CLASS} ${fitsWithoutScroll ? "overflow-visible" : ""} ${pill ? "w-max max-w-[min(18rem,calc(100vw-2rem))]" : ""}`}
+        className={`${FIELD_SELECT_MENU_SHELL_CLASS} ${fitsWithoutScroll ? "overflow-visible" : ""} ${growToContent ? "w-max max-w-[min(18rem,calc(100vw-2rem))]" : ""}`}
         style={{
           position: menuRect.position,
           top: menuRect.top,
           left: menuRect.left,
-          minWidth: pill ? menuRect.width : undefined,
-          width: pill ? undefined : menuRect.width,
+          minWidth: growToContent ? menuRect.width : undefined,
+          width: growToContent ? undefined : menuRect.width,
           ...(fitsWithoutScroll
             ? {}
             : {
@@ -523,7 +541,7 @@ export function FieldSingleSelect({
 
   return (
     <div ref={wrapRef} className={`relative ${defaultWidthClass} ${wrapperClassName}`.trim()}>
-      {!hideLabel && !pill ? (
+      {!hideLabel && !pill && !cell ? (
         <label className={labelClassName ?? FIELD_SELECT_LABEL_CLASS}>{label}</label>
       ) : null}
       <button
@@ -535,11 +553,11 @@ export function FieldSingleSelect({
         aria-expanded={open}
         aria-controls={listId}
         data-attr={dataAttr}
-        className={triggerClassForVariant(variant, hideLabel || pill, triggerClassName)}
+        className={triggerClassForVariant(variant, hideLabel || pill || cell, triggerClassName)}
         onClick={() => setOpenAndReset(!open)}
       >
         <span className={`min-w-0 ${pill ? "whitespace-nowrap" : "truncate"} ${value ? "" : "text-muted"}`}>{buttonLabel}</span>
-        <ChevronDown className={FIELD_SELECT_CHEVRON_CLASS} aria-hidden />
+        <ChevronDown className={cell ? FIELD_SELECT_CHEVRON_CELL_CLASS : FIELD_SELECT_CHEVRON_CLASS} aria-hidden />
       </button>
 
       {menu && portalHost ? createPortal(menu, portalHost) : null}

@@ -252,6 +252,20 @@ export function ManagerOnboardingWorkEmailSetup({
 
   if (status.address?.trim()) return null;
 
+  // One work email per workspace: a co-manager has nothing to set up here.
+  // The owner's address appears on the card once they request it.
+  if (status.workspaceRole === "co_manager") {
+    const owner = status.workspaceEmail?.ownerName?.trim() || "your workspace owner";
+    return (
+      <div className="mt-3 border-t border-border/70 pt-3" data-onboarding-inline="work-email">
+        <p className="text-xs leading-relaxed text-muted">
+          Your workspace&apos;s work email is managed by {owner}. Once they set it up, you send and
+          reply from it — there is nothing for you to request.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="mt-3 space-y-3 border-t border-border/70 pt-3" data-onboarding-inline="work-email">
       {upsell ? <p className="text-xs leading-relaxed text-muted">{upsell}</p> : null}

@@ -29,10 +29,26 @@ export type ManagerAssistantEmailState =
 export type ManagerAssistantEmailStatus = {
   provisioningAvailable: boolean;
   sendingAvailable: boolean;
+  /**
+   * This deployment can RECEIVE mail at the address (the inbound webhook is
+   * armed). Sending alone is not "working": an address that sends but cannot
+   * hear a reply is the one that reads as being ignored.
+   */
+  receivingAvailable: boolean;
   storageReady: boolean;
   planTier: ManagerMessagingPlanTier;
   entitlement: ManagerMessagingEntitlement;
   workspaceRole: ManagerMessagingWorkspaceRole;
+  /**
+   * One work email per WORKSPACE. For a pure co-manager this is the owner's
+   * address — the one they send and reply from — and `address` stays whatever
+   * legacy row of their own they may still hold. Mirrors `workspaceNumber`.
+   */
+  workspaceEmail: {
+    address: string | null;
+    ownerUserId: string;
+    ownerName: string | null;
+  } | null;
   address: string | null;
   state: ManagerAssistantEmailState;
   canRequest: boolean;
@@ -51,6 +67,21 @@ export type ManagerAssistantEmailStatus = {
 };
 
 export const MANAGER_ASSISTANT_EMAIL_SETTINGS_HREF = "/portal/profile?tab=messaging";
+
+/**
+ * The address this account actually sends from and is reached at.
+ *
+ * The workspace's address wins: for a co-manager that is the owner's, and their
+ * own legacy row (if any) is the one being retired. For an owner the two are
+ * the same row. Every surface that shows "your work email" — Settings,
+ * onboarding — reads this rather than `address` directly.
+ */
+export function managerWorkEmailInUse(status: ManagerAssistantEmailStatus): string | null {
+  const workspace = status.workspaceEmail?.address?.trim();
+  if (workspace) return workspace;
+  const own = status.address?.trim();
+  return own || null;
+}
 
 /**
  * A response that is actually a work-email status.

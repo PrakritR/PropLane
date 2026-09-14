@@ -56,7 +56,31 @@ function Editor({ onChange }: { onChange?: (sub: ManagerListingSubmissionV1) => 
   );
 }
 
-const floorSelect = (label: string) => screen.getByLabelText(label) as HTMLSelectElement;
+/**
+ * The grid's floor cell is the PropLane dropdown (a button that opens a
+ * portaled listbox), not a native <select>: open it by its label, read the
+ * option values off the listbox, and pick with the pointer gesture the
+ * listbox handles natively.
+ */
+const floorTrigger = (label: string) => screen.getByRole("button", { name: label });
+/** The listbox this trigger owns — the menu is portaled, so read it through aria-controls. */
+const openFloorListbox = (label: string): HTMLElement => {
+  const trigger = floorTrigger(label);
+  fireEvent.click(trigger);
+  return document.getElementById(trigger.getAttribute("aria-controls")!)!;
+};
+const floorOptions = (label: string): string[] => {
+  const values = [...openFloorListbox(label).querySelectorAll('[role="option"]')]
+    .map((o) => o.getAttribute("data-field-select-option-value") ?? "")
+    .filter(Boolean);
+  fireEvent.click(floorTrigger(label)); // toggle closed
+  return values;
+};
+const pickFloor = (label: string, value: string) => {
+  const option = openFloorListbox(label).querySelector(`[data-field-select-option-value="${value}"]`)!;
+  fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
+  fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
+};
 /** Render the editor and walk the rail to one step, the way a manager does. */
 function open(step: "bathrooms" | "spaces", onChange?: (sub: ManagerListingSubmissionV1) => void) {
   render(<Editor onChange={onChange} />);
@@ -77,12 +101,12 @@ describe("bathrooms on the rooms grid", () => {
   it("the Every bathroom row moves followers and leaves a bathroom's own value alone", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open("bathrooms", (s) => seen.push(s));
-    const options = [...floorSelect("Floor for every bathroom").options].map((o) => o.value).filter(Boolean);
+    const options = floorOptions("Floor for every bathroom");
     expect(options.length).toBeGreaterThan(1);
     // Upstairs takes its own floor first.
-    fireEvent.change(floorSelect("Floor for Upstairs"), { target: { value: options[1] } });
+    pickFloor("Floor for Upstairs", options[1]!);
     // Then the house says every bathroom is on options[0].
-    fireEvent.change(floorSelect("Floor for every bathroom"), { target: { value: options[0] } });
+    pickFloor("Floor for every bathroom", options[0]!);
     const baths = seen.at(-1)!.bathrooms!;
     expect(baths.find((b) => b.id === "b1")?.location).toBe(options[0]);
     expect(baths.find((b) => b.id === "b2")?.location).toBe(options[1]);
@@ -110,8 +134,8 @@ describe("shared spaces on the rooms grid", () => {
   it("the Every shared space floor moves every space still following it", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open("spaces", (s) => seen.push(s));
-    const options = [...floorSelect("Floor for every shared space").options].map((o) => o.value).filter(Boolean);
-    fireEvent.change(floorSelect("Floor for every shared space"), { target: { value: options[0] } });
+    const options = floorOptions("Floor for every shared space");
+    pickFloor("Floor for every shared space", options[0]!);
     expect(seen.at(-1)!.sharedSpaces!.map((s) => s.location)).toEqual([options[0], options[0]]);
   });
 });

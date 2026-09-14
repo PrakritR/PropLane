@@ -1,6 +1,6 @@
 "use client";
 
-import { Textarea, Select, NativeSelect } from "@/components/ui/input";
+import { Textarea, Select } from "@/components/ui/input";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { LEASE_TEMPLATE_MAX_BYTES, uploadLeaseTemplateFile } from "@/lib/lease-template-storage";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -143,8 +143,9 @@ export function LeaseDocumentModeField({
       <label className={labelClassName} htmlFor={`${dataAttrPrefix}-lease-document`}>
         {label}
       </label>
-      <NativeSelect
+      <Select
         id={`${dataAttrPrefix}-lease-document`}
+        aria-label={label}
         value={mode}
         onChange={(e) => onModeChange(e.target.value as PropertyLeaseDocumentMode)}
         data-attr={`${dataAttrPrefix}-lease-document`}
@@ -154,7 +155,7 @@ export function LeaseDocumentModeField({
             {option.label}
           </option>
         ))}
-      </NativeSelect>
+      </Select>
       {showDetail && modeMeta ? (
         <p className="mt-1.5 text-xs leading-relaxed text-muted">{modeMeta.detail}</p>
       ) : null}
@@ -187,8 +188,9 @@ export function LeaseDocumentAndTypeFields({
         <label className={fieldLabelClass} htmlFor={`${dataAttrPrefix}-lease-document`}>
           Lease document
         </label>
-        <NativeSelect
+        <Select
           id={`${dataAttrPrefix}-lease-document`}
+          aria-label="Lease document"
           value={source}
           onChange={(e) => onSourceChange(e.target.value as PropertyLeaseSource)}
           data-attr={`${dataAttrPrefix}-lease-document`}
@@ -198,15 +200,16 @@ export function LeaseDocumentAndTypeFields({
               {option.label}
             </option>
           ))}
-        </NativeSelect>
+        </Select>
         {sourceMeta ? <p className="mt-1.5 text-xs leading-relaxed text-muted">{sourceMeta.detail}</p> : null}
       </div>
       <div>
         <label className={fieldLabelClass} htmlFor={`${dataAttrPrefix}-lease-type`}>
           Agreement type
         </label>
-        <NativeSelect
+        <Select
           id={`${dataAttrPrefix}-lease-type`}
+          aria-label="Agreement type"
           value={kind}
           onChange={(e) => onKindChange(e.target.value as PropertyLeaseTemplateKind)}
           data-attr={`${dataAttrPrefix}-lease-type`}
@@ -216,7 +219,7 @@ export function LeaseDocumentAndTypeFields({
               {option.label}
             </option>
           ))}
-        </NativeSelect>
+        </Select>
         {typeMeta ? <p className="mt-1.5 text-xs leading-relaxed text-muted">{typeMeta.description}</p> : null}
       </div>
     </div>
@@ -328,8 +331,9 @@ export function LeaseConfigForm({
             <label className={fieldLabelClass} htmlFor={`${dataAttrPrefix}-lease-document`}>
               Lease document
             </label>
-            <NativeSelect
+            <Select
               id={`${dataAttrPrefix}-lease-document`}
+              aria-label="Lease document"
               value={source}
               onChange={(e) => setSource(e.target.value as PropertyLeaseSource)}
               data-attr={`${dataAttrPrefix}-lease-document`}
@@ -339,7 +343,7 @@ export function LeaseConfigForm({
                   {option.label}
                 </option>
               ))}
-            </NativeSelect>
+            </Select>
             {formatMeta ? <p className="mt-1.5 text-xs leading-relaxed text-muted">{formatMeta.detail}</p> : null}
           </div>
         )}

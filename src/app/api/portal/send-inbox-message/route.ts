@@ -62,6 +62,7 @@ import { fileWorkflowFromInboundMessage } from "@/lib/inbox/inbound-message-work
 import { attachmentMetaFromUrls as inboxAttachmentsFromUrls } from "@/lib/inbox-attachments";
 import { normalizeInboxAttachmentUrls } from "@/lib/inbox-attachments.server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { resolveManagerOutboundFrom } from "@/lib/manager-outbound-identity.server";
 
 export const runtime = "nodejs";
 
@@ -806,6 +807,14 @@ export async function POST(req: Request) {
         subject,
         text,
         html,
+        // A manager's mail carries the WORKSPACE work email with their own name on it —
+        // this is the route every Communication compose screen posts to, and it was the
+        // one send path still leaving as the shared "PropLane" sender. Resolved per send,
+        // never cached, so a work email set up a minute ago rides on the next message.
+        // Residents, vendors and admins keep the shared sender: the address is a
+        // manager identity, not a portal one.
+        fromAddress:
+          senderRole === "manager" ? await resolveManagerOutboundFrom(db, user.id) : null,
       });
       for (const email of emailToSend) {
         const result = emailResults.get(email);
