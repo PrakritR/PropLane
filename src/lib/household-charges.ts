@@ -842,7 +842,14 @@ const PENDING_UPFRONT_MOVE_IN_KINDS = new Set<HouseholdChargeKind>([
   "stay_total",
 ]);
 
-function isPendingUpfrontMoveInCharge(
+/**
+ * Is this one of the lines the lease signature bills UP FRONT — first/prorated
+ * rent, deposit, move-in and one-time fees — rather than a recurring month, a
+ * utility allocation or a migrated row? Exported so the resident's "one move-in
+ * payment" and the manager's move-in subtotal read the same list the
+ * regenerator does; a second copy of this set is how the two drift.
+ */
+export function isPendingUpfrontMoveInCharge(
   charge: Pick<HouseholdCharge, "kind" | "recurringRentProfileId" | "rentMonth" | "utilityAllocationId" | "migrationSourceId">,
 ): boolean {
   if (charge.utilityAllocationId || charge.migrationSourceId || charge.recurringRentProfileId) return false;
@@ -4894,6 +4901,11 @@ export function householdChargeToLedgerRow(c: HouseholdCharge): DemoManagerPayme
     propertyName,
     roomNumber: residentRoomLabelForCharge(c),
     chargeKind: c.kind,
+    moveInSchedule:
+      (c.status === "pending" || c.status === "processing") &&
+      !c.workOrderId &&
+      !c.sourceChargeId &&
+      (c.kind === "payment_at_signing" || isPendingUpfrontMoveInCharge(c)),
     residentName: c.residentName,
     residentEmail: c.residentEmail,
     chargeTitle: c.title,

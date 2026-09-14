@@ -90,6 +90,13 @@ import { residentChargeManagerMessageDraft } from "@/lib/resident-manager-messag
 import { RESIDENT_PORTAL_BASE_PATH } from "@/lib/portals/resident-sections";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
+import {
+  buildMoveInChargeGroups,
+  isMoveInGroupId,
+  moveInGroupAsListRow,
+  moveInGroupItemCountLabel,
+  type MoveInChargeGroup,
+} from "@/lib/move-in-charge-group";
 
 
 type PayConfirmState = {
@@ -140,7 +147,9 @@ function checkoutKey(chargeIds: string[], paymentMethod: ResidentAxisPaymentMeth
 }
 
 function formatUsd(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+  // Same shape as every charge label ("$1,100.00"), so a total never reads
+  // "$3400.00" beside lines that read "$1,100.00".
+  return `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 type PaymentStatusBucket = "overdue" | "pending" | "paid";
@@ -515,13 +524,32 @@ export function ResidentPaymentsPanel({
     () => rows.filter((c) => c.status === "pending" || c.status === "processing"),
     [rows],
   );
+  // One move-in payment: the deposit, first month and move-in fees a signature
+  // billed as separate lines show as ONE "Move-in total" row per home, with the
+  // breakdown behind it. The lines themselves stay separate charges — and
+  // separate ledger entries — so paying the total pays each of them.
+  const moveInGroups = useMemo(() => buildMoveInChargeGroups(pendingRows), [pendingRows]);
+  const moveInGroupedChargeIds = useMemo(
+    () => new Set(moveInGroups.flatMap((group) => group.items.map((c) => c.id))),
+    [moveInGroups],
+  );
   const overdueRows = useMemo(
-    () => pendingRows.filter((c) => c.status !== "processing" && isHouseholdChargeOverdue(c)),
-    [pendingRows],
+    () => [
+      ...moveInGroups.filter((group) => group.overdue).map(moveInGroupAsListRow),
+      ...pendingRows.filter(
+        (c) => !moveInGroupedChargeIds.has(c.id) && c.status !== "processing" && isHouseholdChargeOverdue(c),
+      ),
+    ],
+    [moveInGroupedChargeIds, moveInGroups, pendingRows],
   );
   const upcomingPendingRows = useMemo(
-    () => pendingRows.filter((c) => c.status === "processing" || !isHouseholdChargeOverdue(c)),
-    [pendingRows],
+    () => [
+      ...moveInGroups.filter((group) => !group.overdue).map(moveInGroupAsListRow),
+      ...pendingRows.filter(
+        (c) => !moveInGroupedChargeIds.has(c.id) && (c.status === "processing" || !isHouseholdChargeOverdue(c)),
+      ),
+    ],
+    [moveInGroupedChargeIds, moveInGroups, pendingRows],
   );
   const paidRows = useMemo(() => rows.filter((c) => c.status === "paid"), [rows]);
   const rowsForBucket = useMemo(() => {
@@ -531,6 +559,10 @@ export function ResidentPaymentsPanel({
   }, [bucket, overdueRows, upcomingPendingRows, paidRows]);
 
   const detailCharge = chargeIdProp ? charges.find((c) => c.id === chargeIdProp) : undefined;
+  const detailMoveInGroup =
+    chargeIdProp && isMoveInGroupId(chargeIdProp)
+      ? moveInGroups.find((group) => group.id === chargeIdProp)
+      : undefined;
 
   const bucketCounts = useMemo(
     () => ({
@@ -686,7 +718,43 @@ export function ResidentPaymentsPanel({
     await loadCheckout(payConfirm.chargeIds, payConfirm.method);
   }, [loadCheckout, payConfirm]);
 
-  const toggleSelectedCharge = toggleSelected;
+  // A move-in row stands for its lines: ticking it selects every one of them,
+  // so Pay and the bulk bar keep working on real charge ids only.
+  const toggleSelectedCharge = useCallback(
+    (id: string) => {
+      const group = isMoveInGroupId(id) ? moveInGroups.find((g) => g.id === id) : undefined;
+      if (!group) {
+        toggleSelected(id);
+        return;
+      }
+      const ids = group.items.map((c) => c.id);
+      const allSelected = ids.every((chargeId) => selectedIds.has(chargeId));
+      const next = new Set(selectedIds);
+      for (const chargeId of ids) {
+        if (allSelected) next.delete(chargeId);
+        else next.add(chargeId);
+      }
+      setSelectedIds(next);
+    },
+    [moveInGroups, selectedIds, setSelectedIds, toggleSelected],
+  );
+  const isRowSelected = useCallback(
+    (id: string) => {
+      const group = isMoveInGroupId(id) ? moveInGroups.find((g) => g.id === id) : undefined;
+      if (!group) return selectedIds.has(id);
+      return group.items.every((c) => selectedIds.has(c.id));
+    },
+    [moveInGroups, selectedIds],
+  );
+  // What the list draws as ticked: the real selection plus every move-in row
+  // whose lines are all in it. Only real charge ids ever live in `selectedIds`.
+  const listSelectedIds = useMemo(() => {
+    const next = new Set(selectedIds);
+    for (const group of moveInGroups) {
+      if (group.items.every((c) => selectedIds.has(c.id))) next.add(group.id);
+    }
+    return next;
+  }, [moveInGroups, selectedIds]);
 
   const payHeaderAction = useCallback(() => {
     const pool = filterChargesForPayMethod(unpaidPayableCharges, paymentMethod);
@@ -930,6 +998,15 @@ export function ResidentPaymentsPanel({
   );
 
   const confirmTotalLabel = useMemo(() => formatUsd(confirmSubtotalCents), [confirmSubtotalCents]);
+  // The pay sheet names the move-in when the ids are exactly one group's payable lines.
+  const confirmMoveInGroup = useMemo(() => {
+    if (!payConfirm) return undefined;
+    const ids = new Set(payConfirm.chargeIds);
+    return moveInGroups.find((group) => {
+      const payable = group.items.filter((c) => isPayableHouseholdCharge(c));
+      return payable.length > 1 && payable.length === ids.size && payable.every((c) => ids.has(c.id));
+    });
+  }, [moveInGroups, payConfirm]);
 
   const payModalCheckoutReady = Boolean(
     payConfirm &&
@@ -1074,9 +1151,17 @@ export function ResidentPaymentsPanel({
   const rowAmountLabel = (row: HouseholdCharge) =>
     row.status === "paid" ? row.amountLabel || row.balanceLabel : row.balanceLabel;
 
+  const moveInGroupForRow = useCallback(
+    (row: HouseholdCharge): MoveInChargeGroup | undefined =>
+      isMoveInGroupId(row.id) ? moveInGroups.find((group) => group.id === row.id) : undefined,
+    [moveInGroups],
+  );
+
   const paymentGroupedItems = useMemo((): ResidentPortalGroupableRow<HouseholdCharge>[] => {
     const showPropertyInMeta = RESIDENT_PORTAL_DEFAULT_GROUP_MODE !== "house";
-    return rowsForBucket.map((row) => ({
+    return rowsForBucket.map((row) => {
+      const moveInGroup = moveInGroupForRow(row);
+      return {
       id: row.id,
       propertyId: row.propertyId,
       propertyLabel: row.propertyLabel,
@@ -1086,28 +1171,32 @@ export function ResidentPaymentsPanel({
         primary: row.title || "Charge",
         meta: [
           showPropertyInMeta ? row.propertyLabel : null,
-          formatCompactChargeLine(row.title || "Charge", row.balanceLabel, chargeDueLabel(row), {
-            omitBalance: true,
-          }),
+          moveInGroup
+            ? `${chargeDueLabel(row)} · ${moveInGroupItemCountLabel(moveInGroup)}`
+            : formatCompactChargeLine(row.title || "Charge", row.balanceLabel, chargeDueLabel(row), {
+                omitBalance: true,
+              }),
         ]
           .filter(Boolean)
           .join(" · "),
         trailing: (
           <span className="text-sm font-semibold tabular-nums text-foreground">{rowAmountLabel(row)}</span>
         ),
-        selected: selectedIds.has(row.id),
+        selected: isRowSelected(row.id),
         onSelectedChange: () => toggleSelectedCharge(row.id),
         onClick: isRecordedPaymentRow(row)
           ? undefined
           : () => portalNavigate(residentChargeDetailHref(basePath, bucket, row.id)),
       },
-    }));
+      };
+    });
   }, [
     basePath,
     bucket,
+    isRowSelected,
+    moveInGroupForRow,
     rowsForBucket,
     portalNavigate,
-    selectedIds,
     toggleSelectedCharge,
   ]);
 
@@ -1122,7 +1211,7 @@ export function ResidentPaymentsPanel({
         items={paymentGroupedItems}
         groupMode={RESIDENT_PORTAL_DEFAULT_GROUP_MODE}
         selectable={showSelectCol}
-        selectedIds={selectedIds}
+        selectedIds={listSelectedIds}
         onToggleSelected={toggleSelectedCharge}
         dataAttr="resident-payments-grouped-list"
         columns={[
@@ -1323,7 +1412,9 @@ export function ResidentPaymentsPanel({
                 <div className="space-y-1 text-center">
                   <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-muted">Amount due</p>
                   <p className="text-3xl font-bold tabular-nums tracking-tight text-foreground">{confirmTotalLabel}</p>
-                  {confirmCharges.length > 1 ? (
+                  {confirmMoveInGroup ? (
+                    <p className="text-sm text-muted">Move-in total · {moveInGroupItemCountLabel(confirmMoveInGroup)}</p>
+                  ) : confirmCharges.length > 1 ? (
                     <p className="text-sm text-muted">{confirmCharges.length} charges</p>
                   ) : confirmCharges[0]?.title ? (
                     <p className="text-sm text-muted">{confirmCharges[0].title}</p>
@@ -1391,6 +1482,97 @@ export function ResidentPaymentsPanel({
   );
 
   const paymentsCommandActions = paymentMethodButton;
+
+  if (chargeIdProp && detailMoveInGroup) {
+    const group = detailMoveInGroup;
+    const payableIds = filterChargesForPayMethod(
+      group.items.filter((c) => isPayableHouseholdCharge(c)),
+      paymentMethod,
+    ).map((c) => c.id);
+    const payableCents = group.items
+      .filter((c) => payableIds.includes(c.id))
+      .reduce((sum, c) => sum + centsFromLabel(c.balanceLabel), 0);
+    return (
+      <>
+        <PortalRecordDetailPage
+          pageTitle="Payments"
+          title="Move-in total"
+          subtitle={group.propertyLabel || undefined}
+          backHref={residentChargesListHref(basePath, bucket)}
+          hideBackText
+          bareHeader
+          dataAttrBack="resident-payment-detail-back"
+          inlineActions
+          actions={
+            <PortalTableDetailActions>
+              {payableIds.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="primary"
+                  className={PORTAL_DETAIL_BTN}
+                  data-attr="resident-payments-move-in-pay"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    openPayConfirm(payableIds, paymentMethod);
+                  }}
+                >
+                  Pay {formatUsd(payableCents)}
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_DETAIL_BTN}
+                data-attr="resident-payments-message-manager"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openMessageManagerForCharge(group.items[0]);
+                }}
+              >
+                Message manager
+              </Button>
+            </PortalTableDetailActions>
+          }
+        >
+          <div className="mb-4 flex items-baseline justify-between gap-3">
+            <p className="text-sm text-muted">
+              Due: <span className="font-semibold text-foreground">{group.dueLabel}</span>
+            </p>
+            <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground" data-attr="resident-payments-move-in-total">
+              {group.totalLabel}
+            </p>
+          </div>
+          <ul className="divide-y divide-border rounded-xl border border-border bg-card" data-attr="resident-payments-move-in-breakdown">
+            {group.items.map((item) => (
+              <li key={item.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-foreground">{item.title || "Charge"}</p>
+                  <p className="text-xs text-muted">
+                    {item.status === "processing" ? "Bank transfer clearing" : chargeDueLabel(item)}
+                  </p>
+                </div>
+                <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">{item.balanceLabel}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-sm text-muted">
+            One payment covers everything above. Your deposit is still held separately, so it is refunded on its own
+            terms when you move out.
+          </p>
+          {group.blocksLeaseUntilPaid ? (
+            <p className="mt-3 text-sm text-amber-900">
+              Pay this before signing your lease.{" "}
+              <Link href="/resident/lease" className="font-semibold text-primary underline underline-offset-2">
+                Open lease tab
+              </Link>
+              .
+            </p>
+          ) : null}
+        </PortalRecordDetailPage>
+        {paymentModals}
+      </>
+    );
+  }
 
   if (chargeIdProp && detailCharge) {
     return (
