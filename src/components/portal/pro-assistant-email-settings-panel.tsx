@@ -47,7 +47,7 @@ export function workEmailStatusLabel(status: ManagerAssistantEmailStatus): strin
  * in the product said so anywhere.
  */
 export function workEmailAudienceLabel(status: ManagerAssistantEmailStatus): string {
-  if (status.state === "ready") return "You, your residents, and prospects";
+  if (status.state === "ready") return "Your team, your residents, and prospects";
   if (status.state === "assigned_send_off") return "Nobody until replies are switched on";
   if (status.state === "assigned_plan_hold") return "Nobody until your plan is active again";
   return "Nobody yet";
@@ -208,21 +208,87 @@ export function ManagerAssistantEmailSettingsPanel() {
 
   if (!status) return null;
 
-  // A co-manager now gets their OWN address, so the upsell copy is the same for
-  // everyone; only the scope sentence differs, because their assistant answers
-  // about the houses assigned to them rather than a portfolio they own.
   const planMessage = assistantEmailUpsellMessage(status.planTier, status.entitlement);
   const isCoManager = status.workspaceRole === "co_manager";
   const unverifiedEntitlement = assistantEmailEntitlementIsUnverified(status.entitlement);
 
+  // One work email per workspace. A co-manager reads the owner's address here —
+  // nothing to request, no plan upsell. A legacy address of their own
+  // (requested before addresses were workspace-owned) is named so they know it
+  // is being retired, but it is never the address this panel leads with.
+  // Mirrors the work number card's co-manager branch line for line.
+  if (isCoManager) {
+    const workspace = status.workspaceEmail ?? null;
+    const workspaceAddress = workspace?.address?.trim() || "";
+    const owner = workspace?.ownerName?.trim() || "your workspace owner";
+    const legacyOwnAddress =
+      status.address && status.address !== workspaceAddress ? status.address : "";
+    return (
+      <PortalSettingsSection
+        title="Work email"
+        description={`Your workspace's address for resident and prospect email. It is managed by ${owner}; you send and reply from it on the houses assigned to you.`}
+      >
+        <PortalSettingsGroup>
+          <PortalSettingsField
+            label="Workspace email"
+            value={workspaceAddress || "Not set up yet"}
+            action={
+              workspaceAddress ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="min-h-10 px-3 text-xs"
+                  onClick={async () => {
+                    const ok = await copyTextToClipboard(workspaceAddress);
+                    showToast(ok ? "Work email copied." : "Could not copy address.");
+                  }}
+                  data-attr="assistant-email-copy"
+                >
+                  Copy
+                </Button>
+              ) : undefined
+            }
+          />
+          <PortalSettingsField label="Status" value={workspaceAddress ? "Ready" : "Waiting on setup"} />
+          <PortalSettingsField label="Managed by" value={owner} />
+          <div className="space-y-4 px-4 py-4">
+            {workspaceAddress ? (
+              <div className="flex items-start gap-2 text-sm text-foreground">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+                <p>
+                  Ready. Replies you send in Communication go out from this address with your name
+                  on them, and you can email it from your PropLane profile email to talk to PropLane
+                  Assistant about the houses assigned to you.
+                </p>
+              </div>
+            ) : (
+              <div
+                className="flex items-start gap-2 text-sm text-muted"
+                data-attr="assistant-email-workspace-address-missing"
+              >
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                <p>
+                  {owner} hasn&apos;t set up a work email for this workspace. Once they do in
+                  Settings → Messaging, it appears here — there is nothing for you to request.
+                </p>
+              </div>
+            )}
+            {legacyOwnAddress ? (
+              <p className="text-xs text-muted" data-attr="assistant-email-legacy-own-address">
+                {legacyOwnAddress} was set up for you before addresses became shared per workspace.
+                Mail to it now reaches this workspace&apos;s inbox, and it will be retired.
+              </p>
+            ) : null}
+          </div>
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+    );
+  }
+
   return (
     <PortalSettingsSection
       title="Work email"
-      description={
-        isCoManager
-          ? "Request your own address, then email it to ask about the houses assigned to you — same assistant as your work number texts."
-          : "Request and manage the dedicated address residents and prospects use to reach your workspace."
-      }
+      description="Request and manage the one address residents and prospects use to reach your workspace. Everyone on your team sends and replies from it."
     >
       <PortalSettingsGroup>
         <PortalSettingsField
@@ -249,9 +315,10 @@ export function ManagerAssistantEmailSettingsPanel() {
             <div className="flex items-start gap-2 text-sm text-foreground">
               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
               <p>
-                Your address is live. Email it from your PropLane profile email to talk to PropLane
-                Assistant; your residents can email it about their home and prospects about your
-                listings. Everything appears in <strong>Communication</strong>.
+                Your address is live. Anyone on your team can email it from their PropLane profile
+                email to talk to PropLane Assistant; your residents can email it about their home
+                and prospects about your listings. Everything appears in{" "}
+                <strong>Communication</strong>.
               </p>
             </div>
           ) : status.state === "storage_unavailable" ? (
@@ -265,10 +332,11 @@ export function ManagerAssistantEmailSettingsPanel() {
                a manager chasing their mail provider for a PropLane setting —
                and would hand residents an address that swallows their mail. */
             <p className="text-sm leading-relaxed text-muted">
-              Your address is assigned, but email is switched off for this workspace, so nothing
-              sends or replies yet. This is a PropLane setting, not something to chase with your mail
-              provider. We are not showing this address to residents or on your listings while it
-              cannot answer.
+              {status.sendingAvailable && !status.receivingAvailable
+                ? "Your address is assigned, but PropLane can't receive email on this deployment yet, so nothing that is sent to it gets answered."
+                : "Your address is assigned, but email is switched off for this workspace, so nothing sends or replies yet."}{" "}
+              This is a PropLane setting, not something to chase with your mail provider. We are not
+              showing this address to residents or on your listings while it cannot answer.
             </p>
           ) : status.state === "assigned_plan_hold" ? (
             /* The other reason the same address goes quiet, and the opposite
@@ -308,9 +376,9 @@ export function ManagerAssistantEmailSettingsPanel() {
             <div className="flex items-start gap-2 text-sm text-muted">
               <Mail className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
               <p>
-                Request one address for your manager account. You can email it to ask about your
-                portfolio, your residents can email it about their home, and prospects can email it
-                about your listings. It cannot be edited after assignment.
+                Request one address for your workspace. You and your team can email it to ask about
+                your portfolio, your residents can email it about their home, and prospects can
+                email it about your listings. It cannot be edited after assignment.
               </p>
             </div>
           )}

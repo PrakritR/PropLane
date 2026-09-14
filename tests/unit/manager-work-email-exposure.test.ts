@@ -17,7 +17,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+// The workspace rule is its own module with its own coverage; here the account
+// is an owner, so the workspace address IS their own row.
+vi.mock("@/lib/sms/manager-workspace-role.server", () => ({
+  isPureCoManagerWorkspace: async () => false,
+  listWorkspaceOwnersForCoManager: async () => [],
+}));
+
 import {
+  isAssistantEmailReceivingEnabled,
   isAssistantEmailSendingEnabled,
   resolveActiveManagerWorkEmail,
 } from "@/lib/manager-assistant-email/manager-assistant-email.server";
@@ -34,6 +42,8 @@ function dbWith(row: Record<string, unknown> | null, opts: { throws?: boolean } 
       const chain = {
         select: () => chain,
         eq: () => chain,
+        // The profiles read the workspace resolver makes for owner names.
+        in: async () => ({ data: [], error: null }),
         maybeSingle: async () => {
           reads += 1;
           if (opts.throws) throw new Error("db down");
@@ -79,6 +89,28 @@ describe("resolveActiveManagerWorkEmail", () => {
     vi.stubEnv("RESEND_API_KEY", "test-key");
     const released = { ...ACTIVE_ROW, provision_state: "released" };
     expect(await resolveActiveManagerWorkEmail(dbWith(released), "m1")).toBeNull();
+  });
+
+  /**
+   * "Can answer" is both directions. On Vercel the inbound webhook rejects
+   * everything until the signing secret is set, so an address there can send
+   * and never hear a reply — production advertised exactly that for weeks.
+   */
+  it("returns null on Vercel until the inbound webhook secret is set, without reading the row", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test-key");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("RESEND_INBOUND_WEBHOOK_SECRET", "");
+    const db = dbWith(ACTIVE_ROW);
+    expect(isAssistantEmailReceivingEnabled()).toBe(false);
+    expect(await resolveActiveManagerWorkEmail(db, "m1")).toBeNull();
+    expect(db.reads()).toBe(0);
+  });
+
+  it("returns the address on Vercel once the inbound webhook secret is set", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test-key");
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("RESEND_INBOUND_WEBHOOK_SECRET", "whsec_test");
+    expect(await resolveActiveManagerWorkEmail(dbWith(ACTIVE_ROW), "m1")).toBe(ADDRESS);
   });
 });
 

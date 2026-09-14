@@ -8,9 +8,13 @@ import { assistantEmailEligibilityError } from "@/lib/manager-assistant-email/as
 import {
   ensureManagerAssistantEmail,
   isAssistantEmailProvisioningEnabled,
+  isAssistantEmailReceivingEnabled,
+  isAssistantEmailSendingEnabled,
   isAssistantEmailStorageError,
   loadManagerAssistantEmail,
   probeAssistantEmailStorageReady,
+  resolveWorkspaceWorkEmails,
+  WorkspaceEmailSharedError,
 } from "@/lib/manager-assistant-email/manager-assistant-email.server";
 import type { ManagerAssistantEmailStatus } from "@/lib/manager-assistant-email/manager-assistant-email-status";
 import {
@@ -59,9 +63,30 @@ async function buildStatus(
   const planTier: ManagerAssistantEmailStatus["planTier"] =
     planTierResult === "free" ? "free" : planTierResult === null ? "unknown" : "paid";
 
-  const sendEnvEnabled = Boolean(process.env.RESEND_API_KEY?.trim());
+  const sendEnvEnabled = isAssistantEmailSendingEnabled();
+  const receiveEnvEnabled = isAssistantEmailReceivingEnabled();
+  // "Working" is both directions. Production ran for a while with mail going
+  // out and no way for a reply to come back in; the card said "Ready".
+  const channelEnabled = sendEnvEnabled && receiveEnvEnabled;
   const provisioningEnvEnabled = isAssistantEmailProvisioningEnabled();
   const workspaceRole = pureCoManager ? "co_manager" : "primary";
+
+  // One work email per workspace: a co-manager reads the owner's address and
+  // never gets a Request button. Their own legacy row (requested before
+  // addresses were workspace-owned) still shows under `address` so Settings
+  // can say it is being retired, but it is never the address the UI leads with.
+  let workspaceEmail: ManagerAssistantEmailStatus["workspaceEmail"] = null;
+  if (pureCoManager) {
+    const workspace = await resolveWorkspaceWorkEmails(db, userId).catch(() => null);
+    const primary = workspace?.emails[0];
+    if (primary) {
+      workspaceEmail = {
+        address: channelEnabled ? primary.address : null,
+        ownerUserId: primary.ownerUserId,
+        ownerName: primary.ownerName,
+      };
+    }
+  }
 
   // Email is unmetered; an empty communication wallet never disables it.
   const canRequestBilling = managerCommsRequestIsOfferable({
@@ -71,7 +96,7 @@ async function buildStatus(
     entitlement,
   });
 
-  const canUse = commsBillingAllowed && sendEnvEnabled && Boolean(row);
+  const canUse = commsBillingAllowed && channelEnabled && Boolean(row);
 
   /**
    * What the card renders, in the work number's own vocabulary.
@@ -92,7 +117,7 @@ async function buildStatus(
     : row
       ? canUse
         ? "ready"
-        : sendEnvEnabled
+        : channelEnabled
           ? "assigned_plan_hold"
           : "assigned_send_off"
       : canRequestBilling && provisioningEnvEnabled
@@ -100,22 +125,20 @@ async function buildStatus(
         : "unavailable";
 
   return {
-    // Same reasoning as `canRequest` below — provisioning is available to any
-    // manager account, co-manager included.
     provisioningAvailable: provisioningEnvEnabled,
     sendingAvailable: sendEnvEnabled,
+    receivingAvailable: receiveEnvEnabled,
     storageReady,
     planTier,
     entitlement,
     workspaceRole,
+    workspaceEmail,
     address: row?.address ?? null,
     state,
-    // No `workspaceRole === "primary"` condition. That was the gate that
-    // actually mattered: the POST refusal was visible, but this quietly made the
-    // request button never appear for a co-manager, so removing only the
-    // refusal would have left the feature unreachable. Every manager who clears
-    // the plan check can request their own address.
-    canRequest: storageReady && canRequestBilling && provisioningEnvEnabled && !row,
+    // One address per workspace, exactly like the number: a pure co-manager
+    // sends from the owner's address and never sees a Request button.
+    canRequest:
+      !pureCoManager && storageReady && canRequestBilling && provisioningEnvEnabled && !row,
     canUse,
     requestedAtSignup: automationSettings?.workEmailRequestedAtSignup === true,
   };
@@ -177,21 +200,33 @@ export async function POST(req: Request) {
     });
   }
 
-  // A co-manager gets their OWN work email, not the owner's.
+  // A work email belongs to the workspace, exactly like the work number. A
+  // co-manager who owns no houses sends from the owner's address and may not
+  // request a second one for the same workspace — refused before any billing
+  // or storage work.
   //
-  // They were refused here and told to email the account owner's address, which
-  // meant two people shared one mailbox and one assistant identity: the owner
-  // saw the co-manager's questions in their own thread, and the co-manager had
-  // nothing to hand a resident. Every manager who sets one up now has their own.
-  //
-  // Scope is unchanged and comes from the assignment, not the address:
-  // `resolveManagerEmailInboundIdentity` resolves the mailbox owner and then
-  // `resolveManagerSmsAccess` scopes the turn to the houses assigned to them —
-  // so a co-manager's address answers about their assigned houses across every
-  // owner who assigned them, and about nothing else.
-  //
-  // `mailbox_local` is allocated uniquely (`allocateAssistantMailboxLocal`), so
-  // two managers never share an address.
+  // Scope still comes from the assignment, not the address:
+  // `resolveManagerEmailInboundIdentity` recognises the co-manager by their own
+  // From address and `resolveManagerSmsAccess` scopes the turn to the houses
+  // assigned to them — so writing to the shared address answers about their
+  // assigned houses and nothing else, and their questions land in THEIR
+  // Communication, not the owner's.
+  let pureCoManager: boolean;
+  try {
+    pureCoManager = await isPureCoManagerWorkspace(actor.db, actor.userId, { throwOnError: true });
+  } catch {
+    return NextResponse.json({ error: "Workspace unavailable. Try again." }, { status: 503 });
+  }
+  if (pureCoManager) {
+    return NextResponse.json(
+      {
+        error:
+          "Your workspace already has a work email. Mail goes out from the address your workspace owner set up.",
+        code: "workspace_email_shared",
+      },
+      { status: 409, headers: { "Cache-Control": "private, no-store" } },
+    );
+  }
 
   if (!isAssistantEmailProvisioningEnabled()) {
     return NextResponse.json(
@@ -234,6 +269,12 @@ export async function POST(req: Request) {
   try {
     await ensureManagerAssistantEmail(actor.db, actor.userId);
   } catch (cause) {
+    if (cause instanceof WorkspaceEmailSharedError) {
+      return NextResponse.json(
+        { error: cause.message, code: cause.code },
+        { status: 409, headers: { "Cache-Control": "private, no-store" } },
+      );
+    }
     const message = cause instanceof Error ? cause.message : "";
     const tableMissing =
       (cause instanceof Error &&

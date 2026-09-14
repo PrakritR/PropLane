@@ -16,6 +16,7 @@ import { portalDashboardPath } from "@/lib/auth/portal-roles";
 import { assistantEmailUpsellMessage } from "@/lib/manager-assistant-email/assistant-email-eligibility-copy";
 import {
   isManagerAssistantEmailStatus,
+  managerWorkEmailInUse,
   type ManagerAssistantEmailStatus,
 } from "@/lib/manager-assistant-email/manager-assistant-email-status";
 import {
@@ -216,7 +217,7 @@ function ConnectGoogleServicesContent() {
   const provisionedNumber = workNumberOnboardingPhone(workNumber);
   const phoneVerified = Boolean(phoneSettings?.phoneVerifiedAt);
   const phoneDisplay = formatUsPhone(phoneSettings?.phone);
-  const assistantAddress = assistantEmail?.address?.trim() || "";
+  const assistantAddress = assistantEmail ? (managerWorkEmailInUse(assistantEmail) ?? "") : "";
   const assistantReady = Boolean(assistantAddress);
   const assistantUpsell =
     assistantEmail && !assistantEmail.canRequest

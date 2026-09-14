@@ -13,6 +13,22 @@ const mocks = vi.hoisted(() => ({
   resolveResidentInboxAgentContext: vi.fn(),
   autoRespondToResidentInboxMessage: vi.fn(),
   runLeasingEmailAgentTurn: vi.fn(),
+  resolveWorkspaceOwnerForWorkEmail: vi.fn(),
+  findOrCreateResidentEmailSession: vi.fn(),
+  loadResidentEmailHistory: vi.fn(),
+  recordResidentEmailInbound: vi.fn(),
+  recordResidentEmailReply: vi.fn(),
+}));
+
+vi.mock("@/lib/sms/manager-workspace-role.server", () => ({
+  resolveWorkspaceOwnerForWorkEmail: mocks.resolveWorkspaceOwnerForWorkEmail,
+}));
+
+vi.mock("@/lib/agent/resident-email-session.server", () => ({
+  findOrCreateResidentEmailSession: mocks.findOrCreateResidentEmailSession,
+  loadResidentEmailHistory: mocks.loadResidentEmailHistory,
+  recordResidentEmailInbound: mocks.recordResidentEmailInbound,
+  recordResidentEmailReply: mocks.recordResidentEmailReply,
 }));
 
 vi.mock("@/lib/manager-assistant-email/mirror-assistant-email-conversation.server", () => ({
@@ -111,6 +127,15 @@ describe("processManagerAssistantInboundEmail", () => {
       traceId: null,
     });
     mocks.deliverManagerEmailReply.mockResolvedValue({ ok: true });
+    // Default: the mailbox is the owner's own; nothing collapses.
+    mocks.resolveWorkspaceOwnerForWorkEmail.mockImplementation(async (_db: unknown, id: string) => ({
+      ownerUserId: id,
+      sharedFromCoManager: false,
+    }));
+    mocks.findOrCreateResidentEmailSession.mockResolvedValue({ id: "res-sess", landlord_id: "mgr-1" });
+    mocks.loadResidentEmailHistory.mockResolvedValue([]);
+    mocks.recordResidentEmailInbound.mockResolvedValue(undefined);
+    mocks.recordResidentEmailReply.mockResolvedValue(undefined);
 
     const insert = vi.fn().mockResolvedValue({ error: null });
     (db.from as ReturnType<typeof vi.fn>).mockReturnValue({ insert });
@@ -210,6 +235,155 @@ describe("processManagerAssistantInboundEmail", () => {
 
       expect(result).toMatchObject({ role: "manager" });
       expect(mocks.autoRespondToResidentInboxMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * One work email per WORKSPACE. An address still held by a pure co-manager
+   * (requested before the rule) answers as the owner's workspace — collapsed
+   * BEFORE the sender is classified, exactly as the SMS webhook collapses a
+   * legacy co-manager line.
+   */
+  describe("workspace ownership", () => {
+    it("collapses a legacy co-manager address to the workspace owner before routing", async () => {
+      mocks.resolveManagerIdByAssistantInboundAddresses.mockResolvedValue("co-1");
+      mocks.resolveWorkspaceOwnerForWorkEmail.mockResolvedValue({
+        ownerUserId: "owner-1",
+        sharedFromCoManager: true,
+      });
+      mocks.resolveManagerEmailInboundIdentity.mockResolvedValue(null);
+      mocks.loadManagerAssistantEmail.mockImplementation(async (_db: unknown, id: string) =>
+        id === "owner-1"
+          ? { managerUserId: "owner-1", inboxToken: "tok0000000001", address: "assist-owner@prop-lane.space", provisionState: "active" }
+          : { managerUserId: "co-1", inboxToken: "tok12345678", address: "assist-bob-lee@prop-lane.space", provisionState: "active" },
+      );
+
+      const result = await processManagerAssistantInboundEmail(db, {
+        ...parsed,
+        fromEmail: "renter@example.com",
+        toEmails: ["assist-bob-lee@prop-lane.space"],
+      });
+
+      expect(result).toMatchObject({ handled: true, replied: true, role: "prospect" });
+      // The prospect reaches the OWNER's listings...
+      expect(mocks.runLeasingEmailAgentTurn).toHaveBeenCalledWith(
+        db,
+        expect.objectContaining({ landlordId: "owner-1" }),
+      );
+      // ...the thread lands in the OWNER's Communication...
+      expect(mocks.mirrorAssistantEmailConversation).toHaveBeenCalledWith(
+        db,
+        expect.objectContaining({ managerUserId: "owner-1" }),
+      );
+      // ...and the reply comes from the workspace's address.
+      expect(mocks.deliverManagerEmailReply).toHaveBeenCalledWith(
+        expect.objectContaining({ fromAddress: "assist-owner@prop-lane.space" }),
+      );
+    });
+
+    it("falls back to the address written to when the owner has none of their own", async () => {
+      mocks.resolveManagerIdByAssistantInboundAddresses.mockResolvedValue("co-1");
+      mocks.resolveWorkspaceOwnerForWorkEmail.mockResolvedValue({
+        ownerUserId: "owner-1",
+        sharedFromCoManager: true,
+      });
+      mocks.resolveManagerEmailInboundIdentity.mockResolvedValue(null);
+      mocks.loadManagerAssistantEmail.mockImplementation(async (_db: unknown, id: string) =>
+        id === "co-1"
+          ? { managerUserId: "co-1", inboxToken: "tok12345678", address: "assist-bob-lee@prop-lane.space", provisionState: "active" }
+          : null,
+      );
+
+      await processManagerAssistantInboundEmail(db, {
+        ...parsed,
+        fromEmail: "renter@example.com",
+        toEmails: ["assist-bob-lee@prop-lane.space"],
+      });
+
+      expect(mocks.deliverManagerEmailReply).toHaveBeenCalledWith(
+        expect.objectContaining({ fromAddress: "assist-bob-lee@prop-lane.space" }),
+      );
+    });
+
+    it("mirrors a co-manager's own questions into THEIR assistant thread, not the owner's", async () => {
+      mocks.resolveManagerEmailInboundIdentity.mockResolvedValue({
+        workNumberOwnerId: "mgr-1",
+        actorUserId: "co-1",
+        actorEmail: "co@example.com",
+        access: { mode: "delegated", workNumberOwnerId: "mgr-1", actorUserId: "co-1", dataOwnerIds: ["mgr-1"], assignedPropertyIds: ["p1"] },
+      });
+
+      const result = await processManagerAssistantInboundEmail(db, { ...parsed, fromEmail: "co@example.com" });
+
+      expect(result).toMatchObject({ role: "manager", replied: true });
+      expect(mocks.mirrorAssistantEmailTurnToInbox).toHaveBeenCalledWith(
+        db,
+        expect.objectContaining({ managerUserId: "co-1" }),
+      );
+    });
+  });
+
+  /**
+   * A resident who writes twice is answered by a model that saw the first
+   * email. The prospect branch already had this; the resident branch called the
+   * auto-responder with no history at all.
+   */
+  describe("resident memory", () => {
+    const fromResident = { ...parsed, fromEmail: "renter@example.com", fromName: "Renter" };
+
+    beforeEach(() => {
+      mocks.resolveManagerEmailInboundIdentity.mockResolvedValue(null);
+      mocks.resolveResidentInboxAgentContext.mockResolvedValue({
+        ok: true,
+        ctx: { kind: "resident", userId: "res-1", email: "renter@example.com" },
+      });
+    });
+
+    it("hands the resident assistant the thread so far and persists both turns", async () => {
+      mocks.loadResidentEmailHistory.mockResolvedValue([
+        { from: "resident", body: "Is September paid?" },
+        { from: "manager", body: "Yes, on the 3rd." },
+      ]);
+
+      await processManagerAssistantInboundEmail(db, { ...fromResident, text: "And October?" });
+
+      expect(mocks.findOrCreateResidentEmailSession).toHaveBeenCalledWith(
+        db,
+        { landlordId: "mgr-1", residentEmail: "renter@example.com" },
+      );
+      expect(mocks.recordResidentEmailInbound).toHaveBeenCalledWith(
+        db,
+        { id: "res-sess", landlord_id: "mgr-1" },
+        { text: "And October?", inboundEmailId: "email_123" },
+      );
+      expect(mocks.autoRespondToResidentInboxMessage).toHaveBeenCalledWith(
+        db,
+        expect.objectContaining({
+          history: [
+            { from: "resident", body: "Is September paid?" },
+            { from: "manager", body: "Yes, on the 3rd." },
+          ],
+          sessionId: "res-sess",
+        }),
+      );
+      expect(mocks.recordResidentEmailReply).toHaveBeenCalledWith(
+        db,
+        { id: "res-sess", landlord_id: "mgr-1" },
+        { text: "Your rent is due on the 1st.", traceId: null },
+      );
+    });
+
+    it("still answers, without memory, when a session cannot be created", async () => {
+      mocks.findOrCreateResidentEmailSession.mockResolvedValue(null);
+
+      const result = await processManagerAssistantInboundEmail(db, fromResident);
+
+      expect(result).toMatchObject({ role: "resident", replied: true });
+      expect(mocks.autoRespondToResidentInboxMessage).toHaveBeenCalledWith(
+        db,
+        expect.objectContaining({ history: [], sessionId: undefined }),
+      );
+      expect(mocks.recordResidentEmailReply).not.toHaveBeenCalled();
     });
   });
 });

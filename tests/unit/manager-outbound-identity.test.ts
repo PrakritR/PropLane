@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveManagerOutboundFrom } from "@/lib/manager-outbound-identity.server";
 
 /**
- * A manager's outbound mail carries their own work email.
+ * A manager's outbound mail carries the WORKSPACE work email with their own name on it.
  *
  * Every portal email left on one shared `RESEND_FROM`, so a resident or teammate saw
  * "PropLane" regardless of which manager the message concerned, and a reply went to a
@@ -16,9 +16,9 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/manager-assistant-email/manager-assistant-email.server", () => ({
-  loadManagerAssistantEmail: async () => {
+  resolveWorkspaceWorkEmail: async () => {
     if (state.throwOnLoad) throw new Error("mailbox table unreachable");
-    return state.assistant;
+    return state.assistant ? { ownerUserId: "owner-1", ownerName: "Owner", address: state.assistant.address } : null;
   },
 }));
 

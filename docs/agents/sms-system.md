@@ -52,6 +52,11 @@ line is this"; every reader below goes through them.
   `manager_sms_messages.message_sid` to `sms_outbox.actor_user_id`; never shown
   to the texter. Coverage: `tests/unit/workspace-work-number-routing.test.ts`.
 
+The work EMAIL follows the identical rule — one address per workspace, held by
+the owner, co-managers send and reply from it, legacy co-manager addresses
+collapse to the owner on inbound. See `docs/agents/inbound-email-inbox.md`
+"One work email per WORKSPACE".
+
 ## Conversation houses (which house a thread is about)
 
 `manager_sms_conversation_houses` — `(conversation_key, property_id, source)`,
