@@ -72,6 +72,8 @@ import {
   inboxThreadSortMs,
   inboxMessageOutbound,
   stagePersistedInboxRows,
+  markPersistedInboxSourcesRead,
+  reconcileObservedInboxReadRows,
   syncPersistedInboxFromServerWithStatus,
   type PersistedInboxSyncResult,
   type PersistedInboxThread,
@@ -103,9 +105,14 @@ import {
   loadManagerSmsArchivedIds,
   MANAGER_SMS_ARCHIVE_CHANGED_EVENT,
 } from "@/lib/manager-sms-archive.client";
+import { loadManagerSmsOpenedIds, markManagerSmsOpenedIds } from "@/lib/manager-sms-opened.client";
+import { startObservedInboxReadOperation } from "@/lib/portal-inbox-read-operation.client";
 
-const SMS_OPENED_STORAGE_KEY = "axis_manager_sms_opened_v1";
 const SMS_HIDDEN_STORAGE_KEY = "axis_manager_sms_hidden_v2";
+
+function sameStringSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  return a.size === b.size && [...a].every((value) => b.has(value));
+}
 
 function previewLine(body: string, max = 80) {
   const t = body.trim().replace(/\s+/g, " ");
@@ -121,19 +128,6 @@ function smsConversationId(resident: ManagerSmsResidentConversation): string {
     resident.residentEmail ??
     resident.name
   );
-}
-
-function loadSmsOpenedIds(): Set<string> {
-  if (typeof window === "undefined") return new Set();
-  try {
-    const raw = window.localStorage.getItem(SMS_OPENED_STORAGE_KEY);
-    if (!raw) return new Set();
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return new Set();
-    return new Set(parsed.filter((id): id is string => typeof id === "string" && id.trim().length > 0));
-  } catch {
-    return new Set();
-  }
 }
 
 function loadSmsHiddenIds(): Set<string> {
@@ -228,7 +222,8 @@ export function ManagerUnifiedInbox({
   const isClient = useIsClient();
   const [emailThreads, setEmailThreads] = useState<PersistedInboxThread[]>([]);
   const [smsResidents, setSmsResidents] = useState<ManagerSmsResidentConversation[]>([]);
-  const [smsOpenedIds, setSmsOpenedIds] = useState<Set<string>>(() => loadSmsOpenedIds());
+  const [smsOpenedIds, setSmsOpenedIds] = useState<Set<string>>(() => new Set());
+  const smsOpenedIdsRef = useRef(smsOpenedIds);
   const [smsHiddenIds, setSmsHiddenIds] = useState<Set<string>>(() => loadSmsHiddenIds());
   const [smsArchivedIds, setSmsArchivedIds] = useState<Set<string>>(() => loadManagerSmsArchivedIds());
   const [internalQuery, setInternalQuery] = useState("");
@@ -275,6 +270,9 @@ export function ManagerUnifiedInbox({
     // component can switch sessions without remounting, so neither may carry
     // a previous viewer's contact metadata or authorization state forward.
     setSmsResidents([]);
+    const nextOpened = loadManagerSmsOpenedIds(viewerId);
+    smsOpenedIdsRef.current = nextOpened;
+    setSmsOpenedIds((current) => sameStringSet(current, nextOpened) ? current : nextOpened);
     smsPollHaltedRef.current = false;
     setSmsPollHalted(false);
   }, [viewerAuthority, viewerId]);
@@ -493,8 +491,10 @@ export function ManagerUnifiedInbox({
   // and the open SMS panel already reloads on its own; a refetch here was a
   // redundant round-trip on every thread open).
   const handleSmsConversationOpened = useCallback(() => {
-    setSmsOpenedIds(loadSmsOpenedIds());
-  }, []);
+    const nextOpened = loadManagerSmsOpenedIds(viewerId, smsOpenedIdsRef.current);
+    smsOpenedIdsRef.current = nextOpened;
+    setSmsOpenedIds((current) => sameStringSet(current, nextOpened) ? current : nextOpened);
+  }, [viewerId]);
 
   const filteredEmail = useMemo(() => {
     // When SMS UI is hidden, KEEP SMS-like inbound notices so an inbound text is
@@ -538,6 +538,11 @@ export function ManagerUnifiedInbox({
     return rows.map((t) => {
       const msgs = inboxThreadMessages(t);
       const lastMsg = msgs[msgs.length - 1];
+      const smsBindingKeys = [...new Set(
+        [...(t.smsBindingKeys ?? []), t.smsConversationKey ?? ""]
+          .map((key) => key.trim())
+          .filter(Boolean),
+      )];
       const sentSemantics = t.folder === "sent";
       // Title the row by the person's name when they are in the directory
       // (PRP-315); the address stays available in the open thread.
@@ -550,8 +555,14 @@ export function ManagerUnifiedInbox({
         channel: "email" as const,
         threadId: t.id,
         memberKeys: (t.sourceThreadIds ?? [t.id]).map((id) => unifiedInboxKey("email", id)),
+        readSources: t.readSources,
+        readSourcesComplete: t.readSourcesComplete,
+        ...(smsBindingKeys.length > 0 ? { smsBindingKeys } : {}),
+        ...(smsBindingKeys.length === 1 ? { smsBindingKey: smsBindingKeys[0] } : {}),
         // Who this is with, so a text thread with the same person folds in.
-        personKey: unifiedInboxSmsBindingKey(t.smsConversationKey) ?? unifiedInboxPersonKey(t.email),
+        personKey:
+          (smsBindingKeys.length === 1 ? unifiedInboxSmsBindingKey(smsBindingKeys[0]) : undefined) ??
+          (smsBindingKeys.length > 1 ? `email-explicit-binding:${t.id}` : unifiedInboxPersonKey(t.email)),
         personEmail: t.email?.trim() || undefined,
         name: displayName,
         subtitle: isPropLaneAssistantInboxThread(t)
@@ -583,7 +594,10 @@ export function ManagerUnifiedInbox({
   }, [filteredEmail, query, listSegment]);
 
   const explicitlyBoundSmsKeys = useMemo(
-    () => new Set(filteredEmail.map((thread) => thread.smsConversationKey?.trim()).filter((key): key is string => Boolean(key))),
+    () => new Set(filteredEmail.flatMap((thread) => [
+      ...(thread.smsBindingKeys ?? []),
+      thread.smsConversationKey ?? "",
+    ]).map((key) => key.trim()).filter(Boolean)),
     [filteredEmail],
   );
 
@@ -629,6 +643,7 @@ export function ManagerUnifiedInbox({
             ? unifiedInboxSmsBindingKey(resident.conversationKey)
             : unifiedInboxPersonKey(resident.residentEmail),
           personEmail: resident.residentEmail?.trim() || undefined,
+          smsBindingKey: resident.conversationKey?.trim() || undefined,
           // Prefer person name / unit / email; fall back to a readable phone.
           name: smsConversationDisplayName(resident),
           subtitle: smsConversationSubtitle(resident) || undefined,
@@ -713,7 +728,13 @@ export function ManagerUnifiedInbox({
   }, [assistantThreadId, emailListItems, listSort, placeholderListItems, smsListItems]);
 
   // SSR and the first client paint must agree — local inbox + contact rows load only after mount.
-  const listRows = initialListReady ? mergedRows.filter((row) => statusFilter !== "read" || !row.unread) : [];
+  const listRows = initialListReady
+    ? mergedRows.filter((row) => {
+        if (statusFilter === "read") return !row.unread;
+        if (statusFilter === "unread") return row.unread;
+        return true;
+      })
+    : [];
 
   const bulk = useUnifiedCommunicationBulk({
     mergedRows: listRows,
@@ -757,7 +778,10 @@ export function ManagerUnifiedInbox({
    * than picking one channel's pane and hiding the other half of the history.
    */
   const mergedPersonEmail = useMemo(() => {
-    if (!selectedRow || (selectedRow.channels?.length ?? 1) < 2) return null;
+    if (
+      !selectedRow ||
+      ((selectedRow.channels?.length ?? 1) < 2 && !(selectedRow.smsBindingKeys?.length))
+    ) return null;
     return selectedRow.personEmail?.trim() || null;
   }, [selectedRow]);
   const placeholderContact = useMemo(() => {
@@ -963,18 +987,113 @@ export function ManagerUnifiedInbox({
   );
 
   const directChatEmail = placeholderContact?.email ?? mergedPersonEmail;
+  const selectedReadSources = selectedRow?.readSourcesComplete === true ? selectedRow.readSources ?? [] : [];
+  const selectedEmailThreads = useMemo(() => {
+    if (!selectedRow) return [];
+    const selectedIds = new Set(
+      [selectedRow.key, ...(selectedRow.memberKeys ?? [])]
+        .map(parseUnifiedInboxKey)
+        .filter((key): key is NonNullable<ReturnType<typeof parseUnifiedInboxKey>> => key?.channel === "email")
+        .map((key) => key.threadId),
+    );
+    if (selectedIds.size === 0) return [];
+    return emailThreads.filter((thread) =>
+      (thread.sourceThreadIds ?? [thread.id]).some((id) => selectedIds.has(id)),
+    );
+  }, [emailThreads, selectedRow]);
+  const selectedSmsResidents = useMemo(() => {
+    if (!selectedRow || !directChatEmail) return [];
+    const selectedKeys = [selectedRow.key, ...(selectedRow.memberKeys ?? [])];
+    const explicitlySelectedNativeIds = selectedKeys
+      .map(parseUnifiedInboxKey)
+      .filter((key): key is NonNullable<ReturnType<typeof parseUnifiedInboxKey>> => key?.channel === "sms")
+      .map((key) => key.threadId);
+    const declaredBindingIds = selectedRow.smsBindingKeys ?? [];
+    // A declared email binding is the entire native authority for this
+    // selection. Do not let a stale pre-collapse member key add an unrelated
+    // same-email conversation beside K1/K2.
+    const explicitIds = [...new Set((declaredBindingIds.length > 0
+      ? declaredBindingIds
+      : [...explicitlySelectedNativeIds, selectedRow.smsBindingKey ?? ""]
+    ).filter(Boolean))];
+    if (explicitIds.length > 0) {
+      return smsResidents.filter((resident) => {
+        const aliases = [smsConversationId(resident), resident.conversationKey, ...(resident.memberKeys ?? [])]
+          .filter((key): key is string => Boolean(key));
+        return explicitIds.some((id) => aliases.includes(id) || aliases.includes(unifiedInboxKey("sms", id)));
+      });
+    }
+    const email = directChatEmail.trim().toLowerCase();
+    const matches = smsResidents.filter((resident) => resident.residentEmail?.trim().toLowerCase() === email);
+    return matches.length === 1 ? matches : [];
+  }, [directChatEmail, selectedRow, smsResidents]);
+  const pendingReadSignaturesRef = useRef(new Map<string, symbol>());
+  const renderedViewerAuthority = viewerAuthority;
+  const markSelectedRead = useCallback((sources: { id: string; observation: string; unread?: boolean }[]) => {
+    if (document.visibilityState === "hidden") return { kind: "deferred" as const };
+    if (currentViewerAuthorityRef.current !== renderedViewerAuthority) return { kind: "deferred" as const };
+    const inboundSmsIds = selectedSmsResidents.flatMap((resident) =>
+      (resident.messages ?? []).filter((message) => message.direction === "inbound").map((message) => message.id),
+    );
+    const requestEpoch = viewerEpochRef.current;
+    const applyUnread = (
+      unreadById: Map<string, boolean>,
+      operation?: { token: string; phase: "optimistic" | "settled" },
+    ) => {
+      if (viewerEpochRef.current !== requestEpoch || currentViewerIdRef.current !== viewerId) return;
+      const current = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []);
+      const next = reconcileObservedInboxReadRows(current, sources, unreadById, operation);
+      if (next.some((thread, index) => thread !== current[index])) {
+        stagePersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, next);
+        setEmailThreads(next);
+      }
+    };
+    return startObservedInboxReadOperation({
+      viewerKey: renderedViewerAuthority.viewerId ?? "anon",
+      epoch: requestEpoch,
+      sources,
+      nativeMessageIds: inboundSmsIds,
+      pending: pendingReadSignaturesRef.current,
+      isCurrent: () =>
+        viewerEpochRef.current === requestEpoch &&
+        currentViewerIdRef.current === viewerId &&
+        currentViewerAuthorityRef.current === renderedViewerAuthority,
+      markNativeRead: () => {
+        try {
+          const next = markManagerSmsOpenedIds(viewerId, inboundSmsIds, smsOpenedIdsRef.current);
+          smsOpenedIdsRef.current = next;
+          setSmsOpenedIds((current) => sameStringSet(current, next) ? current : next);
+        } catch (error) {
+          // A failed device write is a volatile receipt only. It clears the
+          // visible dot for this mounted pane but is deliberately retried on a
+          // later explicit reopen after storage recovers.
+          const next = new Set([...smsOpenedIdsRef.current, ...inboundSmsIds]);
+          smsOpenedIdsRef.current = next;
+          setSmsOpenedIds((current) => sameStringSet(current, next) ? current : next);
+          throw error;
+        }
+      },
+      applyUnread,
+      post: (nextSources) => markPersistedInboxSourcesRead(MANAGER_INBOX_STORAGE_KEY, nextSources),
+      notifyFailure: () => {
+        if (currentViewerAuthorityRef.current === renderedViewerAuthority) {
+          appUi?.showToast("Could not mark conversation as read. Reopen it to retry.");
+        }
+      },
+    });
+  }, [appUi, renderedViewerAuthority, selectedSmsResidents, viewerId]);
   const threadPane = directChatEmail ? (
     <ResidentDirectChatPane
       residentEmail={directChatEmail}
       residentName={placeholderContact?.name ?? selectedRow?.name}
-      smsResident={
-        smsResidents.find(
-          (resident) =>
-            resident.residentEmail?.trim().toLowerCase() === directChatEmail.trim().toLowerCase(),
-        ) ?? null
-      }
+      smsResident={selectedSmsResidents[0] ?? null}
+      smsResidents={selectedSmsResidents}
       smsUiEnabled={smsUiEnabled}
       onSent={refreshAfterDirectSend}
+      readSources={selectedReadSources}
+      emailThreadSnapshot={selectedEmailThreads}
+      onViewed={markSelectedRead}
+      viewActive={mobileThreadOpen || (isClient && window.innerWidth >= 1024)}
       /*
        * Archive and delete act on THIS conversation, which may be several
        * stored threads folded into one person. Reusing the bulk handlers keyed

@@ -57,6 +57,8 @@ import { counterpartyRoleLabel } from "@/lib/sms-conversation-identity";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { formatPacificDate } from "@/lib/pacific-time";
 import { useInboxThreadScroll } from "@/hooks/use-inbox-thread-scroll";
+import { usePortalSession } from "@/hooks/use-portal-session";
+import { loadManagerSmsOpenedIds, markManagerSmsOpenedIds } from "@/lib/manager-sms-opened.client";
 import {
   MANUAL_SMS_NETWORK_UNKNOWN_MESSAGE,
   MANUAL_SMS_UNKNOWN_MESSAGE,
@@ -70,11 +72,14 @@ import {
   restoreManagerSmsConversation,
 } from "@/lib/manager-sms-archive.client";
 
-const SMS_OPENED_STORAGE_KEY = "axis_manager_sms_opened_v1";
 // v2 stores CONVERSATION IDs, not phones: since one phone can be two threads
 // (prospect + resident), hiding by phone made deleting one thread visually
 // erase the other as well.
 const SMS_HIDDEN_STORAGE_KEY = "axis_manager_sms_hidden_v2";
+
+function sameStringSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  return a.size === b.size && [...a].every((value) => b.has(value));
+}
 
 // Site-themed surfaces (values resolve per light/dark via CSS variables) so the
 // SMS panel matches the rest of the product instead of a hardcoded iOS look.
@@ -112,24 +117,6 @@ function iosListTimestamp(iso: string | null | undefined): string {
     return formatPacificDate(d, { weekday: "short" });
   }
   return formatPacificDate(d, { month: "numeric", day: "numeric", year: "2-digit" });
-}
-
-function loadOpenedIds(): Set<string> {
-  if (typeof window === "undefined") return new Set();
-  try {
-    const raw = window.localStorage.getItem(SMS_OPENED_STORAGE_KEY);
-    if (!raw) return new Set();
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return new Set();
-    return new Set(parsed.filter((id): id is string => typeof id === "string" && id.trim().length > 0));
-  } catch {
-    return new Set();
-  }
-}
-
-function persistOpenedIds(ids: Set<string>): void {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(SMS_OPENED_STORAGE_KEY, JSON.stringify([...ids]));
 }
 
 function loadHiddenConversationIds(): Set<string> {
@@ -216,14 +203,20 @@ export const ManagerSmsPanel = forwardRef<
   ref,
 ) {
   const { showToast } = useAppUi();
+  const { userId } = usePortalSession();
   const confirm = useConfirm();
   const [data, setData] = useState<ManagerSmsConversationsPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [openedSmsIds, setOpenedSmsIds] = useState<Set<string>>(() => loadOpenedIds());
+  const [openedSmsIds, setOpenedSmsIds] = useState<Set<string>>(() => loadManagerSmsOpenedIds(userId));
   // Mirrors `openedSmsIds` so `markOpened` can build and persist the next set
   // without waiting for React to run a state updater — see the comment there.
   const openedSmsIdsRef = useRef(openedSmsIds);
+  useEffect(() => {
+    const next = loadManagerSmsOpenedIds(userId);
+    openedSmsIdsRef.current = next;
+    setOpenedSmsIds((current) => sameStringSet(current, next) ? current : next);
+  }, [userId]);
   const [hiddenConversationIds, setHiddenConversationIds] = useState<Set<string>>(() =>
     loadHiddenConversationIds(),
   );
@@ -268,6 +261,10 @@ export const ManagerSmsPanel = forwardRef<
     onConversationOpenedRef.current = onConversationOpened;
   }, [onConversationOpened]);
   const lastSyncedControlledIdRef = useRef<string | null>(null);
+  // A controlled selection can arrive while a hidden pane has no authority to
+  // create an opened receipt. Keep only that still-unsynced selection so one
+  // visibility change can perform the deferred explicit open.
+  const deferredControlledIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const sync = () => setArchivedConversationIds(loadManagerSmsArchivedIds());
@@ -431,13 +428,23 @@ export const ManagerSmsPanel = forwardRef<
   const markOpened = useCallback((messageIds: string[]) => {
     if (messageIds.length === 0) return;
     const prev = openedSmsIdsRef.current;
-    if (messageIds.every((id) => prev.has(id))) return;
-    const next = new Set(prev);
-    for (const id of messageIds) next.add(id);
-    openedSmsIdsRef.current = next;
-    persistOpenedIds(next);
-    setOpenedSmsIds(next);
-  }, []);
+    try {
+      // Volatile membership is enough to render an opened thread, but it is
+      // not proof that the receipt made it to storage. Explicit opens always
+      // let the helper check durable membership; controlled sync remains
+      // bounded by its selection guard below.
+      const next = markManagerSmsOpenedIds(userId, messageIds, prev);
+      openedSmsIdsRef.current = next;
+      setOpenedSmsIds((current) => sameStringSet(current, next) ? current : next);
+    } catch {
+      // Keep the just-opened turn visible as a volatile receipt. This never
+      // claims device persistence and the next explicit open retries storage.
+      const next = new Set([...prev, ...messageIds]);
+      openedSmsIdsRef.current = next;
+      setOpenedSmsIds((current) => sameStringSet(current, next) ? current : next);
+      showToast("Could not save opened SMS state. Reopen the conversation to retry.");
+    }
+  }, [showToast, userId]);
 
   const openThread = useCallback(
     (rowId: string, messages: ManagerSmsMessageRow[]) => {
@@ -449,14 +456,26 @@ export const ManagerSmsPanel = forwardRef<
     [markOpened, onConversationOpened, setActiveId],
   );
 
-  useEffect(() => {
+  const syncControlledOpen = useCallback(() => {
     if (!controlledActiveId) {
       lastSyncedControlledIdRef.current = null;
+      deferredControlledIdRef.current = null;
+      return;
+    }
+    if (document.visibilityState === "hidden") {
+      // Do not defer a selection already synchronized before the pane hid.
+      // Otherwise a background refetch would create a duplicate visible retry.
+      if (lastSyncedControlledIdRef.current !== controlledActiveId) {
+        deferredControlledIdRef.current = controlledActiveId;
+      }
       return;
     }
     // Only sync when the controlled selection actually changes — never on every
     // `rows` refetch or callback identity change, which would loop forever.
-    if (lastSyncedControlledIdRef.current === controlledActiveId) return;
+    if (lastSyncedControlledIdRef.current === controlledActiveId) {
+      deferredControlledIdRef.current = null;
+      return;
+    }
     const row =
       rows.find((r) => r.rowId === controlledActiveId) ??
       (() => {
@@ -467,9 +486,25 @@ export const ManagerSmsPanel = forwardRef<
       })();
     if (!row) return; // rows may load after the id is set; retry until present.
     lastSyncedControlledIdRef.current = controlledActiveId;
+    deferredControlledIdRef.current = null;
     markOpened(row.messages.filter((m) => m.direction === "inbound").map((m) => m.id));
     onConversationOpenedRef.current?.();
   }, [controlledActiveId, markOpened, residents, rows]);
+
+  useEffect(() => {
+    syncControlledOpen();
+  }, [syncControlledOpen]);
+
+  useEffect(() => {
+    const retryDeferredControlledOpen = () => {
+      if (
+        document.visibilityState === "visible" &&
+        deferredControlledIdRef.current === controlledActiveId
+      ) syncControlledOpen();
+    };
+    document.addEventListener("visibilitychange", retryDeferredControlledOpen);
+    return () => document.removeEventListener("visibilitychange", retryDeferredControlledOpen);
+  }, [controlledActiveId, syncControlledOpen]);
 
   const composeResidents =
     filterResidentEmail || filterResidentUserId ? residents : (data?.residents ?? []);

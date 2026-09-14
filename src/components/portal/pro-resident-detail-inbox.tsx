@@ -99,6 +99,26 @@ function loadResidentThreadBubbles(email: string): InboxBubbleMessage[] {
   return bubbles;
 }
 
+function inboxThreadBubbles(threads: PersistedInboxThread[]): InboxBubbleMessage[] {
+  const bubbles: InboxBubbleMessage[] = [];
+  for (const thread of threads) {
+    if (thread.folder === "trash") continue;
+    const folder = thread.folder === "sent" ? "sent" : "inbox";
+    for (const [i, message] of inboxThreadMessages(thread).entries()) {
+      bubbles.push({
+        id: message.id,
+        author: message.from,
+        body: message.body,
+        at: message.at,
+        direction: inboxTurnDirection(thread, message, i, folder),
+        channel: "email",
+        attachments: message.attachments,
+      });
+    }
+  }
+  return bubbles;
+}
+
 /** This person's texts as thread bubbles, stamped like the email ones. */
 function smsThreadBubbles(
   resident: ManagerSmsResidentConversation | null | undefined,
@@ -145,16 +165,23 @@ export function ResidentDirectChatPane({
   residentEmail,
   residentName,
   smsResident,
+  smsResidents,
   smsUiEnabled,
   onSent,
   onArchive,
   onDelete,
   onBack,
+  readSources = [],
+  emailThreadSnapshot,
+  onViewed,
+  viewActive = true,
   scheduledRefreshKey = 0,
 }: {
   residentEmail: string;
   residentName?: string;
   smsResident?: ManagerSmsResidentConversation | null;
+  /** Every exact native source folded into the selected unified row. */
+  smsResidents?: ManagerSmsResidentConversation[];
   smsUiEnabled: boolean;
   onSent: () => void;
   /** Archive every thread folded into this person's conversation. */
@@ -163,6 +190,14 @@ export function ResidentDirectChatPane({
   onDelete?: () => void | Promise<void>;
   /** Mobile Communication tab: back to the conversation list + show tenant name in the thread header. */
   onBack?: () => void;
+  readSources?: { id: string; observation: string; unread?: boolean }[];
+  /** Exact selected authorized email projection. Avoids reloading by a winning alias. */
+  emailThreadSnapshot?: PersistedInboxThread[];
+  onViewed?: (sources: { id: string; observation: string; unread?: boolean }[]) => {
+    kind: "deferred" | "attempted";
+  };
+  /** Whether this pane is the pane currently rendered to the user. */
+  viewActive?: boolean;
   scheduledRefreshKey?: number;
 }) {
   const { showToast } = useAppUi();
@@ -245,8 +280,48 @@ export function ResidentDirectChatPane({
 
   const messages = useMemo(() => {
     void inboxTick;
-    return mergeThreadBubbles(loadResidentThreadBubbles(email), smsThreadBubbles(smsResident, displayName));
-  }, [displayName, email, inboxTick, smsResident]);
+    const native = smsResidents?.length ? smsResidents : smsResident ? [smsResident] : [];
+    return mergeThreadBubbles(
+      emailThreadSnapshot ? inboxThreadBubbles(emailThreadSnapshot) : loadResidentThreadBubbles(email),
+      native.flatMap((resident) => smsThreadBubbles(resident, displayName)),
+    );
+  }, [displayName, email, emailThreadSnapshot, inboxTick, smsResident, smsResidents]);
+  const viewedSignature = useMemo(() => {
+    const sources = readSources.map((source) => `${source.id}:${source.observation}`);
+    const inboundSms = (smsResidents?.length ? smsResidents : smsResident ? [smsResident] : [])
+      .flatMap((resident) => resident.messages ?? [])
+      .filter((message) => message.direction === "inbound")
+      .map((message) => `sms:${message.id}`);
+    return [...sources, ...inboundSms].sort().join("|");
+  }, [readSources, smsResident, smsResidents]);
+  const lastViewedSignature = useRef("");
+  const consumeViewedAttempt = useCallback(() => {
+    const outcome = onViewed?.(readSources);
+    // An attempted visible failure is consumed until an explicit close/reopen.
+    // Only visibility/authority deferral stays eligible for the next effect.
+    if (!outcome || outcome.kind !== "deferred") lastViewedSignature.current = viewedSignature;
+  }, [onViewed, readSources, viewedSignature]);
+  useEffect(() => {
+    if (!viewActive) {
+      lastViewedSignature.current = "";
+      return;
+    }
+    if (document.visibilityState !== "visible") return;
+    if (!viewedSignature || lastViewedSignature.current === viewedSignature) return;
+    consumeViewedAttempt();
+  }, [consumeViewedAttempt, viewActive, viewedSignature]);
+  useEffect(() => {
+    const onVisible = () => {
+      if (
+        viewActive &&
+        document.visibilityState === "visible" &&
+        viewedSignature &&
+        lastViewedSignature.current !== viewedSignature
+      ) consumeViewedAttempt();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [consumeViewedAttempt, viewActive, viewedSignature]);
 
   // Channel tags are decided by the timeline primitive itself: it tags bubbles
   // only when the thread actually spans more than one channel, so a plain email

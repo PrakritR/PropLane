@@ -1,4 +1,5 @@
 import { smsNoticeMembers, storedSmsNoticeIdentity, updateSmsNoticeMailboxState } from "@/lib/sms-inbox-state.server";
+import { portalInboxReadObservation, type PortalInboxReadRecord } from "@/lib/portal-inbox-read-state.server";
 import { NextResponse } from "next/server";
 import { viewerAndLinkedOwnerIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import { buildPortalInboxThreadUpsert } from "@/lib/portal-inbox-thread-upsert";
@@ -21,10 +22,16 @@ import {
 export const runtime = "nodejs";
 
 function normalizeInboxRow(row: Record<string, unknown>): PersistedInboxThread {
+  const {
+    readSources: _readSources,
+    readSourcesComplete: _readSourcesComplete,
+    smsBindingKeys: _smsBindingKeys,
+    ...stored
+  } = row;
   return {
-    ...row,
-    id: String(row.id ?? "").trim(),
-    email: String(row.email ?? row.participantEmail ?? row.participant_email ?? "").trim().toLowerCase(),
+    ...stored,
+    id: String(stored.id ?? "").trim(),
+    email: String(stored.email ?? stored.participantEmail ?? stored.participant_email ?? "").trim().toLowerCase(),
   } as PersistedInboxThread;
 }
 
@@ -63,7 +70,7 @@ export async function GET(request: Request) {
 
     let query = ctx.db
       .from("portal_inbox_thread_records")
-      .select("id, row_data, updated_at, owner_user_id, thread_type")
+      .select("id, scope, row_data, updated_at, owner_user_id, participant_email, thread_type")
       .order("updated_at", { ascending: false })
       .limit(500);
 
@@ -83,10 +90,10 @@ export async function GET(request: Request) {
     const { data, error } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    const records = (Array.isArray(data) ? data : []) as { id: string; row_data: unknown; updated_at: string; owner_user_id: string; thread_type: string }[];
+    const records = (Array.isArray(data) ? data : []) as PortalInboxReadRecord[];
     const rows = records.map((record) => {
       const row = (record.row_data && typeof record.row_data === "object" ? record.row_data : record) as Record<string, unknown>;
-      return normalizeInboxRow({ ...row, id: record.id, ownerUserId: record.owner_user_id, threadType: record.thread_type });
+      return { ...normalizeInboxRow({ ...row, id: record.id, ownerUserId: record.owner_user_id, threadType: record.thread_type }), readSources: [{ id: record.id, observation: portalInboxReadObservation(record), unread: row?.unread === true }], readSourcesComplete: true };
     });
 
     const collapsed =
@@ -111,13 +118,14 @@ export async function GET(request: Request) {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as {
-      action?: "upsert" | "delete" | "deleteIds" | "replace" | "changeFolder";
+      action?: "upsert" | "delete" | "deleteIds" | "replace" | "changeFolder" | "markRead";
       scope?: string;
       folderAction?: "archive" | "restore";
       id?: string;
       ids?: unknown[];
       row?: Record<string, unknown>;
       rows?: Record<string, unknown>[];
+      sources?: { id?: unknown; observation?: unknown }[];
     };
 
     const scopeKey = String(
@@ -125,11 +133,66 @@ export async function POST(req: Request) {
         ? (body.rows?.[0]?.scope ?? "")
         : body.action === "upsert"
           ? (body.row?.scope ?? "")
-          : body.action === "changeFolder" ? body.scope : "",
+          : body.action === "changeFolder" || body.action === "markRead" ? body.scope : "",
     ).trim();
 
     const ctx = await resolveInboxScopeUser(scopeKey);
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+
+    if (body.action === "markRead") {
+      if (scopeKey !== MANAGER_INBOX_SCOPE) return NextResponse.json({ error: "Unsupported scope." }, { status: 400 });
+      const sources = Array.isArray(body.sources) ? body.sources : [];
+      if (sources.length === 0 || sources.length > 500) return NextResponse.json({ error: "Choose up to 500 sources." }, { status: 400 });
+      const requested = new Map<string, string>();
+      for (const source of sources) {
+        const id = typeof source.id === "string" ? source.id.trim() : "";
+        const observation = typeof source.observation === "string" ? source.observation.trim() : "";
+        if (!id || !observation || id.length > 200 || observation.length > 128 || requested.has(id)) return NextResponse.json({ error: "Invalid sources." }, { status: 400 });
+        requested.set(id, observation);
+      }
+      const ids = [...requested.keys()];
+      const extraOwnerIds = await viewerAndLinkedOwnerIdsForModule(ctx.db, ctx.user.id, "inbox", "edit");
+      let query = ctx.db.from("portal_inbox_thread_records").select("id, scope, row_data, updated_at, owner_user_id, participant_email, thread_type").in("id", ids);
+      query = applyPortalInboxThreadScope(query, ctx.user, extraOwnerIds) as typeof query;
+      const { data, error } = await query;
+      if (error) throw error;
+      const records = (Array.isArray(data) ? data : []) as PortalInboxReadRecord[];
+      if (records.length !== ids.length || records.some((record) => record.scope !== scopeKey)) return NextResponse.json({ error: "Record not found." }, { status: 404 });
+      const results = [] as { id: string; status: "read" | "alreadyRead" | "changed" | "archived" | "failed"; unread: boolean }[];
+      let failed = false;
+      for (const initialRecord of records) {
+        try {
+          let record = initialRecord;
+          let row = record.row_data as Record<string, unknown>;
+          if (row?.folder === "trash") { results.push({ id: record.id, status: "archived", unread: false }); continue; }
+          if (row?.unread !== true) { results.push({ id: record.id, status: "alreadyRead", unread: false }); continue; }
+          if (portalInboxReadObservation(record) !== requested.get(record.id)) { results.push({ id: record.id, status: "changed", unread: row?.unread === true }); continue; }
+          let changed = false;
+          for (let attempt = 0; attempt < 2 && !changed; attempt += 1) {
+            const result = await ctx.db.rpc("mark_portal_inbox_source_read", { p_id: record.id, p_scope: record.scope, p_owner_user_id: record.owner_user_id, p_participant_email: record.participant_email, p_thread_type: record.thread_type, p_updated_at: record.updated_at, p_row_data: record.row_data });
+            if (result.error) throw result.error;
+            changed = result.data === true;
+            if (changed || attempt === 1) break;
+            let retryQuery = ctx.db.from("portal_inbox_thread_records").select("id, scope, row_data, updated_at, owner_user_id, participant_email, thread_type").eq("id", record.id).eq("scope", scopeKey);
+            retryQuery = applyPortalInboxThreadScope(retryQuery, ctx.user, extraOwnerIds) as typeof retryQuery;
+            const { data: retryData, error: retryError } = await retryQuery.maybeSingle();
+            if (retryError) throw retryError;
+            if (!retryData) { results.push({ id: record.id, status: "changed", unread: true }); break; }
+            record = retryData as PortalInboxReadRecord;
+            row = record.row_data as Record<string, unknown>;
+            if (row?.folder === "trash") { results.push({ id: record.id, status: "archived", unread: false }); break; }
+            if (row?.unread !== true) { results.push({ id: record.id, status: "alreadyRead", unread: false }); break; }
+            if (portalInboxReadObservation(record) !== requested.get(record.id)) { results.push({ id: record.id, status: "changed", unread: true }); break; }
+          }
+          if (!results.some((result) => result.id === record.id)) results.push({ id: record.id, status: changed ? "read" : "changed", unread: !changed });
+        } catch {
+          failed = true;
+          const row = initialRecord.row_data as Record<string, unknown>;
+          results.push({ id: initialRecord.id, status: "failed", unread: row?.unread === true });
+        }
+      }
+      return NextResponse.json({ ok: !failed, results }, { status: failed ? 500 : 200 });
+    }
 
     if (body.action === "changeFolder") {
       const ids = [...new Set((Array.isArray(body.ids) ? body.ids : []).map(String).map((id) => id.trim()).filter(Boolean))];

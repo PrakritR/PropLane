@@ -88,6 +88,23 @@ export type PersistedInboxThread = {
   ownerUserId?: string;
   smsNoticePhone?: string;
   sourceThreadIds?: string[];
+  /** Response-only server observations for metadata-only viewed acknowledgements. */
+  readSources?: {
+    id: string;
+    observation: string;
+    /** Confirmed unread truth from the exact GET observation. */
+    unread?: boolean;
+    /** A client-only, operation-owned overlay. It never becomes confirmed truth. */
+    optimistic?: { token: string; unread: boolean };
+  }[];
+  /** True only when every folded member supplied one non-conflicting GET observation. */
+  readSourcesComplete?: boolean;
+  /**
+   * Exact native bindings declared by the authorized email source records.
+   * This is response-only provenance: an empty/absent value means no source
+   * declared a binding, while one or more keys prohibit email fallback.
+   */
+  smsBindingKeys?: string[];
 };
 
 export const MANAGER_INBOX_STORAGE_KEY = "axis_portal_inbox_manager_v1";
@@ -231,6 +248,12 @@ function looksLikeThread(row: unknown): row is PersistedInboxThread {
  * load boundary so existing accounts keep their threads after a refresh.
  */
 export function normalizePersistedInboxThread(thread: PersistedInboxThread): PersistedInboxThread {
+  const smsBindingKeys = [...new Set(
+    [...(Array.isArray(thread.smsBindingKeys) ? thread.smsBindingKeys : []), thread.smsConversationKey ?? ""]
+      .filter((key): key is string => typeof key === "string")
+      .map((key) => key.trim())
+      .filter(Boolean),
+  )];
   return {
     ...thread,
     from: trimmedText(thread.from) || String(thread.from ?? ""),
@@ -239,6 +262,7 @@ export function normalizePersistedInboxThread(thread: PersistedInboxThread): Per
     preview: trimmedText(thread.preview),
     body: typeof thread.body === "string" ? thread.body : String(thread.body ?? ""),
     time: trimmedText(thread.time) || String(thread.time ?? ""),
+    ...(smsBindingKeys.length > 0 ? { smsBindingKeys } : {}),
   };
 }
 
@@ -407,6 +431,15 @@ async function postInboxRows(
   key: string,
   rows: PersistedInboxThread[],
 ): Promise<boolean> {
+  const serialize = (thread: PersistedInboxThread) => {
+    const {
+      readSources: _readSources,
+      readSourcesComplete: _readSourcesComplete,
+      smsBindingKeys: _smsBindingKeys,
+      ...stored
+    } = thread;
+    return { ...stored, scope: key };
+  };
   // Demo sandbox is local-only: pretend the server write succeeded.
   if (isDemoModeActive()) return true;
   try {
@@ -416,8 +449,8 @@ async function postInboxRows(
       credentials: "include",
       body: JSON.stringify(
         action === "replace"
-          ? { action, rows: rows.map((thread) => ({ ...thread, scope: key })) }
-          : { action, row: { ...rows[0]!, scope: key } },
+          ? { action, rows: rows.map(serialize) }
+          : { action, row: serialize(rows[0]!) },
       ),
     });
     if (!res.ok) return false;
@@ -510,11 +543,20 @@ export function persistInbox(key: string, threads: PersistedInboxThread[]): void
       const deleted = await deleteInboxThreadIds(removedIds);
       if (!deleted) return;
     }
+    const storedRows = threads.map((thread) => {
+      const {
+        readSources: _readSources,
+        readSourcesComplete: _readSourcesComplete,
+        smsBindingKeys: _smsBindingKeys,
+        ...stored
+      } = thread;
+      return { ...stored, scope: key };
+    });
     await fetch("/api/portal-inbox-threads", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ action: "replace", rows: threads.map((thread) => ({ ...thread, scope: key })) }),
+      body: JSON.stringify({ action: "replace", rows: storedRows }),
     }).catch(() => undefined);
   })();
 }
@@ -914,7 +956,7 @@ export function collapsePersonInboxThreads(
       continue;
     }
     const last = ordered[ordered.length - 1]!;
-    const smsBindings = [...new Set(group.map((thread) => thread.smsConversationKey?.trim()).filter((key): key is string => Boolean(key)))];
+    const smsBindings = mergeInboxSmsBindingKeys(group);
     const canonicalRootId = `${canonical.id}-root`;
     const messages = ordered.slice(1).map((m) =>
       m.id === canonicalRootId ? { ...m, id: `merged:${m.id}` } : m,
@@ -922,7 +964,9 @@ export function collapsePersonInboxThreads(
     merged.push({
       ...canonical,
       sourceThreadIds: [...new Set(group.flatMap((t) => t.sourceThreadIds ?? [t.id]))],
+      ...mergeInboxReadSourceState(group),
       body: first.body,
+      attachments: first.attachments,
       rootAt: first.at,
       rootOutbound: first.outbound === true,
       from: first.from,
@@ -931,9 +975,159 @@ export function collapsePersonInboxThreads(
       messages,
       unread: group.some((t) => t.unread),
       ...(smsBindings.length === 1 ? { smsConversationKey: smsBindings[0] } : { smsConversationKey: undefined }),
+      ...(smsBindings.length > 0 ? { smsBindingKeys: smsBindings } : {}),
     });
   }
   return merged;
+}
+
+export async function markPersistedInboxSourcesRead(
+  key: string,
+  sources: { id: string; observation: string }[],
+): Promise<{ id: string; status: "read" | "alreadyRead" | "changed" | "archived" | "failed"; unread: boolean }[] | null> {
+  if (!canUse() || key !== MANAGER_INBOX_STORAGE_KEY || sources.length === 0) return null;
+  const response = await fetch("/api/portal-inbox-threads", {
+    method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "markRead", scope: key, sources }),
+  });
+  const body = await response.json().catch(() => null) as { results?: { id: string; status: "read" | "alreadyRead" | "changed" | "archived" | "failed"; unread: boolean }[] } | null;
+  const results = body?.results;
+  const requested = new Set(sources.map((source) => source.id));
+  const validStatuses = new Set(["read", "alreadyRead", "changed", "archived", "failed"]);
+  if (
+    !Array.isArray(results) ||
+    results.length !== requested.size ||
+    results.some((result) =>
+      !result ||
+      typeof result.id !== "string" ||
+      !requested.has(result.id) ||
+      !validStatuses.has(result.status) ||
+      typeof result.unread !== "boolean",
+    ) ||
+    new Set(results.map((result) => result.id)).size !== requested.size
+  ) return null;
+  return results;
+}
+
+/** Patch unread metadata only while the exact GET observations are still current. */
+export function reconcileObservedInboxReadRows(
+  rows: PersistedInboxThread[],
+  sources: { id: string; observation: string }[],
+  unreadById: ReadonlyMap<string, boolean>,
+  opts?: { phase?: "optimistic" | "settled"; token?: string; settled?: "confirmed" | "withdraw" },
+): PersistedInboxThread[] {
+  const exact = new Map(sources.map((source) => [source.id, source.observation]));
+  const sourceIds = new Set(exact.keys());
+  const targetEmails = new Set(
+    rows
+      .filter((thread) => (thread.readSources ?? []).some((source) => sourceIds.has(source.id)))
+      .map((thread) => thread.email.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const groupIsComplete = new Map<string, boolean>();
+  for (const email of targetEmails) {
+    const members = rows.filter((thread) => thread.email.trim().toLowerCase() === email && thread.folder !== "trash");
+    groupIsComplete.set(email, members.length > 0 && members.every((thread) => {
+      const currentSources = thread.readSources ?? [];
+      return thread.readSourcesComplete === true && currentSources.length > 0 && currentSources.every((source) =>
+        exact.get(source.id) === source.observation &&
+        (opts?.phase === "settled" || unreadById.has(source.id)),
+      );
+    }));
+  }
+  return rows.map((thread) => {
+    if (thread.folder === "trash") return thread;
+    const email = thread.email.trim().toLowerCase();
+    if (!targetEmails.has(email) || groupIsComplete.get(email) !== true) return thread;
+    const currentSources = thread.readSources ?? [];
+    // A collapsed row is an aggregate. An old operation may settle it only
+    // while every current source is still exactly represented. Confirmed
+    // updates still require an explicit result; an unknown outcome only
+    // withdraws its own overlay. Legacy or conflicting metadata deliberately
+    // leaves the row untouched rather than guessing that unseen content is read.
+    if (thread.readSourcesComplete !== true || currentSources.length === 0 || currentSources.some((source) =>
+      exact.get(source.id) !== source.observation ||
+      (opts?.phase !== "settled" && !unreadById.has(source.id)),
+    )) return thread;
+    const nextSources = currentSources.map((source) => {
+      if (opts?.phase === "optimistic") {
+        const unread = unreadById.get(source.id)!;
+        const optimistic = source.optimistic;
+        if (optimistic && optimistic.token === opts.token && optimistic.unread === unread) return source;
+        return { ...source, optimistic: { token: opts?.token ?? "", unread } };
+      }
+      if (opts?.settled === "withdraw") {
+        // A rejected, missing, or malformed outcome has no authority to alter
+        // server truth. It can only remove the overlay this operation owns.
+        if (source.optimistic?.token !== opts.token) return source;
+        const next = { ...source };
+        delete next.optimistic;
+        return next;
+      }
+      if (!unreadById.has(source.id)) return source;
+      const unread = unreadById.get(source.id)!;
+      const next = { ...source, unread };
+      // A settled operation may withdraw only its own overlay. A later
+      // operation remains visually authoritative until it settles.
+      if (next.optimistic?.token === opts?.token) delete next.optimistic;
+      return next;
+    });
+    const unread = nextSources.some((source) => source.optimistic?.unread ?? source.unread === true);
+    const sourcesChanged = nextSources.some((source, index) => source !== currentSources[index]);
+    return thread.unread === unread && !sourcesChanged
+      ? thread
+      : { ...thread, readSources: nextSources, unread };
+  });
+}
+
+/** Union GET-only observations. Any duplicate disagreement is unsafe to acknowledge. */
+export function mergeInboxReadSources(
+  sources: NonNullable<PersistedInboxThread["readSources"]>,
+): NonNullable<PersistedInboxThread["readSources"]> {
+  const byId = new Map<string, Omit<NonNullable<PersistedInboxThread["readSources"]>[number], "id">>();
+  for (const source of sources) {
+    const previous = byId.get(source.id);
+    if (
+      previous &&
+      (previous.observation !== source.observation ||
+        (previous.unread !== undefined && source.unread !== undefined && previous.unread !== source.unread))
+    ) return [];
+    byId.set(source.id, {
+      observation: source.observation,
+      unread: previous?.unread ?? source.unread,
+      // Overlays are local to a rendered row. A collapse must not let an
+      // arbitrary canonical row lend one to another source.
+      ...(previous?.optimistic ? { optimistic: previous.optimistic } : source.optimistic ? { optimistic: source.optimistic } : {}),
+    });
+  }
+  return [...byId].map(([id, source]) => ({ id, ...source }));
+}
+
+function mergeInboxReadSourceState(threads: PersistedInboxThread[]): Pick<PersistedInboxThread, "readSources" | "readSourcesComplete"> {
+  // A missing marker is an old or partial projection. It must wait for a fresh
+  // GET instead of being acknowledged from an observation subset.
+  if (threads.some((thread) => thread.readSourcesComplete !== true || !(thread.readSources?.length))) {
+    return { readSources: [], readSourcesComplete: false };
+  }
+  const readSources = mergeInboxReadSources(threads.flatMap((thread) => thread.readSources ?? []));
+  return { readSources, readSourcesComplete: readSources.length > 0 };
+}
+
+/**
+ * Bindings are provenance from actual selected email records. Never derive one
+ * from a historical source id, a contact, or an SMS payload. A multi-key set is
+ * intentionally retained so the reader can resolve each exact native member
+ * without treating a conflict as permission for email fallback.
+ */
+function mergeInboxSmsBindingKeys(threads: PersistedInboxThread[]): string[] {
+  return [...new Set(
+    threads.flatMap((thread) => [
+      ...(thread.smsBindingKeys ?? []),
+      thread.smsConversationKey ?? "",
+    ])
+      .map((key) => key.trim())
+      .filter(Boolean),
+  )];
 }
 
 function applyInboxCollapseForScope(key: string, rows: PersistedInboxThread[]): PersistedInboxThread[] {
@@ -1018,9 +1212,17 @@ export function collapseAssistantInboxThreads(threads: PersistedInboxThread[]): 
     merged.push({
       ...canonical,
       boundManagerUserId,
+      sourceThreadIds: [...new Set(group.flatMap((thread) => thread.sourceThreadIds ?? [thread.id]))],
+      ...mergeInboxReadSourceState(group),
+      ...(mergeInboxSmsBindingKeys(group).length > 0
+        ? { smsBindingKeys: mergeInboxSmsBindingKeys(group) }
+        : {}),
       unread: group.some((thread) => thread.folder === "inbox" && thread.unread),
       body: first?.body ?? canonical.body,
       from: first?.from ?? canonical.from,
+      rootAt: first?.at ?? canonical.rootAt,
+      rootOutbound: first?.outbound ?? canonical.rootOutbound,
+      attachments: first ? first.attachments : canonical.attachments,
       preview: (last?.body ?? canonical.preview).slice(0, 100).replace(/\n/g, " "),
       time: canonical.time,
       messages,
