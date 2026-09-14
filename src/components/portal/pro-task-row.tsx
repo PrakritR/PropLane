@@ -106,9 +106,26 @@ export function TaskPriorityChip({ priority }: { priority?: ManagerTaskPriority 
   );
 }
 
-/** The desktop grid every row and the header share. */
+/**
+ * The desktop grid every row and the header share.
+ *
+ * Every cell places itself explicitly (`md:[grid-column:N]`) rather than
+ * relying on source order. `RowSelectCheckbox` turns into the trailing `⋯`
+ * record menu whenever a `RecordActionContext` is present, and that menu
+ * carries `order-last` — under auto-placement that vacated column 1, so the
+ * title dropped into the 28px select column ("Lu…") and every other cell slid
+ * one column left of its own header. Explicit columns make the row immune to
+ * whatever order the control decides it wants.
+ */
 export const TASK_ROW_GRID =
-  "md:grid md:grid-cols-[28px_minmax(0,1fr)_minmax(0,150px)_minmax(0,150px)_112px_84px] md:items-center md:gap-x-3";
+  "md:grid md:grid-cols-[minmax(0,1fr)_minmax(0,150px)_minmax(0,150px)_112px_84px_44px] md:items-center md:gap-x-3";
+
+const TASK_COL_TITLE = "md:[grid-column:1]";
+const TASK_COL_PROPERTY = "md:[grid-column:2]";
+const TASK_COL_ASSIGNEE = "md:[grid-column:3]";
+const TASK_COL_DUE = "md:[grid-column:4]";
+const TASK_COL_PRIORITY = "md:[grid-column:5]";
+const TASK_COL_CONTROL = "md:[grid-column:6]";
 
 export function TaskTableHeader() {
   return (
@@ -116,12 +133,12 @@ export function TaskTableHeader() {
       className={cn("hidden px-3 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted/70", TASK_ROW_GRID)}
       aria-hidden
     >
-      <span />
-      <span>Task</span>
-      <span>Property</span>
-      <span>Assignee</span>
-      <span>Due</span>
-      <span>Priority</span>
+      <span className={TASK_COL_TITLE}>Task</span>
+      <span className={TASK_COL_PROPERTY}>Property</span>
+      <span className={TASK_COL_ASSIGNEE}>Assignee</span>
+      <span className={TASK_COL_DUE}>Due</span>
+      <span className={TASK_COL_PRIORITY}>Priority</span>
+      <span className={TASK_COL_CONTROL} />
     </div>
   );
 }
@@ -174,15 +191,19 @@ export function TaskTableRow({
     >
       {onSelectedChange ? (
         <RowSelectCheckbox
-          wrapperClassName="mr-0 self-center"
+          wrapperClassName={cn("mr-0 self-center", TASK_COL_CONTROL)}
           checked={checked}
           onChange={(e) => onSelectedChange(e.target.checked)}
           aria-label={`Select ${task.title}`}
         />
       ) : (
-        <span className="hidden md:block" />
+        <span className={cn("hidden md:block", TASK_COL_CONTROL)} />
       )}
-      <button type="button" onClick={onOpen} className="flex min-h-9 min-w-0 flex-1 flex-col justify-center text-left md:min-w-0">
+      <button
+        type="button"
+        onClick={onOpen}
+        className={cn("flex min-h-9 min-w-0 flex-1 flex-col justify-center text-left md:min-w-0", TASK_COL_TITLE)}
+      >
         <span className="flex min-w-0 items-center gap-1">
           <span className={cn("truncate text-[14px] font-semibold text-foreground", task.completed && "text-muted line-through")}>
             {task.title}
@@ -200,12 +221,14 @@ export function TaskTableRow({
           </span>
         ) : null}
       </button>
-      <span className="hidden min-w-0 truncate text-[13px] text-foreground md:block">{propertyLabel || "—"}</span>
-      <span className="hidden min-w-0 md:block">{assignee}</span>
-      <span className="ml-auto shrink-0 self-center md:ml-0">
+      <span className={cn("hidden min-w-0 truncate text-[13px] text-foreground md:block", TASK_COL_PROPERTY)}>
+        {propertyLabel || "—"}
+      </span>
+      <span className={cn("hidden min-w-0 md:block", TASK_COL_ASSIGNEE)}>{assignee}</span>
+      <span className={cn("ml-auto shrink-0 self-center md:ml-0", TASK_COL_DUE)}>
         <TaskDueChip task={task} nowMs={nowMs} />
       </span>
-      <span className="hidden md:block">
+      <span className={cn("hidden md:block", TASK_COL_PRIORITY)}>
         <TaskPriorityChip priority={task.priority} />
       </span>
     </div>
