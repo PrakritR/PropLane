@@ -494,7 +494,7 @@ export function ManagerPaymentsLedgerPanel({
     setEditNightsDraft("");
   };
 
-  const saveEdit = (row: DemoManagerPaymentLedgerRow) => {
+  const saveEdit = async (row: DemoManagerPaymentLedgerRow) => {
     if (!row.householdChargeId) return;
     let amt = parseFloat(editAmountDraft.replace(/[^\d.]/g, ""));
     if (!Number.isFinite(amt) || amt < 0) {
@@ -521,33 +521,57 @@ export function ManagerPaymentsLedgerPanel({
       showToast("Enter a valid due date.");
       return;
     }
-    if (updateHouseholdChargeAmount(row.householdChargeId, amt, managerUserId, title, dueLabel, chargeScopeOpts)) {
-      const email = row.residentEmail?.trim();
-      if (email) {
-        if (isStayTotalRow(row) && title) {
-          const parsed = parseShortTermStayChargeTitle(title);
-          if (parsed) {
-            const leases = syncResidentAfterStayPaymentEdit({
-              residentEmail: email,
-              managerUserId,
-              nights: parsed.nights,
-              nightlyRate: parsed.nightlyRate,
-            });
-            showToast(leases > 0 ? "Payment and lease updated." : "Payment updated.");
-          } else {
-            void syncResidentBillingAndLeases({ residentEmail: email, managerUserId });
-            showToast("Payment updated.");
-          }
+    const handle = updateHouseholdChargeAmount(
+      row.householdChargeId,
+      amt,
+      managerUserId,
+      title,
+      dueLabel,
+      chargeScopeOpts,
+    );
+    if (!handle) {
+      // Previously this branch did nothing at all: no toast, and the editor closed
+      // as though the edit had been accepted.
+      showToast("Could not update this payment.");
+      return;
+    }
+
+    const email = row.residentEmail?.trim();
+    let successMessage = "Payment updated.";
+    if (email) {
+      if (isStayTotalRow(row) && title) {
+        const parsed = parseShortTermStayChargeTitle(title);
+        if (parsed) {
+          const leases = syncResidentAfterStayPaymentEdit({
+            residentEmail: email,
+            managerUserId,
+            nights: parsed.nights,
+            nightlyRate: parsed.nightlyRate,
+          });
+          if (leases > 0) successMessage = "Payment and lease updated.";
         } else {
           void syncResidentBillingAndLeases({ residentEmail: email, managerUserId });
-          showToast("Payment updated.");
         }
       } else {
-        showToast("Payment updated.");
+        void syncResidentBillingAndLeases({ residentEmail: email, managerUserId });
       }
+    }
+    onRowsChanged?.();
+    onScheduleChanged?.();
+
+    // Wait for the SERVER, not the browser. Reporting success off the local write
+    // is what let a refused save read as "Payment updated." and then revert.
+    const outcome = await handle.confirmed;
+    if (outcome === "failed") {
+      // The amount has been rolled back to what the server still holds; keep the
+      // editor open with the typed figure so the manager can retry without
+      // re-entering it.
+      showToast("Could not save that amount — nothing was changed. Check your connection and try again.");
       onRowsChanged?.();
       onScheduleChanged?.();
+      return;
     }
+    showToast(successMessage);
     cancelEdit();
   };
 

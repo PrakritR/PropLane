@@ -196,6 +196,12 @@ export type HouseholdCharge = {
    *  each custom fee its own charge identity so several custom fees — and a monthly custom
    *  fee across months — never collapse onto the single `other_cost|applicationId` key. */
   customFeeId?: string;
+  /** ISO timestamp of a manager hand-editing this charge's amount in Payments.
+   *  Regeneration rebuilds pending rent/utilities from current listing terms, which
+   *  silently threw away the number the manager had just typed. A charge carrying
+   *  this marker is kept as-is by that rebuild — the manager's own figure outranks
+   *  the listing's, which is the whole point of the field being editable. */
+  manualAmountOverrideAt?: string;
   dueDay?: number;
   /** When set, dueDay is computed per month (1st vs last day). */
   dueDayMode?: RentDueDayMode;
@@ -3918,6 +3924,10 @@ export function recordApprovedApplicationCharges(
     if (
       (charge.kind === "rent" || charge.kind === "utilities") &&
       charge.status === "pending" &&
+      // A figure the manager typed by hand outranks the listing's. Without this the
+      // rebuild below re-derived rent from listing terms and threw the edit away
+      // seconds after the manager was told "Payment updated."
+      !charge.manualAmountOverrideAt &&
       charge.residentEmail.trim().toLowerCase() === emailLowerForFilter &&
       charge.propertyId === propertyId
     ) return false;
@@ -4450,6 +4460,69 @@ export function recordLegacyApplicationSigningCharges(
  * Manager-editable override of a charge's amount, title, and due date.
  * Only updates if the charge belongs to this manager and is still pending.
  */
+/**
+ * What happened to the manager's edit once the browser accepted it.
+ *
+ * `local-only` is NOT a failure: a demo session, a resident session, and a
+ * non-browser caller all deliberately skip the server write, and reporting those
+ * as errors would cry wolf on every demo. Only `failed` means the server was
+ * asked and said no.
+ */
+export type HouseholdChargeWriteOutcome = "saved" | "local-only" | "failed";
+
+export interface HouseholdChargeWriteHandle {
+  /** Resolves once the server has actually answered. */
+  confirmed: Promise<HouseholdChargeWriteOutcome>;
+}
+
+/** True when this session would really attempt the server write. */
+function householdServerWriteAttempted(): boolean {
+  return isBrowser() && !isDemoModeActive() && !householdWritesForbidden();
+}
+
+/**
+ * Push one edited charge to the server and report what the server said.
+ *
+ * On refusal the browser copy is rolled back to `previous`. Leaving the typed
+ * number in place instead is what produced the original defect: the row read
+ * correct until the next server-authoritative read quietly reverted it, so the
+ * manager saw a save that "did not update" with no error anywhere.
+ */
+async function confirmHouseholdChargeWrite(
+  updated: HouseholdCharge,
+  previous: HouseholdCharge,
+): Promise<HouseholdChargeWriteOutcome> {
+  if (!householdServerWriteAttempted()) return "local-only";
+  let ok = false;
+  try {
+    ok = await postHouseholdPayloadAwait({
+      action: "replace",
+      charges: [updated],
+      rentProfiles: readRentProfiles(),
+    });
+  } catch {
+    ok = false;
+  }
+  if (ok) return "saved";
+  const rows = readAll();
+  const i = rows.findIndex((r) => r.id === previous.id);
+  if (i !== -1) {
+    const reverted = [...rows];
+    reverted[i] = previous;
+    writeAll(reverted);
+  }
+  return "failed";
+}
+
+/**
+ * Edit a charge's amount (and optionally its title and due date).
+ *
+ * Returns `null` when nothing was written — an invalid amount, or a charge this
+ * manager cannot see — so `if (updateHouseholdChargeAmount(...))` still reads as
+ * "did the edit apply". A caller that needs to tell the manager the truth awaits
+ * the returned `confirmed` promise rather than treating the local write as proof
+ * the server agreed.
+ */
 export function updateHouseholdChargeAmount(
   chargeId: string,
   newAmount: number,
@@ -4457,30 +4530,27 @@ export function updateHouseholdChargeAmount(
   newTitle?: string,
   newDueDateLabel?: string,
   opts?: ChargeManagerScopeOpts,
-): boolean {
-  if (!isBrowser() || !Number.isFinite(newAmount) || newAmount < 0) return false;
+): HouseholdChargeWriteHandle | null {
+  if (!isBrowser() || !Number.isFinite(newAmount) || newAmount < 0) return null;
   const rows = readAll();
   const i = rows.findIndex((r) => r.id === chargeId && chargeVisibleToManager(r, managerUserId, opts));
-  if (i === -1) return false;
+  if (i === -1) return null;
   const label = `$${newAmount.toFixed(2)}`;
+  const previous = rows[i]!;
   const next = [...rows];
   const updated: HouseholdCharge = {
-    ...next[i]!,
+    ...previous,
     amountLabel: label,
-    balanceLabel: next[i]!.status === "paid" ? "$0.00" : label,
+    balanceLabel: previous.status === "paid" ? "$0.00" : label,
+    // The manager typed this figure. Mark it so a later regeneration from listing
+    // terms keeps it instead of overwriting it (see recordApprovedApplicationCharges).
+    manualAmountOverrideAt: new Date().toISOString(),
     ...(newTitle?.trim() ? { title: newTitle.trim() } : {}),
     ...(newDueDateLabel?.trim() ? { dueDateLabel: newDueDateLabel.trim() } : {}),
   };
   next[i] = updated;
   writeAll(next);
-  void postHouseholdPayloadAwait({
-    action: "replace",
-    charges: [updated],
-    rentProfiles: readRentProfiles(),
-  }).then((ok) => {
-    if (ok) emit();
-  });
-  return true;
+  return { confirmed: confirmHouseholdChargeWrite(updated, previous) };
 }
 
 /**
@@ -4667,11 +4737,13 @@ export function createManagerCharge(input: {
   });
   // Emit immediately so Pending updates even before the server upsert finishes.
   writeAll([...readAll(), charge], false);
+  // An un-caught rejection here (offline, DNS, aborted request) surfaced as an
+  // unhandled promise rejection rather than anything a caller could act on.
   void postHouseholdPayloadAwait({
     action: "replace",
     charges: [charge],
     rentProfiles: readRentProfiles(),
-  });
+  }).catch(() => false);
   return charge;
 }
 
@@ -4769,6 +4841,41 @@ function managerChargeStatusLabel(c: HouseholdCharge, bucket: ManagerPaymentBuck
   return bucket === "overdue" ? "Overdue" : "Pending";
 }
 
+/**
+ * A property's own title may be a SUMMARY — "4709A 8th Ave NE · 10 rooms" — which is
+ * fine over a house but wrong over one resident: nobody rents ten rooms. Strip the
+ * room-count tail so a payments row names the address, and let the room column carry
+ * the room the resident actually has.
+ */
+function propertyLabelWithoutRoomCount(label: string): string {
+  return label.replace(/\s*[·|,-]\s*\d+\s+rooms?\b\s*$/i, "").trim() || label.trim();
+}
+
+/**
+ * The room this charge's resident occupies at this property.
+ *
+ * The charge itself never stored one — the ledger row hardcoded "—", so the room was
+ * never shown at all. The recurring rent profile does carry it, keyed by the same
+ * resident and property, so resolve it from there rather than migrating every charge.
+ */
+function residentRoomLabelForCharge(c: HouseholdCharge): string {
+  const profiles = readRentProfiles();
+  const byId = c.recurringRentProfileId
+    ? profiles.find((profile) => profile.id === c.recurringRentProfileId)
+    : undefined;
+  const email = c.residentEmail.trim().toLowerCase();
+  const match =
+    byId ??
+    profiles.find(
+      (profile) =>
+        profile.residentEmail.trim().toLowerCase() === email && profile.propertyId === c.propertyId,
+    );
+  const label = match?.roomLabel?.trim();
+  // "Room" is the generic placeholder the profile falls back to; it tells a manager nothing.
+  if (!label || label.toLowerCase() === "room") return "—";
+  return label;
+}
+
 export function householdChargeToLedgerRow(c: HouseholdCharge): DemoManagerPaymentLedgerRow {
   const bucket = householdChargeManagerBucket(c);
   const settled = bucket === "paid";
@@ -4779,12 +4886,13 @@ export function householdChargeToLedgerRow(c: HouseholdCharge): DemoManagerPayme
     const resolved = getPropertyById(c.propertyId)?.title;
     if (resolved) propertyName = resolved;
   }
+  propertyName = propertyLabelWithoutRoomCount(propertyName);
   return {
     id: c.id,
     householdChargeId: c.id,
     propertyId: c.propertyId,
     propertyName,
-    roomNumber: "—",
+    roomNumber: residentRoomLabelForCharge(c),
     chargeKind: c.kind,
     residentName: c.residentName,
     residentEmail: c.residentEmail,
