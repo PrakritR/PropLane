@@ -26,7 +26,7 @@ export function SitePricingTeaser() {
         eyebrow="Pricing"
         id="site-pricing-title"
         title="Free for one home. $20 for two. $200 for twenty."
-        lede="No card to start. Pro and Business come with a 14-day trial, and a year up front is two months free."
+        lede="No card to start."
         align="center"
       />
       <div className="grid gap-4 md:grid-cols-3">
