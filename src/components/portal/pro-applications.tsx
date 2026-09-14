@@ -15,7 +15,7 @@ import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Settings2, Share2 } from "lucide-react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
@@ -43,7 +43,6 @@ import { ApplicationDetailReviewBody } from "@/components/portal/application-det
 import { downloadBackgroundCheckForApplication, ApplicationScreeningPanel } from "@/components/portal/application-screening-panel";
 import { ApplicationHoldingFeeToggle } from "@/components/portal/application-holding-fee-box";
 import { ManagerEditApplicationModal } from "@/components/portal/pro-edit-application-modal";
-import { ManagerApplicationOnBehalfModal } from "@/components/portal/pro-application-on-behalf-modal";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { CheckrScreeningModal } from "@/components/portal/checkr-screening-modal";
@@ -559,22 +558,12 @@ export function ManagerApplications({
     { row: DemoApplicantRow; to: string; subject: string; text: string } | null
   >(null);
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
-  const [addApplicationOpen, setAddApplicationOpen] = useState(false);
   const [applicationsFilterOpen, setApplicationsFilterOpen] = useState(false);
-  const openAddApplication = useCallback(() => {
-    armFilterSheetOpenSuppressFromOverlayDismiss();
-    setApplicationsFilterOpen(false);
-    setAddApplicationOpen(true);
-  }, []);
   const openSendApplicationInvite = useCallback(() => {
     armFilterSheetOpenSuppressFromOverlayDismiss();
     setApplicationsFilterOpen(false);
     setInviteModalOpen(true);
   }, []);
-  useEffect(() => {
-    if (!addApplicationOpen) return;
-    setApplicationsFilterOpen(false);
-  }, [addApplicationOpen]);
   const [editApplicationOpen, setEditApplicationOpen] = useState(false);
   const [screeningModalOpen, setScreeningModalOpen] = useState(false);
   const [applicationSettingsOpen, setApplicationSettingsOpen] = useState(false);
@@ -1859,19 +1848,6 @@ export function ManagerApplications({
         onSaved={() => setPortfolioTick((n) => n + 1)}
         showToast={showToast}
       />
-      {addApplicationOpen ? (
-        <ManagerApplicationOnBehalfModal
-          open={addApplicationOpen}
-          onClose={() => setAddApplicationOpen(false)}
-          managerUserId={userId}
-          basePath={basePath}
-          onSubmitted={() => {
-            void syncManagerApplicationsFromServer({ force: true, managerUserId: userId }).then(() =>
-              setRows(readManagerApplicationRows()),
-            );
-          }}
-        />
-      ) : null}
       {checkrScreeningModal}
     </>
   );
@@ -1975,17 +1951,6 @@ export function ManagerApplications({
       hideTitleOnMobileNav
       titleInlineFilter={null}
       compactFilterRow
-      primaryAction={
-        <Button
-          type="button"
-          className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
-          data-attr="applications-add-top"
-          disabled={propertyOptions.length === 0}
-          onClick={openAddApplication}
-        >
-          + Add application
-        </Button>
-      }
     >
       <PortalListControlStack
         className="mb-2 max-lg:mb-2"
