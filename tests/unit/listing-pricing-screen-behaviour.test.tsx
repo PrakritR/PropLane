@@ -193,7 +193,7 @@ describe("collected at signing", () => {
 });
 
 describe("a room with its own numbers can go back to the house numbers", () => {
-  it("offers Reset only once the row differs, and clears the row when pressed", () => {
+  it("offers ↺ on the one cell that differs, and clears only that field when pressed", () => {
     let latest: ManagerListingSubmissionV1 | null = null;
     render(<Editor onChange={(s) => (latest = s)} />);
     const nav = screen.getByRole("navigation", { name: "Listing sections" });
@@ -201,14 +201,20 @@ describe("a room with its own numbers can go back to the house numbers", () => {
       Array.from(nav.querySelectorAll("button")).find((b) => /rent|pricing|deposit/i.test(b.textContent ?? ""))!,
     );
 
-    expect(document.querySelectorAll('[data-attr="listing-v2-price-row-reset"]')).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: /Reset utilities for Room A/i })).toBeNull();
 
     fireEvent.change(screen.getByLabelText(/Room A utilities on/i), { target: { value: "0" } });
-    const resets = document.querySelectorAll('[data-attr="listing-v2-price-row-reset"]');
-    expect(resets.length).toBeGreaterThan(0);
+    // A cell only "differs" once the house has a number to differ from.
+    fireEvent.change(screen.getByLabelText("Deposit for every room"), { target: { value: "1000" } });
+    fireEvent.change(screen.getByLabelText(/Room A deposit on/i), { target: { value: "900" } });
+    const reset = screen.getByRole("button", { name: /Reset utilities for Room A/i });
 
-    fireEvent.click(resets[0] as HTMLElement);
+    fireEvent.click(reset);
     const roomA = (latest?.rooms ?? []).find((r) => r.id === "r1");
     expect(roomA?.utilitiesEstimate).toBe("");
+    // The deposit the manager typed in the cell next door is untouched.
+    expect(roomA?.securityDeposit).toBe("900");
+    expect(screen.queryByRole("button", { name: /Reset utilities for Room A/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /Reset deposit for Room A/i })).toBeTruthy();
   });
 });

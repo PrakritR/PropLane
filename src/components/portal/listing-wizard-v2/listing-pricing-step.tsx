@@ -29,7 +29,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Input, Select } from "@/components/ui/input";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
-import { Field, RowSelectCell } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { CellResetButton, Field, RowSelectCell } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { ManagerApplicationFeeWaiverCodesModal } from "@/components/portal/pro-application-fee-waiver-codes-modal";
 import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
 import {
@@ -113,7 +113,11 @@ const cell = (inherited: boolean, zero = false) =>
     !inherited && zero ? "border-primary font-semibold text-primary" : "",
   );
 
-/** A money cell: `$` prefix, inherited shows the value as a placeholder in an empty box. */
+/**
+ * A money cell: `$` prefix, inherited shows the value as a placeholder in an
+ * empty box. With `onReset`, a cell holding its own number carries the ↺ that
+ * empties just this field so it follows the row above again.
+ */
 function MoneyCell({
   value,
   inherited,
@@ -121,6 +125,8 @@ function MoneyCell({
   placeholder,
   label,
   onChange,
+  onReset,
+  resetLabel,
 }: {
   value: string;
   inherited: boolean;
@@ -128,7 +134,10 @@ function MoneyCell({
   placeholder: string;
   label: string;
   onChange: (raw: string) => void;
+  onReset?: () => void;
+  resetLabel?: string;
 }) {
+  const showReset = Boolean(onReset) && !inherited;
   return (
     <span className="relative min-w-0">
       <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[12.5px] text-muted">$</span>
@@ -140,10 +149,11 @@ function MoneyCell({
         value={inherited ? "" : value}
         placeholder={placeholder}
         onChange={(e) => onChange(sanitizeMoneyInput(e.target.value))}
-        className={cn(cell(inherited, num(value) === 0 && moneyFilled(value)), "pl-5 tabular-nums")}
+        className={cn(cell(inherited, num(value) === 0 && moneyFilled(value)), "pl-5 tabular-nums", showReset && "pr-8")}
         title={!inherited && moneyFilled(value) && num(value) === 0 ? "No charge — set deliberately, not inherited" : undefined}
       />
       {own ? <span aria-hidden className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full border-2 border-white bg-primary" /> : null}
+      {showReset ? <CellResetButton label={resetLabel ?? `Reset ${label} to the row above`} onClick={onReset!} className="right-2" /> : null}
     </span>
   );
 }
@@ -203,26 +213,19 @@ function writeTerm(
 }
 
 /**
- * Put one room back on the house numbers for this lease tab.
- *
- * Emptying a cell already re-inherits it, but nothing on the table said so — the
- * captain's "I cant reset some of the information to default". On long-term this
- * clears the room's own monthly fields; on any other tab it drops that tab's
- * override so the row follows long-term again.
+ * Put ONE of a room's long-term numbers back on the house — the ↺ in that
+ * cell. Emptying a cell already re-inherits it, but nothing on the table said
+ * so (the captain's "I cant reset some of the information to default"). On
+ * another lease tab the same ↺ goes through `writeTerm(…, "")`, which drops
+ * that tab's override so the cell follows long-term again.
  */
-function resetRoomToInherited(room: ManagerRoomSubmission, term: string): ManagerRoomSubmission {
-  if (!isBase(term)) {
-    const all = { ...(room.termPricing ?? {}) };
-    delete all[term];
-    return { ...room, termPricing: Object.keys(all).length > 0 ? all : undefined };
-  }
-  return {
-    ...room,
-    monthlyRent: 0,
-    utilitiesEstimate: "",
-    securityDeposit: undefined,
-    pricingMode: undefined,
-  };
+function resetRoomField(
+  room: ManagerRoomSubmission,
+  field: "monthlyRent" | "utilitiesEstimate" | "securityDeposit",
+): ManagerRoomSubmission {
+  if (field === "monthlyRent") return { ...room, monthlyRent: 0 };
+  if (field === "utilitiesEstimate") return { ...room, utilitiesEstimate: "" };
+  return { ...room, securityDeposit: undefined };
 }
 
 /* ─────────────────────── the room table ─────────────────────── */
@@ -323,25 +326,14 @@ function MonthlyTable({
           const util = termValue(room, term, "util", defaults);
           const dep = termValue(room, term, "deposit", defaults);
           const modeOwn = base ? !roomInheritsDefault(room, defaults, "pricingMode") : false;
-          /* Reset only appears where there is something to undo. */
-          const rowHasOwn = rent.src === "own" || util.src === "own" || dep.src === "own" || modeOwn;
+          /* Reset is per cell: each own number carries its own ↺ back to the row above. */
+          const resetOne = (field: "monthlyRent" | "utilitiesEstimate" | "securityDeposit") =>
+            onRoom(room.id, base ? resetRoomField(room, field) : writeTerm(room, term, field, ""));
           return (
             <div key={room.id} className="grid items-center gap-2 border-b border-border px-3 py-2 last:border-b-0" style={{ gridTemplateColumns: MONTHLY_COLUMNS }} data-attr="listing-v2-price-row">
               <span className="min-w-0 leading-tight">
                 <b className="block truncate text-[13.5px] font-bold text-foreground">{name}</b>
-                {rowHasOwn ? (
-                  <button
-                    type="button"
-                    data-attr="listing-v2-price-row-reset"
-                    aria-label={`Reset ${name} to the house numbers on ${term}`}
-                    onClick={() => onRoom(room.id, resetRoomToInherited(room, term))}
-                    className="mt-0.5 rounded-full border border-primary/40 px-2 py-0 text-[10.5px] font-bold text-primary hover:bg-primary/10"
-                  >
-                    Reset
-                  </button>
-                ) : (
-                  <span className="block truncate text-[11.5px] text-muted">{room.floor?.trim()}</span>
-                )}
+                <span className="block truncate text-[11.5px] text-muted">{room.floor?.trim()}</span>
               </span>
               <MoneyCell
                 label={`${name} rent on ${term}`}
@@ -350,6 +342,8 @@ function MonthlyTable({
                 own={rent.src === "own" && !base}
                 placeholder={rent.text || "1,100"}
                 onChange={(v) => onRoom(room.id, base ? { ...room, monthlyRent: num(v) } : writeTerm(room, term, "monthlyRent", v))}
+                onReset={() => resetOne("monthlyRent")}
+                resetLabel={`Reset rent for ${name} (${term}) to the row above`}
               />
               <MoneyCell
                 label={`${name} utilities on ${term}`}
@@ -358,6 +352,8 @@ function MonthlyTable({
                 own={util.src === "own"}
                 placeholder={moneyValue(util.text) || "150"}
                 onChange={(v) => onRoom(room.id, base ? { ...room, utilitiesEstimate: v } : writeTerm(room, term, "utilitiesEstimate", v))}
+                onReset={() => resetOne("utilitiesEstimate")}
+                resetLabel={`Reset utilities for ${name} (${term}) to the row above`}
               />
               <MoneyCell
                 label={`${name} deposit on ${term}`}
@@ -366,6 +362,8 @@ function MonthlyTable({
                 own={dep.src === "own"}
                 placeholder={moneyValue(dep.text) || "1,000"}
                 onChange={(v) => onRoom(room.id, base ? { ...room, securityDeposit: v } : writeTerm(room, term, "securityDeposit", v))}
+                onReset={() => resetOne("securityDeposit")}
+                resetLabel={`Reset deposit for ${name} (${term}) to the row above`}
               />
               <span className="relative min-w-0">
                 <RowSelectCell
@@ -375,6 +373,8 @@ function MonthlyTable({
                   inherited={!modeOwn}
                   disabled={!base}
                   onChange={(v) => onRoom(room.id, { ...room, pricingMode: v as ManagerRoomSubmission["pricingMode"] })}
+                  onReset={() => onRoom(room.id, { ...room, pricingMode: undefined })}
+                  resetLabel={`Reset listed rent for ${name} to every room`}
                 />
                 {modeOwn ? <span aria-hidden className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full border-2 border-white bg-primary" /> : null}
               </span>

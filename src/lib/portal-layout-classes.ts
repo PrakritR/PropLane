@@ -44,7 +44,7 @@ export const PORTAL_NATIVE_BOTTOM_NAV_INSET = "var(--portal-native-bottom-nav-in
  * surfaces; the old blue gradient + radial highlight fought every card edge.
  */
 export const PORTAL_MAIN_CONTENT_CLASS =
-  "relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-x-clip overflow-y-auto overscroll-contain px-3 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom,0px))] ps-[max(0.75rem,env(safe-area-inset-left,0px))] pe-[max(0.75rem,env(safe-area-inset-right,0px))] sm:px-5 sm:pt-4 sm:pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] lg:block lg:px-6 lg:pt-5 lg:pb-8 max-lg:pt-1 [html[data-native]_&]:overscroll-y-none [html[data-theme=dark]_&]:bg-[var(--portal-surface-dark)] [html[data-theme=light]_&]:bg-[var(--portal-canvas)]";
+  "relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-x-clip overflow-y-auto overscroll-contain px-3 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom,0px))] ps-[max(0.75rem,env(safe-area-inset-left,0px))] pe-[max(0.75rem,env(safe-area-inset-right,0px))] sm:px-5 sm:pt-4 sm:pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] lg:block lg:px-6 lg:pt-5 lg:pb-5 max-lg:pt-1 [html[data-native]_&]:overscroll-y-none [html[data-theme=dark]_&]:bg-[var(--portal-surface-dark)] [html[data-theme=light]_&]:bg-[var(--portal-canvas)]";
 
 /** Mobile + native: content-sized height so #portal-main-content scrolls the full page. Desktop: normal flow. */
 export const PORTAL_MAIN_CONTENT_INNER_CLASS =

@@ -9,7 +9,7 @@ import {
   type PortalMoreNavItem,
 } from "@/components/portal/portal-native-more-sheet";
 import { useCoManagerNavSections } from "@/hooks/use-co-manager-nav-sections";
-import { useIsSmallPortalViewport, useNativeChrome } from "@/hooks/use-is-native-app";
+import { useNativeChrome } from "@/hooks/use-is-native-app";
 import { usePortalNavCounts } from "@/hooks/use-portal-nav-counts";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { portalNavLockNavigable, portalNavSectionLocked } from "@/lib/portals/nav-locks";
@@ -271,11 +271,14 @@ export function PortalSidebar({
   const router = useRouter();
   const isClient = useIsClient();
   const showNativeChrome = useNativeChrome();
-  const isSmallViewport = useIsSmallPortalViewport();
-  // Native app OR a phone-width browser — same bottom-nav chrome in both; only
-  // the desktop (`lg:`) sidebar differs. Cross-portal full-navigation stays
-  // native-only below (a WebView-specific routing quirk, not a viewport one).
-  const showMobileNav = showNativeChrome || isSmallViewport;
+  // The fixed bottom tab bar is NATIVE-ONLY. A phone-width browser used to get
+  // the same bar (plus the content clearance reserved for it and for the Ask
+  // PropLane button), which covered the bottom ~140px of every portal page on
+  // the web; the captain wants nothing pinned to the bottom of the website.
+  // On the web a phone navigates with the section chip strip under the header
+  // (`.portal-mobile-chrome`), which scrolls away with the page. Cross-portal
+  // full-navigation stays native-only below (a WebView routing quirk).
+  const showMobileNav = showNativeChrome;
   const navigate = usePortalNavigate();
   const session = usePortalSession();
   const { sections: visibleSections, restrictedSections } = useCoManagerNavSections(

@@ -1075,9 +1075,47 @@ export function RowCell({
 }
 
 /**
+ * The ↺ inside a grid cell that holds its own value: one click puts THAT field
+ * back on the "Every …" row. Absolutely positioned so it sits inside the cell's
+ * box without being a child of the cell's own button (a button in a button is
+ * not HTML); the cell pads its right edge to keep text clear of it.
+ */
+export function CellResetButton({
+  label,
+  onClick,
+  className,
+  dataAttr = "listing-v2-cell-reset",
+}: {
+  label: string;
+  onClick: () => void;
+  className?: string;
+  dataAttr?: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title="Back to the top row"
+      data-attr={dataAttr}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className={cn(
+        "absolute top-1/2 z-[1] grid h-5 w-5 -translate-y-1/2 place-items-center rounded-full bg-primary/10 text-primary transition-colors hover:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+        className,
+      )}
+    >
+      <RotateCcw className="h-3 w-3" aria-hidden />
+    </button>
+  );
+}
+
+/**
  * A dropdown inside a grid row — floor, bathroom access, residents, pricing
  * mode. The PropLane field dropdown at cell size: same height and radius as
  * the text inputs beside it, the shared white menu instead of the OS picker.
+ * With `onReset`, a cell that is the row's own shows the ↺ left of the chevron.
  */
 export function RowSelectCell({
   value,
@@ -1086,6 +1124,8 @@ export function RowSelectCell({
   inherited,
   disabled,
   onChange,
+  onReset,
+  resetLabel,
   ariaLabel,
   className,
 }: {
@@ -1095,22 +1135,31 @@ export function RowSelectCell({
   inherited?: boolean;
   disabled?: boolean;
   onChange: (next: string) => void;
+  /** Put this one field back on the top row; the ↺ renders only while the cell is not `inherited`. */
+  onReset?: () => void;
+  resetLabel?: string;
   ariaLabel: string;
   className?: string;
 }) {
+  const showReset = Boolean(onReset) && !inherited && !disabled;
   return (
-    <FieldSingleSelect
-      variant="cell"
-      hideLabel
-      label={ariaLabel}
-      value={value}
-      onChange={onChange}
-      options={options.map((o) => ({ value: o.value, label: o.label }))}
-      placeholder={placeholder ?? "Select…"}
-      inherited={inherited}
-      disabled={disabled}
-      wrapperClassName={cn("min-w-0", className)}
-    />
+    <span className={cn("relative block min-w-0", className)}>
+      <FieldSingleSelect
+        variant="cell"
+        hideLabel
+        label={ariaLabel}
+        value={value}
+        onChange={onChange}
+        options={options.map((o) => ({ value: o.value, label: o.label }))}
+        placeholder={placeholder ?? "Select…"}
+        inherited={inherited}
+        disabled={disabled}
+        wrapperClassName="min-w-0"
+        /* The chevron stays at the edge; the value text stops short of the ↺ overlaid left of it. */
+        valueClassName={showReset ? "pr-5" : undefined}
+      />
+      {showReset ? <CellResetButton label={resetLabel ?? `Reset ${ariaLabel} to the top row`} onClick={onReset!} className="right-7" /> : null}
+    </span>
   );
 }
 
