@@ -77,6 +77,64 @@ export function PortalSettingsSectionClient({
     setSaveStatus({ state: "idle", reason: null, savedAt: null });
   }, [tab]);
 
+  /**
+   * The mobile list↔detail split above is local `useState`, unlike
+   * `portal-profile-client.tsx`'s `?tab=` query param — this route's URL already names the
+   * module (`/portal/settings/<tab>`, per this file's own doc comment), and the list has no URL
+   * of its own. Without a pushed history entry, the detail view is the page's ONLY entry, so
+   * browser/native Back skips past the list and leaves Settings entirely — a broken gesture on
+   * the native shells that load this same site. Push one entry per module so Back has somewhere
+   * local to land, mirroring `portal-profile-client.tsx`'s own `openGroup`/`backToRoot`
+   * pushState/popstate pattern, inverted: there the list is the default and opening a module
+   * pushes; here the detail IS the default (the URL already names it), so entering the list is
+   * what popping that pushed entry represents.
+   */
+  useEffect(() => {
+    if (typeof window === "undefined" || !tab) return;
+    if ((window.history.state as { settingsDetailTab?: string } | null)?.settingsDetailTab !== tab) {
+      window.history.pushState({ settingsDetailTab: tab }, "", window.location.href);
+    }
+  }, [tab]);
+
+  useEffect(() => {
+    const onPopState = (event: PopStateEvent) => {
+      const state = event.state as { settingsDetailTab?: string } | null;
+      setMobileListOpen(state?.settingsDetailTab !== tab);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [tab]);
+
+  /**
+   * Tapping the in-app "Settings" back control: when the pushed detail entry above is still the
+   * live one, hand off to a REAL `history.back()` so the in-app control and the native back
+   * gesture do the exact same thing — including on a double-tap, which must land once on the
+   * list and never pop past it. Once Back has already been pressed once (list already showing,
+   * no pushed entry left to pop), just show the list locally.
+   */
+  function openMobileList() {
+    if (
+      typeof window !== "undefined" &&
+      (window.history.state as { settingsDetailTab?: string } | null)?.settingsDetailTab === tab
+    ) {
+      window.history.back();
+      return;
+    }
+    setMobileListOpen(true);
+  }
+
+  /** Selecting the CURRENT tab from the list closes it back to the detail view — re-push the
+   *  detail layer so Back is available again to return to the list. */
+  function closeMobileListToDetail() {
+    if (
+      typeof window !== "undefined" &&
+      (window.history.state as { settingsDetailTab?: string } | null)?.settingsDetailTab !== tab
+    ) {
+      window.history.pushState({ settingsDetailTab: tab }, "", window.location.href);
+    }
+    setMobileListOpen(false);
+  }
+
   const activeMeta = tab ? (MANAGER_PORTAL_SETTINGS_TABS.find((item) => item.id === tab) ?? null) : null;
 
   /**
@@ -86,7 +144,7 @@ export function PortalSettingsSectionClient({
    */
   async function goToArea(nextTab: ManagerPortalSettingsTab) {
     if (nextTab === tab) {
-      setMobileListOpen(false);
+      closeMobileListToDetail();
       return;
     }
     const { ok } = (await pageRef.current?.flushPendingSaves()) ?? { ok: true };
@@ -142,7 +200,7 @@ export function PortalSettingsSectionClient({
             <div className="mb-4 lg:hidden">
               <PortalDetailHeader
                 title={activeMeta?.label ?? "Settings"}
-                onBack={() => setMobileListOpen(true)}
+                onBack={openMobileList}
                 backLabel="Settings"
                 bare
                 dataAttrBack="settings-back-to-root"

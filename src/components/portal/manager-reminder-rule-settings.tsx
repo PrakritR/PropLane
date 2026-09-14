@@ -37,6 +37,10 @@ import {
   PortalSettingsRow,
   PortalSettingsToggle,
 } from "@/components/portal/portal-settings-ui";
+import {
+  useFlushSettingsAutosaveOnUnmount,
+  useReportSettingsSaveStatus,
+} from "@/components/portal/settings-save-status-context";
 import { cn } from "@/lib/utils";
 
 export type ManagerReminderRuleSettingsHandle = {
@@ -157,6 +161,7 @@ export function ManagerReminderRuleSettingsPanel({
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
+  const reportSaveStatus = useReportSettingsSaveStatus();
   const meta = reminderSubjectSettingsMeta(kind);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -217,10 +222,12 @@ export function ManagerReminderRuleSettingsPanel({
     async (options?: { silent?: boolean }): Promise<boolean> => {
       if (!isDirty) return true;
       setSaving(true);
+      reportSaveStatus({ type: "start" });
       try {
         if (demo) {
           setSavedSnapshot(ruleSnapshot(rule));
           if (!options?.silent) showToast("Reminder settings saved (demo).");
+          reportSaveStatus({ type: "success" });
           return true;
         }
         const res = await fetch("/api/portal/reminder-settings", {
@@ -228,6 +235,10 @@ export function ManagerReminderRuleSettingsPanel({
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ kind, rule }),
+          // A hard page unload can abort an ordinary in-flight fetch before it lands — exactly
+          // the write the `pagehide`/`visibilitychange` flush in `settings-module-page.tsx`
+          // exists to send.
+          keepalive: true,
         });
         const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
         if (!res.ok) throw new Error(body.error ?? "Could not save reminder settings.");
@@ -236,17 +247,20 @@ export function ManagerReminderRuleSettingsPanel({
         setRule(next);
         setSavedSnapshot(ruleSnapshot(next));
         if (!options?.silent) showToast("Reminder settings saved.");
+        reportSaveStatus({ type: "success" });
         return true;
       } catch (e) {
         // Unconditional — silent only suppresses the SUCCESS toast, never the
         // failure one. A per-control autosave that fails must still surface.
-        showToast(e instanceof Error ? e.message : "Could not save reminder settings.");
+        const message = e instanceof Error ? e.message : "Could not save reminder settings.";
+        showToast(message);
+        reportSaveStatus({ type: "failure", reason: message });
         return false;
       } finally {
         setSaving(false);
       }
     },
-    [demo, isDirty, kind, rule, showToast],
+    [demo, isDirty, kind, reportSaveStatus, rule, showToast],
   );
 
   const saveIfDirty = useCallback(async (): Promise<boolean> => save({ silent: true }), [save]);
@@ -273,6 +287,12 @@ export function ManagerReminderRuleSettingsPanel({
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     };
   }, [isDirty, loading, save]);
+
+  // A debounced write still pending when this panel goes away (tab switch the host didn't
+  // explicitly flush, or leaving Settings outright) must still land — see
+  // `useFlushSettingsAutosaveOnUnmount`'s own doc comment for why this has to live here and not
+  // one level up.
+  useFlushSettingsAutosaveOnUnmount(save, isDirty);
 
   const showTeamOption = teamMembers.length > 1;
 

@@ -76,6 +76,10 @@ import {
   DEFAULT_LIFECYCLE_AUTOMATION,
   type LifecycleTaskAutomation,
 } from "@/lib/task-lifecycle-automation";
+import {
+  useFlushSettingsAutosaveOnUnmount,
+  useReportSettingsSaveStatus,
+} from "@/components/portal/settings-save-status-context";
 
 const TOUR_PREVIEW_CONTEXT = {
   guestName: "Alex Prospect",
@@ -104,6 +108,24 @@ function tourAutomationSnapshot(settings: ManagerAutomationSettings) {
 }
 
 export type TourSettingsHandle = {
+  saveIfDirty: () => Promise<boolean>;
+};
+
+/**
+ * Same shape as `TourSettingsHandle`, for the two panels whose own per-control autosave used to
+ * be invisible to `SettingsModulePage.flushPendingSaves()` entirely — `TaskSettingsPanel` and
+ * `CommunicationSettingsPanel` never registered a handle, so the explicit flush the standalone
+ * page's `goToArea` and the modal's `selectTab`/`closeAndSave` already run BEFORE switching
+ * modules or closing found nothing to flush for either one. A real module switch on the
+ * standalone page is a full page navigation (`window.location.assign`), which does not reliably
+ * let an unmount-time fetch finish — the registry has to actually know about the pending write
+ * so the AWAITED flush covers it before that navigation ever fires.
+ */
+export type TaskSettingsHandle = {
+  saveIfDirty: () => Promise<boolean>;
+};
+
+export type CommunicationSettingsHandle = {
   saveIfDirty: () => Promise<boolean>;
 };
 
@@ -421,14 +443,17 @@ export function TaskSettingsPanel({
   onFooterReady,
   onSaved,
   reminderFormRef,
+  formRef,
 }: {
   teamMembers: WorkAssignmentTeamMember[];
   onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
   onSaved?: () => void;
   reminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
+  formRef?: React.Ref<TaskSettingsHandle>;
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
+  const reportSaveStatus = useReportSettingsSaveStatus();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [automation, setAutomation] = useState<LifecycleTaskAutomation>(DEFAULT_LIFECYCLE_AUTOMATION);
@@ -471,11 +496,13 @@ export function TaskSettingsPanel({
     async (options?: { silent?: boolean }): Promise<boolean> => {
       if (!isDirty) return true;
       setSaving(true);
+      reportSaveStatus({ type: "start" });
       try {
         if (demo) {
           setSavedSnapshot(JSON.stringify(automation));
           if (!options?.silent) showToast("Task settings saved (demo).");
           onSaved?.();
+          reportSaveStatus({ type: "success" });
           return true;
         }
         const res = await fetch("/api/portal/task-automation-settings", {
@@ -483,6 +510,11 @@ export function TaskSettingsPanel({
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ automation }),
+          // A hard page unload (real reload/close, not a same-app route change) can abort an
+          // ordinary in-flight fetch before it lands — this is exactly the write the
+          // `pagehide`/`visibilitychange` flush in `settings-module-page.tsx` exists to send;
+          // `keepalive` is what lets the browser actually finish it after the document goes away.
+          keepalive: true,
         });
         const body = (await res.json().catch(() => ({}))) as { automation?: LifecycleTaskAutomation; error?: string };
         if (!res.ok) throw new Error(body.error ?? "Could not save task settings.");
@@ -491,18 +523,27 @@ export function TaskSettingsPanel({
         setSavedSnapshot(JSON.stringify(next));
         if (!options?.silent) showToast("Task settings saved.");
         onSaved?.();
+        reportSaveStatus({ type: "success" });
         return true;
       } catch (e) {
         // Unconditional — silent only suppresses the SUCCESS toast, never the
         // failure one. A per-control autosave that fails must still surface.
-        showToast(e instanceof Error ? e.message : "Could not save task settings.");
+        const message = e instanceof Error ? e.message : "Could not save task settings.";
+        showToast(message);
+        reportSaveStatus({ type: "failure", reason: message });
         return false;
       } finally {
         setSaving(false);
       }
     },
-    [automation, demo, isDirty, onSaved, showToast],
+    [automation, demo, isDirty, onSaved, reportSaveStatus, showToast],
   );
+
+  // `save` already checks `isDirty` itself, so it doubles directly as `saveIfDirty` — this is
+  // what makes the pending write survive the standalone page's flush-before-switch (`goToArea`)
+  // and the modal's `selectTab`/`closeAndSave`, not just this panel's own unmount.
+  const saveIfDirty = useCallback((): Promise<boolean> => save({ silent: true }), [save]);
+  useImperativeHandle(formRef, () => ({ saveIfDirty }), [saveIfDirty]);
 
   // Autosaves on close — no explicit Save button in the footer.
   useReportSettingsPanelFooter(onFooterReady, null);
@@ -520,6 +561,12 @@ export function TaskSettingsPanel({
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     };
   }, [isDirty, loading, save]);
+
+  // A debounced write still pending when this module goes away (tab switch the host didn't
+  // explicitly flush, or leaving Settings outright) must still land — see
+  // `useFlushSettingsAutosaveOnUnmount`'s own doc comment for why this has to live here and not
+  // one level up.
+  useFlushSettingsAutosaveOnUnmount(save, isDirty);
 
   if (loading) return <p className="text-sm text-muted">Loading…</p>;
 
@@ -855,6 +902,7 @@ export function TourSettingsPanel({
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
+  const reportSaveStatus = useReportSettingsSaveStatus();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [tourSettings, setTourSettings] = useState<ManagerTourSettings>(DEFAULT_MANAGER_TOUR_SETTINGS);
@@ -929,7 +977,9 @@ export function TourSettingsPanel({
       automation.tourReminderMinutesBefore,
     );
     if (minutesBeforeList.length === 0) {
-      showToast("Choose at least one tour reminder timing.");
+      const message = "Choose at least one tour reminder timing.";
+      showToast(message);
+      reportSaveStatus({ type: "failure", reason: message });
       return false;
     }
     if (
@@ -937,22 +987,30 @@ export function TourSettingsPanel({
       automation.tourReminderDeliverViaEmail === false &&
       automation.tourReminderDeliverViaSms !== true
     ) {
-      showToast("Choose at least one channel under Tour reminders → Send via.");
+      const message = "Choose at least one channel under Tour reminders → Send via.";
+      showToast(message);
+      reportSaveStatus({ type: "failure", reason: message });
       return false;
     }
     setSaving(true);
+    reportSaveStatus({ type: "start" });
     try {
       if (demo) {
         if (!options?.silent) showToast("Tour settings saved (demo).");
         onSaved?.();
+        reportSaveStatus({ type: "success" });
         return true;
       }
+      // `keepalive` on both: a hard page unload (a real reload/close, not a same-app route
+      // change) can abort an ordinary in-flight fetch before it lands — exactly the write the
+      // `pagehide`/`visibilitychange` flush in `settings-module-page.tsx` exists to send.
       const [tourRes, autoRes] = await Promise.all([
         fetch("/api/portal/manager-tour-settings", {
           method: "PATCH",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(tourSettings),
+          keepalive: true,
         }),
         fetch("/api/portal/automation-settings", {
           method: "PATCH",
@@ -968,6 +1026,7 @@ export function TourSettingsPanel({
             tourReminderDeliverViaInbox: automation.tourReminderDeliverViaInbox,
             templates: { tourReminder: automation.templates.tourReminder },
           }),
+          keepalive: true,
         }),
       ]);
       if (!tourRes.ok || !autoRes.ok) throw new Error("Could not save calendar settings.");
@@ -976,14 +1035,17 @@ export function TourSettingsPanel({
       setSavedAutomationSnapshot(tourAutomationSnapshot(automation));
       if (!options?.silent) showToast("Tour settings saved.");
       onSaved?.();
+      reportSaveStatus({ type: "success" });
       return true;
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not save tour settings.");
+      const message = e instanceof Error ? e.message : "Could not save tour settings.";
+      showToast(message);
+      reportSaveStatus({ type: "failure", reason: message });
       return false;
     } finally {
       setSaving(false);
     }
-  }, [automation, demo, onSaved, showToast, tourSettings]);
+  }, [automation, demo, onSaved, reportSaveStatus, showToast, tourSettings]);
 
   const saveIfDirty = useCallback(async (): Promise<boolean> => {
     if (!isDirty) return true;
@@ -1015,6 +1077,12 @@ export function TourSettingsPanel({
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     };
   }, [isDirty, loading, save]);
+
+  // A debounced write still pending when this module goes away (tab switch the host didn't
+  // explicitly flush, or leaving Settings outright) must still land — see
+  // `useFlushSettingsAutosaveOnUnmount`'s own doc comment for why this has to live here and not
+  // one level up.
+  useFlushSettingsAutosaveOnUnmount(save, isDirty);
 
   if (loading) return <p className="text-sm text-muted">Loading…</p>;
 
@@ -1237,12 +1305,15 @@ export function PaymentsSettingsPanel({
 export function CommunicationSettingsPanel({
   onSaved,
   onFooterReady,
+  formRef,
 }: {
   onSaved?: () => void;
   onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
+  formRef?: React.Ref<CommunicationSettingsHandle>;
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
+  const reportSaveStatus = useReportSettingsSaveStatus();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<ManagerAutomationSettings>(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
@@ -1314,11 +1385,13 @@ export function CommunicationSettingsPanel({
     async (options?: { silent?: boolean }): Promise<boolean> => {
       if (!isDirty) return true;
       setSaving(true);
+      reportSaveStatus({ type: "start" });
       try {
         if (demo) {
           setSavedSnapshot(JSON.stringify(draft));
           if (!options?.silent) showToast("Communication settings saved (demo).");
           onSaved?.();
+          reportSaveStatus({ type: "success" });
           return true;
         }
         // Only the field this screen can still edit — the seven "Send via for"
@@ -1328,6 +1401,10 @@ export function CommunicationSettingsPanel({
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ inboxAiDraftAutoSend: draft.inboxAiDraftAutoSend }),
+          // A hard page unload can abort an ordinary in-flight fetch before it lands — exactly
+          // the write the `pagehide`/`visibilitychange` flush in `settings-module-page.tsx`
+          // exists to send.
+          keepalive: true,
         });
         const body = (await res.json().catch(() => ({}))) as {
           settings?: ManagerAutomationSettings;
@@ -1340,18 +1417,27 @@ export function CommunicationSettingsPanel({
         window.dispatchEvent(new Event(PAYMENT_AUTOMATION_SETTINGS_EVENT));
         if (!options?.silent) showToast("Communication settings saved.");
         onSaved?.();
+        reportSaveStatus({ type: "success" });
         return true;
       } catch (e) {
         // Unconditional — silent only suppresses the SUCCESS toast, never the
         // failure one. A per-control autosave that fails must still surface.
-        showToast(e instanceof Error ? e.message : "Could not save communication settings.");
+        const message = e instanceof Error ? e.message : "Could not save communication settings.";
+        showToast(message);
+        reportSaveStatus({ type: "failure", reason: message });
         return false;
       } finally {
         setSaving(false);
       }
     },
-    [demo, draft, isDirty, onSaved, showToast],
+    [demo, draft, isDirty, onSaved, reportSaveStatus, showToast],
   );
+
+  // `save` already checks `isDirty` itself, so it doubles directly as `saveIfDirty` — this is
+  // what makes the pending write survive the standalone page's flush-before-switch (`goToArea`)
+  // and the modal's `selectTab`/`closeAndSave`, not just this panel's own unmount.
+  const saveIfDirty = useCallback((): Promise<boolean> => save({ silent: true }), [save]);
+  useImperativeHandle(formRef, () => ({ saveIfDirty }), [saveIfDirty]);
 
   // Autosaves on close — no explicit Save button in the footer.
   useReportSettingsPanelFooter(onFooterReady, null);
@@ -1367,6 +1453,12 @@ export function CommunicationSettingsPanel({
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     };
   }, [isDirty, loading, save]);
+
+  // A debounced write still pending when this module goes away (tab switch the host didn't
+  // explicitly flush, or leaving Settings outright) must still land — see
+  // `useFlushSettingsAutosaveOnUnmount`'s own doc comment for why this has to live here and not
+  // one level up.
+  useFlushSettingsAutosaveOnUnmount(save, isDirty);
 
   if (loading) return <p className="text-sm text-muted">Loading…</p>;
 

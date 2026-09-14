@@ -18,6 +18,7 @@ import {
   TourSettingsPanel,
   type TourSettingsHandle,
   CommunicationSettingsPanel,
+  type CommunicationSettingsHandle,
   DEFAULT_APPLICATION_AUTOMATION,
   LeaseSettingsPanel,
   normalizeApplicationAutomation,
@@ -27,10 +28,16 @@ import {
   InspectionsSettingsPanel,
   ServicesSettingsPanel,
   TaskSettingsPanel,
+  type TaskSettingsHandle,
   type ManagerSettingsPanelFooter,
 } from "@/components/portal/pro-portal-settings-panels";
 import type { ManagerReminderRuleSettingsHandle } from "@/components/portal/manager-reminder-rule-settings";
 import type { ApplicationAutomationPreferences } from "@/lib/application-automation-preferences";
+import {
+  SettingsSaveStatusContext,
+  type ReportSettingsSaveStatus,
+  type SettingsSaveStatusEvent,
+} from "@/components/portal/settings-save-status-context";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { CANONICAL_DEMO_MANAGER_NAME } from "@/lib/demo/demo-canonical-accounts";
@@ -194,13 +201,45 @@ export const SettingsModulePage = forwardRef<
     }
   }, [active, tab, loadApplications]);
 
+  /**
+   * How many per-control autosaves (this panel's own Applications/Lease writes below, plus
+   * every descendant reading `useReportSettingsSaveStatus()` through the context provider at
+   * the bottom of this component) are currently in flight — so two panels saving at once
+   * settle to "saved" only once BOTH land, instead of the first one's success flipping the mark
+   * back while the second is still writing. Reset whenever the module itself changes so a count
+   * from the outgoing tab can never leak into the incoming one.
+   */
+  const saveStatusInFlightRef = useRef(0);
+  const reportSaveStatus = useCallback<ReportSettingsSaveStatus>(
+    (event: SettingsSaveStatusEvent) => {
+      if (event.type === "start") {
+        saveStatusInFlightRef.current += 1;
+        onSaveStatusChange?.({ state: "saving", reason: null, savedAt: null });
+        return;
+      }
+      saveStatusInFlightRef.current = Math.max(0, saveStatusInFlightRef.current - 1);
+      if (event.type === "failure") {
+        onSaveStatusChange?.({ state: "error", reason: event.reason, savedAt: null });
+        return;
+      }
+      if (saveStatusInFlightRef.current === 0) {
+        onSaveStatusChange?.({ state: "saved", reason: null, savedAt: Date.now() });
+      }
+    },
+    [onSaveStatusChange],
+  );
+  useEffect(() => {
+    saveStatusInFlightRef.current = 0;
+  }, [tab]);
+
   const saveApplicationAutomationSettings = useCallback(
     async (next: ApplicationAutomationPreferences, nextWaiverCode: string, targetPropertyIds: string[]) => {
       const ids = targetPropertyIds.map((id) => id.trim()).filter(Boolean);
       if (ids.length === 0 || demo) return;
       setSaving(true);
+      reportSaveStatus({ type: "start" });
       try {
-        let failed = false;
+        let failureReason: string | null = null;
         for (const id of ids) {
           const res = await fetch("/api/portal/manager-application-settings", {
             method: "PATCH",
@@ -209,20 +248,26 @@ export const SettingsModulePage = forwardRef<
             body: JSON.stringify({ propertyId: id, automation: next, waiverCode: nextWaiverCode }),
           });
           if (!res.ok) {
-            failed = true;
             const data = (await res.json().catch(() => ({}))) as { error?: string };
-            showToast(data.error ?? "Could not save settings.");
+            failureReason = data.error ?? "Could not save settings.";
+            showToast(failureReason);
             break;
           }
         }
-        void failed;
+        if (failureReason) {
+          reportSaveStatus({ type: "failure", reason: failureReason });
+        } else {
+          reportSaveStatus({ type: "success" });
+        }
       } catch {
-        showToast("Could not save settings.");
+        const message = "Could not save settings.";
+        showToast(message);
+        reportSaveStatus({ type: "failure", reason: message });
       } finally {
         setSaving(false);
       }
     },
-    [demo, showToast],
+    [demo, reportSaveStatus, showToast],
   );
 
   const commitWaiverCode = useCallback(() => {
@@ -242,6 +287,11 @@ export const SettingsModulePage = forwardRef<
   const saveRegistryRef = useRef(new Map<string, PendingSaveHandle>());
   const paymentsFormRef = useSaveRegistryEntry<PaymentAutomationSettingsHandle>(saveRegistryRef, "payments");
   const toursFormRef = useSaveRegistryEntry<TourSettingsHandle>(saveRegistryRef, "tours");
+  const taskFormRef = useSaveRegistryEntry<TaskSettingsHandle>(saveRegistryRef, "tasks");
+  const communicationFormRef = useSaveRegistryEntry<CommunicationSettingsHandle>(
+    saveRegistryRef,
+    "communication",
+  );
   const applicationsReminderFormRef = useSaveRegistryEntry<ManagerReminderRuleSettingsHandle>(
     saveRegistryRef,
     "applications-reminder",
@@ -319,6 +369,31 @@ export const SettingsModulePage = forwardRef<
 
   useImperativeHandle(ref, () => ({ flushPendingSaves }), [flushPendingSaves]);
 
+  /**
+   * A debounced per-control autosave (the 600ms window every panel below uses) is still pending
+   * when the manager leaves — closes the tab, reloads, backgrounds the app, or switches native
+   * apps — and neither `beforeunload` nor a clean React unmount is reliable there (Safari/native
+   * shells drop `beforeunload`, and by the time ANY ancestor's unmount cleanup runs, a child
+   * panel has already deregistered itself from `saveRegistryRef` — see this file's own
+   * `useSaveRegistryEntry`). `visibilitychange`/`pagehide` fire while the tree is still fully
+   * mounted, so `flushPendingSaves()` still finds every panel's real handle — same precedent as
+   * `pro-add-listing-form.tsx`'s `flushOnHide` and `manager-applications-storage.ts`'s unload
+   * flush. A REJECTED flush already surfaces via each panel's own unconditional failure toast and
+   * `onSaveStatusChange`'s "error" state — nothing extra to add here for that.
+   */
+  useEffect(() => {
+    const flushOnHide = () => {
+      if (document.visibilityState !== "hidden") return;
+      void flushPendingSaves();
+    };
+    document.addEventListener("visibilitychange", flushOnHide);
+    window.addEventListener("pagehide", flushOnHide);
+    return () => {
+      document.removeEventListener("visibilitychange", flushOnHide);
+      window.removeEventListener("pagehide", flushOnHide);
+    };
+  }, [flushPendingSaves]);
+
   // Applications, Lease, and Residents publish no footer at all — same suppression the modal
   // used to apply itself (`inlineFooter = tab === "applications" || … ? null : panelFooter`),
   // moved here so every host gets the right answer without re-deriving it.
@@ -329,7 +404,7 @@ export const SettingsModulePage = forwardRef<
   }, [tab, panelFooter]);
 
   return (
-    <>
+    <SettingsSaveStatusContext.Provider value={reportSaveStatus}>
       {tab === "applications" ? (
         <ApplicationsSettingsPanel
           automation={automation}
@@ -383,6 +458,7 @@ export const SettingsModulePage = forwardRef<
           teamMembers={teamMembers}
           onFooterReady={setPanelFooter}
           reminderFormRef={taskReminderFormRef}
+          formRef={taskFormRef}
         />
       ) : null}
 
@@ -425,8 +501,8 @@ export const SettingsModulePage = forwardRef<
       ) : null}
 
       {active && tab === "communication" ? (
-        <CommunicationSettingsPanel onFooterReady={setPanelFooter} />
+        <CommunicationSettingsPanel onFooterReady={setPanelFooter} formRef={communicationFormRef} />
       ) : null}
-    </>
+    </SettingsSaveStatusContext.Provider>
   );
 });
