@@ -340,6 +340,7 @@ export function FieldSingleSelect({
   hideLabel = false,
   variant = "field",
   inherited = false,
+  valueClassName,
 }: {
   label: string;
   options?: CheckboxMultiSelectOption[];
@@ -359,6 +360,8 @@ export function FieldSingleSelect({
   variant?: FieldSelectVariant;
   /** The value still follows a shared default (listing editor "every room" rows) — dashed, grey trigger. */
   inherited?: boolean;
+  /** Extra classes on the value text (e.g. right padding so an overlaid control never covers it). */
+  valueClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -556,7 +559,7 @@ export function FieldSingleSelect({
         className={triggerClassForVariant(variant, hideLabel || pill || cell, triggerClassName)}
         onClick={() => setOpenAndReset(!open)}
       >
-        <span className={`min-w-0 ${pill ? "whitespace-nowrap" : "truncate"} ${value ? "" : "text-muted"}`}>{buttonLabel}</span>
+        <span className={`min-w-0 ${pill ? "whitespace-nowrap" : "truncate"} ${value ? "" : "text-muted"} ${valueClassName ?? ""}`.trim()}>{buttonLabel}</span>
         <ChevronDown className={cell ? FIELD_SELECT_CHEVRON_CELL_CLASS : FIELD_SELECT_CHEVRON_CLASS} aria-hidden />
       </button>
 

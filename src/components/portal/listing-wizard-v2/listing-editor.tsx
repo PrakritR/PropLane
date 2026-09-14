@@ -113,6 +113,7 @@ import {
   CountStepper,
   KindTile,
   RowSelectCell,
+  CellResetButton,
   RailCover,
   RailNotice,
   RailStatus,
@@ -776,12 +777,18 @@ function InheritTag({
   );
 }
 
-/** A cell in the grid, marked when the room has its own value for it. */
-function GridCell({ own, children }: { own: boolean | null; children: ReactNode }) {
+/**
+ * A cell in the grid, marked when the room has its own value for it. With
+ * `onReset`, an own cell also carries the ↺ that puts that one field back on
+ * the top row — for button-style cells (beds, furnishing, finishes, access)
+ * that have no chevron; a RowSelectCell draws its own ↺ left of the chevron.
+ */
+function GridCell({ own, onReset, resetLabel, children }: { own: boolean | null; onReset?: () => void; resetLabel?: string; children: ReactNode }) {
   return (
     <span className="relative min-w-0">
       {children}
       {own ? <span aria-hidden className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full border-2 border-white bg-primary" /> : null}
+      {own && onReset ? <CellResetButton label={resetLabel ?? "Reset to the top row"} onClick={onReset} className="right-2" /> : null}
     </span>
   );
 }
@@ -1244,19 +1251,19 @@ function StepRooms({
                   className="min-h-[36px] w-full rounded-lg border border-border bg-card px-2 text-[13px] font-semibold text-foreground outline-none focus:border-primary"
                 />
                 <GridCell own={!inh("occupancyCapacity")}>
-                  <RowSelectCell ariaLabel={`Residents per room for ${label}`} value={String(room.occupancyCapacity ?? defaults.occupancyCapacity)} options={OCCUPANCY_OPTIONS} inherited={inh("occupancyCapacity")} onChange={(v) => writeRoom(room.id, { occupancyCapacity: Number(v) || 1 })} />
+                  <RowSelectCell ariaLabel={`Residents per room for ${label}`} value={String(room.occupancyCapacity ?? defaults.occupancyCapacity)} options={OCCUPANCY_OPTIONS} inherited={inh("occupancyCapacity")} onChange={(v) => writeRoom(room.id, { occupancyCapacity: Number(v) || 1 })} onReset={() => resetField(room.id, "occupancyCapacity")} resetLabel={`Reset residents for ${label} to every room`} />
                 </GridCell>
                 {accessSelect(accessForRoom(room.id), (v) => setAccessForRoom(room.id, v), `Bathroom access for ${label}`, false)}
-                <GridCell own={!inh("bedsLine")}>
-                  <button type="button" onClick={() => toggle(room.id)} className={cn(cellSelect(inh("bedsLine")), "truncate text-left")} aria-label={`Beds for ${label}`}>
+                <GridCell own={!inh("bedsLine")} onReset={() => resetField(room.id, "bedsLine")} resetLabel={`Reset beds for ${label} to every room`}>
+                  <button type="button" onClick={() => toggle(room.id)} className={cn(cellSelect(inh("bedsLine")), "truncate text-left", !inh("bedsLine") && "pr-8")} aria-label={`Beds for ${label}`}>
                     {bedsLine(room.beds) || defaults.bedsLine || "Choose beds…"}
                   </button>
                 </GridCell>
                 <GridCell own={!inh("floor")}>
-                  <RowSelectCell ariaLabel={`Floor for ${label}`} value={room.floor} options={floorOptions} placeholder="Floor…" inherited={inh("floor")} onChange={(v) => writeRoom(room.id, { floor: v })} />
+                  <RowSelectCell ariaLabel={`Floor for ${label}`} value={room.floor} options={floorOptions} placeholder="Floor…" inherited={inh("floor")} onChange={(v) => writeRoom(room.id, { floor: v })} onReset={() => resetField(room.id, "floor")} resetLabel={`Reset floor for ${label} to every room`} />
                 </GridCell>
-                <GridCell own={!inh("furnishing")}>
-                  <button type="button" onClick={() => toggle(room.id)} className={cn(cellSelect(inh("furnishing")), "truncate text-left")} aria-label={`Furnishing for ${label}`}>
+                <GridCell own={!inh("furnishing")} onReset={() => resetField(room.id, "furnishing")} resetLabel={`Reset furnishing for ${label} to every room`}>
+                  <button type="button" onClick={() => toggle(room.id)} className={cn(cellSelect(inh("furnishing")), "truncate text-left", !inh("furnishing") && "pr-8")} aria-label={`Furnishing for ${label}`}>
                     {furnishingSummary(room.furnishing || defaults.furnishing)}
                   </button>
                 </GridCell>
@@ -1649,13 +1656,13 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
                   <GridChevron open={isOpen} onClick={() => toggle(bath.id)} label={label} dataAttr="listing-v2-bath-open" />
                   <input aria-label={`Name for bathroom ${i + 1}`} value={bath.name} placeholder={`Bathroom ${i + 1}`} onChange={(e) => writeBath(bath.id, { ...bath, name: e.target.value })} className={GRID_NAME_INPUT} />
                   <GridCell own={!inh("location")}>
-                    <RowSelectCell ariaLabel={`Floor for ${label}`} value={bath.location ?? ""} options={floorOptionsFor(bath.location)} placeholder="Floor…" inherited={inh("location")} onChange={(v) => setField(bath, "location", v)} />
+                    <RowSelectCell ariaLabel={`Floor for ${label}`} value={bath.location ?? ""} options={floorOptionsFor(bath.location)} placeholder="Floor…" inherited={inh("location")} onChange={(v) => setField(bath, "location", v)} onReset={() => resetField(bath, "location")} resetLabel={`Reset floor for ${label} to every bathroom`} />
                   </GridCell>
                   <GridCell own={!inh("type")}>
-                    <RowSelectCell ariaLabel={`Type of ${label}`} value={bathroomTypeOf(bath)} options={BATHROOM_TYPE_OPTIONS} inherited={inh("type")} onChange={(v) => setField(bath, "type", v)} />
+                    <RowSelectCell ariaLabel={`Type of ${label}`} value={bathroomTypeOf(bath)} options={BATHROOM_TYPE_OPTIONS} inherited={inh("type")} onChange={(v) => setField(bath, "type", v)} onReset={() => resetField(bath, "type")} resetLabel={`Reset type of ${label} to every bathroom`} />
                   </GridCell>
-                  <GridCell own={!inh("amenitiesText")}>
-                    <button type="button" onClick={() => toggle(bath.id)} className={cn(cellSelect(inh("amenitiesText")), "truncate text-left")} aria-label={`Finishes for ${label}`}>
+                  <GridCell own={!inh("amenitiesText")} onReset={() => resetField(bath, "amenitiesText")} resetLabel={`Reset finishes for ${label} to every bathroom`}>
+                    <button type="button" onClick={() => toggle(bath.id)} className={cn(cellSelect(inh("amenitiesText")), "truncate text-left", !inh("amenitiesText") && "pr-8")} aria-label={`Finishes for ${label}`}>
                       {finishesSummary(bath.amenitiesText ?? "") || "Finishes…"}
                       {photos > 0 ? <span className="ml-1.5 text-[10px] font-extrabold uppercase tracking-wide text-emerald-700">{photos} photo{photos === 1 ? "" : "s"}</span> : null}
                     </button>
@@ -1897,10 +1904,10 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
                   <input aria-label={`Name for shared space ${i + 1}`} value={space.name} placeholder="Kitchen" onChange={(e) => writeSpace(space.id, { ...space, name: e.target.value })} className={GRID_NAME_INPUT} />
                   <RowSelectCell ariaLabel={`Type of ${label}`} value={space.spaceKind ?? ""} options={kinds} placeholder="Type…" onChange={(v) => writeSpace(space.id, { ...space, spaceKind: v as ManagerSharedSpaceSubmission["spaceKind"] })} />
                   <GridCell own={!floorInherited}>
-                    <RowSelectCell ariaLabel={`Floor for ${label}`} value={space.location ?? ""} options={floorLevelSelectOptions(sub.listingStoriesId, space.location ?? "").map((l) => ({ value: l, label: l }))} placeholder="Floor…" inherited={floorInherited} onChange={(v) => setFloor(space, v)} />
+                    <RowSelectCell ariaLabel={`Floor for ${label}`} value={space.location ?? ""} options={floorLevelSelectOptions(sub.listingStoriesId, space.location ?? "").map((l) => ({ value: l, label: l }))} placeholder="Floor…" inherited={floorInherited} onChange={(v) => setFloor(space, v)} onReset={() => resetField(space, "location")} resetLabel={`Reset floor for ${label} to every shared space`} />
                   </GridCell>
-                  <GridCell own={!accessInherited}>
-                    <button type="button" onClick={() => toggle(space.id)} className={cn(cellSelect(accessInherited), "truncate text-left")} aria-label={`Who may use ${label}`}>
+                  <GridCell own={!accessInherited} onReset={() => resetField(space, "access")} resetLabel={`Reset who may use ${label} to every room`}>
+                    <button type="button" onClick={() => toggle(space.id)} className={cn(cellSelect(accessInherited), "truncate text-left", !accessInherited && "pr-8")} aria-label={`Who may use ${label}`}>
                       {accessSummary(space)}
                     </button>
                   </GridCell>
