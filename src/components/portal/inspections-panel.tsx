@@ -355,6 +355,16 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
         </Button>
       </div>
     ) : null}
+    {/* The manager's whole job here is to notice who has NOT sent photos yet — the
+        resident does the photographing. One line answers that before any row is read. */}
+    {!loading && !embeddedScope && role === "manager" && rows.length > 0 ? (() => {
+      const photographed = rows.filter(row => (row.report?.photos.resident ?? 0) > 0).length;
+      return <p className="px-1 text-xs text-muted" data-attr="inspection-resident-progress">
+        {photographed === rows.length
+          ? `Every resident has photographed their room (${rows.length}).`
+          : `${photographed} of ${rows.length} residents have photographed their room — the rest are reminded automatically around their move date.`}
+      </p>;
+    })() : null}
     {loading ? <div role="status" aria-label="Loading inspections" className="space-y-3 p-4"><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /></div> : embeddedScope ? null : <PortalRecordListSurface
       isEmpty={rows.length === 0}
       empty={<p className="p-5 text-sm text-muted">{isDemoModeActive() ? "Open your signed-in portal to add and read residency inspection photos." : kind === "move-in" ? "No one is moving in or living here yet. Approve an application and give it a property placement to start." : "No one is living here or has moved out yet."}</p>}
