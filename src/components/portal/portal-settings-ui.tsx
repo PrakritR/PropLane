@@ -290,6 +290,69 @@ export function PortalSettingsField({
   );
 }
 
+/**
+ * A settings row that saves itself.
+ *
+ * There is no Edit mode and no Save button: the field is always live, and
+ * leaving it writes the change. The row owns its own outcome so a failure is
+ * reported where it happened instead of as a toast that outlives the screen —
+ * and a failed save KEEPS what was typed, so nothing a person wrote is thrown
+ * away by a dropped connection.
+ */
+export type PortalSettingsSaveState = "idle" | "saving" | "saved" | "error";
+
+export function PortalSettingsAutosaveField({
+  label,
+  htmlFor,
+  state,
+  error,
+  onRetry,
+  children,
+}: {
+  label: string;
+  htmlFor: string;
+  state: PortalSettingsSaveState;
+  error?: string;
+  onRetry?: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="border-b border-border/70 px-4 py-3 last:border-0">
+      <div className="flex items-center gap-4">
+        <label
+          htmlFor={htmlFor}
+          className="w-[7.5rem] shrink-0 text-[13px] text-muted sm:w-36"
+        >
+          {label}
+        </label>
+        <div className="min-w-0 flex-1">{children}</div>
+        <span
+          aria-live="polite"
+          className="w-16 shrink-0 text-right text-[11.5px] font-semibold tabular-nums"
+        >
+          {state === "saving" ? <span className="text-muted">Saving…</span> : null}
+          {state === "saved" ? <span className="text-[var(--status-confirmed-fg,#15803d)]">Saved</span> : null}
+          {state === "error" ? <span className="text-red-600">Failed</span> : null}
+        </span>
+      </div>
+      {state === "error" ? (
+        <p className="mt-1.5 pl-[8.5rem] text-[12px] text-red-600 sm:pl-40">
+          {error ?? "Could not save."}{" "}
+          {onRetry ? (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="font-semibold underline underline-offset-2 hover:no-underline"
+            >
+              Retry
+            </button>
+          ) : null}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function PortalSettingsLinkRow({
   label,
   description,

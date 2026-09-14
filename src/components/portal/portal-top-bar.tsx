@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, User } from "lucide-react";
+import { ChevronDown, Settings } from "lucide-react";
 import Link from "next/link";
 import { startTransition, useCallback, useEffect, useSyncExternalStore } from "react";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
@@ -155,8 +155,8 @@ export function PortalTopBar({
 
           <DropdownMenuItem asChild>
             <Link href={`${basePath}/profile`}>
-              <User aria-hidden />
-              Profile &amp; settings
+              <Settings aria-hidden />
+              Settings
             </Link>
           </DropdownMenuItem>
 

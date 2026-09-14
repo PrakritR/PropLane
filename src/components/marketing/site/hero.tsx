@@ -7,12 +7,17 @@ import { cn } from "@/lib/utils";
 import "@/components/marketing/site/site.css";
 
 /**
- * The home hero — "Night blue". One argument, centered, on navy: the AI does
- * the busywork, automatically. The product is the picture: the real manager
- * dashboard in a browser frame bleeding off the fold, the iPhone dashboard
- * over it, and one drafted reply floating out — the object the whole site is
- * about. Colours are explicit (not theme tokens) because the public pages are
- * locked to the light theme and this section is deliberately dark either way.
+ * The home hero — "Night blue". One line, centered, on navy, and then the
+ * product itself: the real manager dashboard in a browser frame bleeding off
+ * the fold, the iPhone dashboard over it, and one row of finished work floating
+ * out — the object the whole site is about.
+ *
+ * There is deliberately NO sub-headline and no eyebrow. The eyebrow said
+ * "AI-automated property management" and the sub spent forty words restating
+ * the headline; both read as though a machine wrote the page. The product shot
+ * explains what this is far better than a paragraph, and it now starts higher
+ * up the fold. Colours are explicit (not theme tokens) because the public pages
+ * are locked to the light theme and this section is deliberately dark either way.
  *
  * Screenshots come from `public/marketing/product/` — captured from the
  * dev/test seed with nudges dismissed (see scripts/capture-marketing-shots.mjs);
@@ -32,22 +37,15 @@ export function SiteHero() {
 
       <div className={cn(SITE_MEASURE, "relative z-[1] pt-16 sm:pt-20 lg:pt-24")}>
         <div className="mx-auto flex max-w-[60rem] flex-col items-center text-center">
-          <p className="mb-4 flex items-center gap-1.5 text-[12.5px] font-bold uppercase tracking-[0.08em] text-[#8fb3ff]">
-            <span aria-hidden>✦</span> AI-automated property management
-          </p>
           <h1
             id="site-hero-title"
             className="text-[clamp(2.4rem,5.6vw,4rem)] font-bold leading-[1.02] tracking-[-0.035em] text-white"
           >
-            The AI does the busywork.
+            Property management
             <br />
-            <span className="text-[#5a8cff]">Automatically.</span>
+            that <span className="text-[#5a8cff]">runs itself.</span>
           </h1>
-          <p className="mt-5 max-w-[46ch] text-[16.5px] leading-relaxed text-[#b8c4dc] sm:text-[17.5px]">
-            One place to list a home, take applications, draft the lease, collect rent and handle repairs — with the
-            replies, bookings and dispatches run for you.
-          </p>
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+          <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
             <Link
               href={GET_STARTED_HREF}
               data-attr="home-hero-get-started"
@@ -98,10 +96,10 @@ export function SiteHero() {
             />
           </div>
 
-          {/* Two rows from the dashboard's queue — what the AI already did today. */}
+          {/* Two rows lifted from the dashboard's own queue. */}
           <div className="site-hero-draft" aria-hidden>
             <p className="mb-1.5 flex items-center gap-2 text-[11px] font-bold text-primary">
-              <span>✦</span> Everything open <span className="rounded-full bg-[#e8f7ee] px-2 py-0.5 text-[10px] font-bold text-[#15803d]">Done</span>
+              Needs attention <span className="rounded-full bg-[#e8f7ee] px-2 py-0.5 text-[10px] font-bold text-[#15803d]">Done</span>
             </p>
             <p className="text-[12.5px] font-semibold leading-snug text-[#17181a]">PropLane · Pacific Plumbing dispatched to Maple 2A</p>
             <p className="text-[11px] text-[#4a4e56]">Service request #1042 · Thu 10–12 · resident notified</p>

@@ -11,6 +11,7 @@ import {
   type ProfitabilityVendorPayout,
 } from "@/lib/reports/profitability";
 import type { ManagerReportFilters, ReportResult } from "@/lib/reports/types";
+import { narrowWorkspaceScope } from "@/lib/workspaces/scope.server";
 
 /**
  * Profitability report (PRP-278): the reads.
@@ -46,7 +47,7 @@ async function loadPaidVendorPayouts(
   db: SupabaseClient,
   managerUserId: string,
   range: { from: string; to: string },
-  propertyId: string | undefined,
+  scopedPropertyIds: string[] | null,
 ): Promise<ProfitabilityVendorPayout[]> {
   const { data, error } = await db
     .from("vendor_payouts")
@@ -84,7 +85,7 @@ async function loadPaidVendorPayouts(
       paidAt: String(row.updated_at ?? row.created_at ?? ""),
       amountCents: Number(row.amount_cents) || 0,
     }))
-    .filter((row) => (propertyId ? row.propertyId === propertyId : true));
+    .filter((row) => (scopedPropertyIds ? Boolean(row.propertyId) && scopedPropertyIds.includes(row.propertyId!) : true));
 }
 
 export function parseProfitabilityGroupBy(raw: string | null | undefined): ProfitabilityGroupBy {
@@ -100,6 +101,12 @@ export async function queryProfitability(
   const range = defaultDateRange(filters.from, filters.to);
   const propertyId = filters.propertyId?.trim() || undefined;
   const groupBy = parseProfitabilityGroupBy(filters.groupBy);
+  // The workspace and the property filter both narrow; neither widens. `null`
+  // is "no narrowing at all", and an empty list is a workspace holding no
+  // houses — which reports nothing, not everything.
+  const scopedPropertyIds = narrowWorkspaceScope(filters.workspacePropertyIds ?? null, propertyId);
+  const emptyScope = scopedPropertyIds !== null && scopedPropertyIds.length === 0;
+  const workspaceNarrowing = (filters.workspacePropertyIds ?? null) !== null;
 
   let ledgerQuery = db
     .from("ledger_entries")
@@ -109,7 +116,7 @@ export async function queryProfitability(
     .gte("posted_date", range.from)
     .lte("posted_date", range.to)
     .limit(ROW_LIMIT);
-  if (propertyId) ledgerQuery = ledgerQuery.eq("property_id", propertyId);
+  if (scopedPropertyIds && scopedPropertyIds.length > 0) ledgerQuery = ledgerQuery.in("property_id", scopedPropertyIds);
 
   let expenseQuery = db
     .from("manager_expense_entries")
@@ -118,7 +125,7 @@ export async function queryProfitability(
     .gte("expense_date", range.from)
     .lte("expense_date", range.to)
     .limit(ROW_LIMIT);
-  if (propertyId) expenseQuery = expenseQuery.eq("property_id", propertyId);
+  if (scopedPropertyIds && scopedPropertyIds.length > 0) expenseQuery = expenseQuery.in("property_id", scopedPropertyIds);
 
   const commsQuery = db
     .from("manager_comms_usage_events")
@@ -133,7 +140,7 @@ export async function queryProfitability(
     ledgerQuery,
     expenseQuery,
     commsQuery,
-    loadPaidVendorPayouts(db, managerUserId, range, propertyId),
+    emptyScope ? Promise.resolve([]) : loadPaidVendorPayouts(db, managerUserId, range, scopedPropertyIds),
     loadCommsAllowance(managerUserId),
   ]);
   if (ledger.error) throw new Error(ledger.error.message);
@@ -144,7 +151,7 @@ export async function queryProfitability(
     from: range.from,
     to: range.to,
     groupBy,
-    ledgerPayments: (ledger.data ?? []).map((row) => ({
+    ledgerPayments: (emptyScope ? [] : ledger.data ?? []).map((row) => ({
       propertyId: row.property_id ? String(row.property_id) : null,
       postedDate: String(row.posted_date ?? ""),
       categoryCode: String(row.category_code ?? ""),
@@ -152,13 +159,15 @@ export async function queryProfitability(
       stripeFeeCents: row.stripe_fee_cents == null ? null : Number(row.stripe_fee_cents),
       netCents: row.net_cents == null ? null : Number(row.net_cents),
     })),
-    expenses: (expenses.data ?? []).map((row) => ({
+    expenses: (emptyScope ? [] : expenses.data ?? []).map((row) => ({
       propertyId: row.property_id ? String(row.property_id) : null,
       expenseDate: String(row.expense_date ?? ""),
       amountCents: Number(row.amount_cents) || 0,
     })),
     vendorPayouts,
-    commsUsage: (comms.data ?? []).map((row) => ({
+    // Messaging spend belongs to the account, not to any one house, so a
+    // workspace that holds only some of the portfolio cannot claim it.
+    commsUsage: (workspaceNarrowing ? [] : comms.data ?? []).map((row) => ({
       createdAt: String(row.created_at ?? ""),
       totalCents: Number(row.total_cents) || 0,
     })),

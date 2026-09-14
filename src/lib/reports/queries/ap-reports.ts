@@ -4,6 +4,7 @@ import { primeSystemChartOfAccounts } from "@/lib/reports/chart-of-accounts-stor
 import { apAgingBucket } from "@/lib/manager-bills";
 import { centsToUsd } from "@/lib/reports/money";
 import type { ManagerReportFilters, ReportResult } from "@/lib/reports/types";
+import { applyReportPropertyScope } from "@/lib/reports/workspace-scope";
 
 function defaultDateRange(from?: string, to?: string): { from: string; to: string } {
   const now = new Date();
@@ -25,7 +26,7 @@ export async function queryApAging(
     .order("due_date", { ascending: true })
     .limit(500);
 
-  if (filters.propertyId) query = query.eq("property_id", filters.propertyId);
+  query = applyReportPropertyScope(query, filters);
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);
@@ -75,7 +76,7 @@ export async function queryBudgetVsActual(
     .select("category_code, monthly_amounts_cents, property_id")
     .eq("manager_user_id", managerUserId)
     .eq("fiscal_year", fiscalYear);
-  if (filters.propertyId) budgetQuery = budgetQuery.eq("property_id", filters.propertyId);
+  budgetQuery = applyReportPropertyScope(budgetQuery, filters);
 
   let expenseQuery = db
     .from("manager_expense_entries")
@@ -83,7 +84,7 @@ export async function queryBudgetVsActual(
     .eq("manager_user_id", managerUserId)
     .gte("expense_date", from)
     .lte("expense_date", to);
-  if (filters.propertyId) expenseQuery = expenseQuery.eq("property_id", filters.propertyId);
+  expenseQuery = applyReportPropertyScope(expenseQuery, filters);
 
   const [{ data: budgets }, { data: expenses }] = await Promise.all([budgetQuery, expenseQuery]);
 
@@ -144,7 +145,7 @@ export async function queryOwnerStatement(
     .eq("entry_type", "payment")
     .gte("posted_date", from)
     .lte("posted_date", to);
-  if (propertyId) incomeQuery = incomeQuery.eq("property_id", propertyId);
+  incomeQuery = applyReportPropertyScope(incomeQuery, filters, propertyId);
 
   let expenseQuery = db
     .from("manager_expense_entries")
@@ -152,14 +153,14 @@ export async function queryOwnerStatement(
     .eq("manager_user_id", managerUserId)
     .gte("expense_date", from)
     .lte("expense_date", to);
-  if (propertyId) expenseQuery = expenseQuery.eq("property_id", propertyId);
+  expenseQuery = applyReportPropertyScope(expenseQuery, filters, propertyId);
 
   let billsQuery = db
     .from("manager_bills")
     .select("amount_cents")
     .eq("manager_user_id", managerUserId)
     .in("status", ["approved", "scheduled", "pending_approval"]);
-  if (propertyId) billsQuery = billsQuery.eq("property_id", propertyId);
+  billsQuery = applyReportPropertyScope(billsQuery, filters, propertyId);
 
   const [{ data: incomeRows }, { data: expenseRows }, { data: billRows }] = await Promise.all([
     incomeQuery,

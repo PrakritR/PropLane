@@ -132,7 +132,7 @@ export function SiteAudienceSwitch() {
   const current = AUDIENCES.find((a) => a.id === active) ?? AUDIENCES[0]!;
   return (
     <SiteSection id="who-its-for" ariaLabelledBy="site-audience-title">
-      <SiteIntro eyebrow="Who it's for" id="site-audience-title" title="Three sign-ins. One home." />
+      <SiteIntro id="site-audience-title" title="Three sign-ins. One home." />
       <div role="tablist" aria-label="Audience" className="mb-8 inline-flex flex-wrap gap-1 rounded-full border border-border bg-[var(--pl-surface-muted)] p-1 [html[data-theme=dark]_&]:bg-white/[0.04]">
         {AUDIENCES.map((a) => {
           const on = a.id === active;

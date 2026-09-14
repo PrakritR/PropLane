@@ -46,6 +46,8 @@ export type InspectionOccupancy = "upcoming" | "current" | "past";
 
 export type InspectionResidency = {
   id: string; name: string; property: string; room: string; canCreate: boolean;
+  /** The house this residency sits in, so a workspace can narrow the roster to its own. */
+  propertyId: string;
   /** Which inspections this room's own configuration requires (see ./requirements). */
   requiredKinds?: InspectionKind[];
   /** ISO `YYYY-MM-DD`, or "" when the placement carries no date yet. */

@@ -33,6 +33,13 @@ export type ManagerReportFilters = {
   roomLabel?: string;
   /** Profitability report only: one row per property (default) or per property per month. */
   groupBy?: string;
+  /**
+   * Houses the viewer's active workspace holds, resolved SERVER-side from the
+   * selection cookie — never parsed from the request. `null`/absent means the
+   * workspace is not narrowing; an empty array means it holds no houses, so the
+   * report has nothing to report rather than everything.
+   */
+  workspacePropertyIds?: string[] | null;
 };
 
 export type DocumentScope = "portfolio" | "property" | "tenant" | "room";

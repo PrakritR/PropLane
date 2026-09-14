@@ -219,6 +219,7 @@ export async function listInspectionResidencies(actor: InspectionActor): Promise
       leaseTypeInspectionRequirements(listing, residency.leaseTerm),
     );
     return { id: residency.id, name: residency.name, property: residency.propertyLabel,
+      propertyId: identity.property_id,
       room: residency.roomLabel, requiredKinds,
       moveInDate: residency.moveInDate, moveOutDate: residency.moveOutDate,
       occupancy: residencyOccupancy(residency.moveInDate, residency.moveOutDate),
