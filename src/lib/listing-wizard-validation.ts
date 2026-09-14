@@ -15,9 +15,9 @@ import { isEntireHomeListing, resolveAllowedLeaseTerms, type ManagerListingSubmi
 import type { ManagerSkuTier } from "@/lib/manager-access";
 import {
   LISTING_PROCESSING_FEE_PROPLANE_NOT_ALLOWED,
-  listingPaymentWaiverCodeMatches,
   managerCanSelectProplaneServiceFee,
 } from "@/lib/payment-policy";
+import { isProcessingCoverageCodeShape } from "@/lib/processing-coverage-codes";
 import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 
 export function listingRoomNameKey(roomId: string): string {
@@ -156,9 +156,20 @@ export function validateListingWizardStep(
 
     if (sub.serviceFeePayer === "proplane") {
       const tier = opts.managerSkuTier ?? "free";
-      // Either promo source satisfies it: the account's grant, or this listing's own code.
+      /*
+       * Either source satisfies it: the account's grant, or a code of the right
+       * SHAPE on this listing.
+       *
+       * Shape, not validity — deciding validity needs the coverage codes, and
+       * this runs in the browser, where holding them is exactly the bug that let
+       * a manager read one out of a client chunk. A well-formed code gets the
+       * manager past publish-readiness; the write path re-derives it server-side
+       * and downgrades the listing to `resident` if it is not real, so a wrong
+       * code costs PropLane nothing.
+       */
       const granted =
-        opts.accountPaymentWaiverGranted === true || listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode);
+        opts.accountPaymentWaiverGranted === true ||
+        isProcessingCoverageCodeShape(sub.serviceFeeWaiverCode);
       if (!managerCanSelectProplaneServiceFee(tier, granted)) {
         // The error sits on the payer field: that is the control the manager changed.
         errs.serviceFeePayer = LISTING_PROCESSING_FEE_PROPLANE_NOT_ALLOWED;

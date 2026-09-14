@@ -128,6 +128,13 @@ export const getMoveInInfoTool = defineTool({
 
     const resolved = resolveResidentMoveInFromApplications(ctx.email, applications, propertiesById);
     if (!resolved) return { moveIn: null };
+    // Door, gate and alarm codes, the lockbox and the Wi-Fi password are exactly
+    // what the portal's My home section withholds until the lease is signed
+    // (`STAGE_UNLOCKED_SECTIONS` unlocks `move-in` only at `post_lease`).
+    // `ctx.phase` is that same unlock — `leaseAccessUnlocked`, a signed lease or
+    // an attested tenancy — so an approved applicant who has not signed gets the
+    // address and the date and nothing that opens the door.
+    const houseAccessUnlocked = ctx.phase === "approved";
     return {
       moveIn: {
         propertyLabel: resolved.propertyLabel,
@@ -135,12 +142,12 @@ export const getMoveInInfoTool = defineTool({
         roomLabel: resolved.roomLabel,
         earliestMoveInDateLabel: resolved.earliestMoveInDateLabel,
         amenities: resolved.amenities,
-        wifiNetworkName: resolved.wifiNetworkName,
-        wifiPassword: resolved.wifiPassword,
+        wifiNetworkName: houseAccessUnlocked ? resolved.wifiNetworkName : null,
+        wifiPassword: houseAccessUnlocked ? resolved.wifiPassword : null,
         // Structured house details, so "what is the door code" is answered from
         // a field instead of by quoting a paragraph back at the resident. Still
         // the manager's words, so still untrusted.
-        houseDetails: houseInfoRenderSections(resolved.houseInfo).map((section) => ({
+        houseDetails: (houseAccessUnlocked ? houseInfoRenderSections(resolved.houseInfo) : []).map((section) => ({
           section: section.label,
           rows: section.rows.map((row) => ({
             label: row.label,

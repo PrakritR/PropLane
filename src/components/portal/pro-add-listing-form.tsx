@@ -96,6 +96,7 @@ import {
   managerCanSelectManagerAbsorbServiceFee,
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
+import { isProcessingCoverageCodeShape } from "@/lib/processing-coverage-codes";
 import {
   applyListingBedroomSlots,
   applyListingBathroomSlots,
@@ -1842,7 +1843,7 @@ export function ManagerAddListingForm({
   const serviceFeePayerUi = listingServiceFeePayerUiValue(
     sub.serviceFeePayer,
     managerSkuTier,
-    paymentWaiverGranted === true || listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode),
+    paymentWaiverGranted === true || isProcessingCoverageCodeShape(sub.serviceFeeWaiverCode),
   );
 
   useEffect(() => {
@@ -1853,7 +1854,7 @@ export function ManagerAddListingForm({
     if (paymentWaiverGranted !== false) return;
     // A listing carrying its own valid promo code is backed without an account grant.
     setSub((current) =>
-      current.serviceFeePayer === "proplane" && !listingPaymentWaiverCodeMatches(current.serviceFeeWaiverCode)
+      current.serviceFeePayer === "proplane" && !isProcessingCoverageCodeShape(current.serviceFeeWaiverCode)
         ? { ...current, serviceFeePayer: "resident", serviceFeeWaiverCode: undefined }
         : current,
     );

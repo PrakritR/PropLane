@@ -154,8 +154,10 @@ describe("evidence · PropLane covers it requires the promo code", () => {
       feeCard(),
     );
 
-    // 2. A wrong code is refused, still with nothing written.
-    await typeCode("NOPE123");
+    // 2. Malformed input is refused inline, with nothing written. Shape is all
+    //    the browser may judge — the coverage codes are server-only now, because
+    //    one of them was readable in a client chunk and a code is a credential.
+    await typeCode("NO");
     await click("manager-service-fee-waiver-apply");
     expect(patches).toHaveLength(0);
     // The refusal message is the shared one, so the product never prints the code
@@ -163,11 +165,12 @@ describe("evidence · PropLane covers it requires the promo code", () => {
     expect(document.body.textContent).toContain(LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID);
     shot(
       "payment-setup-03-wrong-code",
-      "A wrong code is refused inline — still 0 PATCH requests, so nothing was stored.",
+      "Malformed input is refused inline — still 0 PATCH requests, so nothing was stored.",
       feeCard(),
     );
 
-    // 3. FREE100 checks out: now — and only now — the choice is saved with the code.
+    // 3. A well-formed code is SENT for the server to judge; the route checks it
+    //    against the server-only list and refuses anything that is not real.
     await typeCode("free100");
     await click("manager-service-fee-waiver-apply");
     expect(patches).toHaveLength(1);

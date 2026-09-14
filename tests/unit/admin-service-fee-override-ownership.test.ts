@@ -16,7 +16,9 @@ describe("staff coverage write boundary", () => {
       rpc,
       from: () => ({ select: () => ({ limit: async () => ({ data: [], error: null }), eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) }),
     } as never;
-    await saveManagerManualPaymentSettings(db,"owner", {...DEFAULT_MANAGER_MANUAL_PAYMENT_SETTINGS,serviceFeePayer:"proplane",serviceFeeWaiverCode:"free100"});
+    // The CALLER resolves the code now: the coverage list is server-only, and
+    // this helper is bundled for the browser alongside the payment-setup modal.
+    await saveManagerManualPaymentSettings(db,"owner", {...DEFAULT_MANAGER_MANUAL_PAYMENT_SETTINGS,serviceFeePayer:"proplane",serviceFeeWaiverCode:"free100"},{codeMatches:true});
     expect(rpc).toHaveBeenCalledWith("save_manager_payment_preferences", {p_owner:"owner",p_settings:expect.objectContaining({serviceFeePayer:"proplane",serviceFeeWaiverCode:"FREE100"}),p_coverage_granted:true});
     // Without a code and without a grant the same choice is written as resident, and the writer is told so.
     rpc.mockClear();

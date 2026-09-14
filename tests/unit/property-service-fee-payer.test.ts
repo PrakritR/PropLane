@@ -36,7 +36,7 @@ describe("the stored value", () => {
   it("keeps a real choice", () => {
     expect(withFeePayer("resident")).toBe("resident");
     expect(withFeePayer("manager")).toBe("manager");
-    expect(withFeePayer("proplane", "FREE100")).toBe("proplane");
+    expect(withFeePayer("proplane", "FREE100", { codeMatches: true })).toBe("proplane");
   });
 
   it("refuses codeless PropLane absorb rather than preserving it", () => {

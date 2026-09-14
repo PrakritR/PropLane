@@ -12,6 +12,7 @@ import { upsertPropertyApplicationFeeWaiverCode } from "@/lib/application-fee-wa
 import { MANAGER_PROPERTY_LIMIT_ERROR_CODE } from "@/lib/manager-access";
 import { assertManagerPropertyListingQuota } from "@/lib/manager-property-quota.server";
 import { propertyRowsToSnapshot, type ManagerPropertyRecordStatus } from "@/lib/persisted-property-records";
+import { reconcileListingServiceFeeOnWrite } from "@/lib/listing-service-fee-write.server";
 
 export const runtime = "nodejs";
 
@@ -308,10 +309,28 @@ export async function POST(req: Request) {
     // `rowData` (pending bucket). Treat an omitted field as "leave unchanged",
     // not "clear" — `?? null` on a missing JSON key was wiping seeded row_data
     // the first time a manager opened Properties after `npm run test:seed`.
-    const rowDataForWrite =
+    const rowDataForWrite0 =
       body.rowData !== undefined ? body.rowData : (existing?.row_data ?? null);
-    const propertyDataForWrite =
+    const propertyDataForWrite0 =
       body.propertyData !== undefined ? body.propertyData : (existing?.property_data ?? null);
+
+    /*
+     * Who pays the processing fee is re-derived HERE, from the server's own
+     * view — the client's claim is never stored as sent.
+     *
+     * The coverage code is a credential, and one of them was verifiably sitting
+     * in a browser chunk. Without this, a manager could read it out of devtools,
+     * post a listing carrying `serviceFeePayer:"proplane"` plus that code, and
+     * have PropLane absorb Stripe's cost on every resident payment for that
+     * listing forever, with no grant recorded anywhere. The browser now stores
+     * intent; this decides.
+     */
+    const { rowData: rowDataForWrite, propertyData: propertyDataForWrite } =
+      await reconcileListingServiceFeeOnWrite(db, {
+        ownerUserId: managerUserIdForWrite,
+        rowData: rowDataForWrite0,
+        propertyData: propertyDataForWrite0,
+      });
 
     let newWorkspaceId: string | undefined;
     if (!existing && managerUserIdForWrite === user.id) {

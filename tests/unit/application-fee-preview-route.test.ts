@@ -10,8 +10,33 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * It can also preview a waiver code without redeeming it.
  */
 
+/**
+ * The preview reads the listing's workspace the same way the checkout mint does
+ * (property row → workspace row), so the stub has to answer both lookups. An
+ * empty object stood in while the preview passed no property at all, which is
+ * exactly the drift this route was quoting one total and charging another for.
+ */
+const { workspace, serviceDb } = vi.hoisted(() => {
+  const workspace = { id: null as string | null, paymentSettings: null as unknown };
+  const serviceDb = () => ({
+    from(table: string) {
+      const data =
+        table === "manager_property_records"
+          ? { workspace_id: workspace.id }
+          : { payment_settings: workspace.paymentSettings };
+      const query = {
+        select: () => query,
+        eq: () => query,
+        maybeSingle: async () => ({ data, error: null }),
+      };
+      return query;
+    },
+  });
+  return { workspace, serviceDb };
+});
+
 vi.mock("@/lib/supabase/service", () => ({
-  createSupabaseServiceRoleClient: () => ({}) as unknown as SupabaseClient,
+  createSupabaseServiceRoleClient: () => serviceDb() as unknown as SupabaseClient,
 }));
 
 vi.mock("@/lib/manager-access-server", () => ({
@@ -66,6 +91,7 @@ vi.mock("@/lib/application-fee-checkout.server", async (importOriginal) => {
 
 import { resolveApplicationFeeProperty } from "@/lib/application-fee-checkout.server";
 import { previewApplicationFeeWaiverCode } from "@/lib/application-fee-waiver";
+import { getManagerPurchaseSku } from "@/lib/manager-access-server";
 import { shouldWaiveApplicationFeeForResidentServer } from "@/lib/rental-application/application-policy.server";
 
 function post(body: unknown) {
@@ -94,6 +120,34 @@ describe("POST /api/public/application-fee-preview", () => {
     vi.mocked(previewApplicationFeeWaiverCode).mockReset();
     vi.mocked(shouldWaiveApplicationFeeForResidentServer).mockClear().mockResolvedValue(true);
     getUser.mockReset().mockResolvedValue({ data: { user: null } });
+    workspace.id = null;
+    workspace.paymentSettings = null;
+  });
+
+  // The quote and the charge must agree. The checkout mint passes the property
+  // to the itemizer; when the preview did not, a listing whose workspace says
+  // the manager absorbs the processing fee was quoted the fee on top anyway and
+  // the applicant was then charged less than the number they agreed to.
+  it("quotes the workspace's fee-payer choice, like the checkout does", async () => {
+    vi.mocked(resolveApplicationFeeProperty).mockResolvedValue(resolvedListing());
+    vi.mocked(getManagerPurchaseSku).mockResolvedValueOnce({
+      tier: "pro",
+      billing: null,
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+      appleOriginalTransactionId: null,
+    } as unknown as Awaited<ReturnType<typeof getManagerPurchaseSku>>);
+    workspace.id = "ws_1";
+    workspace.paymentSettings = { serviceFeePayer: "manager" };
+    const { POST } = await import("@/app/api/public/application-fee-preview/route");
+
+    const res = await POST(post({ propertyId: "prop_1", managerUserId: "mgr_A", channel: "card" }));
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.feePayer).toBe("manager");
+    expect(json.serviceFeeCents).toBe(0);
+    expect(json.totalCents).toBe(5000);
   });
 
   it("previews the application fee only — no deposit line", async () => {
