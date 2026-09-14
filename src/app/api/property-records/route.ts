@@ -356,7 +356,14 @@ export async function POST(req: Request) {
       },
       { onConflict: "id" },
     );
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      // A check violation is the database REFUSING the write on a rule it can
+      // explain ("Assigned room no longer exists.", "Move-out date precedes
+      // move-in date.") — repeatable, and the manager can act on the words. A
+      // 500 turned it into "check your connection" on a healthy network.
+      if (error.code === "23514") return NextResponse.json({ error: error.message }, { status: 422 });
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
 
     // A draft is unvalidated by contract (docs/agents/property-drafts.md): it is
     // saved on every wizard step, including on close, with whatever is typed so
