@@ -30,6 +30,8 @@ export function PortalPropertyRail({
   backHref,
   backLabel = "All properties",
   showBackLink = true,
+  /** False when {@link PortalRecordDetailPage} already shows the record title (and back). */
+  showTitleBlock = true,
   title,
   subtitle,
   className,
@@ -44,6 +46,7 @@ export function PortalPropertyRail({
   backLabel?: string;
   /** False when a back control already exists elsewhere on the page (e.g. the page header chevron). */
   showBackLink?: boolean;
+  showTitleBlock?: boolean;
   title: string;
   subtitle?: string;
   className?: string;
@@ -82,14 +85,16 @@ export function PortalPropertyRail({
           {backLabel}
         </Link>
       ) : null}
-      <div className={cn("flex items-center gap-2.5 px-3 py-3", showBackLink && "border-t border-border")}>
-        {leading ? <span className="shrink-0">{leading}</span> : null}
-        <span className="min-w-0">
-          <p className="truncate text-[13px] font-semibold text-foreground">{title}</p>
-          {subtitle ? <p className="truncate text-xs text-muted">{subtitle}</p> : null}
-        </span>
-      </div>
-      <nav className="flex flex-col gap-px px-2">
+      {showTitleBlock ? (
+        <div className={cn("flex items-center gap-2.5 px-3 py-3", showBackLink && "border-t border-border")}>
+          {leading ? <span className="shrink-0">{leading}</span> : null}
+          <span className="min-w-0">
+            <p className="truncate text-[13px] font-semibold text-foreground">{title}</p>
+            {subtitle ? <p className="truncate text-xs text-muted">{subtitle}</p> : null}
+          </span>
+        </div>
+      ) : null}
+      <nav className={cn("flex flex-col gap-px px-2", !showBackLink && !showTitleBlock && "pt-2")}>
         {grouped.map((group) => (
           <div key={group.label} className="flex flex-col gap-px">
             <p className="px-2.5 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted/60">{group.label}</p>
