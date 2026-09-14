@@ -110,18 +110,30 @@ export function PortalSettingsToggle({
       disabled={disabled}
       data-attr={dataAttr}
       onClick={() => onChange(!checked)}
+      /* The button is the 44px touch target the portal HIG layer requires
+         (`.portal-shell :where(button, …) { min-height: 2.75rem }` in globals.css,
+         which applies at every width). The pill is a child, so that min-height
+         stretches transparent padding instead of the switch itself — setting a
+         21px height on the button loses to the shell rule and renders a blob. */
       className={cn(
-        "relative h-[21px] w-[36px] shrink-0 rounded-full transition-colors",
-        checked ? "bg-primary" : "bg-border",
+        "inline-flex w-11 shrink-0 items-center justify-center bg-transparent",
         disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
       )}
     >
       <span
+        aria-hidden
         className={cn(
-          "absolute top-[2.5px] h-4 w-4 rounded-full bg-white transition-all",
-          checked ? "right-[2.5px]" : "left-[2.5px]",
+          "relative block h-[21px] w-[36px] rounded-full transition-colors",
+          checked ? "bg-primary" : "bg-border",
         )}
-      />
+      >
+        <span
+          className={cn(
+            "absolute top-[2.5px] size-4 rounded-full bg-white shadow-[0_1px_2px_rgba(8,9,11,0.3)] transition-all",
+            checked ? "left-[17.5px]" : "left-[2.5px]",
+          )}
+        />
+      </span>
     </button>
   );
 }

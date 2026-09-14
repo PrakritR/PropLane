@@ -32,16 +32,23 @@ function SectionToggle({
         aria-label={`${checked ? "Hide" : "Show"} ${label}`}
         data-attr={dataAttr}
         onClick={() => onChange(!checked)}
-        className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 ${
-          checked ? "bg-primary" : "bg-[var(--secondary)] border border-border"
-        }`}
+        /* The portal HIG layer forces every button in the shell to a 44px
+           min-height, so the pill has to be a child — sizing the button itself
+           stretches it into a circle. The button stays the touch target. */
+        className="mt-0.5 inline-flex w-11 shrink-0 items-center justify-center bg-transparent focus-visible:outline-none"
       >
         <span
           aria-hidden
-          className={`inline-block size-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
-            checked ? "translate-x-[1.375rem]" : "translate-x-0.5"
+          className={`relative block h-6 w-11 rounded-full transition-colors duration-200 ${
+            checked ? "bg-primary" : "bg-[var(--secondary)] border border-border"
           }`}
-        />
+        >
+          <span
+            className={`absolute top-0.5 inline-block size-5 rounded-full bg-white shadow-sm transition-all duration-200 ${
+              checked ? "left-[1.375rem]" : "left-0.5"
+            }`}
+          />
+        </span>
       </button>
     </li>
   );
