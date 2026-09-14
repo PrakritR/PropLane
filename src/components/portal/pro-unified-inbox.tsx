@@ -6,7 +6,7 @@ import {
   loadManagerSmsConversationsClient,
 } from "@/lib/manager-sms-conversations-client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   clearCommunicationThreadUrl,
   selectCommunicationThreadUrl,
@@ -188,6 +188,7 @@ export function ManagerUnifiedInbox({
   searchQuery: searchQueryProp,
   onSearchQueryChange,
   listChrome = "internal",
+  listActions,
   onAddConversation,
   onApplicationsLoaded,
 }: {
@@ -214,6 +215,8 @@ export function ManagerUnifiedInbox({
   onSearchQueryChange?: (value: string) => void;
   /** `external` — segment tabs + search live in {@link PortalListControlStack}. */
   listChrome?: "internal" | "external";
+  /** Icon tools drawn beside the internal search (filter · setup · settings · new message). */
+  listActions?: ReactNode;
   /** Opens the new-message / compose flow when the list is empty on Active. */
   onAddConversation?: () => void;
   /** Rebuild the parent-owned contact directory after its source has completed. */
@@ -919,15 +922,22 @@ export function ManagerUnifiedInbox({
       <ManagerWorkNumberCard onTellResidents={onAddConversation} />
       {listChrome === "internal" ? (
         <div className={PORTAL_INBOX_LIST_TOOLBAR_CLASS}>
-          <div className="relative min-w-0">
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search contacts or messages"
-              className="portal-inbox-search h-9 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
-              data-attr="unified-inbox-search"
-            />
+          <div className="flex min-w-0 items-center gap-1">
+            <div className="relative min-w-0 flex-1">
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search contacts or messages"
+                className="portal-inbox-search h-9 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
+                data-attr="unified-inbox-search"
+              />
+            </div>
+            {listActions ? (
+              <div className="flex shrink-0 items-center gap-0.5 [&_button]:shrink-0 [&_a]:shrink-0" data-attr="communication-list-actions">
+                {listActions}
+              </div>
+            ) : null}
           </div>
           {listRows.length > 0 ? (
             <p className="hidden px-1 text-[11px] text-muted sm:block">

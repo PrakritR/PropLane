@@ -1,15 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
-import { PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
+import { Phone, RefreshCw } from "lucide-react";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { useManagerMessagingNumberStatus } from "@/hooks/use-manager-messaging-number-status";
 import { MANAGER_MESSAGING_SETTINGS_HREF } from "@/lib/sms/manager-messaging-number";
 
 /**
- * Communication-header entry point to work-number setup. Three states, keyed on
- * the account's authoritative plan (`planTier`) and whether a number is already
- * assigned:
+ * Communication-toolbar entry point to work-number setup. A phone glyph with an
+ * amber dot — the dot says "still to do" without a word (PLAN-0914-1345).
+ * Three states, keyed on the account's authoritative plan (`planTier`) and
+ * whether a number is already assigned:
  *  - free plan → greyed, non-actionable, tooltip prompting a Pro upgrade.
  *  - paid (or unreadable) plan, no number yet → active "Set up messaging" → Settings.
  *  - number already assigned → nothing rendered (the CTA "goes away" once set up).
@@ -19,68 +20,39 @@ import { MANAGER_MESSAGING_SETTINGS_HREF } from "@/lib/sms/manager-messaging-num
  * prompt on a billing-read blip. Co-managers inherit paid nav tier from linked
  * workspace owners when their own plan is Free.
  */
-function ManagerWorkNumberSetupLabel() {
-  return (
-    <>
-      <span className="sm:hidden" aria-hidden="true">
-        Messaging
-      </span>
-      <span className="hidden sm:inline">Set up messaging</span>
-    </>
-  );
-}
-
 export function ManagerWorkNumberButton({ className }: { className?: string }) {
   const { ready, resolved, statusError, status, retry } =
     useManagerMessagingNumberStatus();
-
-  const btnClass = `shrink-0 ${PORTAL_HEADER_ACTION_BTN} ${className ?? ""}`.trim();
 
   if (!ready) return null;
 
   if (statusError) {
     return (
-      <div
-        className="flex min-w-0 items-center gap-2"
-        role="alert"
-        aria-live="polite"
-      >
+      <span className="inline-flex shrink-0" role="alert" aria-live="polite">
         <span className="sr-only">Messaging status unavailable.</span>
-        <span
-          className="hidden text-sm text-muted sm:inline"
-          aria-hidden="true"
-        >
-          Messaging status unavailable.
-        </span>
-        <Button
-          type="button"
-          variant="outline"
-          className={btnClass}
+        <PortalIconAction
+          icon={RefreshCw}
+          label="Retry messaging status"
+          badge="warn"
+          className={className}
           data-attr="messaging-status-retry"
-          aria-label="Retry messaging status"
-          title="Messaging status unavailable. Tap to retry."
           onClick={retry}
-        >
-          Retry
-        </Button>
-      </div>
+        />
+      </span>
     );
   }
 
   // Reserve toolbar space immediately; swap to the correct plan state once loaded.
   if (!resolved || !status) {
     return (
-      <Button
-        type="button"
-        variant="outline"
-        className={btnClass}
+      <PortalIconAction
+        icon={Phone}
+        label="Set up messaging"
+        className={className}
         disabled
         aria-busy="true"
-        aria-label="Set up messaging"
         data-attr="messaging-setup-loading"
-      >
-        <ManagerWorkNumberSetupLabel />
-      </Button>
+      />
     );
   }
 
@@ -92,36 +64,31 @@ export function ManagerWorkNumberButton({ className }: { className?: string }) {
 
   if (status.planTier === "free") {
     return (
-      <span
-        className="inline-flex shrink-0"
-        title="Subscribe to Pro to unlock SMS"
-      >
-        <Button
-          type="button"
-          variant="outline"
-          className={btnClass}
+      <span className="inline-flex shrink-0" title="Subscribe to Pro to unlock SMS">
+        <PortalIconAction
+          icon={Phone}
+          label="Subscribe to Pro to unlock SMS"
+          className={className}
           disabled
           aria-disabled="true"
-          title="Subscribe to Pro to unlock SMS"
           data-attr="messaging-upsell-locked"
-          aria-label="Subscribe to Pro to unlock SMS"
-        >
-          <ManagerWorkNumberSetupLabel />
-        </Button>
+        />
       </span>
     );
   }
 
+  // A link styled as the icon action: the destination is a settings route, not a modal.
   return (
-    <Button
-      asChild
-      variant="outline"
-      className={btnClass}
+    <Link
+      href={MANAGER_MESSAGING_SETTINGS_HREF}
+      aria-label="Set up messaging"
+      title="Set up messaging"
       data-attr="messaging-open-settings"
+      data-slot="portal-icon-action"
+      className={`relative inline-flex size-11 shrink-0 items-center justify-center rounded-lg text-foreground/80 outline-none transition hover:bg-[var(--secondary)]/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/30 md:size-9 ${className ?? ""}`.trim()}
     >
-      <Link href={MANAGER_MESSAGING_SETTINGS_HREF} aria-label="Set up messaging">
-        <ManagerWorkNumberSetupLabel />
-      </Link>
-    </Button>
+      <Phone className="size-[18px]" strokeWidth={1.75} aria-hidden />
+      <span aria-hidden data-slot="portal-icon-badge" data-tone="warn" className="absolute right-1 top-1 size-2 rounded-full bg-amber-500 ring-2 ring-card" />
+    </Link>
   );
 }
