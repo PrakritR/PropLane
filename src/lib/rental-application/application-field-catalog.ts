@@ -4,6 +4,8 @@ import type {
 } from "@/lib/manager-listing-submission";
 import {
   applicationWizardStepForSection,
+  DEFAULT_CUSTOM_FIELD_SECTION_ID,
+  RENTAL_APPLICATION_SECTION_IDS,
   RENTAL_APPLICATION_SECTIONS,
   type RentalApplicationSectionId,
 } from "@/lib/rental-application/application-sections";
@@ -721,4 +723,109 @@ export function activeApplicationWizardSteps(
     active.add(applicationWizardStepForSection(field.section));
   }
   return [...active].sort((a, b) => a - b);
+}
+
+/** Section a custom question belongs to; absent means the "additional" section. */
+function customFieldSectionId(field: ManagerCustomApplicationField): string {
+  return field.section ?? DEFAULT_CUSTOM_FIELD_SECTION_ID;
+}
+
+/**
+ * Indices (into `normalized`, in persisted array order) of every CUSTOM
+ * (non-built-in) question that lives in `sectionId`. Built-in overrides
+ * (rows carrying a `standardKey`) are never reorderable and are excluded.
+ */
+function customFieldIndicesInSection(
+  normalized: readonly ManagerCustomApplicationField[],
+  sectionId: string,
+): number[] {
+  const indices: number[] = [];
+  normalized.forEach((field, index) => {
+    if (!field.standardKey && customFieldSectionId(field) === sectionId) {
+      indices.push(index);
+    }
+  });
+  return indices;
+}
+
+/** Custom (non-built-in) questions in one section, in their persisted order. */
+export function customQuestionsInSection(
+  slice: ApplicationConfigSlice,
+  sectionId: string,
+  normalizeSaved: (raw: unknown) => ManagerCustomApplicationField[],
+): ManagerCustomApplicationField[] {
+  const normalized = normalizeSaved(slice.customApplicationFields);
+  return customFieldIndicesInSection(normalized, sectionId).map((index) => normalized[index]);
+}
+
+/** True when the question can move that way (drives disabled menu items). */
+export function canMoveCustomApplicationField(
+  slice: ApplicationConfigSlice,
+  fieldId: string,
+  direction: "up" | "down",
+  normalizeSaved: (raw: unknown) => ManagerCustomApplicationField[],
+): boolean {
+  const normalized = normalizeSaved(slice.customApplicationFields);
+  const targetIndex = normalized.findIndex((f) => f.id === fieldId);
+  if (targetIndex === -1 || normalized[targetIndex].standardKey) return false;
+  const sectionIndices = customFieldIndicesInSection(normalized, customFieldSectionId(normalized[targetIndex]));
+  const posInSection = sectionIndices.indexOf(targetIndex);
+  const swapPos = direction === "up" ? posInSection - 1 : posInSection + 1;
+  return swapPos >= 0 && swapPos < sectionIndices.length;
+}
+
+/** Move one custom question up or down WITHIN its own section. */
+export function moveCustomApplicationField(
+  slice: ApplicationConfigSlice,
+  fieldId: string,
+  direction: "up" | "down",
+  normalizeSaved: (raw: unknown) => ManagerCustomApplicationField[],
+): ApplicationConfigSlice {
+  const normalized = normalizeSaved(slice.customApplicationFields);
+  const targetIndex = normalized.findIndex((f) => f.id === fieldId);
+  if (targetIndex === -1 || normalized[targetIndex].standardKey) {
+    return { ...slice, customApplicationFields: normalized };
+  }
+  const sectionIndices = customFieldIndicesInSection(normalized, customFieldSectionId(normalized[targetIndex]));
+  const posInSection = sectionIndices.indexOf(targetIndex);
+  const swapPos = direction === "up" ? posInSection - 1 : posInSection + 1;
+  if (swapPos < 0 || swapPos >= sectionIndices.length) {
+    return { ...slice, customApplicationFields: normalized };
+  }
+  const swapIndex = sectionIndices[swapPos];
+  const next = [...normalized];
+  [next[targetIndex], next[swapIndex]] = [next[swapIndex], next[targetIndex]];
+  return { ...slice, customApplicationFields: next };
+}
+
+/** Move one custom question into another section, appended at that section's end. */
+export function moveCustomApplicationFieldToSection(
+  slice: ApplicationConfigSlice,
+  fieldId: string,
+  sectionId: string,
+  normalizeSaved: (raw: unknown) => ManagerCustomApplicationField[],
+): ApplicationConfigSlice {
+  const normalized = normalizeSaved(slice.customApplicationFields);
+  const targetIndex = normalized.findIndex((f) => f.id === fieldId);
+  if (targetIndex === -1 || normalized[targetIndex].standardKey || !RENTAL_APPLICATION_SECTION_IDS.has(sectionId)) {
+    return { ...slice, customApplicationFields: normalized };
+  }
+  const target = normalized[targetIndex];
+  if (customFieldSectionId(target) === sectionId) {
+    return { ...slice, customApplicationFields: normalized };
+  }
+
+  const withoutTarget = normalized.filter((_, index) => index !== targetIndex);
+  let insertAt = withoutTarget.length;
+  for (let i = withoutTarget.length - 1; i >= 0; i -= 1) {
+    const field = withoutTarget[i];
+    if (!field.standardKey && customFieldSectionId(field) === sectionId) {
+      insertAt = i + 1;
+      break;
+    }
+  }
+
+  const movedField: ManagerCustomApplicationField = { ...target, section: sectionId };
+  const next = [...withoutTarget.slice(0, insertAt), movedField, ...withoutTarget.slice(insertAt)];
+  return { ...slice, customApplicationFields: next };
 }
