@@ -1189,11 +1189,18 @@ export function normalizeCustomApplicationFields(
     if (usedKeys.has(key)) continue;
     usedKeys.add(key);
     const hasOptions = CUSTOM_APPLICATION_FIELD_TYPES_WITH_OPTIONS.has(type);
+    // The editor variant (`includeIncomplete`) keeps a blank option ROW exactly
+    // as the manager left it — an in-progress option list is "incomplete" the
+    // same way an in-progress empty label is, and it must survive being
+    // re-displayed on every keystroke while it is being typed into. Only the
+    // strict (non-editor) normalize still drops blanks and trims for storage.
     const options =
       hasOptions && Array.isArray(o.options)
-        ? (o.options as unknown[])
-            .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
-            .map((v) => v.trim())
+        ? includeIncomplete
+          ? (o.options as unknown[]).filter((v): v is string => typeof v === "string")
+          : (o.options as unknown[])
+              .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+              .map((v) => v.trim())
         : [];
     const standardKey =
       typeof o.standardKey === "string" && o.standardKey.trim() ? o.standardKey.trim() : undefined;

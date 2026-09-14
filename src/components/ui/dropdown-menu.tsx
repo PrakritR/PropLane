@@ -2,11 +2,13 @@
 
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import * as React from "react";
+import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSafeAreaInsets } from "@/hooks/use-safe-area-insets";
 
 export const DropdownMenu = DropdownMenuPrimitive.Root;
 export const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
+export const DropdownMenuSub = DropdownMenuPrimitive.Sub;
 
 export function DropdownMenuContent({
   className,
@@ -81,6 +83,49 @@ export function DropdownMenuItem({
       )}
       {...props}
     />
+  );
+}
+
+/** Flyout trigger for a nested menu (e.g. "Move to section ▸"). */
+export function DropdownMenuSubTrigger({
+  className,
+  children,
+  ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.SubTrigger>) {
+  return (
+    <DropdownMenuPrimitive.SubTrigger
+      className={cn(
+        "flex min-h-11 cursor-pointer select-none items-center gap-2.5 rounded-lg px-3 py-2.5 text-[13.5px] font-medium outline-none transition focus:bg-accent/70 focus:text-foreground data-[state=open]:bg-accent/70 data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+        className,
+      )}
+      {...props}
+    >
+      <span className="min-w-0 flex-1">{children}</span>
+      <ChevronRight className="h-[15px] w-[15px] shrink-0 text-muted" aria-hidden />
+    </DropdownMenuPrimitive.SubTrigger>
+  );
+}
+
+export function DropdownMenuSubContent({
+  className,
+  sideOffset = 4,
+  ...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.SubContent>) {
+  return (
+    <DropdownMenuPrimitive.Portal>
+      <DropdownMenuPrimitive.SubContent
+        sideOffset={sideOffset}
+        className={cn(
+          "z-50 min-w-[12rem] overflow-hidden rounded-xl border border-border bg-card p-1.5 text-foreground shadow-[0_12px_32px_-8px_rgba(20,28,48,0.22)]",
+          "origin-[var(--radix-dropdown-menu-content-transform-origin)]",
+          "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
+          "duration-[220ms] ease-[cubic-bezier(.22,1,.36,1)] data-[state=closed]:duration-[120ms]",
+          "motion-reduce:animate-none motion-reduce:transition-none",
+          className,
+        )}
+        {...props}
+      />
+    </DropdownMenuPrimitive.Portal>
   );
 }
 
