@@ -77,7 +77,7 @@ export function BookingsDayDetailModal({
                   <Badge tone={bookingSourceBadgeTone(entry.source)}>
                     {bookingSourceLabel(entry.source)}
                   </Badge>
-                  {entry.statusLabel && entry.source !== "block" ? (
+                  {entry.statusLabel && (entry.source !== "block" || entry.residentName) ? (
                     <Badge tone={bookingStatusTone(entry)}>{entry.statusLabel}</Badge>
                   ) : null}
                 </div>

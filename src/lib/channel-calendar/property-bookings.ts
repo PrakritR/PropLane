@@ -39,6 +39,8 @@ export type PropertyBookingEntry = {
   blockId?: string;
   /** Blocks only — why the dates are closed. */
   reason?: string;
+  /** Blocks only — who the room is being held for, when the manager named someone. */
+  residentName?: string;
 };
 
 /** A manager's explicit closed range. `checkOut` is exclusive: the day is free again. */
@@ -50,8 +52,29 @@ export type RoomDateBlock = {
   checkIn: string;
   checkOut: string;
   reason: string;
+  /**
+   * Optional: who the room is held for. A label on the block, never a link to a
+   * login — nothing reads it for access. Absent on every block saved before the
+   * field existed.
+   */
+  residentName?: string;
+  residentEmail?: string;
   createdAt: string;
 };
+
+/** What a block reads as on the calendar: the person it is held for, else the reason, else "Blocked". */
+export function roomBlockSummary(block: Pick<RoomDateBlock, "reason" | "residentName">): string {
+  return block.residentName?.trim() || block.reason.trim() || "Blocked";
+}
+
+/**
+ * How an entry is coloured. A block held for a named resident reads as a hold —
+ * blue, a person's name — not the grey hatch of a closed room; everything else
+ * is its own source.
+ */
+export function bookingVisualSource(entry: Pick<PropertyBookingEntry, "source" | "residentName">): BookingSource {
+  return entry.source === "block" && entry.residentName?.trim() ? "hold" : entry.source;
+}
 
 /** Exclusive check-out → inclusive last night, so a block joins the same day math as a stay. */
 export function lastNightBeforeCheckout(checkOut: string): string {
@@ -76,12 +99,13 @@ export function roomBlockEntries(
       propertyLabel: opts.propertyLabelForId(block.propertyId),
       roomId: block.roomId,
       roomLabel: block.roomId ? opts.roomLabelForId(block.propertyId, block.roomId) : "Whole home",
-      summary: block.reason.trim() || "Blocked",
+      summary: roomBlockSummary(block),
       start,
       end,
-      statusLabel: "Blocked",
+      statusLabel: block.residentName?.trim() ? "Held" : "Blocked",
       blockId: block.id,
       reason: block.reason,
+      ...(block.residentName?.trim() ? { residentName: block.residentName.trim() } : {}),
     });
   }
   return out;
