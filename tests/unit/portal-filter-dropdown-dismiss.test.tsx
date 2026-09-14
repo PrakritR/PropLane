@@ -20,12 +20,21 @@ import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sh
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { FIELD_SELECT_MENU_DATA_ATTR } from "@/components/ui/field-select-portal-interaction";
 
+/**
+ * A desktop: a mouse, and a window wide enough for a popover.
+ *
+ * This answered `false` to every query, which read as "desktop" only while the
+ * surface decision was a single width media query. It is now a pointer question
+ * first, and `(pointer: fine) === false` means a touchscreen — so the blanket
+ * `false` quietly turned this whole file into a phone and every dropdown
+ * assertion looked for a panel that was rendering as a bottom sheet.
+ */
 function installDesktopPortalViewport() {
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     writable: true,
     value: vi.fn((query: string) => ({
-      matches: false,
+      matches: query.includes("pointer: fine"),
       media: query,
       addEventListener: () => {},
       removeEventListener: () => {},

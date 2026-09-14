@@ -870,15 +870,24 @@ html {
   overflow: visible;
 }
 
-@media (max-width: 1023px) {
-  .portal-filter-dropdown-panel,
-  [data-slot="portal-filter-dropdown-panel"] {
-    width: 100vw !important;
-    max-width: 100vw !important;
-    border-left-width: 0;
-    border-right-width: 0;
-    border-radius: 0;
-  }
+/*
+ * Full-bleed ONLY when the panel is actually a sheet.
+ *
+ * This used to be `@media (max-width: 1023px)` — a THIRD copy of the rule that
+ * decides sheet-vs-popover, after `ui/modal.tsx` and the filter sheet itself.
+ * Because it carried `!important`, it overrode the anchored popover's own
+ * computed width: the panel positioned itself correctly at left:536 width:352
+ * and was then stretched to 100vw, hanging 536px off the right edge of a 900px
+ * window. CSS now FOLLOWS the resolver (`ui/portal-surface.ts`) via a data
+ * attribute instead of restating it and disagreeing.
+ */
+.portal-filter-dropdown-panel[data-surface="sheet"],
+[data-slot="portal-filter-dropdown-panel"][data-surface="sheet"] {
+  width: 100vw !important;
+  max-width: 100vw !important;
+  border-left-width: 0;
+  border-right-width: 0;
+  border-radius: 0;
 }
 
 [data-theme="dark"] .portal-filter-dropdown-panel,

@@ -9,7 +9,10 @@ import {
   filterSingleSelectSummary,
   useFilterAccordionClose,
 } from "@/components/portal/filter-field-lists";
-import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
+import {
+  PORTAL_FILTER_DRAFT_PROPERTY_FILTERS,
+  usePortalFilterDraft,
+} from "@/lib/portal-filter-draft";
 
 export function ApplicationFilterSortFields({
   propertyOptions,
@@ -107,6 +110,7 @@ function ApplicationFilterSortFieldsMulti({
     propertyFilters,
     onPropertyFiltersChange,
     [],
+    PORTAL_FILTER_DRAFT_PROPERTY_FILTERS,
   );
   const options = propertyOptions.map((option) => ({ value: option.id, label: option.label }));
   const summary = filterMultiSelectSummary(draftPropertyFilters, options, allLabel);

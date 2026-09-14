@@ -5,7 +5,6 @@ import {
   useEffect,
   useLayoutEffect, useRef,
   useState,
-  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import {
@@ -46,25 +45,9 @@ import {
 } from "@/components/ui/field-select-portal-interaction";
 import { lockPortalScroll } from "@/lib/native/lock-portal-scroll";
 import { useSafeAreaInsets } from "@/hooks/use-safe-area-insets";
+import { usePortalSurface } from "@/components/ui/portal-surface";
 import { cn } from "@/lib/utils";
 
-const SMALL_PORTAL_VIEWPORT_QUERY = "(max-width: 1023px)";
-
-function subscribeSmallPortalViewport(onStoreChange: () => void): () => void {
-  if (typeof window.matchMedia !== "function") return () => {};
-  const mql = window.matchMedia(SMALL_PORTAL_VIEWPORT_QUERY);
-  mql.addEventListener("change", onStoreChange);
-  return () => mql.removeEventListener("change", onStoreChange);
-}
-
-function getSmallPortalViewport(): boolean {
-  if (typeof window.matchMedia !== "function") return false;
-  return window.matchMedia(SMALL_PORTAL_VIEWPORT_QUERY).matches;
-}
-
-function useSmallPortalViewport(): boolean {
-  return useSyncExternalStore(subscribeSmallPortalViewport, getSmallPortalViewport, () => false);
-}
 
 /**
  * The mobile Filter surface (anchored popover vs. Vaul bottom sheet) is chosen ONCE, at the
@@ -113,42 +96,65 @@ function FilterResetLink({ onReset }: { onReset: () => void }) {
   );
 }
 
+/**
+ * What the primary action promises.
+ *
+ * "Save" says nothing about the consequence, so the only way to find out
+ * whether a filter combination leaves anything behind is to apply it and look.
+ * The count comes from the SAME predicate the list renders from — the caller
+ * passes the length of the rows the draft filters would produce — so "Show 0
+ * tasks" warns before the commit rather than after it. A caller that cannot
+ * cheaply compute that passes nothing and keeps the plain label.
+ */
+export function filterApplyLabel(resultCount: number | undefined, noun: string | undefined): string {
+  if (resultCount == null) return "Save";
+  const word = noun?.trim() || "result";
+  return `Show ${resultCount} ${resultCount === 1 ? word : `${word}s`}`;
+}
+
 function FilterSheetFooter({
   onReset,
   onSave,
+  applyLabel,
 }: {
   onReset: () => void;
   onSave: () => void;
+  applyLabel?: ReactNode;
 }) {
   return (
     <ModalFooter className="w-full justify-between">
       <FilterResetLink onReset={onReset} />
       <Button type="button" variant="primary" className="rounded-full" onClick={onSave} data-attr="portal-filter-save">
-        Save
+        {applyLabel ?? "Save"}
       </Button>
     </ModalFooter>
   );
 }
 
-function FilterDropdownHeader({ onReset, onClose }: { onReset: () => void; onClose: () => void }) {
+/**
+ * Title and dismiss only.
+ *
+ * Reset used to sit up here as well, which put it a long way from the action it
+ * undoes and gave the panel two competing controls in its top-right corner. It
+ * now lives in the footer next to Apply, so the panel reads title → fields →
+ * what you can do about them.
+ */
+function FilterDropdownHeader({ onClose }: { onClose: () => void }) {
   return (
     <div
       data-field-select-host-chrome=""
       className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2"
     >
       <p className="text-sm font-semibold text-foreground">Filter</p>
-      <div className="flex items-center gap-3">
-        <FilterResetLink onReset={onReset} />
-        <button
-          type="button"
-          className={MODAL_HEADER_CLOSE_CLASS}
-          aria-label="Close filters"
-          onClick={onClose}
-          data-attr="portal-filter-close"
-        >
-          <X className="h-4 w-4" strokeWidth={2.25} />
-        </button>
-      </div>
+      <button
+        type="button"
+        className={MODAL_HEADER_CLOSE_CLASS}
+        aria-label="Close filters"
+        onClick={onClose}
+        data-attr="portal-filter-close"
+      >
+        <X className="h-4 w-4" strokeWidth={2.25} />
+      </button>
     </div>
   );
 }
@@ -248,11 +254,26 @@ export function PortalFilterSortSheet({
   mobileFlushBody = false,
   mobileFooter,
   /**
-   * Opt out of the bottom-anchored viewport-filling sheet. Only for a sheet that already
-   * fills most of the viewport (browse-homes) where the explicit props are documentary,
-   * or for the legacy raised placement (`mobileSheetRaised`).
+   * The primary action's label, turning "Save" into "Show 12 tasks".
+   *
+   * It is rendered INSIDE the draft provider, which is the whole reason it is a
+   * node and not a number: while the panel is open the page's own state is
+   * deliberately stale, so a count passed in from the caller's render would
+   * report the filters as they were before this edit. A node placed here can
+   * read the PENDING values with `usePortalFilterDraftValues` and count what
+   * pressing the button will actually produce.
    */
-  mobileSheetFillsViewport = true,
+  applyLabel,
+  /**
+   * Fill the viewport instead of ending where the content ends.
+   *
+   * This used to default to TRUE, which is why a four-field filter sheet opened
+   * as a full-height phone panel with a band of empty white between its last
+   * field and its Save button. A sheet now hugs its content up to the sheet's
+   * own ceiling; only a surface that genuinely fills the screen (browse-homes)
+   * opts back in.
+   */
+  mobileSheetFillsViewport = false,
   /** Legacy raised placement — leaves a gap above the tab bar; prefer the default fill. */
   mobileSheetRaised = false,
   /** Keep portal popovers inside the page content instead of covering an adjacent rail. */
@@ -277,6 +298,7 @@ export function PortalFilterSortSheet({
   mobileSheetClassName?: string;
   mobileFlushBody?: boolean;
   mobileFooter?: ReactNode | ((close: () => void) => ReactNode);
+  applyLabel?: ReactNode;
   mobileSheetFillsViewport?: boolean;
   mobileSheetRaised?: boolean;
   /** Enabled by default; outside a portal page this safely falls back to viewport bounds. */
@@ -298,7 +320,16 @@ export function PortalFilterSortSheet({
   const deferControllerRef = useRef<PortalFilterDeferController | null>(null);
   const openRef = useRef(false);
   const dropdownPanelRef = useRef<HTMLDivElement | null>(null);
-  const isMobile = useSmallPortalViewport();
+  /*
+   * Whether this is a touch surface, NOT merely whether the window is narrow.
+   *
+   * The old rule was width alone, so a Mac with a browser window under 1024px
+   * was handed a phone bottom sheet — grabber handle included — which is what
+   * every one of the captain's 2026-09-13 screenshots is. `usePortalSurface`
+   * asks about the pointer first and keeps width only as the tiebreak for a
+   * touchscreen laptop. See `ui/portal-surface.ts`.
+   */
+  const isMobile = usePortalSurface("toolbar") === "sheet";
   const insets = useSafeAreaInsets();
   // Decided ONCE per open (in `setFilterOpen`, or the controlled-case safety net below) and
   // held for the panel's whole life — nothing else may write this.
@@ -542,6 +573,9 @@ export function PortalFilterSortSheet({
       aria-label="Filter"
       tabIndex={-1}
       data-slot="portal-filter-dropdown-panel"
+      /* Lets the stylesheet follow the one resolver rather than re-deriving it
+         from a media query that disagreed with the computed position. */
+      data-surface={isMobile && !mobilePopover ? "sheet" : "popover"}
         className={cn(
         panelSizeClass,
         isMobile && !mobilePopover && "max-lg:!w-screen max-lg:!max-w-[100vw] max-lg:border-x-0",
@@ -563,7 +597,7 @@ export function PortalFilterSortSheet({
       }
       data-attr="portal-filter-dropdown-panel"
     >
-      <FilterDropdownHeader onReset={handleReset} onClose={close} />
+      <FilterDropdownHeader onClose={close} />
       <div
         className={cn(
           compactPanel
@@ -580,12 +614,17 @@ export function PortalFilterSortSheet({
           {children}
         </FilterDropdownBody>
       </div>
+      {/* Pinned: the fields above scroll once they outgrow the panel, and the
+          thing you press must not scroll away with them. */}
+      <div className="shrink-0 border-t border-border px-3 py-2">
+        <FilterSheetFooter onReset={handleReset} onSave={close} applyLabel={applyLabel} />
+      </div>
     </div>
   );
 
   const filterFooter = (save: () => void) =>
     mobileFooter ? (typeof mobileFooter === "function" ? mobileFooter(save) : mobileFooter) : (
-      <FilterSheetFooter onReset={handleReset} onSave={save} />
+      <FilterSheetFooter onReset={handleReset} onSave={save} applyLabel={applyLabel} />
     );
 
   return (
@@ -655,7 +694,16 @@ export function PortalFilterSortSheet({
                     here; the outside-pointerdown dismissal stays off in the
                     shell hook for that same reason. */}
                 <div
-                  className="fixed inset-0 cursor-default bg-black/20"
+                  className={cn(
+                    "fixed inset-0 cursor-default",
+                    /* An anchored popover is a toolbar control, not a modal: the
+                       whole reason to anchor it is that you can still SEE the
+                       list you are filtering. Dimming that list defeats the
+                       point, so the layer here is a click-catcher only. The
+                       full-bleed mobile sheet keeps its dim, because there it
+                       really is covering the page. */
+                    useMobileBottomSheet ? "bg-black/20" : "bg-transparent",
+                  )}
                   style={{ zIndex: fieldSelectMenuZIndex(portalHost) - 1 }}
                   aria-hidden
                   data-attr="portal-filter-dropdown-backdrop"
@@ -730,7 +778,7 @@ export function PortalFilterSortSheet({
           dense
           scrollableContent
           assistantContext="Filter"
-          footer={<FilterSheetFooter onReset={handleReset} onSave={close} />}
+          footer={<FilterSheetFooter onReset={handleReset} onSave={close} applyLabel={applyLabel} />}
         >
           <FilterSheetScrollLockContext.Provider value={setFilterMenuOpen}>
             {fields}

@@ -20,7 +20,15 @@ import {
   getSettingsEntryPoint,
   settingsDialogTitlePrefix,
 } from "@/components/portal/settings-entry-points";
-import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
+import {
+  PortalFilterSortSheet,
+  filterApplyLabel,
+  portalFilterActiveCount,
+} from "@/components/portal/portal-filter-sort-sheet";
+import {
+  PORTAL_FILTER_DRAFT_PROPERTY_FILTERS,
+  usePortalFilterDraftValues,
+} from "@/lib/portal-filter-draft";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ManagerTaskFormModal } from "@/components/portal/pro-task-form-modal";
@@ -47,7 +55,7 @@ import {
   openTasksForListTab,
   serviceRequestLocationLabel,
   serviceRequestsAssignedToViewer,
-  taskListRowMatchesFilter,
+  selectManagerTaskListRows,
   type ManagerTaskGroupMode,
   type ManagerTaskListFilterId,
   type ManagerTaskListSortId,
@@ -89,6 +97,61 @@ type TaskListRow =
   | { kind: "service"; id: string; request: ServiceRequest };
 
 type TaskListClusterRow = TaskListRow & ResidentIdentityFields & PropertyClusterFields;
+
+/**
+ * "Show 12 tasks" — what pressing Apply will actually leave on screen.
+ *
+ * Rendered INSIDE the filter panel's draft provider, because while the panel is
+ * open the page's own filter state is deliberately still the applied one: the
+ * list behind the panel must not shuffle while you are choosing. So this reads
+ * the PENDING values instead and runs them through
+ * {@link selectManagerTaskListRows} — the same function the list itself renders
+ * from. Two predicates would eventually disagree, and a count that disagrees
+ * with the list is worse than no count at all.
+ */
+function TaskFilterApplyLabel({
+  tabId,
+  inProgressTasks,
+  overdueTasks,
+  doneTasks,
+  assignedServices,
+  workspaceAllowsProperty,
+  applied,
+  propertyLabelForId,
+}: {
+  tabId: ManagerTaskListTabId;
+  inProgressTasks: ManagerTask[];
+  overdueTasks: ManagerTask[];
+  doneTasks: ManagerTask[];
+  assignedServices: ServiceRequest[];
+  workspaceAllowsProperty: (propertyId?: string) => boolean;
+  applied: {
+    propertyFilters: string[];
+    listFilter: ManagerTaskListFilterId;
+    assigneeFilterId: string;
+    priorityFilter: string;
+    sortId: ManagerTaskListSortId;
+  };
+  propertyLabelForId: (propertyId?: string) => string;
+}) {
+  const draft = usePortalFilterDraftValues(applied);
+  const pendingPropertyId = draft[PORTAL_FILTER_DRAFT_PROPERTY_FILTERS][0] ?? "";
+  const count = selectManagerTaskListRows({
+    tabId,
+    inProgressTasks,
+    overdueTasks,
+    doneTasks,
+    assignedServices,
+    matchesProperty: (propertyId) =>
+      workspaceAllowsProperty(propertyId) && (!pendingPropertyId || propertyId === pendingPropertyId),
+    listFilter: draft.listFilter,
+    assigneeFilterId: draft.assigneeFilterId,
+    priorityFilter: draft.priorityFilter,
+    sortId: draft.sortId,
+    propertyLabelForId,
+  }).length;
+  return <>{filterApplyLabel(count, "task")}</>;
+}
 
 const tasksSettingsEntry = getSettingsEntryPoint("tasks");
 
@@ -263,28 +326,22 @@ export function ManagerTaskList({
     [propertyOptions],
   );
 
-  const visibleRows = useMemo((): TaskListRow[] => {
-    const taskSource =
-      tabId === "completed" ? doneTasks : tabId === "overdue" ? overdueTasks : inProgressTasks;
-    const taskRows: TaskListRow[] = taskSource
-      .filter((task) => matchesProperty(task.propertyId))
-      .map((task) => ({ kind: "task", id: task.id, task }));
-    const serviceRows: TaskListRow[] =
-      tabId === "in-progress"
-        ? assignedServices
-            .filter((req) => matchesProperty(req.propertyId))
-            .map((request) => ({ kind: "service", id: `service-${request.id}`, request }))
-        : [];
-    return [...taskRows, ...serviceRows]
-      .filter((row) => taskListRowMatchesFilter(row, listFilter))
-      .filter((row) => {
-        if (row.kind !== "task") return !assigneeFilterId && !priorityFilter;
-        if (assigneeFilterId && (row.task.assignee?.id ?? "") !== assigneeFilterId) return false;
-        if (priorityFilter && (row.task.priority ?? "medium") !== priorityFilter) return false;
-        return true;
-      })
-      .sort((a, b) => compareManagerTaskListRows(a, b, sortId, propertyLabelForId));
-  }, [
+  const visibleRows = useMemo(
+    (): TaskListRow[] =>
+      selectManagerTaskListRows({
+        tabId,
+        inProgressTasks,
+        overdueTasks,
+        doneTasks,
+        assignedServices,
+        matchesProperty,
+        listFilter,
+        assigneeFilterId,
+        priorityFilter,
+        sortId,
+        propertyLabelForId,
+      }),
+    [
     assignedServices,
     assigneeFilterId,
     doneTasks,
@@ -377,6 +434,24 @@ export function ManagerTaskList({
         setSortId("due_soonest");
       }}
       dataAttr="tasks-filter-sheet-open"
+      applyLabel={
+        <TaskFilterApplyLabel
+          tabId={tabId}
+          inProgressTasks={inProgressTasks}
+          overdueTasks={overdueTasks}
+          doneTasks={doneTasks}
+          assignedServices={assignedServices}
+          workspaceAllowsProperty={workspaceContainsProperty}
+          propertyLabelForId={propertyLabelForId}
+          applied={{
+            [PORTAL_FILTER_DRAFT_PROPERTY_FILTERS]: propertyFilterId ? [propertyFilterId] : [],
+            listFilter,
+            assigneeFilterId,
+            priorityFilter,
+            sortId,
+          }}
+        />
+      }
     >
       <ManagerTaskFilterFields
         listFilter={listFilter}

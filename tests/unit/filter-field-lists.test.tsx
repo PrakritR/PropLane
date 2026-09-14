@@ -274,9 +274,9 @@ describe("FilterCollapsibleSection — the one filter dropdown pattern", () => {
     // the mobile sheet hid the only visible dismiss control. If the header or the menu ever
     // grows past this headroom, either the menu escapes the panel or it eats the chrome;
     // both are silent, so the arithmetic is pinned here.
-    const panel3Px = 23 * 16;
+    const panel3Px = 26 * 16;
     const containmentGap = 4 * 2;
-    expect(portalFilterPanelSizeClass(3)).toContain("23rem");
+    expect(portalFilterPanelSizeClass(3)).toContain("26rem");
     expect(
       FILTER_MENU_CONTENT_PX + PORTAL_FILTER_PANEL_CHROME_PX + containmentGap,
     ).toBeLessThanOrEqual(panel3Px);
@@ -868,13 +868,16 @@ describe("PortalFilterSortSheet — mobile sheet stays open while filtering", ()
 
 describe("portalFilterPanelSizeClass", () => {
   it("uses shorter height for one field and taller for more", () => {
-    expect(portalFilterPanelSizeClass(1)).toContain("max-h-[10.5rem]");
-    expect(portalFilterPanelSizeClass(2)).toContain("max-h-[14rem]");
-    expect(portalFilterPanelSizeClass(3)).toContain("max-h-[23rem]");
-    // Four 76px field rows plus header/padding need 23rem; at 19rem the fourth field
-    // rendered BELOW the panel and was only reachable by scrolling.
-    expect(portalFilterPanelSizeClass(4)).toContain("max-h-[23rem]");
-    expect(PORTAL_FILTER_COMMUNICATION_PANEL_CLASS).toContain("max-h-[23rem]");
+    // Each of these grew by the 53px footer (Reset + "Show N tasks") when the
+    // panel gained one: the fields still get exactly the room they had, and the
+    // footer is not paid for out of a field row.
+    expect(portalFilterPanelSizeClass(1)).toContain("max-h-[13.75rem]");
+    expect(portalFilterPanelSizeClass(2)).toContain("max-h-[17.25rem]");
+    expect(portalFilterPanelSizeClass(3)).toContain("max-h-[26rem]");
+    // Four 76px field rows plus header/footer/padding need 26rem; at 19rem the fourth
+    // field rendered BELOW the panel and was only reachable by scrolling.
+    expect(portalFilterPanelSizeClass(4)).toContain("max-h-[26rem]");
+    expect(PORTAL_FILTER_COMMUNICATION_PANEL_CLASS).toContain("max-h-[26rem]");
   });
 });
 
@@ -894,7 +897,11 @@ describe("the raised filter sheet is placed statically, never measured", () => {
     // `height < viewport * 0.52` measurement was guarding, and the measurement is what
     // made the sheet jump when its content changed.
     expect(sheet.className).toContain("bottom-[var(--portal-raised-sheet-offset)]");
-    expect(sheet.className).toContain("max-h-[calc(100dvh-var(--portal-raised-sheet-offset)-1rem)]");
+    // `100dvh` alone measures to the bottom of the SCREEN, keyboard included, so the
+    // usable height subtracts whatever the keyboard is covering before anything else.
+    expect(sheet.className).toContain(
+      "max-h-[calc(100dvh-var(--portal-sheet-keyboard-inset,0px)-var(--portal-raised-sheet-offset)-1rem)]",
+    );
     expect(sheet.style.getPropertyValue("--portal-raised-sheet-offset")).toContain("32vh");
     // Exactly one max-height utility: two would resolve by CSS source order, not class order.
     expect(sheet.className.match(/max-h-\[/g)).toHaveLength(1);

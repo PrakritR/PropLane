@@ -8,6 +8,7 @@ import { MODAL_HEADER_CLOSE_CLASS } from "@/components/ui/modal";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { usePortalAssistantConfig } from "@/lib/axis-assistant/portal-assistant-context";
 import { isPortaledFieldSelectMenuTarget } from "@/components/ui/field-select-portal-interaction";
+import { useVisualViewportBottomInset } from "@/hooks/use-visual-viewport-bottom-inset";
 import { cn } from "@/lib/utils";
 
 /**
@@ -45,6 +46,21 @@ const RAISED_SHEET_STYLE = {
  * `[data-vaul-handle]`, which carries its own `touch-action`.
  */
 const SHEET_TOUCH_ACTION: CSSProperties = { touchAction: "pan-y" };
+
+/**
+ * How much of the screen the software keyboard is covering, published so the
+ * height expressions below can subtract it.
+ *
+ * `dvh` tracks browser chrome, NOT the keyboard: with a field focused on a
+ * phone, `100dvh` still measures down to the bottom of the screen, so a sheet
+ * sized in `dvh` alone happily lays its last field and its footer out
+ * underneath the keyboard. Every height here is therefore written against
+ * `100dvh` MINUS this, which is the visual viewport.
+ */
+const SHEET_KEYBOARD_INSET_VAR = "--portal-sheet-keyboard-inset";
+
+/** Usable height: the screen, less whatever the keyboard is covering. */
+const SHEET_VIEWPORT_HEIGHT = `calc(100dvh - var(${SHEET_KEYBOARD_INSET_VAR}, 0px))`;
 
 /** Keep portaled FieldSingleSelect / CheckboxMultiSelect menus clickable inside sheets. */
 function allowPortaledFieldSelectInteraction(event: Event) {
@@ -143,7 +159,7 @@ export function VaulBottomSheet({
   const elevated = autoElevate && !fullScreen;
   const bottomAnchoredMaxHeight =
     maxHeightClass ??
-    "max-h-[min(88dvh,calc(100dvh-var(--portal-native-bottom-nav-inset,0px)-0.5rem))]";
+    "max-h-[min(calc((100dvh-var(--portal-sheet-keyboard-inset,0px))*0.88),calc(100dvh-var(--portal-sheet-keyboard-inset,0px)-var(--portal-native-bottom-nav-inset,0px)-0.5rem))]";
   const bottomAnchoredMinHeight = fillViewport
     ? bottomAnchoredMaxHeight.replace(/^max-h-/, "min-h-")
     : undefined;
@@ -160,7 +176,7 @@ export function VaulBottomSheet({
      Both of these read {@link RAISED_SHEET_OFFSET_VAR}. */
   const elevatedPlacement =
     "bottom-[var(--portal-raised-sheet-offset)] top-auto " +
-    "max-h-[calc(100dvh-var(--portal-raised-sheet-offset)-1rem)]";
+    "max-h-[calc(100dvh-var(--portal-sheet-keyboard-inset,0px)-var(--portal-raised-sheet-offset)-1rem)]";
 
   /* `min()` against the same raised max-height, not a bare pixel floor: on a short viewport
      a bare floor would out-rank max-height (min-height always wins) and push the sheet's
@@ -175,9 +191,14 @@ export function VaulBottomSheet({
   const raisedMinHeight =
     elevated && minHeightPx
       ? {
-          minHeight: `min(${minHeightPx}px, calc(100dvh - var(${RAISED_SHEET_OFFSET_VAR}) - 1rem))`,
+          minHeight: `min(${minHeightPx}px, calc(${SHEET_VIEWPORT_HEIGHT} - var(${RAISED_SHEET_OFFSET_VAR}) - 1rem))`,
         }
       : undefined;
+
+  /* Measured only while the sheet is open — a keyboard raised behind a closed
+     sheet is nobody's business, and the listener unsubscribes with it. */
+  const keyboardInset = useVisualViewportBottomInset(open);
+  const keyboardInsetStyle = { [SHEET_KEYBOARD_INSET_VAR]: `${keyboardInset}px` } as CSSProperties;
 
   return (
     <Drawer.Root open={open} onOpenChange={onOpenChange} handleOnly dismissible={dismissible}>
@@ -202,8 +223,8 @@ export function VaulBottomSheet({
           )}
           style={
             elevated
-              ? { ...RAISED_SHEET_STYLE, ...SHEET_TOUCH_ACTION, ...raisedMinHeight }
-              : SHEET_TOUCH_ACTION
+              ? { ...RAISED_SHEET_STYLE, ...SHEET_TOUCH_ACTION, ...keyboardInsetStyle, ...raisedMinHeight }
+              : { ...SHEET_TOUCH_ACTION, ...keyboardInsetStyle }
           }
           data-slot="vaul-bottom-sheet"
           data-elevated={elevated ? "true" : "false"}

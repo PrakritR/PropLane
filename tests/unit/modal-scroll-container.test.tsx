@@ -21,8 +21,18 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
+/**
+ * `matches` here means "this is a small TOUCH surface" — a phone.
+ *
+ * It used to mean only "narrow window", because the whole dialog-vs-drawer
+ * decision was one width query. It is now a pointer question first
+ * (`ui/portal-surface.ts`), so a stub that answered `false` to every query was
+ * claiming there is no mouse — and a mouseless desktop gets a drawer. The stub
+ * answers per query for that reason; a bare boolean cannot describe the input.
+ */
 function mockMatchMedia(matches: boolean) {
   const listeners = new Set<() => void>();
+  const answer = (query: string) => (query.includes("pointer: fine") ? !matches : matches);
   const mql = {
     matches,
     media: "(max-width: 1023px)",
@@ -34,7 +44,7 @@ function mockMatchMedia(matches: boolean) {
     },
     dispatchEvent: () => true,
   };
-  vi.stubGlobal("matchMedia", () => mql);
+  vi.stubGlobal("matchMedia", (query: string) => ({ ...mql, media: query, matches: answer(query) }));
   return { mql, listeners };
 }
 
@@ -50,6 +60,10 @@ function modalBody(): HTMLElement {
 
 describe("Modal scroll container", () => {
   it("body scrolls when a footer is present (no overflow-hidden clipping)", () => {
+    // Say "desktop" out loud: these assertions walk the Radix dialog's own
+    // structure, and jsdom's bare matchMedia answers `false` to everything —
+    // which now reads as "no mouse" and renders the drawer instead.
+    mockMatchMedia(false);
     render(
       <Modal open title="Tall form" onClose={() => {}} footer={<button type="button">Save</button>}>
         <p>content</p>
@@ -65,6 +79,7 @@ describe("Modal scroll container", () => {
   });
 
   it("body scrolls without a footer too", () => {
+    mockMatchMedia(false);
     render(
       <Modal open title="Simple" onClose={() => {}}>
         <p>content</p>

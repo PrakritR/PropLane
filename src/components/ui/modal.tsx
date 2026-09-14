@@ -1,7 +1,7 @@
 "use client";
 
 import type { ComponentType, CSSProperties, ReactNode, Ref } from "react";
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Drawer } from "vaul";
 import { X } from "lucide-react";
@@ -18,6 +18,7 @@ import {
   PORTAL_MOBILE_DRAWER_SHELL_CLASS,
 } from "@/components/ui/modal-styles";
 import { usePortalContainer } from "@/components/ui/portal-container-context";
+import { usePortalSurface } from "@/components/ui/portal-surface";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { usePortalAssistantConfig } from "@/lib/axis-assistant/portal-assistant-context";
 import { cn } from "@/lib/utils";
@@ -53,27 +54,19 @@ export function ModalFooter({ children, className }: { children: ReactNode; clas
   return <div className={cn(MODAL_FOOTER_ROW_CLASS, className)}>{children}</div>;
 }
 
-const SMALL_PORTAL_VIEWPORT_QUERY = "(max-width: 1023px)";
-
-function subscribeSmallPortalViewport(onStoreChange: () => void): () => void {
-  if (typeof window.matchMedia !== "function") return () => {};
-  const mql = window.matchMedia(SMALL_PORTAL_VIEWPORT_QUERY);
-  mql.addEventListener("change", onStoreChange);
-  return () => mql.removeEventListener("change", onStoreChange);
-}
-
-function getSmallPortalViewportPresentation(): "drawer" | "dialog" {
-  if (typeof window.matchMedia !== "function") return "dialog";
-  return window.matchMedia(SMALL_PORTAL_VIEWPORT_QUERY).matches ? "drawer" : "dialog";
-}
-
-/** Desktop dialog vs mobile Vaul drawer — matches portal `lg` breakpoint. */
+/**
+ * Desktop dialog vs mobile Vaul drawer.
+ *
+ * This used to be its own `(max-width: 1023px)` media query — one of three
+ * copies of the same decision, and the reason a Mac with a 900px browser window
+ * got a phone drawer, grabber handle included, for "Add task" and "Tasks
+ * settings". The decision now lives in ONE tested place
+ * (`ui/portal-surface.ts`), which asks what is pointing at the screen before it
+ * asks how wide the window is. A modal is a form, so it resolves to a dialog on
+ * any fine pointer and a sheet on touch.
+ */
 export function useModalPresentation(): "drawer" | "dialog" {
-  return useSyncExternalStore(
-    subscribeSmallPortalViewport,
-    getSmallPortalViewportPresentation,
-    () => "dialog",
-  );
+  return usePortalSurface("short-form") === "sheet" ? "drawer" : "dialog";
 }
 
 const DEFAULT_STACK_CLASS = "fixed inset-0 z-[70] overflow-y-auto overscroll-contain";

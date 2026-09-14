@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronDown } from "lucide-react";
+import { ChoiceChips, type ChoiceChipOption } from "@/components/ui/choice-chips";
 import {
   createContext,
   useCallback,
@@ -55,7 +56,7 @@ export function portalFilterDropdownHeightPx(panelSizeClass: string): number {
     return Math.min(36 * 16, viewportH * 0.82);
   }
   if (panelSizeClass.includes("28rem")) return 28 * 16;
-  return 10.5 * 16;
+  return 13.75 * 16;
 }
 
 export function portalFilterDropdownWidthPx(panelSizeClass: string): number {
@@ -66,29 +67,49 @@ export function portalFilterDropdownWidthPx(panelSizeClass: string): number {
 export const PORTAL_FILTER_PANEL_HEIGHT_CLASS = "h-[28rem]";
 export const PORTAL_FILTER_PANEL_SIZE_CLASS = `${PORTAL_FILTER_PANEL_WIDTH_CLASS} ${PORTAL_FILTER_PANEL_HEIGHT_CLASS}`;
 /** Single-field compact filter dropdown. */
-export const PORTAL_FILTER_PANEL_COMPACT_HEIGHT_CLASS = "max-h-[10.5rem]";
+export const PORTAL_FILTER_PANEL_COMPACT_HEIGHT_CLASS = "max-h-[13.75rem]";
 export const PORTAL_FILTER_PANEL_COMPACT_MAX_CLASS = `h-auto ${PORTAL_FILTER_PANEL_COMPACT_HEIGHT_CLASS}`;
 export const PORTAL_FILTER_PANEL_COMPACT_CLASS = `${PORTAL_FILTER_PANEL_WIDTH_CLASS} ${PORTAL_FILTER_PANEL_COMPACT_MAX_CLASS}`;
-export const PORTAL_FILTER_PANEL_TWO_FIELD_HEIGHT_CLASS = "max-h-[14rem]";
+export const PORTAL_FILTER_PANEL_TWO_FIELD_HEIGHT_CLASS = "max-h-[17.25rem]";
 export const PORTAL_FILTER_PANEL_TWO_FIELD_MAX_CLASS = `h-auto ${PORTAL_FILTER_PANEL_TWO_FIELD_HEIGHT_CLASS}`;
 /**
- * Fixed chrome above a desktop filter panel's fields: the Filter / Reset / ✕ row.
+ * Fixed chrome above a desktop filter panel's fields: the Filter / ✕ row.
  * MEASURED (58px), not derived from the utility classes — my arithmetic said 37px and the
  * 22rem panel it produced left 286px against a 292px menu, so menus quietly went back to
  * spilling. Re-measure if `FilterDropdownHeader` changes.
  */
-export const PORTAL_FILTER_PANEL_CHROME_PX = 58;
+export const PORTAL_FILTER_PANEL_HEADER_PX = 58;
 
-/* 23rem, not 19rem: the panel must hold its own chrome (58px) PLUS a full menu (292px)
-   plus the containment gap — 358px minimum. At 19rem/304px the menu fit the panel but
-   painted over Reset and Close; at 22rem it cleared them but spilled below the panel. */
-export const PORTAL_FILTER_PANEL_THREE_FIELD_HEIGHT_CLASS = "max-h-[23rem]";
+/**
+ * Fixed chrome BELOW the fields: the Reset + "Show N tasks" row.
+ * MEASURED (53px) on the running app, same rule as the header above.
+ */
+export const PORTAL_FILTER_PANEL_FOOTER_PX = 53;
+
+/**
+ * Everything in a desktop filter panel that is not a field — header AND footer.
+ *
+ * A portaled field menu has to be containable between the two, so this is the
+ * number every panel height is sized against. It grew when Reset moved out of
+ * the header into a real footer beside Apply: sizing against the header alone
+ * would have let a menu fit the panel while painting straight over the button
+ * the manager has to press.
+ */
+export const PORTAL_FILTER_PANEL_CHROME_PX =
+  PORTAL_FILTER_PANEL_HEADER_PX + PORTAL_FILTER_PANEL_FOOTER_PX;
+
+/* 26rem, not 23rem: the panel must hold its own chrome — header 58px AND footer 53px —
+   PLUS a full menu (292px) plus the containment gap, so 411px minimum. It was 23rem while
+   Reset lived in the header and there was no footer; the footer is 53px of fixed chrome a
+   menu must not cover, and `tests/unit/filter-field-lists.test.tsx` pins that arithmetic.
+   At 19rem/304px the menu fit the panel but painted over Reset and Close. */
+export const PORTAL_FILTER_PANEL_THREE_FIELD_HEIGHT_CLASS = "max-h-[26rem]";
 export const PORTAL_FILTER_PANEL_THREE_FIELD_MAX_CLASS = `h-auto ${PORTAL_FILTER_PANEL_THREE_FIELD_HEIGHT_CLASS}`;
 /* One field row measures 76px (label + 44px trigger + gap); four of them plus the panel
    header and padding need ~23rem. At 19rem the fourth field rendered BELOW the panel's
    bottom edge and was only reachable by scrolling — measured on Communication, whose
    filter is house/role/resident/sort. */
-export const PORTAL_FILTER_PANEL_FOUR_FIELD_HEIGHT_CLASS = "max-h-[23rem]";
+export const PORTAL_FILTER_PANEL_FOUR_FIELD_HEIGHT_CLASS = "max-h-[26rem]";
 export const PORTAL_FILTER_PANEL_FOUR_FIELD_MAX_CLASS = `h-auto ${PORTAL_FILTER_PANEL_FOUR_FIELD_HEIGHT_CLASS}`;
 
 /** Pick a fixed filter shell height from the number of filter rows (property, resident, sort, …). */
@@ -863,5 +884,36 @@ export function FilterSingleSelectDropdown({
         dataAttr={dataAttr}
       />
     </FilterCollapsibleSection>
+  );
+}
+
+/**
+ * A filter field whose whole option set fits on one row of chips.
+ *
+ * Same label treatment as {@link FilterCollapsibleSection}, so a panel that
+ * mixes the two still reads as one column of fields — but no trigger, no
+ * portaled menu and no second interaction. Use it only where
+ * {@link shouldRenderAsChips} says yes: a fixed set of at most
+ * {@link CHOICE_CHIPS_MAX_OPTIONS}. Anything data-driven stays a menu, however
+ * short it happens to be today.
+ */
+export function FilterChipsField<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+  dataAttr,
+}: {
+  label: string;
+  value: T;
+  options: ReadonlyArray<ChoiceChipOption<T>>;
+  onChange: (next: T) => void;
+  dataAttr?: string;
+}) {
+  return (
+    <div data-attr={dataAttr}>
+      <p className={FILTER_FIELD_LABEL_CLASS}>{label}</p>
+      <ChoiceChips label={label} value={value} options={options} onChange={onChange} />
+    </div>
   );
 }

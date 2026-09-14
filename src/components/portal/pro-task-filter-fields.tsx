@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  FilterChipsField,
   FilterCollapsibleSection,
   FilterFieldsAccordion,
   FilterSingleSelectList,
@@ -30,29 +31,21 @@ function TaskGroupByFilterField({
   value: ManagerTaskGroupMode;
   onChange: (next: ManagerTaskGroupMode) => void;
 }) {
-  const closeFieldMenu = useFilterAccordionClose();
-  const [draft, setDraft] = usePortalFilterDraft(value, onChange, "property");
+  const [draft, setDraft] = usePortalFilterDraft(value, onChange, "property", "taskGroupMode");
   const options = MANAGER_TASK_GROUP_MODES.map((mode) => ({
     value: mode,
     label: MANAGER_TASK_GROUP_LABELS[mode],
   }));
+  /* Three fixed options — a menu here cost two taps and hid the alternatives to
+     save a row of height that the panel has anyway. */
   return (
-    <FilterCollapsibleSection
-      sectionId="group-mode"
+    <FilterChipsField
       label="Group by"
-      summary={filterSingleSelectSummary(draft, options, MANAGER_TASK_GROUP_LABELS.property)}
-      empty={draft === "property"}
-      menuOptionCount={options.length}
-      dataAttr="tasks-filter-group-mode-trigger"
-    >
-      <FilterSingleSelectList
-        options={options}
-        value={draft}
-        onChange={(next) => setDraft(next as ManagerTaskGroupMode)}
-        onPick={closeFieldMenu}
-        dataAttr="tasks-filter-group-mode"
-      />
-    </FilterCollapsibleSection>
+      value={draft}
+      options={options}
+      onChange={(next: ManagerTaskGroupMode) => setDraft(next)}
+      dataAttr="tasks-filter-group-mode"
+    />
   );
 }
 
@@ -77,7 +70,7 @@ function TaskCategoryFilterFields({
   tabId: ManagerTaskListTabId;
 }) {
   const closeFieldMenu = useFilterAccordionClose();
-  const [draftFilter, setDraftFilter] = usePortalFilterDraft(listFilter, onListFilterChange, "all");
+  const [draftFilter, setDraftFilter] = usePortalFilterDraft(listFilter, onListFilterChange, "all", "listFilter");
   const options = taskListFilterOptions(tabId);
   const summary = filterSingleSelectSummary(draftFilter, options, "All");
 
@@ -112,7 +105,7 @@ function TaskAssigneeFilterField({
   onChange: (next: string) => void;
 }) {
   const closeFieldMenu = useFilterAccordionClose();
-  const [draft, setDraft] = usePortalFilterDraft(value, onChange, "");
+  const [draft, setDraft] = usePortalFilterDraft(value, onChange, "", "assigneeFilterId");
   const selectOptions = [{ value: "", label: "Anyone" }, ...options.map((o) => ({ value: o.id, label: o.label }))];
   return (
     <FilterCollapsibleSection
@@ -148,25 +141,16 @@ function TaskPriorityFilterField({
   value: ManagerTaskPriority | "";
   onChange: (next: ManagerTaskPriority | "") => void;
 }) {
-  const closeFieldMenu = useFilterAccordionClose();
-  const [draft, setDraft] = usePortalFilterDraft<ManagerTaskPriority | "">(value, onChange, "");
+  const [draft, setDraft] = usePortalFilterDraft<ManagerTaskPriority | "">(value, onChange, "", "priorityFilter");
+  /* Four fixed options including "Any" — the whole set fits on one row. */
   return (
-    <FilterCollapsibleSection
-      sectionId="priority"
+    <FilterChipsField
       label="Priority"
-      summary={filterSingleSelectSummary(draft, PRIORITY_OPTIONS, "Any priority")}
-      empty={draft === ""}
-      menuOptionCount={PRIORITY_OPTIONS.length}
-      dataAttr="tasks-filter-priority-trigger"
-    >
-      <FilterSingleSelectList
-        options={PRIORITY_OPTIONS}
-        value={draft}
-        onChange={(next) => setDraft(next as ManagerTaskPriority | "")}
-        onPick={closeFieldMenu}
-        dataAttr="tasks-filter-priority"
-      />
-    </FilterCollapsibleSection>
+      value={draft}
+      options={PRIORITY_OPTIONS}
+      onChange={(next: ManagerTaskPriority | "") => setDraft(next)}
+      dataAttr="tasks-filter-priority"
+    />
   );
 }
 
@@ -208,7 +192,7 @@ export function ManagerTaskFilterFields({
     value: id,
     label: MANAGER_TASK_LIST_SORT_LABELS[id],
   }));
-  const [draftSortId, setDraftSortId] = usePortalFilterDraft(sortId, onSortIdChange, "due_soonest");
+  const [draftSortId, setDraftSortId] = usePortalFilterDraft(sortId, onSortIdChange, "due_soonest", "sortId");
 
   return (
     <FilterFieldsAccordion>

@@ -925,7 +925,14 @@ export function ManagerTaskFormModal({
             ) : null}
 
             {form.urgency === "scheduled" ? (
-            <div className="grid gap-4 sm:col-span-2 sm:grid-cols-2">
+            /* `lg:col-span-2`, not `sm:`: the form grid around this is
+               `grid-cols-1 lg:grid-cols-2`, so between 640px and 1024px this row
+               was the ONLY child claiming two columns — which conjured an implicit
+               second track out of a one-column grid and threw every sibling into
+               it. That is why "Add task" in a 900px window laid its labels out in
+               a 100px gutter and truncated them to "Inspect un…" and "Medi…".
+               The span now turns on with the columns it is spanning. */
+            <div className="grid gap-4 lg:col-span-2 sm:grid-cols-2">
               <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
                 <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-start-time">
                   Start time (optional)

@@ -315,3 +315,68 @@ export function taskListRowMatchesSearch(
     serviceRequestLocationLabel(row.request),
   ].some((value) => value?.toLowerCase().includes(needle));
 }
+
+export type ManagerTaskListRow =
+  | { kind: "task"; id: string; task: ManagerTask }
+  | { kind: "service"; id: string; request: ServiceRequest };
+
+/**
+ * The one answer to "which task rows does this tab show?".
+ *
+ * It exists so the list and the Filter panel's "Show N tasks" button cannot
+ * drift apart. The button is a promise about what pressing it produces; the
+ * only way to keep that promise is for both sides to run the SAME predicate
+ * over the same rows, which is what this is. The list calls it with the applied
+ * filters, the button calls it with the pending ones.
+ */
+export function selectManagerTaskListRows(args: {
+  tabId: ManagerTaskListTabId;
+  inProgressTasks: readonly ManagerTask[];
+  overdueTasks: readonly ManagerTask[];
+  doneTasks: readonly ManagerTask[];
+  assignedServices: readonly ServiceRequest[];
+  /** Workspace scoping plus the Property filter, already combined by the caller. */
+  matchesProperty: (propertyId?: string) => boolean;
+  listFilter: ManagerTaskListFilterId;
+  assigneeFilterId: string;
+  priorityFilter: string;
+  sortId: ManagerTaskListSortId;
+  propertyLabelForId: (propertyId?: string) => string;
+}): ManagerTaskListRow[] {
+  const {
+    tabId,
+    inProgressTasks,
+    overdueTasks,
+    doneTasks,
+    assignedServices,
+    matchesProperty,
+    listFilter,
+    assigneeFilterId,
+    priorityFilter,
+    sortId,
+    propertyLabelForId,
+  } = args;
+  const taskSource =
+    tabId === "completed" ? doneTasks : tabId === "overdue" ? overdueTasks : inProgressTasks;
+  const taskRows: ManagerTaskListRow[] = taskSource
+    .filter((task) => matchesProperty(task.propertyId))
+    .map((task) => ({ kind: "task", id: task.id, task }));
+  const serviceRows: ManagerTaskListRow[] =
+    tabId === "in-progress"
+      ? assignedServices
+          .filter((req) => matchesProperty(req.propertyId))
+          .map((request) => ({ kind: "service", id: `service-${request.id}`, request }))
+      : [];
+  return [...taskRows, ...serviceRows]
+    .filter((row) => taskListRowMatchesFilter(row, listFilter))
+    .filter((row) => {
+      // A service request carries neither an assignee nor a priority, so either
+      // of those filters excludes every one of them rather than silently
+      // keeping rows the filter says nothing about.
+      if (row.kind !== "task") return !assigneeFilterId && !priorityFilter;
+      if (assigneeFilterId && (row.task.assignee?.id ?? "") !== assigneeFilterId) return false;
+      if (priorityFilter && (row.task.priority ?? "medium") !== priorityFilter) return false;
+      return true;
+    })
+    .sort((a, b) => compareManagerTaskListRows(a, b, sortId, propertyLabelForId));
+}
