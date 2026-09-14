@@ -1,11 +1,19 @@
 "use client";
 
 import { TourInterestSettings } from "./tour-interest-settings";
-import { useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { Minus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect, CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import {
+  PortalSettingsGroup,
+  PortalSettingsRow,
+  PortalSettingsScopeTag,
+  PortalSettingsSection,
+  PortalSettingsToggle,
+} from "@/components/portal/portal-settings-ui";
 import {
   DEFAULT_APPLICATION_AUTOMATION,
   normalizeApplicationAutomation,
@@ -36,7 +44,8 @@ import {
   type ReminderPresetId,
 } from "@/lib/payment-reminder-presets";
 import { DEFAULT_MANAGER_TOUR_SETTINGS, type ManagerTourSettings } from "@/lib/manager-tour-settings";
-import { TOUR_NOTICE_DAY_SELECT_OPTIONS } from "@/lib/tour-notice-labels";
+import { tourNoticeDaysLabel } from "@/lib/tour-notice-labels";
+import { normalizeTourNoticeDays } from "@/lib/tour-slot-math";
 import { fillTourReminderTemplate } from "@/lib/tour-reminder";
 
 import {
@@ -597,6 +606,75 @@ export function ResidentSettingsPanel() {
   );
 }
 
+/** Days of notice a stepper will accept — 0 keeps same-day tours open; 30 mirrors `normalizeTourNoticeDays`'s own cap. */
+const TOUR_NOTICE_MIN_DAYS = 0;
+const TOUR_NOTICE_MAX_DAYS = 30;
+
+/**
+ * −/+ stepper for `tourNoticeDays`. A real `<input type="number">` drives the
+ * value (native accessible name + value, no hand-rolled `aria-valuenow`
+ * bookkeeping to keep in sync), flanked by icon buttons that nudge it by one
+ * day; typing a value directly still works and is clamped the same way.
+ */
+function TourNoticeStepper({
+  value,
+  onChange,
+  disabled,
+  dataAttr,
+}: {
+  value: number;
+  onChange: (next: number) => void;
+  disabled?: boolean;
+  dataAttr: string;
+}) {
+  const clamp = (n: number) => Math.min(TOUR_NOTICE_MAX_DAYS, Math.max(TOUR_NOTICE_MIN_DAYS, Math.round(n)));
+  const commit = (n: number) => {
+    if (!Number.isFinite(n)) return;
+    onChange(clamp(n));
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        aria-label="Decrease notice required"
+        disabled={disabled || value <= TOUR_NOTICE_MIN_DAYS}
+        onClick={() => commit(value - 1)}
+        data-attr={`${dataAttr}-decrement`}
+        className="grid size-8 shrink-0 place-items-center rounded-full border border-border bg-card text-foreground transition hover:border-primary/40 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <Minus className="size-3.5" aria-hidden />
+      </button>
+      <div className="flex flex-col items-center">
+        <input
+          type="number"
+          inputMode="numeric"
+          aria-label="Notice required"
+          min={TOUR_NOTICE_MIN_DAYS}
+          max={TOUR_NOTICE_MAX_DAYS}
+          step={1}
+          value={value}
+          disabled={disabled}
+          data-attr={dataAttr}
+          onChange={(e) => commit(Number(e.target.value))}
+          className="h-8 w-14 rounded-lg border border-border bg-card text-center text-sm font-semibold tabular-nums text-foreground [appearance:textfield] focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        />
+        <span className="mt-0.5 text-[10px] leading-none text-muted">{tourNoticeDaysLabel(value)}</span>
+      </div>
+      <button
+        type="button"
+        aria-label="Increase notice required"
+        disabled={disabled || value >= TOUR_NOTICE_MAX_DAYS}
+        onClick={() => commit(value + 1)}
+        data-attr={`${dataAttr}-increment`}
+        className="grid size-8 shrink-0 place-items-center rounded-full border border-border bg-card text-foreground transition hover:border-primary/40 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <Plus className="size-3.5" aria-hidden />
+      </button>
+    </div>
+  );
+}
+
 export function TourSettingsPanel({
   onSaved,
   onFooterReady,
@@ -752,108 +830,140 @@ export function TourSettingsPanel({
   // Autosaves on close — no explicit Save button in the modal footer.
   useReportSettingsPanelFooter(onFooterReady, null);
 
+  /**
+   * Per-control autosave for the redrawn rows below: the notice stepper and
+   * the auto-confirm toggle both write straight into `tourSettings` /
+   * `automation` via their own `onChange`, and this debounced effect turns
+   * that dirty state into a save shortly after — no Save button. `saveIfDirty`
+   * above is unchanged and is still what the flush-before-close path in
+   * `SettingsModulePage` calls; this effect is just an earlier caller of the
+   * same `save`.
+   */
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (loading || !isDirty) return;
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(() => {
+      void save({ silent: true });
+    }, 600);
+    return () => {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    };
+  }, [isDirty, loading, save]);
+
   if (loading) return <p className="text-sm text-muted">Loading…</p>;
+
+  const disabled = saving;
+  const noticeDays = normalizeTourNoticeDays(tourSettings.tourNoticeDays);
 
   return (
     <>
-      <div className="space-y-5">
-        <div className="space-y-2">
-          <FieldSingleSelect
-            label="Notice required"
-            value={String(tourSettings.tourNoticeDays)}
-            options={TOUR_NOTICE_DAY_SELECT_OPTIONS.map((opt) => ({
-              value: String(opt.value),
-              label: opt.label,
-            }))}
-            onChange={(value) =>
-              setTourSettings((prev) => ({
-                ...prev,
-                tourNoticeDays: Number.parseInt(value, 10) || 0,
-              }))
-            }
-            dataAttr="manager-tour-notice-days"
-          />
-        </div>
+      <div className="space-y-6">
+        <PortalSettingsSection
+          title="Tour booking"
+          description="How prospects book a tour on your calendar."
+          action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+        >
+          <PortalSettingsGroup>
+            <PortalSettingsRow
+              label="Notice required"
+              meta="Tours can't be booked less than this many days out — same-day requests stay hidden until this window passes."
+            >
+              <TourNoticeStepper
+                value={noticeDays}
+                disabled={disabled}
+                dataAttr="manager-tour-notice-days"
+                onChange={(next) => setTourSettings((prev) => ({ ...prev, tourNoticeDays: next }))}
+              />
+            </PortalSettingsRow>
+            <PortalSettingsRow
+              label="Auto confirm tours"
+              meta="Tours book straight into your calendar without asking you first."
+            >
+              <PortalSettingsToggle
+                checked={automation.proposeTourConfirmations}
+                onChange={(next) => setAutomation((prev) => ({ ...prev, proposeTourConfirmations: next }))}
+                label="Auto confirm tours"
+                disabled={disabled}
+                dataAttr="manager-tour-auto-confirm-proposals"
+              />
+            </PortalSettingsRow>
+          </PortalSettingsGroup>
+        </PortalSettingsSection>
 
-        <label className="flex items-start gap-3 border-t border-border pt-4">
-          <input
-            type="checkbox"
-            className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
-            checked={automation.proposeTourConfirmations}
-            data-attr="manager-tour-auto-confirm-proposals"
-            onChange={(e) => setAutomation((prev) => ({ ...prev, proposeTourConfirmations: e.target.checked }))}
-          />
-          <span className="min-w-0 text-[13px] font-medium text-foreground">Auto confirm tours</span>
-        </label>
-
-        <div className="space-y-4 border-t border-border pt-4">
-          <p className="text-[13.5px] font-semibold text-foreground">Tour reminders</p>
-          <ReminderTypePicker
-            value={tourReminderType}
-            options={[
-              {
-                value: "guest",
-                label: "Guest tour reminders",
-                description: "Sent to prospects before their scheduled tour.",
-              },
-              {
-                value: "manager",
-                label: "Your tour reminders",
-                description: "Nudges you before tours on your calendar.",
-              },
-            ]}
-            onChange={setTourReminderType}
-            dataAttr="tour-reminder-type"
-          />
-          {tourReminderType === "guest" ? (
-            <div className="space-y-3">
-              <TourReminderTimingSelect
-                minutesBeforeList={normalizeTourReminderMinutesBeforeList(
-                  automation.tourReminderMinutesBeforeList,
-                  automation.tourReminderMinutesBefore,
-                )}
-                onChangeMinutesList={(minutesBeforeList) =>
-                  setAutomation((prev) => ({
-                    ...prev,
-                    tourReminderMinutesBeforeList: minutesBeforeList,
-                    tourReminderMinutesBefore: minutesBeforeList.length
-                      ? Math.min(...minutesBeforeList)
-                      : prev.tourReminderMinutesBefore,
-                  }))
-                }
-              />
-              <ReminderSendViaField
-                showProplaneChannel
-                viaInbox={automation.tourReminderDeliverViaInbox !== false}
-                viaEmail={automation.tourReminderDeliverViaEmail !== false}
-                viaSms={automation.tourReminderDeliverViaSms === true}
-                smsLabel="SMS (when guest opted in)"
-                onChange={({ viaEmail, viaSms, viaInbox }) =>
-                  setAutomation((prev) => ({
-                    ...prev,
-                    tourReminderDeliverViaInbox: viaInbox !== false,
-                    tourReminderDeliverViaEmail: viaEmail,
-                    tourReminderDeliverViaSms: viaSms,
-                  }))
-                }
-                dataAttr="tour-reminder-send-via"
-              />
-              <ReminderMessagePreviewCard
-                subject={templatePreview.subject}
-                body={templatePreview.body}
-                onUpdate={() => setMessageModalOpen(true)}
-                dataAttr="tour-reminder-update-message"
-              />
-            </div>
-          ) : (
-            <ManagerReminderRuleSettingsPanel
-              kind="tour"
-              audienceMode="manager"
-              teamMembers={teamMembers}
-              formRef={managerReminderFormRef}
+        <PortalSettingsSection
+          title="Tour reminders"
+          description="Nudge either the prospect before their tour, or yourself before tours on your calendar."
+          action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+        >
+          <div className="space-y-4">
+            <ReminderTypePicker
+              value={tourReminderType}
+              options={[
+                {
+                  value: "guest",
+                  label: "Guest tour reminders",
+                  description: "Sent to prospects before their scheduled tour.",
+                },
+                {
+                  value: "manager",
+                  label: "Your tour reminders",
+                  description: "Nudges you before tours on your calendar.",
+                },
+              ]}
+              onChange={setTourReminderType}
+              dataAttr="tour-reminder-type"
             />
-          )}
-        </div>
+            {tourReminderType === "guest" ? (
+              <div className="space-y-3">
+                <TourReminderTimingSelect
+                  minutesBeforeList={normalizeTourReminderMinutesBeforeList(
+                    automation.tourReminderMinutesBeforeList,
+                    automation.tourReminderMinutesBefore,
+                  )}
+                  onChangeMinutesList={(minutesBeforeList) =>
+                    setAutomation((prev) => ({
+                      ...prev,
+                      tourReminderMinutesBeforeList: minutesBeforeList,
+                      tourReminderMinutesBefore: minutesBeforeList.length
+                        ? Math.min(...minutesBeforeList)
+                        : prev.tourReminderMinutesBefore,
+                    }))
+                  }
+                />
+                <ReminderSendViaField
+                  showProplaneChannel
+                  viaInbox={automation.tourReminderDeliverViaInbox !== false}
+                  viaEmail={automation.tourReminderDeliverViaEmail !== false}
+                  viaSms={automation.tourReminderDeliverViaSms === true}
+                  smsLabel="SMS (when guest opted in)"
+                  onChange={({ viaEmail, viaSms, viaInbox }) =>
+                    setAutomation((prev) => ({
+                      ...prev,
+                      tourReminderDeliverViaInbox: viaInbox !== false,
+                      tourReminderDeliverViaEmail: viaEmail,
+                      tourReminderDeliverViaSms: viaSms,
+                    }))
+                  }
+                  dataAttr="tour-reminder-send-via"
+                />
+                <ReminderMessagePreviewCard
+                  subject={templatePreview.subject}
+                  body={templatePreview.body}
+                  onUpdate={() => setMessageModalOpen(true)}
+                  dataAttr="tour-reminder-update-message"
+                />
+              </div>
+            ) : (
+              <ManagerReminderRuleSettingsPanel
+                kind="tour"
+                audienceMode="manager"
+                teamMembers={teamMembers}
+                formRef={managerReminderFormRef}
+              />
+            )}
+          </div>
+        </PortalSettingsSection>
       </div>
 
       <TourInterestSettings />
