@@ -1035,12 +1035,12 @@ export async function renderPortalSection(
     if (section === "properties") {
       const { PROPERTY_STAGES } = await import("@/lib/portal-detail-routes");
       if (!tabParts?.length) {
-        redirect(`${def.basePath}/properties/listed`);
+        redirect(`${def.basePath}/properties/all`);
       }
       const stageRaw = tabParts[0]!;
       const stage = PROPERTY_STAGES.includes(stageRaw as (typeof PROPERTY_STAGES)[number])
         ? (stageRaw as (typeof PROPERTY_STAGES)[number])
-        : "listed";
+        : "all";
       if (stageRaw !== stage) {
         redirect(`${def.basePath}/properties/${stage}`);
       }

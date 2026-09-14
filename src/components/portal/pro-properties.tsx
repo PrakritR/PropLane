@@ -142,7 +142,7 @@ export function ManagerProperties({
   const [shareListingPropertyId, setShareListingPropertyId] = useState<string | undefined>();
   /** Several selected listings, for a bulk share from the Properties list (AXI-140). */
   const [shareListingPropertyIds, setShareListingPropertyIds] = useState<string[] | undefined>();
-  const [demoStage, setDemoStage] = useState<ManagerStageKey>("listed");
+  const [demoStage, setDemoStage] = useState<ManagerStageKey>("all");
 
   const activeStage = isDemoModeActive()
     ? demoStage
@@ -317,10 +317,14 @@ export function ManagerProperties({
       readAdminPropertyRows(bucket, scopeUserId).filter((row) =>
         workspaceContainsProperty(row.listingId?.trim() || row.adminRefId.trim()),
       ).length;
+    const listed = inWorkspace(2);
+    const unlisted = inWorkspace(3);
+    const drafts = inWorkspace(5);
     return {
-      listed: inWorkspace(2),
-      unlisted: inWorkspace(3),
-      drafts: inWorkspace(5),
+      all: listed + unlisted + drafts,
+      listed,
+      unlisted,
+      drafts,
     } satisfies Record<ManagerStageKey, number>;
   }, [portfolioTick, scopeUserId]);
 

@@ -73,6 +73,7 @@ import {
 import { ManagerPropertyRequestsPanel } from "@/components/portal/pro-property-requests-panel";
 import { PropertyResidentOnboardWizard } from "@/components/portal/property-resident-onboard-wizard";
 import { PortalPropertyRecordRow, PortalRowStatusChip } from "@/components/portal/portal-record-row";
+import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { LEASE_PIPELINE_EVENT, readLeasePipeline } from "@/lib/lease-pipeline-storage";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
@@ -203,10 +204,19 @@ function deferCatalogMutation(fn: () => void) {
   });
 }
 
+/*
+ * "Like Zillow all houses are there. When I need to list I just click."
+ *
+ * The three stage tabs put a house the manager took off the market on a different
+ * screen from the one they are letting, so an unlisted home was simply not "there"
+ * when they looked. All is the default now: every house, with its state shown on the
+ * row and a switch to flip it. The three narrower tabs stay as filters.
+ */
 const MANAGER_STAGES = [
-  { key: "drafts", label: "Drafts", buckets: [5] as AdminPropertyBucketIndex[] },
+  { key: "all", label: "All", buckets: [2, 3, 5] as AdminPropertyBucketIndex[] },
   { key: "listed", label: "Listed", buckets: [2] as AdminPropertyBucketIndex[] },
   { key: "unlisted", label: "Unlisted", buckets: [3] as AdminPropertyBucketIndex[] },
+  { key: "drafts", label: "Drafts", buckets: [5] as AdminPropertyBucketIndex[] },
 ] as const;
 
 export type ManagerStageKey = (typeof MANAGER_STAGES)[number]["key"];
@@ -242,7 +252,7 @@ function propertyListDestructiveActionForEntry(
 }
 
 export function managerStageFromParam(raw: string | null): ManagerStageKey {
-  return MANAGER_STAGES.some((stage) => stage.key === raw) ? (raw as ManagerStageKey) : "listed";
+  return MANAGER_STAGES.some((stage) => stage.key === raw) ? (raw as ManagerStageKey) : "all";
 }
 
 export { MANAGER_STAGES };
@@ -1429,23 +1439,21 @@ export function ManagerHousePropertiesPanel({
   // become a filtered browse link — so requiring exactly one hid the multi-send
   // the modal already supported (AXI-140).
   const canBulkShareProperties =
-    Boolean(onSendToProspect) && activeStage === "listed" && selectedPropertyEntries.length > 0;
+    Boolean(onSendToProspect) &&
+    selectedPropertyEntries.length > 0 &&
+    selectedPropertyEntries.every(({ sourceBucket }) => sourceBucket === 2);
   const canBulkUnlist =
-    activeStage === "listed" &&
     selectedPropertyEntries.length > 0 &&
     selectedPropertyEntries.every(
       ({ sourceBucket, row }) => sourceBucket === 2 && Boolean(row.listingId?.trim()),
     );
   const canBulkRelist =
-    activeStage === "unlisted" &&
     selectedPropertyEntries.length > 0 &&
     selectedPropertyEntries.every(({ sourceBucket }) => sourceBucket === 3);
   const canBulkDeleteQueue =
-    activeStage === "unlisted" &&
     selectedPropertyEntries.length > 0 &&
     selectedPropertyEntries.every((entry) => propertyRowDeleteFromQueueAllowed(managerUserId, entry));
   const canBulkDeleteDrafts =
-    activeStage === "drafts" &&
     selectedPropertyEntries.length > 0 &&
     selectedPropertyEntries.every(({ sourceBucket }) => sourceBucket === 5);
 
@@ -1515,6 +1523,60 @@ export function ManagerHousePropertiesPanel({
   >(null);
   const [bulkDestructiveBusy, setBulkDestructiveBusy] = useState(false);
   const confirm = useConfirm();
+
+  /**
+   * The one-tap switch on a row. Listed -> off the market asks once, because it
+   * removes the home from the public site; off the market -> listed runs the same
+   * plan-limit check the Relist button does. A draft has no switch: it has never
+   * been published, so there is nothing to flip — opening it is the next step.
+   */
+  const toggleRowListed = useCallback(
+    async (entry: { sourceBucket: AdminPropertyBucketIndex; row: AdminPropertyRow }) => {
+      const { sourceBucket, row } = entry;
+      const label = managerPropertyRowTitle(row, sourceBucket);
+      if (sourceBucket === 2) {
+        const listingId = row.listingId?.trim();
+        if (!listingId) {
+          showToast("Could not unlist.");
+          return;
+        }
+        const ok = await confirm({
+          title: "Take off the market?",
+          description: `${label} will leave the public site and wait under Unlisted until you list it again.`,
+          confirmLabel: "Unlist",
+        });
+        if (!ok) return;
+        deferCatalogMutation(() => {
+          if (!unlistManagerListing(listingId, managerUserId)) {
+            showToast("Could not unlist.");
+            return;
+          }
+          handlePropertyUpdated();
+          showToast("Off the market.");
+        });
+        return;
+      }
+      if (sourceBucket === 3) {
+        if (!skuLoaded) {
+          showToast("Loading subscription…");
+          return;
+        }
+        if (managerTierPropertyLimitReached(skuTier, propCount)) {
+          showToast(managerPropertyLimitMessage(skuTier, { omitUpgradeCta: isNativeRuntimeSync() }));
+          return;
+        }
+        deferCatalogMutation(() => {
+          if (!listAdminRow(row, managerUserId)) {
+            showToast("Could not relist.");
+            return;
+          }
+          handlePropertyUpdated();
+          showToast("Listing is live again.");
+        });
+      }
+    },
+    [confirm, handlePropertyUpdated, managerUserId, propCount, showToast, skuLoaded, skuTier],
+  );
 
   const confirmBulkDestructive = useCallback(() => {
     if (!pendingBulkDestructive || selectedPropertyEntries.length === 0) return;
@@ -1730,6 +1792,7 @@ export function ManagerHousePropertiesPanel({
   const renderEmptyState = () => {
     const sibling = MANAGER_STAGES.filter((s) => s.key !== activeStage && (stageCounts[s.key] ?? 0) > 0)[0];
     const copy: Record<string, { title: string; description: string }> = {
+      all: { title: "No homes yet", description: "Every home you add appears here — listed, off the market, or still a draft." },
       listed: { title: "No listed homes yet", description: "Homes you publish appear here, where renters can find and apply to them." },
       unlisted: { title: "Nothing unlisted", description: "A home you take off the market waits here until you relist it." },
       drafts: { title: "No drafts in progress", description: "A home you start and save without publishing waits here." },
@@ -1896,10 +1959,41 @@ export function ManagerHousePropertiesPanel({
               title={managerPropertyRowTitle(row, sourceBucket)}
               address={propertyRowAddress(row)}
               summary={propertyRowDetail(row)}
-              trailing={sourceBucket === 5 ? undefined : propertyRowRentLabel(row)}
+              trailing={
+                sourceBucket === 5 ? (
+                  activeStage === "all" ? (
+                    <PortalRowStatusChip tone="neutral" dataAttr="property-row-stage">Draft</PortalRowStatusChip>
+                  ) : undefined
+                ) : (
+                  <span className="flex items-center gap-2">
+                    {propertyRowRentLabel(row)}
+                    {/* The row itself opens the home; the switch must not. */}
+                    <span
+                      className="flex items-center"
+                      onClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => event.stopPropagation()}
+                    >
+                      <PortalSettingsToggle
+                        checked={sourceBucket === 2}
+                        onChange={() => void toggleRowListed({ sourceBucket, row })}
+                        label={sourceBucket === 2 ? `Unlist ${managerPropertyRowTitle(row, sourceBucket)}` : `List ${managerPropertyRowTitle(row, sourceBucket)}`}
+                        dataAttr="property-row-listed-toggle"
+                      />
+                    </span>
+                  </span>
+                )
+              }
               chip={(() => {
                 // Drafts are not let; every other stage says how full the home is.
                 if (sourceBucket === 5) return undefined;
+                // Under All the row has to say its own state — the tab no longer does.
+                if (sourceBucket === 3) {
+                  return (
+                    <PortalRowStatusChip tone="neutral" dataAttr="property-row-stage">
+                      Off the market
+                    </PortalRowStatusChip>
+                  );
+                }
                 const rooms = row.submission?.rooms?.length ?? 0;
                 const spaces = row.submission?.listingPlaceCategoryId === "entire_home" ? 1 : Math.max(rooms, 1);
                 const occupied = Math.min(occupiedByProperty.get(propertyKeyFromRow(row)) ?? 0, spaces);

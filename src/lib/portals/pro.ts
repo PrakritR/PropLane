@@ -105,7 +105,7 @@ export const proPortal: PortalDefinition = {
 /** Default smoke-test paths for web + native WebView (manager/pro portal). */
 export const MANAGER_PORTAL_SMOKE_PATHS = [
   { label: "Dashboard", path: "/portal/dashboard" },
-  { label: "Properties", path: "/portal/properties/listed" },
+  { label: "Properties", path: "/portal/properties/all" },
   { label: "Tours", path: "/portal/tours/pending" },
   { label: "Applications", path: "/portal/applications/pending" },
   { label: "Background checks", path: "/portal/background-checks/pending_review" },

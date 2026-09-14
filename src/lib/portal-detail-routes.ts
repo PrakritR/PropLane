@@ -199,15 +199,18 @@ export function propertyDetailHref(
   return `${basePath}/properties/${stage}/${encodeURIComponent(propertyKey)}/${tab}`;
 }
 
-/** Manager property pipeline stages (listed / drafts / unlisted). */
-export const PROPERTY_STAGES = ["listed", "drafts", "unlisted"] as const;
+/**
+ * Manager property pipeline stages. `all` is the default: every home on one list,
+ * with its state on the row — the three narrower stages are filters over it.
+ */
+export const PROPERTY_STAGES = ["all", "listed", "drafts", "unlisted"] as const;
 export type PropertyStageId = (typeof PROPERTY_STAGES)[number];
 
 export function parsePropertyStage(raw: string | undefined | null): PropertyStageId {
   if (raw && (PROPERTY_STAGES as readonly string[]).includes(raw)) {
     return raw as PropertyStageId;
   }
-  return "listed";
+  return "all";
 }
 
 export function propertyListHref(basePath: string, stage: string): string {
