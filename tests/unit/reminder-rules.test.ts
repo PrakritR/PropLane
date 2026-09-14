@@ -177,23 +177,25 @@ describe("quiet hours", () => {
     expect(isQuietHour({ enabled: false, startHour: 0, endHour: 23 }, 5)).toBe(false);
   });
 
+  // Quiet hours are evaluated on the Pacific clock, so every instant here is an
+  // explicit UTC ISO string (Aug 30, 2026 is PDT, UTC-7). A `new Date(y, m, d, h)`
+  // would be the RUNNER's local time — Pacific on a laptop, UTC on CI — and the
+  // three cases below went red on CI for exactly that reason.
   it("pushes a send forward out of the window, never backward", () => {
-    const at3am = new Date(2026, 7, 30, 3, 12, 0, 0);
+    const at3am = new Date("2026-08-30T10:12:00.000Z"); // 03:12 PDT
     const moved = applyQuietHours(at3am, wrapping);
-    expect(moved.getHours()).toBe(8);
-    expect(moved.getDate()).toBe(30);
+    expect(moved.toISOString()).toBe("2026-08-30T15:12:00.000Z"); // 08:12 PDT, same day
     expect(moved.getTime()).toBeGreaterThan(at3am.getTime());
   });
 
   it("carries a late-night send into the NEXT day's opening hour", () => {
-    const at2330 = new Date(2026, 7, 30, 23, 30, 0, 0);
+    const at2330 = new Date("2026-08-31T06:30:00.000Z"); // 23:30 PDT Aug 30
     const moved = applyQuietHours(at2330, wrapping);
-    expect(moved.getHours()).toBe(8);
-    expect(moved.getDate()).toBe(31);
+    expect(moved.toISOString()).toBe("2026-08-31T15:30:00.000Z"); // 08:30 PDT Aug 31
   });
 
   it("leaves a send outside the window exactly where it was", () => {
-    const noon = new Date(2026, 7, 30, 12, 0, 0, 0);
+    const noon = new Date("2026-08-30T19:00:00.000Z"); // 12:00 PDT
     expect(applyQuietHours(noon, wrapping).getTime()).toBe(noon.getTime());
   });
 
