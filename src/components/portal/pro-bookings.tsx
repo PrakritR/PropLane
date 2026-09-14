@@ -123,7 +123,7 @@ function useBookingsWorkspace({
     [propertyFilters, propertyIds, propertyOptions],
   );
 
-  const { entries: rawEntries, loading } = useManagerBookingEntries({
+  const { entries: rawEntries, loading, residentOptions } = useManagerBookingEntries({
     userId,
     propertyIds: scopedPropertyIds,
     propertyOptions: scopedPropertyOptions,
@@ -151,7 +151,7 @@ function useBookingsWorkspace({
     async (draft: BlockDatesDraft) => {
       if (!userId) throw new Error("Sign in again to block dates.");
       await saveRoomDateBlock(userId, draft);
-      showToast("Dates blocked.");
+      showToast(draft.residentName ? `Held for ${draft.residentName}.` : "Dates blocked.");
     },
     [userId, showToast],
   );
@@ -443,6 +443,7 @@ function useBookingsWorkspace({
         initialRoomId={roomFilterId}
         initialDayKey={blockModal.dayKey}
         entries={rawEntries}
+        residentOptions={residentOptions}
         onSave={saveBlock}
       />
       <ProPortalSettingsModal

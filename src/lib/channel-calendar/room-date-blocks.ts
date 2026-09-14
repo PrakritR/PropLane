@@ -20,6 +20,8 @@ type BlockRow = {
   checkIn?: unknown;
   checkOut?: unknown;
   reason?: unknown;
+  residentName?: unknown;
+  residentEmail?: unknown;
   createdAt?: unknown;
 };
 
@@ -36,6 +38,12 @@ function normalizeBlock(raw: unknown): RoomDateBlock | null {
     checkIn: row.checkIn,
     checkOut: row.checkOut,
     reason: typeof row.reason === "string" ? row.reason : "",
+    ...(typeof row.residentName === "string" && row.residentName.trim()
+      ? { residentName: row.residentName.trim() }
+      : {}),
+    ...(typeof row.residentEmail === "string" && row.residentEmail.trim()
+      ? { residentEmail: row.residentEmail.trim().toLowerCase() }
+      : {}),
     createdAt: typeof row.createdAt === "string" ? row.createdAt : "",
   };
 }
@@ -63,8 +71,18 @@ export async function fetchRoomDateBlocks(): Promise<RoomDateBlock[]> {
 
 export async function saveRoomDateBlock(
   userId: string,
-  input: { propertyId: string; roomId: string; checkIn: string; checkOut: string; reason: string },
+  input: {
+    propertyId: string;
+    roomId: string;
+    checkIn: string;
+    checkOut: string;
+    reason: string;
+    residentName?: string;
+    residentEmail?: string;
+  },
 ): Promise<RoomDateBlock> {
+  const residentName = input.residentName?.trim() ?? "";
+  const residentEmail = input.residentEmail?.trim().toLowerCase() ?? "";
   const uid =
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
@@ -76,6 +94,8 @@ export async function saveRoomDateBlock(
     checkIn: input.checkIn,
     checkOut: input.checkOut,
     reason: input.reason.trim(),
+    ...(residentName ? { residentName } : {}),
+    ...(residentName && residentEmail ? { residentEmail } : {}),
     createdAt: new Date().toISOString(),
   };
   const res = await fetch("/api/portal-schedule-records", {

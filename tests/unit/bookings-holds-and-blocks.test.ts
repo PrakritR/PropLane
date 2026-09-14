@@ -9,8 +9,10 @@ import {
   applicationHoldEntries,
   bookingConflictsFor,
   bookingRangesOverlap,
+  bookingVisualSource,
   lastNightBeforeCheckout,
   roomBlockEntries,
+  roomBlockSummary,
   type PropertyBookingEntry,
 } from "@/lib/channel-calendar/property-bookings";
 import {
@@ -130,6 +132,18 @@ describe("roomBlockEntries", () => {
       { propertyLabelForId: () => PROPERTY.label, roomLabelForId: roomLabel },
     );
     expect(entry).toMatchObject({ source: "block", start: "2026-09-10", end: "2026-09-11", summary: "Repairs", blockId: "axis_room_block_u1_x", roomLabel: "Room A", statusLabel: "Blocked" });
+  });
+
+  it("reads as the resident it is held for, coloured as a hold, when the manager named someone", () => {
+    const [entry] = roomBlockEntries(
+      [{ id: "b", propertyId: PROPERTY.id, roomId: "room-a", checkIn: "2026-09-10", checkOut: "2026-09-12", reason: "Until lease signs", residentName: " Maya Zuneh ", residentEmail: "maya@example.com", createdAt: "" }],
+      { propertyLabelForId: () => PROPERTY.label, roomLabelForId: roomLabel },
+    );
+    expect(entry).toMatchObject({ source: "block", summary: "Maya Zuneh", statusLabel: "Held", residentName: "Maya Zuneh", reason: "Until lease signs" });
+    expect(bookingVisualSource(entry!)).toBe("hold");
+    // No one named → the reason, then the word "Blocked", and the grey block colour.
+    expect(roomBlockSummary({ reason: "  ", residentName: "" })).toBe("Blocked");
+    expect(bookingVisualSource({ source: "block" })).toBe("block");
   });
 
   it("drops a block whose check-out is not after its check-in", () => {

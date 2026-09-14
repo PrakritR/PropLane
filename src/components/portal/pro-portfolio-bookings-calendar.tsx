@@ -16,6 +16,7 @@ import {
   airbnbBookingEntries,
   bookedDayKeyCountInMonth,
   bookingEntriesForDayKey,
+  bookingVisualSource,
   filterBookingEntriesByRoom,
   type PropertyBookingEntry,
 } from "@/lib/channel-calendar/property-bookings";
@@ -125,7 +126,7 @@ function dominantSourceForDay(
 ): PropertyBookingEntry["source"] | null {
   if (dayBookings.length === 0) return null;
   for (const source of ["proplane", "airbnb", "hold", "block"] as const) {
-    if (dayBookings.some((b) => b.source === source)) return source;
+    if (dayBookings.some((b) => bookingVisualSource(b) === source)) return source;
   }
   return null;
 }

@@ -12,6 +12,10 @@ import {
   type RoomDateBlock,
 } from "@/lib/channel-calendar/property-bookings";
 import { ROOM_DATE_BLOCKS_CHANGED, fetchRoomDateBlocks } from "@/lib/channel-calendar/room-date-blocks";
+import {
+  blockDatesResidentOptions,
+  type BlockDatesResidentOption,
+} from "@/lib/channel-calendar/block-dates-residents";
 import { useLeasePipelineRows } from "@/hooks/use-lease-pipeline-rows";
 import { getPropertyById, isEntireHomeProperty } from "@/lib/rental-application/data";
 import { leaseIsFullyExecuted } from "@/lib/lease-pipeline-storage";
@@ -167,6 +171,18 @@ export function useManagerBookingEntries({
     );
   }, [blocks, propertyOptions, propertyIds, bookingsRoomLabels]);
 
+  // Who "Block dates" can hold a room for — the whole directory, not just the
+  // houses in the current filter: a manager holding Room 1 for someone moving
+  // over from another house is exactly the case a hold is for.
+  const residentOptions = useMemo<BlockDatesResidentOption[]>(() => {
+    if (!userId) return [];
+    const labels = new Map(propertyOptions.map((property) => [property.id, property.label]));
+    return blockDatesResidentOptions(leaseRows, {
+      propertyLabelForId: (propertyId) => labels.get(propertyId) ?? "",
+      roomLabelForId: (propertyId, roomId) => bookingsRoomLabels.get(`${propertyId}:${roomId}`) ?? "",
+    });
+  }, [userId, leaseRows, propertyOptions, bookingsRoomLabels]);
+
   /**
    * The fetch is keyed on WHICH houses are in scope, not on the array carrying
    * them.
@@ -218,5 +234,5 @@ export function useManagerBookingEntries({
     [airbnbEntries, leaseEntries, holdEntries, blockEntries],
   );
 
-  return { entries, loading, reloadAirbnb, blocks };
+  return { entries, loading, reloadAirbnb, blocks, residentOptions };
 }
