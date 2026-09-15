@@ -26,6 +26,7 @@ const AUDIENCES: {
       "List, screen, lease and collect — the AI runs the busywork",
       "Co-managers with per-module access",
       "Ledger, deposits and reports your accountant will take",
+      "Import from AppFolio, Buildium or a spreadsheet — nothing re-typed",
     ],
     href: "/partner",
     cta: "For managers",
