@@ -64,9 +64,70 @@ export function ManagerWorkNumberCopyControl({
           <Copy className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
         )}
       </button>
-      <p className="mt-1.5 text-xs text-muted" aria-live="polite">
-        {copied ? "Copied to clipboard." : "Click the number to copy. Outbound texts use this PropLane number."}
-      </p>
+      {copied ? (
+        <p className="mt-1.5 text-xs text-muted" aria-live="polite">
+          Copied to clipboard.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+export function ManagerWorkEmailCopyControl({
+  email,
+  className,
+  dataAttr = "work-email-copy",
+}: {
+  email: string;
+  className?: string;
+  dataAttr?: string;
+}) {
+  const { showToast } = useAppUi();
+  const [copied, setCopied] = useState(false);
+  const trimmed = typeof email === "string" ? email.trim() : "";
+
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 2000);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+
+  async function copyEmail() {
+    if (!trimmed) return;
+    const ok = await copyTextToClipboard(trimmed);
+    showToast(ok ? "Work email copied." : "Could not copy address.");
+    if (ok) setCopied(true);
+  }
+
+  return (
+    <div className={className}>
+      <p className={portalMessageFieldLabel()}>Work email</p>
+      <button
+        type="button"
+        disabled={!trimmed}
+        onClick={() => void copyEmail()}
+        data-attr={dataAttr}
+        title="Copy work email"
+        aria-label={`Copy work email ${trimmed}`}
+        className={cn(
+          "mt-1 flex w-full cursor-pointer items-center gap-2 text-left",
+          MODAL_INSET_BOX_CLASS,
+          "py-2 text-sm text-foreground transition-colors hover:border-primary/40 hover:bg-accent/60",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        )}
+      >
+        <span className="min-w-0 flex-1 truncate">{trimmed}</span>
+        {copied ? (
+          <Check className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
+        ) : (
+          <Copy className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
+        )}
+      </button>
+      {copied ? (
+        <p className="mt-1.5 text-xs text-muted" aria-live="polite">
+          Copied to clipboard.
+        </p>
+      ) : null}
     </div>
   );
 }

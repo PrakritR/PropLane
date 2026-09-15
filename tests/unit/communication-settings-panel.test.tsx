@@ -29,6 +29,7 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
 import { CommunicationSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
 import { DEFAULT_MANAGER_AUTOMATION_SETTINGS } from "@/lib/payment-automation-settings";
 import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
+import type { ManagerAssistantEmailStatus } from "@/lib/manager-assistant-email/manager-assistant-email-status";
 
 const readyNumber: ManagerMessagingNumberStatus = {
   mode: "automatic",
@@ -50,13 +51,32 @@ const readyNumber: ManagerMessagingNumberStatus = {
   personalPhone: { phone: null, verifiedAt: null, forwardInbound: false },
 };
 
+const readyEmail: ManagerAssistantEmailStatus = {
+  provisioningAvailable: true,
+  sendingAvailable: true,
+  receivingAvailable: true,
+  storageReady: true,
+  planTier: "paid",
+  entitlement: { eligible: true, tier: "pro", source: "stripe" },
+  workspaceRole: "primary",
+  workspaceEmail: null,
+  address: "manager@inbound.prop-lane.space",
+  state: "ready",
+  canRequest: false,
+  canUse: true,
+  requestedAtSignup: false,
+};
+
 afterEach(() => {
   cleanup();
   showToast.mockReset();
   vi.unstubAllGlobals();
 });
 
-function stubPanelFetches(status: ManagerMessagingNumberStatus | null) {
+function stubPanelFetches(
+  status: ManagerMessagingNumberStatus | null,
+  emailStatus: ManagerAssistantEmailStatus | null = null,
+) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo) => {
@@ -66,6 +86,9 @@ function stubPanelFetches(status: ManagerMessagingNumberStatus | null) {
       }
       if (url.includes("/api/manager/messaging-number")) {
         return status ? Response.json(status) : new Response("missing", { status: 404 });
+      }
+      if (url.includes("/api/manager/assistant-email")) {
+        return emailStatus ? Response.json(emailStatus) : new Response("missing", { status: 404 });
       }
       return new Response("not found", { status: 404 });
     }),
@@ -128,5 +151,44 @@ describe("CommunicationSettingsPanel work number", () => {
 
     expect(await screen.findByText("Auto-send AI drafts")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Copy work number/ })).toBeNull();
+  });
+});
+
+describe("CommunicationSettingsPanel work email", () => {
+  it("shows the workspace work email with a copy control", async () => {
+    stubPanelFetches(readyNumber, readyEmail);
+    render(<CommunicationSettingsPanel />);
+
+    expect(
+      await screen.findByRole("button", {
+        name: "Copy work email manager@inbound.prop-lane.space",
+      }),
+    ).toBeTruthy();
+  });
+
+  it("copies the work email when the address is clicked", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", {
+      clipboard: { writeText },
+    });
+    stubPanelFetches(readyNumber, readyEmail);
+    render(<CommunicationSettingsPanel />);
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Copy work email manager@inbound.prop-lane.space",
+      }),
+    );
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("manager@inbound.prop-lane.space"));
+    expect(showToast).toHaveBeenCalledWith("Work email copied.");
+  });
+
+  it("omits the work email copy control when no address is assigned", async () => {
+    stubPanelFetches(readyNumber, { ...readyEmail, address: null, canUse: false });
+    render(<CommunicationSettingsPanel />);
+
+    await screen.findByText("Auto-send AI drafts");
+    expect(screen.queryByRole("button", { name: /Copy work email/ })).toBeNull();
   });
 });
