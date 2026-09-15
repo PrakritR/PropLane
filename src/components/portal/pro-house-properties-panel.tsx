@@ -751,12 +751,12 @@ function ManagerPropertyInlineDetails({
               variant="outline"
               className={propertyDetailFooterBtn}
               data-attr="listing-send-listing"
-              aria-label="Send listing"
-              title="Send listing"
+              aria-label="Send"
+              title="Send"
               onClick={() => onSendToProspect?.(listingId)}
             >
               <Share2 className="size-4" aria-hidden />
-              <span className="sr-only">Send listing</span>
+              <span className="sr-only">Send</span>
             </Button>
           ),
           menuItem: (
@@ -764,7 +764,7 @@ function ManagerPropertyInlineDetails({
               data-attr="listing-send-listing"
               onSelect={() => onSendToProspect?.(listingId)}
             >
-              Send listing
+              Send
             </DropdownMenuItem>
           ),
         });
@@ -825,7 +825,7 @@ function ManagerPropertyInlineDetails({
                 });
               }}
             >
-              Relist property
+              Relist
             </Button>
           ),
           menuItem: (
@@ -852,7 +852,7 @@ function ManagerPropertyInlineDetails({
                 });
               }}
             >
-              Relist property
+              Relist
             </DropdownMenuItem>
           ),
         });
@@ -891,7 +891,7 @@ function ManagerPropertyInlineDetails({
                 data-attr="listing-delete"
                 onClick={() => setPendingDestructiveAction("delete-queue")}
               >
-                Delete from queue
+                Delete
               </Button>
             ),
             menuItem: (
@@ -899,7 +899,7 @@ function ManagerPropertyInlineDetails({
                 data-attr="listing-delete"
                 onSelect={() => setPendingDestructiveAction("delete-queue")}
               >
-                Delete from queue
+                Delete
               </DropdownMenuItem>
             ),
           });

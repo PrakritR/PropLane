@@ -156,6 +156,6 @@ it("places desktop row actions in the trailing cell and keeps mobile row activat
   fireEvent.keyDown(trigger, { key: "ArrowDown" });
   await screen.findByRole("menuitem", { name: "Download record" });
   expect(navigate).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("menuitem", { name: "View details" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "View" }));
   expect(navigate).toHaveBeenCalledTimes(1);
 });
