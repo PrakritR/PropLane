@@ -197,16 +197,17 @@ export function PortfolioPropertiesSection({
         <h2 className="text-lg font-semibold tracking-[-0.01em] text-foreground">Your properties</h2>
         <div className="flex flex-wrap items-center gap-2">
           {addPropertyAction}
-          {/* Same visual token as `PortalIconAction` — a Link, not a button, so
-              the control carries a real href instead of a client-side push. */}
+          {/* The approved plan draws this as the twin of the ＋: same filled
+              round token as `PortalPrimaryIconAction`, an upload glyph, a real
+              href (a Link, not a button) so it works before hydration. */}
           <Link
             href="/portal/properties/import"
             aria-label="Import portfolio"
             title="Import portfolio"
             data-attr="dashboard-import-portfolio"
-            className="relative inline-flex size-11 shrink-0 items-center justify-center rounded-lg border-0 bg-transparent p-0 text-foreground/80 outline-none transition hover:bg-[var(--secondary)]/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/30 md:size-9"
+            className="portal-command-primary relative inline-flex size-11 shrink-0 items-center justify-center rounded-full border-0 bg-[var(--btn-primary)] p-0 text-white shadow-[0_2px_6px_color-mix(in_srgb,var(--btn-primary)_40%,transparent)] outline-none transition focus-visible:ring-2 focus-visible:ring-primary/40 active:scale-95 md:size-9"
           >
-            <Upload className="size-[18px]" strokeWidth={1.75} aria-hidden />
+            <Upload className="size-[18px]" strokeWidth={2.4} aria-hidden />
           </Link>
           <Link
             href={propertyListHref(basePath, "listed")}
