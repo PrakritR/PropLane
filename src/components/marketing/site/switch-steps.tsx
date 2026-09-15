@@ -49,7 +49,7 @@ export function SiteSwitchSteps() {
         title="Up and running without starting over."
         lede="Your properties, units and residents come with you. Here's what switching to PropLane looks like."
       />
-      <div className="grid gap-10 lg:grid-cols-2 lg:items-start">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-10 lg:grid-cols-2 lg:items-start">
         <div className="min-w-0">
           <div className="space-y-8">
             {STEPS.map((step) => (
@@ -62,7 +62,7 @@ export function SiteSwitchSteps() {
           </div>
           <SiteCtaPair primaryAttr="home-switch-get-started" secondaryAttr="home-switch-book-demo" className="mt-8" />
         </div>
-        <div className="mx-auto w-full max-w-[540px] lg:mr-0">
+        <div className="mx-auto w-full min-w-0 max-w-[540px] lg:mr-0">
           <MockFrame title="Manager · Import your portfolio">
             <div className="flex flex-wrap gap-1.5">
               {WIZARD_STEPS.map((step) => {

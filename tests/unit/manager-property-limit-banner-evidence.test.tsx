@@ -15,7 +15,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 // Transform the full portal before the assertion timer starts. The test still
 // seeds and exercises the real component, without charging cold module loading
 // against its behavior deadline.
@@ -115,8 +115,18 @@ describe("manager Properties at the Free plan cap — rendered surface", () => {
     // The row reads a uniform "ADD" like every other portal add row; "Add
     // property" is its ACCESSIBLE name, which is what a user is actually
     // offered here — so match on the role, not the visible glyph.
-    const addButtons = screen.getAllByRole("button", { name: /Add property/i });
-    fireEvent.click(addButtons[0]);
+    // The top "Add" is a menu (Add property / Import portfolio). Radix opens it on
+    // pointerdown, so drive the pointer like a finger would, then pick the item.
+    const trigger = document.querySelector('[data-attr="manager-properties-add-top"]') as HTMLElement | null;
+    expect(trigger).toBeTruthy();
+    await act(async () => {
+      fireEvent.pointerDown(trigger!, { pointerId: 1, button: 0, clientX: 10, clientY: 10 });
+      fireEvent.pointerUp(trigger!, { pointerId: 1, button: 0, clientX: 10, clientY: 10 });
+    });
+    const addItem = await screen.findByRole("menuitem", { name: /^Add property$/i });
+    await act(async () => {
+      fireEvent.click(addItem);
+    });
     await waitFor(() => {
       expect(screen.getByText(/Free includes 1 property/)).toBeTruthy();
     });
