@@ -25,12 +25,18 @@ export type CachedPrefill = {
   source: "rentcast" | "fixture";
 };
 
-export async function readPrefillCache(db: SupabaseClient, addressKey: string): Promise<CachedPrefill | null> {
+/**
+ * A cached answer counts only when it came from the provider in use: a fixture
+ * row must never stand in for RentCast (made-up facts on a real lookup), and a
+ * RentCast row is not replayed by the fixture either.
+ */
+export async function readPrefillCache(db: SupabaseClient, addressKey: string, source: "rentcast" | "fixture"): Promise<CachedPrefill | null> {
   const since = new Date(Date.now() - PREFILL_CACHE_DAYS * 86_400_000).toISOString();
   const { data, error } = await db
     .from("listing_prefill_cache")
     .select("facts, rent, prior_ad, source, fetched_at")
     .eq("address_key", addressKey)
+    .eq("source", source)
     .gte("fetched_at", since)
     .maybeSingle();
   if (error || !data) return null;

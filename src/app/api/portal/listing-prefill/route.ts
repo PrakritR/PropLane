@@ -56,7 +56,7 @@ export async function POST(req: Request) {
   const db = createSupabaseServiceRoleClient();
   const key = prefillAddressKey(input);
 
-  const cached = await readPrefillCache(db, key);
+  const cached = await readPrefillCache(db, key, provider);
   if (cached) {
     track("listing_prefill_looked_up", ctx.userId, { found: Boolean(cached.facts), cached: true, priorAd: Boolean(cached.priorAd) });
     return answer({ status: cached.facts ? "found" : "none", facts: cached.facts, rent: cached.rent, priorAd: cached.priorAd, cached: true, source: cached.source });

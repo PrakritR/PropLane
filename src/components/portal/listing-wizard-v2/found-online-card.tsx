@@ -390,7 +390,9 @@ export function FoundOnlineCard({
 
       {status === "none" && !applied ? (
         <>
-          <div className="text-[13.5px] font-bold text-foreground">Nothing found for this address.</div>
+          <div className="text-[13.5px] font-bold text-foreground">
+            {result?.rent ? <>Nothing on record for this home · rent estimate ≈ {money(result.rent.rentUsd)}/mo</> : "Nothing found for this address."}
+          </div>
           {adBlock}
           {pasteBox}
           <div className="mt-2">

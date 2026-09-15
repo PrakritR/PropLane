@@ -48,7 +48,7 @@ vi.mock("@/lib/supabase/service", () => ({
         maybeSingle: async () => {
           if (table === "listing_prefill_cache") {
             const hit = rows.cache.get(String(filters.address_key));
-            return { data: hit ?? null, error: null };
+            return { data: hit && (!filters.source || hit.source === filters.source) ? hit : null, error: null };
           }
           const count = rows.usage.get(`${filters.manager_user_id}|${filters.month}`);
           return { data: count == null ? null : { count }, error: null };
@@ -128,6 +128,21 @@ describe("POST /api/portal/listing-prefill", () => {
     expect(body.cached).toBe(true);
     expect(body.status).toBe("found");
     expect([...rows.usage.values()]).toEqual([1]);
+  });
+
+  it("never replays a fixture answer for a real-provider lookup", async () => {
+    await prefill(req("/api/portal/listing-prefill", ADDRESS));
+    expect([...rows.cache.values()][0]!.source).toBe("fixture");
+    delete process.env.LISTING_PREFILL_PROVIDER;
+    process.env.RENTCAST_API_KEY = "test-key";
+    fetchSpy.mockResolvedValue({ ok: false, status: 404, json: async () => null });
+    const res = await prefill(req("/api/portal/listing-prefill", ADDRESS));
+    const body = await res.json();
+    // The fixture row was skipped: RentCast was asked (and answered 404 → none).
+    expect(fetchSpy).toHaveBeenCalled();
+    expect(body.cached).toBe(false);
+    expect(body.status).toBe("none");
+    delete process.env.RENTCAST_API_KEY;
   });
 
   it("refuses the Free plan's fourth lookup of the month", async () => {

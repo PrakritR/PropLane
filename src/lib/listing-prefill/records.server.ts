@@ -113,6 +113,10 @@ export function amenitiesFromRecordFeatures(f: RentcastProperty["features"] | un
   return out;
 }
 
+export function hasAnyFact(f: AddressFacts): boolean {
+  return Boolean(f.propertyType || f.bedrooms || f.bathrooms || f.squareFeet || f.yearBuilt || f.lotSquareFeet || f.floors || f.amenities.length);
+}
+
 function positive(n: unknown): number | null {
   return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : null;
 }
@@ -139,7 +143,10 @@ async function rentcastFacts(input: PrefillAddressInput): Promise<FactsLookup> {
     rentcastGet<RentcastRentAvm>("/avm/rent/long-term", { address }).catch(() => null),
   ]);
   const record = Array.isArray(properties) ? properties[0] : properties;
-  const facts = record ? factsFromRentcastProperty(record) : null;
+  const parsed = record ? factsFromRentcastProperty(record) : null;
+  // A record that carries no facts at all (commercial parcels, some condos) is
+  // "nothing on record", not a found home with blank chips.
+  const facts = parsed && hasAnyFact(parsed) ? parsed : null;
   const rent =
     avm && positive(avm.rent)
       ? {
