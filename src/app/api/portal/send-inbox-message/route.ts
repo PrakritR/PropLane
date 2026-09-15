@@ -260,7 +260,17 @@ export async function POST(req: Request) {
     const replyTarget = threadId
       ? await resolveInboxThreadReplyTarget(db, { threadId, senderUserId: user.id, senderEmail })
       : null;
-    const replyBody = { fromName, text, attachments: inboxAttachmentsFromUrls(attachmentUrls) };
+    // Stamp the sender's own copy with the channel this send is leaving on, so
+    // a reload shows the same tag the optimistic bubble did — and an in-app-only
+    // send never reads as EMAIL. Email turns also keep their subject.
+    const replyChannel = deliverViaEmail ? "email" : deliverViaSms ? "sms" : "proplane";
+    const replyBody = {
+      fromName,
+      text,
+      attachments: inboxAttachmentsFromUrls(attachmentUrls),
+      channel: replyChannel as "email" | "sms" | "proplane",
+      ...(deliverViaEmail ? { subject } : {}),
+    };
 
     if (replyTarget) {
       // A vendor replying in their agent thread talks to the agent, not to a

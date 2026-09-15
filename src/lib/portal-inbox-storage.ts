@@ -34,7 +34,23 @@ export type InboxThreadMessage = {
   delivery?: "sending" | "sent" | "failed";
   /** Image attachments served via /api/portal/inbox-attachments. */
   attachments?: { url: string; name?: string }[];
+  /**
+   * The channel this turn actually travelled on. Stamped by whichever path
+   * wrote the message (email mirror, SMS delivery, portal reply); absent on
+   * rows written before stamping existed. A missing stamp means "unknown" —
+   * it is never read as email, which is how an in-app reply used to wear an
+   * EMAIL tag while nothing had been sent.
+   */
+  channel?: InboxThreadMessageChannel;
+  /**
+   * The email subject this turn arrived or left with. Only email turns carry
+   * one; the bubble shows it when it is the thread's first subject or differs
+   * from the previous email turn's.
+   */
+  subject?: string;
 };
+
+export type InboxThreadMessageChannel = "email" | "sms" | "proplane";
 
 /**
  * An AI-drafted manager reply awaiting explicit manager approval. Stored ONLY on
@@ -66,6 +82,9 @@ export type PersistedInboxThread = {
   /** When true, the root turn renders as the owner's outbound message in inbox threads. */
   rootOutbound?: boolean;
   rootAt?: string;
+  /** Channel / email subject of the root turn — the root lives in `body`, so its stamps live here. */
+  rootChannel?: InboxThreadMessageChannel;
+  rootSubject?: string;
   /** Root-turn attachments when the thread was opened with media. */
   attachments?: { url: string; name?: string }[];
   messages?: InboxThreadMessage[];
@@ -799,15 +818,70 @@ function normalizeThreadMessage(message: InboxThreadMessage): InboxThreadMessage
   };
 }
 
+/**
+ * The channel the counterparty most recently reached us on, or null when no
+ * inbound turn carries a stamp (legacy rows, or a thread the owner started).
+ * "Reply on the channel they used" reads this; an unstamped thread keeps the
+ * surface's own default rather than guessing.
+ */
+export function lastInboundChannelOf(thread: PersistedInboxThread): InboxThreadMessageChannel | null {
+  const turns = inboxThreadMessages(thread);
+  // The root is inbound when flagged so, or — on a row that never recorded a
+  // direction — when it sits in the inbox folder. A merged person-thread keeps
+  // the Sent copy's folder but records `rootOutbound: false` for an emailed-in
+  // root, so the flag has to win over the folder.
+  const rootInbound =
+    thread.rootOutbound === false || (thread.rootOutbound === undefined && thread.folder === "inbox");
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const turn = turns[index];
+    if (!turn || turn.outbound) continue;
+    const isRoot = index === 0;
+    // Later turns are inbound only when explicitly stamped so (see `outbound`).
+    if (!isRoot && turn.outbound === undefined) continue;
+    if (isRoot && !rootInbound) continue;
+    if (turn.channel) return turn.channel;
+  }
+  return null;
+}
+
+/**
+ * Rows written before `rootAt` existed carry no time of their own for the root
+ * turn, and `time` has moved on with every append. The root is by definition
+ * older than anything appended to it, so the earliest appended stamp is a
+ * tighter bound than the thread's latest activity — it keeps the root sorting
+ * FIRST in a merged person-thread instead of after the replies to it.
+ */
+function earliestAppendedAt(thread: PersistedInboxThread): string | null {
+  let best: { at: string; ms: number } | null = null;
+  for (const message of thread.messages ?? []) {
+    const at = String(message?.at ?? "").trim();
+    if (!at) continue;
+    const ms = inboxThreadSortMs(message.id, at);
+    if (!ms) continue;
+    if (!best || ms < best.ms) best = { at, ms };
+  }
+  return best?.at ?? null;
+}
+
 export function inboxThreadMessages(thread: PersistedInboxThread): InboxThreadMessage[] {
   const rootId = `${thread.id}-root`;
   const root: InboxThreadMessage = normalizeThreadMessage({
     id: rootId,
     from: thread.from,
     body: thread.body,
-    at: thread.rootAt || thread.time,
-    ...(thread.rootOutbound ? { outbound: true } : {}),
+    at: thread.rootAt || earliestAppendedAt(thread) || thread.time,
+    // An explicit direction on the row wins either way. `false` matters as much
+    // as `true`: a merged person-thread lives under the Sent copy's id, and
+    // without the explicit `false` the folder rule would draw the person's
+    // emailed-in first message as the manager's own bubble.
+    ...(thread.rootOutbound === true
+      ? { outbound: true }
+      : thread.rootOutbound === false
+        ? { outbound: false }
+        : {}),
     ...(thread.attachments?.length ? { attachments: thread.attachments } : {}),
+    ...(thread.rootChannel ? { channel: thread.rootChannel } : {}),
+    ...(thread.rootSubject ? { subject: thread.rootSubject } : {}),
   });
   // Merged person-threads can carry a prior thread's synthetic root in `messages`.
   // A collapsed row may itself later be persisted and merged again, which can
@@ -909,6 +983,49 @@ export function appendReplyToInboxThread(
 }
 
 /**
+ * A row that a sibling ALREADY folded in (its id is in that sibling's
+ * `sourceThreadIds`) is a stale copy: the client still holds the pre-merge
+ * inbox row while the server has started returning the merged row under the
+ * Sent copy's id. Both carry the same root under different ids, so the id
+ * dedupe below cannot see them as one — the person's first message rendered
+ * twice. Keep the row that did the folding.
+ */
+function dropSubsumedMembers(group: PersistedInboxThread[]): PersistedInboxThread[] {
+  if (group.length <= 1) return group;
+  const subsumed = new Set<string>();
+  for (const thread of group) {
+    for (const id of thread.sourceThreadIds ?? []) {
+      if (id !== thread.id) subsumed.add(id);
+    }
+  }
+  if (subsumed.size === 0) return group;
+  return group.filter((thread) => !subsumed.has(thread.id));
+}
+
+/**
+ * A reply typed in a person thread is written twice by the send route: appended
+ * to the thread the manager was looking at, and as the root of their own Sent
+ * copy. Merging the folders then shows the same outbound turn back to back.
+ * Drop a Sent-copy ROOT whose text and minute match an outbound turn that is
+ * already in the merged history — only roots (ids ending in `-root`), only
+ * outbound, only exact text, so two genuinely different replies are never folded.
+ */
+function dedupeSentCopyRoots(ordered: InboxThreadMessage[]): void {
+  const outboundKeys = new Set<string>();
+  for (const message of ordered) {
+    if (message.outbound && !message.id.endsWith("-root")) {
+      outboundKeys.add(`${message.at}\u0000${message.body.trim()}`);
+    }
+  }
+  if (outboundKeys.size === 0) return;
+  for (let index = ordered.length - 1; index >= 0; index -= 1) {
+    const message = ordered[index]!;
+    if (!message.outbound || !message.id.endsWith("-root")) continue;
+    if (outboundKeys.has(`${message.at}\u0000${message.body.trim()}`)) ordered.splice(index, 1);
+  }
+}
+
+/**
  * Collapse duplicate person-threads into one row for display. Payment reminders
  * and manual sends used to mint a fresh thread id per message; this merges their
  * message history without rewriting storage.
@@ -934,7 +1051,8 @@ export function collapsePersonInboxThreads(
   }
 
   const merged: PersistedInboxThread[] = [...solo];
-  for (const group of groups.values()) {
+  for (const rawGroup of groups.values()) {
+    const group = dropSubsumedMembers(rawGroup);
     if (group.length <= 1) {
       merged.push(group[0]!);
       continue;
@@ -956,6 +1074,7 @@ export function collapsePersonInboxThreads(
       return true;
     });
     ordered.sort((a, b) => inboxThreadSortMs(a.id, a.at) - inboxThreadSortMs(b.id, b.at));
+    dedupeSentCopyRoots(ordered);
     const first = ordered[0];
     if (!first) {
       merged.push(canonical);
@@ -975,6 +1094,10 @@ export function collapsePersonInboxThreads(
       attachments: first.attachments,
       rootAt: first.at,
       rootOutbound: first.outbound === true,
+      // The root's stamps travel with it: the merged row spreads `canonical`
+      // (usually the newest Sent copy), whose root is not this one.
+      rootChannel: first.channel,
+      rootSubject: first.subject,
       from: first.from,
       time: canonical.time,
       preview: last.body.slice(0, 100).replace(/\n/g, " "),

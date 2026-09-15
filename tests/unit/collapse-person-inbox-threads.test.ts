@@ -99,6 +99,95 @@ describe("collapsePersonInboxThreads", () => {
     expect(new Set(timeline.map((m) => m.id)).size).toBe(timeline.length);
   });
 
+  it("keeps an emailed-in root FIRST after replies, so the sender stays the thread's face", () => {
+    // The inbox row's `time` advanced to the reply; without `rootAt` the root
+    // inherited it and sorted after the assistant's answer, which then became
+    // the merged thread's `from` — read as the PropLane Assistant conversation.
+    const rows = collapsePersonInboxThreads([
+      thread({
+        id: "assistant-email-abc",
+        folder: "inbox",
+        email: "prakrit@example.com",
+        from: "Prakrit Ramachandran",
+        body: "a",
+        time: "Sep 15, 1:50 PM",
+        messages: [
+          { id: "assistant-email-out-abc", from: "PropLane Assistant", body: "Can I help?", at: "Sep 15, 1:49 PM", outbound: true },
+          { id: "reply-1", from: "Property manager", body: "hey", at: "Sep 15, 1:50 PM", outbound: true, channel: "email" },
+        ],
+      }),
+      thread({
+        id: "msg_mgr_1789505418718_x",
+        folder: "sent",
+        email: "prakrit@example.com",
+        from: "Property manager",
+        body: "hey",
+        time: "Sep 15, 1:50 PM",
+        rootOutbound: true,
+      }),
+    ], { mergeFolders: true });
+    expect(rows).toHaveLength(1);
+    const merged = rows[0]!;
+    expect(merged.from).toBe("Prakrit Ramachandran");
+    expect(merged.rootOutbound).toBe(false);
+    // …and the root turn itself says so, so a Sent-folder id cannot flip it.
+    expect(inboxThreadMessages(merged)[0]?.outbound).toBe(false);
+    // The Sent-copy root is the same send as the appended reply — shown once.
+    expect(inboxThreadMessages(merged).map((m) => m.body)).toEqual(["a", "Can I help?", "hey"]);
+  });
+
+  it("carries the root's channel and subject onto the merged row, and drops a row a sibling already folded in", () => {
+    const inbox = thread({
+      id: "assistant-email-abc",
+      folder: "inbox",
+      email: "prakrit@example.com",
+      from: "Prakrit Ramachandran",
+      body: "a",
+      time: "Sep 15, 2:04 PM",
+      rootAt: "Sep 15, 2:04 PM",
+      rootChannel: "email",
+      rootSubject: "Re: Propert",
+    });
+    const alreadyMerged = thread({
+      id: "msg_mgr_1789506307146_k",
+      folder: "sent",
+      email: "prakrit@example.com",
+      from: "Prakrit Ramachandran",
+      body: "a",
+      time: "Sep 15, 2:05 PM",
+      rootAt: "Sep 15, 2:04 PM",
+      rootOutbound: false,
+      sourceThreadIds: ["assistant-email-abc", "msg_mgr_1789506307146_k"],
+      messages: [{ id: "reply-1", from: "Property manager", body: "hey", at: "Sep 15, 2:05 PM", outbound: true, channel: "email" }],
+    });
+    const rows = collapsePersonInboxThreads([inbox, alreadyMerged], { mergeFolders: true });
+    expect(rows).toHaveLength(1);
+    expect(inboxThreadMessages(rows[0]!).map((m) => m.body)).toEqual(["a", "hey"]);
+
+    const fresh = collapsePersonInboxThreads(
+      [inbox, thread({ id: "msg_mgr_1789506307147_z", folder: "sent", email: "prakrit@example.com", from: "Property manager", body: "hey", time: "Sep 15, 2:05 PM", rootOutbound: true })],
+      { mergeFolders: true },
+    );
+    expect(fresh[0]).toMatchObject({ rootChannel: "email", rootSubject: "Re: Propert", from: "Prakrit Ramachandran" });
+  });
+
+  it("prefers a persisted rootAt over the earliest-append bound", () => {
+    const rows = collapsePersonInboxThreads([
+      thread({
+        id: "inbox-1",
+        folder: "inbox",
+        email: "p@example.com",
+        from: "P",
+        body: "root",
+        time: "Sep 15, 3:00 PM",
+        rootAt: "Sep 15, 1:00 PM",
+        messages: [{ id: "r1", from: "Manager", body: "later", at: "Sep 15, 3:00 PM", outbound: true }],
+      }),
+      thread({ id: "msg_m_1789505418718_y", folder: "sent", email: "p@example.com", from: "Manager", body: "other", time: "Sep 15, 2:00 PM", rootOutbound: true }),
+    ], { mergeFolders: true });
+    expect(inboxThreadMessages(rows[0]!).map((m) => m.body)).toEqual(["root", "other", "later"]);
+  });
+
   it("re-keys merged tour notification roots so React keys stay unique", () => {
     const rows = collapsePersonInboxThreads(
       [

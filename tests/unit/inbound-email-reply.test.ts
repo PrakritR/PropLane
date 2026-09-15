@@ -141,6 +141,39 @@ describe("stripEmailReplyQuote", () => {
     const onlyQuote = "> everything quoted\n> all of it";
     expect(stripEmailReplyQuote(onlyQuote)).toBe(onlyQuote);
   });
+
+  it("drops a Gmail attribution header that wrapped onto two lines", () => {
+    // Gmail hard-wraps "On … wrote:" when the name + address run long; the
+    // `wrote:` lands on the next physical line and used to survive into the bubble.
+    const body =
+      "a\n\nOn Tue, Sep 15, 2026 at 2:29 AM Prakrit Ramachandran <\nprakritramachandran@gmail.com> wrote:\n\n> Hey I saw your property can I schedule a tour";
+    expect(stripEmailReplyQuote(body)).toBe("a");
+  });
+
+  it("drops a short Gmail header, an Apple Mail quoted header and an Outlook block", () => {
+    expect(
+      stripEmailReplyQuote("Sure, Friday works.\n\nOn Tue, Sep 15, 2026 at 2:29 AM Ambika <a@b.co> wrote:\n> Would Friday suit?"),
+    ).toBe("Sure, Friday works.");
+    expect(
+      stripEmailReplyQuote(
+        "Yes please.\n\n> On Sep 15, 2026, at 2:29 AM, Ambika Mago <assist-ambika-mago@prop-lane.space> wrote:\n>\n> Would Friday suit?",
+      ),
+    ).toBe("Yes please.");
+    expect(
+      stripEmailReplyQuote(
+        "Friday is fine.\n\n-----Original Message-----\nFrom: Ambika Mago <assist-ambika-mago@prop-lane.space>\nSent: Tuesday, September 15, 2026 2:29 AM\nSubject: Re: Propert\n\nWould Friday suit?",
+      ),
+    ).toBe("Friday is fine.");
+  });
+
+  it("keeps a sentence that merely starts with On and a body with no quote", () => {
+    expect(stripEmailReplyQuote("On Friday I can do 3pm.\nDoes that work?")).toBe(
+      "On Friday I can do 3pm.\nDoes that work?",
+    );
+    expect(stripEmailReplyQuote("Hey I saw your property can I schedule a tour")).toBe(
+      "Hey I saw your property can I schedule a tour",
+    );
+  });
 });
 
 describe("ingestInboundEmailReply", () => {

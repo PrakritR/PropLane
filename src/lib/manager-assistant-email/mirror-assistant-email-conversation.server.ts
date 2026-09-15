@@ -44,6 +44,12 @@ export async function mirrorAssistantEmailConversation(
     /** Null when nothing was sent back; the inbound is still mirrored. */
     replyText: string | null;
     inboundEmailId: string;
+    /**
+     * Whether `replyText` actually left by email. The mirror shows the
+     * assistant's answer either way (the manager must see what was said), but
+     * only a sent answer wears the EMAIL tag.
+     */
+    replySent?: boolean;
   },
 ): Promise<void> {
   const senderEmail = args.senderEmail.trim().toLowerCase();
@@ -72,6 +78,8 @@ export async function mirrorAssistantEmailConversation(
     unread: true,
     outbound: false,
     messageId: `assistant-email-in-${emailId}`,
+    channel: "email",
+    messageSubject: subject,
   });
 
   const replyText = args.replyText?.trim() ?? "";
@@ -112,6 +120,14 @@ export async function mirrorAssistantEmailConversation(
       // side of the thread this is an outgoing message, not something to read.
       outbound: true,
       messageId: replyId,
+      ...(args.replySent ? { channel: "email" as const, subject: replySubjectFor(subject) } : {}),
     },
   );
+}
+
+/** "Re: <subject>" — the subject the assistant's email actually left with. */
+function replySubjectFor(subject: string): string {
+  const trimmed = subject.trim();
+  if (!trimmed || trimmed === "(no subject)") return "Re: PropLane Assistant";
+  return /^re:\s/i.test(trimmed) ? trimmed : `Re: ${trimmed}`;
 }

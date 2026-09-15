@@ -148,6 +148,54 @@ describe("inbox bubble alignment", () => {
   });
 });
 
+describe("inbox bubble channel tag and subject line", () => {
+  it("shows the stamped channel, never a guessed Email for an unstamped turn", () => {
+    const messages: InboxBubbleMessage[] = [
+      { id: "1", author: "Dana", body: "a", at: "1:17 PM", direction: "inbound", channel: "email" },
+      { id: "2", author: "You", body: "hey", at: "1:20 PM", direction: "outbound", channel: "proplane" },
+    ];
+    render(<InboxMessageTimeline messages={messages} />);
+    const tags = () => Array.from(document.querySelectorAll("span")).map((el) => el.textContent?.trim());
+    expect(tags()).toContain("Email");
+    expect(tags()).toContain("In-app");
+    cleanup();
+
+    // An unstamped legacy turn used to wear "Email" by default — the tag that
+    // made an in-app reply look like it had been emailed.
+    render(
+      <InboxMessageTimeline
+        messages={[{ id: "3", author: "You", body: "legacy", at: "1:21 PM", direction: "outbound" }]}
+      />,
+    );
+    expect(tags()).not.toContain("Email");
+    expect(tags()).not.toContain("In-app");
+  });
+
+  it("renders the email subject as the bubble's first line only when the builder set it", () => {
+    render(
+      <InboxBubble
+        message={{
+          id: "in",
+          author: "Dana",
+          body: "a",
+          at: "1:17 PM",
+          direction: "inbound",
+          channel: "email",
+          subject: "Re: Propert",
+        }}
+      />,
+    );
+    expect(document.querySelector("[data-inbox-bubble-subject]")?.textContent).toBe("Re: Propert");
+    cleanup();
+    render(
+      <InboxBubble
+        message={{ id: "in2", author: "Dana", body: "a", at: "1:17 PM", direction: "inbound", channel: "email" }}
+      />,
+    );
+    expect(document.querySelector("[data-inbox-bubble-subject]")).toBeNull();
+  });
+});
+
 describe("manager SMS bubble alignment", () => {
   const PAYLOAD = {
     workNumber: "+12065550999",

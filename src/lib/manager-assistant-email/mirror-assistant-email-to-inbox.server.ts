@@ -50,6 +50,10 @@ export async function mirrorAssistantEmailTurnToInbox(
     inboundText: string;
     replyText: string;
     inboundEmailId: string;
+    /** Subject of the manager's email, shown once on the bubble. */
+    subject?: string;
+    /** Whether the assistant's answer actually left by email; unsent = no channel stamp. */
+    replySent?: boolean;
   },
 ): Promise<void> {
   const inboundId = `assistant-email-in-${args.inboundEmailId.trim()}`;
@@ -65,6 +69,8 @@ export async function mirrorAssistantEmailTurnToInbox(
     text: args.inboundText,
     outbound: true,
     messageId: inboundId,
+    channel: "email",
+    subject: args.subject,
   });
 
   const replyTarget = await loadAssistantThreadTarget(db, args.managerUserId);
@@ -75,5 +81,6 @@ export async function mirrorAssistantEmailTurnToInbox(
     text: args.replyText,
     outbound: false,
     messageId: replyId,
+    ...(args.replySent ? { channel: "email" as const } : {}),
   });
 }
