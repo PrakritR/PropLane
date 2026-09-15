@@ -125,6 +125,7 @@ export const DELETE_ORDER = [
   "manager_application_records",
   "manager_application_fee_waiver_codes",
   "manager_automation_settings",
+  "listing_prefill_usage",
   "manager_billing_settings",
   "manager_bank_accounts",
   "manager_budgets",

@@ -1,0 +1,122 @@
+/**
+ * Address prefill — the shapes shared by the lookup route, the pure apply
+ * step and the wizard card.
+ *
+ * Two kinds of information flow through here and they are kept apart on
+ * purpose (docs/agents/listing-prefill.md):
+ *
+ * - FACTS about the home (type, beds, baths, size, year, floors, lot, the
+ *   amenities a record carries, a rent estimate) come from a licensed
+ *   property-records provider by address.
+ * - The AD for the home (headline, description, extra amenities, pet rule)
+ *   comes only from text the manager pastes. PropLane never fetches a listing
+ *   page — every listing site forbids it — so an earlier ad is only ever
+ *   POINTED AT (site, title, date, link) by a search index.
+ */
+
+/** The property-type ids the wizard's tiles use (`PROPERTY_KIND_TILES`). */
+export type PrefillPropertyType = "house" | "townhouse" | "condo" | "apartment" | "duplex" | "other";
+
+export type AddressFacts = {
+  propertyType: PrefillPropertyType | null;
+  bedrooms: number | null;
+  bathrooms: number | null;
+  squareFeet: number | null;
+  yearBuilt: number | null;
+  lotSquareFeet: number | null;
+  floors: number | null;
+  lastSaleYear: number | null;
+  /** Labels from `HOUSE_WIDE_AMENITY_PRESETS` the record supports (heating, AC, parking…). */
+  amenities: string[];
+};
+
+export type RentEstimate = {
+  rentUsd: number;
+  lowUsd: number | null;
+  highUsd: number | null;
+  comparables: number | null;
+};
+
+/** A public ad the search index found for the address. Never fetched. */
+export type PriorAdMatch = {
+  site: string;
+  title: string;
+  url: string;
+  snippet: string;
+  /** ISO date when the index reports one. */
+  postedAt: string | null;
+  listedRentUsd: number | null;
+};
+
+export type ListingPrefillStatus = "found" | "none" | "quota" | "error" | "unavailable";
+
+export type ListingPrefillResult = {
+  status: ListingPrefillStatus;
+  facts: AddressFacts | null;
+  rent: RentEstimate | null;
+  priorAd: PriorAdMatch | null;
+  /** True when this answer came from the 30-day cache and cost no lookup. */
+  cached: boolean;
+  /** Lookups left this month on a capped plan; null when unlimited. */
+  lookupsLeft: number | null;
+  source: "rentcast" | "fixture" | null;
+};
+
+/** What the extractor reads out of pasted ad text. Every field may be absent. */
+export type ExtractedAd = {
+  headline: string | null;
+  description: string | null;
+  amenities: string[];
+  petsAllowed: boolean | null;
+  listedRentUsd: number | null;
+  bedrooms: number | null;
+  bathrooms: number | null;
+  squareFeet: number | null;
+};
+
+/**
+ * Stored on the submission (`ManagerListingSubmissionV1.prefill`) so the
+ * wizard can mark what it filled and undo it exactly. Private: never on the
+ * public projection.
+ */
+export type ListingPrefillRecordV1 = {
+  source: "rentcast" | "fixture";
+  fetchedAt: string;
+  /** Submission keys the facts prefill wrote. */
+  fields: string[];
+  /** Submission keys the pasted-ad import wrote. */
+  adFields: string[];
+  /** Exact values the touched keys held before, so Undo restores them. */
+  previous: Record<string, unknown>;
+  rentEstimateUsd?: number;
+  rentEstimateLowUsd?: number;
+  rentEstimateHighUsd?: number;
+  listedRentUsd?: number;
+  listedRentAt?: string | null;
+  /** The address key the manager dismissed with "Not this home". */
+  dismissedAddressKey?: string;
+  adDismissed?: boolean;
+};
+
+/** Address parts the route accepts; the wizard sends what the autocomplete filled. */
+export type PrefillAddressInput = {
+  address: string;
+  city: string;
+  state: string;
+  zip: string;
+};
+
+/** One stable key per address, for the cache and for "Not this home". */
+export function prefillAddressKey(input: PrefillAddressInput): string {
+  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+  return [norm(input.address), norm(input.city), norm(input.state).slice(0, 2), norm(input.zip).slice(0, 5)]
+    .filter(Boolean)
+    .join("|");
+}
+
+/** The single-line address the providers take. */
+export function prefillAddressLine(input: PrefillAddressInput): string {
+  const street = input.address.trim();
+  const cityState = [input.city.trim(), input.state.trim().toUpperCase().slice(0, 2)].filter(Boolean).join(", ");
+  return [street, cityState, input.zip.trim().slice(0, 5)].filter(Boolean).join(", ");
+}
