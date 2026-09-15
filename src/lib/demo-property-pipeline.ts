@@ -7,7 +7,7 @@ import { migrateAmenityOffersPropertyId } from "@/lib/manager-amenity-catalog-st
 import type { PropertyPipelineSnapshot, ManagerPropertyRecordStatus } from "@/lib/persisted-property-records";
 import { scopePropertyPipelineSnapshotForViewer } from "@/lib/persisted-property-records";
 import type { ManagerListingSubmissionV1, ManagerListingServiceOption } from "@/lib/manager-listing-submission";
-import { listingSubmissionLocationLabel } from "@/lib/manager-listing-submission";
+import { listingBathroomCountForDisplay, listingSubmissionLocationLabel } from "@/lib/manager-listing-submission";
 import { parseRecordOfArrays } from "@/lib/safe-local-storage";
 import { PROPERTY_PIPELINE_EVENT, serverSyncOriginatedEvent } from "@/lib/property-pipeline-events";
 import { createCoalescedRefresher, type CoalescedRefresher } from "@/lib/coalesced-refresh";
@@ -824,7 +824,7 @@ export function deriveLegacyFields(sub: ManagerListingSubmissionV1): Omit<Manage
     neighborhood: listingSubmissionLocationLabel(sub),
     unitLabel,
     beds: Math.max(rooms.length || 1, 1),
-    baths: Math.max(sub.bathrooms.filter((b) => b.name.trim()).length || 1, 1),
+    baths: listingBathroomCountForDisplay(sub),
     monthlyRent: minRent,
     petFriendly: sub.petFriendly,
     tagline: sub.tagline.trim() || sub.houseOverview.trim().slice(0, 120) || "Manager-submitted listing",

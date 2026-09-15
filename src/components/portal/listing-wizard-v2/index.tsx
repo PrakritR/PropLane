@@ -121,9 +121,12 @@ export function ListingWizardV2({
   // A new listing starts as an empty submission on step 1, not behind a
   // preamble. `createDefaultListingSubmission` already carries one room, so the
   // Rooms step has something to show the moment the manager reaches it.
-  const [submission, setSubmission] = useState<ManagerListingSubmissionV1>(() =>
-    normalizeManagerListingSubmissionV1(initialSubmission ?? createDefaultListingSubmission()),
-  );
+  const [submission, setSubmission] = useState<ManagerListingSubmissionV1>(() => {
+    const base = normalizeManagerListingSubmissionV1(initialSubmission ?? createDefaultListingSubmission());
+    if (!(base.listingTotalBathroomsId ?? "").trim()) return base;
+    const withBaths = applyListingBathroomSlots(base);
+    return withBaths.ok ? withBaths.sub : base;
+  });
 
   const label = submission.buildingName.trim() || submission.address.trim() || "New listing";
   const editing = Boolean(editListingId?.trim());
@@ -135,7 +138,15 @@ export function ListingWizardV2({
 
   const submissionRef = useRef(submission);
   submissionRef.current = submission;
-  const savedFingerprintRef = useRef(listingSubmissionFingerprint(submission));
+  // Fingerprint the pre-sync submission so a stale draft (Basics said 3 baths,
+  // one card on disk) is dirty and the next autosave writes the grown cards.
+  const savedFingerprintRef = useRef(
+    listingSubmissionFingerprint(
+      initialSubmission
+        ? normalizeManagerListingSubmissionV1(initialSubmission)
+        : submission,
+    ),
+  );
   const stepRef = useRef(0);
   const closeTriesRef = useRef(0);
   const [dirty, setDirty] = useState(false);
@@ -220,6 +231,9 @@ export function ListingWizardV2({
         title={label}
         submission={submission}
         onChange={setSubmission}
+        onStepChange={(stepIndex) => {
+          stepRef.current = stepIndex;
+        }}
         onClose={(stepIndex) => {
           void handleClose(stepIndex);
         }}

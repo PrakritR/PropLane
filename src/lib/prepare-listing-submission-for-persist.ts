@@ -2,6 +2,7 @@ import { isValidWaiverCodeFormat } from "@/lib/application-fee-waiver";
 import { stripSubmissionDataUrls } from "@/lib/manager-listing-draft-autosave";
 import { uploadListingSubmissionMedia } from "@/lib/listing-submission-media-upload";
 import {
+  applyListingBathroomSlots,
   normalizeManagerListingSubmissionV1,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
@@ -23,18 +24,20 @@ export async function prepareListingSubmissionForPersist(
   const normalized = normalizeManagerListingSubmissionV1(sub, {
     accountPaymentWaiverGranted: opts?.accountPaymentWaiverGranted,
   });
+  const withBaths = applyListingBathroomSlots(normalized);
+  const ready = withBaths.ok ? withBaths.sub : normalized;
 
-  const waiverCode = normalized.applicationFeeWaiverCode?.trim() ?? "";
+  const waiverCode = ready.applicationFeeWaiverCode?.trim() ?? "";
   if (waiverCode && !isValidWaiverCodeFormat(waiverCode)) {
     throw new Error("Application fee waive code must be 4–32 letters, numbers, or hyphens.");
   }
 
   try {
-    const uploaded = await uploadListingSubmissionMedia(normalized);
+    const uploaded = await uploadListingSubmissionMedia(ready);
     return { submission: uploaded.submission, droppedMediaCount: uploaded.failedCount };
   } catch (err) {
     console.error("prepare-listing-submission-for-persist: media upload failed", err);
-    return { submission: stripSubmissionDataUrls(normalized), droppedMediaCount: 0 };
+    return { submission: stripSubmissionDataUrls(ready), droppedMediaCount: 0 };
   }
 }
 

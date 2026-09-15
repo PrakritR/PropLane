@@ -2792,6 +2792,26 @@ export function bathroomCountFromListingTotalBathroomsId(id: string | undefined 
   return Math.min(12, Math.max(1, Math.ceil(n)));
 }
 
+/**
+ * The bathroom number a list row and saved `baths` field should show.
+ * Basics can be 1.5; that stays 1.5 even though it grows two bathroom cards.
+ */
+export function listingBathroomCountForDisplay(
+  sub: Pick<ManagerListingSubmissionV1, "listingTotalBathroomsId" | "bathrooms"> | null | undefined,
+  fallback = 1,
+): number {
+  if (!sub) return fallback;
+  const raw = (sub.listingTotalBathroomsId ?? "").trim();
+  if (raw === "4+") return 4.5;
+  if (raw) {
+    const n = Number.parseFloat(raw);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  const named = (sub.bathrooms ?? []).filter((b) => b.name.trim()).length;
+  if (named > 0) return named;
+  return fallback;
+}
+
 export type ApplyBedroomSlotsResult =
   | { ok: true; sub: ManagerListingSubmissionV1 }
   | { ok: false; message: string };

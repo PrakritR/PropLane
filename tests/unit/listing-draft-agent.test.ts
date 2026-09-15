@@ -22,6 +22,7 @@ describe("buildListingSubmissionFromDraftInput", () => {
     expect(sub.address).toBe("123 Main St");
     expect(sub.listingBedroomSlots).toBe(3);
     expect(sub.listingTotalBathroomsId).toBe("2");
+    expect(sub.bathrooms).toHaveLength(2);
     expect(sub.rooms[0]?.monthlyRent).toBe(3200);
     expect(sub.petFriendly).toBe(true);
     expect(sub.housePhotoDataUrls).toHaveLength(1);
