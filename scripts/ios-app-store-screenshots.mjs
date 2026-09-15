@@ -9,6 +9,7 @@
 //
 //   npm run app-store:shots -- --base http://localhost:3000            # both devices
 //   npm run app-store:shots -- --base http://localhost:3000 --device iphone
+//   npm run app-store:shots -- --base … --only 07-tours,09-inbox      # redo a few slots
 //   SHOT_EMAIL=… SHOT_PASSWORD=… npm run app-store:shots -- --base …    # another manager
 //
 // It refuses a manager with fewer than three properties: an empty gallery on the
@@ -87,7 +88,7 @@ async function settle(page, { maxMs = 20_000 } = {}) {
 }
 
 function parseArgs(argv) {
-  const out = { base: "", device: "both", out: OUT_ROOT };
+  const out = { base: "", device: "both", out: OUT_ROOT, only: null };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const next = () => argv[(i += 1)];
@@ -97,6 +98,8 @@ function parseArgs(argv) {
     else if (arg.startsWith("--device=")) out.device = arg.slice(9);
     else if (arg === "--out") out.out = resolve(next());
     else if (arg.startsWith("--out=")) out.out = resolve(arg.slice(6));
+    else if (arg === "--only") out.only = next().split(",");
+    else if (arg.startsWith("--only=")) out.only = arg.slice(7).split(",");
   }
   if (!out.base) throw new Error("Pass --base <url of a running dev server>, e.g. --base http://localhost:3000");
   if (!["both", "iphone", "ipad"].includes(out.device)) throw new Error(`--device must be iphone, ipad or both (got ${out.device})`);
@@ -125,6 +128,7 @@ p{margin:${Math.round(f.p * 0.75)}px auto 0;max-width:${f.pMax}px;font-size:${f.
 
 async function signIn(page, base, email, password) {
   await page.goto(`${base}/auth/sign-in`, { waitUntil: "load", timeout: 120_000 });
+  await page.locator("input[type=email]").waitFor({ timeout: 120_000 });
   await page.fill("input[type=email]", email);
   await page.fill("input[type=password]", password);
   await page.keyboard.press("Enter");
@@ -143,6 +147,8 @@ async function signIn(page, base, email, password) {
 
 async function assertSeeded(page, base) {
   await page.goto(`${base}/portal/properties/all`, { waitUntil: "load", timeout: 120_000 });
+  // A cold dev server compiles the portal on this first hit; give the rows a real chance to arrive.
+  await page.locator("[data-attr=property-list-row]").first().waitFor({ timeout: 90_000 }).catch(() => {});
   await settle(page);
   const count = await page.locator("[data-attr=property-list-row]").count();
   if (count < MIN_PROPERTIES) {
@@ -167,7 +173,7 @@ async function openWizardRooms(page, base) {
   await settle(page);
 }
 
-async function shootDevice(browser, { base, email, password, device, outDir, rawDir }) {
+async function shootDevice(browser, { base, email, password, device, outDir, rawDir, only }) {
   const ctx = await browser.newContext({
     viewport: device.viewport,
     deviceScaleFactor: device.scale,
@@ -193,7 +199,9 @@ async function shootDevice(browser, { base, email, password, device, outDir, raw
   await assertSeeded(page, base);
 
   const raws = [];
-  for (const entry of GALLERY) {
+  const entries = only ? GALLERY.filter((entry) => only.includes(entry.file)) : GALLERY;
+  if (entries.length === 0) throw new Error(`--only matched nothing; slots are ${GALLERY.map((e) => e.file).join(", ")}`);
+  for (const entry of entries) {
     if (entry.route === "wizard:rooms") await openWizardRooms(page, base);
     else {
       await page.goto(`${base}${entry.route}`, { waitUntil: "load", timeout: 120_000 });
@@ -234,17 +242,17 @@ async function main() {
       const device = DEVICES[key];
       const outDir = resolve(args.out, device.folder);
       const rawDir = resolve(args.out, ".raw", device.folder);
-      rmSync(outDir, { recursive: true, force: true });
+      if (!args.only) rmSync(outDir, { recursive: true, force: true });
       mkdirSync(outDir, { recursive: true });
       mkdirSync(rawDir, { recursive: true });
       console.log(`${device.folder} (${device.viewport.width * device.scale}×${device.viewport.height * device.scale}) from ${args.base} as ${email}`);
-      await shootDevice(browser, { base: args.base, email, password, device, outDir, rawDir });
+      await shootDevice(browser, { base: args.base, email, password, device, outDir, rawDir, only: args.only });
     }
   } finally {
     await browser.close();
     rmSync(resolve(args.out, ".raw"), { recursive: true, force: true });
   }
-  console.log(`\n✅ ${GALLERY.length} screenshots per device written under ${args.out}. Look at them, then commit.`);
+  console.log(`\n✅ ${args.only ? args.only.length : GALLERY.length} screenshots per device written under ${args.out}. Look at them, then commit.`);
 }
 
 const invokedDirectly = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href;
