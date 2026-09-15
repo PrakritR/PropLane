@@ -137,7 +137,9 @@ export function ListingWizardV2({
   }, []);
 
   const submissionRef = useRef(submission);
-  submissionRef.current = submission;
+  useEffect(() => {
+    submissionRef.current = submission;
+  }, [submission]);
   // Fingerprint the pre-sync submission so a stale draft (Basics said 3 baths,
   // one card on disk) is dirty and the next autosave writes the grown cards.
   const savedFingerprintRef = useRef(
