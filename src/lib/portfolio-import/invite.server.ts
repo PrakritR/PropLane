@@ -25,7 +25,16 @@ export async function portfolioImportMessagingStatus(
   managerUserId: string,
 ): Promise<{ workNumber: string | null; canText: boolean; settingsHref: string }> {
   const workspace = await resolveWorkspaceWorkNumbers(db, managerUserId).catch(() => null);
-  const own = workspace?.numbers.find((n) => n.ownerUserId === managerUserId) ?? null;
+  // A pure co-manager sends from the workspace owner's line (one number per
+  // workspace, docs/agents/sms-system.md), so fall back to the first active
+  // number the workspace resolver returns when none is held by this account.
+  const own =
+    workspace?.numbers.find((n) => n.ownerUserId === managerUserId) ??
+    (workspace?.role === "co_manager"
+      ? (workspace.numbers.find(
+          (n) => normalizeProvisionState(n.provisionState) === "active" && Boolean(n.phoneNumber?.trim()),
+        ) ?? null)
+      : null);
   const workNumber =
     own && normalizeProvisionState(own.provisionState) === "active" && own.phoneNumber?.trim() ? own.phoneNumber.trim() : null;
   return { workNumber, canText: Boolean(workNumber), settingsHref: MANAGER_MESSAGING_SETTINGS_HREF };
