@@ -22,6 +22,7 @@ import {
 } from "@/components/portal/portal-list-empty-card";
 import { cn } from "@/lib/utils";
 import { WORKSPACE_SELECTION_EVENT } from "@/lib/workspaces/selection";
+import { portalEmptyTitleFromAddLabel } from "@/lib/portal-empty-copy";
 import { onPortalSessionViewerChange } from "@/lib/auth/portal-session-gate";
 
 export type PortalListAddConfig = {
@@ -78,9 +79,14 @@ export function PortalRecordListSurface({
    */
   emptyCard?: {
     title: string;
+    /** Sidebar section whose glyph fills the tile. */
+    section?: string;
+    /** @deprecated The one empty card draws no sentence. */
     description?: string;
     sibling?: PortalListEmptySibling | null;
     actions?: PortalListEmptyAction[];
+    tone?: "default" | "muted";
+    clear?: { label: string; onClick: () => void; dataAttr?: string } | null;
   };
   isEmpty?: boolean;
   className?: string;
@@ -112,7 +118,9 @@ export function PortalRecordListSurface({
   const emptyBody = !isEmpty ? null : emptyCard ? (
     <PortalListEmptyCard
       title={emptyCard.title}
-      description={emptyCard.description}
+      section={emptyCard.section}
+      tone={emptyCard.tone}
+      clear={emptyCard.clear}
       sibling={emptyCard.sibling}
       actions={emptyCard.actions ?? (addAction ? [addAction] : [])}
     />
@@ -134,7 +142,9 @@ export function PortalRecordListSurface({
       ) : null}
     </div>
   ) : addAction ? (
-    <PortalListEmptyCard title="Nothing here yet" actions={[addAction]} />
+    // A list that reaches here with only an add label still gets the one card,
+    // titled off that label ("Add lease" → "No leases yet") — never a generic line.
+    <PortalListEmptyCard title={portalEmptyTitleFromAddLabel(addAction.label)} actions={[addAction]} />
   ) : null;
   return (
     <RowSelectionModeContext.Provider value={selectable ? false : null}>
