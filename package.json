@@ -64,6 +64,7 @@
     "qa:mobile": "node scripts/qa-mobile-portal-audit.mjs",
     "qa:exhaustive": "node scripts/qa-exhaustive-portal-audit.mjs",
     "workflow:plan": "node scripts/workflow-plan.mjs",
+    "app-store:shots": "node scripts/ios-app-store-screenshots.mjs",
     "lavish:plan": "node scripts/lavish-plan.mjs",
     "lavish:poll": "node scripts/lavish-poll.mjs",
     "lavish:listen": "node scripts/lavish-listen.mjs",
