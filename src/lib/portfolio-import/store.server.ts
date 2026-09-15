@@ -256,10 +256,22 @@ export async function prepareReceipt(
     .single();
   check(error);
   const row = data as PortfolioImportReceiptRow;
-  if (row.payload_hash !== hash) {
-    throw new Error("This record changed since the import was prepared — re-run column mapping to refresh it.");
+  if (row.payload_hash === hash) return row;
+  // A record that already landed must not be silently rewritten from a changed
+  // draft — that is a conflict, never permission to overwrite. A record that is
+  // still only prepared (an earlier attempt failed, the manager fixed the row and
+  // is retrying) simply takes the new payload.
+  if (row.status === "completed") {
+    throw new Error("This record changed since it was imported — it was left as it is.");
   }
-  return row;
+  const { data: refreshed, error: refreshError } = await db
+    .from("manager_portfolio_import_records")
+    .update({ payload_hash: hash, error: null })
+    .eq("id", row.id)
+    .select("*")
+    .single();
+  check(refreshError);
+  return refreshed as PortfolioImportReceiptRow;
 }
 
 export async function completeReceipt(
