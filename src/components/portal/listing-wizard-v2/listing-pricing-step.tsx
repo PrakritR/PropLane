@@ -184,7 +184,7 @@ const Card = ({ children, dataAttr }: { children: React.ReactNode; dataAttr?: st
 );
 
 const PRICE_HELP = {
-  all: "Set once. Every room ticked “Same as all rooms” copies this. Month-to-Month and Short-term start as “same as Long-term”.",
+  all: "Set once. Every room ticked “Same as default room” copies this. Month-to-Month and Short-term start as “same as Long-term”.",
   rent: "Base monthly rent for this room, before utilities and fees.",
   util: "A flat monthly utilities estimate, billed with rent. Blank means included.",
   dep: "Security deposit, collected at signing.",
@@ -306,7 +306,7 @@ function MonthlyCards({
     <>
       <RecordCard
         every
-        title="All rooms"
+        title="Default room"
         help={PRICE_HELP.all}
         dimmed={dimmed}
         dataAttr="listing-v2-price-defaults-card"
@@ -371,7 +371,7 @@ function MonthlyCards({
           <RecordCard
             key={room.id}
             title={name}
-            same={<SameAsAllToggle same={sameAsAll(room)} plural="rooms" noun="room" onChange={(next) => setSameAsAll(room, next)} onReset={() => setSameAsAll(room, true)} dataAttr="listing-v2-price-same-as-all" />}
+            same={<SameAsAllToggle same={sameAsAll(room)} noun="room" onChange={(next) => setSameAsAll(room, next)} onReset={() => setSameAsAll(room, true)} dataAttr="listing-v2-price-same-as-all" />}
             summary={summary}
             open={isOpen}
             onToggle={() => setOpen((prev) => (prev === room.id ? null : room.id))}
@@ -465,7 +465,7 @@ function StayCards({
     <>
       <RecordCard
         every
-        title="All rooms"
+        title="Default room"
         help={PRICE_HELP.all}
         dataAttr="listing-v2-stay-defaults-card"
         rows={
@@ -490,7 +490,7 @@ function StayCards({
           <RecordCard
             key={room.id}
             title={name}
-            same={<SameAsAllToggle same={sameAsAll(room)} plural="rooms" noun="room" onChange={(next) => setSameAsAll(room, next)} onReset={() => setSameAsAll(room, true)} dataAttr="listing-v2-stay-same-as-all" />}
+            same={<SameAsAllToggle same={sameAsAll(room)} noun="room" onChange={(next) => setSameAsAll(room, next)} onReset={() => setSameAsAll(room, true)} dataAttr="listing-v2-stay-same-as-all" />}
             summary={[night ? `${usd(num(night))}/night` : "Nightly rate not set", week ? `${usd(week)}/week` : "Weekly rate not set"].join(" · ")}
             open={isOpen}
             onToggle={() => setOpen((prev) => (prev === room.id ? null : room.id))}

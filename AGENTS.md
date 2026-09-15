@@ -394,6 +394,7 @@ answer. Fail closed to `true`.
 | Send listing modal | `docs/agents/send-listing-modal.md` | Server re-authorizes every id; reject the whole send if any fails |
 | Marketing mocks | `docs/agents/marketing-mocks.md` | Depict a real screen; derive counts from the rows drawn |
 | House printables | `docs/agents/house-printables.md` | The public page and both public printables render only `HOUSE_PUBLIC_SECTIONS`; a code or password never becomes a URL |
+| Listing wizard defaults | `docs/agents/listing-wizard-defaults.md` | A record follows the Default card per field; the card is saved on the submission, never resolved downstream; counts make the cards |
 | Portfolio import | `docs/agents/portfolio-import.md` | One draft model; counts never from the model; imported properties are `unlisted`; commit idempotent through receipts; invites explicit |
 
 ## There are no "work orders" in the product — only services

@@ -1224,11 +1224,11 @@ export function RecordCard({
   onRemove,
   removeLabel,
 }: {
-  /** A fixed title ("All rooms"); use `name`/`onName` for a typed one instead. */
+  /** A fixed title ("Default room"); use `name`/`onName` for a typed one instead. */
   title?: ReactNode;
   /** The ⓘ beside the title — the one place the card is explained. */
   help?: string;
-  /** The "Same as all rooms" line under the name. */
+  /** The "Same as default room" line under the name. */
   same?: ReactNode;
   /** The ✕ in the header that removes the record. */
   onRemove?: () => void;
@@ -1360,7 +1360,7 @@ export function FactRow({
             onClick={onReset}
             data-attr="listing-v2-cell-reset"
             aria-label={resetLabel ?? `Reset ${typeof label === "string" ? label : "this"} to the top card`}
-            title="Back to the Every card"
+            title="Back to the Default card"
             className="inline-flex shrink-0 items-center gap-1 text-[11.5px] font-bold text-[var(--status-approved-fg)] hover:underline"
           >
             <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />
@@ -1492,7 +1492,16 @@ export function MultiPick({
   );
 }
 
-/** A money input at cell size — `$` inside, dashed while it follows the Every card. */
+/**
+ * A money input at cell size — `$` inside, dashed while it follows the Default card.
+ *
+ * While it has focus it shows what was typed, not what the model echoes back:
+ * the model rounds "1,1" to a number and re-renders the string, and on iOS
+ * that rewrite lands the caret in front of the digits (typing 3 into 1650
+ * gave 31650) or, when the round trip is lost, shows nothing at all. Every
+ * keystroke still reaches `onChange`; blur commits once more and lets the
+ * model's formatting win.
+ */
 export function MoneyInput({
   value,
   onChange,
@@ -1508,16 +1517,26 @@ export function MoneyInput({
   inherited?: boolean;
   dataAttr?: string;
 }) {
+  const [draft, setDraft] = useState<string | null>(null);
   return (
     <span className="relative inline-block w-[118px]">
       <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[12.5px] text-muted">$</span>
       <input
         inputMode="decimal"
+        autoComplete="off"
         aria-label={label}
-        value={value}
+        value={draft ?? value}
         placeholder={placeholder}
         data-attr={dataAttr}
-        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setDraft(value)}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          onChange(e.target.value);
+        }}
+        onBlur={() => {
+          if (draft !== null && draft !== value) onChange(draft);
+          setDraft(null);
+        }}
         className={cn(
           "min-h-[36px] w-full rounded-lg border bg-card pl-5 pr-2.5 text-right text-[13.5px] font-semibold tabular-nums text-foreground outline-none focus:border-primary",
           inherited ? "border-dashed border-border text-muted placeholder:text-muted" : "border-border",
@@ -1585,22 +1604,21 @@ export function ColumnHelp({ title, text, dataAttr }: { title: string; text: str
 }
 
 /**
- * The line under a card's name: ☑ Same as all rooms / ☐ This room only · ↺ Reset.
+ * The line under a card's name: ☑ Same as default room / ☐ This room only · ↺ Reset.
  *
- * Ticked means every field on the card copies the "All …" card. Unticking
- * changes nothing yet — the record just becomes its own; changing any field
- * unticks it too. Reset (or ticking again) copies the "All …" card back.
+ * Ticked means every field on the card copies the "Default …" card. Unticking
+ * changes nothing yet — the whole record becomes its own on purpose; changing
+ * one field makes only that field its own. Reset (or ticking again) copies the
+ * "Default …" card back.
  */
 export function SameAsAllToggle({
   same,
-  plural,
   noun,
   onChange,
   onReset,
   dataAttr,
 }: {
   same: boolean;
-  plural: string;
   noun: string;
   onChange: (same: boolean) => void;
   onReset: () => void;
@@ -1616,7 +1634,7 @@ export function SameAsAllToggle({
         className="h-3.5 w-3.5 shrink-0 accent-[var(--pl-blue)]"
       />
       {same ? (
-        <span>Same as all {plural}</span>
+        <span>Same as default {noun}</span>
       ) : (
         <span>
           This {noun} only ·{" "}

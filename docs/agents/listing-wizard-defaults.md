@@ -1,0 +1,66 @@
+# Listing wizard: the Default card
+
+The Rooms, Bathrooms and Shared spaces steps of the v2 listing wizard
+(`src/components/portal/listing-wizard-v2/listing-editor.tsx`) each start with
+one **Default** card — "Default room", "Default bathroom", "Default shared
+space" — and one card per record. The Pricing step's two top cards are the
+same Default room.
+
+## The Default card is a card, not a record
+
+A record still carries its own copy of every value. The Default card is what
+the top card shows on reopen, never a source a reader downstream resolves:
+the public listing, the preview rail, the assistant and the resident's move-in
+page read `room.photoDataUrls`, `room.moveInInstructions` and so on exactly as
+before. Three optional blocks on the submission hold the cards
+(`houseDefaults`, `bathroomDefaults`, `sharedSpaceDefaults`,
+`src/lib/manager-listing-submission.ts`); an older listing without them infers
+each card from its records (`houseDefaultsForSubmission`,
+`bathroomDefaultsForSubmission`, `sharedSpaceDefaultsForSubmission`).
+
+## A record follows the Default card **per field**
+
+- A field follows when its value equals the Default card's or is empty. Lists
+  (photos) compare by value.
+- Changing one field on a record makes **only that field** the record's own.
+  A room on its own floor still takes a new default size, amenities or
+  checklist. The step remembers hand edits per field for the session
+  (`useOwnFields`), so a value set while the Default card was still blank is
+  not swept up by the first default.
+- Unticking "Same as default …" is the one whole-record freeze; Reset (per
+  row, or ↺ under the name) copies the Default card back, blanks included.
+- "Make all the same" overwrites every record and asks first when a record has
+  its own photos or clip.
+- Pictures, clips and words are a record's own the moment it has any while the
+  Default card has none (`LISTING_HOUSE_DEFAULT_MEDIA_FIELDS`); a fact keeps
+  the older rule, where the first default fills the blanks.
+- Inference: facts take the most common value; a photo list or clip is
+  inferred only when **every** record carries the same one.
+
+Library: `src/lib/listing-house-defaults.ts` (rooms),
+`src/lib/listing-record-defaults.ts` (bathrooms and shared spaces).
+`roomsFollowingDefaults` is the older per-record reading the previous wizard
+still uses; the v2 Rooms step does not call it.
+
+## Counts make the cards
+
+Basics' Bedrooms count makes the room cards (`applyListingBedroomSlots`) and
+its Bathrooms count makes the bathroom cards (`applyListingBathroomSlots`).
+A half count rounds up to a card; the card the half adds is a half bath while
+the count says so and an untouched card goes back to a shower bath when the
+count becomes whole. Lowering a count removes untouched cards from the end
+and, when the last card has been filled in, keeps the cards and moves only
+the number. A new listing starts with one bathroom card.
+
+## Inputs that hold a draft
+
+`SizeInput` (rooms) and `MoneyInput` (pricing) show what was typed while
+focused and commit on every keystroke and again on blur. Rendering the model's
+formatted string mid-typing put the caret in front of the digits on iOS and,
+when the round trip was lost, showed nothing. The size placeholder is a dash,
+never a number.
+
+Specs: `tests/unit/listing-wizard-v2-cards.test.tsx`,
+`tests/unit/listing-wizard-v2-basics-bathrooms.test.tsx`,
+`tests/unit/listing-house-defaults.test.ts`,
+`tests/unit/listing-record-defaults.test.ts`.

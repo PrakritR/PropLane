@@ -25,6 +25,8 @@ import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-oc
 import { parseMoneyAmount } from "@/lib/parse-money";
 import type { UtilitiesPaymentModel } from "@/lib/listing-utilities-payment";
 import { normalizeUtilitiesPaymentModel } from "@/lib/listing-utilities-payment";
+import type { ListingHouseDefaults } from "@/lib/listing-house-defaults";
+import type { BathroomDefaults, SharedSpaceDefaults } from "@/lib/listing-record-defaults";
 import type { LeaseUtilityLine } from "@/lib/lease-utilities";
 import { normalizeLeaseUtilities } from "@/lib/lease-utilities";
 import {
@@ -738,6 +740,15 @@ export type ManagerListingSubmissionV1 = {
   /** Manager-defined fees beyond the standard fields (shown on the listing). */
   customFees?: ManagerCustomFeeRow[];
   sharedSpaces: ManagerSharedSpaceSubmission[];
+  /**
+   * The Default room / Default bathroom / Default shared space cards of the
+   * listing wizard. Each record still carries its own copy of every value, so
+   * these are what the top card shows on reopen — never a source a reader
+   * downstream has to resolve. Absent on older listings: the wizard infers them.
+   */
+  houseDefaults?: Partial<ListingHouseDefaults>;
+  bathroomDefaults?: Partial<BathroomDefaults>;
+  sharedSpaceDefaults?: Partial<SharedSpaceDefaults>;
   /** One amenity per line or comma-separated */
   amenitiesText: string;
   /** When true, applicants/residents see Zelle instructions using `zelleContact`. */
@@ -2237,6 +2248,9 @@ export function normalizeManagerListingSubmissionV1(
     rooms: normalizedRooms,
     bathrooms,
     sharedSpaces,
+    houseDefaults: plainRecordOrUndefined(sub.houseDefaults),
+    bathroomDefaults: plainRecordOrUndefined(sub.bathroomDefaults),
+    sharedSpaceDefaults: plainRecordOrUndefined(sub.sharedSpaceDefaults),
     bundles: isEntireHomeListing({ listingPlaceCategoryId }) ? [] : bundles,
     quickFacts,
     customFees,
@@ -2767,15 +2781,36 @@ export type ApplyBathroomSlotsResult =
   | { ok: true; sub: ManagerListingSubmissionV1 }
   | { ok: false; message: string };
 
-/** Grow/shrink bathroom cards from the home-step bathroom count; autofill default names. */
+/** A stored defaults block passes through as it is; anything that is not a plain object is dropped. */
+function plainRecordOrUndefined<T extends object>(value: T | undefined | null): T | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : undefined;
+}
+
+/** The count as the manager typed it, halves kept: "2.5" → 2.5, "4+" → 4. */
+export function listingTotalBathroomsCount(id: string | undefined | null): number {
+  const raw = (id ?? "").trim();
+  if (!raw) return 1;
+  if (raw === "4+") return 4;
+  const n = Number.parseFloat(raw);
+  if (!Number.isFinite(n) || n <= 0) return 1;
+  return Math.min(12, Math.max(1, n));
+}
+
+/**
+ * Grow/shrink bathroom cards from the home-step bathroom count; autofill default names.
+ *
+ * A half count rounds up to a card, and the card that half adds is a half
+ * bath (toilet and sink): "2.5 bathrooms" opens the Bathrooms step with two
+ * full baths and one half. Only a card this call creates is typed that way —
+ * a bathroom the manager already has is never re-typed by the stepper.
+ */
 export function applyListingBathroomSlots(
   sub: ManagerListingSubmissionV1,
   target?: number,
 ): ApplyBathroomSlotsResult {
-  const clamped = Math.max(
-    1,
-    Math.min(12, Math.round(target ?? bathroomCountFromListingTotalBathroomsId(sub.listingTotalBathroomsId))),
-  );
+  const wanted = target ?? listingTotalBathroomsCount(sub.listingTotalBathroomsId);
+  const clamped = Math.max(1, Math.min(12, Math.ceil(wanted)));
+  const halfLast = wanted % 1 !== 0;
   let bathrooms = [...sub.bathrooms];
   if (bathrooms.length < clamped) {
     while (bathrooms.length < clamped) bathrooms.push(emptyBathroom(bathrooms.length));
@@ -2792,6 +2827,15 @@ export function applyListingBathroomSlots(
       bathrooms.pop();
     }
   }
+  // The half: an untouched last card is a half bath while the count says so,
+  // and goes back to a shower bath when the count becomes whole again. A card
+  // the manager has filled in is never re-typed by the stepper.
+  const halfShape = (bath: ManagerBathroomSubmission) => !bath.shower && !bath.bathtub && bath.sink !== false;
+  bathrooms = bathrooms.map((bath, i) => {
+    if (!isBathroomSlotRemovable(bath)) return bath;
+    if (halfLast && i === clamped - 1) return halfShape(bath) ? bath : { ...bath, shower: false, bathtub: false, sink: true, toilet: true };
+    return halfShape(bath) ? { ...bath, shower: true } : bath;
+  });
   bathrooms = bathrooms.map((bath, i) =>
     bath.name.trim()
       ? bath

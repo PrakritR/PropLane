@@ -27,6 +27,7 @@ import type { AddPropertyResult } from "@/components/portal/listing-wizard-v2/ad
 import { ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
 import { useListingPersistence } from "@/components/portal/listing-wizard-v2/use-listing-persistence";
 import {
+  applyListingBathroomSlots,
   applyListingBedroomSlots,
   createDefaultListingSubmission,
   normalizeManagerListingSubmissionV1,
@@ -61,7 +62,10 @@ export function submissionFromAddProperty(result: AddPropertyResult): ManagerLis
     listingBedroomSlots: result.bedrooms,
   };
   const withRooms = applyListingBedroomSlots(seeded, result.bedrooms);
-  return normalizeManagerListingSubmissionV1(withRooms.ok ? withRooms.sub : seeded);
+  // The sheet asks bedrooms only; Basics owns the bathroom count. One bathroom
+  // card from the start means the Rooms step never opens on "Add a bathroom first".
+  const withBaths = applyListingBathroomSlots(withRooms.ok ? withRooms.sub : seeded);
+  return normalizeManagerListingSubmissionV1(withBaths.ok ? withBaths.sub : withRooms.ok ? withRooms.sub : seeded);
 }
 
 export function ListingWizardV2({
