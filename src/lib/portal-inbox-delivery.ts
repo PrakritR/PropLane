@@ -490,6 +490,14 @@ export async function deliverPortalMessageThreadSide(
         preview: args.preview,
         body: args.body,
         time: args.when,
+        // The root turn's OWN time. `time` advances with every later append (it
+        // is the list's sort key), and without `rootAt` the root inherits that
+        // moving value — so once anything is appended, the root sorts AFTER the
+        // reply to it, and a merged person-thread picks the reply as its first
+        // turn: an assistant answer became the thread's `from`, the thread was
+        // read as the PropLane Assistant conversation, and its composer
+        // defaulted back to In-app.
+        rootAt: args.when,
         unread: args.unread,
         scope: args.scope,
         ...(args.category ? { category: args.category } : {}),

@@ -118,5 +118,15 @@ describe("assistant email mirror stamps", () => {
 
     const sentFolder: PersistedInboxThread = { ...withReplies, folder: "sent", messages: [] };
     expect(lastInboundChannelOf(sentFolder)).toBeNull();
+
+    // A merged person-thread keeps the Sent copy's folder but flags the emailed-in root.
+    const mergedUnderSentId: PersistedInboxThread = {
+      ...withReplies,
+      folder: "sent",
+      rootOutbound: false,
+      rootChannel: "email",
+      messages: [{ id: "r", from: "You", body: "hey", at: "now", channel: "email" }],
+    };
+    expect(lastInboundChannelOf(mergedUnderSentId)).toBe("email");
   });
 });
