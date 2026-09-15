@@ -1404,7 +1404,7 @@ export function CardAction({
         "rounded-full px-3.5 py-1.5 text-[12.5px] font-bold transition",
         tone === "default" && "text-muted hover:bg-foreground/[0.05] hover:text-foreground",
         tone === "danger" && "text-[var(--status-overdue-fg)] hover:bg-[var(--status-overdue-bg)]",
-        tone === "primary" && "bg-foreground text-white hover:brightness-110",
+        tone === "primary" && "bg-primary text-white hover:brightness-110",
       )}
     >
       {children}
@@ -1680,11 +1680,16 @@ export function MoreRows({ children, dataAttr }: { children: ReactNode; dataAttr
   );
 }
 
-/** The one closer at the foot of an open card. */
+/**
+ * The one closer at the foot of an open card.
+ *
+ * Brand blue, like every primary button in the product — it was the only
+ * black filled control on the screen (the captain's "wrong color", 2026-09-15).
+ */
 export function EditorDone({ onClick, dataAttr }: { onClick: () => void; dataAttr?: string }) {
   return (
     <div className="flex justify-end border-t border-border px-3.5 py-3">
-      <button type="button" onClick={onClick} data-attr={dataAttr ?? "listing-v2-editor-done"} className="rounded-full bg-foreground px-4 py-1.5 text-[12.5px] font-bold text-white hover:brightness-110">
+      <button type="button" onClick={onClick} data-attr={dataAttr ?? "listing-v2-editor-done"} className="rounded-full bg-primary px-4 py-1.5 text-[12.5px] font-bold text-white shadow-[0_8px_20px_-8px_color-mix(in_srgb,var(--pl-blue)_60%,transparent)] hover:brightness-110">
         Done
       </button>
     </div>

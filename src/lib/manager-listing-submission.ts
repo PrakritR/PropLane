@@ -20,6 +20,7 @@ import {
   sortLeaseTermsCanonical,
 } from "@/lib/rental-application/lease-terms";
 import { emptyHouseInfo, normalizeHouseInfo, type HouseInfoV1 } from "@/lib/house-info";
+import { normalizeApplicationFeeByLeaseType } from "@/lib/listing-application-fee";
 import { roomIsDailyPriced } from "@/lib/room-pricing";
 import { RENTAL_APPLICATION_SECTION_IDS } from "@/lib/rental-application/application-sections";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
@@ -650,6 +651,13 @@ export type ManagerListingSubmissionV1 = {
   longTermMinimumMonths?: number;
   /** Short-term application fee when it differs from {@link applicationFee}. */
   shortTermApplicationFee?: string;
+  /**
+   * Application fee per lease type, keyed by the displayed lease term, holding
+   * only the types priced differently from {@link applicationFee}; a type with
+   * no entry follows the one amount. Read through
+   * `listingApplicationFeeRaw` (`src/lib/listing-application-fee.ts`).
+   */
+  applicationFeeByLeaseType?: Record<string, string>;
   /**
    * Standard fee rows the manager removed from the Pricing table. Persisted so
    * normalize/sync does not re-materialize them from legacy scalars.
@@ -1931,6 +1939,10 @@ export function normalizeManagerListingSubmissionV1(
     (sub as { standardFeeScopes?: unknown }).standardFeeScopes,
     { terms: resolveAllowedLeaseTerms(sub), roomIds: rooms.map((r) => r.id) },
   );
+  const applicationFeeByLeaseType = normalizeApplicationFeeByLeaseType(
+    (sub as { applicationFeeByLeaseType?: unknown }).applicationFeeByLeaseType,
+    resolveAllowedLeaseTerms(sub),
+  );
 
   if (paymentAtSigningByLeaseType) {
     const union = new Set<string>();
@@ -2259,6 +2271,7 @@ export function normalizeManagerListingSubmissionV1(
     paymentAtSigningByLeaseType,
     inspectionsByLeaseType,
     standardFeeScopes,
+    applicationFeeByLeaseType,
     rooms: normalizedRooms,
     bathrooms,
     sharedSpaces,
