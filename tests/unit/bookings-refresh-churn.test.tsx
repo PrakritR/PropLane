@@ -89,13 +89,13 @@ describe("Bookings does not refetch when the portfolio array is merely rebuilt",
     await settle();
 
     // Empty state proves the first load finished; a skeleton pass would replace it.
-    expect(view.container.textContent).toContain("No stays in this view");
+    expect(view.container.textContent).toContain("No upcoming bookings");
 
     await act(async () => {
       window.dispatchEvent(new Event("axis-property-pipeline"));
     });
     await settle();
 
-    expect(view.container.textContent).toContain("No stays in this view");
+    expect(view.container.textContent).toContain("No upcoming bookings");
   });
 });

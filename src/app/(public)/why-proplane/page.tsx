@@ -160,12 +160,8 @@ export default function WhyPropLanePage() {
             <br />
             <span className="text-primary">for your OK.</span>
           </SiteHeading>
-          <p className="mt-5 max-w-[52ch] text-[16.5px] leading-relaxed text-muted sm:text-[17.5px]">
-            Tours. Texts. Rent. Repairs. One platform for managers, residents and vendors — the AI drafts, you confirm, and
-            a real ledger keeps score.
-          </p>
           <SiteCtaPair
-            className="mt-8"
+            className="mt-7"
             primaryLabel="Get started free"
             primaryAttr="why-proplane-hero-get-started"
             secondaryHref="/pricing"

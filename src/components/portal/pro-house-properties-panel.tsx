@@ -6,13 +6,16 @@ import { WORKSPACE_SELECTION_EVENT, activeWorkspaceScope, propertiesOutsideActiv
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, ImageOff, Pencil, Trash2 } from "lucide-react";
+import { ChevronDown, Home, Pencil, Trash2 } from "lucide-react";
 import {
   propertyRowAddress,
-  propertyRowDetail,
+  propertyRowAddressLine,
+  propertyRowMeta,
   propertyRowRentLabel,
   propertyRowThumbnail,
+  propertyRowTitle,
 } from "@/lib/property-row-summary";
+import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import {
   propertyAttention,
   propertyAttentionParts,
@@ -221,9 +224,15 @@ const MANAGER_STAGES = [
 
 export type ManagerStageKey = (typeof MANAGER_STAGES)[number]["key"];
 
-/** A draft can be saved before it has a name — never render an empty title cell. */
+/**
+ * A draft can be saved before it has a name — never render an empty title cell.
+ * A blank or bare-number name falls back to the street (see `propertyRowTitle`);
+ * only a home with no address at all shows the placeholder.
+ */
 function managerPropertyRowTitle(row: AdminPropertyRow, bucket: AdminPropertyBucketIndex): string {
-  return row.buildingName.trim() || (bucket === 5 ? "Untitled draft" : "Untitled property");
+  const title = propertyRowTitle(row);
+  if (title !== "Untitled property") return title;
+  return bucket === 5 ? "Untitled draft" : "Untitled property";
 }
 
 function propertyRowDeleteFromQueueAllowed(
@@ -1274,6 +1283,7 @@ export function ManagerHousePropertiesPanel({
   onAddProperty,
   addPropertyDisabled = false,
   searchQuery = "",
+  onClearSearch,
 }: {
   showToast: (m: string) => void;
   activeStage: ManagerStageKey;
@@ -1290,6 +1300,8 @@ export function ManagerHousePropertiesPanel({
   addPropertyDisabled?: boolean;
   /** Free-text match against the row title, address, and neighborhood (list view only). */
   searchQuery?: string;
+  /** Clears the parent-owned search box from the no-match card. */
+  onClearSearch?: () => void;
 }) {
   const router = useRouter();
   const { userId: managerUserId, ready: authReady } = useManagerUserId();
@@ -1805,7 +1817,7 @@ export function ManagerHousePropertiesPanel({
     }
     const { sourceBucket, row } = routePropertyEntry;
     const rowKey = row.adminRefId + (row.listingId ?? "");
-    const address = `${row.address}${row.zip ? `, ${row.zip}` : ""}`;
+    const address = propertyRowAddress(row);
     return (
       <PortalRecordDetailPage
         title={managerPropertyRowTitle(row, sourceBucket)}
@@ -1830,14 +1842,11 @@ export function ManagerHousePropertiesPanel({
    * and the one action. No bare dashed box.
    */
   const renderEmptyState = () => {
-    const sibling = MANAGER_STAGES.filter((s) => s.key !== activeStage && (stageCounts[s.key] ?? 0) > 0)[0];
-    const copy: Record<string, { title: string; description: string }> = {
-      all: { title: "No homes yet", description: "Every home you add appears here — listed, off the market, or still a draft." },
-      listed: { title: "No listed homes yet", description: "Homes you publish appear here, where renters can find and apply to them." },
-      unlisted: { title: "Nothing unlisted", description: "A home you take off the market waits here until you relist it." },
-      drafts: { title: "No drafts in progress", description: "A home you start and save without publishing waits here." },
-    };
-    const c = copy[activeStage] ?? { title: "Nothing here yet", description: "" };
+    const sibling = portalEmptySibling(
+      MANAGER_STAGES.map((s) => ({ id: s.key, label: s.label, count: stageCounts[s.key], href: propertyListHref(propertiesBase, s.key) })),
+      activeStage,
+    );
+    const copy = portalEmptyCopy(`properties.${activeStage}` as PortalEmptyCopyKey);
     /*
      * A workspace that holds nothing while the account holds homes elsewhere is
      * not "no homes yet" — the homes are one switch away. Name the workspace and
@@ -1847,37 +1856,39 @@ export function ManagerHousePropertiesPanel({
     const scope = activeWorkspaceScope();
     const elsewhere = propertiesOutsideActiveWorkspace();
     const emptyWorkspace = scope && !searchQuery.trim() && scope.propertyCount === 0 && elsewhere > 0;
+    if (searchQuery.trim()) {
+      return (
+        <PortalListEmptyCard
+          workspaceAware={false}
+          tone="muted"
+          section="properties"
+          title={portalEmptyNoMatchTitle("homes", searchQuery)}
+          clear={onClearSearch ? { label: "Clear search", onClick: onClearSearch, dataAttr: "manager-properties-empty-clear-search" } : null}
+          dataAttr="manager-properties-empty"
+        />
+      );
+    }
     return (
       <PortalListEmptyCard
         // Properties writes its own workspace copy: it is the one list where
         // adding a home in the empty workspace is exactly the right next step.
         workspaceAware={false}
-        title={searchQuery.trim() ? "No homes match that search" : emptyWorkspace ? `Nothing in ${scope.name} yet` : c.title}
-        description={
-          searchQuery.trim()
-            ? "Try another name, address or neighborhood."
-            : emptyWorkspace
-              ? `Your ${elsewhere} ${elsewhere === 1 ? "home lives" : "homes live"} in another workspace. Switch workspaces from the menu at the top of the sidebar, or move homes here from Settings.`
-              : c.description
-        }
+        section="properties"
+        title={emptyWorkspace ? `Nothing in ${scope.name} yet` : copy.title}
         sibling={
           emptyWorkspace
             ? {
-                label: "Manage workspaces · move homes here",
+                label: `${elsewhere} ${elsewhere === 1 ? "home" : "homes"} in other workspaces`,
                 href: "/portal/profile?tab=workspaces",
                 dataAttr: "manager-properties-empty-workspaces",
               }
             : sibling
-              ? {
-                  label: `${stageCounts[sibling.key]} ${sibling.label.toLowerCase()} · open ${sibling.label}`,
-                  href: propertyListHref(propertiesBase, sibling.key),
-                  dataAttr: `manager-properties-empty-sibling-${sibling.key}`,
-                }
+              ? { ...sibling, dataAttr: `manager-properties-empty-sibling` }
               : null
         }
         actions={
           onAddProperty
-            ? [{ label: "Add property", onClick: onAddProperty, disabled: addPropertyDisabled, dataAttr: "manager-properties-create" }]
+            ? [{ label: "Add property", onClick: onAddProperty, disabled: addPropertyDisabled, reason: addPropertyDisabled ? "Loading your plan…" : undefined, dataAttr: "manager-properties-create" }]
             : []
         }
         dataAttr="manager-properties-empty"
@@ -1997,8 +2008,8 @@ export function ManagerHousePropertiesPanel({
             <PortalPropertyRecordRow
               key={rowKey}
               title={managerPropertyRowTitle(row, sourceBucket)}
-              address={propertyRowAddress(row)}
-              summary={propertyRowDetail(row)}
+              address={propertyRowAddressLine(row)}
+              meta={propertyRowMeta(row)}
               trailing={
                 sourceBucket === 5 ? (
                   activeStage === "all" ? (
@@ -2052,14 +2063,16 @@ export function ManagerHousePropertiesPanel({
                   <img
                     src={thumb}
                     alt=""
-                    className="h-14 w-[4.5rem] rounded-lg object-cover"
+                    className="h-[4.125rem] w-[5.5rem] rounded-[10px] object-cover max-md:h-[3.125rem] max-md:w-16"
                   />
                 ) : (
+                  // "No photo yet" is a house, not a broken image — the crossed-out
+                  // frame read as an error on every draft.
                   <div
                     aria-hidden
-                    className="grid h-14 w-[4.5rem] place-items-center rounded-lg bg-accent/60 text-muted"
+                    className="grid h-[4.125rem] w-[5.5rem] place-items-center rounded-[10px] bg-accent/60 text-muted/80 max-md:h-[3.125rem] max-md:w-16"
                   >
-                    <ImageOff className="h-4 w-4" />
+                    <Home className="size-[22px]" strokeWidth={1.5} />
                   </div>
                 )
               }

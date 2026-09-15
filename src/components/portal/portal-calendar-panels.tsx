@@ -756,6 +756,7 @@ export function PortalCalendarPanels({
   otherProperties,
   onCopyWeekToHouses,
   scheduledTourFilter,
+  scheduledMeetingFilter,
   coManagerAvailabilityOverlays,
   scheduleOwnerLabel,
   availabilityHeading = "Availability",
@@ -823,6 +824,12 @@ export function PortalCalendarPanels({
   otherProperties?: { id: string; name: string }[];
   onCopyWeekToHouses?: (propertyIds: string[], weekDateStrs: string[], scope: "week" | "entire") => void;
   scheduledTourFilter?: ScheduledTourFilter;
+  /**
+   * Keeps only the planned meetings a calendar view wants — the Tours tab drops
+   * tasks, the Tasks tab drops tours (PLAN-0914-1710). Runs after the meetings
+   * are built so counts and the grid read the same list.
+   */
+  scheduledMeetingFilter?: (meeting: DemoMeeting) => boolean;
   coManagerAvailabilityOverlays?: CoManagerAvailabilityOverlay[];
   scheduleOwnerLabel?: string | null;
   availabilityHeading?: string;
@@ -1097,7 +1104,8 @@ export function PortalCalendarPanels({
   const meetings = useMemo<DemoMeeting[]>(() => {
     void calendarRefreshSignal;
     void meetingRefresh;
-    const tourMeetings = buildScheduledTourMeetings(scheduledTourFilter, storageKey);
+    const builtMeetings = buildScheduledTourMeetings(scheduledTourFilter, storageKey);
+    const tourMeetings = scheduledMeetingFilter ? builtMeetings.filter(scheduledMeetingFilter) : builtMeetings;
     const linkedGoogleIds = new Set(
       readPlannedEvents()
         .map((event) => event.googleCalendarEventId?.trim())
@@ -1113,7 +1121,7 @@ export function PortalCalendarPanels({
       return true;
     });
     return [...tourMeetings, ...filteredExternal];
-  }, [storageKey, calendarRefreshSignal, meetingRefresh, scheduledTourFilter, externalMeetings]);
+  }, [storageKey, calendarRefreshSignal, meetingRefresh, scheduledTourFilter, scheduledMeetingFilter, externalMeetings]);
 
   /**
    * Personal Google busy time is drawn as "Blocked", never as an event, and the

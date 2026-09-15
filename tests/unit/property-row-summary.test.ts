@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  dedupeAddressSegments,
   propertyRowAddress,
+  propertyRowAddressLine,
+  propertyRowLocality,
+  propertyRowMeta,
   propertyRowRentLabel,
   propertyRowSummary,
   propertyRowThumbnail,
+  propertyRowTitle,
 } from "@/lib/property-row-summary";
 import { createDefaultListingSubmission, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 
@@ -69,5 +74,65 @@ describe("property row summary", () => {
     );
     expect(propertyRowThumbnail({ submission: sub({ housePhotoDataUrls: ["  "], rooms: [room("A", 1)] }) })).toBeNull();
     expect(propertyRowThumbnail({ submission: undefined })).toBeNull();
+  });
+});
+
+describe("property row title and address lines (PLAN-0914-1345)", () => {
+  it("uses the street as the title when the name is blank or a bare number", () => {
+    const base = { address: "41932 Paseo Padre Pkwy, 41932 Paseo Padre Pkwy, 94539", zip: "94539" };
+    expect(propertyRowTitle({ ...base, buildingName: "2" })).toBe("41932 Paseo Padre Pkwy");
+    expect(propertyRowTitle({ ...base, buildingName: "" })).toBe("41932 Paseo Padre Pkwy");
+    expect(propertyRowTitle({ ...base, buildingName: "  #12 " })).toBe("41932 Paseo Padre Pkwy");
+    expect(propertyRowTitle({ ...base, buildingName: "Jain Home" })).toBe("Jain Home");
+    expect(propertyRowTitle({ buildingName: "", address: "" })).toBe("Untitled property");
+  });
+
+  it("collapses a street the geocoder handed over twice", () => {
+    expect(dedupeAddressSegments("41932 Paseo Padre Pkwy, 41932 Paseo Padre Pkwy, 94539")).toBe(
+      "41932 Paseo Padre Pkwy, 94539",
+    );
+    expect(dedupeAddressSegments("142 Ash St, Seattle, WA")).toBe("142 Ash St, Seattle, WA");
+    expect(propertyRowAddress({ address: "41932 Paseo Padre Pkwy, 41932 Paseo Padre Pkwy", zip: "94539" })).toBe(
+      "41932 Paseo Padre Pkwy, 94539",
+    );
+  });
+
+  it("puts city, state and ZIP on the second line — once — and the street only when the title is a name", () => {
+    const draft = {
+      buildingName: "2",
+      address: "41932 Paseo Padre Pkwy, 41932 Paseo Padre Pkwy",
+      zip: "94539",
+      neighborhood: "",
+      submission: sub({ address: "41932 Paseo Padre Pkwy", city: "Fremont", state: "CA", zip: "94539" }),
+    };
+    expect(propertyRowAddressLine(draft)).toBe("Fremont, CA 94539");
+
+    const named = {
+      buildingName: "Jain Home",
+      address: "4709A 8th Ave NE, Seattle, WA 98105",
+      zip: "98105",
+      neighborhood: "University District",
+      submission: sub({ address: "4709A 8th Ave NE, Seattle, WA 98105", city: "Seattle", state: "WA", zip: "98105" }),
+    };
+    expect(propertyRowAddressLine(named)).toBe("4709A 8th Ave NE · Seattle, WA 98105 · University District");
+    expect(propertyRowLocality(named)).toBe("Seattle, WA 98105");
+  });
+
+  it("falls back to the address tail when the submission carries no city", () => {
+    expect(
+      propertyRowLocality({ address: "142 Ash St, Seattle, WA 98166", zip: "98166", submission: undefined }),
+    ).toBe("Seattle, WA 98166");
+    expect(propertyRowLocality({ address: "142 Ash St", zip: "98166", submission: undefined })).toBe("98166");
+  });
+
+  it("reads bed, bath and room counts for the glyph line; entire homes carry no room count", () => {
+    expect(propertyRowMeta({ beds: 2, baths: 1, submission: sub({ rooms: [room("A", 900), room("B", 900)] }) })).toEqual({
+      beds: 2,
+      baths: 1,
+      rooms: 2,
+    });
+    expect(
+      propertyRowMeta({ beds: 3, baths: 2, submission: sub({ listingPlaceCategoryId: "entire_home", rooms: [room("A", 2400)] }) }),
+    ).toEqual({ beds: 3, baths: 2, rooms: null });
   });
 });

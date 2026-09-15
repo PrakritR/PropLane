@@ -176,8 +176,9 @@ describe("residents directory hydration (PRP-458)", () => {
   });
 
   it("holds directory rows until applications and leases have both settled", () => {
-    expect(residentsSrc).toMatch(/if \(!directorySourcesReady\)/);
-    expect(residentsSrc).toContain('return "Loading residents…"');
+    // The list surface owns the loading state: skeletons until both sources
+    // settle, never an empty card that reads as "no residents".
+    expect(residentsSrc).toContain("loading={!directorySourcesReady && !directoryError}");
   });
 
   it("emits the lease-pipeline event even when the lease GET fails", () => {

@@ -72,9 +72,6 @@ export function RentBrowsePageClient() {
               <h1 className="mt-3 text-[clamp(1.9rem,4.4vw,3rem)] font-bold leading-[1.05] tracking-[-0.03em] text-foreground">
                 Find a room or a home. Apply from your phone.
               </h1>
-              <p className="mx-auto mt-3 max-w-[52ch] text-[15.5px] leading-relaxed text-muted sm:text-[16.5px]">
-                Tours book in a minute. One application, an e-signed lease, rent by card or bank.
-              </p>
               <ul className="mt-5 flex flex-wrap items-center justify-center gap-2 text-[12.5px] font-semibold text-foreground/85">
                 {["Tour in a minute", "One application, e-signed lease", "Rent by card or bank, reminders first"].map((p) => (
                   <li key={p} className="rounded-full border border-border bg-card px-3 py-1.5">

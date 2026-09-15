@@ -11,8 +11,9 @@ import {
 } from "@/components/portal/settings-entry-points";
 import { ManagerBookingsListView } from "@/components/portal/manager-bookings-list-view";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
-import { CalendarOff, Settings2 } from "lucide-react";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling } from "@/lib/portal-empty-copy";
+import { CalendarOff, Link2, Settings2 } from "lucide-react";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -376,6 +377,17 @@ function useBookingsWorkspace({
           />
         </>
       }
+      primary={
+        // Bookings has no "add" — its one prominent action is linking Airbnb,
+        // so the filled circle carries the link glyph in the plus's slot.
+        <PortalPrimaryIconAction
+          label="Link Airbnb"
+          icon={Link2}
+          disabled={linkDisabled}
+          data-attr="portfolio-bookings-link-airbnb"
+          onClick={() => setLinkModalOpen(true)}
+        />
+      }
       activeFilterChips={activeFilterChips}
     />
   );
@@ -410,6 +422,46 @@ function useBookingsWorkspace({
         }}
         onOpenDay={openCalendarForDay}
         bulkActions={listBulkActions}
+        emptyCard={
+          propertyFilters.length > 0 || roomFilterId
+            ? {
+                title: portalEmptyNoMatchTitle("bookings"),
+                section: "bookings",
+                tone: "muted",
+                clear: {
+                  label: "Clear filters",
+                  onClick: () => {
+                    setPropertyFilters([]);
+                    onRoomFilterIdChange?.("");
+                  },
+                  dataAttr: "bookings-empty-clear-filters",
+                },
+              }
+            : {
+                title: portalEmptyCopy(`bookings.${listBucket}`).title,
+                section: "bookings",
+                sibling: basePath
+                  ? portalEmptySibling(
+                      tabs.map((tab) => ({ id: tab.id, label: tab.label, count: tab.count, href: managerBookingListHref(basePath, tab.id) })),
+                      listBucket,
+                    )
+                  : null,
+                // Only Upcoming offers Link Airbnb — in-house and past are what already happened.
+                actions:
+                  listBucket === "upcoming"
+                    ? [
+                        {
+                          label: "Link Airbnb",
+                          icon: Link2,
+                          onClick: () => setLinkModalOpen(true),
+                          disabled: linkDisabled,
+                          reason: linkDisabled ? "List a property first, then link its rooms to Airbnb." : undefined,
+                          dataAttr: "bookings-empty-link-airbnb",
+                        },
+                      ]
+                    : [],
+              }
+        }
       />
     );
 
@@ -458,19 +510,7 @@ function useBookingsWorkspace({
     </>
   );
 
-  const primaryAction = (
-    <Button
-      type="button"
-      className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
-      disabled={linkDisabled}
-      data-attr="portfolio-bookings-link-airbnb"
-      onClick={() => setLinkModalOpen(true)}
-    >
-      Link Airbnb
-    </Button>
-  );
-
-  return { controlStack, content, modals, primaryAction };
+  return { controlStack, content, modals };
 }
 
 /**
@@ -478,11 +518,10 @@ function useBookingsWorkspace({
  * the panel's own flex column.
  */
 export function ManagerBookingsWorkspace(props: BookingsWorkspaceProps) {
-  const { controlStack, content, modals, primaryAction } = useBookingsWorkspace(props);
+  const { controlStack, content, modals } = useBookingsWorkspace(props);
   return (
     <>
-      {/* No page headline inside a property tab — the one prominent action sits above the tabs. */}
-      <div className="mb-2 flex shrink-0 justify-end">{primaryAction}</div>
+      {/* Link Airbnb rides in the command bar with the other tools — nothing above the tabs. */}
       {controlStack}
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">{content}</div>
       {modals}
@@ -525,7 +564,7 @@ export function ManagerBookings({
 
   const propertyIds = useMemo(() => propertyOptions.map((option) => option.id), [propertyOptions]);
 
-  const { controlStack, content, modals, primaryAction } = useBookingsWorkspace({
+  const { controlStack, content, modals } = useBookingsWorkspace({
     bucket,
     basePath,
     propertyIds,
@@ -551,7 +590,6 @@ export function ManagerBookings({
       hideTitleOnMobileNav
       titleInlineFilter={null}
       compactFilterRow
-      primaryAction={primaryAction}
     >
       {controlStack}
       {modals}

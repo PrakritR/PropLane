@@ -1,7 +1,7 @@
 "use client";
 
 import { MANAGER_MANUAL_PAYMENT_AUTO_CHECK_MS } from "@/lib/resident-manual-payment-client";
-import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef, type ComponentProps } from "react";
 import { Button } from "@/components/ui/button";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
@@ -15,7 +15,9 @@ import {
 } from "@/lib/portal-list-grouping";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
+import type { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { Settings2, Wrench } from "lucide-react";
 import type { DemoManagerOutgoingPaymentRow, DemoManagerPaymentLedgerRow } from "@/data/demo-portal";
 import { parseMoneyLabel } from "@/lib/portal-monthly-profit";
@@ -813,6 +815,47 @@ export function ManagerPayments({
     setGroupMode,
   ]);
 
+  /*
+   * One empty card per tab (PLAN-0914-1629): the tab's title from the copy table,
+   * the sibling tab that has rows, and the same pill as the bar's primary — or
+   * the muted no-match card with a Clear link when filters hide everything.
+   */
+  const filtersHideRows = propertyFilters.length > 0 || residentFilters.length > 0;
+  const paymentsEmptyCard: ComponentProps<typeof PortalRecordListSurface>["emptyCard"] = filtersHideRows
+    ? {
+        title: portalEmptyNoMatchTitle(direction === "incoming" ? "charges" : "payments"),
+        section: "payments",
+        tone: "muted",
+        clear: {
+          label: "Clear filters",
+          onClick: () => {
+            setPropertyFilters([]);
+            setResidentFilters([]);
+          },
+          dataAttr: "payments-empty-clear-filters",
+        },
+      }
+    : {
+        title:
+          direction === "incoming"
+            ? portalEmptyCopy(`payments.${bucket}` as PortalEmptyCopyKey).title
+            : portalEmptyCopy("payments.outgoing").title,
+        section: "payments",
+        sibling: portalEmptySibling(
+          tabs.map((t) => ({ id: t.id, label: t.label, count: t.count, href: `${paymentsBase}/${direction}/${t.id}` })),
+          bucket,
+        ),
+        // Overdue is a state a charge falls into, not one you add to.
+        actions:
+          bucket === "overdue"
+            ? []
+            : direction === "incoming"
+              ? canCreatePayment
+                ? [{ label: "Add charge", onClick: () => setAddOpen(true), dataAttr: "payments-empty-add" }]
+                : []
+              : [{ label: "Add payment", onClick: () => setAddOutgoingOpen(true), dataAttr: "payments-empty-add-outgoing" }],
+      };
+
   const paymentsPanel =
     direction === "incoming" ? (
       <ManagerPaymentsLedgerPanel
@@ -828,6 +871,7 @@ export function ManagerPayments({
         listBasePath={basePath}
         direction={direction}
         onAddPayment={canCreatePayment ? () => setAddOpen(true) : undefined}
+        emptyCard={paymentsEmptyCard}
         groupMode={groupMode}
         linkedPropertyIds={linkedPaymentPropertyIds}
         canEditRow={canEditPaymentRow}
@@ -842,6 +886,7 @@ export function ManagerPayments({
         listBasePath={basePath}
         groupMode={outgoingGroupMode}
         onAddPayment={() => setAddOutgoingOpen(true)}
+        emptyCard={paymentsEmptyCard}
         onRowsChanged={() => {
           setOutgoingTick((n) => n + 1);
           void syncManagerOutgoingExpensesFromServer(true);
@@ -903,29 +948,6 @@ export function ManagerPayments({
       hideTitleOnMobileNav
       titleInlineFilter={null}
       compactFilterRow
-      primaryAction={
-        direction === "incoming" ? (
-          canCreatePayment ? (
-            <Button
-              type="button"
-              className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
-              data-attr="payments-add-top"
-              onClick={() => setAddOpen(true)}
-            >
-              + Add charge
-            </Button>
-          ) : undefined
-        ) : (
-          <Button
-            type="button"
-            className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
-            data-attr="payments-add-outgoing-top"
-            onClick={() => setAddOutgoingOpen(true)}
-          >
-            + Add payment
-          </Button>
-        )
-      }
     >
       <PortalListControlStack
         className="mb-2 max-lg:mb-2"
@@ -941,6 +963,15 @@ export function ManagerPayments({
         activeDestinationId={bucket}
         destinationAriaLabel="Payment status"
         actions={paymentsListActions}
+        primary={
+          direction === "incoming" ? (
+            canCreatePayment ? (
+              <PortalPrimaryIconAction label="Add charge" data-attr="payments-add-top" onClick={() => setAddOpen(true)} />
+            ) : undefined
+          ) : (
+            <PortalPrimaryIconAction label="Add payment" data-attr="payments-add-outgoing-top" onClick={() => setAddOutgoingOpen(true)} />
+          )
+        }
         activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
       />
       {paymentsPanel}

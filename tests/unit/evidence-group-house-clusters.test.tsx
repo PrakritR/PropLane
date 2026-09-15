@@ -315,7 +315,7 @@ describe("household and resident list shells", () => {
     dump("residents-house-clusters", html);
 
     const currentHtml = renderToStaticMarkup(<ManagerResidents tabId="current" />);
-    expect(currentHtml).toContain("No current residents yet.");
+    expect(currentHtml).toContain("No current residents");
   });
 
   it("Leases clusters each resident in the Tours-style table shell", async () => {

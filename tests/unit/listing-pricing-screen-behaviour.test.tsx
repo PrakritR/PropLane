@@ -56,25 +56,10 @@ function Editor({ onChange }: { onChange?: (sub: ManagerListingSubmissionV1) => 
   );
 }
 
-/**
- * Pick an option in a field-select menu.
- *
- * These menus are portaled outside the React root, so picks are handled by a
- * NATIVE pointerdown + pointerup pair on the listbox rather than a React
- * onClick (`useFieldSelectListboxPointerPick`). A plain `fireEvent.click` does
- * nothing at all — which is exactly how a broken picker and a mis-driven test
- * look the same, so drive it the way a finger or mouse does.
- */
-function pickOption(option: HTMLElement) {
-  const base = { bubbles: true, cancelable: true, clientX: 10, clientY: 10 };
-  for (const type of ["pointerdown", "pointerup"]) {
-    const event = new MouseEvent(type, base);
-    Object.defineProperty(event, "pointerId", { value: 1 });
-    option.dispatchEvent(event);
-  }
-}
-
 /** Open the Pricing section of the editor. */
+/** A room's prices live inside its card; open it to reach the cells. */
+const openPriceCard = (name: string) => fireEvent.click(screen.getByRole("button", { name: `Open ${name} prices` }));
+
 function openPricing() {
   render(<Editor />);
   const nav = screen.getByRole("navigation", { name: "Listing sections" });
@@ -104,14 +89,27 @@ describe("Pricing puts payment setup first", () => {
     openPricing();
     // Both used to appear here AND on Advanced — and the Advanced copies wrote
     // the raw input, so letters typed there were stored as the fee.
-    const labelTexts = Array.from(document.querySelectorAll("label")).map((l) => l.textContent ?? "");
-    const count = (re: RegExp) => labelTexts.filter((t) => re.test(t)).length;
+    const labels = Array.from(document.querySelectorAll("[aria-label]")).map((l) => l.getAttribute("aria-label") ?? "");
+    const count = (re: RegExp) => labels.filter((t) => re.test(t)).length;
 
     expect(count(/^Long-term application fee/)).toBe(1);
     expect(count(/^Short-term application fee/)).toBe(1);
     expect(count(/^Waiver code/)).toBe(1);
     // The retired second copy carried this exact label.
     expect(count(/^Application fee waive code/)).toBe(0);
+  });
+
+  it("the application-fee switch off blanks the fee and hides its rows", () => {
+    let latest: ManagerListingSubmissionV1 | null = null;
+    render(<Editor onChange={(s) => (latest = s)} />);
+    const nav = screen.getByRole("navigation", { name: "Listing sections" });
+    fireEvent.click(Array.from(nav.querySelectorAll("button")).find((b) => /pricing/i.test(b.textContent ?? ""))!);
+    const toggle = document.querySelector('[data-attr="listing-v2-application-fee-on"]') as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    fireEvent.click(toggle);
+    expect(latest?.applicationFee).toBe("");
+    expect(latest?.applicationFeeWaiverCode).toBe("");
+    expect(document.querySelector('[data-attr="listing-v2-application-fee-rows"]')).toBeNull();
   });
 });
 
@@ -124,6 +122,7 @@ describe("a room can be priced at $0", () => {
       /rent|pricing|deposit/i.test(b.textContent ?? ""),
     );
     fireEvent.click(pricing!);
+    openPriceCard("Room A");
 
     const cell = screen.getByLabelText(/Room A utilities on/i) as HTMLInputElement;
     fireEvent.change(cell, { target: { value: "0" } });
@@ -173,22 +172,17 @@ describe("collected at signing", () => {
       Array.from(nav.querySelectorAll("button")).find((b) => /rent|pricing|deposit/i.test(b.textContent || ""))!,
     );
 
-    const control = screen.getByRole("button", { name: /Collected at signing on/i });
-    fireEvent.click(control);
-
-    const option = screen
-      .getAllByRole("option")
-      .find((o) => /First month rent/i.test(o.textContent || ""));
-    expect(option, "First month rent option").toBeTruthy();
-    pickOption(option!);
+    // The step's tick list (the receipt panel under the step carries the same tick).
+    const tick = screen.getAllByRole("checkbox", { name: /Collect First month'?s rent at signing/i })[0] as HTMLInputElement;
+    // Untick, then tick again: both writes must land on the term the row reads.
+    if (tick.checked) fireEvent.click(tick);
+    fireEvent.click(screen.getAllByRole("checkbox", { name: /Collect First month'?s rent at signing/i })[0]!);
 
     // The tick must survive the write and the component's re-read of it.
     const matrix = latest?.paymentAtSigningByLeaseType ?? {};
     const everyKey = Object.values(matrix).flat();
     expect(everyKey).toContain("first_month_rent");
-    expect(
-      screen.getByRole("button", { name: /Collected at signing on/i }).textContent,
-    ).not.toMatch(/Nothing due at signing/);
+    expect((screen.getAllByRole("checkbox", { name: /Collect First month'?s rent at signing/i })[0] as HTMLInputElement).checked).toBe(true);
   });
 });
 
@@ -201,6 +195,7 @@ describe("a room with its own numbers can go back to the house numbers", () => {
       Array.from(nav.querySelectorAll("button")).find((b) => /rent|pricing|deposit/i.test(b.textContent ?? ""))!,
     );
 
+    openPriceCard("Room A");
     expect(screen.queryByRole("button", { name: /Reset utilities for Room A/i })).toBeNull();
 
     fireEvent.change(screen.getByLabelText(/Room A utilities on/i), { target: { value: "0" } });

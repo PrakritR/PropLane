@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ComponentProps } from "react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
@@ -14,7 +14,6 @@ import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-act
 import { ManagerOutgoingPaymentDetail } from "@/components/portal/pro-outgoing-payment-detail";
 import {
   PORTAL_DETAIL_BTN,
-  PortalDataTableEmpty,
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
@@ -60,6 +59,7 @@ export function ManagerOutgoingPaymentsPanel({
   paymentId: paymentIdProp,
   listBasePath,
   onAddPayment,
+  emptyCard,
   groupMode = "house",
 }: {
   rows: DemoManagerOutgoingPaymentRow[];
@@ -69,6 +69,8 @@ export function ManagerOutgoingPaymentsPanel({
   paymentId?: string;
   listBasePath?: string;
   onAddPayment?: () => void;
+  /** The tab's empty card — the page owns the copy, tab counts and filter reset. */
+  emptyCard?: ComponentProps<typeof PortalRecordListSurface>["emptyCard"];
   groupMode?: PortalListGroupMode;
 }) {
   const { showToast } = useAppUi();
@@ -444,18 +446,20 @@ export function ManagerOutgoingPaymentsPanel({
   };
 
   if (rows.length === 0) {
-    if (!onAddPayment) {
-      return <PortalDataTableEmpty message="No outgoing payments in this bucket yet." icon="payment" />;
-    }
     return (
       <PortalRecordListSurface
         isEmpty
-        add={{
-          ariaLabel: "Add outgoing payment",
-          icon: PORTAL_LIST_ADD_ICONS.payment,
-          onClick: onAddPayment,
-          dataAttr: "payments-list-add",
-        }}
+        add={
+          onAddPayment
+            ? {
+                ariaLabel: "Add outgoing payment",
+                icon: PORTAL_LIST_ADD_ICONS.payment,
+                onClick: onAddPayment,
+                dataAttr: "payments-list-add",
+              }
+            : undefined
+        }
+        emptyCard={emptyCard ?? (onAddPayment ? undefined : { title: "No payments out", section: "payments" })}
         className="pt-5 sm:pt-6"
         dataAttr="outgoing-payments-list-empty"
       />

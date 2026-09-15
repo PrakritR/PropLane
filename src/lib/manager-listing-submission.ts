@@ -433,6 +433,8 @@ export type ManagerBathroomSubmission = {
   location: string;
   /** Extra finishes & fixtures for this bathroom (preset lines + free text). */
   amenitiesText: string;
+  /** What a renter reads under this bathroom on the listing. Optional; absent on older listings. */
+  detail?: string;
   /** Uploaded bathroom photos shown in listing details. */
   photoDataUrls: string[];
   /** Optional bathroom video shown in listing details. */
@@ -512,6 +514,13 @@ export type ManagerListingSubmissionV1 = {
   rentalModelStamp?: "shared_home" | "entire_home";
   /** When listingPlaceCategoryId is entire_home — one monthly lease for the full unit (USD). */
   entireHomeMonthlyRent?: number;
+  /**
+   * How many people the whole place is let to — asked once on Basics for an
+   * entire-home listing, where there is no per-room occupancy to sum.
+   * Descriptive only; nothing is enforced from it. Absent on every listing
+   * saved before it existed and on every by-the-room listing.
+   */
+  entireHomeMaxResidents?: number;
   /** Entire-home monthly utilities estimate (synced to first bedroom for signing math). */
   entireHomeUtilitiesEstimate?: string;
   /** How utilities are paid for an entire-home lease. */
@@ -1961,6 +1970,7 @@ export function normalizeManagerListingSubmissionV1(
         typeof (legacyBath as ManagerBathroomSubmission & { amenitiesText?: string }).amenitiesText === "string"
           ? (legacyBath as ManagerBathroomSubmission & { amenitiesText: string }).amenitiesText
           : "",
+      detail: typeof legacyBath.detail === "string" && legacyBath.detail.trim() ? legacyBath.detail : undefined,
       photoDataUrls:
         Array.isArray((legacyBath as ManagerBathroomSubmission & { photoDataUrls?: unknown }).photoDataUrls)
           ? ((legacyBath as ManagerBathroomSubmission & { photoDataUrls?: unknown }).photoDataUrls as unknown[])
@@ -2156,6 +2166,10 @@ export function normalizeManagerListingSubmissionV1(
     rentalModelStamp: stampRentalModel({ listingPlaceCategoryId, rentalModelStamp: sub.rentalModelStamp }).model,
     listingPlaceCategoryId,
     entireHomeMonthlyRent: isEntireHomeListing({ listingPlaceCategoryId }) ? entireHomeMonthlyRent : undefined,
+    entireHomeMaxResidents:
+      isEntireHomeListing({ listingPlaceCategoryId }) && Number.isInteger(sub.entireHomeMaxResidents) && (sub.entireHomeMaxResidents as number) > 0
+        ? Math.min(30, sub.entireHomeMaxResidents as number)
+        : undefined,
     entireHomeUtilitiesEstimate: isEntireHomeListing({ listingPlaceCategoryId }) ? entireHomeUtilitiesEstimate : undefined,
     entireHomeUtilitiesPaymentModel: isEntireHomeListing({ listingPlaceCategoryId }) ? entireHomeUtilitiesPaymentModel : undefined,
     entireHomeProrateMethod: isEntireHomeListing({ listingPlaceCategoryId }) ? entireHomeProrateMethod : undefined,

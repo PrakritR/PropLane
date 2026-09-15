@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { ClipboardCheck, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { portalEmptyCopy, portalEmptySibling } from "@/lib/portal-empty-copy";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -367,7 +368,18 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
     })() : null}
     {loading ? <div role="status" aria-label="Loading inspections" className="space-y-3 p-4"><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /></div> : embeddedScope ? null : <PortalRecordListSurface
       isEmpty={rows.length === 0}
-      empty={<p className="p-5 text-sm text-muted">{isDemoModeActive() ? "Open your signed-in portal to add and read residency inspection photos." : kind === "move-in" ? "No one is moving in or living here yet. Approve an application and give it a property placement to start." : "No one is living here or has moved out yet."}</p>}
+      // No pill: an inspection opens by itself once a resident has a room, so the
+      // card is tile + title + the sibling that does have reports.
+      emptyCard={{
+        title: role === "manager" ? portalEmptyCopy(`inspections.${kind}`).title : kind === "move-in" ? "No move-in inspection yet" : "No move-out inspection yet",
+        section: "inspections",
+        sibling: routeBase
+          ? portalEmptySibling(
+              (["move-in", "move-out"] as const).map((id) => ({ id, label: kindLabel(id).toLowerCase(), count: rowsFor(id).length, href: `${routeBase}/${id}` })),
+              kind,
+            )
+          : null,
+      }}
       /* No ADD: every resident with an assigned room already has a report waiting on their
          row, so a "＋ Add inspection" footer would only offer to duplicate one. */
       onBulkClear={() => setSelected(new Set())}

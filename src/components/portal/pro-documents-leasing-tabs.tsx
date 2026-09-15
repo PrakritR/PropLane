@@ -3,7 +3,6 @@ import { RecordActionItems } from "@/components/ui/record-action-menu";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FileUp } from "lucide-react";
 import {
   ApplicationDocumentPreview,
   downloadApplicationPdf,
@@ -11,12 +10,10 @@ import {
 import { DocumentInlineViewer } from "@/components/portal/resident-other-documents";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { FilterCollapsibleSection, FilterFieldsAccordion, FilterSingleSelectList, filterSingleSelectSummary } from "@/components/portal/filter-field-lists";
-import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
 import { DataList } from "@/components/ui/data-list";
+import { Upload } from "lucide-react";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { Button } from "@/components/ui/button";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
@@ -50,8 +47,6 @@ import {
   type LeasePipelineRow,
 } from "@/lib/lease-pipeline-storage";
 import { safeFormatDateTime } from "@/lib/pacific-time";
-import { isDemoModeActive } from "@/lib/demo/demo-session";
-import { cn } from "@/lib/utils";
 
 function applicationStatusLabel(bucket: ManagerApplicationBucket): string {
   if (bucket === "approved") return "Approved";
@@ -77,26 +72,6 @@ function applicationPropertyId(row: DemoApplicantRow): string {
   );
 }
 
-function LeasingDocumentsAddRow({
-  onAdd,
-  dataAttr,
-}: {
-  onAdd: () => void;
-  dataAttr: string;
-}) {
-  if (isDemoModeActive()) return null;
-  return (
-    <div className={cn(PORTAL_LIST_PAGE_BODY, PORTAL_LIST_ADD_ROW_WRAP_CLASS)}>
-      <PortalListAddRow
-        label="Add"
-        ariaLabel="Add document"
-        icon={FileUp}
-        onClick={onAdd}
-        dataAttr={dataAttr}
-      />
-    </div>
-  );
-}
 
 export function LeasingDocumentsPropertyFilterFields({
   propertyFilter,
@@ -170,12 +145,16 @@ export function ManagerApplicationDocumentsTab({
   userId,
   basePath = "/portal",
   propertyFilter = "",
-  onAddDocument,
+  onClearFilter,
+  onUpload,
 }: {
   userId: string | null;
   basePath?: string;
   propertyFilter?: string;
-  onAddDocument?: () => void;
+  /** Clears the parent-owned property filter from the no-match card. */
+  onClearFilter?: () => void;
+  /** Opens the upload modal from the empty card — the bar's primary, by name. */
+  onUpload?: () => void;
 }) {
   const navigate = usePortalNavigate();
   const { showToast } = useAppUi();
@@ -254,10 +233,20 @@ export function ManagerApplicationDocumentsTab({
         onExport={() => void exportSelected()}
         dataAttr="documents-applications-bulk-export"
       />}>{rows.length === 0 ? (
-        <PortalDataTableEmpty
-          icon="application"
-          message={propertyFilter ? "No application documents match this property." : "No application documents yet."}
-        />
+        propertyFilter ? (
+          <PortalListEmptyCard
+            section="documents"
+            tone="muted"
+            title={portalEmptyNoMatchTitle("application documents")}
+            clear={onClearFilter ? { label: "Clear filters", onClick: onClearFilter, dataAttr: "documents-applications-empty-clear" } : null}
+          />
+        ) : (
+          <PortalListEmptyCard
+            section="documents"
+            title={portalEmptyCopy("documents.applications").title}
+            actions={onUpload ? [{ label: "Upload document", icon: Upload, onClick: onUpload, dataAttr: "documents-applications-empty-upload" }] : []}
+          />
+        )
       ) : (
         <DataList
           hideColumnHeaders
@@ -315,9 +304,6 @@ export function ManagerApplicationDocumentsTab({
           ]}
         />
       )}</PortalRecordListSurface>
-      {onAddDocument ? (
-        <LeasingDocumentsAddRow onAdd={onAddDocument} dataAttr="documents-applications-list-add" />
-      ) : null}
 
     </>
   );
@@ -424,11 +410,15 @@ export function ManagerApplicationDocumentDetail({
 export function ManagerLeaseDocumentsTab({
   userId,
   propertyFilter = "",
-  onAddDocument,
+  onClearFilter,
+  onUpload,
 }: {
   userId: string | null;
   propertyFilter?: string;
-  onAddDocument?: () => void;
+  /** Clears the parent-owned property filter from the no-match card. */
+  onClearFilter?: () => void;
+  /** Opens the upload modal from the empty card — the bar's primary, by name. */
+  onUpload?: () => void;
 }) {
   const { showToast } = useAppUi();
   const [tick, setTick] = useState(0);
@@ -514,10 +504,20 @@ export function ManagerLeaseDocumentsTab({
         onExport={exportSelected}
         dataAttr="documents-leases-bulk-export"
       />}>{rows.length === 0 ? (
-        <PortalDataTableEmpty
-          icon="lease"
-          message={propertyFilter ? "No lease documents match this property." : "No lease documents yet."}
-        />
+        propertyFilter ? (
+          <PortalListEmptyCard
+            section="documents"
+            tone="muted"
+            title={portalEmptyNoMatchTitle("lease documents")}
+            clear={onClearFilter ? { label: "Clear filters", onClick: onClearFilter, dataAttr: "documents-leases-empty-clear" } : null}
+          />
+        ) : (
+          <PortalListEmptyCard
+            section="documents"
+            title={portalEmptyCopy("documents.leases").title}
+            actions={onUpload ? [{ label: "Upload document", icon: Upload, onClick: onUpload, dataAttr: "documents-leases-empty-upload" }] : []}
+          />
+        )
       ) : (
         <DataList
           hideColumnHeaders
@@ -593,9 +593,6 @@ export function ManagerLeaseDocumentsTab({
           ]}
         />
       )}</PortalRecordListSurface>
-      {onAddDocument ? (
-        <LeasingDocumentsAddRow onAdd={onAddDocument} dataAttr="documents-leases-list-add" />
-      ) : null}
 
     </>
   );

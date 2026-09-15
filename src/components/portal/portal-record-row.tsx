@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { ChevronRight } from "lucide-react";
+import { Bath, BedDouble, DoorOpen, UserRound, type LucideIcon } from "lucide-react";
 import { InboxAvatar, InboxConversationRow } from "@/components/portal/portal-inbox-ui";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 
@@ -70,15 +70,21 @@ export function PortalPersonRecordRow({
 /**
  * Property-style card row.
  *
- * Title with a chevron, the address, a line of detail; on the right, a status
- * chip ("1 / 2 occupied") and the money in bold — the two things a manager
- * scans a list of homes for. On a phone the chip drops under the title and
- * the money stays on the right, so the row is still two lines and a glance.
+ * Title, the address, a line of detail; on the right, a status chip
+ * ("1 / 2 occupied") and the money in bold — the two things a manager scans a
+ * list of homes for. On a phone the chip drops under the title and the money
+ * stays on the right, so the row is still two lines and a glance.
+ *
+ * No chevron after the title: the whole row is the link and hover says so; the
+ * old "2 ›" read as a count (PLAN-0914-1345). Bed / bath / room counts come as
+ * glyphs (`meta`) rather than a grey sentence.
  */
 export function PortalPropertyRecordRow({
   title,
   address,
   summary,
+  meta,
+  facts,
   badge,
   chip,
   trailing,
@@ -92,6 +98,10 @@ export function PortalPropertyRecordRow({
   title: string;
   address: string;
   summary?: string;
+  /** Bed / bath / room counts drawn as glyphs under the address. */
+  meta?: { beds?: number; baths?: number; rooms?: number | null };
+  /** Any other glyph facts on that same line — a person row's date, email, household. */
+  facts?: ReactNode;
   badge?: ReactNode;
   /** Status chip — occupancy, stage — shown beside the money. */
   chip?: ReactNode;
@@ -116,9 +126,26 @@ export function PortalPropertyRecordRow({
     <>
       <p className="flex min-w-0 items-center gap-1 text-[15px] font-semibold leading-tight text-foreground">
         <span className="truncate">{title}</span>
-        {openable ? <ChevronRight className="size-4 shrink-0 text-muted/70" strokeWidth={2} aria-hidden /> : null}
       </p>
       <p className="truncate text-[13px] leading-relaxed text-muted">{address}</p>
+      {facts ? (
+        <p className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted" data-attr="record-row-facts">
+          {facts}
+        </p>
+      ) : null}
+      {meta && (meta.beds || meta.baths || meta.rooms) ? (
+        <p className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted" data-attr="property-row-meta">
+          {meta.beds ? (
+            <span className="inline-flex items-center gap-1"><BedDouble className="size-3.5" strokeWidth={1.6} aria-hidden /><span className="sr-only">Bedrooms</span>{meta.beds}</span>
+          ) : null}
+          {meta.baths ? (
+            <span className="inline-flex items-center gap-1"><Bath className="size-3.5" strokeWidth={1.6} aria-hidden /><span className="sr-only">Bathrooms</span>{meta.baths}</span>
+          ) : null}
+          {meta.rooms ? (
+            <span className="inline-flex items-center gap-1"><DoorOpen className="size-3.5" strokeWidth={1.6} aria-hidden />{meta.rooms} {meta.rooms === 1 ? "room" : "rooms"}</span>
+          ) : null}
+        </p>
+      ) : null}
       {summary ? <p className="truncate text-xs text-muted">{summary}</p> : null}
       {badge || chip || trailing ? (
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -144,7 +171,7 @@ export function PortalPropertyRecordRow({
         // One white card per property — no group heading, no repeated status
         // badge — with the row title opening the record and a separate 44px
         // selection target.
-        "portal-property-row mb-2 flex w-full items-center gap-1 rounded-xl border bg-card px-3 py-2.5 shadow-sm transition-colors max-md:px-2.5",
+        "portal-property-row mb-2 flex w-full items-center gap-1 rounded-xl border bg-card px-3 py-3 shadow-sm transition-colors max-md:px-2.5 max-md:py-2.5",
         selected || checked ? "border-primary/40 bg-primary/[0.04]" : "border-border hover:border-primary/30",
       )}
     >
@@ -201,6 +228,59 @@ export function PortalRowStatusChip({
     >
       {children}
     </span>
+  );
+}
+
+/** One glyph fact on a record row — an icon and a short value. */
+export function PortalRowFact({ icon: Icon, children, srLabel }: { icon: LucideIcon; children: ReactNode; srLabel?: string }) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1">
+      <Icon className="size-3.5 shrink-0" strokeWidth={1.6} aria-hidden />
+      {srLabel ? <span className="sr-only">{srLabel}</span> : null}
+      <span className="truncate">{children}</span>
+    </span>
+  );
+}
+
+/**
+ * The Properties row, for a person — an applicant, a co-signer.
+ *
+ * Same card, same slots: an initials tile where the home has its photo, the
+ * name as the title, "Alder Row · Room 2" as the address line, glyph facts,
+ * chips on the left, the date in bold and a status chip on the right, and the
+ * ⋯ the list surface draws for a selectable row.
+ */
+export function PortalApplicantRecordRow({
+  name,
+  kind = "applicant",
+  ...rest
+}: Omit<Parameters<typeof PortalPropertyRecordRow>[0], "title" | "leading" | "meta"> & {
+  name: string;
+  /** A co-signer gets a person glyph rather than initials, and sits under its applicant. */
+  kind?: "applicant" | "cosigner";
+}) {
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]!.toUpperCase())
+    .join("");
+  return (
+    <PortalPropertyRecordRow
+      title={name}
+      leading={
+        kind === "cosigner" ? (
+          <div aria-hidden className="grid h-[4.125rem] w-[4.125rem] place-items-center rounded-[10px] bg-accent/60 text-muted/80 max-md:h-[3.125rem] max-md:w-[3.125rem]">
+            <UserRound className="size-[22px]" strokeWidth={1.5} />
+          </div>
+        ) : (
+          <div aria-hidden className="grid h-[4.125rem] w-[5.5rem] place-items-center rounded-[10px] bg-primary/[0.08] text-[20px] font-extrabold tracking-wide text-primary max-md:h-[3.125rem] max-md:w-16 max-md:text-[16px]">
+            {initials || "?"}
+          </div>
+        )
+      }
+      {...rest}
+    />
   );
 }
 

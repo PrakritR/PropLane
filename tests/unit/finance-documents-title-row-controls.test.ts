@@ -27,9 +27,11 @@ describe("Finance and Documents command layout", () => {
     expect(leasingTabs).toContain("LeasingDocumentsPropertyFilterFields");
     expect(leasingTabs).toContain("hideColumnHeaders");
     expect(leasingTabs).toContain("<DataList");
-    expect(leasingTabs).toContain("documents-applications-list-add");
-    expect(leasingTabs).toContain("documents-leases-list-add");
-    expect(leasingTabs).toContain("onAddDocument");
+    // The dashed "+ Add" row under each list is gone (PLAN-0914-1345): the
+    // command bar's upload glyph is the one way to add on a populated tab.
+    expect(leasingTabs).not.toContain("documents-applications-list-add");
+    expect(leasingTabs).not.toContain("documents-leases-list-add");
+    expect(leasingTabs).not.toContain("PortalListAddRow");
     expect(documents).toContain("listHidden");
     expect(documents).toContain("hideFilterChrome");
     expect(documents).toContain("openDocumentUpload");
