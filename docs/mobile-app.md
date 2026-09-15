@@ -266,6 +266,37 @@ which on every push to `production` (and on `workflow_dispatch`) runs `npm ci`,
 to TestFlight, and `scripts/ios-testflight-distribute.mjs` to make the build
 installable. It self-skips until the `ASC_*` secrets exist.
 
+#### The App Store follows a production push
+
+After the distribute step proves the build is installable, the same run makes
+the App Store follow (`scripts/ios-app-store-release.mjs`):
+
+1. **Version.** Before the build, `--plan-version` asks App Store Connect what
+   it has seen and prints the marketing version fastlane builds: the highest
+   version on the store plus one patch (an editable version's own string when
+   it is already ahead; Xcode's `MARKETING_VERSION` as a floor). This is what
+   ended the "train 1.0 is closed" upload failures — nobody bumps a number.
+2. **Store version.** The one editable version is reused, or the next patch is
+   created, with release type *after approval* (`APP_STORE_RELEASE_TYPE=MANUAL`
+   to keep the last click).
+3. **Product page.** `app-store/copy.json` is written to the en-US
+   localization (legal-link footer appended); both `app-store/screenshots/`
+   folders are compared to the store by MD5 and re-uploaded only when they
+   differ. Apple's pre-signed upload URLs never see the API token.
+4. **Build, sign-in, submit, verify.** Export compliance is declared on the
+   build if Apple asks, the build is attached, the reviewer sign-in is checked
+   (the run fails before submitting if it is missing), a review submission is
+   created and submitted, and the version is re-read until it says
+   **Waiting for Review**.
+
+It **holds, green, and says so** when a version is already in Apple's queue
+(Waiting for Review, In Review, approved and awaiting release): TestFlight has
+the build, and the 6-hourly `schedule` run — the same as `workflow_dispatch`
+mode `release` — submits the newest processed build once the queue clears. A
+**rejected** version is never resubmitted on its own; run mode `release` with
+`force_resubmit` after fixing it. Mode `release` with `dry_run` prints every
+write it would make against the live state without making one.
+
 #### The distribute step is what makes a build installable
 
 `fastlane beta` uses `skip_waiting_for_build_processing: true` so the macOS job
@@ -547,10 +578,16 @@ can post a rating.
 - **Google Play Console** — one-time $25 (https://play.google.com/console).
 
 ### iOS
-1. In Xcode, set the team and a unique bundle id (`space.proplane.app`).
-2. Product → Archive → distribute to **App Store Connect**.
-3. In App Store Connect: create the app, add screenshots, description, privacy
-   details (declare camera + push usage), then submit for review.
+
+A push to `production` does the whole thing — see
+[The App Store follows a production push](#the-app-store-follows-a-production-push).
+The product page (screenshots, promotional text, description, What's New,
+keywords) is the committed [`app-store/`](../app-store/README.md) folder; the
+one-time pieces that stay in App Store Connect are the app record itself, the
+privacy questionnaire (camera + push usage) and the reviewer sign-in under
+App Review Information. The manual path (Xcode → Product → Archive →
+distribute to App Store Connect → fill the version by hand → Submit) still
+works and is the fallback when the workflow is red.
 
 ### Android
 1. In Android Studio: Build → Generate Signed Bundle (**.aab**); create/keep a
@@ -593,7 +630,12 @@ for any credential form the WebView renders:
 ---
 
 ## Updating the app later
-- **Website / portal changes:** just deploy to Vercel. The apps pick it up on
-  next launch. No resubmission.
+- **Website / portal changes:** deploy to Vercel (a `production` push). The apps
+  pick it up on next launch — and the same push also submits a fresh iOS build
+  to the App Store, so the store page and binary never fall behind.
 - **Native changes** (Capacitor/plugins/icons/permissions): `npx cap sync`,
-  bump the version in Xcode/Android Studio, rebuild, resubmit.
+  push `production`. No version bump by hand: the workflow builds the next
+  patch after whatever Apple has seen (Xcode's `MARKETING_VERSION` is only a
+  floor, for a deliberate minor/major bump). Android still needs Android Studio.
+- **Store page changes:** edit `app-store/copy.json` or re-run
+  `npm run app-store:shots`, commit, push `production`.

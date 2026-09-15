@@ -9,9 +9,20 @@ name: iOS TestFlight
 # build has been assigned to the internal tester group and that assignment has
 # been read back from the App Store Connect API. See the distribute step below
 # and docs/mobile-app.md.
+#
+# It then makes the App Store follow: the build is attached to the editable
+# store version, the product page is synced from app-store/ (screenshots +
+# copy), and the version is submitted for review with release-after-approval.
+# The store step holds (green, and says so) while Apple is already reviewing a
+# version; the 6-hourly `release` catch-up submits the newest processed build
+# once the queue clears. scripts/ios-app-store-release.mjs owns the details.
 on:
   push:
     branches: [production]
+  schedule:
+    # Catch-up: submit a build that was parked behind a review. Same job as
+    # workflow_dispatch mode=release.
+    - cron: "17 */6 * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -21,15 +32,26 @@ on:
         type: choice
         options:
           - testflight
+          - release
           - metadata
           - audit
           - subscriptions
+      dry_run:
+        description: "release only: print every App Store Connect write without making it"
+        required: false
+        default: false
+        type: boolean
+      force_resubmit:
+        description: "release only: resubmit a version Apple rejected (after you fixed it)"
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
-  # Serialize binary uploads so two pushes cannot race for one build number,
-  # while allowing metadata/catalog maintenance to proceed during Apple's
-  # independent build-processing wait.
-  group: ios-${{ github.event_name == 'workflow_dispatch' && inputs.mode != 'testflight' && 'app-store-maintenance' || 'testflight' }}
+  # Serialize binary uploads and store submissions so two pushes cannot race for
+  # one build number or one review, while allowing metadata/catalog maintenance
+  # to proceed during Apple's independent build-processing wait.
+  group: ios-${{ github.event_name == 'workflow_dispatch' && contains('metadata audit subscriptions', inputs.mode) && 'app-store-maintenance' || 'testflight' }}
   cancel-in-progress: false
 
 jobs:
@@ -118,9 +140,32 @@ jobs:
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
 
+  # The catch-up: no build, no upload — release the newest processed build to
+  # the App Store if nothing is in review. Runs on the schedule and on demand.
+  app-store-release:
+    needs: check-secrets
+    if: ${{ needs.check-secrets.outputs.configured == 'true' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'release')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+
+      - name: Submit the newest processed build to App Store review
+        run: node scripts/ios-app-store-release.mjs --latest-build
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          APP_STORE_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+          APP_STORE_FORCE_RESUBMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.force_resubmit || 'false' }}
+
   testflight:
     needs: check-secrets
-    if: ${{ needs.check-secrets.outputs.configured == 'true' && (github.event_name != 'workflow_dispatch' || inputs.mode == 'testflight') }}
+    if: ${{ needs.check-secrets.outputs.configured == 'true' && github.event_name != 'schedule' && (github.event_name != 'workflow_dispatch' || inputs.mode == 'testflight') }}
     # macos-26 → Xcode 26 / iOS 26 SDK, which Apple now requires for uploads.
     # Public repo → free macOS minutes.
     runs-on: macos-26
@@ -167,6 +212,18 @@ jobs:
           bundler-cache: true
           working-directory: ios/App
 
+      # The marketing version comes from App Store Connect, not from a hand edit
+      # in Xcode: the highest version Apple has seen plus one patch (Xcode's value
+      # is a floor for a deliberate minor/major bump). A released train can no
+      # longer reject the upload.
+      - name: Resolve App Store version
+        id: version
+        run: echo "marketing_version=$(node scripts/ios-app-store-release.mjs --plan-version)" >> "$GITHUB_OUTPUT"
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+
       - name: Build + upload to TestFlight
         id: upload
         working-directory: ios/App
@@ -178,6 +235,7 @@ jobs:
           APPLE_DIST_P12_BASE64: ${{ secrets.APPLE_DIST_P12_BASE64 }}
           APPLE_DIST_P12_PASSWORD: ${{ secrets.APPLE_DIST_P12_PASSWORD }}
           APPLE_PROFILE_BASE64: ${{ secrets.APPLE_PROFILE_BASE64 }}
+          MARKETING_VERSION: ${{ steps.version.outputs.marketing_version }}
 
       # An uploaded build with an empty Groups column is not installable by
       # anyone. This step is the real ship gate: it waits for Apple's processing,
@@ -187,6 +245,19 @@ jobs:
       - name: Distribute build to internal TestFlight group
         timeout-minutes: 30
         run: node scripts/ios-testflight-distribute.mjs
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          TESTFLIGHT_BUILD_NUMBER: ${{ steps.upload.outputs.build_number }}
+
+      # The App Store half. Attaches the (now processed) build to the editable
+      # store version, syncs screenshots + copy from app-store/, submits for
+      # review, and reads back WAITING_FOR_REVIEW. Holds, green, when Apple is
+      # already reviewing a version — the scheduled catch-up finishes the job.
+      - name: Submit to App Store review
+        timeout-minutes: 20
+        run: node scripts/ios-app-store-release.mjs
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}

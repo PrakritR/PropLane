@@ -13,7 +13,13 @@ vi.mock("@/lib/demo-admin-property-inventory", () => ({
   publishManagerPropertyDraftToServer: vi.fn(),
   saveManagerPropertyDraftToServer: vi.fn(),
 }));
-vi.mock("@/lib/demo-property-pipeline", () => ({ submitManagerPendingPropertyToServer: vi.fn() }));
+vi.mock("@/lib/demo-property-pipeline", () => ({
+  submitManagerPendingPropertyToServer: vi.fn(),
+  updateExtraListingFromSubmissionOnServer: vi.fn(),
+}));
+vi.mock("@/lib/native/app-review", () => ({
+  recordDelightMoment: vi.fn(),
+}));
 
 import { ListingWizardV2 } from "@/components/portal/listing-wizard-v2";
 import { ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
@@ -49,7 +55,7 @@ describe("a new property opens in the editor itself", () => {
     expect(document.querySelector('[data-attr="listing-v2-kind-house"]')).not.toBeNull();
     expect(document.querySelector('[data-attr="quick-add-kind-house"]')).toBeNull();
     // The full editor's own affordances are on the first screen.
-    expect(screen.getByRole("button", { name: "Save & exit" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Save & exit" })).toBeNull();
     expect(screen.getByRole("button", { name: /^Continue to Rooms$/ })).toBeTruthy();
   });
 });

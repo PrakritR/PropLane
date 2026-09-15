@@ -4,9 +4,9 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { WORKSPACE_SELECTION_EVENT, activeWorkspaceScope, propertiesOutsideActiveWorkspace, workspaceContainsProperty } from "@/lib/workspaces/selection";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, Home, Pencil, Share2, Trash2 } from "lucide-react";
+import { ChevronDown, Eye, Home, Pencil, Share2, Trash2 } from "lucide-react";
 import {
   propertyRowAddress,
   propertyRowAddressLine,
@@ -303,6 +303,8 @@ function ManagerPropertyInlineDetails({
   propertyTourId?: string;
 }) {
   const detailRouter = useRouter();
+  const detailPathname = usePathname();
+  const detailSearchParams = useSearchParams();
   const mock = useMemo(() => (row ? resolveAdminPropertyRowPreview(row) : null), [row]);
   const contactSmsPhone = useListingContactSmsPhone({
     listingId: row?.listingId,
@@ -454,6 +456,17 @@ function ManagerPropertyInlineDetails({
   const listingOwnerUserId = portalSub?.ownerUserId ?? managerUserId;
 
   const openFullListingEditor = () => setListingEditorOpen(true);
+  useEffect(() => {
+    if (detailSearchParams.get("edit") !== "1") return;
+    if (bucket === 5) {
+      setDraftEditorOpen(true);
+    } else if (canEditAction) {
+      setListingEditorOpen(true);
+    } else if (!canEditListing) {
+      return;
+    }
+    detailRouter.replace(detailPathname, { scroll: false });
+  }, [bucket, canEditAction, canEditListing, detailPathname, detailRouter, detailSearchParams]);
   const dangerBtnClass = `${propertyDetailFooterBtn} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`;
 
   const leaseAddHandlerRef = useRef<(() => void) | null>(null);
@@ -516,9 +529,9 @@ function ManagerPropertyInlineDetails({
         }
       : pendingDestructiveAction === "delete-draft"
         ? {
-            title: "Delete draft",
-            description: `Delete the draft for ${propertyShareLabel}? Your saved progress will be removed.`,
-            confirmLabel: "Delete draft",
+            title: "Delete",
+            description: `Delete ${propertyShareLabel}? Your saved progress will be removed.`,
+            confirmLabel: "Delete",
             dataAttr: "draft-delete-confirm",
           }
         : pendingDestructiveAction === "unlist"
@@ -678,6 +691,31 @@ function ManagerPropertyInlineDetails({
       const actions: PortalAdaptiveAction[] = [];
 
       if (bucket === 2 && listingId) {
+        actions.push({
+          id: "view-listing",
+          node: (
+            <Button
+              type="button"
+              variant="outline"
+              className={propertyDetailFooterBtn}
+              data-attr="listing-view"
+              aria-label="View"
+              title="View"
+              onClick={() => window.open(`/rent/listings/${encodeURIComponent(listingId)}`, "_blank", "noopener")}
+            >
+              <Eye className="size-4" aria-hidden />
+              <span className="sr-only">View</span>
+            </Button>
+          ),
+          menuItem: (
+            <DropdownMenuItem
+              data-attr="listing-view"
+              onSelect={() => window.open(`/rent/listings/${encodeURIComponent(listingId)}`, "_blank", "noopener")}
+            >
+              View
+            </DropdownMenuItem>
+          ),
+        });
         if (canEditAction) {
           actions.push({
             id: "edit-listing",
@@ -687,12 +725,12 @@ function ManagerPropertyInlineDetails({
                 variant="primary"
                 className={propertyDetailFooterBtn}
                 data-attr="listing-edit-full"
-                aria-label="Edit listing"
-                title="Edit listing"
+                aria-label="Edit"
+                title="Edit"
                 onClick={() => openFullListingEditor()}
               >
                 <Pencil className="size-4" aria-hidden />
-                <span className="sr-only">Edit listing</span>
+                <span className="sr-only">Edit</span>
               </Button>
             ),
             menuItem: (
@@ -700,7 +738,7 @@ function ManagerPropertyInlineDetails({
                 data-attr="listing-edit-full"
                 onSelect={() => openFullListingEditor()}
               >
-                Edit listing
+                Edit
               </DropdownMenuItem>
             ),
           });
@@ -829,7 +867,7 @@ function ManagerPropertyInlineDetails({
                 data-attr="listing-edit-full"
                 onClick={() => openFullListingEditor()}
               >
-                Edit listing
+                Edit
               </Button>
             ),
             menuItem: (
@@ -837,7 +875,7 @@ function ManagerPropertyInlineDetails({
                 data-attr="listing-edit-full"
                 onSelect={() => openFullListingEditor()}
               >
-                Edit listing
+                Edit
               </DropdownMenuItem>
             ),
           });
@@ -877,8 +915,8 @@ function ManagerPropertyInlineDetails({
               variant="primary"
               className={propertyDetailFooterBtn}
               data-attr="draft-continue-editing"
-              aria-label="Continue editing"
-              title="Continue editing"
+              aria-label="Edit"
+              title="Edit"
               onClick={() => {
                 if (!skuLoaded) {
                   showToast("Loading subscription…");
@@ -891,7 +929,7 @@ function ManagerPropertyInlineDetails({
                   trash can at every width (see iconTitleActions); the words
                   live in the aria-label and the tooltip. */}
               <Pencil className="size-4" aria-hidden />
-              <span className="sr-only">Continue editing</span>
+              <span className="sr-only">Edit</span>
             </Button>
           ),
           menuItem: (
@@ -905,7 +943,7 @@ function ManagerPropertyInlineDetails({
                 setDraftEditorOpen(true);
               }}
             >
-              Continue editing
+              Edit
             </DropdownMenuItem>
           ),
         });
@@ -917,12 +955,12 @@ function ManagerPropertyInlineDetails({
               variant="outline"
               className={dangerBtnClass}
               data-attr="draft-delete"
-              aria-label="Delete draft"
-              title="Delete draft"
+              aria-label="Delete"
+              title="Delete"
               onClick={() => setPendingDestructiveAction("delete-draft")}
             >
               <Trash2 className="size-4" aria-hidden />
-              <span className="sr-only">Delete draft</span>
+              <span className="sr-only">Delete</span>
             </Button>
           ),
           menuItem: (
@@ -930,7 +968,7 @@ function ManagerPropertyInlineDetails({
               data-attr="draft-delete"
               onSelect={() => setPendingDestructiveAction("delete-draft")}
             >
-              Delete draft
+              Delete
             </DropdownMenuItem>
           ),
         });
@@ -1203,7 +1241,7 @@ function ManagerPropertyInlineDetails({
       ) : null}
 
       {/*
-        Edit and Continue editing open the SAME editor the ADD flow uses — the
+        Edit opens the SAME editor the ADD flow uses — the
         redesigned workspace. They used to mount the original form directly, so
         a listing created in one editor reopened in the other: two surfaces for
         one record, and every pricing change had to be made twice.
@@ -1521,12 +1559,12 @@ export function ManagerHousePropertiesPanel({
     const first = selectedPropertyEntries[0];
     if (!first) return;
     router.push(
-      propertyDetailHref(
+      `${propertyDetailHref(
         propertiesBase,
         activeStage,
         propertyKeyFromRow(first.row),
         detailTabProp ?? "preview",
-      ),
+      )}?edit=1`,
       { scroll: false },
     );
     clearSelection();
@@ -2026,7 +2064,7 @@ export function ManagerHousePropertiesPanel({
                   })();
                 }}
               >
-                Delete draft
+                Delete
               </Button>
             ) : null}
           </div>

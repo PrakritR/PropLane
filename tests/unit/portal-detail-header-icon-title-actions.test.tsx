@@ -26,11 +26,11 @@ function stubViewport(mdUp: boolean) {
 function DraftActions() {
   usePublishTitleActions(
     <>
-      <button type="button" aria-label="Continue editing">
-        <span className="max-md:sr-only">Continue editing</span>
+      <button type="button" aria-label="Edit">
+        <span className="max-md:sr-only">Edit</span>
       </button>
-      <button type="button" aria-label="Delete draft">
-        <span className="max-md:sr-only">Delete draft</span>
+      <button type="button" aria-label="Delete">
+        <span className="max-md:sr-only">Delete</span>
       </button>
     </>,
     true,
@@ -41,8 +41,11 @@ function DraftActions() {
 function ListedPreviewActions() {
   usePublishTitleActions(
     <>
-      <button type="button" aria-label="Edit listing">
-        <span className="sr-only">Edit listing</span>
+      <button type="button" aria-label="View">
+        <span className="sr-only">View</span>
+      </button>
+      <button type="button" aria-label="Edit">
+        <span className="sr-only">Edit</span>
       </button>
       <button type="button" aria-label="Send listing">
         <span className="sr-only">Send listing</span>
@@ -89,14 +92,14 @@ describe("PortalDetailHeader — draft actions as icons in the title row", () =>
     const titleRow = header.firstElementChild!;
     const band = header.lastElementChild!;
 
-    const edit = screen.getByRole("button", { name: "Continue editing" });
-    const del = screen.getByRole("button", { name: "Delete draft" });
+    const edit = screen.getByRole("button", { name: "Edit" });
+    const del = screen.getByRole("button", { name: "Delete" });
     expect(titleRow.contains(edit)).toBe(true);
     expect(titleRow.contains(del)).toBe(true);
     expect(band.contains(edit)).toBe(false);
     expect(band.className).toContain("hidden");
     // exactly one copy of each action for a screen reader
-    expect(screen.getAllByRole("button", { name: "Continue editing" }).length).toBe(1);
+    expect(screen.getAllByRole("button", { name: "Edit" }).length).toBe(1);
   });
 
   it("keeps the worded band below md when the flag is off (unlisted / other records)", () => {
@@ -105,7 +108,7 @@ describe("PortalDetailHeader — draft actions as icons in the title row", () =>
 
     const header = document.querySelector("header.portal-detail-header")!;
     const band = header.lastElementChild!;
-    expect(band.contains(screen.getByRole("button", { name: "Delete draft" }))).toBe(true);
+    expect(band.contains(screen.getByRole("button", { name: "Delete" }))).toBe(true);
     expect(band.className).toContain("flex");
   });
 
@@ -115,10 +118,10 @@ describe("PortalDetailHeader — draft actions as icons in the title row", () =>
 
     const header = document.querySelector("header.portal-detail-header")!;
     const titleRow = header.firstElementChild!;
-    const edit = screen.getByRole("button", { name: "Continue editing" });
+    const edit = screen.getByRole("button", { name: "Edit" });
     expect(titleRow.contains(edit)).toBe(true);
     expect(edit.parentElement?.className).toContain("!size-9");
-    expect(screen.getAllByRole("button", { name: "Delete draft" }).length).toBe(1);
+    expect(screen.getAllByRole("button", { name: "Delete" }).length).toBe(1);
   });
 
   it("puts listed Preview pen / share / unlist in the title row at every width", () => {
@@ -133,36 +136,43 @@ describe("PortalDetailHeader — draft actions as icons in the title row", () =>
     const header = document.querySelector("header.portal-detail-header")!;
     const titleRow = header.firstElementChild!;
     const band = header.lastElementChild!;
-    const edit = screen.getByRole("button", { name: "Edit listing" });
+    const view = screen.getByRole("button", { name: "View" });
+    const edit = screen.getByRole("button", { name: "Edit" });
     const send = screen.getByRole("button", { name: "Send listing" });
     const unlist = screen.getByRole("button", { name: "Unlist" });
+    expect(titleRow.contains(view)).toBe(true);
     expect(titleRow.contains(edit)).toBe(true);
     expect(titleRow.contains(send)).toBe(true);
     expect(titleRow.contains(unlist)).toBe(true);
     expect(band.className).toContain("hidden");
-    expect(screen.getAllByRole("button", { name: "Edit listing" }).length).toBe(1);
+    expect(screen.getAllByRole("button", { name: "View" }).length).toBe(1);
+    expect(screen.getAllByRole("button", { name: "Edit" }).length).toBe(1);
     expect(screen.getAllByRole("button", { name: "Send listing" }).length).toBe(1);
     expect(screen.getAllByRole("button", { name: "Unlist" }).length).toBe(1);
   });
 });
 
 describe("listed Preview header actions — source", () => {
-  it("ships listed Preview as icon-only pen, share, and unlist in the title row", () => {
+  it("ships listed Preview as icon-only view, pen, share, and unlist in the title row", () => {
     const src = readFileSync(
       resolve(process.cwd(), "src/components/portal/pro-house-properties-panel.tsx"),
       "utf8",
     );
     const listed = src.slice(src.indexOf("if (bucket === 2 && listingId)"), src.indexOf("if (bucket === 3)"));
-    expect(listed).toContain('aria-label="Edit listing"');
+    expect(listed).toContain('aria-label="View"');
+    expect(listed).toContain('aria-label="Edit"');
     expect(listed).toContain('aria-label="Send listing"');
     expect(listed).toContain('aria-label="Unlist"');
+    expect(listed).toContain("<Eye");
     expect(listed).toContain("<Pencil");
     expect(listed).toContain("<Share2");
     expect(listed).toContain("<Trash2");
-    expect(listed).toContain('<span className="sr-only">Edit listing</span>');
+    expect(listed).toContain('<span className="sr-only">View</span>');
+    expect(listed).toContain('<span className="sr-only">Edit</span>');
     expect(listed).toContain('<span className="sr-only">Send listing</span>');
     expect(listed).toContain('<span className="sr-only">Unlist</span>');
     expect(src).toContain('sourceBucket === 2 && (detailTabProp ?? "preview") === "preview"');
+    expect(src).toContain("?edit=1");
   });
 });
 

@@ -222,6 +222,28 @@ describe("create listing wizard", () => {
     if (shrunk.ok) expect(shrunk.sub.bathrooms).toHaveLength(1);
   });
 
+  it("a half count rounds up to a card, and the card the half adds is a half bath", () => {
+    const sub = createDefaultListingSubmission();
+    const grown = applyListingBathroomSlots({ ...sub, listingTotalBathroomsId: "2.5" }, 2.5);
+    expect(grown.ok).toBe(true);
+    if (!grown.ok) return;
+    expect(grown.sub.bathrooms).toHaveLength(3);
+    const [one, two, half] = grown.sub.bathrooms;
+    expect(one!.bathtub || one!.shower).toBe(true);
+    expect(two!.shower).toBe(true);
+    expect(half!.shower).toBe(false);
+    expect(half!.bathtub).toBe(false);
+    expect(half!.sink).toBe(true);
+    expect(half!.toilet).toBe(true);
+    // The half moves with the count while the cards are untouched: 3.5 makes the
+    // fourth card the half and gives the third its shower back.
+    const again = applyListingBathroomSlots(grown.sub, 3.5);
+    expect(again.ok && again.sub.bathrooms.map((b) => b.shower)).toEqual([true, true, true, false]);
+    // A card the manager filled in is never re-typed.
+    const kept = applyListingBathroomSlots({ ...grown.sub, bathrooms: grown.sub.bathrooms.map((b, i) => (i === 2 ? { ...b, name: "Powder room" } : b)) }, 3);
+    expect(kept.ok && kept.sub.bathrooms[2]!.shower).toBe(false);
+  });
+
   it("blocks shrinking bathroom slots when last bathroom has data", () => {
     const sub = createDefaultListingSubmission();
     sub.listingTotalBathroomsId = "2";

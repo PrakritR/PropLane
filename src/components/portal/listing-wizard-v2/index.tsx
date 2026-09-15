@@ -10,8 +10,8 @@
  * to reach a form, the editor for opening as a wall of selects. So the two are
  * ONE editor now: a brand-new property opens straight in it at Basics, where
  * the property type is a row of tiles, how-you-rent-it is two cards, and the
- * address and bedroom count sit right under them. Save & exit from anywhere
- * keeps the draft; Publish is the last section.
+ * address and bedroom count sit right under them. Typing and X save the
+ * draft (or the live listing, when editing). Publish is the last section.
  *
  * `AddPropertyFlow` and {@link submissionFromAddProperty} are kept for callers
  * that already collected those answers elsewhere.
@@ -21,12 +21,13 @@
  * reader are unchanged. Nothing here is a second source of truth for a listing.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assistant-context";
 import type { AddPropertyResult } from "@/components/portal/listing-wizard-v2/add-property-flow";
 import { ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
 import { useListingPersistence } from "@/components/portal/listing-wizard-v2/use-listing-persistence";
 import {
+  applyListingBathroomSlots,
   applyListingBedroomSlots,
   createDefaultListingSubmission,
   normalizeManagerListingSubmissionV1,
@@ -34,6 +35,11 @@ import {
 } from "@/lib/manager-listing-submission";
 import { loadManagerPaymentWaiverGrantedClient } from "@/lib/manager-subscription-client";
 import { prepareListingSubmissionForPersist } from "@/lib/prepare-listing-submission-for-persist";
+import {
+  LISTING_DRAFT_AUTOSAVE_DEBOUNCE_MS,
+  listingSubmissionFingerprint,
+  listingWizardHasUnsavedInput,
+} from "@/lib/manager-listing-draft-autosave";
 
 export { listingReadiness } from "@/components/portal/listing-wizard-v2/listing-editor";
 
@@ -61,7 +67,10 @@ export function submissionFromAddProperty(result: AddPropertyResult): ManagerLis
     listingBedroomSlots: result.bedrooms,
   };
   const withRooms = applyListingBedroomSlots(seeded, result.bedrooms);
-  return normalizeManagerListingSubmissionV1(withRooms.ok ? withRooms.sub : seeded);
+  // The sheet asks bedrooms only; Basics owns the bathroom count. One bathroom
+  // card from the start means the Rooms step never opens on "Add a bathroom first".
+  const withBaths = applyListingBathroomSlots(withRooms.ok ? withRooms.sub : seeded);
+  return normalizeManagerListingSubmissionV1(withBaths.ok ? withBaths.sub : withRooms.ok ? withRooms.sub : seeded);
 }
 
 export function ListingWizardV2({
@@ -78,8 +87,7 @@ export function ListingWizardV2({
   propertyCount = 0,
 }: {
   onClose: () => void;
-  /** Called once the draft is safely on the server. */
-  /** After "Save & exit". `savedId` is the record the draft or listing was written to. */
+  /** After a flush save (X or debounce). `savedId` is the record written. */
   onSaved?: (sub: ManagerListingSubmissionV1, savedId?: string) => void;
   /**
    * Receives the PUBLISHED LISTING ID, not the submission.
@@ -120,39 +128,28 @@ export function ListingWizardV2({
   const label = submission.buildingName.trim() || submission.address.trim() || "New listing";
   const editing = Boolean(editListingId?.trim());
 
-  /*
-   * Whether the manager's work is on the server, stated in the header.
-   *
-   * This wizard does NOT autosave — `useListingPersistence` writes on Save and
-   * on Publish, and nowhere else — so the header must never say "Saved" merely
-   * because time has passed. It reports what actually happened: unsaved from the
-   * first edit until a save comes back ok, and saved again only then.
-   */
   const [paymentWaiverGranted, setPaymentWaiverGranted] = useState<boolean | null>(null);
   useEffect(() => {
     void loadManagerPaymentWaiverGrantedClient().then(setPaymentWaiverGranted);
   }, []);
 
+  const submissionRef = useRef(submission);
+  submissionRef.current = submission;
+  const savedFingerprintRef = useRef(listingSubmissionFingerprint(submission));
+  const stepRef = useRef(0);
+  const closeTriesRef = useRef(0);
   const [dirty, setDirty] = useState(false);
-  /*
-   * The submission as it last stood on the server. Compared by reference, not by
-   * a "have I rendered before" flag — an effect that fires twice in development
-   * would report unsaved work the instant the editor opened.
-   */
-  const savedRef = useRef(submission);
   useEffect(() => {
-    setDirty(submission !== savedRef.current);
+    setDirty(listingWizardHasUnsavedInput(submission, savedFingerprintRef.current));
   }, [submission]);
-  const markSaved = (sub: ManagerListingSubmissionV1 = submission) => {
-    savedRef.current = sub;
-    setDirty(false);
-  };
   const saveState = busy ? "Saving…" : dirty ? "Unsaved changes" : editing ? "Saved" : "Not saved yet";
 
-  async function persistSubmission(raw: ManagerListingSubmissionV1): Promise<
+  const persistSubmission = useCallback(async (
+    raw: ManagerListingSubmissionV1,
+  ): Promise<
     | { ok: true; submission: ManagerListingSubmissionV1; droppedMediaCount: number }
     | { ok: false; message: string }
-  > {
+  > => {
     try {
       const prepared = await prepareListingSubmissionForPersist(raw, {
         accountPaymentWaiverGranted: paymentWaiverGranted ?? undefined,
@@ -162,7 +159,60 @@ export function ListingWizardV2({
       const message = err instanceof Error ? err.message : "Could not prepare this listing to save.";
       return { ok: false, message };
     }
-  }
+  }, [paymentWaiverGranted]);
+
+  const persist = useCallback(
+    async (raw: ManagerListingSubmissionV1, stepIndex: number): Promise<boolean> => {
+      if (!listingWizardHasUnsavedInput(raw, savedFingerprintRef.current)) return true;
+      const prepared = await persistSubmission(raw);
+      if (!prepared.ok) {
+        showToast?.(prepared.message);
+        return false;
+      }
+      if (prepared.droppedMediaCount > 0) {
+        setSubmission(prepared.submission);
+        showToast?.("Some attachments could not upload and were removed.");
+      }
+      const result = editing
+        ? await publish(prepared.submission)
+        : await saveDraft(prepared.submission, stepIndex);
+      if (!result.ok) {
+        showToast?.(result.message);
+        return false;
+      }
+      savedFingerprintRef.current = listingSubmissionFingerprint(prepared.submission);
+      setDirty(listingWizardHasUnsavedInput(submissionRef.current, savedFingerprintRef.current));
+      onSaved?.(prepared.submission, result.id);
+      return true;
+    },
+    [editing, onSaved, persistSubmission, publish, saveDraft, showToast],
+  );
+
+  useEffect(() => {
+    if (!dirty) return;
+    const handle = window.setTimeout(() => {
+      void persist(submissionRef.current, stepRef.current);
+    }, LISTING_DRAFT_AUTOSAVE_DEBOUNCE_MS);
+    return () => window.clearTimeout(handle);
+  }, [dirty, persist, submission]);
+
+  const handleClose = useCallback(
+    async (stepIndex: number) => {
+      stepRef.current = stepIndex;
+      const ok = await persist(submissionRef.current, stepIndex);
+      if (ok) {
+        closeTriesRef.current = 0;
+        onClose();
+        return;
+      }
+      closeTriesRef.current += 1;
+      if (closeTriesRef.current >= 2) {
+        showToast?.("Could not save. Nothing was kept.");
+        onClose();
+      }
+    },
+    [onClose, persist, showToast],
+  );
 
   return (
     <PortalAssistantConfigProvider endpoint="/api/agent/chat" managerName={null}>
@@ -170,54 +220,13 @@ export function ListingWizardV2({
         title={label}
         submission={submission}
         onChange={setSubmission}
-        onClose={onClose}
+        onClose={(stepIndex) => {
+          void handleClose(stepIndex);
+        }}
         busy={busy}
         isEdit={editing}
         saveState={saveState}
-        onSaveExit={async (stepIndex) => {
-        const prepared = await persistSubmission(submission);
-        if (!prepared.ok) {
-          showToast?.(prepared.message);
-          return;
-        }
-        if (prepared.droppedMediaCount > 0) {
-          setSubmission(prepared.submission);
-        }
-        if (editListingId?.trim()) {
-          // There is no draft behind an edit — "save and exit" writes the
-          // listing itself, which is the same write Publish makes.
-          const result = await publish(prepared.submission);
-          if (!result.ok) {
-            showToast?.(result.message);
-            return;
-          }
-          markSaved(prepared.submission);
-          onSaved?.(prepared.submission, result.id);
-          showToast?.(
-            prepared.droppedMediaCount > 0
-              ? "Changes saved. Some attachments could not upload and were removed."
-              : "Changes saved.",
-          );
-          onClose();
-          return;
-        }
-        const result = await saveDraft(prepared.submission, stepIndex);
-        if (!result.ok) {
-          // The manager's work stays on screen; a failed save must never look
-          // like a successful one.
-          showToast?.(result.message);
-          return;
-        }
-        markSaved(prepared.submission);
-        onSaved?.(prepared.submission, result.id);
-        showToast?.(
-          prepared.droppedMediaCount > 0
-            ? "Saved to Drafts. Some attachments could not upload and were removed."
-            : "Saved to Drafts.",
-        );
-        onClose();
-      }}
-      onPublish={async () => {
+        onPublish={async () => {
         const prepared = await persistSubmission(submission);
         if (!prepared.ok) {
           showToast?.(prepared.message);
@@ -231,6 +240,8 @@ export function ListingWizardV2({
           showToast?.(result.message);
           return;
         }
+        savedFingerprintRef.current = listingSubmissionFingerprint(prepared.submission);
+        setDirty(false);
         if (prepared.droppedMediaCount > 0) {
           showToast?.("Published. Some attachments could not upload and were removed.");
         }

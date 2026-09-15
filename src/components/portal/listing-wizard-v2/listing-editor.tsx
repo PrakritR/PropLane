@@ -78,7 +78,29 @@ import {
 import {
 } from "@/lib/listing-room-derived-pricing";
 import { getHouseInfoValue, normalizeHouseInfo, setHouseInfoValue } from "@/lib/house-info";
-import { applyListingBedroomSlots } from "@/lib/manager-listing-submission";
+import { applyListingBathroomSlots, applyListingBedroomSlots } from "@/lib/manager-listing-submission";
+import { useConfirm } from "@/components/providers/app-ui-provider";
+import {
+  applyBathroomDefaults,
+  BATHROOM_INHERIT_FIELDS,
+  bathroomDefaultsForSubmission,
+  bathroomFieldValue,
+  bathroomTypeOf,
+  defaultValueIsUnset,
+  defaultValuesMatch,
+  emptyBathroomDefaults,
+  SHARED_SPACE_DEFAULT_FIELDS,
+  sharedSpaceDefaultsForSubmission,
+  sharedSpaceFieldValue,
+  writeBathroomField,
+  writeBathroomType,
+  writeSharedSpaceField,
+  type BathroomDefaults,
+  type BathroomInheritField,
+  type BathroomType,
+  type SharedSpaceDefaults,
+  type SharedSpaceInheritField,
+} from "@/lib/listing-record-defaults";
 import { listingLeaseTypeScopeOptions } from "@/lib/listing-fee-scope";
 import { LONG_TERM_LEASE_TERM as DEFAULT_QUOTE_TERM } from "@/lib/rental-application/lease-terms";
 import { ListingPricingSections } from "@/components/portal/listing-wizard-v2/listing-pricing-step";
@@ -93,7 +115,6 @@ import {
   applyHouseDefaultsToRooms,
   houseDefaultsForSubmission,
   roomInheritsDefault,
-  roomsFollowingDefaults,
   type ListingHouseDefaults,
   type ListingHouseDefaultField,
 } from "@/lib/listing-house-defaults";
@@ -212,11 +233,14 @@ function PhotoStrip({
   onChange,
   max = 8,
   label,
+  inherited = false,
 }: {
   urls: string[];
   onChange: (next: string[]) => void;
   max?: number;
   label: string;
+  /** Following the Default card: the tiles draw dashed, the way an inherited row does. */
+  inherited?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -256,7 +280,7 @@ function PhotoStrip({
             <img
               src={url}
               alt={`${label} photo ${i + 1}`}
-              className="h-16 w-20 rounded-lg border border-border object-cover"
+              className={cn("h-16 w-20 rounded-lg border border-border object-cover", inherited && "border-dashed opacity-80")}
             />
             <button
               type="button"
@@ -302,10 +326,12 @@ function VideoSlot({
   url,
   onChange,
   label,
+  inherited = false,
 }: {
   url: string | null | undefined;
   onChange: (next: string | null) => void;
   label: string;
+  inherited?: boolean;
 }) {
   const read = (files: FileList | null) => {
     const file = files?.[0];
@@ -324,7 +350,7 @@ function VideoSlot({
       <div className="flex flex-wrap gap-2">
         {url ? (
           <span className="relative">
-            <video src={url} className="h-16 w-20 rounded-lg border border-border object-cover" />
+            <video src={url} className={cn("h-16 w-20 rounded-lg border border-border object-cover", inherited && "border-dashed opacity-80")} />
             <button
               type="button"
               onClick={() => onChange(null)}
@@ -428,6 +454,29 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
     // manager has rather than writing a number they do not match.
     patch(applied.ok ? { ...applied.sub, listingBedroomSlots: next } : { listingBedroomSlots: next });
   };
+  /**
+   * The bathroom count makes the bathroom cards, the way the bedroom count
+   * makes the rooms: 2.5 opens the Bathrooms step with two full baths and a
+   * half. A card this creates copies the Default bathroom. Lowering the count
+   * removes untouched cards from the end and, as with bedrooms, keeps the cards
+   * and moves only the number when the last card has been filled in.
+   */
+  const setBathrooms = (next: number) => {
+    const id = bathIdFromCount(next);
+    const before = sub.bathrooms?.length ?? 0;
+    const applied = applyListingBathroomSlots({ ...sub, listingTotalBathroomsId: id }, next);
+    if (!applied.ok) {
+      patch({ listingTotalBathroomsId: id });
+      return;
+    }
+    // Only what the manager SET on the Default bathroom reaches a new card —
+    // never a type guessed from the cards that exist, and never a type at all
+    // on the card the half adds, which is a half bath by definition.
+    const stored: BathroomDefaults = { ...emptyBathroomDefaults(), ...(sub.bathroomDefaults ?? {}) };
+    const halfIndex = next % 1 !== 0 ? applied.sub.bathrooms.length - 1 : -1;
+    const bathrooms = applied.sub.bathrooms.map((bath, i) => (i >= before ? applyBathroomDefaults(bath, i === halfIndex ? { ...stored, type: "" } : stored) : bath));
+    patch({ ...applied.sub, bathrooms, listingTotalBathroomsId: id });
+  };
   const stories = Number(sub.listingStoriesId) || 1;
   // The address the manager PICKED from the dropdown — what the lookup keys on.
   // A hand-typed street never triggers it.
@@ -475,7 +524,7 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
               min={1}
               max={4.5}
               step={0.5}
-              onChange={(n) => patch({ listingTotalBathroomsId: bathIdFromCount(n) })}
+              onChange={setBathrooms}
               label="bathrooms"
               dataAttr="listing-v2-bathrooms"
             />
@@ -571,14 +620,10 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
             <Input value={sub.neighborhood} onChange={(e) => patch({ neighborhood: e.target.value })} />
           </Field>
         </FieldRow>
-        <FieldRow cols={2}>
-          <Field label="Property name">
-            <Input value={sub.buildingName} placeholder={sub.address || "Magnolia House"} onChange={(e) => patch({ buildingName: e.target.value })} />
-          </Field>
-          <Field label="Headline" labelAside={mark("tagline")}>
-            <Input value={sub.tagline} onChange={(e) => patch({ tagline: e.target.value })} placeholder="Spacious 3-bedroom house near UW" />
-          </Field>
-        </FieldRow>
+        {/* One name for the home. A separate headline asked the same question twice; the tagline stays in the model for listings that already have one. */}
+        <Field label="Property name">
+          <Input value={sub.buildingName} placeholder={sub.address || "Magnolia House"} onChange={(e) => patch({ buildingName: e.target.value })} />
+        </Field>
         <Field label="Description" labelAside={mark("houseOverview")}>
           <Textarea rows={4} value={sub.houseOverview} onChange={(e) => patch({ houseOverview: e.target.value })} placeholder="Describe the home and who it suits…" />
         </Field>
@@ -700,10 +745,23 @@ const FURNISHING_OPTIONS = [
   { value: "furnished", label: "Furnished" },
 ] as const;
 
-/** The fields the card and the "Every room" card both know how to mark. */
+/** The fields a room card and the Default room card both know how to mark. */
 type RoomInheritField = Extract<
   ListingHouseDefaultField,
-  "floor" | "bedsLine" | "occupancyCapacity" | "furnishing" | "roomAmenitiesText" | "sizeSqft"
+  | "floor"
+  | "bedsLine"
+  | "occupancyCapacity"
+  | "furnishing"
+  | "roomAmenitiesText"
+  | "sizeSqft"
+  | "moveInInspectionRequired"
+  | "moveOutInspectionRequired"
+  | "photoDataUrls"
+  | "videoDataUrl"
+  | "detail"
+  | "moveInInstructions"
+  | "moveInPhotoDataUrls"
+  | "moveInVideoDataUrl"
 >;
 
 const ROOM_INHERIT_FIELDS: readonly RoomInheritField[] = [
@@ -713,7 +771,75 @@ const ROOM_INHERIT_FIELDS: readonly RoomInheritField[] = [
   "furnishing",
   "roomAmenitiesText",
   "sizeSqft",
+  "moveInInspectionRequired",
+  "moveOutInspectionRequired",
+  "photoDataUrls",
+  "videoDataUrl",
+  "detail",
+  "moveInInstructions",
+  "moveInPhotoDataUrls",
+  "moveInVideoDataUrl",
 ];
+
+/** The pictures and clips — the fields "Make all the same" asks about before it replaces them. */
+const ROOM_MEDIA_FIELDS: readonly RoomInheritField[] = ["photoDataUrls", "videoDataUrl", "moveInPhotoDataUrls", "moveInVideoDataUrl"];
+
+/** Which tracked field a key on the room record belongs to, so a hand edit marks the right one. */
+const ROOM_INHERIT_FIELD_BY_KEY: Partial<Record<keyof ManagerRoomSubmission, RoomInheritField>> = {
+  floor: "floor",
+  beds: "bedsLine",
+  bedCount: "bedsLine",
+  occupancyCapacity: "occupancyCapacity",
+  furnishing: "furnishing",
+  roomAmenitiesText: "roomAmenitiesText",
+  sizeSqft: "sizeSqft",
+  moveInInspectionRequired: "moveInInspectionRequired",
+  moveOutInspectionRequired: "moveOutInspectionRequired",
+  photoDataUrls: "photoDataUrls",
+  videoDataUrl: "videoDataUrl",
+  detail: "detail",
+  moveInInstructions: "moveInInstructions",
+  moveInPhotoDataUrls: "moveInPhotoDataUrls",
+  moveInVideoDataUrl: "moveInVideoDataUrl",
+};
+
+/**
+ * Forget a room's own value for one field, so the Default room's value (blank
+ * included) can take its place. `applyHouseDefaultsToRooms` leaves a room alone
+ * when the default is unset; a Reset must still clear what the room had.
+ */
+function clearRoomField(room: ManagerRoomSubmission, field: RoomInheritField): ManagerRoomSubmission {
+  switch (field) {
+    case "floor":
+      return { ...room, floor: "" };
+    case "bedsLine":
+      return { ...room, beds: undefined, bedCount: undefined };
+    case "occupancyCapacity":
+      return { ...room, occupancyCapacity: undefined };
+    case "furnishing":
+      return { ...room, furnishing: "" };
+    case "roomAmenitiesText":
+      return { ...room, roomAmenitiesText: "" };
+    case "sizeSqft":
+      return { ...room, sizeSqft: undefined };
+    case "moveInInspectionRequired":
+      return { ...room, moveInInspectionRequired: false };
+    case "moveOutInspectionRequired":
+      return { ...room, moveOutInspectionRequired: false };
+    case "photoDataUrls":
+      return { ...room, photoDataUrls: [] };
+    case "videoDataUrl":
+      return { ...room, videoDataUrl: null };
+    case "detail":
+      return { ...room, detail: "" };
+    case "moveInInstructions":
+      return { ...room, moveInInstructions: "" };
+    case "moveInPhotoDataUrls":
+      return { ...room, moveInPhotoDataUrls: [] };
+    case "moveInVideoDataUrl":
+      return { ...room, moveInVideoDataUrl: null };
+  }
+}
 
 /** 1–8 residents per room; the same range on the "Every room" card and each room. */
 const OCCUPANCY_MAX = 8;
@@ -777,11 +903,71 @@ function BedsRows({
 }
 
 const ROOM_HELP = {
-  all: "Set once. Every room ticked “Same as all rooms” copies this. Untick a room, or change anything on its card, and it keeps its own values.",
+  all: "Set once. Every room ticked “Same as default room” copies this. Change one field on a room and only that field becomes its own; untick a room and the whole card does.",
   people: "How many residents can rent this room, each on their own lease. Not the number of beds.",
   bathroom: "The bathroom this room uses, and whether it is private (ensuite) or shared. Add bathrooms on the Bathrooms step first.",
   rent: "Set per room in Pricing. Shown here so every room’s price is in one place.",
 } as const;
+
+/** The ● Reset tag a field label wears when its value is the record's own — the same mark FactRow draws. */
+function CellResetTag({ onClick, label }: { onClick: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      data-attr="listing-v2-cell-reset"
+      aria-label={label}
+      title="Back to the Default card"
+      className="inline-flex shrink-0 items-center gap-1 text-[11.5px] font-bold text-[var(--status-approved-fg)] hover:underline"
+    >
+      <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />
+      Reset
+    </button>
+  );
+}
+
+/**
+ * The square-footage box.
+ *
+ * It keeps its own text while it has focus and commits on blur, so a manager
+ * can clear a room's number without it snapping straight back to the Default
+ * room's, and typing replaces the inherited figure instead of landing in
+ * front of it. Focus selects the number for the same reason. Empty on blur
+ * means "same as the Default room"; the placeholder is a dash, never a number
+ * that could read as the size.
+ */
+function SizeInput({ who, value, inherited, onCommit }: { who: string; value: number; inherited: boolean; onCommit: (n: number | null) => void }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft ?? (value > 0 ? String(value) : "");
+  return (
+    <span className="relative inline-block w-[118px]">
+      <input
+        inputMode="numeric"
+        aria-label={`Size of ${who}`}
+        placeholder="—"
+        value={shown}
+        onFocus={(e) => {
+          setDraft(shown);
+          e.currentTarget.select();
+        }}
+        onChange={(e) => setDraft(e.target.value.replace(/[^0-9]/g, ""))}
+        onBlur={() => {
+          const n = Number(draft ?? shown) || 0;
+          setDraft(null);
+          onCommit(n > 0 ? n : null);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+        }}
+        className={cn(
+          "min-h-[36px] w-full rounded-lg border bg-card pl-2.5 pr-12 text-right text-[13.5px] font-semibold tabular-nums text-foreground outline-none focus:border-primary",
+          inherited && draft === null ? "border-dashed border-border text-muted" : "border-border",
+        )}
+      />
+      <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[12px] text-muted">sq ft</span>
+    </span>
+  );
+}
 
 /**
  * The rows a room card unfolds. `room` null is the "All rooms" card: the same
@@ -805,6 +991,7 @@ function RoomCardBody({
   onGoToPricing,
   onDone,
   storiesId,
+  isOwn,
 }: {
   room: ManagerRoomSubmission | null;
   who: string;
@@ -821,9 +1008,20 @@ function RoomCardBody({
   onGoToPricing: () => void;
   onDone?: () => void;
   storiesId: string | undefined;
+  /** The step's per-field answer to "is this the room's own" — it remembers hand edits the values alone cannot show. */
+  isOwn?: (field: RoomInheritField) => boolean;
 }) {
-  const inherits = (field: RoomInheritField) => (room ? roomInheritsDefault(room, defaults, field) : false);
-  const own = (field: RoomInheritField) => Boolean(room) && !inherits(field);
+  const own = (field: RoomInheritField) => Boolean(room) && (isOwn ? isOwn(field) : !roomInheritsDefault(room!, defaults, field));
+  const inherits = (field: RoomInheritField) => Boolean(room) && !own(field);
+  /** The ● Reset tag beside a label whose value is the room's own — the same one FactRow draws. */
+  const resetTag = (field: RoomInheritField, what: string) => (own(field) ? <CellResetTag onClick={() => onResetField(field)} label={`Reset ${what} for ${who} to the Default room`} /> : null);
+  const photos = room ? room.photoDataUrls ?? [] : defaults.photoDataUrls;
+  const video = room ? room.videoDataUrl : defaults.videoDataUrl;
+  const detail = room ? room.detail ?? "" : defaults.detail;
+  const moveInInstructions = room ? room.moveInInstructions ?? "" : defaults.moveInInstructions;
+  const entryPhotos = room ? room.moveInPhotoDataUrls ?? [] : defaults.moveInPhotoDataUrls;
+  const arrivalClip = room ? room.moveInVideoDataUrl : defaults.moveInVideoDataUrl;
+  const inheritedText = (field: RoomInheritField) => (inherits(field) ? "border-dashed text-muted" : undefined);
   const beds: ManagerRoomBed[] = room ? room.beds ?? parseBedsLine(defaults.bedsLine) : parseBedsLine(defaults.bedsLine);
   const residents = room ? room.occupancyCapacity ?? defaults.occupancyCapacity : defaults.occupancyCapacity;
   const furnishing = room ? room.furnishing || defaults.furnishing : defaults.furnishing;
@@ -846,7 +1044,7 @@ function RoomCardBody({
   return (
     <>
       {wholePlace ? null : (
-        <FactRow first label={help("Residents per room", ROOM_HELP.people)} own={own("occupancyCapacity")} onReset={reset("occupancyCapacity")} resetLabel={`Reset residents for ${who} to every room`}>
+        <FactRow first label={help("Residents per room", ROOM_HELP.people)} own={own("occupancyCapacity")} onReset={reset("occupancyCapacity")} resetLabel={`Reset residents for ${who} to the Default room`}>
           <CountStepper
             compact
             inherited={inherits("occupancyCapacity")}
@@ -869,12 +1067,12 @@ function RoomCardBody({
           <RowSelectCell ariaLabel={`Bathroom access for ${who}`} value={access} options={BATHROOM_ACCESS_OPTIONS} placeholder="Select…" onChange={onAccess} />
         </FactRow>
       )}
-      <FactRow first={wholePlace} label="Floor" own={own("floor")} onReset={reset("floor")} resetLabel={`Reset floor for ${who} to every room`}>
+      <FactRow first={wholePlace} label="Floor" own={own("floor")} onReset={reset("floor")} resetLabel={`Reset floor for ${who} to the Default room`}>
         <RowSelectCell ariaLabel={`Floor for ${who}`} value={room ? room.floor : defaults.floor} options={floorOptions} placeholder="Floor…" inherited={inherits("floor")} onChange={(v) => (room ? onRoom({ floor: v }) : onDefault("floor", v))} />
       </FactRow>
 
       <MoreRows dataAttr={room ? "listing-v2-room-more" : "listing-v2-defaults-more"}>
-        <FactRow label="Furnishing" own={own("furnishing")} onReset={reset("furnishing")} resetLabel={`Reset furnishing for ${who} to every room`}>
+        <FactRow label="Furnishing" own={own("furnishing")} onReset={reset("furnishing")} resetLabel={`Reset furnishing for ${who} to the Default room`}>
           <RowSelectCell
             ariaLabel={`Furnishing for ${who}`}
             value={isFurnished(furnishing) ? "furnished" : "unfurnished"}
@@ -898,47 +1096,41 @@ function RoomCardBody({
             </FactRow>
           </>
         ) : null}
-        <FactRow label="Room amenities" own={own("roomAmenitiesText")} onReset={reset("roomAmenitiesText")} resetLabel={`Reset amenities for ${who} to every room`}>
+        <FactRow label="Room amenities" own={own("roomAmenitiesText")} onReset={reset("roomAmenitiesText")} resetLabel={`Reset amenities for ${who} to the Default room`}>
           <AmenityPick label={`Room amenities for ${who}`} presets={ROOM_AMENITY_PRESETS} value={amenities} inherited={inherits("roomAmenitiesText")} onChange={(next) => (room ? onRoom({ roomAmenitiesText: next }) : onDefault("roomAmenitiesText", next))} />
         </FactRow>
-        <FactRow label="Size" own={own("sizeSqft")} onReset={reset("sizeSqft")} resetLabel={`Reset size for ${who} to every room`}>
-          <span className="relative inline-block w-[118px]">
-            <input
-              inputMode="numeric"
-              aria-label={`Size of ${who}`}
-              placeholder="140"
-              value={size > 0 ? String(size) : ""}
-              onChange={(e) => {
-                const n = Number(e.target.value.replace(/[^0-9]/g, "")) || 0;
-                if (room) onRoom({ sizeSqft: n > 0 ? n : undefined });
-                else onDefault("sizeSqft", n);
-              }}
-              className={cn(
-                "min-h-[36px] w-full rounded-lg border bg-card pl-2.5 pr-12 text-right text-[13.5px] font-semibold tabular-nums text-foreground outline-none focus:border-primary",
-                inherits("sizeSqft") ? "border-dashed border-border text-muted" : "border-border",
-              )}
-            />
-            <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[12px] text-muted">sq ft</span>
-          </span>
+        <FactRow label="Size" own={own("sizeSqft")} onReset={reset("sizeSqft")} resetLabel={`Reset size for ${who} to the Default room`}>
+          <SizeInput
+            who={who}
+            value={size}
+            inherited={inherits("sizeSqft")}
+            onCommit={(n) => {
+              if (!room) onDefault("sizeSqft", n ?? 0);
+              else if (n) onRoom({ sizeSqft: n });
+              else onResetField("sizeSqft");
+            }}
+          />
         </FactRow>
 
-        {room ? (
-          <CardFields cols={2}>
-            <Field label="Photos">
-              <PhotoStrip label="room" urls={room.photoDataUrls ?? []} onChange={(next) => onRoom({ photoDataUrls: next })} />
-            </Field>
-            <Field label="Video">
-              <VideoSlot label="room" url={room.videoDataUrl} onChange={(next) => onRoom({ videoDataUrl: next })} />
-            </Field>
-          </CardFields>
-        ) : null}
-        {room ? (
-          <CardFields>
-            <Field label="Description">
-              <Textarea rows={3} value={room.detail} placeholder="What a renter should know about this room" onChange={(e) => onRoom({ detail: e.target.value })} />
-            </Field>
-          </CardFields>
-        ) : null}
+        <CardFields cols={2}>
+          <Field label="Photos" labelAside={resetTag("photoDataUrls", "photos")}>
+            <PhotoStrip label={room ? "room" : "every room"} urls={photos} inherited={inherits("photoDataUrls")} onChange={(next) => (room ? onRoom({ photoDataUrls: next }) : onDefault("photoDataUrls", next))} />
+          </Field>
+          <Field label="Video" labelAside={resetTag("videoDataUrl", "video")}>
+            <VideoSlot label={room ? "room" : "every room"} url={video} inherited={inherits("videoDataUrl")} onChange={(next) => (room ? onRoom({ videoDataUrl: next }) : onDefault("videoDataUrl", next))} />
+          </Field>
+        </CardFields>
+        <CardFields>
+          <Field label="Description" labelAside={resetTag("detail", "description")}>
+            <Textarea
+              rows={3}
+              value={detail}
+              placeholder={room ? "What a renter should know about this room" : "What a renter should know about every room"}
+              className={inheritedText("detail")}
+              onChange={(e) => (room ? onRoom({ detail: e.target.value }) : onDefault("detail", e.target.value))}
+            />
+          </Field>
+        </CardFields>
         {room ? (
           <CardFields cols={2}>
             <Field label="Available from">
@@ -948,35 +1140,43 @@ function RoomCardBody({
         ) : null}
 
         <div className="border-t border-border px-3.5 pb-1 pt-2">
-          <CheckboxOption
-            label="Move-in checklist required"
-            checked={room ? Boolean(room.moveInInspectionRequired) : defaults.moveInInspectionRequired}
-            onChange={(next) => (room ? onRoom({ moveInInspectionRequired: next }) : onDefault("moveInInspectionRequired", next))}
-          />
-          <CheckboxOption
-            label="Move-out checklist required"
-            checked={room ? Boolean(room.moveOutInspectionRequired) : defaults.moveOutInspectionRequired}
-            onChange={(next) => (room ? onRoom({ moveOutInspectionRequired: next }) : onDefault("moveOutInspectionRequired", next))}
-          />
+          <div className="flex items-center gap-2">
+            <CheckboxOption
+              label="Move-in checklist required"
+              checked={room ? Boolean(room.moveInInspectionRequired) : defaults.moveInInspectionRequired}
+              onChange={(next) => (room ? onRoom({ moveInInspectionRequired: next }) : onDefault("moveInInspectionRequired", next))}
+            />
+            {resetTag("moveInInspectionRequired", "move-in checklist")}
+          </div>
+          <div className="flex items-center gap-2">
+            <CheckboxOption
+              label="Move-out checklist required"
+              checked={room ? Boolean(room.moveOutInspectionRequired) : defaults.moveOutInspectionRequired}
+              onChange={(next) => (room ? onRoom({ moveOutInspectionRequired: next }) : onDefault("moveOutInspectionRequired", next))}
+            />
+            {resetTag("moveOutInspectionRequired", "move-out checklist")}
+          </div>
         </div>
 
-        {room ? (
-          <>
-            <CardFields>
-              <Field label="Move-in instructions">
-                <Textarea rows={2} value={room.moveInInstructions} placeholder="Which key opens it, where to park" onChange={(e) => onRoom({ moveInInstructions: e.target.value })} />
-              </Field>
-            </CardFields>
-            <CardFields cols={2}>
-              <Field label="Entry photos">
-                <PhotoStrip label="entry" urls={room.moveInPhotoDataUrls ?? []} onChange={(next) => onRoom({ moveInPhotoDataUrls: next })} />
-              </Field>
-              <Field label="Arrival clip">
-                <VideoSlot label="arrival" url={room.moveInVideoDataUrl} onChange={(next) => onRoom({ moveInVideoDataUrl: next })} />
-              </Field>
-            </CardFields>
-          </>
-        ) : null}
+        <CardFields>
+          <Field label="Move-in instructions" labelAside={resetTag("moveInInstructions", "move-in instructions")}>
+            <Textarea
+              rows={2}
+              value={moveInInstructions}
+              placeholder="Which key opens it, where to park"
+              className={inheritedText("moveInInstructions")}
+              onChange={(e) => (room ? onRoom({ moveInInstructions: e.target.value }) : onDefault("moveInInstructions", e.target.value))}
+            />
+          </Field>
+        </CardFields>
+        <CardFields cols={2}>
+          <Field label="Entry photos" labelAside={resetTag("moveInPhotoDataUrls", "entry photos")}>
+            <PhotoStrip label="entry" urls={entryPhotos} inherited={inherits("moveInPhotoDataUrls")} onChange={(next) => (room ? onRoom({ moveInPhotoDataUrls: next }) : onDefault("moveInPhotoDataUrls", next))} />
+          </Field>
+          <Field label="Arrival clip" labelAside={resetTag("moveInVideoDataUrl", "arrival clip")}>
+            <VideoSlot label="arrival" url={arrivalClip} inherited={inherits("moveInVideoDataUrl")} onChange={(next) => (room ? onRoom({ moveInVideoDataUrl: next }) : onDefault("moveInVideoDataUrl", next))} />
+          </Field>
+        </CardFields>
 
         {room && !wholePlace ? (
           <FactRow label={help("Rent", ROOM_HELP.rent)}>
@@ -1055,65 +1255,104 @@ function StepRooms({
   /** Which card is open: a room id, "defaults", or nothing. */
   const [open, setOpen] = useState<string | null>(null);
   /**
-   * Rooms the manager has edited by hand in this session.
+   * Which FIELDS the manager has set by hand on which room, this session.
    *
-   * Value comparison alone is not enough to answer "has this room been
-   * edited": while a house default is blank, every room reads as following it,
-   * so a room given its own value before the top card was filled in was still
-   * swept up the first time the top card changed. This remembers the act.
+   * Value comparison alone is not enough to answer "is this the room's own":
+   * while a house default is blank, every room reads as following it, so a
+   * room given its own size before the top card was filled in would be swept
+   * up the first time the top card changed. This remembers the act — per
+   * field, not per room. A room on its own floor still follows the Default
+   * room for its size, amenities and checklists; only the field that was
+   * touched comes unlinked. The Bathrooms and Shared spaces steps keep the
+   * same rule.
    */
-  const [touched, setTouched] = useState<Set<string>>(new Set());
-  const markTouched = (id: string) => setTouched((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+  const own = useOwnFields();
+  /** Rooms whose "Same as default room" was unticked on purpose: their own on every field until re-ticked. */
+  const [unticked, setUnticked] = useState<Set<string>>(new Set());
+  const confirm = useConfirm();
   const rooms = sub.rooms ?? [];
   const baths = sub.bathrooms ?? [];
   const wholePlace = sub.listingPlaceCategoryId === "entire_home";
   const noun = wholePlace ? "bedroom" : "room";
 
   const writeRooms = (next: ManagerRoomSubmission[]) => patch({ rooms: next });
+  /** A hand edit: whichever tracked fields the patch names become this room's own. Name, photos of the room's own, dates mark nothing. */
   const writeRoom = (id: string, roomPatch: Partial<ManagerRoomSubmission>) => {
-    markTouched(id);
+    for (const key of Object.keys(roomPatch) as (keyof ManagerRoomSubmission)[]) {
+      const field = ROOM_INHERIT_FIELD_BY_KEY[key];
+      if (field) own.mark(id, field);
+    }
     writeRooms(rooms.map((r) => (r.id === id ? { ...r, ...roomPatch } : r)));
   };
-  const untouchedRoomIds = (against: ListingHouseDefaults) =>
-    roomsFollowingDefaults(rooms, against).filter((id) => !touched.has(id));
+  const isOwn = (room: ManagerRoomSubmission, field: RoomInheritField) => own.has(room.id, field) || !roomInheritsDefault(room, defaults, field);
+  /** The rooms a change to ONE default field may move: not unticked, and not their own on that field, judged against the default as it was. */
+  const followersOf = (field: ListingHouseDefaultField, against: ListingHouseDefaults) =>
+    rooms.filter((room) => !unticked.has(room.id) && !own.has(room.id, field) && roomInheritsDefault(room, against, field)).map((room) => room.id);
 
   function editDefault<K extends ListingHouseDefaultField>(field: K, value: ListingHouseDefaults[K]) {
     const previous = defaults;
     const next = { ...defaults, [field]: value } as ListingHouseDefaults;
     setDefaults(next);
-    // Inheritance is judged against the PREVIOUS default — see
+    // Followers are judged against the PREVIOUS default — see
     // applyHouseDefaultsToRooms. Judging against the new one freezes every room.
-    writeRooms(applyHouseDefaultsToRooms(rooms, next, { onlyFields: [field], previousDefaults: previous, roomIds: untouchedRoomIds(previous) }));
+    // The Default room is saved with the listing, so it is there on reopen.
+    patch({ rooms: applyHouseDefaultsToRooms(rooms, next, { onlyFields: [field], roomIds: followersOf(field, previous) }), houseDefaults: next });
   }
-  /** Put one field back on the house — an explicit copy-down of that field to this room. */
-  const resetField = (id: string, field: RoomInheritField) =>
-    writeRooms(applyHouseDefaultsToRooms(rooms, defaults, { onlyFields: [field], roomIds: [id] }));
+  /** Copy the Default room into these rooms for every tracked field, blanks included. */
+  const copyDefaultsInto = (ids: readonly string[]) => {
+    const scope = new Set(ids);
+    return rooms.map((room) =>
+      scope.has(room.id)
+        ? applyHouseDefaultsToRooms([ROOM_INHERIT_FIELDS.reduce(clearRoomField, room)], defaults, { onlyFields: ROOM_INHERIT_FIELDS, roomIds: [room.id] })[0]!
+        : room,
+    );
+  };
+  /** Put one field back on the house: forget the hand edit and take the Default room's value, blank included. */
+  const resetField = (id: string, field: RoomInheritField) => {
+    own.clear(id, field);
+    writeRooms(rooms.map((r) => (r.id === id ? applyHouseDefaultsToRooms([clearRoomField(r, field)], defaults, { onlyFields: [field], roomIds: [id] })[0]! : r)));
+  };
 
-  const untouch = (id: string) =>
-    setTouched((prev) => {
-      if (!prev.has(id)) return prev;
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
-  /** The checkbox: every inherited field follows the card AND the room was not unticked or edited. */
+  /** The checkbox: no field is the room's own, its bathroom access was not set by hand, and it was not unticked. */
   const sameAsAll = (room: ManagerRoomSubmission) =>
-    !touched.has(room.id) && ROOM_INHERIT_FIELDS.every((field) => roomInheritsDefault(room, defaults, field));
+    !unticked.has(room.id) && !own.has(room.id, "access") && ROOM_INHERIT_FIELDS.every((field) => !isOwn(room, field));
   /**
-   * Tick: copy the "All rooms" card into every field. Untick: nothing moves —
+   * Tick: copy the Default room into every field. Untick: nothing moves —
    * what the room shows right now becomes its own, stored on the room, so a
    * later change to the card cannot reach it through a blank.
    */
   const setSameAsAll = (room: ManagerRoomSubmission, same: boolean) => {
-    if (same) untouch(room.id);
-    else markTouched(room.id);
-    writeRooms(applyHouseDefaultsToRooms(rooms, defaults, { onlyFields: ROOM_INHERIT_FIELDS, roomIds: [room.id] }));
+    setUnticked((prev) => {
+      const out = new Set(prev);
+      if (same) out.delete(room.id);
+      else out.add(room.id);
+      return out;
+    });
+    if (same) {
+      own.clearRecord(room.id);
+      writeRooms(copyDefaultsInto([room.id]));
+    } else {
+      writeRooms(applyHouseDefaultsToRooms(rooms, defaults, { onlyFields: ROOM_INHERIT_FIELDS, roomIds: [room.id] }));
+    }
   };
   const roomsHaveOverrides = rooms.some((room) => !sameAsAll(room));
-  const resetAllRooms = () => {
+  const resetAllRooms = async () => {
     if (rooms.length === 0) return;
-    setTouched(new Set());
-    writeRooms(applyHouseDefaultsToRooms(rooms, defaults, { onlyFields: ROOM_INHERIT_FIELDS, roomIds: rooms.map((room) => room.id) }));
+    // Facts were always safe to overwrite; pictures were not inheritable until
+    // now, so a room's own photos get one question before they go.
+    const withOwnMedia = rooms.filter((room) => ROOM_MEDIA_FIELDS.some((field) => isOwn(room, field)));
+    if (withOwnMedia.length > 0) {
+      const names = withOwnMedia.map((room, i) => room.name.trim() || `Room ${rooms.indexOf(room) + 1 || i + 1}`).join(", ");
+      const ok = await confirm({
+        title: "Replace their photos too?",
+        description: `${names} ${withOwnMedia.length === 1 ? "has" : "have"} photos or clips of ${withOwnMedia.length === 1 ? "its" : "their"} own. Making all the same replaces them with the Default ${noun}'s.`,
+        confirmLabel: "Replace",
+      });
+      if (!ok) return;
+    }
+    own.resetAll();
+    setUnticked(new Set());
+    writeRooms(copyDefaultsInto(rooms.map((room) => room.id)));
   };
 
   /* Bathroom access lives on the BATHROOM (`assignedRoomIds`), shown from the room's side. */
@@ -1126,7 +1365,7 @@ function StepRooms({
     baths.find((b) => (b.assignedRoomIds ?? []).includes(roomId))?.accessKindByRoomId?.[roomId] ?? "";
   const setAccessForRoom = (roomId: string, kind: string) => {
     const next = BATHROOM_ACCESS_OPTIONS.some((o) => o.value === kind) ? (kind as ManagerBathroomRoomAccessKind) : undefined;
-    markTouched(roomId);
+    own.mark(roomId, "access");
     patch({
       bathrooms: withRoomAttached(roomId).map((b) =>
         (b.assignedRoomIds ?? []).includes(roomId) ? { ...b, accessKindByRoomId: { ...(b.accessKindByRoomId ?? {}), [roomId]: next } } : b,
@@ -1136,7 +1375,7 @@ function StepRooms({
   const setAccessForAllRooms = (kind: string) => {
     const next = BATHROOM_ACCESS_OPTIONS.some((o) => o.value === kind) ? (kind as ManagerBathroomRoomAccessKind) : undefined;
     if (baths.length === 0) return;
-    const ids = untouchedRoomIds(defaults);
+    const ids = rooms.filter((room) => !unticked.has(room.id) && !own.has(room.id, "access")).map((room) => room.id);
     if (ids.length === 0) return;
     patch({
       bathrooms: baths.map((b, idx) => {
@@ -1174,15 +1413,15 @@ function StepRooms({
         title={`${rooms.length} ${rooms.length === 1 ? noun : `${noun}s`}`}
         action={
           rooms.length > 0 ? (
-            <ResetAllInheritanceButton label="Make all the same" dataAttr="listing-v2-rooms-reset-all" disabled={!roomsHaveOverrides} onClick={resetAllRooms} />
+            <ResetAllInheritanceButton label="Make all the same" dataAttr="listing-v2-rooms-reset-all" disabled={!roomsHaveOverrides} onClick={() => void resetAllRooms()} />
           ) : null
         }
       />
 
-      {/* All rooms — the defaults, in a room's clothes. Its important rows are always visible. */}
+      {/* Default room — the defaults, in a room's clothes. Its important rows are always visible. */}
       <RecordCard
         every
-        title={`All ${noun}s`}
+        title={`Default ${noun}`}
         help={ROOM_HELP.all}
         dataAttr="listing-v2-defaults-card"
         rows={
@@ -1216,7 +1455,7 @@ function StepRooms({
             nameLabel={`Name for room ${i + 1}`}
             namePlaceholder={`${wholePlace ? "Bedroom" : "Room"} ${i + 1}`}
             onName={(v) => writeRoom(room.id, { name: v })}
-            same={<SameAsAllToggle same={sameAsAll(room)} plural={`${noun}s`} noun={noun} onChange={(next) => setSameAsAll(room, next)} onReset={() => setSameAsAll(room, true)} dataAttr="listing-v2-room-same-as-all" />}
+            same={<SameAsAllToggle same={sameAsAll(room)} noun={noun} onChange={(next) => setSameAsAll(room, next)} onReset={() => setSameAsAll(room, true)} dataAttr="listing-v2-room-same-as-all" />}
             onRemove={rooms.length > 1 && isRoomSlotRemovable(room) ? () => { writeRooms(rooms.filter((r) => r.id !== room.id)); if (open === room.id) setOpen(null); } : undefined}
             removeLabel={`Remove ${label}`}
             summary={summaryFor(room)}
@@ -1241,6 +1480,7 @@ function StepRooms({
                 onGoToPricing={onGoToPricing}
                 onDone={() => setOpen(null)}
                 storiesId={sub.listingStoriesId}
+                isOwn={(f) => isOwn(room, f)}
               />
             </div>
           </RecordCard>
@@ -1296,16 +1536,19 @@ function useOwnFields() {
       return { ...prev, [id]: next };
     });
   const has = (id: string, field: string) => own[id]?.has(field) ?? false;
+  const clearRecord = (id: string) =>
+    setOwn((prev) => {
+      if (!prev[id]) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   const resetAll = () => setOwn({});
-  return { mark, clear, has, resetAll };
+  return { mark, clear, clearRecord, has, resetAll };
 }
 
 /* ── bathrooms ── */
 
-/** What "every bathroom" is — the same idea as the rooms cards' top card. */
-type BathroomType = "full" | "shower" | "half" | "quarter";
-type BathroomDefaults = { location: string; type: BathroomType | ""; amenitiesText: string };
-type BathroomInheritField = keyof BathroomDefaults;
 /** Full, three-quarter (shower, no tub), half (toilet and sink), quarter (toilet only). */
 const BATHROOM_TYPE_OPTIONS: readonly { value: BathroomType; label: string }[] = [
   { value: "full", label: "Full bath" },
@@ -1314,37 +1557,13 @@ const BATHROOM_TYPE_OPTIONS: readonly { value: BathroomType; label: string }[] =
   { value: "quarter", label: "Quarter bath" },
 ];
 
-/** A bathroom's type, read back from the fixtures that define it. */
-function bathroomTypeOf(bath: ManagerBathroomSubmission): BathroomType {
-  if (bath.bathtub) return "full";
-  if (bath.shower) return "shower";
-  if (bath.sink !== false) return "half";
-  return "quarter";
-}
-
-function writeBathroomType(bath: ManagerBathroomSubmission, type: BathroomType): ManagerBathroomSubmission {
-  return { ...bath, toilet: true, sink: type !== "quarter", shower: type === "full" || type === "shower", bathtub: type === "full" };
-}
-
-function bathroomFieldValue(bath: ManagerBathroomSubmission, field: BathroomInheritField): string {
-  if (field === "location") return bath.location ?? "";
-  if (field === "type") return bathroomTypeOf(bath);
-  return bath.amenitiesText ?? "";
-}
-
-function writeBathroomField(bath: ManagerBathroomSubmission, field: BathroomInheritField, value: string): ManagerBathroomSubmission {
-  if (field === "location") return { ...bath, location: value };
-  if (field === "type") return value ? writeBathroomType(bath, value as BathroomType) : bath;
-  return { ...bath, amenitiesText: value };
-}
-
 const USES_OPTIONS = [
   { value: "yes", label: "Uses it" },
   { value: "no", label: "Doesn't use it" },
 ] as const;
 
 const BATHROOM_HELP = {
-  all: "Set once. Every bathroom ticked “Same as all bathrooms” copies this. Untick one, or change anything on its card, and it keeps its own values.",
+  all: "Set once. Every bathroom ticked “Same as default bathroom” copies this. Change one field on a bathroom and only that field becomes its own; untick one and the whole card does.",
   type: "Full = tub and shower. Three-quarter = shower, no tub. Half = toilet and sink. Quarter = toilet only.",
 } as const;
 
@@ -1373,6 +1592,7 @@ function BathroomCardBody({
 }) {
   const floors = floorLevelSelectOptions(storiesId, bath.location ?? "").map((l) => ({ value: l, label: l }));
   const assigned = bath.assignedRoomIds ?? [];
+  const resetTag = (field: BathroomInheritField, what: string) => (isOwn(field) ? <CellResetTag onClick={() => onReset(field)} label={`Reset ${what} for ${who} to the Default bathroom`} /> : null);
   const setUses = (roomId: string, uses: boolean) => {
     const next = uses ? Array.from(new Set([...assigned, roomId])) : assigned.filter((id) => id !== roomId);
     const kinds = { ...(bath.accessKindByRoomId ?? {}) };
@@ -1408,16 +1628,16 @@ function BathroomCardBody({
           </>
         )}
         <CardFields>
-          <Field label="Description">
-            <Textarea rows={2} value={bath.detail ?? ""} placeholder="What a renter should know about this bathroom" onChange={(e) => onChange({ detail: e.target.value })} />
+          <Field label="Description" labelAside={resetTag("detail", "description")}>
+            <Textarea rows={2} value={bath.detail ?? ""} placeholder="What a renter should know about this bathroom" className={isOwn("detail") ? undefined : "border-dashed text-muted"} onChange={(e) => onChange({ detail: e.target.value })} />
           </Field>
         </CardFields>
         <CardFields cols={2}>
-          <Field label="Photos">
-            <PhotoStrip label="bathroom" urls={bath.photoDataUrls ?? []} onChange={(next) => onChange({ photoDataUrls: next })} />
+          <Field label="Photos" labelAside={resetTag("photoDataUrls", "photos")}>
+            <PhotoStrip label="bathroom" urls={bath.photoDataUrls ?? []} inherited={!isOwn("photoDataUrls")} onChange={(next) => onChange({ photoDataUrls: next })} />
           </Field>
-          <Field label="Video">
-            <VideoSlot label="bathroom" url={bath.videoDataUrl} onChange={(next) => onChange({ videoDataUrl: next })} />
+          <Field label="Video" labelAside={resetTag("videoDataUrl", "video")}>
+            <VideoSlot label="bathroom" url={bath.videoDataUrl} inherited={!isOwn("videoDataUrl")} onChange={(next) => onChange({ videoDataUrl: next })} />
           </Field>
         </CardFields>
       </MoreRows>
@@ -1428,61 +1648,92 @@ function BathroomCardBody({
 
 function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   const [open, setOpen] = useState<string | null>(null);
-  const [defaults, setDefaults] = useState<BathroomDefaults>({ location: "", type: "", amenitiesText: "" });
+  /** The Default bathroom is saved with the listing, so it is there on reopen; an older listing infers it from its bathrooms. */
+  const defaults = bathroomDefaultsForSubmission(sub);
   const own = useOwnFields();
+  const confirm = useConfirm();
   const baths = sub.bathrooms ?? [];
   const rooms = sub.rooms ?? [];
   const wholePlace = sub.listingPlaceCategoryId === "entire_home";
   const floors = floorLevelSelectOptions(sub.listingStoriesId, "").map((l) => ({ value: l, label: l }));
 
-  const defaultValue = (field: BathroomInheritField) => defaults[field];
-  const isOwn = (bath: ManagerBathroomSubmission, field: BathroomInheritField) =>
-    own.has(bath.id, field) || (defaultValue(field) !== "" && bathroomFieldValue(bath, field) !== defaultValue(field)) || (defaultValue(field) === "" && field !== "type" && bathroomFieldValue(bath, field) !== "");
+  /**
+   * A field is the bathroom's own once the manager edited it by hand
+   * (remembered per field, so a later top-card change never sweeps it up), or
+   * when its stored value already differs from the top card — a listing saved
+   * before the top card existed. Type always has a value, so it is never own
+   * merely for being set.
+   */
+  const isOwn = (bath: ManagerBathroomSubmission, field: BathroomInheritField) => {
+    if (own.has(bath.id, field)) return true;
+    const value = bathroomFieldValue(bath, field);
+    const def = defaults[field];
+    // A blank is showing the top card, whatever the top card says.
+    if (defaultValueIsUnset(value)) return false;
+    if (defaultValueIsUnset(def)) return field !== "type";
+    return !defaultValuesMatch(value, def);
+  };
   const writeBath = (id: string, next: ManagerBathroomSubmission) => patch({ bathrooms: baths.map((b) => (b.id === id ? next : b)) });
   const setField = (bath: ManagerBathroomSubmission, field: BathroomInheritField, value: string) => {
     own.mark(bath.id, field);
     writeBath(bath.id, writeBathroomField(bath, field, value));
   };
+  /** A patch from the card body: whichever tracked fields it names become the bathroom's own. */
+  const patchBath = (bath: ManagerBathroomSubmission, p: Partial<ManagerBathroomSubmission>) => {
+    for (const key of Object.keys(p)) if ((BATHROOM_INHERIT_FIELDS as readonly string[]).includes(key)) own.mark(bath.id, key);
+    writeBath(bath.id, { ...bath, ...p });
+  };
   const resetField = (bath: ManagerBathroomSubmission, field: BathroomInheritField) => {
     own.clear(bath.id, field);
-    writeBath(bath.id, writeBathroomField(bath, field, defaultValue(field)));
+    writeBath(bath.id, writeBathroomField(bath, field, defaults[field]));
   };
-  const bathroomFields: readonly BathroomInheritField[] = ["location", "type", "amenitiesText"];
-  /** Bathrooms the manager unticked ("Same as all bathrooms") without changing a value yet. */
-  const [unticked, setUnticked] = useState<Set<string>>(new Set());
-  const sameAsAll = (bath: ManagerBathroomSubmission) => !unticked.has(bath.id) && !bathroomFields.some((field) => isOwn(bath, field));
-  const setSameAsAll = (bath: ManagerBathroomSubmission, same: boolean) => {
+  const copyDefaultsInto = (bath: ManagerBathroomSubmission) => {
     let next = bath;
-    for (const field of bathroomFields) {
-      if (same) own.clear(bath.id, field);
-      if (same || defaultValue(field)) next = writeBathroomField(next, field, defaultValue(field));
-    }
+    for (const field of BATHROOM_INHERIT_FIELDS) next = writeBathroomField(next, field, defaults[field]);
+    return next;
+  };
+  /** Bathrooms the manager unticked ("Same as default bathroom") without changing a value yet. */
+  const [unticked, setUnticked] = useState<Set<string>>(new Set());
+  const sameAsAll = (bath: ManagerBathroomSubmission) => !unticked.has(bath.id) && !BATHROOM_INHERIT_FIELDS.some((field) => isOwn(bath, field));
+  const setSameAsAll = (bath: ManagerBathroomSubmission, same: boolean) => {
     setUnticked((prev) => {
       const out = new Set(prev);
       if (same) out.delete(bath.id);
       else out.add(bath.id);
       return out;
     });
+    if (same) {
+      own.clearRecord(bath.id);
+      writeBath(bath.id, copyDefaultsInto(bath));
+      return;
+    }
+    // Untick moves nothing: what the card shows becomes the bathroom's own, stored on it.
+    let next = bath;
+    for (const field of BATHROOM_INHERIT_FIELDS) if (!defaultValueIsUnset(defaults[field])) next = writeBathroomField(next, field, defaults[field]);
     if (next !== bath) writeBath(bath.id, next);
   };
   const bathroomsHaveOverrides = baths.some((bath) => !sameAsAll(bath));
-  const resetAllBathrooms = () => {
+  const resetAllBathrooms = async () => {
     if (baths.length === 0) return;
+    const withOwnMedia = baths.filter((bath) => isOwn(bath, "photoDataUrls") || isOwn(bath, "videoDataUrl"));
+    if (withOwnMedia.length > 0) {
+      const names = withOwnMedia.map((bath) => bath.name.trim() || `Bathroom ${baths.indexOf(bath) + 1}`).join(", ");
+      const ok = await confirm({
+        title: "Replace their photos too?",
+        description: `${names} ${withOwnMedia.length === 1 ? "has" : "have"} photos or a clip of ${withOwnMedia.length === 1 ? "its" : "their"} own. Making all the same replaces them with the Default bathroom's.`,
+        confirmLabel: "Replace",
+      });
+      if (!ok) return;
+    }
     own.resetAll();
     setUnticked(new Set());
-    patch({
-      bathrooms: baths.map((bath) => {
-        let next = bath;
-        for (const field of bathroomFields) next = writeBathroomField(next, field, defaultValue(field));
-        return next;
-      }),
-    });
+    patch({ bathrooms: baths.map(copyDefaultsInto) });
   };
-  function editDefault(field: BathroomInheritField, value: string) {
+  function editDefault<K extends BathroomInheritField>(field: K, value: BathroomDefaults[K]) {
     // Followers are judged against the PREVIOUS default, then moved with it.
     const followers = baths.filter((b) => !isOwn(b, field) && !unticked.has(b.id));
-    setDefaults((prev) => ({ ...prev, [field]: value }));
-    patch({ bathrooms: baths.map((b) => (followers.includes(b) ? writeBathroomField(b, field, value) : b)) });
+    const next: BathroomDefaults = { ...defaults, [field]: value };
+    patch({ bathrooms: baths.map((b) => (followers.includes(b) ? writeBathroomField(b, field, value) : b)), bathroomDefaults: next });
   }
   const toggle = (id: string) => setOpen((prev) => (prev === id ? null : id));
   const typeLabel = (bath: ManagerBathroomSubmission) => BATHROOM_TYPE_OPTIONS.find((o) => o.value === bathroomTypeOf(bath))?.label ?? "";
@@ -1499,14 +1750,15 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
         title={`${baths.length} ${baths.length === 1 ? "bathroom" : "bathrooms"}`}
         action={
           baths.length > 0 ? (
-            <ResetAllInheritanceButton label="Make all the same" dataAttr="listing-v2-bathrooms-reset-all" disabled={!bathroomsHaveOverrides} onClick={resetAllBathrooms} />
+            <ResetAllInheritanceButton label="Make all the same" dataAttr="listing-v2-bathrooms-reset-all" disabled={!bathroomsHaveOverrides} onClick={() => void resetAllBathrooms()} />
           ) : null
         }
       />
 
+      {/* Default bathroom — the same card shape as the Default room: important rows on top, one More with words and pictures. */}
       <RecordCard
         every
-        title="All bathrooms"
+        title="Default bathroom"
         help={BATHROOM_HELP.all}
         dataAttr="listing-v2-bath-defaults-card"
         rows={
@@ -1515,11 +1767,26 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
               <RowSelectCell ariaLabel="Floor for every bathroom" value={defaults.location} options={floors} placeholder="Floor…" onChange={(v) => editDefault("location", v)} />
             </FactRow>
             <FactRow label={<span className="inline-flex items-center gap-1.5">Type <ColumnHelp title="Type" text={BATHROOM_HELP.type} /></span>}>
-              <RowSelectCell ariaLabel="Type of every bathroom" value={defaults.type} options={BATHROOM_TYPE_OPTIONS} placeholder="Type…" onChange={(v) => editDefault("type", v)} />
+              <RowSelectCell ariaLabel="Type of every bathroom" value={defaults.type} options={BATHROOM_TYPE_OPTIONS} placeholder="Type…" onChange={(v) => editDefault("type", v as BathroomType)} />
             </FactRow>
             <FactRow label="Finishes">
               <AmenityPick label="Finishes for every bathroom" presets={BATHROOM_EXTRA_AMENITY_PRESETS} value={defaults.amenitiesText} onChange={(next) => editDefault("amenitiesText", next)} />
             </FactRow>
+            <MoreRows dataAttr="listing-v2-bath-defaults-more">
+              <CardFields>
+                <Field label="Description">
+                  <Textarea rows={2} value={defaults.detail} placeholder="What a renter should know about every bathroom" onChange={(e) => editDefault("detail", e.target.value)} />
+                </Field>
+              </CardFields>
+              <CardFields cols={2}>
+                <Field label="Photos">
+                  <PhotoStrip label="every bathroom" urls={defaults.photoDataUrls} onChange={(next) => editDefault("photoDataUrls", next)} />
+                </Field>
+                <Field label="Video">
+                  <VideoSlot label="every bathroom" url={defaults.videoDataUrl} onChange={(next) => editDefault("videoDataUrl", next)} />
+                </Field>
+              </CardFields>
+            </MoreRows>
           </div>
         }
       />
@@ -1534,7 +1801,7 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
             nameLabel={`Name for bathroom ${i + 1}`}
             namePlaceholder={`Bathroom ${i + 1}`}
             onName={(v) => writeBath(bath.id, { ...bath, name: v })}
-            same={<SameAsAllToggle same={sameAsAll(bath)} plural="bathrooms" noun="bathroom" onChange={(next) => setSameAsAll(bath, next)} onReset={() => setSameAsAll(bath, true)} dataAttr="listing-v2-bath-same-as-all" />}
+            same={<SameAsAllToggle same={sameAsAll(bath)} noun="bathroom" onChange={(next) => setSameAsAll(bath, next)} onReset={() => setSameAsAll(bath, true)} dataAttr="listing-v2-bath-same-as-all" />}
             onRemove={() => {
               patch({ bathrooms: baths.filter((b) => b.id !== bath.id) });
               if (open === bath.id) setOpen(null);
@@ -1556,7 +1823,7 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
                 isOwn={(f) => isOwn(bath, f)}
                 onField={(f, v) => setField(bath, f, v)}
                 onReset={(f) => resetField(bath, f)}
-                onChange={(p) => writeBath(bath.id, { ...bath, ...p })}
+                onChange={(p) => patchBath(bath, p)}
                 onDone={() => setOpen(null)}
               />
             </div>
@@ -1574,11 +1841,7 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
           const blank = base
             ? { ...base, id, name: "", photoDataUrls: [], videoDataUrl: null, assignedRoomIds: [], accessKindByRoomId: {}, detail: "" }
             : writeBathroomType({ id, name: "" } as ManagerBathroomSubmission, "full");
-          let next = blank;
-          for (const field of ["location", "type", "amenitiesText"] as const) {
-            if (defaults[field]) next = writeBathroomField(next, field, defaults[field]);
-          }
-          patch({ bathrooms: [...baths, next] });
+          patch({ bathrooms: [...baths, applyBathroomDefaults(blank, defaults)] });
           setOpen(id);
         }}
       />
@@ -1588,8 +1851,6 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
 
 /* ── shared spaces ── */
 
-type SharedSpaceDefaults = { location: string };
-type SharedSpaceInheritField = "location" | "access";
 
 /** "Everyone" is an empty list nowhere, and every room everywhere — both read as not narrowed. */
 function spaceIsNarrowed(space: ManagerSharedSpaceSubmission, rooms: readonly ManagerRoomSubmission[]): boolean {
@@ -1599,7 +1860,7 @@ function spaceIsNarrowed(space: ManagerSharedSpaceSubmission, rooms: readonly Ma
 }
 
 const SPACE_HELP = {
-  all: "Set once. Every shared space ticked “Same as all shared spaces” copies this. Untick one, or change anything on its card, and it keeps its own values.",
+  all: "Set once. Every shared space ticked “Same as default shared space” copies this. Change one field on a space and only that field becomes its own; untick one and the whole card does.",
   who: "Every room, unless this space is only for some of them.",
 } as const;
 
@@ -1621,7 +1882,7 @@ function SharedSpaceCardBody({
   wholePlace: boolean;
   storiesId: string | undefined;
   isOwn: (field: SharedSpaceInheritField) => boolean;
-  onField: (field: "location", value: string) => void;
+  onField: (field: keyof SharedSpaceDefaults, value: string) => void;
   onReset: (field: SharedSpaceInheritField) => void;
   onChange: (patch: Partial<ManagerSharedSpaceSubmission>) => void;
   onDone: () => void;
@@ -1658,16 +1919,16 @@ function SharedSpaceCardBody({
           <AmenityPick label={`What is in ${who}`} presets={sharedSpaceAmenityPresetsForKind(space.spaceKind)} value={space.amenitiesText ?? ""} onChange={(next) => onChange({ amenitiesText: next })} />
         </FactRow>
         <CardFields>
-          <Field label="Description">
-            <Textarea rows={2} value={space.detail ?? ""} onChange={(e) => onChange({ detail: e.target.value })} placeholder="Sunny room off the kitchen, seats six" />
+          <Field label="Description" labelAside={isOwn("detail") ? <CellResetTag onClick={() => onReset("detail")} label={`Reset description for ${who} to the Default shared space`} /> : null}>
+            <Textarea rows={2} value={space.detail ?? ""} className={isOwn("detail") ? undefined : "border-dashed text-muted"} onChange={(e) => onChange({ detail: e.target.value })} placeholder="Sunny room off the kitchen, seats six" />
           </Field>
         </CardFields>
         <CardFields cols={2}>
-          <Field label="Photos">
-            <PhotoStrip label="shared space" urls={space.photoDataUrls ?? []} onChange={(next) => onChange({ photoDataUrls: next })} />
+          <Field label="Photos" labelAside={isOwn("photoDataUrls") ? <CellResetTag onClick={() => onReset("photoDataUrls")} label={`Reset photos for ${who} to the Default shared space`} /> : null}>
+            <PhotoStrip label="shared space" urls={space.photoDataUrls ?? []} inherited={!isOwn("photoDataUrls")} onChange={(next) => onChange({ photoDataUrls: next })} />
           </Field>
-          <Field label="Video">
-            <VideoSlot label="shared space" url={space.videoDataUrl} onChange={(next) => onChange({ videoDataUrl: next })} />
+          <Field label="Video" labelAside={isOwn("videoDataUrl") ? <CellResetTag onClick={() => onReset("videoDataUrl")} label={`Reset video for ${who} to the Default shared space`} /> : null}>
+            <VideoSlot label="shared space" url={space.videoDataUrl} inherited={!isOwn("videoDataUrl")} onChange={(next) => onChange({ videoDataUrl: next })} />
           </Field>
         </CardFields>
       </MoreRows>
@@ -1678,31 +1939,49 @@ function SharedSpaceCardBody({
 
 function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   const [open, setOpen] = useState<string | null>(null);
-  const [defaults, setDefaults] = useState<SharedSpaceDefaults>({ location: "" });
+  /** The Default shared space is saved with the listing; an older listing infers it from its spaces. */
+  const defaults = sharedSpaceDefaultsForSubmission(sub);
   const own = useOwnFields();
+  const confirm = useConfirm();
   const spaces = sub.sharedSpaces ?? [];
   const rooms = sub.rooms ?? [];
   const wholePlace = sub.listingPlaceCategoryId === "entire_home";
   const floors = floorLevelSelectOptions(sub.listingStoriesId, "").map((l) => ({ value: l, label: l }));
 
+  /** Own once edited by hand this session, or when the stored value differs from the top card. Access is read from the room list. */
   const isOwn = (space: ManagerSharedSpaceSubmission, field: SharedSpaceInheritField) => {
     if (field === "access") return spaceIsNarrowed(space, rooms);
-    return own.has(space.id, "location") || (space.location ?? "") !== defaults.location;
+    if (own.has(space.id, field)) return true;
+    const value = sharedSpaceFieldValue(space, field);
+    const def = defaults[field];
+    if (defaultValueIsUnset(value)) return false;
+    if (defaultValueIsUnset(def)) return true;
+    return !defaultValuesMatch(value, def);
   };
   const writeSpace = (id: string, next: ManagerSharedSpaceSubmission) => patch({ sharedSpaces: spaces.map((sp) => (sp.id === id ? next : sp)) });
-  const setFloor = (space: ManagerSharedSpaceSubmission, value: string) => {
-    own.mark(space.id, "location");
-    writeSpace(space.id, { ...space, location: value });
+  const setField = (space: ManagerSharedSpaceSubmission, field: keyof SharedSpaceDefaults, value: string) => {
+    own.mark(space.id, field);
+    writeSpace(space.id, writeSharedSpaceField(space, field, value));
+  };
+  /** A patch from the card body: whichever tracked fields it names become the space's own. */
+  const patchSpace = (space: ManagerSharedSpaceSubmission, p: Partial<ManagerSharedSpaceSubmission>) => {
+    for (const key of Object.keys(p)) if ((SHARED_SPACE_DEFAULT_FIELDS as readonly string[]).includes(key)) own.mark(space.id, key);
+    writeSpace(space.id, { ...space, ...p });
   };
   const resetField = (space: ManagerSharedSpaceSubmission, field: SharedSpaceInheritField) => {
     if (field === "access") {
       writeSpace(space.id, { ...space, roomAccessIds: rooms.map((r) => r.id) });
       return;
     }
-    own.clear(space.id, "location");
-    writeSpace(space.id, { ...space, location: defaults.location });
+    own.clear(space.id, field);
+    writeSpace(space.id, writeSharedSpaceField(space, field, defaults[field]));
   };
-  const sharedSpaceFields: readonly SharedSpaceInheritField[] = ["location", "access"];
+  const copyDefaultsInto = (space: ManagerSharedSpaceSubmission) => {
+    let next = space;
+    for (const field of SHARED_SPACE_DEFAULT_FIELDS) next = writeSharedSpaceField(next, field, defaults[field]);
+    return { ...next, roomAccessIds: rooms.map((room) => room.id) };
+  };
+  const sharedSpaceFields: readonly SharedSpaceInheritField[] = [...SHARED_SPACE_DEFAULT_FIELDS, "access"];
   const [unticked, setUnticked] = useState<Set<string>>(new Set());
   const sameAsAll = (space: ManagerSharedSpaceSubmission) => !unticked.has(space.id) && !sharedSpaceFields.some((field) => isOwn(space, field));
   const setSameAsAll = (space: ManagerSharedSpaceSubmission, same: boolean) => {
@@ -1713,24 +1992,36 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
       return out;
     });
     if (same) {
-      own.clear(space.id, "location");
-      writeSpace(space.id, { ...space, location: defaults.location, roomAccessIds: rooms.map((r) => r.id) });
-    } else if ((space.location ?? "") !== defaults.location) {
-      writeSpace(space.id, { ...space, location: defaults.location });
+      own.clearRecord(space.id);
+      writeSpace(space.id, copyDefaultsInto(space));
+      return;
     }
+    let next = space;
+    for (const field of SHARED_SPACE_DEFAULT_FIELDS) if (!defaultValueIsUnset(defaults[field])) next = writeSharedSpaceField(next, field, defaults[field]);
+    if (next !== space) writeSpace(space.id, next);
   };
   const spacesHaveOverrides = spaces.some((space) => !sameAsAll(space));
-  const resetAllSharedSpaces = () => {
+  const resetAllSharedSpaces = async () => {
     if (spaces.length === 0) return;
+    const withOwnMedia = spaces.filter((space) => isOwn(space, "photoDataUrls") || isOwn(space, "videoDataUrl"));
+    if (withOwnMedia.length > 0) {
+      const names = withOwnMedia.map((space) => space.name.trim() || `Shared space ${spaces.indexOf(space) + 1}`).join(", ");
+      const ok = await confirm({
+        title: "Replace their photos too?",
+        description: `${names} ${withOwnMedia.length === 1 ? "has" : "have"} photos or a clip of ${withOwnMedia.length === 1 ? "its" : "their"} own. Making all the same replaces them with the Default shared space's.`,
+        confirmLabel: "Replace",
+      });
+      if (!ok) return;
+    }
     own.resetAll();
     setUnticked(new Set());
-    patch({ sharedSpaces: spaces.map((space) => ({ ...space, location: defaults.location, roomAccessIds: rooms.map((room) => room.id) })) });
+    patch({ sharedSpaces: spaces.map(copyDefaultsInto) });
   };
-  const editDefaultFloor = (value: string) => {
-    const followers = spaces.filter((sp) => !isOwn(sp, "location") && !unticked.has(sp.id));
-    setDefaults({ location: value });
-    patch({ sharedSpaces: spaces.map((sp) => (followers.includes(sp) ? { ...sp, location: value } : sp)) });
-  };
+  function editDefault<K extends keyof SharedSpaceDefaults>(field: K, value: SharedSpaceDefaults[K]) {
+    const followers = spaces.filter((sp) => !isOwn(sp, field) && !unticked.has(sp.id));
+    const next: SharedSpaceDefaults = { ...defaults, [field]: value };
+    patch({ sharedSpaces: spaces.map((sp) => (followers.includes(sp) ? writeSharedSpaceField(sp, field, value) : sp)), sharedSpaceDefaults: next });
+  }
   const toggle = (id: string) => setOpen((prev) => (prev === id ? null : id));
   const accessSummary = (space: ManagerSharedSpaceSubmission) => {
     if (!spaceIsNarrowed(space, rooms)) return "Everyone";
@@ -1748,20 +2039,37 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
         title={`${spaces.length} shared ${spaces.length === 1 ? "space" : "spaces"}`}
         action={
           spaces.length > 0 ? (
-            <ResetAllInheritanceButton label="Make all the same" dataAttr="listing-v2-spaces-reset-all" disabled={!spacesHaveOverrides} onClick={resetAllSharedSpaces} />
+            <ResetAllInheritanceButton label="Make all the same" dataAttr="listing-v2-spaces-reset-all" disabled={!spacesHaveOverrides} onClick={() => void resetAllSharedSpaces()} />
           ) : null
         }
       />
 
       <RecordCard
         every
-        title="All shared spaces"
+        title="Default shared space"
         help={SPACE_HELP.all}
         dataAttr="listing-v2-space-defaults-card"
         rows={
-          <FactRow first label="Floor">
-            <RowSelectCell ariaLabel="Floor for every shared space" value={defaults.location} options={floors} placeholder="Floor…" onChange={editDefaultFloor} />
-          </FactRow>
+          <div data-attr="listing-v2-space-defaults-editor">
+            <FactRow first label="Floor">
+              <RowSelectCell ariaLabel="Floor for every shared space" value={defaults.location} options={floors} placeholder="Floor…" onChange={(v) => editDefault("location", v)} />
+            </FactRow>
+            <MoreRows dataAttr="listing-v2-space-defaults-more">
+              <CardFields>
+                <Field label="Description">
+                  <Textarea rows={2} value={defaults.detail} placeholder="What a renter should know about every shared space" onChange={(e) => editDefault("detail", e.target.value)} />
+                </Field>
+              </CardFields>
+              <CardFields cols={2}>
+                <Field label="Photos">
+                  <PhotoStrip label="every shared space" urls={defaults.photoDataUrls} onChange={(next) => editDefault("photoDataUrls", next)} />
+                </Field>
+                <Field label="Video">
+                  <VideoSlot label="every shared space" url={defaults.videoDataUrl} onChange={(next) => editDefault("videoDataUrl", next)} />
+                </Field>
+              </CardFields>
+            </MoreRows>
+          </div>
         }
       />
 
@@ -1775,7 +2083,7 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
             nameLabel={`Name for shared space ${i + 1}`}
             namePlaceholder="Kitchen"
             onName={(v) => writeSpace(space.id, { ...space, name: v })}
-            same={<SameAsAllToggle same={sameAsAll(space)} plural="shared spaces" noun="shared space" onChange={(next) => setSameAsAll(space, next)} onReset={() => setSameAsAll(space, true)} dataAttr="listing-v2-space-same-as-all" />}
+            same={<SameAsAllToggle same={sameAsAll(space)} noun="shared space" onChange={(next) => setSameAsAll(space, next)} onReset={() => setSameAsAll(space, true)} dataAttr="listing-v2-space-same-as-all" />}
             onRemove={() => {
               patch({ sharedSpaces: spaces.filter((sp) => sp.id !== space.id) });
               if (open === space.id) setOpen(null);
@@ -1795,9 +2103,9 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
                 wholePlace={wholePlace}
                 storiesId={sub.listingStoriesId}
                 isOwn={(f) => isOwn(space, f)}
-                onField={(_f, v) => setFloor(space, v)}
+                onField={(f, v) => setField(space, f, v)}
                 onReset={(f) => resetField(space, f)}
-                onChange={(p) => writeSpace(space.id, { ...space, ...p })}
+                onChange={(p) => patchSpace(space, p)}
                 onDone={() => setOpen(null)}
               />
             </div>
@@ -1813,16 +2121,15 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
           const base = spaces[0];
           const id = `space-${Date.now()}`;
           const blank = base
-            ? { ...base, id, name: "", photoDataUrls: [], videoDataUrl: null, roomAccessIds: rooms.map((r) => r.id), location: defaults.location || base.location }
+            ? { ...base, id, name: "", photoDataUrls: [], videoDataUrl: null, detail: "", roomAccessIds: rooms.map((r) => r.id), location: defaults.location || base.location }
             : ({ id, name: "", location: defaults.location, roomAccessIds: rooms.map((r) => r.id) } as never);
-          patch({ sharedSpaces: [...spaces, blank] });
+          patch({ sharedSpaces: [...spaces, copyDefaultsInto(blank)] });
           setOpen(id);
         }}
       />
     </StepColumn>
   );
 }
-
 
 /* ─────────────────────── step 4 · rent & fees ─────────────────────── */
 
@@ -2581,7 +2888,6 @@ function StepReview({
 export function ListingEditorV2({
   submission,
   onChange,
-  onSaveExit,
   onClose,
   onPublish,
   title,
@@ -2591,9 +2897,10 @@ export function ListingEditorV2({
 }: {
   submission: ManagerListingSubmissionV1;
   onChange: (next: ManagerListingSubmissionV1) => void;
-  /** Receives the step the manager left on, so resuming lands where they were. */
-  onSaveExit: (stepIndex: number) => void;
-  onClose: () => void;
+  /** Optional persist-in-place. Closing and typing save themselves in the parent. */
+  onSaveExit?: (stepIndex: number) => void;
+  /** Receives the step the manager left on, so a flush can keep the resume point. */
+  onClose: (stepIndex: number) => void;
   onPublish: () => void;
   title: string;
   busy?: boolean;
@@ -2836,7 +3143,7 @@ export function ListingEditorV2({
         ) : null
       }
       saveState={saveState}
-      onClose={onClose}
+      onClose={() => onClose(step)}
       headerAside={<ModalAssistantStrip contextHint={assistantContext} storageScopeKey="listing-wizard-v2" />}
       rail={<StepRail steps={railSteps} current={step} onJump={goTo} visited={visited} />}
       railHeader={
@@ -2858,73 +3165,33 @@ export function ListingEditorV2({
             >
               Back
             </button>
-            {isEdit ? null : (
-              <button
-                type="button"
-                onClick={() => onSaveExit(step)}
-                disabled={busy}
-                data-attr="listing-v2-save-exit"
-                className="min-h-[44px] rounded-full px-4 text-[13.5px] font-bold text-muted hover:text-foreground disabled:opacity-60"
-              >
-                Save & exit
-              </button>
-            )}
           </div>
           <span className="hidden text-[12.5px] text-muted sm:inline">
             {pathPosition != null ? `Step ${pathPosition} of ${pathIds.length}` : "Optional detail"}
           </span>
           {isEdit ? (
-            /*
-             * An edit is not a march to the end. The manager came to change one
-             * thing, so saving is the primary action on EVERY section — the way
-             * Turo and Airbnb save each section where it is edited — and the
-             * next section is an offer, not the only way forward.
-             */
-            <div className="flex gap-2.5">
-              {nextStep == null ? null : (
-                <button
-                  type="button"
-                  onClick={() => goTo(nextStep)}
-                  data-attr="listing-v2-next"
-                  // A phone footer holds Back and Save; the next section is a
-                  // tap away in the strip above.
-                  className="hidden min-h-[44px] rounded-full border border-border bg-card px-5 text-[14px] font-bold text-foreground sm:inline-flex sm:items-center"
-                >
-                  Next: {LISTING_V2_STEPS[nextStep]!.label}
-                </button>
-              )}
+            nextStep == null ? null : (
               <button
                 type="button"
-                onClick={() => (step === last ? onPublish() : onSaveExit(step))}
-                disabled={busy}
-                data-attr={step === last ? "listing-v2-publish" : "listing-v2-save-exit"}
-                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
+                onClick={() => goTo(nextStep)}
+                data-attr="listing-v2-next"
+                aria-label={`Continue to ${LISTING_V2_STEPS[nextStep]!.label}`}
+                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white"
               >
-                {busy ? "Saving…" : step === last ? "Publish changes" : "Save changes"}
+                <span className="sm:hidden">Continue</span>
+                <span className="hidden sm:inline">Continue to {LISTING_V2_STEPS[nextStep]!.label}</span>
               </button>
-            </div>
+            )
           ) : step === last ? (
-            <div className="flex gap-2.5">
-              {isEdit ? null : (
-                <button
-                  type="button"
-                  onClick={() => onSaveExit(step)}
-                  disabled={busy}
-                  className="min-h-[44px] rounded-full border border-border bg-card px-5 text-[14px] font-bold text-foreground disabled:opacity-60"
-                >
-                  Keep as draft
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={onPublish}
-                disabled={busy}
-                data-attr="listing-v2-publish"
-                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
-              >
-                {busy ? (isEdit ? "Saving…" : "Publishing…") : isEdit ? "Publish changes" : "Publish"}
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={onPublish}
+              disabled={busy}
+              data-attr="listing-v2-publish"
+              className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
+            >
+              {busy ? "Publishing…" : "Publish"}
+            </button>
           ) : (
             <button
               type="button"
@@ -2933,7 +3200,6 @@ export function ListingEditorV2({
               aria-label={`Continue to ${LISTING_V2_STEPS[nextStep ?? last]!.label}`}
               className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white"
             >
-              {/* A phone footer has no room for the step's name beside Back and Save. */}
               <span className="sm:hidden">Continue</span>
               <span className="hidden sm:inline">Continue to {LISTING_V2_STEPS[nextStep ?? last]!.label}</span>
             </button>

@@ -365,6 +365,10 @@ export class AscClient {
   patch(path, body) {
     return this.request("PATCH", path, body);
   }
+
+  delete(path, body) {
+    return this.request("DELETE", path, body);
+  }
 }
 
 function safeJsonParse(text) {
@@ -381,7 +385,7 @@ function sleep(ms) {
   });
 }
 
-async function resolveApp(client, bundleId, expectedAppId) {
+export async function resolveApp(client, bundleId, expectedAppId) {
   const body = await client.get(`apps?filter[bundleId]=${encodeURIComponent(bundleId)}&limit=2`);
   const apps = body?.data ?? [];
   if (apps.length === 0) {
@@ -402,7 +406,7 @@ async function resolveApp(client, bundleId, expectedAppId) {
   return app;
 }
 
-async function findBuild(client, appId, buildNumber) {
+export async function findBuild(client, appId, buildNumber) {
   const query = new URLSearchParams({
     "filter[app]": appId,
     "filter[version]": buildNumber,
@@ -435,7 +439,7 @@ async function findBuild(client, appId, buildNumber) {
  * immediately, and an ambiguous build number carries no `retryable` tag, so it is
  * never mistaken for a blip.
  */
-async function waitForProcessedBuild(client, appId, buildNumber, timeoutSeconds) {
+export async function waitForProcessedBuild(client, appId, buildNumber, timeoutSeconds) {
   const startedAt = Date.now();
   const deadline = startedAt + timeoutSeconds * 1000;
   let lastState = null;

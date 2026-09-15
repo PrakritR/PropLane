@@ -151,3 +151,43 @@ describe("inferHouseDefaultsFromRooms", () => {
     expect(inferHouseDefaultsFromRooms([])).toEqual(emptyListingHouseDefaults());
   });
 });
+
+describe("media and words as house defaults", () => {
+  it("a list of photos compares by value: the same URLs follow, different ones are the room's own", () => {
+    const d = defaults({ photoDataUrls: ["a", "b"] });
+    expect(roomInheritsDefault(room({ photoDataUrls: ["a", "b"] }), d, "photoDataUrls")).toBe(true);
+    expect(roomInheritsDefault(room({ photoDataUrls: [] }), d, "photoDataUrls")).toBe(true);
+    expect(roomInheritsDefault(room({ photoDataUrls: ["c"] }), d, "photoDataUrls")).toBe(false);
+    // No house photos: a room that has its own keeps them — they are its own, not "following nothing".
+    expect(roomInheritsDefault(room({ photoDataUrls: ["c"] }), defaults(), "photoDataUrls")).toBe(false);
+    expect(roomInheritsDefault(room({ photoDataUrls: [] }), defaults(), "photoDataUrls")).toBe(true);
+  });
+
+  it("house photos are copied onto every following room and leave a room with its own alone", () => {
+    const rooms = [room({ id: "a", photoDataUrls: [] }), room({ id: "b", photoDataUrls: ["mine"] })];
+    const out = applyHouseDefaultsToRooms(rooms, defaults({ photoDataUrls: ["h1", "h2"] }), { onlyFields: ["photoDataUrls"], previousDefaults: defaults() });
+    expect(out[0]!.photoDataUrls).toEqual(["h1", "h2"]);
+    expect(out[1]!.photoDataUrls).toEqual(["mine"]);
+    // Each room holds its own copy, never the house's array.
+    const house = defaults({ photoDataUrls: ["h1"] });
+    const copied = applyHouseDefaultsToRooms([room({ id: "c" })], house, { onlyFields: ["photoDataUrls"] });
+    expect(copied[0]!.photoDataUrls).not.toBe(house.photoDataUrls);
+  });
+
+  it("move-in instructions, entry photos and the arrival clip inherit the same way", () => {
+    const d = defaults({ moveInInstructions: "Key under the mat", moveInPhotoDataUrls: ["door"], moveInVideoDataUrl: "clip" });
+    const out = applyHouseDefaultsToRooms([room({ id: "a" })], d, { previousDefaults: defaults() });
+    expect(out[0]!.moveInInstructions).toBe("Key under the mat");
+    expect(out[0]!.moveInPhotoDataUrls).toEqual(["door"]);
+    expect(out[0]!.moveInVideoDataUrl).toBe("clip");
+  });
+
+  it("infers a photo list only when EVERY room carries the same one; facts still take the majority", () => {
+    const shared = [room({ photoDataUrls: ["x"], floor: "1st floor" }), room({ photoDataUrls: ["x"], floor: "1st floor" }), room({ photoDataUrls: ["x"], floor: "2nd floor" })];
+    expect(inferHouseDefaultsFromRooms(shared).photoDataUrls).toEqual(["x"]);
+    expect(inferHouseDefaultsFromRooms(shared).floor).toBe("1st floor");
+    const twoOfThree = [room({ photoDataUrls: ["x"] }), room({ photoDataUrls: ["x"] }), room({ photoDataUrls: ["y"] })];
+    expect(inferHouseDefaultsFromRooms(twoOfThree).photoDataUrls).toEqual([]);
+  });
+});
+

@@ -52,9 +52,9 @@ is a `"draft"` value on the existing `ManagerPropertyRecordStatus`
   wizard closes without writing anything (the baseline fingerprint captured on
   first render, `manager-listing-draft-autosave.ts`, compares the whole
   submission rather than an allowlist of fields, so a field added to the wizard
-  tomorrow is covered), and every EDIT mode (pending / live listing /
-  request-change / `preview` scope) is excluded, because those rows are already
-  persisted elsewhere and drafting one would fork it. A failed draft write leaves
+  tomorrow is covered). The v2 editor also debounce-saves live edits in place
+  (`updateExtraListingFromSubmissionOnServer`) so they never fork a draft.
+  Closing with X flushes remaining dirty work, then leaves. A failed draft write leaves
   the wizard OPEN with the work intact rather than closing on a lie — **but a
   failed save is never a locked door.** The inline notice names the server's
   own reason (`saveManagerPropertyDraftToServer` threads `onError` from
@@ -76,11 +76,11 @@ is a `"draft"` value on the existing `ManagerPropertyRecordStatus`
   count toward the plan property limit; **publishing** runs full validation +
   the limit gate like any new listing — so the wizard's `skuTier`/`skuLoaded`
   come from the one `/api/manager/subscription` load in `pro-properties.tsx`
-  (a null tier reads as "no limit", so Continue editing waits for `skuLoaded`).
+  (a null tier reads as "no limit", so Edit waits for `skuLoaded`).
   Saving also persists the wizard position (`draftStepIndex` /
   `draftMaxStepReached`) so resuming reopens on the saved step with the earlier
   chips unlocked. The list surface is the "Drafts" stage in `MANAGER_STAGES`
-  (`manager-house-properties-panel.tsx`) with Continue editing / Delete draft.
+  (`manager-house-properties-panel.tsx`) with Edit / Delete.
   Migration: `…_manager_property_records_draft_status.sql` adds `'draft'` to the
   status CHECK.
 - **The wizard is the only editor of a draft.** The drafts row (bucket 5) hides

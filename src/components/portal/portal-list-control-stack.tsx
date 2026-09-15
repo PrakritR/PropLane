@@ -125,7 +125,7 @@ export function PortalListControlStack({
       ) : null;
     }
     /*
-     * Controls with no tabs and no search (Vendors, Promotion) still get the
+     * Controls with no tabs and no search (Vendors) still get the
      * same card as every other section — never a bare right-aligned row on
      * the canvas, which is what "three loose pills" looked like.
      */
