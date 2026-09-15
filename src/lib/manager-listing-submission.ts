@@ -2698,7 +2698,7 @@ function positiveWholeNumber(value: unknown, max: number): number | undefined {
 function normalizePrefillRecord(raw: unknown): ListingPrefillRecordV1 | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const r = raw as Partial<ListingPrefillRecordV1>;
-  if (r.source !== "rentcast" && r.source !== "fixture") return undefined;
+  if (r.source !== "rentcast" && r.source !== "fixture" && r.source !== "file") return undefined;
   const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
   return {
     source: r.source,
