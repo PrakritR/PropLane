@@ -170,6 +170,13 @@ async function commitOneProperty(
     moveInAvailableDate: new Date().toISOString().slice(0, 10),
     rentBasis: "monthly",
     ...(typeof unit.sqft === "number" ? { sizeSqft: unit.sqft } : {}),
+    // A unit the file lists with several tenants ("Priya Nair & Tom Ellis") is
+    // rented by the bed: the database's capacity guard admits one resident per
+    // room unless the room says otherwise, so the second tenant would be refused
+    // with "No bed is available". Capacity follows the tenants the file names.
+    ...(unit.residentKeys.length > 1
+      ? { occupancyCapacity: Math.min(20, unit.residentKeys.length), bedCount: Math.min(20, unit.residentKeys.length) }
+      : {}),
   }));
 
   const submission: ManagerListingSubmissionV1 = normalizeManagerListingSubmissionV1({
