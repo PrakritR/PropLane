@@ -69,16 +69,25 @@ function makeDb() {
         }
         return [];
       };
+      let deleting = false;
       const builder: Record<string, unknown> = {
         select: () => builder,
         eq(column: string, value: string) {
           filters.eqCol = column;
           filters.eqVal = value;
+          if (deleting && table === "manager_application_records" && column === "id") {
+            APP_ROWS = APP_ROWS.filter((row) => row.id !== value);
+          }
           return builder;
         },
         in(column: string, values: string[]) {
           filters.inCol = column;
           filters.inVals = values;
+          return builder;
+        },
+        is: () => builder,
+        delete() {
+          deleting = true;
           return builder;
         },
         order: () => builder,
@@ -88,7 +97,7 @@ function makeDb() {
           return Promise.resolve({ data: null, error: null });
         },
         then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
-          return Promise.resolve({ data: rowsFor(), error: null }).then(resolve);
+          return Promise.resolve({ data: deleting ? null : rowsFor(), error: null }).then(resolve);
         },
       };
       return builder;

@@ -1395,10 +1395,11 @@ input[type="date"].portal-modal-date-input::-webkit-date-and-time-value {
   }
 }
 
-/* Defaults for the bottom-nav inset and the Ask PropLane clearance. On the WEB
-   both are zeroed by the `html:not([data-native])` rule further down (nothing
-   is pinned to the bottom of the website); `html[data-native]` declares its own
-   below and wins in the app. These values only ever feed the native app. */
+/* Mobile-web default for the bottom-nav inset (same var native uses below), so
+   `#portal-main-content` clears the fixed bottom bar on a phone-width browser
+   too, before JS measures the real bar height via
+   observeNativeBottomNavInset. `html[data-native]`'s own declaration below has
+   higher specificity and wins in the native app, so this only ever governs web. */
 :root {
   --portal-native-bottom-nav-inset: max(2.75rem, calc(env(safe-area-inset-bottom, 0px) + 2rem));
   /* FAB (~2.75–3rem) + breathing room so the last Needs-attention CTA stays
@@ -2360,24 +2361,18 @@ html[data-native] .portal-mobile-nav-bar {
   background: var(--background);
 }
 
-/* Nothing is pinned to the bottom of the WEB, on any viewport. The fixed tab
-   bar is native-only (`PortalSidebar` renders it only under the native
-   chrome), so a phone-width browser reserves no bar inset and no clearance for
-   the Ask PropLane button: the section chip strip (`.portal-mobile-chrome`)
-   is the phone's navigation and scrolls away with the page. `html[data-native]`
-   declares its own values for both vars below and wins on specificity, so the
-   app is unchanged. */
-html:not([data-native]) {
-  --portal-native-bottom-nav-inset: 0px;
-  --portal-assistant-fab-clearance: 0px;
-}
-
-/* Mobile web (<1024px, matches the shared `lg:hidden`/`max-lg:` breakpoint).
-   The `.portal-native-bottom-nav` rules mirror the native block above for the
-   one case the bar still renders here — a native shell on a small viewport.
+/* Mobile web (<1024px, matches the shared `lg:hidden`/`max-lg:` breakpoint):
+   mirrors the native bottom-nav rules above so a phone-width browser gets the
+   same fixed bar, retired top strip, and content clearance as the native app.
    Uses `env()` safe-area fallbacks directly instead of the native-only
-   `--native-safe-*` vars (those are undefined outside `html[data-native]`). */
+   `--native-safe-*` vars (those are undefined outside `html[data-native]`).
+   `html[data-native]` selectors above have higher specificity and still win
+   when both native and small-viewport match, so native behavior is unchanged. */
 @media (max-width: 1023px) {
+  .portal-mobile-chrome {
+    display: none !important;
+  }
+
   .portal-native-bottom-nav {
     position: fixed;
     left: 0;

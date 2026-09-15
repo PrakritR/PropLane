@@ -6,7 +6,7 @@ import { WORKSPACE_SELECTION_EVENT, activeWorkspaceScope, propertiesOutsideActiv
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, Home } from "lucide-react";
+import { ChevronDown, Home, Pencil, Trash2 } from "lucide-react";
 import {
   propertyRowAddress,
   propertyRowAddressLine,
@@ -868,6 +868,8 @@ function ManagerPropertyInlineDetails({
               variant="primary"
               className={propertyDetailFooterBtn}
               data-attr="draft-continue-editing"
+              aria-label="Continue editing"
+              title="Continue editing"
               onClick={() => {
                 if (!skuLoaded) {
                   showToast("Loading subscription…");
@@ -876,7 +878,11 @@ function ManagerPropertyInlineDetails({
                 setDraftEditorOpen(true);
               }}
             >
-              Continue editing
+              {/* A draft has two actions: the title row shows a pencil and a
+                  trash can at every width (see iconTitleActions); the words
+                  live in the aria-label and the tooltip. */}
+              <Pencil className="size-4" aria-hidden />
+              <span className="sr-only">Continue editing</span>
             </Button>
           ),
           menuItem: (
@@ -902,9 +908,12 @@ function ManagerPropertyInlineDetails({
               variant="outline"
               className={dangerBtnClass}
               data-attr="draft-delete"
+              aria-label="Delete draft"
+              title="Delete draft"
               onClick={() => setPendingDestructiveAction("delete-draft")}
             >
-              Delete draft
+              <Trash2 className="size-4" aria-hidden />
+              <span className="sr-only">Delete draft</span>
             </Button>
           ),
           menuItem: (
@@ -982,8 +991,12 @@ function ManagerPropertyInlineDetails({
           className="border-b border-border/40 bg-background"
           data-portal-property-detail-chrome
         >
+          {/* Desktop keeps the listing section tabs pinned at the top of the
+              preview pane. A phone gets them in the scrolling body instead,
+              under the sections disclosure and on top of the preview they
+              jump around — see the copy below. */}
           {isListingPreview && hasPreview ? (
-            <div className="w-full border-t border-border/60 bg-accent/30 px-1 py-1">
+            <div className="hidden w-full border-t border-border/60 bg-accent/30 px-1 py-1 lg:block">
               <ListingStickySubnav
                 mode="portal"
                 appearance="portal"
@@ -1026,6 +1039,23 @@ function ManagerPropertyInlineDetails({
           className="mt-2"
         />
       </details>
+      {/*
+        Phone: the Floors · Lease · Amenities tabs belong to the preview, not to
+        the page. They sit right under the sections disclosure and stick to the
+        top of the scroller once the preview is under way, so a section is one
+        tap away while reading.
+      */}
+      {isListingPreview && hasPreview ? (
+        // The wrapper eats the scroller's top padding so nothing peeks out
+        // above the strip once it is stuck to the top edge.
+        <div className="sticky -top-3 z-[45] -mt-3 bg-background pb-3 pt-3 lg:hidden">
+          <ListingStickySubnav
+            mode="portal"
+            appearance="portal"
+            className="rounded-lg border !border-border bg-card px-0.5"
+          />
+        </div>
+      ) : null}
       {isListingPreview ? (
         hasPreview ? (
           <>
@@ -1798,6 +1828,7 @@ export function ManagerHousePropertiesPanel({
         bareHeader
         dataAttrBack="property-detail-back"
         suppressMobileActions
+        iconTitleActions={sourceBucket === 5}
         pinScrollBody
         scrollBody={false}
       >
