@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -16,9 +16,6 @@ import {
   togglePortalListClusterSelection,
 } from "@/components/portal/application-household-list";
 
-import {
-  PortalDataTableEmpty,
-} from "@/components/portal/portal-data-table";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { DataList } from "@/components/ui/data-list";
 import { PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
@@ -213,6 +210,7 @@ export function ManagerPaymentsLedgerPanel({
   onEmbeddedDetailActions,
   onEmbeddedBulkActions,
   onAddPayment,
+  emptyCard,
   groupMode = "resident",
   linkedPropertyIds,
   canEditRow,
@@ -236,6 +234,8 @@ export function ManagerPaymentsLedgerPanel({
   onEmbeddedBulkActions?: (actions: ReactNode | null) => void;
   /** Dashed footer row — opens the add-charge / add-payment flow. */
   onAddPayment?: () => void;
+  /** The tab's empty card — the page owns the copy, tab counts and filter reset. */
+  emptyCard?: ComponentProps<typeof PortalRecordListSurface>["emptyCard"];
   groupMode?: PortalListGroupMode;
   /** Co-managed property ids — same set used to scope the Payments list. */
   linkedPropertyIds?: Set<string>;
@@ -1853,23 +1853,24 @@ export function ManagerPaymentsLedgerPanel({
       </PortalRecordDetailPage>
       )
     ) : !hasAnySource ? (
-      onAddPayment ? (
-        <PortalRecordListSurface
-          isEmpty
-          add={{
-            label: embeddedInResident ? "Add payment" : addPaymentLabel,
-            ariaLabel: addPaymentAriaLabel,
-            icon: PORTAL_LIST_ADD_ICONS.payment,
-            onClick: onAddPayment,
-            dataAttr: "payments-list-add",
-            ...(embeddedInResident ? { inline: false } : {}),
-          }}
-          className="pt-5 sm:pt-6"
-          dataAttr="payments-list-empty"
-        />
-      ) : (
-        <PortalDataTableEmpty message="No payments in this bucket yet." icon="payment" />
-      )
+      <PortalRecordListSurface
+        isEmpty
+        add={
+          onAddPayment
+            ? {
+                label: embeddedInResident ? "Add payment" : addPaymentLabel,
+                ariaLabel: addPaymentAriaLabel,
+                icon: PORTAL_LIST_ADD_ICONS.payment,
+                onClick: onAddPayment,
+                dataAttr: "payments-list-add",
+                ...(embeddedInResident ? { inline: false } : {}),
+              }
+            : undefined
+        }
+        emptyCard={emptyCard ?? (onAddPayment ? undefined : { title: "Nothing in this bucket", section: "payments" })}
+        className="pt-5 sm:pt-6"
+        dataAttr="payments-list-empty"
+      />
     ) : (
       <PortalRecordListSurface
         add={

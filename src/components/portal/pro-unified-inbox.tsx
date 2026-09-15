@@ -1,12 +1,15 @@
 "use client";
 
+import { PenSquare } from "lucide-react";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { portalEmptyCopy, portalEmptyNoMatchTitle, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { CommunicationRowActions } from "@/components/portal/communication-row-actions";
 import {
   invalidateManagerSmsConversationsClient,
   loadManagerSmsConversationsClient,
 } from "@/lib/manager-sms-conversations-client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   clearCommunicationThreadUrl,
   selectCommunicationThreadUrl,
@@ -28,12 +31,10 @@ import { CommunicationInboxInitialState } from "@/components/portal/communicatio
 import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
 import {
   INBOX_LIST_SCROLL,
-  InboxConversationListAddRow,
   InboxConversationRow,
   InboxThreadEmpty,
   InboxTwoPane,
   PORTAL_INBOX_LIST_TOOLBAR_CLASS,
-  PortalInboxEmptyState,
   type InboxListSegment,
 } from "@/components/portal/portal-inbox-ui";
 import {
@@ -188,6 +189,7 @@ export function ManagerUnifiedInbox({
   searchQuery: searchQueryProp,
   onSearchQueryChange,
   listChrome = "internal",
+  listActions,
   onAddConversation,
   onApplicationsLoaded,
 }: {
@@ -214,6 +216,8 @@ export function ManagerUnifiedInbox({
   onSearchQueryChange?: (value: string) => void;
   /** `external` — segment tabs + search live in {@link PortalListControlStack}. */
   listChrome?: "internal" | "external";
+  /** Icon tools drawn beside the internal search (filter · setup · settings · new message). */
+  listActions?: ReactNode;
   /** Opens the new-message / compose flow when the list is empty on Active. */
   onAddConversation?: () => void;
   /** Rebuild the parent-owned contact directory after its source has completed. */
@@ -919,15 +923,22 @@ export function ManagerUnifiedInbox({
       <ManagerWorkNumberCard onTellResidents={onAddConversation} />
       {listChrome === "internal" ? (
         <div className={PORTAL_INBOX_LIST_TOOLBAR_CLASS}>
-          <div className="relative min-w-0">
-            <input
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search contacts or messages"
-              className="portal-inbox-search h-9 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
-              data-attr="unified-inbox-search"
-            />
+          <div className="flex min-w-0 items-center gap-1">
+            <div className="relative min-w-0 flex-1">
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search contacts or messages"
+                className="portal-inbox-search h-9 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
+                data-attr="unified-inbox-search"
+              />
+            </div>
+            {listActions ? (
+              <div className="flex shrink-0 items-center gap-0.5 [&_button]:shrink-0 [&_a]:shrink-0" data-attr="communication-list-actions">
+                {listActions}
+              </div>
+            ) : null}
           </div>
           {listRows.length > 0 ? (
             <p className="hidden px-1 text-[11px] text-muted sm:block">
@@ -948,21 +959,34 @@ export function ManagerUnifiedInbox({
             onRetry={retryInitialList}
           />
         ) : listRows.length === 0 ? (
-          query.trim() ? (
-            <div className="p-4">
-              <PortalInboxEmptyState title={`No messages match “${query.trim()}”.`} />
-            </div>
-          ) : listSegment === "archived" ? (
-            <div className="p-4">
-              <PortalInboxEmptyState title="No archived conversations." />
-            </div>
-          ) : listSegment === "unread" ? (
-            <div className="p-4">
-              <PortalInboxEmptyState title="No unread conversations." />
-            </div>
-          ) : onAddConversation ? (
-            <InboxConversationListAddRow onClick={onAddConversation} />
-          ) : null
+          // The one empty card, compact for the list column (PLAN-0914-1629).
+          <div className="p-3">
+            {query.trim() ? (
+              <PortalListEmptyCard
+                compact
+                tone="muted"
+                section="communication"
+                workspaceAware={false}
+                title={portalEmptyNoMatchTitle("messages", query)}
+                clear={{ label: "Clear search", onClick: () => setQuery(""), dataAttr: "unified-inbox-empty-clear-search" }}
+                dataAttr="unified-inbox-empty"
+              />
+            ) : (
+              <PortalListEmptyCard
+                compact
+                section="communication"
+                workspaceAware={false}
+                title={portalEmptyCopy(`communication.${listSegment ?? "active"}` as PortalEmptyCopyKey).title}
+                sibling={listSegment && listSegment !== "active" ? { label: "Active conversations", href: `${commBase}/active`, dataAttr: "unified-inbox-empty-active" } : null}
+                actions={
+                  (listSegment ?? "active") === "active" && onAddConversation
+                    ? [{ label: "New message", icon: PenSquare, onClick: onAddConversation, dataAttr: "communication-add-conversation" }]
+                    : []
+                }
+                dataAttr="unified-inbox-empty"
+              />
+            )}
+          </div>
         ) : (
           listRows.map((row) => (
             <InboxConversationRow

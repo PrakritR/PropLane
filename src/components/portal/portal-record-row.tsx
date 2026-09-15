@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { ChevronRight } from "lucide-react";
+import { Bath, BedDouble, DoorOpen } from "lucide-react";
 import { InboxAvatar, InboxConversationRow } from "@/components/portal/portal-inbox-ui";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 
@@ -70,15 +70,20 @@ export function PortalPersonRecordRow({
 /**
  * Property-style card row.
  *
- * Title with a chevron, the address, a line of detail; on the right, a status
- * chip ("1 / 2 occupied") and the money in bold — the two things a manager
- * scans a list of homes for. On a phone the chip drops under the title and
- * the money stays on the right, so the row is still two lines and a glance.
+ * Title, the address, a line of detail; on the right, a status chip
+ * ("1 / 2 occupied") and the money in bold — the two things a manager scans a
+ * list of homes for. On a phone the chip drops under the title and the money
+ * stays on the right, so the row is still two lines and a glance.
+ *
+ * No chevron after the title: the whole row is the link and hover says so; the
+ * old "2 ›" read as a count (PLAN-0914-1345). Bed / bath / room counts come as
+ * glyphs (`meta`) rather than a grey sentence.
  */
 export function PortalPropertyRecordRow({
   title,
   address,
   summary,
+  meta,
   badge,
   chip,
   trailing,
@@ -92,6 +97,8 @@ export function PortalPropertyRecordRow({
   title: string;
   address: string;
   summary?: string;
+  /** Bed / bath / room counts drawn as glyphs under the address. */
+  meta?: { beds?: number; baths?: number; rooms?: number | null };
   badge?: ReactNode;
   /** Status chip — occupancy, stage — shown beside the money. */
   chip?: ReactNode;
@@ -116,9 +123,21 @@ export function PortalPropertyRecordRow({
     <>
       <p className="flex min-w-0 items-center gap-1 text-[15px] font-semibold leading-tight text-foreground">
         <span className="truncate">{title}</span>
-        {openable ? <ChevronRight className="size-4 shrink-0 text-muted/70" strokeWidth={2} aria-hidden /> : null}
       </p>
       <p className="truncate text-[13px] leading-relaxed text-muted">{address}</p>
+      {meta && (meta.beds || meta.baths || meta.rooms) ? (
+        <p className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted" data-attr="property-row-meta">
+          {meta.beds ? (
+            <span className="inline-flex items-center gap-1"><BedDouble className="size-3.5" strokeWidth={1.6} aria-hidden /><span className="sr-only">Bedrooms</span>{meta.beds}</span>
+          ) : null}
+          {meta.baths ? (
+            <span className="inline-flex items-center gap-1"><Bath className="size-3.5" strokeWidth={1.6} aria-hidden /><span className="sr-only">Bathrooms</span>{meta.baths}</span>
+          ) : null}
+          {meta.rooms ? (
+            <span className="inline-flex items-center gap-1"><DoorOpen className="size-3.5" strokeWidth={1.6} aria-hidden />{meta.rooms} {meta.rooms === 1 ? "room" : "rooms"}</span>
+          ) : null}
+        </p>
+      ) : null}
       {summary ? <p className="truncate text-xs text-muted">{summary}</p> : null}
       {badge || chip || trailing ? (
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -144,7 +163,7 @@ export function PortalPropertyRecordRow({
         // One white card per property — no group heading, no repeated status
         // badge — with the row title opening the record and a separate 44px
         // selection target.
-        "portal-property-row mb-2 flex w-full items-center gap-1 rounded-xl border bg-card px-3 py-2.5 shadow-sm transition-colors max-md:px-2.5",
+        "portal-property-row mb-2 flex w-full items-center gap-1 rounded-xl border bg-card px-3 py-3 shadow-sm transition-colors max-md:px-2.5 max-md:py-2.5",
         selected || checked ? "border-primary/40 bg-primary/[0.04]" : "border-border hover:border-primary/30",
       )}
     >

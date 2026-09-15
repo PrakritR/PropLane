@@ -1,38 +1,46 @@
 "use client";
 
 import { forwardRef, type ButtonHTMLAttributes } from "react";
-import type { LucideIcon } from "lucide-react";
+import { Plus, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
  * Utility control — Filter, Settings, Share, Export, Edit, Delete.
  *
- * An icon AND its word from `md` up (round 3: two lookalike glyphs at the end
- * of every list bar said nothing about which was Filter and which was
- * Settings). On a phone it is the bare glyph with a 44px hit target and the
- * word as the tooltip and accessible name. One icon per job, the same icon
- * everywhere. Primary create/confirm actions keep a regular `Button`.
+ * A bare glyph at every width. The word is the tooltip and the accessible
+ * name, never visible text: the captain's standing rule for list chrome is
+ * "icons for everything" (PLAN-0914-1345), the way Linear's filter / display
+ * controls and Shopify's list toolbars read. One icon per job, the same icon
+ * everywhere — `docs/portal-ui-system.md` keeps the vocabulary. A page's ONE
+ * prominent action is {@link PortalPrimaryIconAction}, the filled blue circle.
+ *
+ * `badge` marks state the glyph alone cannot: `"dot"` for an applied filter,
+ * a number for how many, `"warn"` (amber) for a setup step still open — a
+ * messaging number not yet assigned — and `"ok"` (green) for a connection
+ * that is live (Google Calendar).
  */
 export const PortalIconAction = forwardRef<
   HTMLButtonElement,
   ButtonHTMLAttributes<HTMLButtonElement> & {
     icon: LucideIcon;
-    /** Accessible name; doubles as the tooltip. "Filter · 2 active" shows as "Filter". */
+    /** Accessible name; doubles as the tooltip. "Filter · 2 active" shows as-is. */
     label: string;
-    /** The word shown beside the icon from `md` up; derived from `label` when omitted. */
+    /** @deprecated The word is never drawn now; kept so call sites need not change. */
     shortLabel?: string;
     /** Draws the glyph in the brand colour (e.g. a "new message" pen). */
     tone?: "default" | "primary" | "danger";
     /** Marks an active state (an applied filter) with a soft fill. */
     active?: boolean;
-    /** Icon only at every width (a toolbar that truly has no room). */
+    /** @deprecated Every icon action is icon-only now. */
     iconOnly?: boolean;
+    /** State the glyph cannot carry: an applied filter, a count, an open setup step. */
+    badge?: "dot" | "warn" | "ok" | number | null;
   }
 >(function PortalIconAction(
-  { icon: Icon, label, shortLabel, tone = "default", active = false, iconOnly = false, className, type = "button", ...rest },
+  // `shortLabel` / `iconOnly` are accepted and ignored — see the props above.
+  { icon: Icon, label, shortLabel: _shortLabel, tone = "default", active = false, iconOnly: _iconOnly, badge = null, className, type = "button", ...rest },
   ref,
 ) {
-  const word = shortLabel ?? visibleWord(label);
   return (
     <button
       ref={ref}
@@ -42,29 +50,76 @@ export const PortalIconAction = forwardRef<
       aria-pressed={active || undefined}
       data-slot="portal-icon-action"
       className={cn(
-        "inline-flex size-11 shrink-0 items-center justify-center rounded-lg border-0 bg-transparent p-0 outline-none transition md:size-10",
+        "relative inline-flex size-11 shrink-0 items-center justify-center rounded-lg border-0 bg-transparent p-0 outline-none transition md:size-9",
         "hover:bg-[var(--secondary)]/70 focus-visible:ring-2 focus-visible:ring-primary/30 active:bg-[var(--secondary)] disabled:opacity-50",
-        !iconOnly && "md:h-9 md:w-auto md:gap-1.5 md:rounded-full md:border md:border-border md:bg-card md:px-3 md:text-[13px] md:font-semibold md:hover:bg-accent/50",
         tone === "primary" ? "text-primary" : tone === "danger" ? "text-red-600" : "text-foreground/80 hover:text-foreground",
-        active && "bg-accent text-primary md:border-primary/40",
+        active && "bg-accent text-primary",
         className,
       )}
       {...rest}
     >
-      <Icon className="size-[18px] md:size-4" strokeWidth={1.75} aria-hidden />
-      {!iconOnly ? <span className="hidden md:inline">{word}</span> : null}
+      <Icon className="size-[18px]" strokeWidth={1.75} aria-hidden />
+      <PortalIconBadge badge={badge} />
     </button>
   );
 });
 
-/** "Filter · 2 active" → "Filter"; "Resident settings" → "Settings"; short labels stay whole. */
-function visibleWord(label: string): string {
-  const head = label.split(" · ")[0]!.trim();
-  if (head.length <= 12) return head;
-  const last = head.split(/\s+/).pop() ?? head;
-  return last.charAt(0).toUpperCase() + last.slice(1);
-}
+/**
+ * The page's ONE prominent action — "Add property", "Link Airbnb", "New
+ * message", "Upload". A filled blue circle, last in the list command bar, so
+ * it is the only filled control on the page and still reads as "the" action
+ * without a word. Same 44px target on phones as every other icon action.
+ */
+export const PortalPrimaryIconAction = forwardRef<
+  HTMLButtonElement,
+  ButtonHTMLAttributes<HTMLButtonElement> & {
+    /** Accessible name and tooltip — "Add property", never a bare "+". */
+    label: string;
+    /** Defaults to a plus; a section whose primary is not "add" passes its own glyph. */
+    icon?: LucideIcon;
+  }
+>(function PortalPrimaryIconAction({ label, icon: Icon = Plus, className, type = "button", ...rest }, ref) {
+  return (
+    <button
+      ref={ref}
+      type={type}
+      aria-label={label}
+      title={label}
+      data-slot="portal-primary-icon-action"
+      className={cn(
+        "portal-command-primary relative ml-0.5 inline-flex size-11 shrink-0 items-center justify-center rounded-full border-0 p-0 text-white outline-none transition md:size-9",
+        "bg-[var(--btn-primary)] shadow-[0_2px_6px_color-mix(in_srgb,var(--btn-primary)_40%,transparent)] focus-visible:ring-2 focus-visible:ring-primary/40 active:scale-95 disabled:opacity-50 disabled:shadow-none",
+        className,
+      )}
+      {...rest}
+    >
+      <Icon className="size-[18px]" strokeWidth={2.4} aria-hidden />
+    </button>
+  );
+});
 
-/** Blue primary page action beside the title ("+ Add property", "+ Add tour"). */
-export const PORTAL_PAGE_PRIMARY_ACTION_BTN =
-  "portal-command-primary box-border !h-10 !min-h-10 shrink-0 rounded-lg border border-transparent px-3.5 text-sm font-semibold shadow-none whitespace-nowrap";
+function PortalIconBadge({ badge }: { badge: "dot" | "warn" | "ok" | number | null }) {
+  if (badge == null || badge === 0) return null;
+  if (typeof badge === "number") {
+    return (
+      <span
+        aria-hidden
+        data-slot="portal-icon-badge"
+        className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[10px] font-extrabold leading-none text-white ring-2 ring-card"
+      >
+        {badge > 9 ? "9+" : badge}
+      </span>
+    );
+  }
+  return (
+    <span
+      aria-hidden
+      data-slot="portal-icon-badge"
+      data-tone={badge}
+      className={cn(
+        "absolute right-1 top-1 size-2 rounded-full ring-2 ring-card",
+        badge === "warn" ? "bg-amber-500" : badge === "ok" ? "bg-emerald-500" : "bg-primary",
+      )}
+    />
+  );
+}

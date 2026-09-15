@@ -4,7 +4,6 @@ import { loadManagerSmsConversationsClient } from "@/lib/manager-sms-conversatio
 import { PenSquare, Settings2 } from "lucide-react";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { CommunicationFilterSortFields } from "@/components/portal/communication-filter-sort-fields";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
@@ -17,14 +16,9 @@ import {
 } from "@/components/portal/pro-communication-compose-modal";
 import { ManagerWorkNumberButton } from "@/components/portal/pro-work-number-button";
 import { PortalCommunicationShell } from "@/components/portal/portal-communication-shell";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { getSettingsEntryPoint, settingsDialogTitlePrefix } from "@/components/portal/settings-entry-points";
-import {
-  PORTAL_HEADER_ACTION_BTN,
-  PORTAL_HEADER_PRIMARY_ACTION_BTN,
-} from "@/components/portal/portal-metrics";
 import {
   axisAdminFilterContact,
   EMPTY_COMMUNICATION_THREAD_FILTERS,
@@ -291,10 +285,9 @@ export function ManagerCommunication({
       // height. Constraining the panel to the band clips the last field, which
       // is what tests/unit/finance-documents-title-row-controls.test.ts pins.
       constrainDropdownToTitleBand={false}
-      // Content width. The shared compact trigger is a fixed 10.75rem, which on
-      // a one-word label leaves a visible gap inside the pill; `cn` is
-      // tailwind-merge, so the later class wins.
-      className="md:w-auto md:max-w-none"
+      // The same plain filter glyph every list bar uses; the word lives in the
+      // tooltip and the active count in the accessible name.
+      commandStripTrigger
       mobileFlushBody={true}
       onReset={() => {
         setFilters({ ...EMPTY_COMMUNICATION_THREAD_FILTERS, status: "active" });
@@ -307,18 +300,12 @@ export function ManagerCommunication({
   );
 
   const communicationNewMessageButton = (
-    <Button
-      type="button"
-      variant="primary"
-      className={`${PORTAL_HEADER_PRIMARY_ACTION_BTN} gap-1.5 max-sm:w-9 max-sm:px-0`}
+    <PortalPrimaryIconAction
+      icon={PenSquare}
+      label="New message"
       data-attr="communication-new-message"
-      aria-label="New message"
-      title="New message"
       onClick={() => openCompose("email")}
-    >
-      <PenSquare className="h-4 w-4 shrink-0" strokeWidth={2.25} aria-hidden />
-      <span className="hidden sm:inline">New message</span>
-    </Button>
+    />
   );
 
   const communicationCommandActions = (
@@ -329,7 +316,7 @@ export function ManagerCommunication({
           of the conversation list — so the two never appear together, and
           deleting this would remove the only entry to work-number setup (and
           the free-tier upsell behind it). */}
-      <ManagerWorkNumberButton className={PORTAL_HEADER_ACTION_BTN} />
+      <ManagerWorkNumberButton />
       {/*
         Every other section has a settings gear; Communication didn't. The
         panel this used to point at was phone verification — the resident's
@@ -357,7 +344,6 @@ export function ManagerCommunication({
   return (
     <PortalCommunicationShell
       title="Communication"
-      titleAside={communicationCommandActions}
       hideTitleOnMobileNav
       controlStack={controlStack}
       hideMobileFilterRow={threadOpen}
@@ -395,6 +381,9 @@ export function ManagerCommunication({
         onThreadOpenChange={setThreadOpen}
         onThreadSelectedChange={setThreadSelected}
         listChrome="internal"
+        // The tools sit beside the list's own search, not in a bare pill row
+        // above the split view (PLAN-0914-1345).
+        listActions={communicationCommandActions}
         onAddConversation={() => openCompose("email")}
         onApplicationsLoaded={refreshDirectory}
       />

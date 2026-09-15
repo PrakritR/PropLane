@@ -6,6 +6,31 @@ Full design tokens: [`design.md`](design.md). Implementation helpers: [`portal-l
 
 ---
 
+## Command bar: icons only, one filled primary (Sep 2026)
+
+Nothing sits above a manager list but the app bar. The tab card is the one
+command bar — **tabs with counts · search · icon-only tools · the section's
+primary as a filled blue circle, last** (`PortalListControlStack primary=`):
+
+- Utilities are `PortalIconAction`: a bare glyph at every width; the word is
+  the `aria-label` and tooltip, never visible text. `badge="dot"` / a number
+  marks an applied filter, `badge="warn"` an open setup step (messaging
+  number, payouts). Vocabulary: Filter `SlidersHorizontal` · Settings/Defaults
+  `Settings2` · Share link `Share2` · Add availability `CalendarPlus` · Block
+  dates `CalendarOff` · Vendor catalog `BookOpen` · Payment setup `Wrench` ·
+  Set up messaging `Phone`.
+- The primary is `PortalPrimaryIconAction`: `Plus` for "add"; `Link2` (Link
+  Airbnb), `PenSquare` (New message), `Upload` (documents), `FileBarChart`
+  (reports) where the job is not "add". Keep the accessible name specific
+  ("Add property"), keep the `data-attr`.
+- Exactly one add per screen: the bar's primary, plus the titled
+  `PortalListEmptyCard` button only while the list is empty. The dashed
+  `PortalListAddRow` survives only for an embedded ledger with no bar.
+- `ManagerPortalPageShell` no longer takes `primaryAction`; the headline row
+  it drew is gone. Guard: `tests/unit/manager-portal-no-headline-actions.test.ts`.
+- Phone: tabs strip, then search + icons + primary on one row; when a bar has
+  only a filter and the primary, they ride the tabs row.
+
 ## Structure
 
 ```
@@ -35,7 +60,6 @@ Use `PortalListSectionShell` as a thin alias when building new sections:
 ```tsx
 <PortalListSectionShell
   title="Vendors"
-  primaryAction={<PortalSectionPrimaryButton onClick={...}>Add vendor</PortalSectionPrimaryButton>}
   filterRow={<ManagerPortalFilterRow><TabNav ... /></ManagerPortalFilterRow>}
 >
   {rows.length === 0 ? <PortalDataTableEmpty message="..." /> : <table>...</table>}
@@ -49,7 +73,7 @@ Use `PortalListSectionShell` as a thin alias when building new sections:
 | # | Rule | How to verify |
 |---|------|---------------|
 | 1 | **One shell surface** — no nested `PORTAL_SECTION_SURFACE` in `children` | `rg PORTAL_SECTION_SURFACE` in the panel file; only the shell should use it |
-| 2 | **Header actions** in `titleAside` via `PortalSectionPrimaryButton` / `PORTAL_HEADER_ACTION_BTN` | Primary CTAs not buried in body |
+| 2 | **The primary is the bar's filled circle** (`PortalListControlStack primary={<PortalPrimaryIconAction … />}`), utilities are `PortalIconAction` glyphs — never a worded pill or a button above the bar | `tests/unit/manager-portal-no-headline-actions.test.ts` |
 | 3 | **Header actions reach mobile exactly once** — pick one of the two shapes below, never both | `tests/unit/portal-inline-title-band-duplicate-controls.test.tsx` |
 | 4 | **Section tabs** in `filterRow`, not in raw `children` | URL tabs → `TabNav`; status buckets → `ManagerPortalStatusPills` |
 | 5 | **Divider** below header/filter block | Provided by `ManagerPortalPageShell` (always-on `border-b`) |

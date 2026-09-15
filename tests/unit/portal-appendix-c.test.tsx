@@ -121,7 +121,8 @@ describe("portal-detail-routes", () => {
     expect(managerResidentTourDetailHref("/portal", "current", "res-1", "pending", "tour-1")).toBe(
       "/portal/residents/current/res-1/tours/pending/tour-1",
     );
-    expect(calendarViewHref("/portal", "availability")).toBe("/portal/calendar");
+    expect(calendarViewHref("/portal", "all")).toBe("/portal/calendar");
+    expect(calendarViewHref("/portal", "services")).toBe("/portal/calendar/services");
     expect(calendarViewHref("/portal", "bookings")).toBe("/portal/bookings/calendar");
     expect(bookingsHref("/portal")).toBe("/portal/bookings/calendar");
     expect(teamLinkHref("/portal", "linked")).toBe("/portal/teams/managers");
@@ -129,13 +130,15 @@ describe("portal-detail-routes", () => {
   });
 
   it("parses calendar and team routed tabs", () => {
-    expect(parseCalendarViewTab("availability")).toBe("availability");
-    expect(parseCalendarViewTab("bookings")).toBe("bookings");
-    expect(parseCalendarViewTab("services")).toBe("availability");
-    expect(parseCalendarViewTab("tours")).toBe("availability");
-    expect(parseCalendarViewTab("all")).toBe("availability");
-    expect(parseCalendarViewTab("")).toBe("availability");
-    expect(parseCalendarViewTab("nonsense")).toBe("availability");
+    // Four views of the week (PLAN-0914-1710); retired names and `bookings` (its own section) land on All.
+    expect(parseCalendarViewTab("all")).toBe("all");
+    expect(parseCalendarViewTab("tours")).toBe("tours");
+    expect(parseCalendarViewTab("services")).toBe("services");
+    expect(parseCalendarViewTab("tasks")).toBe("tasks");
+    expect(parseCalendarViewTab("availability")).toBe("all");
+    expect(parseCalendarViewTab("bookings")).toBe("all");
+    expect(parseCalendarViewTab("")).toBe("all");
+    expect(parseCalendarViewTab("nonsense")).toBe("all");
     expect(parseTeamLinkTab("linked")).toBe("linked");
     expect(parseTeamLinkTab(undefined)).toBe("pending");
   });

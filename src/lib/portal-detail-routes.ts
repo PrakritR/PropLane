@@ -309,30 +309,37 @@ export function residentPaymentDetailHref(
 }
 
 
-/** Portfolio calendar views — availability editing and channel bookings only. */
-export const CALENDAR_VIEW_TABS = ["availability", "bookings"] as const;
+/**
+ * Portfolio calendar sections (PLAN-0914-1710): one week grid, four views of it.
+ * `all` is every PropLane event with Google busy time as the backdrop; the other
+ * three show one kind alone. `/portal/calendar` renders `all`.
+ */
+export const CALENDAR_VIEW_TABS = ["all", "tours", "services", "tasks"] as const;
 export type CalendarViewTabId = (typeof CALENDAR_VIEW_TABS)[number];
 
 export const CALENDAR_VIEW_TAB_LABELS: Record<CalendarViewTabId, string> = {
-  availability: "Schedule",
-  bookings: "Bookings",
+  all: "All",
+  tours: "Tours",
+  services: "Services",
+  tasks: "Tasks",
 };
+
+export const DEFAULT_CALENDAR_VIEW: CalendarViewTabId = "all";
 
 /** Combined tours + service orders live under Operations → Tours, not Calendar. */
 export const PORTFOLIO_TOURS_HREF = "/portal/tours";
 
+/** Retired view names (`schedule`, `availability`) and anything unknown land on `all`. */
 export function parseCalendarViewTab(raw: string | undefined | null): CalendarViewTabId {
-  if (raw === "schedule") return "availability";
-  if (raw === "all" || raw === "tours" || raw === "services") return "availability";
   if (raw && (CALENDAR_VIEW_TABS as readonly string[]).includes(raw)) {
     return raw as CalendarViewTabId;
   }
-  return "availability";
+  return DEFAULT_CALENDAR_VIEW;
 }
 
-export function calendarViewHref(basePath: string, tab: CalendarViewTabId): string {
+export function calendarViewHref(basePath: string, tab: CalendarViewTabId | "bookings"): string {
   if (tab === "bookings") return managerBookingListHref(basePath, DEFAULT_MANAGER_BOOKING_BUCKET);
-  return `${basePath}/calendar`;
+  return tab === DEFAULT_CALENDAR_VIEW ? `${basePath}/calendar` : `${basePath}/calendar/${tab}`;
 }
 
 export function bookingsHref(basePath: string): string {

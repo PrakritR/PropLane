@@ -4,7 +4,7 @@ import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { tourFormatLabel } from "@/lib/tour-format";
-import { PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
+import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
 import { ManagerAddScheduledTourModal } from "@/components/portal/pro-add-scheduled-tour-modal";
@@ -19,9 +19,9 @@ import {
   getSettingsEntryPoint,
   settingsDialogTitlePrefix,
 } from "@/components/portal/settings-entry-points";
-import { ManagerPortalPageShell, PORTAL_COMMAND_ACTION_BTN } from "@/components/portal/portal-metrics";
-import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
-import { Settings2, Share2 } from "lucide-react";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { CalendarPlus, Settings2, Share2 } from "lucide-react";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -1388,16 +1388,13 @@ export function ManagerTours({
         actions={
           <>
             {filterSheet}
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_COMMAND_ACTION_BTN}
+            <PortalIconAction
+              icon={CalendarPlus}
+              label="Add availability"
               data-attr="tours-add-availability-open"
               onClick={() => setAvailabilityOpen(true)}
               disabled={!authReady || scopedPropertyIds.length === 0}
-            >
-              Add availability
-            </Button>
+            />
             <PortalIconAction
               icon={Settings2}
               label={toursSettingsEntry.label}
@@ -1413,19 +1410,49 @@ export function ManagerTours({
             />
           </>
         }
+        primary={
+          <PortalPrimaryIconAction
+            label="Add tour"
+            disabled={!authReady || scopedPropertyIds.length === 0}
+            data-attr="tours-add-open"
+            onClick={() => setAddTourOpen(true)}
+          />
+        }
         activeFilterChips={activeFilterChips}
       />
 
       <PortalRecordListSurface
         isEmpty={authReady && rowsForBucket.length === 0}
-        add={{
-          label: "Add tour",
-          ariaLabel: "Schedule tour",
-          icon: PORTAL_LIST_ADD_ICONS.tour,
-          onClick: () => setAddTourOpen(true),
-          disabled: !authReady || scopedPropertyIds.length === 0,
-          dataAttr: "tours-list-add",
-        }}
+        emptyCard={
+          filterTouchCount > 0
+            ? {
+                title: portalEmptyNoMatchTitle("tours"),
+                section: "tours",
+                tone: "muted",
+                clear: { label: "Clear filters", onClick: () => setPropertyFilters([]), dataAttr: "tours-empty-clear-filters" },
+              }
+            : {
+                title: portalEmptyCopy(`tours.${bucket}` as PortalEmptyCopyKey).title,
+                section: "tours",
+                sibling: portalEmptySibling(
+                  tabs.map((t) => ({ id: t.id, label: t.label, count: t.count, href: listHrefForBucket(t.id) })),
+                  bucket,
+                ),
+                // Past tours are history; only the live tabs offer the pill.
+                actions:
+                  bucket === "past"
+                    ? []
+                    : [
+                        {
+                          label: "Schedule tour",
+                          onClick: () => setAddTourOpen(true),
+                          disabled: !authReady || scopedPropertyIds.length === 0,
+                          reason: scopedPropertyIds.length === 0 ? "List a property first — tours are booked against a listing." : undefined,
+                          dataAttr: "tours-list-add",
+                        },
+                      ],
+              }
+        }
         onBulkClear={() => setSelectedIds(new Set())}
         bulkCount={selectedIds.size}
         bulkActions={listBulkActions}
@@ -1490,17 +1517,6 @@ export function ManagerTours({
       hideTitleOnMobileNav
       titleInlineFilter={null}
       compactFilterRow
-      primaryAction={
-        <Button
-          type="button"
-          className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
-          disabled={!authReady || scopedPropertyIds.length === 0}
-          data-attr="tours-add-open"
-          onClick={() => setAddTourOpen(true)}
-        >
-          + Add tour
-        </Button>
-      }
     >
       {listPageContent}
     </ManagerPortalPageShell>

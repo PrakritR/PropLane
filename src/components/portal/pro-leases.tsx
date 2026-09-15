@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { ManagerEditLeasesModal } from "@/components/portal/pro-edit-leases-modal";
 import { ManagerAddLeaseModal } from "@/components/portal/pro-add-lease-modal";
 import { ManagerLeasesPipelinePanel } from "@/components/portal/pro-leases-pipeline-panel";
@@ -17,7 +16,8 @@ import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-f
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { Settings2 } from "lucide-react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import type { ManagerLeaseTab } from "@/data/demo-portal";
@@ -289,16 +289,6 @@ export function ManagerLeases({
           titleInlineFilter={null}
         hideTitleOnMobileNav
         compactFilterRow
-        primaryAction={
-          <Button
-            type="button"
-            className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
-            data-attr="leases-add-top"
-            onClick={() => setAddLeaseOpen(true)}
-          >
-            + Add lease
-          </Button>
-        }
       >
         <PortalListControlStack
           className="mb-2 max-lg:mb-1.5"
@@ -321,6 +311,13 @@ export function ManagerLeases({
           activeDestinationId={tab}
           destinationAriaLabel="Lease pipeline stage"
           actions={leasesListActions}
+          primary={
+            <PortalPrimaryIconAction
+              label="Add lease"
+              data-attr="leases-add-top"
+              onClick={() => setAddLeaseOpen(true)}
+            />
+          }
           activeFilterChips={
             propertyFilters.length > 0 ? (
               <PortalActiveFilterChips
@@ -344,6 +341,29 @@ export function ManagerLeases({
           leaseId={leaseIdProp}
           listBasePath={basePath}
           onAddLease={() => setAddLeaseOpen(true)}
+          emptyCard={
+            propertyFilters.length > 0
+              ? {
+                  title: portalEmptyNoMatchTitle("leases"),
+                  section: "leases",
+                  tone: "muted",
+                  clear: { label: "Clear filters", onClick: () => setPropertyFilters([]), dataAttr: "leases-empty-clear-filters" },
+                }
+              : {
+                  title: portalEmptyCopy(`leases.${tab}` as PortalEmptyCopyKey).title,
+                  section: "leases",
+                  sibling: portalEmptySibling(
+                    tabs.map((t) => ({ id: t.id, label: t.label, count: t.count, href: leaseListHref(basePath, t.id) })),
+                    tab,
+                  ),
+                  // A lease waits on the resident or on your signature — adding one there
+                  // would land in Manager review, so only the tabs a new lease reaches offer the pill.
+                  actions:
+                    tab === "resident" || tab === "signed"
+                      ? []
+                      : [{ label: "Add lease", onClick: () => setAddLeaseOpen(true), dataAttr: "leases-list-add" }],
+                }
+          }
         />
       </ManagerPortalPageShell>
       {modals}

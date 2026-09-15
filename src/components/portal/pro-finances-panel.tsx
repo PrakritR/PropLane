@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { Button } from "@/components/ui/button";
 import { ExpenseRowMenu } from "@/components/portal/expense-row-menu";
 import { Input, Select } from "@/components/ui/input";
@@ -530,7 +532,7 @@ function FinancesFilterSheet({
       filterFieldCount={filterFieldCount}
       constrainDropdownToTitleBand
       mobileFlushBody
-      className="min-w-0 w-auto shrink-0 max-md:w-full max-md:[&_button]:w-full max-md:[&_button]:px-2.5 md:!w-auto md:!max-w-none"
+      commandStripTrigger
       onReset={onReset}
       dataAttr="finances-filter-sheet-open"
       open={open}
@@ -1070,6 +1072,22 @@ export function ManagerFinancesPanel({
           dataAttr: tabId === "income" ? "finances-list-add-income" : "finances-list-add-expense",
         }
       : undefined;
+  // The one empty card (PLAN-0914-1629): the tab's title, or the muted no-match with Clear.
+  const financesEmptyCard = (hasRows: boolean): ComponentProps<typeof PortalRecordListSurface>["emptyCard"] =>
+    hasRows
+      ? {
+          title: portalEmptyNoMatchTitle("entries"),
+          section: "financials",
+          tone: "muted",
+          clear: { label: "Clear filters", onClick: resetFinanceFilters, dataAttr: "finances-empty-clear-filters" },
+        }
+      : {
+          title: tabId === "income" || tabId === "expenses" ? portalEmptyCopy(`finances.${tabId}`).title : "No entries yet",
+          section: "financials",
+          actions: financesListAddRow
+            ? [{ label: financesListAddRow.ariaLabel, onClick: financesListAddRow.onClick, dataAttr: financesListAddRow.dataAttr }]
+            : [],
+        };
 
   const financesOverviewControls = isOverviewTab ? (
     <>
@@ -1168,12 +1186,7 @@ export function ManagerFinancesPanel({
           isTransactionTab ? (
             <PortalRecordListSurface
               isEmpty={filteredReport.rows.length === 0}
-              empty={
-                report && report.rows.length > 0 ? (
-                  <PortalDataTableEmpty message="No finance entries match your search or filters." icon="finance" />
-                ) : null
-              }
-              add={financesListAddRow}
+              emptyCard={financesEmptyCard(Boolean(report && report.rows.length > 0))}
               dataAttr="finances-transaction-list"
             >
               {filteredReport.rows.length > 0 ? (
@@ -1194,13 +1207,11 @@ export function ManagerFinancesPanel({
           ) : (
           <div className="space-y-3">
             {filteredReport.rows.length === 0 ? (
-              <PortalDataTableEmpty
-                message={
-                  (report?.rows.length ?? 0) > 0
-                    ? "No finance entries match your search or filters."
-                    : "No finance entries yet."
-                }
-                icon="finance"
+              <PortalListEmptyCard
+                section="financials"
+                tone={(report?.rows.length ?? 0) > 0 ? "muted" : "default"}
+                title={(report?.rows.length ?? 0) > 0 ? portalEmptyNoMatchTitle("entries") : "No entries yet"}
+                clear={(report?.rows.length ?? 0) > 0 ? { label: "Clear filters", onClick: resetFinanceFilters, dataAttr: "finances-empty-clear-filters" } : null}
               />
             ) : (
                 <FinancesDataTable
@@ -1216,7 +1227,7 @@ export function ManagerFinancesPanel({
           </div>
           )
         ) : isTransactionTab ? (
-          <PortalRecordListSurface isEmpty add={financesListAddRow} dataAttr="finances-transaction-list" />
+          <PortalRecordListSurface isEmpty emptyCard={financesEmptyCard(false)} dataAttr="finances-transaction-list" />
         ) : (
           // A report tab (trial balance, GL, cash flow) whose report is null and
           // is not loading used to render an empty body with no explanation.

@@ -1,6 +1,7 @@
 /**
- * Portfolio calendar is schedule-only; Bookings is a separate sidebar section.
- * Tours and service orders live at `/portal/tours`.
+ * Portfolio calendar has four views of one week — All · Tours · Services ·
+ * Tasks (PLAN-0914-1710); Bookings is a separate sidebar section and the
+ * combined tours + service-orders hub still lives at `/portal/tours`.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -11,6 +12,7 @@ import {
   PROPERTY_CALENDAR_SUB_TABS,
   PROPERTY_CALENDAR_SUB_TAB_LABELS,
   TOURS_HUB_TABS,
+  calendarViewHref,
   parseCalendarViewTab,
   parsePropertyCalendarSubTab,
   parseToursHubTab,
@@ -21,8 +23,8 @@ import {
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
 describe("portfolio calendar and bookings nav", () => {
-  it("still parses availability and bookings view ids for PortalCalendar", () => {
-    expect([...CALENDAR_VIEW_TABS]).toEqual(["availability", "bookings"]);
+  it("offers All, Tours, Services and Tasks views of the week", () => {
+    expect([...CALENDAR_VIEW_TABS]).toEqual(["all", "tours", "services", "tasks"]);
   });
 
   it("every view id has a label", () => {
@@ -37,18 +39,26 @@ describe("portfolio calendar and bookings nav", () => {
     }
   });
 
-  it("legacy tour and service paths land on availability", () => {
-    for (const raw of ["all", "tours", "services", "", null, undefined, "bogus"]) {
-      expect(parseCalendarViewTab(raw)).toBe("availability");
+  it("retired view names and anything unknown land on All", () => {
+    for (const raw of ["availability", "schedule", "", null, undefined, "bogus"]) {
+      expect(parseCalendarViewTab(raw)).toBe("all");
     }
+  });
+
+  it("All is the index route; the other views are one segment deep", () => {
+    expect(calendarViewHref("/portal", "all")).toBe("/portal/calendar");
+    expect(calendarViewHref("/portal", "tasks")).toBe("/portal/calendar/tasks");
+    expect(calendarViewHref("/portal", "bookings")).toBe("/portal/bookings/calendar");
   });
 
   it("calendar page is schedule-only; bookings is a dedicated sidebar section", () => {
     const src = read("src/components/portal/portal-calendar.tsx");
     expect(src).not.toContain("bookingsPage");
     expect(src).not.toContain('calendarView === "bookings"');
-    expect(src).not.toContain('label: "Schedule"');
     expect(src).not.toContain('label: "Bookings"');
+    // The section's own tabs come from the route table, not hand-written labels.
+    expect(src).toContain("CALENDAR_VIEW_TABS.map(");
+    expect(src).toContain("scheduledMeetingFilter={scheduledMeetingFilter}");
     const nav = read("src/lib/portals/nav-groups.ts");
     expect(nav).toContain('"bookings"');
     const render = read("src/lib/render-portal-section.tsx");

@@ -635,17 +635,10 @@ export function ManagerPortalPageShell({
   stickyPageChrome = true,
   surfaceCard = false,
   count,
-  primaryAction,
 }: {
   title: string;
   subtitle?: string;
   titleAside?: ReactNode;
-  /**
-   * The page's one prominent action ("+ Add property"), drawn beside the title at
-   * every breakpoint. Utility tools (Filter, Settings, Share) belong in the list
-   * command row as plain icons, not here.
-   */
-  primaryAction?: ReactNode;
   /** Filter pill immediately beside the page title (the title band). Pass `null` to opt into the band without a filter. */
   titleInlineFilter?: ReactNode | null;
   /** Inline on the title row (Appendix D4 — direction switch beside page title). */
@@ -685,7 +678,13 @@ export function ManagerPortalPageShell({
   // the section, so the page must keep its own title on phones.
   const mobileNavProvidesTitle = useWorkspaces() == null;
   const hideTitleOnMobileNavEffective = mobileNavProvidesTitle && hideTitleOnMobileNav;
-  const useHeadline = primaryAction != null || (subtitle != null && !welcomeSubtitle && !titleAside && !titleTrailing);
+  /*
+   * The page's one prominent action ("+ Add property") no longer lives beside
+   * the title — with the title hidden that was a 56px band holding one button.
+   * It is the `primary` of the list command bar (PortalListControlStack). The
+   * headline layout survives only for a page with a plain subtitle.
+   */
+  const useHeadline = subtitle != null && !welcomeSubtitle && !titleAside && !titleTrailing;
   const useInlineTitleBand = Boolean(
     !useHeadline &&
       hideTitleOnMobileNavEffective &&
@@ -731,7 +730,6 @@ export function ManagerPortalPageShell({
           title={title}
           subtitle={subtitle}
           count={count}
-          primaryAction={primaryAction}
           filter={titleInlineFilter ?? undefined}
         />
       ) : useInlineTitleBand ? (

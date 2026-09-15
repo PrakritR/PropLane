@@ -23,7 +23,7 @@ describe("Add tour matches every other tab's ADD row", () => {
   });
 
   it("no longer forces the compact footer at every state", () => {
-    const add = tours.split('ariaLabel: "Schedule tour"')[1]?.split("}}")[0] ?? "";
+    const add = tours.split('label: "Schedule tour"')[1]?.split("}}")[0] ?? "";
     expect(add).not.toContain("inline: true");
   });
 
@@ -31,12 +31,12 @@ describe("Add tour matches every other tab's ADD row", () => {
     // Assert on the absence of a `className` override rather than on style
     // strings — the explanatory comment beside it names them, so a substring
     // search matches the comment and passes for the wrong reason.
-    const add = tours.split('ariaLabel: "Schedule tour"')[1]?.split("}}")[0] ?? "";
+    const add = tours.split('label: "Schedule tour"')[1]?.split("}}")[0] ?? "";
     expect(add).not.toContain("className:");
   });
 
-  it("still renders an Add tour affordance", () => {
-    expect(tours).toContain('label: "Add tour"');
+  it("still renders a Schedule tour affordance — the one empty card's pill", () => {
+    expect(tours).toContain('label: "Schedule tour"');
     expect(tours).toContain('dataAttr: "tours-list-add"');
   });
 

@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CalendarDays } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
@@ -105,19 +104,10 @@ export function ManagerBookingsListPanel({
 
         <PortalRecordListSurface
           isEmpty={filtered.length === 0}
-          empty={
-            <div className="flex flex-col items-center justify-center gap-2 px-4 py-12 text-center">
-              <CalendarDays className="h-8 w-8 text-muted" aria-hidden />
-              <p className="text-sm font-medium text-foreground">No stays in this view</p>
-              <p className="max-w-xs text-xs text-muted">
-                {listTab === "all"
-                  ? "Link Airbnb or sign a lease to see bookings here."
-                  : listTab === "check_ins"
-                    ? "No arrivals in the next two weeks."
-                    : "No departures in the next two weeks."}
-              </p>
-            </div>
-          }
+          emptyCard={{
+            title: listTab === "all" ? "No bookings yet" : listTab === "check_ins" ? "No arrivals coming up" : "No departures coming up",
+            section: "bookings",
+          }}
           dataAttr="bookings-list-panel"
         >
           {filtered.map((entry) => {

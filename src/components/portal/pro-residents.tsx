@@ -5,7 +5,8 @@ import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
 import { Link2, Settings2 } from "lucide-react";
-import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { InspectionsPanel } from "@/components/portal/inspections-panel";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { cn } from "@/lib/utils";
@@ -1234,22 +1235,6 @@ export function ManagerResidents({
       return aNum - bNum;
     });
   }, [residentDirectoryRows, propertyFilters, residentsTab]);
-
-  const hasResidentsInOtherTab = useMemo(
-    () => residentDirectoryRows.some((row) => row.stage !== residentsTab),
-    [residentDirectoryRows, residentsTab],
-  );
-
-  const residentsListEmptyMessage = useMemo(() => {
-    if (!directorySourcesReady) return "Loading residents…";
-    if (propertyFilters.length > 0) return "No residents match this filter.";
-    if (hasResidentsInOtherTab) {
-      if (residentsTab === "past") return "No past residents yet.";
-      if (residentsTab === "potential") return "No potential residents yet.";
-      return "No current residents yet.";
-    }
-    return "No residents yet.";
-  }, [directorySourcesReady, hasResidentsInOtherTab, propertyFilters.length, residentsTab]);
 
   const residentTabCounts = useMemo(() => {
     const counts: Record<ResidentsTabId, number> = { potential: 0, current: 0, past: 0 };
@@ -4055,16 +4040,6 @@ export function ManagerResidents({
           hideTitleOnMobileNav
         titleInlineFilter={null}
         compactFilterRow
-        primaryAction={
-          <Button
-            type="button"
-            className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
-            data-attr="residents-add-top"
-            onClick={() => setAddResidentOpen(true)}
-          >
-            + Add resident
-          </Button>
-        }
       >
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
@@ -4088,6 +4063,13 @@ export function ManagerResidents({
               onClick={() => openResidentDetailSettings("resident")}
             />
           </>
+        }
+        primary={
+          <PortalPrimaryIconAction
+            label="Add resident"
+            data-attr="residents-add-top"
+            onClick={() => setAddResidentOpen(true)}
+          />
         }
         activeFilterChips={
           propertyFilters.length > 0 || groupMode !== RESIDENT_LIST_DEFAULT_GROUP_MODE ? (
@@ -4133,10 +4115,32 @@ export function ManagerResidents({
         loadError={directoryError && !directorySourcesReady ? "Could not load residents. Your records are still saved." : undefined}
         onRetry={() => setDirectoryRetry((n) => n + 1)}
         isEmpty={filtered.length === 0}
-        empty={
-          residentDirectoryRows.length > 0 || propertyFilters.length > 0 ? (
-            <PortalDataTableEmpty icon="residents" message={residentsListEmptyMessage} />
-          ) : null
+        emptyCard={
+          propertyFilters.length > 0
+            ? {
+                title: portalEmptyNoMatchTitle("residents"),
+                section: "residents",
+                tone: "muted",
+                clear: { label: "Clear filters", onClick: () => setPropertyFilters([]), dataAttr: "residents-empty-clear-filters" },
+              }
+            : {
+                title: portalEmptyCopy(`residents.${residentsTab}` as PortalEmptyCopyKey).title,
+                section: "residents",
+                sibling: portalEmptySibling(
+                  RESIDENT_DIRECTORY_TABS.map((t) => ({
+                    id: t,
+                    label: RESIDENT_DIRECTORY_TAB_LABELS[t],
+                    count: residentTabCounts[t],
+                    href: residentListHref(portalBase, t),
+                  })),
+                  residentsTab,
+                ),
+                // Past residents are history; a new resident starts as potential or current.
+                actions:
+                  residentsTab === "past"
+                    ? []
+                    : [{ label: "Add resident", onClick: () => setAddResidentOpen(true), dataAttr: "residents-empty-add" }],
+              }
         }
         onBulkClear={clearSelection}
         bulkCount={listSelectedCount}

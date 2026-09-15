@@ -65,7 +65,7 @@ describe("ManagerPortfolioBookingsCalendar", () => {
     const hubTabs = within(screen.getAllByRole("tablist", { name: "Bookings layout" })[0]!);
     fireEvent.click(hubTabs.getByRole("tab", { name: "List" }));
     expect(screen.getByText("All stays (0)")).toBeTruthy();
-    expect(screen.getByText(/No stays in this view/i)).toBeTruthy();
+    expect(screen.getByText("No bookings yet")).toBeTruthy();
   });
 
   it("hides the list hub toggle in calendar-only mode", async () => {
