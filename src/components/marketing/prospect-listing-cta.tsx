@@ -18,6 +18,8 @@ type ProspectListingCtaProps = {
   children: ReactNode;
   "data-attr"?: string;
   applyParams?: Omit<RentalApplyFromListingParams, "propertyId">;
+  /** Open in a new tab — a manager's own preview must not navigate the portal away. */
+  newTab?: boolean;
 };
 
 export function ProspectListingCta({
@@ -27,6 +29,7 @@ export function ProspectListingCta({
   children,
   "data-attr": dataAttr,
   applyParams,
+  newTab = false,
 }: ProspectListingCtaProps) {
   const autofill = useProspectContactAutofill();
 
@@ -52,7 +55,13 @@ export function ProspectListingCta({
   };
 
   return (
-    <Link href={href} className={className} data-attr={dataAttr} onClick={onClick}>
+    <Link
+      href={href}
+      className={className}
+      data-attr={dataAttr}
+      onClick={onClick}
+      {...(newTab ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+    >
       {children}
     </Link>
   );

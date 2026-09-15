@@ -1106,6 +1106,9 @@ function ManagerPropertyInlineDetails({
       {isListingPreview ? (
         hasPreview ? (
           <>
+            {/* The preview IS the public page (PLAN-0914-2124): the same
+                component the renter sees, with one manager extra — the empty
+                photo band's "Add photos" button opens the listing editor. */}
             <ListingDetailSections
               property={previewProperty!}
               rich={rich!}
@@ -1113,6 +1116,19 @@ function ManagerPropertyInlineDetails({
               expandSectionsOnMobile
               managerPreviewChrome
               hidePortalSubnav
+              onAddPhotos={
+                bucket === 5
+                  ? () => {
+                      if (!skuLoaded) {
+                        showToast("Loading subscription…");
+                        return;
+                      }
+                      setDraftEditorOpen(true);
+                    }
+                  : canEditListing
+                    ? () => openFullListingEditor()
+                    : undefined
+              }
             />
           </>
         ) : bucket === 3 || bucket === 5 ? (

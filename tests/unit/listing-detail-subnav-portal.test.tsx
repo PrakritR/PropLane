@@ -32,7 +32,7 @@ describe("ListingStickySubnav — portal property preview", () => {
     expect(list).not.toBeNull();
     expect(list?.className).toContain("grid");
     expect(list?.className).toContain("w-full");
-    expect(document.querySelectorAll('[data-attr="listing-section-tab"]').length).toBe(6);
+    expect(document.querySelectorAll('[data-attr="listing-section-tab"]').length).toBe(7);
   });
 
   it("uses compact equal-width tabs in pinned listing preview shell", () => {

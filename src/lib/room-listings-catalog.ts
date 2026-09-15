@@ -166,6 +166,43 @@ function availabilityLabel(room: ListingRoomRow, roomChoiceValue: string): strin
   return raw;
 }
 
+/**
+ * How a room's raw availability string reads to a renter: move in now, later,
+ * or not at all. The browse card's "Available now" pill and its "2 available
+ * now" count come from THIS, never from a loose text match, so "Available
+ * Oct 1" is never counted as now. Uses the same phrases `availabilityLabel`
+ * already recognises.
+ */
+export type RoomAvailabilityKind = "now" | "later" | "unavailable";
+
+export function classifyRoomAvailability(raw: string): RoomAvailabilityKind {
+  const a = raw.trim().toLowerCase();
+  if (!a) return "now";
+  if (/\bunavailable\b|not available|no longer available|fully booked|\bleased\b|\boccupied\b/.test(a)) {
+    return "unavailable";
+  }
+  // "Available now until Sept 19" is a room you can move into today; the date is when it ends.
+  if (/available\s+now\b/.test(a)) return "now";
+  if (
+    /available\s+(after|from|on|starting)|\bwaitlist\b|available soon\b|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\b\.?\s*\d|\d{1,2}\/\d{1,2}/.test(
+      a,
+    )
+  ) {
+    return "later";
+  }
+  if (a.includes("available") || a === "now") return "now";
+  return "later";
+}
+
+/** The short "Private bath" / "Shared bath" a browse card can carry; empty when the listing does not say. */
+export function shortBathHint(hint: string): string {
+  const h = hint.toLowerCase();
+  if (!h || h === "bath setup on listing") return "";
+  if (/private|en[- ]?suite/.test(h)) return "Private bath";
+  if (/shared|hall|person/.test(h)) return "Shared bath";
+  return "";
+}
+
 function bathroomHintFromRoom(room: ListingRoomRow): string {
   const accessLines = room.modal.bathroomAccessLines?.filter((line) => line.trim());
   if (accessLines?.length) return accessLines.join(" · ");
@@ -383,6 +420,8 @@ export function filterRoomListings(
     zipRaw: string;
     radiusMiles: number;
     maxBudgetNum: number | null;
+    /** Lower bound on the monthly-equivalent rent (the browse budget range's left thumb). */
+    minBudgetNum?: number | null;
     bathroom: string;
     bedroom?: string;
     petFriendly?: boolean;
@@ -434,6 +473,12 @@ export function filterRoomListings(
           ? true
           : rentNumeric !== null && rentNumeric <= opts.maxBudgetNum;
       if (!budgetOk) continue;
+      const minBudget = opts.minBudgetNum;
+      const minBudgetOk =
+        minBudget == null || !Number.isFinite(minBudget) || minBudget <= 0
+          ? true
+          : rentNumeric !== null && rentNumeric >= minBudget;
+      if (!minBudgetOk) continue;
 
       rows.push({
         key: `${p.id}:${room.id}`,
@@ -515,10 +560,25 @@ export type PropertyBrowseCard = {
   priceLabel: string;
   roomCount: number;
   petFriendly: boolean;
+  /** Bathrooms on the property (`propertyBaths`); 0 when unknown. */
+  bathCount: number;
+  /** "Private bath" / "Shared bath" for the headline (cheapest) room; empty when the listing does not say. */
+  bathHint: string;
+  /** What the card's availability pill says: "Available now", or the earliest later room's own wording. */
+  availabilityLabel: string;
+  availabilityKind: RoomAvailabilityKind;
+  /** Rooms a renter could move into now (see `classifyRoomAvailability`). */
+  availableNowCount: number;
+  /** Highest headline rent among rooms priced by the same period as the headline, for "$1,000 – $1,300". Equals `headlineRent` when all rooms match. */
+  rentMaxNumeric: number | null;
+  /** Every distinct uploaded photo on the property, in slide order, for the card's dots. Empty means no genuine photo. */
+  photoUrls: string[];
 };
 
 export type PropertyBrowseFilters = {
   maxBudgetNum?: number | null;
+  /** Lower bound of the budget range; omitted or 0 means no floor. */
+  minBudgetNum?: number | null;
   bathroom?: string;
   bedroom?: string;
   moveIn?: string;
@@ -536,13 +596,28 @@ export type PropertyBrowseFilters = {
 
 export type BrowseSortId = "price-asc" | "price-desc" | "neighborhood";
 
-function aggregateRoomRowsToPropertyCards(roomRows: RoomListingRow[]): PropertyBrowseCard[] {
+function cardAvailability(rows: RoomListingRow[]): Pick<PropertyBrowseCard, "availabilityLabel" | "availabilityKind" | "availableNowCount"> {
+  let nowCount = 0;
+  let later: string | null = null;
+  for (const row of rows) {
+    const kind = classifyRoomAvailability(row.availabilityRaw);
+    if (kind === "now") nowCount += 1;
+    else if (kind === "later" && later === null) later = row.availabilityRaw.trim();
+  }
+  if (nowCount > 0) return { availabilityLabel: "Available now", availabilityKind: "now", availableNowCount: nowCount };
+  if (later) return { availabilityLabel: later, availabilityKind: "later", availableNowCount: 0 };
+  return { availabilityLabel: "Not available", availabilityKind: "unavailable", availableNowCount: 0 };
+}
+
+export function aggregateRoomRowsToPropertyCards(roomRows: RoomListingRow[]): PropertyBrowseCard[] {
   const byProperty = new Map<string, PropertyBrowseCard>();
+  const rowsByProperty = new Map<string, RoomListingRow[]>();
 
   for (const row of roomRows) {
     const photo = row.mediaSlides.find((s) => s.kind === "photo")?.src?.trim();
     const imageUrl = photo ?? "";
     const existing = byProperty.get(row.propertyId);
+    rowsByProperty.set(row.propertyId, [...(rowsByProperty.get(row.propertyId) ?? []), row]);
 
     if (!existing) {
       byProperty.set(row.propertyId, {
@@ -556,6 +631,13 @@ function aggregateRoomRowsToPropertyCards(roomRows: RoomListingRow[]): PropertyB
         priceLabel: row.priceLabel,
         roomCount: 1,
         petFriendly: row.petFriendly,
+        bathCount: Number.isFinite(row.propertyBaths) && row.propertyBaths > 0 ? row.propertyBaths : 0,
+        bathHint: shortBathHint(row.bathroomHint),
+        availabilityLabel: "",
+        availabilityKind: "now",
+        availableNowCount: 0,
+        rentMaxNumeric: null,
+        photoUrls: [],
       });
       continue;
     }
@@ -571,8 +653,28 @@ function aggregateRoomRowsToPropertyCards(roomRows: RoomListingRow[]): PropertyB
       existing.headlineRent = row.headlineRent;
       existing.pricePeriod = row.pricePeriod;
       existing.priceLabel = row.priceLabel;
+      existing.bathHint = shortBathHint(row.bathroomHint);
     }
     if (!existing.imageUrl && imageUrl) existing.imageUrl = imageUrl;
+  }
+
+  for (const card of byProperty.values()) {
+    const rows = rowsByProperty.get(card.propertyId) ?? [];
+    Object.assign(card, cardAvailability(rows));
+    const samePeriod = rows
+      .filter((r) => r.pricePeriod === card.pricePeriod && typeof r.headlineRent === "number")
+      .map((r) => r.headlineRent as number);
+    card.rentMaxNumeric = samePeriod.length ? Math.max(...samePeriod) : card.headlineRent;
+    const seen = new Set<string>();
+    for (const row of rows) {
+      for (const slide of row.mediaSlides) {
+        if (slide.kind !== "photo") continue;
+        const src = slide.src?.trim();
+        if (src && !seen.has(src)) seen.add(src);
+      }
+    }
+    card.photoUrls = [...seen];
+    if (!card.imageUrl && card.photoUrls[0]) card.imageUrl = card.photoUrls[0];
   }
 
   return [...byProperty.values()];
@@ -617,6 +719,7 @@ export function buildPropertyBrowseCards(
     zipRaw: "",
     radiusMiles: 50,
     maxBudgetNum: filters.maxBudgetNum ?? null,
+    minBudgetNum: filters.minBudgetNum ?? null,
     bathroom: filters.bathroom ?? "any",
     bedroom: filters.bedroom ?? "any",
     moveIn: filters.moveIn,

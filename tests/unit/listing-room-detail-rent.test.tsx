@@ -78,9 +78,9 @@ describe("room detail modal — rent", () => {
   it("leads the stat grid, so utilities can never read as the price of the room", () => {
     renderRoom(roomRow());
     const labels = screen
-      .getAllByText(/^(Rent|Floor \/ level|Utilities)$/)
+      .getAllByText(/^(Rent|Floor|Utilities)$/)
       .map((n) => n.textContent);
-    expect(labels).toEqual(["Rent", "Floor / level", "Utilities"]);
+    expect(labels).toEqual(["Rent", "Floor", "Utilities"]);
   });
 
   it("says 'Not set' rather than '$0' when the room has no rent", () => {

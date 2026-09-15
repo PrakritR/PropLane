@@ -1,56 +1,73 @@
 "use client";
 
+import { ChevronDown } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 export const listingSectionScrollClass =
   "scroll-mt-[var(--listing-sticky-stack,calc(env(safe-area-inset-top,0px)+9.5rem))]";
 
+/** Kept for callers that still wrap something in the old card chrome. */
 export const listingSectionCardClass =
   "rounded-2xl border border-border bg-card shadow-sm backdrop-blur-sm";
 
-const viewPillClass =
-  "flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-full border border-border bg-accent/35 px-4 py-1.5 text-sm font-semibold text-foreground transition hover:bg-accent/50";
-
-function CollapseChevron({ open }: { open: boolean }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 20 20"
-      fill="currentColor"
-      className={`h-4 w-4 transition-transform duration-200 ${open ? "rotate-180" : ""}`}
-      aria-hidden
-    >
-      <path
-        fillRule="evenodd"
-        d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z"
-        clipRule="evenodd"
-      />
-    </svg>
-  );
-}
-
-function ViewToggleButton({
+/**
+ * One section of the listing page (PLAN-0914-2124): a flat block under a hairline,
+ * never a card inside a card. On a phone, when `collapseOnMobile` is on, the
+ * whole heading row is the toggle and a chevron says which way it goes; from
+ * `md` up every section is simply open.
+ */
+function SectionHeading({
+  id,
+  title,
+  eyebrow,
+  headerAside,
+  collapsible,
   open,
-  onClick,
-  dataAttr,
-  className = "",
+  onToggle,
+  dataAttrToggle,
 }: {
+  id?: string;
+  title: string;
+  eyebrow?: string;
+  headerAside?: ReactNode;
+  collapsible: boolean;
   open: boolean;
-  onClick: () => void;
-  dataAttr?: string;
-  className?: string;
+  onToggle: () => void;
+  dataAttrToggle?: string;
 }) {
+  const heading = (
+    <div className="min-w-0 flex-1">
+      {eyebrow ? <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted">{eyebrow}</p> : null}
+      <h2 className="text-lg font-bold tracking-tight text-foreground sm:text-xl" id={id ? `${id}-heading` : undefined}>
+        {title}
+      </h2>
+    </div>
+  );
+  if (!collapsible) {
+    return (
+      <div className="flex items-center justify-between gap-3">
+        {heading}
+        {headerAside ? <div className="shrink-0">{headerAside}</div> : null}
+      </div>
+    );
+  }
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      data-attr={dataAttr}
-      aria-expanded={open}
-      className={`${viewPillClass} ${className}`}
-    >
-      {open ? "Hide" : "View"}
-      <CollapseChevron open={open} />
-    </button>
+    <div className="flex items-center justify-between gap-3">
+      <button
+        type="button"
+        onClick={onToggle}
+        data-attr={dataAttrToggle}
+        aria-expanded={open}
+        className="flex min-h-[44px] min-w-0 flex-1 items-center gap-3 text-left md:pointer-events-none"
+      >
+        {heading}
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-muted transition-transform duration-200 md:hidden ${open ? "rotate-180" : ""}`}
+          aria-hidden
+        />
+      </button>
+      {headerAside ? <div className="shrink-0">{headerAside}</div> : null}
+    </div>
   );
 }
 
@@ -61,10 +78,10 @@ export function ListingDetailCollapsibleSection({
   headerAside,
   children,
   collapseOnMobile = true,
+  defaultOpen = false,
   dataAttrToggle,
   className = "",
   contentClassName = "",
-  compact = false,
 }: {
   id?: string;
   title: string;
@@ -73,55 +90,39 @@ export function ListingDetailCollapsibleSection({
   children: ReactNode;
   /** When true (default), content is collapsed on small screens; md+ always expanded. */
   collapseOnMobile?: boolean;
+  /** Start open on a phone (the first section a renter wants). */
+  defaultOpen?: boolean;
   dataAttrToggle?: string;
   className?: string;
   contentClassName?: string;
+  /** Accepted for old callers; every section is the same shape now. */
   compact?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const mobileContentClass = collapseOnMobile
-    ? open
-      ? "block"
-      : "hidden md:block"
-    : "block";
-  const cardPadding = compact ? "p-4 sm:p-5" : "p-5 sm:p-7";
-  const titleClass = compact
-    ? "text-base font-semibold leading-snug sm:text-lg"
-    : "text-lg leading-snug sm:text-2xl font-bold";
+  const [open, setOpen] = useState(defaultOpen);
+  const mobileContentClass = collapseOnMobile ? (open ? "block" : "hidden md:block") : "block";
 
   return (
-    <section id={id} className={`${listingSectionScrollClass} ${className}`}>
-      <div className={`${listingSectionCardClass} ${cardPadding}`}>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div className="min-w-0 flex-1 pr-1">
-            {eyebrow ? (
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted">{eyebrow}</p>
-            ) : null}
-            <h2
-              className={`tracking-tight text-foreground ${eyebrow ? `mt-1 ${titleClass}` : `${titleClass}`}`}
-            >
-              {title}
-            </h2>
-          </div>
-          <div className="flex shrink-0 items-center gap-2 self-start sm:self-auto">
-            {headerAside ? <div className="shrink-0">{headerAside}</div> : null}
-            {collapseOnMobile ? (
-              <ViewToggleButton
-                open={open}
-                onClick={() => setOpen((v) => !v)}
-                dataAttr={dataAttrToggle}
-                className="md:hidden"
-              />
-            ) : null}
-          </div>
-        </div>
-        <div className={`${compact ? "mt-4 sm:mt-5" : "mt-5 sm:mt-6"} ${mobileContentClass} ${contentClassName}`}>{children}</div>
-      </div>
+    <section
+      id={id}
+      className={`${listingSectionScrollClass} border-t border-border pt-6 first:border-t-0 first:pt-0 ${className}`}
+      aria-labelledby={id ? `${id}-heading` : undefined}
+    >
+      <SectionHeading
+        id={id}
+        title={title}
+        eyebrow={eyebrow}
+        headerAside={headerAside}
+        collapsible={collapseOnMobile}
+        open={open}
+        onToggle={() => setOpen((v) => !v)}
+        dataAttrToggle={dataAttrToggle}
+      />
+      <div className={`mt-4 ${mobileContentClass} ${contentClassName}`}>{children}</div>
     </section>
   );
 }
 
-/** Title row + View pill (House rules style). Content hidden until expanded on mobile; always visible md+. */
+/** Same section, for prose: when there is nothing to show it says so in one line. */
 export function ListingDetailCollapsibleSimpleSection({
   id,
   title,
@@ -131,7 +132,7 @@ export function ListingDetailCollapsibleSimpleSection({
   dataAttrToggle,
   className = "",
   collapseOnMobile = true,
-  compact = false,
+  defaultOpen = false,
 }: {
   id?: string;
   title: string;
@@ -141,37 +142,31 @@ export function ListingDetailCollapsibleSimpleSection({
   dataAttrToggle?: string;
   className?: string;
   collapseOnMobile?: boolean;
+  defaultOpen?: boolean;
   compact?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const mobileContentClass = collapseOnMobile
-    ? open
-      ? "block"
-      : "hidden md:block"
-    : "block";
-  const cardPadding = compact ? "p-4 sm:p-5" : "p-5 sm:p-7";
-  const titleClass = compact ? "text-lg font-semibold sm:text-xl" : "text-xl font-bold sm:text-2xl";
+  const [open, setOpen] = useState(defaultOpen);
+  const mobileContentClass = collapseOnMobile ? (open ? "block" : "hidden md:block") : "block";
 
   return (
-    <section id={id} className={`${listingSectionScrollClass} ${className}`}>
-      <div className={`${listingSectionCardClass} ${cardPadding}`}>
-        <div className="flex items-center justify-between gap-4">
-          <h2 className={`tracking-tight text-foreground ${titleClass}`}>{title}</h2>
-          {hasContent && collapseOnMobile ? (
-            <ViewToggleButton
-              open={open}
-              onClick={() => setOpen((v) => !v)}
-              dataAttr={dataAttrToggle}
-              className="md:hidden"
-            />
-          ) : null}
-        </div>
-        {!hasContent && emptyMessage ? (
-          <p className="mt-4 text-sm leading-relaxed text-muted">{emptyMessage}</p>
-        ) : hasContent ? (
-          <div className={`${compact ? "mt-4 sm:mt-5" : "mt-5 sm:mt-6"} ${mobileContentClass}`}>{children}</div>
-        ) : null}
-      </div>
+    <section
+      id={id}
+      className={`${listingSectionScrollClass} border-t border-border pt-6 first:border-t-0 first:pt-0 ${className}`}
+      aria-labelledby={id ? `${id}-heading` : undefined}
+    >
+      <SectionHeading
+        id={id}
+        title={title}
+        collapsible={hasContent && collapseOnMobile}
+        open={open}
+        onToggle={() => setOpen((v) => !v)}
+        dataAttrToggle={dataAttrToggle}
+      />
+      {!hasContent && emptyMessage ? (
+        <p className="mt-3 text-sm text-muted">{emptyMessage}</p>
+      ) : hasContent ? (
+        <div className={`mt-4 ${mobileContentClass}`}>{children}</div>
+      ) : null}
     </section>
   );
 }
