@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
-import { CalendarDays } from "lucide-react";
+import { useMemo, useState, type ComponentProps, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
 import {
   BookingsDayDetailModal,
@@ -32,6 +32,7 @@ export function ManagerBookingsListView({
   onToggleSelected,
   onOpenDay,
   bulkActions,
+  emptyCard,
 }: {
   entries: PropertyBookingEntry[];
   loading?: boolean;
@@ -40,6 +41,8 @@ export function ManagerBookingsListView({
   onToggleSelected: (key: string, selected: boolean) => void;
   onOpenDay?: (dayKey: string) => void;
   bulkActions?: ReactNode;
+  /** The tab's empty card — the page owns the copy, tab counts and Link Airbnb. */
+  emptyCard?: ComponentProps<typeof PortalRecordListSurface>["emptyCard"];
 }) {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailDayKey, setDetailDayKey] = useState<string | null>(null);
@@ -70,24 +73,11 @@ export function ManagerBookingsListView({
     });
   }, [detailDayKey]);
 
-  const emptyCopy =
-    bucket === "past"
-      ? "No past stays in this view."
-      : bucket === "inhouse"
-        ? "No guests are in-house right now."
-        : "Use Link Airbnb above or sign a lease to see bookings here.";
-
   return (
     <>
       <PortalRecordListSurface
         isEmpty={!loading && entries.length === 0}
-        empty={
-          <div className="flex flex-col items-center justify-center gap-2 px-4 py-12 text-center">
-            <CalendarDays className="h-8 w-8 text-muted" aria-hidden />
-            <p className="text-sm font-medium text-foreground">No stays in this view</p>
-            <p className="max-w-xs text-xs text-muted">{emptyCopy}</p>
-          </div>
-        }
+        emptyCard={emptyCard ?? { title: portalEmptyCopy(`bookings.${bucket}`).title, section: "bookings" }}
         onBulkClear={() => { for (const key of selectedKeys) onToggleSelected(key, false); }}
         bulkCount={selectedKeys.size}
         bulkActions={bulkActions}

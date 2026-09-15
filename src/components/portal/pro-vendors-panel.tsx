@@ -2,6 +2,7 @@
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 
 import { BookOpen, Settings2 } from "lucide-react";
 import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
@@ -528,8 +529,8 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     vendors.length === 0 ? (
       // An empty list says so in words; "Add vendor" is the bar's filled primary.
       <PortalListEmptyCard
-        title="No vendors yet."
-        description="Add the tradespeople you dispatch to. Each one gets their own sign-in, and you assign houses per vendor."
+        section="vendors"
+        title={portalEmptyCopy("vendors").title}
         actions={[{ label: "Add vendor", onClick: () => openAddVendorForm(), dataAttr: "vendors-empty-add" }]}
         dataAttr="vendors-empty"
       />

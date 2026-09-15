@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ManagerPortalPageShell, PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
@@ -26,7 +27,6 @@ import {
   DEMO_PROMOTION_GENERATED_EVENT,
 } from "@/lib/demo/demo-playback";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
-import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PromotionAssetStack, promotionAssetCanEdit } from "@/components/portal/promotion-asset-list";
@@ -955,11 +955,16 @@ export function ManagerPromotion({
           // The dashed "+ Add" box is gone: the bar's + adds, and an empty tab
           // says what it holds like every other section (§15 titled empty card).
           assets.length > 0 ? (
-            <PortalDataTableEmpty icon="data" message="No promotions match these filters." />
+            <PortalListEmptyCard
+              section="promotion"
+              tone="muted"
+              title={portalEmptyNoMatchTitle("promotions")}
+              clear={{ label: "Clear filters", onClick: () => setPropertyFilters([]), dataAttr: "promotion-empty-clear-filters" }}
+            />
           ) : (
             <PortalListEmptyCard
-              title="No promotions yet"
-              description="A flyer, a text blast or a listing boost — pick a home and start one."
+              section="promotion"
+              title={portalEmptyCopy("promotion").title}
               actions={[{ label: "New promotion", onClick: () => openNewPromotion(), dataAttr: "promotion-list-add" }]}
             />
           )

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
@@ -41,6 +41,7 @@ import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-f
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { Settings2 } from "lucide-react";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
@@ -86,7 +87,6 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { useShallowTabId } from "@/components/ui/tabs";
-import { PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 
 type FilterType = "requests" | "work-orders";
 
@@ -574,12 +574,27 @@ export function ManagerAllServicesPanel({
     );
   }
 
-  const servicesListAdd = {
-    ariaLabel: "Add service",
-    icon: PORTAL_LIST_ADD_ICONS.service,
-    onClick: () => setAddServiceOpen(true),
-    dataAttr: "services-list-add",
-  };
+  const servicesEmptyCard: ComponentProps<typeof PortalRecordListSurface>["emptyCard"] =
+    propertyFilters.length > 0
+      ? {
+          title: portalEmptyNoMatchTitle("services"),
+          section: "services",
+          tone: "muted",
+          clear: { label: "Clear filters", onClick: () => setPropertyFilters([]), dataAttr: "services-empty-clear-filters" },
+        }
+      : {
+          title: portalEmptyCopy(`services.${serviceState}` as PortalEmptyCopyKey).title,
+          section: "services",
+          sibling: portalEmptySibling(
+            SERVICE_STATE_TABS.map((tab) => ({ id: tab.id, label: tab.label, count: unifiedCounts[tab.id], onSelect: () => setServiceState(tab.id) })),
+            serviceState,
+          ),
+          // Done and Declined are outcomes; a new service starts open.
+          actions:
+            serviceState === "done" || serviceState === "declined"
+              ? []
+              : [{ label: "Add service", onClick: () => setAddServiceOpen(true), dataAttr: "services-list-add" }],
+        };
 
   const servicesListDestinations = (
     <LocalDestinationNav
@@ -627,7 +642,7 @@ export function ManagerAllServicesPanel({
         }
         activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
       />
-      <PortalRecordListSurface isEmpty={visibleUnifiedRows.length === 0} add={servicesListAdd} onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
+      <PortalRecordListSurface isEmpty={visibleUnifiedRows.length === 0} emptyCard={servicesEmptyCard} onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
         <>
           <PortalAdaptiveActionRow actions={bulkSelectionActions} />
         </>

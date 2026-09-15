@@ -17,6 +17,7 @@ import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { Settings2 } from "lucide-react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import type { ManagerLeaseTab } from "@/data/demo-portal";
@@ -340,6 +341,29 @@ export function ManagerLeases({
           leaseId={leaseIdProp}
           listBasePath={basePath}
           onAddLease={() => setAddLeaseOpen(true)}
+          emptyCard={
+            propertyFilters.length > 0
+              ? {
+                  title: portalEmptyNoMatchTitle("leases"),
+                  section: "leases",
+                  tone: "muted",
+                  clear: { label: "Clear filters", onClick: () => setPropertyFilters([]), dataAttr: "leases-empty-clear-filters" },
+                }
+              : {
+                  title: portalEmptyCopy(`leases.${tab}` as PortalEmptyCopyKey).title,
+                  section: "leases",
+                  sibling: portalEmptySibling(
+                    tabs.map((t) => ({ id: t.id, label: t.label, count: t.count, href: leaseListHref(basePath, t.id) })),
+                    tab,
+                  ),
+                  // A lease waits on the resident or on your signature — adding one there
+                  // would land in Manager review, so only the tabs a new lease reaches offer the pill.
+                  actions:
+                    tab === "resident" || tab === "signed"
+                      ? []
+                      : [{ label: "Add lease", onClick: () => setAddLeaseOpen(true), dataAttr: "leases-list-add" }],
+                }
+          }
         />
       </ManagerPortalPageShell>
       {modals}

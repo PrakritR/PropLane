@@ -15,6 +15,7 @@ import {
   propertyRowThumbnail,
   propertyRowTitle,
 } from "@/lib/property-row-summary";
+import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import {
   propertyAttention,
   propertyAttentionParts,
@@ -1252,6 +1253,7 @@ export function ManagerHousePropertiesPanel({
   onAddProperty,
   addPropertyDisabled = false,
   searchQuery = "",
+  onClearSearch,
 }: {
   showToast: (m: string) => void;
   activeStage: ManagerStageKey;
@@ -1268,6 +1270,8 @@ export function ManagerHousePropertiesPanel({
   addPropertyDisabled?: boolean;
   /** Free-text match against the row title, address, and neighborhood (list view only). */
   searchQuery?: string;
+  /** Clears the parent-owned search box from the no-match card. */
+  onClearSearch?: () => void;
 }) {
   const router = useRouter();
   const { userId: managerUserId, ready: authReady } = useManagerUserId();
@@ -1807,14 +1811,11 @@ export function ManagerHousePropertiesPanel({
    * and the one action. No bare dashed box.
    */
   const renderEmptyState = () => {
-    const sibling = MANAGER_STAGES.filter((s) => s.key !== activeStage && (stageCounts[s.key] ?? 0) > 0)[0];
-    const copy: Record<string, { title: string; description: string }> = {
-      all: { title: "No homes yet", description: "Every home you add appears here — listed, off the market, or still a draft." },
-      listed: { title: "No listed homes yet", description: "Homes you publish appear here, where renters can find and apply to them." },
-      unlisted: { title: "Nothing unlisted", description: "A home you take off the market waits here until you relist it." },
-      drafts: { title: "No drafts in progress", description: "A home you start and save without publishing waits here." },
-    };
-    const c = copy[activeStage] ?? { title: "Nothing here yet", description: "" };
+    const sibling = portalEmptySibling(
+      MANAGER_STAGES.map((s) => ({ id: s.key, label: s.label, count: stageCounts[s.key], href: propertyListHref(propertiesBase, s.key) })),
+      activeStage,
+    );
+    const copy = portalEmptyCopy(`properties.${activeStage}` as PortalEmptyCopyKey);
     /*
      * A workspace that holds nothing while the account holds homes elsewhere is
      * not "no homes yet" — the homes are one switch away. Name the workspace and
@@ -1824,37 +1825,39 @@ export function ManagerHousePropertiesPanel({
     const scope = activeWorkspaceScope();
     const elsewhere = propertiesOutsideActiveWorkspace();
     const emptyWorkspace = scope && !searchQuery.trim() && scope.propertyCount === 0 && elsewhere > 0;
+    if (searchQuery.trim()) {
+      return (
+        <PortalListEmptyCard
+          workspaceAware={false}
+          tone="muted"
+          section="properties"
+          title={portalEmptyNoMatchTitle("homes", searchQuery)}
+          clear={onClearSearch ? { label: "Clear search", onClick: onClearSearch, dataAttr: "manager-properties-empty-clear-search" } : null}
+          dataAttr="manager-properties-empty"
+        />
+      );
+    }
     return (
       <PortalListEmptyCard
         // Properties writes its own workspace copy: it is the one list where
         // adding a home in the empty workspace is exactly the right next step.
         workspaceAware={false}
-        title={searchQuery.trim() ? "No homes match that search" : emptyWorkspace ? `Nothing in ${scope.name} yet` : c.title}
-        description={
-          searchQuery.trim()
-            ? "Try another name, address or neighborhood."
-            : emptyWorkspace
-              ? `Your ${elsewhere} ${elsewhere === 1 ? "home lives" : "homes live"} in another workspace. Switch workspaces from the menu at the top of the sidebar, or move homes here from Settings.`
-              : c.description
-        }
+        section="properties"
+        title={emptyWorkspace ? `Nothing in ${scope.name} yet` : copy.title}
         sibling={
           emptyWorkspace
             ? {
-                label: "Manage workspaces · move homes here",
+                label: `${elsewhere} ${elsewhere === 1 ? "home" : "homes"} in other workspaces`,
                 href: "/portal/profile?tab=workspaces",
                 dataAttr: "manager-properties-empty-workspaces",
               }
             : sibling
-              ? {
-                  label: `${stageCounts[sibling.key]} ${sibling.label.toLowerCase()} · open ${sibling.label}`,
-                  href: propertyListHref(propertiesBase, sibling.key),
-                  dataAttr: `manager-properties-empty-sibling-${sibling.key}`,
-                }
+              ? { ...sibling, dataAttr: `manager-properties-empty-sibling` }
               : null
         }
         actions={
           onAddProperty
-            ? [{ label: "Add property", onClick: onAddProperty, disabled: addPropertyDisabled, dataAttr: "manager-properties-create" }]
+            ? [{ label: "Add property", onClick: onAddProperty, disabled: addPropertyDisabled, reason: addPropertyDisabled ? "Loading your plan…" : undefined, dataAttr: "manager-properties-create" }]
             : []
         }
         dataAttr="manager-properties-empty"

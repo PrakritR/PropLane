@@ -12,6 +12,7 @@ import {
 import { ManagerBookingsListView } from "@/components/portal/manager-bookings-list-view";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling } from "@/lib/portal-empty-copy";
 import { CalendarOff, Link2, Settings2 } from "lucide-react";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
@@ -421,6 +422,46 @@ function useBookingsWorkspace({
         }}
         onOpenDay={openCalendarForDay}
         bulkActions={listBulkActions}
+        emptyCard={
+          propertyFilters.length > 0 || roomFilterId
+            ? {
+                title: portalEmptyNoMatchTitle("bookings"),
+                section: "bookings",
+                tone: "muted",
+                clear: {
+                  label: "Clear filters",
+                  onClick: () => {
+                    setPropertyFilters([]);
+                    onRoomFilterIdChange?.("");
+                  },
+                  dataAttr: "bookings-empty-clear-filters",
+                },
+              }
+            : {
+                title: portalEmptyCopy(`bookings.${listBucket}`).title,
+                section: "bookings",
+                sibling: basePath
+                  ? portalEmptySibling(
+                      tabs.map((tab) => ({ id: tab.id, label: tab.label, count: tab.count, href: managerBookingListHref(basePath, tab.id) })),
+                      listBucket,
+                    )
+                  : null,
+                // Only Upcoming offers Link Airbnb — in-house and past are what already happened.
+                actions:
+                  listBucket === "upcoming"
+                    ? [
+                        {
+                          label: "Link Airbnb",
+                          icon: Link2,
+                          onClick: () => setLinkModalOpen(true),
+                          disabled: linkDisabled,
+                          reason: linkDisabled ? "List a property first, then link its rooms to Airbnb." : undefined,
+                          dataAttr: "bookings-empty-link-airbnb",
+                        },
+                      ]
+                    : [],
+              }
+        }
       />
     );
 

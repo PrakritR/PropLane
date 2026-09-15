@@ -2,7 +2,7 @@
 
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import { Button } from "@/components/ui/button";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalBulkMessageCarouselModal } from "@/components/portal/portal-bulk-message-carousel-modal";
@@ -18,7 +18,7 @@ import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import { buildLeaseReadyForResidentMessage } from "@/lib/resident-portal-login-copy";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { ManagerLeasesGroupedTable } from "@/components/portal/pro-leases-grouped-table";
-import { PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
+import { portalEmptyCopy, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { leaseDetailHref, leaseListHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import {
@@ -117,6 +117,7 @@ export function ManagerLeasesPipelinePanel({
   listBasePath,
   onDetailOpenChange,
   onAddLease,
+  emptyCard,
 }: {
   rows: LeasePipelineRow[];
   tab: ManagerLeaseTab;
@@ -127,6 +128,8 @@ export function ManagerLeasesPipelinePanel({
   listBasePath?: string;
   onDetailOpenChange?: (open: boolean) => void;
   onAddLease?: () => void;
+  /** The tab's empty card (title, sibling, pill) — the page owns the copy and the tab counts. */
+  emptyCard?: ComponentProps<typeof PortalRecordListSurface>["emptyCard"];
 }) {
   const { showToast } = useAppUi();
   const confirm = useConfirm();
@@ -1031,16 +1034,12 @@ export function ManagerLeasesPipelinePanel({
       {leaseModals}
       <PortalRecordListSurface
         isEmpty={bucketRows.length === 0}
-        add={
-          onAddLease
-            ? {
-                label: "Add lease",
-                ariaLabel: "Add lease",
-                icon: PORTAL_LIST_ADD_ICONS.lease,
-                onClick: onAddLease,
-                dataAttr: "leases-list-add",
-              }
-            : undefined
+        emptyCard={
+          emptyCard ?? {
+            title: portalEmptyCopy(`leases.${tab}` as PortalEmptyCopyKey).title,
+            section: "leases",
+            actions: onAddLease ? [{ label: "Add lease", onClick: onAddLease, dataAttr: "leases-list-add" }] : [],
+          }
         }
         onBulkClear={() => setSelectedIds(new Set())}
         bulkCount={selectedIds.size}

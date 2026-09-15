@@ -61,6 +61,8 @@ import { loadDocumentExpirationSummary } from "@/lib/manager-document-expiry-cli
 import { useSearchParams } from "next/navigation";
 import { MANAGER_VENDORS_EVENT, syncManagerVendorsFromServer, type ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
+import { Upload } from "lucide-react";
 
 const SCOPE_FILTERS: { id: string; label: string }[] = [
   { id: "", label: "All scopes" },
@@ -640,11 +642,18 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
   // glyph adds, and an empty library says so with one button.
   const emptyLibraryCard = demo ? null : (
     <PortalListEmptyCard
-      title="No documents yet"
-      description="Leases, IDs, insurance and anything else you keep on file for a home or a resident."
-      actions={[{ label: "Upload document", onClick: () => setUploadOpen(true), dataAttr: "documents-list-add" }]}
+      section="documents"
+      title={portalEmptyCopy("documents.other").title}
+      actions={[{ label: "Upload document", icon: Upload, onClick: () => setUploadOpen(true), dataAttr: "documents-list-add" }]}
     />
   );
+  const clearLibraryFilters = () => {
+    setSearch("");
+    setCategoryFilter("");
+    setScopeFilter("");
+    setPropertyFilter("");
+    setExpiryFilter("");
+  };
 
   const complianceBanner =
     !demo && (expirySummary.expired > 0 || expirySummary.within30 > 0) ? (
@@ -749,9 +758,11 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
         </div>
       ) : empty ? (
         hasLibraryQuery ? (
-          <PortalDataTableEmpty
-            message="No documents match your search or filters."
-            icon="document"
+          <PortalListEmptyCard
+            section="documents"
+            tone="muted"
+            title={portalEmptyNoMatchTitle("documents", search)}
+            clear={{ label: search.trim() ? "Clear search" : "Clear filters", onClick: clearLibraryFilters, dataAttr: "documents-empty-clear" }}
           />
         ) : (
           emptyLibraryCard

@@ -14,6 +14,7 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { Settings2 } from "lucide-react";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import {
@@ -845,48 +846,26 @@ export function ManagerTaskList({
 
         {!loading && visibleRows.length === 0 ? (
           <PortalListEmptyCard
-            title={
+            section="tasks"
+            tone={activeFilterChips.length > 0 ? "muted" : "default"}
+            title={activeFilterChips.length > 0 ? portalEmptyNoMatchTitle("tasks") : portalEmptyCopy(`tasks.${tabId === "in-progress" ? "open" : tabId}` as PortalEmptyCopyKey).title}
+            clear={
               activeFilterChips.length > 0
-                ? "No tasks match these filters"
-                : tabId === "overdue"
-                  ? "Nothing overdue"
-                  : tabId === "completed"
-                    ? "Nothing done yet"
-                    : "No open tasks"
-            }
-            description={
-              activeFilterChips.length > 0
-                ? "Clear a filter to see the rest."
-                : tabId === "overdue"
-                  ? "A task whose due date has passed lands here until it is done."
-                  : tabId === "completed"
-                    ? "Tasks you mark done move here, so nothing is lost."
-                    : "What needs doing, who owns it and when it is due — add the first one."
-            }
-            sibling={(() => {
-              const other = tabItems.find((t) => t.id !== tabId && t.count > 0);
-              return other
-                ? { label: `${other.count} ${other.label.toLowerCase()} · open ${other.label}`, href: other.href, dataAttr: `manager-task-empty-sibling-${other.id}` }
-                : null;
-            })()}
-            actions={
-              activeFilterChips.length > 0
-                ? [
-                    {
-                      label: "Clear filters",
-                      onClick: () => {
-                        setListFilter("all");
-                        setPropertyFilterId("");
-                        setAssigneeFilterId("");
-                        setPriorityFilter("");
-                      },
-                      dataAttr: "manager-task-empty-clear-filters",
+                ? {
+                    label: "Clear filters",
+                    onClick: () => {
+                      setListFilter("all");
+                      setPropertyFilterId("");
+                      setAssigneeFilterId("");
+                      setPriorityFilter("");
                     },
-                  ]
-                : tabId === "in-progress"
-                  ? [{ label: "Add task", onClick: openAddTask, dataAttr: "manager-task-list-add" }]
-                  : []
+                    dataAttr: "manager-task-empty-clear-filters",
+                  }
+                : null
             }
+            sibling={activeFilterChips.length > 0 ? null : portalEmptySibling(tabItems, tabId)}
+            // Overdue and Done are states a task falls into; a new one starts open.
+            actions={tabId === "in-progress" ? [{ label: "Add task", onClick: openAddTask, dataAttr: "manager-task-list-add" }] : []}
             dataAttr="manager-task-empty"
           />
         ) : null}

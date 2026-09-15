@@ -419,6 +419,7 @@ export function ManagerProperties({
       propertyTourId={propertyTourId}
       onAddProperty={tryOpenAdd}
       searchQuery={listSearch}
+      onClearSearch={() => setListSearch("")}
       /*
         Disabled only while the PLAN is still unknown — never because the cap is
         spent. A manager at the Free limit gets a live button that refuses and

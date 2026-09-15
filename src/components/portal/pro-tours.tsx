@@ -4,7 +4,7 @@ import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { tourFormatLabel } from "@/lib/tour-format";
-import { PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
+import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
 import { ManagerAddScheduledTourModal } from "@/components/portal/pro-add-scheduled-tour-modal";
@@ -1423,14 +1423,36 @@ export function ManagerTours({
 
       <PortalRecordListSurface
         isEmpty={authReady && rowsForBucket.length === 0}
-        add={{
-          label: "Add tour",
-          ariaLabel: "Schedule tour",
-          icon: PORTAL_LIST_ADD_ICONS.tour,
-          onClick: () => setAddTourOpen(true),
-          disabled: !authReady || scopedPropertyIds.length === 0,
-          dataAttr: "tours-list-add",
-        }}
+        emptyCard={
+          filterTouchCount > 0
+            ? {
+                title: portalEmptyNoMatchTitle("tours"),
+                section: "tours",
+                tone: "muted",
+                clear: { label: "Clear filters", onClick: () => setPropertyFilters([]), dataAttr: "tours-empty-clear-filters" },
+              }
+            : {
+                title: portalEmptyCopy(`tours.${bucket}` as PortalEmptyCopyKey).title,
+                section: "tours",
+                sibling: portalEmptySibling(
+                  tabs.map((t) => ({ id: t.id, label: t.label, count: t.count, href: listHrefForBucket(t.id) })),
+                  bucket,
+                ),
+                // Past tours are history; only the live tabs offer the pill.
+                actions:
+                  bucket === "past"
+                    ? []
+                    : [
+                        {
+                          label: "Schedule tour",
+                          onClick: () => setAddTourOpen(true),
+                          disabled: !authReady || scopedPropertyIds.length === 0,
+                          reason: scopedPropertyIds.length === 0 ? "List a property first — tours are booked against a listing." : undefined,
+                          dataAttr: "tours-list-add",
+                        },
+                      ],
+              }
+        }
         onBulkClear={() => setSelectedIds(new Set())}
         bulkCount={selectedIds.size}
         bulkActions={listBulkActions}
