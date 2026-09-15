@@ -77,7 +77,7 @@ import { ManagerPropertyRequestsPanel } from "@/components/portal/pro-property-r
 import { PropertyResidentOnboardWizard } from "@/components/portal/property-resident-onboard-wizard";
 import { PortalPropertyRecordRow, PortalRowStatusChip } from "@/components/portal/portal-record-row";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
-import { LEASE_PIPELINE_EVENT, readLeasePipeline } from "@/lib/lease-pipeline-storage";
+import { LEASE_PIPELINE_EVENT } from "@/lib/lease-pipeline-storage";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
@@ -1444,7 +1444,7 @@ export function ManagerHousePropertiesPanel({
     const onWorkspace = () => setTick((t) => t + 1);
     window.addEventListener(PROPERTY_PIPELINE_EVENT, on);
     window.addEventListener("axis-pro-relationships", on);
-    // A lease signed elsewhere changes the occupancy chip on its row.
+    // A lease signed elsewhere re-ranks its row (open rooms feed the attention score).
     window.addEventListener(LEASE_PIPELINE_EVENT, on);
     window.addEventListener(WORKSPACE_SELECTION_EVENT, onWorkspace);
     return () => {
@@ -1511,23 +1511,6 @@ export function ManagerHousePropertiesPanel({
       .sort((a, b) => b.attention.score - a.attention.score || compareAdminPropertyRowsForDisplay(a.row, b.row));
   }, [tick, scopeUserId, activeStage, propertyKeyProp, searchQuery, applications]);
 
-
-  /**
-   * Signed leases per property, for the row's occupancy chip — the same
-   * Fully Signed rows the dashboard's occupancy figure counts.
-   */
-  const occupiedByProperty = useMemo(() => {
-    void tick;
-    const map = new Map<string, number>();
-    if (!scopeUserId) return map;
-    for (const lease of readLeasePipeline(scopeUserId)) {
-      if (lease.status !== "Fully Signed") continue;
-      const key = lease.propertyId?.trim();
-      if (!key) continue;
-      map.set(key, (map.get(key) ?? 0) + 1);
-    }
-    return map;
-  }, [tick, scopeUserId]);
 
   /** Rows per stage, for the empty state's "n drafts · open Drafts" link. */
   const stageCounts = useMemo(() => {
@@ -2105,29 +2088,16 @@ export function ManagerHousePropertiesPanel({
                   undefined
                 )
               }
-              chip={(() => {
-                // Drafts are not let; every other stage says how full the home is.
-                if (sourceBucket === 5) return undefined;
-                // Under All the row has to say its own state — the tab no longer does.
-                if (sourceBucket === 3) {
-                  return (
-                    <PortalRowStatusChip tone="neutral" dataAttr="property-row-stage">
-                      Off the market
-                    </PortalRowStatusChip>
-                  );
-                }
-                const rooms = row.submission?.rooms?.length ?? 0;
-                const spaces = row.submission?.listingPlaceCategoryId === "entire_home" ? 1 : Math.max(rooms, 1);
-                const occupied = Math.min(occupiedByProperty.get(propertyKeyFromRow(row)) ?? 0, spaces);
-                return (
-                  <PortalRowStatusChip
-                    tone={occupied >= spaces ? "ok" : occupied === 0 ? "warn" : "neutral"}
-                    dataAttr="property-row-occupancy"
-                  >
-                    {occupied === 0 && spaces === 1 ? "Vacant" : `${occupied} / ${spaces} occupied`}
+              chip={
+                // Under All the row has to say its own state — the tab no longer
+                // does. No occupancy count on the row: the glyph line already
+                // says how many rooms there are.
+                sourceBucket === 3 ? (
+                  <PortalRowStatusChip tone="neutral" dataAttr="property-row-stage">
+                    Off the market
                   </PortalRowStatusChip>
-                );
-              })()}
+                ) : undefined
+              }
               leading={
                 thumb ? (
                   // eslint-disable-next-line @next/next/no-img-element

@@ -30,7 +30,7 @@ export function dateKey(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-export function dayIsUnavailable(day: Date, windows: AvailabilityDayWindow[]): boolean {
+export function dayIsUnavailable(day: Date, windows: readonly AvailabilityDayWindow[]): boolean {
   const t = startOfLocalDay(day).getTime();
   return windows.some((w) => {
     const start = w.start ? startOfLocalDay(w.start).getTime() : Number.NEGATIVE_INFINITY;
@@ -52,7 +52,7 @@ export function buildMonthDayCells(monthStart: Date): Array<Date | null> {
 }
 
 export function resolveAvailabilityMonthRange(
-  windows: AvailabilityDayWindow[],
+  windows: readonly AvailabilityDayWindow[],
   options: { horizonMonths?: number; today?: Date } = {},
 ): { startMonth: Date; monthCount: number } {
   const today = startOfLocalDay(options.today ?? new Date());
@@ -77,7 +77,7 @@ export function resolveAvailabilityMonthRange(
 /** Classify a month from today forward: all open days green, all blocked red, otherwise mixed. */
 export function monthAvailabilityTone(
   monthStart: Date,
-  windows: AvailabilityDayWindow[],
+  windows: readonly AvailabilityDayWindow[],
   todayInput?: Date,
 ): MonthAvailabilityTone {
   const today = startOfLocalDay(todayInput ?? new Date());
@@ -106,4 +106,12 @@ export function monthToneLabel(tone: MonthAvailabilityTone): string {
     case "mixed":
       return "Mixed";
   }
+}
+
+/** A YYYY-MM-DD key as a local calendar day; malformed keys read as null. */
+export function localDateFromDateKey(dayKey: string | null | undefined): Date | null {
+  if (!dayKey) return null;
+  const [y, m, d] = dayKey.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
 }
