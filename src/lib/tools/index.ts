@@ -90,6 +90,12 @@ import {
   createListingDraftTool,
   updateListingDraftTool,
 } from "./domains/listing-draft";
+import {
+  listPortfolioImportsTool,
+  getPortfolioImportTool,
+  commitPortfolioImportTool,
+  inviteImportedResidentsTool,
+} from "./domains/portfolio-import";
 import { applyListingPhotosTool, getListingMediaInventoryTool } from "./domains/listing-media";
 import { listSmsConversationsTool, replyToSmsConversationTool } from "./domains/sms-messaging";
 import { listInboxThreadsTool, getThreadMessagesTool, updateThreadTool } from "./domains/inbox";
@@ -170,6 +176,8 @@ export const agentRegistry = buildRegistry([
   getPropertyDetailsTool,
   getListingCreationChecklistTool,
   getListingMediaInventoryTool,
+  listPortfolioImportsTool,
+  getPortfolioImportTool,
   listInboxThreadsTool,
   listSmsConversationsTool,
   getThreadMessagesTool,
@@ -241,6 +249,8 @@ export const agentRegistry = buildRegistry([
   proposePropertyLeaseTemplateSectionEditTool,
   copyListingPhotosTool,
   sharePropertyLinkTool,
+  commitPortfolioImportTool,
+  inviteImportedResidentsTool,
   setResidentApprovalTool,
   sendResidentWelcomeTool,
   revokeResidentAccessTool,
