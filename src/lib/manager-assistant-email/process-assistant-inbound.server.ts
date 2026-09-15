@@ -140,6 +140,13 @@ export async function processManagerAssistantInboundEmail(
   const senderName = parsed.fromName?.trim() || senderEmail;
 
   let replyText = "";
+  /**
+   * The mirror runs AFTER the send so it can stamp the assistant's answer with
+   * the channel it actually left on: an answer that never went out (no mailbox,
+   * a failed send) is still shown to the manager, but without the EMAIL tag
+   * that would claim otherwise.
+   */
+  let mirror: (replySent: boolean) => Promise<void> = async () => {};
 
   if (sender.role === "manager") {
     const managerIdentity = await resolveManagerSmsAgentContext(db, {
@@ -162,17 +169,22 @@ export async function processManagerAssistantInboundEmail(
        address a co-manager's questions must land in the co-manager's
        Communication, not the owner's, or the owner reads a teammate's private
        exchange with the assistant. */
-    try {
-      await mirrorAssistantEmailTurnToInbox(db, {
-        managerUserId: sender.identity.actorUserId,
-        managerDisplayName: senderName,
-        inboundText,
-        replyText,
-        inboundEmailId: parsed.emailId,
-      });
-    } catch (cause) {
-      console.error("assistant-email inbox mirror failed", cause);
-    }
+    const actorUserId = sender.identity.actorUserId;
+    mirror = async (replySent) => {
+      try {
+        await mirrorAssistantEmailTurnToInbox(db, {
+          managerUserId: actorUserId,
+          managerDisplayName: senderName,
+          inboundText,
+          replyText,
+          inboundEmailId: parsed.emailId,
+          subject: parsed.subject,
+          replySent,
+        });
+      } catch (cause) {
+        console.error("assistant-email inbox mirror failed", cause);
+      }
+    };
   } else {
     if (sender.role === "resident") {
       /* Same memory the prospect branch has: the last turns of this resident's
@@ -212,30 +224,36 @@ export async function processManagerAssistantInboundEmail(
     /* Mirrored whether or not the agent produced a reply: the manager must see
        that this person wrote in either way. */
     const managerEmail = await loadManagerProfileEmail(db, managerUserId);
-    try {
-      await mirrorAssistantEmailConversation(db, {
-        managerUserId,
-        managerEmail,
-        senderEmail,
-        senderName,
-        subject: parsed.subject,
-        inboundText,
-        replyText: replyText || null,
-        inboundEmailId: parsed.emailId,
-      });
-    } catch (cause) {
-      console.error("assistant-email conversation mirror failed", cause);
-    }
+    mirror = async (replySent) => {
+      try {
+        await mirrorAssistantEmailConversation(db, {
+          managerUserId,
+          managerEmail,
+          senderEmail,
+          senderName,
+          subject: parsed.subject,
+          inboundText,
+          replyText: replyText || null,
+          inboundEmailId: parsed.emailId,
+          replySent,
+        });
+      } catch (cause) {
+        console.error("assistant-email conversation mirror failed", cause);
+      }
+    };
   }
 
-  if (!replyText || !mailbox) return { handled: true, replied: false, role: sender.role };
-
-  const send = await deliverManagerEmailReply({
-    toEmail: senderEmail,
-    subject: replySubject(parsed.subject),
-    text: replyText,
-    fromAddress: mailbox.address,
-    replyTo: mailbox.address,
-  });
-  return { handled: true, replied: send.ok, role: sender.role };
+  let replied = false;
+  if (replyText && mailbox) {
+    const send = await deliverManagerEmailReply({
+      toEmail: senderEmail,
+      subject: replySubject(parsed.subject),
+      text: replyText,
+      fromAddress: mailbox.address,
+      replyTo: mailbox.address,
+    });
+    replied = send.ok;
+  }
+  await mirror(replied);
+  return { handled: true, replied, role: sender.role };
 }

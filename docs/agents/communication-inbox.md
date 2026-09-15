@@ -244,6 +244,30 @@ conversations) plus the archive toggle. Invariants:
   which `residentLeaseAuthorized` compares against `row.axisId` and which hides
   a lease just as effectively as a stale email.
 
+## A reply leaves on the channel the person reached you on
+
+Person threads in Communication default the composer to the **last inbound
+channel** (`lastInboundChannelOf` in `src/lib/portal-inbox-storage.ts` →
+`resolveCommunicationPersonThreadReplyChannels`): an email to the work address
+is answered by email (from the workspace work address, subject `Re: <subject>`),
+a text by text, a portal message in-app. A thread with no stamped inbound keeps
+the in-app default. The old in-app-only default let a manager answer a prospect
+who had only ever emailed — the reply landed on a row nobody could read.
+
+Every turn is **stamped with the channel it actually went on**
+(`InboxThreadMessage.channel`: `email` / `sms` / `proplane`; the root turn's stamp
+lives at `rootChannel`). The bubble shows that tag and nothing else — an
+unstamped legacy turn shows no tag, never a guessed "Email". Email turns also
+carry their `subject`; the manager bubble builder shows it once per topic
+(`subjectTopic` folds `Re:`/`Fwd:`), so "Re: Propert" is not repeated on every reply.
+
+Inbound email bodies are quote-stripped by `stripEmailReplyQuote`
+(`src/lib/inbound-email/inbound-email-reply.server.ts`), which understands the
+Gmail attribution header that wraps onto a second line — the one case that used
+to leak "On … wrote:" into the bubble. Coverage:
+`tests/unit/inbound-email-reply.test.ts`, `tests/unit/assistant-email-mirror-stamps.test.ts`,
+`tests/unit/manager-inbox-reply-channels.test.ts`, `tests/unit/inbox-bubble-alignment.test.tsx`.
+
 ## Inbox attachments
 
 `src/lib/inbox-attachments.ts` (client) + `.server.ts` +

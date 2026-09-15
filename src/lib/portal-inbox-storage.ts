@@ -34,7 +34,23 @@ export type InboxThreadMessage = {
   delivery?: "sending" | "sent" | "failed";
   /** Image attachments served via /api/portal/inbox-attachments. */
   attachments?: { url: string; name?: string }[];
+  /**
+   * The channel this turn actually travelled on. Stamped by whichever path
+   * wrote the message (email mirror, SMS delivery, portal reply); absent on
+   * rows written before stamping existed. A missing stamp means "unknown" —
+   * it is never read as email, which is how an in-app reply used to wear an
+   * EMAIL tag while nothing had been sent.
+   */
+  channel?: InboxThreadMessageChannel;
+  /**
+   * The email subject this turn arrived or left with. Only email turns carry
+   * one; the bubble shows it when it is the thread's first subject or differs
+   * from the previous email turn's.
+   */
+  subject?: string;
 };
+
+export type InboxThreadMessageChannel = "email" | "sms" | "proplane";
 
 /**
  * An AI-drafted manager reply awaiting explicit manager approval. Stored ONLY on
@@ -66,6 +82,9 @@ export type PersistedInboxThread = {
   /** When true, the root turn renders as the owner's outbound message in inbox threads. */
   rootOutbound?: boolean;
   rootAt?: string;
+  /** Channel / email subject of the root turn — the root lives in `body`, so its stamps live here. */
+  rootChannel?: InboxThreadMessageChannel;
+  rootSubject?: string;
   /** Root-turn attachments when the thread was opened with media. */
   attachments?: { url: string; name?: string }[];
   messages?: InboxThreadMessage[];
@@ -793,6 +812,27 @@ function normalizeThreadMessage(message: InboxThreadMessage): InboxThreadMessage
   };
 }
 
+/**
+ * The channel the counterparty most recently reached us on, or null when no
+ * inbound turn carries a stamp (legacy rows, or a thread the owner started).
+ * "Reply on the channel they used" reads this; an unstamped thread keeps the
+ * surface's own default rather than guessing.
+ */
+export function lastInboundChannelOf(thread: PersistedInboxThread): InboxThreadMessageChannel | null {
+  const turns = inboxThreadMessages(thread);
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const turn = turns[index];
+    if (!turn || turn.outbound) continue;
+    // The root of an inbox-folder thread is inbound unless flagged otherwise;
+    // later turns are inbound only when explicitly stamped so (see `outbound`).
+    const isRoot = index === 0;
+    if (!isRoot && turn.outbound === undefined) continue;
+    if (isRoot && thread.folder !== "inbox") continue;
+    if (turn.channel) return turn.channel;
+  }
+  return null;
+}
+
 export function inboxThreadMessages(thread: PersistedInboxThread): InboxThreadMessage[] {
   const rootId = `${thread.id}-root`;
   const root: InboxThreadMessage = normalizeThreadMessage({
@@ -802,6 +842,8 @@ export function inboxThreadMessages(thread: PersistedInboxThread): InboxThreadMe
     at: thread.rootAt || thread.time,
     ...(thread.rootOutbound ? { outbound: true } : {}),
     ...(thread.attachments?.length ? { attachments: thread.attachments } : {}),
+    ...(thread.rootChannel ? { channel: thread.rootChannel } : {}),
+    ...(thread.rootSubject ? { subject: thread.rootSubject } : {}),
   });
   // Merged person-threads can carry a prior thread's synthetic root in `messages`.
   // A collapsed row may itself later be persisted and merged again, which can

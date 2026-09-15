@@ -3,6 +3,7 @@ import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import { sendPortalConversationEmails } from "@/lib/portal-email-send.server";
 import { resolveManagerOutboundFrom } from "@/lib/manager-outbound-identity.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { InboxThreadMessageChannel } from "@/lib/portal-inbox-storage";
 import { userHoldsAdminRole } from "@/lib/auth/admin-role";
 import { filterRecipientsBySenderScope } from "@/lib/inbox-recipient-scope";
 import {
@@ -199,6 +200,10 @@ export async function commitInboxThreadReply(
     /** When set, stamps direction on the appended turn for assistant-thread rendering. */
     outbound?: boolean;
     messageId?: string;
+    /** Channel the turn actually went on; omitted = unknown (never assumed email). */
+    channel?: InboxThreadMessageChannel;
+    /** Email subject the turn left with, for the bubble's subject line. */
+    subject?: string;
   },
 ): Promise<void> {
   const { data: freshRow, error: readError } = await db
@@ -218,6 +223,8 @@ export async function commitInboxThreadReply(
     at: when,
     ...(opts.outbound !== undefined ? { outbound: opts.outbound } : {}),
     ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
+    ...(opts.channel ? { channel: opts.channel } : {}),
+    ...(opts.subject?.trim() ? { subject: opts.subject.trim() } : {}),
   });
   const { error: writeError } = await db.from("portal_inbox_thread_records").upsert(
     {
@@ -398,6 +405,10 @@ export async function deliverPortalMessageThreadSide(
      */
     messageId?: string;
     attachments?: { url: string; name?: string }[];
+    /** Channel the turn travelled on; omitted = unknown (never assumed email). */
+    channel?: InboxThreadMessageChannel;
+    /** Per-turn email subject; the thread-level `subject` above still labels the list. */
+    messageSubject?: string;
   },
 ): Promise<{ action: "append" | "create" | "skipped"; threadId: string }> {
   const existing = await findExistingPortalMessageThread(db, args);
@@ -421,6 +432,8 @@ export async function deliverPortalMessageThreadSide(
       at: args.when,
       outbound: args.outbound,
       ...(args.attachments?.length ? { attachments: args.attachments } : {}),
+      ...(args.channel ? { channel: args.channel } : {}),
+      ...(args.messageSubject?.trim() ? { subject: args.messageSubject.trim() } : {}),
     });
     await db.from("portal_inbox_thread_records").upsert(
       {
@@ -484,6 +497,10 @@ export async function deliverPortalMessageThreadSide(
         // deterministic id so a redelivered webhook can still dedupe it.
         ...(args.messageId ? { rootMessageId: args.messageId } : {}),
         ...(args.attachments?.length ? { attachments: args.attachments } : {}),
+        // The root turn lives in `body`; its channel/subject stamps live beside it
+        // under `root*` so the bubble builders can label it like any other turn.
+        ...(args.channel ? { rootChannel: args.channel } : {}),
+        ...(args.messageSubject?.trim() ? { rootSubject: args.messageSubject.trim() } : {}),
       },
       updated_at: nowIso,
     },

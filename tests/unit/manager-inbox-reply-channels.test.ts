@@ -164,7 +164,7 @@ describe("manager inbox reply channels", () => {
     expect(hasInboxReplyChannelSelected({ viaProplane: true, viaEmail: false, viaSms: false })).toBe(true);
   });
 
-  it("defaults Communication person threads to PropLane in-app send", () => {
+  it("defaults Communication person threads to PropLane in-app send when nothing inbound is stamped", () => {
     expect(
       resolveCommunicationPersonThreadReplyChannels({ emailAvailable: true, smsAvailable: true }),
     ).toEqual({
@@ -172,6 +172,56 @@ describe("manager inbox reply channels", () => {
       viaEmail: false,
       viaSms: false,
     });
+    expect(
+      resolveCommunicationPersonThreadReplyChannels({
+        emailAvailable: true,
+        smsAvailable: true,
+        lastInboundChannel: null,
+      }),
+    ).toEqual({ viaProplane: true, viaEmail: false, viaSms: false });
+    expect(
+      resolveCommunicationPersonThreadReplyChannels({
+        emailAvailable: true,
+        smsAvailable: true,
+        lastInboundChannel: "proplane",
+      }),
+    ).toEqual({ viaProplane: true, viaEmail: false, viaSms: false });
+  });
+
+  it("replies on the channel the person last reached us on", () => {
+    // A prospect who emailed the work address is answered by email — the old
+    // in-app default wrote the reply to a row nobody could read.
+    expect(
+      resolveCommunicationPersonThreadReplyChannels({
+        emailAvailable: true,
+        smsAvailable: false,
+        lastInboundChannel: "email",
+      }),
+    ).toEqual({ viaProplane: false, viaEmail: true, viaSms: false });
+    expect(
+      resolveCommunicationPersonThreadReplyChannels({
+        emailAvailable: true,
+        smsAvailable: true,
+        lastInboundChannel: "sms",
+      }),
+    ).toEqual({ viaProplane: false, viaEmail: false, viaSms: true });
+  });
+
+  it("falls back to in-app when the last inbound channel is not available on the thread", () => {
+    expect(
+      resolveCommunicationPersonThreadReplyChannels({
+        emailAvailable: false,
+        smsAvailable: true,
+        lastInboundChannel: "email",
+      }),
+    ).toEqual({ viaProplane: true, viaEmail: false, viaSms: false });
+    expect(
+      resolveCommunicationPersonThreadReplyChannels({
+        emailAvailable: true,
+        smsAvailable: false,
+        lastInboundChannel: "sms",
+      }),
+    ).toEqual({ viaProplane: true, viaEmail: false, viaSms: false });
   });
 
   it("resolves portal recipients for person threads by email or linked resident", () => {
