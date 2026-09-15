@@ -1,0 +1,9 @@
+Property,Address,City,State,Zip,Unit,Tenant,Status,Sq Ft,Email,Phone,Rent,Deposit,Lease From,Lease To,Move-in,Past Due,Notes
+Maple Court,220 Maple Ave,Seattle,WA,98103,1A,Dana Whitfield,Occupied,640,dana.w@gmail.com,(206) 555-0134,1850,1850,2026-03-01,2027-02-28,,,
+Maple Court,220 Maple Ave,Seattle,WA,98103,1B,Marcus Bell,Occupied,620,mbell@outlook.com,(206) 555-0177,1795,1795,2025-11-15,2026-11-14,,350,
+Maple Court,220 Maple Ave,Seattle,WA,98103,2A,,Vacant,655,,,1900,,,,,,
+Maple Court,220 Maple Ave,Seattle,WA,98103,2B,Priya Nair & Tom Ellis,Occupied,780,priya.nair@me.com,(425) 555-0190,2100,2100,2026-06-01,2027-05-31,,,
+,1412 Pine St,Seattle,WA,98101,Room 1,Jae Park,Occupied,,jae.park@proton.me,(206) 555-0102,950,950,2026-01-01,,,,
+,1412 Pine St,Seattle,WA,98101,Room 2,,Vacant,,,,925,,,,,,
+,1412 Pine St,Seattle,WA,98101,Room 3,Luis Ortega,Occupied,,,(206) 555-0166,975,975,2025-11-01,2026-10-31,,,
+Total,,,,,,,,,,,10495,,,,,,
