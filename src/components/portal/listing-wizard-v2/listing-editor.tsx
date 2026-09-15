@@ -1149,7 +1149,7 @@ function RoomCardBody({
         </CardFields>
         {room ? <OccupiedDates room={room} propertyId={propertyId} onRoom={onRoom} /> : null}
 
-        <div className="border-t border-border px-3.5 pb-1 pt-2">
+        <div className="grid grid-cols-2 gap-x-4 border-t border-border px-3.5 pb-1 pt-2">
           <div className="flex items-center gap-2">
             <CheckboxOption
               label="Move-in checklist required"
