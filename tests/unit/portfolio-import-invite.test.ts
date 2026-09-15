@@ -1,14 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 
-const { runExistingResidentOnboarding, enqueueOwnerSms, resolveWorkspaceWorkNumbers, track } = vi.hoisted(() => ({
-  runExistingResidentOnboarding: vi.fn(),
+const { deliverExistingResidentWelcome, enqueueOwnerSms, resolveWorkspaceWorkNumbers, track } = vi.hoisted(() => ({
+  deliverExistingResidentWelcome: vi.fn(),
   enqueueOwnerSms: vi.fn(),
   resolveWorkspaceWorkNumbers: vi.fn(),
   track: vi.fn(),
 }));
 
-vi.mock("@/lib/existing-resident-onboarding.server", () => ({ runExistingResidentOnboarding }));
+vi.mock("@/lib/resident-welcome.server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/resident-welcome.server")>()),
+  deliverExistingResidentWelcome,
+}));
 vi.mock("@/lib/sms/owner-sms-dispatcher.server", () => ({ enqueueOwnerSms }));
 vi.mock("@/lib/sms/manager-workspace-role.server", () => ({ resolveWorkspaceWorkNumbers }));
 vi.mock("@/lib/analytics/posthog", () => ({ track }));
@@ -83,17 +86,10 @@ function residentApplicationRow(overrides: Partial<DemoApplicantRow> = {}): Row 
 describe("invitePortfolioImportResidents", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Mirrors the real function's side effect (stamping onboardingWelcomeSentAt on
-    // the row it was given) so a second invite call sees the same "already sent"
-    // state the live implementation would have written.
-    runExistingResidentOnboarding.mockImplementation(
-      async (_db: unknown, _actor: unknown, row: DemoApplicantRow, opts?: { sendWelcomeEmail?: boolean }) => {
-        if (opts?.sendWelcomeEmail) {
-          row.manualResidentDetails = { ...row.manualResidentDetails, onboardingWelcomeSentAt: new Date().toISOString() };
-        }
-        return { ok: true, leaseId: "lease-1", welcomeEmailSent: Boolean(opts?.sendWelcomeEmail), axisId: row.id, row };
-      },
-    );
+    // The invite step delivers the welcome itself and stamps the row afterwards,
+    // so the delivery mock only reports success (a demo address is `skipped`,
+    // i.e. inbox record only — still a send from the manager's point of view).
+    deliverExistingResidentWelcome.mockResolvedValue({ ok: true, id: "welcome-1", skipped: true });
     enqueueOwnerSms.mockResolvedValue({ ok: true, outboxId: "sms-1", status: "queued", deduplicated: false });
     resolveWorkspaceWorkNumbers.mockResolvedValue({
       role: "primary",
@@ -119,7 +115,8 @@ describe("invitePortfolioImportResidents", () => {
     expect(results).toHaveLength(1);
     expect(results[0]?.email).toBe("sent");
     expect(results[0]?.text).toBe("sent");
-    expect(runExistingResidentOnboarding.mock.calls[0]?.[3]).toMatchObject({ sendWelcomeEmail: true, preserveExistingLease: true });
+    expect(deliverExistingResidentWelcome).toHaveBeenCalledTimes(1);
+    expect(deliverExistingResidentWelcome.mock.calls[0]?.[2]).toMatchObject({ to: expect.any(String), axisId: expect.any(String) });
     expect(enqueueOwnerSms).toHaveBeenCalledTimes(1);
     const smsBody = (enqueueOwnerSms.mock.calls[0]?.[0] as { body: string }).body;
     expect(smsBody).toContain("Reply STOP to opt out.");
@@ -148,7 +145,7 @@ describe("invitePortfolioImportResidents", () => {
 
     expect(results[0]?.email).toBe("skipped_no_email");
     expect(results[0]?.text).toBe("sent");
-    expect(runExistingResidentOnboarding).not.toHaveBeenCalled();
+    expect(deliverExistingResidentWelcome).not.toHaveBeenCalled();
     // Text-only send still stamps the welcome marker so a repeat invite reads already_sent.
     expect(db._updates).toHaveLength(1);
   });
@@ -209,11 +206,9 @@ describe("invitePortfolioImportResidents", () => {
       channels: "both",
     });
 
-    // Second call reads the row this test's fake mutated — runExistingResidentOnboarding
-    // no longer needs to be consulted since onboardingWelcomeSentAt already reflects it,
-    // but this mock stub would still report success if asked; the important thing is the
-    // pre-send guard short-circuits both channels.
-    runExistingResidentOnboarding.mockClear();
+    // Second call reads the stamped row the first call wrote through the fake db;
+    // the pre-send guard short-circuits both channels.
+    deliverExistingResidentWelcome.mockClear();
     enqueueOwnerSms.mockClear();
 
     const { results } = await invitePortfolioImportResidents({
@@ -227,7 +222,7 @@ describe("invitePortfolioImportResidents", () => {
 
     expect(results[0]?.email).toBe("already_sent");
     expect(results[0]?.text).toBe("already_sent");
-    expect(runExistingResidentOnboarding).not.toHaveBeenCalled();
+    expect(deliverExistingResidentWelcome).not.toHaveBeenCalled();
     expect(enqueueOwnerSms).not.toHaveBeenCalled();
   });
 

@@ -1,20 +1,33 @@
 /**
  * Browser-only intake for assistant chat attachments. Images are downscaled;
- * PDFs are base64-encoded for the JSON chat routes.
+ * PDFs are base64-encoded for the JSON chat routes. A rent-roll spreadsheet or
+ * PDF is handled differently: it never travels as file bytes to the model —
+ * it is posted straight to the portfolio-import endpoint
+ * (`createPortfolioImport`, `@/lib/portfolio-import.client`) and only the
+ * resulting draft id rides along on the chat request (see
+ * `docs/agents/portfolio-import.md`).
  */
+import { createPortfolioImport, getPortfolioImport } from "@/lib/portfolio-import.client";
 
 export type PendingChatAttachment = {
   id: string;
-  kind: "image" | "document";
+  kind: "image" | "document" | "import";
   fileName: string;
-  mediaType: string;
-  dataBase64: string;
+  mediaType?: string;
+  dataBase64?: string;
   /** Object URL for image thumbnails — revoke when removed. */
   previewUrl?: string;
+  /** kind "import" only: null while still reading, set once the draft exists. */
+  importId?: string | null;
+  /** kind "import" only, e.g. "2 properties · 7 units · 6 residents". */
+  summaryLine?: string | null;
+  /** kind "import" only: composer renders "Reading…" while this is "reading". */
+  status?: "reading" | "ready" | "error";
+  error?: string;
 };
 
 export const CHAT_ATTACHMENT_ACCEPT =
-  "image/jpeg,image/png,image/webp,image/gif,application/pdf,.pdf,image/*";
+  "image/jpeg,image/png,image/webp,image/gif,application/pdf,.pdf,.csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,image/*";
 
 export const MAX_CHAT_ATTACHMENTS = 4;
 
@@ -140,6 +153,67 @@ async function pdfFileToChatAttachment(file: File): Promise<PendingChatAttachmen
   }
 }
 
+const IMPORT_SPREADSHEET_MEDIA_TYPES = new Set([
+  "text/csv",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-excel",
+]);
+const IMPORT_SPREADSHEET_NAME_RE = /\.(csv|xlsx)$/i;
+/** A pdf only counts as a rent-roll candidate when its own name hints at one — an unrelated pdf (a lease, a receipt) stays a plain document attachment. */
+const IMPORT_PDF_NAME_RE = /rent.?roll|tenant|unit|portfolio|export/i;
+
+/** csv/xlsx by extension or type, or a pdf whose file name looks like a rent roll. */
+export function isPortfolioImportCandidateFile(file: File): boolean {
+  const name = file.name || "";
+  if (IMPORT_SPREADSHEET_MEDIA_TYPES.has(file.type) || IMPORT_SPREADSHEET_NAME_RE.test(name)) return true;
+  const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(name);
+  return isPdf && IMPORT_PDF_NAME_RE.test(name);
+}
+
+/** Optimistic placeholder shown the instant the file is picked, before the network round trip. */
+export function createReadingImportAttachment(file: File): PendingChatAttachment {
+  return {
+    id: randomId(),
+    kind: "import",
+    fileName: file.name || "rent roll",
+    status: "reading",
+    importId: null,
+    summaryLine: null,
+  };
+}
+
+function importSummaryLine(counts: { propertyCount: number; unitCount: number; residentCount: number }): string {
+  return `${counts.propertyCount} propert${counts.propertyCount === 1 ? "y" : "ies"} · ${counts.unitCount} unit${counts.unitCount === 1 ? "" : "s"} · ${counts.residentCount} resident${counts.residentCount === 1 ? "" : "s"}`;
+}
+
+/**
+ * Posts the file to the portfolio-import endpoint and resolves the SAME
+ * attachment id to its final state. On a 409 (same file already imported for
+ * this manager) the existing draft is reused rather than treated as a
+ * failure. No file bytes ever reach the model — the chat request carries only
+ * `importId`s (`attachmentsToApiPayload`), verified server-side again before
+ * the assistant can act on them (`applyImportAttachments`, chat-handler.ts).
+ */
+export async function resolvePortfolioImportAttachment(id: string, file: File): Promise<PendingChatAttachment> {
+  const fileName = file.name || "rent roll";
+  const res = await createPortfolioImport(file, undefined);
+  if (res.ok) {
+    return { id, kind: "import", fileName, status: "ready", importId: res.importId, summaryLine: importSummaryLine(res.summary) };
+  }
+  if (res.status === 409 && res.importId) {
+    const existing = await getPortfolioImport(res.importId);
+    return {
+      id,
+      kind: "import",
+      fileName,
+      status: "ready",
+      importId: res.importId,
+      summaryLine: existing.ok ? `Already imported — ${importSummaryLine(existing.summary)}` : "Already imported — reusing that draft",
+    };
+  }
+  return { id, kind: "import", fileName, status: "error", importId: null, summaryLine: null, error: res.error };
+}
+
 export async function prepareChatAttachment(file: File): Promise<PendingChatAttachment | null> {
   const name = file.name || "";
   const looksImage =
@@ -189,14 +263,18 @@ export function attachmentsToApiPayload(attachments: PendingChatAttachment[]) {
   return {
     images: attachments
       .filter((a) => a.kind === "image")
-      .map((a) => ({ mediaType: a.mediaType, dataBase64: a.dataBase64 })),
+      .map((a) => ({ mediaType: a.mediaType ?? "", dataBase64: a.dataBase64 ?? "" })),
     documents: attachments
       .filter((a) => a.kind === "document")
       .map((a) => ({
-        mediaType: a.mediaType,
-        dataBase64: a.dataBase64,
+        mediaType: a.mediaType ?? "",
+        dataBase64: a.dataBase64 ?? "",
         fileName: a.fileName,
       })),
+    // Only fully-resolved drafts — a still-"reading" or failed import sends no bytes and no id.
+    importIds: attachments
+      .filter((a) => a.kind === "import" && a.status === "ready" && a.importId)
+      .map((a) => a.importId as string),
   };
 }
 
@@ -210,5 +288,7 @@ export function userMessageContentFromInput(text: string, attachments: PendingCh
   const trimmed = text.trim();
   if (trimmed) return trimmed;
   if (attachments.length === 0) return "";
-  return attachments.map((a) => `[Attached: ${a.fileName}]`).join("\n");
+  return attachments
+    .map((a) => (a.kind === "import" ? `[attached rent roll: ${a.fileName}]` : `[Attached: ${a.fileName}]`))
+    .join("\n");
 }

@@ -4,11 +4,14 @@
  * only the genuinely common message plumbing lives here.
  */
 import type Anthropic from "@anthropic-ai/sdk";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   buildAttachmentUserMessage,
   parseChatDocuments,
   parseChatImages,
+  parseChatImportIds,
 } from "@/lib/agent/images";
+import { loadPortfolioImport, summaryFor } from "@/lib/portfolio-import/store.server";
 
 export type ChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -53,6 +56,78 @@ export function applyChatAttachments(
     imageCount: images.blocks.length,
     documentCount: documents.blocks.length,
   };
+}
+
+export type AppliedImportAttachments = {
+  importCount: number;
+};
+
+/**
+ * Portfolio-import draft ids the manager's rent-roll attachment created
+ * (`assistant-chat-attachments.client.ts`). Manager-only: the caller passes
+ * `ctx.db`/`ctx.landlordId` from `resolveAgentContext`, never model input.
+ * Every id is re-verified to belong to this landlord before it can reach the
+ * model — an id that is not owned (or has no draft) is silently dropped
+ * rather than failing the whole turn. Owned drafts are appended as a plain
+ * text note on the LAST user message (never a content block the model could
+ * mistake for a tool result), so `get_portfolio_import` /
+ * `commit_portfolio_import` / `invite_imported_residents` have an id to act
+ * on without asking the manager to re-type the file's rows.
+ */
+export async function applyImportAttachments(
+  ctx: { db: SupabaseClient; landlordId: string },
+  messages: Anthropic.MessageParam[],
+  body: Record<string, unknown>,
+):
+  | Promise<({ ok: true; messages: Anthropic.MessageParam[] } & AppliedImportAttachments) | { ok: false; error: string }> {
+  const parsed = parseChatImportIds(body.importIds);
+  if (!parsed.ok) return { ok: false, error: parsed.error };
+  if (parsed.ids.length === 0) return { ok: true, messages, importCount: 0 };
+
+  const owned: {
+    id: string;
+    fileName: string;
+    propertyCount: number;
+    unitCount: number;
+    residentCount: number;
+    blockingIssueCount: number;
+  }[] = [];
+  for (const id of parsed.ids) {
+    const row = await loadPortfolioImport(ctx.db, ctx.landlordId, id).catch(() => null);
+    if (!row || !row.draft) continue;
+    const summary = summaryFor(row);
+    if (!summary) continue;
+    owned.push({
+      id,
+      fileName: summary.fileName,
+      propertyCount: summary.propertyCount,
+      unitCount: summary.unitCount,
+      residentCount: summary.residentCount,
+      blockingIssueCount: summary.blockingIssueCount,
+    });
+  }
+  if (owned.length === 0) return { ok: true, messages, importCount: 0 };
+
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== "user") {
+    return { ok: false, error: "A user message is required." };
+  }
+
+  const note = owned
+    .map(
+      (o) =>
+        `Manager attached a portfolio import draft (importId ${o.id}): ${o.fileName} — ${o.propertyCount} properties, ${o.unitCount} units, ${o.residentCount} residents, ${o.blockingIssueCount} blocking issues. Use get_portfolio_import / commit_portfolio_import / invite_imported_residents with this id.`,
+    )
+    .join("\n");
+
+  const nextLast: Anthropic.MessageParam =
+    typeof last.content === "string"
+      ? { role: "user", content: `${last.content}\n\n${note}` }
+      : { role: "user", content: [...last.content, { type: "text", text: note }] };
+
+  const next = [...messages];
+  next[next.length - 1] = nextLast;
+  return { ok: true, messages: next, importCount: owned.length };
 }
 
 /**

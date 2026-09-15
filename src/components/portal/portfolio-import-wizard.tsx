@@ -147,6 +147,16 @@ function isResidentExcluded(
   return Boolean(property?.excluded);
 }
 
+/** Everyone who can receive at least one channel starts selected — on first arrival and on resume alike. */
+function defaultInviteSelection(draft: PortfolioImportDraft | null | undefined): Set<string> {
+  if (!draft) return new Set();
+  return new Set(
+    draft.residents
+      .filter((r) => !isResidentExcluded(r, draft) && (r.inviteChannels.email || r.inviteChannels.text))
+      .map((r) => r.key),
+  );
+}
+
 export function PortfolioImportWizard({ resumeImportId }: { resumeImportId?: string }) {
   const router = useRouter();
   const [step, setStep] = useState<StepIndex>(0);
@@ -208,6 +218,7 @@ export function PortfolioImportWizard({ resumeImportId }: { resumeImportId?: str
       } else if (res.status === "partial") {
         setStep(3);
       } else if (res.status === "completed") {
+        setInviteSelected(defaultInviteSelection(res.draft));
         setStep(4);
       } else {
         setStep(1);
@@ -257,6 +268,7 @@ export function PortfolioImportWizard({ resumeImportId }: { resumeImportId?: str
     setColumns(res.draft.columns);
     setMessaging(res.messaging ?? null);
     setFileName(res.draft.fileName);
+    if (res.status === "completed") setInviteSelected(defaultInviteSelection(res.draft));
     setStep(res.status === "committing" || res.status === "partial" ? 3 : res.status === "completed" ? 4 : 1);
   }
 
@@ -411,13 +423,7 @@ export function PortfolioImportWizard({ resumeImportId }: { resumeImportId?: str
   }
 
   function goInvite() {
-    setInviteSelected(
-      new Set(
-        (draft?.residents ?? [])
-          .filter((r) => !isResidentExcluded(r, draft!) && (r.inviteChannels.email || r.inviteChannels.text))
-          .map((r) => r.key),
-      ),
-    );
+    setInviteSelected(defaultInviteSelection(draft));
     setStep(4);
   }
 
