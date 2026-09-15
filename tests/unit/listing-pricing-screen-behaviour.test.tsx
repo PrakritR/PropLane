@@ -206,7 +206,9 @@ describe("a room with its own numbers can go back to the house numbers", () => {
 
     fireEvent.click(reset);
     const roomA = (latest?.rooms ?? []).find((r) => r.id === "r1");
-    expect(roomA?.utilitiesEstimate).toBe("");
+    // The room takes its own copy of the house number (both rooms said 150),
+    // not a blank: Review and the lease read the record, not the card.
+    expect(roomA?.utilitiesEstimate).toBe("150");
     // The deposit the manager typed in the cell next door is untouched.
     expect(roomA?.securityDeposit).toBe("900");
     expect(screen.queryByRole("button", { name: /Reset utilities for Room A/i })).toBeNull();

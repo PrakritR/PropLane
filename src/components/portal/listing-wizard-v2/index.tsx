@@ -26,6 +26,7 @@ import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assis
 import type { AddPropertyResult } from "@/components/portal/listing-wizard-v2/add-property-flow";
 import { ListingEditorV2, type ListingEditorLeadingStep } from "@/components/portal/listing-wizard-v2/listing-editor";
 import { useListingPersistence } from "@/components/portal/listing-wizard-v2/use-listing-persistence";
+import { fillRoomsFollowingDefaults, houseDefaultsForSubmission } from "@/lib/listing-house-defaults";
 import {
   applyListingBathroomSlots,
   applyListingBedroomSlots,
@@ -134,7 +135,13 @@ export function ListingWizardV2({
   // preamble. `createDefaultListingSubmission` already carries one room, so the
   // Rooms step has something to show the moment the manager reaches it.
   const [submission, setSubmission] = useState<ManagerListingSubmissionV1>(() => {
-    const base = normalizeManagerListingSubmissionV1(initialSubmission ?? createDefaultListingSubmission());
+    const loaded = normalizeManagerListingSubmissionV1(initialSubmission ?? createDefaultListingSubmission());
+    // A listing saved while the Pricing step blanked a room ticked "Same as
+    // default room" holds $0 rent on that room although the card drew $1,050.
+    // Fill such followers from the Default room once, on open; the pre-sync
+    // fingerprint below makes the repair dirty, so autosave persists it.
+    const rooms = fillRoomsFollowingDefaults(loaded.rooms ?? [], houseDefaultsForSubmission(loaded));
+    const base = rooms === loaded.rooms ? loaded : { ...loaded, rooms: [...rooms] };
     if (!(base.listingTotalBathroomsId ?? "").trim()) return base;
     const withBaths = applyListingBathroomSlots(base);
     return withBaths.ok ? withBaths.sub : base;
