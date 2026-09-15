@@ -52,7 +52,7 @@ test.describe("Portal loading and record actions", () => {
       await expect(trigger).toBeFocused();
       await trigger.click();
       await menu.getByRole("menuitem", { name: "Edit", exact: true }).click();
-      await expect(page.getByRole("button", { name: "Edit listing", exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Edit", exact: true })).toBeVisible();
     });
   }
 
