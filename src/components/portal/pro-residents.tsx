@@ -4315,7 +4315,6 @@ export function ManagerResidents({
           <div className="grid grid-cols-1 gap-3 min-[28rem]:grid-cols-2 min-[44rem]:grid-cols-3">
             <PropertyResidentPdfUploadCard
               title="Add application"
-              subtitle="Rental application PDF"
               fileName={arApplicationFile?.name ?? null}
               busy={arPdfBusy}
               dataAttr="residents-add-application-pdf"
@@ -4323,7 +4322,6 @@ export function ManagerResidents({
             />
             <PropertyResidentPdfUploadCard
               title="Add lease"
-              subtitle="Signed or draft lease PDF"
               fileName={arLeaseImportFile?.name ?? null}
               busy={arPdfBusy}
               dataAttr="residents-add-lease-pdf"
@@ -4412,13 +4410,11 @@ export function ManagerResidents({
               </p>
             </fieldset>
           ) : null}
-          <p className="text-xs text-muted">
-            Upload one or both. Parsed fields appear below — edit anything before importing.
-          </p>
-          <p className="text-xs text-muted">
-            Onboard an existing tenant: creates an active resident record, sets up payments, and can email portal instructions (no application or screening).
-            {arIsAirbnbStay ? " Airbnb stays are calendar-only — PropLane does not bill rent or fees." : null}
-          </p>
+          {arIsAirbnbStay ? (
+            <p className="text-xs text-muted">
+              Airbnb stays are calendar-only — PropLane does not bill rent or fees.
+            </p>
+          ) : null}
           <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
             <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
               <span className="font-medium text-muted">Full name *</span>
