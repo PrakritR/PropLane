@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { useCallback, useEffect, useState } from "react";
+import { CalendarSync } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { GoogleCalendarConnectPanel } from "@/components/portal/google-calendar-connect-panel";
-import { PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
 
+/**
+ * The Calendar bar's Google Calendar control — the calendar-sync glyph with a
+ * connection dot (green connected, amber not yet), same rule as every other
+ * icon in a list bar (PLAN-0914-1710). The dialog behind it is unchanged.
+ */
 export function GoogleCalendarConnectDialog({
   onConnectionChange,
   className,
@@ -15,8 +20,28 @@ export function GoogleCalendarConnectDialog({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [connected, setConnected] = useState<boolean | null>(null);
   const { isNative } = useIsNativeApp();
   const useFullPageModal = isNative === true;
+
+  // A light status read for the dot; the panel does the full link-session dance itself.
+  const readStatus = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `/api/portal/google-calendar?origin=${encodeURIComponent(window.location.origin)}`,
+        { credentials: "include" },
+      );
+      if (!res.ok) return;
+      const data = (await res.json()) as { connected?: boolean };
+      setConnected(Boolean(data.connected));
+    } catch {
+      setConnected(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void readStatus();
+  }, [readStatus]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -24,17 +49,24 @@ export function GoogleCalendarConnectDialog({
     if (gcal === "connected" || gcal === "error") setOpen(true);
   }, []);
 
+  const label =
+    connected === true
+      ? "Google Calendar · connected"
+      : connected === false
+        ? "Google Calendar · not connected"
+        : "Google Calendar";
+
   return (
     <>
-      <Button
-        type="button"
-        variant="outline"
-        className={className ?? `shrink-0 ${PORTAL_HEADER_ACTION_BTN}`}
+      <PortalIconAction
+        icon={CalendarSync}
+        label={label}
+        badge={connected === true ? "ok" : connected === false ? "warn" : null}
+        className={className}
         onClick={() => setOpen(true)}
         data-attr="google-calendar-header-btn"
-      >
-        Google Calendar
-      </Button>
+        data-connected={connected == null ? undefined : String(connected)}
+      />
       <Modal
         open={open}
         title="Google Calendar"
@@ -46,6 +78,7 @@ export function GoogleCalendarConnectDialog({
         <GoogleCalendarConnectPanel
           presentation="dialog"
           onConnectionChange={() => {
+            void readStatus();
             onConnectionChange?.();
           }}
         />

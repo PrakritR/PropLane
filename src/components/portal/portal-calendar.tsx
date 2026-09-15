@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import {
-  ManagerPortalPageShell,
-  PORTAL_COMMAND_ACTION_BTN,
-} from "./portal-metrics";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { portalEmptyCopy, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
+import { Share2 } from "lucide-react";
+import { ManagerPortalPageShell } from "./portal-metrics";
 import { PortalCalendarPanels } from "./portal-calendar-panels";
 import {
   ADMIN_AVAILABILITY_STORAGE_KEY,
@@ -51,6 +52,9 @@ import {
   meetingsInWeek,
 } from "@/lib/manager-calendar-tour-meetings";
 import {
+  CALENDAR_VIEW_TABS,
+  CALENDAR_VIEW_TAB_LABELS,
+  calendarViewHref,
   parseCalendarViewTab,
   toursHubHref,
   type CalendarViewTabId,
@@ -98,8 +102,8 @@ export function PortalCalendar({
   const [coManagerPeers, setCoManagerPeers] = useState<CoManagerCalendarPeerDto[]>([]);
   const [shareAvailability, setShareAvailability] = useState(false);
   const [googleCalendarTick, setGoogleCalendarTick] = useState(0);
-  const calendarView =
-    portal === "manager" && !schedulingHub ? parseCalendarViewTab(calendarViewProp) : "availability";
+  const calendarView: CalendarViewTabId =
+    portal === "manager" && !schedulingHub ? parseCalendarViewTab(calendarViewProp) : "all";
   const toursHubTab: ToursHubTabId = toursHubTabProp ?? "tours";
   const [workOrderTick, setWorkOrderTick] = useState(0);
   const [calendarAnchorDate, setCalendarAnchorDate] = useState(() => new Date());
@@ -358,7 +362,7 @@ export function PortalCalendar({
 
   const calendarTabCounts = useMemo(() => {
     if (portal !== "manager" || !userId) {
-      return { tours: 0, bookings: 0, services: serviceCalendarMeetings.length };
+      return { all: 0, tours: 0, tasks: 0, bookings: 0, services: serviceCalendarMeetings.length };
     }
     void calendarRefreshSignal;
     void workOrderTick;
@@ -368,12 +372,14 @@ export function PortalCalendar({
       propertyIds: scopedCalendarPropertyIds,
       peers: [],
     };
-    const tourMeetings = meetingsInWeek(
+    const plannedInWeek = meetingsInWeek(
       buildScheduledTourMeetings(tourFilter, storageKey),
       calendarAnchorDate,
     );
-    const servicesInWeek = meetingsInWeek(serviceCalendarMeetings, calendarAnchorDate);
-    return { tours: tourMeetings.length, bookings: 0, services: servicesInWeek.length };
+    const tours = plannedInWeek.filter((meeting) => meeting.kind !== "task").length;
+    const tasks = plannedInWeek.length - tours;
+    const services = meetingsInWeek(serviceCalendarMeetings, calendarAnchorDate).length;
+    return { all: tours + tasks + services, tours, tasks, bookings: 0, services };
   }, [
     portal,
     userId,
@@ -405,38 +411,57 @@ export function PortalCalendar({
               dataAttr: "tours-hub-tab-services",
             },
           ]
-        : [],
+        : // The Calendar section's own views (PLAN-0914-1710): one grid, four ways to read it.
+          CALENDAR_VIEW_TABS.map((id) => ({
+            id,
+            label: CALENDAR_VIEW_TAB_LABELS[id],
+            count: calendarTabCounts[id],
+            href: calendarViewHref(MANAGER_PORTAL_BASE, id),
+            dataAttr: `calendar-view-tab-${id}`,
+          })),
     [calendarTabCounts, schedulingHub],
   );
 
-  const availabilityView = schedulingHub ? toursHubTab === "tours" : calendarView === "availability";
-  const showServiceVisits = schedulingHub && toursHubTab === "services";
-  const servicesOnlyView = showServiceVisits;
+  // Open tour slots (availability) draw where tours are booked from: All and Tours.
+  const availabilityView = schedulingHub ? toursHubTab === "tours" : calendarView === "all" || calendarView === "tours";
+  const showServiceVisits = schedulingHub ? toursHubTab === "services" : calendarView === "all" || calendarView === "services";
+  const servicesOnlyView = schedulingHub ? toursHubTab === "services" : calendarView === "services";
+  const tasksOnlyView = !schedulingHub && calendarView === "tasks";
+  /*
+   * Which planned meetings a view keeps. Tours: tours only (booked, pending,
+   * co-manager). Tasks: tasks with a due time only. Services shows none of them
+   * (its events come in as service visits). All keeps everything.
+   */
+  const scheduledMeetingFilter = useMemo<((meeting: DemoMeeting) => boolean) | undefined>(() => {
+    if (schedulingHub || calendarView === "all") return undefined;
+    if (calendarView === "tours") return (meeting) => meeting.kind !== "task";
+    if (calendarView === "tasks") return (meeting) => meeting.kind === "task";
+    return () => false;
+  }, [schedulingHub, calendarView]);
 
   // The Calendar section is the operations overview: it answers "is anyone going into this
   // property, or is anything scheduled to be done there". That means BOTH scheduled tours and
   // service visits, not just the manager's own Google events. Previously service visits were
   // merged only for the Tours hub's Services tab, so Calendar → Availability could only ever
   // render 0 events while the Tours tab showed the very same week with two.
-  const showScheduledWorkOnCalendar = !schedulingHub && availabilityView;
+  // Google busy time is context, not a PropLane event: it draws on All (and on the
+  // hub's Tours view), never on a single-kind tab.
+  const showGoogleBusy = portal === "manager" && (schedulingHub ? availabilityView : calendarView === "all");
   const mergedExternalMeetings = useMemo(() => {
-    const base = portal === "manager" ? [...googleExternalMeetings] : [];
-    if (showServiceVisits || showScheduledWorkOnCalendar) base.push(...serviceCalendarMeetings);
+    const base = showGoogleBusy ? [...googleExternalMeetings] : [];
+    if (showServiceVisits) base.push(...serviceCalendarMeetings);
     return base;
-  }, [
-    portal,
-    googleExternalMeetings,
-    serviceCalendarMeetings,
-    showServiceVisits,
-    showScheduledWorkOnCalendar,
-  ]);
+  }, [showGoogleBusy, googleExternalMeetings, serviceCalendarMeetings, showServiceVisits]);
 
-  const calendarPanelsReadOnly = servicesOnlyView;
+  // Single-kind views are for reading; availability is edited on All or Tours.
+  const calendarPanelsReadOnly = servicesOnlyView || tasksOnlyView;
   const calendarStorageKey =
     availabilityView && activeCalendarPropertyFilters.length === 1 ? storageKey : null;
   const calendarUnavailableMessage = servicesOnlyView
     ? "No scheduled service visits yet. Vendor visits and your own assigned work appear here once a visit time is set."
-    : "Add a property before setting tour availability.";
+    : tasksOnlyView
+      ? "No tasks with a due time yet. Give a task a due date and time and it appears here."
+      : "Add a property before setting tour availability.";
 
 
   const calendarFilterSheet =
@@ -462,29 +487,18 @@ export function PortalCalendar({
 
   const calendarGoogleCalendarButton =
     portal === "manager" ? (
-      <GoogleCalendarConnectDialog
-        className={PORTAL_COMMAND_ACTION_BTN}
-        onConnectionChange={() => setGoogleCalendarTick((n) => n + 1)}
-      />
+      <GoogleCalendarConnectDialog onConnectionChange={() => setGoogleCalendarTick((n) => n + 1)} />
     ) : null;
 
   const calendarShareTourButton =
     portal === "manager" && schedulingHub && availabilityView ? (
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_COMMAND_ACTION_BTN}
+      <PortalIconAction
+        icon={Share2}
+        label={shareableProperties.length === 0 ? "Share tour links (list a property first)" : "Share tour links"}
         disabled={shareableProperties.length === 0}
-        title={
-          shareableProperties.length === 0
-            ? "List a property as active before sharing tour links"
-            : "Share tour links"
-        }
         data-attr="calendar-share-tour"
         onClick={() => setShareTourModalOpen(true)}
-      >
-        Share tour
-      </Button>
+      />
     ) : null;
 
   /*
@@ -541,25 +555,30 @@ export function PortalCalendar({
           <PortalListControlStack
             className="mb-2 max-lg:mb-1.5"
             variant="command"
-            destinations={
-              schedulingHub
-                ? calendarTabs.map((tab) => ({
-                    id: tab.id,
-                    label: tab.label,
-                    href: tab.href,
-                    count: tab.count,
-                    dataAttr: tab.dataAttr,
-                  }))
-                : undefined
-            }
-            activeDestinationId={schedulingHub ? toursHubTab : undefined}
-            destinationAriaLabel={schedulingHub ? "Tours views" : undefined}
+            destinations={calendarTabs.map((tab) => ({
+              id: tab.id,
+              label: tab.label,
+              href: tab.href,
+              count: tab.count,
+              dataAttr: tab.dataAttr,
+            }))}
+            activeDestinationId={schedulingHub ? toursHubTab : calendarView}
+            destinationAriaLabel={schedulingHub ? "Tours views" : "Calendar views"}
             actions={calendarCommandActions}
           />
         ) : null}
         {portal === "manager" ? (
           <div className="portal-calendar-page-body mt-1 flex min-h-[min(72vh,52rem)] flex-1 flex-col bg-accent/30">
-            {servicesOnlyView ? (
+            {!schedulingHub && (servicesOnlyView || tasksOnlyView) && calendarTabCounts[calendarView] === 0 && !propertiesLoading ? (
+              <div className="pt-2">
+                <PortalListEmptyCard
+                  section="calendar"
+                  title={portalEmptyCopy(`calendar.${calendarView}` as PortalEmptyCopyKey).title}
+                  sibling={portalEmptySibling(calendarTabs, calendarView)}
+                  dataAttr="calendar-empty"
+                />
+              </div>
+            ) : servicesOnlyView ? (
               <div className="flex min-h-0 flex-1 flex-col">
                 {propertiesLoading && managerProperties.length === 0 ? (
                   <p className="text-sm text-muted">Loading houses from the backend…</p>
@@ -637,8 +656,9 @@ export function PortalCalendar({
             }
             defaultTourAvailability={portal === "manager" ? NO_DEFAULT_TOUR_AVAILABILITY : undefined}
             scheduledTourFilter={
-              availabilityView && calendarScheduledTourFilter ? calendarScheduledTourFilter : undefined
+              (availabilityView || tasksOnlyView) && calendarScheduledTourFilter ? calendarScheduledTourFilter : undefined
             }
+            scheduledMeetingFilter={scheduledMeetingFilter}
             coManagerAvailabilityOverlays={showCoManagerCoordination ? coManagerAvailabilityOverlays : undefined}
             externalMeetings={portal === "manager" ? mergedExternalMeetings : undefined}
             onGoogleCalendarRefresh={() => setGoogleCalendarTick((n) => n + 1)}

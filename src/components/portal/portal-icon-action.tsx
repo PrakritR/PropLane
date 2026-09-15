@@ -16,7 +16,8 @@ import { cn } from "@/lib/utils";
  *
  * `badge` marks state the glyph alone cannot: `"dot"` for an applied filter,
  * a number for how many, `"warn"` (amber) for a setup step still open — a
- * messaging number not yet assigned, payouts not yet connected.
+ * messaging number not yet assigned — and `"ok"` (green) for a connection
+ * that is live (Google Calendar).
  */
 export const PortalIconAction = forwardRef<
   HTMLButtonElement,
@@ -33,7 +34,7 @@ export const PortalIconAction = forwardRef<
     /** @deprecated Every icon action is icon-only now. */
     iconOnly?: boolean;
     /** State the glyph cannot carry: an applied filter, a count, an open setup step. */
-    badge?: "dot" | "warn" | number | null;
+    badge?: "dot" | "warn" | "ok" | number | null;
   }
 >(function PortalIconAction(
   // `shortLabel` / `iconOnly` are accepted and ignored — see the props above.
@@ -97,7 +98,7 @@ export const PortalPrimaryIconAction = forwardRef<
   );
 });
 
-function PortalIconBadge({ badge }: { badge: "dot" | "warn" | number | null }) {
+function PortalIconBadge({ badge }: { badge: "dot" | "warn" | "ok" | number | null }) {
   if (badge == null || badge === 0) return null;
   if (typeof badge === "number") {
     return (
@@ -117,7 +118,7 @@ function PortalIconBadge({ badge }: { badge: "dot" | "warn" | number | null }) {
       data-tone={badge}
       className={cn(
         "absolute right-1 top-1 size-2 rounded-full ring-2 ring-card",
-        badge === "warn" ? "bg-amber-500" : "bg-primary",
+        badge === "warn" ? "bg-amber-500" : badge === "ok" ? "bg-emerald-500" : "bg-primary",
       )}
     />
   );
