@@ -492,14 +492,14 @@ export function SectionGroup({
   children,
   first = false,
 }: {
-  title: string;
+  title?: string;
   children: ReactNode;
   /** The first group sits directly under the step heading, without the top rule. */
   first?: boolean;
 }) {
   return (
     <section className={cn(first ? "" : "mt-8 border-t border-border/60 pt-6")}>
-      <h3 className="mb-4 text-[15.5px] font-bold tracking-tight text-foreground">{title}</h3>
+      {title ? <h3 className="mb-4 text-[15.5px] font-bold tracking-tight text-foreground">{title}</h3> : null}
       {children}
     </section>
   );
@@ -1219,9 +1219,20 @@ export function RecordCard({
   dataAttr,
   children,
   rows,
+  help,
+  same,
+  onRemove,
+  removeLabel,
 }: {
-  /** A fixed title ("Every room"); use `name`/`onName` for a typed one instead. */
+  /** A fixed title ("All rooms"); use `name`/`onName` for a typed one instead. */
   title?: ReactNode;
+  /** The ⓘ beside the title — the one place the card is explained. */
+  help?: string;
+  /** The "Same as all rooms" line under the name. */
+  same?: ReactNode;
+  /** The ✕ in the header that removes the record. */
+  onRemove?: () => void;
+  removeLabel?: string;
   name?: string;
   onName?: (next: string) => void;
   namePlaceholder?: string;
@@ -1250,17 +1261,34 @@ export function RecordCard({
       )}
     >
       <div className="flex items-center gap-2.5 px-3.5 py-3">
-        {onName != null ? (
-          <input
-            aria-label={nameLabel ?? "Name"}
-            value={name ?? ""}
-            placeholder={namePlaceholder}
-            onChange={(e) => onName(e.target.value)}
-            className="min-h-[38px] min-w-0 flex-1 rounded-xl border border-border bg-card px-3 text-[14px] font-bold text-foreground outline-none focus:border-primary"
-          />
-        ) : (
-          <b className="min-w-0 flex-1 text-[14px] font-bold text-foreground">{title ?? name}</b>
-        )}
+        <span className="min-w-0 flex-1">
+          {onName != null ? (
+            <input
+              aria-label={nameLabel ?? "Name"}
+              value={name ?? ""}
+              placeholder={namePlaceholder}
+              onChange={(e) => onName(e.target.value)}
+              className="min-h-[38px] w-full min-w-0 rounded-xl border border-border bg-card px-3 text-[14px] font-bold text-foreground outline-none focus:border-primary"
+            />
+          ) : (
+            <b className="flex min-w-0 items-center gap-1.5 text-[14px] font-bold text-foreground">
+              {title ?? name}
+              {help ? <ColumnHelp title={typeof title === "string" ? title : "This"} text={help} dataAttr="listing-v2-defaults-help" /> : null}
+            </b>
+          )}
+          {same}
+        </span>
+        {onRemove ? (
+          <button
+            type="button"
+            onClick={onRemove}
+            aria-label={removeLabel ?? `Remove ${toggleLabel ?? name ?? "this"}`}
+            data-attr={dataAttr ? `${dataAttr}-remove` : "listing-v2-card-remove"}
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted hover:bg-foreground/[0.06] hover:text-foreground"
+          >
+            ✕
+          </button>
+        ) : null}
         {onToggle ? (
           <button
             type="button"
@@ -1496,5 +1524,151 @@ export function MoneyInput({
         )}
       />
     </span>
+  );
+}
+
+
+/* ───────────── the "All …" pattern: help, same-as-all, more, done ───────────── */
+
+/**
+ * The ⓘ beside a label or a card title. One tap says what the thing means;
+ * the screen itself carries no caption text. One popover is open at a time
+ * and it closes on outside click or Escape.
+ */
+export function ColumnHelp({ title, text, dataAttr }: { title: string; text: string; dataAttr?: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  return (
+    <span ref={ref} className="relative inline-flex align-middle">
+      <button
+        type="button"
+        aria-label={`What ${title} means`}
+        aria-expanded={open}
+        data-attr={dataAttr ?? "listing-v2-column-help"}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        className={cn(
+          "grid h-[15px] w-[15px] place-items-center rounded-full border text-[9.5px] font-extrabold normal-case tracking-normal transition-colors",
+          open ? "border-primary text-primary" : "border-current text-muted hover:border-primary hover:text-primary",
+        )}
+      >
+        i
+      </button>
+      {open ? (
+        <span
+          role="tooltip"
+          className="absolute left-0 top-full z-30 mt-1.5 w-[272px] max-w-[80vw] rounded-xl bg-foreground px-3 py-2.5 text-left text-[12.5px] font-medium normal-case leading-relaxed tracking-normal text-white shadow-lg"
+        >
+          <b className="mb-0.5 block font-extrabold">{title}</b>
+          {text}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/**
+ * The line under a card's name: ☑ Same as all rooms / ☐ This room only · ↺ Reset.
+ *
+ * Ticked means every field on the card copies the "All …" card. Unticking
+ * changes nothing yet — the record just becomes its own; changing any field
+ * unticks it too. Reset (or ticking again) copies the "All …" card back.
+ */
+export function SameAsAllToggle({
+  same,
+  plural,
+  noun,
+  onChange,
+  onReset,
+  dataAttr,
+}: {
+  same: boolean;
+  plural: string;
+  noun: string;
+  onChange: (same: boolean) => void;
+  onReset: () => void;
+  dataAttr?: string;
+}) {
+  return (
+    <label className={cn("mt-1.5 flex cursor-pointer select-none items-center gap-1.5 text-[12px] font-semibold", same ? "text-muted" : "text-primary")}>
+      <input
+        type="checkbox"
+        checked={same}
+        data-attr={dataAttr ?? "listing-v2-same-as-all"}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-3.5 w-3.5 shrink-0 accent-[var(--pl-blue)]"
+      />
+      {same ? (
+        <span>Same as all {plural}</span>
+      ) : (
+        <span>
+          This {noun} only ·{" "}
+          <button
+            type="button"
+            data-attr="listing-v2-make-same"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onReset();
+            }}
+            className="font-bold hover:underline"
+          >
+            ↺ Reset
+          </button>
+        </span>
+      )}
+    </label>
+  );
+}
+
+/**
+ * The More ▾ under a card's important rows. Everything else lives behind it,
+ * and one press shows it all — there is no second More inside.
+ */
+export function MoreRows({ children, dataAttr }: { children: ReactNode; dataAttr?: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <div className="border-t border-border px-3.5 py-2">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          data-attr={dataAttr ?? "listing-v2-more"}
+          className="text-[13px] font-bold text-primary hover:underline"
+        >
+          {open ? "Less ▴" : "More ▾"}
+        </button>
+      </div>
+      {open ? children : null}
+    </>
+  );
+}
+
+/** The one closer at the foot of an open card. */
+export function EditorDone({ onClick, dataAttr }: { onClick: () => void; dataAttr?: string }) {
+  return (
+    <div className="flex justify-end border-t border-border px-3.5 py-3">
+      <button type="button" onClick={onClick} data-attr={dataAttr ?? "listing-v2-editor-done"} className="rounded-full bg-foreground px-4 py-1.5 text-[12.5px] font-bold text-white hover:brightness-110">
+        Done
+      </button>
+    </div>
   );
 }

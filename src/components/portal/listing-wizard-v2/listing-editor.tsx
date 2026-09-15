@@ -62,7 +62,6 @@ import {
   ROOM_BED_TYPES,
   bedsLine,
   parseBedsLine,
-  duplicateRoomEntry,
   isRoomSlotRemovable,
 } from "@/lib/manager-listing-submission";
 import {
@@ -97,9 +96,11 @@ import {
 } from "@/lib/listing-house-defaults";
 import {
   AddRowButton,
-  CardAction,
+  ColumnHelp,
+  EditorDone,
+  MoreRows,
+  SameAsAllToggle,
   CardFields,
-  CardFoot,
   CheckboxOption,
   Field,
   FieldRow,
@@ -414,7 +415,7 @@ function AmenityPick({
   );
 }
 
-function StepBasics({ sub, patch, isEdit = false }: { sub: ManagerListingSubmissionV1; patch: Patch; isEdit?: boolean }) {
+function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   const rentByRoom = sub.listingPlaceCategoryId !== "entire_home";
   const roomCount = sub.rooms?.length || sub.listingBedroomSlots || 1;
   const setRentModel = (id: "shared_home" | "entire_home") => patch({ listingPlaceCategoryId: id, rentalModelStamp: id });
@@ -435,7 +436,7 @@ function StepBasics({ sub, patch, isEdit = false }: { sub: ManagerListingSubmiss
        * after it — whether rent is per room or set once, and whether Rooms is
        * about bedrooms or about one household.
        */}
-      <SectionGroup first title={isEdit ? "What it is" : "What are you adding?"}>
+      <SectionGroup first>
         <Field label="Property type" required group>
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
             {PROPERTY_KIND_TILES.map((k) => (
@@ -735,9 +736,19 @@ function BedsRows({
   );
 }
 
+const ROOM_HELP = {
+  all: "Set once. Every room ticked “Same as all rooms” copies this. Untick a room, or change anything on its card, and it keeps its own values.",
+  people: "How many residents can rent this room, each on their own lease. Not the number of beds.",
+  bathroom: "The bathroom this room uses, and whether it is private (ensuite) or shared. Add bathrooms on the Bathrooms step first.",
+  rent: "Set per room in Pricing. Shown here so every room’s price is in one place.",
+} as const;
+
 /**
- * The rows a room card unfolds. `room` null is the "Every room" card: the same
+ * The rows a room card unfolds. `room` null is the "All rooms" card: the same
  * rows, applied to every room that still follows it.
+ *
+ * The important questions come first — residents, bathroom, floor — and
+ * everything else sits behind one More ▾. An open room card ends in Done.
  */
 function RoomCardBody({
   room,
@@ -751,9 +762,8 @@ function RoomCardBody({
   onRoom,
   onDefault,
   onResetField,
-  onDuplicate,
-  onRemove,
   onGoToPricing,
+  onDone,
   storiesId,
 }: {
   room: ManagerRoomSubmission | null;
@@ -768,12 +778,10 @@ function RoomCardBody({
   onRoom: (patch: Partial<ManagerRoomSubmission>) => void;
   onDefault: <K extends ListingHouseDefaultField>(field: K, value: ListingHouseDefaults[K]) => void;
   onResetField: (field: RoomInheritField) => void;
-  onDuplicate?: () => void;
-  onRemove?: () => void;
   onGoToPricing: () => void;
+  onDone?: () => void;
   storiesId: string | undefined;
 }) {
-  const [moveInOpen, setMoveInOpen] = useState(false);
   const inherits = (field: RoomInheritField) => (room ? roomInheritsDefault(room, defaults, field) : false);
   const own = (field: RoomInheritField) => Boolean(room) && !inherits(field);
   const beds: ManagerRoomBed[] = room ? room.beds ?? parseBedsLine(defaults.bedsLine) : parseBedsLine(defaults.bedsLine);
@@ -788,11 +796,17 @@ function RoomCardBody({
     else onDefault("bedsLine", bedsLine(next));
   };
   const reset = (field: RoomInheritField) => (own(field) ? () => onResetField(field) : undefined);
+  const help = (title: string, text: string) => (
+    <span className="inline-flex items-center gap-1.5">
+      {title}
+      <ColumnHelp title={title} text={text} />
+    </span>
+  );
 
   return (
     <>
       {wholePlace ? null : (
-        <FactRow first label="Residents per room" own={own("occupancyCapacity")} onReset={reset("occupancyCapacity")} resetLabel={`Reset residents for ${who} to every room`}>
+        <FactRow first label={help("Residents per room", ROOM_HELP.people)} own={own("occupancyCapacity")} onReset={reset("occupancyCapacity")} resetLabel={`Reset residents for ${who} to every room`}>
           <CountStepper
             compact
             inherited={inherits("occupancyCapacity")}
@@ -805,150 +819,135 @@ function RoomCardBody({
         </FactRow>
       )}
       {wholePlace ? null : bathrooms === 0 ? (
-        <FactRow label="Bathroom">
+        <FactRow label={help("Bathroom", ROOM_HELP.bathroom)}>
           <button type="button" onClick={onGoToBathrooms} data-attr="listing-v2-add-bathroom-first" className="text-[13.5px] font-bold text-primary hover:underline">
             Add a bathroom first →
           </button>
         </FactRow>
       ) : (
-        <FactRow label="Bathroom">
+        <FactRow label={help("Bathroom", ROOM_HELP.bathroom)}>
           <RowSelectCell ariaLabel={`Bathroom access for ${who}`} value={access} options={BATHROOM_ACCESS_OPTIONS} placeholder="Select…" onChange={onAccess} />
         </FactRow>
       )}
       <FactRow first={wholePlace} label="Floor" own={own("floor")} onReset={reset("floor")} resetLabel={`Reset floor for ${who} to every room`}>
         <RowSelectCell ariaLabel={`Floor for ${who}`} value={room ? room.floor : defaults.floor} options={floorOptions} placeholder="Floor…" inherited={inherits("floor")} onChange={(v) => (room ? onRoom({ floor: v }) : onDefault("floor", v))} />
       </FactRow>
-      <FactRow label="Furnishing" own={own("furnishing")} onReset={reset("furnishing")} resetLabel={`Reset furnishing for ${who} to every room`}>
-        <RowSelectCell
-          ariaLabel={`Furnishing for ${who}`}
-          value={isFurnished(furnishing) ? "furnished" : "unfurnished"}
-          options={FURNISHING_OPTIONS}
-          inherited={inherits("furnishing")}
-          onChange={(v) => writeFurnishing(v === "furnished" ? furnishingLine(furnishingItems(furnishing)) : "")}
-        />
-      </FactRow>
-      {isFurnished(furnishing) ? (
-        <>
-          <BedsRows beds={beds} inherited={inherits("bedsLine")} onChange={writeBeds} who={who} />
-          <FactRow sub label="Included">
-            <MultiPick
-              label={`Included in ${who}`}
-              options={FURNISHING_ITEMS}
-              selected={furnishingItems(furnishing)}
-              inherited={inherits("furnishing")}
-              emptyLabel="Choose…"
-              onChange={(next) => writeFurnishing(furnishingLine(next))}
-            />
-          </FactRow>
-        </>
-      ) : null}
-      <FactRow label="Room amenities" own={own("roomAmenitiesText")} onReset={reset("roomAmenitiesText")} resetLabel={`Reset amenities for ${who} to every room`}>
-        <AmenityPick label={`Room amenities for ${who}`} presets={ROOM_AMENITY_PRESETS} value={amenities} inherited={inherits("roomAmenitiesText")} onChange={(next) => (room ? onRoom({ roomAmenitiesText: next }) : onDefault("roomAmenitiesText", next))} />
-      </FactRow>
-      <FactRow label="Size" own={own("sizeSqft")} onReset={reset("sizeSqft")} resetLabel={`Reset size for ${who} to every room`}>
-        <span className="relative inline-block w-[118px]">
-          <input
-            inputMode="numeric"
-            aria-label={`Size of ${who}`}
-            placeholder="140"
-            value={size > 0 ? String(size) : ""}
-            onChange={(e) => {
-              const n = Number(e.target.value.replace(/[^0-9]/g, "")) || 0;
-              if (room) onRoom({ sizeSqft: n > 0 ? n : undefined });
-              else onDefault("sizeSqft", n);
-            }}
-            className={cn(
-              "min-h-[36px] w-full rounded-lg border bg-card pl-2.5 pr-12 text-right text-[13.5px] font-semibold tabular-nums text-foreground outline-none focus:border-primary",
-              inherits("sizeSqft") ? "border-dashed border-border text-muted" : "border-border",
-            )}
+
+      <MoreRows dataAttr={room ? "listing-v2-room-more" : "listing-v2-defaults-more"}>
+        <FactRow label="Furnishing" own={own("furnishing")} onReset={reset("furnishing")} resetLabel={`Reset furnishing for ${who} to every room`}>
+          <RowSelectCell
+            ariaLabel={`Furnishing for ${who}`}
+            value={isFurnished(furnishing) ? "furnished" : "unfurnished"}
+            options={FURNISHING_OPTIONS}
+            inherited={inherits("furnishing")}
+            onChange={(v) => writeFurnishing(v === "furnished" ? furnishingLine(furnishingItems(furnishing)) : "")}
           />
-          <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[12px] text-muted">sq ft</span>
-        </span>
-      </FactRow>
+        </FactRow>
+        {isFurnished(furnishing) ? (
+          <>
+            <BedsRows beds={beds} inherited={inherits("bedsLine")} onChange={writeBeds} who={who} />
+            <FactRow sub label="Included">
+              <MultiPick
+                label={`Included in ${who}`}
+                options={FURNISHING_ITEMS}
+                selected={furnishingItems(furnishing)}
+                inherited={inherits("furnishing")}
+                emptyLabel="Choose…"
+                onChange={(next) => writeFurnishing(furnishingLine(next))}
+              />
+            </FactRow>
+          </>
+        ) : null}
+        <FactRow label="Room amenities" own={own("roomAmenitiesText")} onReset={reset("roomAmenitiesText")} resetLabel={`Reset amenities for ${who} to every room`}>
+          <AmenityPick label={`Room amenities for ${who}`} presets={ROOM_AMENITY_PRESETS} value={amenities} inherited={inherits("roomAmenitiesText")} onChange={(next) => (room ? onRoom({ roomAmenitiesText: next }) : onDefault("roomAmenitiesText", next))} />
+        </FactRow>
+        <FactRow label="Size" own={own("sizeSqft")} onReset={reset("sizeSqft")} resetLabel={`Reset size for ${who} to every room`}>
+          <span className="relative inline-block w-[118px]">
+            <input
+              inputMode="numeric"
+              aria-label={`Size of ${who}`}
+              placeholder="140"
+              value={size > 0 ? String(size) : ""}
+              onChange={(e) => {
+                const n = Number(e.target.value.replace(/[^0-9]/g, "")) || 0;
+                if (room) onRoom({ sizeSqft: n > 0 ? n : undefined });
+                else onDefault("sizeSqft", n);
+              }}
+              className={cn(
+                "min-h-[36px] w-full rounded-lg border bg-card pl-2.5 pr-12 text-right text-[13.5px] font-semibold tabular-nums text-foreground outline-none focus:border-primary",
+                inherits("sizeSqft") ? "border-dashed border-border text-muted" : "border-border",
+              )}
+            />
+            <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[12px] text-muted">sq ft</span>
+          </span>
+        </FactRow>
 
-      {room ? (
-        <CardFields cols={2}>
-          <Field label="Photos">
-            <PhotoStrip label="room" urls={room.photoDataUrls ?? []} onChange={(next) => onRoom({ photoDataUrls: next })} />
-          </Field>
-          <Field label="Video">
-            <VideoSlot label="room" url={room.videoDataUrl} onChange={(next) => onRoom({ videoDataUrl: next })} />
-          </Field>
-        </CardFields>
-      ) : null}
-      {room ? (
-        <CardFields>
-          <Field label="Description">
-            <Textarea rows={3} value={room.detail} placeholder="What a renter should know about this room" onChange={(e) => onRoom({ detail: e.target.value })} />
-          </Field>
-        </CardFields>
-      ) : null}
-      {room ? (
-        <CardFields cols={2}>
-          <Field label="Available from">
-            <Input type="date" value={room.moveInAvailableDate} onChange={(e) => onRoom({ moveInAvailableDate: e.target.value })} />
-          </Field>
-        </CardFields>
-      ) : null}
+        {room ? (
+          <CardFields cols={2}>
+            <Field label="Photos">
+              <PhotoStrip label="room" urls={room.photoDataUrls ?? []} onChange={(next) => onRoom({ photoDataUrls: next })} />
+            </Field>
+            <Field label="Video">
+              <VideoSlot label="room" url={room.videoDataUrl} onChange={(next) => onRoom({ videoDataUrl: next })} />
+            </Field>
+          </CardFields>
+        ) : null}
+        {room ? (
+          <CardFields>
+            <Field label="Description">
+              <Textarea rows={3} value={room.detail} placeholder="What a renter should know about this room" onChange={(e) => onRoom({ detail: e.target.value })} />
+            </Field>
+          </CardFields>
+        ) : null}
+        {room ? (
+          <CardFields cols={2}>
+            <Field label="Available from">
+              <Input type="date" value={room.moveInAvailableDate} onChange={(e) => onRoom({ moveInAvailableDate: e.target.value })} />
+            </Field>
+          </CardFields>
+        ) : null}
 
-      <div className="px-3.5 pb-1">
-        <CheckboxOption
-          label="Move-in checklist required"
-          checked={room ? Boolean(room.moveInInspectionRequired) : defaults.moveInInspectionRequired}
-          onChange={(next) => (room ? onRoom({ moveInInspectionRequired: next }) : onDefault("moveInInspectionRequired", next))}
-        />
-        <CheckboxOption
-          label="Move-out checklist required"
-          checked={room ? Boolean(room.moveOutInspectionRequired) : defaults.moveOutInspectionRequired}
-          onChange={(next) => (room ? onRoom({ moveOutInspectionRequired: next }) : onDefault("moveOutInspectionRequired", next))}
-        />
-      </div>
+        <div className="border-t border-border px-3.5 pb-1 pt-2">
+          <CheckboxOption
+            label="Move-in checklist required"
+            checked={room ? Boolean(room.moveInInspectionRequired) : defaults.moveInInspectionRequired}
+            onChange={(next) => (room ? onRoom({ moveInInspectionRequired: next }) : onDefault("moveInInspectionRequired", next))}
+          />
+          <CheckboxOption
+            label="Move-out checklist required"
+            checked={room ? Boolean(room.moveOutInspectionRequired) : defaults.moveOutInspectionRequired}
+            onChange={(next) => (room ? onRoom({ moveOutInspectionRequired: next }) : onDefault("moveOutInspectionRequired", next))}
+          />
+        </div>
 
-      {room ? (
-        <>
-          <FactRow label="Move-in details">
-            <button type="button" onClick={() => setMoveInOpen((v) => !v)} aria-expanded={moveInOpen} className="text-[13.5px] font-bold text-primary hover:underline">
-              {moveInOpen ? "Hide" : "Show"}
+        {room ? (
+          <>
+            <CardFields>
+              <Field label="Move-in instructions">
+                <Textarea rows={2} value={room.moveInInstructions} placeholder="Which key opens it, where to park" onChange={(e) => onRoom({ moveInInstructions: e.target.value })} />
+              </Field>
+            </CardFields>
+            <CardFields cols={2}>
+              <Field label="Entry photos">
+                <PhotoStrip label="entry" urls={room.moveInPhotoDataUrls ?? []} onChange={(next) => onRoom({ moveInPhotoDataUrls: next })} />
+              </Field>
+              <Field label="Arrival clip">
+                <VideoSlot label="arrival" url={room.moveInVideoDataUrl} onChange={(next) => onRoom({ moveInVideoDataUrl: next })} />
+              </Field>
+            </CardFields>
+          </>
+        ) : null}
+
+        {room && !wholePlace ? (
+          <FactRow label={help("Rent", ROOM_HELP.rent)}>
+            <button type="button" onClick={onGoToPricing} data-attr="listing-v2-room-set-in-pricing" className="text-[13.5px] font-bold text-primary hover:underline">
+              Set in Pricing →
             </button>
           </FactRow>
-          {moveInOpen ? (
-            <>
-              <CardFields>
-                <Field label="Move-in instructions">
-                  <Textarea rows={2} value={room.moveInInstructions} placeholder="Which key opens it, where to park" onChange={(e) => onRoom({ moveInInstructions: e.target.value })} />
-                </Field>
-              </CardFields>
-              <CardFields cols={2}>
-                <Field label="Entry photos">
-                  <PhotoStrip label="entry" urls={room.moveInPhotoDataUrls ?? []} onChange={(next) => onRoom({ moveInPhotoDataUrls: next })} />
-                </Field>
-                <Field label="Arrival clip">
-                  <VideoSlot label="arrival" url={room.moveInVideoDataUrl} onChange={(next) => onRoom({ moveInVideoDataUrl: next })} />
-                </Field>
-              </CardFields>
-            </>
-          ) : null}
-        </>
-      ) : null}
+        ) : null}
+      </MoreRows>
 
-      {room && !wholePlace ? (
-        <FactRow label="Rent">
-          <button type="button" onClick={onGoToPricing} data-attr="listing-v2-room-set-in-pricing" className="text-[13.5px] font-bold text-primary hover:underline">
-            Set in Pricing →
-          </button>
-        </FactRow>
-      ) : null}
-
-      {room ? (
-        <CardFoot>
-          {onDuplicate ? <CardAction onClick={onDuplicate}>Duplicate</CardAction> : null}
-          {onRemove ? (
-            <CardAction onClick={onRemove} tone="danger" dataAttr="listing-v2-room-remove">
-              Remove
-            </CardAction>
-          ) : null}
-        </CardFoot>
-      ) : null}
+      {room && onDone ? <EditorDone onClick={onDone} dataAttr="listing-v2-room-done" /> : null}
     </>
   );
 }
@@ -1050,9 +1049,27 @@ function StepRooms({
   const resetField = (id: string, field: RoomInheritField) =>
     writeRooms(applyHouseDefaultsToRooms(rooms, defaults, { onlyFields: [field], roomIds: [id] }));
 
-  const roomsHaveOverrides =
-    touched.size > 0 ||
-    rooms.some((room) => ROOM_INHERIT_FIELDS.some((field) => !roomInheritsDefault(room, defaults, field)));
+  const untouch = (id: string) =>
+    setTouched((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  /** The checkbox: every inherited field follows the card AND the room was not unticked or edited. */
+  const sameAsAll = (room: ManagerRoomSubmission) =>
+    !touched.has(room.id) && ROOM_INHERIT_FIELDS.every((field) => roomInheritsDefault(room, defaults, field));
+  /**
+   * Tick: copy the "All rooms" card into every field. Untick: nothing moves —
+   * what the room shows right now becomes its own, stored on the room, so a
+   * later change to the card cannot reach it through a blank.
+   */
+  const setSameAsAll = (room: ManagerRoomSubmission, same: boolean) => {
+    if (same) untouch(room.id);
+    else markTouched(room.id);
+    writeRooms(applyHouseDefaultsToRooms(rooms, defaults, { onlyFields: ROOM_INHERIT_FIELDS, roomIds: [room.id] }));
+  };
+  const roomsHaveOverrides = rooms.some((room) => !sameAsAll(room));
   const resetAllRooms = () => {
     if (rooms.length === 0) return;
     setTouched(new Set());
@@ -1114,18 +1131,19 @@ function StepRooms({
   return (
     <StepColumn>
       <StepHeading
-        title={`Your ${rooms.length} ${rooms.length === 1 ? noun : `${noun}s`}`}
+        title={`${rooms.length} ${rooms.length === 1 ? noun : `${noun}s`}`}
         action={
           rooms.length > 0 ? (
-            <ResetAllInheritanceButton dataAttr="listing-v2-rooms-reset-all" disabled={!roomsHaveOverrides} onClick={resetAllRooms} />
+            <ResetAllInheritanceButton label="Make all the same" dataAttr="listing-v2-rooms-reset-all" disabled={!roomsHaveOverrides} onClick={resetAllRooms} />
           ) : null
         }
       />
 
-      {/* Every room — the defaults, in a room's clothes. Its rows are always visible. */}
+      {/* All rooms — the defaults, in a room's clothes. Its important rows are always visible. */}
       <RecordCard
         every
-        title={`Every ${noun}`}
+        title={`All ${noun}s`}
+        help={ROOM_HELP.all}
         dataAttr="listing-v2-defaults-card"
         rows={
           <div data-attr="listing-v2-defaults-editor">
@@ -1158,6 +1176,9 @@ function StepRooms({
             nameLabel={`Name for room ${i + 1}`}
             namePlaceholder={`${wholePlace ? "Bedroom" : "Room"} ${i + 1}`}
             onName={(v) => writeRoom(room.id, { name: v })}
+            same={<SameAsAllToggle same={sameAsAll(room)} plural={`${noun}s`} noun={noun} onChange={(next) => setSameAsAll(room, next)} onReset={() => setSameAsAll(room, true)} dataAttr="listing-v2-room-same-as-all" />}
+            onRemove={rooms.length > 1 && isRoomSlotRemovable(room) ? () => { writeRooms(rooms.filter((r) => r.id !== room.id)); if (open === room.id) setOpen(null); } : undefined}
+            removeLabel={`Remove ${label}`}
             summary={summaryFor(room)}
             open={isOpen}
             onToggle={() => toggle(room.id)}
@@ -1178,13 +1199,8 @@ function StepRooms({
                 onDefault={editDefault}
                 onResetField={(f) => resetField(room.id, f)}
                 onGoToPricing={onGoToPricing}
+                onDone={() => setOpen(null)}
                 storiesId={sub.listingStoriesId}
-                onDuplicate={() => {
-                  const copy = duplicateRoomEntry(room);
-                  writeRooms([...rooms.slice(0, i + 1), copy, ...rooms.slice(i + 1)]);
-                  setOpen(copy.id);
-                }}
-                onRemove={rooms.length > 1 && isRoomSlotRemovable(room) ? () => { writeRooms(rooms.filter((r) => r.id !== room.id)); setOpen(null); } : undefined}
               />
             </div>
           </RecordCard>
@@ -1287,6 +1303,11 @@ const USES_OPTIONS = [
   { value: "no", label: "Doesn't use it" },
 ] as const;
 
+const BATHROOM_HELP = {
+  all: "Set once. Every bathroom ticked “Same as all bathrooms” copies this. Untick one, or change anything on its card, and it keeps its own values.",
+  type: "Full = tub and shower. Three-quarter = shower, no tub. Half = toilet and sink. Quarter = toilet only.",
+} as const;
+
 function BathroomCardBody({
   bath,
   who,
@@ -1297,7 +1318,7 @@ function BathroomCardBody({
   onField,
   onReset,
   onChange,
-  onRemove,
+  onDone,
 }: {
   bath: ManagerBathroomSubmission;
   who: string;
@@ -1308,7 +1329,7 @@ function BathroomCardBody({
   onField: (field: BathroomInheritField, value: string) => void;
   onReset: (field: BathroomInheritField) => void;
   onChange: (patch: Partial<ManagerBathroomSubmission>) => void;
-  onRemove?: () => void;
+  onDone: () => void;
 }) {
   const floors = floorLevelSelectOptions(storiesId, bath.location ?? "").map((l) => ({ value: l, label: l }));
   const assigned = bath.assignedRoomIds ?? [];
@@ -1323,48 +1344,44 @@ function BathroomCardBody({
       <FactRow first label="Floor" own={isOwn("location")} onReset={() => onReset("location")} resetLabel={`Reset floor for ${who} to every bathroom`}>
         <RowSelectCell ariaLabel={`Floor for ${who}`} value={bath.location ?? ""} options={floors} placeholder="Floor…" inherited={!isOwn("location")} onChange={(v) => onField("location", v)} />
       </FactRow>
-      <FactRow label="Type" own={isOwn("type")} onReset={() => onReset("type")} resetLabel={`Reset type of ${who} to every bathroom`}>
+      <FactRow label={<span className="inline-flex items-center gap-1.5">Type <ColumnHelp title="Type" text={BATHROOM_HELP.type} /></span>} own={isOwn("type")} onReset={() => onReset("type")} resetLabel={`Reset type of ${who} to every bathroom`}>
         <RowSelectCell ariaLabel={`Type of ${who}`} value={bathroomTypeOf(bath)} options={BATHROOM_TYPE_OPTIONS} inherited={!isOwn("type")} onChange={(v) => onField("type", v)} />
       </FactRow>
-      {wholePlace || rooms.length === 0 ? null : (
-        <>
-          <FactRow label="Who uses it">
-            <span />
-          </FactRow>
-          {rooms.map((room, i) => {
-            const roomLabel = room.name.trim() || `Room ${i + 1}`;
-            const uses = bath.allResidents || assigned.includes(room.id);
-            return (
-              <FactRow key={room.id} sub label={roomLabel}>
-                <RowSelectCell ariaLabel={`${roomLabel} uses ${who}`} value={uses ? "yes" : "no"} options={USES_OPTIONS} inherited={!uses} onChange={(v) => setUses(room.id, v === "yes")} />
-              </FactRow>
-            );
-          })}
-        </>
-      )}
       <FactRow label="Finishes" own={isOwn("amenitiesText")} onReset={() => onReset("amenitiesText")} resetLabel={`Reset finishes for ${who} to every bathroom`}>
         <AmenityPick label={`Finishes for ${who}`} presets={BATHROOM_EXTRA_AMENITY_PRESETS} value={bath.amenitiesText ?? ""} inherited={!isOwn("amenitiesText")} onChange={(next) => onField("amenitiesText", next)} />
       </FactRow>
-      <CardFields>
-        <Field label="Description">
-          <Textarea rows={2} value={bath.detail ?? ""} placeholder="What a renter should know about this bathroom" onChange={(e) => onChange({ detail: e.target.value })} />
-        </Field>
-      </CardFields>
-      <CardFields cols={2}>
-        <Field label="Photos">
-          <PhotoStrip label="bathroom" urls={bath.photoDataUrls ?? []} onChange={(next) => onChange({ photoDataUrls: next })} />
-        </Field>
-        <Field label="Video">
-          <VideoSlot label="bathroom" url={bath.videoDataUrl} onChange={(next) => onChange({ videoDataUrl: next })} />
-        </Field>
-      </CardFields>
-      <CardFoot>
-        {onRemove ? (
-          <CardAction onClick={onRemove} tone="danger" dataAttr="listing-v2-bath-remove">
-            Remove
-          </CardAction>
-        ) : null}
-      </CardFoot>
+      <MoreRows dataAttr="listing-v2-bath-more">
+        {wholePlace || rooms.length === 0 ? null : (
+          <>
+            <FactRow label="Who uses it">
+              <span />
+            </FactRow>
+            {rooms.map((room, i) => {
+              const roomLabel = room.name.trim() || `Room ${i + 1}`;
+              const uses = bath.allResidents || assigned.includes(room.id);
+              return (
+                <FactRow key={room.id} sub label={roomLabel}>
+                  <RowSelectCell ariaLabel={`${roomLabel} uses ${who}`} value={uses ? "yes" : "no"} options={USES_OPTIONS} inherited={!uses} onChange={(v) => setUses(room.id, v === "yes")} />
+                </FactRow>
+              );
+            })}
+          </>
+        )}
+        <CardFields>
+          <Field label="Description">
+            <Textarea rows={2} value={bath.detail ?? ""} placeholder="What a renter should know about this bathroom" onChange={(e) => onChange({ detail: e.target.value })} />
+          </Field>
+        </CardFields>
+        <CardFields cols={2}>
+          <Field label="Photos">
+            <PhotoStrip label="bathroom" urls={bath.photoDataUrls ?? []} onChange={(next) => onChange({ photoDataUrls: next })} />
+          </Field>
+          <Field label="Video">
+            <VideoSlot label="bathroom" url={bath.videoDataUrl} onChange={(next) => onChange({ videoDataUrl: next })} />
+          </Field>
+        </CardFields>
+      </MoreRows>
+      <EditorDone onClick={onDone} dataAttr="listing-v2-bath-done" />
     </>
   );
 }
@@ -1391,10 +1408,28 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
     writeBath(bath.id, writeBathroomField(bath, field, defaultValue(field)));
   };
   const bathroomFields: readonly BathroomInheritField[] = ["location", "type", "amenitiesText"];
-  const bathroomsHaveOverrides = baths.some((bath) => bathroomFields.some((field) => isOwn(bath, field)));
+  /** Bathrooms the manager unticked ("Same as all bathrooms") without changing a value yet. */
+  const [unticked, setUnticked] = useState<Set<string>>(new Set());
+  const sameAsAll = (bath: ManagerBathroomSubmission) => !unticked.has(bath.id) && !bathroomFields.some((field) => isOwn(bath, field));
+  const setSameAsAll = (bath: ManagerBathroomSubmission, same: boolean) => {
+    let next = bath;
+    for (const field of bathroomFields) {
+      if (same) own.clear(bath.id, field);
+      if (same || defaultValue(field)) next = writeBathroomField(next, field, defaultValue(field));
+    }
+    setUnticked((prev) => {
+      const out = new Set(prev);
+      if (same) out.delete(bath.id);
+      else out.add(bath.id);
+      return out;
+    });
+    if (next !== bath) writeBath(bath.id, next);
+  };
+  const bathroomsHaveOverrides = baths.some((bath) => !sameAsAll(bath));
   const resetAllBathrooms = () => {
     if (baths.length === 0) return;
     own.resetAll();
+    setUnticked(new Set());
     patch({
       bathrooms: baths.map((bath) => {
         let next = bath;
@@ -1405,7 +1440,7 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
   };
   function editDefault(field: BathroomInheritField, value: string) {
     // Followers are judged against the PREVIOUS default, then moved with it.
-    const followers = baths.filter((b) => !isOwn(b, field));
+    const followers = baths.filter((b) => !isOwn(b, field) && !unticked.has(b.id));
     setDefaults((prev) => ({ ...prev, [field]: value }));
     patch({ bathrooms: baths.map((b) => (followers.includes(b) ? writeBathroomField(b, field, value) : b)) });
   }
@@ -1421,24 +1456,25 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
   return (
     <StepColumn>
       <StepHeading
-        title={`Your ${baths.length} ${baths.length === 1 ? "bathroom" : "bathrooms"}`}
+        title={`${baths.length} ${baths.length === 1 ? "bathroom" : "bathrooms"}`}
         action={
           baths.length > 0 ? (
-            <ResetAllInheritanceButton dataAttr="listing-v2-bathrooms-reset-all" disabled={!bathroomsHaveOverrides} onClick={resetAllBathrooms} />
+            <ResetAllInheritanceButton label="Make all the same" dataAttr="listing-v2-bathrooms-reset-all" disabled={!bathroomsHaveOverrides} onClick={resetAllBathrooms} />
           ) : null
         }
       />
 
       <RecordCard
         every
-        title="Every bathroom"
+        title="All bathrooms"
+        help={BATHROOM_HELP.all}
         dataAttr="listing-v2-bath-defaults-card"
         rows={
           <div data-attr="listing-v2-bath-defaults-editor">
             <FactRow first label="Floor">
               <RowSelectCell ariaLabel="Floor for every bathroom" value={defaults.location} options={floors} placeholder="Floor…" onChange={(v) => editDefault("location", v)} />
             </FactRow>
-            <FactRow label="Type">
+            <FactRow label={<span className="inline-flex items-center gap-1.5">Type <ColumnHelp title="Type" text={BATHROOM_HELP.type} /></span>}>
               <RowSelectCell ariaLabel="Type of every bathroom" value={defaults.type} options={BATHROOM_TYPE_OPTIONS} placeholder="Type…" onChange={(v) => editDefault("type", v)} />
             </FactRow>
             <FactRow label="Finishes">
@@ -1458,6 +1494,12 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
             nameLabel={`Name for bathroom ${i + 1}`}
             namePlaceholder={`Bathroom ${i + 1}`}
             onName={(v) => writeBath(bath.id, { ...bath, name: v })}
+            same={<SameAsAllToggle same={sameAsAll(bath)} plural="bathrooms" noun="bathroom" onChange={(next) => setSameAsAll(bath, next)} onReset={() => setSameAsAll(bath, true)} dataAttr="listing-v2-bath-same-as-all" />}
+            onRemove={() => {
+              patch({ bathrooms: baths.filter((b) => b.id !== bath.id) });
+              if (open === bath.id) setOpen(null);
+            }}
+            removeLabel={`Remove ${label}`}
             summary={summaryFor(bath)}
             open={isOpen}
             onToggle={() => toggle(bath.id)}
@@ -1475,10 +1517,7 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
                 onField={(f, v) => setField(bath, f, v)}
                 onReset={(f) => resetField(bath, f)}
                 onChange={(p) => writeBath(bath.id, { ...bath, ...p })}
-                onRemove={() => {
-                  patch({ bathrooms: baths.filter((b) => b.id !== bath.id) });
-                  setOpen(null);
-                }}
+                onDone={() => setOpen(null)}
               />
             </div>
           </RecordCard>
@@ -1519,6 +1558,11 @@ function spaceIsNarrowed(space: ManagerSharedSpaceSubmission, rooms: readonly Ma
   return rooms.some((r) => !ids.includes(r.id));
 }
 
+const SPACE_HELP = {
+  all: "Set once. Every shared space ticked “Same as all shared spaces” copies this. Untick one, or change anything on its card, and it keeps its own values.",
+  who: "Every room, unless this space is only for some of them.",
+} as const;
+
 function SharedSpaceCardBody({
   space,
   who,
@@ -1529,7 +1573,7 @@ function SharedSpaceCardBody({
   onField,
   onReset,
   onChange,
-  onRemove,
+  onDone,
 }: {
   space: ManagerSharedSpaceSubmission;
   who: string;
@@ -1540,7 +1584,7 @@ function SharedSpaceCardBody({
   onField: (field: "location", value: string) => void;
   onReset: (field: SharedSpaceInheritField) => void;
   onChange: (patch: Partial<ManagerSharedSpaceSubmission>) => void;
-  onRemove?: () => void;
+  onDone: () => void;
 }) {
   const kinds = SHARED_SPACE_KIND_OPTIONS.map((o) => ({ value: o.id, label: o.label }));
   const roomLabel = (r: ManagerRoomSubmission, i: number) => r.name.trim() || `Room ${i + 1}`;
@@ -1557,7 +1601,7 @@ function SharedSpaceCardBody({
         <RowSelectCell ariaLabel={`Floor for ${who}`} value={space.location ?? ""} options={floorLevelSelectOptions(storiesId, space.location).map((l) => ({ value: l, label: l }))} placeholder="Floor…" inherited={!isOwn("location")} onChange={(v) => onField("location", v)} />
       </FactRow>
       {wholePlace || rooms.length === 0 ? null : (
-        <FactRow label="Who may use it" own={isOwn("access")} onReset={() => onReset("access")} resetLabel={`Reset who may use ${who} to every room`}>
+        <FactRow label={<span className="inline-flex items-center gap-1.5">Who may use it <ColumnHelp title="Who may use it" text={SPACE_HELP.who} /></span>} own={isOwn("access")} onReset={() => onReset("access")} resetLabel={`Reset who may use ${who} to every room`}>
           <MultiPick
             label={`Who may use ${who}`}
             options={rooms.map(roomLabel)}
@@ -1569,29 +1613,25 @@ function SharedSpaceCardBody({
           />
         </FactRow>
       )}
-      <FactRow label="What is in it">
-        <AmenityPick label={`What is in ${who}`} presets={sharedSpaceAmenityPresetsForKind(space.spaceKind)} value={space.amenitiesText ?? ""} onChange={(next) => onChange({ amenitiesText: next })} />
-      </FactRow>
-      <CardFields>
-        <Field label="Description">
-          <Textarea rows={2} value={space.detail ?? ""} onChange={(e) => onChange({ detail: e.target.value })} placeholder="Sunny room off the kitchen, seats six" />
-        </Field>
-      </CardFields>
-      <CardFields cols={2}>
-        <Field label="Photos">
-          <PhotoStrip label="shared space" urls={space.photoDataUrls ?? []} onChange={(next) => onChange({ photoDataUrls: next })} />
-        </Field>
-        <Field label="Video">
-          <VideoSlot label="shared space" url={space.videoDataUrl} onChange={(next) => onChange({ videoDataUrl: next })} />
-        </Field>
-      </CardFields>
-      <CardFoot>
-        {onRemove ? (
-          <CardAction onClick={onRemove} tone="danger" dataAttr="listing-v2-space-remove">
-            Remove
-          </CardAction>
-        ) : null}
-      </CardFoot>
+      <MoreRows dataAttr="listing-v2-space-more">
+        <FactRow label="What is in it">
+          <AmenityPick label={`What is in ${who}`} presets={sharedSpaceAmenityPresetsForKind(space.spaceKind)} value={space.amenitiesText ?? ""} onChange={(next) => onChange({ amenitiesText: next })} />
+        </FactRow>
+        <CardFields>
+          <Field label="Description">
+            <Textarea rows={2} value={space.detail ?? ""} onChange={(e) => onChange({ detail: e.target.value })} placeholder="Sunny room off the kitchen, seats six" />
+          </Field>
+        </CardFields>
+        <CardFields cols={2}>
+          <Field label="Photos">
+            <PhotoStrip label="shared space" urls={space.photoDataUrls ?? []} onChange={(next) => onChange({ photoDataUrls: next })} />
+          </Field>
+          <Field label="Video">
+            <VideoSlot label="shared space" url={space.videoDataUrl} onChange={(next) => onChange({ videoDataUrl: next })} />
+          </Field>
+        </CardFields>
+      </MoreRows>
+      <EditorDone onClick={onDone} dataAttr="listing-v2-space-done" />
     </>
   );
 }
@@ -1623,14 +1663,31 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
     writeSpace(space.id, { ...space, location: defaults.location });
   };
   const sharedSpaceFields: readonly SharedSpaceInheritField[] = ["location", "access"];
-  const spacesHaveOverrides = spaces.some((space) => sharedSpaceFields.some((field) => isOwn(space, field)));
+  const [unticked, setUnticked] = useState<Set<string>>(new Set());
+  const sameAsAll = (space: ManagerSharedSpaceSubmission) => !unticked.has(space.id) && !sharedSpaceFields.some((field) => isOwn(space, field));
+  const setSameAsAll = (space: ManagerSharedSpaceSubmission, same: boolean) => {
+    setUnticked((prev) => {
+      const out = new Set(prev);
+      if (same) out.delete(space.id);
+      else out.add(space.id);
+      return out;
+    });
+    if (same) {
+      own.clear(space.id, "location");
+      writeSpace(space.id, { ...space, location: defaults.location, roomAccessIds: rooms.map((r) => r.id) });
+    } else if ((space.location ?? "") !== defaults.location) {
+      writeSpace(space.id, { ...space, location: defaults.location });
+    }
+  };
+  const spacesHaveOverrides = spaces.some((space) => !sameAsAll(space));
   const resetAllSharedSpaces = () => {
     if (spaces.length === 0) return;
     own.resetAll();
+    setUnticked(new Set());
     patch({ sharedSpaces: spaces.map((space) => ({ ...space, location: defaults.location, roomAccessIds: rooms.map((room) => room.id) })) });
   };
   const editDefaultFloor = (value: string) => {
-    const followers = spaces.filter((sp) => !isOwn(sp, "location"));
+    const followers = spaces.filter((sp) => !isOwn(sp, "location") && !unticked.has(sp.id));
     setDefaults({ location: value });
     patch({ sharedSpaces: spaces.map((sp) => (followers.includes(sp) ? { ...sp, location: value } : sp)) });
   };
@@ -1648,17 +1705,18 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
   return (
     <StepColumn>
       <StepHeading
-        title={`Your ${spaces.length} shared ${spaces.length === 1 ? "space" : "spaces"}`}
+        title={`${spaces.length} shared ${spaces.length === 1 ? "space" : "spaces"}`}
         action={
           spaces.length > 0 ? (
-            <ResetAllInheritanceButton dataAttr="listing-v2-spaces-reset-all" disabled={!spacesHaveOverrides} onClick={resetAllSharedSpaces} />
+            <ResetAllInheritanceButton label="Make all the same" dataAttr="listing-v2-spaces-reset-all" disabled={!spacesHaveOverrides} onClick={resetAllSharedSpaces} />
           ) : null
         }
       />
 
       <RecordCard
         every
-        title="Every shared space"
+        title="All shared spaces"
+        help={SPACE_HELP.all}
         dataAttr="listing-v2-space-defaults-card"
         rows={
           <FactRow first label="Floor">
@@ -1677,6 +1735,12 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
             nameLabel={`Name for shared space ${i + 1}`}
             namePlaceholder="Kitchen"
             onName={(v) => writeSpace(space.id, { ...space, name: v })}
+            same={<SameAsAllToggle same={sameAsAll(space)} plural="shared spaces" noun="shared space" onChange={(next) => setSameAsAll(space, next)} onReset={() => setSameAsAll(space, true)} dataAttr="listing-v2-space-same-as-all" />}
+            onRemove={() => {
+              patch({ sharedSpaces: spaces.filter((sp) => sp.id !== space.id) });
+              if (open === space.id) setOpen(null);
+            }}
+            removeLabel={`Remove ${label}`}
             summary={summaryFor(space)}
             open={isOpen}
             onToggle={() => toggle(space.id)}
@@ -1694,10 +1758,7 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
                 onField={(_f, v) => setFloor(space, v)}
                 onReset={(f) => resetField(space, f)}
                 onChange={(p) => writeSpace(space.id, { ...space, ...p })}
-                onRemove={() => {
-                  patch({ sharedSpaces: spaces.filter((sp) => sp.id !== space.id) });
-                  setOpen(null);
-                }}
+                onDone={() => setOpen(null)}
               />
             </div>
           </RecordCard>
@@ -2614,7 +2675,7 @@ export function ListingEditorV2({
       case "basics":
         return (
           <>
-            <StepBasics sub={submission} patch={patch} isEdit={isEdit} />
+            <StepBasics sub={submission} patch={patch} />
             <AddDetailsRow
               sub={submission}
               pathIds={pathIds}

@@ -73,11 +73,15 @@ const rowLabels = (root: Element) =>
     .map((l) => l.replace(/ for (every room|Room A)$/, ""));
 
 describe("rooms as cards", () => {
-  it("has no sideways table: the Every room card shows its rows, each room is a closed card", () => {
+  it("has no sideways table: the All rooms card shows only the important rows, each room is a closed card", () => {
     open("rooms");
     expect(document.querySelector("main .overflow-x-auto")).toBeNull();
     expect(document.querySelector('[data-attr="listing-v2-room-row"]')).toBeNull();
     const every = document.querySelector('[data-attr="listing-v2-defaults-card"]')!;
+    expect(every.textContent).toContain("All rooms");
+    // Only the important questions are on the card; everything else waits behind one More.
+    expect(rowLabels(every)).toEqual(["Residents per room", "Floor"]);
+    fireEvent.click(every.querySelector('[data-attr="listing-v2-defaults-more"]')!);
     expect(rowLabels(every)).toEqual(["Residents per room", "Floor", "Furnishing", "Room amenities"]);
     // Closed room cards: a name, a summary, a chevron — no controls yet.
     const cards = document.querySelectorAll('[data-attr="listing-v2-room-card"]');
@@ -86,7 +90,17 @@ describe("rooms as cards", () => {
     expect(document.querySelector('[data-attr="listing-v2-room-editor"]')).toBeNull();
     openCard("Room A");
     expect(document.querySelectorAll('[data-attr="listing-v2-room-editor"]').length).toBe(1);
-    expect(rowLabels(document.querySelector('[data-attr="listing-v2-room-editor"]')!)).toEqual(["Residents per room", "Floor", "Furnishing", "Room amenities"]);
+    const editor = document.querySelector('[data-attr="listing-v2-room-editor"]')!;
+    expect(rowLabels(editor)).toEqual(["Residents per room", "Floor"]);
+    fireEvent.click(editor.querySelector('[data-attr="listing-v2-room-more"]')!);
+    expect(rowLabels(editor)).toEqual(["Residents per room", "Floor", "Furnishing", "Room amenities"]);
+    // One closer: Done. No Duplicate, no Remove inside the card — ✕ sits in the header.
+    expect(editor.querySelector('[data-attr="listing-v2-room-done"]')).not.toBeNull();
+    expect([...editor.querySelectorAll("button")].map((b) => b.textContent?.trim())).not.toContain("Duplicate");
+    // A named room is not a blank slot, so it has no ✕; a freshly added blank one does, in its header.
+    expect(document.querySelector('[data-attr="listing-v2-room-card-remove"]')).toBeNull();
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-add-room"]')!);
+    expect(document.querySelector('[data-attr="listing-v2-room-card-remove"]')).not.toBeNull();
     // Only one card open at a time.
     openCard("Room B");
     expect(document.querySelectorAll('[data-attr="listing-v2-room-editor"]').length).toBe(1);
@@ -95,6 +109,7 @@ describe("rooms as cards", () => {
   it("Furnished unfolds Beds and Included under the Furnishing row; Unfurnished hides them", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open("rooms", seeded(), (s) => seen.push(s));
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-defaults-more"]')!);
     expect(screen.queryByRole("button", { name: "Included in every room" })).toBeNull();
     pick("Furnishing for every room", "furnished");
     expect(screen.getByRole("button", { name: "Included in every room" })).toBeTruthy();
@@ -125,19 +140,49 @@ describe("rooms as cards", () => {
     open("basics", seeded({ listingPlaceCategoryId: "entire_home", rentalModelStamp: "entire_home" }));
     expect(document.querySelector('[data-attr="listing-v2-residents"]')).not.toBeNull();
     fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-rooms"]')!);
-    expect(screen.getByText("Your 2 bedrooms")).toBeTruthy();
+    expect(screen.getByText("2 bedrooms")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Residents per room/ })).toBeNull();
     expect(document.querySelector('[data-attr="listing-v2-add-bathroom-first"]')).toBeNull();
     openCard("Room A");
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-room-editor"] [data-attr="listing-v2-room-more"]')!);
     expect(document.querySelector('[data-attr="listing-v2-room-set-in-pricing"]')).toBeNull();
   });
 
   it("a room's Rent row only points at Pricing", () => {
     open("rooms");
     openCard("Room A");
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-room-editor"] [data-attr="listing-v2-room-more"]')!);
     expect(document.querySelector('[data-attr="listing-v2-room-editor"]')!.textContent).not.toMatch(/\$\d/);
     fireEvent.click(document.querySelector('[data-attr="listing-v2-room-set-in-pricing"]')!);
     expect(screen.getByText("Pricing", { selector: "h2" })).toBeTruthy();
+  });
+});
+
+describe("Same as all rooms", () => {
+  it("starts ticked, unticks when a value changes, and Reset copies the All rooms card back", () => {
+    open("rooms");
+    const boxes = () => [...document.querySelectorAll<HTMLInputElement>('[data-attr="listing-v2-room-same-as-all"]')];
+    expect(boxes().map((b) => b.checked)).toEqual([true, true]);
+    openCard("Room A");
+    fireEvent.click(screen.getByRole("button", { name: "More Residents per room for Room A" }));
+    expect(boxes()[0]!.checked).toBe(false);
+    expect(boxes()[1]!.checked).toBe(true);
+    expect(document.querySelector('[data-attr="listing-v2-room-card"]')!.textContent).toContain("This room only");
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-make-same"]')!);
+    expect(boxes()[0]!.checked).toBe(true);
+    expect(screen.getByRole("group", { name: "Residents per room for Room A" }).textContent).toContain("1");
+  });
+
+  it("unticking moves nothing, and a later change on the All rooms card leaves that room alone", () => {
+    const seen: ManagerListingSubmissionV1[] = [];
+    open("rooms", seeded(), (s) => seen.push(s));
+    const boxes = () => [...document.querySelectorAll<HTMLInputElement>('[data-attr="listing-v2-room-same-as-all"]')];
+    fireEvent.click(boxes()[0]!);
+    expect(boxes()[0]!.checked).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "More Residents per room for every room" }));
+    const rooms = seen.at(-1)!.rooms;
+    expect(rooms.find((r) => r.id === "r2")?.occupancyCapacity).toBe(2);
+    expect(rooms.find((r) => r.id === "r1")?.occupancyCapacity ?? 1).toBe(1);
   });
 });
 
