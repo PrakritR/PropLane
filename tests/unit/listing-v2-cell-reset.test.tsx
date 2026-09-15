@@ -1,9 +1,8 @@
 // @vitest-environment jsdom
 //
-// Reset is per entry, not per row: a grid cell that holds its own value (ink
-// with a dot) carries a ↺ that puts THAT field back on the "Every …" row and
-// leaves the rest of the row alone. A cell that already follows the top row
-// shows no ↺.
+// Reset is per field, not per card: a row that holds its own value carries a
+// Reset that puts THAT field back on the "Every …" card and leaves the rest of
+// the card alone. A row that already follows the top card shows no Reset.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import React, { useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -22,6 +21,7 @@ afterEach(() => cleanup());
 const base = createDefaultListingSubmission();
 const seeded: ManagerListingSubmissionV1 = {
   ...base,
+  listingStoriesId: "2",
   rooms: [
     { ...base.rooms[0]!, id: "r1", name: "Room A" },
     { ...base.rooms[0]!, id: "r2", name: "Room B" },
@@ -60,6 +60,8 @@ function open(step: "rooms" | "bathrooms" | "spaces", onChange?: (sub: ManagerLi
 }
 
 const trigger = (label: string) => screen.getByRole("button", { name: label });
+/** A record's rows live inside its card; open it to reach them. */
+const openCard = (label: string) => fireEvent.click(screen.getByRole("button", { name: `Open ${label}` }));
 const pick = (label: string, value: string) => {
   const t = trigger(label);
   fireEvent.click(t);
@@ -77,63 +79,46 @@ const optionValues = (label: string) => {
   return values;
 };
 
-describe("per-cell ↺ on the listing grids", () => {
-  it("rooms: a following cell has no ↺; an own cell does, and it resets only that field", () => {
+describe("per-field Reset on the listing cards", () => {
+  it("rooms: a following row has no Reset; an own row does, and it resets only that field", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open("rooms", (s) => seen.push(s));
-    expect(screen.queryByRole("button", { name: /Reset residents for Room A/ })).toBeNull();
+    openCard("Room A");
+    const floors = optionValues("Floor for Room A");
+    expect(floors.length).toBeGreaterThan(1);
     expect(screen.queryByRole("button", { name: /Reset floor for Room A/ })).toBeNull();
 
-    pick("Residents per room for Room A", "3");
-    const floors = optionValues("Floor for every room");
+    pick("Floor for Room A", floors[1]!);
     pick("Floor for every room", floors[0]!);
-    pick("Floor for Room A", floors[1] ?? floors[0]!);
+    expect(seen.at(-1)!.rooms.find((r) => r.id === "r1")?.floor).toBe(floors[1]);
+    expect(seen.at(-1)!.rooms.find((r) => r.id === "r2")?.floor).toBe(floors[0]);
 
-    expect(screen.getByRole("button", { name: /Reset residents for Room A/ })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Reset residents for Room A/ }));
-
-    const roomA = seen.at(-1)!.rooms.find((r) => r.id === "r1")!;
-    // Back on the house's 1 resident, and the cell reads as following again.
-    expect(roomA.occupancyCapacity ?? 1).toBe(1);
-    expect(trigger("Residents per room for Room A").textContent).toContain("1");
-    expect(trigger("Residents per room for Room A").className).toContain("border-dashed");
-    // The floor Room A chose for itself survives the residents reset.
-    if (floors.length > 1) {
-      expect(roomA.floor).toBe(floors[1]);
-      expect(screen.getByRole("button", { name: /Reset floor for Room A/ })).toBeTruthy();
-    }
-    expect(screen.queryByRole("button", { name: /Reset residents for Room A/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Reset floor for Room A/ }));
+    expect(seen.at(-1)!.rooms.find((r) => r.id === "r1")?.floor).toBe(floors[0]);
+    expect(screen.queryByRole("button", { name: /Reset floor for Room A/ })).toBeNull();
   });
 
-  it("bathrooms: ↺ on Type puts that one bathroom's type back on every bathroom", () => {
+  it("bathrooms: Reset on Type puts that one bathroom's type back on every bathroom", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open("bathrooms", (s) => seen.push(s));
-    // Type is derived: full = bathtub, shower = shower only, half = neither.
-    const typeOf = (id: string) => {
-      const b = seen.at(-1)!.bathrooms!.find((x) => x.id === id)!;
-      return b.bathtub ? "full" : b.shower ? "shower" : "half";
-    };
     pick("Type of every bathroom", "full");
+    openCard("Upstairs");
     pick("Type of Upstairs", "half");
-    expect(typeOf("b1")).toBe("half");
-
+    expect(seen.at(-1)!.bathrooms!.find((b) => b.id === "b1")?.bathtub).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: /Reset type of Upstairs/ }));
-    expect(typeOf("b1")).toBe("full");
-    expect(typeOf("b2")).toBe("full");
+    expect(seen.at(-1)!.bathrooms!.find((b) => b.id === "b1")?.bathtub).toBe(true);
     expect(screen.queryByRole("button", { name: /Reset type of Upstairs/ })).toBeNull();
   });
 
-  it("shared spaces: ↺ on Floor puts that one space back on every shared space", () => {
+  it("shared spaces: Reset on Floor puts that one space back on every shared space", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open("spaces", (s) => seen.push(s));
     const floors = optionValues("Floor for every shared space");
     pick("Floor for every shared space", floors[0]!);
-    pick("Floor for Den", floors[1] ?? floors[0]!);
-    if (floors.length > 1) {
-      expect(seen.at(-1)!.sharedSpaces!.find((s) => s.id === "s2")?.location).toBe(floors[1]);
-      fireEvent.click(screen.getByRole("button", { name: /Reset floor for Den/ }));
-      expect(seen.at(-1)!.sharedSpaces!.find((s) => s.id === "s2")?.location).toBe(floors[0]);
-      expect(screen.queryByRole("button", { name: /Reset floor for Den/ })).toBeNull();
-    }
+    openCard("Kitchen");
+    pick("Floor for Kitchen", floors[1]!);
+    expect(seen.at(-1)!.sharedSpaces!.find((s) => s.id === "s1")?.location).toBe(floors[1]);
+    fireEvent.click(screen.getByRole("button", { name: /Reset floor for Kitchen/ }));
+    expect(seen.at(-1)!.sharedSpaces!.find((s) => s.id === "s1")?.location).toBe(floors[0]);
   });
 });

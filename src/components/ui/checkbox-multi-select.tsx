@@ -119,12 +119,15 @@ export function CheckboxMultiSelect({
   className?: string;
   labelClassName?: string;
   hideLabel?: boolean;
-  variant?: "field" | "pill";
+  variant?: FieldSelectVariant;
   menuFooter?: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const pill = variant === "pill";
+  // A cell (the listing wizard's card rows) opens and sizes like a pill: the
+  // trigger is narrow, so the menu grows to its longest option instead of
+  // wrapping every label onto two lines.
+  const pill = variant === "pill" || variant === "cell";
   const { wrapperClassName, triggerClassName } = partitionFieldSelectClasses(className);
 
   const flatOptions = useMemo(() => {
@@ -155,6 +158,10 @@ export function CheckboxMultiSelect({
     contentPx,
     matchTriggerWidth: !pill,
     preferOpenDown: !pill,
+    // The pill/cell menu is drawn 18rem wide (see the shell class below); telling
+    // the placement that width keeps it inside a 390px phone instead of anchoring
+    // a 288px menu to a 150px trigger at the right edge.
+    minMenuWidth: pill ? 288 : undefined,
   });
 
   const toggle = (value: string) => {
@@ -404,6 +411,8 @@ export function FieldSingleSelect({
     contentPx,
     matchTriggerWidth: !growToContent,
     preferOpenDown: !pill,
+    // A grown menu may reach 18rem; placing it as that wide keeps it on screen.
+    minMenuWidth: growToContent ? 288 : undefined,
   });
 
   const filteredGroups = useMemo(() => {

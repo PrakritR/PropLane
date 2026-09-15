@@ -112,7 +112,6 @@ export function AddPropertyFlow({
             label="Street address"
             required
             error={addressError}
-            hint="Start typing and pick the match, so the city, state and ZIP fill in for you."
           >
             <ListingAddressAutocomplete
               value={address}
@@ -124,7 +123,7 @@ export function AddPropertyFlow({
               aria-invalid={Boolean(addressError)}
             />
           </Field>
-          <Field label="Unit number" optional hint="Only if the building has several units.">
+          <Field label="Unit number">
             <Input value={unitLabel} onChange={(e) => setUnitLabel(e.target.value)} placeholder="#" />
           </Field>
         </StepColumn>
@@ -249,14 +248,12 @@ export function AddPropertyFlow({
           onSelect={() => setRentByRoom(true)}
           dataAttr="listing-v2-by-room"
           title="By the room"
-          description="Each room has its own rent, deposit and resident. They share the kitchen and bathrooms."
         />
         <ChoiceCard
           selected={!rentByRoom}
           onSelect={() => setRentByRoom(false)}
           dataAttr="listing-v2-whole-place"
           title="The whole place"
-          description="One rent, one lease, one household for the entire home."
         />
         <div className="mt-5">
           <FieldRow cols={2}>
@@ -274,7 +271,6 @@ export function AddPropertyFlow({
               <Field
                 label="Bedrooms you are renting out"
                 required
-                hint={`Creates ${bedrooms} room ${bedrooms === 1 ? "row" : "rows"} for you. Add or remove any time.`}
               >
                 <Select value={String(bedrooms)} onChange={(e) => setBedrooms(Number(e.target.value) || 1)}>
                   {bedroomOptions.map((n) => (

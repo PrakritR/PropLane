@@ -66,7 +66,8 @@ const floorTrigger = (label: string) => screen.getByRole("button", { name: label
 /** The listbox this trigger owns — the menu is portaled, so read it through aria-controls. */
 const openFloorListbox = (label: string): HTMLElement => {
   const trigger = floorTrigger(label);
-  fireEvent.click(trigger);
+  // A pick closes its menu on a deferred tick; do not toggle an open one shut.
+  if (trigger.getAttribute("aria-expanded") !== "true") fireEvent.click(trigger);
   return document.getElementById(trigger.getAttribute("aria-controls")!)!;
 };
 const floorOptions = (label: string): string[] => {
@@ -81,29 +82,32 @@ const pickFloor = (label: string, value: string) => {
   fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
   fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
 };
+/** A record's rows live inside its card; open it to reach them. */
+const openCard = (label: string) => fireEvent.click(screen.getByRole("button", { name: `Open ${label}` }));
 /** Render the editor and walk the rail to one step, the way a manager does. */
 function open(step: "bathrooms" | "spaces", onChange?: (sub: ManagerListingSubmissionV1) => void) {
   render(<Editor onChange={onChange} />);
   fireEvent.click(document.querySelector(`[data-attr="listing-v2-rail-${step}"]`)!);
 }
 
-describe("bathrooms on the rooms grid", () => {
-  it("has no Details buttons and no row checkboxes — a chevron opens the row in place", () => {
+describe("bathrooms as cards", () => {
+  it("one card per bathroom, a chevron opens it in place, no checkboxes on the card", () => {
     open("bathrooms");
-    expect(document.querySelectorAll('[data-attr="listing-v2-bath-row"]').length).toBe(2);
-    expect(document.querySelector('[data-attr="listing-v2-bath-details"]')).toBeNull();
-    expect(document.querySelector('[data-attr="listing-v2-bath-row"] input[type="checkbox"]')).toBeNull();
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-bath-open"]')!);
+    expect(document.querySelectorAll('[data-attr="listing-v2-bath-card"]').length).toBe(2);
+    expect(document.querySelector('[data-attr="listing-v2-bath-card"] input[type="checkbox"]')).toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-bath-editor"]')).toBeNull();
+    openCard("Upstairs");
     expect(document.querySelector('[data-attr="listing-v2-bath-editor"]')).not.toBeNull();
-    expect(screen.getByText("Remove bathroom")).toBeTruthy();
+    expect(document.querySelector('[data-attr="listing-v2-bath-remove"]')).not.toBeNull();
   });
 
-  it("the Every bathroom row moves followers and leaves a bathroom's own value alone", () => {
+  it("the Every bathroom card moves followers and leaves a bathroom's own value alone", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open("bathrooms", (s) => seen.push(s));
     const options = floorOptions("Floor for every bathroom");
     expect(options.length).toBeGreaterThan(1);
     // Upstairs takes its own floor first.
+    openCard("Upstairs");
     pickFloor("Floor for Upstairs", options[1]!);
     // Then the house says every bathroom is on options[0].
     pickFloor("Floor for every bathroom", options[0]!);
@@ -111,24 +115,36 @@ describe("bathrooms on the rooms grid", () => {
     expect(baths.find((b) => b.id === "b1")?.location).toBe(options[0]);
     expect(baths.find((b) => b.id === "b2")?.location).toBe(options[1]);
     // Reset puts Upstairs back on the house.
-    fireEvent.click(document.querySelectorAll('[data-attr="listing-v2-bath-open"]')[1]!);
-    const editor = document.querySelector('[data-attr="listing-v2-bath-editor"]')!;
-    expect(editor.textContent).toContain("This bathroom");
-    fireEvent.click([...editor.querySelectorAll("button")].find((b) => b.textContent === "Reset")!);
+    fireEvent.click(screen.getByRole("button", { name: /Reset floor for Upstairs/ }));
     expect(seen.at(-1)!.bathrooms!.find((b) => b.id === "b2")?.location).toBe(options[0]);
+  });
+
+  it("who uses it is one row per room on the bathroom card, and a room's own Bathroom row is only the access kind", () => {
+    const seen: ManagerListingSubmissionV1[] = [];
+    open("bathrooms", (s) => seen.push(s));
+    openCard("Upstairs");
+    expect(screen.getByRole("button", { name: "Room A uses Upstairs" }).textContent).toContain("Doesn't use it");
+    pickFloor("Room A uses Upstairs", "yes");
+    expect(seen.at(-1)!.bathrooms!.find((b) => b.id === "b2")?.assignedRoomIds).toEqual(["r1"]);
+    pickFloor("Room A uses Upstairs", "no");
+    expect(seen.at(-1)!.bathrooms!.find((b) => b.id === "b2")?.assignedRoomIds).toEqual([]);
+    // Rooms step: the room card offers only the access kind.
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-rooms"]')!);
+    openCard("Room A");
+    expect(floorOptions("Bathroom access for Room A")).toEqual(["ensuite", "shared", "hall"]);
   });
 });
 
-describe("shared spaces on the rooms grid", () => {
+describe("shared spaces as cards", () => {
   it("opens in place, and 'who may use it' reads Everyone unless narrowed", () => {
     open("spaces");
-    expect(document.querySelectorAll('[data-attr="listing-v2-space-row"]').length).toBe(2);
-    expect(document.querySelector('[data-attr="listing-v2-space-details"]')).toBeNull();
-    expect(screen.getByLabelText("Who may use Kitchen").textContent).toBe("Everyone");
-    expect(screen.getByLabelText("Who may use Den").textContent).toBe("1 room");
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-space-open"]')!);
+    expect(document.querySelectorAll('[data-attr="listing-v2-space-card"]').length).toBe(2);
+    const summaries = [...document.querySelectorAll('[data-attr="listing-v2-space-card"]')].map((c) => c.textContent ?? "");
+    expect(summaries[0]).toContain("Everyone");
+    expect(summaries[1]).toContain("1 room");
+    openCard("Kitchen");
     expect(document.querySelector('[data-attr="listing-v2-space-editor"]')).not.toBeNull();
-    expect(screen.getByText("Remove shared space")).toBeTruthy();
+    expect(document.querySelector('[data-attr="listing-v2-space-remove"]')).not.toBeNull();
   });
 
   it("the Every shared space floor moves every space still following it", () => {
