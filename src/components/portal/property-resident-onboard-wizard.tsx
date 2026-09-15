@@ -53,7 +53,7 @@ export function PropertyResidentPdfUploadCard({
   onPick,
 }: {
   title: string;
-  subtitle: string;
+  subtitle?: string;
   fileName: string | null;
   busy: boolean;
   dataAttr: string;
@@ -72,7 +72,7 @@ export function PropertyResidentPdfUploadCard({
       <FileUp className="h-6 w-6 shrink-0 text-primary sm:h-7 sm:w-7" aria-hidden />
       <span className="min-w-0 sm:contents">
         <span className="block text-sm font-semibold text-foreground">{title}</span>
-        <span className="block text-xs text-muted">{subtitle}</span>
+        {subtitle ? <span className="block text-xs text-muted">{subtitle}</span> : null}
         {fileName ? <span className="mt-1 block max-w-full truncate text-xs font-medium text-foreground">{fileName}</span> : null}
       </span>
     </button>
@@ -365,7 +365,6 @@ export function PropertyResidentOnboardWizard({
         <div className="grid grid-cols-1 gap-3 min-[28rem]:grid-cols-2">
           <PropertyResidentPdfUploadCard
             title="Add application"
-            subtitle="Rental application PDF"
             fileName={applicationFile?.name ?? null}
             busy={busy}
             dataAttr="property-onboard-application-pdf"
@@ -373,16 +372,12 @@ export function PropertyResidentOnboardWizard({
           />
           <PropertyResidentPdfUploadCard
             title="Add lease"
-            subtitle="Signed or draft lease PDF"
             fileName={leaseFile?.name ?? null}
             busy={busy}
             dataAttr="property-onboard-lease-pdf"
             onPick={() => leaseUploadRef.current?.click()}
           />
         </div>
-        <p className="text-xs text-muted">
-          Upload one or both. Parsed fields appear below — edit anything before importing.
-        </p>
         {residentSummary ? (
           <p className="rounded-xl bg-accent/20 px-3 py-2 text-sm text-muted">{residentSummary}</p>
         ) : null}

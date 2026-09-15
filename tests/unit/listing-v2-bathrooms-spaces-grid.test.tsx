@@ -91,14 +91,16 @@ function open(step: "bathrooms" | "spaces", onChange?: (sub: ManagerListingSubmi
 }
 
 describe("bathrooms as cards", () => {
-  it("one card per bathroom, a chevron opens it in place, no checkboxes on the card", () => {
+  it("one card per bathroom with a Same-as-all box under its name; a chevron opens it in place, ✕ in the header removes", () => {
     open("bathrooms");
     expect(document.querySelectorAll('[data-attr="listing-v2-bath-card"]').length).toBe(2);
-    expect(document.querySelector('[data-attr="listing-v2-bath-card"] input[type="checkbox"]')).toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-bath-card"] [data-attr="listing-v2-bath-same-as-all"]')).not.toBeNull();
     expect(document.querySelector('[data-attr="listing-v2-bath-editor"]')).toBeNull();
     openCard("Upstairs");
     expect(document.querySelector('[data-attr="listing-v2-bath-editor"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="listing-v2-bath-remove"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-bath-done"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-bath-card-remove"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-bath-remove"]')).toBeNull();
   });
 
   it("the Every bathroom card moves followers and leaves a bathroom's own value alone", () => {
@@ -123,6 +125,7 @@ describe("bathrooms as cards", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open("bathrooms", (s) => seen.push(s));
     openCard("Upstairs");
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-bath-more"]')!);
     expect(screen.getByRole("button", { name: "Room A uses Upstairs" }).textContent).toContain("Doesn't use it");
     pickFloor("Room A uses Upstairs", "yes");
     expect(seen.at(-1)!.bathrooms!.find((b) => b.id === "b2")?.assignedRoomIds).toEqual(["r1"]);
@@ -144,7 +147,8 @@ describe("shared spaces as cards", () => {
     expect(summaries[1]).toContain("1 room");
     openCard("Kitchen");
     expect(document.querySelector('[data-attr="listing-v2-space-editor"]')).not.toBeNull();
-    expect(document.querySelector('[data-attr="listing-v2-space-remove"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-space-done"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-space-card-remove"]')).not.toBeNull();
   });
 
   it("the Every shared space floor moves every space still following it", () => {
