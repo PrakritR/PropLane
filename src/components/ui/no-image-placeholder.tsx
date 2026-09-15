@@ -1,4 +1,4 @@
-import { ImageIcon, ImageOff } from "lucide-react";
+import { House, ImageIcon, ImageOff } from "lucide-react";
 
 /**
  * Neutral "no photo" tile for production listings/rooms with zero genuine
@@ -11,6 +11,12 @@ import { ImageIcon, ImageOff } from "lucide-react";
  * cards: a soft branded wash and a plain image glyph that reads "no photo yet"
  * rather than the default's crossed-out "broken image" icon. It still clearly
  * communicates the absence of a photo — it does not fabricate one.
+ *
+ * `variant="compact"` is the honest tile the redesigned browse cards, room
+ * rows and detail page use: a flat neutral fill, a small house outline and
+ * "No photos yet". It is deliberately quiet so an empty slot never becomes the
+ * largest element on the screen (PLAN-0914-2124). `label=""` hides the text for
+ * thumbnails too small to carry it.
  */
 export function NoImagePlaceholder({
   className = "",
@@ -19,10 +25,23 @@ export function NoImagePlaceholder({
 }: {
   className?: string;
   label?: string;
-  variant?: "default" | "branded";
+  variant?: "default" | "branded" | "compact";
 }) {
   const branded = variant === "branded";
-  const resolvedLabel = label ?? (branded ? "Photo coming soon" : "No image");
+  const compact = variant === "compact";
+  const resolvedLabel = label ?? (compact ? "No photos yet" : branded ? "Photo coming soon" : "No image");
+  if (compact) {
+    return (
+      <div
+        className={`absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-[var(--pl-surface-muted,#f4f5f8)] text-muted ${className}`}
+        role="img"
+        aria-label={resolvedLabel || "No photos yet"}
+      >
+        <House className="h-5 w-5 opacity-60" strokeWidth={1.75} aria-hidden />
+        {resolvedLabel ? <span className="text-xs font-semibold">{resolvedLabel}</span> : null}
+      </div>
+    );
+  }
   return (
     <div
       className={`absolute inset-0 flex flex-col items-center justify-center gap-2 ${

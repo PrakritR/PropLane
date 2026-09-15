@@ -890,6 +890,18 @@ html {
   border-radius: 0;
 }
 
+/*
+ * The public browse-homes Filters modal is the one filter surface with a
+ * histogram and two-up rows, so it gets a wider desktop panel. Set here, not
+ * only as a utility, because the shared rule above is unlayered and would
+ * otherwise win over any `w-[…]` the caller passes; `max-width: none` lifts
+ * the modal shell's own `max-w-lg`. The phone sheet is untouched.
+ */
+.portal-filter-dropdown-panel.browse-filters-panel {
+  width: min(44rem, calc(100vw - 2rem));
+  max-width: none;
+}
+
 [data-theme="dark"] .portal-filter-dropdown-panel,
 [data-theme="dark"] [data-slot="portal-filter-dropdown-panel"] {
   background: #111827 !important;
@@ -1277,6 +1289,59 @@ input[type="date"].portal-modal-date-input::-webkit-date-and-time-value {
     rgba(0, 0, 0, 0.08) var(--budget-pct),
     rgba(0, 0, 0, 0.08) 100%
   );
+}
+
+/* ── Browse budget range (two thumbs on one track; PLAN-0914-2124) ── */
+.browse-budget-range input[type="range"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 24px;
+  margin: 0;
+  background: transparent;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.browse-budget-range input[type="range"]:focus-visible {
+  outline: none;
+}
+.browse-budget-range input[type="range"]::-webkit-slider-runnable-track {
+  height: 3px;
+  background: transparent;
+}
+.browse-budget-range input[type="range"]::-moz-range-track {
+  height: 3px;
+  background: transparent;
+}
+.browse-budget-range input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: auto;
+  width: 22px;
+  height: 22px;
+  margin-top: -9.5px;
+  border-radius: 9999px;
+  background: var(--card);
+  border: 1.5px solid var(--foreground);
+  box-shadow: var(--shadow-card);
+  cursor: pointer;
+}
+.browse-budget-range input[type="range"]::-moz-range-thumb {
+  pointer-events: auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  background: var(--card);
+  border: 1.5px solid var(--foreground);
+  box-shadow: var(--shadow-card);
+  cursor: pointer;
+}
+.browse-budget-range input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px var(--ring);
+}
+.browse-budget-range input[type="range"]:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px var(--ring);
 }
 
 @keyframes fade-up {

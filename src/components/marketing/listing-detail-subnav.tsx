@@ -45,8 +45,14 @@ function portalScrollerIsBody(subnavEl: HTMLElement | null): boolean {
   return Boolean(getPortalScroller(subnavEl)?.matches(PORTAL_SCROLL_BODY_SELECTOR));
 }
 
+/**
+ * The section anchors, in page order (PLAN-0914-2124). Ids are the `id`s
+ * `ListingDetailSections` renders; the scroll-spy below looks them up inside
+ * `[data-listing-sections-root]`, so the two lists must stay in step.
+ */
 const nav = [
-  { id: "floor-plans", label: "Floor plans", shortLabel: "Floors" },
+  { id: "overview", label: "Overview", shortLabel: "Overview" },
+  { id: "rooms", label: "Rooms", shortLabel: "Rooms" },
   { id: "lease-basics", label: "Lease basics", shortLabel: "Lease" },
   { id: "amenities", label: "Amenities", shortLabel: "Amenities" },
   { id: "bundles", label: "Bundles & leasing", shortLabel: "Bundles" },
