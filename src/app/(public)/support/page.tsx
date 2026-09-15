@@ -23,10 +23,7 @@ export const metadata: Metadata = {
 export default function SupportPage() {
   return (
     <MarketingPageShell>
-      <MarketingHero
-        title="Help & Support"
-        subtitle="Reach out directly, or browse common questions. We typically respond within one business day."
-      />
+      <MarketingHero title="Help & Support" />
 
       <MarketingSection>
         <div className="lp-page-grid-3">

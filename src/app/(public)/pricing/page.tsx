@@ -343,10 +343,7 @@ export default async function PricingPage({
             <br />
             <span className="text-primary">Pay when the portfolio earns it.</span>
           </SiteHeading>
-          <p className="mt-5 max-w-[48ch] text-[16.5px] leading-relaxed text-muted">
-            No card to start. Pro and Business begin with a 14-day trial.
-          </p>
-          <div className="mt-8">
+          <div className="mt-7">
             <BillingToggle annual={annual} />
           </div>
         </div>

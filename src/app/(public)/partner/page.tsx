@@ -102,12 +102,8 @@ export default function PartnerLandingPage() {
             <br />
             <span className="text-primary">Approve the rest.</span>
           </SiteHeading>
-          <p className="mt-5 max-w-[52ch] text-[16.5px] leading-relaxed text-muted sm:text-[17.5px]">
-            PropLane drafts leases, rent work and vendor outreach for property managers and landlords, then hands you one
-            queue on web and iPhone. Self-manage three homes or run twenty with a team — nothing goes out without your OK.
-          </p>
           <SiteCtaPair
-            className="mt-8"
+            className="mt-7"
             primaryHref={MANAGER_GET_STARTED_HREF}
             primaryLabel="Get started free"
             primaryAttr="partner-hero-get-started"
