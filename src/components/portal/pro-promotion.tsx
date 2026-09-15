@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ManagerPortalPageShell, PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
+import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling } from "@/lib/portal-empty-copy";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
@@ -55,6 +55,10 @@ import {
   sortPromotionAssets,
   promotionAssetListTitle,
   promotionAssetKindIndices,
+  promotionAssetMatchesKind,
+  promotionAssetMatchesQuery,
+  countPromotionAssetsBySection,
+  promotionNewKindForSection,
   type PromotionAsset,
 } from "@/lib/promotion-assets";
 import {
@@ -91,7 +95,11 @@ import {
   syncManagerPromotionsFromServer,
   upsertManagerPromotion,
 } from "@/lib/manager-promotions-storage";
-import { promotionDetailHref, promotionListHref } from "@/lib/portal-detail-routes";
+import {
+  parsePromotionKindSection,
+  promotionDetailHref,
+  promotionListHref,
+} from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { readPromotionTextEntries, type PromotionTextEntry, type PromotionTextFormat } from "@/lib/promotion-text";
 import {
@@ -188,6 +196,7 @@ export function ManagerPromotion({
   const [demoPromotionGeneratePending, setDemoPromotionGeneratePending] = useState(false);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
   const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
+  const [listSearch, setListSearch] = useState("");
 
   useEffect(() => {
     if (!authReady) return;
@@ -228,23 +237,37 @@ export function ManagerPromotion({
     return assets.filter((a) => propertyFilters.some((id) => samePropertyId(a.row.propertyId, id)));
   }, [assets, propertyFilters]);
 
+  const activeKind = parsePromotionKindSection(searchParams.get("kind"));
+  const kindCounts = useMemo(
+    () => countPromotionAssetsBySection(propertyScopedAssets),
+    [propertyScopedAssets],
+  );
+  const sectionAssets = useMemo(
+    () => propertyScopedAssets.filter((asset) => promotionAssetMatchesKind(asset, activeKind)),
+    [propertyScopedAssets, activeKind],
+  );
+  const visibleAssets = useMemo(
+    () => sectionAssets.filter((asset) => promotionAssetMatchesQuery(asset, listSearch)),
+    [sectionAssets, listSearch],
+  );
+
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(
-    `${propertyFilters.join(",")}:${groupMode}`,
+    `${propertyFilters.join(",")}:${groupMode}:${activeKind}:${listSearch}`,
   );
   const selectedAssets = useMemo(
-    () => propertyScopedAssets.filter((asset) => selectedIds.has(asset.id)),
-    [propertyScopedAssets, selectedIds],
+    () => visibleAssets.filter((asset) => selectedIds.has(asset.id)),
+    [visibleAssets, selectedIds],
   );
 
   const promotionPropertyClusters = useMemo((): PropertyCluster<PromotionAsset>[] => {
     return clusterRowsByProperty(
-      propertyScopedAssets.map((asset) => ({
+      visibleAssets.map((asset) => ({
         ...asset,
         propertyId: asset.row.propertyId,
         propertyLabel: asset.propertyLabel,
       })),
     );
-  }, [propertyScopedAssets]);
+  }, [visibleAssets]);
 
   const listings = useMemo<ManagerPromotionPropertyOption[]>(() => {
     void propertyTick;
@@ -713,6 +736,7 @@ export function ManagerPromotion({
       <PromotionNewModal
         open={showNewModal}
         onClose={closeForm}
+        initialKind={promotionNewKindForSection(activeKind)}
         draft={draft}
         setDraft={setDraft}
         listings={listings}
@@ -905,6 +929,38 @@ export function ManagerPromotion({
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
         variant="command"
+        stickyDestinations={false}
+        destinations={[
+          {
+            id: "all",
+            label: "All",
+            href: promotionListHref(basePath, "all"),
+            count: kindCounts.all,
+            dataAttr: "promotion-kind-all",
+          },
+          {
+            id: "text",
+            label: "Text",
+            href: promotionListHref(basePath, "text"),
+            count: kindCounts.text,
+            dataAttr: "promotion-kind-text",
+          },
+          {
+            id: "image",
+            label: "Image",
+            href: promotionListHref(basePath, "image"),
+            count: kindCounts.image,
+            dataAttr: "promotion-kind-image",
+          },
+        ]}
+        activeDestinationId={activeKind}
+        destinationAriaLabel="Promotion type"
+        search={{
+          value: listSearch,
+          onChange: setListSearch,
+          placeholder: "Search promotions",
+          dataAttr: "promotion-search",
+        }}
         actions={promotionCommandActions}
         primary={promotionPrimaryAction}
       />
@@ -951,20 +1007,56 @@ export function ManagerPromotion({
           </div>
         </>
       ) : null}><div data-attr="promotion-content-direct">
-        {propertyScopedAssets.length === 0 ? (
-          // The dashed "+ Add" box is gone: the bar's + adds, and an empty tab
-          // says what it holds like every other section (§15 titled empty card).
-          assets.length > 0 ? (
+        {visibleAssets.length === 0 ? (
+          propertyScopedAssets.length === 0 && assets.length > 0 ? (
             <PortalListEmptyCard
               section="promotion"
               tone="muted"
               title={portalEmptyNoMatchTitle("promotions")}
               clear={{ label: "Clear filters", onClick: () => setPropertyFilters([]), dataAttr: "promotion-empty-clear-filters" }}
             />
+          ) : listSearch.trim() && sectionAssets.length > 0 ? (
+            <PortalListEmptyCard
+              section="promotion"
+              tone="muted"
+              title={portalEmptyNoMatchTitle("promotions", listSearch)}
+              clear={{
+                label: "Clear search",
+                onClick: () => setListSearch(""),
+                dataAttr: "promotion-empty-clear-search",
+              }}
+            />
           ) : (
             <PortalListEmptyCard
               section="promotion"
-              title={portalEmptyCopy("promotion").title}
+              title={
+                portalEmptyCopy(
+                  activeKind === "text"
+                    ? "promotion.text"
+                    : activeKind === "image"
+                      ? "promotion.image"
+                      : "promotion",
+                ).title
+              }
+              sibling={
+                portalEmptySibling(
+                  [
+                    {
+                      id: "text",
+                      label: "Text",
+                      count: kindCounts.text,
+                      href: promotionListHref(basePath, "text"),
+                    },
+                    {
+                      id: "image",
+                      label: "Image",
+                      count: kindCounts.image,
+                      href: promotionListHref(basePath, "image"),
+                    },
+                  ],
+                  activeKind,
+                ) ?? undefined
+              }
               actions={[{ label: "New promotion", onClick: () => openNewPromotion(), dataAttr: "promotion-list-add" }]}
             />
           )
@@ -995,10 +1087,8 @@ export function ManagerPromotion({
                 ))}
               </div>
             ) : (
-              // The ungrouped list sits on the same card every other list tab
-              // uses; bare rows on the canvas read as an unfinished page.
               <PromotionAssetStack
-                assets={propertyScopedAssets}
+                assets={visibleAssets}
                 variant="card"
                 onView={openViewAsset}
                 onEdit={openEditAsset}

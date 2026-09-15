@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  countPromotionAssetsBySection,
   flattenPromotionAssets,
   makePromotionAssetId,
   promotionAssetListTitle,
+  promotionAssetMatchesKind,
+  promotionAssetMatchesQuery,
+  promotionNewKindForSection,
   sortPromotionAssets,
 } from "@/lib/promotion-assets";
 import { createFlyerEntry, type ManagerPromotionRow } from "@/lib/promotion-flyer";
@@ -191,5 +195,72 @@ describe("promotion-assets", () => {
     );
     expect(promotionAssetListTitle(assets[0]!, 0)).toMatch(/^Text /);
     expect(promotionAssetListTitle(assets[1]!, 0)).toBe("Flyer 1");
+  });
+
+  it("buckets text vs image (flyer + upload, including PDF)", () => {
+    const flyer = createFlyerEntry(
+      {
+        title: "Open house flyer",
+        copy: {
+          headline: "Now leasing",
+          subheadline: "",
+          sellingPoints: [],
+          promoLine: "",
+          ctaText: "",
+          closingLine: "",
+        },
+        template: "showcase",
+        theme: "cobalt",
+        flyerSize: "letter",
+        inputs,
+      },
+      "2026-06-02T12:00:00.000Z",
+    );
+    const text = createPromotionTextEntry(
+      composeFallbackPromotionText(inputs, "Alpha Lofts", "listing_blurb"),
+      "Instagram caption",
+      "2026-06-03T12:00:00.000Z",
+    );
+    const assets = flattenPromotionAssets([
+      baseRow({
+        flyerCopies: [flyer],
+        textCopies: [text],
+        uploadCopies: [
+          {
+            id: "up-1",
+            title: "Kitchen photo",
+            kind: "image",
+            fileUrl: "data:image/png;base64,xx",
+            fileName: "kitchen.png",
+            mimeType: "image/png",
+            createdAt: "2026-06-04T12:00:00.000Z",
+            updatedAt: "2026-06-04T12:00:00.000Z",
+          },
+          {
+            id: "up-2",
+            title: "Lease flyer PDF",
+            kind: "pdf",
+            fileUrl: "data:application/pdf;base64,xx",
+            fileName: "flyer.pdf",
+            mimeType: "application/pdf",
+            createdAt: "2026-06-05T12:00:00.000Z",
+            updatedAt: "2026-06-05T12:00:00.000Z",
+          },
+        ],
+      }),
+    ]);
+    expect(countPromotionAssetsBySection(assets)).toEqual({ all: 4, text: 1, image: 3 });
+    expect(assets.filter((a) => promotionAssetMatchesKind(a, "text"))).toHaveLength(1);
+    expect(assets.filter((a) => promotionAssetMatchesKind(a, "image")).map((a) => a.kind).sort()).toEqual([
+      "flyer",
+      "upload",
+      "upload",
+    ]);
+    expect(promotionAssetMatchesQuery(assets.find((a) => a.kind === "text")!, "instagram")).toBe(true);
+    expect(promotionAssetMatchesQuery(assets.find((a) => a.kind === "flyer")!, "alpha")).toBe(true);
+    expect(promotionAssetMatchesQuery(assets[0]!, "paseo")).toBe(false);
+    expect(promotionNewKindForSection("text")).toBe("text");
+    expect(promotionNewKindForSection("image")).toBe("flyer");
+    expect(promotionNewKindForSection("all")).toBe("flyer");
   });
 });

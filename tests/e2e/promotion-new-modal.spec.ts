@@ -5,9 +5,9 @@ import { mockStripeAllRoutes } from "../helpers/auth";
 import { fieldSelectTrigger, pickFieldSelect } from "../helpers/field-select";
 
 /**
- * Promotion UX: one unified list (text + flyer assets) and "New promotion"
- * drops straight into the picked type's form inside one modal — no
- * intermediate "Continue" step.
+ * Promotion UX: All / Text / Image command-bar sections plus search, and
+ * "New promotion" drops straight into the picked type's form inside one
+ * modal — no intermediate "Continue" step.
  *
  * Driven through the signed-in manager portal at /portal/promotion.
  */
@@ -62,11 +62,13 @@ test.describe("Promotion UX", () => {
     test.describe(`Promotion UX (${viewport.name})`, () => {
       test.use({ viewport: { width: viewport.width, height: viewport.height } });
 
-      test("shows one unified promotion list without text/image tabs", async ({ page }) => {
+      test("shows All / Text / Image sections and search", async ({ page }) => {
         const frame = await openPromotionSection(page);
 
-        await expect(page.locator('[data-attr="promotion-filter-text"]')).toHaveCount(0);
-        await expect(page.locator('[data-attr="promotion-filter-image"]')).toHaveCount(0);
+        await expect(page.locator('[data-attr="promotion-kind-all"]')).toBeVisible();
+        await expect(page.locator('[data-attr="promotion-kind-text"]')).toBeVisible();
+        await expect(page.locator('[data-attr="promotion-kind-image"]')).toBeVisible();
+        await expect(page.locator('[data-attr="promotion-search"]')).toBeVisible();
         await expect(page.locator('[data-attr="promotion-content-direct"]')).toBeVisible();
 
         await frame.screenshot({
