@@ -10,17 +10,34 @@ export const ADMIN_INBOX_SCOPE = "admin";
 
 export type InboxScopeUser = { id: string; email: string | null; role: string };
 
+export type PortalInboxThreadScopeOptions = {
+  /**
+   * Manager Communication: the viewer's email matches only LEGACY rows written
+   * with no owner. A thread another owner holds never reaches a manager's inbox
+   * just because the manager is the person it was sent to — that owner never
+   * invited them. Resident / vendor / admin scopes keep the plain match.
+   */
+  participantOnlyWhenUnowned?: boolean;
+};
+
 /** PostgREST OR filter for inbox row ownership (matches GET visibility). */
 export function portalInboxThreadScopeFilter(
   user: InboxScopeUser,
   extraOwnerIds: string[] = [],
+  options: PortalInboxThreadScopeOptions = {},
 ): string {
   const ownerIds = [...new Set([user.id, ...extraOwnerIds.map((id) => id.trim()).filter(Boolean)])];
   const clauses: string[] =
     ownerIds.length <= 1
       ? [`owner_user_id.eq.${ownerIds[0] ?? user.id}`]
       : [`owner_user_id.in.(${ownerIds.join(",")})`];
-  if (user.email) clauses.push(`participant_email.eq.${user.email}`);
+  if (user.email) {
+    clauses.push(
+      options.participantOnlyWhenUnowned
+        ? `and(owner_user_id.is.null,participant_email.eq.${user.email})`
+        : `participant_email.eq.${user.email}`,
+    );
+  }
   if (user.role === "admin") clauses.push(`scope.eq.${ADMIN_INBOX_SCOPE}`);
   return clauses.join(",");
 }
@@ -29,9 +46,10 @@ export function applyPortalInboxThreadScope<T>(
   query: T,
   user: InboxScopeUser,
   extraOwnerIds: string[] = [],
+  options: PortalInboxThreadScopeOptions = {},
 ): T {
   const q = query as { or: (expr: string) => unknown };
-  return q.or(portalInboxThreadScopeFilter(user, extraOwnerIds)) as T;
+  return q.or(portalInboxThreadScopeFilter(user, extraOwnerIds, options)) as T;
 }
 
 function portalForScope(scope: string): "manager" | "resident" | "vendor" | null {

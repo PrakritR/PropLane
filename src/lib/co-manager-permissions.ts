@@ -354,7 +354,12 @@ export function describeCoManagerPermissions(permissions: CoManagerPermissions |
   if (canEdit.length > 0) parts.push(`edit ${canEdit.map(({ label }) => label).join(", ")}`);
   if (canDelete.length > 0) parts.push(`delete in ${canDelete.map(({ label }) => label).join(", ")}`);
   if (canNotify.length > 0) parts.push(`receive alerts for ${canNotify.map(({ label }) => label).join(", ")}`);
-  return `Can ${parts.join("; ")}.`;
+  const sentence = `Can ${parts.join("; ")}.`;
+  // Communication is shared per HOUSE: the grant covers conversations about the
+  // assigned houses, never the owner's whole inbox or their assistant thread.
+  return hasCoManagerPermission(permissions, "inbox")
+    ? `${sentence} Communication covers conversations about the assigned houses only.`
+    : sentence;
 }
 
 export function countCoManagerPermissions(permissions: CoManagerPermissions | undefined): number {

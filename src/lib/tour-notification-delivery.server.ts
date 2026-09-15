@@ -441,7 +441,7 @@ export async function notifyManagerTourRequest(
     let smsConversationKey: string | undefined;
     const guestPhone = textField(inquiry as Record<string, unknown>, "phone");
     if (guestPhone) try {
-      const conversations = await fetchManagerSmsConversations(db, recipient.userId, { scopeManagerIdsOverride: [recipient.userId], provisionWorkNumber: false });
+      const conversations = await fetchManagerSmsConversations(db, recipient.userId, { scopeManagerIdsOverride: [recipient.userId], provisionWorkNumber: false, visibility: "none" });
       const existing = resolveExistingApplicantConversation(conversations.residents, { managerUserId: recipient.userId, applicantPhone: guestPhone, workNumber: conversations.workNumber });
       if (existing.kind === "matched") smsConversationKey = existing.conversation.conversationKey;
     } catch { smsConversationKey = undefined; }

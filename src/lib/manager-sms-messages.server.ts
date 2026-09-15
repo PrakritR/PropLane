@@ -28,6 +28,7 @@ import {
 } from "@/lib/sms/manager-sms-contacts.server";
 import { resolveWorkspaceWorkNumbers } from "@/lib/sms/manager-workspace-role.server";
 import { loadConversationHouses } from "@/lib/sms/conversation-houses.server";
+import { conversationVisible, resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
 import { labelFromManagerPropertyRecordRow } from "@/lib/co-manager-property-label";
 
 export type { ManagerSmsConversationsPayload, ManagerSmsMessageRow, ManagerSmsResidentConversation };
@@ -648,6 +649,13 @@ export async function fetchManagerSmsConversations(
      * GET spends real money on a page view, so admin passes false.
      */
     provisionWorkNumber?: boolean;
+    /**
+     * Per-house, per-workspace visibility for the VIEWER (`managerUserId`),
+     * decided by `conversation-visibility.server.ts` after the houses are
+     * attached. "read" for every list, "edit" before a send; "none" only for
+     * admin oversight, which is not a viewer of this inbox at all.
+     */
+    visibility?: "read" | "edit" | "delete" | "none";
   },
 ): Promise<ManagerSmsConversationsPayload> {
   const scopeManagerIds =
@@ -1003,7 +1011,24 @@ export async function fetchManagerSmsConversations(
 
   await attachConversationHouses(db, scopeManagerIds, conversations);
 
-  conversations.sort((a, b) => {
+  // The houses on a thread decide who sees it: a co-manager only where they
+  // hold Communication on one of them, and only inside the workspace that
+  // holds it. Untagged threads stay with their owner's default workspace.
+  const visibility = options?.visibility ?? "read";
+  const visibleConversations =
+    visibility === "none"
+      ? conversations
+      : await (async () => {
+          const scope = await resolveCommunicationScope(db, managerUserId, visibility);
+          return conversations.filter((conversation) =>
+            conversationVisible(scope, {
+              ownerId: String(conversation.ownerManagerUserId ?? "").trim() || managerUserId,
+              houseIds: (conversation.houses ?? []).map((house) => house.propertyId),
+            }),
+          );
+        })();
+
+  visibleConversations.sort((a, b) => {
     const aLast = a.messages[a.messages.length - 1]?.createdAt ?? "";
     const bLast = b.messages[b.messages.length - 1]?.createdAt ?? "";
     return bLast.localeCompare(aLast);
@@ -1015,7 +1040,7 @@ export async function fetchManagerSmsConversations(
     phoneVerified: Boolean(profile?.phone_verified_at),
     forwardInbound: profile?.sms_forward_inbound !== false,
     smsConfigured: Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN),
-    residents: conversations,
+    residents: visibleConversations,
   };
 }
 

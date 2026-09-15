@@ -1,4 +1,3 @@
-import { viewerAndLinkedOwnerIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import { sendPortalConversationEmails } from "@/lib/portal-email-send.server";
 import { resolveManagerOutboundFrom } from "@/lib/manager-outbound-identity.server";
@@ -145,17 +144,26 @@ export async function resolveInboxThreadReplyTarget(
   if (!threadRow) return null;
   const ownerUserId = (threadRow.owner_user_id as string | null) ?? null;
   const isOwner = ownerUserId === opts.senderUserId;
-  const isParticipant = String(threadRow.participant_email ?? "").toLowerCase() === senderEmail;
+  const managerScope = String(threadRow.scope ?? "") === MANAGER_INBOX_SCOPE;
+  // Manager Communication: being the person a thread was sent to is not
+  // access to it — that clause covers only legacy rows written with no owner.
+  // The other owner never invited this manager (see conversation-visibility).
+  const isParticipant =
+    String(threadRow.participant_email ?? "").toLowerCase() === senderEmail && (!managerScope || !ownerUserId);
   let delegatedOwner = false;
-  if (!isOwner && !isParticipant && ownerUserId) {
+  if (!isOwner && !isParticipant && ownerUserId && managerScope) {
+    // A co-manager may reply only on a thread about a house they hold
+    // Communication EDIT on — the same rule that lists it.
     try {
-      const ownerIds = await viewerAndLinkedOwnerIdsForModule(
-        db as Parameters<typeof viewerAndLinkedOwnerIdsForModule>[0],
-        opts.senderUserId,
-        "inbox",
-        "edit",
-      );
-      delegatedOwner = ownerIds.includes(ownerUserId);
+      const { visibleInboxThreadRecord } = await import("@/lib/communication/conversation-visibility.server");
+      delegatedOwner =
+        (await visibleInboxThreadRecord(db, opts.senderUserId, "edit", {
+          id: threadId,
+          owner_user_id: ownerUserId,
+          participant_email: (threadRow.participant_email as string | null) ?? null,
+          thread_type: (threadRow.thread_type as string | null) ?? null,
+          row_data: threadRow.row_data,
+        })) !== null;
     } catch {
       delegatedOwner = false;
     }

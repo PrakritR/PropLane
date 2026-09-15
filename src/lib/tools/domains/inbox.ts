@@ -4,6 +4,11 @@ import type { AgentContext } from "../context";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import { MANAGER_INBOX_SCOPE } from "@/lib/portal-inbox-thread-scope";
 import { smsInboxOwnerIds } from "@/lib/sms/manager-sms-access.server";
+import {
+  filterVisibleInboxThreadRecords,
+  resolveCommunicationScope,
+  visibleInboxThreadRecord,
+} from "@/lib/communication/conversation-visibility.server";
 import { writeAuditLog } from "../audit";
 
 const PAGE_SIZE = 1000;
@@ -29,16 +34,28 @@ function summarizeThread(t: PersistedInboxThread) {
   };
 }
 
-type ThreadRow = { row_data: unknown; updated_at?: string | null };
+type ThreadRow = {
+  id: string;
+  owner_user_id: string | null;
+  participant_email: string | null;
+  thread_type?: string | null;
+  row_data: unknown;
+  updated_at?: string | null;
+};
 
-/** Load every manager-scope thread row the current actor can see (paginated). */
+/**
+ * Load every manager-scope thread row the current actor can see (paginated).
+ * Owner scope pre-narrows the query; the house / workspace rule that decides
+ * Communication for the UI (`conversation-visibility.server.ts`) decides here
+ * too, so the assistant cannot read a thread its user could not open.
+ */
 async function loadOwnThreadRows(ctx: AgentContext): Promise<ThreadRow[]> {
   const all: ThreadRow[] = [];
   for (const ownerId of await smsInboxOwnerIds(ctx, "read")) {
     for (let from = 0; ; from += PAGE_SIZE) {
       const { data, error } = await ctx.db
         .from("portal_inbox_thread_records")
-        .select("row_data, updated_at")
+        .select("id, owner_user_id, participant_email, thread_type, row_data, updated_at")
         .eq("scope", MANAGER_INBOX_SCOPE)
         .eq("owner_user_id", ownerId)
         .order("id", { ascending: true })
@@ -49,7 +66,8 @@ async function loadOwnThreadRows(ctx: AgentContext): Promise<ThreadRow[]> {
       if (page.length < PAGE_SIZE) break;
     }
   }
-  return all;
+  const scope = await resolveCommunicationScope(ctx.db, ctx.userId, "read");
+  return filterVisibleInboxThreadRecords(ctx.db, scope, all);
 }
 
 /** Load ONE manager-scope thread the current actor can see, or null. */
@@ -62,14 +80,16 @@ async function loadOwnThread(
   for (const ownerId of ownerIds) {
     const { data, error } = await ctx.db
       .from("portal_inbox_thread_records")
-      .select("row_data")
+      .select("id, owner_user_id, participant_email, thread_type, row_data")
       .eq("scope", MANAGER_INBOX_SCOPE)
       .eq("owner_user_id", ownerId)
       .eq("id", threadId)
       .limit(1);
     if (error) throw new Error(error.message);
-    const row = ((data ?? []) as { row_data: unknown }[])[0];
-    if (row) return (row.row_data as PersistedInboxThread) ?? null;
+    const row = ((data ?? []) as ThreadRow[])[0];
+    if (!row) continue;
+    const visible = await visibleInboxThreadRecord(ctx.db, ctx.userId, level, row);
+    return visible ? ((visible.row_data as PersistedInboxThread) ?? null) : null;
   }
   return null;
 }

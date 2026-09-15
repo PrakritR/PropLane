@@ -105,7 +105,7 @@ describe("appendInboxThreadReply", () => {
           owner_user_id: "owner_1",
           participant_email: "resident@example.com",
           scope: "axis_portal_inbox_manager_v1",
-          row_data: { messages: [] },
+          row_data: { messages: [], propertyId: "prop-1" },
         },
       ],
       profiles: [
@@ -144,7 +144,7 @@ describe("appendInboxThreadReply", () => {
           owner_user_id: "owner_1",
           participant_email: "resident@example.com",
           scope: "axis_portal_inbox_manager_v1",
-          row_data: { messages: [] },
+          row_data: { messages: [], propertyId: "prop-1" },
         },
       ],
       profiles: [

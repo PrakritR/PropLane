@@ -137,6 +137,8 @@ export async function notifyApplicantApplicationSms(
     try {
       const conversations = await fetchManagerSmsConversations(db, managerUserId, {
         scopeManagerIdsOverride: [managerUserId],
+        // Delivery on the owner's behalf, not a viewer's list: nothing to narrow.
+        visibility: "none",
         provisionWorkNumber: false,
       });
       const resolution = resolveExistingApplicantConversation(conversations.residents, {

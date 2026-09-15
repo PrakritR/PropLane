@@ -26,6 +26,7 @@ import {
   sendResidentOutboundSms,
 } from "@/lib/resident-outbound-sms.server";
 import { fetchManagerSmsConversations } from "@/lib/manager-sms-messages.server";
+import { visibleInboxThreadRecord } from "@/lib/communication/conversation-visibility.server";
 import { resolveExistingSmsConversation } from "@/lib/sms/existing-conversation.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
@@ -113,6 +114,9 @@ async function resolveMessageSmsThreads(
     conversations = await fetchManagerSmsConversations(ctx.db, ctx.landlordId, {
       scopeManagerIdsOverride: [ctx.landlordId],
       provisionWorkNumber: false,
+      // Resolving the manager's OWN existing conversation for a send, not a
+      // list a viewer reads: narrowing here would only mint a duplicate thread.
+      visibility: "none",
     });
   } catch {
     return targets;
@@ -485,13 +489,16 @@ async function loadOwnInboxThread(ctx: AgentContext, threadId: string): Promise<
   for (const ownerId of ownerIds) {
     const { data, error } = await ctx.db
       .from("portal_inbox_thread_records")
-      .select("id, owner_user_id, participant_email, scope, row_data")
+      .select("id, owner_user_id, participant_email, thread_type, scope, row_data")
       .eq("scope", MANAGER_INBOX_SCOPE)
       .eq("owner_user_id", ownerId)
       .eq("id", threadId)
       .maybeSingle();
     if (error) throw new Error(error.message);
-    if (data) return data as OwnThreadRow;
+    if (!data) continue;
+    // Same house / workspace rule as the UI: a thread the user could not open is not writable here.
+    const visible = await visibleInboxThreadRecord(ctx.db, ctx.userId, "edit", data as OwnThreadRow & { thread_type?: string | null });
+    return visible ? (data as OwnThreadRow) : null;
   }
   return null;
 }

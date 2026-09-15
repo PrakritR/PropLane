@@ -208,13 +208,29 @@ conversations) plus the archive toggle. Invariants:
   so copy the resident panel's shape rather than theirs. Coverage:
   `tests/unit/resident-refused-send-not-delivered.test.tsx`,
   `tests/integration/portal/send-inbox-message.test.ts`.
-- **Co-managers share an owner's Communication at inbox module level.** Email
-  and SMS threads are owner-keyed (`owner_user_id`), not per-property. A
-  co-manager with Communication on ≥1 assigned property of that owner is in
-  `viewerAndLinkedOwnerIdsForModule(..., "inbox", level)`: `read` lists those
-  threads, `edit` replies and sends (including
-  `resolveInboxThreadReplyTarget`), `delete` deletes. Empty permissions still
-  mean a full grant. Coverage: `tests/unit/portal-inbox-thread-scope.test.ts`,
+- **Communication is decided per HOUSE and per WORKSPACE by ONE resolver:
+  `src/lib/communication/conversation-visibility.server.ts`.** Email threads,
+  SMS conversations, the houses picker, reply / send, mark-read, archive,
+  delete and the assistant's inbox tools all ask `conversationVisible`. Three
+  rules, in order: (1) a PropLane Assistant thread (`agent_notice`) belongs to
+  ONE account — the viewer sees their own in every workspace, never anyone
+  else's; (2) sharing is per house — a co-manager sees another owner's
+  conversation only when it is about a house they hold Communication on at the
+  level asked for (`read` lists, `edit` replies and sends, `delete` deletes),
+  and a conversation about no house is never shared; (3) the active workspace
+  narrows — a conversation shows in the workspace that holds its house, and an
+  untagged one lives in the owner's default workspace. A conversation's house:
+  SMS uses `houses[]` (conversation-houses tags, else residency); email uses
+  the stamped `row_data.propertyId`, else the counterparty's applications and
+  residency with that owner (`emailThreadHouses`, every house kept). Owner
+  scope in the store query only pre-narrows; it is never the answer. Every
+  lookup degrades safely: a failed grant read shares nothing, a failed
+  workspace read narrows nothing. **A manager's inbox never includes another
+  owner's thread just because the manager is the person it was sent to** —
+  the `participant_email` clause covers legacy owner-less rows only
+  (`participantOnlyWhenUnowned`). Coverage:
+  `tests/unit/communication-visibility.test.ts`,
+  `tests/unit/portal-inbox-thread-scope.test.ts`,
   `tests/unit/portal-inbox-thread-reply.test.ts`.
 - **A conversation's `time` is BOTH its label and its sort key, so every writer
   must stamp it identically.** The canonical shape is `formatInboxStamp`
