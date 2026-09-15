@@ -9,6 +9,7 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { propertyDetailHref, propertyListHref } from "@/lib/portal-detail-routes";
 import {
@@ -196,6 +197,17 @@ export function PortfolioPropertiesSection({
         <h2 className="text-lg font-semibold tracking-[-0.01em] text-foreground">Your properties</h2>
         <div className="flex flex-wrap items-center gap-2">
           {addPropertyAction}
+          {/* Same visual token as `PortalIconAction` — a Link, not a button, so
+              the control carries a real href instead of a client-side push. */}
+          <Link
+            href="/portal/properties/import"
+            aria-label="Import portfolio"
+            title="Import portfolio"
+            data-attr="dashboard-import-portfolio"
+            className="relative inline-flex size-11 shrink-0 items-center justify-center rounded-lg border-0 bg-transparent p-0 text-foreground/80 outline-none transition hover:bg-[var(--secondary)]/70 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/30 md:size-9"
+          >
+            <Upload className="size-[18px]" strokeWidth={1.75} aria-hidden />
+          </Link>
           <Link
             href={propertyListHref(basePath, "listed")}
             className="inline-flex min-h-10 items-center rounded-lg bg-accent px-3 text-sm font-semibold text-primary transition hover:bg-accent/70"
