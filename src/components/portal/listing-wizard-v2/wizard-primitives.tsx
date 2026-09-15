@@ -17,9 +17,9 @@
  *   belongs to; nothing is announced only at the end.
  */
 
-import { useEffect, useId, useRef, type ReactNode } from "react";
-import { Camera, RotateCcw, type LucideIcon } from "lucide-react";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Camera, ChevronRight, RotateCcw, type LucideIcon } from "lucide-react";
+import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { cn } from "@/lib/utils";
 
 /* ─────────────────────────── shell ─────────────────────────── */
@@ -121,8 +121,14 @@ export function ListingWorkspace({
   headerAside?: ReactNode;
 }) {
   return (
-    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-border bg-white shadow-[0_24px_60px_-28px_rgba(11,27,58,0.45)] [html[data-theme=dark]_&]:bg-card">
-      <div className="flex shrink-0 items-center gap-3 border-b border-border/60 px-5 py-3">
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-none border-0 bg-white shadow-[0_24px_60px_-28px_rgba(11,27,58,0.45)] sm:rounded-2xl sm:border sm:border-border [html[data-theme=dark]_&]:bg-card">
+      {/*
+       * The native shell draws under the status bar, so on a phone the header
+       * pads by the safe-area inset the way Modal and the auth layout do;
+       * the website (no inset) pads zero. Same again for the footer and the
+       * home indicator.
+       */}
+      <div className="flex shrink-0 items-center gap-3 border-b border-border/60 px-5 py-3 [html[data-native]_&]:pt-[max(0.75rem,var(--native-safe-top,0px))]">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2.5">
             <b className="truncate text-[15px] font-bold tracking-tight text-foreground sm:text-[17px]">{title}</b>
@@ -130,7 +136,7 @@ export function ListingWorkspace({
           </div>
           {/* On a phone the address and the save state lose to the title and the
               close control, so they step aside rather than wrapping into three rows. */}
-          {subtitle ? <p className="hidden truncate text-[12.5px] text-muted sm:block">{subtitle}</p> : null}
+          {subtitle ? <p className="hidden truncate text-[12.5px] text-foreground/70 sm:block">{subtitle}</p> : null}
         </div>
         {saveState ? <div className="hidden shrink-0 text-[12.5px] text-muted sm:block">{saveState}</div> : null}
         <div className="flex shrink-0 items-center gap-2">
@@ -166,7 +172,7 @@ export function ListingWorkspace({
           </aside>
         ) : null}
       </div>
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-border/60 bg-white px-4 py-3 sm:px-5 [html[data-theme=dark]_&]:bg-card">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-border/60 bg-white px-4 py-3 sm:px-5 [html[data-native]_&]:pb-[max(0.75rem,var(--native-safe-bottom,0px))] [html[data-theme=dark]_&]:bg-card">
         {footer}
       </div>
     </div>
@@ -181,14 +187,16 @@ export function ListingWorkspace({
  */
 export function SideBelow({ children }: { children: ReactNode }) {
   if (!children) return null;
-  return <div className="mt-8 border-t border-border/60 pt-6 xl:hidden">{children}</div>;
+  // A phone does not get the panel at all — it repeated the card above it in a
+  // second layout. A laptop without the column still gets it under the step.
+  return <div className="mt-8 hidden border-t border-border/60 pt-6 md:block xl:hidden">{children}</div>;
 }
 
 export type StepRailItem = {
   id: string;
   label: string;
   /** Off the short path — Continue skips it; the manager opens it when they want to. */
-  optional?: boolean;
+  offPath?: boolean;
   /** Rooms, bathrooms, spaces, lease types — how many this step holds. */
   count?: number;
   /** Things the manager should look at before publishing. */
@@ -269,9 +277,6 @@ export function StepRail({
                   >
                     {step.label}
                   </span>
-                  {step.optional ? (
-                    <span className="shrink-0 text-[11px] font-semibold text-muted/75">optional</span>
-                  ) : null}
                   {step.count != null ? (
                     <span className="hidden shrink-0 text-[12px] tabular-nums text-muted lg:inline">{step.count}</span>
                   ) : null}
@@ -352,7 +357,6 @@ export function RailNotice({ count, onOpen }: { count: number; onOpen: () => voi
         <span className="block text-[13px] font-bold text-foreground">
           {count} {count === 1 ? "thing" : "things"} to finish
         </span>
-        <span className="block text-[11.5px] leading-snug text-muted">Stronger listings fill these in.</span>
       </span>
       <span aria-hidden className="text-muted">
         ›
@@ -378,9 +382,6 @@ export function RailStatus({ listed }: { listed: boolean }) {
         />
         {listed ? "Listed" : "Draft"}
       </span>
-      <p className="mt-0.5 text-[11.5px] leading-snug text-muted">
-        {listed ? "Renters can see this home and apply." : "Not visible to renters until you publish."}
-      </p>
     </div>
   );
 }
@@ -432,11 +433,9 @@ export function PanelLine({
 /** The heading block at the top of every step body. */
 export function StepHeading({
   title,
-  subtitle,
   action,
 }: {
   title: string;
-  subtitle?: string;
   /** Small tertiary control — e.g. reset every row to the top defaults. */
   action?: ReactNode;
 }) {
@@ -449,7 +448,6 @@ export function StepHeading({
     <div className="mb-5 flex items-start justify-between gap-3">
       <div className="min-w-0 flex-1">
         <h2 className="text-[23px] font-bold leading-tight tracking-tight text-foreground">{title}</h2>
-        {subtitle ? <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">{subtitle}</p> : null}
       </div>
       {action ? <div className="shrink-0 pt-0.5">{action}</div> : null}
     </div>
@@ -491,24 +489,17 @@ export function ResetAllInheritanceButton({
  */
 export function SectionGroup({
   title,
-  description,
   children,
   first = false,
 }: {
   title: string;
-  description?: string;
   children: ReactNode;
   /** The first group sits directly under the step heading, without the top rule. */
   first?: boolean;
 }) {
   return (
     <section className={cn(first ? "" : "mt-8 border-t border-border/60 pt-6")}>
-      <h3 className="text-[15.5px] font-bold tracking-tight text-foreground">{title}</h3>
-      {description ? (
-        <p className="mb-4 mt-0.5 text-[13px] leading-relaxed text-muted">{description}</p>
-      ) : (
-        <div className="mb-4" />
-      )}
+      <h3 className="mb-4 text-[15.5px] font-bold tracking-tight text-foreground">{title}</h3>
       {children}
     </section>
   );
@@ -532,8 +523,6 @@ export function StepColumn({ children, wide = false }: { children: ReactNode; wi
 export function Field({
   label,
   required,
-  optional,
-  hint,
   error,
   children,
   group = false,
@@ -541,8 +530,7 @@ export function Field({
 }: {
   label: string;
   required?: boolean;
-  optional?: boolean;
-  hint?: ReactNode;
+  /** Shown only after a failed action — the one line of helper copy a field may carry. */
   error?: string;
   children: ReactNode;
   /** Sits after the label — the "Follows every room" / "This room · Reset" tag on a room field. */
@@ -564,15 +552,10 @@ export function Field({
     <>
       {label}
       {required ? <span className="ml-0.5 text-red-600">*</span> : null}
-      {optional ? <span className="ml-1.5 text-[11px] font-semibold text-muted/75">optional</span> : null}
       {labelAside ? <span className="ml-2 inline-flex align-middle font-normal">{labelAside}</span> : null}
     </>
   );
-  const note = error ? (
-    <p className="mt-1.5 text-[12px] font-semibold text-red-600">{error}</p>
-  ) : hint ? (
-    <p className="mt-1.5 text-[12px] leading-relaxed text-muted">{hint}</p>
-  ) : null;
+  const note = error ? <p className="mt-1.5 text-[12px] font-semibold text-red-600">{error}</p> : null;
 
   if (group) {
     return (
@@ -621,13 +604,11 @@ export function FieldRow({ children, cols = 2 }: { children: ReactNode; cols?: 2
 export function ChoiceCard({
   selected,
   title,
-  description,
   onSelect,
   dataAttr,
 }: {
   selected: boolean;
   title: string;
-  description: string;
   onSelect: () => void;
   dataAttr?: string;
 }) {
@@ -638,20 +619,17 @@ export function ChoiceCard({
       aria-pressed={selected}
       data-attr={dataAttr}
       className={cn(
-        "mb-2.5 flex w-full items-start gap-3 rounded-xl border p-3.5 text-left transition-colors",
+        "mb-2.5 flex w-full items-center gap-3 rounded-xl border p-3.5 text-left transition-colors",
         selected ? "border-primary bg-primary/5 ring-[3px] ring-primary/10" : "border-border bg-card hover:bg-accent/30",
       )}
     >
       <span
         className={cn(
-          "mt-0.5 h-[18px] w-[18px] shrink-0 rounded-full border-2 bg-card",
+          "h-[18px] w-[18px] shrink-0 rounded-full border-2 bg-card",
           selected ? "border-[5.5px] border-primary" : "border-border",
         )}
       />
-      <span className="min-w-0">
-        <b className="block text-[13.5px] font-bold text-foreground">{title}</b>
-        <span className="mt-0.5 block text-[12px] leading-relaxed text-muted">{description}</span>
-      </span>
+      <b className="min-w-0 text-[13.5px] font-bold text-foreground">{title}</b>
     </button>
   );
 }
@@ -666,14 +644,12 @@ export function ChoiceCard({
 export function KindTile({
   icon: Icon,
   label,
-  hint,
   selected,
   onSelect,
   dataAttr,
 }: {
   icon: LucideIcon;
   label: string;
-  hint?: string;
   selected: boolean;
   onSelect: () => void;
   dataAttr?: string;
@@ -685,17 +661,14 @@ export function KindTile({
       aria-pressed={selected}
       data-attr={dataAttr}
       className={cn(
-        "flex min-h-[92px] w-full flex-col items-start justify-between gap-2 rounded-xl border p-3 text-left transition-colors",
+        "flex min-h-[84px] w-full flex-col items-start justify-between gap-2 rounded-xl border p-3 text-left transition-colors",
         selected
           ? "border-primary bg-primary/[0.05] ring-[3px] ring-primary/10"
           : "border-border bg-card hover:border-foreground/25 hover:bg-accent/30",
       )}
     >
       <Icon className={cn("h-[22px] w-[22px]", selected ? "text-primary" : "text-muted")} strokeWidth={1.7} aria-hidden />
-      <span className="min-w-0">
-        <span className="block text-[13.5px] font-bold leading-tight text-foreground">{label}</span>
-        {hint ? <span className="mt-0.5 block text-[11.5px] leading-snug text-muted">{hint}</span> : null}
-      </span>
+      <span className="block min-w-0 text-[13.5px] font-bold leading-tight text-foreground">{label}</span>
     </button>
   );
 }
@@ -710,29 +683,59 @@ export function CountStepper({
   value,
   min = 1,
   max = 20,
+  step = 1,
   onChange,
   label,
   dataAttr,
+  inherited = false,
+  compact = false,
 }: {
   value: number;
   min?: number;
   max?: number;
+  /** Half steps for bathrooms (1, 1.5, 2 …). */
+  step?: number;
   onChange: (next: number) => void;
-  /** Read to assistive tech — the visible caption is the surrounding Field. */
+  /** Read to assistive tech — the visible caption is the surrounding Field or FactRow. */
   label: string;
   dataAttr?: string;
+  /** Following the "Every …" card: drawn dashed and grey until it becomes the record's own. */
+  inherited?: boolean;
+  /** The pill form a FactRow holds: one bordered capsule with − n + inside. */
+  compact?: boolean;
 }) {
+  const round = (n: number) => Math.round(n * 100) / 100;
+  const dec = () => onChange(Math.max(min, round(value - step)));
+  const inc = () => onChange(Math.min(max, round(value + step)));
+  if (compact) {
+    const side = "grid h-8 w-8 shrink-0 place-items-center rounded-full text-[17px] leading-none text-foreground transition hover:bg-foreground/[0.06] disabled:opacity-35 disabled:hover:bg-transparent";
+    return (
+      <div
+        className={cn(
+          "inline-flex h-9 items-center gap-1 rounded-full border bg-card px-1",
+          inherited ? "border-dashed border-border text-muted" : "border-border",
+        )}
+        data-attr={dataAttr}
+        role="group"
+        aria-label={label}
+      >
+        <button type="button" className={side} aria-label={`Fewer ${label}`} disabled={value <= min} onClick={dec}>−</button>
+        <span className={cn("min-w-[2.5ch] text-center text-[14px] font-bold tabular-nums", inherited ? "text-muted" : "text-foreground")} aria-live="polite">{value}</span>
+        <button type="button" className={side} aria-label={`More ${label}`} disabled={value >= max} onClick={inc}>+</button>
+      </div>
+    );
+  }
   const btn =
     "grid h-9 w-9 shrink-0 place-items-center rounded-full border border-border bg-card text-[18px] leading-none text-foreground transition hover:bg-accent/40 disabled:opacity-35 disabled:hover:bg-card";
   return (
     <div className="inline-flex items-center gap-3" data-attr={dataAttr}>
-      <button type="button" className={btn} aria-label={`Fewer ${label}`} disabled={value <= min} onClick={() => onChange(Math.max(min, value - 1))}>
+      <button type="button" className={btn} aria-label={`Fewer ${label}`} disabled={value <= min} onClick={dec}>
         −
       </button>
       <span className="min-w-[2ch] text-center text-[16px] font-bold tabular-nums text-foreground" aria-live="polite">
         {value}
       </span>
-      <button type="button" className={btn} aria-label={`More ${label}`} disabled={value >= max} onClick={() => onChange(Math.min(max, value + 1))}>
+      <button type="button" className={btn} aria-label={`More ${label}`} disabled={value >= max} onClick={inc}>
         +
       </button>
     </div>
@@ -811,10 +814,7 @@ export function AdvancedPanel({
         data-attr={dataAttr}
         className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left transition hover:bg-accent/30"
       >
-        <span className="min-w-0 no-underline">
-          <span className="block text-[14px] font-bold leading-5 text-foreground no-underline">Advanced</span>
-          <span className="mt-1 block truncate text-[12.5px] leading-5 text-muted no-underline">{summary}</span>
-        </span>
+        <span className="block min-w-0 truncate text-[14px] font-bold leading-5 text-foreground no-underline">{summary}</span>
         <span className="shrink-0 text-[13px] font-bold text-primary" aria-hidden>
           {open ? "▴" : "▾"}
         </span>
@@ -830,14 +830,12 @@ export function AdvancedPanel({
  */
 export function AdvancedGroup({
   title,
-  description,
   open,
   onToggle,
   children,
   dataAttr,
 }: {
   title: string;
-  description: string;
   open: boolean;
   onToggle: () => void;
   children: ReactNode;
@@ -857,10 +855,7 @@ export function AdvancedGroup({
          * <button>, and the decoration a button can inherit was drawing short
          * rules through the middle of words like "move-in".
          */}
-        <span className="min-w-0 no-underline">
-          <span className="block text-[13.5px] font-bold leading-5 text-foreground no-underline">{title}</span>
-          <span className="mt-1 block break-words text-[12px] leading-5 text-muted no-underline">{description}</span>
-        </span>
+        <span className="block min-w-0 text-[13.5px] font-bold leading-5 text-foreground no-underline">{title}</span>
         <span className="shrink-0 text-[12px] font-bold text-primary" aria-hidden>
           {open ? "▴" : "▾"}
         </span>
@@ -870,36 +865,7 @@ export function AdvancedGroup({
   );
 }
 
-/* ─────────────────────────── chips ─────────────────────────── */
-
-export function ChipToggle({
-  on,
-  label,
-  onToggle,
-  dataAttr,
-}: {
-  on: boolean;
-  label: string;
-  onToggle: () => void;
-  dataAttr?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-pressed={on}
-      data-attr={dataAttr}
-      className={cn(
-        "rounded-full border px-3.5 py-1.5 text-[12px] transition-colors",
-        on
-          ? "border-primary/35 bg-primary/10 font-bold text-primary"
-          : "border-border bg-card font-semibold text-muted hover:bg-accent/40",
-      )}
-    >
-      {label}
-    </button>
-  );
-}
+/* ─────────────────────────── yes / no ─────────────────────────── */
 
 /**
  * A checkbox with its label and a line of explanation.
@@ -911,38 +877,27 @@ export function ChipToggle({
  */
 export function CheckboxOption({
   label,
-  description,
   checked,
   onChange,
   dataAttr,
 }: {
   label: string;
-  description?: string;
   checked: boolean;
   onChange: (next: boolean) => void;
   dataAttr?: string;
 }) {
   return (
-    <label className="flex cursor-pointer items-start gap-2.5 py-1.5">
+    <label className="flex cursor-pointer items-center gap-2.5 py-1.5">
       <input
         type="checkbox"
         checked={checked}
         data-attr={dataAttr}
         onChange={(e) => onChange(e.target.checked)}
-        className="mt-0.5 h-4 w-4 shrink-0 rounded border-border"
+        className="h-4 w-4 shrink-0 rounded border-border"
       />
-      <span className="min-w-0">
-        <span className="block text-[13px] font-semibold text-foreground">{label}</span>
-        {description ? (
-          <span className="mt-0.5 block text-[12px] leading-relaxed text-muted">{description}</span>
-        ) : null}
-      </span>
+      <span className="min-w-0 text-[13px] font-semibold text-foreground">{label}</span>
     </label>
   );
-}
-
-export function ChipRow({ children }: { children: ReactNode }) {
-  return <div className="flex flex-wrap gap-2">{children}</div>;
 }
 
 /* ─────────────────────────── repeating rows ─────────────────────────── */
@@ -1128,6 +1083,7 @@ export function RowSelectCell({
   resetLabel,
   ariaLabel,
   className,
+  dataAttr,
 }: {
   value: string;
   options: readonly { value: string; label: string }[];
@@ -1140,6 +1096,7 @@ export function RowSelectCell({
   resetLabel?: string;
   ariaLabel: string;
   className?: string;
+  dataAttr?: string;
 }) {
   const showReset = Boolean(onReset) && !inherited && !disabled;
   return (
@@ -1154,6 +1111,7 @@ export function RowSelectCell({
         placeholder={placeholder ?? "Select…"}
         inherited={inherited}
         disabled={disabled}
+        dataAttr={dataAttr}
         wrapperClassName="min-w-0"
         /* The chevron stays at the edge; the value text stops short of the ↺ overlaid left of it. */
         valueClassName={showReset ? "pr-5" : undefined}
@@ -1233,5 +1191,310 @@ export function AddRowButton({
       {Icon ? <Icon className="h-5 w-5" aria-hidden /> : null}
       {label}
     </button>
+  );
+}
+
+/* ─────────────────────────── record cards ─────────────────────────── */
+
+/**
+ * The card a room, bathroom, shared space, fee or bundle is.
+ *
+ * It replaces the sideways-scrolling grids. A card is a name (or a title), one
+ * summary line, and a chevron; open, it unfolds its rows in place, full width,
+ * so the same layout serves a 390px phone and the website. `every` is the
+ * defaults card — "Every room" — drawn on the blue tint the old top row had.
+ */
+export function RecordCard({
+  title,
+  name,
+  onName,
+  namePlaceholder,
+  nameLabel,
+  summary,
+  open,
+  onToggle,
+  toggleLabel,
+  every = false,
+  dimmed = false,
+  dataAttr,
+  children,
+  rows,
+}: {
+  /** A fixed title ("Every room"); use `name`/`onName` for a typed one instead. */
+  title?: ReactNode;
+  name?: string;
+  onName?: (next: string) => void;
+  namePlaceholder?: string;
+  nameLabel?: string;
+  summary?: ReactNode;
+  open?: boolean;
+  onToggle?: () => void;
+  toggleLabel?: string;
+  every?: boolean;
+  /** "Same as long-term" on another lease type — visible, not editable. */
+  dimmed?: boolean;
+  dataAttr?: string;
+  /** What unfolds when the card is open. */
+  children?: ReactNode;
+  /** Rows that are always visible (the defaults card's controls). */
+  rows?: ReactNode;
+}) {
+  return (
+    <div
+      data-attr={dataAttr}
+      className={cn(
+        "mb-2.5 rounded-2xl border border-border bg-card",
+        every && "border-b-2 border-b-primary/25 bg-primary/[0.04]",
+        open && "shadow-[inset_3px_0_0_var(--pl-blue)]",
+        dimmed && "pointer-events-none opacity-50",
+      )}
+    >
+      <div className="flex items-center gap-2.5 px-3.5 py-3">
+        {onName != null ? (
+          <input
+            aria-label={nameLabel ?? "Name"}
+            value={name ?? ""}
+            placeholder={namePlaceholder}
+            onChange={(e) => onName(e.target.value)}
+            className="min-h-[38px] min-w-0 flex-1 rounded-xl border border-border bg-card px-3 text-[14px] font-bold text-foreground outline-none focus:border-primary"
+          />
+        ) : (
+          <b className="min-w-0 flex-1 text-[14px] font-bold text-foreground">{title ?? name}</b>
+        )}
+        {onToggle ? (
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={open}
+            aria-label={`${open ? "Close" : "Open"} ${toggleLabel ?? name ?? "card"}`}
+            data-attr={every ? undefined : "listing-v2-card-open"}
+            className={cn("grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted hover:bg-foreground/[0.06] hover:text-foreground", open && "text-primary")}
+          >
+            <ChevronRight className={cn("h-5 w-5 transition-transform", open && "rotate-90")} aria-hidden />
+          </button>
+        ) : null}
+      </div>
+      {summary != null && onToggle ? (
+        <button type="button" onClick={onToggle} className="block w-full px-3.5 pb-3 text-left text-[13px] leading-snug text-foreground/70">
+          {summary}
+        </button>
+      ) : summary != null ? (
+        <p className="px-3.5 pb-3 text-[13px] leading-snug text-foreground/70">{summary}</p>
+      ) : null}
+      {rows}
+      {open ? <div className="border-t border-border">{children}</div> : null}
+    </div>
+  );
+}
+
+/**
+ * One row of a card: the label on the left, the control on the right.
+ *
+ * `own` marks a value the record set itself (a Reset puts it back on the
+ * "Every …" card); `sub` indents a row that belongs to the one above it, the
+ * way Beds and Included belong to Furnishing.
+ */
+export function FactRow({
+  label,
+  children,
+  own,
+  onReset,
+  resetLabel,
+  sub = false,
+  first = false,
+  required = false,
+}: {
+  label: ReactNode;
+  children: ReactNode;
+  own?: boolean;
+  onReset?: () => void;
+  resetLabel?: string;
+  sub?: boolean;
+  first?: boolean;
+  required?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex min-h-[52px] items-center justify-between gap-3 px-3.5 py-2",
+        !first && "border-t border-border",
+        sub && "bg-foreground/[0.025] pl-7",
+      )}
+    >
+      <span className={cn("flex min-w-0 shrink items-center gap-2 text-[14px] text-foreground", sub ? "font-medium" : "font-semibold")}>
+        <span className="truncate">
+          {label}
+          {required ? <span className="ml-0.5 text-red-600">*</span> : null}
+        </span>
+        {own && onReset ? (
+          <button
+            type="button"
+            onClick={onReset}
+            data-attr="listing-v2-cell-reset"
+            aria-label={resetLabel ?? `Reset ${typeof label === "string" ? label : "this"} to the top card`}
+            title="Back to the Every card"
+            className="inline-flex shrink-0 items-center gap-1 text-[11.5px] font-bold text-[var(--status-approved-fg)] hover:underline"
+          >
+            <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />
+            Reset
+          </button>
+        ) : null}
+      </span>
+      <span className="flex min-w-0 shrink-0 items-center justify-end">{children}</span>
+    </div>
+  );
+}
+
+/** A block of stacked fields inside an open card (photos, description…). */
+export function CardFields({ children, cols = 1 }: { children: ReactNode; cols?: 1 | 2 }) {
+  // Two columns at every width: photos and video sit side by side on a phone too.
+  return <div className={cn("grid gap-x-4 px-3.5 pt-3", cols === 2 && "grid-cols-2")}>{children}</div>;
+}
+
+/** The actions at the foot of an open card. */
+export function CardFoot({ children }: { children: ReactNode }) {
+  return <div className="flex items-center justify-end gap-1.5 border-t border-border px-3.5 py-2.5">{children}</div>;
+}
+
+export function CardAction({
+  onClick,
+  tone = "default",
+  dataAttr,
+  children,
+}: {
+  onClick: () => void;
+  tone?: "default" | "danger" | "primary";
+  dataAttr?: string;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      data-attr={dataAttr}
+      className={cn(
+        "rounded-full px-3.5 py-1.5 text-[12.5px] font-bold transition",
+        tone === "default" && "text-muted hover:bg-foreground/[0.05] hover:text-foreground",
+        tone === "danger" && "text-[var(--status-overdue-fg)] hover:bg-[var(--status-overdue-bg)]",
+        tone === "primary" && "bg-foreground text-white hover:brightness-110",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * Pick several from a list, at cell size, with an "Other…" box at the foot of
+ * the menu for anything the list lacks.
+ *
+ * This is the one control for every pick-several field in the wizard —
+ * what a furnished room includes, a room's amenities, a bathroom's finishes,
+ * the house's amenities. No chips: the row reads "Bed, Desk +2" and the menu
+ * ticks. Custom values a manager typed become options so they stay ticked.
+ */
+export function MultiPick({
+  label,
+  options,
+  selected,
+  onChange,
+  inherited = false,
+  emptyLabel = "None",
+  allowOther = true,
+  dataAttr,
+}: {
+  label: string;
+  options: readonly string[];
+  selected: readonly string[];
+  onChange: (next: string[]) => void;
+  inherited?: boolean;
+  emptyLabel?: string;
+  allowOther?: boolean;
+  dataAttr?: string;
+}) {
+  const [other, setOther] = useState("");
+  const custom = selected.filter((s) => !options.includes(s));
+  const all = [...options, ...custom];
+  const summary =
+    selected.length === 0
+      ? emptyLabel
+      : selected.length <= 2
+        ? selected.join(", ")
+        : `${selected.slice(0, 2).join(", ")} +${selected.length - 2}`;
+  const add = () => {
+    const value = other.trim();
+    if (!value) return;
+    setOther("");
+    if (selected.includes(value)) return;
+    onChange([...selected, value]);
+  };
+  return (
+    <CheckboxMultiSelect
+      hideLabel
+      label={label}
+      dataAttr={dataAttr}
+      variant="cell"
+      className={cn("min-w-[150px] max-w-[220px]", inherited && "border-dashed text-muted")}
+      options={all.map((o) => ({ value: o, label: o }))}
+      selected={[...selected]}
+      selectionTriggerLabel={summary}
+      emptyLabel={emptyLabel}
+      onChange={(next) => onChange(next)}
+      menuFooter={
+        allowOther ? (
+          <div className="border-t border-border px-3 py-2" onPointerDown={(e) => e.stopPropagation()}>
+            <input
+              value={other}
+              aria-label={`Other ${label}`}
+              placeholder="Other — type and press Enter"
+              className="min-h-[34px] w-full rounded-lg border border-border bg-card px-2.5 text-[13px] text-foreground outline-none focus:border-primary"
+              onChange={(e) => setOther(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  add();
+                }
+              }}
+              onBlur={add}
+            />
+          </div>
+        ) : undefined
+      }
+    />
+  );
+}
+
+/** A money input at cell size — `$` inside, dashed while it follows the Every card. */
+export function MoneyInput({
+  value,
+  onChange,
+  label,
+  placeholder,
+  inherited = false,
+  dataAttr,
+}: {
+  value: string;
+  onChange: (raw: string) => void;
+  label: string;
+  placeholder?: string;
+  inherited?: boolean;
+  dataAttr?: string;
+}) {
+  return (
+    <span className="relative inline-block w-[118px]">
+      <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[12.5px] text-muted">$</span>
+      <input
+        inputMode="decimal"
+        aria-label={label}
+        value={value}
+        placeholder={placeholder}
+        data-attr={dataAttr}
+        onChange={(e) => onChange(e.target.value)}
+        className={cn(
+          "min-h-[36px] w-full rounded-lg border bg-card pl-5 pr-2.5 text-right text-[13.5px] font-semibold tabular-nums text-foreground outline-none focus:border-primary",
+          inherited ? "border-dashed border-border text-muted placeholder:text-muted" : "border-border",
+        )}
+      />
+    </span>
   );
 }

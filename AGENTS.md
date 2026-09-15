@@ -261,6 +261,12 @@ Chevrons inline after the label. Header actions reach a phone **exactly once**
 
 Dashboard sections go in `MANAGER_DASHBOARD_SECTIONS` and gate on `visibility.<id>`.
 
+**No small grey subtext.** A heading, a row or a field carries a label and its
+control — never a sentence under it explaining it. Counts are steppers, picks
+are dropdowns (multi-select with an Other entry when several apply), never
+pills. Detail and the source guard: `docs/agents/ui-change-checklist.md`
+§ No subtext.
+
 # Brand assets (PropLane)
 
 User-visible name is **PropLane**. Mark is the paper-plane glyph, never "AX".

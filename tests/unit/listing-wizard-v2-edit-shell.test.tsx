@@ -63,10 +63,10 @@ describe("the rail on an edit", () => {
 
   it("states the listing is live, and a new listing is a draft", () => {
     mount(subWith({}), true);
-    expect(screen.getByText("Renters can see this home and apply.")).toBeTruthy();
+    expect(screen.getAllByText("Listed").length).toBeGreaterThan(0);
     cleanup();
     mount(subWith({}), false);
-    expect(screen.getByText("Not visible to renters until you publish.")).toBeTruthy();
+    expect(screen.getByText("Draft")).toBeTruthy();
   });
 
   it("offers to add photos when the listing has none", () => {

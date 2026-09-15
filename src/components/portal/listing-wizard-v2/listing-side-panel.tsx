@@ -135,7 +135,7 @@ export function RoomPreviewPanel({
   if (!room) {
     return (
       <PanelSection title="Applicant view">
-        <p className="text-[12.5px] text-muted">Add a room to see how it appears on your listing.</p>
+        <p className="text-[13px] font-semibold text-foreground/70">No rooms yet</p>
       </PanelSection>
     );
   }
@@ -229,7 +229,7 @@ export function SharedSpacesPanel({ sub }: { sub: ManagerListingSubmissionV1 }) 
   return (
     <PanelSection title="Shared spaces on your listing">
       {spaces.length === 0 ? (
-        <p className="text-[12.5px] text-muted">Spaces you add show up here the way applicants see them.</p>
+        <p className="text-[13px] font-semibold text-foreground/70">No shared spaces yet</p>
       ) : (
         spaces.map((space) => {
           const amenities = (space.amenitiesText ?? "")
@@ -330,7 +330,6 @@ export function PricingReceiptPanel({
             />
           )}
         </div>
-        <p className="mb-1 text-[11.5px] text-muted">Due at signing. Untick anything you collect later.</p>
         {quote.signingLines.map((line) => (
           <PanelLine
             key={line.key}

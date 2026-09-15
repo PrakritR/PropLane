@@ -59,6 +59,27 @@ Reference: manager **Properties** tab.
 - Collapsed → `ChevronRight`; expanded → `ChevronDown`
 - Admin tabs: sort/filter pills above divider, table below (`ManagerPortalPageShell` + `portal-data-table.tsx`)
 
+## No subtext
+
+The captain's standing rule (PLAN-0914-1615): a screen is labels and controls.
+
+- **Do not add** step subtitles, section descriptions, field hints, "optional"
+  markers, explanatory sentences under a row or in a footer, or descriptions
+  under choice tiles and radio cards.
+- **Do**: label + control; a red asterisk for required; a placeholder that
+  shows the shape of the answer (`140 sq ft`, `1,100`); an error line only
+  after a failed action. If a field needs a paragraph, redesign the field.
+- **Counts** (bedrooms, bathrooms in halves, floors, residents, beds, months)
+  are `CountStepper`s. **Picks** are dropdowns; **pick-several** is
+  `MultiPick` (`CheckboxMultiSelect` at cell size with an Other entry row).
+  No chips or pills as controls.
+- **Records** (rooms, bathrooms, shared spaces, fees, bundles) are
+  `RecordCard`s of `FactRow`s at every width — nothing scrolls sideways on a
+  phone; the website gets the same cards in its wider workspace.
+- Guard: `tests/unit/no-subtext-listing-wizard.test.ts` reads the wizard
+  source and fails on `hint=`, `subtitle=`, `description=`, `optional`, or a
+  sentence of grey text.
+
 ## Mobile
 
 - Same design as desktop — reflow, not a separate layout
