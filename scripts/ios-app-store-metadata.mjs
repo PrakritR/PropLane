@@ -30,7 +30,7 @@ const EDITABLE_VERSION_STATES = new Set([
   "INVALID_BINARY",
 ]);
 
-function versionState(version) {
+export function versionState(version) {
   return version?.attributes?.appVersionState ?? version?.attributes?.appStoreState ?? "UNKNOWN";
 }
 

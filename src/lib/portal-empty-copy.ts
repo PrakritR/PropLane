@@ -56,6 +56,8 @@ export const PORTAL_EMPTY_COPY = {
   "communication.unread": T("All caught up", "communication"),
   "communication.archived": T("Nothing archived", "communication"),
   promotion: T("No promotions yet", "promotion"),
+  "promotion.text": T("No text promotions yet", "promotion"),
+  "promotion.image": T("No image promotions yet", "promotion"),
   "calendar.all": T("Nothing this week", "calendar"),
   "calendar.tours": T("No tours this week", "calendar"),
   "calendar.services": T("No services this week", "calendar"),

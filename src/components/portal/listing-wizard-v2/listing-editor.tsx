@@ -2821,7 +2821,6 @@ function StepReview({
 export function ListingEditorV2({
   submission,
   onChange,
-  onSaveExit,
   onClose,
   onPublish,
   title,
@@ -2831,9 +2830,10 @@ export function ListingEditorV2({
 }: {
   submission: ManagerListingSubmissionV1;
   onChange: (next: ManagerListingSubmissionV1) => void;
-  /** Receives the step the manager left on, so resuming lands where they were. */
-  onSaveExit: (stepIndex: number) => void;
-  onClose: () => void;
+  /** Optional persist-in-place. Closing and typing save themselves in the parent. */
+  onSaveExit?: (stepIndex: number) => void;
+  /** Receives the step the manager left on, so a flush can keep the resume point. */
+  onClose: (stepIndex: number) => void;
   onPublish: () => void;
   title: string;
   busy?: boolean;
@@ -3076,7 +3076,7 @@ export function ListingEditorV2({
         ) : null
       }
       saveState={saveState}
-      onClose={onClose}
+      onClose={() => onClose(step)}
       headerAside={<ModalAssistantStrip contextHint={assistantContext} storageScopeKey="listing-wizard-v2" />}
       rail={<StepRail steps={railSteps} current={step} onJump={goTo} visited={visited} />}
       railHeader={
@@ -3098,73 +3098,33 @@ export function ListingEditorV2({
             >
               Back
             </button>
-            {isEdit ? null : (
-              <button
-                type="button"
-                onClick={() => onSaveExit(step)}
-                disabled={busy}
-                data-attr="listing-v2-save-exit"
-                className="min-h-[44px] rounded-full px-4 text-[13.5px] font-bold text-muted hover:text-foreground disabled:opacity-60"
-              >
-                Save & exit
-              </button>
-            )}
           </div>
           <span className="hidden text-[12.5px] text-muted sm:inline">
             {pathPosition != null ? `Step ${pathPosition} of ${pathIds.length}` : "Optional detail"}
           </span>
           {isEdit ? (
-            /*
-             * An edit is not a march to the end. The manager came to change one
-             * thing, so saving is the primary action on EVERY section — the way
-             * Turo and Airbnb save each section where it is edited — and the
-             * next section is an offer, not the only way forward.
-             */
-            <div className="flex gap-2.5">
-              {nextStep == null ? null : (
-                <button
-                  type="button"
-                  onClick={() => goTo(nextStep)}
-                  data-attr="listing-v2-next"
-                  // A phone footer holds Back and Save; the next section is a
-                  // tap away in the strip above.
-                  className="hidden min-h-[44px] rounded-full border border-border bg-card px-5 text-[14px] font-bold text-foreground sm:inline-flex sm:items-center"
-                >
-                  Next: {LISTING_V2_STEPS[nextStep]!.label}
-                </button>
-              )}
+            nextStep == null ? null : (
               <button
                 type="button"
-                onClick={() => (step === last ? onPublish() : onSaveExit(step))}
-                disabled={busy}
-                data-attr={step === last ? "listing-v2-publish" : "listing-v2-save-exit"}
-                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
+                onClick={() => goTo(nextStep)}
+                data-attr="listing-v2-next"
+                aria-label={`Continue to ${LISTING_V2_STEPS[nextStep]!.label}`}
+                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white"
               >
-                {busy ? "Saving…" : step === last ? "Publish changes" : "Save changes"}
+                <span className="sm:hidden">Continue</span>
+                <span className="hidden sm:inline">Continue to {LISTING_V2_STEPS[nextStep]!.label}</span>
               </button>
-            </div>
+            )
           ) : step === last ? (
-            <div className="flex gap-2.5">
-              {isEdit ? null : (
-                <button
-                  type="button"
-                  onClick={() => onSaveExit(step)}
-                  disabled={busy}
-                  className="min-h-[44px] rounded-full border border-border bg-card px-5 text-[14px] font-bold text-foreground disabled:opacity-60"
-                >
-                  Keep as draft
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={onPublish}
-                disabled={busy}
-                data-attr="listing-v2-publish"
-                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
-              >
-                {busy ? (isEdit ? "Saving…" : "Publishing…") : isEdit ? "Publish changes" : "Publish"}
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={onPublish}
+              disabled={busy}
+              data-attr="listing-v2-publish"
+              className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
+            >
+              {busy ? "Publishing…" : "Publish"}
+            </button>
           ) : (
             <button
               type="button"
@@ -3173,7 +3133,6 @@ export function ListingEditorV2({
               aria-label={`Continue to ${LISTING_V2_STEPS[nextStep ?? last]!.label}`}
               className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white"
             >
-              {/* A phone footer has no room for the step's name beside Back and Save. */}
               <span className="sm:hidden">Continue</span>
               <span className="hidden sm:inline">Continue to {LISTING_V2_STEPS[nextStep ?? last]!.label}</span>
             </button>

@@ -76,26 +76,24 @@ describe("the rail on an edit", () => {
 });
 
 describe("the footer on an edit", () => {
-  it("saves from the first section — the manager did not come to walk six screens", () => {
-    const { onSaveExit } = mount(subWith({}), true);
-    const save = screen.getByRole("button", { name: "Save changes" });
-    fireEvent.click(save);
-    expect(onSaveExit).toHaveBeenCalledWith(0);
-    // The next section is still on offer, as a secondary action.
-    expect(screen.getByRole("button", { name: /^Next: Rooms$/ })).toBeTruthy();
+  it("continues to the next section — typing and X save, not a footer Save", () => {
+    mount(subWith({}), true);
+    expect(screen.getByRole("button", { name: /^Continue to Rooms$/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save & exit" })).toBeNull();
   });
 
-  it("publishes from the review, as before", () => {
-    const { onPublish } = mount(subWith({}), true);
+  it("has no publish button on review for a live listing — it is already listed", () => {
+    mount(subWith({}), true);
     fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-review"]')!);
-    fireEvent.click(screen.getByRole("button", { name: "Publish changes" }));
-    expect(onPublish).toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Publish changes" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
   });
 
   it("keeps the linear flow for a NEW listing", () => {
     mount(subWith({}), false);
     expect(screen.getByRole("button", { name: /^Continue to Rooms$/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Save & exit" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Save & exit" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();
   });
 

@@ -904,12 +904,28 @@ export function vendorDetailHref(basePath: string, vendorId: string): string {
   return `${basePath}/vendors/${encodeURIComponent(vendorId)}`;
 }
 
-/** Legacy promotion content filters — routes now redirect to the unified list. */
+/** Workspace Promotion sections — live in `?kind=`, never a path (collides with [assetId]). */
+export const PROMOTION_KIND_SECTIONS = ["all", "text", "image"] as const;
+export type PromotionKindSectionId = (typeof PROMOTION_KIND_SECTIONS)[number];
+
+/** Legacy mistaken top-level segments `/portal/text` and `/portal/image`. */
 export const PROMOTION_CONTENT_FILTERS = ["text", "image"] as const;
 export type PromotionContentFilterId = (typeof PROMOTION_CONTENT_FILTERS)[number];
 
-export function promotionListHref(basePath: string, _filter?: PromotionContentFilterId): string {
-  return `${basePath}/promotion`;
+export function parsePromotionKindSection(
+  value: string | null | undefined,
+): PromotionKindSectionId {
+  if (value === "text" || value === "image") return value;
+  return "all";
+}
+
+export function promotionListHref(
+  basePath: string,
+  kind: PromotionKindSectionId | PromotionContentFilterId = "all",
+): string {
+  const section = parsePromotionKindSection(kind);
+  if (section === "all") return `${basePath}/promotion`;
+  return `${basePath}/promotion?kind=${section}`;
 }
 
 export function promotionDetailHref(basePath: string, assetId: string): string {

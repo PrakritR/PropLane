@@ -137,6 +137,30 @@ export async function auditAppStoreSubmission(client = new AscClient()) {
   );
   const localizations = localizationsResponse?.data ?? [];
   console.log(`Version localizations: ${localizations.map((item) => item.attributes?.locale).join(", ") || "none"}`);
+  console.log(`Release type: ${version.attributes?.releaseType ?? "unset"}`);
+
+  // What the automatic release (scripts/ios-app-store-release.mjs) will find:
+  // the screenshot sets on the primary localization and the reviewer sign-in.
+  const primary = localizations.find((item) => item.attributes?.locale === "en-US") ?? localizations[0];
+  if (primary) {
+    const setsResponse = await client.get(
+      `appStoreVersionLocalizations/${primary.id}/appScreenshotSets?include=appScreenshots&limit=50`,
+    );
+    const counts = (setsResponse?.data ?? []).map(
+      (set) => `${set.attributes?.screenshotDisplayType}: ${set.relationships?.appScreenshots?.data?.length ?? 0}`,
+    );
+    console.log(`Screenshot sets (${primary.attributes?.locale}): ${counts.join(", ") || "none"}`);
+  }
+  const reviewDetail = await client
+    .get(`appStoreVersions/${version.id}/appStoreReviewDetail`)
+    .catch((error) => {
+      if (String(error.message).includes("HTTP 404")) return null;
+      throw error;
+    });
+  const reviewer = reviewDetail?.data?.attributes ?? {};
+  console.log(
+    `Reviewer sign-in: ${reviewer.demoAccountName ? `${reviewer.demoAccountName}${reviewer.demoAccountRequired ? " (required)" : ""}` : "none set"}`,
+  );
 
   const { groups, subscriptions } = await loadSubscriptions(client, app.id);
   console.log(`Subscription groups: ${groups.length}`);

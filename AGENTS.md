@@ -118,12 +118,16 @@ npm run ship:production -- --skip-staging # temporary, policy-gated origin/main 
 Never ff `main` onto `production` except through the active dated policy
 option above. Retired: `scripts/promote-main-to-production.sh` (exits 1).
 
-## Production push also ships iOS
+## Production push also ships iOS — TestFlight and the App Store
 
 A `production` push deploys Vercel **and** `.github/workflows/ios-testflight.yml`.
 `upload_to_testflight` is not a ship - the distribute step
 (`scripts/ios-testflight-distribute.mjs`) assigns the build to the internal
-tester group. Gate fails closed; allowlist, not denylist. See `docs/mobile-app.md`.
+tester group, then `scripts/ios-app-store-release.mjs` submits the build to
+App Store review (release after approval; holds while Apple is reviewing).
+The store page is the committed `app-store/` folder - never a hand-dragged
+screenshot. Version numbers come from App Store Connect, not a Xcode edit.
+Gate fails closed; allowlist, not denylist. See `docs/mobile-app.md`.
 
 # Before you show a feature (agents)
 
