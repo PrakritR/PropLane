@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 //
 // Bathrooms and shared spaces are the rooms grid in different clothes: an
-// "Every …" top row the records follow, chevrons that open a row in place,
-// and per-field follow/own marking. No Details buttons, no checkboxes.
+// "All …" panel the records follow, a "Same as all …" box under each name,
+// More ▾ that opens a row in place, and per-field follow/own marking. No
+// Details buttons.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import React, { useState } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -88,14 +89,15 @@ function open(step: "bathrooms" | "spaces", onChange?: (sub: ManagerListingSubmi
 }
 
 describe("bathrooms on the rooms grid", () => {
-  it("has no Details buttons and no row checkboxes — a chevron opens the row in place", () => {
+  it("has no Details buttons; the Same-as-all box sits under the name and More opens the row in place", () => {
     open("bathrooms");
     expect(document.querySelectorAll('[data-attr="listing-v2-bath-row"]').length).toBe(2);
     expect(document.querySelector('[data-attr="listing-v2-bath-details"]')).toBeNull();
-    expect(document.querySelector('[data-attr="listing-v2-bath-row"] input[type="checkbox"]')).toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-bath-row"] [data-attr="listing-v2-bath-same-as-all"]')).not.toBeNull();
     fireEvent.click(document.querySelector('[data-attr="listing-v2-bath-open"]')!);
     expect(document.querySelector('[data-attr="listing-v2-bath-editor"]')).not.toBeNull();
-    expect(screen.getByText("Remove bathroom")).toBeTruthy();
+    expect(document.querySelector('[data-attr="listing-v2-bath-done"]')).not.toBeNull();
+    expect(screen.queryByText("Remove bathroom")).toBeNull();
   });
 
   it("the Every bathroom row moves followers and leaves a bathroom's own value alone", () => {
@@ -114,7 +116,7 @@ describe("bathrooms on the rooms grid", () => {
     fireEvent.click(document.querySelectorAll('[data-attr="listing-v2-bath-open"]')[1]!);
     const editor = document.querySelector('[data-attr="listing-v2-bath-editor"]')!;
     expect(editor.textContent).toContain("This bathroom");
-    fireEvent.click([...editor.querySelectorAll("button")].find((b) => b.textContent === "Reset")!);
+    fireEvent.click([...editor.querySelectorAll("button")].find((b) => /Reset/.test(b.textContent ?? ""))!);
     expect(seen.at(-1)!.bathrooms!.find((b) => b.id === "b2")?.location).toBe(options[0]);
   });
 });
@@ -124,11 +126,12 @@ describe("shared spaces on the rooms grid", () => {
     open("spaces");
     expect(document.querySelectorAll('[data-attr="listing-v2-space-row"]').length).toBe(2);
     expect(document.querySelector('[data-attr="listing-v2-space-details"]')).toBeNull();
-    expect(screen.getByLabelText("Who may use Kitchen").textContent).toBe("Everyone");
-    expect(screen.getByLabelText("Who may use Den").textContent).toBe("1 room");
+    expect(screen.getByLabelText("Who may use Kitchen").textContent).toContain("Everyone");
+    expect(screen.getByLabelText("Who may use Den").textContent).toContain("1 room");
     fireEvent.click(document.querySelector('[data-attr="listing-v2-space-open"]')!);
     expect(document.querySelector('[data-attr="listing-v2-space-editor"]')).not.toBeNull();
-    expect(screen.getByText("Remove shared space")).toBeTruthy();
+    expect(document.querySelector('[data-attr="listing-v2-space-done"]')).not.toBeNull();
+    expect(screen.queryByText("Remove shared space")).toBeNull();
   });
 
   it("the Every shared space floor moves every space still following it", () => {

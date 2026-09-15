@@ -42,7 +42,9 @@ function Editor({ onChange }: { onChange?: (sub: ManagerListingSubmissionV1) => 
 describe("a new property opens in the editor itself", () => {
   it("starts on Basics with the property-type tiles, not a separate quick-add modal", () => {
     render(<ListingWizardV2 onClose={() => {}} userId="mgr-1" skuTier="starter" />);
-    expect(screen.queryByText("What are you adding?")).not.toBeNull();
+    // The property-type tiles are the first thing on Basics; there is no section blurb above them any more.
+    expect(screen.getByText("Property type")).toBeTruthy();
+    expect(screen.queryByText("What are you adding?")).toBeNull();
     expect(screen.getByRole("navigation", { name: "Listing sections" })).toBeTruthy();
     expect(document.querySelector('[data-attr="listing-v2-kind-house"]')).not.toBeNull();
     expect(document.querySelector('[data-attr="quick-add-kind-house"]')).toBeNull();

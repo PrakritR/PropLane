@@ -17,8 +17,8 @@
  *   belongs to; nothing is announced only at the end.
  */
 
-import { useEffect, useId, useRef, type ReactNode } from "react";
-import { Camera, RotateCcw, type LucideIcon } from "lucide-react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Camera, Link2, RotateCcw, type LucideIcon } from "lucide-react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { cn } from "@/lib/utils";
 
@@ -495,7 +495,7 @@ export function SectionGroup({
   children,
   first = false,
 }: {
-  title: string;
+  title?: string;
   description?: string;
   children: ReactNode;
   /** The first group sits directly under the step heading, without the top rule. */
@@ -503,7 +503,7 @@ export function SectionGroup({
 }) {
   return (
     <section className={cn(first ? "" : "mt-8 border-t border-border/60 pt-6")}>
-      <h3 className="text-[15.5px] font-bold tracking-tight text-foreground">{title}</h3>
+      {title ? <h3 className="text-[15.5px] font-bold tracking-tight text-foreground">{title}</h3> : null}
       {description ? (
         <p className="mb-4 mt-0.5 text-[13px] leading-relaxed text-muted">{description}</p>
       ) : (
@@ -1233,5 +1233,238 @@ export function AddRowButton({
       {Icon ? <Icon className="h-5 w-5" aria-hidden /> : null}
       {label}
     </button>
+  );
+}
+
+/* ───────────── the "All …" pattern: panel, same-as-all, help ───────────── */
+
+/**
+ * The ⓘ beside a column heading or a panel title. One tap says what the
+ * column means; the screen itself carries no caption text. One popover is
+ * open at a time and it closes on outside click or Escape.
+ */
+export function ColumnHelp({ title, text, dataAttr }: { title: string; text: string; dataAttr?: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  return (
+    <span ref={ref} className="relative inline-flex align-middle">
+      <button
+        type="button"
+        aria-label={`What ${title} means`}
+        aria-expanded={open}
+        data-attr={dataAttr ?? "listing-v2-column-help"}
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        className={cn(
+          "grid h-[15px] w-[15px] place-items-center rounded-full border text-[9.5px] font-extrabold normal-case tracking-normal transition-colors",
+          open ? "border-primary text-primary" : "border-current text-muted hover:border-primary hover:text-primary",
+        )}
+      >
+        i
+      </button>
+      {open ? (
+        <span
+          role="tooltip"
+          className="absolute left-0 top-full z-30 mt-1.5 w-[272px] max-w-[80vw] rounded-xl bg-foreground px-3 py-2.5 text-left text-[12.5px] font-medium normal-case leading-relaxed tracking-normal text-white shadow-lg"
+        >
+          <b className="mb-0.5 block font-extrabold">{title}</b>
+          {text}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/**
+ * The blue "All rooms / All bathrooms / All shared spaces" panel above a grid.
+ *
+ * It holds only the important questions, as cells in the same order as the
+ * grid's columns, so a manager can tell what governs what. More ▾ opens the
+ * same editor a row opens, with everything else in it. The panel is the
+ * defaults; it is not a row and never looks like one.
+ */
+export function DefaultsPanel({
+  title,
+  help,
+  open,
+  onToggle,
+  resetAll,
+  children,
+  editor,
+  dataAttr,
+}: {
+  title: string;
+  /** The ⓘ text beside the title — the only place the pattern is explained. */
+  help: string;
+  open: boolean;
+  onToggle: () => void;
+  resetAll?: { disabled: boolean; onClick: () => void; dataAttr?: string };
+  /** The important fields, as a row of cells. */
+  children: ReactNode;
+  /** The full editor, rendered under the fields while open. */
+  editor?: ReactNode;
+  dataAttr?: string;
+}) {
+  return (
+    <div
+      data-attr={dataAttr ?? "listing-v2-defaults-panel"}
+      className={cn(
+        "mb-3 rounded-2xl border-[1.5px] border-primary/35 bg-primary/[0.05] px-3.5 py-3",
+        open && "shadow-[inset_3px_0_0_var(--pl-blue)]",
+      )}
+    >
+      <div className="mb-2.5 flex flex-wrap items-center gap-2.5">
+        <span aria-hidden className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-lg bg-primary text-[14px] font-bold text-white">⧉</span>
+        <b className="flex items-center gap-1.5 text-[13.5px] font-bold text-foreground">
+          {title}
+          <ColumnHelp title={title} text={help} dataAttr="listing-v2-defaults-help" />
+        </b>
+        <span className="ml-auto flex items-center gap-2">
+          {!open ? (
+            <button type="button" onClick={onToggle} data-attr="listing-v2-defaults-open" aria-expanded={false} className="text-[12.5px] font-bold text-primary hover:underline">
+              More ▾
+            </button>
+          ) : null}
+          {resetAll ? (
+            <button
+              type="button"
+              disabled={resetAll.disabled}
+              onClick={resetAll.onClick}
+              data-attr={resetAll.dataAttr ?? "listing-v2-reset-all"}
+              className="rounded-full border border-border bg-card px-2.5 py-1 text-[11.5px] font-bold text-muted transition hover:border-foreground hover:text-foreground disabled:cursor-default disabled:opacity-45"
+            >
+              ↺ Make all the same
+            </button>
+          ) : null}
+        </span>
+      </div>
+      <div className="grid gap-2.5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>
+        {children}
+      </div>
+      {open ? editor : null}
+    </div>
+  );
+}
+
+/** A labelled cell inside the DefaultsPanel — the label is uppercase like a column heading. */
+export function PanelField({ label, help, children }: { label: string; help?: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <span className="mb-1 flex items-center gap-1 text-[10.5px] font-extrabold uppercase tracking-wide text-muted">
+        {label}
+        {help ? <ColumnHelp title={label} text={help} /> : null}
+      </span>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * The line under a row's name: ☑ Same as all rooms / ☐ This room only · ↺ Reset.
+ *
+ * Ticked means every field on the row copies the panel. Unticking changes
+ * nothing yet — the row just becomes its own; changing any cell unticks it
+ * too. Reset (or ticking again) copies the panel back into every field.
+ */
+export function SameAsAllToggle({
+  same,
+  plural,
+  noun,
+  onChange,
+  onReset,
+  dataAttr,
+}: {
+  same: boolean;
+  plural: string;
+  noun: string;
+  onChange: (same: boolean) => void;
+  onReset: () => void;
+  dataAttr?: string;
+}) {
+  return (
+    <label className={cn("mt-1 flex cursor-pointer select-none items-center gap-1.5 whitespace-nowrap text-[11.5px] font-semibold", same ? "text-muted" : "text-primary")}>
+      <input
+        type="checkbox"
+        checked={same}
+        data-attr={dataAttr ?? "listing-v2-same-as-all"}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-3.5 w-3.5 shrink-0 accent-[var(--pl-blue)]"
+      />
+      {same ? (
+        <span>Same as all {plural}</span>
+      ) : (
+        <span>
+          This {noun} only ·{" "}
+          <button
+            type="button"
+            data-attr="listing-v2-make-same"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onReset();
+            }}
+            className="font-bold hover:underline"
+          >
+            ↺ Reset
+          </button>
+        </span>
+      )}
+    </label>
+  );
+}
+
+/** The "More ▾" at the end of a grid row. Hidden while the row is open — the editor's Done closes it. */
+export function RowMoreButton({ open, onClick, label, dataAttr }: { open: boolean; onClick: () => void; label: string; dataAttr?: string }) {
+  if (open) return <span aria-hidden />;
+  return (
+    <button type="button" onClick={onClick} aria-expanded={false} aria-label={`More for ${label}`} data-attr={dataAttr ?? "listing-v2-row-more"} className="whitespace-nowrap text-[12.5px] font-bold text-primary hover:underline">
+      More ▾
+    </button>
+  );
+}
+
+/** The one closer at the foot of an inline editor. */
+export function EditorDone({ onClick, dataAttr }: { onClick: () => void; dataAttr?: string }) {
+  return (
+    <div className="flex justify-end border-t border-border pt-3 sm:col-span-2">
+      <button type="button" onClick={onClick} data-attr={dataAttr ?? "listing-v2-editor-done"} className="rounded-full bg-foreground px-4 py-1.5 text-[12.5px] font-bold text-white hover:brightness-110">
+        Done
+      </button>
+    </div>
+  );
+}
+
+/** The per-field tag in an editor: ⛓ Same as all rooms / ● This room only · ↺ Reset. */
+export function SameAsAllTag({ own, plural, noun, onReset }: { own: boolean; plural: string; noun: string; onReset: () => void }) {
+  return own ? (
+    <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[var(--status-approved-fg)]">
+      <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />
+      This {noun} only ·
+      <button type="button" onClick={onReset} className="font-bold hover:underline">
+        ↺ Reset
+      </button>
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 text-[11.5px] font-medium text-muted">
+      <Link2 className="h-3 w-3" aria-hidden />
+      Same as all {plural}
+    </span>
   );
 }
