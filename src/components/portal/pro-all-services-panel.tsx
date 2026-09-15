@@ -125,6 +125,8 @@ export function ManagerAllServicesPanel({
   /** Approve / Deny / Edit / Delete, published by the detail and docked below it. */
   const [detailFooterActions, setDetailFooterActions] = useState<ReactNode | null>(null);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
+  /** Resident emails (lower-cased); one at a time, like the property scope. */
+  const [residentFilters, setResidentFilters] = useState<string[]>([]);
   const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
   const [woBucket, setWoBucket] = useState<ManagerWorkOrderBucket>(workOrderBucketProp);
   const [prevWoBucketProp, setPrevWoBucketProp] = useState(workOrderBucketProp);
@@ -213,8 +215,11 @@ export function ManagerAllServicesPanel({
   const filteredWorkOrders = useMemo(() => {
     let rows = workOrders;
     if (propertyFilters.length > 0) rows = rows.filter((r) => propertyFilters.some((id) => r.propertyId === id || r.assignedPropertyId === id));
+    if (residentFilters.length > 0) {
+      rows = rows.filter((r) => residentFilters.includes((r.residentEmail ?? "").trim().toLowerCase()));
+    }
     return rows;
-  }, [workOrders, propertyFilters]);
+  }, [workOrders, propertyFilters, residentFilters]);
 
   const filteredRequests = useMemo(() => {
     let rows = serviceRequests;
@@ -223,8 +228,35 @@ export function ManagerAllServicesPanel({
         (r) => propertyFilters.some((id) => samePropertyId(r.propertyId, id)) || !r.propertyId?.trim(),
       );
     }
+    if (residentFilters.length > 0) {
+      rows = rows.filter((r) => residentFilters.includes((r.residentEmail ?? "").trim().toLowerCase()));
+    }
     return rows;
-  }, [serviceRequests, propertyFilters]);
+  }, [serviceRequests, propertyFilters, residentFilters]);
+
+  /**
+   * Residents the list can be scoped to — everyone who has a service, narrowed
+   * to the selected property when one is picked so the two scopes agree.
+   */
+  const filterResidentOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    const inScope = (propertyId: string | undefined | null, assignedPropertyId?: string | undefined | null) =>
+      propertyFilters.length === 0 ||
+      propertyFilters.some((id) => samePropertyId(propertyId, id) || (assignedPropertyId ? samePropertyId(assignedPropertyId, id) : false));
+    for (const row of workOrders) {
+      const email = (row.residentEmail ?? "").trim().toLowerCase();
+      if (!email.includes("@") || !inScope(row.propertyId, row.assignedPropertyId)) continue;
+      if (!seen.has(email)) seen.set(email, row.residentName?.trim() || email);
+    }
+    for (const row of serviceRequests) {
+      const email = (row.residentEmail ?? "").trim().toLowerCase();
+      if (!email.includes("@") || !inScope(row.propertyId)) continue;
+      if (!seen.has(email)) seen.set(email, row.residentName?.trim() || email);
+    }
+    return [...seen.entries()]
+      .map(([id, label]) => ({ id, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+  }, [workOrders, serviceRequests, propertyFilters]);
 
   const resolveRequestPropertyLabel = (req: ServiceRequest) =>
     req.propertyId && propertyOptions.find((p) => p.id === req.propertyId)
@@ -256,17 +288,22 @@ export function ManagerAllServicesPanel({
 
   const resetServicesFilters = () => {
     setPropertyFilters([]);
+    setResidentFilters([]);
     setGroupMode(DEFAULT_PORTAL_LIST_GROUP_MODE);
   };
 
-  const servicesFilterActiveCount = portalFilterActiveCount([propertyFilters]);
+  const servicesFilterActiveCount = portalFilterActiveCount([propertyFilters, residentFilters]);
+  const residentFilterLabel =
+    residentFilters.length === 0
+      ? ""
+      : filterResidentOptions.find((option) => option.id === residentFilters[0])?.label ?? residentFilters[0]!;
 
   const servicesFilterSheet = (
     <PortalFilterSortSheet
         activeCount={servicesFilterActiveCount}
         compactPanel
         commandStripTrigger
-        filterFieldCount={filterPropertyOptions.length > 1 ? 2 : 1}
+        filterFieldCount={3}
         constrainDropdownToTitleBand={false}
         mobileFlushBody
         className={PORTAL_PROPERTY_FILTER_SHEET_CLASS}
@@ -281,22 +318,33 @@ export function ManagerAllServicesPanel({
           onPropertyFiltersChange={setPropertyFilters}
           propertyDataAttr="services-filter-property"
           groupModeDataAttr="services-filter-group-mode"
+          minPropertyOptions={1}
+          residentOptions={filterResidentOptions}
+          residentFilters={residentFilters}
+          onResidentFiltersChange={setResidentFilters}
+          residentDataAttr="services-filter-resident"
         />
       </PortalFilterSortSheet>
   );
 
   const activeFilterChips = useMemo((): PortalActiveFilterChip[] => {
-    if (propertyFilters.length === 0) return [];
-    return [
-      {
+    const chips: PortalActiveFilterChip[] = [];
+    if (propertyFilters.length > 0) {
+      chips.push({
         id: "property",
         label: `Property: ${propertyFilterLabel}`,
-        onRemove: () => {
-          setPropertyFilters([]);
-        },
-      },
-    ];
-  }, [propertyFilters, propertyFilterLabel]);
+        onRemove: () => setPropertyFilters([]),
+      });
+    }
+    if (residentFilters.length > 0) {
+      chips.push({
+        id: "resident",
+        label: `Resident: ${residentFilterLabel}`,
+        onRemove: () => setResidentFilters([]),
+      });
+    }
+    return chips;
+  }, [propertyFilters, propertyFilterLabel, residentFilters, residentFilterLabel]);
 
   const renderRequestDetail = (req: ServiceRequest) => {
     return (

@@ -72,7 +72,6 @@ import {
   type PromotionUploadEntry,
 } from "@/lib/promotion-upload";
 import { PromotionDefaultSuggestions } from "@/components/portal/promotion-default-suggestions";
-import { PromotionHouseNotesCard } from "@/components/portal/promotion-house-notes";
 import { addDefaultPromotionPreset, type PromotionPresetKind } from "@/lib/promotion-default-sync";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
@@ -582,7 +581,7 @@ export function ManagerPropertyPromotionPanel({
 
   return (
     <>
-      <PortalRecordListSurface className="mt-0" onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
+      <PortalRecordListSurface className="mt-0 pb-0 max-lg:pb-0" onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
         <>
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
             {selectedIds.size === 1 && selectedAssets[0] && promotionAssetCanEdit(selectedAssets[0], openEditAsset) ? (
@@ -600,9 +599,7 @@ export function ManagerPropertyPromotionPanel({
         </>
       ) : null}><PortalPropertyDetailSection contentClassName="space-y-0">
         {headerActionsExtra ? <div className="mb-3">{headerActionsExtra}</div> : null}
-        {assets.length === 0 ? (
-          <p className="px-1 py-2 text-sm text-muted">No promotions yet. Add a suggested default below.</p>
-        ) : (
+        {assets.length === 0 ? null : (
           <PromotionAssetStack
             assets={assets}
             variant="plain"
@@ -616,17 +613,7 @@ export function ManagerPropertyPromotionPanel({
         )}
       </PortalPropertyDetailSection></PortalRecordListSurface>
 
-      <div className="px-3 pt-4 max-md:px-2.5 sm:pt-5">
-        <PromotionHouseNotesCard
-          propertyId={propertyId}
-          managerUserId={userId}
-          revision={propertyTick}
-          showToast={showToast}
-          onUpdated={onUpdated}
-        />
-      </div>
-
-      <div className="px-3 py-4 max-md:px-2.5 sm:py-5">
+      <div className="px-3 pb-4 pt-2 max-md:px-2.5 sm:pb-5">
         <PromotionDefaultSuggestions
           propertyId={propertyId}
           promotionRow={promotionRow}

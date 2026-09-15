@@ -169,7 +169,7 @@ export function ServiceRequestCatalogEditor({
 
   return (
     <>
-      <PortalRecordListSurface className="mt-0" onBulkClear={onBulkActionsChange ? undefined : clearSelection} bulkCount={selectedIds.size} bulkActions={!onBulkActionsChange && selectedOfferId ? (
+      <PortalRecordListSurface className="mt-0 pb-0 max-lg:pb-0" onBulkClear={onBulkActionsChange ? undefined : clearSelection} bulkCount={selectedIds.size} bulkActions={!onBulkActionsChange && selectedOfferId ? (
         <>
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
             <Button
@@ -209,14 +209,10 @@ export function ServiceRequestCatalogEditor({
               </div>
             </div>
           ))
-        ) : (
-          <p className="px-1 py-2 text-sm text-muted">
-            No service types yet. Add a preset below or create a custom type.
-          </p>
-        )}
+        ) : null}
       </PortalPropertyDetailSection></PortalRecordListSurface>
 
-      <div className="px-3 py-4 max-md:px-2.5 sm:py-5">
+      <div className="px-3 pb-4 pt-2 max-md:px-2.5 sm:pb-5">
         <ServiceRequestCatalogSuggestions offers={offers} onAddPreset={openAddPreset} />
       </div>
 

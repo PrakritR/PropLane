@@ -96,25 +96,107 @@ export function markFirstListingWizardDismissed(userId: string | null | undefine
   }
 }
 
+const AUTO_OPENED_KEY_PREFIX = "proplane:first-listing-wizard-auto-opened:";
+const AUTO_OPEN_HANDOFF_KEY_PREFIX = "proplane:first-listing-wizard-auto-open-handoff:";
+
+function sessionStore(): Storage | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * "Already opened itself this session" — set the moment Properties decides to
+ * auto-open, before any navigation. It is what keeps the wizard from opening a
+ * SECOND time when the page remounts, and from opening again on a reload of a
+ * still-empty portfolio within the same browser session. It deliberately lives
+ * in sessionStorage, not localStorage: a manager who bounced off their first
+ * visit is nudged again next session, until they close the wizard once
+ * (`markFirstListingWizardDismissed`), which is the answer that sticks.
+ */
+export function readFirstListingWizardAutoOpened(userId: string | null | undefined): boolean {
+  const id = userId?.trim();
+  if (!id) return false;
+  try {
+    return sessionStore()?.getItem(AUTO_OPENED_KEY_PREFIX + id) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function markFirstListingWizardAutoOpened(userId: string | null | undefined): void {
+  const id = userId?.trim();
+  if (!id) return;
+  try {
+    sessionStore()?.setItem(AUTO_OPENED_KEY_PREFIX + id, "1");
+  } catch {
+    /* storage refused; the rule falls back to the listing count */
+  }
+}
+
+/**
+ * The auto-open intent, handed across a route change.
+ *
+ * Auto-opening happens on the page that also routes the manager from
+ * `/properties/all` to `/properties/drafts`. `[stage]` is a dynamic segment,
+ * so that push REMOUNTS the page and any wizard state opened on the old page
+ * dies with it — which is how the wizard opened, closed, and opened again.
+ * The page about to navigate writes the draft id here; the page that mounts
+ * on Drafts takes it (once) and opens the wizard.
+ */
+export function writePendingFirstListingAutoOpen(userId: string | null | undefined, draftId: string): void {
+  const id = userId?.trim();
+  if (!id || !draftId.trim()) return;
+  try {
+    sessionStore()?.setItem(AUTO_OPEN_HANDOFF_KEY_PREFIX + id, draftId.trim());
+  } catch {
+    /* storage refused; the fresh page falls back to the rule below */
+  }
+}
+
+/** Read AND clear the handoff — a second take returns null. */
+export function takePendingFirstListingAutoOpen(userId: string | null | undefined): string | null {
+  const id = userId?.trim();
+  if (!id) return null;
+  try {
+    const store = sessionStore();
+    const value = store?.getItem(AUTO_OPEN_HANDOFF_KEY_PREFIX + id)?.trim() || null;
+    if (value) store?.removeItem(AUTO_OPEN_HANDOFF_KEY_PREFIX + id);
+    return value;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Should Properties open the create-listing wizard by itself?
  *
- * Exactly two conditions, and both must hold:
+ * Three conditions, and all must hold:
  *
- * 1. The account has NO listing of any kind — nothing owned, nothing unlisted,
- *    and nothing co-managed. A leftover draft does not count, because a draft
- *    is what the wizard makes.
+ * 1. The account has NO listing of any kind — nothing listed, nothing
+ *    unlisted, and nothing co-managed. A leftover draft does not count,
+ *    because a draft is what the wizard makes. A portfolio with even one
+ *    property listed is never interrupted.
  * 2. The manager has never closed it. Closing it once is an answer, and the
  *    old rule ("keep opening until a listing exists") re-asked the question on
  *    every single visit to Properties.
+ * 3. It has not already opened itself this session. Opening is a one-shot per
+ *    session: neither the remount that follows the move to Drafts nor a
+ *    reload may open it a second time.
  */
 export function shouldAutoOpenFirstListingWizard(opts: {
   snap: FirstListingPortfolioSnapshot;
   dismissed: boolean;
   coManagerLinksKnown?: boolean;
+  autoOpenedThisSession?: boolean;
 }): boolean {
   if (opts.dismissed) return false;
+  if (opts.autoOpenedThisSession) return false;
   if (opts.coManagerLinksKnown === false) return false;
+  if (opts.snap.listed > 0) return false;
   return !managerHasAnyListing(opts.snap);
 }
 

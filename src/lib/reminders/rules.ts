@@ -220,7 +220,7 @@ export const REMINDER_SUBJECT_META: Record<ReminderSubjectKind, ReminderSubjectM
     kind: "work_order",
     label: "Work orders",
     anchorLabel: "the maintenance visit",
-    counterpartyLabel: "resident and vendor",
+    counterpartyLabel: "resident",
   },
   application: {
     kind: "application",

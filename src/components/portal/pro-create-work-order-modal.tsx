@@ -73,9 +73,9 @@ function buildPropertyOptions(managerUserId: string | null): PropertyOption[] {
   if (!managerUserId) return [];
   const seen = new Map<string, PropertyOption>();
   for (const property of readExtraListingsForUser(managerUserId)) {
-    const propertyId = property.id.trim();
+    const propertyId = (property.id ?? "").trim();
     if (!propertyId || seen.has(propertyId)) continue;
-    const propertyLabel = displayPropertyLabel(property.buildingName.trim() || property.title);
+    const propertyLabel = displayPropertyLabel((property.buildingName ?? "").trim() || property.title);
     if (!propertyLabel) continue;
     seen.set(propertyId, { propertyId, propertyLabel });
   }

@@ -67,6 +67,8 @@ export type ServiceRequest = {
    * one place they get it, and `work-assignment.ts` decides who may be offered.
    */
   assignee?: WorkAssignee;
+  /** Checklist the manager attached when logging the service (`service-tasks.ts`). */
+  tasks?: { id: string; title: string; done: boolean }[];
   // Return
   returnPhotoDataUrl?: string;
   returnedAt?: string;

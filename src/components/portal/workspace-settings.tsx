@@ -323,6 +323,10 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
   }, [openNew, pathname, searchParams]);
   if (!ctx) return null;
   const owned = ctx.workspaces.filter((w) => w.owned);
+  // Grants are per house, so a move carries them: name who keeps access before the click.
+  const movingMembers = moving
+    ? (owned.find((w) => w.propertyIds.includes(moving.id))?.members ?? []).filter((m) => m.propertyIds.includes(moving.id))
+    : [];
   const plan = ctx.plan;
   const atWorkspaceCap = plan ? !plan.unknown && plan.usage.workspaces >= plan.workspaceLimit : owned.length >= 3;
   const run = async (body: Record<string, unknown>, after?: () => void) => {
@@ -448,6 +452,14 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
       </Modal>
       <Modal open={moving !== null} onClose={() => setMoving(null)} title="Move property">
         <p className="mb-3 text-sm text-muted">Ownership and existing property permissions stay the same.</p>
+        {movingMembers.length > 0 ? (
+          <p className="mb-3 text-sm text-foreground" data-attr="workspace-move-keeps-access">
+            {movingMembers.map((member) => member.name).join(", ")} {movingMembers.length === 1 ? "keeps" : "keep"} access to this house in the new workspace.{" "}
+            <Link href="/portal/profile?tab=team" className="font-medium text-primary underline-offset-2 hover:underline" data-attr="workspace-move-change-access">
+              Change in Team
+            </Link>
+          </p>
+        ) : null}
         <Select aria-label="Destination workspace" value={moving?.destination ?? ""} onChange={(event) => setMoving((value) => value && { ...value, destination: event.target.value })}>
           {owned.map((workspace) => (
             <option key={workspace.id} value={workspace.id}>

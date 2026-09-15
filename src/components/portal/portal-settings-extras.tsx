@@ -29,15 +29,10 @@ export function PortalSettingsExtras({
   return (
     <PortalSettingsSection
       title="Account"
-      description={
-        variant === "session"
-          ? "Workspace access and session."
-          : "Appearance, workspace access, and session."
-      }
     >
       <PortalSettingsGroup>
         {variant === "full" ? (
-          <PortalSettingsRow label="Appearance" description="Choose light or dark mode.">
+          <PortalSettingsRow label="Appearance">
             <ThemeToggle className="shrink-0" />
           </PortalSettingsRow>
         ) : null}
@@ -51,7 +46,6 @@ export function PortalSettingsExtras({
         {currentKind === "manager" || currentKind === "pro" ? (
           <PortalSettingsRow
             label="Export my data"
-            description="Download everything your property account owns as one encrypted file. Identity numbers and payment details are left out."
           >
             <PortalDataExportButton className="text-sm font-medium text-foreground underline-offset-2 transition hover:underline" />
           </PortalSettingsRow>

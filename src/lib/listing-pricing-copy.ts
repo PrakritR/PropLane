@@ -123,6 +123,7 @@ export function copyListingPricingBetweenSubmissions(
   next.shortTermMonthToMonthSurcharge = src.shortTermMonthToMonthSurcharge;
   next.applicationFee = src.applicationFee;
   next.shortTermApplicationFee = src.shortTermApplicationFee;
+  next.applicationFeeByLeaseType = src.applicationFeeByLeaseType ? { ...src.applicationFeeByLeaseType } : undefined;
   next.holdingDeposit = src.holdingDeposit;
   next.securityDeposit = src.securityDeposit;
   next.moveInFee = src.moveInFee;

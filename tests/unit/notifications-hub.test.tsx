@@ -166,9 +166,12 @@ describe("Notifications hub — copy", () => {
     expect(container.textContent).not.toContain("work order");
   });
 
-  it("quiet hours copy names the Pacific zone explicitly", async () => {
+  it("quiet hours row is a label and its control, with no zone sentence under it", async () => {
     render(<ManagerPortalAutomationSettingsPanel />);
-    await screen.findByText(/Pacific time \(America\/Los_Angeles\)/);
+    await screen.findByText(/quiet hours/i);
+    // The Pacific-zone explainer was subtext (AGENTS.md § No subtext); the
+    // evaluation zone is documented on the setting itself, not under the row.
+    expect(screen.queryByText(/Pacific time \(America\/Los_Angeles\)/)).toBeNull();
   });
 });
 

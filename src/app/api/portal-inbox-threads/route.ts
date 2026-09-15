@@ -1,7 +1,11 @@
 import { smsNoticeMembers, storedSmsNoticeIdentity, updateSmsNoticeMailboxState } from "@/lib/sms-inbox-state.server";
 import { portalInboxReadObservation, type PortalInboxReadRecord } from "@/lib/portal-inbox-read-state.server";
 import { NextResponse } from "next/server";
-import { viewerAndLinkedOwnerIdsForModule } from "@/lib/auth/co-manager-module-scope";
+import {
+  filterVisibleInboxThreadRecords,
+  resolveCommunicationScope,
+  type CommunicationScope,
+} from "@/lib/communication/conversation-visibility.server";
 import { buildPortalInboxThreadUpsert } from "@/lib/portal-inbox-thread-upsert";
 import {
   ADMIN_INBOX_SCOPE,
@@ -74,14 +78,18 @@ export async function GET(request: Request) {
       .order("updated_at", { ascending: false })
       .limit(500);
 
+    // Manager Communication is decided per house and per workspace by ONE
+    // resolver; the store query only pre-narrows to owners it names.
+    let communicationScope: CommunicationScope | null = null;
     if (scopeParam === ADMIN_INBOX_SCOPE && ctx.user.role === "admin") {
       query = query.eq("scope", ADMIN_INBOX_SCOPE) as typeof query;
     } else {
-      const extraOwnerIds =
-        scopeParam === MANAGER_INBOX_SCOPE
-          ? await viewerAndLinkedOwnerIdsForModule(ctx.db, ctx.user.id, "inbox", "read")
-          : [];
-      query = applyPortalInboxThreadScope(query, ctx.user, extraOwnerIds) as typeof query;
+      if (scopeParam === MANAGER_INBOX_SCOPE) {
+        communicationScope = await resolveCommunicationScope(ctx.db, ctx.user.id, "read");
+      }
+      query = applyPortalInboxThreadScope(query, ctx.user, communicationScope?.ownerIds ?? [], {
+        participantOnlyWhenUnowned: scopeParam === MANAGER_INBOX_SCOPE,
+      }) as typeof query;
       if (scopeParam) {
         query = query.eq("scope", scopeParam) as typeof query;
       }
@@ -90,10 +98,13 @@ export async function GET(request: Request) {
     const { data, error } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    const records = (Array.isArray(data) ? data : []) as PortalInboxReadRecord[];
+    const fetched = (Array.isArray(data) ? data : []) as PortalInboxReadRecord[];
+    const records: (PortalInboxReadRecord & { houses?: { propertyId: string; label: string }[] })[] = communicationScope
+      ? await filterVisibleInboxThreadRecords(ctx.db, communicationScope, fetched)
+      : fetched;
     const rows = records.map((record) => {
       const row = (record.row_data && typeof record.row_data === "object" ? record.row_data : record) as Record<string, unknown>;
-      return { ...normalizeInboxRow({ ...row, id: record.id, ownerUserId: record.owner_user_id, threadType: record.thread_type }), readSources: [{ id: record.id, observation: portalInboxReadObservation(record), unread: row?.unread === true }], readSourcesComplete: true };
+      return { ...normalizeInboxRow({ ...row, id: record.id, ownerUserId: record.owner_user_id, threadType: record.thread_type, ...(record.houses ? { houses: record.houses } : {}) }), readSources: [{ id: record.id, observation: portalInboxReadObservation(record), unread: row?.unread === true }], readSourcesComplete: true };
     });
 
     const collapsed =
@@ -151,12 +162,17 @@ export async function POST(req: Request) {
         requested.set(id, observation);
       }
       const ids = [...requested.keys()];
-      const extraOwnerIds = await viewerAndLinkedOwnerIdsForModule(ctx.db, ctx.user.id, "inbox", "edit");
+      const editScope = await resolveCommunicationScope(ctx.db, ctx.user.id, "edit");
+      const extraOwnerIds = editScope.ownerIds;
       let query = ctx.db.from("portal_inbox_thread_records").select("id, scope, row_data, updated_at, owner_user_id, participant_email, thread_type").in("id", ids);
-      query = applyPortalInboxThreadScope(query, ctx.user, extraOwnerIds) as typeof query;
+      query = applyPortalInboxThreadScope(query, ctx.user, extraOwnerIds, { participantOnlyWhenUnowned: true }) as typeof query;
       const { data, error } = await query;
       if (error) throw error;
-      const records = (Array.isArray(data) ? data : []) as PortalInboxReadRecord[];
+      const records: PortalInboxReadRecord[] = await filterVisibleInboxThreadRecords(
+        ctx.db,
+        editScope,
+        (Array.isArray(data) ? data : []) as PortalInboxReadRecord[],
+      );
       if (records.length !== ids.length || records.some((record) => record.scope !== scopeKey)) return NextResponse.json({ error: "Record not found." }, { status: 404 });
       const results = [] as { id: string; status: "read" | "alreadyRead" | "changed" | "archived" | "failed"; unread: boolean }[];
       let failed = false;
@@ -174,7 +190,7 @@ export async function POST(req: Request) {
             changed = result.data === true;
             if (changed || attempt === 1) break;
             let retryQuery = ctx.db.from("portal_inbox_thread_records").select("id, scope, row_data, updated_at, owner_user_id, participant_email, thread_type").eq("id", record.id).eq("scope", scopeKey);
-            retryQuery = applyPortalInboxThreadScope(retryQuery, ctx.user, extraOwnerIds) as typeof retryQuery;
+            retryQuery = applyPortalInboxThreadScope(retryQuery, ctx.user, extraOwnerIds, { participantOnlyWhenUnowned: true }) as typeof retryQuery;
             const { data: retryData, error: retryError } = await retryQuery.maybeSingle();
             if (retryError) throw retryError;
             if (!retryData) { results.push({ id: record.id, status: "changed", unread: true }); break; }
@@ -199,14 +215,20 @@ export async function POST(req: Request) {
       if (ids.length === 0 || ids.length > 100 || !["archive", "restore"].includes(body.folderAction ?? "")) {
         return NextResponse.json({ error: "Choose conversations and an action." }, { status: 400 });
       }
-      const extraOwnerIds = scopeKey === MANAGER_INBOX_SCOPE
-        ? await viewerAndLinkedOwnerIdsForModule(ctx.db, ctx.user.id, "inbox", "edit")
-        : [];
+      const folderScope = scopeKey === MANAGER_INBOX_SCOPE
+        ? await resolveCommunicationScope(ctx.db, ctx.user.id, "edit")
+        : null;
       let query = ctx.db.from("portal_inbox_thread_records")
-        .select("id, owner_user_id, scope, row_data").in("id", ids);
-      query = applyPortalInboxThreadScope(query, ctx.user, extraOwnerIds) as typeof query;
-      const { data, error } = await query;
+        .select("id, owner_user_id, participant_email, thread_type, scope, row_data").in("id", ids);
+      query = applyPortalInboxThreadScope(query, ctx.user, folderScope?.ownerIds ?? [], {
+        participantOnlyWhenUnowned: scopeKey === MANAGER_INBOX_SCOPE,
+      }) as typeof query;
+      const { data: fetchedFolderRows, error } = await query;
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      type FolderRow = { id: string; owner_user_id: string | null; participant_email: string | null; thread_type?: string | null; scope: string; row_data: Record<string, unknown> | null };
+      const data: FolderRow[] | null = folderScope
+        ? await filterVisibleInboxThreadRecords(ctx.db, folderScope, (fetchedFolderRows ?? []) as FolderRow[])
+        : ((fetchedFolderRows ?? []) as FolderRow[]);
       if (!data || data.length !== ids.length || data.some((row) => row.scope !== scopeKey)) {
         return NextResponse.json({ error: "Record not found." }, { status: 404 });
       }
@@ -229,21 +251,29 @@ export async function POST(req: Request) {
       if (ids.length === 0 || ids.some((id) => !id)) {
         return NextResponse.json({ error: "id required" }, { status: 400 });
       }
-      const extraOwnerIds =
+      const deleteScope =
         scopeKey === MANAGER_INBOX_SCOPE
-          ? await viewerAndLinkedOwnerIdsForModule(ctx.db, ctx.user.id, "inbox", "delete")
-          : [];
+          ? await resolveCommunicationScope(ctx.db, ctx.user.id, "delete")
+          : null;
+      const extraOwnerIds = deleteScope?.ownerIds ?? [];
+      const scopeOptions = { participantOnlyWhenUnowned: scopeKey === MANAGER_INBOX_SCOPE };
       let deleted = 0;
       for (const id of ids) {
         let targetQuery = ctx.db.from("portal_inbox_thread_records")
-          .select("id, owner_user_id, scope, thread_type, row_data").eq("id", id);
-        targetQuery = applyPortalInboxThreadScope(targetQuery, ctx.user, extraOwnerIds) as typeof targetQuery;
-        const { data: target, error: targetError } = await targetQuery.maybeSingle();
+          .select("id, owner_user_id, participant_email, scope, thread_type, row_data").eq("id", id);
+        targetQuery = applyPortalInboxThreadScope(targetQuery, ctx.user, extraOwnerIds, scopeOptions) as typeof targetQuery;
+        const { data: fetchedTarget, error: targetError } = await targetQuery.maybeSingle();
         if (targetError) return NextResponse.json({ error: targetError.message }, { status: 500 });
+        if (!fetchedTarget) continue;
+        // A thread the viewer cannot list is not theirs to delete either.
+        type DeleteRow = { id: string; owner_user_id: string | null; participant_email: string | null; thread_type?: string | null; scope: string; row_data: Record<string, unknown> | null };
+        const target: DeleteRow | undefined = deleteScope
+          ? (await filterVisibleInboxThreadRecords(ctx.db, deleteScope, [fetchedTarget as DeleteRow]))[0]
+          : (fetchedTarget as DeleteRow);
         if (!target) continue;
         const members = await smsNoticeMembers(ctx.db, target);
         let deleteQuery = ctx.db.from("portal_inbox_thread_records").delete().in("id", members.map((m) => m.id)).select("id");
-        deleteQuery = applyPortalInboxThreadScope(deleteQuery, ctx.user, extraOwnerIds) as typeof deleteQuery;
+        deleteQuery = applyPortalInboxThreadScope(deleteQuery, ctx.user, extraOwnerIds, scopeOptions) as typeof deleteQuery;
         const { data, error } = await deleteQuery;
         if (error) return NextResponse.json({ error: error.message }, { status: 500 });
         deleted += Array.isArray(data) ? data.length : 0;
@@ -269,16 +299,25 @@ export async function POST(req: Request) {
 
       const recordExists = Array.isArray(existing) && existing.length > 0;
       if (recordExists) {
-        const extraOwnerIds =
+        const upsertScope =
           scopeKey === MANAGER_INBOX_SCOPE
-            ? await viewerAndLinkedOwnerIdsForModule(ctx.db, ctx.user.id, "inbox", "edit")
-            : [];
+            ? await resolveCommunicationScope(ctx.db, ctx.user.id, "edit")
+            : null;
         let visibleQuery = ctx.db.from("portal_inbox_thread_records").select("id").eq("id", id).limit(1);
-        visibleQuery = applyPortalInboxThreadScope(visibleQuery, ctx.user, extraOwnerIds) as typeof visibleQuery;
+        visibleQuery = applyPortalInboxThreadScope(visibleQuery, ctx.user, upsertScope?.ownerIds ?? [], {
+          participantOnlyWhenUnowned: scopeKey === MANAGER_INBOX_SCOPE,
+        }) as typeof visibleQuery;
         const { data: visible, error: visibleError } = await visibleQuery;
         if (visibleError) return NextResponse.json({ error: visibleError.message }, { status: 500 });
         if (!Array.isArray(visible) || visible.length === 0) {
           return NextResponse.json({ error: "Record not found." }, { status: 404 });
+        }
+        // Owner scope found it; the house / workspace rule still has to allow it.
+        if (upsertScope) {
+          const allowed = await filterVisibleInboxThreadRecords(ctx.db, upsertScope, [
+            existing[0] as { id: string; owner_user_id: string | null; participant_email: string | null; thread_type?: string | null; row_data: unknown },
+          ]);
+          if (allowed.length === 0) return NextResponse.json({ error: "Record not found." }, { status: 404 });
         }
 
         if (storedSmsNoticeIdentity(existing[0])) {

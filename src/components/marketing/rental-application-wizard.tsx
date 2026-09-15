@@ -752,6 +752,7 @@ function RentalApplicationWizardInner({
         propertyId: pid,
         managerUserId: catalogManagerUserId || undefined,
         rentalType: applicationRentalTypeFor(form.rentalType),
+        leaseTerm: form.leaseTerm || undefined,
         residentEmail: email,
       }).then((result) => {
         if (cancelled) return;
@@ -783,7 +784,7 @@ function RentalApplicationWizardInner({
       cancelled = true;
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     };
-  }, [form.propertyId, form.email, form.rentalType, feeStepUserId, extrasTick]);
+  }, [form.propertyId, form.email, form.rentalType, form.leaseTerm, feeStepUserId, extrasTick]);
 
   useEffect(() => {
     if (templatePreview || isDemoModeActive()) return;
@@ -1527,6 +1528,7 @@ function RentalApplicationWizardInner({
             propertyId: pid,
             managerUserId: managerUserIdForFee || undefined,
             rentalType: applicationRentalTypeFor(form.rentalType),
+            leaseTerm: form.leaseTerm || undefined,
           })
         : { preview: null as null };
       const preview = previewResult.preview;
@@ -1724,6 +1726,7 @@ function RentalApplicationWizardInner({
           propertyId: pid,
           managerUserId: managerUserIdForFee || undefined,
           rentalType: applicationRentalTypeFor(form.rentalType),
+          leaseTerm: form.leaseTerm || undefined,
         });
         if (previewResult.preview) {
           applicationFeeAmount = previewResult.preview.applicationFeeCents / 100;

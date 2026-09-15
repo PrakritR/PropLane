@@ -67,6 +67,8 @@ export async function fetchApplicationFeePreview(input: {
   /** Optional — when omitted the server resolves the owner from the property id. */
   managerUserId?: string;
   rentalType?: "standard" | "short_term";
+  /** The applicant's lease type; a listing may price its fee per type. */
+  leaseTerm?: string;
   /**
    * Only the signed-in caller's own address earns a repeat-applicant waiver —
    * the route ignores it for anyone else and resolves the resident id from the
@@ -79,10 +81,11 @@ export async function fetchApplicationFeePreview(input: {
   if (!propertyId) return { preview: null };
 
   const rentalType = input.rentalType === "short_term" ? "short_term" : "standard";
+  const leaseTerm = input.leaseTerm?.trim() ?? "";
   const residentEmail = input.residentEmail?.trim() ?? "";
   const residentKey = residentEmail.includes("@") ? `::${residentEmail.toLowerCase()}` : "";
   const viewerId = await viewerCacheId();
-  const key = `${keyFor(propertyId, managerUserId)}::${rentalType}::${viewerId}${residentKey}`;
+  const key = `${keyFor(propertyId, managerUserId)}::${rentalType}::${leaseTerm}::${viewerId}${residentKey}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < PREVIEW_TTL_MS) return hit.value;
 
@@ -98,6 +101,7 @@ export async function fetchApplicationFeePreview(input: {
           propertyId,
           ...(managerUserId ? { managerUserId } : {}),
           rentalType: rentalType === "short_term" ? "short_term" : undefined,
+          leaseTerm: leaseTerm || undefined,
           residentEmail: residentEmail.includes("@") ? residentEmail : undefined,
         }),
       });

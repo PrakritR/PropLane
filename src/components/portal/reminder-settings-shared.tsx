@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, X } from "lucide-react";
-import { TOGGLE_CHIP_CLASS, ToggleChips, ToggleChipsGroupLabel } from "@/components/ui/toggle-chips";
+import { TOGGLE_CHIP_CLASS } from "@/components/ui/toggle-chips";
+import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal } from "@/components/ui/modal";
 import {
   PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS,
@@ -17,6 +18,7 @@ import { cn } from "@/lib/utils";
 import {
   normalizeTimings,
   summarizeTimings,
+  timingKey,
   timingOptions,
   type TimingDirection,
 } from "@/lib/reminders/timings";
@@ -24,12 +26,12 @@ import {
 export const REMINDER_FIELD_LABEL_CLASS = "text-xs font-semibold text-muted";
 
 /**
- * Which channels a reminder goes out on — three fixed options as chips.
+ * Which channels a reminder goes out on — one multi-select dropdown.
  *
- * This was a checkbox dropdown that read "PropLane & Email" until opened. The
- * rule inside is unchanged: at least one channel stays on, a tap that would
- * turn the last one off is refused (and says so), and an SMS chip a workspace
- * cannot use is shown disabled rather than hidden so the manager knows why.
+ * Picks are dropdowns, never pills (AGENTS.md § No subtext). The rule inside
+ * is unchanged: at least one channel stays on, a pick that would turn the
+ * last one off is refused (and says so), and an SMS option a workspace cannot
+ * use is shown disabled rather than hidden so the manager knows why.
  */
 export function ReminderSendViaField({
   viaEmail,
@@ -76,10 +78,9 @@ export function ReminderSendViaField({
 
   return (
     <div>
-      <p className={REMINDER_FIELD_LABEL_CLASS}>Send via</p>
-      <ToggleChips
+      <CheckboxMultiSelect
         label="Send via"
-        className="mt-1.5"
+        labelClassName={REMINDER_FIELD_LABEL_CLASS}
         options={options}
         selected={effectiveSelected}
         onChange={(next) => {
@@ -470,18 +471,30 @@ export function TourReminderTimingSelect({
 
   return (
     <div>
-      <p className={REMINDER_FIELD_LABEL_CLASS}>Reminders</p>
-      <ToggleChipsGroupLabel>Before the tour</ToggleChipsGroupLabel>
-      <ToggleChips
-        label="Reminders before the tour"
+      <CheckboxMultiSelect
+        label="Before the tour"
+        labelClassName={REMINDER_FIELD_LABEL_CLASS}
         options={options}
         selected={selectedTokens}
         onChange={commitSelection}
         disabled={disabled}
+        emptyLabel="No reminders"
         dataAttr="tour-reminder-timing"
-        trailing={
+        menuFooter={(close) => (
+          <CustomTimingMenuFooter
+            disabled={disabled}
+            dataAttr="tour-reminder-custom-open"
+            onOpen={() => {
+              close();
+              setCustomOpen(true);
+            }}
+          />
+        )}
+      />
+      {customOpen ? (
+        <div className="mt-1.5 flex flex-wrap items-center gap-2">
           <CustomChipInput
-            open={customOpen}
+            open
             onOpen={() => setCustomOpen(true)}
             onClose={() => setCustomOpen(false)}
             onCommit={(minutes) => {
@@ -495,21 +508,42 @@ export function TourReminderTimingSelect({
             dataAttr="tour-reminder-custom-minutes"
             placeholder="Custom minutes before tour"
           />
-        }
-      />
-      <p className="mt-1.5 text-xs text-muted">
-        {sorted.length
-          ? `Sends ${sorted.map(formatTourReminderTimingTriggerLabel).join(", ")} before the tour.`
-          : "No tour reminders."}
-      </p>
+        </div>
+      ) : null}
     </div>
   );
 }
 
+/** "Custom…" row at the bottom of a timing dropdown — opens the inline minutes entry. */
+function CustomTimingMenuFooter({
+  onOpen,
+  disabled,
+  dataAttr,
+}: {
+  onOpen: () => void;
+  disabled?: boolean;
+  dataAttr: string;
+}) {
+  return (
+    <button
+      type="button"
+      className="text-xs font-semibold text-primary hover:underline disabled:opacity-50"
+      disabled={disabled}
+      data-attr={dataAttr}
+      onClick={onOpen}
+    >
+      Custom…
+    </button>
+  );
+}
+
 /**
- * Generic reminder timings as chips, one row per direction the subject
- * allows ("Before" runs a week down to fifteen minutes; "After" runs the
- * other way — the same ordering `timingOptions` has always used).
+ * Generic reminder timings — one multi-select dropdown per direction the
+ * subject allows ("Before" runs a week down to fifteen minutes; "After" runs
+ * the other way — the same ordering `timingOptions` has always used). A stored
+ * value that is not a preset (a custom "45 minutes") is added to its
+ * dropdown so it stays visible and can be unticked; "Custom…" at the bottom
+ * of the menu opens the inline minutes entry.
  */
 export function ReminderTimingMultiSelect({
   timings,
@@ -526,40 +560,82 @@ export function ReminderTimingMultiSelect({
   onChangeTimings: (timings: string[]) => void;
   dataAttr?: string;
 }) {
+  const [customFor, setCustomFor] = useState<TimingDirection | null>(null);
   const normalized = useMemo(() => normalizeTimings(timings, []), [timings]);
-  const options = useMemo(() => timingOptions(directions), [directions]);
-  const rows = directions.map((direction) => ({
-    direction,
-    options: options
+  const presets = useMemo(() => timingOptions(directions), [directions]);
+  const rows = directions.map((direction) => {
+    const stripDirection = (text: string) => text.replace(new RegExp(` ${direction}$`), "");
+    const presetOptions = presets
       .filter((option) => option.value.startsWith(`${direction}:`))
-      .map((option) => ({ value: option.value, label: option.label.replace(new RegExp(` ${direction}$`), "") })),
-  }));
+      .map((option) => ({ value: option.value, label: stripDirection(option.label) }));
+    const presetValues = new Set(presetOptions.map((option) => option.value));
+    const customOptions = normalized
+      .filter((key) => key.startsWith(`${direction}:`) && !presetValues.has(key))
+      .map((key) => ({ value: key, label: stripDirection(summarizeTimings([key])) }));
+    return { direction, options: [...presetOptions, ...customOptions] };
+  });
   const selectedFor = (direction: TimingDirection) => normalized.filter((key) => key.startsWith(`${direction}:`));
+  const commitFor = (direction: TimingDirection, nextForRow: string[]) => {
+    const others = normalized.filter((key) => !key.startsWith(`${direction}:`));
+    onChangeTimings(normalizeTimings([...others, ...nextForRow], normalized));
+  };
 
   return (
     <div>
       <p className={REMINDER_FIELD_LABEL_CLASS}>{label}</p>
-      {rows.map((row) => (
-        <div key={row.direction} className="pt-1.5">
-          {directions.length > 1 ? (
-            <ToggleChipsGroupLabel>{row.direction === "before" ? "Before" : "After"}</ToggleChipsGroupLabel>
-          ) : null}
-          <ToggleChips
-            label={`${label} ${row.direction}`}
-            options={row.options}
-            selected={selectedFor(row.direction)}
-            onChange={(nextForRow) => {
-              const others = normalized.filter((key) => !key.startsWith(`${row.direction}:`));
-              onChangeTimings(normalizeTimings([...others, ...nextForRow], normalized));
-            }}
-            disabled={disabled}
-            dataAttr={directions.length > 1 ? `${dataAttr}-${row.direction}` : dataAttr}
-          />
-        </div>
-      ))}
-      <p className="mt-1.5 text-xs text-muted">
-        {normalized.length ? `Sends ${summarizeTimings(normalized)}.` : "No reminders."}
-      </p>
+      <div className="mt-1.5 space-y-2">
+        {rows.map((row) => {
+          const rowDataAttr = directions.length > 1 ? `${dataAttr}-${row.direction}` : dataAttr;
+          const rowLabel = row.direction === "before" ? "Before" : "After";
+          return (
+            <div key={row.direction} className="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-2">
+              <span className="text-[13px] font-medium text-foreground">{rowLabel}</span>
+              <CheckboxMultiSelect
+                label={`${label} ${row.direction}`}
+                hideLabel
+                options={row.options}
+                selected={selectedFor(row.direction)}
+                onChange={(nextForRow) => commitFor(row.direction, nextForRow)}
+                disabled={disabled}
+                emptyLabel="No reminders"
+                dataAttr={rowDataAttr}
+                menuFooter={(close) => (
+                  <CustomTimingMenuFooter
+                    disabled={disabled}
+                    dataAttr={`${rowDataAttr}-custom-open`}
+                    onOpen={() => {
+                      close();
+                      setCustomFor(row.direction);
+                    }}
+                  />
+                )}
+              />
+              {customFor === row.direction ? (
+                <div className="col-start-2 flex flex-wrap items-center gap-2">
+                  <CustomChipInput
+                    open
+                    onOpen={() => setCustomFor(row.direction)}
+                    onClose={() => setCustomFor(null)}
+                    onCommit={(minutes) => {
+                      commitFor(row.direction, [
+                        ...selectedFor(row.direction),
+                        timingKey({ direction: row.direction, minutes }),
+                      ]);
+                      return true;
+                    }}
+                    unit="min"
+                    min={5}
+                    max={60 * 24 * 30}
+                    disabled={disabled}
+                    dataAttr={`${rowDataAttr}-custom-minutes`}
+                    placeholder={`Custom minutes ${row.direction}`}
+                  />
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

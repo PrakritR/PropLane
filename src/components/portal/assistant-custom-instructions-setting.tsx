@@ -74,7 +74,6 @@ export function AssistantCustomInstructionsSetting({ role }: { role: "manager" |
   return (
     <PortalSettingsSection
       title="PropLane Assistant"
-      description="Set preferences the assistant follows when they are relevant to your request or the person you are messaging."
     >
       <PortalSettingsGroup>
         <PortalSettingsFormBody>

@@ -11,7 +11,6 @@ import {
   propertyRowAddress,
   propertyRowAddressLine,
   propertyRowMeta,
-  propertyRowRentLabel,
   propertyRowThumbnail,
   propertyRowTitle,
 } from "@/lib/property-row-summary";
@@ -47,6 +46,7 @@ import { ManagerPropertyRoomMoveInPanel } from "@/components/portal/pro-property
 import { ManagerPropertyApplicationQuestionsPanel } from "@/components/portal/pro-property-application-questions-panel";
 import { ManagerPropertyLeasePanel } from "@/components/portal/pro-property-lease-panel";
 import { ManagerPropertyPromotionPanel } from "@/components/portal/pro-property-promotion-panel";
+import { ManagerPropertyAiInfoPanel } from "@/components/portal/pro-property-ai-info-panel";
 import { ManagerPropertyTourPanel } from "@/components/portal/pro-property-tour-panel";
 import { ModalShell } from "@/components/ui/modal";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
@@ -76,7 +76,6 @@ import {
 import { ManagerPropertyRequestsPanel } from "@/components/portal/pro-property-requests-panel";
 import { PropertyResidentOnboardWizard } from "@/components/portal/property-resident-onboard-wizard";
 import { PortalPropertyRecordRow, PortalRowStatusChip } from "@/components/portal/portal-record-row";
-import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { LEASE_PIPELINE_EVENT, readLeasePipeline } from "@/lib/lease-pipeline-storage";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
@@ -610,7 +609,7 @@ function ManagerPropertyInlineDetails({
       bucket === 3 || bucket === 5
         ? ["preview"]
         : bucket === 2 && listingId
-          ? ["preview", "house-details", "move-in", "application", "lease", "tours", "bookings", "requests", "promotion"]
+          ? ["preview", "house-details", "move-in", "application", "lease", "tours", "bookings", "requests", "promotion", "ai-info"]
           : ["preview", "house-details", "move-in", "application", "lease"],
     [bucket, listingId],
   );
@@ -647,6 +646,7 @@ function ManagerPropertyInlineDetails({
     pushTopTab("lease", "lease");
     pushTopTab("requests", "requests");
     pushTopTab("promotion", "promotion");
+    pushTopTab("ai-info", "ai-info");
     return items;
   }, [availableTabs, propertiesBase, propertyRouteKey, stage]);
   /**
@@ -665,6 +665,7 @@ function ManagerPropertyInlineDetails({
       ["lease", "lease"],
       ["requests", "requests"],
       ["promotion", "promotion"],
+      ["ai-info", "ai-info"],
     ];
     return order.map(([id, tab]) => {
       const available = availableTabs.includes(tab);
@@ -1225,6 +1226,15 @@ function ManagerPropertyInlineDetails({
       {activeDetailTab === "promotion" && bucket === 2 && listingId ? (
         <ManagerPropertyPromotionPanel
           listingId={listingId}
+          showToast={showToast}
+          onUpdated={onUpdated}
+        />
+      ) : null}
+
+      {activeDetailTab === "ai-info" && bucket === 2 && listingId ? (
+        <ManagerPropertyAiInfoPanel
+          propertyId={listingId}
+          managerUserId={managerUserId}
           showToast={showToast}
           onUpdated={onUpdated}
         />
@@ -2089,22 +2099,10 @@ export function ManagerHousePropertiesPanel({
                     <PortalRowStatusChip tone="neutral" dataAttr="property-row-stage">Draft</PortalRowStatusChip>
                   ) : undefined
                 ) : (
-                  <span className="flex items-center gap-2">
-                    {propertyRowRentLabel(row)}
-                    {/* The row itself opens the home; the switch must not. */}
-                    <span
-                      className="flex items-center"
-                      onClick={(event) => event.stopPropagation()}
-                      onKeyDown={(event) => event.stopPropagation()}
-                    >
-                      <PortalSettingsToggle
-                        checked={sourceBucket === 2}
-                        onChange={() => void toggleRowListed({ sourceBucket, row })}
-                        label={sourceBucket === 2 ? `Unlist ${managerPropertyRowTitle(row, sourceBucket)}` : `List ${managerPropertyRowTitle(row, sourceBucket)}`}
-                        dataAttr="property-row-listed-toggle"
-                      />
-                    </span>
-                  </span>
+                  /* No rent figure and no Listed switch on the row: the tabs say
+                     where a home is, and List / Unlist lives in the ⋯ menu with its
+                     confirmation. */
+                  undefined
                 )
               }
               chip={(() => {

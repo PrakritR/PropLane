@@ -99,7 +99,6 @@ export function ManagerPlanAddonsPanel() {
   return (
     <PortalSettingsSection
       title="Add-ons"
-      description="A price for everything past your plan's bundle — more listings, numbers, workspaces or seats, one at a time. Billed monthly with your subscription."
       action={
         data && data.monthlyTotalCents > 0 ? (
           <span className="text-sm font-semibold tabular-nums text-foreground" data-attr="plan-addons-total">
@@ -146,7 +145,6 @@ export function ManagerPlanAddonsPanel() {
                       </span>
                     </span>
                   }
-                  description={row.description}
                 >
                   {canEdit ? (
                     <div className="flex items-center gap-1" data-attr={`plan-addon-${row.id}`}>

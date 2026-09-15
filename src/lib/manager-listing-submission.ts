@@ -20,6 +20,7 @@ import {
   sortLeaseTermsCanonical,
 } from "@/lib/rental-application/lease-terms";
 import { emptyHouseInfo, normalizeHouseInfo, type HouseInfoV1 } from "@/lib/house-info";
+import { normalizeApplicationFeeByLeaseType } from "@/lib/listing-application-fee";
 import { roomIsDailyPriced } from "@/lib/room-pricing";
 import { RENTAL_APPLICATION_SECTION_IDS } from "@/lib/rental-application/application-sections";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
@@ -501,6 +502,23 @@ export type ManagerSharedSpaceSubmission = {
   roomAccessIds: string[];
 };
 
+export const AI_COMMUNICATION_INFO_SECTIONS = ["tours", "rules", "pricing", "neighborhood"] as const;
+export type AiCommunicationInfoSection = (typeof AI_COMMUNICATION_INFO_SECTIONS)[number];
+export type AiCommunicationInfo = Record<AiCommunicationInfoSection, string>;
+
+export function normalizeAiCommunicationInfo(raw: unknown): AiCommunicationInfo | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const row = raw as Record<string, unknown>;
+  const out = {} as AiCommunicationInfo;
+  let any = false;
+  for (const key of AI_COMMUNICATION_INFO_SECTIONS) {
+    const value = typeof row[key] === "string" ? (row[key] as string).trim() : "";
+    out[key] = value;
+    if (value) any = true;
+  }
+  return any ? out : undefined;
+}
+
 export type ManagerListingSubmissionV1 = {
   v: 1;
   buildingName: string;
@@ -581,6 +599,12 @@ export type ManagerListingSubmissionV1 = {
    * resident-only instructions.
    */
   marketingNotes: string;
+  /**
+   * The other AI info sections (About this home is `marketingNotes`): what the
+   * leasing assistant should say about tours, house rules, pricing and the
+   * neighborhood. Assistant-only — never projected to the public listing.
+   */
+  aiCommunicationInfo?: AiCommunicationInfo;
   /** Quiet hours, guests, smoking, shared spaces — shown on House rules tab */
   houseRulesText: string;
   /** Manager-only internal notes about the house (not shown to residents). */
@@ -661,6 +685,13 @@ export type ManagerListingSubmissionV1 = {
   longTermMinimumMonths?: number;
   /** Short-term application fee when it differs from {@link applicationFee}. */
   shortTermApplicationFee?: string;
+  /**
+   * Application fee per lease type, keyed by the displayed lease term, holding
+   * only the types priced differently from {@link applicationFee}; a type with
+   * no entry follows the one amount. Read through
+   * `listingApplicationFeeRaw` (`src/lib/listing-application-fee.ts`).
+   */
+  applicationFeeByLeaseType?: Record<string, string>;
   /**
    * Standard fee rows the manager removed from the Pricing table. Persisted so
    * normalize/sync does not re-materialize them from legacy scalars.
@@ -1952,6 +1983,10 @@ export function normalizeManagerListingSubmissionV1(
     (sub as { standardFeeScopes?: unknown }).standardFeeScopes,
     { terms: resolveAllowedLeaseTerms(sub), roomIds: rooms.map((r) => r.id) },
   );
+  const applicationFeeByLeaseType = normalizeApplicationFeeByLeaseType(
+    (sub as { applicationFeeByLeaseType?: unknown }).applicationFeeByLeaseType,
+    resolveAllowedLeaseTerms(sub),
+  );
 
   if (paymentAtSigningByLeaseType) {
     const union = new Set<string>();
@@ -2226,6 +2261,7 @@ export function normalizeManagerListingSubmissionV1(
     prefill: normalizePrefillRecord((sub as { prefill?: unknown }).prefill),
     homeStructureNote: typeof sub.homeStructureNote === "string" ? sub.homeStructureNote : "",
     marketingNotes: typeof sub.marketingNotes === "string" ? sub.marketingNotes : "",
+    aiCommunicationInfo: normalizeAiCommunicationInfo((sub as { aiCommunicationInfo?: unknown }).aiCommunicationInfo),
     alsoListedAs: typeof (sub as { alsoListedAs?: unknown }).alsoListedAs === "string"
       ? (sub as { alsoListedAs: string }).alsoListedAs.trim()
       : "",
@@ -2280,6 +2316,7 @@ export function normalizeManagerListingSubmissionV1(
     paymentAtSigningByLeaseType,
     inspectionsByLeaseType,
     standardFeeScopes,
+    applicationFeeByLeaseType,
     rooms: normalizedRooms,
     bathrooms,
     sharedSpaces,

@@ -74,6 +74,7 @@ function VendorUnifiedInbox({
   smsUiEnabled,
   listSegment,
   readOnly = false,
+  includeArchived = false,
   routeThreadId,
   onRouteThreadChange,
   searchQuery,
@@ -87,6 +88,8 @@ function VendorUnifiedInbox({
   smsUiEnabled: boolean;
   listSegment: InboxListSegment;
   readOnly?: boolean;
+  /** "All conversations": archived rows stay in the active list. */
+  includeArchived?: boolean;
   routeThreadId?: string;
   onRouteThreadChange?: (threadId: string | undefined) => void;
   searchQuery: string;
@@ -141,7 +144,9 @@ function VendorUnifiedInbox({
   const emailItems = useMemo((): UnifiedInboxListItem[] => {
     const q = searchQuery.trim().toLowerCase();
     let rows = filteredEmail;
-    rows = rows.filter((t) => listSegment === "archived" ? t.folder === "trash" : t.folder !== "trash");
+    rows = rows.filter((t) =>
+      listSegment === "archived" ? t.folder === "trash" : includeArchived || t.folder !== "trash",
+    );
     if (q) {
       rows = rows.filter((t) => [t.from, t.email, t.subject, t.body, t.preview].filter(Boolean).join(" ").toLowerCase().includes(q));
     }
@@ -171,7 +176,7 @@ function VendorUnifiedInbox({
     });
     if (listSegment === "unread") return items.filter((item) => item.unread);
     return items;
-  }, [filteredEmail, searchQuery, listSegment]);
+  }, [filteredEmail, searchQuery, listSegment, includeArchived]);
 
   const smsItems = useMemo((): UnifiedInboxListItem[] => {
     if (!smsUiEnabled || listSegment === "archived") return [];
@@ -399,8 +404,9 @@ export function VendorCommunication({
       <VendorUnifiedInbox
         inboxRef={inboxRef}
         smsUiEnabled={smsUiEnabled}
-        listSegment={status === "read" ? "active" : status}
+        listSegment={status === "read" || status === "all" ? "active" : status}
         readOnly={status === "read"}
+        includeArchived={status === "all"}
         routeThreadId={activeThreadId}
         onRouteThreadChange={setActiveThreadId}
         searchQuery={searchQuery}

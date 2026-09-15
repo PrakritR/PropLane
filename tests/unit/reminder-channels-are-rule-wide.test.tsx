@@ -1,15 +1,14 @@
 // @vitest-environment jsdom
 /**
- * Regression for the shared-channels defect: `ReminderAudienceChannelCells`
- * used to be rendered once per audience row (You / Team / Resident), all
+ * Regression for the shared-channels defect: the channel control used to be
+ * rendered once per audience row (You / Team / Resident), all
  * three bound to the same `rule.email` / `rule.sms` state — so clicking
  * "You → Text" silently also flipped "Resident → Text" because there was
  * never more than one value to begin with. The channels are per-RULE, not
  * per-audience (`rules.ts`), so the control must render exactly once.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
 const showToast = vi.fn();
 
@@ -69,15 +68,11 @@ describe("ManagerReminderRuleSettingsPanel channels are rule-wide", () => {
     // alongside them.
     await screen.findByText("You");
     expect(screen.getByText("Team")).toBeTruthy();
-    expect(screen.getByText("Resident & vendor")).toBeTruthy();
+    expect(screen.getByText("Resident")).toBeTruthy();
 
-    expect(screen.getAllByRole("group", { name: "Delivery channels" })).toHaveLength(1);
-    expect(screen.getAllByRole("switch", { name: "Inbox" })).toHaveLength(1);
-    expect(screen.getAllByRole("switch", { name: "Email" })).toHaveLength(1);
-    expect(screen.getAllByRole("switch", { name: "Text" })).toHaveLength(1);
-
-    // The shared row sits under its own "Send via" label, not nested inside
-    // any of the three "Notify" audience rows.
+    // One "Send via" dropdown for the whole rule, in its own row under the
+    // audience list — not one per audience row.
+    expect(screen.getAllByRole("button", { name: "Send via" })).toHaveLength(1);
     expect(screen.getByText("Send via")).toBeTruthy();
   });
 
@@ -85,27 +80,36 @@ describe("ManagerReminderRuleSettingsPanel channels are rule-wide", () => {
     stubFetch();
     renderPanel();
 
-    const textCell = await screen.findByRole("switch", { name: "Text" });
-    expect(textCell.getAttribute("aria-checked")).toBe("false");
+    await screen.findByText("You");
+    fireEvent.click(screen.getByRole("button", { name: "Send via", expanded: false }));
+    const listbox = screen.getByRole("listbox", { name: "Send via" });
+    const text = within(listbox).getByRole("option", { name: "Text" });
+    expect(text.getAttribute("aria-selected")).toBe("false");
 
-    await userEvent.click(textCell);
+    fireEvent.pointerDown(text, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(text, { pointerId: 1, clientX: 10, clientY: 10 });
 
-    // Still exactly one Text control, and it reflects the new value — there is
+    // Still exactly one Text option, and it reflects the new value — there is
     // no second, stale control left showing the old state.
-    const textCellsAfter = screen.getAllByRole("switch", { name: "Text" });
-    expect(textCellsAfter).toHaveLength(1);
-    expect(textCellsAfter[0]!.getAttribute("aria-checked")).toBe("true");
+    const listboxes = screen.getAllByRole("listbox", { name: "Send via" });
+    expect(listboxes).toHaveLength(1);
+    expect(within(listboxes[0]!).getByRole("option", { name: "Text" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("button", { name: "Send via" }).textContent).toContain("Text");
   });
 
   it("never lets the inbox channel be switched off", async () => {
     stubFetch();
     renderPanel();
 
-    const inboxCell = await screen.findByRole("switch", { name: "Inbox" });
-    expect(inboxCell.getAttribute("aria-checked")).toBe("true");
-    expect(inboxCell).toBeDisabled();
+    await screen.findByText("You");
+    fireEvent.click(screen.getByRole("button", { name: "Send via", expanded: false }));
+    const listbox = screen.getByRole("listbox", { name: "Send via" });
+    const inbox = within(listbox).getByRole("option", { name: "Inbox" });
+    expect(inbox.getAttribute("aria-selected")).toBe("true");
+    expect(inbox.getAttribute("aria-disabled")).toBe("true");
 
-    await userEvent.click(inboxCell);
-    expect(inboxCell.getAttribute("aria-checked")).toBe("true");
+    fireEvent.pointerDown(inbox, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(inbox, { pointerId: 1, clientX: 10, clientY: 10 });
+    expect(within(listbox).getByRole("option", { name: "Inbox" }).getAttribute("aria-selected")).toBe("true");
   });
 });

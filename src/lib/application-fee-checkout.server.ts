@@ -6,7 +6,7 @@ import {
   effectiveApplicationFeeCents,
   loadManagerApplicationSettings,
 } from "@/lib/manager-application-settings";
-import { normalizeManagerListingSubmissionV1, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { normalizeManagerListingSubmissionV1, resolveAllowedLeaseTerms, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { loadManagerManualPaymentSettings } from "@/lib/manager-manual-payment-settings";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import {
@@ -14,7 +14,7 @@ import {
   resolveServiceFeePayerFor,
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
-import { listingApplicationFeeRaw } from "@/lib/listing-application-fee";
+import { applicationFeeLeaseTypeKey, listingApplicationFeeRaw } from "@/lib/listing-application-fee";
 import { listingApplicationFeeChannels } from "@/lib/rental-application/application-fee-channel";
 import {
   APPLICATION_FEE_CHECKOUT_PURPOSE,
@@ -68,6 +68,21 @@ function clampAmountCents(n: number): number {
 
 export { listingApplicationFeeRaw } from "@/lib/listing-application-fee";
 
+/**
+ * The lease term the fee is looked up under, only when the listing actually
+ * offers it. A client can name any string here; one that is not on the
+ * listing resolves to nothing and the one amount applies.
+ */
+function offeredLeaseTerm(
+  listing: ManagerListingSubmissionV1 | null,
+  leaseTerm: string | undefined,
+): string | undefined {
+  const term = String(leaseTerm ?? "").trim();
+  if (!listing || !term) return undefined;
+  const offered = new Set(resolveAllowedLeaseTerms(listing).map(applicationFeeLeaseTypeKey));
+  return offered.has(applicationFeeLeaseTypeKey(term)) ? term : undefined;
+}
+
 export type ResolvedApplicationFeeProperty = {
   managerUserId: string;
   listing: ManagerListingSubmissionV1 | null;
@@ -87,7 +102,17 @@ export type ResolvedApplicationFeeProperty = {
  */
 export async function resolveApplicationFeeProperty(
   db: SupabaseClient,
-  input: { propertyId: string; managerUserId: string; rentalType?: "standard" | "short_term" },
+  input: {
+    propertyId: string;
+    managerUserId: string;
+    rentalType?: "standard" | "short_term";
+    /**
+     * The applicant's chosen lease type — a SELECTOR into the listing's stored
+     * per-type fees, never an amount. An unknown or unoffered term simply falls
+     * back to the one amount.
+     */
+    leaseTerm?: string;
+  },
   opts?: {
     /**
      * A 0 effective fee ("applications are free") is a NORMAL answer for the
@@ -134,7 +159,7 @@ export async function resolveApplicationFeeProperty(
   // "unset" → fall back to the account-wide default; any set value (INCLUDING "0" = free) is
   // charged as-is and must never fall through. See `src/lib/manager-application-settings.ts`.
   const managerSettings = await loadManagerApplicationSettings(db, ownerUserId);
-  const rawListingFee = listingApplicationFeeRaw(listing, input.rentalType);
+  const rawListingFee = listingApplicationFeeRaw(listing, input.rentalType, offeredLeaseTerm(listing, input.leaseTerm));
   const listingFeeCents =
     rawListingFee === "" ? null : clampAmountCents(parseMoneyAmount(rawListingFee) * 100);
   const applicationFeeCents = clampAmountCents(
@@ -215,6 +240,8 @@ export type ApplicationFeeCheckoutInput = {
   residentName?: string;
   managerUserId: string;
   rentalType?: "standard" | "short_term";
+  /** The applicant's lease type; picks the listing's per-type fee when one is set. */
+  leaseTerm?: string;
   /**
    * `embedded` renders the payment form INLINE in the application (the default
    * — the applicant never leaves the wizard); `hosted` redirects to Stripe's

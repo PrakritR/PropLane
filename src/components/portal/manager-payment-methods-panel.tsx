@@ -123,7 +123,6 @@ export function ManagerPaymentMethodsPanel() {
   return (
     <PortalSettingsSection
       title="Payment methods"
-      description="Cards securely saved with Stripe for PropLane billing."
     >
       <PortalSettingsGroup>
         <div className="flex flex-wrap items-center justify-between gap-4 p-5">

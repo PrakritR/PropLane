@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { PreferredArrivalField } from "@/components/portal/preferred-arrival-field";
 import { ENTRY_PERMISSION_OPTIONS } from "@/lib/work-order-entry";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
@@ -50,85 +51,65 @@ export function createEmptyServiceIntakeFormState(
   };
 }
 
+/**
+ * Who is filling the form in. The resident form asks in the resident's own
+ * words ("Can maintenance enter if you're not home?"); the manager logging a
+ * service on a resident's behalf is not the resident, so the manager voice
+ * drops those two fields and keeps the access notes.
+ */
+export type ServiceIntakeVoice = "resident" | "manager";
+
 export function ServiceIntakeFormFields({
   catalogOffers,
   form,
   onChange,
   disabled = false,
   photoSlot,
+  voice = "resident",
 }: {
   catalogOffers: readonly ManagerListingServiceOption[];
   form: ServiceIntakeFormState;
   onChange: (patch: Partial<ServiceIntakeFormState>) => void;
   disabled?: boolean;
   photoSlot?: ReactNode;
+  voice?: ServiceIntakeVoice;
 }) {
   const options = buildServiceIntakeOptions(mergeResidentServiceCatalogOffers(catalogOffers));
   const selected = findServiceIntakeOption(options, form.optionKey);
   const isRepair = selected?.kind === "repair";
   const isCustomAddOn = serviceIntakeIsCustomAddOn(selected);
+  const managerVoice = voice === "manager";
   const selectedCatalogOffer =
     selected?.offerId && !isCustomAddOn
       ? catalogOffers.find((offer) => offer.id === selected.offerId) ?? null
       : null;
 
-  const grouped = {
-    property: options.filter((option) => option.group === "property"),
-    repair: options.filter((option) => option.group === "repair"),
-    other: options.filter((option) => option.group === "other"),
-  };
+  // One flat list, in a fixed order: property services, then Maintenance,
+  // then the custom add-on. `buildServiceIntakeOptions` already emits them in
+  // that order; group headers inside the menu are deliberately not drawn.
+  const typeOptions = options.map((option) => ({ value: option.key, label: option.label }));
 
   return (
     <div className="space-y-3">
-      <div>
-        <p className="mb-1 text-[11px] font-medium text-muted">
-          Service type <span className="text-rose-500">*</span>
-        </p>
-        <Select
-          value={form.optionKey}
-          onChange={(e) => {
-            const next = findServiceIntakeOption(options, e.target.value);
-            onChange({
-              optionKey: e.target.value,
-              categoryLabel:
-                next?.categoryLabel ??
-                (next?.kind === "repair" ? "General" : form.categoryLabel),
-              title: next?.kind === "repair" ? "" : form.title,
-            });
-          }}
-          className="bg-card"
-          disabled={disabled}
-          data-attr="service-intake-type"
-        >
-          {grouped.property.length > 0 ? (
-            <optgroup label="Property services">
-              {grouped.property.map((option) => (
-                <option key={option.key} value={option.key}>
-                  {option.label}
-                </option>
-              ))}
-            </optgroup>
-          ) : null}
-          {grouped.repair.length > 0 ? (
-            <optgroup label="Maintenance">
-              {grouped.repair.map((option) => (
-                <option key={option.key} value={option.key}>
-                  {option.label}
-                </option>
-              ))}
-            </optgroup>
-          ) : null}
-          {grouped.other.length > 0 ? (
-            <optgroup label="Other">
-              {grouped.other.map((option) => (
-                <option key={option.key} value={option.key}>
-                  {option.label}
-                </option>
-              ))}
-            </optgroup>
-          ) : null}
-        </Select>
-      </div>
+      <FieldSingleSelect
+        label="Service type"
+        labelClassName="mb-1 block text-[11px] font-medium text-muted"
+        value={form.optionKey}
+        options={typeOptions}
+        placeholder="Choose a service type"
+        onChange={(value) => {
+          const next = findServiceIntakeOption(options, value);
+          onChange({
+            optionKey: value,
+            categoryLabel:
+              next?.categoryLabel ??
+              (next?.kind === "repair" ? "General" : form.categoryLabel),
+            title: next?.kind === "repair" ? "" : form.title,
+          });
+        }}
+        disabled={disabled}
+        dataAttr="service-intake-type"
+      />
 
       {selectedCatalogOffer ? (
         <div className="rounded-xl border border-border bg-accent/20 px-3 py-2.5 text-sm">
@@ -229,7 +210,9 @@ export function ServiceIntakeFormFields({
           onChange={(e) => onChange({ description: e.target.value })}
           placeholder={
             isRepair
-              ? "What's happening? Include timing or access details…"
+              ? managerVoice
+                ? "What's happening?"
+                : "What's happening? Include timing or access details…"
               : "Preferred timing, special instructions…"
           }
           rows={isRepair ? 4 : 3}
@@ -258,33 +241,39 @@ export function ServiceIntakeFormFields({
 
       {isRepair ? (
         <>
-          <PreferredArrivalField
-            preset={form.arrivalPreset}
-            custom={form.arrivalCustom}
-            onPresetChange={(value) => onChange({ arrivalPreset: value })}
-            onCustomChange={(value) => onChange({ arrivalCustom: value })}
-          />
+          {managerVoice ? null : (
+            <>
+              <PreferredArrivalField
+                preset={form.arrivalPreset}
+                custom={form.arrivalCustom}
+                onPresetChange={(value) => onChange({ arrivalPreset: value })}
+                onCustomChange={(value) => onChange({ arrivalCustom: value })}
+              />
+              <div>
+                <p className="mb-1 text-[11px] font-medium text-muted">Can maintenance enter if you&apos;re not home?</p>
+                <Select
+                  value={form.entryPermission ?? "call_first"}
+                  onChange={(e) =>
+                    onChange({
+                      entryPermission: e.target.value as DemoManagerWorkOrderRow["entryPermission"],
+                    })
+                  }
+                  className="bg-card"
+                  disabled={disabled}
+                >
+                  {ENTRY_PERMISSION_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </>
+          )}
           <div>
-            <p className="mb-1 text-[11px] font-medium text-muted">Can maintenance enter if you&apos;re not home?</p>
-            <Select
-              value={form.entryPermission ?? "call_first"}
-              onChange={(e) =>
-                onChange({
-                  entryPermission: e.target.value as DemoManagerWorkOrderRow["entryPermission"],
-                })
-              }
-              className="bg-card"
-              disabled={disabled}
-            >
-              {ENTRY_PERMISSION_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div>
-            <p className="mb-1 text-[11px] font-medium text-muted">Entry notes (gate code, pets, parking…)</p>
+            <p className="mb-1 text-[11px] font-medium text-muted">
+              {managerVoice ? "Access notes (gate code, pets, parking…)" : "Entry notes (gate code, pets, parking…)"}
+            </p>
             <Input
               value={form.entryNotes}
               onChange={(e) => onChange({ entryNotes: e.target.value })}

@@ -47,6 +47,34 @@ Library: `src/lib/listing-house-defaults.ts` (rooms),
 `roomsFollowingDefaults` is the older per-record reading the previous wizard
 still uses; the v2 Rooms step does not call it.
 
+## Fees live on the card that charges them
+
+There is no separate "Other fees" section on Pricing and no More ▾ on its
+cards: every card — Default room or a room, on every lease tab — lists its
+fees and adds one in place (`FeeRows`, `listing-pricing-step.tsx`). A fee
+added on the Default room (or the whole place) is every room's — stored with
+no `roomIds`, how "All rooms" was always stored; one added on a room is
+scoped to it. The tab it is added on sets `leaseTypes`: the lease types from a
+lease tab, the stay types from a stay tab (`feeScopeForTab`), stored only when
+that narrows what the listing offers. A room lists the house-wide fees that
+reach it read-only ("· all rooms"). Typing a standard fee's name (Parking,
+Holding deposit…) adopts that preset row, so billing and the lease document
+see the same record they always did. Same `customFees` records, no new
+storage.
+
+## The application fee follows one amount, per lease type
+
+The Applications card sits directly under the lease-types card.
+`applicationFee` is the one amount; `applicationFeeByLeaseType` (keyed by the
+displayed lease type) holds only the types priced differently, behind
+"Different application fee per lease type". A blank row follows the one
+amount, the way a room follows the Default room. `shortTermApplicationFee` is
+the legacy stay fallback and mirrors the Short-term row.
+`listingApplicationFeeRaw(listing, rentalType, leaseTerm)`
+(`src/lib/listing-application-fee.ts`) is the one reader; the applicant's
+fee preview and checkout send the chosen lease term as a selector and the
+server still resolves the amount from the stored listing.
+
 ## The Pricing Default room has a per-term twin
 
 On a lease type other than long-term (Month-to-Month, Custom), the Pricing
@@ -98,6 +126,8 @@ when the round trip was lost, showed nothing. The size placeholder is a dash,
 never a number.
 
 Specs: `tests/unit/listing-wizard-v2-cards.test.tsx`,
+`tests/unit/listing-pricing-screen-behaviour.test.tsx`,
+`tests/unit/listing-application-fee.test.ts`,
 `tests/unit/listing-wizard-v2-basics-bathrooms.test.tsx`,
 `tests/unit/listing-house-defaults.test.ts`,
 `tests/unit/listing-record-defaults.test.ts`.

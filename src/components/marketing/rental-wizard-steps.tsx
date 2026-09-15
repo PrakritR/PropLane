@@ -2288,6 +2288,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               residentName={form.fullLegalName.trim() || undefined}
               managerUserId={managerUserIdForPay}
               rentalType={applicationRentalTypeFor(form.rentalType)}
+              leaseTerm={form.leaseTerm || undefined}
               returnPath={applyReturnPath ?? "/rent/apply"}
             />
           ) : (

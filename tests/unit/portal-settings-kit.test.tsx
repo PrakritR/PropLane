@@ -43,27 +43,23 @@ describe("PortalSettingsToggle", () => {
 });
 
 describe("PortalSettingsLockedRow", () => {
-  it("always renders its reason text", () => {
+  it("always carries its reason — for assistive tech and on hover, never as a visible sentence", () => {
     render(<PortalSettingsLockedRow label="Custom domain" reason="Upgrade to Pro to set a custom domain." />);
-    expect(screen.getByText("Upgrade to Pro to set a custom domain.")).toBeInTheDocument();
-    expect(screen.getByText("Custom domain")).toBeInTheDocument();
+    const reason = screen.getByText("Upgrade to Pro to set a custom domain.");
+    expect(reason).toBeInTheDocument();
+    expect(reason.className).toContain("sr-only");
+    expect(screen.getByText("Custom domain").closest("p")?.getAttribute("title")).toBe(
+      "Upgrade to Pro to set a custom domain.",
+    );
   });
 });
 
-describe("PortalSettingsRow meta", () => {
-  it("renders meta when given", () => {
-    render(<PortalSettingsRow label="API key" description="Used for integrations" meta="Last rotated 3 days ago" />);
-    expect(screen.getByText("Last rotated 3 days ago")).toBeInTheDocument();
-  });
-
-  it("renders identically (no extra node) when meta is omitted", () => {
-    const { container: withoutMeta } = render(<PortalSettingsRow label="API key" description="Used for integrations" />);
-    const baselineHtml = withoutMeta.innerHTML;
-    cleanup();
-    const { container: withMetaOmitted } = render(
-      <PortalSettingsRow label="API key" description="Used for integrations" meta={undefined} />,
-    );
-    expect(withMetaOmitted.innerHTML).toBe(baselineHtml);
+describe("PortalSettingsRow", () => {
+  it("renders the label and nothing under it", () => {
+    const { container } = render(<PortalSettingsRow label="API key">control</PortalSettingsRow>);
+    expect(screen.getByText("API key")).toBeInTheDocument();
+    // One <p> — the label. A second line is the subtext the kit exists to forbid.
+    expect(container.querySelectorAll("p")).toHaveLength(1);
   });
 });
 

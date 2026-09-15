@@ -14,6 +14,16 @@ describe("portalInboxThreadScopeFilter", () => {
     ).toBe("owner_user_id.in.(co-1,owner-1),participant_email.eq.co@example.com");
   });
 
+  it("for manager Communication, matches the viewer's email only on legacy owner-less rows", () => {
+    // A thread another owner holds never reaches a manager's inbox because the
+    // manager is the person it was sent to — that owner never invited them.
+    expect(
+      portalInboxThreadScopeFilter({ id: "mgr-1", email: "mgr@example.com", role: "manager" }, [], {
+        participantOnlyWhenUnowned: true,
+      }),
+    ).toBe("owner_user_id.eq.mgr-1,and(owner_user_id.is.null,participant_email.eq.mgr@example.com)");
+  });
+
   it("omits empty participant_email clause", () => {
     expect(portalInboxThreadScopeFilter({ id: "mgr-1", email: null, role: "manager" })).toBe("owner_user_id.eq.mgr-1");
   });

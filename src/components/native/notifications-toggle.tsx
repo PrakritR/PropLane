@@ -52,9 +52,9 @@ export function NotificationsToggle() {
         : "Get rent reminders, work-order updates, and announcements.";
 
   return (
-    <PortalSettingsSection title="Notifications" description="Manage push alerts on this device.">
+    <PortalSettingsSection title="Notifications">
       <PortalSettingsGroup>
-        <PortalSettingsRow label="Push notifications" description={description}>
+        <PortalSettingsRow label="Push notifications">
           {permission === "granted" ? (
             <span className="text-sm font-medium text-emerald-600">On</span>
           ) : permission === "denied" ? (

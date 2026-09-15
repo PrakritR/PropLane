@@ -268,7 +268,9 @@ describe("fetchManagerSmsConversations — per-counterparty threading & tenant i
       },
     } as never;
 
-    const payload = await fetchManagerSmsConversations(db, M, { scopeManagerIdsOverride: [M, M2] });
+    // A cohort read on the owners' behalf (admin oversight), not a viewer's
+    // list: the per-house visibility rule is off, the batching is what is pinned.
+    const payload = await fetchManagerSmsConversations(db, M, { scopeManagerIdsOverride: [M, M2], visibility: "none" });
     const alice = payload.residents.find((r) => r.residentUserId === ALICE);
     const bob = payload.residents.find((r) => r.residentUserId === BOB);
     expect(alice?.ownerManagerUserId).toBe(M);

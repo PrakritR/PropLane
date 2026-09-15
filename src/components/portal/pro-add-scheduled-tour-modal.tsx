@@ -27,6 +27,23 @@ import {
 import { getRoomOptionsForProperty } from "@/lib/rental-application/data";
 import type { WorkAssignee } from "@/lib/work-assignment";
 import { cn } from "@/lib/utils";
+import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
+import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
+import {
+  TOUR_CONFIRMED_TENANT_SUBJECT,
+  buildTourConfirmedTenantBody,
+  buildTourNotificationContext,
+} from "@/lib/tour-notifications";
+import { getPropertyById } from "@/lib/rental-application/data";
+
+/** After the tour is saved: the guest message the manager reviews before it goes out. */
+type GuestPreview = {
+  guestName: string;
+  email: string;
+  phone?: string;
+  subject: string;
+  body: string;
+};
 
 const DURATION_OPTIONS = [
   { value: "30", label: "30 minutes" },
@@ -95,6 +112,8 @@ export function ManagerAddScheduledTourModal({
   const { showToast } = useAppUi();
   const { teamMembers, vendors } = useWorkAssignmentDirectory({ managerUserId });
   const [saving, setSaving] = useState(false);
+  const [guestPreview, setGuestPreview] = useState<GuestPreview | null>(null);
+  const [guestPreviewBusy, setGuestPreviewBusy] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [assignee, setAssignee] = useState<WorkAssignee | null>(null);
   const [selectedRoomValue, setSelectedRoomValue] = useState("");
@@ -180,9 +199,43 @@ export function ManagerAddScheduledTourModal({
         });
       }
 
-      onClose();
-      onSaved?.();
       showToast(result.message);
+
+      // The next screen is the message the guest will get — the same preview
+      // tours use for confirm / reschedule — as long as there is somewhere to
+      // send it. A guest with no email and no phone just saves. `onSaved` is
+      // deferred until the preview is done: the tours page answers it by
+      // navigating to Upcoming, which would unmount this modal mid-preview.
+      const guestEmail = form.guestEmail.trim();
+      const guestPhone = form.guestPhone.trim();
+      if (guestEmail.includes("@") || guestPhone) {
+        const listing = getPropertyById(form.propertyId);
+        const ctx = buildTourNotificationContext({
+          origin: typeof window !== "undefined" ? window.location.origin : "",
+          guestName: form.guestName.trim(),
+          guestEmail,
+          guestPhone: guestPhone || null,
+          propertyId: form.propertyId,
+          propertyTitle: property?.label ?? listing?.title ?? "Property",
+          propertyAddress: listing?.address ?? null,
+          roomLabel: roomLabel ?? null,
+          tourFormat: form.tourFormat,
+          tourStartIso: start,
+          tourEndIso: end,
+          notes: form.notes.trim() || null,
+          managerLabel: "Property Manager",
+        });
+        setGuestPreview({
+          guestName: form.guestName.trim(),
+          email: guestEmail,
+          phone: guestPhone || undefined,
+          subject: TOUR_CONFIRMED_TENANT_SUBJECT,
+          body: buildTourConfirmedTenantBody(ctx),
+        });
+        return;
+      }
+      onSaved?.();
+      onClose();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not schedule tour.");
     } finally {
@@ -190,8 +243,72 @@ export function ManagerAddScheduledTourModal({
     }
   }
 
+  const sendGuestPreview = async (
+    skip: boolean,
+    channels?: { viaEmail: boolean; viaSms: boolean },
+    draft?: { subject: string; body: string },
+  ) => {
+    if (!guestPreview || guestPreviewBusy) return;
+    if (skip) {
+      setGuestPreview(null);
+      onSaved?.();
+      onClose();
+      return;
+    }
+    setGuestPreviewBusy(true);
+    try {
+      const result = await deliverPortalInboxMessage({
+        eventCategory: "messages",
+        fromName: "Property Manager",
+        toEmails: guestPreview.email.includes("@") ? [guestPreview.email] : [],
+        subject: draft?.subject?.trim() || guestPreview.subject,
+        text: draft?.body?.trim() || guestPreview.body,
+        deliverViaEmail: channels?.viaEmail ?? guestPreview.email.includes("@"),
+        deliverViaSms: (channels?.viaSms ?? false) && Boolean(guestPreview.phone),
+      });
+      if (!result.ok) {
+        showToast(result.error ?? "Message could not be sent.");
+        return;
+      }
+      showToast(`Sent to ${guestPreview.guestName || "the guest"}.`);
+      setGuestPreview(null);
+      onSaved?.();
+      onClose();
+    } finally {
+      setGuestPreviewBusy(false);
+    }
+  };
+
   return (
-    <Modal open={open} onClose={onClose} title="Schedule tour" dense assistantContext="Schedule tour" footer={
+    <>
+    {guestPreview ? (
+      <PortalNotificationPreviewModal
+        open
+        title={`Message ${guestPreview.guestName || "guest"}`}
+        onClose={() => {
+          if (guestPreviewBusy) return;
+          setGuestPreview(null);
+          onSaved?.();
+          onClose();
+        }}
+        recipient={guestPreview.email || guestPreview.phone || ""}
+        recipientPhone={guestPreview.phone}
+        subject={guestPreview.subject}
+        body={guestPreview.body}
+        editableSubject
+        editableBody
+        skipMessageLabel="Skip message"
+        showChannelPicker
+        emailAvailable={guestPreview.email.includes("@")}
+        smsAvailable={Boolean(guestPreview.phone)}
+        defaultViaSms={false}
+        confirmLabel="Send"
+        confirmBusy={guestPreviewBusy}
+        confirmBusyLabel="Sending…"
+        onConfirm={(skip, channels, draft) => void sendGuestPreview(skip, channels, draft)}
+      />
+    ) : null}
+    <Modal open={open && !guestPreview} onClose={onClose} title="Schedule tour" dense assistantContext="Schedule tour" footer={
       <ModalFooter>
         <Button
           type="button"
@@ -369,5 +486,6 @@ export function ManagerAddScheduledTourModal({
       </div>
       </div>
     </Modal>
+    </>
   );
 }

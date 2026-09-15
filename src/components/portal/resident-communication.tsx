@@ -100,6 +100,7 @@ function ResidentUnifiedInbox({
   smsUiEnabled,
   listSegment,
   readOnly = false,
+  includeArchived = false,
   routeThreadId,
   onRouteThreadChange,
   onThreadOpenChange,
@@ -112,6 +113,8 @@ function ResidentUnifiedInbox({
   smsUiEnabled: boolean;
   listSegment: InboxListSegment;
   readOnly?: boolean;
+  /** "All conversations": archived rows stay in the active list. */
+  includeArchived?: boolean;
   routeThreadId?: string;
   onRouteThreadChange?: (threadId: string | undefined) => void;
   onThreadOpenChange?: (open: boolean) => void;
@@ -248,7 +251,7 @@ function ResidentUnifiedInbox({
       rows = rows.filter((t) => t.folder === "trash");
     } else if (listSegment === "unread") {
       rows = rows.filter((t) => t.folder !== "trash" && t.folder === "inbox" && t.unread);
-    } else {
+    } else if (!includeArchived) {
       rows = rows.filter((t) => t.folder !== "trash");
     }
     if (q) {
@@ -583,8 +586,9 @@ export function ResidentCommunication({
       <ResidentUnifiedInbox
         inboxRef={inboxRef}
         smsUiEnabled={smsUiEnabled}
-        listSegment={status === "read" ? "active" : status}
+        listSegment={status === "read" || status === "all" ? "active" : status}
         readOnly={status === "read"}
+        includeArchived={status === "all"}
         routeThreadId={activeThreadId}
         onRouteThreadChange={setActiveThreadId}
         onThreadOpenChange={setThreadOpen}

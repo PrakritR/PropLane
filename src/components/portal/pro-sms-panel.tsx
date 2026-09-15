@@ -10,13 +10,12 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { ChevronLeft, Pencil, Search, Trash2 } from "lucide-react";
+import { ChevronLeft, Pencil, RotateCcw, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { ManagerSmsComposeModal } from "@/components/portal/pro-sms-compose-modal";
 import { TourInterestFollowUpCard } from "./tour-interest-follow-up-card";
-import { SmsConversationHouseChip } from "@/components/portal/sms-conversation-house-chip";
 import {
   PortalContactDetailsModal,
   type PortalContactDetailsValues,
@@ -975,15 +974,6 @@ export const ManagerSmsPanel = forwardRef<
             {smsConversationSubtitle(active.resident) || " "}
           </p>
         </div>
-        {active.resident.conversationKey ? (
-          <SmsConversationHouseChip
-            conversationKey={active.resident.conversationKey}
-            ownerManagerUserId={active.resident.ownerManagerUserId}
-            houses={active.resident.houses ?? []}
-            canEdit={canEditContact}
-            onChanged={() => void load({ quiet: true })}
-          />
-        ) : null}
         {canEditContact ? (
           <button
             type="button"
@@ -996,15 +986,16 @@ export const ManagerSmsPanel = forwardRef<
           </button>
         ) : null}
         {active.archived ? (
-          <Button
+          <button
             type="button"
-            variant="outline"
-            className="h-10 min-h-10 rounded-full px-3 text-xs"
+            className="flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
+            aria-label="Restore conversation"
+            title="Restore"
             data-attr="sms-messages-thread-restore"
             onClick={() => restoreConversation(active.resident)}
           >
-            Restore
-          </Button>
+            <RotateCcw className="h-4 w-4" aria-hidden />
+          </button>
         ) : (
           <>
             <Button

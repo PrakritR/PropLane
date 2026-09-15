@@ -145,7 +145,6 @@ export function ManagerNotificationRoutingSetting() {
   return (
     <PortalSettingsSection
       title="Manager alerts"
-      description="Choose where proactive reminders reach you and which topics may text your phone."
       action={
         loadState === "ready" ? (
           <Button

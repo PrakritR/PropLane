@@ -1198,7 +1198,7 @@ export function VendorSettingsPanel() {
         return (
           <>
             {unlinkedBanner}
-    <PortalSettingsSection title="Business profile" description="Shown to the property managers you work with.">
+    <PortalSettingsSection title="Business profile">
       <PortalSettingsGroup>
       {profileLoading ? (
         <p className="px-4 py-4 text-sm text-muted">Loading…</p>
@@ -1279,7 +1279,6 @@ export function VendorSettingsPanel() {
             {unlinkedBanner}
     <PortalSettingsSection
       title="Work capabilities"
-      description="Managers use this to match you with the right services."
     >
       <PortalSettingsGroup>
       {profileLoading ? (
@@ -1377,7 +1376,6 @@ export function VendorSettingsPanel() {
                           key={g.id}
                           icon={<g.icon className="h-4 w-4" />}
                           label={g.label}
-                          description={g.description}
                           onClick={() => openGroup(g.id)}
                           dataAttr={`settings-open-${g.id}`}
                         />

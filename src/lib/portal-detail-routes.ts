@@ -9,6 +9,7 @@ export const PROPERTY_DETAIL_TABS = [
   "bookings",
   "requests",
   "promotion",
+  "ai-info",
 ] as const;
 
 export type PropertyDetailTabId = (typeof PROPERTY_DETAIL_TABS)[number];
@@ -23,6 +24,7 @@ export const PROPERTY_DETAIL_TAB_LABELS: Record<PropertyDetailTabId, string> = {
   bookings: "Bookings",
   requests: "Requests",
   promotion: "Promotion",
+  "ai-info": "AI info",
 };
 
 /** Property detail tabs that appear before application/lease in the manager UI. */
@@ -44,6 +46,7 @@ export const PROPERTY_DETAIL_TOP_TAB_LABELS = {
   lease: "Lease",
   requests: "Services",
   promotion: "Promotion",
+  "ai-info": "AI info",
 } as const;
 
 /** In-content scope chips under the Preview top tab (listing gallery vs house vs move-in). */
@@ -74,6 +77,7 @@ export const PROPERTY_DETAIL_TOP_TAB_DESCRIPTIONS: Record<PropertyDetailTopTabId
   lease: "Draft, send and e-sign",
   requests: "Repairs and resident requests",
   promotion: "Share and syndicate the listing",
+  "ai-info": "What the assistant says about this home",
 };
 
 export const PROPERTY_DETAIL_TOP_TAB_SHORT_LABELS: Partial<
@@ -83,6 +87,7 @@ export const PROPERTY_DETAIL_TOP_TAB_SHORT_LABELS: Partial<
   "move-in": "Move-in",
   application: "Apply",
   promotion: "Promo",
+  "ai-info": "AI",
 };
 
 export function propertyDetailTopNavId(tab: PropertyDetailTabId): PropertyDetailTopTabId {
@@ -94,6 +99,7 @@ export function propertyDetailTopNavId(tab: PropertyDetailTabId): PropertyDetail
   if (tab === "lease") return "lease";
   if (tab === "requests") return "requests";
   if (tab === "promotion") return "promotion";
+  if (tab === "ai-info") return "ai-info";
   if ((PROPERTY_DETAIL_SECTION_TABS as readonly string[]).includes(tab)) return "preview";
   return "preview";
 }
