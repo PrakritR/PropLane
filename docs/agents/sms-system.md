@@ -69,7 +69,13 @@ collapse to the owner on inbound. See `docs/agents/inbound-email-inbox.md`
 `manager_sms_conversation_houses` — `(conversation_key, property_id, source)`,
 service-role only (`20260911190000_sms_conversation_houses.sql`). One workspace
 number is shared by the whole team, so the houses on a thread decide which
-members see it. Library: `src/lib/sms/conversation-houses.server.ts`.
+members see it: `fetchManagerSmsConversations` filters every conversation
+through `conversationVisible` (`src/lib/communication/conversation-visibility.server.ts`)
+after the houses are attached — a co-manager only on a granted house, everyone
+only inside the workspace that holds it, an untagged thread in the owner's
+default workspace. Pass `visibility: "none"` only for delivery on the owner's
+behalf (no viewer to narrow for). Library:
+`src/lib/sms/conversation-houses.server.ts`.
 
 - **A tag is never a guess.** Sources: `residency` (derived at read time from
   the resident's application `property`, matched against the owner's house

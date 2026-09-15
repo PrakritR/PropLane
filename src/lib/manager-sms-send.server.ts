@@ -47,7 +47,7 @@ export async function sendManagerConversationSms(db: SupabaseClient, args: {
   const conversations = await fetchManagerSmsConversations(
     db,
     args.actorUserId,
-    { provisionWorkNumber: false, ...(args.scopeManagerIds ? { scopeManagerIdsOverride: args.scopeManagerIds } : {}) },
+    { provisionWorkNumber: false, visibility: "edit", ...(args.scopeManagerIds ? { scopeManagerIdsOverride: args.scopeManagerIds } : {}) },
   );
   const toDigits = toPhone.replace(/\D/g, "");
   const replyKey = String(body.conversationKey ?? "").trim();

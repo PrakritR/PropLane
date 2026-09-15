@@ -8,6 +8,7 @@ import {
 import { loadConversationHouseScope, setConversationHousesManually } from "@/lib/sms/conversation-houses.server";
 import { canReplaceConversationHouses, loadAssignableConversationHouses } from "@/lib/sms/conversation-house-access.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +30,12 @@ export async function GET(req: Request) {
   let houses;
   try {
     houses = (await loadAssignableConversationHouses(auth.db, auth.user.id)).assignable;
+    // The picker offers the houses of the workspace the viewer is in, like every other list.
+    const scope = await resolveCommunicationScope(auth.db, auth.user.id, "edit");
+    if (scope.workspaceHouseIds) {
+      const inWorkspace = scope.workspaceHouseIds;
+      houses = new Map([...houses].filter(([id]) => inWorkspace.has(id)));
+    }
   } catch {
     return NextResponse.json({ error: "Could not verify house access. Please try again." }, { status: 503 });
   }

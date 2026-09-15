@@ -105,6 +105,12 @@ export type PersistedInboxThread = {
    * declared a binding, while one or more keys prohibit email fallback.
    */
   smsBindingKeys?: string[];
+  /**
+   * Response-only: the house(s) the server resolved this thread to be about
+   * (`conversation-visibility.server.ts`). The list labels the row with the
+   * first one; visibility was already decided with the same set.
+   */
+  houses?: { propertyId: string; label: string }[];
 };
 
 export const MANAGER_INBOX_STORAGE_KEY = "axis_portal_inbox_manager_v1";

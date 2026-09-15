@@ -588,12 +588,13 @@ export function ManagerUnifiedInbox({
         time: t.time,
         unread: t.folder === "inbox" && t.unread,
         unreadCount: inboxThreadUnreadCount(t),
-        // The house comes from the contact directory this panel already loads
-        // for its compose and filter pickers, joined by email. Nothing on the
-        // thread itself carries a property.
+        // The house the server resolved the thread to be about — the same set
+        // that decided the row is visible at all. The contact directory (joined
+        // by email) is the fallback for rows the server could not place.
         address: inboxRowAddressLabel(
-          filterContacts?.find((c) => c.email?.trim().toLowerCase() === t.email?.trim().toLowerCase())
-            ?.propertyLabel,
+          t.houses?.[0]?.label ??
+            filterContacts?.find((c) => c.email?.trim().toLowerCase() === t.email?.trim().toLowerCase())
+              ?.propertyLabel,
         ),
         category: inboxThreadCategoryLabel(t),
         // Sort on the SAME field the row is labelled with. `lastMsg.at` is the
@@ -966,7 +967,7 @@ export function ManagerUnifiedInbox({
                 compact
                 tone="muted"
                 section="communication"
-                workspaceAware={false}
+                workspaceAware
                 title={portalEmptyNoMatchTitle("messages", query)}
                 clear={{ label: "Clear search", onClick: () => setQuery(""), dataAttr: "unified-inbox-empty-clear-search" }}
                 dataAttr="unified-inbox-empty"
@@ -975,7 +976,7 @@ export function ManagerUnifiedInbox({
               <PortalListEmptyCard
                 compact
                 section="communication"
-                workspaceAware={false}
+                workspaceAware
                 title={portalEmptyCopy(`communication.${listSegment ?? "active"}` as PortalEmptyCopyKey).title}
                 sibling={listSegment && listSegment !== "active" ? { label: "Active conversations", href: `${commBase}/active`, dataAttr: "unified-inbox-empty-active" } : null}
                 actions={

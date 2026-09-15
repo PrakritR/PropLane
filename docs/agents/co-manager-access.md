@@ -84,6 +84,16 @@ onboards the OWNER's account
 (`src/lib/auth/co-manager-bank-account-access.ts`,
 `manager-stripe-payout-access.server.ts`).
 
+**Communication is granted per HOUSE, not per owner.** A Communication grant
+on one house shows the conversations about that house — never the owner's
+whole inbox, never their PropLane Assistant thread, never a house the
+co-manager was not given, and never a conversation about no house. Moving a
+house between workspaces carries its grants (the Move dialog names who keeps
+access); a brand-new workspace holds no house, so nobody but the owner is in
+it. One resolver decides: `src/lib/communication/conversation-visibility.server.ts`
+(see `docs/agents/communication-inbox.md`). `describeCoManagerPermissions`
+says so on the invite.
+
 **`coManagerModuleAllowed` is the ONE answer to "may this co-manager use this
 module".** The server scope (`src/lib/auth/co-manager-module-scope.ts`) and the
 client portfolio mirror (`src/lib/manager-portfolio-access.ts`) both delegate to
