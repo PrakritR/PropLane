@@ -22,8 +22,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Settings2, Share2 } from "lucide-react";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
-import { listPortfolioImports } from "@/lib/portfolio-import.client";
-import type { PortfolioImportSummary } from "@/lib/portfolio-import/types";
 import {
   getSettingsEntryPoint,
   settingsDialogTitlePrefix,
@@ -150,21 +148,6 @@ export function ManagerProperties({
   /** Several selected listings, for a bulk share from the Properties list (AXI-140). */
   const [shareListingPropertyIds, setShareListingPropertyIds] = useState<string[] | undefined>();
   const [demoStage, setDemoStage] = useState<ManagerStageKey>("all");
-  /** The most recent unfinished portfolio import, for the slim banner above the list. */
-  const [openImport, setOpenImport] = useState<PortfolioImportSummary | null>(null);
-  useEffect(() => {
-    if (isDemoModeActive()) return;
-    let cancelled = false;
-    void listPortfolioImports().then((res) => {
-      if (cancelled || !res.ok) return;
-      const pending = res.imports.find((i) => i.status === "draft" || i.status === "uploaded" || i.status === "committing");
-      setOpenImport(pending ?? null);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [portfolioTick]);
-
   const activeStage = isDemoModeActive()
     ? demoStage
     : stageProp;
@@ -521,9 +504,6 @@ export function ManagerProperties({
                   <DropdownMenuItem data-attr="manager-properties-add-top-property" onSelect={tryOpenAdd}>
                     Add property
                   </DropdownMenuItem>
-                  <DropdownMenuItem asChild data-attr="manager-properties-import">
-                    <Link href="/portal/properties/import">Import portfolio</Link>
-                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             }
@@ -545,24 +525,6 @@ export function ManagerProperties({
                 to add more.
               </span>
             </p>
-          ) : null}
-          {openImport ? (
-            <div
-              className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-border bg-card px-4 py-3 text-sm"
-              data-attr="properties-import-banner"
-            >
-              <span className="text-foreground">
-                {openImport.status === "committing" ? "Import in progress" : "Import saved"} — {openImport.fileName}
-                {openImport.status === "committing" ? ` · ${openImport.residentCount} residents` : ""}
-              </span>
-              <Link
-                href={`/portal/properties/import?importId=${encodeURIComponent(openImport.importId)}`}
-                className="font-semibold text-primary hover:underline"
-                data-attr="properties-import-banner-open"
-              >
-                Open import
-              </Link>
-            </div>
           ) : null}
           {listPanel}
         </ManagerPortalPageShell>

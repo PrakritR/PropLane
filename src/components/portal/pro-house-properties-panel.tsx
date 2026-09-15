@@ -1961,19 +1961,6 @@ export function ManagerHousePropertiesPanel({
                   reason: addPropertyDisabled ? "Loading your plan…" : undefined,
                   dataAttr: "manager-properties-create",
                 },
-                // Only the "all" tab offers the alternate path in — Listed /
-                // Unlisted / Drafts are already filtered views of a portfolio
-                // that (by definition) has at least one property in it.
-                ...(activeStage === "all"
-                  ? [
-                      {
-                        label: "Import portfolio",
-                        href: "/portal/properties/import",
-                        secondary: true,
-                        dataAttr: "properties-empty-import",
-                      },
-                    ]
-                  : []),
               ]
             : []
         }

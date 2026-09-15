@@ -7,7 +7,7 @@ import type { ParsedResidentDocument } from "@/lib/resident-document-import/type
 /**
  * Moved out of `commit-import.client.ts` (isomorphic — no browser-only import
  * beyond `readManagerApplicationRows`, which is a plain in-memory cache read)
- * so the server-side portfolio-import commit can build the same
+ * so a server-side caller can build the same
  * `DemoApplicantRow` shape without pulling in the client commit pipeline.
  * Behavior is unchanged from the original.
  */
