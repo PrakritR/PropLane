@@ -136,6 +136,7 @@ import {
   getJobDetailsTool as getSmsJobDetailsTool,
   listMyJobsWithThisManagerTool,
 } from "./domains/vendor-work-order";
+import { getPropertyLinksTool, getVendorSmsLinksTool } from "./domains/portal-links";
 import {
   buildProspectLinksTool,
   escalateLeasingToManagerTool,
@@ -185,6 +186,9 @@ export const agentRegistry = buildRegistry([
   getAutomationSettingsTool,
   listPromotionsTool,
   listCoManagersTool,
+  // Link-first replies: listing / tour / apply / message URLs for a live
+  // listing, to paste into a text, inbox reply, or message to a prospect.
+  getPropertyLinksTool,
   // Write tools: previewed from the model loop, executed only via the gated
   // confirm endpoint after explicit user confirmation.
   sendRentReminderTool,
@@ -324,6 +328,9 @@ export const vendorWorkOrderAgentRegistry = buildRegistry([
   getJobAccessInfoTool,
   listMyJobsWithThisManagerTool,
   escalateToManagerTool,
+  // Pure vendor-portal URLs (invoices, payouts, documents, profile), so a
+  // texting vendor is sent to the page instead of walked through it. No data.
+  getVendorSmsLinksTool,
 ]);
 
 /**

@@ -37,6 +37,12 @@ export type ResidentAgentContext = {
    * Portal sessions leave this unset so their multi-manager view is unchanged.
    */
   activeManagerId?: string;
+  /**
+   * Where the reply is delivered. `portal` keeps links relative so they open
+   * inside the app the resident is signed in on; anything else (SMS, email,
+   * unset) gets absolute production links. See `domains/portal-links.ts`.
+   */
+  channel?: "portal" | "sms" | "email";
   /** Application-phase residents get a reduced toolset. */
   phase: "application" | "approved";
   /** The linked manager's subscription tier gates services/inbox tools. */
@@ -96,6 +102,7 @@ export async function resolveResidentAgentContext(): Promise<ResidentAgentContex
     userId: user.id,
     email,
     managerIds,
+    channel: "portal",
     phase: access.leaseAccessUnlocked ? "approved" : "application",
     managerTier,
     landlordId: user.id,

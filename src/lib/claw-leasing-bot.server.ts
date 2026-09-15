@@ -456,6 +456,7 @@ export function replyForIntent(args: {
     case "question":
       return [
         `Thanks for the question${where}. I’m pulling the details and the manager has been notified.`,
+        propertyId ? `Full details, photos and video: ${listing}` : null,
         message ? `You can also leave more detail here: ${message}` : null,
         `Tour: ${tour}`,
         `Apply: ${apply}`,

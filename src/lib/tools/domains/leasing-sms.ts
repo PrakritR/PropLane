@@ -13,6 +13,7 @@ import {
   buildManagerApplyUrl,
   buildManagerListingUrl,
   buildManagerTourUrl,
+  buildPropertyMessageHref,
 } from "@/lib/manager-property-links";
 import { residentPortalUrl } from "@/lib/claw-resident-links";
 import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
@@ -619,7 +620,7 @@ export const getNearbyTransitTool = defineTool({
 export const buildProspectLinksTool = defineTool({
   name: "build_prospect_links",
   description:
-    "Build listing, tour, and apply URLs for a matched property (any live PropLane listing on the shared line). Apply links prefill the prospect's phone and optional room/bundle so the application form is already filled. Links always use the production domain, never localhost. Always use this before telling someone to apply or tour.",
+    "Build the listing, tour, apply, message, and browse URLs for a matched property (any live PropLane listing on the shared line). Call it as soon as a listing is matched, then send the link that answers the request: listingUrl for any question about the home (rent, rooms, availability, photos, video, amenities, requirements), tourUrl when they want to tour or see it in person, applyUrl when they want to apply or ask what is needed to rent, messageUrl to leave a longer note for the manager. Apply links prefill the prospect's phone and optional room/bundle so the form is already filled. Links always use the production domain, never localhost.",
   kind: "read",
   inputSchema: z
     .object({
@@ -677,9 +678,16 @@ export const buildProspectLinksTool = defineTool({
       ok: true,
       propertyId: rec.id,
       title: propertyLabel(src),
+      /** Full listing page: photos, video, rooms, rent, policies. Send for any question about the home. */
       listingUrl: buildManagerListingUrl(origin, rec.id),
+      /** Prospect picks a real open time; the manager confirms. Send when they want to tour. */
       tourUrl: buildManagerTourUrl(origin, rec.id),
+      /** Prefilled rental application. Send when they want to apply or ask what is needed to rent. */
       applyUrl,
+      /** Leave a longer message about this home for the manager. */
+      messageUrl: `${origin}${buildPropertyMessageHref(rec.id)}`,
+      /** Every live home on PropLane. */
+      browseUrl: `${origin}/rent/browse`,
       prefilled: {
         phone: prospectPhone,
         listingRoomId: listingRoomId || null,
@@ -717,7 +725,7 @@ export function proplaneSiteLinks(origin: string) {
 export const getSiteLinksTool = defineTool({
   name: "get_site_links",
   description:
-    "Canonical PropLane site links (production domain, never localhost): browse all homes, start an application, book a tour, pricing, the live demo, and the resident portal for signing a lease or paying rent. Use when a prospect asks a general 'where do I …' question and no single property is matched. For a specific matched listing use build_prospect_links instead.",
+    "Canonical PropLane site links (production domain, never localhost): browse all homes, start an application, pricing, the live demo, and the resident portal for signing in, signing a lease, or paying rent. Use when a prospect asks a general 'where do I …' question and no single property is matched, or when a current resident texts the leasing line about paying or their lease. For a specific matched listing use build_prospect_links instead.",
   kind: "read",
   inputSchema: z.object({}).strict(),
   handler: async () => {

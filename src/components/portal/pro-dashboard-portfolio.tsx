@@ -9,6 +9,7 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { propertyDetailHref, propertyListHref } from "@/lib/portal-detail-routes";
 import {
@@ -196,6 +197,18 @@ export function PortfolioPropertiesSection({
         <h2 className="text-lg font-semibold tracking-[-0.01em] text-foreground">Your properties</h2>
         <div className="flex flex-wrap items-center gap-2">
           {addPropertyAction}
+          {/* The approved plan draws this as the twin of the ＋: same filled
+              round token as `PortalPrimaryIconAction`, an upload glyph, a real
+              href (a Link, not a button) so it works before hydration. */}
+          <Link
+            href="/portal/properties/import"
+            aria-label="Import portfolio"
+            title="Import portfolio"
+            data-attr="dashboard-import-portfolio"
+            className="portal-command-primary relative inline-flex size-11 shrink-0 items-center justify-center rounded-full border-0 bg-[var(--btn-primary)] p-0 text-white shadow-[0_2px_6px_color-mix(in_srgb,var(--btn-primary)_40%,transparent)] outline-none transition focus-visible:ring-2 focus-visible:ring-primary/40 active:scale-95 md:size-9"
+          >
+            <Upload className="size-[18px]" strokeWidth={2.4} aria-hidden />
+          </Link>
           <Link
             href={propertyListHref(basePath, "listed")}
             className="inline-flex min-h-10 items-center rounded-lg bg-accent px-3 text-sm font-semibold text-primary transition hover:bg-accent/70"

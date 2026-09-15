@@ -437,11 +437,11 @@ beforeEach(() => {
 });
 
 describe("vendor registry acceptance", () => {
-  it("registers all 17 tools without a banned identity input field", () => {
+  it("registers all 18 tools without a banned identity input field", () => {
     // vendor-index.ts calls buildRegistry at module load, which throws if any
     // write tool declares landlordId/vendorUserId/managerId/etc — importing it
     // is itself the assertion; verify the expected surface is present.
-    expect(vendorAgentRegistry.size).toBe(17);
+    expect(vendorAgentRegistry.size).toBe(18);
     expect(vendorAgentRegistry.get("submit_bid")?.kind).toBe("write");
     expect(vendorAgentRegistry.get("list_my_jobs")?.kind).toBe("read");
   });
