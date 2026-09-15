@@ -189,7 +189,11 @@ export function bathroomDefaultsForSubmission(sub: Pick<ManagerListingSubmission
   const inferred = emptyBathroomDefaults();
   if (baths.length > 0) {
     inferred.location = mostCommonText(baths.map((b) => bathroomFieldValue(b, "location")));
-    inferred.type = mostCommonText(baths.map((b) => bathroomFieldValue(b, "type"))) as BathroomType | "";
+    // Every bathroom HAS a type, so a majority would crown one card's fixtures
+    // "the default" on a brand-new listing and mark the other cards as their
+    // own before the manager touched anything. Only a type every card shares.
+    const types = baths.map((b) => bathroomFieldValue(b, "type"));
+    inferred.type = (sharedByAll(types, types[0] as string) ?? "") as BathroomType | "";
     inferred.amenitiesText = mostCommonText(baths.map((b) => bathroomFieldValue(b, "amenitiesText")));
     inferred.detail = mostCommonText(baths.map((b) => bathroomFieldValue(b, "detail")));
     const photos = baths.map((b) => bathroomFieldValue(b, "photoDataUrls"));
