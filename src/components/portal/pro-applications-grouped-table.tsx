@@ -1,15 +1,30 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { ClipboardList, UserRound } from "lucide-react";
+/**
+ * The manager's Applications list: one white card per application, the shape
+ * every other portal list has (AGENTS.md → Portal UI system: "Every list tab
+ * copies Properties"). An initials tile, the applicant's NAME as the title,
+ * "Alder Row · Room 2" as the address line, glyph facts, chips on the left,
+ * the date in bold and a status chip on the right, and the ⋯ the list surface
+ * draws on a selectable row — carrying that row's actions.
+ *
+ * A household's applications sit together, each with a "Household of N" chip;
+ * a co-signer is its own row under the applicant with a person tile. No
+ * grouping box, no nested table: one row shape at every width.
+ */
+
+import { Mail, Users } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import {
-  ApplicationHouseholdCluster,
-  householdClusterHeaderForRows,
-} from "@/components/portal/application-household-list";
-import { ClusterNavRow } from "@/components/portal/application-review-nav-cluster";
+  PortalApplicantRecordRow,
+  PortalRowFact,
+  PortalRowStatusChip,
+} from "@/components/portal/portal-record-row";
 import {
+  applicationDateVerb,
   applicationPropertyMeta,
-  applicationSubmittedLabel,
+  applicationStatusChip,
+  applicationSubmittedShort,
 } from "@/lib/manager-application-list";
 import type { ApplicationListCluster } from "@/lib/rental-application/application-list-grouping";
 import type { DemoApplicantRow } from "@/data/demo-portal";
@@ -17,7 +32,17 @@ import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
 import { cosignerListSelectionId } from "@/lib/cosigner-list-selection";
 import { applicantDisplayName } from "@/lib/rental-application/applicant-name";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
-import { stripPropertyRoomCountSuffix } from "@/lib/portal-mobile-preview";
+import { resolveBackgroundCheckStatus } from "@/lib/application-background-check";
+import { describeGroupBadge } from "@/lib/rental-application/application-groups";
+
+/** The screening chip — only when there is something to say. A row with no check is silent. */
+function screeningBadge(row: DemoApplicantRow) {
+  const status = resolveBackgroundCheckStatus(row);
+  if (status === "pending_review") return <Badge key="screening" tone="warning">Screening pending</Badge>;
+  if (status === "flagged") return <Badge key="screening" tone="danger">Screening flagged</Badge>;
+  if (status === "passed") return <Badge key="screening" tone="success">Screening passed</Badge>;
+  return null;
+}
 
 export function ManagerApplicationsGroupedTable({
   clusters,
@@ -27,7 +52,6 @@ export function ManagerApplicationsGroupedTable({
   selectedIds,
   onToggleSelected,
   selectable = false,
-  rowIcon,
 }: {
   clusters: ApplicationListCluster[];
   cosignerSubmissionsBySigner: Map<string, CosignerSubmission[]>;
@@ -36,88 +60,104 @@ export function ManagerApplicationsGroupedTable({
   selectedIds?: Set<string>;
   onToggleSelected?: (id: string) => void;
   selectable?: boolean;
-  rowIcon?: ReactNode;
+  /** Kept for callers; the row draws its own tile. */
+  rowIcon?: unknown;
 }) {
+  const select = (id: string) => (selectable && onToggleSelected ? () => onToggleSelected(id) : undefined);
   return (
-    <div className="space-y-3" data-attr="applications-resident-groups">
-      {clusters.map((cluster) => {
-        const householdNested = cluster.kind === "household";
-        const applicationRows = householdNested ? cluster.rows : [cluster.row];
+    <div data-attr="applications-resident-groups">
+      {clusters.flatMap((cluster) => {
+        const household = cluster.kind === "household";
+        const rows = household ? cluster.rows : [cluster.row];
+        // "Group 2/3" when the group is known — who has submitted of who was
+        // declared — else the plain count of rows that sit together.
+        const groupBadge = household && cluster.group ? describeGroupBadge(cluster.group) : null;
+        const householdSize = household ? cluster.rows.length : 0;
+        return rows.flatMap((row) => {
+          const name = applicantDisplayName(row);
+          const status = applicationStatusChip(row);
+          const email = row.email?.trim() ?? "";
+          const signerKey = normalizeApplicationAxisId(row.id).toUpperCase();
+          const cosigners = cosignerSubmissionsBySigner.get(signerKey) ?? [];
+          const screening = screeningBadge(row);
+          const when = applicationSubmittedShort(row);
+          const badges = [
+            screening,
+            groupBadge ? (
+              <Badge key="household" tone={groupBadge.tone}>
+                <span title={groupBadge.title}>{groupBadge.label}</span>
+              </Badge>
+            ) : household ? (
+              <Badge key="household" tone="info">Household of {householdSize}</Badge>
+            ) : null,
+            cosigners.length > 0 ? <Badge key="cosigners" tone="info">{cosigners.length} co-signer{cosigners.length === 1 ? "" : "s"}</Badge> : null,
+            row.manuallyAdded ? <Badge key="added" tone="neutral">Added by you</Badge> : null,
+          ].filter(Boolean);
 
-        const header =
-          cluster.kind === "household" ? (
-            householdClusterHeaderForRows(cluster.group, cluster.rows)
-          ) : (
-            <>
-              <span className="truncate text-xs font-semibold text-foreground">
-                {applicantDisplayName(cluster.row)}
-              </span>
-              {cluster.row.email?.trim() &&
-              cluster.row.email.trim().toLowerCase() !== applicantDisplayName(cluster.row).trim().toLowerCase() ? (
-                <span className="truncate text-xs text-muted">{cluster.row.email.trim()}</span>
-              ) : null}
-              {cluster.row.property ? (
-                <span className="truncate text-xs text-muted">
-                  {stripPropertyRoomCountSuffix(cluster.row.property)}
-                </span>
-              ) : null}
-            </>
-          );
+          const out = [
+            <PortalApplicantRecordRow
+              key={row.id}
+              name={name}
+              address={applicationPropertyMeta(row)}
+              facts={
+                <>
+                  {email && email.toLowerCase() !== name.trim().toLowerCase() ? (
+                    <PortalRowFact icon={Mail} srLabel="Email">
+                      {email}
+                    </PortalRowFact>
+                  ) : null}
+                  {household ? (
+                    <PortalRowFact icon={Users} srLabel="Household">
+                      {rows.length} {rows.length === 1 ? "applicant" : "applicants"}
+                    </PortalRowFact>
+                  ) : null}
+                </>
+              }
+              badge={badges.length > 0 ? <span className="flex flex-wrap gap-1.5">{badges}</span> : undefined}
+              trailing={when ? `${applicationDateVerb(row)} ${when}` : undefined}
+              chip={
+                <PortalRowStatusChip tone={status.tone} dataAttr="application-row-status">
+                  {status.label}
+                </PortalRowStatusChip>
+              }
+              checked={selectable && selectedIds?.has(row.id)}
+              onSelectedChange={select(row.id)}
+              onOpen={() => onOpenApplication(row)}
+              dataAttr="application-list-row"
+            />,
+          ];
 
-        const clusterKey = cluster.kind === "household" ? cluster.groupId : cluster.row.id;
-
-        return (
-          <ApplicationHouseholdCluster key={clusterKey} header={header}>
-            {applicationRows.flatMap((row) => {
-              const rows = [
-                <ClusterNavRow
-                  key={row.id}
-                  nested={householdNested}
-                  primary={
-                    householdNested ? applicantDisplayName(row) : applicationSubmittedLabel(row)
+          cosigners.forEach((sub, index) => {
+            const selectionId = cosignerListSelectionId(row.id, sub, index);
+            const cosignerName = sub.fullName || "Co-signer";
+            out.push(
+              <div key={`${row.id}-cosigner-${index}`} className="pl-6 max-md:pl-4" data-attr="application-cosigner-row">
+                <PortalApplicantRecordRow
+                  kind="cosigner"
+                  name={cosignerName}
+                  address={`Co-signer for ${name}`}
+                  facts={
+                    sub.email ? (
+                      <PortalRowFact icon={Mail} srLabel="Email">
+                        {sub.email}
+                      </PortalRowFact>
+                    ) : undefined
                   }
-                  meta={
-                    householdNested
-                      ? [applicationSubmittedLabel(row), applicationPropertyMeta(row)]
-                          .map((part) => part?.trim())
-                          .filter(Boolean)
-                          .join(" · ")
-                      : applicationPropertyMeta(row)
+                  chip={
+                    <PortalRowStatusChip tone="ok" dataAttr="application-row-status">
+                      Signed
+                    </PortalRowStatusChip>
                   }
-                  icon={rowIcon ?? <ClipboardList className="h-4 w-4" aria-hidden />}
-                  checked={selectable && selectedIds?.has(row.id)}
-                  onCheck={
-                    selectable && onToggleSelected ? () => onToggleSelected(row.id) : undefined
-                  }
-                  onOpen={() => onOpenApplication(row)}
-                  checkDataAttr={`application-select-${row.id}`}
-                />,
-              ];
-
-              const signerKey = normalizeApplicationAxisId(row.id).toUpperCase();
-              const cosignerRows = cosignerSubmissionsBySigner.get(signerKey) ?? [];
-              cosignerRows.forEach((sub, index) => {
-                const selectionId = cosignerListSelectionId(row.id, sub, index);
-                rows.push(
-                  <ClusterNavRow
-                    key={`${row.id}-cosigner-${index}`}
-                    primary={sub.fullName || "Co-signer"}
-                    meta={sub.email || `Co-signer for ${applicantDisplayName(row)}`}
-                    icon={<UserRound className="h-4 w-4" aria-hidden />}
-                    checked={selectable && selectedIds?.has(selectionId)}
-                    onCheck={
-                      selectable && onToggleSelected ? () => onToggleSelected(selectionId) : undefined
-                    }
-                    onOpen={() => onOpenCosigner(row, index)}
-                    checkDataAttr={`application-cosigner-${row.id}-${index}`}
-                  />,
-                );
-              });
-
-              return rows;
-            })}
-          </ApplicationHouseholdCluster>
-        );
+                  checked={selectable && selectedIds?.has(selectionId)}
+                  onSelectedChange={select(selectionId)}
+                  onOpen={() => onOpenCosigner(row, index)}
+                  dataAttr="application-cosigner-list-row"
+                />
+              </div>,
+            );
+          });
+          return out;
+        });
       })}
     </div>
   );

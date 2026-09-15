@@ -9,7 +9,9 @@ import {
 import {
   applicationStageDisplayLabel,
   applicationStartedLabel,
+  isInProgressApplicationRow,
 } from "@/lib/rental-application/in-progress-application";
+import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { getBundleChoiceLabel, getRoomChoiceLabel } from "@/lib/rental-application/data";
 import {
   clusterRowsByResident,
@@ -125,4 +127,46 @@ export function sortApplicationClustersForBucket(
   }
   sorted.sort((a, b) => (clusterStart.get(a.key) ?? Infinity) - (clusterStart.get(b.key) ?? Infinity));
   return sorted;
+}
+
+/**
+ * The status chip on an application row — what Properties says with
+ * "0 / 4 occupied". One word a manager scans a list by: Incomplete, Pending,
+ * Withdrawn, Approved (with the stage's own suffix when it has one — "placed"),
+ * Rejected.
+ */
+export function applicationStatusChip(
+  row: Pick<DemoApplicantRow, "bucket" | "stage" | "detail" | "application" | "withdrawnAt">,
+): { label: string; tone: "ok" | "warn" | "neutral" } {
+  if (isInProgressApplicationRow(row as DemoApplicantRow)) return { label: "Incomplete", tone: "neutral" };
+  if (isWithdrawnApplicationRow(row as DemoApplicantRow)) return { label: "Withdrawn", tone: "neutral" };
+  const stage = (row.stage ?? "").trim();
+  if (row.bucket === "approved") {
+    const suffix = stage.replace(/^approved\s*[-–·]?\s*/i, "").trim();
+    return { label: suffix && suffix.toLowerCase() !== "approved" ? `Approved · ${suffix}` : "Approved", tone: "ok" };
+  }
+  if (row.bucket === "rejected") return { label: "Rejected", tone: "neutral" };
+  return { label: "Pending", tone: "warn" };
+}
+
+/**
+ * The date in bold on the right of a row — "Sep 11", or "Sep 11, 2025" once
+ * the year is not this one. Read from the same detail line the list sorts by;
+ * a row with no parseable date shows its stage word instead of a blank.
+ */
+export function applicationSubmittedShort(row: Pick<DemoApplicantRow, "detail" | "application" | "bucket" | "stage">, now = new Date()): string {
+  // The detail line carries a calendar date ("Submitted 2026-09-11"); read it
+  // as that day, not as UTC midnight, or Seattle shows the day before.
+  const label = applicationStartedLabel(row).replace(/^(started|submitted|updated)\s+/i, "");
+  const iso = label.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const d = iso ? new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])) : (() => { const ms = applicationRowSortMs(row as DemoApplicantRow); return ms > 0 ? new Date(ms) : null; })();
+  if (!d) return "";
+  const sameYear = d.getFullYear() === now.getFullYear();
+  return d.toLocaleDateString("en-US", sameYear ? { month: "short", day: "numeric" } : { month: "short", day: "numeric", year: "numeric" });
+}
+
+/** "Submitted", "Started" or "Updated" — the verb the detail line opens with. */
+export function applicationDateVerb(row: Pick<DemoApplicantRow, "detail">): string {
+  const m = applicationStartedLabel(row).match(/^(started|submitted|updated)\b/i);
+  return m ? m[1]![0]!.toUpperCase() + m[1]!.slice(1).toLowerCase() : "Submitted";
 }

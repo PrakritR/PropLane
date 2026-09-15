@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
-import { Bath, BedDouble, DoorOpen } from "lucide-react";
+import { Bath, BedDouble, DoorOpen, UserRound, type LucideIcon } from "lucide-react";
 import { InboxAvatar, InboxConversationRow } from "@/components/portal/portal-inbox-ui";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 
@@ -84,6 +84,7 @@ export function PortalPropertyRecordRow({
   address,
   summary,
   meta,
+  facts,
   badge,
   chip,
   trailing,
@@ -99,6 +100,8 @@ export function PortalPropertyRecordRow({
   summary?: string;
   /** Bed / bath / room counts drawn as glyphs under the address. */
   meta?: { beds?: number; baths?: number; rooms?: number | null };
+  /** Any other glyph facts on that same line — a person row's date, email, household. */
+  facts?: ReactNode;
   badge?: ReactNode;
   /** Status chip — occupancy, stage — shown beside the money. */
   chip?: ReactNode;
@@ -125,6 +128,11 @@ export function PortalPropertyRecordRow({
         <span className="truncate">{title}</span>
       </p>
       <p className="truncate text-[13px] leading-relaxed text-muted">{address}</p>
+      {facts ? (
+        <p className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted" data-attr="record-row-facts">
+          {facts}
+        </p>
+      ) : null}
       {meta && (meta.beds || meta.baths || meta.rooms) ? (
         <p className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-muted" data-attr="property-row-meta">
           {meta.beds ? (
@@ -220,6 +228,59 @@ export function PortalRowStatusChip({
     >
       {children}
     </span>
+  );
+}
+
+/** One glyph fact on a record row — an icon and a short value. */
+export function PortalRowFact({ icon: Icon, children, srLabel }: { icon: LucideIcon; children: ReactNode; srLabel?: string }) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1">
+      <Icon className="size-3.5 shrink-0" strokeWidth={1.6} aria-hidden />
+      {srLabel ? <span className="sr-only">{srLabel}</span> : null}
+      <span className="truncate">{children}</span>
+    </span>
+  );
+}
+
+/**
+ * The Properties row, for a person — an applicant, a co-signer.
+ *
+ * Same card, same slots: an initials tile where the home has its photo, the
+ * name as the title, "Alder Row · Room 2" as the address line, glyph facts,
+ * chips on the left, the date in bold and a status chip on the right, and the
+ * ⋯ the list surface draws for a selectable row.
+ */
+export function PortalApplicantRecordRow({
+  name,
+  kind = "applicant",
+  ...rest
+}: Omit<Parameters<typeof PortalPropertyRecordRow>[0], "title" | "leading" | "meta"> & {
+  name: string;
+  /** A co-signer gets a person glyph rather than initials, and sits under its applicant. */
+  kind?: "applicant" | "cosigner";
+}) {
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]!.toUpperCase())
+    .join("");
+  return (
+    <PortalPropertyRecordRow
+      title={name}
+      leading={
+        kind === "cosigner" ? (
+          <div aria-hidden className="grid h-[4.125rem] w-[4.125rem] place-items-center rounded-[10px] bg-accent/60 text-muted/80 max-md:h-[3.125rem] max-md:w-[3.125rem]">
+            <UserRound className="size-[22px]" strokeWidth={1.5} />
+          </div>
+        ) : (
+          <div aria-hidden className="grid h-[4.125rem] w-[5.5rem] place-items-center rounded-[10px] bg-primary/[0.08] text-[20px] font-extrabold tracking-wide text-primary max-md:h-[3.125rem] max-md:w-16 max-md:text-[16px]">
+            {initials || "?"}
+          </div>
+        )
+      }
+      {...rest}
+    />
   );
 }
 
