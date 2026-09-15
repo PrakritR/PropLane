@@ -1,5 +1,6 @@
 /** Full manager “add listing” payload — drives generated listing detail page (localStorage-backed). */
 
+import type { ListingPrefillRecordV1 } from "@/lib/listing-prefill/types";
 import {
   LISTING_PLACE_CATEGORY_OPTIONS,
   LISTING_PROPERTY_TYPE_OPTIONS,
@@ -538,6 +539,16 @@ export type ManagerListingSubmissionV1 = {
   listingTotalBathroomsId?: string;
   /** Rentable bedroom slots — synced to `rooms.length` when leaving the home step. */
   listingBedroomSlots?: number;
+  /** Whole-home size in square feet (public). Absent on listings saved before it existed. */
+  houseSizeSqft?: number;
+  /** Lot size in square feet (public). The year built lives with the disclosure triggers below. */
+  lotSizeSqft?: number;
+  /**
+   * What the address prefill filled in and the values it replaced, so the
+   * wizard can mark and undo it (`src/lib/listing-prefill/apply.ts`).
+   * Manager-only: never on the public projection.
+   */
+  prefill?: ListingPrefillRecordV1;
   tagline: string;
   /**
    * Marketing / ad titles for this home (Facebook, Craigslist, etc.) so leasing
@@ -2178,6 +2189,9 @@ export function normalizeManagerListingSubmissionV1(
     listingStoriesId: typeof sub.listingStoriesId === "string" ? sub.listingStoriesId : "",
     listingTotalBathroomsId: typeof sub.listingTotalBathroomsId === "string" ? sub.listingTotalBathroomsId : "",
     listingBedroomSlots,
+    houseSizeSqft: positiveWholeNumber(sub.houseSizeSqft, 50_000),
+    lotSizeSqft: positiveWholeNumber(sub.lotSizeSqft, 50_000_000),
+    prefill: normalizePrefillRecord((sub as { prefill?: unknown }).prefill),
     homeStructureNote: typeof sub.homeStructureNote === "string" ? sub.homeStructureNote : "",
     marketingNotes: typeof sub.marketingNotes === "string" ? sub.marketingNotes : "",
     alsoListedAs: typeof (sub as { alsoListedAs?: unknown }).alsoListedAs === "string"
@@ -2659,6 +2673,35 @@ export function emptySharedSpace(index: number): ManagerSharedSpaceSubmission {
   };
 }
 
+/** A positive whole number within `max`, else absent — "0 sq ft" is never a fact. */
+function positiveWholeNumber(value: unknown, max: number): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+  const n = Math.round(value);
+  return n > 0 && n <= max ? n : undefined;
+}
+
+/** Keeps a well-formed prefill record, drops anything else rather than guessing. */
+function normalizePrefillRecord(raw: unknown): ListingPrefillRecordV1 | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Partial<ListingPrefillRecordV1>;
+  if (r.source !== "rentcast" && r.source !== "fixture") return undefined;
+  const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+  return {
+    source: r.source,
+    fetchedAt: typeof r.fetchedAt === "string" ? r.fetchedAt : new Date(0).toISOString(),
+    fields: strings(r.fields),
+    adFields: strings(r.adFields),
+    previous: r.previous && typeof r.previous === "object" ? { ...(r.previous as Record<string, unknown>) } : {},
+    rentEstimateUsd: positiveWholeNumber(r.rentEstimateUsd, 100_000),
+    rentEstimateLowUsd: positiveWholeNumber(r.rentEstimateLowUsd, 100_000),
+    rentEstimateHighUsd: positiveWholeNumber(r.rentEstimateHighUsd, 100_000),
+    listedRentUsd: positiveWholeNumber(r.listedRentUsd, 100_000),
+    listedRentAt: typeof r.listedRentAt === "string" ? r.listedRentAt : null,
+    dismissedAddressKey: typeof r.dismissedAddressKey === "string" ? r.dismissedAddressKey : undefined,
+    adDismissed: r.adDismissed === true ? true : undefined,
+  };
+}
+
 /** One-line summary from structured listing basics (public quick facts). */
 export function formatListingBasicsSummary(sub: ManagerListingSubmissionV1): string {
   const chunks: string[] = [];
@@ -2670,6 +2713,7 @@ export function formatListingBasicsSummary(sub: ManagerListingSubmissionV1): str
   if (st) chunks.push(st);
   const tb = LISTING_TOTAL_BATH_OPTIONS.find((o) => o.id === sub.listingTotalBathroomsId)?.label;
   if (tb) chunks.push(tb);
+  if (sub.houseSizeSqft) chunks.push(`${sub.houseSizeSqft.toLocaleString("en-US")} sq ft`);
   const n = sub.listingBedroomSlots ?? sub.rooms.length;
   if (n > 0) {
     chunks.push(

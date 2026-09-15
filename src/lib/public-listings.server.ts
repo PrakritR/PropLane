@@ -89,6 +89,11 @@ const PUBLIC_SUBMISSION_KEYS = [
   "listingStoriesId",
   "listingTotalBathroomsId",
   "listingBedroomSlots",
+  // Whole-home size and lot: public facts a records lookup or the manager
+  // fills in. `yearBuilt` stays private (it is a compliance input, see the
+  // disclosure triggers) and so does `prefill` (what was filled and from where).
+  "houseSizeSqft",
+  "lotSizeSqft",
   // Marketing copy + media.
   "tagline",
   "alsoListedAs",

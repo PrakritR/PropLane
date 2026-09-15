@@ -395,6 +395,7 @@ answer. Fail closed to `true`.
 | Marketing mocks | `docs/agents/marketing-mocks.md` | Depict a real screen; derive counts from the rows drawn |
 | House printables | `docs/agents/house-printables.md` | The public page and both public printables render only `HOUSE_PUBLIC_SECTIONS`; a code or password never becomes a URL |
 | Portfolio import | `docs/agents/portfolio-import.md` | One draft model; counts never from the model; imported properties are `unlisted`; commit idempotent through receipts; invites explicit |
+| Address prefill | `docs/agents/listing-prefill.md` | Facts from RentCast only; never fetch a listing page — ad text arrives by paste; default-only fill with marks and undo; nothing sets the rent |
 
 ## There are no "work orders" in the product — only services
 

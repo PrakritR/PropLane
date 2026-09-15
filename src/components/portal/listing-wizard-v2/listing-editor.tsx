@@ -31,6 +31,9 @@ import {
 import { isProcessingCoverageCodeShape } from "@/lib/processing-coverage-codes";
 import { uploadListingImageFiles } from "@/lib/listing-media-client";
 import { ListingAddressAutocomplete } from "@/components/portal/listing-address-autocomplete";
+import { FieldMark, FoundOnlineCard } from "@/components/portal/listing-wizard-v2/found-online-card";
+import { prefillMarkFor } from "@/lib/listing-prefill/apply";
+import type { PrefillAddressInput } from "@/lib/listing-prefill/types";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { buildListingModalAssistantContext } from "@/lib/listing-assistant-context";
 import { DoorOpen, Bath, Building, Building2, Home, Layers, LayoutGrid, Store, Warehouse, type LucideIcon } from "lucide-react";
@@ -426,6 +429,10 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
     patch(applied.ok ? { ...applied.sub, listingBedroomSlots: next } : { listingBedroomSlots: next });
   };
   const stories = Number(sub.listingStoriesId) || 1;
+  // The address the manager PICKED from the dropdown — what the lookup keys on.
+  // A hand-typed street never triggers it.
+  const [lookup, setLookup] = useState<PrefillAddressInput | null>(null);
+  const mark = (key: keyof ManagerListingSubmissionV1) => <FieldMark kind={prefillMarkFor(sub, key)} />;
   return (
     <StepColumn>
       <StepHeading title="The home itself" />
@@ -437,7 +444,7 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
        * about bedrooms or about one household.
        */}
       <SectionGroup first>
-        <Field label="Property type" required group>
+        <Field label="Property type" required group labelAside={mark("listingPropertyTypeId")}>
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
             {PROPERTY_KIND_TILES.map((k) => (
               <KindTile
@@ -458,10 +465,10 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
           </div>
         </Field>
         <div className="rounded-2xl border border-border bg-card">
-          <FactRow first required label={rentByRoom ? "Bedrooms to rent" : "Bedrooms"}>
+          <FactRow first required label={<>{rentByRoom ? "Bedrooms to rent" : "Bedrooms"} {mark("listingBedroomSlots")}</>}>
             <CountStepper compact value={roomCount} min={1} max={20} onChange={setBedrooms} label="bedrooms" dataAttr="listing-v2-bedrooms" />
           </FactRow>
-          <FactRow required label="Bathrooms">
+          <FactRow required label={<>Bathrooms {mark("listingTotalBathroomsId")}</>}>
             <CountStepper
               compact
               value={bathCountFromId(sub.listingTotalBathroomsId)}
@@ -473,7 +480,7 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
               dataAttr="listing-v2-bathrooms"
             />
           </FactRow>
-          <FactRow required label="Floors">
+          <FactRow required label={<>Floors {mark("listingStoriesId")}</>}>
             <CountStepper
               compact
               value={stories}
@@ -482,6 +489,37 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
               onChange={(n) => patch({ listingStoriesId: String(n) })}
               label="floors"
               dataAttr="listing-v2-floors"
+            />
+          </FactRow>
+          <FactRow label={<>Home size {mark("houseSizeSqft")}</>}>
+            <span className="flex items-center gap-1.5">
+              <Input
+                inputMode="numeric"
+                value={sub.houseSizeSqft ?? ""}
+                placeholder="1,450"
+                aria-label="Home size in square feet"
+                data-attr="listing-v2-home-size"
+                className="w-24 text-right"
+                onChange={(e) => {
+                  const n = Number(e.target.value.replace(/[^0-9]/g, ""));
+                  patch({ houseSizeSqft: n > 0 ? n : undefined });
+                }}
+              />
+              <span className="whitespace-nowrap text-[13px] font-semibold text-foreground/70">sq ft</span>
+            </span>
+          </FactRow>
+          <FactRow label={<>Built {mark("yearBuilt")}</>}>
+            <Input
+              inputMode="numeric"
+              value={sub.yearBuilt ?? ""}
+              placeholder="1962"
+              aria-label="Year built"
+              data-attr="listing-v2-year-built"
+              className="w-20 text-right"
+              onChange={(e) => {
+                const n = Number(e.target.value.replace(/[^0-9]/g, "").slice(0, 4));
+                patch({ yearBuilt: n > 0 ? n : undefined });
+              }}
             />
           </FactRow>
           {rentByRoom ? null : (
@@ -506,17 +544,19 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
             value={sub.address}
             placeholder="142 Ash St"
             onChange={(next) => patch({ address: next })}
-            onSelect={(suggestion) =>
-              patch({
+            onSelect={(suggestion) => {
+              const picked = {
                 address: suggestion.address || suggestion.label,
                 city: suggestion.city || sub.city,
                 state: suggestion.state || sub.state,
                 zip: suggestion.zip || sub.zip,
-                neighborhood: suggestion.neighborhood || sub.neighborhood,
-              })
-            }
+              };
+              patch({ ...picked, neighborhood: suggestion.neighborhood || sub.neighborhood });
+              setLookup(picked);
+            }}
           />
         </Field>
+        <FoundOnlineCard sub={sub} patch={patch} lookup={lookup} />
         <FieldRow cols={4}>
           <Field label="City" required>
             <Input value={sub.city} onChange={(e) => patch({ city: e.target.value })} />
@@ -535,11 +575,11 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
           <Field label="Property name">
             <Input value={sub.buildingName} placeholder={sub.address || "Magnolia House"} onChange={(e) => patch({ buildingName: e.target.value })} />
           </Field>
-          <Field label="Headline">
+          <Field label="Headline" labelAside={mark("tagline")}>
             <Input value={sub.tagline} onChange={(e) => patch({ tagline: e.target.value })} placeholder="Spacious 3-bedroom house near UW" />
           </Field>
         </FieldRow>
-        <Field label="Description">
+        <Field label="Description" labelAside={mark("houseOverview")}>
           <Textarea rows={4} value={sub.houseOverview} onChange={(e) => patch({ houseOverview: e.target.value })} placeholder="Describe the home and who it suits…" />
         </Field>
       </SectionGroup>
@@ -557,10 +597,10 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
 
       <SectionGroup title="Amenities and pets">
         <div className="rounded-2xl border border-border bg-card">
-          <FactRow first label="Amenities">
+          <FactRow first label={<>Amenities {mark("amenitiesText")}</>}>
             <AmenityPick label="Amenities" presets={HOUSE_WIDE_AMENITY_PRESETS} value={sub.amenitiesText} onChange={(next) => patch({ amenitiesText: next })} dataAttr="listing-v2-house-amenities" />
           </FactRow>
-          <FactRow label="Pets">
+          <FactRow label={<>Pets {mark("petFriendly")}</>}>
             <RowSelectCell
               ariaLabel="Pets"
               value={sub.petFriendly ? "yes" : "no"}
@@ -2302,6 +2342,7 @@ function StepPricing({
   return (
     <StepColumn wide>
       <StepHeading title="Pricing" />
+      <RentEstimateLine sub={sub} />
       <ListingPricingSections
         sub={sub}
         patch={patch}
@@ -2380,6 +2421,32 @@ function HouseKeepingGroups({ sub, patch }: { sub: ManagerListingSubmissionV1; p
         <HouseComplianceGroup sub={sub} patch={patch} />
       </AdvancedGroup>
     </div>
+  );
+}
+
+/**
+ * What the records lookup and the pasted ad said about rent — shown, never
+ * applied. The manager sets the price; these are two reference points.
+ */
+function RentEstimateLine({ sub }: { sub: ManagerListingSubmissionV1 }) {
+  const r = sub.prefill;
+  if (!r || (!r.rentEstimateUsd && !r.listedRentUsd)) return null;
+  const usd = (n: number) => `$${n.toLocaleString("en-US")}`;
+  const parts: string[] = [];
+  if (r.rentEstimateUsd) {
+    const range = r.rentEstimateLowUsd && r.rentEstimateHighUsd ? ` · range ${usd(r.rentEstimateLowUsd)}–${usd(r.rentEstimateHighUsd)}` : "";
+    parts.push(`Estimate ≈ ${usd(r.rentEstimateUsd)}/mo${range}`);
+  }
+  if (r.listedRentUsd) {
+    const when = r.listedRentAt ? new Date(r.listedRentAt) : null;
+    const label = when && !Number.isNaN(when.getTime()) ? ` in ${when.toLocaleDateString("en-US", { month: "short", year: "numeric" })}` : "";
+    parts.push(`Listed at ${usd(r.listedRentUsd)}${label}`);
+  }
+  return (
+    <p className="-mt-2 mb-4 text-[12.5px] font-semibold text-muted" data-attr="listing-v2-rent-estimate">
+      <span aria-hidden className="mr-1 text-[var(--pl-blue-deep)]">✦</span>
+      {parts.join(" · ")}
+    </p>
   );
 }
 
