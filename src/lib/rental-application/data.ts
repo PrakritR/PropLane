@@ -27,6 +27,7 @@ import {
   type LeaseTermOption,
 } from "@/lib/rental-application/lease-terms";
 import { roomDailyRentPrice } from "@/lib/room-pricing";
+import { manualRangesToSpans } from "@/lib/room-availability-timeline";
 
 export { LEASE_TERM_CHOICES, LEASE_TERM_OPTIONS, SHORT_TERM_LEASE_TERM, type LeaseTermOption };
 export { offeredLeaseTermsFromStored, acceptedLeaseTermsFromStored };
@@ -227,6 +228,29 @@ function roomCapacityForChoice(roomChoiceValue: string): number {
 
 const DEFAULT_SINGLE_OCCUPANCY = 1;
 
+/**
+ * The manager's own occupied dates on this room (and Airbnb imports), as
+ * windows. They close the room outright whatever its capacity: a manager who
+ * typed "occupied Oct 1 → Oct 31" means every bed.
+ */
+function manualBlockWindowsForChoice(roomChoiceValue: string): RoomUnavailabilityWindow[] {
+  const parsed = parseRoomChoiceValue(roomChoiceValue);
+  if (!parsed.listingRoomId) return [];
+  const prop = getPropertyById(parsed.propertyId);
+  if (prop?.listingSubmission?.v !== 1) return [];
+  const sub = normalizeManagerListingSubmissionV1(prop.listingSubmission);
+  const room = sub.rooms.find((r) => r.id === parsed.listingRoomId);
+  return manualRangesToSpans(room?.manualUnavailableRanges).map((span) => {
+    const start = parseFlexibleLocalDate(span.start) ?? null;
+    const end = span.end ? parseFlexibleLocalDate(span.end) ?? null : null;
+    const who = span.source === "channel" ? "Booked on Airbnb" : "Occupied";
+    const label = end
+      ? `${who} ${formatAvailabilityDate(start ?? new Date())} to ${formatAvailabilityDate(end)}`
+      : `${who} from ${formatAvailabilityDate(start ?? new Date())}`;
+    return { id: span.id, start, end, label, source: "manual_block" as const };
+  });
+}
+
 function occupancyToPlacements(occupancies: ApprovedRoomOccupancy[]): RoomOccupancyPlacement[] {
   return occupancies.map((occ) => ({ id: occ.rowId, start: occ.leaseStart, end: occ.leaseEnd }));
 }
@@ -245,10 +269,11 @@ export function getRoomUnavailabilityWindows(
   options: Pick<RoomAvailabilityOptions, "excludeApplicationId"> = {},
 ): RoomUnavailabilityWindow[] {
   const capacity = roomCapacityForChoice(roomChoiceValue);
+  const manualBlocks = manualBlockWindowsForChoice(roomChoiceValue);
   const placements = occupancyToPlacements(
     approvedOccupancyForRoom(roomChoiceValue, options.excludeApplicationId),
   );
-  if (placements.length === 0) return [];
+  if (placements.length === 0) return manualBlocks;
 
   // A window is unavailable only where the room reaches CAPACITY, not merely where
   // someone is present. At capacity 1 that is the same set of dates the product
@@ -260,7 +285,7 @@ export function getRoomUnavailabilityWindows(
     windowEnd: null,
   });
 
-  return fullyBookedIntervals.map((interval, index) => {
+  const residentWindows = fullyBookedIntervals.map((interval, index) => {
     const label = interval.end
       ? capacity > 1
         ? `Fully booked ${formatAvailabilityDate(interval.start)} to ${formatAvailabilityDate(interval.end)}`
@@ -276,6 +301,16 @@ export function getRoomUnavailabilityWindows(
       source: "resident" as const,
     };
   });
+  return [...residentWindows, ...manualBlocks];
+}
+
+/** True when the manager's own occupied dates cover any day of the requested span. */
+function manualBlockCoversSpan(roomChoiceValue: string, targetStart: Date, targetEnd: Date): boolean {
+  return manualBlockWindowsForChoice(roomChoiceValue).some((w) => {
+    const wStart = w.start?.getTime() ?? Number.NEGATIVE_INFINITY;
+    const wEnd = w.end?.getTime() ?? Number.POSITIVE_INFINITY;
+    return wStart <= targetEnd.getTime() && targetStart.getTime() <= wEnd;
+  });
 }
 
 export function isRoomChoiceAvailable(
@@ -287,6 +322,7 @@ export function isRoomChoiceAvailable(
   // When no end date is given (e.g. search with only move-in), treat as a point-in-time
   // check so we don't falsely conflict with occupancy windows outside the search date.
   const targetEnd = parseFlexibleLocalDate(options.leaseEnd) ?? targetStart;
+  if (manualBlockCoversSpan(roomChoiceValue, targetStart, targetEnd)) return false;
   const placements = occupancyToPlacements(
     approvedOccupancyForRoom(roomChoiceValue, options.excludeApplicationId),
   );

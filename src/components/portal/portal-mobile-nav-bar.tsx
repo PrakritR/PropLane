@@ -142,7 +142,7 @@ export function PortalMobileNavBar({
             {initials(name, email)}
           </DropdownMenuTrigger>
 
-          <DropdownMenuContent backdrop align="end">
+          <DropdownMenuContent align="end">
             <div className="border-b border-border px-3 pb-2.5 pt-1.5">
               <p className="truncate text-[13.5px] font-semibold text-foreground">{displayName}</p>
               {email ? <p className="truncate text-[12px] text-muted">{email}</p> : null}

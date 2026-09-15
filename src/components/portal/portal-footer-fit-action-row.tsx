@@ -141,7 +141,7 @@ export function PortalFooterFitActionRow({
             <DropdownMenuTrigger asChild>
               <PortalFooterMoreTrigger aria-label={moreLabel} />
             </DropdownMenuTrigger>
-            <DropdownMenuContent side="top" align="end" className="z-[60] min-w-[12rem]" backdrop>
+            <DropdownMenuContent side="top" align="end" className="z-[60] min-w-[12rem]">
               {overflow
                 .filter((action) => !destructiveSet.has(action.id))
                 .map((action) => (

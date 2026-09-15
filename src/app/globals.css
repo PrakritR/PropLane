@@ -3783,11 +3783,25 @@ html[data-native] [data-listing-subnav] {
   display: flex; width: 100%; min-height: 44px; justify-content: flex-start;
   border: 0; border-radius: 10px; background: transparent !important; box-shadow: none !important;
   padding: 10px 12px; color: var(--foreground); text-align: left;
+  /* One size, one weight: items arrive as Buttons (text-sm/semibold) and as
+     DropdownMenuItems (13.5px/medium); a menu must not mix the two. */
+  font-size: 13.5px; font-weight: 500; line-height: 1.3; letter-spacing: normal; text-transform: none;
 }
 .record-action-menu [role="menuitem"]:not(:disabled):not([data-disabled]):hover,
 .record-action-menu [role="menuitem"][data-highlighted]:not(:disabled):not([data-disabled]) { background: rgb(92 130 244 / .12) !important; }
 .record-action-menu .text-danger { color: var(--destructive); }
 @supports not (backdrop-filter: blur(1px)) { .portal-liquid-glass { background: var(--card); } }
+/* The page behind an open menu: the same weight as a modal overlay's blur, lighter tint. */
+.portal-menu-backdrop {
+  background: rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+[data-theme="dark"] .portal-menu-backdrop {
+  background: rgba(2, 6, 23, 0.42);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
 
 /* Field pickers share the approved glass treatment with record and composer menus. */
 .field-dropdown-menu {

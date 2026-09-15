@@ -22,7 +22,7 @@
  * act of the manager on that room, because it changes how every rent charge is
  * billed. Inheritance carries the monthly figure and nothing else about billing.
  */
-import type { ManagerListingSubmissionV1, ManagerRoomSubmission } from "@/lib/manager-listing-submission";
+import type { ManagerListingSubmissionV1, ManagerRoomSubmission, ManagerRoomTermPrice } from "@/lib/manager-listing-submission";
 import { bedsLine, parseBedsLine } from "@/lib/manager-listing-submission";
 import type { UtilitiesPaymentModel } from "@/lib/listing-utilities-payment";
 
@@ -436,4 +436,132 @@ export function houseDefaultsForSubmission(sub: ManagerListingSubmissionV1): Lis
   const inferred = inferHouseDefaultsFromRooms(sub.rooms ?? []);
   if (!stored) return inferred;
   return { ...inferred, ...stored };
+}
+
+/* ─────────────── the Default room on another lease type ─────────────── */
+
+/**
+ * The three prices the Pricing step's Default room sets on a lease type other
+ * than long-term. A block shaped like a room's `termPricing` holds them
+ * (`sub.houseTermPricing`); a room follows the block per field, with the same
+ * reading as the long-term defaults above: absent or equal is following, and a
+ * different number is the room's own.
+ *
+ * The one difference from long-term: with NO term default set, a room that
+ * already has its own price on the term keeps it when the first default is
+ * typed. The manager put that number there on purpose while the card above
+ * was empty, and the first default must not sweep it away.
+ */
+export type ListingTermPriceField = "monthlyRent" | "utilitiesEstimate" | "securityDeposit";
+
+export const LISTING_TERM_PRICE_FIELDS: readonly ListingTermPriceField[] = ["monthlyRent", "utilitiesEstimate", "securityDeposit"];
+
+export type ListingHouseTermPricing = Record<string, ManagerRoomTermPrice>;
+
+/** One term-price field as the text a money box shows; `""` when unset. */
+export function termPriceFieldText(entry: ManagerRoomTermPrice | undefined, field: ListingTermPriceField): string {
+  if (!entry) return "";
+  if (field === "monthlyRent") return typeof entry.monthlyRent === "number" && entry.monthlyRent > 0 ? String(entry.monthlyRent) : "";
+  return (entry[field] ?? "").replace(/^\$/, "").trim();
+}
+
+/**
+ * Write one field of one term's entry; an empty value clears that field, and
+ * an entry or block left empty disappears so absence keeps meaning "same as
+ * long-term".
+ */
+export function writeTermPriceEntry(
+  block: ListingHouseTermPricing | undefined,
+  term: string,
+  field: ListingTermPriceField,
+  value: string,
+): ListingHouseTermPricing | undefined {
+  const all = { ...(block ?? {}) };
+  const entry = { ...(all[term] ?? {}) };
+  const text = value.replace(/^\$/, "").trim();
+  if (text === "") delete entry[field];
+  else if (field === "monthlyRent") {
+    const n = Number(text.replace(/[^0-9.]/g, ""));
+    if (Number.isFinite(n) && n > 0) entry.monthlyRent = n;
+    else delete entry.monthlyRent;
+  } else entry[field] = text;
+  if (Object.keys(entry).length === 0) delete all[term];
+  else all[term] = entry;
+  return Object.keys(all).length > 0 ? all : undefined;
+}
+
+/** The same write on a room's own `termPricing`. */
+export function writeRoomTermPrice(
+  room: ManagerRoomSubmission,
+  term: string,
+  field: ListingTermPriceField,
+  value: string,
+): ManagerRoomSubmission {
+  return { ...room, termPricing: writeTermPriceEntry(room.termPricing, term, field, value) };
+}
+
+/**
+ * Is this room following the term's Default room on this field?
+ *
+ * True when the room has no value of its own on the term, or when its value
+ * equals the default it is judged against. With no default to judge against, a
+ * room that has a value is its own.
+ */
+export function roomFollowsTermDefault(
+  room: ManagerRoomSubmission,
+  term: string,
+  field: ListingTermPriceField,
+  termDefaults: ListingHouseTermPricing | undefined,
+): boolean {
+  const own = termPriceFieldText(room.termPricing?.[term], field);
+  if (own === "") return true;
+  const def = termPriceFieldText(termDefaults?.[term], field);
+  return def !== "" && own === def;
+}
+
+/**
+ * Push one field of a term's Default room onto every room still following it.
+ *
+ * As with {@link applyHouseDefaultsToRooms}, following is judged against the
+ * defaults as they were BEFORE the edit, or every room would read as diverged
+ * from the new number and freeze. A cleared default drops the field from every
+ * following room, so those rooms fall back to long-term.
+ */
+export function applyHouseTermPricingToRooms(
+  rooms: readonly ManagerRoomSubmission[],
+  term: string,
+  field: ListingTermPriceField,
+  next: ListingHouseTermPricing | undefined,
+  previous: ListingHouseTermPricing | undefined,
+): ManagerRoomSubmission[] {
+  const value = termPriceFieldText(next?.[term], field);
+  return rooms.map((room) => (roomFollowsTermDefault(room, term, field, previous) ? writeRoomTermPrice(room, term, field, value) : room));
+}
+
+/**
+ * The per-term Default rooms a submission carries, or, for a term the block
+ * does not cover, the most common value the rooms hold on it — so a listing
+ * priced room by room before the card existed does not open with an empty
+ * card above rooms that plainly have prices.
+ */
+export function houseTermPricingForSubmission(sub: ManagerListingSubmissionV1): ListingHouseTermPricing | undefined {
+  const stored = sub.houseTermPricing;
+  let out: ListingHouseTermPricing | undefined = stored ? { ...stored } : undefined;
+  const terms = new Set<string>();
+  for (const room of sub.rooms ?? []) for (const term of Object.keys(room.termPricing ?? {})) terms.add(term);
+  for (const term of terms) {
+    if (stored?.[term] && Object.keys(stored[term]).length > 0) continue;
+    for (const field of LISTING_TERM_PRICE_FIELDS) {
+      const counts = new Map<string, number>();
+      for (const room of sub.rooms ?? []) {
+        const text = termPriceFieldText(room.termPricing?.[term], field);
+        if (text === "") continue;
+        counts.set(text, (counts.get(text) ?? 0) + 1);
+      }
+      let best: { text: string; n: number } | null = null;
+      for (const [text, n] of counts) if (!best || n > best.n) best = { text, n };
+      if (best) out = writeTermPriceEntry(out, term, field, best.text);
+    }
+  }
+  return out;
 }

@@ -97,6 +97,7 @@ export function ListingWorkspace({
   sidePanel,
   footer,
   headerAside,
+  headerCenter,
 }: {
   title: string;
   subtitle?: string;
@@ -119,6 +120,11 @@ export function ListingWorkspace({
   footer: ReactNode;
   /** The Ask PropLane trigger — kept from the previous wizard, which managers use. */
   headerAside?: ReactNode;
+  /**
+   * Between the title and the save state — the import's "1 of 6 · 400 Pike St"
+   * switcher. Stays visible on a phone, where the subtitle steps aside for it.
+   */
+  headerCenter?: ReactNode;
 }) {
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-none border-0 bg-white shadow-[0_24px_60px_-28px_rgba(11,27,58,0.45)] sm:rounded-2xl sm:border sm:border-border [html[data-theme=dark]_&]:bg-card">
@@ -138,6 +144,7 @@ export function ListingWorkspace({
               close control, so they step aside rather than wrapping into three rows. */}
           {subtitle ? <p className="hidden truncate text-[12.5px] text-foreground/70 sm:block">{subtitle}</p> : null}
         </div>
+        {headerCenter ? <div className="min-w-0 shrink-0">{headerCenter}</div> : null}
         {saveState ? <div className="hidden shrink-0 text-[12.5px] text-muted sm:block">{saveState}</div> : null}
         <div className="flex shrink-0 items-center gap-2">
           {headerAside}
@@ -153,7 +160,13 @@ export function ListingWorkspace({
           ) : null}
         </div>
       </div>
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[252px_minmax(0,1fr)] xl:grid-cols-[252px_minmax(0,1fr)_340px]">
+      {/*
+       * On a phone the rail row is as tall as its chips and the body takes the
+       * rest; without the explicit rows a short step (the import's Upload) let
+       * the grid split its spare height between the two and the rail grew a
+       * band of empty grey under the chips.
+       */}
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] lg:grid-cols-[252px_minmax(0,1fr)] lg:grid-rows-1 xl:grid-cols-[252px_minmax(0,1fr)_340px]">
         <nav
           aria-label="Listing sections"
           className="flex shrink-0 flex-col overflow-x-auto border-b border-border/60 bg-[var(--pl-surface-muted)] p-2 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-3 [html[data-theme=dark]_&]:bg-black/20"

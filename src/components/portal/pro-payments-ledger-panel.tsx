@@ -1239,7 +1239,7 @@ export function ManagerPaymentsLedgerPanel({
               …
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" backdrop>
+          <DropdownMenuContent align="end">
             {showSendReminder ? (
               <DropdownMenuItem
                 data-attr="payments-send-reminder"

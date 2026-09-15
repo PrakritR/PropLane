@@ -21,10 +21,10 @@
  * reader are unchanged. Nothing here is a second source of truth for a listing.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assistant-context";
 import type { AddPropertyResult } from "@/components/portal/listing-wizard-v2/add-property-flow";
-import { ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
+import { ListingEditorV2, type ListingEditorLeadingStep } from "@/components/portal/listing-wizard-v2/listing-editor";
 import { useListingPersistence } from "@/components/portal/listing-wizard-v2/use-listing-persistence";
 import {
   applyListingBathroomSlots,
@@ -85,6 +85,9 @@ export function ListingWizardV2({
   userId,
   skuTier,
   propertyCount = 0,
+  leadingStep,
+  headerCenter,
+  flushRef,
 }: {
   onClose: () => void;
   /** After a flush save (X or debounce). `savedId` is the record written. */
@@ -109,6 +112,15 @@ export function ListingWizardV2({
   skuTier: string | null | undefined;
   /** The manager's current property count, for the plan pre-check. */
   propertyCount?: number;
+  /** A caller-owned step before Basics — the import's Upload (see ListingEditorV2). */
+  leadingStep?: ListingEditorLeadingStep;
+  /** Header slot between the title and the save state — the import's property switcher. */
+  headerCenter?: ReactNode;
+  /**
+   * Lets the caller save whatever is unsaved before it swaps this listing for
+   * another one (the import's switcher). Resolves true when nothing was lost.
+   */
+  flushRef?: MutableRefObject<(() => Promise<boolean>) | null>;
 }) {
   const { saveDraft, publish, busy } = useListingPersistence({
     userId,
@@ -155,7 +167,9 @@ export function ListingWizardV2({
   useEffect(() => {
     setDirty(listingWizardHasUnsavedInput(submission, savedFingerprintRef.current));
   }, [submission]);
-  const saveState = busy ? "Saving…" : dirty ? "Unsaved changes" : editing ? "Saved" : "Not saved yet";
+  // A draft opened by id was written before this editor opened (a resumed
+  // draft, an imported property), so with nothing unsaved it IS saved.
+  const saveState = busy ? "Saving…" : dirty ? "Unsaved changes" : editing || initialDraftId ? "Saved" : "Not saved yet";
 
   const persistSubmission = useCallback(async (
     raw: ManagerListingSubmissionV1,
@@ -202,6 +216,14 @@ export function ListingWizardV2({
   );
 
   useEffect(() => {
+    if (!flushRef) return;
+    flushRef.current = () => persist(submissionRef.current, stepRef.current);
+    return () => {
+      flushRef.current = null;
+    };
+  }, [flushRef, persist]);
+
+  useEffect(() => {
     if (!dirty) return;
     const handle = window.setTimeout(() => {
       void persist(submissionRef.current, stepRef.current);
@@ -231,6 +253,7 @@ export function ListingWizardV2({
     <PortalAssistantConfigProvider endpoint="/api/agent/chat" managerName={null}>
       <ListingEditorV2
         title={label}
+        propertyId={editListingId ?? initialDraftId ?? null}
         submission={submission}
         onChange={setSubmission}
         onStepChange={(stepIndex) => {
@@ -242,6 +265,8 @@ export function ListingWizardV2({
         busy={busy}
         isEdit={editing}
         saveState={saveState}
+        leadingStep={leadingStep}
+        headerCenter={headerCenter}
         onPublish={async () => {
         const prepared = await persistSubmission(submission);
         if (!prepared.ok) {
