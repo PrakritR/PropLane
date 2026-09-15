@@ -447,12 +447,12 @@ export function LeasePrimaryHeaderActions({
         id: "renew",
         button: (
           <Button type="button" variant="outline" className={compactBtnClass} data-attr="lease-renew" onClick={onRenewLease}>
-            Renew lease
+            Renew
           </Button>
         ),
         menuItem: (
           <DropdownMenuItem data-attr="lease-renew" onClick={onRenewLease}>
-            Renew lease
+            Renew
           </DropdownMenuItem>
         ),
       });

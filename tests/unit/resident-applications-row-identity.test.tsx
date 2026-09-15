@@ -218,7 +218,7 @@ describe("ResidentApplicationsPanel — the embedded table distinguishes its row
 });
 
 
-it("opens the exact application from View details without navigating on menu open", async () => {
+it("opens the exact application from View without navigating on menu open", async () => {
   ROWS = [
     submittedRow("PROPLANE-CCCC0003", "mgr-test-cedar", "Cedar Flat"),
     submittedRow("PROPLANE-DDDD0004", "mgr-test-cedar", "Cedar Flat"),
@@ -229,7 +229,7 @@ it("opens the exact application from View details without navigating on menu ope
   const trigger = row.querySelector<HTMLButtonElement>('[data-attr="record-actions-trigger"]');
   expect(trigger).toBeTruthy();
   fireEvent.keyDown(trigger!, { key: "ArrowDown" });
-  const details = await screen.findByRole("menuitem", { name: "View details" });
+  const details = await screen.findByRole("menuitem", { name: "View" });
   expect(portalNavigate).not.toHaveBeenCalled();
   fireEvent.click(details);
   expect(portalNavigate).toHaveBeenCalledExactlyOnceWith("/resident/applications/pending/PROPLANE-DDDD0004");

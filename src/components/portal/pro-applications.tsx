@@ -1408,7 +1408,7 @@ export function ManagerApplications({
           data-attr="application-pdf-download"
           onSelect={() => runApplicationPdfDownload(row, showToast)}
         >
-          Download application
+          Download
         </DropdownMenuItem>
       ),
     });

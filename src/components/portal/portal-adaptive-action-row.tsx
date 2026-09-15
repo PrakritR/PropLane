@@ -215,7 +215,7 @@ export function PortalAdaptiveActionRow({
           …
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" backdrop>
+      <DropdownMenuContent align="end" backdrop className="record-action-menu">
         {overflow.map((action) => (
           <div key={action.id}>{action.menuItem}</div>
         ))}
