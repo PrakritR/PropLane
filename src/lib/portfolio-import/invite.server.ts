@@ -1,3 +1,4 @@
+import { isPlaceholderImportEmail } from "@/lib/portfolio-import/placeholder-email";
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -130,7 +131,9 @@ export async function invitePortfolioImportResidents(input: {
     };
 
     const alreadySent = Boolean(row.manualResidentDetails?.onboardingWelcomeSentAt?.trim());
-    const email = row.email?.trim().toLowerCase() ?? "";
+    const rawEmail = row.email?.trim().toLowerCase() ?? "";
+    // A placeholder address (resident imported without an email) never receives mail.
+    const email = isPlaceholderImportEmail(rawEmail) ? "" : rawEmail;
     const phone = row.manualResidentDetails?.phone?.trim() ?? "";
 
     if (wantsEmail) {

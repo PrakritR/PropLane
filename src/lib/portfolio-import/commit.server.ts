@@ -27,6 +27,7 @@ import {
 import type { AdminPropertyRow } from "@/lib/demo-admin-property-inventory";
 import { sealApplicantRow } from "@/lib/security/applicant-identity";
 import { runExistingResidentOnboarding } from "@/lib/existing-resident-onboarding.server";
+import { placeholderImportEmail } from "@/lib/portfolio-import/placeholder-email";
 import { buildImportedResidentRow } from "@/lib/resident-document-import/build-application-row";
 import { upsertManagerCharges } from "@/lib/household-charges.server";
 import type { HouseholdCharge } from "@/lib/household-charges";
@@ -260,7 +261,12 @@ async function commitOneResident(
   propertyLabel: string,
   roomId: string,
 ): Promise<string> {
-  const email = resident.email?.trim().toLowerCase() ?? "";
+  // No email in the file → a protected placeholder (see placeholder-email.ts), so
+  // the resident is created, holds their room, and is not purged as an orphan.
+  // The invite step skips email for placeholders and texts when there is a phone.
+  const email =
+    resident.email?.trim().toLowerCase() ||
+    placeholderImportEmail(slugify(resident.name || "resident"), shortHash(importId, resident.key, "email"));
   const payload = {
     propertyId,
     roomId,
