@@ -36,10 +36,10 @@ function DraftActions() {
   return null;
 }
 
-function renderHeader(mobileActionsInTitleRow: boolean) {
+function renderHeader(iconTitleActions: boolean) {
   return render(
     <PortalTitleActionsProvider>
-      <PortalDetailHeader title="Property · New listing" mobileActionsInTitleRow={mobileActionsInTitleRow} />
+      <PortalDetailHeader title="Property · New listing" iconTitleActions={iconTitleActions} />
       <DraftActions />
     </PortalTitleActionsProvider>,
   );
@@ -60,7 +60,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("PortalDetailHeader — draft actions as icons in the title row on a phone", () => {
+describe("PortalDetailHeader — draft actions as icons in the title row", () => {
   it("puts the published actions in the title row below md and renders no band beneath", () => {
     stubViewport(false);
     renderHeader(true);
@@ -89,13 +89,15 @@ describe("PortalDetailHeader — draft actions as icons in the title row on a ph
     expect(band.className).toContain("flex");
   });
 
-  it("is a no-op at md and up — the title row already holds the actions", () => {
+  it("holds the same icon buttons in the title row at md and up", () => {
     stubViewport(true);
     renderHeader(true);
 
     const header = document.querySelector("header.portal-detail-header")!;
     const titleRow = header.firstElementChild!;
-    expect(titleRow.contains(screen.getByRole("button", { name: "Continue editing" }))).toBe(true);
+    const edit = screen.getByRole("button", { name: "Continue editing" });
+    expect(titleRow.contains(edit)).toBe(true);
+    expect(edit.parentElement?.className).toContain("!size-9");
     expect(screen.getAllByRole("button", { name: "Delete draft" }).length).toBe(1);
   });
 });

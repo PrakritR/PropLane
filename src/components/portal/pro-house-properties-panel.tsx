@@ -860,6 +860,7 @@ function ManagerPropertyInlineDetails({
               className={propertyDetailFooterBtn}
               data-attr="draft-continue-editing"
               aria-label="Continue editing"
+              title="Continue editing"
               onClick={() => {
                 if (!skuLoaded) {
                   showToast("Loading subscription…");
@@ -868,11 +869,11 @@ function ManagerPropertyInlineDetails({
                 setDraftEditorOpen(true);
               }}
             >
-              {/* A draft has two actions and no room for words on a phone: the
-                  title row shows a pencil and a trash can (see
-                  mobileActionsInTitleRow); md+ keeps the worded pills. */}
-              <Pencil className="size-4 md:hidden" aria-hidden />
-              <span className="max-md:sr-only">Continue editing</span>
+              {/* A draft has two actions: the title row shows a pencil and a
+                  trash can at every width (see iconTitleActions); the words
+                  live in the aria-label and the tooltip. */}
+              <Pencil className="size-4" aria-hidden />
+              <span className="sr-only">Continue editing</span>
             </Button>
           ),
           menuItem: (
@@ -899,10 +900,11 @@ function ManagerPropertyInlineDetails({
               className={dangerBtnClass}
               data-attr="draft-delete"
               aria-label="Delete draft"
+              title="Delete draft"
               onClick={() => setPendingDestructiveAction("delete-draft")}
             >
-              <Trash2 className="size-4 md:hidden" aria-hidden />
-              <span className="max-md:sr-only">Delete draft</span>
+              <Trash2 className="size-4" aria-hidden />
+              <span className="sr-only">Delete draft</span>
             </Button>
           ),
           menuItem: (
@@ -1814,7 +1816,7 @@ export function ManagerHousePropertiesPanel({
         bareHeader
         dataAttrBack="property-detail-back"
         suppressMobileActions
-        mobileActionsInTitleRow={sourceBucket === 5}
+        iconTitleActions={sourceBucket === 5}
         pinScrollBody
         scrollBody={false}
       >
