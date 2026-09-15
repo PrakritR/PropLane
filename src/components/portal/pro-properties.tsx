@@ -61,12 +61,16 @@ import { loadManagerEffectivePlanTierClient } from "@/lib/manager-subscription-c
 import {
   ensureManagerFirstListingDraft,
   managerHasAnyListing,
+  managerNeedsFirstListingOnboarding,
+  markFirstListingWizardAutoOpened,
   markFirstListingWizardDismissed,
+  readFirstListingPortfolioSnapshot,
+  readFirstListingWizardAutoOpened,
   readFirstListingWizardDismissed,
   shouldAutoOpenFirstListingWizard,
-  managerNeedsFirstListingOnboarding,
-  readFirstListingPortfolioSnapshot,
   shouldSkipFirstListingOnboarding,
+  takePendingFirstListingAutoOpen,
+  writePendingFirstListingAutoOpen,
 } from "@/lib/manager-first-listing-onboarding";
 
 /**
@@ -128,6 +132,15 @@ export function ManagerProperties({
   }, []);
   /** Resume the seeded / first draft in the wizard (PRP-396). */
   const [resumeDraftId, setResumeDraftId] = useState<string | null>(null);
+  // The page that routed here from an empty /all handed over "open the seeded
+  // draft" — take it exactly once, on the page that actually stays mounted.
+  useEffect(() => {
+    if (!userId) return;
+    const pending = takePendingFirstListingAutoOpen(userId);
+    if (!pending) return;
+    setResumeDraftId(pending);
+    setWizardOpen(true);
+  }, [userId]);
   /**
    * Closing the create-listing wizard is an ANSWER, remembered for good.
    *
@@ -270,17 +283,28 @@ export function ManagerProperties({
           // that already had a draft still needs to land on Drafts, and one
           // where seeding was declined must not be stranded on an empty Listed.
           const snap = readFirstListingPortfolioSnapshot(userId);
-          if (linksKnown && !managerHasAnyListing(snap) && activeStage !== "drafts") {
-            setActiveStage("drafts");
-          }
-          if (
-            seeded &&
+          const mustMoveToDrafts = linksKnown && !managerHasAnyListing(snap) && activeStage !== "drafts";
+          const autoOpen =
+            Boolean(seeded) &&
             shouldAutoOpenFirstListingWizard({
               snap,
               dismissed: readFirstListingWizardDismissed(userId),
               coManagerLinksKnown: linksKnown,
-            })
-          ) {
+              autoOpenedThisSession: readFirstListingWizardAutoOpened(userId),
+            });
+          if (autoOpen && seeded) {
+            // One shot per session — set BEFORE any navigation so the page that
+            // mounts on Drafts cannot decide to open it a second time.
+            markFirstListingWizardAutoOpened(userId);
+          }
+          if (mustMoveToDrafts) {
+            // Moving stage remounts this page (`[stage]` is a dynamic segment),
+            // so opening the wizard here would be undone by the router a frame
+            // later and re-done by the fresh page — the open / close / open
+            // flicker. Hand the intent to the page that will mount instead.
+            if (autoOpen && seeded) writePendingFirstListingAutoOpen(userId, seeded.draftId);
+            setActiveStage("drafts");
+          } else if (autoOpen && seeded) {
             setResumeDraftId(seeded.draftId);
             setWizardOpen(true);
           }
