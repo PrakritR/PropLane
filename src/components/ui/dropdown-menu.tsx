@@ -10,16 +10,28 @@ export const DropdownMenu = DropdownMenuPrimitive.Root;
 export const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
 export const DropdownMenuSub = DropdownMenuPrimitive.Sub;
 
+/**
+ * Every dropdown menu is liquid glass over a blurred page.
+ *
+ * The ⋯ row menus and the composer menus had the approved translucent surface
+ * (`.portal-liquid-glass`) and a few others asked for a faint scrim, but the
+ * ＋ menu on Properties and half a dozen more were plain white cards over an
+ * untouched page. One look for all of them, so `glass` and `backdrop` default
+ * on; a caller opts out of the scrim only when the menu already sits inside
+ * a modal whose own overlay is the blur (see application-form-builder).
+ */
 export function DropdownMenuContent({
   className,
   sideOffset = 8,
   align = "end",
-  backdrop = false,
-  glass = false,
+  backdrop = true,
+  glass = true,
   collisionPadding,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content> & {
+  /** Blur and dim the page behind the menu. Off only inside a modal. */
   backdrop?: boolean;
+  /** The translucent liquid surface. Off only for a deliberately flat menu. */
   glass?: boolean;
 }) {
   const insets = useSafeAreaInsets();
@@ -32,10 +44,11 @@ export function DropdownMenuContent({
     };
   return (
     <>
-      {(backdrop || glass) && (
+      {backdrop && (
         <DropdownMenuPrimitive.Portal>
           <div
-            className="fixed inset-0 z-40 animate-in bg-background/15 fade-in-0 backdrop-blur-[3px] pointer-events-none"
+            className="portal-menu-backdrop fixed inset-0 z-40 animate-in fade-in-0 pointer-events-none motion-reduce:animate-none"
+            data-testid="dropdown-menu-backdrop"
             aria-hidden
           />
         </DropdownMenuPrimitive.Portal>
@@ -121,6 +134,7 @@ export function DropdownMenuSubContent({
           "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
           "duration-[220ms] ease-[cubic-bezier(.22,1,.36,1)] data-[state=closed]:duration-[120ms]",
           "motion-reduce:animate-none motion-reduce:transition-none",
+          "portal-liquid-glass z-[10060]",
           className,
         )}
         {...props}

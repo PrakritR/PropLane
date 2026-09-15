@@ -114,7 +114,7 @@ export function WorkspaceSwitcher({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-      <DropdownMenuContent align="start" backdrop className="min-w-[240px]">
+      <DropdownMenuContent align="start" className="min-w-[240px]">
         {ctx.workspaces.length === 0 && !ctx.loading ? (
           // A brand-new account has no persisted workspace yet; the menu still
           // names the one it is standing in rather than opening on a separator.

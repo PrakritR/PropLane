@@ -232,11 +232,11 @@ function BuilderQuestionCard({
         reordering by mouse silently did nothing. Keyboard reorder (Alt+Arrow)
         never goes through this menu, which is why unit tests passed. Lift it
         above the workspace, matching the z used elsewhere for portalled
-        content that must clear a modal. `backdrop` is dropped for the same
+        content that must clear a modal. `backdrop` is off for the same
         reason — its z-40 scrim rendered under the workspace where it only
-        blurred the wrong layer.
+        blurred the wrong layer; the modal overlay is the blur here.
       */}
-      <DropdownMenuContent align="end" className="z-[10060]">
+      <DropdownMenuContent align="end" backdrop={false} className="z-[10060]">
         <DropdownMenuItem disabled={!canMoveUp} data-attr="application-question-move-up" onSelect={onMoveUp}>
           Move up
         </DropdownMenuItem>
