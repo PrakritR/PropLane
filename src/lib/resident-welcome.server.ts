@@ -44,7 +44,7 @@ export function residentWelcomeEmailConfigured(): boolean {
 
 /**
  * The existing-resident portal-ready SMS body (extracted from the inline
- * literal below so portfolio-import invites can send the identical message).
+ * literal below so any server-side sender can send the identical message).
  * `owner-sms-dispatcher.server.ts` / `sendSms` never append opt-out text
  * themselves, so it is included here.
  */

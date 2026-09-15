@@ -3791,6 +3791,17 @@ html[data-native] [data-listing-subnav] {
 .record-action-menu [role="menuitem"][data-highlighted]:not(:disabled):not([data-disabled]) { background: rgb(92 130 244 / .12) !important; }
 .record-action-menu .text-danger { color: var(--destructive); }
 @supports not (backdrop-filter: blur(1px)) { .portal-liquid-glass { background: var(--card); } }
+/* The page behind an open menu: the same weight as a modal overlay's blur, lighter tint. */
+.portal-menu-backdrop {
+  background: rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+[data-theme="dark"] .portal-menu-backdrop {
+  background: rgba(2, 6, 23, 0.42);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
 
 /* Field pickers share the approved glass treatment with record and composer menus. */
 .field-dropdown-menu {

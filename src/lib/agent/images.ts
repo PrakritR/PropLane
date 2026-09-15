@@ -107,36 +107,6 @@ export function parseChatDocuments(raw: unknown): ParsedChatDocuments {
   return { ok: true, blocks };
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export const MAX_CHAT_IMPORT_IDS = 4;
-
-export type ParsedChatImportIds =
-  | { ok: true; ids: string[] }
-  | { ok: false; error: string };
-
-/**
- * Portfolio-import draft ids a rent-roll attachment created (see
- * portfolio-import.client.ts / portfolio-import-tools.ts). Unlike images and
- * documents these never become model content blocks — the chat handler
- * verifies ownership and appends a plain-text summary instead
- * (`applyImportAttachments` in chat-handler.ts).
- */
-export function parseChatImportIds(raw: unknown): ParsedChatImportIds {
-  if (raw == null) return { ok: true, ids: [] };
-  if (!Array.isArray(raw)) return { ok: false, error: "importIds must be an array." };
-  if (raw.length === 0) return { ok: true, ids: [] };
-  if (raw.length > MAX_CHAT_IMPORT_IDS) {
-    return { ok: false, error: `At most ${MAX_CHAT_IMPORT_IDS} import attachments per message.` };
-  }
-  const ids: string[] = [];
-  for (const item of raw) {
-    const id = String(item ?? "").trim();
-    if (!UUID_RE.test(id)) return { ok: false, error: "Invalid import attachment id." };
-    ids.push(id);
-  }
-  return { ok: true, ids };
-}
-
 /** Compose the final user message: attachments first, then the text. */
 export function buildAttachmentUserMessage(
   text: string,

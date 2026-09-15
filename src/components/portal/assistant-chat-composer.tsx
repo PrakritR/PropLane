@@ -7,10 +7,7 @@ import {
   CHAT_ATTACHMENT_ACCEPT,
   MAX_CHAT_ATTACHMENTS,
   type PendingChatAttachment,
-  createReadingImportAttachment,
-  isPortfolioImportCandidateFile,
   prepareChatAttachmentsFromFiles,
-  resolvePortfolioImportAttachment,
   revokeAttachmentPreview,
 } from "@/lib/assistant-chat-attachments.client";
 import { cn } from "@/lib/utils";
@@ -54,50 +51,9 @@ export function AssistantChatComposer({
 
   async function onPickFiles(files: FileList | null) {
     if (!files?.length) return;
-    const list = Array.from(files);
-    const importFiles = list.filter(isPortfolioImportCandidateFile);
-    const otherFiles = list.filter((f) => !isPortfolioImportCandidateFile(f));
-
-    const room = MAX_CHAT_ATTACHMENTS - attachments.length;
-    if (room <= 0) {
-      onAttachmentError?.(`You can attach up to ${MAX_CHAT_ATTACHMENTS} files per message.`);
-      if (fileRef.current) fileRef.current.value = "";
-      return;
-    }
-
-    const toImport = importFiles.slice(0, room);
-    const toOther = otherFiles.slice(0, Math.max(0, room - toImport.length));
-
-    // Rent-roll attachments render a "Reading…" chip the instant they're
-    // picked (createReadingImportAttachment), then flip to their summary line
-    // once createPortfolioImport resolves — never file bytes to the model.
-    const placeholders = toImport.map((file) => ({ file, attachment: createReadingImportAttachment(file) }));
-    let next = [...attachments, ...placeholders.map((p) => p.attachment)];
-    if (placeholders.length > 0) onAttachmentsChange(next);
-
-    if (toOther.length > 0) {
-      const { prepared, error } = await prepareChatAttachmentsFromFiles(toOther, next.length);
-      if (prepared.length) {
-        next = [...next, ...prepared];
-        onAttachmentsChange(next);
-      }
-      if (error) onAttachmentError?.(error);
-    } else if (list.length > toImport.length + toOther.length) {
-      onAttachmentError?.(`Only ${room} more file${room === 1 ? "" : "s"} fit on this message.`);
-    }
-
-    if (placeholders.length > 0) {
-      const settledBase = next;
-      void Promise.all(placeholders.map((p) => resolvePortfolioImportAttachment(p.attachment.id, p.file))).then(
-        (resolved) => {
-          const byId = new Map(resolved.map((r) => [r.id, r]));
-          onAttachmentsChange(settledBase.map((a) => byId.get(a.id) ?? a));
-          const failed = resolved.find((r) => r.status === "error");
-          if (failed?.error) onAttachmentError?.(failed.error);
-        },
-      );
-    }
-
+    const { prepared, error } = await prepareChatAttachmentsFromFiles(files, attachments.length);
+    if (prepared.length) onAttachmentsChange([...attachments, ...prepared]);
+    if (error) onAttachmentError?.(error);
     if (fileRef.current) fileRef.current.value = "";
   }
 
@@ -156,19 +112,10 @@ export function AssistantChatComposer({
                 <img src={att.previewUrl} alt="" className="h-8 w-8 rounded-md object-cover" />
               ) : (
                 <span className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-[10px] font-semibold uppercase text-primary">
-                  {att.kind === "import" ? "XLS" : "PDF"}
+                  PDF
                 </span>
               )}
-              {att.kind === "import" ? (
-                <span className="flex min-w-0 flex-col leading-tight">
-                  <span className="max-w-[10rem] truncate font-medium">{att.fileName}</span>
-                  <span className={cn("max-w-[10rem] truncate", att.status === "error" ? "text-red-600" : "text-muted")}>
-                    {att.status === "reading" ? "Reading…" : att.status === "error" ? att.error || "Could not read this file" : att.summaryLine}
-                  </span>
-                </span>
-              ) : (
-                <span className="max-w-[8rem] truncate">{att.fileName}</span>
-              )}
+              <span className="max-w-[8rem] truncate">{att.fileName}</span>
               <button
                 type="button"
                 aria-label={`Remove ${att.fileName}`}

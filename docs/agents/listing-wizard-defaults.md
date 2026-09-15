@@ -66,6 +66,24 @@ count becomes whole. Lowering a count removes untouched cards from the end
 and, when the last card has been filled in, keeps the cards and moves only
 the number. A new listing starts with one bathroom card.
 
+## Availability is a list of occupied dates, never a typed status
+
+A room is **available by default**. The Rooms step's Availability block
+(`listing-wizard-v2/occupied-dates.tsx`) lists only the spans that close it:
+the manager's own rows in `manualUnavailableRanges` (Start → End, End may be
+`null` for "no end date"), plus read-only rows for residents' stays, Bookings
+blocks and Airbnb imports. There is no Available/Occupied switch; the word
+beside the heading is a readout. `src/lib/room-availability-timeline.ts` is the
+one derivation of the renter-facing label, and every change writes the derived
+`availability` and `moveInAvailableDate` alongside the ranges so old readers
+keep working. A room saved with only a future `moveInAvailableDate` reads as
+occupied until the day before. Airbnb rows are identified by their id prefix and
+are never edited here — the calendar sync owns them. Availability is per room and
+never inherits from the Default card.
+
+Spec: `tests/unit/room-availability-timeline.test.ts`,
+`tests/unit/listing-wizard-v2-occupied-dates.test.tsx`.
+
 ## Inputs that hold a draft
 
 `SizeInput` (rooms) and `MoneyInput` (pricing) show what was typed while

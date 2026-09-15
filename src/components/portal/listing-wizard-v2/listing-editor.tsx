@@ -23,6 +23,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Input, Textarea } from "@/components/ui/input";
+import { OccupiedDates } from "@/components/portal/listing-wizard-v2/occupied-dates";
 import { cn } from "@/lib/utils";
 import {
   LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID,
@@ -172,6 +173,18 @@ export const LISTING_V2_STEPS = [
 ] as const;
 
 export type ListingV2StepId = (typeof LISTING_V2_STEPS)[number]["id"];
+
+/** A caller-owned step drawn before Basics on the rail (see `ListingEditorV2`). */
+export type ListingEditorLeadingStep = {
+  id: string;
+  label: string;
+  /** What the rail says under the label — the file name, the count found. */
+  summary?: ReactNode;
+  /** Steps the caller draws as needing attention, for the rail's red dot. */
+  attention?: number;
+  /** The manager chose it (from the rail or Back on Basics). */
+  onOpen: () => void;
+};
 
 /**
  * "For listing only have title, pictures, price and description."
@@ -978,6 +991,7 @@ function SizeInput({ who, value, inherited, onCommit }: { who: string; value: nu
  */
 function RoomCardBody({
   room,
+  propertyId = null,
   who,
   defaults,
   wholePlace,
@@ -994,6 +1008,8 @@ function RoomCardBody({
   isOwn,
 }: {
   room: ManagerRoomSubmission | null;
+  /** The listing's record id, for the room's booked rows. */
+  propertyId?: string | null;
   who: string;
   defaults: ListingHouseDefaults;
   wholePlace: boolean;
@@ -1131,13 +1147,7 @@ function RoomCardBody({
             />
           </Field>
         </CardFields>
-        {room ? (
-          <CardFields cols={2}>
-            <Field label="Available from">
-              <Input type="date" value={room.moveInAvailableDate} onChange={(e) => onRoom({ moveInAvailableDate: e.target.value })} />
-            </Field>
-          </CardFields>
-        ) : null}
+        {room ? <OccupiedDates room={room} propertyId={propertyId} onRoom={onRoom} /> : null}
 
         <div className="border-t border-border px-3.5 pb-1 pt-2">
           <div className="flex items-center gap-2">
@@ -1239,6 +1249,7 @@ function AddDetailsRow({
 
 function StepRooms({
   sub,
+  propertyId = null,
   patch,
   defaults,
   setDefaults,
@@ -1246,6 +1257,7 @@ function StepRooms({
   onGoToBathrooms,
 }: {
   sub: ManagerListingSubmissionV1;
+  propertyId?: string | null;
   patch: Patch;
   defaults: ListingHouseDefaults;
   setDefaults: (next: ListingHouseDefaults) => void;
@@ -1467,6 +1479,7 @@ function StepRooms({
             <div data-attr="listing-v2-room-editor">
               <RoomCardBody
                 room={room}
+                propertyId={propertyId}
                 who={label}
                 defaults={defaults}
                 wholePlace={wholePlace}
@@ -2887,6 +2900,7 @@ function StepReview({
 
 export function ListingEditorV2({
   submission,
+  propertyId = null,
   onChange,
   onClose,
   onPublish,
@@ -2895,8 +2909,12 @@ export function ListingEditorV2({
   busy = false,
   isEdit = false,
   saveState,
+  leadingStep,
+  headerCenter,
 }: {
   submission: ManagerListingSubmissionV1;
+  /** The listing's record id when it already has one — booked rows on the Rooms step need it. Null for a brand-new listing. */
+  propertyId?: string | null;
   onChange: (next: ManagerListingSubmissionV1) => void;
   /** Optional persist-in-place. Closing and typing save themselves in the parent. */
   onSaveExit?: (stepIndex: number) => void;
@@ -2911,6 +2929,15 @@ export function ListingEditorV2({
   isEdit?: boolean;
   /** Autosave status, stated once in the header. */
   saveState?: ReactNode;
+  /**
+   * A step the caller owns, drawn on the rail BEFORE Basics — the import's
+   * Upload step. Choosing it, or pressing Back from Basics, hands control to
+   * the caller; the six listing steps are untouched. Add property passes
+   * nothing and renders exactly as before.
+   */
+  leadingStep?: ListingEditorLeadingStep;
+  /** Header slot between the title and the save state (see ListingWorkspace). */
+  headerCenter?: ReactNode;
 }) {
   const [step, setStep] = useState(0);
   useEffect(() => {
@@ -3036,13 +3063,26 @@ export function ListingEditorV2({
     };
   }, [submission, rooms, leaseTerms]);
 
-  const railSteps = LISTING_V2_STEPS.map((s) => ({
+  const listingRailSteps = LISTING_V2_STEPS.map((s) => ({
     id: s.id,
     label: s.label,
     attention: attention[s.id] ?? 0,
     summary: summaries[s.id],
     offPath: !pathIds.includes(s.id),
   }));
+  // The leading step, when there is one, is index 0 on the rail and shifts the
+  // listing steps by one; `step` itself still indexes LISTING_V2_STEPS.
+  const railSteps = leadingStep
+    ? [{ id: leadingStep.id, label: leadingStep.label, summary: leadingStep.summary, attention: leadingStep.attention ?? 0 }, ...listingRailSteps]
+    : listingRailSteps;
+  const railOffset = leadingStep ? 1 : 0;
+  const onRailJump = (index: number) => {
+    if (leadingStep && index === 0) {
+      leadingStep.onOpen();
+      return;
+    }
+    goTo(index - railOffset);
+  };
 
   const coverUrl = (submission.housePhotoDataUrls ?? [])[0] ?? rooms.flatMap((r) => r.photoDataUrls ?? [])[0] ?? null;
   const photoCount =
@@ -3076,6 +3116,7 @@ export function ListingEditorV2({
       case "rooms":
         return (
           <StepRooms
+            propertyId={propertyId}
             sub={submission}
             patch={patch}
             defaults={defaults}
@@ -3151,7 +3192,8 @@ export function ListingEditorV2({
       saveState={saveState}
       onClose={() => onClose(step)}
       headerAside={<ModalAssistantStrip contextHint={assistantContext} storageScopeKey="listing-wizard-v2" />}
-      rail={<StepRail steps={railSteps} current={step} onJump={goTo} visited={visited} />}
+      headerCenter={headerCenter}
+      rail={<StepRail steps={railSteps} current={step + railOffset} onJump={onRailJump} visited={visited} />}
       railHeader={
         <>
           <RailCover photoUrl={coverUrl} photoCount={photoCount} onAddPhotos={() => goTo(0)} />
@@ -3165,15 +3207,18 @@ export function ListingEditorV2({
           <div className="flex items-center gap-2.5">
             <button
               type="button"
-              disabled={prevStep == null}
-              onClick={() => prevStep != null && goTo(prevStep)}
+              disabled={prevStep == null && !leadingStep}
+              onClick={() => {
+                if (prevStep != null) goTo(prevStep);
+                else leadingStep?.onOpen();
+              }}
               className="min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground disabled:opacity-45"
             >
               Back
             </button>
           </div>
           <span className="hidden text-[12.5px] text-muted sm:inline">
-            {pathPosition != null ? `Step ${pathPosition} of ${pathIds.length}` : "Optional detail"}
+            {pathPosition != null ? `Step ${pathPosition + railOffset} of ${pathIds.length + railOffset}` : "Optional detail"}
           </span>
           {isEdit ? (
             nextStep == null ? null : (

@@ -74,12 +74,19 @@ export type ManagerRoomTermPrice = {
   dailyUtilitiesRate?: number;
 };
 
+/**
+ * One span of OCCUPIED dates on a room. A room is available by default; these
+ * rows (plus residents' stays and Bookings blocks) are what close it. The wizard
+ * edits the manager's own rows; the Airbnb calendar sync writes rows whose id
+ * carries its connection prefix. `src/lib/room-availability-timeline.ts` derives
+ * the renter-facing label from them.
+ */
 export type ManagerRoomUnavailableRange = {
   id: string;
   /** Inclusive YYYY-MM-DD — room cannot be leased overlapping this span. */
   start: string;
-  /** Inclusive YYYY-MM-DD */
-  end: string;
+  /** Inclusive YYYY-MM-DD, or null when the span has no end date yet. */
+  end: string | null;
 };
 
 /** One kind of bed in a room, and how many of it. */
@@ -139,7 +146,11 @@ export type ManagerRoomSubmission = {
   floor: string;
   monthlyRent: number;
   availability: string;
-  /** Earliest date this room can be occupied (YYYY-MM-DD). Required for new listings. */
+  /**
+   * Next date this room is free (YYYY-MM-DD), or "" when it is free now. Derived
+   * from `manualUnavailableRanges` and bookings by the wizard on every change
+   * (`roomAvailabilityPatch`); readers may keep trusting it as before.
+   */
   moveInAvailableDate: string;
   /** Keys, parking, access, what to bring — shown to placed residents. Required for new listings. */
   moveInInstructions: string;
@@ -1825,8 +1836,10 @@ export function normalizeManagerListingSubmissionV1(
               ? o.id.trim()
               : `unavail-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
           const start = typeof o.start === "string" ? o.start.trim() : "";
-          const end = typeof o.end === "string" ? o.end.trim() : "";
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) continue;
+          const rawEnd = typeof o.end === "string" ? o.end.trim() : "";
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) continue;
+          // An empty or malformed end means "no end date yet" — the room stays closed.
+          const end = /^\d{4}-\d{2}-\d{2}$/.test(rawEnd) ? rawEnd : null;
           out.push({ id, start, end });
         }
         return out;
@@ -2707,7 +2720,7 @@ function positiveWholeNumber(value: unknown, max: number): number | undefined {
 function normalizePrefillRecord(raw: unknown): ListingPrefillRecordV1 | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const r = raw as Partial<ListingPrefillRecordV1>;
-  if (r.source !== "rentcast" && r.source !== "fixture") return undefined;
+  if (r.source !== "rentcast" && r.source !== "fixture" && r.source !== "file") return undefined;
   const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
   return {
     source: r.source,

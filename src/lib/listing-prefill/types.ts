@@ -80,7 +80,8 @@ export type ExtractedAd = {
  * public projection.
  */
 export type ListingPrefillRecordV1 = {
-  source: "rentcast" | "fixture";
+  /** `file` — written by the property import (a spreadsheet the manager uploaded). */
+  source: "rentcast" | "fixture" | "file";
   fetchedAt: string;
   /** Submission keys the facts prefill wrote. */
   fields: string[];
