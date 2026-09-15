@@ -231,6 +231,7 @@ export function ListingWizardV2({
     <PortalAssistantConfigProvider endpoint="/api/agent/chat" managerName={null}>
       <ListingEditorV2
         title={label}
+        propertyId={editListingId ?? initialDraftId ?? null}
         submission={submission}
         onChange={setSubmission}
         onStepChange={(stepIndex) => {
