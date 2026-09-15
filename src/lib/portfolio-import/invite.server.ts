@@ -3,8 +3,9 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DemoApplicantRow } from "@/data/demo-portal";
-import { runExistingResidentOnboarding } from "@/lib/existing-resident-onboarding.server";
-import { buildResidentWelcomeSmsBody } from "@/lib/resident-welcome.server";
+import { buildResidentWelcomeSmsBody, deliverExistingResidentWelcome } from "@/lib/resident-welcome.server";
+import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
+import { sealApplicantRow } from "@/lib/security/applicant-identity";
 import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
 import { resolveWorkspaceWorkNumbers } from "@/lib/sms/manager-workspace-role.server";
 import { normalizeProvisionState } from "@/lib/sms/number-registration-policy";
@@ -142,18 +143,33 @@ export async function invitePortfolioImportResidents(input: {
       } else if (alreadySent) {
         result.email = "already_sent";
       } else {
-        const onboarded = await runExistingResidentOnboarding(
+        // The lease row already exists from the commit, and
+        // runExistingResidentOnboarding(preserveExistingLease) returns before it
+        // sends anything in that case — so deliver the welcome directly and stamp
+        // the row the way onboarding does. A demo/self address is recorded in the
+        // inbox only (`skipped`); that still counts as sent for the manager.
+        const axisId = normalizeApplicationAxisId(row.id);
+        const welcome = await deliverExistingResidentWelcome(
           db,
-          { userId: actor.userId, email: actor.email, managerName: actor.managerName },
-          row,
-          { sendWelcomeEmail: true, preserveExistingLease: true },
+          { userId: actor.userId, email: actor.email },
+          { to: email, residentName: row.name, axisId, propertyLabel: row.property },
         );
-        if (onboarded.ok) {
-          result.email = onboarded.welcomeEmailSent ? "sent" : "already_sent";
-          if (onboarded.welcomeEmailSent) emailCount += 1;
+        if (welcome.ok) {
+          const stampedAt = new Date().toISOString();
+          const nextRow: DemoApplicantRow = {
+            ...row,
+            manualResidentDetails: { ...(row.manualResidentDetails ?? {}), onboardingWelcomeSentAt: stampedAt },
+          };
+          await db
+            .from("manager_application_records")
+            .update({ row_data: sealApplicantRow(nextRow, row.id, managerUserId), updated_at: stampedAt })
+            .eq("id", row.id)
+            .eq("manager_user_id", managerUserId);
+          result.email = "sent";
+          emailCount += 1;
         } else {
           result.email = "failed";
-          result.error = onboarded.error;
+          result.error = welcome.error;
         }
       }
     }
