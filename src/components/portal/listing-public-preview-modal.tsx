@@ -16,7 +16,8 @@ import { X } from "lucide-react";
 import { getListingRichContent } from "@/data/listing-rich-content";
 import type { MockProperty } from "@/data/types";
 import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
-import { withListingContactSmsPhone } from "@/lib/listing-contact-sms";
+import { useListingContactWorkEmail } from "@/hooks/use-listing-contact-work-email";
+import { withListingContactSmsPhone, withListingContactWorkEmail } from "@/lib/listing-contact-sms";
 import { cn } from "@/lib/utils";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
 
@@ -43,6 +44,11 @@ export function ListingPublicPreviewModal({
     ownerManagerUserId: property?.managerUserId,
     enabled: open && Boolean(property),
   });
+  const contactWorkEmail = useListingContactWorkEmail({
+    listingId: property?.id,
+    ownerManagerUserId: property?.managerUserId,
+    enabled: open && Boolean(property),
+  });
 
   const { isNative } = useIsNativeApp();
   const useFullPageModal = isNative === true;
@@ -50,7 +56,10 @@ export function ListingPublicPreviewModal({
 
   if (!open || !property) return null;
 
-  const previewProperty = withListingContactSmsPhone(property, contactSmsPhone);
+  const previewProperty = withListingContactWorkEmail(
+    withListingContactSmsPhone(property, contactSmsPhone),
+    contactWorkEmail,
+  );
   const rich = getListingRichContent(previewProperty);
 
   return (
