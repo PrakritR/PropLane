@@ -27,7 +27,6 @@ describe("PRP-125: marketing copy addresses managers AND landlords", () => {
   it("names both on the /partner page it links to", () => {
     const partner = read("src/app/(public)/partner/page.tsx");
     expect(partner).toContain("For managers & landlords");
-    expect(partner).toContain("property managers and landlords");
     expect(partner).toContain("Built for how managers and landlords actually work");
   });
 

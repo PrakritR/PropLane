@@ -478,3 +478,33 @@ The rules that hold it closed:
 
 Coverage: `tests/unit/charges-follow-the-lease.test.ts`,
 `tests/unit/current-resident.test.ts`.
+
+### Signature freezes the money terms
+
+Signing never used to write the signed rent onto the resident's record, so every
+Payments load re-priced a signed tenant from the CURRENT listing
+(`selectedRoomRentAmount` → the room's `monthlyRent`). A manager editing a room's
+rent moved a signed resident's pending rent and recurring profile with it.
+
+`src/lib/lease-signed-terms.ts` owns the rule. The moment a lease is fully
+executed — marked signed off-platform (`lease-mark-signed.client.ts`) or, for an
+e-signature this browser learns of on its next load, the reconciler
+(`reconcileApprovedResidentPaymentSchedules`) — the four money terms the document
+states (rent, monthly utilities, security deposit, move-in fee) are written onto
+the application row as `signedMonthlyRent` plus the `manager*Override` fields,
+**only where still empty**. The generator already prefers those fields over the
+listing at every money line, so from then on the listing can change freely; only
+a renewal or amendment (`lease-renewal-payments.ts`) moves a signed resident's
+terms. Source order: the executed document (generated summary table or uploaded
+PDF parse), else the billing snapshot at that moment. A daily- or weekly-priced
+room keeps its rate — a frozen MONTHLY figure would switch it to flat billing —
+so only its utilities, deposit and move-in freeze. The reconciler pass doubles
+as the backfill for residents signed before this existed.
+
+A recurring profile is keyed by resident **and** property. The reconciler
+retires a profile whose resident no longer has a current row on that property,
+together with the untouched pending months it billed; a paid, partially paid, or
+resident-reported month is history and stays. Retaining profiles by email alone
+is how a moved resident got two "Rent — October" rows at two prices.
+
+Coverage: `tests/unit/lease-signed-terms.test.ts`.

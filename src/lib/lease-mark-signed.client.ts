@@ -13,6 +13,7 @@ import { recordDelightMoment } from "@/lib/native/app-review";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { recordApprovedApplicationCharges } from "@/lib/household-charges";
 import { readLeasePipeline, syncLeasePipelineFromServer, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import { freezeSignedLeaseTerms, persistFrozenSignedLeaseTerms } from "@/lib/lease-signed-terms";
 import { normalizeApplicationAxisId, readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { readDataUrlFromFile } from "@/lib/resident-document-import.client";
 
@@ -84,7 +85,13 @@ export async function markLeaseSignedOffPlatform(
     const app = readManagerApplicationRows().find(
       (a) => (axisId && normalizeApplicationAxisId(a.id) === axisId) || (email && a.email?.trim().toLowerCase() === email),
     );
-    if (app) recordApprovedApplicationCharges(app, opts.managerUserId, true, { leaseExecuted: true });
+    if (app) {
+      // Signature freezes the money terms before the first bill is posted, so the
+      // listing's price from here on is someone else's business.
+      const frozen = freezeSignedLeaseTerms(app, { managerUserId: opts.managerUserId, lease: marked ?? row });
+      if (frozen.changed) persistFrozenSignedLeaseTerms([frozen.row]);
+      recordApprovedApplicationCharges(frozen.row, opts.managerUserId, true, { leaseExecuted: true });
+    }
   } catch {
     /* charges reconcile on the next materialize */
   }

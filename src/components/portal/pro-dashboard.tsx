@@ -2,8 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { Button } from "@/components/ui/button";
-import { PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import {
   PortfolioPropertiesSection,
   readPortfolioSnapshot,
@@ -1267,14 +1266,11 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
           basePath={BASE}
           occupiedByProperty={occupiedByProperty}
           addPropertyAction={
-            <Button
-              type="button"
-              className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+            <PortalPrimaryIconAction
+              label="Add property"
               data-attr="dashboard-add-property"
               onClick={() => router.push(`${propertyListHref(BASE, "drafts")}?wizard=v2`)}
-            >
-              + Add property
-            </Button>
+            />
           }
         />
 

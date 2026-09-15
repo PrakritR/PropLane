@@ -21,29 +21,31 @@ import { describe, expect, it } from "vitest";
 const SRC = readFileSync(join(process.cwd(), "src/components/portal/portal-calendar.tsx"), "utf8");
 
 describe("Calendar shows scheduled work", () => {
-  it("passes the scheduled-tour filter on any availability view, not just the Tours hub", () => {
+  it("passes the scheduled-tour filter on the views that draw planned meetings, not just the Tours hub", () => {
     expect(SRC).toContain(
-      "availabilityView && calendarScheduledTourFilter ? calendarScheduledTourFilter : undefined",
+      "(availabilityView || tasksOnlyView) && calendarScheduledTourFilter ? calendarScheduledTourFilter : undefined",
     );
     // The old hub-only gate is what made the Calendar section blind to tours.
     expect(SRC).not.toContain('schedulingHub && toursHubTab === "tours" && calendarScheduledTourFilter');
+    // The Calendar section's All view is an availability view, so it receives the filter.
+    expect(SRC).toContain('calendarView === "all" || calendarView === "tours"');
   });
 
-  it("merges service visits for the Calendar section too", () => {
-    expect(SRC).toContain("const showScheduledWorkOnCalendar = !schedulingHub && availabilityView");
-    expect(SRC).toContain("if (showServiceVisits || showScheduledWorkOnCalendar)");
+  it("merges service visits for the Calendar section's All and Services views", () => {
+    expect(SRC).toMatch(/showServiceVisits = schedulingHub \? toursHubTab === "services" : calendarView === "all" \|\| calendarView === "services"/);
+    expect(SRC).toContain("if (showServiceVisits) base.push(...serviceCalendarMeetings);");
   });
 
   it("keeps the Tours hub's own service view working", () => {
-    // The hub's Services tab must still merge them — this widened the condition, it did not move it.
-    expect(SRC).toContain("showServiceVisits");
-    expect(SRC).toMatch(/showServiceVisits = schedulingHub && toursHubTab === "services"/);
+    // The hub's Services tab still merges them — the section views were added beside it, not instead.
+    expect(SRC).toContain('schedulingHub ? toursHubTab === "services"');
+    expect(SRC).toMatch(/servicesOnlyView = schedulingHub \? toursHubTab === "services" : calendarView === "services"/);
   });
 
   it("recomputes when the service meetings change", () => {
     // A stale memo would reintroduce the empty calendar for the rest of the session.
     const memo = SRC.slice(SRC.indexOf("const mergedExternalMeetings"));
-    expect(memo).toContain("showScheduledWorkOnCalendar,");
+    expect(memo).toContain("showServiceVisits]");
     expect(memo).toContain("serviceCalendarMeetings,");
   });
 });

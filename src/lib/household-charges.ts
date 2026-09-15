@@ -51,7 +51,8 @@ import { applicationVisibleToPortalUser } from "@/lib/manager-portfolio-access";
 import type { DemoManagerPaymentLedgerRow, ManagerPaymentBucket } from "@/data/demo-portal";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { normalizeApplicationAxisId, readManagerApplicationRows } from "@/lib/manager-applications-storage";
-import { executedLeaseIdentities } from "@/lib/lease-pipeline-storage";
+import { executedLeaseIdentities, executedLeaseRows } from "@/lib/lease-pipeline-storage";
+import { executedLeaseForRow, freezeSignedLeaseTerms, persistFrozenSignedLeaseTerms, rowHasFrozenTerms } from "@/lib/lease-signed-terms";
 import { generatePaymentReference } from "@/lib/payment-reference";
 import {
   leaseEndProration,
@@ -2698,8 +2699,31 @@ export function reconcileApprovedResidentPaymentSchedules(managerUserId: string 
 
   const scope = managerUserId ?? HOUSEHOLD_CHARGE_DEMO_MANAGER_SCOPE;
   const currentResidentEmails = new Set(currentRows.map((row) => row.email!.trim().toLowerCase()));
+  // A recurring profile is keyed by resident AND property, so a resident moved
+  // to another listing (or re-homed onto a listing's new id) leaves the old
+  // profile behind. Retaining profiles by email alone kept that orphan active,
+  // and it went on materializing a second "Rent — <month>" at the old
+  // property's price beside the real one. A profile survives only while some
+  // current row still places its resident on that property.
+  const currentPlacements = new Set(
+    currentRows.flatMap((row) => {
+      const email = row.email!.trim().toLowerCase();
+      return [row.assignedPropertyId, row.propertyId, row.application?.propertyId]
+        .map((id) => id?.trim())
+        .filter((id): id is string => Boolean(id))
+        .map((id) => `${email}|${id}`);
+    }),
+  );
   const existingCharges = readAll();
   const existingProfiles = readRentProfiles();
+  const filteredProfiles = existingProfiles.filter((profile) => {
+    if (profile.managerUserId !== scope) return true;
+    if (!currentResidentEmails.has(profile.residentEmail.trim().toLowerCase())) return false;
+    return currentPlacements.has(recurringRentProfileKey(profile));
+  });
+  const orphanedProfileIds = new Set(
+    existingProfiles.filter((p) => !filteredProfiles.includes(p)).map((p) => p.id),
+  );
   const filteredCharges = existingCharges.filter((charge) => {
     if (charge.migrationSourceId || charge.utilityAllocationId) return true;
     if (charge.managerUserId !== scope) return true;
@@ -2708,11 +2732,19 @@ export function reconcileApprovedResidentPaymentSchedules(managerUserId: string 
     // apps, or charges added before approval). The old filter wiped them on
     // every reconciler run — Pending stayed empty.
     if (isManagerAddedOneOffCharge(charge)) return true;
-    return currentResidentEmails.has(charge.residentEmail.trim().toLowerCase());
-  });
-  const filteredProfiles = existingProfiles.filter((profile) => {
-    if (profile.managerUserId !== scope) return true;
-    return currentResidentEmails.has(profile.residentEmail.trim().toLowerCase());
+    if (!currentResidentEmails.has(charge.residentEmail.trim().toLowerCase())) return false;
+    // A month an orphaned profile already billed goes with it — but only while
+    // nobody has paid, reported, or touched it. Money that moved is history.
+    if (
+      charge.recurringRentProfileId &&
+      orphanedProfileIds.has(charge.recurringRentProfileId) &&
+      charge.status === "pending" &&
+      !charge.paidAmountCents &&
+      !charge.manualPaymentReportedAt
+    ) {
+      return false;
+    }
+    return true;
   });
 
   let changed = false;
@@ -2729,16 +2761,39 @@ export function reconcileApprovedResidentPaymentSchedules(managerUserId: string 
   // shape `pro-residents` already uses for the directory. Resolving it per row
   // would rescan the pipeline for every resident.
   let executedKeys: ExecutedLeaseKeys;
+  let executedLeases: ReturnType<typeof executedLeaseRows> = [];
   try {
     executedKeys = executedLeaseIdentities(managerUserId);
+    executedLeases = executedLeaseRows(managerUserId);
   } catch {
     executedKeys = { emails: new Set<string>(), axisIds: new Set<string>() };
   }
+  // Signature freezes the money terms (`lease-signed-terms.ts`). A row whose
+  // lease is executed but which still tracks the listing — signed before the
+  // freeze existed, or e-signed since this browser last loaded — is frozen
+  // here, before it is billed, so the listing's current price never reaches a
+  // signed resident's charges. Persisted once for the whole pass.
+  const frozenRows: DemoApplicantRow[] = [];
   for (const row of currentRows) {
     const leaseExecuted = row.manuallyAdded === true || rowHasExecutedLease(row, executedKeys);
-    if (recordApprovedApplicationCharges(row, managerUserId, force, { leaseExecuted })) {
+    let billingRow = row;
+    if (leaseExecuted && !rowHasFrozenTerms(row)) {
+      const frozen = freezeSignedLeaseTerms(row, {
+        managerUserId,
+        lease: executedLeaseForRow(row, executedLeases),
+      });
+      if (frozen.changed) {
+        billingRow = frozen.row;
+        frozenRows.push(frozen.row);
+      }
+    }
+    if (recordApprovedApplicationCharges(billingRow, managerUserId, force, { leaseExecuted })) {
       changed = true;
     }
+  }
+  if (frozenRows.length) {
+    persistFrozenSignedLeaseTerms(frozenRows);
+    changed = true;
   }
   if (syncAllRecurringRentCharges()) changed = true;
   return changed;

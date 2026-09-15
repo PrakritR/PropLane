@@ -13,6 +13,37 @@ const NAVBAR_ID = "axis-public-navbar";
 const PREVIEW_SCROLL_SELECTOR = "[data-listing-preview-scroll]";
 const PREVIEW_SHELL_SELECTOR = "[data-listing-preview-shell]";
 const LISTING_SECTIONS_ROOT_SELECTOR = "[data-listing-sections-root]";
+/**
+ * A pinned-chrome portal page (property detail) scrolls this body, not
+ * `#portal-main-content`, which the sticky-chrome CSS locks to `overflow:
+ * hidden`. A subnav rendered INSIDE the body must scroll and spy on the body,
+ * and its sticky top is the body's own edge — the mobile top bar and the
+ * property chrome are outside the scroller, so their heights do not apply.
+ */
+const PORTAL_SCROLL_BODY_SELECTOR = ".portal-list-page-scroll";
+
+function getPortalScrollBody(subnavEl: HTMLElement | null): HTMLElement | null {
+  return subnavEl?.closest<HTMLElement>(PORTAL_SCROLL_BODY_SELECTOR) ?? null;
+}
+
+/**
+ * The element a portal-mode subnav scrolls: the pinned-chrome body when the
+ * page has one (whether the subnav sits inside it or in the chrome above it),
+ * else the portal main.
+ */
+function getPortalScroller(subnavEl: HTMLElement | null): HTMLElement | null {
+  const main = getPortalScrollRoot(subnavEl);
+  return (
+    getPortalScrollBody(subnavEl) ??
+    main?.querySelector<HTMLElement>(PORTAL_SCROLL_BODY_SELECTOR) ??
+    main
+  );
+}
+
+/** True when the scroller is the pinned-chrome body: every chrome above it is outside the scroll, so no inset applies. */
+function portalScrollerIsBody(subnavEl: HTMLElement | null): boolean {
+  return Boolean(getPortalScroller(subnavEl)?.matches(PORTAL_SCROLL_BODY_SELECTOR));
+}
 
 const nav = [
   { id: "floor-plans", label: "Floor plans", shortLabel: "Floors" },
@@ -60,9 +91,10 @@ function syncListingScrollStack(
   const isNative =
     typeof document !== "undefined" && document.documentElement.hasAttribute("data-native");
   if (mode === "portal") {
-    const chrome = readPortalStickyTopInset(subnavEl);
+    const inScrollBody = portalScrollerIsBody(subnavEl);
+    const chrome = inScrollBody ? 0 : readPortalStickyTopInset(subnavEl);
     const destOffset =
-      typeof document !== "undefined"
+      !inScrollBody && typeof document !== "undefined"
         ? Number.parseFloat(
             getComputedStyle(getPortalScrollRoot(subnavEl) ?? document.documentElement).getPropertyValue(
               "--portal-detail-destination-offset",
@@ -116,15 +148,17 @@ function scrollToSection(
   if (!el) return;
 
   if (mode === "portal") {
-    const root = getPortalScrollRoot(subnavEl);
+    const root = getPortalScroller(subnavEl);
     if (!root || !subnavEl) return;
-    syncPortalDetailDestinationOffset(subnavEl);
+    const inScrollBody = portalScrollerIsBody(subnavEl);
+    if (!inScrollBody) syncPortalDetailDestinationOffset(subnavEl);
     syncListingScrollStack(mode, subnavEl, pinned);
-    const chromeH = readPortalStickyTopInset(subnavEl);
-    const destOffset =
-      Number.parseFloat(
-        getComputedStyle(root).getPropertyValue("--portal-detail-destination-offset"),
-      ) || 0;
+    const chromeH = inScrollBody ? 0 : readPortalStickyTopInset(subnavEl);
+    const destOffset = inScrollBody
+      ? 0
+      : Number.parseFloat(
+          getComputedStyle(root).getPropertyValue("--portal-detail-destination-offset"),
+        ) || 0;
     const subnavInPropertyChrome = Boolean(
       subnavEl.closest("[data-portal-property-detail-chrome]"),
     );
@@ -211,7 +245,7 @@ export function ListingStickySubnav({
       syncListingScrollStack(mode, subEl, pinned);
       setPageScrolled(pinned ? false : scrollRoot ? scrollRoot.scrollTop > 8 : false);
     } else if (mode === "portal") {
-      const scrollRoot = getPortalScrollRoot(subEl);
+      const scrollRoot = getPortalScroller(subEl);
       syncListingScrollStack(mode, subEl, pinned);
       setPageScrolled(scrollRoot ? scrollRoot.scrollTop > 8 : false);
     } else {
@@ -222,7 +256,7 @@ export function ListingStickySubnav({
     // Slightly below where a clicked section lands (subnav + 10/12px offset),
     // so the spy agrees with the tab that was just clicked.
     const scrollRoot =
-      mode === "modal" ? getScrollRootFromSubnav(subEl) : mode === "portal" ? getPortalScrollRoot(subEl) : null;
+      mode === "modal" ? getScrollRootFromSubnav(subEl) : mode === "portal" ? getPortalScroller(subEl) : null;
     const line =
       mode === "modal" && pinned && scrollRoot
         ? scrollRoot.getBoundingClientRect().top + 20
@@ -298,12 +332,13 @@ export function ListingStickySubnav({
     };
 
     const attachPortalListeners = () => {
-      const scrollRoot = getPortalScrollRoot(subEl);
-      const mobileChrome = scrollRoot?.querySelector<HTMLElement>(".portal-mobile-nav-bar") ?? null;
+      const scrollRoot = getPortalScroller(subEl);
+      const portalMain = getPortalScrollRoot(subEl);
+      const mobileChrome = portalMain?.querySelector<HTMLElement>(".portal-mobile-nav-bar") ?? null;
       const destinationNav =
-        scrollRoot?.querySelector<HTMLElement>("[data-portal-detail-destination-nav]") ?? null;
+        portalMain?.querySelector<HTMLElement>("[data-portal-detail-destination-nav]") ?? null;
       const propertyChrome =
-        scrollRoot?.querySelector<HTMLElement>("[data-portal-property-detail-chrome]") ?? null;
+        portalMain?.querySelector<HTMLElement>("[data-portal-property-detail-chrome]") ?? null;
       const ro = new ResizeObserver(() => {
         publishStackAndSpy();
       });
@@ -316,7 +351,7 @@ export function ListingStickySubnav({
       scrollRoot?.addEventListener("scroll", onScroll, { passive: true });
       window.addEventListener("resize", publishStackAndSpy, { passive: true });
       queueMicrotask(() => {
-        syncPortalDetailDestinationOffset(subEl);
+        if (!portalScrollerIsBody(subEl)) syncPortalDetailDestinationOffset(subEl);
         publishStackAndSpy();
       });
 
@@ -324,8 +359,8 @@ export function ListingStickySubnav({
         ro.disconnect();
         scrollRoot?.removeEventListener("scroll", onScroll);
         window.removeEventListener("resize", publishStackAndSpy);
-        scrollRoot?.style.removeProperty("--portal-mobile-top-chrome");
-        scrollRoot?.style.removeProperty("--portal-detail-destination-offset");
+        portalMain?.style.removeProperty("--portal-mobile-top-chrome");
+        portalMain?.style.removeProperty("--portal-detail-destination-offset");
         getListingSectionsRoot(subEl)?.style.removeProperty("--listing-sticky-stack");
       };
     };
@@ -393,6 +428,12 @@ export function ListingStickySubnav({
   const alignCenter = align === "center";
 
   const portalSticky = mode === "portal" && !pinned;
+  // Inside a pinned-chrome scroll body the sticky edge is the body's top;
+  // `--portal-mobile-top-chrome` measures a bar that is outside the scroller.
+  const [inScrollBody, setInScrollBody] = useState(false);
+  useLayoutEffect(() => {
+    setInScrollBody(Boolean(getPortalScrollBody(rootRef.current)));
+  }, []);
 
   return (
     <nav
@@ -419,7 +460,7 @@ export function ListingStickySubnav({
       style={
         pinned
           ? { top: 0 }
-          : mode === "modal"
+          : mode === "modal" || (portalSticky && inScrollBody)
             ? { top: 0 }
             : undefined
       }

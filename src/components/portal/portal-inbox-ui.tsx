@@ -1020,6 +1020,9 @@ export function InboxConversationRow({
   /** Optional slot after the row body (e.g. a quick action button). */
   trailing?: ReactNode;
 }) {
+  // A contact with no conversation yet says so quietly — muted italic — so the
+  // placeholder does not read like a message somebody sent.
+  const isEmptyPreview = /^no messages yet\.?$/i.test(preview.trim());
   return (
     <div
       className={`portal-inbox-row flex items-center gap-2 border-b border-border/50 px-3 py-3 transition-colors max-md:gap-1.5 max-md:px-2.5 max-md:py-2.5 ${
@@ -1034,13 +1037,26 @@ export function InboxConversationRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
             <p
-              className={`truncate text-sm leading-tight ${
+              className={`flex min-w-0 items-center gap-1.5 truncate text-sm leading-tight ${
                 unread ? "font-semibold text-foreground" : "font-medium text-foreground/90"
               }`}
             >
-              {name}
+              {/* Unread lives beside the bold name — one glance, not a stray dot
+                  on the third line under the ⋯ menu (PLAN-0914-1135). */}
+              {unread ? <span className="size-2 shrink-0 rounded-full bg-primary" aria-label="Unread" /> : null}
+              <span className="truncate">{name}</span>
             </p>
-            <span className="shrink-0 text-xs tabular-nums text-muted">{time}</span>
+            <span className="flex shrink-0 items-center gap-1.5 text-xs tabular-nums text-muted">
+              {time}
+              {unread && unreadCount && unreadCount > 0 ? (
+                <span
+                  className="grid h-5 min-w-[1.3rem] shrink-0 place-items-center rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground"
+                  aria-label={`${unreadCount} unread`}
+                >
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              ) : null}
+            </span>
           </div>
           {subtitle ? <p className="truncate text-xs text-muted">{subtitle}</p> : null}
           {preview.trim() ? (
@@ -1052,7 +1068,11 @@ export function InboxConversationRow({
             ) : null}
             <p
               className={`min-w-0 flex-1 truncate text-[13px] ${
-                unread ? "font-medium text-foreground/[0.78]" : "text-muted"
+                isEmptyPreview
+                  ? "italic text-muted/70"
+                  : unread
+                    ? "font-medium text-foreground/[0.78]"
+                    : "text-muted"
               }`}
             >
               {previewPrefix ?? ""}
@@ -1062,7 +1082,7 @@ export function InboxConversationRow({
           ) : null}
           {/* Third line. Collapses entirely rather than leaving an empty row, so
               a conversation with neither reads as two lines, not a gap. */}
-          {address || category || unread ? (
+          {address || category ? (
             <div className="mt-1.5 flex items-center gap-2">
               {address ? (
                 <span className="min-w-0 truncate text-xs text-muted/[0.78]">{address}</span>
@@ -1071,18 +1091,6 @@ export function InboxConversationRow({
                 <span className="shrink-0 rounded-full border border-border bg-foreground/5 px-2 py-0.5 text-[10px] font-bold tracking-[0.02em] text-muted">
                   {category}
                 </span>
-              ) : null}
-              {unread ? (
-                unreadCount && unreadCount > 0 ? (
-                  <span
-                    className="ml-auto grid h-5 min-w-[1.3rem] shrink-0 place-items-center rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground"
-                    aria-label={`${unreadCount} unread`}
-                  >
-                    {unreadCount > 99 ? "99+" : unreadCount}
-                  </span>
-                ) : (
-                  <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="Unread" />
-                )
               ) : null}
             </div>
           ) : null}

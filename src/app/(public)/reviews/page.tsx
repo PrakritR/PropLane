@@ -44,10 +44,6 @@ export default function ReviewsPage() {
             <br />
             <span className="text-primary">Real words only.</span>
           </SiteHeading>
-          <p className="mt-5 max-w-[52ch] text-[16.5px] leading-relaxed text-muted sm:text-[17.5px]">
-            PropLane is in early access. Reviews from managers, residents and vendors land here as they come in — with
-            their permission, in their words. Until then, here is what we can promise.
-          </p>
         </div>
       </section>
 

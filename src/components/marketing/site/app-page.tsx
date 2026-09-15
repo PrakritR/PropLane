@@ -30,10 +30,6 @@ export async function SiteAppPage() {
         <div className="min-w-0">
           <SiteEyebrow className="mb-4">{beta ? "iPhone app · beta" : "iPhone app · free"}</SiteEyebrow>
           <SiteHeading as="h1">The same queue, in your pocket.</SiteHeading>
-          <p className="mt-5 max-w-[46ch] text-[16.5px] leading-relaxed text-muted sm:text-[17.5px]">
-            Applications, leases, residents and inspections — from the phone, with push for anything that needs a
-            decision.
-          </p>
           <div className="mt-7 flex flex-wrap items-center gap-3">
             <AppStoreBadge size="lg" dataAttr="app-page-app-store" />
           </div>

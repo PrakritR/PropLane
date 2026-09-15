@@ -89,12 +89,8 @@ export default function VendorsPage() {
             <br />
             <span className="text-primary">Get paid.</span>
           </SiteHeading>
-          <p className="mt-5 max-w-[52ch] text-[16.5px] leading-relaxed text-muted sm:text-[17.5px]">
-            Managers on PropLane send you the job by text. You bid, show up with the entry instructions, invoice once, and
-            Connect pays out.
-          </p>
           <SiteCtaPair
-            className="mt-8"
+            className="mt-7"
             primaryHref={VENDOR_GET_STARTED_HREF}
             primaryLabel="Join as a vendor"
             primaryAttr="vendors-hero-get-started"

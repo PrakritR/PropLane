@@ -36,6 +36,7 @@ export function PortalListControlStack({
   /** `command` composes destinations, search, filters, and utilities into one adaptive surface. */
   variant = "stacked",
   actions,
+  primary,
 }: {
   /** Typically {@link PortalFilterSortSheet} (mobile sheet; optional desktop inline pills or panel modal). */
   filterRow?: ReactNode;
@@ -62,6 +63,13 @@ export function PortalListControlStack({
   variant?: "stacked" | "command";
   /** Low-frequency utility controls that follow search/filter in the command layout. */
   actions?: ReactNode;
+  /**
+   * The section's ONE prominent action — a {@link PortalPrimaryIconAction} —
+   * drawn last in the command bar. It used to float alone in a headline row
+   * above the list (PLAN-0914-1345 removed that row): nothing sits above the
+   * command bar now but the app bar.
+   */
+  primary?: ReactNode;
 }) {
   const showDestinations = Boolean(destinationRow) || (destinations && destinations.length > 0);
   const showFindRow = Boolean(filterRow || search);
@@ -91,20 +99,22 @@ export function PortalListControlStack({
 
   /*
    * A tab with no status pills and no search has nothing for a toolbar to
-   * hold but its controls. Those go beside the page title (the shell owns a
-   * slot for them) instead of into a white bar of their own; where no title
-   * slot exists they render as a bare right-aligned row, never a card.
+   * hold but its controls; they still get the same card as every other tab.
    */
-  const controlsOnly = variant === "command" && !showDestinations && !search && Boolean(filterRow || actions);
+  const controlsOnly = variant === "command" && !showDestinations && !search && Boolean(filterRow || actions || primary);
   const controlsOnlyNode = controlsOnly ? (
     <div className="flex items-center gap-1 sm:gap-1.5 [&_button]:shrink-0 [&_a]:shrink-0" data-attr="portal-list-command-actions">
       {filterRow}
       {actions}
+      {primary}
     </div>
   ) : null;
-  const publishedToTitle = usePublishTitleActions(controlsOnlyNode, controlsOnly);
+  // Never lifted into a title row any more: with the page title hidden the
+  // lifted icons landed at the left edge of an empty band. The command bar is
+  // the one home for list controls on every portal (PLAN-0914-1345).
+  const publishedToTitle = usePublishTitleActions(controlsOnlyNode, false);
 
-  if (!showDestinations && !showFindRow && !activeFilterChips && !actions) return null;
+  if (!showDestinations && !showFindRow && !activeFilterChips && !actions && !primary) return null;
 
   if (controlsOnly) {
     if (publishedToTitle) {
@@ -114,9 +124,14 @@ export function PortalListControlStack({
         </div>
       ) : null;
     }
+    /*
+     * Controls with no tabs and no search (Vendors, Promotion) still get the
+     * same card as every other section — never a bare right-aligned row on
+     * the canvas, which is what "three loose pills" looked like.
+     */
     return (
       <div className={cn("shrink-0 space-y-2", className)} data-slot="portal-list-control-stack" data-variant="command">
-        <div className="flex justify-end">{controlsOnlyNode}</div>
+        <div className="flex min-w-0 items-center justify-end rounded-xl border border-border bg-card px-1.5 py-1 shadow-sm sm:px-2">{controlsOnlyNode}</div>
         {activeFilterChips ? <div className="min-w-0" data-attr="portal-list-active-filter-chips">{activeFilterChips}</div> : null}
       </div>
     );
@@ -154,7 +169,15 @@ export function PortalListControlStack({
      * phone the tabs (and chips) are a horizontally scrolling sticky strip and
      * the search sits on its own line beneath — the same pieces, stacked.
      */
-    const showToolRow = Boolean(filterRow || search || actions);
+    const showToolRow = Boolean(filterRow || search || actions || primary);
+    /*
+     * Phone rule: with no search and no utility icons there is nothing for a
+     * second band to hold but a filter and the primary, so they ride the tabs
+     * strip row instead of a near-empty white band under the tabs. Four or
+     * five icons squeeze the tabs to "Pendi…", so a fuller toolbar keeps its
+     * own row.
+     */
+    const toolsJoinTabsOnPhone = showDestinations && !search && !actions;
     const chipsNode = activeFilterChips ? (
       <div className="min-w-0 shrink-0" data-attr="portal-list-active-filter-chips">
         {activeFilterChips}
@@ -180,7 +203,7 @@ export function PortalListControlStack({
     ) : (
       <div className="min-w-0 flex-1" aria-hidden />
     );
-    const controlsNode = filterRow || actions ? (
+    const controlsNode = filterRow || actions || primary ? (
       <div
         className={cn(
           "flex shrink-0 flex-nowrap items-center gap-0.5 overflow-x-auto sm:gap-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
@@ -190,6 +213,7 @@ export function PortalListControlStack({
       >
         {filterRow}
         {actions}
+        {primary}
       </div>
     ) : null;
     return (
@@ -207,12 +231,20 @@ export function PortalListControlStack({
         data-variant="command"
         data-sticky={stickyDestinations ? "" : undefined}
       >
-        <div className="flex min-w-0 flex-col rounded-xl border border-border bg-card shadow-sm lg:flex-row lg:items-center lg:gap-2 lg:pr-2">
+        <div
+          className={cn(
+            "flex min-w-0 flex-col rounded-xl border border-border bg-card shadow-sm lg:flex-row lg:items-center lg:gap-2 lg:pr-2",
+            // Phone rule (see `toolsJoinTabsOnPhone`): the utilities wrapper dissolves
+            // and the tabs strip + icons share one row — the tools exist ONCE in the DOM.
+            toolsJoinTabsOnPhone && "max-lg:flex-row max-lg:items-center max-lg:pr-1.5",
+          )}
+        >
           {showDestinations ? (
             <HorizontalScrollCapture
               className={cn(
                 "min-w-0 border-border px-1 pt-1 lg:shrink-0 lg:border-b-0 lg:py-1",
-                showToolRow && "max-lg:border-b",
+                showToolRow && !toolsJoinTabsOnPhone && "max-lg:border-b",
+                toolsJoinTabsOnPhone && "max-lg:flex-1 max-lg:py-1",
               )}
             >
               <div className="flex items-center gap-2" data-portal-list-destination-nav>
@@ -224,7 +256,10 @@ export function PortalListControlStack({
           ) : null}
           {showToolRow || chipsNode ? (
             <div
-              className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 px-1.5 py-1 sm:gap-1.5 sm:px-2 lg:px-0 lg:py-0"
+              className={cn(
+                "flex min-w-0 flex-1 flex-nowrap items-center gap-1 px-1.5 py-1 sm:gap-1.5 sm:px-2 lg:px-0 lg:py-0",
+                toolsJoinTabsOnPhone && "max-lg:contents",
+              )}
               data-attr="portal-list-command-utilities"
             >
               {searchNode}

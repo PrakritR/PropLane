@@ -1,7 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { AxisHeaderMarkTile } from "@/components/brand/axis-logo";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { cn } from "@/lib/utils";
 
 export const PORTAL_EMPTY_STATE_WRAP =
   "flex flex-col items-center justify-center rounded-2xl border border-border bg-accent/25 px-4 py-16 text-center sm:py-20";
@@ -163,32 +164,37 @@ export function PortalEmptyState({
   title,
   icon = "default",
   variant = "card",
-  description,
   action,
 }: {
   title: string;
   icon?: PortalEmptyIconKind | ReactNode;
   /** `plain` drops the border; `compact` keeps an empty queue from dominating the page. */
   variant?: "card" | "plain" | "stacked" | "compact";
+  /** @deprecated The one empty card draws no sentence under its title. */
   description?: string;
   action?: ReactNode;
 }) {
+  /*
+   * Every "nothing matches" / "nothing to show" message is the same card the
+   * list tabs use (PLAN-0914-1629), in its muted tone — one shape everywhere,
+   * never a second grey-tile design.
+   */
   const iconNode =
-    typeof icon === "string" ? <PortalEmptyIcon kind={icon as PortalEmptyIconKind} /> : icon;
-  const wrapClass =
-    variant === "plain"
-      ? "flex flex-col items-center justify-center px-4 py-16 text-center sm:py-20"
-      : variant === "stacked"
-        ? PORTAL_EMPTY_STATE_STACKED_WRAP
-        : variant === "compact"
-          ? "flex flex-col items-center justify-center rounded-xl border border-border bg-card/60 px-4 py-10 text-center sm:py-12"
-        : PORTAL_EMPTY_STATE_WRAP;
+    typeof icon === "string" ? <PortalEmptyIcon kind={icon as PortalEmptyIconKind} className="size-[22px]" /> : icon;
   return (
-    <div className={wrapClass}>
-      <AxisHeaderMarkTile>{iconNode}</AxisHeaderMarkTile>
-      <p className="mt-4 text-sm font-semibold text-foreground">{title}</p>
-      {description ? <p className="mt-1 max-w-md text-sm text-muted">{description}</p> : null}
-      {action ? <div className="mt-4">{action}</div> : null}
-    </div>
+    <PortalListEmptyCard
+      title={title}
+      icon={iconNode}
+      tone="muted"
+      workspaceAware={false}
+      compact={variant === "compact"}
+      className={cn(
+        variant === "plain" && "border-0 bg-transparent shadow-none",
+        variant === "stacked" && "rounded-t-none border-t-0",
+      )}
+      dataAttr="portal-empty-state"
+    >
+      {action}
+    </PortalListEmptyCard>
   );
 }

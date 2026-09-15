@@ -16,6 +16,7 @@ import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { Settings2, Share2 } from "lucide-react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
@@ -34,7 +35,6 @@ import {
   PORTAL_DETAIL_BTN,
   RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN,
   ResidentDocumentsDetailFooter,
-  PortalDataTableEmpty,
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
 import { UploadedLeasePdfPreview } from "@/components/portal/uploaded-lease-pdf-preview";
@@ -200,20 +200,6 @@ function tabForRow(row: DemoApplicantRow): ManagerApplicationTabId {
   return isInProgressApplicationRow(row) ? "incomplete" : "pending";
 }
 
-function applicationsListEmptyMessage(tab: ManagerApplicationTabId): string {
-  switch (tab) {
-    case "pending":
-      return "No applications pending review yet.";
-    case "incomplete":
-      return "No in-progress applications yet.";
-    case "approved":
-      return "No approved applications yet.";
-    case "rejected":
-      return "No rejected applications yet.";
-    default:
-      return "No applications in this tab yet.";
-  }
-}
 
 /** Client-resolved room label used by both the PDF download and the inline document view. */
 function applicationRoomLabel(row: DemoApplicantRow): string {
@@ -2004,12 +1990,38 @@ export function ManagerApplications({
       ) : (
         <PortalRecordListSurface
           isEmpty={rowsForBucket.length === 0}
-          empty={
-            propertyFilters.length > 0 ? (
-              <PortalDataTableEmpty icon="default" message="No applications match your filters." />
-            ) : (
-              <PortalDataTableEmpty icon="application" message={applicationsListEmptyMessage(bucket)} />
-            )
+          emptyCard={
+            propertyFilters.length > 0
+              ? {
+                  title: portalEmptyNoMatchTitle("applications"),
+                  section: "applications",
+                  tone: "muted",
+                  clear: { label: "Clear filters", onClick: () => setPropertyFilters([]), dataAttr: "applications-empty-clear-filters" },
+                }
+              : {
+                  title: portalEmptyCopy(`applications.${bucket}` as PortalEmptyCopyKey).title,
+                  section: "applications",
+                  sibling: portalEmptySibling(
+                    tabs.map((t) => ({ id: t.id, label: t.label, count: t.count, href: applicationsListHref(t.id) })),
+                    bucket,
+                  ),
+                  // Applications has no "add": the pill does what the bar's share glyph does,
+                  // and only on the tabs a new application can reach.
+                  actions:
+                    bucket === "incomplete" || bucket === "pending"
+                      ? [
+                          {
+                            label: "Send application link",
+                            secondary: true,
+                            icon: Share2,
+                            onClick: openSendApplicationInvite,
+                            disabled: shareableProperties.length === 0,
+                            reason: shareableProperties.length === 0 ? "List a property first — applications are sent for a listing." : undefined,
+                            dataAttr: "applications-empty-send",
+                          },
+                        ]
+                      : [],
+                }
           }
           onBulkClear={clearSelection}
           bulkCount={listSelectedCount}

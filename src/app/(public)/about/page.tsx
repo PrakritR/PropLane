@@ -47,10 +47,7 @@ const FACTS = [
 export default function AboutPage() {
   return (
     <MarketingPageShell>
-      <MarketingHero
-        title="Built by managers tired of the busywork"
-        subtitle="We manage real rental units in Seattle. PropLane is the platform we built to run them. AI drafts, we approve."
-      />
+      <MarketingHero title="Built by managers tired of the busywork" />
 
       <MarketingSection>
         <div className="grid gap-8 lg:grid-cols-[1fr_1.35fr] lg:gap-16">
