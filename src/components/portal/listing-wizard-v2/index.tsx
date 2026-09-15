@@ -231,6 +231,9 @@ export function ListingWizardV2({
         title={label}
         submission={submission}
         onChange={setSubmission}
+        onStepChange={(stepIndex) => {
+          stepRef.current = stepIndex;
+        }}
         onClose={(stepIndex) => {
           void handleClose(stepIndex);
         }}

@@ -21,7 +21,7 @@
  * downstream reader keep working exactly as before.
  */
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Input, Textarea } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
@@ -2823,6 +2823,7 @@ export function ListingEditorV2({
   onChange,
   onClose,
   onPublish,
+  onStepChange,
   title,
   busy = false,
   isEdit = false,
@@ -2834,6 +2835,8 @@ export function ListingEditorV2({
   onSaveExit?: (stepIndex: number) => void;
   /** Receives the step the manager left on, so a flush can keep the resume point. */
   onClose: (stepIndex: number) => void;
+  /** Keep the parent's autosave resume point in sync while they stay in the editor. */
+  onStepChange?: (stepIndex: number) => void;
   onPublish: () => void;
   title: string;
   busy?: boolean;
@@ -2843,6 +2846,9 @@ export function ListingEditorV2({
   saveState?: ReactNode;
 }) {
   const [step, setStep] = useState(0);
+  useEffect(() => {
+    onStepChange?.(step);
+  }, [step, onStepChange]);
   const [defaults, setDefaults] = useState<ListingHouseDefaults>(() => houseDefaultsForSubmission(submission));
   /**
    * Steps the manager has actually opened.

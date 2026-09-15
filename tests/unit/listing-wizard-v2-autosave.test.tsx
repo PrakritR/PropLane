@@ -31,6 +31,7 @@ vi.mock("@/lib/prepare-listing-submission-for-persist", () => ({
   listingSaveFailureMessage: (reason: string) => reason || "Could not save.",
 }));
 
+import { LISTING_DRAFT_AUTOSAVE_DEBOUNCE_MS } from "@/lib/manager-listing-draft-autosave";
 import { ListingWizardV2 } from "@/components/portal/listing-wizard-v2";
 
 afterEach(() => {
@@ -77,5 +78,19 @@ describe("listing wizard v2 autosave", () => {
     await waitFor(() => expect(updateExtraListingFromSubmissionOnServer).toHaveBeenCalled());
     expect(saveManagerPropertyDraftToServer).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("autosave keeps the section the manager is on", async () => {
+    render(<ListingWizardV2 onClose={() => {}} userId="mgr-1" skuTier="starter" />);
+    fireEvent.change(screen.getByPlaceholderText("Magnolia House"), {
+      target: { value: "Cards QA house" },
+    });
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-rooms"]')!);
+    await waitFor(
+      () => expect(saveManagerPropertyDraftToServer).toHaveBeenCalled(),
+      { timeout: LISTING_DRAFT_AUTOSAVE_DEBOUNCE_MS + 2000 },
+    );
+    const opts = saveManagerPropertyDraftToServer.mock.calls.at(-1)?.[2] as { stepIndex?: number };
+    expect(opts.stepIndex).toBe(1);
   });
 });
