@@ -19,6 +19,7 @@ import { ListingKeyFacts, deriveListingKeyFacts, formatMoneyInLabel } from "@/co
 import { ListingNoPhotoBand, ListingPhotoMosaic } from "@/components/marketing/listing-photo-mosaic";
 import {
   ListingContactCard,
+  listingContactRows,
   listingPrimaryCtaClass,
   listingSecondaryCtaClass,
 } from "@/components/marketing/listing-contact-card";
@@ -208,23 +209,41 @@ function StickyBar({
   newTab: boolean;
 }) {
   const from = listingFromPrice(rich);
-  // Right padding keeps the buttons clear of the assistant bubble, which sits
-  // bottom-right at the same height on a phone.
+  const contact = listingContactRows(property);
+  // Two rows so nothing is squeezed: the price and the manager's doors on top,
+  // the two action pills below. The pill row keeps its right clearance for the
+  // assistant bubble, which sits bottom-right at the same height on a phone.
   return (
     <div
-      className="sticky bottom-0 z-[40] -mx-4 mt-6 flex items-center justify-between gap-3 border-t border-border bg-card/95 py-3 pl-4 pr-[4.5rem] backdrop-blur-md lg:hidden [html[data-native]_&]:pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+      className="sticky bottom-0 z-[40] -mx-4 mt-6 border-t border-border bg-card/95 px-4 pb-3 pt-2.5 backdrop-blur-md lg:hidden [html[data-native]_&]:pb-[max(0.75rem,env(safe-area-inset-bottom))]"
       data-attr="listing-sticky-bar"
     >
-      <div className="min-w-0">
-        <p className="truncate text-lg font-bold tracking-tight text-foreground tabular-nums">{from}</p>
-        {roomsLine ? <p className="truncate text-xs text-muted">{roomsLine}</p> : null}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-lg font-bold tracking-tight text-foreground tabular-nums">{from}</p>
+          {roomsLine ? <p className="text-xs text-muted">{roomsLine}</p> : null}
+        </div>
+        {contact.phone || contact.email ? (
+          <div className="flex shrink-0 flex-col items-end text-[13px] font-semibold text-primary" data-attr="listing-sticky-contact">
+            {contact.phone ? (
+              <a href={contact.phone.smsHref} className="py-0.5 tabular-nums" data-attr="listing-text-tour">
+                Text {contact.phone.label}
+              </a>
+            ) : null}
+            {contact.email ? (
+              <a href={contact.email.href} className="py-0.5" data-attr="listing-email-tour">
+                Email the manager
+              </a>
+            ) : null}
+          </div>
+        ) : null}
       </div>
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="mt-2.5 flex items-center gap-2 pr-[4rem]">
         <ProspectListingCta
           action="apply"
           propertyId={property.id}
           data-attr="listing-web-apply"
-          className={`${secondaryCtaClass} !w-auto !min-h-[44px] !py-2.5`}
+          className={`${secondaryCtaClass} !min-h-[44px] flex-1 !py-2.5`}
           newTab={newTab}
         >
           Apply
@@ -233,7 +252,7 @@ function StickyBar({
           action="tour"
           propertyId={property.id}
           data-attr="listing-web-tour"
-          className={`${primaryCtaClass} !w-auto !min-h-[44px] !py-2.5`}
+          className={`${primaryCtaClass} !min-h-[44px] flex-1 !py-2.5`}
           newTab={newTab}
         >
           Schedule tour
@@ -340,9 +359,6 @@ export function ListingDetailSections({
             )}
 
             <ListingKeyFacts facts={facts} className="mt-4" />
-
-            {/* Phone: the manager's doors sit under the title; desktop has them in the card. */}
-            <ListingContactCard property={property} className="mt-3 lg:hidden" />
 
             <div className="mt-6 grid min-w-0 gap-8 lg:mt-8 lg:grid-cols-[minmax(0,1fr)_minmax(280px,320px)] lg:gap-10">
               <div className="min-w-0">
