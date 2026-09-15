@@ -956,7 +956,7 @@ export function ResidentApplicationsPanel({
           data-attr="resident-application-withdraw"
           onClick={() => setWithdrawTarget(row)}
         >
-          Withdraw application
+          Withdraw
         </Button>
       ) : null}
     </PortalSectionActionRow>
@@ -1180,12 +1180,12 @@ export function ResidentApplicationsPanel({
             data-attr="resident-application-withdraw"
             onClick={() => setWithdrawTarget(row)}
           >
-            Withdraw application
+            Withdraw
           </Button>
         ),
         menuItem: (
           <DropdownMenuItem data-attr="resident-application-withdraw" onSelect={() => setWithdrawTarget(row)}>
-            Withdraw application
+            Withdraw
           </DropdownMenuItem>
         ),
       });
