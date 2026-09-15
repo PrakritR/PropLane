@@ -11,6 +11,7 @@ import { getJobDetailsTool, listMyBidsTool, listMyJobsTool, listMyOffersTool } f
 import { listMyInboxThreadsTool, sendMessageToManagerTool } from "./domains/vendor/messaging";
 import { getMyProfileTool, listMyPayoutsTool } from "./domains/vendor/profile";
 import { listMyScheduleTool } from "./domains/vendor/schedule";
+import { getVendorLinksTool } from "./domains/portal-links";
 import {
   listVendorInvoicesTool,
   listVendorPayoutsTool,
@@ -21,6 +22,8 @@ import {
 type VendorTool = ToolDefinition<any, any, VendorAgentContext>;
 
 const ALL_VENDOR_TOOLS: VendorTool[] = [
+  // Link-first: the portal page for whatever the vendor wants to do.
+  getVendorLinksTool,
   // Jobs / bids / offers
   listMyJobsTool,
   getJobDetailsTool,

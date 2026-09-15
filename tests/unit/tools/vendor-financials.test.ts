@@ -73,6 +73,7 @@ describe("vendor-financials tool map safety", () => {
     const vendorNames = new Set([...vendorAgentRegistry.values()].map((t) => t.name));
     expect(vendorNames).toEqual(
       new Set([
+        "get_vendor_links",
         "list_my_jobs",
         "get_job_details",
         "list_my_bids",

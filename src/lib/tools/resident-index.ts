@@ -26,6 +26,7 @@ import {
   cancelScheduledMessageTool,
 } from "./domains/resident/messaging";
 import { reportManualPaymentTool, startRentPaymentTool } from "./domains/resident/payments";
+import { getResidentLinksTool } from "./domains/portal-links";
 import { residentListOpenTourSlotsTool, residentRequestTourTool } from "./domains/tours";
 import {
   listMyServiceRequestsTool,
@@ -43,6 +44,9 @@ import {
 type ResidentTool = ToolDefinition<any, any, ResidentAgentContext>;
 
 const ALL_RESIDENT_TOOLS: ResidentTool[] = [
+  // Link-first: the portal page for whatever the resident wants to do. Pure
+  // URLs, no data, so it is on every phase and every tier.
+  getResidentLinksTool,
   ...residentInspectionTools,
   getHousematesTool,
   getHousemateSharingTool,
@@ -107,6 +111,7 @@ const TOOL_SECTION: Record<string, string> = {
 
 /** Tools available while the resident is still in the application phase. */
 const APPLICATION_PHASE_TOOLS = new Set([
+  "get_resident_links",
   "get_my_application_status",
   "list_open_tour_slots",
   "request_tour",

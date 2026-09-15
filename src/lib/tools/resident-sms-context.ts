@@ -139,6 +139,7 @@ export async function resolveResidentSmsAgentContext(
       email,
       managerIds,
       activeManagerId: ownerManagerUserId,
+      channel: "sms",
       phase: access.leaseAccessUnlocked ? "approved" : "application",
       managerTier,
       landlordId: userId,

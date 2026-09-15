@@ -205,7 +205,9 @@ export function PortfolioImportWizard({ resumeImportId }: { resumeImportId?: str
       setFileName(res.draft.fileName);
       if (res.status === "committing") {
         setStep(3);
-      } else if (res.status === "completed" || res.status === "partial") {
+      } else if (res.status === "partial") {
+        setStep(3);
+      } else if (res.status === "completed") {
         setStep(4);
       } else {
         setStep(1);
@@ -255,7 +257,7 @@ export function PortfolioImportWizard({ resumeImportId }: { resumeImportId?: str
     setColumns(res.draft.columns);
     setMessaging(res.messaging ?? null);
     setFileName(res.draft.fileName);
-    setStep(res.status === "committing" ? 3 : res.status === "completed" || res.status === "partial" ? 4 : 1);
+    setStep(res.status === "committing" || res.status === "partial" ? 3 : res.status === "completed" ? 4 : 1);
   }
 
   async function downloadSample() {

@@ -278,7 +278,7 @@ the ONE source of bookable times; `book_tour` W from scratch, `reschedule_tour` 
 `schedule_vendor_visit` W, `accept_bid` W, `complete_work_order` W,
 `approve_and_pay_work_order` W destructive, `send_work_order_reminder` W),
 properties (`list_properties` R, `get_property_details` R, `create_property` W,
-`update_property` W, `share_property_link` W), residents (`list_residents` R,
+`update_property` W, `get_property_links` R, `share_property_link` W), residents (`list_residents` R,
 `set_resident_approval` W, `send_resident_welcome` W, `revoke_resident_access`
 W destructive, `record_move_out` W), applications (`list_applications` R,
 `get_application_details` R, `update_application_bucket` W,
@@ -342,8 +342,9 @@ never a name list. Reasoning and the upgrade path:
 
 ### Prospect leasing SMS (`leasingSmsAgentRegistry`)
 
-Reads: `list_live_listings`, `get_listing_details`, `build_prospect_links`,
-`get_site_links`, `list_open_tour_slots`. Writes, both inline allow-listed via
+Reads: `list_live_listings`, `get_listing_details`, `build_prospect_links`
+(listing, tour, apply, message, and browse URLs), `get_site_links`,
+`list_open_tour_slots`. Writes, both inline allow-listed via
 `LEASING_SMS_INLINE_WRITE_TOOLS` because an anonymous texter has no `user_id` to
 claim a pending action on: `escalate_to_manager`, `request_tour`. Both only
 notify the manager; nothing here books, charges, or reads personal data.
@@ -356,7 +357,7 @@ the quiet disposition.
 
 ### Vendor (`src/lib/tools/vendor-index.ts`)
 
-Reads: `list_my_jobs`, `get_job_details`, `list_my_bids`, `list_my_offers`,
+Reads: `get_vendor_links`, `list_my_jobs`, `get_job_details`, `list_my_bids`, `list_my_offers`,
 `list_my_payouts`, `get_my_availability`, `list_my_schedule`,
 `list_my_inbox_threads`, `get_my_profile`, plus invoicing
 (`list_vendor_invoices`, `list_vendor_payouts` — see
@@ -364,6 +365,32 @@ Reads: `list_my_jobs`, `get_job_details`, `list_my_bids`, `list_my_offers`,
 (refuses once a bid is accepted), `mark_job_done`, `update_my_availability`,
 `send_message_to_manager`, `submit_vendor_invoice`. Stripe Connect onboarding,
 W-9/tax, and document uploads stay on the Profile page (deep-link only).
+
+## Links first (every conversational surface)
+
+PropLane has a page for almost everything a person asks an agent for, so every
+agent sends that page and lets it do the work instead of handling the flow by
+chat. The tools are pure URL builders in `src/lib/tools/domains/portal-links.ts`
+plus the prospect builder in `domains/leasing-sms.ts`; the prompts in
+`src/lib/agent/*` carry the matching "Links first" rule. Contract:
+`tests/unit/agent/link-first-communication.test.ts`.
+
+| Who asks | For | Tool | Link |
+| --- | --- | --- | --- |
+| Prospect (leasing SMS / email, keyword bot) | anything about the home, photos, video | `build_prospect_links` | `listingUrl` |
+| Prospect | to tour or visit | `build_prospect_links` | `tourUrl` (pick a time there; `request_tour` by text only when they cannot open links) |
+| Prospect | to apply, what is required to rent | `build_prospect_links` | `applyUrl` (prefilled room + phone) |
+| Prospect | nothing matched yet | `get_site_links` | browse all homes |
+| Resident (portal, SMS, inbox) | pay, lease, application, My home, services, documents, inspections, tour | `get_resident_links` | resident portal page |
+| Vendor (portal, one-job SMS) | job, invoice, payout, availability, documents, profile | `get_vendor_links` | vendor portal page |
+| Manager replying to a prospect (portal, SMS) | listing / tour / apply / message link to paste into a reply | `get_property_links` | live listing the manager may share (same check as `share_property_link`) |
+
+Origin rule: a reply that leaves the platform (SMS, email, unknown channel)
+always carries absolute `https://prop-lane.space` links; a signed-in portal
+chat gets relative paths so the link opens in the portal the person is on.
+`ResidentAgentContext.channel` records which (`portal` from the chat route,
+`sms` from the work-number context). Never type a URL from memory: every link
+in an agent reply comes from one of these tools.
 
 ## What the agent still cannot do
 

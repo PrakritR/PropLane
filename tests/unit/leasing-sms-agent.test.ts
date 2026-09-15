@@ -228,7 +228,8 @@ describe("leasing SMS system prompt", () => {
   it("keeps replies conversational and links relevant across turns", () => {
     expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/at most one clear clarification question/i);
     expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/Do not restart the greeting/i);
-    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/Include a link only when it directly helps/i);
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/Links first/i);
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/Include a link whenever the latest request has a matching page/i);
     expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/Do not offer to send a link that is already/i);
     expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/UW or Seattle and Bellevue are different locations/i);
   });
@@ -655,6 +656,9 @@ describe("cross-catalog listing resolution (shared PropLane line)", () => {
     expect(links.applyUrl).toContain("phone=%2B12065559999");
     expect(links.applyUrl).not.toMatch(/localhost/);
     expect(links.listingUrl).toBe(`${PROD_ORIGIN}/rent/listings/mgr-seed-4709a-8th-ave-ne`);
+    expect(links.tourUrl).toBe(`${PROD_ORIGIN}/rent/tours-contact?propertyId=mgr-seed-4709a-8th-ave-ne`);
+    expect(links.messageUrl).toBe(`${PROD_ORIGIN}/rent/tours-contact?propertyId=mgr-seed-4709a-8th-ave-ne&tab=message`);
+    expect(links.browseUrl).toBe(`${PROD_ORIGIN}/rent/browse`);
   });
 });
 
