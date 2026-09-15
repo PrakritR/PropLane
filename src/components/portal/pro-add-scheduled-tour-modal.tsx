@@ -199,12 +199,13 @@ export function ManagerAddScheduledTourModal({
         });
       }
 
-      onSaved?.();
       showToast(result.message);
 
       // The next screen is the message the guest will get — the same preview
       // tours use for confirm / reschedule — as long as there is somewhere to
-      // send it. A guest with no email and no phone just saves.
+      // send it. A guest with no email and no phone just saves. `onSaved` is
+      // deferred until the preview is done: the tours page answers it by
+      // navigating to Upcoming, which would unmount this modal mid-preview.
       const guestEmail = form.guestEmail.trim();
       const guestPhone = form.guestPhone.trim();
       if (guestEmail.includes("@") || guestPhone) {
@@ -233,6 +234,7 @@ export function ManagerAddScheduledTourModal({
         });
         return;
       }
+      onSaved?.();
       onClose();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not schedule tour.");
@@ -249,6 +251,7 @@ export function ManagerAddScheduledTourModal({
     if (!guestPreview || guestPreviewBusy) return;
     if (skip) {
       setGuestPreview(null);
+      onSaved?.();
       onClose();
       return;
     }
@@ -269,6 +272,7 @@ export function ManagerAddScheduledTourModal({
       }
       showToast(`Sent to ${guestPreview.guestName || "the guest"}.`);
       setGuestPreview(null);
+      onSaved?.();
       onClose();
     } finally {
       setGuestPreviewBusy(false);
@@ -284,6 +288,7 @@ export function ManagerAddScheduledTourModal({
         onClose={() => {
           if (guestPreviewBusy) return;
           setGuestPreview(null);
+          onSaved?.();
           onClose();
         }}
         recipient={guestPreview.email || guestPreview.phone || ""}
