@@ -20,6 +20,8 @@ import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-act
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import type { PortalAdaptiveAction } from "@/lib/portal-adaptive-actions";
 import { collectLinkedOwnerIdsForModule } from "@/lib/manager-portfolio-access";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
+import { assignedIdsInWorkspace } from "@/lib/workspaces/team-scope";
 import {
   MANAGER_VENDORS_EVENT,
   readOwnManagerVendorRows,
@@ -122,6 +124,8 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   const portalBase = usePaidPortalBasePath();
   const basePath = listBasePath ?? portalBase;
   const { userId, ready: authReady } = useManagerUserId();
+  const workspaces = useWorkspaces();
+  const workspacePropertyIds = workspaces?.active?.propertyIds ?? [];
   const [tick, setTick] = useState(0);
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection();
   const [showCatalog, setShowCatalog] = useState(false);
@@ -149,10 +153,14 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
 
   const vendors = useMemo(() => {
     void tick;
-    return readOwnManagerVendorRows(userId, undefined, {
+    const rows = readOwnManagerVendorRows(userId, undefined, {
       includeOwnerIds: collectLinkedOwnerIdsForModule(userId ?? "", "services"),
     }).sort((a, b) => a.name.localeCompare(b.name));
-  }, [tick, userId]);
+    if (!bare) return rows;
+    return rows.filter(
+      (row) => assignedIdsInWorkspace(row.propertyIds ?? [], workspacePropertyIds).length > 0,
+    );
+  }, [tick, userId, bare, workspacePropertyIds]);
 
   const routeVendorId = vendorIdProp?.trim() || null;
   const routeVendor = useMemo(() => {
@@ -531,7 +539,12 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       <PortalListEmptyCard
         section="vendors"
         title={portalEmptyCopy("vendors").title}
-        actions={[{ label: "Add vendor", onClick: () => openAddVendorForm(), dataAttr: "vendors-empty-add" }]}
+        workspaceAware
+        actions={
+          bare
+            ? [{ label: "Open Vendors", href: vendorListHref(basePath), dataAttr: "settings-vendors-empty-open", icon: null }]
+            : [{ label: "Add vendor", onClick: () => openAddVendorForm(), dataAttr: "vendors-empty-add" }]
+        }
         dataAttr="vendors-empty"
       />
     ) : (
@@ -641,8 +654,8 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           className="mb-2 max-lg:mb-1.5"
           variant="command"
           stickyDestinations={false}
-          actions={vendorToolbar}
-          primary={addVendorAction}
+        actions={vendorToolbar}
+        primary={bare ? undefined : addVendorAction}
         />
         {body}
       </div>

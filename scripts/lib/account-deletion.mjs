@@ -178,6 +178,9 @@ export const DELETE_ORDER = [
   "mcp_oauth_authorization_codes",
   "mcp_oauth_tokens",
   "sales_migration_records",
+  // Portfolio import receipts before their parent import; both cascade off auth.users.
+  "manager_portfolio_import_records",
+  "manager_portfolio_imports",
   "resident_inspections",
   "resident_housemate_sharing",
   "manager_expense_entries",

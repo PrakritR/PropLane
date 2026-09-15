@@ -5,7 +5,7 @@ import { agentRegistry, MANAGER_INLINE_WRITE_TOOLS } from "@/lib/tools";
 import { runAgentTurn } from "@/lib/agent/loop";
 import type { ActionPreview } from "@/lib/tools/registry";
 import { MANAGER_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
-import { sanitizeChatMessages, lastUserText, applyChatAttachments } from "@/lib/agent/chat-handler";
+import { sanitizeChatMessages, lastUserText, applyChatAttachments, applyImportAttachments } from "@/lib/agent/chat-handler";
 import { createPendingAction } from "@/lib/tools/pending-actions";
 import { agentChatRateLimitResponse, handlePendingActionDecision } from "@/lib/agent/pending-action-decision";
 import { ensureAgentSession, appendAgentMessages } from "@/lib/agent/sessions";
@@ -124,6 +124,14 @@ export async function POST(req: Request) {
       );
     }
   }
+
+  // A rent-roll (.csv/.xlsx/.pdf) attachment already created a portfolio
+  // import draft client-side; note it on the last user message so the model
+  // can use get_portfolio_import / commit_portfolio_import /
+  // invite_imported_residents without asking the manager to re-type rows.
+  const importAttached = await applyImportAttachments(ctx, messages, body);
+  if (!importAttached.ok) return NextResponse.json({ error: importAttached.error }, { status: 400 });
+  messages = importAttached.messages;
 
   const sessionKind = body.archive === false ? MODAL_CHAT_SESSION_KIND : PORTAL_CHAT_SESSION_KIND;
   const sessionId = await ensureAgentSession(ctx, "manager", {

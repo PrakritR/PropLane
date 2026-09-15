@@ -3,6 +3,13 @@
 
 # SMS / phone system (Twilio)
 
+## Links first
+
+Every agent on the work number sends the PropLane page that answers the
+request (listing, tour, apply, payments, lease, invoices) instead of running
+the flow by text. Tools, prompts, and the origin rule:
+`docs/ai-assistant.md` "Links first".
+
 ## Work-order reference routing
 
 Inbound `WO-1042`, `wo 1042`, `#1042`, `status 1042`, or a message containing

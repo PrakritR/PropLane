@@ -1,6 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { jsonRequest, parseJsonResponse } from "../../helpers/api-request";
 
+/**
+ * A Supabase query mock: every builder method returns the same chain, so a
+ * query may stack `.eq().eq()` (the workspace fee-payer resolver does), and the
+ * terminal `maybeSingle` / `single` resolve `result`.
+ */
+function queryChain(result: { data: unknown; error: unknown }) {
+  const chain: Record<string, unknown> = {};
+  for (const method of ["select", "eq", "neq", "in", "is", "order", "limit"]) {
+    chain[method] = vi.fn().mockReturnValue(chain);
+  }
+  chain.maybeSingle = vi.fn().mockResolvedValue(result);
+  chain.single = vi.fn().mockResolvedValue(result);
+  return chain;
+}
+
 vi.mock("next/headers", () => ({
   headers: vi.fn().mockResolvedValue(new Headers()),
   cookies: vi.fn().mockResolvedValue(new Map()),
@@ -189,13 +204,9 @@ describe("ACH checkout routes", () => {
             };
           }
           if (table === "manager_property_records") {
-            return {
-              select: vi.fn().mockReturnValue({
-                eq: vi.fn().mockReturnValue({
-                  maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
-                }),
-              }),
-            };
+            // No property row → no workspace fee-payer setting; the chain must
+            // survive the resolver's `.eq("manager_user_id").eq("id")`.
+            return queryChain({ data: null, error: null });
           }
           return { select: vi.fn().mockReturnThis() };
         }),
@@ -242,13 +253,9 @@ describe("ACH checkout routes", () => {
             };
           }
           if (table === "manager_property_records") {
-            return {
-              select: vi.fn().mockReturnValue({
-                eq: vi.fn().mockReturnValue({
-                  maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
-                }),
-              }),
-            };
+            // No property row → no workspace fee-payer setting; the chain must
+            // survive the resolver's `.eq("manager_user_id").eq("id")`.
+            return queryChain({ data: null, error: null });
           }
           return { select: vi.fn().mockReturnThis() };
         }),
@@ -366,18 +373,15 @@ describe("ACH checkout routes", () => {
       } as never);
 
       vi.mocked(createSupabaseServiceRoleClient).mockReturnValue({
-        from: vi.fn().mockReturnValue({
-          select: vi.fn().mockReturnValue({
-            eq: vi.fn().mockReturnValue({
-              maybeSingle: vi.fn().mockResolvedValue({
-                // Owner matches the request, and the listing carries a $50 fee that
-                // the server derives the charge amount from.
-                data: { manager_user_id: "mgr_1", property_data: { listingSubmission: { v: 1, applicationFee: "50" } } },
-                error: null,
-              }),
-            }),
+        // Owner matches the request, and the listing carries a $50 fee that the
+        // server derives the charge amount from. The same chain also answers the
+        // workspace fee-payer lookup (`.eq().eq()`), which finds no workspace.
+        from: vi.fn().mockReturnValue(
+          queryChain({
+            data: { manager_user_id: "mgr_1", property_data: { listingSubmission: { v: 1, applicationFee: "50" } } },
+            error: null,
           }),
-        }),
+        ),
       } as never);
 
       const req = jsonRequest("http://localhost/api/stripe/application-fee-checkout", {

@@ -6,7 +6,7 @@ import { WORKSPACE_SELECTION_EVENT, activeWorkspaceScope, propertiesOutsideActiv
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, Home, Pencil, Trash2 } from "lucide-react";
+import { ChevronDown, Home, Pencil, Share2, Trash2 } from "lucide-react";
 import {
   propertyRowAddress,
   propertyRowAddressLine,
@@ -687,9 +687,12 @@ function ManagerPropertyInlineDetails({
                 variant="primary"
                 className={propertyDetailFooterBtn}
                 data-attr="listing-edit-full"
+                aria-label="Edit listing"
+                title="Edit listing"
                 onClick={() => openFullListingEditor()}
               >
-                Edit listing
+                <Pencil className="size-4" aria-hidden />
+                <span className="sr-only">Edit listing</span>
               </Button>
             ),
             menuItem: (
@@ -710,9 +713,12 @@ function ManagerPropertyInlineDetails({
               variant="outline"
               className={propertyDetailFooterBtn}
               data-attr="listing-send-listing"
+              aria-label="Send listing"
+              title="Send listing"
               onClick={() => onSendToProspect?.(listingId)}
             >
-              Send listing
+              <Share2 className="size-4" aria-hidden />
+              <span className="sr-only">Send listing</span>
             </Button>
           ),
           menuItem: (
@@ -730,11 +736,14 @@ function ManagerPropertyInlineDetails({
             <Button
               type="button"
               variant="outline"
-              className={propertyDetailFooterBtn}
+              className={dangerBtnClass}
               data-attr="listing-unlist"
+              aria-label="Unlist"
+              title="Unlist"
               onClick={() => setPendingDestructiveAction("unlist")}
             >
-              Unlist
+              <Trash2 className="size-4" aria-hidden />
+              <span className="sr-only">Unlist</span>
             </Button>
           ),
           menuItem: (
@@ -1828,7 +1837,9 @@ export function ManagerHousePropertiesPanel({
         bareHeader
         dataAttrBack="property-detail-back"
         suppressMobileActions
-        iconTitleActions={sourceBucket === 5}
+        iconTitleActions={
+          sourceBucket === 5 || (sourceBucket === 2 && (detailTabProp ?? "preview") === "preview")
+        }
         pinScrollBody
         scrollBody={false}
       >
@@ -1888,7 +1899,28 @@ export function ManagerHousePropertiesPanel({
         }
         actions={
           onAddProperty
-            ? [{ label: "Add property", onClick: onAddProperty, disabled: addPropertyDisabled, reason: addPropertyDisabled ? "Loading your plan…" : undefined, dataAttr: "manager-properties-create" }]
+            ? [
+                {
+                  label: "Add property",
+                  onClick: onAddProperty,
+                  disabled: addPropertyDisabled,
+                  reason: addPropertyDisabled ? "Loading your plan…" : undefined,
+                  dataAttr: "manager-properties-create",
+                },
+                // Only the "all" tab offers the alternate path in — Listed /
+                // Unlisted / Drafts are already filtered views of a portfolio
+                // that (by definition) has at least one property in it.
+                ...(activeStage === "all"
+                  ? [
+                      {
+                        label: "Import portfolio",
+                        href: "/portal/properties/import",
+                        secondary: true,
+                        dataAttr: "properties-empty-import",
+                      },
+                    ]
+                  : []),
+              ]
             : []
         }
         dataAttr="manager-properties-empty"

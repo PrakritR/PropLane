@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 test.describe("Public home", () => {
   test("loads the landing hero and both doors", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: /the ai does the busywork/i }).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: /property management\s*that runs itself/i }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: /start free/i }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: /book a demo/i }).first()).toBeVisible();
   });
@@ -23,7 +23,7 @@ test.describe("Public home", () => {
     await expect(faq.getByRole("heading", { name: /questions, answered/i })).toBeVisible();
 
     const rows = faq.locator("details");
-    await expect(rows).toHaveCount(7);
+    await expect(rows).toHaveCount(8);
     for (const question of [
       "What is PropLane?",
       "What does the AI actually do?",
@@ -31,6 +31,7 @@ test.describe("Public home", () => {
       "How much does it cost?",
       "Do I need a credit card to try it?",
       "How do my residents get in?",
+      "How do we move our portfolio into PropLane?",
       "Can I use it on my phone?",
     ]) {
       await expect(faq.getByText(question, { exact: true })).toBeVisible();

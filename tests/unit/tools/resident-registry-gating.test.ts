@@ -43,6 +43,8 @@ const INBOX_TOOLS = [
 ];
 
 const UNGATED_TOOLS = [
+  // Link-first: pure portal URLs, on every phase and tier.
+  "get_resident_links",
   "get_housemates",
   "get_housemate_sharing",
   "update_housemate_sharing",
@@ -72,6 +74,7 @@ describe("resident registry gating", () => {
     const registry = buildResidentRegistry(gatingCtx("application", "paid"));
     expect([...registry.keys()].sort()).toEqual(
       [
+        "get_resident_links",
         "get_my_application_status",
         "list_my_inbox_threads",
         "get_my_scheduled_messages",

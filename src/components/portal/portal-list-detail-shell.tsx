@@ -106,8 +106,8 @@ export function PortalDetailHeader({
   iconTitleActions?: boolean;
   dataAttrBack?: string;
 }) {
-  // The record's own actions (Approve · Download, Edit listing · Unlist) are
-  // published into this header by the tab that owns them — see
+  // The record's own actions (Approve · Download, listed Preview pen / share /
+  // unlist) are published into this header by the tab that owns them — see
   // portal-title-actions-slot. They used to sit in a bar pinned to the foot of
   // the page, which covered the last card and read as the page being cut off.
   const slotPublished = useTitleActionsPublished();

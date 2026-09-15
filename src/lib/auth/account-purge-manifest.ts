@@ -604,6 +604,18 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    // Portfolio import drafts (spreadsheet / AppFolio / Buildium / rent-roll pdf) and
+    // their per-record receipts: owner-scoped, cascade off auth.users, PII inside `draft`.
+    table: "manager_portfolio_import_records",
+    phase: 2,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
+    table: "manager_portfolio_imports",
+    phase: 2,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
     table: "resident_inspections",
     phase: 2,
     // `manager_user_id` is a plain FK with no delete action, so these rows must go before the

@@ -11,6 +11,9 @@ export const CO_MANAGER_SCOPED_TOOLS = new Set([
   "list_properties", "get_property_details", "list_service_requests",
   "list_sms_conversations", "reply_to_sms_conversation",
   "list_inbox_threads", "get_thread_messages", "send_message", "reply_to_thread",
+  // Public-site URLs for a live listing; the share check runs against the
+  // workspace owner's live records and returns nothing private.
+  "get_property_links",
 ]);
 
 export function scopeManagerTool<Input, Output>(

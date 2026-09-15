@@ -453,6 +453,13 @@ export async function purgeOrphanHousingRecordsForManager(
       const asHousingRow = reminderPayload
         ? { property_id: (reminderPayload as { propertyId?: unknown }).propertyId, row_data: reminderPayload }
         : (row as { property_id?: unknown; assigned_property_id?: unknown; row_data?: unknown });
+      // A schedule row that names no property at all is an ACCOUNT-level record —
+      // the manager's task list (`axis_manager_tasks_v1_<uid>`), availability, the
+      // planned-events singleton once an upsert stamped the manager on it. It has
+      // nothing to be orphaned from, so "no property" must never read as "orphan"
+      // here: this sweep runs on every Applications load, and it was deleting the
+      // task list every time it ran.
+      if (table === "portal_schedule_records" && resolvedPropertyIds(asHousingRow).length === 0) continue;
       if (!rowIsOrphanedFromLiveProperties(asHousingRow, livePropertyIds)) continue;
       const id = String((row as { id?: unknown }).id ?? "").trim();
       const propertyId = String((row as { property_id?: unknown }).property_id ?? "").trim();

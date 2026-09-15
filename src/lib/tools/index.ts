@@ -90,6 +90,12 @@ import {
   createListingDraftTool,
   updateListingDraftTool,
 } from "./domains/listing-draft";
+import {
+  listPortfolioImportsTool,
+  getPortfolioImportTool,
+  commitPortfolioImportTool,
+  inviteImportedResidentsTool,
+} from "./domains/portfolio-import";
 import { applyListingPhotosTool, getListingMediaInventoryTool } from "./domains/listing-media";
 import { listSmsConversationsTool, replyToSmsConversationTool } from "./domains/sms-messaging";
 import { listInboxThreadsTool, getThreadMessagesTool, updateThreadTool } from "./domains/inbox";
@@ -136,6 +142,7 @@ import {
   getJobDetailsTool as getSmsJobDetailsTool,
   listMyJobsWithThisManagerTool,
 } from "./domains/vendor-work-order";
+import { getPropertyLinksTool, getVendorSmsLinksTool } from "./domains/portal-links";
 import {
   buildProspectLinksTool,
   escalateLeasingToManagerTool,
@@ -169,6 +176,8 @@ export const agentRegistry = buildRegistry([
   getPropertyDetailsTool,
   getListingCreationChecklistTool,
   getListingMediaInventoryTool,
+  listPortfolioImportsTool,
+  getPortfolioImportTool,
   listInboxThreadsTool,
   listSmsConversationsTool,
   getThreadMessagesTool,
@@ -185,6 +194,9 @@ export const agentRegistry = buildRegistry([
   getAutomationSettingsTool,
   listPromotionsTool,
   listCoManagersTool,
+  // Link-first replies: listing / tour / apply / message URLs for a live
+  // listing, to paste into a text, inbox reply, or message to a prospect.
+  getPropertyLinksTool,
   // Write tools: previewed from the model loop, executed only via the gated
   // confirm endpoint after explicit user confirmation.
   sendRentReminderTool,
@@ -237,6 +249,8 @@ export const agentRegistry = buildRegistry([
   proposePropertyLeaseTemplateSectionEditTool,
   copyListingPhotosTool,
   sharePropertyLinkTool,
+  commitPortfolioImportTool,
+  inviteImportedResidentsTool,
   setResidentApprovalTool,
   sendResidentWelcomeTool,
   revokeResidentAccessTool,
@@ -324,6 +338,9 @@ export const vendorWorkOrderAgentRegistry = buildRegistry([
   getJobAccessInfoTool,
   listMyJobsWithThisManagerTool,
   escalateToManagerTool,
+  // Pure vendor-portal URLs (invoices, payouts, documents, profile), so a
+  // texting vendor is sent to the page instead of walked through it. No data.
+  getVendorSmsLinksTool,
 ]);
 
 /**

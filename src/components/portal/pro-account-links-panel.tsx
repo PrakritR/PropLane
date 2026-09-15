@@ -72,6 +72,11 @@ import {
   type ProRelationshipRecord,
 } from "@/lib/pro-relationships";
 import { maxAccountLinksForTier, managerPlanAllowsCoManagerInvites, normalizeManagerSkuTier } from "@/lib/manager-access";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
+import {
+  assignedIdsInWorkspace,
+  teamGrantVisibleInWorkspace,
+} from "@/lib/workspaces/team-scope";
 import {
   listOutgoingCoManagerLinks,
   listOutgoingCoManagersForProperty,
@@ -564,6 +569,9 @@ export function ProAccountLinksPanel({
   bare?: boolean;
 }) {
   const { email: managerEmail, ready: managerSessionReady } = useManagerUserId();
+  const workspaces = useWorkspaces();
+  const workspacePropertyIds = workspaces?.active?.propertyIds ?? [];
+  const workspaceName = workspaces?.active?.name ?? "this workspace";
   const [managerDisplayName, setManagerDisplayName] = useState("Your property manager");
   const { showToast } = useAppUi();
   const navigate = usePortalNavigate();
@@ -767,13 +775,17 @@ export function ProAccountLinksPanel({
 
   const teamFilterPropertyOptions = useMemo(() => {
     void localTick;
-    return buildManagerPropertyFilterOptions(userId);
-  }, [userId, localTick]);
+    return buildManagerPropertyFilterOptions(userId).filter((option) =>
+      workspacePropertyIds.some((id) => samePropertyId(option.id, id)),
+    );
+  }, [userId, localTick, workspacePropertyIds]);
 
   const passesTeamPropertyFilter = useCallback((assignedPropertyIds: string[]) => {
+    if (!teamGrantVisibleInWorkspace(assignedPropertyIds, workspacePropertyIds)) return false;
     if (teamPropertyFilters.length === 0) return true;
-    return assignedPropertyIds.some((id) => teamPropertyFilters.some((filterId) => samePropertyId(id, filterId)));
-  }, [teamPropertyFilters]);
+    const inWorkspace = assignedIdsInWorkspace(assignedPropertyIds, workspacePropertyIds);
+    return inWorkspace.some((id) => teamPropertyFilters.some((filterId) => samePropertyId(id, filterId)));
+  }, [teamPropertyFilters, workspacePropertyIds]);
 
   const visibleIncomingPending = useMemo(() => {
     if (!useRemote) return [];
@@ -796,8 +808,10 @@ export function ProAccountLinksPanel({
 
   const propertyOptions = useMemo(() => {
     void localTick;
-    return propertyChoices(userId);
-  }, [userId, localTick]);
+    return propertyChoices(userId).filter((option) =>
+      workspacePropertyIds.some((id) => samePropertyId(option.id, id)),
+    );
+  }, [userId, localTick, workspacePropertyIds]);
 
   // Properties this manager co-manages via an incoming account link (e.g. Brooklyn
   // when Ambika granted access). Shown under "You" so the panel matches Properties.
@@ -913,7 +927,10 @@ export function ProAccountLinksPanel({
         name: inv.linkedDisplayName ?? inv.linkedAxisId,
         axisId: inv.linkedAxisId,
         statusLabel: teamInviteStatusLabel(inv),
-        preview: teamPropertyPreview(inv.assignedPropertyIds, teamPropertyLabel),
+        preview: teamPropertyPreview(
+          assignedIdsInWorkspace(inv.assignedPropertyIds, workspacePropertyIds),
+          teamPropertyLabel,
+        ),
         kind: "remote" as const,
         invite: inv,
       }));
@@ -923,7 +940,10 @@ export function ProAccountLinksPanel({
       name: row.linkedDisplayName ?? row.linkedAxisId,
       axisId: row.linkedAxisId,
       statusLabel: TEAM_MEMBER_ROLE_LABEL,
-      preview: teamPropertyPreview(row.assignedPropertyIds, teamPropertyLabel),
+      preview: teamPropertyPreview(
+        assignedIdsInWorkspace(row.assignedPropertyIds, workspacePropertyIds),
+        teamPropertyLabel,
+      ),
       kind: "local" as const,
       row,
     }));
@@ -934,6 +954,7 @@ export function ProAccountLinksPanel({
     visibleActiveRemote,
     visibleLocalRows,
     teamPropertyLabel,
+    workspacePropertyIds,
   ]);
 
   const openTeamDetail = useCallback(
@@ -2729,7 +2750,7 @@ export function ProAccountLinksPanel({
       name: managerDisplayName === "Your property manager" ? (managerEmail ?? "You") : managerDisplayName,
       detail: managerEmail ?? "You",
       role: "owner",
-      propertiesLabel: "All houses",
+      propertiesLabel: `All houses in ${workspaceName}`,
       joinedAt: null,
     },
     ...teamEntries

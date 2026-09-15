@@ -35,6 +35,10 @@ export const HOME_FAQ_ITEMS: SiteFaqItem[] = [
     a: "You don't hand out passwords. When someone applies, PropLane emails them a one-time link — tied to the same email they applied with — to set up their own account. Once you approve them, they can pay rent, sign leases, and message you.",
   },
   {
+    q: "How do we move our portfolio into PropLane?",
+    a: "Upload a spreadsheet, the export from your current software (AppFolio, Buildium), or a rent-roll PDF. Properties, units and residents come in together. You review everything before anything is created, then invite residents with one click.",
+  },
+  {
     q: "Can I use it on my phone?",
     a: (
       <>
