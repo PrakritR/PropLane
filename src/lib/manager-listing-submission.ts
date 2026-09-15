@@ -758,6 +758,14 @@ export type ManagerListingSubmissionV1 = {
    * downstream has to resolve. Absent on older listings: the wizard infers them.
    */
   houseDefaults?: Partial<ListingHouseDefaults>;
+  /**
+   * The Pricing step's Default room on a lease type other than long-term,
+   * keyed like a room's `termPricing`. Every room still carries its own copy in
+   * `room.termPricing[term]` (absent = same as long-term, PRP-463), so this is
+   * only what the card shows on reopen. Absent: the wizard infers it from the
+   * rooms (`houseTermPricingForSubmission`).
+   */
+  houseTermPricing?: Record<string, ManagerRoomTermPrice>;
   bathroomDefaults?: Partial<BathroomDefaults>;
   sharedSpaceDefaults?: Partial<SharedSpaceDefaults>;
   /** One amenity per line or comma-separated */
@@ -2263,6 +2271,7 @@ export function normalizeManagerListingSubmissionV1(
     bathrooms,
     sharedSpaces,
     houseDefaults: plainRecordOrUndefined(sub.houseDefaults),
+    houseTermPricing: normalizeRoomTermPricing((sub as { houseTermPricing?: unknown }).houseTermPricing),
     bathroomDefaults: plainRecordOrUndefined(sub.bathroomDefaults),
     sharedSpaceDefaults: plainRecordOrUndefined(sub.sharedSpaceDefaults),
     bundles: isEntireHomeListing({ listingPlaceCategoryId }) ? [] : bundles,

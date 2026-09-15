@@ -213,3 +213,78 @@ describe("a room with its own numbers can go back to the house numbers", () => {
     expect(screen.getByRole("button", { name: /Reset deposit for Room A/i })).toBeTruthy();
   });
 });
+
+describe("a lease type can have its own Default room", () => {
+  const MTM = "Month-to-Month";
+  const goToMonthToMonth = () => {
+    const nav = screen.getByRole("navigation", { name: "Listing sections" });
+    fireEvent.click(Array.from(nav.querySelectorAll("button")).find((b) => /pricing/i.test(b.textContent ?? ""))!);
+    fireEvent.click(document.querySelector(`[data-attr="listing-v2-price-tab-${MTM}"]`)!);
+  };
+  const sameAsLongTerm = () => document.querySelector(`[data-attr="listing-v2-same-as-long-term-${MTM}"]`) as HTMLInputElement;
+
+  it("typing a Month-to-Month default rent puts it on every room and on the listing", () => {
+    let latest: ManagerListingSubmissionV1 | null = null;
+    render(<Editor onChange={(s) => (latest = s)} />);
+    goToMonthToMonth();
+    expect(sameAsLongTerm().checked).toBe(true);
+    fireEvent.click(sameAsLongTerm());
+
+    // The card is a real input now, empty, showing long-term's number as the placeholder.
+    const rent = screen.getByLabelText(`Rent for every room on ${MTM}`) as HTMLInputElement;
+    expect(rent.value).toBe("");
+    expect(rent.placeholder).toBe("1100");
+    fireEvent.change(rent, { target: { value: "1050" } });
+
+    expect(latest!.houseTermPricing?.[MTM]?.monthlyRent).toBe(1050);
+    expect(latest!.rooms.map((r) => r.termPricing?.[MTM]?.monthlyRent)).toEqual([1050, 1050]);
+    // Long-term rent is not what was edited.
+    expect(latest!.rooms.map((r) => r.monthlyRent)).toEqual([1100, 1100]);
+  });
+
+  it("a room with its own Month-to-Month number keeps it when the default moves", () => {
+    let latest: ManagerListingSubmissionV1 | null = null;
+    render(<Editor onChange={(s) => (latest = s)} />);
+    goToMonthToMonth();
+    fireEvent.click(sameAsLongTerm());
+    fireEvent.change(screen.getByLabelText(`Rent for every room on ${MTM}`), { target: { value: "1050" } });
+    openPriceCard("Room B");
+    fireEvent.change(screen.getByLabelText(`Room B rent on ${MTM}`), { target: { value: "1250" } });
+    fireEvent.change(screen.getByLabelText(`Rent for every room on ${MTM}`), { target: { value: "1000" } });
+
+    const byId = (id: string) => latest!.rooms.find((r) => r.id === id)!;
+    expect(byId("r1").termPricing?.[MTM]?.monthlyRent).toBe(1000);
+    expect(byId("r2").termPricing?.[MTM]?.monthlyRent).toBe(1250);
+  });
+
+  it("ticking Same as long-term again wipes the term's Default room and every room's own price on it", () => {
+    let latest: ManagerListingSubmissionV1 | null = null;
+    render(<Editor onChange={(s) => (latest = s)} />);
+    goToMonthToMonth();
+    fireEvent.click(sameAsLongTerm());
+    fireEvent.change(screen.getByLabelText(`Rent for every room on ${MTM}`), { target: { value: "1050" } });
+    expect(sameAsLongTerm().checked).toBe(false);
+    fireEvent.click(sameAsLongTerm());
+
+    expect(latest!.houseTermPricing).toBeUndefined();
+    expect(latest!.rooms.map((r) => r.termPricing)).toEqual([undefined, undefined]);
+    expect(sameAsLongTerm().checked).toBe(true);
+  });
+
+  it("shows the stored default again on reopen", () => {
+    function Stored() {
+      const [sub, setSub] = useState<ManagerListingSubmissionV1>(() => ({
+        ...seeded(),
+        houseTermPricing: { [MTM]: { monthlyRent: 1050, securityDeposit: "750" } },
+        rooms: seeded().rooms.map((r) => ({ ...r, termPricing: { [MTM]: { monthlyRent: 1050, securityDeposit: "750" } } })),
+      }));
+      return <ListingEditorV2 title="Edit listing" submission={sub} onChange={setSub} onClose={() => {}} onSaveExit={() => {}} onPublish={() => {}} />;
+    }
+    render(<Stored />);
+    goToMonthToMonth();
+    expect(sameAsLongTerm().checked).toBe(false);
+    expect((screen.getByLabelText(`Rent for every room on ${MTM}`) as HTMLInputElement).value).toBe("1050");
+    expect((screen.getByLabelText(`Deposit for every room on ${MTM}`) as HTMLInputElement).value).toBe("750");
+    expect((screen.getByLabelText(`Utilities for every room on ${MTM}`) as HTMLInputElement).value).toBe("");
+  });
+});

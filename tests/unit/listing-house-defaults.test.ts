@@ -8,10 +8,15 @@
 import { describe, expect, it } from "vitest";
 import {
   applyHouseDefaultsToRooms,
+  applyHouseTermPricingToRooms,
   emptyListingHouseDefaults,
+  houseTermPricingForSubmission,
   inferHouseDefaultsFromRooms,
+  roomFollowsTermDefault,
   roomInheritsDefault,
   roomOverriddenDefaults,
+  writeRoomTermPrice,
+  writeTermPriceEntry,
   type ListingHouseDefaults,
 } from "@/lib/listing-house-defaults";
 import { createDefaultListingSubmission, type ManagerRoomSubmission } from "@/lib/manager-listing-submission";
@@ -191,3 +196,62 @@ describe("media and words as house defaults", () => {
   });
 });
 
+
+describe("the Default room on another lease type", () => {
+  const MTM = "Month-to-Month";
+  const seedRooms = () => [room({ id: "a", monthlyRent: 1100 }), room({ id: "b", monthlyRent: 1100 })];
+
+  it("a first default fills every room that has nothing of its own on the term", () => {
+    const next = writeTermPriceEntry(undefined, MTM, "monthlyRent", "1050");
+    const out = applyHouseTermPricingToRooms(seedRooms(), MTM, "monthlyRent", next, undefined);
+    expect(out.map((r) => r.termPricing?.[MTM]?.monthlyRent)).toEqual([1050, 1050]);
+    // Long-term is untouched: the room's own rent is still what it was.
+    expect(out.map((r) => r.monthlyRent)).toEqual([1100, 1100]);
+  });
+
+  it("a room equal to the OLD default moves with it; a room with its own number stays put", () => {
+    const first = writeTermPriceEntry(undefined, MTM, "monthlyRent", "1050");
+    let rooms = applyHouseTermPricingToRooms(seedRooms(), MTM, "monthlyRent", first, undefined);
+    rooms = rooms.map((r) => (r.id === "b" ? writeRoomTermPrice(r, MTM, "monthlyRent", "1250") : r));
+    const second = writeTermPriceEntry(first, MTM, "monthlyRent", "1000");
+    const out = applyHouseTermPricingToRooms(rooms, MTM, "monthlyRent", second, first);
+    expect(out.find((r) => r.id === "a")?.termPricing?.[MTM]?.monthlyRent).toBe(1000);
+    expect(out.find((r) => r.id === "b")?.termPricing?.[MTM]?.monthlyRent).toBe(1250);
+    expect(roomFollowsTermDefault(out[0]!, MTM, "monthlyRent", second)).toBe(true);
+    expect(roomFollowsTermDefault(out[1]!, MTM, "monthlyRent", second)).toBe(false);
+  });
+
+  it("a room priced by hand while the card was still empty keeps its number when the first default arrives", () => {
+    const rooms = seedRooms().map((r) => (r.id === "b" ? writeRoomTermPrice(r, MTM, "monthlyRent", "1250") : r));
+    const first = writeTermPriceEntry(undefined, MTM, "monthlyRent", "1050");
+    const out = applyHouseTermPricingToRooms(rooms, MTM, "monthlyRent", first, undefined);
+    expect(out.map((r) => r.termPricing?.[MTM]?.monthlyRent)).toEqual([1050, 1250]);
+  });
+
+  it("clearing the default drops the field from every following room, so they fall back to long-term", () => {
+    const first = writeTermPriceEntry(undefined, MTM, "utilitiesEstimate", "0");
+    let rooms = applyHouseTermPricingToRooms(seedRooms(), MTM, "utilitiesEstimate", first, undefined);
+    // A typed 0 is a real answer on the term, exactly as it is on long-term.
+    expect(rooms.map((r) => r.termPricing?.[MTM]?.utilitiesEstimate)).toEqual(["0", "0"]);
+    const cleared = writeTermPriceEntry(first, MTM, "utilitiesEstimate", "");
+    expect(cleared).toBeUndefined();
+    rooms = applyHouseTermPricingToRooms(rooms, MTM, "utilitiesEstimate", cleared, first);
+    expect(rooms.map((r) => r.termPricing)).toEqual([undefined, undefined]);
+  });
+
+  it("reads the stored block, and infers the most common room value for a term the block does not cover", () => {
+    const sub = {
+      ...createDefaultListingSubmission(),
+      houseTermPricing: { [MTM]: { monthlyRent: 900 } },
+      rooms: [
+        room({ id: "a", termPricing: { [MTM]: { monthlyRent: 1050 }, Custom: { monthlyRent: 1300, securityDeposit: "600" } } }),
+        room({ id: "b", termPricing: { [MTM]: { monthlyRent: 1050 }, Custom: { monthlyRent: 1300 } } }),
+        room({ id: "c", termPricing: { Custom: { monthlyRent: 1400 } } }),
+      ],
+    };
+    const out = houseTermPricingForSubmission(sub);
+    expect(out?.[MTM]).toEqual({ monthlyRent: 900 });
+    expect(out?.Custom).toEqual({ monthlyRent: 1300, securityDeposit: "600" });
+    expect(houseTermPricingForSubmission({ ...createDefaultListingSubmission(), rooms: seedRooms() })).toBeUndefined();
+  });
+});

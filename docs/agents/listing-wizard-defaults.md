@@ -42,6 +42,20 @@ Library: `src/lib/listing-house-defaults.ts` (rooms),
 `roomsFollowingDefaults` is the older per-record reading the previous wizard
 still uses; the v2 Rooms step does not call it.
 
+## The Pricing Default room has a per-term twin
+
+On a lease type other than long-term (Month-to-Month, Custom), the Pricing
+step's Default room is `sub.houseTermPricing[term]`, shaped like a room's
+`termPricing` entry: rent, utilities, deposit. Same rules as above — a room
+follows the term default per field when its entry is absent or equal, a
+different number is the room's own, and a cleared default drops the field from
+every following room so it falls back to long-term. "Same as long-term" clears
+the term default and every room's entry on that term. Rooms still carry their
+own copy in `room.termPricing[term]` (absent = same as long-term, PRP-463), so
+the receipt, the public quote and `resolveStayPricing` read nothing new. A
+listing saved before the card existed infers it per term from its rooms
+(`houseTermPricingForSubmission`).
+
 ## Counts make the cards
 
 Basics' Bedrooms count makes the room cards (`applyListingBedroomSlots`) and

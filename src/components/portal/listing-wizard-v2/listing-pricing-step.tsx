@@ -62,9 +62,16 @@ import { buildListingQuote, isStayLeaseTerm } from "@/lib/listing-quote";
 import { LONG_TERM_UTILITIES_PAYMENT_OPTIONS } from "@/lib/listing-utilities-payment";
 import {
   applyHouseDefaultsToRooms,
+  applyHouseTermPricingToRooms,
+  houseTermPricingForSubmission,
   roomInheritsDefault,
+  termPriceFieldText,
+  writeRoomTermPrice,
+  writeTermPriceEntry,
   type ListingHouseDefaultField,
   type ListingHouseDefaults,
+  type ListingHouseTermPricing,
+  type ListingTermPriceField,
 } from "@/lib/listing-house-defaults";
 import {
   applyEntireHomeListingPricing,
@@ -105,18 +112,29 @@ const PRICING_MODE_OPTIONS = [
 
 const isBase = (term: string) => term === LONG_TERM_LEASE_TERM;
 
-/** A room's value on `term` and where it came from. */
+const TERM_FIELD: Record<"rent" | "deposit" | "util", ListingTermPriceField> = {
+  rent: "monthlyRent",
+  deposit: "securityDeposit",
+  util: "utilitiesEstimate",
+};
+
+/**
+ * A room's value on `term` and where it came from: the room's own number
+ * (`own`), the term's Default room (`tdef`), the room's long-term number
+ * (`lt`), or the long-term Default room (`def`).
+ */
 function termValue(
   room: ManagerRoomSubmission,
   term: string,
   field: "rent" | "deposit" | "util",
   defaults: ListingHouseDefaults,
-): { text: string; src: "own" | "lt" | "def" } {
-  const own = room.termPricing?.[term];
+  termDefaults: ListingHouseTermPricing | undefined,
+): { text: string; src: "own" | "tdef" | "lt" | "def" } {
   if (!isBase(term)) {
-    if (field === "rent" && typeof own?.monthlyRent === "number") return { text: String(own.monthlyRent), src: "own" };
-    if (field === "deposit" && (own?.securityDeposit ?? "").trim()) return { text: own!.securityDeposit!, src: "own" };
-    if (field === "util" && (own?.utilitiesEstimate ?? "").trim()) return { text: own!.utilitiesEstimate!, src: "own" };
+    const own = termPriceFieldText(room.termPricing?.[term], TERM_FIELD[field]);
+    const def = termPriceFieldText(termDefaults?.[term], TERM_FIELD[field]);
+    if (own) return { text: own, src: def && own === def ? "tdef" : "own" };
+    if (def) return { text: def, src: "tdef" };
   }
   if (field === "rent") {
     if (isBase(term) && roomInheritsDefault(room, defaults, "monthlyRent")) {
@@ -145,14 +163,7 @@ function writeTerm(
   field: "monthlyRent" | "securityDeposit" | "utilitiesEstimate",
   value: string,
 ): ManagerRoomSubmission {
-  const all = { ...(room.termPricing ?? {}) };
-  const entry = { ...(all[term] ?? {}) };
-  if (value.trim() === "") delete entry[field];
-  else if (field === "monthlyRent") entry.monthlyRent = num(value);
-  else entry[field] = value;
-  if (Object.keys(entry).length === 0) delete all[term];
-  else all[term] = entry;
-  return { ...room, termPricing: Object.keys(all).length > 0 ? all : undefined };
+  return writeRoomTermPrice(room, term, field, value);
 }
 
 /**
@@ -253,7 +264,9 @@ function MonthlyCards({
   term,
   feeScopeTerm,
   defaults,
+  termDefaults,
   onDefault,
+  onTermDefault,
   onRoom,
   dimmed,
 }: {
@@ -263,7 +276,10 @@ function MonthlyCards({
   /** Lease tab these cards are on — a room's fees respect Applies-to even when rent follows long-term. */
   feeScopeTerm: string;
   defaults: ListingHouseDefaults;
+  /** The Default room on every lease type but long-term. */
+  termDefaults: ListingHouseTermPricing | undefined;
   onDefault: (field: ListingHouseDefaultField, value: string | number) => void;
+  onTermDefault: (term: string, field: ListingTermPriceField, value: string) => void;
   onRoom: (id: string, next: ManagerRoomSubmission) => void;
   dimmed: boolean;
 }) {
@@ -272,11 +288,15 @@ function MonthlyCards({
   const [open, setOpen] = useState<string | null>(null);
   const [unticked, setUnticked] = useState<Set<string>>(new Set());
   const values = (room: ManagerRoomSubmission) => ({
-    rent: termValue(room, term, "rent", defaults),
-    util: termValue(room, term, "util", defaults),
-    dep: termValue(room, term, "deposit", defaults),
+    rent: termValue(room, term, "rent", defaults, termDefaults),
+    util: termValue(room, term, "util", defaults, termDefaults),
+    dep: termValue(room, term, "deposit", defaults, termDefaults),
     modeOwn: base ? !roomInheritsDefault(room, defaults, "pricingMode") : false,
   });
+  /** The term's Default room, one field: what it holds, and long-term's figure as the placeholder until it holds anything. */
+  const termDef = (field: ListingTermPriceField) => termPriceFieldText(termDefaults?.[term], field);
+  const ltText = (field: ListingTermPriceField) =>
+    field === "monthlyRent" ? (defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : "") : moneyValue(defaults[field]);
   const sameAsAll = (room: ManagerRoomSubmission) => {
     const v = values(room);
     return !unticked.has(room.id) && v.rent.src !== "own" && v.util.src !== "own" && v.dep.src !== "own" && !v.modeOwn;
@@ -316,21 +336,42 @@ function MonthlyCards({
               {base ? (
                 <MoneyInput label="Rent for every room" value={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : ""} placeholder="1,100" onChange={(v) => onDefault("monthlyRent", num(sanitizeMoneyInput(v)))} />
               ) : (
-                <span className="text-[13.5px] font-semibold text-foreground">{defaults.monthlyRent > 0 ? usd(defaults.monthlyRent) : "—"}</span>
+                <MoneyInput
+                  label={`Rent for every room on ${term}`}
+                  value={termDef("monthlyRent")}
+                  inherited={!termDef("monthlyRent")}
+                  placeholder={ltText("monthlyRent") || "1,100"}
+                  onChange={(v) => onTermDefault(term, "monthlyRent", sanitizeMoneyInput(v))}
+                  dataAttr="listing-v2-price-term-default-rent"
+                />
               )}
             </FactRow>
             <FactRow label={helpRow("Utilities /mo", PRICE_HELP.util)}>
               {base ? (
                 <MoneyInput label="Utilities for every room" value={moneyValue(defaults.utilitiesEstimate)} placeholder="150" onChange={(v) => onDefault("utilitiesEstimate", sanitizeMoneyInput(v))} />
               ) : (
-                <span className="text-[13.5px] font-semibold text-foreground">{moneyValue(defaults.utilitiesEstimate) ? usd(num(defaults.utilitiesEstimate)) : "—"}</span>
+                <MoneyInput
+                  label={`Utilities for every room on ${term}`}
+                  value={termDef("utilitiesEstimate")}
+                  inherited={!termDef("utilitiesEstimate")}
+                  placeholder={ltText("utilitiesEstimate") || "150"}
+                  onChange={(v) => onTermDefault(term, "utilitiesEstimate", sanitizeMoneyInput(v))}
+                  dataAttr="listing-v2-price-term-default-utilities"
+                />
               )}
             </FactRow>
             <FactRow label={helpRow("Deposit", PRICE_HELP.dep)}>
               {base ? (
                 <MoneyInput label="Deposit for every room" value={moneyValue(defaults.securityDeposit)} placeholder="1,000" onChange={(v) => onDefault("securityDeposit", sanitizeMoneyInput(v))} />
               ) : (
-                <span className="text-[13.5px] font-semibold text-foreground">{moneyValue(defaults.securityDeposit) ? usd(num(defaults.securityDeposit)) : "—"}</span>
+                <MoneyInput
+                  label={`Deposit for every room on ${term}`}
+                  value={termDef("securityDeposit")}
+                  inherited={!termDef("securityDeposit")}
+                  placeholder={ltText("securityDeposit") || "1,000"}
+                  onChange={(v) => onTermDefault(term, "securityDeposit", sanitizeMoneyInput(v))}
+                  dataAttr="listing-v2-price-term-default-deposit"
+                />
               )}
             </FactRow>
             <MoreRows dataAttr="listing-v2-price-defaults-more">
@@ -347,9 +388,9 @@ function MonthlyCards({
       />
       {rooms.map((room, i) => {
         const name = room.name.trim() || `Room ${i + 1}`;
-        const rent = termValue(room, term, "rent", defaults);
-        const util = termValue(room, term, "util", defaults);
-        const dep = termValue(room, term, "deposit", defaults);
+        const rent = termValue(room, term, "rent", defaults, termDefaults);
+        const util = termValue(room, term, "util", defaults, termDefaults);
+        const dep = termValue(room, term, "deposit", defaults, termDefaults);
         const mode = room.pricingMode ?? defaults.pricingMode ?? "fixed";
         const modeOwn = base ? !roomInheritsDefault(room, defaults, "pricingMode") : false;
         const resetOne = (field: "monthlyRent" | "utilitiesEstimate" | "securityDeposit") =>
@@ -574,7 +615,7 @@ function BundlesSection({ sub, patch, defaults }: { sub: ManagerListingSubmissio
   const bundles = sub.bundles ?? [];
   const [open, setOpen] = useState<string | null>(null);
   const roomLabel = (r: ManagerRoomSubmission, i: number) => r.name.trim() || `Room ${i + 1}`;
-  const roomRent = (r: ManagerRoomSubmission) => termValue(r, LONG_TERM_LEASE_TERM, "rent", defaults);
+  const roomRent = (r: ManagerRoomSubmission) => termValue(r, LONG_TERM_LEASE_TERM, "rent", defaults, undefined);
   const write = (id: string, next: Partial<ManagerBundleRow>) => patch({ bundles: bundles.map((b) => (b.id === id ? { ...b, ...next } : b)) });
   const remove = (id: string) => {
     patch({ bundles: bundles.filter((b) => b.id !== id) });
@@ -898,8 +939,22 @@ export function ListingPricingSections({
       houseDefaults: next,
     } as Partial<ManagerListingSubmissionV1>);
   };
-  /** "Same as long-term" is true when no room has its own price on this term. */
-  const sameAsLongTerm = (term: string) => !rooms.some((r) => r.termPricing?.[term] && Object.keys(r.termPricing[term]!).length > 0);
+  /**
+   * The Default room on every lease type but long-term. Held like `defaults`:
+   * read once from the listing (or inferred from its rooms), then written
+   * through `onTermDefault`, which also moves every room still following it.
+   */
+  const [termDefaults, setTermDefaults] = useState<ListingHouseTermPricing | undefined>(() => houseTermPricingForSubmission(sub));
+  const onTermDefault = (term: string, field: ListingTermPriceField, value: string) => {
+    const previous = termDefaults;
+    const next = writeTermPriceEntry(termDefaults, term, field, value);
+    setTermDefaults(next);
+    patch({ rooms: applyHouseTermPricingToRooms(rooms, term, field, next, previous), houseTermPricing: next });
+  };
+  /** "Same as long-term" is true when neither the Default room nor any room has its own price on this term. */
+  const sameAsLongTerm = (term: string) =>
+    !(termDefaults?.[term] && Object.keys(termDefaults[term]!).length > 0) &&
+    !rooms.some((r) => r.termPricing?.[term] && Object.keys(r.termPricing[term]!).length > 0);
   const [waiverCodesOpen, setWaiverCodesOpen] = useState(false);
   const [showOwn, setShowOwn] = useState<Record<string, boolean>>({});
   const ownTable = (term: string) => showOwn[term] || !sameAsLongTerm(term);
@@ -992,8 +1047,15 @@ export function ListingPricingSections({
                 dataAttr={`listing-v2-same-as-long-term-${activeLeaseTerm}`}
                 onChange={(next) => {
                   if (next) {
-                    // Back to "same as long-term": clear every room's own price on this term.
-                    patch({ rooms: rooms.map((r) => { const all = { ...(r.termPricing ?? {}) }; delete all[activeLeaseTerm]; return { ...r, termPricing: Object.keys(all).length ? all : undefined }; }) });
+                    // Back to "same as long-term": clear the term's Default room and every room's own price on it.
+                    const block = { ...(termDefaults ?? {}) };
+                    delete block[activeLeaseTerm];
+                    const nextBlock = Object.keys(block).length ? block : undefined;
+                    setTermDefaults(nextBlock);
+                    patch({
+                      rooms: rooms.map((r) => { const all = { ...(r.termPricing ?? {}) }; delete all[activeLeaseTerm]; return { ...r, termPricing: Object.keys(all).length ? all : undefined }; }),
+                      houseTermPricing: nextBlock,
+                    });
                     setShowOwn((prev) => ({ ...prev, [activeLeaseTerm]: false }));
                   } else {
                     setShowOwn((prev) => ({ ...prev, [activeLeaseTerm]: true }));
@@ -1013,7 +1075,9 @@ export function ListingPricingSections({
               term={!isBase(activeLeaseTerm) && !ownTable(activeLeaseTerm) ? LONG_TERM_LEASE_TERM : activeLeaseTerm}
               feeScopeTerm={activeLeaseTerm}
               defaults={defaults}
+              termDefaults={termDefaults}
               onDefault={onDefault}
+              onTermDefault={onTermDefault}
               onRoom={onRoom}
               dimmed={!isBase(activeLeaseTerm) && !ownTable(activeLeaseTerm)}
             />
