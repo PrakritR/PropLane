@@ -224,15 +224,19 @@ If Resend routes received mail through a different API base for your account, se
 
 The code is ready; these steps must be done in the Resend dashboard + DNS:
 
-1. **MX / inbound routing for `support@prop-lane.space`.**
-   Resend Dashboard → **Receiving** → copy the receiving address, then add the
-   shown **MX record**. Recommended: point MX at a **subdomain**
-   (e.g. `inbound.prop-lane.space`) and forward `support@prop-lane.space` to the
-   receiving address, so existing root-domain MX for other mail stays intact.
-   > ⚠️ Pointing the **root** `prop-lane.space` MX at Resend captures **all** mail
-   > for the domain. Only do that if no other mailbox needs root-domain mail.
+1. **MX / inbound routing.** Resend Dashboard → Domains → `prop-lane.space` →
+   Records → switch on **Enable Receiving**, then add the MX it shows at the
+   **root** (`@ MX 10 inbound-smtp.us-east-1.amazonaws.com`, Vercel DNS:
+   `vercel dns add prop-lane.space @ MX inbound-smtp.us-east-1.amazonaws.com 10`).
+   Root, not a subdomain: work addresses are minted at `@prop-lane.space`
+   (`ASSISTANT_EMAIL_DOMAIN` default), so a subdomain MX would receive nothing
+   for them. Done 2026-09-15; nothing else receives root-domain mail.
+   > ⚠️ The root MX captures **all** mail for `prop-lane.space`. Any future
+   > mailbox on the domain has to be a Resend-received address.
 2. **Webhook.** Resend Dashboard → **Webhooks** → add endpoint
-   `https://www.prop-lane.space/api/webhooks/email/inbound`, subscribe the
+   `https://prop-lane.space/api/webhooks/email/inbound` (the **apex** — the
+   `www.` host answers a 307 to the apex, and Svix does not follow redirects on
+   a POST, so a `www.` endpoint delivers nothing), subscribe the
    **`email.received`** event, and copy the endpoint's **signing secret** (`whsec_…`).
 3. **Secret.** Set `RESEND_INBOUND_WEBHOOK_SECRET=<whsec_…>` in Vercel (Production,
    and Preview if you want staging to accept inbound). Confirm `RESEND_API_KEY` is
