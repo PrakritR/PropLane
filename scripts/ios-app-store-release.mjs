@@ -19,7 +19,8 @@
 //
 //   node scripts/ios-app-store-release.mjs --latest-build
 //       Catch-up (schedule / workflow_dispatch mode=release): release the newest
-//       processed build if no review is pending.
+//       processed build if no review is pending; exits 0 with nothing to do
+//       when that build is on a train Apple has already released.
 //
 //   --dry-run          Every read, no writes; prints each call it would make.
 //   --force-resubmit   Resubmit a REJECTED / METADATA_REJECTED version. Never the
@@ -636,6 +637,15 @@ async function main() {
   const { build, versionString: buildVersionString } = await release.resolveBuild(app, { buildNumber, latest, timeoutSeconds });
   console.log(`Build: ${build.attributes?.version ?? "?"} on train ${buildVersionString ?? "?"} (${build.attributes?.processingState ?? "?"})`);
   if (plan.action === "create" && buildVersionString && compareVersions(buildVersionString, plan.versionString) < 0) {
+    if (latest) {
+      // The catch-up found nothing newer than the train already released: the
+      // last push shipped and there is no parked build. That is a quiet success,
+      // not a failure to repeat every six hours.
+      console.log("");
+      console.log(`✓ Nothing to catch up: newest build ${build.attributes?.version} is on train ${buildVersionString}, which is already released.`);
+      setOutput("store", "nothing-to-release");
+      return;
+    }
     throw new Error(
       `Build ${build.attributes?.version} is on train ${buildVersionString}, but the next store version must be ${plan.versionString} ` +
         "(that train is already released). Push again so fastlane builds on the planned version.",

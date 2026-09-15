@@ -102,6 +102,7 @@ describe("ManagerSmsWorkNumberHint", () => {
     vi.stubGlobal("navigator", { clipboard: { writeText } });
 
     render(<ManagerWorkNumberCopyControl phone="+18559168031" />);
+    expect(screen.queryByText(/Click the number to copy/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Copy work number +1 (855) 916-8031" }));
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("+18559168031"));

@@ -32,8 +32,13 @@ import {
 } from "@/lib/manager-communication-deliver-via";
 import {
   ManagerSmsWorkNumberHint,
+  ManagerWorkEmailCopyControl,
   ManagerWorkNumberCopyControl,
 } from "@/components/portal/pro-sms-work-number-hint";
+import {
+  isManagerAssistantEmailStatus,
+  managerWorkEmailInUse,
+} from "@/lib/manager-assistant-email/manager-assistant-email-status";
 import { normalizeE164 } from "@/lib/phone-e164";
 import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
 import {
@@ -1319,6 +1324,7 @@ export function CommunicationSettingsPanel({
   const [draft, setDraft] = useState<ManagerAutomationSettings>(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
   const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(DEFAULT_MANAGER_AUTOMATION_SETTINGS));
   const [smsSetup, setSmsSetup] = useState<{ phone: string | null; canSend: boolean } | null>(null);
+  const [workEmail, setWorkEmail] = useState<string | null>(null);
 
   const anySmsEnabled = useMemo(
     () =>
@@ -1338,12 +1344,16 @@ export function CommunicationSettingsPanel({
             setDraft(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
             setSavedSnapshot(JSON.stringify(DEFAULT_MANAGER_AUTOMATION_SETTINGS));
             setSmsSetup(null);
+            setWorkEmail(null);
           }
           return;
         }
-        const [settingsRes, numberRes] = await Promise.all([
+        const [settingsRes, numberRes, emailRes] = await Promise.all([
           fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" }),
           fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" }).catch(
+            () => null,
+          ),
+          fetch("/api/manager/assistant-email", { credentials: "include", cache: "no-store" }).catch(
             () => null,
           ),
         ]);
@@ -1366,6 +1376,11 @@ export function CommunicationSettingsPanel({
                   canSend: status.canSend,
                 }
               : null,
+          );
+          const emailBody =
+            emailRes && emailRes.ok ? ((await emailRes.json()) as unknown) : null;
+          setWorkEmail(
+            isManagerAssistantEmailStatus(emailBody) ? managerWorkEmailInUse(emailBody) : null,
           );
         }
       } catch (e) {
@@ -1465,14 +1480,10 @@ export function CommunicationSettingsPanel({
   return (
     <PortalSettingsSection
       title="Inbox automation"
-      description="What is genuinely specific to Communication — per-event channel choice now lives with each event's own reminder."
       action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
     >
       <PortalSettingsGroup>
-        <PortalSettingsRow
-          label="Auto-send AI drafts"
-          meta="When PropLane AI finishes a draft reply, send it without waiting for Approve. The same toggle appears on each draft card in your inbox."
-        >
+        <PortalSettingsRow label="Auto-send AI drafts">
           <PortalSettingsToggle
             checked={draft.inboxAiDraftAutoSend}
             onChange={(next) => setDraft((prev) => ({ ...prev, inboxAiDraftAutoSend: next }))}
@@ -1487,6 +1498,13 @@ export function CommunicationSettingsPanel({
           phone={smsSetup.phone}
           className="mt-4 rounded-xl border border-border bg-accent/30 px-3 py-2.5"
           dataAttr="communication-work-number-copy"
+        />
+      ) : null}
+      {workEmail ? (
+        <ManagerWorkEmailCopyControl
+          email={workEmail}
+          className="mt-4 rounded-xl border border-border bg-accent/30 px-3 py-2.5"
+          dataAttr="communication-work-email-copy"
         />
       ) : null}
       <ManagerSmsWorkNumberHint

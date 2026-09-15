@@ -69,6 +69,9 @@ function stubFetch() {
       if (url.includes("/api/manager/messaging-number")) {
         return new Response("missing", { status: 404 });
       }
+      if (url.includes("/api/manager/assistant-email")) {
+        return new Response("missing", { status: 404 });
+      }
       throw new Error(`Unexpected fetch: ${url} (${init?.method ?? "GET"})`);
     }),
   );
@@ -241,13 +244,18 @@ describe("settings module redraws — every row carries a real consequence line"
     expect(await screen.findByText("Send the generated lease for signature when it is ready.")).toBeTruthy();
   });
 
-  it("Communication's Auto-send AI drafts row", async () => {
+  it("Communication's Auto-send AI drafts row has no helper subtext", async () => {
     stubFetch();
     render(<CommunicationSettingsPanel />);
-    const meta = await screen.findByText(
-      /When PropLane AI finishes a draft reply, send it without waiting for Approve\./,
-    );
-    expect(meta.textContent).not.toBe("Auto-send AI drafts");
+    await screen.findByRole("switch", { name: "Auto-send AI drafts" });
+    expect(
+      screen.queryByText(
+        /When PropLane AI finishes a draft reply, send it without waiting for Approve\./,
+      ),
+    ).toBeNull();
+    expect(
+      screen.queryByText(/per-event channel choice now lives with each event's own reminder/),
+    ).toBeNull();
   });
 
   it("Resident's pointer rows", async () => {

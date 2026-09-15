@@ -83,7 +83,7 @@ export function resolveMobileFilterPopover(args: {
   return spaceBelow >= PORTAL_FILTER_POPOVER_MIN_SPACE_BELOW_PX;
 }
 
-function FilterResetLink({ onReset }: { onReset: () => void }) {
+function FilterResetLink({ onReset, label = "Reset" }: { onReset: () => void; label?: string }) {
   return (
     <button
       type="button"
@@ -91,7 +91,7 @@ function FilterResetLink({ onReset }: { onReset: () => void }) {
       onClick={onReset}
       data-attr="portal-filter-reset"
     >
-      Reset
+      {label}
     </button>
   );
 }
@@ -116,14 +116,16 @@ function FilterSheetFooter({
   onReset,
   onSave,
   applyLabel,
+  resetLabel,
 }: {
   onReset: () => void;
   onSave: () => void;
   applyLabel?: ReactNode;
+  resetLabel?: string;
 }) {
   return (
     <ModalFooter className="w-full justify-between">
-      <FilterResetLink onReset={onReset} />
+      <FilterResetLink onReset={onReset} label={resetLabel} />
       <Button type="button" variant="primary" className="rounded-full" onClick={onSave} data-attr="portal-filter-save">
         {applyLabel ?? "Save"}
       </Button>
@@ -139,13 +141,13 @@ function FilterSheetFooter({
  * now lives in the footer next to Apply, so the panel reads title → fields →
  * what you can do about them.
  */
-function FilterDropdownHeader({ onClose }: { onClose: () => void }) {
+function FilterDropdownHeader({ onClose, title = "Filter" }: { onClose: () => void; title?: string }) {
   return (
     <div
       data-field-select-host-chrome=""
       className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2"
     >
-      <p className="text-sm font-semibold text-foreground">Filter</p>
+      <p className="text-sm font-semibold text-foreground">{title}</p>
       <button
         type="button"
         className={MODAL_HEADER_CLOSE_CLASS}
@@ -284,6 +286,10 @@ export function PortalFilterSortSheet({
   open: controlledOpen,
   defaultOpen = false,
   onOpenChange,
+  /** The panel's title on every presentation. "Filter" for portal toolbars; the public browse sheet says "Filters". */
+  title = "Filter",
+  /** The footer's reset wording ("Reset" for portal toolbars, "Clear all" on browse-homes). */
+  resetLabel,
 }: {
   children: ReactNode;
   activeCount?: number;
@@ -310,6 +316,8 @@ export function PortalFilterSortSheet({
   open?: boolean;
   defaultOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
+  title?: string;
+  resetLabel?: string;
 }) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
   const isControlled = controlledOpen !== undefined;
@@ -597,7 +605,7 @@ export function PortalFilterSortSheet({
       }
       data-attr="portal-filter-dropdown-panel"
     >
-      <FilterDropdownHeader onClose={close} />
+      <FilterDropdownHeader onClose={close} title={title} />
       <div
         className={cn(
           compactPanel
@@ -617,14 +625,14 @@ export function PortalFilterSortSheet({
       {/* Pinned: the fields above scroll once they outgrow the panel, and the
           thing you press must not scroll away with them. */}
       <div className="shrink-0 border-t border-border px-3 py-2">
-        <FilterSheetFooter onReset={handleReset} onSave={close} applyLabel={applyLabel} />
+        <FilterSheetFooter onReset={handleReset} onSave={close} applyLabel={applyLabel} resetLabel={resetLabel} />
       </div>
     </div>
   );
 
   const filterFooter = (save: () => void) =>
     mobileFooter ? (typeof mobileFooter === "function" ? mobileFooter(save) : mobileFooter) : (
-      <FilterSheetFooter onReset={handleReset} onSave={save} applyLabel={applyLabel} />
+      <FilterSheetFooter onReset={handleReset} onSave={save} applyLabel={applyLabel} resetLabel={resetLabel} />
     );
 
   return (
@@ -648,7 +656,7 @@ export function PortalFilterSortSheet({
           <PortalIconAction
             ref={buttonRef}
             icon={SlidersHorizontal}
-            label={activeCount > 0 ? `Filter · ${activeCount} active` : "Filter"}
+            label={activeCount > 0 ? `${title} · ${activeCount} active` : title}
             active={activeCount > 0}
             className="relative"
             data-attr={dataAttr}
@@ -681,7 +689,7 @@ export function PortalFilterSortSheet({
         >
           <SlidersHorizontal className={PORTAL_FILTER_ICON_CLASS} strokeWidth={2} aria-hidden />
           <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
-            Filter{activeCount > 0 ? ` · ${activeCount} active` : ""}
+            {title}{activeCount > 0 ? ` · ${activeCount} active` : ""}
           </span>
         </Button>
         )}
@@ -725,7 +733,7 @@ export function PortalFilterSortSheet({
           dismissible={false}
           open
           onOpenChange={handleSheetOpenChange}
-          title="Filter"
+          title={title}
           flushBody={mobileFlushBody}
           autoElevate={mobileSheetRaised}
           fillViewport={mobileSheetFillsViewport && !mobileSheetRaised}
@@ -768,17 +776,20 @@ export function PortalFilterSortSheet({
           open={open}
           onClose={close}
           dismissBlocked
-          title="Filter"
+          title={title}
           fullPage={false}
           panelClassName={cn(
             panelSizeClass,
-            PORTAL_FILTER_PANEL_WIDTH_CLASS,
+            /* A caller-sized panel already says how wide it is; stacking the
+               toolbar default here (twMerge keeps the LAST width) made the browse
+               modal 22rem whatever it asked for. */
+            panelSizeClassName ? null : PORTAL_FILTER_PANEL_WIDTH_CLASS,
             "portal-filter-dropdown-panel flex flex-col overflow-hidden bg-card",
           )}
           dense
           scrollableContent
           assistantContext="Filter"
-          footer={<FilterSheetFooter onReset={handleReset} onSave={close} applyLabel={applyLabel} />}
+          footer={<FilterSheetFooter onReset={handleReset} onSave={close} applyLabel={applyLabel} resetLabel={resetLabel} />}
         >
           <FilterSheetScrollLockContext.Provider value={setFilterMenuOpen}>
             {fields}

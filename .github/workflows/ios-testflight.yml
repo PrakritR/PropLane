@@ -148,7 +148,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # The schedule fires on the default branch. The store page (app-store/)
+      # must come from what is live, so the catch-up always reads production;
+      # a manual dispatch keeps the ref the operator chose (dry runs from a lane).
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event_name == 'schedule' && 'production' || github.ref }}
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -218,7 +223,12 @@ jobs:
       # longer reject the upload.
       - name: Resolve App Store version
         id: version
-        run: echo "marketing_version=$(node scripts/ios-app-store-release.mjs --plan-version)" >> "$GITHUB_OUTPUT"
+        # Assign first so a planner failure fails the step; inside `echo` it would
+        # be swallowed and fastlane would build on an empty version.
+        run: |
+          marketing_version="$(node scripts/ios-app-store-release.mjs --plan-version)"
+          test -n "$marketing_version"
+          echo "marketing_version=$marketing_version" >> "$GITHUB_OUTPUT"
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
