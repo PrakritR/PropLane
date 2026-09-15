@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
+import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
 import {
   CreditCard,
   HardHat,
@@ -144,6 +146,8 @@ export function PortalProfileClient({
 }) {
   const demo = isDemoModeActive();
   const { userId: settingsUserId } = useManagerUserId();
+  const workspaces = useWorkspaces();
+  const workspaceName = workspaces?.active?.name;
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [fullName, setFullName] = useState(dashToEmpty(initialFullName));
@@ -301,7 +305,7 @@ export function PortalProfileClient({
         label: "Billing & plan",
         description: "Subscription and payment details.",
         icon: CreditCard,
-        group: "Workspace",
+        group: "Account",
       });
     }
     if (!demo && variant === "manager") {
@@ -338,7 +342,7 @@ export function PortalProfileClient({
         label: "API & MCP",
         description: "Connect your own AI agent to PropLane.",
         icon: KeyRound,
-        group: "Workspace",
+        group: "Account",
       });
     }
     list.push(
@@ -449,13 +453,28 @@ export function PortalProfileClient({
         return <WorkspaceSettings openNew={searchParams?.get("new") === "1"} />;
       case "team":
         return (
-          <PortalSettingsSection title="Team" description="Managers who share your houses. An assigned house grants nothing until a module is set to View, Edit, or Manage.">
+          <PortalSettingsSection
+            title={workspaceName ? `Team · ${workspaceName}` : "Team"}
+            description="Managers who share houses in this workspace. An assigned house grants nothing until a module is set to View, Edit, or Manage."
+          >
             {settingsUserId ? <ProAccountLinksPanel userId={settingsUserId} bare /> : <p className="text-sm text-muted">Loading…</p>}
           </PortalSettingsSection>
         );
       case "vendors":
         return (
-          <PortalSettingsSection title="Vendors" description="The tradespeople you dispatch to. Invite by link or email; assign houses per vendor.">
+          <PortalSettingsSection
+            title={workspaceName ? `Vendors · ${workspaceName}` : "Vendors"}
+            description="Vendors assigned to houses in this workspace."
+            action={
+              <Link
+                href="/portal/vendors"
+                className="inline-flex min-h-10 items-center rounded-lg px-3 text-sm font-semibold text-primary hover:bg-accent"
+                data-attr="settings-vendors-open-section"
+              >
+                Open Vendors
+              </Link>
+            }
+          >
             <ManagerVendorsPanel bare />
           </PortalSettingsSection>
         );

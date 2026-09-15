@@ -4,6 +4,7 @@ import Link from "next/link";
 import { AlertCircle, CheckCircle2, MessageSquareText } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
 import {
   PortalSettingsField,
   PortalSettingsGroup,
@@ -206,6 +207,7 @@ export function ManagerMessagingSettingsPanel({
 }) {
   const { showToast } = useAppUi();
   const { userId } = useManagerUserId();
+  const workspaceName = useWorkspaces()?.active?.name;
   const [status, setStatus] = useState<ManagerMessagingNumberStatus | null>(
     null,
   );
@@ -624,7 +626,7 @@ export function ManagerMessagingSettingsPanel({
     const legacyOwnPhone = statusPhoneNumber && statusPhoneNumber !== workspacePhone ? statusPhoneNumber : "";
     return (
       <PortalSettingsSection
-        title="Work number"
+        title={workspaceName ? `Work number · ${workspaceName}` : "Work number"}
         description={`Your workspace's number for resident and prospect texts. It is managed by ${owner}; you send and reply from it on the houses assigned to you.`}
       >
         <PortalSettingsGroup>
@@ -677,8 +679,8 @@ export function ManagerMessagingSettingsPanel({
   return (
     <>
     <PortalSettingsSection
-      title="Work number"
-      description="Request and manage the one number residents and prospects use to reach your workspace. Everyone on your team sends and replies from it."
+      title={workspaceName ? `Work number · ${workspaceName}` : "Work number"}
+      description="Request and manage the one number residents and prospects use to reach this workspace. Everyone on your team sends and replies from it."
     >
       <PortalSettingsGroup>
         <PortalSettingsField

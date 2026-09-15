@@ -13,11 +13,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Building2, ChevronDown, ChevronUp, Pencil, Trash2, UserPlus, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 import { resolvePropertyLabelForId } from "@/lib/manager-portfolio-access";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
@@ -154,6 +155,8 @@ function WorkspaceCard({
   onRename,
   onDelete,
   onMove,
+  onOpenTeam,
+  onOpenVendors,
 }: {
   workspace: PortalWorkspace;
   ownedCount: number;
@@ -161,6 +164,8 @@ function WorkspaceCard({
   onRename: () => void;
   onDelete: () => void;
   onMove: (propertyId: string) => void;
+  onOpenTeam: () => void;
+  onOpenVendors: () => void;
 }) {
   const records = workspace.propertyIds.length;
   const pct = Math.min(100, Math.round((records / WORKSPACE_PROPERTY_LIMIT) * 100));
@@ -180,13 +185,15 @@ function WorkspaceCard({
         </div>
         {canManage ? (
           <div className="flex shrink-0 items-center">
-            <Button variant="ghost" className="h-10 w-10 p-0" aria-label={`Rename ${workspace.name}`} title="Rename" onClick={onRename}>
-              <Pencil className="size-4" aria-hidden />
-            </Button>
+            <PortalIconAction icon={Pencil} label={`Rename ${workspace.name}`} onClick={onRename} data-attr="workspace-rename" />
             {!workspace.isDefault ? (
-              <Button variant="ghost" className="h-10 w-10 p-0 text-red-600" aria-label={`Delete ${workspace.name}`} title="Delete" onClick={onDelete}>
-                <Trash2 className="size-4" aria-hidden />
-              </Button>
+              <PortalIconAction
+                icon={Trash2}
+                tone="danger"
+                label={`Delete ${workspace.name}`}
+                onClick={onDelete}
+                data-attr="workspace-delete"
+              />
             ) : null}
           </div>
         ) : null}
@@ -251,25 +258,39 @@ function WorkspaceCard({
         ))}
         {workspace.propertyIds.length === 0 ? <p className="px-4 py-3 text-sm text-muted">No properties yet.</p> : null}
       </div>
+      {canManage && !workspace.isDefault && workspace.propertyIds.length === 0 ? (
+        <div className="border-t border-dashed border-border px-4 py-2.5">
+          <button
+            type="button"
+            className="inline-flex min-h-10 w-full items-center justify-center rounded-lg border border-dashed border-red-200 px-3 text-sm font-semibold text-red-600 transition hover:bg-red-50"
+            onClick={onDelete}
+            data-attr="workspace-delete-empty"
+          >
+            Delete this workspace
+          </button>
+        </div>
+      ) : null}
 
       {workspace.owned ? (
         <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-2.5">
-          <Link
+          <button
+            type="button"
             className="inline-flex min-h-10 items-center gap-1.5 rounded-lg px-2.5 text-sm font-semibold text-primary transition hover:bg-accent"
-            href="/portal/profile?tab=team"
+            onClick={onOpenTeam}
             data-attr="workspace-manage-team"
           >
             <Users className="size-4" aria-hidden />
             Managers & permissions
-          </Link>
-          <Link
+          </button>
+          <button
+            type="button"
             className="inline-flex min-h-10 items-center gap-1.5 rounded-lg px-2.5 text-sm font-semibold text-primary transition hover:bg-accent"
-            href="/portal/profile?tab=vendors"
+            onClick={onOpenVendors}
             data-attr="workspace-manage-vendors"
           >
             <UserPlus className="size-4" aria-hidden />
             Vendors
-          </Link>
+          </button>
         </div>
       ) : null}
     </section>
@@ -280,6 +301,7 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
   const ctx = useWorkspaces();
   const confirm = useConfirm();
   const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
   // `openNew` is the sidebar's "New workspace" landing here with the form already open.
   const [editing, setEditing] = useState<PortalWorkspace | "new" | null>(openNew ? "new" : null);
@@ -358,16 +380,43 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
               setEditing(workspace);
             }}
             onDelete={async () => {
+              const empty = workspace.propertyIds.length === 0;
               if (
                 await confirm({
                   title: "Delete workspace?",
-                  description: `Delete ${workspace.name}? Move its properties to another workspace first.`,
+                  description: empty
+                    ? `Delete ${workspace.name}? It has no properties, so it will be removed now.`
+                    : `Delete ${workspace.name}? Move its properties to another workspace first.`,
                   confirmLabel: "Delete",
                 })
-              )
-                await run({ action: "delete", id: workspace.id });
+              ) {
+                const wasActive = ctx.active?.id === workspace.id;
+                await run({ action: "delete", id: workspace.id }, () => {
+                  if (!wasActive) return;
+                  const next = owned.find((row) => row.id !== workspace.id);
+                  if (next) void ctx.select(next.id, { href: false });
+                });
+              }
             }}
             onMove={(propertyId) => setMoving({ id: propertyId, destination: owned.find((w) => w.id !== workspace.id)!.id })}
+            onOpenTeam={() => {
+              void (async () => {
+                if (ctx.active?.id !== workspace.id) {
+                  await ctx.select(workspace.id, { href: "/portal/profile?tab=team" });
+                  return;
+                }
+                router.push("/portal/profile?tab=team");
+              })().catch((e) => setError(e instanceof Error ? e.message : "Could not open Team."));
+            }}
+            onOpenVendors={() => {
+              void (async () => {
+                if (ctx.active?.id !== workspace.id) {
+                  await ctx.select(workspace.id, { href: "/portal/vendors" });
+                  return;
+                }
+                router.push("/portal/vendors");
+              })().catch((e) => setError(e instanceof Error ? e.message : "Could not open Vendors."));
+            }}
           />
         ))
       )}

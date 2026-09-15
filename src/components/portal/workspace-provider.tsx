@@ -18,7 +18,8 @@ export type WorkspaceContextValue = {
   loading: boolean;
   refresh: () => Promise<void>;
   mutate: (body: Record<string, unknown>) => Promise<void>;
-  select: (id: string) => Promise<void>;
+  /** Switch workspace. Default destination is the dashboard (exits property scope). Pass `href` to land elsewhere, or `false` to stay. */
+  select: (id: string, opts?: { href?: string | false }) => Promise<void>;
 };
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
 export function useWorkspaces() { return useContext(WorkspaceContext); }
@@ -87,10 +88,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     if (!response.ok) throw new Error(data.error || "Could not update workspace.");
     await refresh();
   }, [refresh]);
-  const select = useCallback(async (id: string) => {
+  const select = useCallback(async (id: string, opts?: { href?: string | false }) => {
     await mutate({ action: "select", id });
-    // A switch explicitly exits property scope; local page filters reset with it.
-    router.push("/portal/dashboard");
+    if (opts?.href === false) {
+      router.refresh();
+      return;
+    }
+    // A switch explicitly exits property scope unless a caller names the next page
+    // (Settings Team, Operations Vendors).
+    router.push(opts?.href ?? "/portal/dashboard");
     router.refresh();
   }, [mutate, router]);
   const active = payload.workspaces.find((w) => w.id === payload.activeWorkspaceId) ?? null;
