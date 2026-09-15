@@ -70,3 +70,18 @@ describe("seeding the first draft", () => {
     expect(managerPortfolioNeedsFirstListingSeed(snap({ drafts: 1 }))).toBe(false);
   });
 });
+
+describe("auto-open is a one-shot that survives the move to Drafts", () => {
+  it("does not open a second time once it has opened this session", () => {
+    expect(
+      shouldAutoOpenFirstListingWizard({ snap: snap({ drafts: 1 }), dismissed: false, autoOpenedThisSession: true }),
+    ).toBe(false);
+  });
+
+  it("never opens on a portfolio with a listed property, whatever the flags say", () => {
+    expect(shouldAutoOpenFirstListingWizard({ snap: snap({ listed: 1 }), dismissed: false })).toBe(false);
+    expect(
+      shouldAutoOpenFirstListingWizard({ snap: snap({ listed: 1, drafts: 1 }), dismissed: false, autoOpenedThisSession: false }),
+    ).toBe(false);
+  });
+});
