@@ -431,6 +431,28 @@ class Release {
     return local.length;
   }
 
+  /**
+   * Any other iPhone / iPad display set on the version is a leftover from a
+   * hand upload (the July 6.5" and 11" sets were still the AXIS-branded 1.0
+   * screens). Apple falls back to the 6.9" and 13" sets for every size, so the
+   * leftovers are removed rather than left to show an older app on some phones.
+   */
+  async pruneUnmanagedSets(localization) {
+    if (!localization) return 0;
+    const managed = new Set(SCREENSHOT_SETS.map((set) => set.displayType));
+    const body = await this.client.get(`appStoreVersionLocalizations/${localization.id}/appScreenshotSets?limit=50`);
+    let pruned = 0;
+    for (const set of body?.data ?? []) {
+      const type = set.attributes?.screenshotDisplayType ?? "";
+      if (managed.has(type) || !/^APP_(IPHONE|IPAD)/.test(type)) continue;
+      await this.write(`remove leftover ${type} screenshot set (Apple reuses the 6.9"/13" sets)`, () =>
+        this.client.delete(`appScreenshotSets/${set.id}`),
+      );
+      pruned += 1;
+    }
+    return pruned;
+  }
+
   /** Apple processes uploads asynchronously; a version cannot submit while one is still processing. */
   async waitForAssets(setId, expected) {
     for (let attempt = 1; attempt <= 30; attempt += 1) {
@@ -630,6 +652,7 @@ async function main() {
   await release.syncCopy(localization, copy);
   let uploaded = 0;
   for (const set of SCREENSHOT_SETS) uploaded += await release.syncScreenshots(localization, set);
+  await release.pruneUnmanagedSets(localization);
   await release.ensureExportCompliance(build);
   await release.attachBuild(version, build);
   await release.assertReviewerLogin(version);

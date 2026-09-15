@@ -12,7 +12,10 @@ app-store/
 ```
 
 Apple shows at most ten screenshots per display; the first three are the
-install sheet. `tests/unit/app-store-assets.test.ts` fails a wrong pixel size,
+install sheet. Only these two sets are kept on the store version — any other
+iPhone / iPad set (a hand upload for 6.5" or 11") is removed on release, because
+Apple reuses the 6.9" and 13" sets for every size and a leftover set would show
+an older app on some devices. `tests/unit/app-store-assets.test.ts` fails a wrong pixel size,
 an eleventh file, or copy over Apple's limits (170 / 4000 / 4000 / 100).
 
 ## Re-shoot the screenshots
