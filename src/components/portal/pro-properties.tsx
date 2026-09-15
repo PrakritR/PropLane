@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ManagerAddListingForm } from "@/components/portal/pro-add-listing-form";
 import { ListingWizardV2 } from "@/components/portal/listing-wizard-v2";
+import { ImportWorkspace } from "@/components/portal/listing-wizard-v2/import-workspace";
 import { ListingWizardOverlay } from "@/components/portal/listing-wizard-v2/wizard-overlay";
 import {
   ManagerHousePropertiesPanel,
@@ -340,15 +341,16 @@ export function ManagerProperties({
   const atPropertyLimit = skuLoaded && managerTierPropertyLimitReached(skuTier, propCount);
   const limitMax = maxPropertiesForManagerTier(skuTier);
 
-  const tryOpenAdd = () => {
+  /** The checks both ＋ menu items share: plan loaded, signed in, under the limit. */
+  const canOpenAdd = (): boolean => {
     if (!skuLoaded) {
       showToast("Loading subscription…");
       void loadSku();
-      return;
+      return false;
     }
     if (!scopeUserId) {
       showToast("Sign in to create a listing.");
-      return;
+      return false;
     }
     if (atPropertyLimit) {
       // Take the manager to the plans page rather than only saying no. This is
@@ -363,8 +365,12 @@ export function ManagerProperties({
       // there the message alone is the whole response.
       showToast(managerPropertyLimitMessage(skuTier, { omitUpgradeCta: isNativeRuntimeSync() }));
       if (!isNativeRuntimeSync()) router.push(MANAGER_PLAN_PORTAL_URL);
-      return;
+      return false;
     }
+    return true;
+  };
+  const tryOpenAdd = () => {
+    if (!canOpenAdd()) return;
     // Prefer resuming the first-listing draft when that is the only work left.
     const snap = readFirstListingPortfolioSnapshot(scopeUserId);
     if (managerNeedsFirstListingOnboarding(snap) && !shouldSkipFirstListingOnboarding({ email })) {
@@ -377,6 +383,12 @@ export function ManagerProperties({
     }
     setResumeDraftId(null);
     setWizardOpen(true);
+  };
+  /** Import properties — the same workspace, opened on its Upload step. */
+  const [importOpen, setImportOpen] = useState(false);
+  const tryOpenImport = () => {
+    if (!canOpenAdd()) return;
+    setImportOpen(true);
   };
 
   useEffect(() => {
@@ -504,6 +516,9 @@ export function ManagerProperties({
                   <DropdownMenuItem data-attr="manager-properties-add-top-property" onSelect={tryOpenAdd}>
                     Add property
                   </DropdownMenuItem>
+                  <DropdownMenuItem data-attr="manager-properties-import" onSelect={tryOpenImport}>
+                    Import properties
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             }
@@ -529,6 +544,32 @@ export function ManagerProperties({
           {listPanel}
         </ManagerPortalPageShell>
       )}
+      {importOpen ? (
+        <ListingWizardOverlay>
+          <ImportWorkspace
+            onClose={() => {
+              setImportOpen(false);
+              void refreshPending();
+            }}
+            onDraftsChanged={() => {
+              void refreshPending();
+            }}
+            onPublished={(listingId) => {
+              setImportOpen(false);
+              showToast("Listing submitted and published.");
+              void refreshPending().then(() => {
+                const id = listingId?.trim();
+                if (!id) return;
+                router.push(propertyDetailHref(basePath, "listed", id, "preview"), { scroll: false });
+              });
+            }}
+            showToast={showToast}
+            userId={userId}
+            skuTier={skuTier}
+            propertyCount={propCount}
+          />
+        </ListingWizardOverlay>
+      ) : null}
       {wizardOpen && useV2Wizard === true ? (
         /*
          * The redesigned listing workspace — a step rail, the form, and a panel

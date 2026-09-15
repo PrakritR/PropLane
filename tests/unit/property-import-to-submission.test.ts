@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { prefillMarkFor } from "@/lib/listing-prefill/apply";
-import { describeSourceRows, importedMonthlyRent, submissionFromImportedProperty } from "@/lib/property-import/to-submission";
+import { describeSourceRows, importedMonthlyRent, importedRoomLabel, submissionFromImportedProperty } from "@/lib/property-import/to-submission";
 import type { PropertyImportProperty } from "@/lib/property-import/types";
 
 const pine: PropertyImportProperty = {
@@ -102,7 +102,7 @@ describe("submissionFromImportedProperty", () => {
     const sub = submissionFromImportedProperty(maple);
     expect(sub.listingPlaceCategoryId).toBe("shared_home");
     expect(sub.listingBedroomSlots).toBe(4);
-    expect(sub.rooms.map((r) => r.name)).toEqual(["1A", "1B", "2A", "2B"]);
+    expect(sub.rooms.map((r) => r.name)).toEqual(["Unit 1A", "Unit 1B", "Unit 2A", "Unit 2B"]);
     expect(sub.rooms.map((r) => r.monthlyRent)).toEqual([1850, 1795, 1900, 2100]);
     expect(importedMonthlyRent(maple)).toBe(7645);
   });
@@ -119,6 +119,14 @@ describe("submissionFromImportedProperty", () => {
 });
 
 describe("helpers", () => {
+  it("names bare room codes", () => {
+    expect(importedRoomLabel("1", true)).toBe("Room 1");
+    expect(importedRoomLabel("b", true)).toBe("Room B");
+    expect(importedRoomLabel("2A", false)).toBe("Unit 2A");
+    expect(importedRoomLabel("Master bedroom", true)).toBe("Master bedroom");
+    expect(importedRoomLabel("  ", true)).toBe("");
+  });
+
   it("describes rows and sums room rent", () => {
     expect(describeSourceRows([6, 7, 8])).toBe("rows 6–8");
     expect(describeSourceRows([14])).toBe("row 14");

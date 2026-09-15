@@ -173,6 +173,18 @@ export const LISTING_V2_STEPS = [
 
 export type ListingV2StepId = (typeof LISTING_V2_STEPS)[number]["id"];
 
+/** A caller-owned step drawn before Basics on the rail (see `ListingEditorV2`). */
+export type ListingEditorLeadingStep = {
+  id: string;
+  label: string;
+  /** What the rail says under the label — the file name, the count found. */
+  summary?: ReactNode;
+  /** Steps the caller draws as needing attention, for the rail's red dot. */
+  attention?: number;
+  /** The manager chose it (from the rail or Back on Basics). */
+  onOpen: () => void;
+};
+
 /**
  * "For listing only have title, pictures, price and description."
  * "There is too much on the listing."
@@ -2895,6 +2907,8 @@ export function ListingEditorV2({
   busy = false,
   isEdit = false,
   saveState,
+  leadingStep,
+  headerCenter,
 }: {
   submission: ManagerListingSubmissionV1;
   onChange: (next: ManagerListingSubmissionV1) => void;
@@ -2911,6 +2925,15 @@ export function ListingEditorV2({
   isEdit?: boolean;
   /** Autosave status, stated once in the header. */
   saveState?: ReactNode;
+  /**
+   * A step the caller owns, drawn on the rail BEFORE Basics — the import's
+   * Upload step. Choosing it, or pressing Back from Basics, hands control to
+   * the caller; the six listing steps are untouched. Add property passes
+   * nothing and renders exactly as before.
+   */
+  leadingStep?: ListingEditorLeadingStep;
+  /** Header slot between the title and the save state (see ListingWorkspace). */
+  headerCenter?: ReactNode;
 }) {
   const [step, setStep] = useState(0);
   useEffect(() => {
@@ -3036,13 +3059,26 @@ export function ListingEditorV2({
     };
   }, [submission, rooms, leaseTerms]);
 
-  const railSteps = LISTING_V2_STEPS.map((s) => ({
+  const listingRailSteps = LISTING_V2_STEPS.map((s) => ({
     id: s.id,
     label: s.label,
     attention: attention[s.id] ?? 0,
     summary: summaries[s.id],
     offPath: !pathIds.includes(s.id),
   }));
+  // The leading step, when there is one, is index 0 on the rail and shifts the
+  // listing steps by one; `step` itself still indexes LISTING_V2_STEPS.
+  const railSteps = leadingStep
+    ? [{ id: leadingStep.id, label: leadingStep.label, summary: leadingStep.summary, attention: leadingStep.attention ?? 0 }, ...listingRailSteps]
+    : listingRailSteps;
+  const railOffset = leadingStep ? 1 : 0;
+  const onRailJump = (index: number) => {
+    if (leadingStep && index === 0) {
+      leadingStep.onOpen();
+      return;
+    }
+    goTo(index - railOffset);
+  };
 
   const coverUrl = (submission.housePhotoDataUrls ?? [])[0] ?? rooms.flatMap((r) => r.photoDataUrls ?? [])[0] ?? null;
   const photoCount =
@@ -3151,7 +3187,8 @@ export function ListingEditorV2({
       saveState={saveState}
       onClose={() => onClose(step)}
       headerAside={<ModalAssistantStrip contextHint={assistantContext} storageScopeKey="listing-wizard-v2" />}
-      rail={<StepRail steps={railSteps} current={step} onJump={goTo} visited={visited} />}
+      headerCenter={headerCenter}
+      rail={<StepRail steps={railSteps} current={step + railOffset} onJump={onRailJump} visited={visited} />}
       railHeader={
         <>
           <RailCover photoUrl={coverUrl} photoCount={photoCount} onAddPhotos={() => goTo(0)} />
@@ -3165,15 +3202,18 @@ export function ListingEditorV2({
           <div className="flex items-center gap-2.5">
             <button
               type="button"
-              disabled={prevStep == null}
-              onClick={() => prevStep != null && goTo(prevStep)}
+              disabled={prevStep == null && !leadingStep}
+              onClick={() => {
+                if (prevStep != null) goTo(prevStep);
+                else leadingStep?.onOpen();
+              }}
               className="min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground disabled:opacity-45"
             >
               Back
             </button>
           </div>
           <span className="hidden text-[12.5px] text-muted sm:inline">
-            {pathPosition != null ? `Step ${pathPosition} of ${pathIds.length}` : "Optional detail"}
+            {pathPosition != null ? `Step ${pathPosition + railOffset} of ${pathIds.length + railOffset}` : "Optional detail"}
           </span>
           {isEdit ? (
             nextStep == null ? null : (

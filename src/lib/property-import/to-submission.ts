@@ -22,6 +22,14 @@ import type { PropertyImportProperty } from "@/lib/property-import/types";
 /** The "from your file · row 3" detail beside a marked field. */
 export type PropertyImportFieldSource = { sheet: string; row: number | null };
 
+/** A bare "1", "B" or "2A" from the file reads as "Room 1" / "Unit 2A" on a card. */
+export function importedRoomLabel(label: string, byRoom: boolean): string {
+  const trimmed = label.trim();
+  if (!trimmed) return "";
+  if (/^(\d{1,3}[a-z]?|[a-z])$/i.test(trimmed)) return `${byRoom ? "Room" : "Unit"} ${trimmed.toUpperCase()}`;
+  return trimmed;
+}
+
 export function submissionFromImportedProperty(p: PropertyImportProperty): ManagerListingSubmissionV1 {
   const base = createDefaultListingSubmission();
   const filled: (keyof ManagerListingSubmissionV1)[] = [];
@@ -61,7 +69,7 @@ export function submissionFromImportedProperty(p: PropertyImportProperty): Manag
       if (!src) return room;
       return {
         ...room,
-        name: src.label || room.name,
+        name: importedRoomLabel(src.label, p.rentByRoom) || room.name,
         monthlyRent: src.rent ?? room.monthlyRent,
         securityDeposit: src.deposit != null ? String(src.deposit) : room.securityDeposit,
       };

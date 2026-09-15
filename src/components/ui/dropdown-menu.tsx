@@ -47,7 +47,9 @@ export function DropdownMenuContent({
       {backdrop && (
         <DropdownMenuPrimitive.Portal>
           <div
-            className="portal-menu-backdrop fixed inset-0 z-40 animate-in fade-in-0 pointer-events-none motion-reduce:animate-none"
+            // Just under the menu itself (z-[10060]) so it blurs whatever the
+            // menu opened over — the page, or a modal or full-page workspace.
+            className="portal-menu-backdrop fixed inset-0 z-[10050] animate-in fade-in-0 pointer-events-none motion-reduce:animate-none"
             data-testid="dropdown-menu-backdrop"
             aria-hidden
           />
