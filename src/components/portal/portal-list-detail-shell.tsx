@@ -82,6 +82,12 @@ export function PortalDetailHeader({
   /** When true, actions stay in the title row on all breakpoints (horizontal scroll on narrow screens). */
   inlineActions = false,
   inlineActionsClassName,
+  /**
+   * Below `md`, the published record actions sit in the title row as icon-only
+   * round buttons instead of a band of worded pills beneath it. The publisher
+   * owns the icon + `aria-label`; this only chooses where the slot renders.
+   */
+  mobileActionsInTitleRow = false,
   dataAttrBack = "portal-detail-back",
 }: {
   title: string;
@@ -97,6 +103,7 @@ export function PortalDetailHeader({
   suppressMobileActions?: boolean;
   inlineActions?: boolean;
   inlineActionsClassName?: string;
+  mobileActionsInTitleRow?: boolean;
   dataAttrBack?: string;
 }) {
   // The record's own actions (Approve · Download, Edit listing · Unlist) are
@@ -140,7 +147,9 @@ export function PortalDetailHeader({
           className={cn(
             inlineActions
               ? "flex max-w-[min(70%,24rem)] shrink-0 items-center gap-1 overflow-x-auto overscroll-x-contain [-ms-overflow-style:none] [scrollbar-width:none] md:max-w-none [&::-webkit-scrollbar]:hidden"
-              : "hidden shrink-0 items-center gap-1.5 md:flex",
+              : mobileActionsInTitleRow
+                ? "flex shrink-0 items-center gap-1.5"
+                : "hidden shrink-0 items-center gap-1.5 md:flex",
             !hasActions && "!hidden",
             inlineActionsClassName,
           )}
@@ -150,16 +159,25 @@ export function PortalDetailHeader({
             breakpoint={inlineActions ? undefined : "md-up"}
             className="flex items-center gap-1.5 [&_button]:!h-9 [&_button]:!min-h-0 [&_button]:!rounded-full [&_button]:!px-3.5 [&_button]:!text-[13px]"
           />
+          {mobileActionsInTitleRow && !inlineActions ? (
+            <PortalTitleActionsHost
+              breakpoint="below-md"
+              className="flex items-center gap-1.5 [&_button]:!size-9 [&_button]:!min-h-0 [&_button]:!rounded-full [&_button]:!p-0"
+            />
+          ) : null}
         </div>
       </div>
       <div
         className={cn(
           "w-full min-w-0 flex-col gap-2 border-t border-border/60 px-2 pb-2 pt-2 md:hidden",
-          (actions && !suppressMobileActions && !inlineActions) || (slotPublished && !inlineActions) ? "flex" : "hidden",
+          (actions && !suppressMobileActions && !inlineActions && !mobileActionsInTitleRow) ||
+            (slotPublished && !inlineActions && !mobileActionsInTitleRow)
+            ? "flex"
+            : "hidden",
         )}
       >
-        {actions && !suppressMobileActions && !inlineActions ? actions : null}
-        {inlineActions ? null : (
+        {actions && !suppressMobileActions && !inlineActions && !mobileActionsInTitleRow ? actions : null}
+        {inlineActions || mobileActionsInTitleRow ? null : (
           <PortalTitleActionsHost
             breakpoint="below-md"
             className="flex flex-wrap items-center gap-1.5 [&_button]:!h-9 [&_button]:!min-h-0 [&_button]:!rounded-full [&_button]:!px-3.5 [&_button]:!text-[13px]"
