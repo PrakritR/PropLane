@@ -47,8 +47,8 @@ function ListedPreviewActions() {
       <button type="button" aria-label="Edit">
         <span className="sr-only">Edit</span>
       </button>
-      <button type="button" aria-label="Send listing">
-        <span className="sr-only">Send listing</span>
+      <button type="button" aria-label="Send">
+        <span className="sr-only">Send</span>
       </button>
       <button type="button" aria-label="Unlist">
         <span className="sr-only">Unlist</span>
@@ -138,7 +138,7 @@ describe("PortalDetailHeader — draft actions as icons in the title row", () =>
     const band = header.lastElementChild!;
     const view = screen.getByRole("button", { name: "View" });
     const edit = screen.getByRole("button", { name: "Edit" });
-    const send = screen.getByRole("button", { name: "Send listing" });
+    const send = screen.getByRole("button", { name: "Send" });
     const unlist = screen.getByRole("button", { name: "Unlist" });
     expect(titleRow.contains(view)).toBe(true);
     expect(titleRow.contains(edit)).toBe(true);
@@ -147,7 +147,7 @@ describe("PortalDetailHeader — draft actions as icons in the title row", () =>
     expect(band.className).toContain("hidden");
     expect(screen.getAllByRole("button", { name: "View" }).length).toBe(1);
     expect(screen.getAllByRole("button", { name: "Edit" }).length).toBe(1);
-    expect(screen.getAllByRole("button", { name: "Send listing" }).length).toBe(1);
+    expect(screen.getAllByRole("button", { name: "Send" }).length).toBe(1);
     expect(screen.getAllByRole("button", { name: "Unlist" }).length).toBe(1);
   });
 });
@@ -161,7 +161,7 @@ describe("listed Preview header actions — source", () => {
     const listed = src.slice(src.indexOf("if (bucket === 2 && listingId)"), src.indexOf("if (bucket === 3)"));
     expect(listed).toContain('aria-label="View"');
     expect(listed).toContain('aria-label="Edit"');
-    expect(listed).toContain('aria-label="Send listing"');
+    expect(listed).toContain('aria-label="Send"');
     expect(listed).toContain('aria-label="Unlist"');
     expect(listed).toContain("<Eye");
     expect(listed).toContain("<Pencil");
@@ -169,7 +169,7 @@ describe("listed Preview header actions — source", () => {
     expect(listed).toContain("<Trash2");
     expect(listed).toContain('<span className="sr-only">View</span>');
     expect(listed).toContain('<span className="sr-only">Edit</span>');
-    expect(listed).toContain('<span className="sr-only">Send listing</span>');
+    expect(listed).toContain('<span className="sr-only">Send</span>');
     expect(listed).toContain('<span className="sr-only">Unlist</span>');
     expect(src).toContain('sourceBucket === 2 && (detailTabProp ?? "preview") === "preview"');
     expect(src).toContain("?edit=1");

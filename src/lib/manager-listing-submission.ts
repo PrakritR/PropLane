@@ -74,12 +74,19 @@ export type ManagerRoomTermPrice = {
   dailyUtilitiesRate?: number;
 };
 
+/**
+ * One span of OCCUPIED dates on a room. A room is available by default; these
+ * rows (plus residents' stays and Bookings blocks) are what close it. The wizard
+ * edits the manager's own rows; the Airbnb calendar sync writes rows whose id
+ * carries its connection prefix. `src/lib/room-availability-timeline.ts` derives
+ * the renter-facing label from them.
+ */
 export type ManagerRoomUnavailableRange = {
   id: string;
   /** Inclusive YYYY-MM-DD — room cannot be leased overlapping this span. */
   start: string;
-  /** Inclusive YYYY-MM-DD */
-  end: string;
+  /** Inclusive YYYY-MM-DD, or null when the span has no end date yet. */
+  end: string | null;
 };
 
 /** One kind of bed in a room, and how many of it. */
@@ -139,7 +146,11 @@ export type ManagerRoomSubmission = {
   floor: string;
   monthlyRent: number;
   availability: string;
-  /** Earliest date this room can be occupied (YYYY-MM-DD). Required for new listings. */
+  /**
+   * Next date this room is free (YYYY-MM-DD), or "" when it is free now. Derived
+   * from `manualUnavailableRanges` and bookings by the wizard on every change
+   * (`roomAvailabilityPatch`); readers may keep trusting it as before.
+   */
   moveInAvailableDate: string;
   /** Keys, parking, access, what to bring — shown to placed residents. Required for new listings. */
   moveInInstructions: string;
@@ -758,6 +769,14 @@ export type ManagerListingSubmissionV1 = {
    * downstream has to resolve. Absent on older listings: the wizard infers them.
    */
   houseDefaults?: Partial<ListingHouseDefaults>;
+  /**
+   * The Pricing step's Default room on a lease type other than long-term,
+   * keyed like a room's `termPricing`. Every room still carries its own copy in
+   * `room.termPricing[term]` (absent = same as long-term, PRP-463), so this is
+   * only what the card shows on reopen. Absent: the wizard infers it from the
+   * rooms (`houseTermPricingForSubmission`).
+   */
+  houseTermPricing?: Record<string, ManagerRoomTermPrice>;
   bathroomDefaults?: Partial<BathroomDefaults>;
   sharedSpaceDefaults?: Partial<SharedSpaceDefaults>;
   /** One amenity per line or comma-separated */
@@ -1817,8 +1836,10 @@ export function normalizeManagerListingSubmissionV1(
               ? o.id.trim()
               : `unavail-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
           const start = typeof o.start === "string" ? o.start.trim() : "";
-          const end = typeof o.end === "string" ? o.end.trim() : "";
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) continue;
+          const rawEnd = typeof o.end === "string" ? o.end.trim() : "";
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) continue;
+          // An empty or malformed end means "no end date yet" — the room stays closed.
+          const end = /^\d{4}-\d{2}-\d{2}$/.test(rawEnd) ? rawEnd : null;
           out.push({ id, start, end });
         }
         return out;
@@ -2263,6 +2284,7 @@ export function normalizeManagerListingSubmissionV1(
     bathrooms,
     sharedSpaces,
     houseDefaults: plainRecordOrUndefined(sub.houseDefaults),
+    houseTermPricing: normalizeRoomTermPricing((sub as { houseTermPricing?: unknown }).houseTermPricing),
     bathroomDefaults: plainRecordOrUndefined(sub.bathroomDefaults),
     sharedSpaceDefaults: plainRecordOrUndefined(sub.sharedSpaceDefaults),
     bundles: isEntireHomeListing({ listingPlaceCategoryId }) ? [] : bundles,

@@ -115,7 +115,7 @@ describe("ResidentApplicationsPanel application detail", () => {
 
     expect(await screen.findByTestId("rental-wizard")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /continue application/i })).toBeNull();
-    expect(screen.getByRole("button", { name: /withdraw application/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^withdraw$/i })).toBeTruthy();
     expect(screen.queryByText(/^Incomplete$/i)).toBeNull();
   });
 
@@ -148,7 +148,8 @@ describe("ResidentApplicationsPanel application detail", () => {
 
     render(<ResidentApplicationsPanel applicationId="PROPLANE-AAAA0001" bucket="pending" />);
 
-    fireEvent.click(screen.getByRole("button", { name: /^withdraw application$/i }));
+    // The row/detail action is "Withdraw"; the confirm sheet keeps the full "Withdraw application".
+    fireEvent.click(screen.getByRole("button", { name: /^withdraw$/i }));
     fireEvent.click(screen.getByRole("button", { name: /^withdraw application$/i }));
 
     await vi.waitFor(() => {

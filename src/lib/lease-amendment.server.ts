@@ -185,7 +185,7 @@ export async function checkMoveOutAvailabilityForLease(
           // A manager-set block closes the room outright, whatever its capacity,
           // and is the manager's OWN data — safe to describe to either audience.
           const blocked = (room.manualUnavailableRanges ?? []).find((range: ManagerRoomUnavailableRange) =>
-            rangesOverlap(extensionStart, newLeaseEnd, range.start, range.end),
+            rangesOverlap(extensionStart, newLeaseEnd, range.start, range.end ?? "9999-12-31"),
           );
           if (blocked) {
             return {

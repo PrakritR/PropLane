@@ -23,6 +23,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Input, Textarea } from "@/components/ui/input";
+import { OccupiedDates } from "@/components/portal/listing-wizard-v2/occupied-dates";
 import { cn } from "@/lib/utils";
 import {
   LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID,
@@ -990,6 +991,7 @@ function SizeInput({ who, value, inherited, onCommit }: { who: string; value: nu
  */
 function RoomCardBody({
   room,
+  propertyId = null,
   who,
   defaults,
   wholePlace,
@@ -1006,6 +1008,8 @@ function RoomCardBody({
   isOwn,
 }: {
   room: ManagerRoomSubmission | null;
+  /** The listing's record id, for the room's booked rows. */
+  propertyId?: string | null;
   who: string;
   defaults: ListingHouseDefaults;
   wholePlace: boolean;
@@ -1143,13 +1147,7 @@ function RoomCardBody({
             />
           </Field>
         </CardFields>
-        {room ? (
-          <CardFields cols={2}>
-            <Field label="Available from">
-              <Input type="date" value={room.moveInAvailableDate} onChange={(e) => onRoom({ moveInAvailableDate: e.target.value })} />
-            </Field>
-          </CardFields>
-        ) : null}
+        {room ? <OccupiedDates room={room} propertyId={propertyId} onRoom={onRoom} /> : null}
 
         <div className="border-t border-border px-3.5 pb-1 pt-2">
           <div className="flex items-center gap-2">
@@ -1251,6 +1249,7 @@ function AddDetailsRow({
 
 function StepRooms({
   sub,
+  propertyId = null,
   patch,
   defaults,
   setDefaults,
@@ -1258,6 +1257,7 @@ function StepRooms({
   onGoToBathrooms,
 }: {
   sub: ManagerListingSubmissionV1;
+  propertyId?: string | null;
   patch: Patch;
   defaults: ListingHouseDefaults;
   setDefaults: (next: ListingHouseDefaults) => void;
@@ -1479,6 +1479,7 @@ function StepRooms({
             <div data-attr="listing-v2-room-editor">
               <RoomCardBody
                 room={room}
+                propertyId={propertyId}
                 who={label}
                 defaults={defaults}
                 wholePlace={wholePlace}
@@ -2899,6 +2900,7 @@ function StepReview({
 
 export function ListingEditorV2({
   submission,
+  propertyId = null,
   onChange,
   onClose,
   onPublish,
@@ -2911,6 +2913,8 @@ export function ListingEditorV2({
   headerCenter,
 }: {
   submission: ManagerListingSubmissionV1;
+  /** The listing's record id when it already has one — booked rows on the Rooms step need it. Null for a brand-new listing. */
+  propertyId?: string | null;
   onChange: (next: ManagerListingSubmissionV1) => void;
   /** Optional persist-in-place. Closing and typing save themselves in the parent. */
   onSaveExit?: (stepIndex: number) => void;
@@ -3112,6 +3116,7 @@ export function ListingEditorV2({
       case "rooms":
         return (
           <StepRooms
+            propertyId={propertyId}
             sub={submission}
             patch={patch}
             defaults={defaults}
