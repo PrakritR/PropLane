@@ -219,6 +219,8 @@ export type PortfolioImportStatus =
   | "draft"
   | "committing"
   | "completed"
+  /** Some records failed and stay prepared; the commit can be re-run for them. */
+  | "partial"
   | "failed"
   | "discarded";
 

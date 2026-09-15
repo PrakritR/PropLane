@@ -17,7 +17,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ importId: stri
 
   const row = await loadPortfolioImport(auth.db, auth.userId, importId);
   if (!row) return NextResponse.json({ error: "Import not found." }, { status: 404 });
-  if (row.status !== "completed") {
+  if (row.status !== "completed" && row.status !== "partial") {
     return NextResponse.json({ error: "Commit this import before inviting residents." }, { status: 409 });
   }
 

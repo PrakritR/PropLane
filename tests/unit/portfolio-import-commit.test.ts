@@ -349,7 +349,7 @@ describe("commitPortfolioImport", () => {
     expect(bobReceipt?.error).toContain("already belongs to another manager");
 
     const importRow = db.tables.manager_portfolio_imports.find((r) => r.id === importId);
-    expect(importRow?.status).toBe("completed"); // not every record failed
+    expect(importRow?.status).toBe("partial"); // stays re-runnable; never "completed" while a record is prepared
   });
 
   it("re-running an already-committed import creates nothing new and dedupes tasks", async () => {

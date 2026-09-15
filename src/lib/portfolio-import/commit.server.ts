@@ -570,10 +570,12 @@ export async function commitPortfolioImport(input: {
     failures,
   };
 
-  const rowStatus = status === "failed" ? "failed" : "completed";
-  await setPortfolioImportStatus(db, managerUserId, importId, rowStatus, {
+  // A partial commit stays re-runnable: the row is "partial", never "completed",
+  // so the commit route runs the prepared records again instead of handing back
+  // the stored result, and committed_at is set only once everything is in.
+  await setPortfolioImportStatus(db, managerUserId, importId, status, {
     result,
-    ...(rowStatus === "completed" ? { committedAt: new Date().toISOString() } : {}),
+    ...(status === "completed" ? { committedAt: new Date().toISOString() } : {}),
   });
 
   track("portfolio_import_committed", managerUserId, {

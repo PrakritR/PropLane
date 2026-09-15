@@ -20,7 +20,7 @@ create table if not exists public.manager_portfolio_imports (
   file_name text not null,
   file_sha256 text not null check (file_sha256 ~ '^[0-9a-f]{64}$'),
   status text not null default 'uploaded'
-    check (status in ('uploaded', 'draft', 'committing', 'completed', 'failed', 'discarded')),
+    check (status in ('uploaded', 'draft', 'committing', 'completed', 'partial', 'failed', 'discarded')),
   draft jsonb,
   result jsonb,
   created_at timestamptz not null default now(),
