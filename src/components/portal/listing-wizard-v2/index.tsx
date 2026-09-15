@@ -134,7 +134,9 @@ export function ListingWizardV2({
   }, []);
 
   const submissionRef = useRef(submission);
-  submissionRef.current = submission;
+  useEffect(() => {
+    submissionRef.current = submission;
+  }, [submission]);
   const savedFingerprintRef = useRef(listingSubmissionFingerprint(submission));
   const stepRef = useRef(0);
   const closeTriesRef = useRef(0);
