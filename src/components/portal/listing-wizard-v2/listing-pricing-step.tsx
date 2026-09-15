@@ -68,6 +68,7 @@ import {
   applyHouseDefaultsToRooms,
   applyHouseTermPricingToRooms,
   houseTermPricingForSubmission,
+  resetRoomFieldToDefault,
   roomInheritsDefault,
   termPriceFieldText,
   writeRoomTermPrice,
@@ -172,18 +173,20 @@ function writeTerm(
 
 /**
  * Put ONE of a room's long-term numbers back on the house — the ↺ in that
- * cell. Emptying a cell already re-inherits it, but nothing on the table said
- * so (the captain's "I cant reset some of the information to default"). On
- * another lease tab the same ↺ goes through `writeTerm(…, "")`, which drops
- * that tab's override so the cell follows long-term again.
+ * cell and the "Same as default room" tick. The room takes its own COPY of
+ * the Default room's number (`resetRoomFieldToDefault`), never a blank: the
+ * card draws a blank follower as "$1,050 · Same as default room", but Review,
+ * the applicant's room list and the signed lease read the record and saw a
+ * room with no rent. On another lease tab the same ↺ goes through
+ * `writeTerm(…, "")`, which drops that tab's override so the cell follows
+ * long-term again.
  */
 function resetRoomField(
   room: ManagerRoomSubmission,
   field: "monthlyRent" | "utilitiesEstimate" | "securityDeposit",
+  defaults: ListingHouseDefaults,
 ): ManagerRoomSubmission {
-  if (field === "monthlyRent") return { ...room, monthlyRent: 0 };
-  if (field === "utilitiesEstimate") return { ...room, utilitiesEstimate: "" };
-  return { ...room, securityDeposit: undefined };
+  return resetRoomFieldToDefault(room, field, defaults);
 }
 
 /* ─────────────────────── the room cards ─────────────────────── */
@@ -414,7 +417,7 @@ function MonthlyCards({
     });
     const v = values(room);
     if (same) {
-      if (base) onRoom(room.id, { ...resetRoomField(resetRoomField(resetRoomField(room, "monthlyRent"), "utilitiesEstimate"), "securityDeposit"), pricingMode: undefined });
+      if (base) onRoom(room.id, { ...resetRoomField(resetRoomField(resetRoomField(room, "monthlyRent", defaults), "utilitiesEstimate", defaults), "securityDeposit", defaults), pricingMode: undefined });
       else {
         const all = { ...(room.termPricing ?? {}) };
         delete all[term];
@@ -496,7 +499,7 @@ function MonthlyCards({
         const mode = room.pricingMode ?? defaults.pricingMode ?? "fixed";
         const modeOwn = base ? !roomInheritsDefault(room, defaults, "pricingMode") : false;
         const resetOne = (field: "monthlyRent" | "utilitiesEstimate" | "securityDeposit") =>
-          onRoom(room.id, base ? resetRoomField(room, field) : writeTerm(room, term, field, ""));
+          onRoom(room.id, base ? resetRoomField(room, field, defaults) : writeTerm(room, term, field, ""));
         const writeOne = (field: "monthlyRent" | "utilitiesEstimate" | "securityDeposit", v: string) => {
           untouch(room.id);
           if (base) onRoom(room.id, field === "monthlyRent" ? { ...room, monthlyRent: num(sanitizeMoneyInput(v)) } : field === "utilitiesEstimate" ? { ...room, utilitiesEstimate: sanitizeMoneyInput(v) } : { ...room, securityDeposit: sanitizeMoneyInput(v) });

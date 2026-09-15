@@ -29,6 +29,11 @@ each card from its records (`houseDefaultsForSubmission`,
   not swept up by the first default.
 - Unticking "Same as default …" is the one whole-record freeze; Reset (per
   row, or ↺ under the name) copies the Default card back, blanks included.
+  The Pricing step's tick and ↺ do the same (`resetRoomFieldToDefault`) —
+  never blank the room, because Review, the applicant's room list and the
+  signed lease read the record, not the card. A listing opened with a blank
+  follower on rent, utilities or deposit is filled from the card once
+  (`fillRoomsFollowingDefaults`, in the wizard shell) and autosaved.
 - "Make all the same" overwrites every record and asks first when a record has
   its own photos or clip.
 - Pictures, clips and words are a record's own the moment it has any while the
