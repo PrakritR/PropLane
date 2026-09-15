@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isLeaseAssistantContext } from "@/lib/agent/assistant-turn-context";
 import { deriveLegacyFields } from "@/lib/demo-property-pipeline";
 import {
+  applyListingBathroomSlots,
   createDefaultListingSubmission,
   emptyRoom,
   normalizeManagerListingSubmissionV1,
@@ -205,7 +206,8 @@ export function buildListingSubmissionFromDraftInput(
   if (!firstRoom.name.trim()) firstRoom.name = input.placeCategory === "entire_home" ? "Entire home" : "Room 1";
   base.rooms = [firstRoom, ...base.rooms.slice(1)];
 
-  return normalizeManagerListingSubmissionV1(base);
+  const withBaths = applyListingBathroomSlots(base);
+  return normalizeManagerListingSubmissionV1(withBaths.ok ? withBaths.sub : base);
 }
 
 export async function upsertManagerListingDraft(
