@@ -42,6 +42,22 @@ export function residentWelcomeEmailConfigured(): boolean {
   return Boolean(process.env.RESEND_API_KEY?.trim());
 }
 
+/**
+ * The existing-resident portal-ready SMS body (extracted from the inline
+ * literal below so portfolio-import invites can send the identical message).
+ * `owner-sms-dispatcher.server.ts` / `sendSms` never append opt-out text
+ * themselves, so it is included here.
+ */
+export function buildResidentWelcomeSmsBody(input: {
+  residentName?: string;
+  axisId: string;
+  senderName: string;
+  propertyLabel?: string;
+}): string {
+  const residentName = input.residentName?.trim() ?? "";
+  return `Your PropLane resident portal is ready${residentName ? `, ${residentName}` : ""}. Pay rent and manage your home online. PropLane ID: ${formatProplaneIdForDisplay(input.axisId)}. — ${input.senderName} Reply STOP to opt out.`;
+}
+
 function normalizeEmail(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }

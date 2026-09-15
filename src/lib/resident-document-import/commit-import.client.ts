@@ -1,8 +1,5 @@
-import type { DemoApplicantRow } from "@/data/demo-portal";
-import { LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/data";
 import {
   appendManagerApplicationRow,
-  readManagerApplicationRows,
   replaceManagerApplicationRowInCache,
   syncManagerApplicationsFromServer,
   upsertApplicationRowToServerAwait,
@@ -22,101 +19,7 @@ import {
 import { residentAccountCreationUrl } from "@/lib/resident-welcome-email";
 import type { ResidentDocumentImportReview } from "@/lib/resident-document-import/types";
 import type { ParsedResidentDocument } from "@/lib/resident-document-import/types";
-
-function parseMoney(value: string): number | undefined {
-  const n = Number(value.replace(/[^\d.]/g, ""));
-  return Number.isFinite(n) && n > 0 ? n : undefined;
-}
-
-function buildApplicationRow(args: {
-  parse: ParsedResidentDocument;
-  review: ResidentDocumentImportReview;
-  managerUserId: string | null;
-  propertyLabel: string;
-}): DemoApplicantRow {
-  const { parse, review, managerUserId, propertyLabel } = args;
-  const fields = review.fields;
-  const name = fields.tenantName?.trim() || "Resident";
-  const email = fields.tenantEmail?.trim() || "";
-  const phone = fields.tenantPhone?.trim() || undefined;
-  const rent = parseMoney(fields.monthlyRent ?? "");
-  const utilities = parseMoney(fields.monthlyUtilities ?? "");
-  const deposit = parseMoney(fields.securityDeposit ?? "");
-  const moveInFee = parseMoney(fields.moveInFee ?? "");
-  const axisId =
-    review.residentMode === "existing" && review.existingApplicationId?.trim()
-      ? review.existingApplicationId.trim()
-      : `PROPLANE-${Date.now().toString(36).toUpperCase().slice(-8)}`;
-  const bucket =
-    review.kind === "application" && parse.suggestedApplicationBucket === "pending" ? "pending" : "approved";
-  const hasLeasePdf = review.kind === "lease" && review.dataUrl.trim().length > 0;
-  const roomChoice =
-    review.propertyId && review.roomId
-      ? `${review.propertyId}${LISTING_ROOM_CHOICE_SEP}${review.roomId}`
-      : undefined;
-
-  const existing = review.existingApplicationId?.trim()
-    ? readManagerApplicationRows().find((row) => row.id === review.existingApplicationId)
-    : review.residentMode === "existing" && review.existingApplicationId?.trim()
-      ? readManagerApplicationRows().find((row) => row.id === review.existingApplicationId)
-      : null;
-
-  const base: DemoApplicantRow = existing
-    ? { ...existing }
-    : {
-        id: axisId,
-        name,
-        email,
-        property: args.propertyLabel || "—",
-        stage: bucket === "approved" ? "Active" : "Application",
-        bucket,
-        detail: "",
-        managerUserId: args.managerUserId ?? undefined,
-      };
-
-  return {
-    ...base,
-    name: name || base.name,
-    email: email || base.email,
-    property: args.propertyLabel || base.property,
-    bucket,
-    stage: bucket === "approved" ? "Active" : base.stage,
-    assignedPropertyId: review.propertyId || base.assignedPropertyId,
-    assignedRoomChoice: roomChoice || base.assignedRoomChoice,
-    signedMonthlyRent: rent ?? base.signedMonthlyRent,
-    manuallyAdded: true,
-    manualResidentDetails: {
-      ...(base.manualResidentDetails ?? {}),
-      phone: phone ?? base.manualResidentDetails?.phone,
-      moveInDate: fields.leaseStart?.trim() || base.manualResidentDetails?.moveInDate,
-      moveOutDate: fields.leaseEnd?.trim() || base.manualResidentDetails?.moveOutDate,
-      leaseTerm: fields.leaseTerm?.trim() || base.manualResidentDetails?.leaseTerm,
-      monthlyUtilities: utilities ?? base.manualResidentDetails?.monthlyUtilities,
-      securityDeposit: deposit ?? base.manualResidentDetails?.securityDeposit,
-      moveInFee: moveInFee ?? base.manualResidentDetails?.moveInFee,
-      ...(hasLeasePdf && review.leaseFullyExecuted
-        ? {
-            signedLeaseFileName: review.fileName,
-            signedLeaseDataUrl: review.dataUrl,
-            signedLeaseUploadedAt: new Date().toISOString(),
-            externallySignedLease: true as const,
-          }
-        : {}),
-    },
-    application: {
-      ...(base.application ?? {}),
-      propertyId: review.propertyId || base.application?.propertyId,
-      roomChoice1: roomChoice || base.application?.roomChoice1,
-      leaseStart: fields.leaseStart?.trim() || base.application?.leaseStart,
-      leaseEnd: fields.leaseEnd?.trim() || base.application?.leaseEnd,
-      leaseTerm: fields.leaseTerm?.trim() || base.application?.leaseTerm,
-      fullLegalName: name,
-      email,
-      phone: phone || base.application?.phone,
-      managerRentOverride: rent != null ? String(rent) : base.application?.managerRentOverride,
-    } as DemoApplicantRow["application"],
-  };
-}
+import { buildApplicationRow } from "@/lib/resident-document-import/build-application-row";
 
 export async function commitResidentDocumentImport(args: {
   parse: ParsedResidentDocument;
