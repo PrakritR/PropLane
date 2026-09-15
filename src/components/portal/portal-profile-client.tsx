@@ -455,7 +455,6 @@ export function PortalProfileClient({
         return (
           <PortalSettingsSection
             title={workspaceName ? `Team · ${workspaceName}` : "Team"}
-            description="Managers who share houses in this workspace. An assigned house grants nothing until a module is set to View, Edit, or Manage."
           >
             {settingsUserId ? <ProAccountLinksPanel userId={settingsUserId} bare /> : <p className="text-sm text-muted">Loading…</p>}
           </PortalSettingsSection>
@@ -464,7 +463,6 @@ export function PortalProfileClient({
         return (
           <PortalSettingsSection
             title={workspaceName ? `Vendors · ${workspaceName}` : "Vendors"}
-            description="Vendors assigned to houses in this workspace."
             action={
               <Link
                 href="/portal/vendors"
@@ -497,9 +495,9 @@ export function PortalProfileClient({
       case "preferences":
         return (
           <>
-            <PortalSettingsSection title="Appearance" description="How PropLane looks on this device.">
+            <PortalSettingsSection title="Appearance">
               <PortalSettingsGroup>
-                <PortalSettingsRow label="Theme" description="Choose light or dark mode.">
+                <PortalSettingsRow label="Theme">
                   <ThemeToggle className="shrink-0" />
                 </PortalSettingsRow>
               </PortalSettingsGroup>
@@ -576,7 +574,6 @@ export function PortalProfileClient({
                           key={g.id}
                           icon={<g.icon className="h-4 w-4" />}
                           label={g.label}
-                          description={g.description}
                           onClick={() => openGroup(g.id)}
                           dataAttr={`settings-open-${g.id}`}
                         />

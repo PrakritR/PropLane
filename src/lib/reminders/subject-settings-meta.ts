@@ -305,7 +305,7 @@ const WORK_ORDER_META: ReminderSubjectSettingsMeta = {
   timingLabel: "Remind before visit",
   notifyYouLabel: "You",
   notifyTeamLabel: "Team",
-  notifyCounterpartyLabel: "Resident & vendor",
+  notifyCounterpartyLabel: "Resident",
   defaultTemplate: {
     subject: "Service visit {duePhrase}: {title}",
     body: [

@@ -106,11 +106,12 @@ describe("AssistantDisplaySetting", () => {
     expect(container.querySelector('[data-attr="assistant-display-popup"]')).toBeNull();
   });
 
-  it("still offers the control on small screens but explains the popup is used", async () => {
+  it("still offers the control on small screens, with no sentence explaining it", async () => {
     smallViewport = true;
     renderSettings();
     await waitFor(() => expect(popupBtn()).not.toBeNull());
-    expect(screen.getByText(/no room for a side panel/i)).toBeTruthy();
+    // AGENTS.md § No subtext: the row is its label and control, nothing under it.
+    expect(screen.queryByText(/no room for a side panel/i)).toBeNull();
   });
 
   it("exposes an accessible radiogroup with roving tabindex", async () => {

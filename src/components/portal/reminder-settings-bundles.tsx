@@ -67,17 +67,14 @@ const APPLICATION_REMINDER_TYPES = [
   {
     value: "incomplete" as const,
     label: "Incomplete application",
-    description: "Nudge applicants who started but have not submitted their application.",
   },
   {
     value: "manager" as const,
     label: "My application alerts",
-    description: "Notify you when an application sits incomplete too long.",
   },
   {
     value: "post_tour" as const,
     label: "Post-tour apply link",
-    description: "After a tour, send prospects the application link and next steps.",
   },
 ];
 
@@ -140,12 +137,10 @@ const LEASE_REMINDER_TYPES = [
   {
     value: "resident" as const,
     label: "Resident lease reminders",
-    description: "Nudge residents to sign a lease you sent for signature.",
   },
   {
     value: "manager" as const,
     label: "My lease alerts",
-    description: "Notify you when a lease needs review or a resident has not signed.",
   },
 ];
 
@@ -199,7 +194,6 @@ const SERVICE_REMINDER_TYPES = [
   {
     value: "service" as const,
     label: "Service reminder",
-    description: "Before a maintenance visit or add-on service — one reminder type for all services.",
   },
 ];
 
@@ -207,12 +201,10 @@ const SERVICE_REPLY_TEMPLATES = [
   {
     value: "maintenance" as const,
     label: "Maintenance visit",
-    description: "Copy for scheduled maintenance visits (also reaches the assigned vendor).",
   },
   {
     value: "addon" as const,
     label: "Add-on service",
-    description: "Copy for resident add-on service return dates.",
   },
 ];
 
@@ -220,7 +212,6 @@ const OUTGOING_PAYMENT_REMINDER_TYPES = [
   {
     value: "outgoing" as const,
     label: "Outgoing payment reminder",
-    description: "Nudge you before bills you owe are due — never sent to payees.",
   },
 ];
 
@@ -265,12 +256,10 @@ const INCOMING_PAYMENT_REMINDER_TYPES = [
   {
     value: "resident" as const,
     label: "Resident notification",
-    description: "Remind residents before rent is due, on the due date, and when overdue.",
   },
   {
     value: "manager" as const,
     label: "Manager notification",
-    description: "Alert you when rent is still unpaid after the due date.",
   },
 ];
 
@@ -407,7 +396,6 @@ export function ServiceRemindersSettingsBundle({
 
   return (
     <div className="space-y-4">
-      <p className="text-[13.5px] font-semibold text-foreground">Service reminders</p>
       <ReminderTypePicker
         value={type}
         options={SERVICE_REMINDER_TYPES}
@@ -415,7 +403,7 @@ export function ServiceRemindersSettingsBundle({
         dataAttr="service-reminder-type"
       />
       <ReminderTypePicker
-        label="Reply template"
+        label="Template"
         value={template}
         options={SERVICE_REPLY_TEMPLATES}
         onChange={setTemplate}
@@ -443,12 +431,10 @@ const INSPECTION_REMINDER_TYPES = [
   {
     value: "due" as const,
     label: "Move-in & move-out inspections",
-    description: "Remind around the move date that a condition report is due. One control covers both moves.",
   },
   {
     value: "review" as const,
     label: "My review alerts",
-    description: "Notify you when a report has evidence waiting for your review.",
   },
 ];
 

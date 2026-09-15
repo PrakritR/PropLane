@@ -269,7 +269,10 @@ Dashboard sections go in `MANAGER_DASHBOARD_SECTIONS` and gate on `visibility.<i
 control — never a sentence under it explaining it. Counts are steppers, picks
 are dropdowns (multi-select with an Other entry when several apply), never
 pills. Detail and the source guard: `docs/agents/ui-change-checklist.md`
-§ No subtext.
+§ No subtext. The settings kit (`portal-settings-ui.tsx`) has no
+`description` / `meta` props by design; reminder timings, channels and
+type pickers are `CheckboxMultiSelect` / `FieldSingleSelect`, never chips.
+Guard: `tests/unit/portal-settings-no-subtext.test.ts`.
 
 # Brand assets (PropLane)
 

@@ -539,7 +539,6 @@ export function ManagerMessagingSettingsPanel({
     return (
       <PortalSettingsSection
         title="Work number"
-        description="Your dedicated PropLane number for resident and prospect texts."
       >
         <PortalSettingsGroup>
           <div
@@ -559,7 +558,6 @@ export function ManagerMessagingSettingsPanel({
     return (
       <PortalSettingsSection
         title="Work number"
-        description="Your dedicated PropLane number for resident and prospect texts."
       >
         <PortalSettingsGroup>
           <div className="flex flex-col items-start gap-3 px-4 py-5">
@@ -627,7 +625,6 @@ export function ManagerMessagingSettingsPanel({
     return (
       <PortalSettingsSection
         title={workspaceName ? `Work number · ${workspaceName}` : "Work number"}
-        description={`Your workspace's number for resident and prospect texts. It is managed by ${owner}; you send and reply from it on the houses assigned to you.`}
       >
         <PortalSettingsGroup>
           <PortalSettingsField
@@ -680,7 +677,6 @@ export function ManagerMessagingSettingsPanel({
     <>
     <PortalSettingsSection
       title={workspaceName ? `Work number · ${workspaceName}` : "Work number"}
-      description="Request and manage the one number residents and prospects use to reach this workspace. Everyone on your team sends and replies from it."
     >
       <PortalSettingsGroup>
         <PortalSettingsField

@@ -91,7 +91,51 @@ export function PortalListPropertyField({
   );
 }
 
-/** Filter sheet fields shared by manager list tabs: group-by plus optional property scope. */
+/**
+ * A person scope (the resident a service is for), shaped like the property
+ * field: one dropdown, "All residents" first, pick closes the menu.
+ */
+export function PortalListResidentField({
+  residentOptions,
+  residentFilters,
+  onResidentFiltersChange,
+  allLabel = "All residents",
+  dataAttr = "portal-filter-resident",
+}: {
+  residentOptions: { id: string; label: string }[];
+  residentFilters: string[];
+  onResidentFiltersChange: (next: string[]) => void;
+  allLabel?: string;
+  dataAttr?: string;
+}) {
+  const closeFieldMenu = useFilterAccordionClose();
+  const options = [
+    { value: "", label: allLabel },
+    ...residentOptions.map((option) => ({ value: option.id, label: option.label })),
+  ];
+  const summary = filterSingleSelectSummary(residentFilters[0] ?? "", options, allLabel);
+
+  return (
+    <FilterCollapsibleSection
+      sectionId="resident"
+      label="Resident"
+      summary={summary}
+      empty={residentFilters.length === 0}
+      menuOptionCount={options.length}
+      dataAttr={`${dataAttr}-trigger`}
+    >
+      <FilterSingleSelectList
+        options={options}
+        value={residentFilters[0] ?? ""}
+        onChange={(next) => onResidentFiltersChange(next ? [next] : [])}
+        onPick={closeFieldMenu}
+        dataAttr={dataAttr}
+      />
+    </FilterCollapsibleSection>
+  );
+}
+
+/** Filter sheet fields shared by manager list tabs: property scope, optional resident scope, group-by. */
 export function PortalListGroupFilterFields({
   groupMode,
   onGroupModeChange,
@@ -102,6 +146,11 @@ export function PortalListGroupFilterFields({
   propertyDataAttr = "portal-filter-property",
   groupModeDataAttr = "portal-filter-group-mode",
   showPropertyFilter = true,
+  minPropertyOptions = 2,
+  residentOptions,
+  residentFilters,
+  onResidentFiltersChange,
+  residentDataAttr = "portal-filter-resident",
 }: {
   groupMode: PortalListGroupMode;
   onGroupModeChange: (next: PortalListGroupMode) => void;
@@ -112,40 +161,49 @@ export function PortalListGroupFilterFields({
   propertyDataAttr?: string;
   groupModeDataAttr?: string;
   showPropertyFilter?: boolean;
+  /**
+   * How many properties it takes before the Property field is drawn. Lists
+   * that always want the scope visible (Services) pass 1 — a one-property
+   * account should still see where the list is scoped.
+   */
+  minPropertyOptions?: number;
+  residentOptions?: { id: string; label: string }[];
+  residentFilters?: string[];
+  onResidentFiltersChange?: (next: string[]) => void;
+  residentDataAttr?: string;
 }) {
   const hasPropertyFilter =
     showPropertyFilter &&
     propertyOptions &&
-    propertyOptions.length > 1 &&
+    propertyOptions.length >= minPropertyOptions &&
     propertyFilters &&
     onPropertyFiltersChange;
-
-  if (!hasPropertyFilter) {
-    return (
-      <FilterFieldsAccordion>
-        <PortalListGroupModeField
-          groupMode={groupMode}
-          onGroupModeChange={onGroupModeChange}
-          dataAttr={groupModeDataAttr}
-        />
-      </FilterFieldsAccordion>
-    );
-  }
+  const hasResidentFilter = residentOptions && residentFilters && onResidentFiltersChange;
 
   return (
     <FilterFieldsAccordion>
+      {hasPropertyFilter ? (
+        <ApplicationFilterSortFields
+          propertyOptions={propertyOptions}
+          propertyFilters={propertyFilters}
+          onPropertyFiltersChange={onPropertyFiltersChange}
+          allLabel={propertyAllLabel}
+          dataAttr={propertyDataAttr}
+          selectionMode="single"
+        />
+      ) : null}
+      {hasResidentFilter ? (
+        <PortalListResidentField
+          residentOptions={residentOptions}
+          residentFilters={residentFilters}
+          onResidentFiltersChange={onResidentFiltersChange}
+          dataAttr={residentDataAttr}
+        />
+      ) : null}
       <PortalListGroupModeField
         groupMode={groupMode}
         onGroupModeChange={onGroupModeChange}
         dataAttr={groupModeDataAttr}
-      />
-      <ApplicationFilterSortFields
-        propertyOptions={propertyOptions}
-        propertyFilters={propertyFilters}
-        onPropertyFiltersChange={onPropertyFiltersChange}
-        allLabel={propertyAllLabel}
-        dataAttr={propertyDataAttr}
-        selectionMode="single"
       />
     </FilterFieldsAccordion>
   );

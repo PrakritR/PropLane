@@ -298,17 +298,11 @@ function ManagerWebhooksBlock() {
           <PortalSettingsRow
             key={hook.id}
             label={hook.url}
-            description={
-              <>
-                {hook.events.join(", ") || "No events"} ·{" "}
-                {hook.enabled ? "Enabled" : "Disabled after repeated failures"} · Last delivery{" "}
-                {hook.lastDelivery
-                  ? `${hook.lastDelivery.status}${hook.lastDelivery.responseStatus ? ` (HTTP ${hook.lastDelivery.responseStatus})` : ""} · ${formatWhen(hook.lastDelivery.at)}`
-                  : "Never"}
-              </>
-            }
           >
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              <span className="text-xs text-muted" data-attr="webhook-row-value">
+                {hook.events.join(", ") || "No events"} · {hook.enabled ? "Enabled" : "Disabled"}
+              </span>
               <Button variant="outline" className="h-9 min-h-0 px-3 text-[13px]" data-attr="webhook-send-test" onClick={() => sendTest(hook.id)}>
                 Send test event
               </Button>
@@ -444,7 +438,6 @@ export function ManagerApiKeysPanel() {
   return (
     <PortalSettingsSection
       title="API & MCP"
-      description="Connect an assistant in one command, or create a finely scoped REST API key for your own integration."
       action={
         creating ? null : (
           <Button
@@ -484,9 +477,13 @@ export function ManagerApiKeysPanel() {
             <PortalSettingsRow
               key={connection.clientId}
               label={connection.clientName || "MCP client"}
-              description={<>Last used {formatWhen(connection.lastUsedAt)} · Connected {formatWhen(connection.createdAt)}</>}
             >
-              <Button variant="danger" className="h-9 min-h-0 px-3 text-[13px]" data-attr="mcp-connection-revoke" onClick={() => revokeMcpConnection(connection.clientId)}>Disconnect</Button>
+              <div className="flex shrink-0 items-center gap-2">
+                <span className="text-xs text-muted" data-attr="mcp-connection-row-value">
+                  Last used {formatWhen(connection.lastUsedAt)}
+                </span>
+                <Button variant="danger" className="h-9 min-h-0 px-3 text-[13px]" data-attr="mcp-connection-revoke" onClick={() => revokeMcpConnection(connection.clientId)}>Disconnect</Button>
+              </div>
             </PortalSettingsRow>
           ))}
         </PortalSettingsGroup>
@@ -635,22 +632,20 @@ export function ManagerApiKeysPanel() {
             <PortalSettingsRow
               key={key.id}
               label={key.name}
-              description={
-                <>
-                  <span className="font-mono">{key.tokenPrefix}…</span> ·{" "}
-                  {key.transport === "api" ? "REST API" : "MCP"} · {key.allowedTools.length} tools · Last used{" "}
-                  {formatWhen(key.lastUsedAt)} · Created {formatWhen(key.createdAt)}
-                </>
-              }
             >
-              <Button
-                variant="danger"
-                className="h-9 min-h-0 px-3 text-[13px]"
-                data-attr="api-key-revoke"
-                onClick={() => revokeKey(key.id)}
-              >
-                Revoke
-              </Button>
+              <div className="flex shrink-0 items-center gap-2">
+                <span className="text-xs text-muted" data-attr="api-key-row-value">
+                  <span className="font-mono">{key.tokenPrefix}…</span> · {key.transport === "api" ? "REST API" : "MCP"}
+                </span>
+                <Button
+                  variant="danger"
+                  className="h-9 min-h-0 px-3 text-[13px]"
+                  data-attr="api-key-revoke"
+                  onClick={() => revokeKey(key.id)}
+                >
+                  Revoke
+                </Button>
+              </div>
             </PortalSettingsRow>
           ))
         )}

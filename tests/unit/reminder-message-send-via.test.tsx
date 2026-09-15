@@ -66,10 +66,9 @@ describe("Update message · Send via", () => {
 
   it("keeps the current message when the draft cannot be sent", () => {
     const onSave = open();
-    fireEvent.click(screen.getByRole("button", { name: "Email" }));
-    fireEvent.click(screen.getByRole("button", { name: "PropLane" }));
-    // The last channel cannot be turned off, so the draft is still sendable;
-    // blank the subject instead to make it unsendable.
+    // Send via is a dropdown now; the last channel still cannot be turned off,
+    // so the draft stays sendable — blank the subject instead to make it unsendable.
+    expect(screen.getByRole("button", { name: "Send via" })).toBeTruthy();
     const subject = document.querySelector('[data-attr="reminder-update-message-subject"] input, input[data-attr="reminder-update-message-subject"]') as HTMLInputElement | null;
     if (subject) fireEvent.change(subject, { target: { value: "   " } });
     else return; // subject field not addressable in this harness

@@ -261,13 +261,14 @@ describe("PortalSettingsExtras variants", () => {
   it("keeps the legacy Appearance row for resident/vendor/admin (default variant)", () => {
     render(<PortalSettingsExtras currentKind="resident" />);
     expect(screen.getByText("Appearance")).toBeTruthy();
-    expect(screen.getByText("Appearance, workspace access, and session.")).toBeTruthy();
+    // No sentence under the section title (AGENTS.md § No subtext).
+    expect(screen.queryByText("Appearance, workspace access, and session.")).toBeNull();
   });
 
   it("drops it for the manager layout, which owns Theme under Preferences", () => {
     render(<PortalSettingsExtras currentKind="pro" variant="session" />);
     expect(screen.queryByText("Appearance")).toBeNull();
-    expect(screen.getByText("Workspace access and session.")).toBeTruthy();
+    expect(screen.queryByText("Workspace access and session.")).toBeNull();
   });
 
   it("renders no switcher row at all for a single-portal account", async () => {

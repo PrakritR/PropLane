@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/input";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal } from "@/components/ui/modal";
 import { SaveStatus } from "@/components/ui/save-status";
 import { useAutosaveDraft } from "@/hooks/use-autosave-draft";
@@ -16,6 +15,8 @@ import {
   vendorsMatchingTrade,
 } from "@/lib/manager-vendors-storage";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
+
+const ADD_VENDOR_OPTION = "__add_vendor__";
 
 export function ManagerVendorDefaultsModal({
   open,
@@ -82,9 +83,6 @@ export function ManagerVendorDefaultsModal({
       status={<SaveStatus status={autosave} />}
     >
       <div className="space-y-4 text-sm">
-        <p className="text-xs text-muted">
-          Pick a default vendor for each major trade. Outgoing payments pre-select the matching default.
-        </p>
         <ul className="space-y-3">
           {VENDOR_TRADE_OPTIONS.map((trade) => {
             const matches = vendorsMatchingTrade(ownVendors, trade);
@@ -92,45 +90,34 @@ export function ManagerVendorDefaultsModal({
             return (
               <li
                 key={trade}
-                className={`grid gap-2 rounded-xl p-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] sm:items-center ${
-                  highlighted ? "bg-accent/30 ring-1 ring-primary/20" : ""
-                }`}
+                className={`rounded-xl p-2 ${highlighted ? "bg-accent/30 ring-1 ring-primary/20" : ""}`}
               >
-                <span className="font-medium text-foreground">{trade}</span>
-                <Select
+                <FieldSingleSelect
+                  label={trade}
+                  labelClassName="mb-1 block text-sm font-medium text-foreground"
                   value={defaults[trade] ?? ""}
-                  onChange={(e) =>
+                  options={[
+                    { value: "", label: "No default" },
+                    ...matches.map((vendor) => ({ value: vendor.id, label: vendor.name })),
+                    // The last option opens Add vendor with this trade preset — what
+                    // the separate full-width Add button beside every row used to do.
+                    ...(onAddForCategory ? [{ value: ADD_VENDOR_OPTION, label: "+ Add a vendor for this trade…" }] : []),
+                  ]}
+                  onChange={(value) => {
+                    if (value === ADD_VENDOR_OPTION) {
+                      onClose();
+                      onAddForCategory?.(trade);
+                      return;
+                    }
                     setDefaults((prev) => {
                       const next = { ...prev };
-                      const value = e.target.value;
                       if (value) next[trade] = value;
                       else delete next[trade];
                       return next;
-                    })
-                  }
-                  data-attr={`vendor-default-trade-${trade}`}
-                >
-                  <option value="">No default</option>
-                  {matches.map((vendor) => (
-                    <option key={vendor.id} value={vendor.id}>
-                      {vendor.name}
-                    </option>
-                  ))}
-                </Select>
-                {onAddForCategory ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-8 rounded-full text-xs"
-                    onClick={() => {
-                      onClose();
-                      onAddForCategory(trade);
-                    }}
-                    data-attr={`vendor-default-add-${trade}`}
-                  >
-                    Add
-                  </Button>
-                ) : null}
+                    });
+                  }}
+                  dataAttr={`vendor-default-trade-${trade}`}
+                />
               </li>
             );
           })}

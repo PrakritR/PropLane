@@ -123,7 +123,6 @@ export function VendorBusinessProfilePane({ ctx }: { ctx: Ctx }) {
   return (
     <PortalSettingsSection
       title="Business profile"
-      description="Your business as managers and residents see it. This is yours — it does not wait on a manager link."
     >
       <PortalSettingsGroup>
         {ctx.loading ? (
@@ -194,7 +193,6 @@ export function VendorWorkContactsPane({ ctx }: { ctx: Ctx }) {
   return (
     <PortalSettingsSection
       title="Work contacts"
-      description="The number and email your business is reached at. They appear on your offers, invoices, and the property threads you are in; PropLane sends texts from its own line and shows these as your contact."
     >
       <PortalSettingsGroup>
         {ctx.loading ? (
@@ -260,7 +258,6 @@ export function VendorWorkspaceAccessPane({
   return (
     <PortalSettingsSection
       title="Workspace access"
-      description="The manager workspaces you are linked into, and the houses each one has assigned to you. A manager grants this from their side; an unassigned house means no access to it."
     >
       <PortalSettingsGroup>
         {ctx.loading ? (
@@ -304,7 +301,7 @@ export function VendorNotificationsPane({ ctx }: { ctx: Ctx }) {
     { key: "notifyPayments", label: "Payments", hint: "An invoice is approved or a payout lands." },
   ];
   return (
-    <PortalSettingsSection title="Notifications" description="Which events reach your inbox and, when a work number is set, your phone.">
+    <PortalSettingsSection title="Notifications">
       <PortalSettingsGroup>
         <ul className="divide-y divide-border">
           {rows.map((row) => (

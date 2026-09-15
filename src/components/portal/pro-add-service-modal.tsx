@@ -62,6 +62,22 @@ import {
 } from "@/lib/manager-work-orders-storage";
 import type { WorkAssignee } from "@/lib/work-assignment";
 import type { ManagerWorkOrderBucket } from "@/data/demo-portal";
+import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
+import { ServiceTasksField } from "@/components/portal/service-tasks-field";
+import { buildServiceAssignmentMessage } from "@/lib/service-assignment-message";
+import { parseResidentChargeCents, serviceTasksFromTitles } from "@/lib/service-tasks";
+import { createManagerCharge } from "@/lib/household-charges";
+import { normalizeManagerAutomationSettings } from "@/lib/payment-automation-settings";
+import { isDemoModeActive } from "@/lib/demo/demo-session";
+
+/** Who the assignment message goes to, resolved from the directory the picker used. */
+type AssigneeContact = { name: string; email: string; phone?: string };
+
+type AssignmentPreview = {
+  contact: AssigneeContact;
+  subject: string;
+  body: string;
+};
 
 type PropertyOption = { propertyId: string; propertyLabel: string };
 type ResidentOption = ManagerServiceResidentOption & { assignedRoomChoice?: string };
@@ -177,6 +193,12 @@ export function ManagerAddServiceModal({
   const [requestPrice, setRequestPrice] = useState("");
   const [requestDeposit, setRequestDeposit] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
+  const [tasks, setTasks] = useState<string[]>([]);
+  const [residentCharge, setResidentCharge] = useState("");
+  // `null` until the setting is read; the assignment step waits for it.
+  const [autoMessageAssignee, setAutoMessageAssignee] = useState<boolean | null>(null);
+  const [assignmentPreview, setAssignmentPreview] = useState<AssignmentPreview | null>(null);
+  const [assignmentBusy, setAssignmentBusy] = useState(false);
   const [form, setForm] = useState<ServiceIntakeFormState>({
     optionKey: "repair:General",
     title: "",
@@ -186,9 +208,34 @@ export function ManagerAddServiceModal({
     customPriceLimit: "",
     arrivalPreset: "Anytime",
     arrivalCustom: "",
-    entryPermission: "call_first",
+    // The manager is logging this, not the resident — vendors are never told
+    // to "call me first" on the resident's behalf.
+    entryPermission: "allowed",
     entryNotes: "",
   });
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void (async () => {
+      if (isDemoModeActive()) {
+        if (!cancelled) setAutoMessageAssignee(false);
+        return;
+      }
+      try {
+        const res = await fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" });
+        const body = (await res.json().catch(() => ({}))) as { settings?: unknown };
+        if (!cancelled) {
+          setAutoMessageAssignee(res.ok ? normalizeManagerAutomationSettings(body.settings).autoMessageAssignee : false);
+        }
+      } catch {
+        if (!cancelled) setAutoMessageAssignee(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -218,9 +265,114 @@ export function ManagerAddServiceModal({
       setRequestPrice("");
       setRequestDeposit("");
       setPhotos([]);
-      setForm(createEmptyServiceIntakeFormState([]));
+      setTasks([]);
+      setResidentCharge("");
+      setForm({ ...createEmptyServiceIntakeFormState([]), entryPermission: "allowed" });
     });
   }, [open, defaultPropertyId, defaultResident]);
+
+  /**
+   * The assignment message goes to a vendor, or a teammate who is not the
+   * manager logging the service. Assigning yourself sends nothing.
+   */
+  const assigneeContact = (next: WorkAssignee | null): AssigneeContact | null => {
+    if (!next) return null;
+    if (next.type === "team") {
+      if (next.id === managerUserId) return null;
+      const member = teamMembers.find((row) => row.userId === next.id);
+      const email = member?.email?.trim() ?? "";
+      return email.includes("@") ? { name: member?.name?.trim() || next.name, email } : null;
+    }
+    const vendor = (vendors as ReadonlyArray<{ id: string; name?: string | null; email?: string | null; phone?: string | null }>).find(
+      (row) => row.id === next.id,
+    );
+    const email = vendor?.email?.trim() ?? "";
+    if (!email.includes("@")) return null;
+    return { name: vendor?.name?.trim() || next.name, email, phone: vendor?.phone?.trim() || undefined };
+  };
+
+  /**
+   * After the service is saved: message the assignee. With "Message assignee
+   * automatically" on, send straight away and toast; otherwise open the same
+   * preview tours use, with the draft editable. Skip closes without sending —
+   * the service is already saved either way.
+   */
+  const finishWithAssignment = async (ctx: {
+    kind: "maintenance" | "add-on";
+    title: string;
+    description: string;
+    priority?: string | null;
+    residentName?: string | null;
+    roomLabel?: string | null;
+  }) => {
+    const contact = assigneeContact(assignee);
+    if (!contact || !selectedProperty) {
+      onClose();
+      return;
+    }
+    const managerName =
+      teamMembers.find((row) => row.userId === managerUserId)?.name?.trim() || "Your property manager";
+    const message = buildServiceAssignmentMessage({
+      assigneeName: contact.name,
+      managerName,
+      kind: ctx.kind,
+      title: ctx.title,
+      description: ctx.description,
+      propertyLabel: selectedProperty.propertyLabel,
+      roomLabel: ctx.roomLabel,
+      priority: ctx.priority,
+      tasks,
+      residentName: ctx.residentName,
+    });
+    if (autoMessageAssignee) {
+      onClose();
+      const sent = await deliverPortalInboxMessage({
+        eventCategory: "maintenance",
+        fromName: managerName,
+        toEmails: [contact.email],
+        subject: message.subject,
+        text: message.body,
+        deliverViaEmail: true,
+        deliverViaSms: Boolean(contact.phone),
+      });
+      showToast(sent.ok ? `Sent to ${contact.name}.` : `Service saved, but the message to ${contact.name} could not be sent.`);
+      return;
+    }
+    onClose();
+    setAssignmentPreview({ contact, subject: message.subject, body: message.body });
+  };
+
+  const sendAssignmentPreview = async (
+    skip: boolean,
+    channels?: { viaEmail: boolean; viaSms: boolean },
+    draft?: { subject: string; body: string },
+  ) => {
+    if (!assignmentPreview || assignmentBusy) return;
+    if (skip) {
+      setAssignmentPreview(null);
+      return;
+    }
+    setAssignmentBusy(true);
+    try {
+      const sent = await deliverPortalInboxMessage({
+        eventCategory: "maintenance",
+        fromName: teamMembers.find((row) => row.userId === managerUserId)?.name?.trim() || "Property Manager",
+        toEmails: [assignmentPreview.contact.email],
+        subject: draft?.subject?.trim() || assignmentPreview.subject,
+        text: draft?.body?.trim() || assignmentPreview.body,
+        deliverViaEmail: channels?.viaEmail ?? true,
+        deliverViaSms: (channels?.viaSms ?? false) && Boolean(assignmentPreview.contact.phone),
+      });
+      if (!sent.ok) {
+        showToast(sent.error || "Could not send the message.");
+        return;
+      }
+      showToast(`Sent to ${assignmentPreview.contact.name}.`);
+      setAssignmentPreview(null);
+    } finally {
+      setAssignmentBusy(false);
+    }
+  };
 
   const propertyOptions = useMemo(() => {
     void tick;
@@ -238,17 +390,15 @@ export function ManagerAddServiceModal({
     return residentOptions.find((r) => r.residentEmail === residentEmail) ?? null;
   }, [lockedResident, residentEmail, residentOptions]);
 
-  const selectedProperty = useMemo(() => {
-    if (lockedResident?.propertyId) {
-      return (
-        propertyOptions.find((p) => p.propertyId === lockedResident.propertyId) ?? {
-          propertyId: lockedResident.propertyId,
-          propertyLabel: lockedResident.propertyLabel,
-        }
-      );
-    }
-    return propertyOptions.find((p) => p.propertyId === propertyId) ?? null;
-  }, [lockedResident, propertyId, propertyOptions]);
+  // Plain derivation — the React Compiler memoizes it; a manual useMemo here
+  // listed `lockedResident` while reading `lockedResident?.propertyId`, which
+  // the compiler refuses to preserve.
+  const selectedProperty: PropertyOption | null = lockedResident?.propertyId
+    ? propertyOptions.find((p) => p.propertyId === lockedResident.propertyId) ?? {
+        propertyId: lockedResident.propertyId,
+        propertyLabel: lockedResident.propertyLabel,
+      }
+    : propertyOptions.find((p) => p.propertyId === propertyId) ?? null;
 
   const residentsForProperty = useMemo(() => {
     const property = propertyOptions.find((p) => p.propertyId === propertyId);
@@ -275,6 +425,7 @@ export function ManagerAddServiceModal({
   }, [propertySubmission, residentEmail]);
 
   const intakeOptions = useMemo(() => buildServiceIntakeOptions(offersForProperty), [offersForProperty]);
+  const selectedIntakeKind = findServiceIntakeOption(intakeOptions, form.optionKey)?.kind ?? "repair";
 
   useEffect(() => {
     if (!open) return;
@@ -336,7 +487,31 @@ export function ManagerAddServiceModal({
           showToast("Add a description.");
           return;
         }
+        const chargeCents = parseResidentChargeCents(residentCharge);
+        if (residentCharge.trim() && chargeCents === null) {
+          showToast("Resident charge must be an amount like $80.");
+          return;
+        }
         const id = `REQ-${Date.now()}`;
+        const taskRows = serviceTasksFromTitles(tasks);
+        // A resident charge is a real household charge, created through the
+        // same helper the Payments tab uses, and remembered on the service.
+        const charge =
+          chargeCents !== null
+            ? createManagerCharge({
+                residentEmail: selectedResident.residentEmail,
+                residentName: selectedResident.residentName,
+                propertyId,
+                propertyLabel: selectedProperty.propertyLabel,
+                managerUserId,
+                title: `Service: ${title}`,
+                amount: chargeCents / 100,
+              })
+            : null;
+        if (chargeCents !== null && !charge) {
+          showToast("Could not add the resident charge. Check the amount.");
+          return;
+        }
         const row: DemoManagerWorkOrderRow = {
           id,
           propertyName: selectedProperty.propertyLabel,
@@ -360,9 +535,19 @@ export function ManagerAddServiceModal({
           residentEmail: selectedResident.residentEmail,
           photoDataUrls: photos.length > 0 ? photos : undefined,
           managerInitiated: true,
+          assignee: assignee ?? undefined,
+          // The legacy dispatch pair is written beside `assignee` so the vendor
+          // portal keeps reading what it always read (see the row type's note).
+          ...(assignee?.type === "vendor"
+            ? { vendorId: assignee.id, vendorName: assignee.name, vendorAssignedAt: new Date().toISOString(), selfAssigned: false }
+            : assignee?.type === "team" && assignee.id === managerUserId
+              ? { selfAssigned: true }
+              : {}),
+          tasks: taskRows.length ? taskRows : undefined,
+          residentChargeCents: chargeCents ?? undefined,
+          residentChargeId: charge?.id,
         };
         writeManagerWorkOrderRows([row, ...readManagerWorkOrderRows()]);
-        const preferredArrival = formatPreferredArrival(form.arrivalPreset, form.arrivalCustom);
         const notify = await deliverPortalInboxMessage({
           eventCategory: "maintenance",
           fromName: "Property Manager",
@@ -376,8 +561,8 @@ export function ManagerAddServiceModal({
             `Title: ${title}`,
             `Category: ${form.categoryLabel}`,
             `Priority: ${form.priority}`,
-            `Preferred arrival: ${preferredArrival}`,
             form.description.trim() ? `Details: ${form.description.trim()}` : "",
+            chargeCents !== null ? `Charge: $${(chargeCents / 100).toFixed(2)} — see Payments.` : "",
             photos.length > 0 ? `Photos attached: ${photos.length}` : "",
             "",
             "Sign in to your PropLane resident portal to view updates under Services.",
@@ -392,7 +577,14 @@ export function ManagerAddServiceModal({
           showToast("Service saved, but resident notification could not be sent.");
         }
         onSubmitted("open");
-        onClose();
+        await finishWithAssignment({
+          kind: "maintenance",
+          title,
+          description: form.description.trim(),
+          priority: form.priority,
+          residentName: selectedResident.residentName,
+          roomLabel: selectedResident.roomLabel,
+        });
         return;
       }
 
@@ -406,11 +598,19 @@ export function ManagerAddServiceModal({
         return;
       }
 
+      const customChargeCents = isCustom ? parseResidentChargeCents(residentCharge) : null;
+      if (isCustom && residentCharge.trim() && customChargeCents === null) {
+        showToast("Resident charge must be an amount like $80.");
+        return;
+      }
+      const taskRows = serviceTasksFromTitles(tasks);
       const { mirrored } = await createServiceRequest({
         offerId: isCustom ? CUSTOM_SERVICE_REQUEST_OFFER_ID : selectedOffer!.id,
         offerName: isCustom ? form.title.trim() : selectedOffer!.name,
         offerDescription: isCustom ? form.description.trim() : selectedOffer!.description,
-        price: isCustom ? "" : requestPrice.trim(),
+        // A custom request the manager prices on the spot carries that price
+        // like a catalog service does; its pending charge follows the same path.
+        price: isCustom ? (customChargeCents !== null ? `$${(customChargeCents / 100).toFixed(2)}` : "") : requestPrice.trim(),
         priceLimit: isCustom ? form.customPriceLimit.trim() || undefined : undefined,
         deposit: isCustom ? "" : requestDeposit.trim(),
         residentEmail: selectedResident.residentEmail,
@@ -420,6 +620,7 @@ export function ManagerAddServiceModal({
         returnByDate: "",
         notes: form.description.trim(),
         assignee: assignee ?? undefined,
+        tasks: taskRows.length ? taskRows : undefined,
       });
       if (!mirrored.ok) {
         showToast(mirrored.error || "Could not save service. Try again.");
@@ -435,7 +636,13 @@ export function ManagerAddServiceModal({
       });
       showToast(`${taskTitle} created for ${selectedResident.residentName}.`);
       onSubmitted();
-      onClose();
+      await finishWithAssignment({
+        kind: "add-on",
+        title: taskTitle,
+        description: form.description.trim(),
+        residentName: selectedResident.residentName,
+        roomLabel: selectedResident.roomLabel,
+      });
     } finally {
       setBusy(false);
     }
@@ -455,10 +662,6 @@ export function ManagerAddServiceModal({
       }
     >
       <div className="space-y-4">
-        <p className="text-sm text-muted">
-          Log a service for a resident — property offerings, repairs, or a custom add-on all land in one Services list.
-        </p>
-
         {lockedResident ? (
           <div className="rounded-xl border border-border bg-accent/20 px-3 py-2.5 text-sm">
             <p className="font-semibold text-foreground">
@@ -514,6 +717,7 @@ export function ManagerAddServiceModal({
           form={form}
           onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
           disabled={busy}
+          voice="manager"
           photoSlot={
             <ServiceIntakePhotoPicker
               onPick={() => {
@@ -561,17 +765,19 @@ export function ManagerAddServiceModal({
           }
         />
 
-        {findServiceIntakeOption(intakeOptions, form.optionKey)?.kind === "add-on" ? (
-          <WorkAssignmentPicker
-            kind="service"
-            teamMembers={teamMembers}
-            vendors={vendors}
-            value={assignee}
-            onChange={setAssignee}
-            disabled={busy}
-            dataAttr="manager-add-service-assignee"
-          />
-        ) : null}
+        {/* Every kind can be assigned. `work-assignment.ts` decides who is offered:
+            vendors take maintenance, teammates take anything. */}
+        <WorkAssignmentPicker
+          kind={selectedIntakeKind === "repair" ? "maintenance" : "service"}
+          teamMembers={teamMembers}
+          vendors={vendors}
+          value={assignee}
+          onChange={setAssignee}
+          disabled={busy}
+          dataAttr="manager-add-service-assignee"
+        />
+
+        <ServiceTasksField tasks={tasks} onChange={setTasks} disabled={busy} dataAttr="manager-add-service-task" />
 
         {selectedOffer ? (
           <div className="grid gap-3 sm:grid-cols-2">
@@ -584,8 +790,46 @@ export function ManagerAddServiceModal({
               <Input value={requestDeposit} onChange={(e) => setRequestDeposit(e.target.value)} className="bg-card" />
             </label>
           </div>
-        ) : null}
+        ) : (
+          <label className="flex flex-col gap-1 text-xs font-medium text-muted">
+            Resident charge
+            <Input
+              value={residentCharge}
+              onChange={(e) => setResidentCharge(e.target.value)}
+              placeholder="$0.00 — leave blank if no charge"
+              inputMode="decimal"
+              className="bg-card"
+              disabled={busy}
+              data-attr="manager-add-service-resident-charge"
+            />
+          </label>
+        )}
       </div>
+      {assignmentPreview ? (
+        <PortalNotificationPreviewModal
+          open
+          title={`Message ${assignmentPreview.contact.name}`}
+          onClose={() => {
+            if (assignmentBusy) return;
+            setAssignmentPreview(null);
+          }}
+          recipient={assignmentPreview.contact.email}
+          recipientPhone={assignmentPreview.contact.phone}
+          subject={assignmentPreview.subject}
+          body={assignmentPreview.body}
+          editableSubject
+          editableBody
+          skipMessageLabel="Skip message"
+          showChannelPicker
+          emailAvailable
+          smsAvailable={Boolean(assignmentPreview.contact.phone)}
+          defaultViaSms={false}
+          confirmLabel="Send"
+          confirmBusy={assignmentBusy}
+          confirmBusyLabel="Sending…"
+          onConfirm={(skip, channels, draft) => void sendAssignmentPreview(skip, channels, draft)}
+        />
+      ) : null}
     </Modal>
   );
 }

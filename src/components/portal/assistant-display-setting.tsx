@@ -62,19 +62,11 @@ export function AssistantDisplaySetting() {
   return (
     <PortalSettingsSection
       title="PropLane Assistant"
-      description="Choose how the AI assistant appears in the portal."
     >
       <PortalSettingsGroup>
         <PortalSettingsRow
           className="flex-col items-start gap-3 sm:flex-row sm:items-center"
           label="Display"
-          description={
-            isSmall
-              ? "On this screen the assistant is always the floating popup — there is no room for a side panel."
-              : mode === "docked"
-                ? "Pinned to the right side of the portal."
-                : "Opens as a popup from Ask PropLane in the header."
-          }
         >
           <div
             role="radiogroup"

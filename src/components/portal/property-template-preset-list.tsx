@@ -11,7 +11,7 @@ export type PropertyTemplatePreset = {
   /** Stable key handed back to `onAdd` — a listing seed key in both callers. */
   key: string;
   label: string;
-  subtitle: string;
+  subtitle?: string;
 };
 
 /**
@@ -50,7 +50,7 @@ export function PropertyTemplatePresetList({
         <div key={preset.key} className={PROPERTY_TEMPLATE_PRESET_ROW_CLASS}>
           <div className="min-w-0 flex-1 text-left">
             <p className="text-sm font-medium text-foreground">{preset.label}</p>
-            <p className="mt-0.5 text-xs text-muted">{preset.subtitle}</p>
+            {preset.subtitle ? <p className="mt-0.5 text-xs text-muted">{preset.subtitle}</p> : null}
           </div>
           <button
             type="button"

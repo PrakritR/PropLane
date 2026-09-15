@@ -42,6 +42,15 @@ import {
 } from "@/lib/property-lease-source";
 import { parseUploadedLeasePdf } from "@/lib/lease-template-parse.client";
 import { useConfirm } from "@/components/providers/app-ui-provider";
+import { CUSTOM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+
+/** The lease-term choices an applicant can make, as "Applies to" boxes. */
+const LEASE_APPLIES_TO_OPTIONS: { value: string; label: string }[] = [
+  { value: "Long-term", label: "Long-term" },
+  { value: "Month-to-Month", label: "Month-to-month" },
+  { value: CUSTOM_LEASE_TERM, label: "Custom" },
+  { value: SHORT_TERM_LEASE_TERM, label: "Short-term stay" },
+];
 
 function validateLeaseDraft(draft: LeaseConfigDraft, mode: PropertyLeaseDocumentMode): string | null {
   if (mode !== "upload") return null;
@@ -111,6 +120,8 @@ export function PropertyLeaseFormModal({
     leaseTemplateDocName: "",
   }));
   const [error, setError] = useState<string | null>(null);
+  /** Which applicant lease-term choices route to this lease ("Applies to"). */
+  const [applicationLeaseTerms, setApplicationLeaseTerms] = useState<string[]>([]);
   const [htmlOverride, setHtmlOverride] = useState("");
   const [templateUploading, setTemplateUploading] = useState(false);
   const [parsingLease, setParsingLease] = useState(false);
@@ -179,6 +190,7 @@ export function PropertyLeaseFormModal({
       const templateKind = normalizeLeaseTemplateKind(template.kind);
       setLabel(template.label);
       setKind(templateKind);
+      setApplicationLeaseTerms([...(template.applicationLeaseTerms ?? [])]);
       setDocumentMode(documentModeFromLease(templateSource, templateKind));
       setDraft(templateDraftFields);
       setHtmlOverride(template.leaseTemplateHtmlOverride?.trim() ?? "");
@@ -304,10 +316,15 @@ export function PropertyLeaseFormModal({
         showToast("Could not save lease.");
         return;
       }
+      if (applicationLeaseTerms.length === 0) {
+        showToast("A lease must apply to at least one lease type.");
+        return;
+      }
 
       const next = updatePropertyLeaseTemplate(templates, template.id, {
         label: trimmedLabel,
         kind,
+        applicationLeaseTerms,
         ...leaseFields,
       });
       if (!(await Promise.resolve(onSave(next)))) return;
@@ -366,11 +383,6 @@ export function PropertyLeaseFormModal({
     <Modal
       open={open}
       title={mode === "add" ? "New lease" : "Edit lease"}
-      description={
-        mode === "add"
-          ? "Choose a PropLane default or upload a PDF. Edit the lease format below, or type in chat to edit with PropLane Assistant."
-          : "Update the lease name and format below, or type in chat to edit with PropLane Assistant."
-      }
       onClose={dismiss}
       panelClassName="max-w-4xl"
       assistantContext={assistantContext}
@@ -432,18 +444,45 @@ export function PropertyLeaseFormModal({
             ) : null}
           </div>
         ) : (
-          <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-            <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="property-lease-name">
-              Lease document name
-            </label>
-            <Input
-              id="property-lease-name"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder={typeMeta?.defaultLabel ?? "e.g. Room rental lease"}
-              data-attr="property-lease-name"
-            />
-          </div>
+          <>
+            <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="property-lease-name">
+                Lease document name
+              </label>
+              <Input
+                id="property-lease-name"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder={typeMeta?.defaultLabel ?? "e.g. Room rental lease"}
+                data-attr="property-lease-name"
+              />
+            </div>
+            {/* Which applicant lease-term choices land on this lease — the same
+                `applicationLeaseTerms` the application flow already routes by. */}
+            <fieldset className="space-y-2">
+              <legend className={MODAL_FIELD_LABEL_CLASS}>Applies to</legend>
+              <div className="flex flex-wrap gap-x-5 gap-y-2">
+                {LEASE_APPLIES_TO_OPTIONS.map((term) => (
+                  <label key={term.value} className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-border text-primary"
+                      checked={applicationLeaseTerms.includes(term.value)}
+                      onChange={(e) =>
+                        setApplicationLeaseTerms((current) =>
+                          e.target.checked
+                            ? [...new Set([...current, term.value])]
+                            : current.filter((value) => value !== term.value),
+                        )
+                      }
+                      data-attr={`property-lease-applies-to-${term.value.toLowerCase().replace(/[^a-z]+/g, "-")}`}
+                    />
+                    {term.label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          </>
         )}
 
         {documentMode === "upload" ? (

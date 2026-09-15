@@ -7,7 +7,7 @@
  * with the declared reason, and the inbox channel can never be switched off.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { fixedRuleFields } from "@/lib/reminders/fixed-rule-fields";
 
@@ -56,10 +56,11 @@ describe("ManagerReminderRuleSettingsPanel audience rows", () => {
     stubFetch();
     render(<ManagerReminderRuleSettingsPanel kind="work_order" audienceMode="both" teamMembers={[]} />);
 
-    // Both "You" and "Resident & vendor" (audienceMode="both") are visible immediately —
-    // no "Reminder type" mode picker to click through first.
+    // Both "You" and "Resident" (audienceMode="both") are visible immediately —
+    // no "Reminder type" mode picker to click through first. The assigned vendor
+    // rides with Team, so the counterparty row is the resident alone.
     expect(await screen.findByText("You")).toBeTruthy();
-    expect(screen.getByText("Resident & vendor")).toBeTruthy();
+    expect(screen.getByText("Resident")).toBeTruthy();
     expect(screen.queryByText(/reminder type/i)).toBeNull();
   });
 
@@ -114,31 +115,29 @@ describe("ManagerReminderRuleSettingsPanel audience rows", () => {
     render(<ManagerReminderRuleSettingsPanel kind="work_order" audienceMode="both" teamMembers={[]} />);
 
     await screen.findByText("You");
-    const inboxCells = screen.getAllByRole("switch", { name: "Inbox" });
-    expect(inboxCells.length).toBeGreaterThan(0);
-    for (const cell of inboxCells) {
-      expect(cell.getAttribute("aria-checked")).toBe("true");
-      expect(cell).toBeDisabled();
-    }
+    // Send via is one dropdown for the rule; Inbox is ticked and cannot be unticked.
+    fireEvent.click(screen.getByRole("button", { name: "Send via", expanded: false }));
+    const listbox = screen.getByRole("listbox", { name: "Send via" });
+    const inbox = within(listbox).getByRole("option", { name: "Inbox" });
+    expect(inbox.getAttribute("aria-selected")).toBe("true");
+    expect(inbox.getAttribute("aria-disabled")).toBe("true");
 
-    // Clicking a disabled control is a no-op, but assert the state explicitly rather than
-    // just trusting `disabled` — this is the guarantee the row exists to make.
-    await userEvent.click(inboxCells[0]!);
-    expect(inboxCells[0]!.getAttribute("aria-checked")).toBe("true");
+    // A disabled option ignores the pick, but assert the state explicitly rather than
+    // just trusting `aria-disabled` — this is the guarantee the control exists to make.
+    fireEvent.pointerDown(inbox, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(inbox, { pointerId: 1, clientX: 10, clientY: 10 });
+    expect(within(listbox).getByRole("option", { name: "Inbox" }).getAttribute("aria-selected")).toBe("true");
   });
 
-  it("gives every settings row a real consequence line, not just its label", async () => {
+  it("gives every settings row a label and a control, never a sentence under it", async () => {
     stubFetch();
     render(<ManagerReminderRuleSettingsPanel kind="work_order" audienceMode="both" teamMembers={[]} />);
 
     const youLabel = await screen.findByText("You");
-    const youRow = youLabel.closest("div");
-    expect(youRow?.textContent).toMatch(/notifies you/i);
-    expect(youRow?.textContent).not.toBe("You");
-
-    const enabledMeta = await screen.findByText(
-      "Turns this reminder on or off. Every setting below is ignored while it's off.",
-    );
-    expect(enabledMeta).toBeTruthy();
+    // The label's own column holds nothing but the label (AGENTS.md § No subtext).
+    expect(youLabel.parentElement?.textContent).toBe("You");
+    expect(screen.queryByText(/through the channels set below/i)).toBeNull();
+    expect(screen.queryByText(/Turns this reminder on or off/i)).toBeNull();
+    expect(screen.queryByText(/Applies to everyone notified above/i)).toBeNull();
   });
 });

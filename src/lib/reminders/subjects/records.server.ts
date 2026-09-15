@@ -12,7 +12,9 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
-import { materializeReminders } from "@/lib/reminders/queue.server";
+import { materializeReminders, type ReminderRecipient } from "@/lib/reminders/queue.server";
+import { assigneeEmail } from "@/lib/manager-default-tasks.server";
+import { normalizeAssignee, type WorkAssignee } from "@/lib/work-assignment";
 import type { ReminderSettings, ReminderSubjectKind } from "@/lib/reminders/rules";
 import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
 import {
@@ -77,6 +79,8 @@ async function sweepRecordTable(
     notes: string | null;
     url: string;
     active: boolean;
+    /** Who is dispatched to the work; a vendor here is notified with the team. */
+    assignee?: WorkAssignee | null;
   },
 ): Promise<number> {
   const { data, error } = await db
@@ -123,6 +127,17 @@ async function sweepRecordTable(
     const residentEmail = (row.resident_email ?? "").trim().toLowerCase();
     const hasResidentRecipient = residentEmail.includes("@");
 
+    // "Team includes vendors": the vendor dispatched to this work rides with the
+    // team audience, not the resident one. Resolved only when Team is on, so a
+    // rule that never fans out to the team never looks the vendor up.
+    const vendorRecipients: ReminderRecipient[] = [];
+    if (settings.rules[kind].audience.team && parsed.assignee?.type === "vendor") {
+      const vendorAddress = await assigneeEmail(db, parsed.assignee);
+      if (vendorAddress) {
+        vendorRecipients.push({ email: vendorAddress, role: "team", name: parsed.assignee.name });
+      }
+    }
+
     queued += await materializeReminders(
       db,
       {
@@ -135,6 +150,7 @@ async function sweepRecordTable(
             ? [{ email: managerRecipient.email, role: "manager" as const, name: managerRecipient.name, userId: row.manager_user_id }]
             : []),
           ...teamRecipients,
+          ...vendorRecipients,
           ...(hasResidentRecipient
             ? [{ email: residentEmail, role: "counterparty" as const, name: parsed.residentName }]
             : []),
@@ -170,6 +186,7 @@ export async function sweepWorkOrderReminders(db: SupabaseClient, now: Date = ne
     notes: str(row.row_data, "description"),
     url: `${origin}/portal/services`,
     active: str(row.row_data, "bucket") !== "completed" && str(row.row_data, "status") !== "Completed",
+    assignee: normalizeAssignee(row.row_data.assignee),
   }));
 }
 

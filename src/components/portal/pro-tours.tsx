@@ -21,7 +21,7 @@ import {
 } from "@/components/portal/settings-entry-points";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { CalendarPlus, Settings2, Share2 } from "lucide-react";
+import { CalendarClock, CalendarPlus, MessageSquare, Settings2, Share2, XCircle } from "lucide-react";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -103,6 +103,13 @@ const TOUR_BUCKET_LABELS = MANAGER_TOUR_BUCKETS.map((id) => ({
 }));
 
 const BULK_BAR_BTN = PORTAL_BULK_BAR_BTN;
+/**
+ * Tour detail header actions are icons, not words: Message / Reschedule /
+ * Cancel are navigation on a phone-width header. Approve and Decline on a
+ * pending request stay as words — a decision that messages a prospect is
+ * never a bare glyph.
+ */
+const TOUR_DETAIL_ICON_BTN = "h-10 min-h-10 w-10 rounded-full px-0";
 
 function isPendingInquiry(row: ManagerTourRow): boolean {
   return row.bucket === "pending" && row.source === "inquiry";
@@ -1020,22 +1027,26 @@ export function ManagerTours({
         <Button
           type="button"
           variant="outline"
-          className={BULK_BAR_BTN}
+          className={TOUR_DETAIL_ICON_BTN}
           data-attr="tour-detail-message"
+          aria-label="Message guest"
+          title="Message"
           onClick={() => openGuestMessage(detailRow)}
         >
-          Message
+          <MessageSquare className="size-[18px] shrink-0" aria-hidden />
         </Button>
       ) : null}
       {(isPendingInquiry(detailRow) || isUpcomingPlanned(detailRow)) ? (
         <Button
           type="button"
           variant="outline"
-          className={BULK_BAR_BTN}
+          className={TOUR_DETAIL_ICON_BTN}
           data-attr="tour-detail-reschedule"
+          aria-label="Reschedule tour"
+          title="Reschedule"
           onClick={() => openReschedulePreview([detailRow])}
         >
-          Reschedule
+          <CalendarClock className="size-[18px] shrink-0" aria-hidden />
         </Button>
       ) : null}
       {detailRow.bucket === "pending" && detailRow.source === "inquiry" ? (
@@ -1088,11 +1099,13 @@ export function ManagerTours({
         <Button
           type="button"
           variant="outline"
-          className={`${BULK_BAR_BTN} text-rose-800`}
+          className={`${TOUR_DETAIL_ICON_BTN} text-rose-800`}
           data-attr="tour-detail-cancel"
+          aria-label="Cancel tour"
+          title="Cancel tour"
           onClick={() => openCancelPreview([detailRow])}
         >
-          Cancel tour
+          <XCircle className="size-[18px] shrink-0" aria-hidden />
         </Button>
       ) : null}
     </>
@@ -1224,10 +1237,7 @@ export function ManagerTours({
           }
           panelClassName="max-w-md"
         >
-          <p className="text-sm text-muted">
-            Choose the proposed time for each tour. You will review the guest notification next.
-          </p>
-          <div className="mt-4 max-h-[min(50vh,20rem)] space-y-4 overflow-y-auto">
+          <div className="max-h-[min(50vh,20rem)] space-y-4 overflow-y-auto">
             {rescheduleTimePicker.rows.map((row) => (
               <label key={row.id} className="block text-xs font-medium text-muted">
                 <span className="text-foreground">

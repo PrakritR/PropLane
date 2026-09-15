@@ -102,7 +102,6 @@ export function ManagerMessagingOutboundDefaults({
     return (
       <PortalSettingsSection
         title="Message defaults"
-        description="Default channels for resident outreach and Communication compose."
       >
         <PortalSettingsGroup>
           <p className="px-4 py-5 text-sm text-muted">Loading…</p>
@@ -114,7 +113,6 @@ export function ManagerMessagingOutboundDefaults({
   return (
     <PortalSettingsSection
       title="Message defaults"
-      description="Default Send via for resident broadcasts, Tell residents, and Communication compose."
     >
       <PortalSettingsGroup>
         <div className="space-y-4 px-4 py-4">

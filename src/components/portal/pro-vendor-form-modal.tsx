@@ -175,7 +175,7 @@ export function ManagerVendorOptionalFields({
             onChange={(e) => onPatch({ active: e.target.checked })}
             data-attr="vendor-optional-active"
           />
-          <span className="text-sm font-medium text-foreground">Active — available for services and payments</span>
+          <span className="text-sm font-medium text-foreground">Active</span>
         </label>
         <fieldset className="space-y-2">
           <legend className={MODAL_FIELD_LABEL_CLASS}>Priority for this trade</legend>
@@ -218,12 +218,7 @@ export function ManagerVendorOptionalFields({
             onChange={(e) => onPatch({ sharedWithManagers: e.target.checked })}
             data-attr="vendor-optional-share"
           />
-          <span className="text-sm leading-6 text-foreground">
-            Share on PropLane
-            <span className="mt-0.5 block text-xs font-normal text-muted">
-              Other managers can discover and assign this vendor. You can turn this off anytime.
-            </span>
-          </span>
+          <span className="text-sm leading-6 text-foreground">Share on PropLane</span>
         </label>
       </div>
     </div>
@@ -313,7 +308,7 @@ export function ManagerVendorFormFields({
             checked={draft.active}
             onChange={(e) => onPatch({ active: e.target.checked })}
           />
-          <span className="text-sm font-medium text-foreground">Active — available for services and payments</span>
+          <span className="text-sm font-medium text-foreground">Active</span>
         </label>
         <fieldset className="space-y-2">
           <legend className={MODAL_FIELD_LABEL_CLASS}>Priority for this trade</legend>
@@ -352,12 +347,7 @@ export function ManagerVendorFormFields({
             checked={draft.sharedWithManagers}
             onChange={(e) => onPatch({ sharedWithManagers: e.target.checked })}
           />
-          <span className="text-sm leading-6 text-foreground">
-            Share on PropLane
-            <span className="mt-0.5 block text-xs font-normal text-muted">
-              Other managers can discover and assign this vendor. You can turn this off anytime.
-            </span>
-          </span>
+          <span className="text-sm leading-6 text-foreground">Share on PropLane</span>
         </label>
       </div>
     </div>

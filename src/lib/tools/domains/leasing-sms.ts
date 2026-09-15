@@ -88,6 +88,22 @@ function listingMarketingNotes(src: Record<string, unknown> | null): string | nu
   return notes.length > MARKETING_NOTES_MAX_CHARS ? `${notes.slice(0, MARKETING_NOTES_MAX_CHARS)}…` : notes;
 }
 
+/**
+ * The AI info tab's other sections — tours, house rules, pricing, neighborhood.
+ * Assistant-only: they shape answers but are never quoted as listing copy.
+ */
+function listingAssistantInfo(src: Record<string, unknown> | null): Record<string, string> | null {
+  const subRaw = asObject(src?.listingSubmission as unknown);
+  const info = asObject(subRaw?.aiCommunicationInfo as unknown);
+  if (!info) return null;
+  const out: Record<string, string> = {};
+  for (const key of ["tours", "rules", "pricing", "neighborhood"] as const) {
+    const value = str(info, key)?.trim();
+    if (value) out[key] = value.length > MARKETING_NOTES_MAX_CHARS ? `${value.slice(0, MARKETING_NOTES_MAX_CHARS)}…` : value;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 function summarizeRooms(src: Record<string, unknown> | null) {
   const subRaw = asObject(src?.listingSubmission as unknown);
   if (!subRaw) {
@@ -587,6 +603,7 @@ export const getListingDetailsTool = defineTool({
         baths: typeof src?.baths === "number" ? src.baths : null,
         tagline: str(src, "tagline"),
         marketingNotes: listingMarketingNotes(src),
+        assistantInfo: listingAssistantInfo(src),
         alsoListedAs: str(src, "alsoListedAs"),
         petFriendly: facts.petFriendly,
         description: str(src, "description")?.slice(0, 800) ?? null,

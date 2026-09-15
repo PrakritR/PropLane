@@ -502,6 +502,23 @@ export type ManagerSharedSpaceSubmission = {
   roomAccessIds: string[];
 };
 
+export const AI_COMMUNICATION_INFO_SECTIONS = ["tours", "rules", "pricing", "neighborhood"] as const;
+export type AiCommunicationInfoSection = (typeof AI_COMMUNICATION_INFO_SECTIONS)[number];
+export type AiCommunicationInfo = Record<AiCommunicationInfoSection, string>;
+
+export function normalizeAiCommunicationInfo(raw: unknown): AiCommunicationInfo | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const row = raw as Record<string, unknown>;
+  const out = {} as AiCommunicationInfo;
+  let any = false;
+  for (const key of AI_COMMUNICATION_INFO_SECTIONS) {
+    const value = typeof row[key] === "string" ? (row[key] as string).trim() : "";
+    out[key] = value;
+    if (value) any = true;
+  }
+  return any ? out : undefined;
+}
+
 export type ManagerListingSubmissionV1 = {
   v: 1;
   buildingName: string;
@@ -582,6 +599,12 @@ export type ManagerListingSubmissionV1 = {
    * resident-only instructions.
    */
   marketingNotes: string;
+  /**
+   * The other AI info sections (About this home is `marketingNotes`): what the
+   * leasing assistant should say about tours, house rules, pricing and the
+   * neighborhood. Assistant-only — never projected to the public listing.
+   */
+  aiCommunicationInfo?: AiCommunicationInfo;
   /** Quiet hours, guests, smoking, shared spaces — shown on House rules tab */
   houseRulesText: string;
   /** Manager-only internal notes about the house (not shown to residents). */
@@ -2238,6 +2261,7 @@ export function normalizeManagerListingSubmissionV1(
     prefill: normalizePrefillRecord((sub as { prefill?: unknown }).prefill),
     homeStructureNote: typeof sub.homeStructureNote === "string" ? sub.homeStructureNote : "",
     marketingNotes: typeof sub.marketingNotes === "string" ? sub.marketingNotes : "",
+    aiCommunicationInfo: normalizeAiCommunicationInfo((sub as { aiCommunicationInfo?: unknown }).aiCommunicationInfo),
     alsoListedAs: typeof (sub as { alsoListedAs?: unknown }).alsoListedAs === "string"
       ? (sub as { alsoListedAs: string }).alsoListedAs.trim()
       : "",

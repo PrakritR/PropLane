@@ -482,12 +482,10 @@ export function ManagerPortalAutomationSettingsPanel() {
 
         <PortalSettingsSection
           title="Quiet hours"
-          description="Delay reminders that would otherwise land overnight. Applies to every event below."
         >
           <PortalSettingsGroup>
             <PortalSettingsRow
               label="Delay overnight reminders"
-              meta="Evaluated in Pacific time (America/Los_Angeles) — not your own device's clock."
             >
               <PortalSettingsToggle
                 checked={settings.quietHours.enabled}
@@ -545,7 +543,6 @@ export function ManagerPortalAutomationSettingsPanel() {
 
         <PortalSettingsSection
           title="Reminders by area"
-          description="Grouped the same way Team access is — an event with a manager-alert twin shows as one row, with the escalation on its second line."
         >
           <div className="space-y-5">
             {MODULE_ORDER.map((moduleId) => {
@@ -569,7 +566,7 @@ export function ManagerPortalAutomationSettingsPanel() {
           </div>
         </PortalSettingsSection>
 
-        <PortalSettingsSection title="Sent history" description="What actually went out, and what failed. Read-only.">
+        <PortalSettingsSection title="Sent history">
           <ReminderSentHistory />
         </PortalSettingsSection>
       </div>

@@ -243,7 +243,6 @@ export function ResidentProfilePanel({
   const personalInfoSection = (
     <PortalSettingsSection
       title="Personal information"
-      description="Your name and contact details."
       action={editAction}
     >
       <PortalSettingsGroup>
@@ -419,9 +418,9 @@ export function ResidentProfilePanel({
       case "preferences":
         return (
           <>
-            <PortalSettingsSection title="Appearance" description="How PropLane looks on this device.">
+            <PortalSettingsSection title="Appearance">
               <PortalSettingsGroup>
-                <PortalSettingsRow label="Theme" description="Choose light or dark mode.">
+                <PortalSettingsRow label="Theme">
                   <ThemeToggle className="shrink-0" />
                 </PortalSettingsRow>
               </PortalSettingsGroup>
@@ -468,7 +467,6 @@ export function ResidentProfilePanel({
                     key={g.id}
                     icon={<g.icon className="h-4 w-4" />}
                     label={g.label}
-                    description={g.description}
                     onClick={() => openGroup(g.id)}
                     dataAttr={`settings-open-${g.id}`}
                   />
