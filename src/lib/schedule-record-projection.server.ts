@@ -47,6 +47,11 @@ function isStandaloneInquiry(record: ScheduleRecord): boolean {
   return text(rowData?.kind).toLowerCase() === "tour" && Boolean(itemPropertyId(rowData ?? {}));
 }
 
+function standaloneInquiryItem(record: ScheduleRecord): ScheduleItem | null {
+  const rowData = object(record.row_data);
+  return object(rowData?.payload) ?? rowData;
+}
+
 function busyProjection(item: ScheduleItem): ScheduleItem {
   const allowed = [
     "id",
@@ -125,7 +130,7 @@ export async function projectScheduleRecordsForViewer(
       if (propertyId) propertyIds.add(propertyId);
     }
     if (isStandaloneInquiry(record)) {
-      const propertyId = itemPropertyId(object(record.row_data) ?? {});
+      const propertyId = itemPropertyId(standaloneInquiryItem(record) ?? {});
       if (propertyId) propertyIds.add(propertyId);
     }
   }
@@ -171,9 +176,9 @@ export async function projectScheduleRecordsForViewer(
         const access = maySeeItem(item, sharedInquiries && text(item.status).toLowerCase() === "pending");
         return access === "full" ? [item] : access === "busy" ? [busyProjection(item)] : [];
       });
-      // A manager needs an observed empty planned-event baseline to safely use
-      // the CAS RPC. An empty inquiry singleton has no supported consumer.
-      if (payload.length === 0 && !sharedPlanned) continue;
+      // Both shared containers are authoritative observed snapshots. Keeping
+      // an empty inquiry singleton lets the client clear a previously visible
+      // inquiry after acceptance, deletion, or grant removal.
       projected.push({
         ...record,
         row_data: {
@@ -186,12 +191,23 @@ export async function projectScheduleRecordsForViewer(
     }
 
     if (isStandaloneInquiry(record)) {
-      const item = object(record.row_data);
+      const rowData = object(record.row_data);
+      const item = standaloneInquiryItem(record);
       const access = item
         ? maySeeItem(item, text(item.status).toLowerCase() === "pending")
         : null;
       if (!access || !item) continue;
-      projected.push({ ...record, row_data: access === "full" ? item : busyProjection(item) });
+      const visibleItem = access === "full" ? item : busyProjection(item);
+      projected.push({
+        ...record,
+        row_data: object(rowData?.payload)
+          ? {
+              id: text(rowData?.id) || text(record.id),
+              recordType: text(rowData?.recordType) || text(record.record_type),
+              payload: visibleItem,
+            }
+          : visibleItem,
+      });
       continue;
     }
 

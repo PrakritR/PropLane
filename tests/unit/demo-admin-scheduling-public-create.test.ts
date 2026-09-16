@@ -72,4 +72,78 @@ describe("public partner inquiry client writes", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/public/partner-inquiries");
     expect([...fetchMock.mock.calls].some(([url]) => url === "/api/portal-schedule-records")).toBe(false);
   });
+
+  it("clears the authoritative cache after the last inquiry is accepted or deleted", async () => {
+    const sessionStorage = makeSessionStorage();
+    Object.defineProperty(globalThis, "window", { configurable: true, value: { sessionStorage, dispatchEvent: vi.fn() } });
+    vi.doMock("@/lib/manager-tasks", () => ({ reapplyAllManagerTasksToCalendar: vi.fn(async () => undefined) }));
+    const inquiry = {
+      id: "last-visible-inquiry",
+      name: "Ava Prospect",
+      email: "ava@example.test",
+      phone: "+15550000001",
+      notes: "",
+      proposedStart: "2030-01-01T18:00:00.000Z",
+      proposedEnd: "2030-01-01T18:30:00.000Z",
+      status: "pending",
+      createdAt: "2030-01-01T00:00:00.000Z",
+    };
+    const responseRows = [
+      [{ id: "axis_admin_partner_inquiries_v1", recordType: "axis_admin_partner_inquiries_v1", payload: [inquiry] }],
+      // The accept route removes the request from the pending projection.
+      [{ id: "axis_admin_partner_inquiries_v1", recordType: "axis_admin_partner_inquiries_v1", payload: [] }],
+      [{ id: "axis_admin_partner_inquiries_v1", recordType: "axis_admin_partner_inquiries_v1", payload: [inquiry] }],
+      // The delete/decline route likewise leaves an observed empty singleton.
+      [{ id: "axis_admin_partner_inquiries_v1", recordType: "axis_admin_partner_inquiries_v1", payload: [] }],
+    ];
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ rows: responseRows.shift() ?? [] })));
+    const scheduling = await import("@/lib/demo-admin-scheduling");
+
+    await expect(scheduling.syncScheduleRecordsFromServer({ force: true })).resolves.toBe(true);
+    expect(scheduling.readPartnerInquiries().map((row) => row.id)).toEqual(["last-visible-inquiry"]);
+    await expect(scheduling.syncScheduleRecordsFromServer({ force: true })).resolves.toBe(true);
+    expect(scheduling.readPartnerInquiries()).toEqual([]);
+    await expect(scheduling.syncScheduleRecordsFromServer({ force: true })).resolves.toBe(true);
+    expect(scheduling.readPartnerInquiries().map((row) => row.id)).toEqual(["last-visible-inquiry"]);
+    await expect(scheduling.syncScheduleRecordsFromServer({ force: true })).resolves.toBe(true);
+    expect(scheduling.readPartnerInquiries()).toEqual([]);
+  });
+
+  it("clears a grant-removed inquiry while preserving canonical state over a stale standalone mirror", async () => {
+    const sessionStorage = makeSessionStorage();
+    Object.defineProperty(globalThis, "window", { configurable: true, value: { sessionStorage, dispatchEvent: vi.fn() } });
+    vi.doMock("@/lib/manager-tasks", () => ({ reapplyAllManagerTasksToCalendar: vi.fn(async () => undefined) }));
+    const canonical = {
+      id: "shared-inquiry",
+      name: "Ava Prospect",
+      email: "ava@example.test",
+      phone: "+15550000001",
+      notes: "",
+      proposedStart: "2030-01-01T19:00:00.000Z",
+      proposedEnd: "2030-01-01T19:30:00.000Z",
+      status: "declined",
+      createdAt: "2030-01-01T00:00:00.000Z",
+    };
+    const staleMirror = { ...canonical, status: "pending", proposedStart: "2030-01-01T18:00:00.000Z" };
+    const responseRows = [
+      [
+        { id: "axis_admin_partner_inquiries_v1", recordType: "axis_admin_partner_inquiries_v1", payload: [canonical] },
+        { id: "standalone-shared-inquiry", recordType: "partner_inquiry_request", payload: staleMirror },
+      ],
+      // Another owner's inquiry still exists server-side, but after this
+      // viewer's grant is removed the projection is authoritatively empty.
+      [{ id: "axis_admin_partner_inquiries_v1", recordType: "axis_admin_partner_inquiries_v1", payload: [] }],
+    ];
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ rows: responseRows.shift() ?? [] })));
+    const scheduling = await import("@/lib/demo-admin-scheduling");
+
+    await scheduling.syncScheduleRecordsFromServer({ force: true });
+    expect(scheduling.readPartnerInquiries()).toEqual([expect.objectContaining({
+      id: "shared-inquiry",
+      status: "declined",
+      proposedStart: "2030-01-01T19:00:00.000Z",
+    })]);
+    await scheduling.syncScheduleRecordsFromServer({ force: true });
+    expect(scheduling.readPartnerInquiries()).toEqual([]);
+  });
 });

@@ -445,6 +445,7 @@ async function fetchScheduleRecordsFromServer(): Promise<boolean> {
     const body = (await res.json()) as { rows?: unknown[] };
     if (!Array.isArray(body.rows)) return false;
     const standaloneInquiries: PartnerInquiry[] = [];
+    const sharedInquiries: PartnerInquiry[] = [];
     let observedPlannedRows: PlannedEvent[] = [];
     let plannedRowPresent = false;
     for (const raw of body.rows) {
@@ -456,12 +457,17 @@ async function fetchScheduleRecordsFromServer(): Promise<boolean> {
         plannedRowPresent = true;
         observedPlannedRows = plannedRowsFromValue(payload);
       }
+      if (row.id === INQ_KEY && Array.isArray(payload)) {
+        sharedInquiries.push(...payload.filter(
+          (item): item is PartnerInquiry => Boolean(item && typeof item === "object" && !Array.isArray(item)),
+        ));
+      }
       if (row.recordType === "partner_inquiry_request" && row.payload && typeof row.payload === "object" && !Array.isArray(row.payload)) {
         standaloneInquiries.push(row.payload as PartnerInquiry);
       }
       // Install the shared planned snapshot only after the epoch check below;
       // an older GET must never overwrite a newer completed local operation.
-      if (row.id !== PLANNED_KEY) {
+      if (row.id !== PLANNED_KEY && row.id !== INQ_KEY) {
         memoryStore.set(row.id, payload);
         writeSessionJson(row.id, payload);
       }
@@ -476,16 +482,18 @@ async function fetchScheduleRecordsFromServer(): Promise<boolean> {
       if (!pending || plannedScheduleState.automaticReapplyBlocked) rollbackPlannedSnapshot();
     }
 
-    if (standaloneInquiries.length > 0) {
-      const existing = readJson<PartnerInquiry[]>(INQ_KEY, []);
-      const byId = new Map(existing.map((row) => [row.id, row]));
-      for (const row of standaloneInquiries) {
-        if (typeof row.id === "string" && !byId.has(row.id)) byId.set(row.id, row);
+    // A successful GET is the authoritative visible inquiry snapshot. Replace
+    // the cache even when it is empty so accepted/deleted requests and rows
+    // hidden by a removed grant cannot survive from an earlier response.
+    const inquiriesById = new Map<string, PartnerInquiry>();
+    for (const row of [...sharedInquiries, ...standaloneInquiries]) {
+      if (typeof row.id === "string" && row.id.trim() && !inquiriesById.has(row.id)) {
+        inquiriesById.set(row.id, row);
       }
-      const merged = [...byId.values()];
-      memoryStore.set(INQ_KEY, merged);
-      writeSessionJson(INQ_KEY, merged);
     }
+    const visibleInquiries = [...inquiriesById.values()];
+    memoryStore.set(INQ_KEY, visibleInquiries);
+    writeSessionJson(INQ_KEY, visibleInquiries);
     writeScheduleSyncedAt(Date.now());
     emitAdminUi();
     if (readEpoch === plannedScheduleState.serverEpoch && !plannedScheduleState.automaticReapplyBlocked && !pendingJsonWrites.has(PLANNED_KEY)) {

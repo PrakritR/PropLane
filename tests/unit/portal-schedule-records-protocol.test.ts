@@ -297,8 +297,8 @@ describe("portal schedule-records protocol", () => {
     state.scheduleRows = [
       singleton(plannedId, [ownerATour, ownerBTour, missingOwner, { id: "task-a", kind: "task", managerUserId: "owner-a", title: "Owner task" }]),
       singleton(inquiriesId, [inquiryA, inquiryB]),
-      { id: "standalone-a", record_type: "tour_inquiry", manager_user_id: "owner-a", row_data: inquiryA },
-      { id: "standalone-missing", record_type: "tour_inquiry", row_data: { ...inquiryA, id: "standalone-missing", managerUserId: null, propertyId: "missing-property", guestName: "Hidden" } },
+      { id: "standalone-a", record_type: "tour_inquiry", manager_user_id: "owner-a", property_id: "property-a", row_data: { id: "standalone-a", recordType: "partner_inquiry_request", payload: inquiryA } },
+      { id: "standalone-missing", record_type: "tour_inquiry", row_data: { id: "standalone-missing", recordType: "partner_inquiry_request", payload: { ...inquiryA, id: "standalone-missing", managerUserId: null, propertyId: "missing-property", guestName: "Hidden" } } },
     ];
 
     portal("owner-a", ["resident", "manager"]);
@@ -317,7 +317,10 @@ describe("portal schedule-records protocol", () => {
 
     portal("manager-other");
     body = await (await GET()).json() as { rows: Row[] };
-    expect(body.rows).toEqual([{ id: plannedId, recordType: plannedId, payload: [] }]);
+    expect(body.rows).toEqual([
+      { id: plannedId, recordType: plannedId, payload: [] },
+      { id: inquiriesId, recordType: inquiriesId, payload: [] },
+    ]);
 
     portal("resident-1", ["resident"]);
     expect((await (await GET()).json() as { rows: Row[] }).rows).toEqual([]);
@@ -343,15 +346,21 @@ describe("portal schedule-records protocol", () => {
     expect(isActivePlannedEvent((coPlanned.payload as Row[])[0] as PlannedEvent)).toBe(false);
     expect(JSON.stringify(body)).not.toContain("Ava Prospect");
     expect(JSON.stringify(body)).not.toContain("ava@example.test");
-    expect(body.rows.some((row) => row.id === "inquiry-a" && row.kind === "tour")).toBe(true);
+    expect(body.rows.some((row) => row.id === "standalone-a" && (row.payload as Row)?.kind === "tour")).toBe(true);
 
     state.links[0] = { ...state.links[0]!, assigned_property_ids: ["property-b"], property_co_manager_permissions: { "property-b": { calendar: { read: true } } } };
     body = await (await GET()).json() as { rows: Row[] };
-    expect(body.rows).toEqual([{ id: plannedId, recordType: plannedId, payload: [] }]);
+    expect(body.rows).toEqual([
+      { id: plannedId, recordType: plannedId, payload: [] },
+      { id: inquiriesId, recordType: inquiriesId, payload: [] },
+    ]);
 
     state.links[0] = { ...state.links[0]!, assigned_property_ids: ["property-a"], property_co_manager_permissions: { "property-a": {} } };
     body = await (await GET()).json() as { rows: Row[] };
-    expect(body.rows).toEqual([{ id: plannedId, recordType: plannedId, payload: [] }]);
+    expect(body.rows).toEqual([
+      { id: plannedId, recordType: plannedId, payload: [] },
+      { id: inquiriesId, recordType: inquiriesId, payload: [] },
+    ]);
   });
 
   it("accepts a projected manager baseline without forwarding hidden tours or a concurrently appended booking into CAS", async () => {
