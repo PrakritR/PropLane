@@ -8,6 +8,7 @@ import {
 import { googleEventBlocksTours } from "@/lib/google-calendar/busy";
 import { publicSchedulingHostLabel } from "@/lib/public-host-label";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { listPropertyTourHostUserIds } from "@/lib/tour-host-enumeration.server";
 import {
   DEFAULT_MANAGER_TOUR_SETTINGS,
   loadTourNoticeDaysByManager,
@@ -374,11 +375,6 @@ export async function listOpenTourSlots(
       return { ok: true, slotHosts: {}, resolution: "unavailable" };
     }
 
-    const managerIds = [
-      ...new Set(
-        matchingPropertyRecords.map(({ managerUserId }) => managerUserId),
-      ),
-    ];
     const propertyIdsByManager = new Map<string, Set<string>>();
     const requestedPropertyIds = new Set([propertyId, safeId].filter(Boolean));
     for (const { managerUserId, property } of matchingPropertyRecords) {
@@ -392,6 +388,36 @@ export async function listOpenTourSlots(
       }
       propertyIdsByManager.set(managerUserId, ids);
     }
+
+    /**
+     * WS4(shared-avail): union every co-manager who may host tours on this
+     * property into the offering, not just the owner. `listOpenTourSlots`
+     * used to derive hosts ONLY from `manager_property_records` ownership, so
+     * an accepted co-manager's own painted availability was never offered —
+     * even though `managerMayHostPropertyTour` already let them CLAIM a
+     * pending request once one existed. See `tour-host-enumeration.server.ts`.
+     */
+    const ownerHostLists = await Promise.all(
+      [...new Map(matchingPropertyRecords.map(({ managerUserId, property }) => [managerUserId, property]))].map(
+        async ([ownerUserId, property]) => {
+          const ownedPropertyId = textField(property, "id") || propertyId;
+          const hostIds = await listPropertyTourHostUserIds(db, { propertyId: ownedPropertyId, ownerUserId });
+          return { ownerUserId, hostIds };
+        },
+      ),
+    );
+    // Extend each co-host's property-id scope to match their owner's, so their
+    // OWN `manager_property_availability` rows (keyed by their own
+    // manager_user_id) are read by the same `propertyRowsForHouse` filter below.
+    for (const { ownerUserId, hostIds } of ownerHostLists) {
+      const ownerIds = propertyIdsByManager.get(ownerUserId) ?? new Set<string>();
+      for (const hostUserId of hostIds) {
+        if (hostUserId === ownerUserId) continue;
+        const existing = propertyIdsByManager.get(hostUserId) ?? new Set<string>();
+        propertyIdsByManager.set(hostUserId, new Set([...existing, ...ownerIds]));
+      }
+    }
+    const managerIds = [...new Set(ownerHostLists.flatMap(({ hostIds }) => hostIds))];
 
     // Scoped in TWO reads rather than one unfiltered scan. This route is
     // deliberately `no-store`, so an unscoped `manager_property_availability`
@@ -474,9 +500,11 @@ export async function listOpenTourSlots(
       }))
       .filter((offering) => offering.managerUserId);
 
-    const defaultGridManagerIds = [
-      ...new Set(matchingPropertyRecords.map(({ managerUserId }) => managerUserId)),
-    ].filter(Boolean);
+    // WS4(shared-avail): one offering per HOST (owner + every eligible
+    // co-manager), not one per property owner — this is what actually surfaces
+    // a co-manager's painted availability, or their own default 9-5 grid, on
+    // the public booking page.
+    const defaultGridManagerIds = managerIds.filter(Boolean);
     const { settingsByManager } = await loadTourSettingsByManager(db, defaultGridManagerIds);
     const publishedSlotsByManager = new Map<string, string[]>();
     for (const offering of publishedOfferings) {
