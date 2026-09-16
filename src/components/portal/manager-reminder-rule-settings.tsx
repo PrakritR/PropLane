@@ -272,7 +272,7 @@ export function ManagerReminderRuleSettingsPanel({
 
   const managerLockedReason = `This reminder doesn't notify you — it's meant for the ${meta.notifyCounterpartyLabel.toLowerCase()} only.`;
   const counterpartyLockedReason = `This reminder stays internal — the ${meta.notifyCounterpartyLabel.toLowerCase()} is never notified for it.`;
-  const teamLockedReason = "Add co-managers under Team settings to notify them here.";
+  const teamLockedReason = "Add co-managers under Workspaces to notify them here.";
 
   const channelDataAttr = `reminder-rule-${kind}-channels`;
   const onChannelChange = ({ email, sms }: { email: boolean; sms: boolean }) =>

@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DEFAULT_MANAGER_AUTOMATION_SETTINGS } from "@/lib/payment-automation-settings";
 import { DEFAULT_LIFECYCLE_AUTOMATION } from "@/lib/task-lifecycle-automation";
@@ -160,10 +160,22 @@ describe("settings module redraws — scope tags", () => {
     expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
   });
 
-  it("Resident is two link rows under one tagged section, with no explanatory sentence", async () => {
-    render(<ResidentSettingsPanel />);
-    expect(await screen.findByText("All properties")).toBeTruthy();
-    expect(screen.getByText("Resident settings")).toBeTruthy();
+  it("Resident stays in Settings with a house dropdown, not outbound links", async () => {
+    stubFetch();
+    render(
+      <ResidentSettingsPanel
+        propertyOptions={PROPERTY_OPTIONS}
+        selectedPropertyId="prop-1"
+        onPropertyIdChange={() => {}}
+        area="payments"
+        onAreaChange={() => {}}
+        teamMembers={[]}
+      />,
+    );
+    expect(await screen.findByRole("heading", { name: "Ballard House" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "House" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
+    expect(screen.queryByText("All properties")).toBeNull();
     expect(screen.queryByText("Informational")).toBeNull();
     expect(screen.queryByText(/no settings of its own/i)).toBeNull();
   });
@@ -250,11 +262,37 @@ describe("settings module redraws — every row is a label and its control, noth
     ).toBeNull();
   });
 
-  it("Resident's pointer rows", async () => {
-    render(<ResidentSettingsPanel />);
-    expect(await screen.findByText("Payment reminders")).toBeTruthy();
-    expect(screen.getByText("Household reminders")).toBeTruthy();
+  it("Resident keeps Payment and Household reminders in this tab", async () => {
+    stubFetch();
+    render(
+      <ResidentSettingsPanel
+        propertyOptions={PROPERTY_OPTIONS}
+        selectedPropertyId="prop-1"
+        onPropertyIdChange={() => {}}
+        area="payments"
+        onAreaChange={() => {}}
+        teamMembers={[]}
+      />,
+    );
+    expect(await screen.findByRole("button", { name: "Settings" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.getByRole("option", { name: "Payment reminders" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Household reminders" })).toBeTruthy();
     expect(screen.queryByText(/Portfolio-wide payment reminder presets/)).toBeNull();
+  });
+});
+
+describe("Property and Resident settings stay in the hub", () => {
+  it("does not link those panels out to listing or residents routes", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/components/portal/pro-portal-settings-panels.tsx"),
+      "utf8",
+    );
+    expect(source).not.toContain("propertyDetailHref");
+    expect(source).toContain("property-settings-house");
+    expect(source).toContain("resident-settings-house");
+    expect(source).not.toContain('href="/portal/residents"');
+    expect(source).not.toContain('href="/portal/profile?tab=payments"');
   });
 });
 

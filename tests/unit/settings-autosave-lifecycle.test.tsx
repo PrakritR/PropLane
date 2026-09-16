@@ -175,7 +175,7 @@ describe("a pending debounced save is never lost when the manager leaves first (
     // The flush (and the PATCH it produced) happened BEFORE the navigation away, not after.
     expect(patches).toHaveLength(1);
     expect(patches[0]!.url).toContain("manager-tour-settings");
-    expect(assignSpy).toHaveBeenCalledWith("/portal/settings/payments");
+    expect(assignSpy).toHaveBeenCalledWith("/portal/profile?tab=payments");
 
     Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
   });

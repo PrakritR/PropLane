@@ -6,10 +6,16 @@ import { Minus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect, CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
+import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
+import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
+import {
+  activeWorkspaceScope,
+  filterPropertyOptionsForActiveWorkspace,
+} from "@/lib/workspaces/selection";
 import {
   PortalSettingsGroup,
-  PortalSettingsLinkRow,
   PortalSettingsRow,
   PortalSettingsScopeTag,
   PortalSettingsSection,
@@ -252,7 +258,12 @@ function PropertyScopeRow({
       label="Applies to"
     >
       {noOptions ? (
-        <span className="text-sm text-muted">No properties yet</span>
+        <span className="text-sm text-muted">
+          {(() => {
+            const scope = activeWorkspaceScope();
+            return scope ? `No houses in ${scope.name} yet` : "No houses yet";
+          })()}
+        </span>
       ) : multiSelect ? (
         <CheckboxMultiSelect
           label="Properties"
@@ -415,7 +426,7 @@ export function ApplicationsSettingsPanel({
       </PortalSettingsSection>
 
       <PortalSettingsSection
-        title="Reminders"
+        title="Application reminders"
         action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
       >
         <ApplicationRemindersSettingsBundle
@@ -664,7 +675,7 @@ export function LeaseSettingsPanel({
       </PortalSettingsSection>
 
       <PortalSettingsSection
-        title="Reminders"
+        title="Lease reminders"
         action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
       >
         <LeaseRemindersSettingsBundle
@@ -846,34 +857,85 @@ export function BookingsSettingsPanel({
   );
 }
 
+export const RESIDENT_SETTINGS_AREAS = [
+  { value: "payments", label: "Payment reminders" },
+  { value: "household", label: "Household reminders" },
+] as const;
+
+export type ResidentSettingsArea = (typeof RESIDENT_SETTINGS_AREAS)[number]["value"];
+
 /**
- * Resident settings has no controls of its own today: portfolio-wide payment
- * reminder presets live under Payments settings, and a single household's
- * reminders are customized from that resident's own Payments tab — there is
- * no portfolio-wide resident preference to hold on this module yet. Redrawn
- * to say that plainly on the kit (a scope tag plus two pointer rows) rather
- * than leave an unexplained blank panel. Revisit this once a real
- * resident-scoped preference exists to configure.
+ * Resident settings stay in this tab: pick a house, then Payment or Household
+ * reminders. The panels themselves are the same reminder bundles Payments and
+ * Lease already use — this hub does not navigate to those modules or to the
+ * residents list.
  */
-export function ResidentSettingsPanel() {
+export function ResidentSettingsPanel({
+  propertyOptions,
+  selectedPropertyId,
+  onPropertyIdChange,
+  area,
+  onAreaChange,
+  teamMembers = [],
+  paymentsFormRef,
+  householdFormRef,
+}: {
+  propertyOptions: { id: string; label: string }[];
+  selectedPropertyId: string;
+  onPropertyIdChange: (propertyId: string) => void;
+  area: ResidentSettingsArea;
+  onAreaChange: (area: ResidentSettingsArea) => void;
+  teamMembers?: WorkAssignmentTeamMember[];
+  paymentsFormRef?: React.Ref<PaymentAutomationSettingsHandle>;
+  householdFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
+}) {
+  const selected = propertyOptions.find((house) => house.id === selectedPropertyId);
+  const title = selected?.label ?? "Resident settings";
+
+  if (propertyOptions.length === 0) {
+    return (
+      <PortalSettingsSection title="Resident settings">
+        <PortalSettingsGroup>
+          <PortalSettingsRow label="No houses in this workspace yet" />
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+    );
+  }
+
   return (
-    <PortalSettingsSection
-      title="Resident settings"
-      action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
-    >
-      <PortalSettingsGroup>
-        <PortalSettingsLinkRow
-          label="Payment reminders"
-          href="/portal/settings/payments"
-          dataAttr="resident-settings-payment-reminders"
-        />
-        <PortalSettingsLinkRow
-          label="Household reminders"
-          href="/portal/residents"
-          dataAttr="resident-settings-household-reminders"
-        />
-      </PortalSettingsGroup>
-    </PortalSettingsSection>
+    <div className="space-y-6">
+      <PortalSettingsSection title={title}>
+        <PortalSettingsGroup>
+          <PortalSettingsRow label="House">
+            <FieldSingleSelect
+              hideLabel
+              label="House"
+              value={selectedPropertyId}
+              options={propertyOptions.map((house) => ({ value: house.id, label: house.label }))}
+              onChange={onPropertyIdChange}
+              dataAttr="resident-settings-house"
+            />
+          </PortalSettingsRow>
+          <PortalSettingsRow label="Settings">
+            <FieldSingleSelect
+              hideLabel
+              label="Settings"
+              value={area}
+              options={RESIDENT_SETTINGS_AREAS.map((row) => ({ value: row.value, label: row.label }))}
+              onChange={(next) => {
+                if (next === "payments" || next === "household") onAreaChange(next);
+              }}
+              dataAttr="resident-settings-area"
+            />
+          </PortalSettingsRow>
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+      {area === "payments" ? (
+        <IncomingPaymentRemindersSettingsBundle teamMembers={teamMembers} formRef={paymentsFormRef} />
+      ) : (
+        <LeaseRemindersSettingsBundle teamMembers={teamMembers} formRef={householdFormRef} />
+      )}
+    </div>
   );
 }
 
@@ -1559,6 +1621,89 @@ export function CommunicationSettingsPanel({
         canSend={smsSetup?.canSend === true}
         className="mt-4 rounded-xl border border-border bg-accent/30 px-3 py-2.5"
       />
+    </PortalSettingsSection>
+  );
+}
+
+export const PROPERTY_SETTINGS_AREAS = [
+  { value: "applications", label: "Application settings" },
+  { value: "lease", label: "Lease settings" },
+  { value: "tours", label: "Tour settings" },
+] as const;
+
+export type PropertySettingsArea = (typeof PROPERTY_SETTINGS_AREAS)[number]["value"];
+
+/**
+ * Property settings stay in this tab: pick a house, then Application / Lease /
+ * Tour. The host mounts those modules underneath with the house locked, so
+ * the chevron rows never leave Settings for the listing.
+ */
+export function PropertySettingsPanel({
+  propertyOptions,
+  selectedPropertyId,
+  onPropertyIdChange,
+  area,
+  onAreaChange,
+}: {
+  propertyOptions?: { id: string; label: string }[];
+  selectedPropertyId: string;
+  onPropertyIdChange: (propertyId: string) => void;
+  area: PropertySettingsArea;
+  onAreaChange: (area: PropertySettingsArea) => void;
+}) {
+  const { userId } = useManagerUserId();
+  const workspaces = useWorkspaces();
+  const workspaceName = workspaces?.active?.name;
+  const options = useMemo(() => {
+    const loaded = buildManagerPropertyFilterOptions(resolveManagerScopeUserId(userId));
+    const source = propertyOptions && propertyOptions.length > 0 ? propertyOptions : loaded;
+    return filterPropertyOptionsForActiveWorkspace(source);
+  }, [propertyOptions, userId, workspaces?.active?.id]);
+  useEffect(() => {
+    if (selectedPropertyId || !options[0]) return;
+    onPropertyIdChange(options[0].id);
+  }, [options, selectedPropertyId, onPropertyIdChange]);
+  const selected = options.find((house) => house.id === selectedPropertyId);
+  const title = selected?.label ?? (workspaceName ? `${workspaceName} houses` : "Houses");
+
+  if (options.length === 0) {
+    return (
+      <PortalSettingsSection title={title}>
+        <PortalSettingsGroup>
+          <PortalSettingsRow
+            label={workspaceName ? `No houses in ${workspaceName} yet` : "No houses yet"}
+          />
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+    );
+  }
+
+  return (
+    <PortalSettingsSection title={title}>
+      <PortalSettingsGroup>
+        <PortalSettingsRow label="House">
+          <FieldSingleSelect
+            hideLabel
+            label="House"
+            value={selectedPropertyId || options[0]?.id || ""}
+            options={options.map((house) => ({ value: house.id, label: house.label }))}
+            onChange={onPropertyIdChange}
+            dataAttr="property-settings-house"
+          />
+        </PortalSettingsRow>
+        <PortalSettingsRow label="Settings">
+          <FieldSingleSelect
+            hideLabel
+            label="Settings"
+            value={area}
+            options={PROPERTY_SETTINGS_AREAS.map((row) => ({ value: row.value, label: row.label }))}
+            onChange={(next) => {
+              if (next === "applications" || next === "lease" || next === "tours") onAreaChange(next);
+            }}
+            dataAttr="property-settings-area"
+          />
+        </PortalSettingsRow>
+      </PortalSettingsGroup>
     </PortalSettingsSection>
   );
 }

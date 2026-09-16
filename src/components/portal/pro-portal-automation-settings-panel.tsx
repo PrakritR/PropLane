@@ -1,21 +1,14 @@
 "use client";
 
 /**
- * The Notifications hub — reminders and manager alert routing in ONE surface.
+ * Reminders hub — quiet hours, the per-area reminder matrix, and sent history.
  *
  * This is the `/portal/settings/automation` module (the id and URL segment
- * stay `automation`; only the nav label and this panel's shape changed — see
- * `portal-settings-section.ts`). Before the commit this panel shipped on, the
- * tab was unreachable in the product (nothing ever passed
- * `initialTab="automation"`), so every control here is a rebuild, not a
- * preserved working screen.
+ * stay `automation`; the hub query and rail label are `reminders`). Manager
+ * alert routing lives on Account → Notifications, not here.
  *
  * Top to bottom:
- * 1. Cross-cutting choices that apply to everything below: where YOU (the
- *    manager) are reached (`ManagerNotificationRoutingSetting`, already real
- *    and wired at `/api/portal/automation-settings` — reused here, not
- *    rebuilt) and quiet hours (this panel's own state, from
- *    `/api/portal/reminder-settings`).
+ * 1. Quiet hours (this panel's own state, from `/api/portal/reminder-settings`).
  * 2. The event matrix, grouped by the same module mapping co-manager
  *    permissions use, with the resident/counterparty + manager-alert kind
  *    pairs merged into one row each.
@@ -26,10 +19,15 @@
  * their own direction ("1 day before", "15 minutes after"), so a section is
  * self-describing and needs no explanatory subtitle.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Button } from "@/components/ui/button";
+import { useAutosaveDraft } from "@/hooks/use-autosave-draft";
+import {
+  useFlushSettingsAutosaveOnUnmount,
+  useReportSettingsSaveStatus,
+} from "@/components/portal/settings-save-status-context";
 import {
   DEFAULT_REMINDER_SETTINGS,
   REMINDER_SUBJECT_KINDS,
@@ -47,7 +45,6 @@ import {
   timingOptions,
   type TimingDirection,
 } from "@/lib/reminders/timings";
-import { ManagerNotificationRoutingSetting } from "@/components/portal/pro-notification-routing-setting";
 import { ReminderSentHistory } from "@/components/portal/reminder-sent-history";
 import {
   PortalSettingsGroup,
@@ -393,11 +390,16 @@ function ReminderKindRow({
   );
 }
 
-export function ManagerPortalAutomationSettingsPanel() {
+export function ManagerPortalAutomationSettingsPanel({
+  formRef,
+}: {
+  formRef?: React.Ref<{ saveIfDirty: () => Promise<boolean> }>;
+} = {}) {
+  const reportSaveStatus = useReportSettingsSaveStatus();
   const [settings, setSettings] = useState<ReminderSettings>(DEFAULT_REMINDER_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
+  const [hydrated, setHydrated] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
@@ -418,6 +420,7 @@ export function ManagerPortalAutomationSettingsPanel() {
           return;
         }
         setSettings(normalizeReminderSettings(body.settings));
+        setHydrated(true);
       } catch {
         if (!cancelled) setLoadError("Could not load settings.");
       } finally {
@@ -432,22 +435,42 @@ export function ManagerPortalAutomationSettingsPanel() {
     };
   }, [reloadKey]);
 
-  const save = useCallback(async () => {
-    setStatus(null);
-    const res = await fetch("/api/portal/reminder-settings", {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ settings }),
-    });
-    const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
-    if (!res.ok) {
-      setStatus(body.error ?? "Could not save.");
-      return;
+  const persist = useCallback(async (draft: ReminderSettings) => {
+    reportSaveStatus({ type: "start" });
+    try {
+      const res = await fetch("/api/portal/reminder-settings", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: draft }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
+      if (!res.ok) {
+        const reason = body.error ?? "Could not save.";
+        reportSaveStatus({ type: "failure", reason });
+        return { ok: false as const, error: reason };
+      }
+      reportSaveStatus({ type: "success" });
+    } catch {
+      const reason = "Could not save.";
+      reportSaveStatus({ type: "failure", reason });
+      return { ok: false as const, error: reason };
     }
-    setSettings(normalizeReminderSettings(body.settings));
-    setStatus("Saved.");
-  }, [settings]);
+  }, [reportSaveStatus]);
+
+  const autosave = useAutosaveDraft({
+    draft: settings,
+    enabled: hydrated && !loading && !loadError,
+    save: persist,
+  });
+
+  const flushSave = useCallback(async () => {
+    await autosave.flush();
+    return autosave.state !== "error";
+  }, [autosave]);
+
+  useImperativeHandle(formRef, () => ({ saveIfDirty: flushSave }), [flushSave]);
+  useFlushSettingsAutosaveOnUnmount(flushSave, autosave.dirty);
 
   const updateKind = useCallback((kind: ReminderSubjectKind, next: ReminderRule) => {
     setSettings((current) => ({ ...current, rules: { ...current.rules, [kind]: next } }));
@@ -466,6 +489,7 @@ export function ManagerPortalAutomationSettingsPanel() {
           onClick={() => {
             setLoadError(null);
             setLoading(true);
+            setHydrated(false);
             setReloadKey((k) => k + 1);
           }}
         >
@@ -478,8 +502,6 @@ export function ManagerPortalAutomationSettingsPanel() {
   return (
     <div className="flex min-h-0 flex-col">
       <div className="min-h-0 flex-1 space-y-8 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
-        <ManagerNotificationRoutingSetting />
-
         <PortalSettingsSection
           title="Quiet hours"
         >
@@ -569,13 +591,6 @@ export function ManagerPortalAutomationSettingsPanel() {
         <PortalSettingsSection title="Sent history">
           <ReminderSentHistory />
         </PortalSettingsSection>
-      </div>
-
-      <div className="mt-3 flex shrink-0 items-center gap-3 border-t border-border pt-3">
-        <Button variant="primary" onClick={() => save()} data-attr="automation-settings-save">
-          Save
-        </Button>
-        {status ? <span className="text-xs text-muted">{status}</span> : null}
       </div>
     </div>
   );

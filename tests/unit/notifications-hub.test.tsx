@@ -2,15 +2,14 @@
 /**
  * The Notifications hub (`ManagerPortalAutomationSettingsPanel`, mounted at
  * the `automation` tab / `/portal/settings/automation`) — the event matrix
- * grouped by module, paired kinds merged into one row, quiet hours and
- * manager alert routing at the top, and the read-only Sent history mounted
- * at the bottom.
+ * grouped by module, paired kinds merged into one row, quiet hours at the
+ * top, and the read-only Sent history mounted at the bottom. Manager alert
+ * routing lives on Account → Notifications.
  *
  * `fetch` is mocked and routed by URL: this panel's own
- * `/api/portal/reminder-settings`, `ManagerNotificationRoutingSetting`'s
- * `/api/portal/automation-settings` + `/api/manager/messaging-number`, and
- * `ReminderSentHistory`'s `/api/portal/reminder-history` all mount inside
- * this one hub and each fetch independently.
+ * `/api/portal/reminder-settings` and `ReminderSentHistory`'s
+ * `/api/portal/reminder-history` mount inside this hub and each fetch
+ * independently.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";

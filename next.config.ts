@@ -154,12 +154,12 @@ const nextConfig: NextConfig = {
       { source: "/resident/announcements/:path*", destination: "/resident/dashboard", permanent: false },
       { source: "/resident/settings", destination: "/resident/profile", permanent: false },
       { source: "/resident/settings/:path*", destination: "/resident/profile", permanent: false },
-      // `/portal/settings/*` is deliberately NOT redirected — it is a real section (per-module
-      // settings, e.g. `/portal/settings/tours`), handled in render-portal-section.tsx's own
-      // "settings" branch, which owns bare `/portal/settings`'s own redirect to a default module.
-      // Do not reintroduce a catch-all redirect here: `redirects()` outranks the app router, so it
-      // would swallow the section before it ever renders (this is exactly what happened before —
-      // see tests/unit/portal-settings-section-route.test.ts's redirect-config guard).
+      // Module settings now live in Main Settings. Keep these so old gear
+      // "Open in Settings" URLs and bookmarks land on the hub.
+      { source: "/portal/settings", destination: "/portal/profile", permanent: false },
+      { source: "/portal/settings/automation", destination: "/portal/profile?tab=reminders", permanent: false },
+      { source: "/portal/settings/communication", destination: "/portal/profile?tab=messaging", permanent: false },
+      { source: "/portal/settings/:tab", destination: "/portal/profile?tab=:tab", permanent: false },
       { source: "/admin/settings", destination: "/admin/profile", permanent: false },
       { source: "/admin/settings/:path*", destination: "/admin/profile", permanent: false },
       { source: "/resident/support", destination: "/resident/dashboard", permanent: false },

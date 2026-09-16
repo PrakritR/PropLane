@@ -161,7 +161,7 @@ export function WorkspaceSwitcher({
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <Link href="/portal/profile?tab=team" data-attr="workspace-switcher-invite">
+          <Link href="/portal/profile?tab=workspaces#workspace-team" data-attr="workspace-switcher-invite">
             <UserPlus className="size-4" aria-hidden />
             Invite a manager
           </Link>

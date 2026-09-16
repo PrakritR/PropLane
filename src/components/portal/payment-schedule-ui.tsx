@@ -5,8 +5,8 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { GMAIL_PAYMENTS_ENABLED } from "@/lib/gmail-payments/enabled";
 import { Button } from "@/components/ui/button";
 import { Check, X } from "lucide-react";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
-import { TOGGLE_CHIP_CLASS, ToggleChips, ToggleChipsGroupLabel } from "@/components/ui/toggle-chips";
+import { FieldSingleSelect, CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
+import { TOGGLE_CHIP_CLASS } from "@/components/ui/toggle-chips";
 import { Input, Textarea } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { MODAL_TALL_PANEL_CLASS, PORTAL_MODAL_BODY_SCROLL_CLASS } from "@/components/ui/modal-styles";
@@ -46,7 +46,6 @@ import {
   formatFriendlyReminderSchedule,
   reminderScheduleTokensFromSettings,
   settingsPatchFromReminderScheduleTokens,
-  summarizeReminderSchedule,
   REMINDER_BEFORE_DUE_DAY_OPTIONS,
   PAYMENT_REMINDER_PRESETS,
   type ReminderPresetId,
@@ -659,13 +658,8 @@ const REMINDER_PRESET_OPTIONS = [
 ] as const;
 
 /**
- * The reminder schedule as chips — every option on the screen, one tap each.
- *
- * This replaced a searchable checkbox dropdown that showed a truncated
- * "21 days before due, 14 days before due, 3 da…" when closed and, when open,
- * covered Late fee notices, Send via and the message preview beneath it. The
- * chips are the control; the sentence under them is generated from the same
- * tokens the save uses, so it can never disagree with what is stored.
+ * The reminder schedule as two multi-select dropdowns — days before due, and
+ * on/after the due date. Picks are dropdowns, never pills.
  */
 export function ReminderScheduleChips({
   draft,
@@ -755,6 +749,7 @@ export function ReminderScheduleChips({
           }
           if (e.key === "Escape") {
             e.preventDefault();
+            e.stopPropagation();
             closeCustom();
           }
         }}
@@ -791,45 +786,42 @@ export function ReminderScheduleChips({
   );
 
   return (
-    <div className="space-y-1">
-      <p className={PORTAL_FIELD_LABEL_CLASS}>Reminders</p>
-      <div className="pt-1">
-        <ToggleChipsGroupLabel>Before due</ToggleChipsGroupLabel>
-        <ToggleChips
-          label="Days before due"
-          options={beforeDueOptions}
-          selected={selectedBefore}
-          onChange={(nextBefore) => commitSchedule([...nextBefore, ...selectedAfter])}
-          disabled={busy}
-          dataAttr="payment-reminder-schedule"
-          trailing={customAffordance}
-        />
-        {customError ? (
-          <p className="mt-1.5 text-xs text-destructive" role="alert">
-            Pick a number of days from 1 to 60.
-          </p>
-        ) : null}
-      </div>
-      <div className="pt-2">
-        <ToggleChipsGroupLabel>On &amp; after</ToggleChipsGroupLabel>
-        <ToggleChips
-          label="On and after the due date"
-          options={[
-            { value: "due_date" as ReminderScheduleToken, label: "Due date" },
-            { value: "every_day_late" as ReminderScheduleToken, label: "Every day late" },
-          ]}
-          selected={selectedAfter}
-          onChange={(nextAfter) => commitSchedule([...selectedBefore, ...nextAfter])}
-          disabled={busy}
-          dataAttr="payment-reminder-schedule-after"
-        />
-      </div>
-      <p
-        className={cn("pt-1 text-xs", selected.length ? "text-muted" : "text-amber-700")}
-        data-attr="payment-reminder-schedule-summary"
-      >
-        {summarizeReminderSchedule(selected)}
-      </p>
+    <div className="space-y-3">
+      <CheckboxMultiSelect
+        label="Days before due"
+        options={beforeDueOptions}
+        selected={selectedBefore}
+        onChange={(nextBefore) =>
+          commitSchedule([...nextBefore, ...selectedAfter] as ReminderScheduleToken[])
+        }
+        disabled={busy}
+        emptyLabel="None selected"
+        dataAttr="payment-reminder-schedule"
+        menuFooter={() => (
+          <div className="border-t border-border p-2">
+            {customAffordance}
+            {customError ? (
+              <p className="mt-1.5 text-xs text-destructive" role="alert">
+                Pick a number of days from 1 to 60.
+              </p>
+            ) : null}
+          </div>
+        )}
+      />
+      <CheckboxMultiSelect
+        label="On and after the due date"
+        options={[
+          { value: "due_date" as ReminderScheduleToken, label: "Due date" },
+          { value: "every_day_late" as ReminderScheduleToken, label: "Every day late" },
+        ]}
+        selected={selectedAfter}
+        onChange={(nextAfter) =>
+          commitSchedule([...selectedBefore, ...nextAfter] as ReminderScheduleToken[])
+        }
+        disabled={busy}
+        emptyLabel="None selected"
+        dataAttr="payment-reminder-schedule-after"
+      />
     </div>
   );
 }

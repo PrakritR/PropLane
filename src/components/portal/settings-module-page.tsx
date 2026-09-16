@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
   type RefObject,
@@ -23,7 +24,10 @@ import {
   LeaseSettingsPanel,
   normalizeApplicationAutomation,
   PaymentsSettingsPanel,
+  PropertySettingsPanel,
   ResidentSettingsPanel,
+  type PropertySettingsArea,
+  type ResidentSettingsArea,
   BookingsSettingsPanel,
   InspectionsSettingsPanel,
   ServicesSettingsPanel,
@@ -44,6 +48,11 @@ import { CANONICAL_DEMO_MANAGER_NAME } from "@/lib/demo/demo-canonical-accounts"
 import { cacheLandlordLegalName } from "@/lib/manager-landlord-profile";
 import { ManagerPortalAutomationSettingsPanel } from "@/components/portal/pro-portal-automation-settings-panel";
 import type { ManagerPortalSettingsTab } from "@/components/portal/pro-portal-settings-modal";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
+import {
+  activeWorkspacePropertyIds,
+  filterPropertyOptionsForActiveWorkspace,
+} from "@/lib/workspaces/selection";
 
 type PendingSaveHandle = { saveIfDirty: () => Promise<boolean> };
 
@@ -133,19 +142,32 @@ export const SettingsModulePage = forwardRef<
 ) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
+  const workspaces = useWorkspaces();
   const { userId: managerUserId } = useManagerUserId();
   const { teamMembers } = useWorkAssignmentDirectory({ managerUserId, managerName: undefined });
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [propertyId, setPropertyId] = useState("");
   const [propertyIds, setPropertyIds] = useState<string[]>([]);
+  const [propertyHubArea, setPropertyHubArea] = useState<PropertySettingsArea>("applications");
+  const [residentHubArea, setResidentHubArea] = useState<ResidentSettingsArea>("payments");
   const [automation, setAutomation] = useState<ApplicationAutomationPreferences>(DEFAULT_APPLICATION_AUTOMATION);
   const [waiverCode, setWaiverCode] = useState("");
   const [panelFooter, setPanelFooter] = useState<ManagerSettingsPanelFooter | null>(null);
-  const lockPropertyField = Boolean(initialPropertyId?.trim()) && propertyOptions.length <= 1;
+  const scopedPropertyOptions = useMemo(
+    () => filterPropertyOptionsForActiveWorkspace(propertyOptions),
+    [propertyOptions, workspaces?.active?.id],
+  );
+  const lockPropertyField =
+    tab === "properties" || (Boolean(initialPropertyId?.trim()) && scopedPropertyOptions.length <= 1);
+  const propertiesHub = tab === "properties";
+  const showApplications = tab === "applications" || (propertiesHub && propertyHubArea === "applications");
+  const showLease = tab === "lease" || (propertiesHub && propertyHubArea === "lease");
+  const showTours = (active && tab === "tours") || (propertiesHub && propertyHubArea === "tours");
+  const hasHubHouse = Boolean(propertyId.trim());
 
   /** Same identity/value-equality guard as the modal's original effect — see its own history. */
-  const firstPropertyOptionId = propertyOptions[0]?.id ?? "";
+  const firstPropertyOptionId = scopedPropertyOptions[0]?.id ?? "";
   useEffect(() => {
     const preferred = initialPropertyId?.trim() || firstPropertyOptionId;
     setPropertyId(preferred);
@@ -196,10 +218,10 @@ export const SettingsModulePage = forwardRef<
 
   useEffect(() => {
     if (!active) return;
-    if (tab === "applications" || tab === "lease") {
+    if (showApplications || showLease) {
       void loadApplications();
     }
-  }, [active, tab, loadApplications]);
+  }, [active, showApplications, showLease, loadApplications]);
 
   /**
    * How many per-control autosaves (this panel's own Applications/Lease writes below, plus
@@ -234,7 +256,11 @@ export const SettingsModulePage = forwardRef<
 
   const saveApplicationAutomationSettings = useCallback(
     async (next: ApplicationAutomationPreferences, nextWaiverCode: string, targetPropertyIds: string[]) => {
-      const ids = targetPropertyIds.map((id) => id.trim()).filter(Boolean);
+      const allowed = activeWorkspacePropertyIds();
+      const ids = targetPropertyIds
+        .map((id) => id.trim())
+        .filter(Boolean)
+        .filter((id) => allowed === null || allowed.includes(id));
       if (ids.length === 0 || demo) return;
       setSaving(true);
       reportSaveStatus({ type: "start" });
@@ -291,6 +317,10 @@ export const SettingsModulePage = forwardRef<
   const communicationFormRef = useSaveRegistryEntry<CommunicationSettingsHandle>(
     saveRegistryRef,
     "communication",
+  );
+  const automationFormRef = useSaveRegistryEntry<PaymentAutomationSettingsHandle>(
+    saveRegistryRef,
+    "automation",
   );
   const applicationsReminderFormRef = useSaveRegistryEntry<ManagerReminderRuleSettingsHandle>(
     saveRegistryRef,
@@ -398,19 +428,33 @@ export const SettingsModulePage = forwardRef<
   // used to apply itself (`inlineFooter = tab === "applications" || … ? null : panelFooter`),
   // moved here so every host gets the right answer without re-deriving it.
   useEffect(() => {
-    const suppressed = tab === "applications" || tab === "lease" || tab === "resident";
+    const suppressed =
+      tab === "applications" || tab === "lease" || tab === "resident" || tab === "properties";
     onFooterChange?.(suppressed ? null : panelFooter);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, panelFooter]);
 
   return (
     <SettingsSaveStatusContext.Provider value={reportSaveStatus}>
-      {tab === "applications" ? (
+      {tab === "properties" ? (
+        <PropertySettingsPanel
+          propertyOptions={scopedPropertyOptions}
+          selectedPropertyId={propertyId}
+          onPropertyIdChange={(id) => {
+            setPropertyId(id);
+            setPropertyIds(id ? [id] : []);
+          }}
+          area={propertyHubArea}
+          onAreaChange={setPropertyHubArea}
+        />
+      ) : null}
+
+      {showApplications && (!propertiesHub || hasHubHouse) ? (
         <ApplicationsSettingsPanel
           automation={automation}
           loading={loading}
           saving={saving}
-          propertyOptions={propertyOptions}
+          propertyOptions={scopedPropertyOptions}
           propertyIds={propertyIds}
           onPropertyIdsChange={(next) => {
             setPropertyIds(next);
@@ -426,9 +470,9 @@ export const SettingsModulePage = forwardRef<
         />
       ) : null}
 
-      {active && tab === "automation" ? <ManagerPortalAutomationSettingsPanel /> : null}
+      {active && tab === "automation" ? <ManagerPortalAutomationSettingsPanel formRef={automationFormRef} /> : null}
 
-      {active && tab === "tours" ? (
+      {showTours && (!propertiesHub || hasHubHouse) ? (
         <TourSettingsPanel
           onFooterReady={setPanelFooter}
           onSaved={onCalendarSettingsSaved}
@@ -438,12 +482,12 @@ export const SettingsModulePage = forwardRef<
         />
       ) : null}
 
-      {tab === "lease" ? (
+      {showLease && (!propertiesHub || hasHubHouse) ? (
         <LeaseSettingsPanel
           automation={automation}
           loading={loading}
           saving={saving}
-          propertyOptions={propertyOptions}
+          propertyOptions={scopedPropertyOptions}
           propertyId={propertyId}
           onPropertyIdChange={setPropertyId}
           onAutomationChange={changeAutomation}
@@ -462,7 +506,21 @@ export const SettingsModulePage = forwardRef<
         />
       ) : null}
 
-      {tab === "resident" ? <ResidentSettingsPanel /> : null}
+      {tab === "resident" ? (
+        <ResidentSettingsPanel
+          propertyOptions={scopedPropertyOptions}
+          selectedPropertyId={propertyId}
+          onPropertyIdChange={(id) => {
+            setPropertyId(id);
+            setPropertyIds(id ? [id] : []);
+          }}
+          area={residentHubArea}
+          onAreaChange={setResidentHubArea}
+          teamMembers={teamMembers}
+          paymentsFormRef={paymentsFormRef}
+          householdFormRef={leaseReminderFormRef}
+        />
+      ) : null}
 
       {active && tab === "payments" ? (
         <PaymentsSettingsPanel

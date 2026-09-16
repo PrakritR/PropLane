@@ -40,8 +40,7 @@ import { VendorSettingsPanel } from "@/components/portal/vendor-settings-panel";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalTierPaywall, ResidentTierPaywall } from "@/components/portal/portal-tier-paywall";
 import { PortalWorkspaceClient } from "@/components/portal/portal-workspace-client";
-import { PortalSettingsSectionClient } from "@/components/portal/portal-settings-section-client";
-import { DEFAULT_MANAGER_SETTINGS_TAB, parseManagerSettingsAreaTab } from "@/lib/portal-settings-section";
+import { managerSettingsHubTab, parseManagerSettingsAreaTab } from "@/lib/portal-settings-section";
 import {
   loadManagerAllServicesPanel,
   loadManagerTaskList,
@@ -435,12 +434,9 @@ export async function renderPortalSection(
   // by a direct/bookmarked link or a section's own gear's "Open in Settings" link — there is no
   // dedicated top-level nav row for it, to avoid exactly that duplicate-"Settings" row.
   if ((kind === "manager" || kind === "pro") && section === "settings") {
-    if (!tabParts?.length) {
-      redirect(`${def.basePath}/settings/${DEFAULT_MANAGER_SETTINGS_TAB}`);
-    }
-    if (tabParts.length > 1) notFound();
-    const tab = parseManagerSettingsAreaTab(tabParts[0]);
-    return <PortalSettingsSectionClient tab={tab} basePath={def.basePath} />;
+    if (tabParts && tabParts.length > 1) notFound();
+    const tab = parseManagerSettingsAreaTab(tabParts?.[0] ?? null);
+    redirect(`${def.basePath}/profile?tab=${managerSettingsHubTab(tab)}`);
   }
 
   const meta = findSection(def, section);

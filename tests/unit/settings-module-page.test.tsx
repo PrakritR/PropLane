@@ -37,6 +37,9 @@ vi.mock("@/components/portal/pro-portal-settings-panels", async (importOriginal)
   const actual = await importOriginal<typeof import("@/components/portal/pro-portal-settings-panels")>();
   const React = await import("react");
 
+  function Properties() {
+    return <div>properties module</div>;
+  }
   function Applications({ reminderFormRef }: ComponentProps<typeof actual.ApplicationsSettingsPanel>) {
     React.useImperativeHandle(reminderFormRef, () => ({ saveIfDirty: async () => true }), []);
     return <div>applications module</div>;
@@ -89,6 +92,7 @@ vi.mock("@/components/portal/pro-portal-settings-panels", async (importOriginal)
   return {
     ...actual,
     ApplicationsSettingsPanel: Applications,
+    PropertySettingsPanel: Properties,
     TourSettingsPanel: Tours,
     LeaseSettingsPanel: Lease,
     TaskSettingsPanel: Tasks,
@@ -120,7 +124,7 @@ describe("SettingsModulePage — every registered tab resolves without throwing"
     void label;
   });
 
-  it("covers all eleven tabs — this list itself must not silently shrink", () => {
+  it("covers every registered tab — this list itself must not silently shrink", () => {
     expect(MANAGER_PORTAL_SETTINGS_TABS.map((t) => t.id).sort()).toEqual(
       [
         "applications",
@@ -130,6 +134,7 @@ describe("SettingsModulePage — every registered tab resolves without throwing"
         "inspections",
         "lease",
         "payments",
+        "properties",
         "resident",
         "services",
         "tasks",
