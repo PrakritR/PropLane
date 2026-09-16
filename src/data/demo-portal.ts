@@ -302,6 +302,13 @@ export type DemoManagerWorkOrderRow = {
   paidViaGmailMessageId?: string;
   /** ISO timestamp of the resident's last manager reminder for this pending request. */
   residentReminderSentAt?: string;
+  /**
+   * A server-computed time suggestion for the schedule-visit modal to prefill,
+   * so the manager sees a proposed time (with its source) instead of an empty
+   * field on first open. Never overrides `scheduledAtIso` — that is an actual
+   * booking, not a suggestion.
+   */
+  proposedVisit?: { iso: string; source: "availability" | "proplane-pick"; suggestedAtIso?: string };
 };
 
 export const demoManagerWorkOrderRowsFull: DemoManagerWorkOrderRow[] = [];

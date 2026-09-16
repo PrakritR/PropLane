@@ -1,25 +1,24 @@
 "use client";
 
 /**
- * The three blocks of the Team tab (Mobbin polish §12), referencing Linear's
- * and Loom's members pages:
+ * Members and pending invites for Settings → Team.
  *
- * 1. **Members** — a table: member (avatar, name, id/email) · role pill ·
- *    properties · joined · an Access button that opens the per-member access
- *    editor (the four-level module control from slice 5).
- * 2. **Pending invites** — each with what it grants and when it lapses, and
- *    the two actions that matter: Copy link (resend) and Revoke. An invite
- *    someone sent YOU shows Accept / Decline instead.
- * 3. **Invite by link** — one card; minting a fresh link is what "Reset" means.
- *
- * Pure presentation: every action is a callback the panel already owns.
+ * Per-record actions live in a far-right ⋯ (Edit, Permissions, Remove), matching
+ * Properties. The owner row has no menu. Invite sits on the section title, not
+ * inside this block.
  */
 
-import { Copy, Link2, UserPlus } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
+import type { ReactNode } from "react";
+import { MoreHorizontal } from "lucide-react";
 import { InboxAvatar } from "@/components/portal/portal-inbox-ui";
 import type { AccountLinkInviteDto } from "@/lib/account-links";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { RECORD_ACTION_TRIGGER_ICON_CLASS } from "@/components/ui/record-action-menu";
 import { cn } from "@/lib/utils";
 
 export type TeamMemberRow = {
@@ -32,12 +31,47 @@ export type TeamMemberRow = {
   propertiesLabel: string;
   /** ISO date the link became active; null for the owner. */
   joinedAt: string | null;
-  /** Opens the member's access editor. Absent for the owner. */
-  onAccess?: () => void;
-  /** Row selection for the bulk Remove bar. Absent for the owner. */
-  checked?: boolean;
-  onSelectedChange?: (checked: boolean) => void;
+  onEdit?: () => void;
+  onPermissions?: () => void;
+  onRemove?: () => void;
 };
+
+type TeamRowMenuItem = {
+  id: string;
+  label: string;
+  onSelect: () => void;
+  destructive?: boolean;
+  dataAttr?: string;
+};
+
+function TeamRowMenu({ label, items }: { label: string; items: TeamRowMenuItem[] }) {
+  if (items.length === 0) return null;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        type="button"
+        aria-label={`Actions for ${label}`}
+        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-foreground transition hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        data-portal-row-ignore
+        data-attr="team-member-actions"
+      >
+        <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" glass aria-label={`Actions for ${label}`} data-attr="team-member-actions-menu">
+        {items.map((item) => (
+          <DropdownMenuItem
+            key={item.id}
+            data-attr={item.dataAttr}
+            className={item.destructive ? "text-[var(--status-overdue-fg)]" : undefined}
+            onSelect={item.onSelect}
+          >
+            {item.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 function shortDate(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -60,8 +94,8 @@ function BlockShell({
 }: {
   title: string;
   count?: number;
-  aside?: React.ReactNode;
-  children: React.ReactNode;
+  aside?: ReactNode;
+  children: ReactNode;
   dataAttr: string;
 }) {
   return (
@@ -78,26 +112,12 @@ function BlockShell({
   );
 }
 
-const MEMBER_GRID = "md:grid md:grid-cols-[16px_minmax(0,1.4fr)_110px_minmax(0,1fr)_120px_92px] md:items-center md:gap-x-3";
+const MEMBER_GRID = "md:grid md:grid-cols-[minmax(0,1.4fr)_110px_minmax(0,1fr)_120px_44px] md:items-center md:gap-x-3";
 
-export function TeamMembersBlock({ members, onInvite, inviteDisabled }: { members: TeamMemberRow[]; onInvite?: () => void; inviteDisabled?: boolean }) {
+export function TeamMembersBlock({ members }: { members: TeamMemberRow[] }) {
   return (
-    <BlockShell
-      title="Members"
-      count={members.length}
-      dataAttr="team-members-block"
-      aside={
-        // The page header carries Invite; a second button here was the same door twice.
-        onInvite ? (
-          <Button type="button" variant="outline" onClick={onInvite} disabled={inviteDisabled} className="h-8 min-h-0 rounded-full px-3 text-[12.5px]" data-attr="team-members-invite">
-            <UserPlus className="size-4" aria-hidden />
-            Invite a manager
-          </Button>
-        ) : null
-      }
-    >
+    <BlockShell title="Members" count={members.length} dataAttr="team-members-block">
       <div className={cn("hidden px-4 pb-1.5 pt-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted/70", MEMBER_GRID)} aria-hidden>
-        <span />
         <span>Member</span>
         <span>Role</span>
         <span>Properties</span>
@@ -107,17 +127,13 @@ export function TeamMembersBlock({ members, onInvite, inviteDisabled }: { member
       <ul>
         {members.map((m) => {
           const pill = ROLE_PILL[m.role];
+          const items: TeamRowMenuItem[] = [
+            m.onEdit ? { id: "edit", label: "Edit", onSelect: m.onEdit, dataAttr: "team-member-edit" } : null,
+            m.onPermissions ? { id: "permissions", label: "Permissions", onSelect: m.onPermissions, dataAttr: "team-member-permissions" } : null,
+            m.onRemove ? { id: "remove", label: "Remove", onSelect: m.onRemove, destructive: true, dataAttr: "team-member-remove" } : null,
+          ].filter((item): item is TeamRowMenuItem => item != null);
           return (
             <li key={m.id} className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/60 px-4 py-2.5", MEMBER_GRID)} data-attr="team-member-row">
-              <span className="flex w-4 shrink-0 items-center justify-center">
-                {m.onSelectedChange ? (
-                  <RowSelectCheckbox
-                    checked={m.checked ?? false}
-                    onChange={(e) => m.onSelectedChange?.(e.target.checked)}
-                    aria-label={`Select ${m.name}`}
-                  />
-                ) : null}
-              </span>
               <span className="flex min-w-0 items-center gap-2.5">
                 <InboxAvatar name={m.name} className="h-8 w-8 shrink-0 text-[11px]" />
                 <span className="min-w-0">
@@ -130,12 +146,8 @@ export function TeamMembersBlock({ members, onInvite, inviteDisabled }: { member
               </span>
               <span className="min-w-0 truncate text-[13px] text-foreground max-md:basis-full max-md:text-[12px] max-md:text-muted">{m.propertiesLabel}</span>
               <span className="text-[12.5px] text-muted max-md:hidden">{shortDate(m.joinedAt)}</span>
-              <span className="md:text-right">
-                {m.onAccess ? (
-                  <Button type="button" variant="outline" onClick={m.onAccess} className="h-8 min-h-0 rounded-full px-3 text-[12.5px]" data-attr="team-member-access">
-                    Access
-                  </Button>
-                ) : null}
+              <span className="ml-auto md:ml-0 md:justify-self-end">
+                <TeamRowMenu label={m.name} items={items} />
               </span>
             </li>
           );
@@ -171,7 +183,16 @@ export function TeamPendingInvitesBlock({
       <ul>
         {invites.map((inv) => {
           const outgoing = inv.direction === "outgoing";
-          const name = inv.linkedDisplayName ?? (inv.openInvite ? "Anyone with the link" : inv.linkedAxisId);
+          const name = inv.linkedDisplayName ?? (inv.openInvite ? "Anyone with the link" : inv.linkedAxisId) ?? "Invite";
+          const items: TeamRowMenuItem[] = outgoing
+            ? [
+                { id: "copy", label: "Copy link", onSelect: () => onCopyLink(inv), dataAttr: "team-pending-resend" },
+                { id: "revoke", label: "Revoke", onSelect: () => onRevoke(inv), destructive: true, dataAttr: "team-pending-revoke" },
+              ]
+            : [
+                { id: "accept", label: "Accept", onSelect: () => onAccept(inv), dataAttr: "team-pending-accept" },
+                { id: "decline", label: "Decline", onSelect: () => onDecline(inv), destructive: true, dataAttr: "team-pending-decline" },
+              ];
           return (
             <li key={inv.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-border/60 px-4 py-2.5" data-attr="team-pending-row">
               <button type="button" onClick={() => onOpen(inv)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
@@ -183,51 +204,11 @@ export function TeamPendingInvitesBlock({
                   </span>
                 </span>
               </button>
-              <span className="flex shrink-0 items-center gap-1.5">
-                {outgoing ? (
-                  <>
-                    <Button type="button" variant="outline" onClick={() => onCopyLink(inv)} className="h-8 min-h-0 rounded-full px-3 text-[12.5px]" data-attr="team-pending-resend">
-                      <Copy className="size-3.5" aria-hidden />
-                      Copy link
-                    </Button>
-                    <Button type="button" variant="outline" onClick={() => onRevoke(inv)} className="h-8 min-h-0 rounded-full border-rose-200 px-3 text-[12.5px] text-rose-800 portal-danger-outline" data-attr="team-pending-revoke">
-                      Revoke
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <Button type="button" onClick={() => onAccept(inv)} className="h-8 min-h-0 rounded-full px-3 text-[12.5px]" data-attr="team-pending-accept">
-                      Accept
-                    </Button>
-                    <Button type="button" variant="outline" onClick={() => onDecline(inv)} className="h-8 min-h-0 rounded-full px-3 text-[12.5px]" data-attr="team-pending-decline">
-                      Decline
-                    </Button>
-                  </>
-                )}
-              </span>
+              <TeamRowMenu label={name} items={items} />
             </li>
           );
         })}
       </ul>
     </BlockShell>
-  );
-}
-
-export function TeamInviteLinkBlock({ onCreate, disabled }: { onCreate: () => void; disabled?: boolean }) {
-  return (
-    <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-primary/20 bg-primary/[0.04] px-4 py-3" data-attr="team-invite-link-block">
-      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-card text-primary shadow-sm" aria-hidden>
-        <Link2 className="size-4" />
-      </span>
-      <span className="min-w-0 flex-1 basis-[14rem]">
-        <span className="block text-[13.5px] font-semibold text-foreground">Invite by link</span>
-        <span className="block text-[12px] leading-relaxed text-muted">
-          Anyone who opens it signs in and joins. Copying a pending link issues a fresh one and the old one stops working.
-        </span>
-      </span>
-      <Button type="button" variant="outline" onClick={onCreate} disabled={disabled} className="h-9 min-h-0 rounded-full px-3.5 text-[13px]" data-attr="team-invite-link-create">
-        Create link
-      </Button>
-    </section>
   );
 }

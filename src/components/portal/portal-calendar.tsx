@@ -22,6 +22,11 @@ import {
   writeCalendarShareAvailability,
 } from "@/lib/demo-admin-scheduling";
 import {
+  defaultAvailabilityKindForCalendarView,
+  managerKindAvailabilityStorageKey,
+  type AvailabilityKind,
+} from "@/lib/manager-availability-kinds";
+import {
   coManagerOverlaysFromPeers,
   listPropertyCalendarPeers,
   propertyHasMultipleCalendarManagers,
@@ -453,8 +458,10 @@ export function PortalCalendar({
     return base;
   }, [showGoogleBusy, googleExternalMeetings, serviceCalendarMeetings, showServiceVisits]);
 
-  // Single-kind views are for reading; availability is edited on All or Tours.
-  const calendarPanelsReadOnly = servicesOnlyView || tasksOnlyView;
+  // Stage B (kind-scoped availability, PLAN-0914-1710): Services and Tasks now
+  // edit their own kind directly through `availabilityKeysByKind` below, so no
+  // Calendar view forces the panel read-only anymore.
+  const calendarPanelsReadOnly = false;
   const calendarStorageKey =
     availabilityView && activeCalendarPropertyFilters.length === 1 ? storageKey : null;
   const calendarUnavailableMessage = servicesOnlyView
@@ -462,6 +469,45 @@ export function PortalCalendar({
     : tasksOnlyView
       ? "No tasks with a due time yet. Give a task a due date and time and it appears here."
       : "Add a property before setting tour availability.";
+
+  /** Manager-only per-kind services/tasks keys — tours keeps its existing per-house storage. */
+  const managerKindKeys = useMemo(() => {
+    if (portal !== "manager" || !userId) return null;
+    return {
+      services: [managerKindAvailabilityStorageKey(userId, "services")],
+      tasks: [managerKindAvailabilityStorageKey(userId, "tasks")],
+    };
+  }, [portal, userId]);
+
+  /**
+   * Which kind(s) `PortalCalendarPanels` reads/writes for the current view.
+   * Absent for admin (and whenever there is nothing manager-owned to key off
+   * of) so it falls back to EXACTLY today's single-union behaviour there.
+   */
+  const availabilityKeysByKind = useMemo<Partial<Record<AvailabilityKind, string[]>> | undefined>(() => {
+    if (portal !== "manager" || !userId || !managerKindKeys) return undefined;
+    if (schedulingHub) {
+      // The hub's Services tab renders its own read-only visits panel (below) —
+      // this call site only ever reaches the Tours tab, so always tours-only.
+      return availabilityStorageKeys.length > 0 ? { tours: availabilityStorageKeys } : undefined;
+    }
+    if (calendarView === "services") return { services: managerKindKeys.services };
+    if (calendarView === "tasks") return { tasks: managerKindKeys.tasks };
+    if (calendarView === "tours") {
+      return availabilityStorageKeys.length > 0 ? { tours: availabilityStorageKeys } : undefined;
+    }
+    // "all"
+    return {
+      ...(availabilityStorageKeys.length > 0 ? { tours: availabilityStorageKeys } : {}),
+      services: managerKindKeys.services,
+      tasks: managerKindKeys.tasks,
+    };
+  }, [portal, userId, managerKindKeys, schedulingHub, calendarView, availabilityStorageKeys]);
+
+  const editKind: AvailabilityKind = defaultAvailabilityKindForCalendarView(schedulingHub ? "all" : calendarView);
+
+  /** Services/Tasks tabs are now directly editable (Stage B), so the empty state must not block "Add availability". */
+  const canEditKindAvailability = portal === "manager" && Boolean(userId);
 
 
   const calendarFilterSheet =
@@ -569,7 +615,11 @@ export function PortalCalendar({
         ) : null}
         {portal === "manager" ? (
           <div className="portal-calendar-page-body mt-1 flex min-h-[min(72vh,52rem)] flex-1 flex-col bg-accent/30">
-            {!schedulingHub && (servicesOnlyView || tasksOnlyView) && calendarTabCounts[calendarView] === 0 && !propertiesLoading ? (
+            {!schedulingHub &&
+            (servicesOnlyView || tasksOnlyView) &&
+            calendarTabCounts[calendarView] === 0 &&
+            !propertiesLoading &&
+            !canEditKindAvailability ? (
               <div className="pt-2">
                 <PortalListEmptyCard
                   section="calendar"
@@ -577,36 +627,6 @@ export function PortalCalendar({
                   sibling={portalEmptySibling(calendarTabs, calendarView)}
                   dataAttr="calendar-empty"
                 />
-              </div>
-            ) : servicesOnlyView ? (
-              <div className="flex min-h-0 flex-1 flex-col">
-                {propertiesLoading && managerProperties.length === 0 ? (
-                  <p className="text-sm text-muted">Loading houses from the backend…</p>
-                ) : (
-                  <PortalCalendarPanels
-                    key={`services-${scopedCalendarPropertyIds.join(",")}`}
-                    storageKey={null}
-                    calendarRefreshSignal={calendarRefreshSignal}
-                    tourScopeLabel={tourScopeLabel}
-                    bareSurface
-                    unavailableMessage={
-                      managerProperties.length === 0
-                        ? "No houses found for this manager account yet."
-                        : calendarUnavailableMessage
-                    }
-                    compactAvailability
-                    availabilityHeading="Your availability"
-                    externalMeetings={mergedExternalMeetings}
-                    onGoogleCalendarRefresh={() => setGoogleCalendarTick((n) => n + 1)}
-                    onMeetingsChanged={() => setCalendarRefreshSignal((n) => n + 1)}
-                    readOnly
-                    eventSummaryLabel="visit"
-                    preferEventCountsInDayHeader
-                    anchorDate={calendarAnchorDate}
-                    onAnchorDateChange={setCalendarAnchorDate}
-                    flowScroll
-                  />
-                )}
               </div>
             ) : (
               <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -636,6 +656,8 @@ export function PortalCalendar({
             availabilityStorageKeys={
               availabilityView && availabilityStorageKeys.length > 0 ? availabilityStorageKeys : undefined
             }
+            availabilityKeysByKind={portal === "manager" ? availabilityKeysByKind : undefined}
+            editKind={editKind}
             calendarRefreshSignal={calendarRefreshSignal}
             tourScopeLabel={tourScopeLabel}
             bareSurface

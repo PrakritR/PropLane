@@ -17,10 +17,14 @@ const notifyCanceled = vi.fn(async () => ({ ok: true }));
 const notifyRescheduled = vi.fn(async () => ({ ok: true }));
 const syncGoogle = vi.fn(async () => null);
 const deleteGoogle = vi.fn(async () => undefined);
+const cancelReminder = vi.fn(async () => undefined);
 
 vi.mock("@/lib/tour-notification-delivery.server", () => ({
   notifyTenantTourCanceled: (...args: unknown[]) => notifyCanceled(...(args as [])),
   notifyTenantTourRescheduled: (...args: unknown[]) => notifyRescheduled(...(args as [])),
+}));
+vi.mock("@/lib/tour-reminder.server", () => ({
+  cancelTourReminderForPlannedEvent: (...args: unknown[]) => cancelReminder(...(args as [])),
 }));
 vi.mock("@/lib/google-calendar/sync.server", () => ({
   syncPlannedTourToGoogleCalendar: (...args: unknown[]) => syncGoogle(...(args as [])),
@@ -28,7 +32,7 @@ vi.mock("@/lib/google-calendar/sync.server", () => ({
 }));
 
 import { GoogleCalendarNotLinkedError } from "@/lib/google-calendar/api.server";
-import { cancelPlannedTour, reschedulePlannedTour } from "@/lib/tour-planned-change.server";
+import { cancelPlannedTour, deletePlannedTour, reschedulePlannedTour } from "@/lib/tour-planned-change.server";
 
 const MANAGER = "mgr-1";
 
@@ -340,5 +344,111 @@ describe("reschedulePlannedTour", () => {
     });
     expect(result).toMatchObject({ ok: false, status: 403 });
     expect(WRITTEN_PAYLOAD).toBeNull();
+  });
+});
+
+describe("deletePlannedTour", () => {
+  const PAST_CANCELLED = {
+    id: "planned-past",
+    kind: "tour",
+    managerUserId: MANAGER,
+    start: "2020-01-01T17:00:00.000Z",
+    end: "2020-01-01T17:30:00.000Z",
+    canceledAt: "2020-01-01T00:00:00.000Z",
+    attendeeName: "Old Guest",
+  };
+  const PEER_TOUR = { ...TOUR, id: "planned-peer", managerUserId: "mgr-2", googleCalendarEventId: "gcal-peer" };
+  const TASK = { id: "task-1", kind: "task", managerUserId: MANAGER, start: TOUR.start, end: TOUR.end };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    PLANNED_EVENTS = [{ ...TOUR }, { ...PAST_CANCELLED }, { ...PEER_TOUR }, { ...TASK }];
+    WRITTEN_PAYLOAD = null;
+    READ_ERROR = null;
+  });
+
+  it("drops exactly the one row and writes every sibling back untouched", async () => {
+    const result = await deletePlannedTour(db(), {
+      plannedEventId: "planned-past",
+      actorUserId: MANAGER,
+      notifyGuest: false,
+    });
+    expect(result.ok).toBe(true);
+    // Past, cancelled, other managers' and non-tour rows all survive — the
+    // history loss the calendar's client-side delete used to cause.
+    expect(WRITTEN_PAYLOAD).toEqual([{ ...TOUR }, { ...PEER_TOUR }, { ...TASK }]);
+    expect(notifyCanceled).not.toHaveBeenCalled();
+  });
+
+  it("cancels the tour's reminder and its Google event when deleting a live tour", async () => {
+    const result = await deletePlannedTour(db(), {
+      plannedEventId: "planned-1",
+      actorUserId: MANAGER,
+      notifyGuest: false,
+    });
+    expect(result).toMatchObject({ ok: true, calendarSync: { ok: true } });
+    expect(cancelReminder).toHaveBeenCalledWith(expect.anything(), MANAGER, "planned-1");
+    expect(deleteGoogle).toHaveBeenCalledWith(expect.anything(), MANAGER, "gcal-1");
+    expect(WRITTEN_PAYLOAD!.map((row) => row.id)).toEqual(["planned-past", "planned-peer", "task-1"]);
+  });
+
+  it("messages the guest only when asked, with the manager's own copy", async () => {
+    await deletePlannedTour(db(), {
+      plannedEventId: "planned-1",
+      actorUserId: MANAGER,
+      notifyGuest: true,
+      notificationSubject: "Tour off",
+      notificationBody: "Sorry, the room went.",
+      notificationChannels: { viaEmail: true, viaSms: false },
+    });
+    expect(notifyCanceled).toHaveBeenCalledTimes(1);
+    expect(notifyCanceled.mock.calls[0]![2]).toMatchObject({ email: "prospect@example.com" });
+    expect(notifyCanceled.mock.calls[0]![5]).toEqual({ subject: "Tour off", body: "Sorry, the room went." });
+    expect(notifyCanceled.mock.calls[0]![6]).toEqual({ viaEmail: true, viaSms: false });
+  });
+
+  it("refuses another manager's tour and never writes", async () => {
+    const result = await deletePlannedTour(db(), {
+      plannedEventId: "planned-peer",
+      actorUserId: MANAGER,
+      notifyGuest: false,
+    });
+    expect(result).toMatchObject({ ok: false, status: 403 });
+    expect(WRITTEN_PAYLOAD).toBeNull();
+    expect(deleteGoogle).not.toHaveBeenCalled();
+  });
+
+  it("lets an admin delete it", async () => {
+    const result = await deletePlannedTour(db(), {
+      plannedEventId: "planned-peer",
+      actorUserId: "admin-1",
+      isAdmin: true,
+      notifyGuest: false,
+    });
+    expect(result.ok).toBe(true);
+    expect(WRITTEN_PAYLOAD!.map((row) => row.id)).toEqual(["planned-1", "planned-past", "task-1"]);
+  });
+
+  it("reports a tour that is already gone as not found", async () => {
+    const result = await deletePlannedTour(db(), {
+      plannedEventId: "planned-missing",
+      actorUserId: MANAGER,
+      notifyGuest: false,
+    });
+    expect(result).toMatchObject({ ok: false, status: 404, error: "Tour not found." });
+    expect(WRITTEN_PAYLOAD).toBeNull();
+  });
+
+  it("refuses a non-tour calendar block", async () => {
+    const result = await deletePlannedTour(db(), { plannedEventId: "task-1", actorUserId: MANAGER, notifyGuest: false });
+    expect(result).toMatchObject({ ok: false, status: 400 });
+    expect(WRITTEN_PAYLOAD).toBeNull();
+  });
+
+  it("still deletes when the reminder cleanup throws", async () => {
+    cancelReminder.mockRejectedValueOnce(new Error("reminders table offline"));
+    const result = await deletePlannedTour(db(), { plannedEventId: "planned-1", actorUserId: MANAGER, notifyGuest: false });
+    expect(result.ok).toBe(true);
+    expect(WRITTEN_PAYLOAD!.map((row) => row.id)).not.toContain("planned-1");
   });
 });

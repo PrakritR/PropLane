@@ -1,9 +1,10 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { Wrench } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
@@ -25,6 +26,7 @@ import {
 import { deleteManagerWorkOrderRow, updateManagerWorkOrder } from "@/lib/manager-work-orders-storage";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { ScheduleServiceVisitModal } from "@/components/portal/schedule-service-visit-modal";
+import { formatServiceVisitLabel } from "@/lib/schedule-service-visit";
 import { EditServiceWorkOrderModal } from "@/components/portal/edit-service-work-order-modal";
 import {
   MANAGER_VENDORS_EVENT,
@@ -97,6 +99,33 @@ function fromDatetimeLocalValue(s: string): string | null {
 function formatScheduledLabel(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+/** Same pill Stage C shows in the Schedule visit modal
+ * (`schedule-service-visit-modal.tsx`, `data-attr="schedule-service-visit-source"`),
+ * reused rather than re-styled: booked-on-arrival (the visit time IS the
+ * suggestion) reads as a plain fact, a still-open proposal reads as a call to
+ * confirm it. `null` when there is nothing to say. */
+function visitSourcePill(row: DemoManagerWorkOrderRow): ReactNode {
+  const proposed = row.proposedVisit;
+  if (!proposed) return null;
+  if (row.scheduledAtIso && row.scheduledAtIso === proposed.iso) {
+    return (
+      <span data-attr="schedule-service-visit-source">
+        <Badge tone="success">From your availability</Badge>
+      </span>
+    );
+  }
+  if (!row.scheduledAtIso) {
+    return (
+      <span data-attr="schedule-service-visit-source">
+        <Badge tone={proposed.source === "availability" ? "success" : "info"}>
+          {proposed.source === "availability" ? "From your availability · confirm" : "PropLane pick · confirm"}
+        </Badge>
+      </span>
+    );
+  }
+  return null;
 }
 
 // Restrict photo links to http(s) or inline image data URLs before they reach an
@@ -802,6 +831,17 @@ export function ManagerWorkOrdersPanel({
           >
             Schedule visit
           </Button>
+          {row.proposedVisit ? (
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_DETAIL_BTN}
+              data-attr="work-order-confirm-time"
+              onClick={() => setScheduleVisitRow(row)}
+            >
+              Confirm time
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="outline"
@@ -914,8 +954,15 @@ export function ManagerWorkOrdersPanel({
                           </div>
                           <div>
                             <p className="text-xs text-muted">Visit</p>
-                            <p className="text-sm font-medium text-foreground">
-                              {row.scheduled && row.scheduled !== "—" ? row.scheduled : "Not scheduled"}
+                            <p className="flex flex-wrap items-center gap-1.5 text-sm font-medium text-foreground">
+                              <span>
+                                {row.scheduled && row.scheduled !== "—"
+                                  ? row.scheduled
+                                  : row.proposedVisit
+                                    ? formatScheduledLabel(row.proposedVisit.iso)
+                                    : "Not scheduled"}
+                              </span>
+                              {visitSourcePill(row)}
                             </p>
                           </div>
                           <div>
@@ -1256,7 +1303,18 @@ export function ManagerWorkOrdersPanel({
         }
       >
         {rows.map((row) => {
-          const subtitle = [row.reference, row.propertyName, row.unit].filter(Boolean).join(" · ");
+          const subtitle = [
+            row.reference,
+            row.propertyName,
+            row.unit,
+            row.scheduledAtIso
+              ? formatServiceVisitLabel(row.scheduledAtIso)
+              : row.proposedVisit
+                ? `Proposed ${formatServiceVisitLabel(row.proposedVisit.iso)}`
+                : null,
+          ]
+            .filter(Boolean)
+            .join(" · ");
           return (
             <PortalServiceRecordRow
               key={row.id}

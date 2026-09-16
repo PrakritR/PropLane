@@ -31,6 +31,7 @@ import {
 } from "@/lib/tour-notification-delivery.server";
 import type { TourNotificationChannels, TourNotificationResult } from "@/lib/tour-notification-delivery.server";
 import { formatRangeLabel, PLANNED_RECORD_ID, rowsFromRecord } from "@/lib/tour-inquiry-confirm.server";
+import { cancelTourReminderForPlannedEvent } from "@/lib/tour-reminder.server";
 import { isActivePlannedTourEvent } from "@/lib/tour-slot-math";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
@@ -226,6 +227,95 @@ export async function cancelPlannedTour(
   // Awaited, not fire-and-forget: a serverless runtime can freeze the instance
   // the moment the response is returned, which would strand the Google event as
   // busy time blocking the slot this cancel just freed.
+  const googleEventId = textField(event, "googleCalendarEventId");
+  let calendarSync: PlannedTourCalendarSync = { ok: true, skipped: true };
+  if (googleEventId && managerUserId) {
+    calendarSync = await runCalendarSync(() =>
+      deleteProplaneGoogleCalendarEvent(db, managerUserId, googleEventId),
+    );
+  }
+
+  return { ok: true, message: formatRangeLabel(start, end), guestNotification, calendarSync };
+}
+
+/**
+ * Remove a planned tour outright — past, cancelled or still upcoming.
+ *
+ * Cancel keeps the row (flagged `canceledAt`) so history stays; Delete is the
+ * manager choosing to drop the record entirely. Only the one row goes: every
+ * sibling in the shared payload — past tours, other managers' tours, cancelled
+ * ones — is written back untouched. The Calendar's older client-side delete
+ * filtered the payload through a "future, active only" reader before writing
+ * it back, which is exactly the history loss this server path avoids.
+ *
+ * A scheduled reminder for the tour is cancelled in the same request so it can
+ * never fire for a tour that no longer exists, and a linked Google Calendar
+ * event is deleted so it stops blocking the slot. The guest is told only when
+ * the manager asked (`notifyGuest`) — for a past tour there is nothing to say.
+ */
+export async function deletePlannedTour(
+  db: Db,
+  opts: {
+    plannedEventId: string;
+    actorUserId: string;
+    isAdmin?: boolean;
+    notifyGuest: boolean;
+    notificationSubject?: string;
+    notificationBody?: string;
+    notificationChannels?: TourNotificationChannels;
+    req?: Request;
+  },
+): Promise<PlannedTourChangeResult> {
+  const loaded = await loadOwnedPlannedTour(db, opts);
+  if ("ok" in loaded) return loaded;
+  const { plannedRows, event } = loaded;
+
+  const id = opts.plannedEventId.trim();
+  const start = textField(event, "start");
+  const end = textField(event, "end");
+  const managerUserId = textField(event, "managerUserId");
+
+  const writeError = await writePlannedRows(
+    db,
+    plannedRows.filter((row) => textField(row, "id") !== id),
+  );
+  if (writeError) return { ok: false, status: 500, error: writeError };
+
+  // The tour is gone; a reminder for it must never send. A failure here is
+  // logged in the result's shape only through the reminder's own status, so
+  // the delete the manager asked for is never reported as failed because of it.
+  if (managerUserId) {
+    try {
+      await cancelTourReminderForPlannedEvent(db, managerUserId, id);
+    } catch {
+      /* reminder cleanup is best-effort; the tour itself is already removed */
+    }
+  }
+
+  let guestNotification: TourNotificationResult | null = null;
+  if (opts.notifyGuest) {
+    const notifyReq = opts.req ?? new Request(PRODUCTION_APP_ORIGIN);
+    guestNotification = await notifyTenantTourCanceled(
+      db,
+      notifyReq,
+      inquiryFromPlannedEvent(event),
+      {
+        start,
+        end,
+        managerUserId,
+        adminLabel: textField(event, "adminLabel") || undefined,
+      },
+      null,
+      {
+        subject: opts.notificationSubject,
+        body: opts.notificationBody,
+      },
+      opts.notificationChannels,
+    );
+  }
+
+  // Awaited for the same reason as cancel: a frozen serverless instance must
+  // not strand the Google event as busy time on a slot that is now free.
   const googleEventId = textField(event, "googleCalendarEventId");
   let calendarSync: PlannedTourCalendarSync = { ok: true, skipped: true };
   if (googleEventId && managerUserId) {

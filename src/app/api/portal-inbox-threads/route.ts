@@ -229,14 +229,20 @@ export async function POST(req: Request) {
       const data: FolderRow[] | null = folderScope
         ? await filterVisibleInboxThreadRecords(ctx.db, folderScope, (fetchedFolderRows ?? []) as FolderRow[])
         : ((fetchedFolderRows ?? []) as FolderRow[]);
-      if (!data || data.length !== ids.length || data.some((row) => row.scope !== scopeKey)) {
+      // Act on the ids this viewer can see. A collapsed person-row keeps
+      // `sourceThreadIds` from an earlier merge, and one of those can name a
+      // record the list no longer returns (deleted, or since hidden by house
+      // scope). Refusing the whole batch for that one id left the conversation
+      // un-archivable from every surface; skipping it changes nothing for the
+      // record that was not visible anyway.
+      if (!data || data.length === 0 || data.some((row) => row.scope !== scopeKey)) {
         return NextResponse.json({ error: "Record not found." }, { status: 404 });
       }
       if (data.some((row) => storedSmsNoticeIdentity(row))) {
         return NextResponse.json({ error: "Use the SMS archive action." }, { status: 400 });
       }
       const result = await ctx.db.rpc("change_portal_inbox_thread_folders", {
-        p_ids: ids, p_scope: scopeKey, p_action: body.folderAction,
+        p_ids: data.map((row) => row.id), p_scope: scopeKey, p_action: body.folderAction,
       });
       if (result.error) throw result.error;
       if (result.data !== "ok") return NextResponse.json({ error: "Conversations changed. Refresh and try again." }, { status: 409 });

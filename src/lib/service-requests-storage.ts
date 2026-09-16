@@ -1,4 +1,5 @@
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { fetchManagerTimeSuggestion } from "@/lib/manager-schedule-suggest.client";
 import type { WorkAssignee } from "@/lib/work-assignment";
 import {
   createManagerCharge,
@@ -74,6 +75,13 @@ export type ServiceRequest = {
   returnedAt?: string;
   /** ISO timestamp of the resident's last manager reminder for this pending request. */
   residentReminderSentAt?: string;
+  /**
+   * A server-computed time suggestion attached after approval (Stage D),
+   * mirroring `DemoManagerWorkOrderRow.proposedVisit`. An add-on has no visit
+   * record to book into, so this is always a proposal for the manager to
+   * confirm elsewhere — never an auto-booking.
+   */
+  proposedVisit?: { iso: string; source: "availability" | "proplane-pick"; suggestedAtIso?: string };
 };
 
 function toPositiveDollarAmount(raw: string): number | null {
@@ -333,6 +341,29 @@ export function approveServiceRequest(
   };
   writeAll(all);
   mirrorServiceRequestToServerBestEffort(all[idx]!);
+}
+
+/**
+ * Ask the server for a time suggestion for a just-approved add-on and attach
+ * it as a proposal (Stage D) — never an auto-booking, since an add-on has no
+ * visit record to book into; only the manager confirming elsewhere makes it
+ * real. Kept as a sibling of `approveServiceRequest` rather than folded into
+ * it: that function is synchronous local-storage-first, called from
+ * `pro-service-request-detail.tsx`'s approval flow, and awaiting a network
+ * round trip there would delay the optimistic UI update every other call site
+ * of `approveServiceRequest` still expects. Callers opt in by calling this
+ * right after approving.
+ */
+export async function attachProposedVisitToServiceRequest(id: string): Promise<void> {
+  if (typeof window === "undefined" || isDemoModeActive()) return;
+  const all = readAll();
+  const row = all.find((r) => r.id === id);
+  if (!row || row.status !== "approved") return;
+  const suggestion = await fetchManagerTimeSuggestion({ kind: "services", seed: row.id });
+  if (!suggestion) return;
+  updateServiceRequest(id, {
+    proposedVisit: { iso: suggestion.iso, source: suggestion.source, suggestedAtIso: new Date().toISOString() },
+  });
 }
 
 export function denyServiceRequest(id: string, managerNote?: string): void {
