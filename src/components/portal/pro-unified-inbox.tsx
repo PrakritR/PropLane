@@ -1290,7 +1290,7 @@ export function ManagerUnifiedInbox({
       readSources={selectedReadSources}
       emailThreadSnapshot={selectedEmailThreads}
       onViewed={markSelectedRead}
-      viewActive={mobileThreadOpen || (isClient && window.innerWidth >= 1024)}
+      viewActive={mobileThreadOpen || (isClient && inboxUsesDesktopSplit())}
       /*
        * Archive and delete act on THIS conversation, which may be several
        * stored threads folded into one person. Reusing the bulk handlers keyed
