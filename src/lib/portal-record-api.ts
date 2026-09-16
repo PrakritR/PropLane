@@ -5,6 +5,7 @@ import { getPortalAccessContext } from "@/lib/auth/portal-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 type RecordUser = { id: string; email?: string | null; role: string };
+type AtomicWriteResult = { handled: boolean; error?: string; status?: number };
 
 type RecordConfig = {
   table: string;
@@ -41,6 +42,14 @@ type RecordConfig = {
     existing: Record<string, unknown> | null;
     db: SupabaseClient;
   }) => void | Promise<void>;
+  /** Optional table-specific transaction boundary for rows whose JSON payload
+   * is shared by several managers. `handled` skips the ordinary upsert. */
+  atomicWrite?: (args: {
+    db: ReturnType<typeof createSupabaseServiceRoleClient>;
+    user: RecordUser;
+    record: Record<string, unknown>;
+    existing: Record<string, unknown> | null;
+  }) => Promise<AtomicWriteResult>;
 };
 
 async function getUserContext() {
@@ -166,6 +175,18 @@ export function createJsonRecordRoute(config: RecordConfig) {
           if (!recordExists && config.assertInsertAllowed) {
             const insertError = config.assertInsertAllowed(finalRecord, ctx.user);
             if (insertError) return NextResponse.json({ error: insertError }, { status: 403 });
+          }
+          if (config.atomicWrite) {
+            const atomic = await config.atomicWrite({
+              db: ctx.db,
+              user: ctx.user,
+              record: finalRecord,
+              existing: recordExists ? ((existing?.[0] as Record<string, unknown>) ?? null) : null,
+            });
+            if (atomic.handled) {
+              if (atomic.error) return NextResponse.json({ error: atomic.error }, { status: atomic.status ?? 500 });
+              continue;
+            }
           }
           const { error } = await ctx.db.from(config.table).upsert(finalRecord, { onConflict: "id" });
           if (error) return NextResponse.json({ error: error.message }, { status: 500 });

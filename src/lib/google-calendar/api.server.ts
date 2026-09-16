@@ -879,6 +879,9 @@ export async function stopGoogleCalendarWatch(
 }
 
 export type GoogleCalendarEventWriteInput = {
+  /** Optional caller-owned id for retry-safe inserts. Google event ids accept
+   * lowercase base32hex; callers must provide an already-valid value. */
+  id?: string;
   title: string;
   description?: string;
   start: string;
@@ -919,11 +922,18 @@ export async function createGoogleCalendarEvent(
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(googleCalendarEventBody(input)),
+    body: JSON.stringify({ ...(input.id ? { id: input.id } : {}), ...googleCalendarEventBody(input) }),
     signal: googleCalendarFetchSignal(),
   });
   const data = (await res.json().catch(() => ({}))) as { id?: string; error?: { message?: string } };
   if (!res.ok) {
+    // A retry after Google accepted the insert but before our local save sees
+    // the same deterministic id as already present. Reconcile the body now,
+    // rather than merely accepting the id: the local tour may have moved to a
+    // new window while the first create was in flight.
+    if (res.status === 409 && input.id) {
+      return updateGoogleCalendarEvent(db, managerUserId, input.id, input);
+    }
     throw new Error(data.error?.message ?? "Could not create Google Calendar event.");
   }
   return data.id?.trim() || null;

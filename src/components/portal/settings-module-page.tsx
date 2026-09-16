@@ -53,6 +53,7 @@ import {
   activeWorkspacePropertyIds,
   filterPropertyOptionsForActiveWorkspace,
 } from "@/lib/workspaces/selection";
+import { shouldMountTourSettings } from "@/lib/portal-settings-module-visibility";
 
 type PendingSaveHandle = { saveIfDirty: () => Promise<boolean> };
 
@@ -163,7 +164,7 @@ export const SettingsModulePage = forwardRef<
   const propertiesHub = tab === "properties";
   const showApplications = tab === "applications" || (propertiesHub && propertyHubArea === "applications");
   const showLease = tab === "lease" || (propertiesHub && propertyHubArea === "lease");
-  const showTours = (active && tab === "tours") || (propertiesHub && propertyHubArea === "tours");
+  const showTours = shouldMountTourSettings(active, tab, propertyHubArea);
   const hasHubHouse = Boolean(propertyId.trim());
 
   /** Same identity/value-equality guard as the modal's original effect — see its own history. */

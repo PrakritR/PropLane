@@ -346,14 +346,28 @@ Reads: `list_live_listings`, `get_listing_details`, `build_prospect_links`
 (listing, tour, apply, message, and browse URLs), `get_site_links`,
 `list_open_tour_slots`. Writes, both inline allow-listed via
 `LEASING_SMS_INLINE_WRITE_TOOLS` because an anonymous texter has no `user_id` to
-claim a pending action on: `escalate_to_manager`, `request_tour`. Both only
-notify the manager; nothing here books, charges, or reads personal data.
+claim a pending action on: `escalate_to_manager`, `request_tour`. `request_tour`
+remains a pending request. The worker-only
+`prepare_prospect_tour_confirmation` and `confirm_prospect_sms_tour` tools are
+the narrow prospect-SMS scheduling exception: links stay first, but when a
+prospect explicitly schedules by text, preparation persists one exact current
+published offer and asks for `YES`; only a later unambiguous affirmative from
+the trusted inbound number may confirm that same offer. Name is required, email
+is optional, and a new date, time, property, correction, or qualification
+requires a new offer. Resident SMS, web requests, manager automation, and portal
+actions retain their human-confirmation requirements. No other prospect tool
+books, charges, or reads personal data.
 `escalate_to_manager` has one SMS-only opt-in quiet mode for a high-intent
 question with no remaining grounded reply. The leasing runtime suppresses the
 prospect reply only when the existing manager notifier explicitly reports a
 delivered, non-suppressed notice. Tool failure, notifier suppression, and an
 audit-only duplicate retain the normal reply path. Voice and email do not use
 the quiet disposition.
+
+Prospect scheduling also has one durable two-hour follow-up for a question
+awaiting the prospect. A reply, booking, opt-out, deferral, handoff, archive, or
+quiet-hours policy cancels or defers it; retries cannot duplicate the reminder
+or revive a historical conversation.
 
 ### Vendor (`src/lib/tools/vendor-index.ts`)
 

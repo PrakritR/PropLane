@@ -307,7 +307,7 @@ export type ListOpenTourSlotsResult =
  */
 export async function listOpenTourSlots(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
-  args: { propertyId: string; buildingName?: string | null; address?: string | null },
+  args: { propertyId: string; buildingName?: string | null; address?: string | null; publishedOnly?: boolean },
 ): Promise<ListOpenTourSlotsResult> {
   const propertyId = args.propertyId.trim();
   if (!propertyId) return { ok: false, error: "propertyId required" };
@@ -529,9 +529,11 @@ export async function listOpenTourSlots(
       slots: resolveTourOfferingSlots(
         publishedSlotsByManager.get(managerUserId) ?? [],
         Date.now(),
-        managerTourSettingsToDefaultAvailability(
-          settingsByManager.get(managerUserId) ?? DEFAULT_MANAGER_TOUR_SETTINGS,
-        ),
+        args.publishedOnly
+          ? { startSlot: 0, endSlotExclusive: 1, horizonDays: 7, enabled: false }
+          : managerTourSettingsToDefaultAvailability(
+              settingsByManager.get(managerUserId) ?? DEFAULT_MANAGER_TOUR_SETTINGS,
+            ),
       ),
     }));
 

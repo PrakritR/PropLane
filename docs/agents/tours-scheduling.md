@@ -46,6 +46,41 @@ the proposal is a gated pending action the manager approves. Invariants:
   mirrors the public availability route's exclusion set; it excludes the
   inquiry's own window so it never blocks itself. No slot match → no proposal.
 
+## Prospect SMS auto-confirm exception
+
+The approval-first rule above remains the contract for manager automation,
+resident requests, and the public/web request flow. There is one deliberate
+exception: a prospect who is texting the leasing SMS agent may be auto-confirmed
+after they agree to an exact, freshly resolved published slot. This path is
+prospect-SMS-only and uses the separate typed `confirm_prospect_sms_tour` tool;
+it does not change the semantics of `request_tour`.
+
+- The agent must resolve the listing and call `list_open_tour_slots` immediately
+  before presenting the offer and again in the booking handler. Only explicitly
+  published slots are eligible; defaults, stale slot ids, ambiguous listings,
+  unavailable listings, and expired offers are never auto-confirmed.
+- The inbound texting number is the trusted contact identity. A name is required
+  and email is optional. The property, room, host eligibility, exact offer, and
+  scope are re-derived server-side; model-supplied ids do not grant access.
+- The agent first persists the exact published offer with the typed
+  `prepare_prospect_tour_confirmation` tool and asks the prospect to reply
+  `YES`; only that unambiguous affirmative can authorize the separate
+  `confirm_prospect_sms_tour` write. A reply that supplies a different time,
+  weekday, date, property, or qualification is not agreement with the
+  prepared offer and requires a fresh preparation step.
+- The reservation boundary is atomic and idempotent across webhook retries,
+  workers, and the existing manager/web booking paths. A competing reservation
+  returns a current alternative or escalation without creating a second event.
+  A successful booking emits one calendar event and one prospect confirmation
+  through the existing outbox, then awaits bounded calendar synchronization.
+- A scheduling question that is still awaiting the prospect may receive one
+  follow-up after two hours. A reply, booking, opt-out, deferral, manager
+  handoff, quiet-hours policy, or failed delivery cancels or defers it. A worker
+  crash or retry must not create a duplicate reminder.
+
+This exception does not authorize the agent to book from resident/web requests,
+manager proposals, or any surface that still requires human confirmation.
+
 ## A slotKey is WALL TIME, and the wall clock is Pacific — never the server's
 
 `"2026-08-06:20"` means "10:00 on Aug 6" on the calendar a manager paints and a
@@ -333,14 +368,18 @@ differ by entry point.
 `hostUserId` arrives from the model on the agent path; everything that decides
 access is re-derived from the database inside the function.
 
-It never books. A request is `status: "pending"` until a human confirms it.
+The web and resident `request_tour` paths never book. Their request is
+`status: "pending"` until a human confirms it. The separate prospect-SMS typed
+booking tool is the only exception described above.
 
 ## Tour tools, and who may do what
 
 | Tool | Registries | What it does |
 | --- | --- | --- |
 | `list_open_tour_slots` | manager, resident, leasing SMS | The offered set, above. The only source of a time any other tool may accept. |
-| `request_tour` | resident, leasing SMS | Files a pending inquiry via `createTourInquiry`. Books nothing. |
+| `request_tour` | resident, leasing SMS | Resident/web requests file a pending inquiry via `createTourInquiry`. Prospect SMS uses a separate typed booking tool for the auto-confirm exception above. |
+| `prepare_prospect_tour_confirmation` | leasing SMS worker only | Persists one exact current published offer and asks the prospect to reply `YES`; it does not book. |
+| `confirm_prospect_sms_tour` | leasing SMS worker only | Auto-confirms one exact, freshly resolved published offer after current inbound agreement, trusted phone, and server-side scope checks. |
 | `book_tour` | manager | `createManualPlannedTour` — a booking from scratch, no inquiry needed. |
 | `confirm_tour_inquiry` | manager | Accepts an existing request (this is what the approval-first proposal targets). |
 | `reschedule_tour` / `cancel_tour` | manager | `tour-planned-change.server.ts`; both email the guest. |
@@ -353,10 +392,10 @@ It never books. A request is `status: "pending"` until a human confirms it.
 - **`request_tour` is inline allow-listed on the leasing SMS surface**
   (`LEASING_SMS_INLINE_WRITE_TOOLS`), the second entry ever after
   `escalate_to_manager`. A texting prospect is anonymous, so there is no
-  `user_id` a pending action could be claimed on: a confirmation card is
-  impossible, not merely absent. It is safe inline because it is the same risk
-  class as an escalation — it files a request and notifies the manager, and books
-  nothing.
+  `user_id` a pending action could be claimed on. On resident and web surfaces
+  it remains a pending inquiry that a manager confirms. The separate
+  prospect-SMS booking tool may auto-confirm only after the prospect agrees to
+  a current exact offer.
 - **`create_calendar_event` does not block a tour slot unless you say so.** Only
   a `kind: "tour"` planned event subtracts from availability; every other kind is
   ignored by `loadManagerTourBlocks` and `listOpenTourSlots` alike. That made the

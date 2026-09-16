@@ -131,6 +131,8 @@ export async function sendPropLaneSms(args: {
     transport?: "twilio" | "claw"; transportFromNumber?: string | null;
     candidateContext?: unknown; candidateShadowSnapshot?: unknown;
   };
+  /** A committed autonomous tour must use the booking-keyed outbox operation. */
+  prospectTourBookingConfirmationId?: string | null;
   /**
    * When set, logs outbound SMS for the Communication → SMS → Sent tab.
    * Pass `null` to skip (e.g. manager carbon-copy mirrors).
@@ -225,6 +227,7 @@ export async function sendPropLaneSms(args: {
     dedupeKey: args.dedupeKey,
     traceId: args.traceId,
     prospectBurst: args.prospectBurst,
+    prospectTourBookingConfirmationId: args.prospectTourBookingConfirmationId,
   }, db);
   if (!enqueued.ok) return { ok: false, channel: "twilio", error: enqueued.error };
   await dispatchOwnerSmsOutbox({
@@ -284,6 +287,7 @@ export async function sendFromManagerWorkNumber(args: {
     transport?: "twilio" | "claw"; transportFromNumber?: string | null;
     candidateContext?: unknown; candidateShadowSnapshot?: unknown;
   };
+  prospectTourBookingConfirmationId?: string | null;
   /** Skip Communication → SMS Sent logging (manager mirror copies). */
   skipLog?: boolean;
 }): Promise<PropLaneSmsResult> {
@@ -305,6 +309,7 @@ export async function sendFromManagerWorkNumber(args: {
     actorUserId: args.actorUserId,
     traceId: args.traceId,
     prospectBurst: args.prospectBurst,
+    prospectTourBookingConfirmationId: args.prospectTourBookingConfirmationId,
     log: args.skipLog
       ? null
       : {

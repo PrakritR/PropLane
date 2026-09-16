@@ -10,6 +10,7 @@ import { syncManagerAvailabilityToGoogleCalendar } from "@/lib/google-calendar/s
 import { summarizeAvailabilityChange } from "@/lib/availability-change-summary";
 import { resolvePropertyOwnerUserId } from "@/lib/property-owner.server";
 import { emitAvailabilityChangedEvent } from "@/lib/tour-events.server";
+import { replaceManagerPlannedScheduleSlice } from "@/lib/planned-schedule-persistence.server";
 
 export const runtime = "nodejs";
 
@@ -99,6 +100,32 @@ const route = createJsonRecordRoute({
       return record;
     }
     return reconcileManagerPlannedEventsWrite(record, user.id, existing);
+  },
+  atomicWrite: async ({ db, user, record, existing }) => {
+    // The shared planned-events singleton is a JSON read model. A manager's
+    // POST replaces only their own slice inside a DB transaction, so a stale
+    // browser save cannot erase a concurrent calendar/tour append.
+    if (String(record.id) !== "axis_admin_planned_events_v1") {
+      return { handled: false };
+    }
+    const rowData = record.row_data;
+    const payload = rowData && typeof rowData === "object" && !Array.isArray(rowData)
+      ? (rowData as { payload?: unknown }).payload
+      : [];
+    const events = (Array.isArray(payload) ? payload : [])
+      .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item)))
+      .filter((item) => !item.managerUserId || String(item.managerUserId) === user.id)
+      .map((item) => ({ ...item, managerUserId: user.id }));
+    const existingRowData = existing?.row_data && typeof existing.row_data === "object" && !Array.isArray(existing.row_data)
+      ? existing.row_data as { payload?: unknown }
+      : null;
+    const expectedEvents = (Array.isArray(existingRowData?.payload) ? existingRowData.payload : [])
+      .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item)))
+      .filter((item) => String(item.managerUserId ?? "") === user.id);
+    const result = await replaceManagerPlannedScheduleSlice(db, { managerUserId: user.id, events, expectedEvents });
+    if (!result.available) return { handled: false };
+    if (!result.ok) return { handled: true, error: result.reason, status: 409 };
+    return { handled: true };
   },
   assertInsertAllowed: (record, user) => {
     if (user.role === "admin") return null;

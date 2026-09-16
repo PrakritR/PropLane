@@ -25,6 +25,12 @@ RLS, tool layer, listing photos). This file is how to work **with him**.
 ## Working style
 
 - Never use the em dash. Use a plain dash `-`.
+- Run localhost servers only during active testing or review. Stop task-owned
+  servers when active use ends, including before handoff; a Review URL is not
+  a reason to leave one running. Verify process ownership before stopping it.
+- Coordinate agents so only one whole-project typecheck, build, or broad test
+  suite runs at a time. Never duplicate checks in the same worktree. After
+  interruption, verify child processes exited instead of leaving Node workers.
 - Act as a collaborator: when scoping something big, name alternatives and
   drawbacks, then pick. Approach the problem from more than one angle.
 - Prefer quality, simplicity, robustness, scalability, and long-term
@@ -52,6 +58,11 @@ RLS, tool layer, listing photos). This file is how to work **with him**.
 - `/demo` is not proof the feature works.
 
 ## Handoff
+
+Documents Akhil needs to review (findings, plans, reports, and handoffs) must be
+simple, self-contained HTML files, not Markdown-only deliverables. Always give
+the full absolute file path, preferably as a clickable link. Internal Markdown
+instructions may remain Markdown; provide HTML for human review.
 
 Same as `AGENTS.md`: seed real data, exercise edges, then
 

@@ -33,6 +33,7 @@ vi.mock("@/lib/google-calendar/sync.server", () => ({
 
 import { GoogleCalendarNotLinkedError } from "@/lib/google-calendar/api.server";
 import { cancelPlannedTour, deletePlannedTour, reschedulePlannedTour } from "@/lib/tour-planned-change.server";
+import { slotKeyForInstant } from "@/lib/tour-slot-math";
 
 const MANAGER = "mgr-1";
 
@@ -267,10 +268,7 @@ describe("reschedulePlannedTour", () => {
     });
   });
 
-  it("drops the stale slotKey so the old window is not still blocked", async () => {
-    // The slotKey named the OLD half hour. Carrying it forward would leave the
-    // new window bookable and the old one blocked in the public grid — the
-    // exact double-booking shape this sweep closes.
+  it("replaces the stale slotKey with the new Pacific window", async () => {
     await reschedulePlannedTour(db(), {
       plannedEventId: "planned-1",
       actorUserId: MANAGER,
@@ -278,7 +276,7 @@ describe("reschedulePlannedTour", () => {
       end: NEW_END,
       notifyGuest: true,
     });
-    expect(WRITTEN_PAYLOAD![0]!.slotKey).toBeUndefined();
+    expect(WRITTEN_PAYLOAD![0]!.slotKey).toBe(slotKeyForInstant(NEW_START));
   });
 
   it("moves the Google Calendar entry instead of creating a second one", async () => {
