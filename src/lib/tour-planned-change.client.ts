@@ -98,6 +98,29 @@ export function cancelPlannedTourFromServer(input: {
   });
 }
 
+/**
+ * Remove a planned tour outright. Silent by default — the guest is messaged
+ * only when the caller says so, which the delete sheet does for a live tour.
+ */
+export function deletePlannedTourFromServer(input: {
+  plannedEventId: string;
+  notifyGuest?: boolean;
+  subject?: string;
+  body?: string;
+  deliverViaEmail?: boolean;
+  deliverViaSms?: boolean;
+}): Promise<ChangeResult> {
+  return postTourChange("/api/portal-tour-inquiries/delete-planned", {
+    id: input.plannedEventId,
+    notifyGuest: input.notifyGuest === true,
+    subject: input.subject,
+    body: input.body,
+    messageBody: input.body,
+    ...(input.deliverViaEmail === undefined ? {} : { deliverViaEmail: input.deliverViaEmail }),
+    ...(input.deliverViaSms === undefined ? {} : { deliverViaSms: input.deliverViaSms }),
+  });
+}
+
 export function proposePendingTourRescheduleFromServer(input: {
   inquiryId: string;
   previousStart: string;

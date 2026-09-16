@@ -952,7 +952,7 @@ export type DeletePartnerInquiryResult = { ok: boolean; error?: string };
 
 async function deleteTourInquiryFromServer(
   row: PartnerInquiry,
-  opts?: { notifyTenant?: boolean; subject?: string; body?: string },
+  opts?: { notifyTenant?: boolean; subject?: string; body?: string; purge?: boolean },
 ): Promise<DeletePartnerInquiryResult> {
   const selectedWindow = getPartnerInquiryWindows(row)[0];
   try {
@@ -968,6 +968,7 @@ async function deleteTourInquiryFromServer(
         notifyTenant: opts?.notifyTenant !== false,
         subject: opts?.subject,
         body: opts?.body,
+        ...(opts?.purge ? { purge: true } : {}),
       }),
     });
     if (res.ok) return { ok: true };
@@ -982,7 +983,8 @@ async function deleteTourInquiryFromServer(
 
 export async function deletePartnerInquiryFromServer(
   id: string,
-  opts?: { notifyTenant?: boolean; subject?: string; body?: string },
+  /** `purge` drops the request instead of leaving it as a declined row. */
+  opts?: { notifyTenant?: boolean; subject?: string; body?: string; purge?: boolean },
 ): Promise<DeletePartnerInquiryResult> {
   const row = readPartnerInquiries().find((r) => r.id === id);
   if (!row) return { ok: false };
