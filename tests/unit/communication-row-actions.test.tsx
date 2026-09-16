@@ -11,11 +11,24 @@ const mocks = vi.hoisted(() => ({ archive: vi.fn(), restore: vi.fn(), remove: vi
 vi.mock("@/components/providers/app-ui-provider", () => ({ useConfirm: () => mocks.confirm }));
 vi.mock("@/lib/communication-inbox-thread-mutations", () => ({ archivePersistedInboxThreads: mocks.archive, restorePersistedInboxThreads: mocks.restore, deletePersistedInboxThreadsForever: mocks.remove }));
 vi.mock("@/lib/manager-sms-archive.client", () => ({ archiveManagerSmsConversation: mocks.sms, restoreManagerSmsConversation: vi.fn() }));
-const threads = ["a", "b", "c"].map((id) => ({ id, folder: "inbox", from: id, email: `${id}@example.test`, subject: id, body: id, preview: id, time: "", unread: false } as PersistedInboxThread));
+const ASSISTANT_ID = "agent_notice_00000000-0000-4000-8000-000000000001";
+const threads = [
+  ...["a", "b", "c"].map((id) => ({ id, folder: "inbox", from: id, email: `${id}@example.test`, subject: id, body: id, preview: id, time: "", unread: false } as PersistedInboxThread)),
+  // The manager's PropLane Assistant thread (agent notices).
+  { id: ASSISTANT_ID, folder: "inbox", from: "PropLane Assistant", email: "", subject: "PropLane Assistant", body: "A prospect texted your work number.", preview: "", time: "", unread: false, threadType: "agent_notice" } as PersistedInboxThread,
+  // The assistant-email mirror, titled "PropLane admin" in the list: an ordinary
+  // person thread whose first turn happens to be authored by the assistant.
+  { id: "assistant-email-proof-1", folder: "inbox", from: "PropLane Assistant", email: "admin@example.test", subject: "Re: Propert", body: "Can I help you find a rental home?", preview: "", time: "", unread: false } as PersistedInboxThread,
+];
 const rows: UnifiedInboxListItem[] = [
   { key: "email:a", threadId: "a", channel: "email", name: "First", preview: "", time: "", unread: false, sortMs: 1, memberKeys: ["email:a", "email:c", "sms:exact:owner:phone"] },
   { key: "email:c", threadId: "c", channel: "email", name: "Ordinary", preview: "", time: "", unread: false, sortMs: 3, memberKeys: ["email:a", "email:c"] },
   { key: "email:b", threadId: "b", channel: "email", name: "Second", preview: "", time: "", unread: false, sortMs: 2 },
+  { key: `email:${ASSISTANT_ID}`, threadId: ASSISTANT_ID, channel: "email", name: "PropLane Assistant", preview: "", time: "", unread: false, sortMs: 4 },
+  // Merged person-row whose stored sourceThreadIds still name a thread the
+  // list no longer returns — the shape behind "No actions available." on the
+  // PropLane admin row.
+  { key: "email:assistant-email-proof-1", threadId: "assistant-email-proof-1", channel: "email", name: "PropLane admin", preview: "", time: "", unread: false, sortMs: 5, memberKeys: ["email:assistant-email-proof-1", "email:gone-from-list"] },
 ];
 function Harness({ archived = false, manager = true }: { archived?: boolean; manager?: boolean }) {
   const bulk = useUnifiedCommunicationBulk({ mergedRows: rows, listSegment: archived ? "archived" : "active", storageKey: "test-inbox", emailThreads: threads, onEmailThreadsChange: () => {} });
@@ -78,4 +91,35 @@ it("deletes all ordinary email members after confirmation", async () => {
   restoreClock();
   await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith("test-inbox", ["c", "a"]));
   expect(mocks.confirm).toHaveBeenCalledOnce();
+});
+
+it("archives the PropLane Assistant and PropLane admin conversations like any other row", async () => {
+  render(<Harness />);
+  open("PropLane Assistant"); fireEvent.click(await screen.findByRole("menuitem", { name: "Archive" }));
+  await waitFor(() => expect(mocks.archive).toHaveBeenLastCalledWith("test-inbox", [ASSISTANT_ID]));
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  open("PropLane admin"); fireEvent.click(await screen.findByRole("menuitem", { name: "Archive" }));
+  await waitFor(() => expect(mocks.archive).toHaveBeenLastCalledWith("test-inbox", ["assistant-email-proof-1", "gone-from-list"]));
+  expect(mocks.sms).not.toHaveBeenCalled();
+});
+
+it("offers the assistant and admin rows Archive in a role portal too", async () => {
+  render(<Harness manager={false} />);
+  open("PropLane Assistant");
+  await screen.findByRole("menuitem", { name: "Archive" });
+  expect(screen.queryByRole("menuitem", { name: "Edit" })).toBeNull();
+});
+
+it("restores an archived PropLane Assistant but never deletes it forever", async () => {
+  render(<Harness archived />);
+  open("PropLane Assistant");
+  await screen.findByRole("menuitem", { name: "Restore" });
+  expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
+  fireEvent.click(screen.getByRole("menuitem", { name: "Restore" }));
+  await waitFor(() => expect(mocks.restore).toHaveBeenCalledWith("test-inbox", [ASSISTANT_ID]));
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  // The admin mirror is an ordinary person thread: Restore and Delete both stay.
+  open("PropLane admin");
+  await screen.findByRole("menuitem", { name: "Restore" });
+  expect(screen.getByRole("menuitem", { name: "Delete" })).toBeTruthy();
 });
