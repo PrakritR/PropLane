@@ -386,6 +386,7 @@ export function ManagerCommunication({
         listActions={communicationCommandActions}
         onAddConversation={() => openCompose("email")}
         onApplicationsLoaded={refreshDirectory}
+        onArchivedViewChange={(next) => setFilters((current) => ({ ...current, status: next }))}
       />
       <ManagerPortalSettingsModal
         open={communicationSettingsOpen}

@@ -36,6 +36,81 @@ export const PORTAL_INBOX_CONTACT_CARD_GLYPH_CLASS =
 const ACTION_CLASS =
   "grid h-8 w-8 shrink-0 place-items-center rounded-[10px] border border-primary/30 bg-card text-primary transition-colors hover:bg-primary/[0.08]";
 
+function ContactIdentityRow({
+  leading,
+  value,
+  label,
+  note,
+  noteTone = "muted",
+  actions,
+}: {
+  leading?: ReactNode;
+  value: string;
+  label: string;
+  note?: string;
+  noteTone?: "muted" | "warn";
+  actions?: PortalInboxContactCardAction[];
+}) {
+  return (
+    <>
+      {leading}
+      <div className="min-w-0 flex-1">
+        {/* The value earns its size. A phone number is short and wants to be
+            big; an assistant address is 35 characters and the list pane is
+            only ~400px wide, so at 16px it truncated mid-domain — which is
+            the whole point of the card, cut off. Stepping down by length fits
+            the long one without shrinking the short one. */}
+        <p
+          className={`truncate font-extrabold tabular-nums tracking-[-0.015em] text-foreground ${
+            value.length > 32 ? "text-[12.5px]" : value.length > 24 ? "text-[14px]" : "text-[16px]"
+          }`}
+          title={value}
+        >
+          {value}
+        </p>
+        {/* The label and note share one truncating line, so the full sentence
+            stays reachable on hover rather than being cut with no way to read
+            it. */}
+        <p className="truncate text-[12.5px] leading-snug text-muted" title={note ? `${label} · ${note}` : label}>
+          {label}
+          {note ? (
+            <>
+              {" · "}
+              <span className={noteTone === "warn" ? "text-[var(--status-pending-fg)]" : undefined}>{note}</span>
+            </>
+          ) : null}
+        </p>
+      </div>
+      {actions?.map((action) =>
+        action.href ? (
+          <a
+            key={action.key}
+            href={action.href}
+            className={ACTION_CLASS}
+            aria-label={action.label}
+            title={action.label}
+            data-attr={action.dataAttr}
+          >
+            {action.icon}
+          </a>
+        ) : (
+          <button
+            key={action.key}
+            type="button"
+            className={ACTION_CLASS}
+            aria-label={action.label}
+            title={action.label}
+            data-attr={action.dataAttr}
+            onClick={action.onClick}
+          >
+            {action.icon}
+          </button>
+        ),
+      )}
+    </>
+  );
+}
+
 export function PortalInboxContactCard({
   leading,
   value,
@@ -43,6 +118,7 @@ export function PortalInboxContactCard({
   note,
   noteTone = "muted",
   actions,
+  secondary,
   dataAttr,
 }: {
   /**
@@ -58,65 +134,44 @@ export function PortalInboxContactCard({
   note?: string;
   noteTone?: "muted" | "warn";
   actions?: PortalInboxContactCardAction[];
+  /**
+   * Second identity on the same card (work email under the work number).
+   * Same row chrome as the primary so the two cannot drift.
+   */
+  secondary?: {
+    leading?: ReactNode;
+    value: string;
+    label: string;
+    actions?: PortalInboxContactCardAction[];
+  };
   dataAttr?: string;
 }) {
   return (
     <div className="shrink-0 px-3.5 pb-2.5 pt-3.5" data-attr={dataAttr}>
-      <div className="flex items-center gap-3 rounded-2xl border border-primary/25 bg-primary/[0.05] px-3 py-2.5">
-        {leading}
-        <div className="min-w-0 flex-1">
-          {/* The value earns its size. A phone number is short and wants to be
-              big; an assistant address is 35 characters and the list pane is
-              only ~400px wide, so at 16px it truncated mid-domain — which is
-              the whole point of the card, cut off. Stepping down by length fits
-              the long one without shrinking the short one. */}
-          <p
-            className={`truncate font-extrabold tabular-nums tracking-[-0.015em] text-foreground ${
-              value.length > 32 ? "text-[12.5px]" : value.length > 24 ? "text-[14px]" : "text-[16px]"
-            }`}
-            title={value}
-          >
-            {value}
-          </p>
-          {/* The label and note share one truncating line, so the full sentence
-              stays reachable on hover rather than being cut with no way to read
-              it. */}
-          <p className="truncate text-[12.5px] leading-snug text-muted" title={note ? `${label} · ${note}` : label}>
-            {label}
-            {note ? (
-              <>
-                {" · "}
-                <span className={noteTone === "warn" ? "text-[var(--status-pending-fg)]" : undefined}>{note}</span>
-              </>
-            ) : null}
-          </p>
+      <div className="rounded-2xl border border-primary/25 bg-primary/[0.05]">
+        <div className="flex items-center gap-3 px-3 py-2.5">
+          <ContactIdentityRow
+            leading={leading}
+            value={value}
+            label={label}
+            note={note}
+            noteTone={noteTone}
+            actions={actions}
+          />
         </div>
-        {actions?.map((action) =>
-          action.href ? (
-            <a
-              key={action.key}
-              href={action.href}
-              className={ACTION_CLASS}
-              aria-label={action.label}
-              title={action.label}
-              data-attr={action.dataAttr}
-            >
-              {action.icon}
-            </a>
-          ) : (
-            <button
-              key={action.key}
-              type="button"
-              className={ACTION_CLASS}
-              aria-label={action.label}
-              title={action.label}
-              data-attr={action.dataAttr}
-              onClick={action.onClick}
-            >
-              {action.icon}
-            </button>
-          ),
-        )}
+        {secondary ? (
+          <div
+            className="flex items-center gap-3 border-t border-primary/15 px-3 py-2.5"
+            data-attr="portal-inbox-contact-card-secondary"
+          >
+            <ContactIdentityRow
+              leading={secondary.leading}
+              value={secondary.value}
+              label={secondary.label}
+              actions={secondary.actions}
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   );
