@@ -602,6 +602,7 @@ export function TaskSettingsPanel({
           formRef={reminderFormRef}
           disabled={saving}
         />
+        <AutomationRuleRows rows={[{ kind: "task_overdue" }]} disabled={saving} />
       </PortalSettingsSection>
 
       <PortalSettingsSection
@@ -735,6 +736,7 @@ export function LeaseSettingsPanel({
           formRef={reminderFormRef}
           disabled={loading || saving}
         />
+        <AutomationRuleRows rows={[{ kind: "document_signature" }]} disabled={loading || saving} />
       </PortalSettingsSection>
 
       <PortalSettingsSection title="Messages sent automatically">
@@ -1680,7 +1682,7 @@ export function CommunicationSettingsPanel({
       />
       <div className="mt-6 space-y-3">
         <p className="text-[15px] font-bold tracking-[-0.01em] text-foreground">Follow-ups</p>
-        <AutomationRuleRows rows={[{ kind: "message_unanswered" }]} />
+        <AutomationRuleRows rows={[{ kind: "message_unanswered" }, { kind: "resident_welcome", multi: true }]} />
       </div>
       <div className="mt-6 space-y-3">
         <p className="text-[15px] font-bold tracking-[-0.01em] text-foreground">Messages sent automatically</p>

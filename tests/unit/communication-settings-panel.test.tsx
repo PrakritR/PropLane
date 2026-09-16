@@ -84,6 +84,9 @@ function stubPanelFetches(
       if (url.includes("/api/portal/automation-settings")) {
         return Response.json({ settings: DEFAULT_MANAGER_AUTOMATION_SETTINGS });
       }
+      // PLAN-0915 rows on the same panel load their own settings.
+      if (url.includes("/api/portal/reminder-settings")) return Response.json({ settings: {} });
+      if (url.includes("/api/portal/automated-messages")) return Response.json({ settings: {}, defaults: {} });
       if (url.includes("/api/manager/messaging-number")) {
         return status ? Response.json(status) : new Response("missing", { status: 404 });
       }

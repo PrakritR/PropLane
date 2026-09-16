@@ -128,6 +128,20 @@ export async function reminderIsCurrent(db: SupabaseClient, row: ReminderQueueRo
     return outgoingPaymentIsCurrent(db, row, expectedAnchor);
   }
 
+  if (row.kind === "task_overdue") {
+    const { data, error } = await db.from("portal_schedule_records").select("row_data").eq("manager_user_id", row.managerUserId).eq("record_type", "manager_tasks").maybeSingle();
+    if (error) throw error;
+    const tasks = (data?.row_data as { tasks?: unknown } | null)?.tasks;
+    const task = (Array.isArray(tasks) ? tasks : []).find((candidate) => candidate && typeof candidate === "object" && String((candidate as Record<string, unknown>).id ?? "") === row.subjectId) as Record<string, unknown> | undefined;
+    return Boolean(task && task.completed !== true && reminderAnchorMatches(expectedAnchor, task.start ?? task.dueDate));
+  }
+  if (row.kind === "document_signature") {
+    const { data, error } = await db.from("manager_documents").select("manager_user_id, signature_status, signature_requested_at, deleted_at").eq("id", row.subjectId).maybeSingle();
+    if (error) throw error;
+    return Boolean(data && String(data.manager_user_id ?? "") === row.managerUserId && data.signature_status === "pending" && !data.deleted_at && reminderAnchorMatches(expectedAnchor, data.signature_requested_at));
+  }
+  if (row.kind === "resident_welcome") return true;
+
   if (LEASING_KINDS.has(row.kind)) {
     const { leasingReminderIsCurrent } = await import("./subjects/leasing-current.server");
     return leasingReminderIsCurrent(db, row, expectedAnchor);

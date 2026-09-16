@@ -124,14 +124,14 @@ describe("settings module redraws — scope tags", () => {
     stubFetch();
     render(<ControlledApplications />);
     expect(await screen.findByText("1 property")).toBeTruthy();
-    expect(await screen.findByText("All properties")).toBeTruthy();
+    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
   });
 
   it("Lease tags both its automation and its reminders sections", async () => {
     stubFetch();
     render(<ControlledLease />);
     expect(await screen.findByText("1 property")).toBeTruthy();
-    expect(await screen.findByText("All properties")).toBeTruthy();
+    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
   });
 
   it("Task, Payments, Bookings, Inspections, Services, Communication each tag their section", async () => {
