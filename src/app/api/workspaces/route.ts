@@ -92,7 +92,7 @@ export async function POST(request: Request) {
     if (typeof body.id !== "string" || !/^[0-9a-f-]{36}$/i.test(body.id)) {
       return NextResponse.json({ error: "A valid workspace is required." }, { status: 400 });
     }
-    const existing = await db.from("portal_workspaces").select("id,is_default").eq("id", body.id).eq("owner_user_id", user.id).maybeSingle();
+    const existing = await db.from("portal_workspaces").select("id").eq("id", body.id).eq("owner_user_id", user.id).maybeSingle();
     if (existing.error) throw existing.error;
     if (!existing.data) return NextResponse.json({ error: "Only the workspace owner can change it." }, { status: 403 });
     if (action === "move-property") {
@@ -103,10 +103,22 @@ export async function POST(request: Request) {
       if (result.error) throw result.error;
       if (!result.data?.length) return NextResponse.json({ error: "Property not found in your portfolio." }, { status: 404 });
     } else if (action === "delete") {
-      if (existing.data.is_default) return NextResponse.json({ error: "The default workspace must be kept. You can rename it." }, { status: 409 });
-      // FK RESTRICT atomically refuses a delete while properties remain or move in.
-      const result = await db.from("portal_workspaces").delete().eq("id", body.id).eq("owner_user_id", user.id);
+      // Any owned workspace can go, the default one included. Its houses may
+      // ride along to another workspace of the same owner; the RPC moves them,
+      // deletes, and hands "default" to the oldest remaining workspace under
+      // one owner lock. FK RESTRICT still refuses a delete with houses left.
+      const moveTo = typeof body.moveTo === "string" && body.moveTo.trim() ? body.moveTo.trim() : null;
+      if (moveTo !== null && (!/^[0-9a-f-]{36}$/i.test(moveTo) || moveTo === body.id)) {
+        return NextResponse.json({ error: "Choose another workspace for the properties." }, { status: 400 });
+      }
+      if (moveTo !== null) {
+        const destination = await db.from("portal_workspaces").select("id").eq("id", moveTo).eq("owner_user_id", user.id).maybeSingle();
+        if (destination.error) throw destination.error;
+        if (!destination.data) return NextResponse.json({ error: "Choose another workspace for the properties." }, { status: 400 });
+      }
+      const result = await db.rpc("delete_portal_workspace", { p_owner: user.id, p_id: body.id, p_move_to: moveTo });
       if (result.error) throw result.error;
+      if (!result.data) return NextResponse.json({ error: "Only the workspace owner can change it." }, { status: 403 });
     } else {
       const result = await db.from("portal_workspaces").update({ name }).eq("id", body.id).eq("owner_user_id", user.id);
       if (result.error) throw result.error;

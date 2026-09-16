@@ -15,7 +15,12 @@ if (url && !["127.0.0.1", "localhost"].includes(new URL(url).hostname)) {
 
 const db = new Pool({ connectionString: url, max: 12 });
 const suite = url ? describe : describe.skip;
-const migration = readFileSync("supabase/migrations/20260913001000_atomic_workspace_plan_limit.sql", "utf8");
+// The delete-any migration replaces the create routine, so both run in order,
+// as they do on every real target.
+const migrations = [
+  readFileSync("supabase/migrations/20260913001000_atomic_workspace_plan_limit.sql", "utf8"),
+  readFileSync("supabase/migrations/20260916030000_workspace_delete_any.sql", "utf8"),
+];
 const createdRoles: string[] = [];
 
 suite("atomic workspace plan-limit RPC on local PostgreSQL", () => {
@@ -37,6 +42,11 @@ suite("atomic workspace plan-limit RPC on local PostgreSQL", () => {
       );
       create unique index if not exists portal_workspaces_default_owner
         on public.portal_workspaces(owner_user_id) where is_default;
+      create table if not exists public.manager_property_records (
+        id text primary key,
+        manager_user_id uuid references public.profiles(id) on delete set null,
+        workspace_id uuid references public.portal_workspaces(id) on delete restrict
+      );
     `);
     await db.query(`
       create or replace function public.enforce_portal_workspace_limit()
@@ -64,11 +74,13 @@ suite("atomic workspace plan-limit RPC on local PostgreSQL", () => {
         createdRoles.push(role);
       }
     }
-    await db.query(migration);
+    for (const migration of migrations) await db.query(migration);
   });
 
   afterAll(async () => {
+    await db.query("drop function if exists public.delete_portal_workspace(uuid,uuid,uuid)");
     await db.query("drop function if exists public.create_portal_workspace_with_limit(uuid,text,integer)");
+    await db.query("drop table if exists public.manager_property_records");
     await db.query("drop trigger if exists portal_workspace_limit on public.portal_workspaces");
     await db.query("drop function if exists public.enforce_portal_workspace_limit()");
     await db.query("drop table if exists public.portal_workspaces");
@@ -117,7 +129,7 @@ suite("atomic workspace plan-limit RPC on local PostgreSQL", () => {
     ).toBe(3);
   });
 
-  it("counts an implicitly created default workspace before applying a one-workspace cap", async () => {
+  it("makes the first named workspace the default instead of seeding one beside it", async () => {
     const owner = randomUUID();
     await db.query("insert into public.profiles(id) values ($1)", [owner]);
 
@@ -125,13 +137,38 @@ suite("atomic workspace plan-limit RPC on local PostgreSQL", () => {
       "select public.create_portal_workspace_with_limit($1,$2,$3) as id",
       [owner, "Named team", 1],
     );
-    expect(result.rows[0].id).toBeNull();
+    expect(result.rows[0].id).not.toBeNull();
     expect(
       (await db.query(
         "select name,is_default from public.portal_workspaces where owner_user_id=$1",
         [owner],
       )).rows,
-    ).toEqual([{ name: "My workspace", is_default: true }]);
+    ).toEqual([{ name: "Named team", is_default: true }]);
+  });
+
+  it("deletes the default workspace, moves its houses, and promotes the oldest remaining one", async () => {
+    const owner = randomUUID();
+    await db.query("insert into public.profiles(id) values ($1)", [owner]);
+    const first = (await db.query("select public.create_portal_workspace_with_limit($1,$2,$3) as id", [owner, "First", 3])).rows[0].id;
+    const second = (await db.query("select public.create_portal_workspace_with_limit($1,$2,$3) as id", [owner, "Second", 3])).rows[0].id;
+    await db.query("insert into public.manager_property_records(id,manager_user_id,workspace_id) values ($1,$2,$3)", ["house-1", owner, first]);
+
+    // Houses left behind refuse the delete atomically.
+    await expect(db.query("select public.delete_portal_workspace($1,$2,null)", [owner, first])).rejects.toMatchObject({ code: "23503" });
+
+    const moved = await db.query("select public.delete_portal_workspace($1,$2,$3) as ok", [owner, first, second]);
+    expect(moved.rows[0].ok).toBe(true);
+    expect((await db.query("select workspace_id from public.manager_property_records where id=$1", ["house-1"])).rows[0].workspace_id).toBe(second);
+    expect(
+      (await db.query("select name,is_default from public.portal_workspaces where owner_user_id=$1", [owner])).rows,
+    ).toEqual([{ name: "Second", is_default: true }]);
+
+    // A stranger's id is not authorization: nothing is deleted for another owner.
+    expect((await db.query("select public.delete_portal_workspace($1,$2,null) as ok", [randomUUID(), second])).rows[0].ok).toBe(false);
+    // The last workspace can go too.
+    await db.query("delete from public.manager_property_records where id=$1", ["house-1"]);
+    expect((await db.query("select public.delete_portal_workspace($1,$2,null) as ok", [owner, second])).rows[0].ok).toBe(true);
+    expect((await db.query("select count(*)::integer as count from public.portal_workspaces where owner_user_id=$1", [owner])).rows[0].count).toBe(0);
   });
 
   it("rejects invalid caps and names in the database function", async () => {
