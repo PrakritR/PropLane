@@ -1,5 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { managerAgentNoticeVisibleInWorkspace } from "@/lib/communication-manager-assistant-thread";
 
 /**
  * The ONE answer to "may this viewer see this conversation" in manager
@@ -8,8 +9,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  *
  * Three rules, in this order:
  *
- *  1. A PropLane Assistant thread (`agent_notice`) belongs to ONE account. The
- *     viewer sees their own in every workspace and never anyone else's.
+ *  1. A PropLane Assistant thread (`agent_notice`) belongs to ONE manager in
+ *     ONE workspace. The viewer never sees another manager's assistant chat.
+ *     Legacy `agent_notice_{userId}` is the default workspace's chat.
  *  2. Sharing is per HOUSE. A co-manager sees another owner's conversation
  *     only when it is about a house they hold Communication on at the level
  *     asked for. A grant on one house never unlocks the owner's other houses,
@@ -104,7 +106,15 @@ export function conversationVisible(scope: CommunicationScope, input: Visibility
   const houses = [...new Set(input.houseIds.map(clean).filter(Boolean))];
   const isAssistant =
     input.threadType === "agent_notice" || (threadId.length > 0 && threadId.startsWith(AGENT_NOTICE_PREFIX));
-  if (isAssistant) return ownerId === scope.viewerId;
+  if (isAssistant) {
+    if (ownerId !== scope.viewerId) return false;
+    return managerAgentNoticeVisibleInWorkspace(
+      threadId || null,
+      scope.viewerId,
+      scope.activeWorkspaceId,
+      scope.untaggedOwnedVisible,
+    );
+  }
 
   const inWorkspace = (houseId: string) => scope.workspaceHouseIds === null || scope.workspaceHouseIds.has(houseId);
 

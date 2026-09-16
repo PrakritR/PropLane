@@ -14,7 +14,6 @@ import {
   ManagerCommunicationComposeModal,
   type CommunicationComposeChannel,
 } from "@/components/portal/pro-communication-compose-modal";
-import { ManagerWorkNumberButton } from "@/components/portal/pro-work-number-button";
 import { PortalCommunicationShell } from "@/components/portal/portal-communication-shell";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
@@ -101,8 +100,21 @@ export function ManagerCommunication({
   const { activeThreadId, setActiveThreadId } = useCommunicationThreadId(commBase, threadId);
   const inboxRef = useRef<ManagerInboxHandle>(null);
   const smsRef = useRef<ManagerSmsPanelHandle>(null);
-  const [filters, setFilters] = useState<CommunicationThreadFilters>({ ...EMPTY_COMMUNICATION_THREAD_FILTERS, status: listSegment });
-  useEffect(() => { setFilters((current) => ({ ...current, status: listSegment })); }, [listSegment]);
+  const [filters, setFilters] = useState<CommunicationThreadFilters>({
+    ...EMPTY_COMMUNICATION_THREAD_FILTERS,
+    status: listSegment === "unread" ? "unread" : "active",
+  });
+  useEffect(() => {
+    setFilters((current) => {
+      if (listSegment === "unread") {
+        return current.status === "unread" ? current : { ...current, status: "unread" };
+      }
+      if (current.status === "archived") {
+        return { ...current, status: "active" };
+      }
+      return current;
+    });
+  }, [listSegment]);
   const [listSort, setListSort] = useState<CommunicationListSort>("recent");
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeChannel, setComposeChannel] = useState<CommunicationComposeChannel>("email");
@@ -228,7 +240,13 @@ export function ManagerCommunication({
 
   const activeFilterChips = useMemo((): PortalActiveFilterChip[] => {
     const chips: PortalActiveFilterChip[] = [];
-    if (filters.status && filters.status !== "active") chips.push({ id: "status", label: filters.status === "read" ? "Read" : filters.status === "unread" ? "Unread" : "Archived", onRemove: () => setFilters((f) => ({ ...f, status: "active" })) });
+    if (filters.status && filters.status !== "active" && filters.status !== "archived") {
+      chips.push({
+        id: "status",
+        label: filters.status === "read" ? "Read" : "Unread",
+        onRemove: () => setFilters((f) => ({ ...f, status: "active" })),
+      });
+    }
     for (const propertyId of filters.propertyIds) {
       const label = propertyOptions.find((p) => p.value === propertyId)?.label ?? propertyId;
       chips.push({
@@ -269,10 +287,11 @@ export function ManagerCommunication({
     <CommunicationFilterSortFields
       propertyOptions={propertyOptions}
       roleOptions={ROLE_OPTIONS}
-      filters={{ ...filters, status: filters.status ?? listSegment }}
+      filters={{ ...filters, status: filters.status ?? (listSegment === "unread" ? "unread" : "active") }}
       onFiltersChange={setFilters}
       listSort={listSort}
       onListSortChange={setListSort}
+      hideArchived
     />
   );
 
@@ -311,12 +330,6 @@ export function ManagerCommunication({
   const communicationCommandActions = (
     <>
       {communicationFilterSheet}
-      {/* Plan-gated SETUP cta. It self-hides once a number is assigned, at
-          which point ManagerWorkNumberCard shows the number itself at the top
-          of the conversation list — so the two never appear together, and
-          deleting this would remove the only entry to work-number setup (and
-          the free-tier upsell behind it). */}
-      <ManagerWorkNumberButton />
       {/*
         Every other section has a settings gear; Communication didn't. The
         panel this used to point at was phone verification — the resident's
@@ -386,7 +399,11 @@ export function ManagerCommunication({
         listActions={communicationCommandActions}
         onAddConversation={() => openCompose("email")}
         onApplicationsLoaded={refreshDirectory}
-        onArchivedViewChange={(next) => setFilters((current) => ({ ...current, status: next }))}
+        onArchivedViewChange={() =>
+          setFilters((current) =>
+            current.status === "archived" ? { ...current, status: "active" } : current,
+          )
+        }
       />
       <ManagerPortalSettingsModal
         open={communicationSettingsOpen}

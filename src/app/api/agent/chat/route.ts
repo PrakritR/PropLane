@@ -1,3 +1,4 @@
+import { withManagerWorkspacePrompt } from "@/lib/agent/manager-workspace-scope";
 import { attachPrivateInspectionSources } from "@/lib/inspections/attachment-intake.server";
 import { NextResponse } from "next/server";
 import { resolveAgentContext } from "@/lib/tools/context";
@@ -140,7 +141,10 @@ export async function POST(req: Request) {
   const customInstructions = await loadAgentCustomInstructions(ctx.db, ctx.userId);
 
   try {
-    const system = withAssistantTaskContext(withAgentCustomInstructions(MANAGER_SYSTEM_PROMPT, customInstructions), contextHint);
+    const system = withManagerWorkspacePrompt(
+      withAssistantTaskContext(withAgentCustomInstructions(MANAGER_SYSTEM_PROMPT, customInstructions), contextHint),
+      ctx.workspace,
+    );
     const promptMeta = resolvePromptMeta(PROMPT_IDS.managerAssistant, system);
     const traceActor = {
       userId: ctx.userId,

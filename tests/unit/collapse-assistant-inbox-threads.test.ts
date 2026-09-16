@@ -80,4 +80,27 @@ describe("collapseAssistantInboxThreads", () => {
     expect(turns).toHaveLength(1);
     expect(inboxMessageOutbound(turns[0]!, 0, thread.folder, thread)).toBe(false);
   });
+
+  it("does not collapse a manager's default-workspace assistant into another workspace's chat", () => {
+    const defaultChat: PersistedInboxThread = {
+      id: `agent_notice_${MANAGER_A}`,
+      folder: "inbox",
+      from: "PropLane Assistant",
+      email: "",
+      subject: "PropLane Assistant",
+      preview: "Default",
+      time: "Aug 3, 5:31 PM",
+      unread: false,
+      threadType: "agent_notice",
+    };
+    const otherWorkspace: PersistedInboxThread = {
+      ...defaultChat,
+      id: `agent_notice_${MANAGER_A}__aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`,
+      preview: "Other",
+    };
+    const collapsed = collapseAssistantInboxThreads([defaultChat, otherWorkspace]);
+    expect(collapsed.map((thread) => thread.id).sort()).toEqual(
+      [defaultChat.id, otherWorkspace.id].sort(),
+    );
+  });
 });

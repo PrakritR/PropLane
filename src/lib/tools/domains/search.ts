@@ -5,6 +5,10 @@ import type { DemoApplicantRow, DemoManagerWorkOrderRow } from "@/data/demo-port
 import { normalizeLeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import { loadAllManagerRows } from "./load-manager-rows";
+import {
+  propertyInAgentWorkspace,
+  SWITCH_WORKSPACE_ASSISTANT_REPLY,
+} from "@/lib/agent/manager-workspace-scope";
 
 const RECORD_TYPES = ["resident", "application", "vendor", "property", "work_order", "lease"] as const;
 
@@ -124,7 +128,11 @@ async function loadCandidates(ctx: AgentContext, types: readonly SearchRecordTyp
       .eq("manager_user_id", ctx.landlordId)
       .limit(1000);
     if (error) throw new Error(error.message);
-    out.push(...propertyCandidates((data ?? []) as RawPropertyRecord[]));
+    out.push(
+      ...propertyCandidates(
+        ((data ?? []) as RawPropertyRecord[]).filter((rec) => propertyInAgentWorkspace(ctx.workspace, rec.id)),
+      ),
+    );
   }
 
   if (wanted.has("work_order")) {
@@ -194,7 +202,8 @@ export const findRecordsTool = defineTool({
     const ranked: { rank: number; hit: SearchHit }[] = [];
     for (const candidate of candidates) {
       const rank = matchRank(rawQuery, normQuery, candidate.fields);
-      if (rank !== null) ranked.push({ rank, hit: candidate.hit });
+      if (rank === null) continue;
+      ranked.push({ rank, hit: candidate.hit });
     }
     ranked.sort(
       (a, b) =>
@@ -203,6 +212,22 @@ export const findRecordsTool = defineTool({
         a.hit.label.localeCompare(b.hit.label),
     );
     const results = ranked.slice(0, limit).map((r) => r.hit);
+    if (results.length === 0 && ctx.workspace?.narrowing) {
+      const { data, error } = await ctx.db
+        .from("manager_property_records")
+        .select("id, status, row_data, property_data")
+        .eq("manager_user_id", ctx.landlordId)
+        .limit(1000);
+      if (!error) {
+        const other = propertyCandidates((data ?? []) as RawPropertyRecord[]).filter(
+          (candidate) => !propertyInAgentWorkspace(ctx.workspace, candidate.hit.id),
+        );
+        const hitOther = other.some((candidate) => matchRank(rawQuery, normQuery, candidate.fields) !== null);
+        if (hitOther) {
+          return { count: 0, results: [], message: SWITCH_WORKSPACE_ASSISTANT_REPLY };
+        }
+      }
+    }
     return { count: results.length, results };
   },
 });

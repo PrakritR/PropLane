@@ -14,6 +14,7 @@ export type AgentChatHistoryActor = {
   // be actor-scoped in every call below.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   db: any;
+  workspace?: { id: string; isDefault?: boolean };
 };
 
 export type AgentChatThreadSummary = {
@@ -40,10 +41,14 @@ export type AgentChatThreadDeleteResult = { ok: true } | { ok: false; error?: st
 
 type DatabaseError = { code?: string | null; message?: string | null; details?: string | null };
 
-function isMissingTitleColumn(error: unknown): boolean {
+function isMissingColumn(error: unknown, column: string): boolean {
   const candidate = error as DatabaseError | null;
   const detail = `${candidate?.message ?? ""} ${candidate?.details ?? ""}`.toLowerCase();
-  return detail.includes("title") && (detail.includes("column") || candidate?.code === "PGRST204");
+  return detail.includes(column.toLowerCase()) && (detail.includes("column") || candidate?.code === "PGRST204");
+}
+
+function isMissingTitleColumn(error: unknown): boolean {
+  return isMissingColumn(error, "title");
 }
 
 function reportArchiveFailure(operation: string, error: unknown) {
@@ -103,7 +108,7 @@ export async function listAgentChatThreads(
         .filter(Boolean))];
       if (matchingSessionIds.length === 0) return { threads: [], nextCursor: null };
     }
-    const load = async (includeTitle: boolean) => {
+    const load = async (includeTitle: boolean, includeWorkspace: boolean) => {
       let query = actor.db
         .from("agent_sessions")
         .select(includeTitle ? "id, title, updated_at" : "id, updated_at")
@@ -112,13 +117,30 @@ export async function listAgentChatThreads(
         .eq("kind", PORTAL_CHAT_SESSION_KIND)
         .order("updated_at", { ascending: false })
         .limit(AGENT_CHAT_HISTORY_PAGE_SIZE + 1);
+      const workspaceId = actor.workspace?.id?.trim();
+      if (includeWorkspace && workspaceId) {
+        if (actor.workspace?.isDefault) {
+          query = query.or(`workspace_id.eq.${workspaceId},workspace_id.is.null`);
+        } else {
+          query = query.eq("workspace_id", workspaceId);
+        }
+      }
       if (matchingSessionIds) query = query.in("id", matchingSessionIds);
       const before = validCursor(cursor ?? null);
       if (before) query = query.lt("updated_at", before);
       return query;
     };
-    let { data, error } = await load(true);
-    if (error && isMissingTitleColumn(error)) ({ data, error } = await load(false));
+    let includeTitle = true;
+    let includeWorkspace = true;
+    let { data, error } = await load(includeTitle, includeWorkspace);
+    if (error && isMissingTitleColumn(error)) {
+      includeTitle = false;
+      ({ data, error } = await load(includeTitle, includeWorkspace));
+    }
+    if (error && isMissingColumn(error, "workspace_id")) {
+      includeWorkspace = false;
+      ({ data, error } = await load(includeTitle, includeWorkspace));
+    }
     if (error || !data) {
       reportArchiveFailure("list conversations", error);
       return { threads: [], nextCursor: null, error: "Could not load conversations. Try again." };

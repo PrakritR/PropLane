@@ -31,6 +31,7 @@ import {
   useOptionalAssistantConversation,
 } from "@/lib/axis-assistant/assistant-conversation-context";
 import { visibleConversationMessages } from "@/lib/axis-assistant/use-assistant-conversation";
+import { useActiveWorkspaceIdentity } from "@/hooks/use-selected-workspace-id";
 import { useAssistantDisplayMode } from "@/hooks/use-assistant-display-mode";
 import { useIsClient } from "@/hooks/use-is-client";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
@@ -472,12 +473,13 @@ export function AxisAssistant({
   );
 
   const chatEndpoint = endpoint ?? "/api/agent/chat";
+  const workspace = useActiveWorkspaceIdentity();
 
   return (
     <PortalAssistantConfigProvider endpoint={chatEndpoint} managerName={managerName ?? null}>
       <AxisAssistantPresenceContext.Provider value={true}>
         <AxisAssistantDockContext.Provider value={dockState}>
-          <AssistantConversationProvider endpoint={chatEndpoint}>
+          <AssistantConversationProvider endpoint={chatEndpoint} archiveKey={workspace.id ?? ""}>
             <MemoizedLayoutSlot>{children}</MemoizedLayoutSlot>
             <AxisAssistantChrome managerName={managerName} endpoint={chatEndpoint} />
           </AssistantConversationProvider>

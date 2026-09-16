@@ -4,12 +4,27 @@
 // — NO Unopened / Opened / Sent / Trash / Schedule folder tabs. This locks in:
 //
 //  1. Live conversations (inbox + sent) show together in ONE list; archived
-//     (trashed) conversations are reachable via a toggle, not a tab.
+//     (trashed) conversations are the Archived tab, not a fourth folder.
 //  2. SMS conversations are gated behind `smsUiEnabled`. When off (default,
 //     A2P not cleared) the SMS endpoint is never fetched and no SMS row shows;
 //     when on, SMS rows join the same list. Transport is unaffected either way.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, cleanup, waitFor } from "@testing-library/react";
+
+vi.mock("next/link", () => ({
+  default: ({
+    href,
+    children,
+    ...rest
+  }: {
+    href: string;
+    children: React.ReactNode;
+  }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}));
 
 const EMAIL_INBOX = {
   id: "thr-2000000001",
@@ -165,7 +180,9 @@ describe("unified conversation inbox (no folder tabs)", () => {
     // Trashed conversation is NOT in the default view.
     expect(screen.queryByText("Old Flyer")).toBeNull();
 
-    expect(screen.queryByRole("link", { name: /Archived|Unread/ })).toBeNull();
+    expect(screen.getByRole("tab", { name: "Active" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Archived" })).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: "Unread" })).toBeNull();
     cleanup();
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" threadFilters={{ status: "read", propertyIds: [], roles: [], contactIds: [] }} />);
     expect(await screen.findByText("sam@example.com")).toBeTruthy();

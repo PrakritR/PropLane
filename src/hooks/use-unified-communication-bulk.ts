@@ -94,7 +94,9 @@ export function useUnifiedCommunicationBulk({
   }, [onSelectionCleared, selection]);
 
   const handleArchive = useCallback(async () => {
-    const emailIds = selectedRows.filter((row) => row.channel === "email").map((row) => row.threadId);
+    const emailIds = selectedRows
+      .filter((row) => row.channel === "email" && !row.threadId.startsWith("agent_notice_") && !row.threadId.startsWith("resident-agent-"))
+      .map((row) => row.threadId);
     const smsIds = selectedRows.filter((row) => row.channel === "sms").map((row) => row.threadId);
 
     if (emailIds.length > 0) {
@@ -162,7 +164,9 @@ export function useUnifiedCommunicationBulk({
   const confirm = useConfirm();
 
   const handleDelete = useCallback(async () => {
-    const emailIds = selectedRows.filter((row) => row.channel === "email").map((row) => row.threadId);
+    const emailIds = selectedRows
+      .filter((row) => row.channel === "email" && !row.threadId.startsWith("agent_notice_") && !row.threadId.startsWith("resident-agent-"))
+      .map((row) => row.threadId);
     if (emailIds.length === 0) return;
     if (!(await confirm({ description: `Delete ${emailIds.length} conversation${emailIds.length === 1 ? "" : "s"} forever?` }))) {
       return;

@@ -39,6 +39,10 @@ import {
 } from "@/lib/property-lease-template-html";
 import { sectionSourceFromHtml } from "@/lib/lease-section-text";
 import { smsAccessAllowsPropertyRecord, smsDataOwnerIds } from "@/lib/sms/manager-sms-access";
+import {
+  propertyInAgentWorkspace,
+  SWITCH_WORKSPACE_ASSISTANT_REPLY,
+} from "@/lib/agent/manager-workspace-scope";
 
 /**
  * Property records vary in shape by lifecycle status: `property_data` holds the
@@ -110,6 +114,7 @@ export const listPropertiesTool = defineTool({
       if (error) throw new Error(error.message);
       for (const rec of (data ?? []) as (RawPropertyRecord & { manager_user_id?: string | null })[]) {
         if (!smsAccessAllowsPropertyRecord(ctx, rec)) continue;
+        if (!propertyInAgentWorkspace(ctx.workspace, rec.id)) continue;
         byId.set(rec.id, rec);
       }
     }
@@ -134,6 +139,9 @@ async function loadOwnedPropertyRecord(ctx: AgentContext, propertyId: string): P
   const rec = (((data ?? []) as RawPropertyRecord[])[0] as RawPropertyRecord | undefined) ?? null;
   if (!rec) return null;
   if (!smsAccessAllowsPropertyRecord(ctx, rec)) return null;
+  if (!propertyInAgentWorkspace(ctx.workspace, rec.id)) {
+    throw new Error(SWITCH_WORKSPACE_ASSISTANT_REPLY);
+  }
   return rec;
 }
 

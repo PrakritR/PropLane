@@ -14,6 +14,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { resolveManagerSmsAccess } from "@/lib/sms/manager-sms-access.server";
+import type { AgentWorkspaceScope } from "@/lib/agent/manager-workspace-scope";
+import { resolveActiveWorkspaceFromRequest } from "@/lib/workspaces/active.server";
 
 import type { ManagerSmsAccess } from "@/lib/sms/manager-sms-access";
 
@@ -24,6 +26,11 @@ export type AgentContext = {
   email: string;
   roles: string[];
   isAdmin: boolean;
+  /**
+   * Active manager workspace for portal turns. Absent on SMS/vendor/leasing
+   * contexts so those surfaces keep account-wide tools.
+   */
+  workspace?: AgentWorkspaceScope;
   /**
    * Service-role client. It bypasses RLS, so every query built from it MUST
    * include an explicit `.eq("manager_user_id", ctx.landlordId)` (or equivalent
@@ -119,6 +126,22 @@ export async function resolveAgentContext(): Promise<AgentContext | null> {
   const managerSmsAccess =
     (await resolveManagerSmsAccess(db, { actorUserId: user.id, workNumberOwnerId: user.id })) ?? undefined;
 
+  let workspace: AgentWorkspaceScope | undefined;
+  try {
+    const active = await resolveActiveWorkspaceFromRequest(db, user.id);
+    const { loadWorkspaces } = await import("@/lib/workspaces/server");
+    const workspaces = await loadWorkspaces(db, user.id);
+    workspace = {
+      id: active.id,
+      name: active.name,
+      isDefault: active.isDefault,
+      narrowing: workspaces.length > 1,
+      propertyIds: active.propertyIds.map((id) => id.trim()).filter(Boolean),
+    };
+  } catch {
+    workspace = undefined;
+  }
+
   return {
     landlordId: user.id,
     userId: user.id,
@@ -127,6 +150,7 @@ export async function resolveAgentContext(): Promise<AgentContext | null> {
     isAdmin,
     db,
     managerSmsAccess,
+    workspace,
   };
 }
 

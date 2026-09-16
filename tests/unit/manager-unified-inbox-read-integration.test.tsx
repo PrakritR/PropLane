@@ -112,6 +112,7 @@ vi.mock("@/components/portal/portal-inbox-ui", () => ({
   PortalInboxEmptyState: ({ title }: { title: string }) => <div>{title}</div>,
   CommunicationInboxInitialState: () => <div>Loading</div>,
   InboxConversationListAddRow: () => null,
+  InboxListSegmentTabs: () => null,
   InboxThreadEmpty: ({ title }: { title: string }) => <div>{title}</div>,
   InboxTwoPane: ({ list, thread }: { list: React.ReactNode; thread: React.ReactNode }) => (
     <div data-testid="manager-two-pane"><div data-testid="manager-list">{list}</div><div data-testid="manager-thread">{thread}</div></div>
@@ -250,7 +251,7 @@ describe("ManagerUnifiedInbox observed-read wiring", () => {
   it("bounds persistent native storage failure, releases the held email attempt, and recovers on explicit reopen", async () => {
     const openedKey = "axis_manager_sms_opened_v2:manager-1";
     window.localStorage.setItem(openedKey, JSON.stringify(["unrelated-opened-id"]));
-    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    const setItem = vi.spyOn(window.localStorage, "setItem").mockImplementation(() => {
       throw new Error("storage denied");
     });
     let settleHeld!: (value: null) => void;
@@ -260,9 +261,10 @@ describe("ManagerUnifiedInbox observed-read wiring", () => {
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
     const initialList = await screen.findByTestId("manager-list");
     fireEvent.click((await within(initialList).findByText("EMAIL B BODY")).closest("button")!);
+    const thread = await screen.findByTestId("resident-thread");
+    expect(within(thread).getByText("K1 NATIVE BODY")).toBeTruthy();
     await waitFor(() => expect(state.post).toHaveBeenCalledTimes(1));
-    await act(async () => { await Promise.resolve(); });
-    expect(setItem).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(setItem).toHaveBeenCalledTimes(1));
     expect(state.toast).toHaveBeenCalledTimes(1);
     expect(state.post).toHaveBeenCalledTimes(1);
 
@@ -317,14 +319,15 @@ describe("ManagerUnifiedInbox observed-read wiring", () => {
     window.localStorage.setItem(openedKey, JSON.stringify(["existing-opened-id"]));
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
     const initialList = await screen.findByTestId("manager-list");
-    const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+    const getItem = vi.spyOn(window.localStorage, "getItem").mockImplementation(() => {
       throw new Error("storage read denied");
     });
     fireEvent.click((await within(initialList).findByText("EMAIL B BODY")).closest("button")!);
+    expect(within(await screen.findByTestId("resident-thread")).getByText("K1 NATIVE BODY")).toBeTruthy();
     await waitFor(() => expect(state.post).toHaveBeenCalledTimes(1));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
 
-    expect(getItem).toHaveBeenCalled();
+    await waitFor(() => expect(getItem).toHaveBeenCalled());
     expect(state.post).toHaveBeenCalledTimes(1);
     expect(state.toast.mock.calls.length).toBeLessThanOrEqual(1);
     getItem.mockRestore();
@@ -394,7 +397,7 @@ describe("ManagerUnifiedInbox observed-read wiring", () => {
 
   it("keeps the hidden mobile thread pane from acknowledging until the user opens it", async () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
-    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    const setItem = vi.spyOn(window.localStorage, "setItem");
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
     const list = await screen.findByTestId("manager-list");
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
@@ -402,8 +405,9 @@ describe("ManagerUnifiedInbox observed-read wiring", () => {
     expect(setItem).not.toHaveBeenCalled();
 
     fireEvent.click((await within(list).findByText("EMAIL B BODY")).closest("button")!);
+    expect(within(await screen.findByTestId("resident-thread")).getByText("K1 NATIVE BODY")).toBeTruthy();
     await waitFor(() => expect(state.post).toHaveBeenCalledTimes(1));
-    expect(setItem).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(setItem).toHaveBeenCalledTimes(1));
     setItem.mockRestore();
   });
 
