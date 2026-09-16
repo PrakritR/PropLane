@@ -44,10 +44,12 @@ import {
 import { loadManagerPaymentWaiverGrantedClient } from "@/lib/manager-subscription-client";
 import { prepareListingSubmissionForPersist } from "@/lib/prepare-listing-submission-for-persist";
 import {
-  LISTING_DRAFT_AUTOSAVE_DEBOUNCE_MS,
   listingSubmissionFingerprint,
   listingWizardHasUnsavedInput,
 } from "@/lib/manager-listing-draft-autosave";
+import { ListingSaveFailedDialog } from "@/components/portal/listing-wizard-v2/save-failed-dialog";
+import { track } from "@/lib/analytics/track-client";
+import { isNativeRuntimeSync } from "@/lib/native/detect-native";
 
 export { listingReadiness } from "@/components/portal/listing-wizard-v2/listing-editor";
 
@@ -182,7 +184,9 @@ export function ListingWizardV2({
     ),
   );
   const stepRef = useRef(0);
-  const closeTriesRef = useRef(0);
+  // The server's refusal to save on close. Non-null means the save-failed dialog
+  // is open with this reason; there is no timer to re-arm and no toast.
+  const [saveFailedReason, setSaveFailedReason] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   useEffect(() => {
     setDirty(listingWizardHasUnsavedInput(submission, savedFingerprintRef.current));
@@ -211,13 +215,19 @@ export function ListingWizardV2({
     }
   }, [paymentWaiverGranted]);
 
+  // Save failures no longer toast — the caller decides how to surface them (the
+  // close path opens the save-failed dialog; the Review Save keeps its toast).
+  // The "attachments removed" notice still toasts: it is a partial success the
+  // manager needs to see whether or not the save itself lands.
   const persist = useCallback(
-    async (raw: ManagerListingSubmissionV1, stepIndex: number): Promise<boolean> => {
-      if (!listingWizardHasUnsavedInput(raw, savedFingerprintRef.current)) return true;
+    async (
+      raw: ManagerListingSubmissionV1,
+      stepIndex: number,
+    ): Promise<{ ok: true } | { ok: false; message: string }> => {
+      if (!listingWizardHasUnsavedInput(raw, savedFingerprintRef.current)) return { ok: true };
       const prepared = await persistSubmission(raw);
       if (!prepared.ok) {
-        showToast?.(prepared.message);
-        return false;
+        return { ok: false, message: prepared.message };
       }
       if (prepared.droppedMediaCount > 0) {
         setSubmission(prepared.submission);
@@ -227,32 +237,40 @@ export function ListingWizardV2({
         ? await publish(prepared.submission)
         : await saveDraft(prepared.submission, stepIndex);
       if (!result.ok) {
-        showToast?.(result.message);
-        return false;
+        return { ok: false, message: result.message };
       }
       savedFingerprintRef.current = listingSubmissionFingerprint(prepared.submission);
       setDirty(listingWizardHasUnsavedInput(submissionRef.current, savedFingerprintRef.current));
       onSaved?.(prepared.submission, result.id);
-      return true;
+      return { ok: true };
     },
     [editing, onSaved, persistSubmission, publish, saveDraft, showToast],
   );
 
   useEffect(() => {
     if (!flushRef) return;
-    flushRef.current = () => persist(submissionRef.current, stepRef.current);
+    // The import switcher saves before it swaps listings; it wants a plain
+    // "did nothing get lost?" boolean, so it never sees the refusal reason.
+    flushRef.current = async () => (await persist(submissionRef.current, stepRef.current)).ok;
     return () => {
       flushRef.current = null;
     };
   }, [flushRef, persist]);
 
+  // The listing now saves on ✕ only — no debounced typing autosave. While the
+  // editor holds unsaved work, the browser's own "Leave page?" prompt guards a
+  // reload or tab close (web only; the native shell has no such event).
   useEffect(() => {
-    if (!dirty) return;
-    const handle = window.setTimeout(() => {
-      void persist(submissionRef.current, stepRef.current);
-    }, LISTING_DRAFT_AUTOSAVE_DEBOUNCE_MS);
-    return () => window.clearTimeout(handle);
-  }, [dirty, persist, submission]);
+    if (!dirty || isNativeRuntimeSync()) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      // Legacy browsers show whatever string is set on returnValue.
+      event.returnValue = "";
+      return "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty]);
 
   /**
    * The doors the listing will print — resolved exactly as the public page and
@@ -274,8 +292,8 @@ export function ListingWizardV2({
     // the X performs — and the manager comes back to it from Drafts. A plain
     // navigation rather than the app router: the editor also mounts in tests
     // and hosts with no router, and this is a rare, deliberate leave.
-    const ok = await persist(submissionRef.current, stepRef.current);
-    if (!ok) {
+    const result = await persist(submissionRef.current, stepRef.current);
+    if (!result.ok) {
       showToast?.("Could not save. Nothing was kept.");
       return;
     }
@@ -296,31 +314,60 @@ export function ListingWizardV2({
   const handleClose = useCallback(
     async (stepIndex: number) => {
       stepRef.current = stepIndex;
-      const ok = await persist(submissionRef.current, stepIndex);
-      if (ok) {
-        closeTriesRef.current = 0;
+      const result = await persist(submissionRef.current, stepIndex);
+      track("listing_editor_close_save", {
+        ok: result.ok,
+        editing,
+        ...(result.ok ? {} : { reason: result.message }),
+      });
+      if (result.ok) {
         onClose();
         return;
       }
-      closeTriesRef.current += 1;
-      if (closeTriesRef.current >= 2) {
-        showToast?.("Could not save. Nothing was kept.");
-        onClose();
-      }
+      // No toast, no "second ✕ closes anyway" rule — one dialog, the server's
+      // reason verbatim, and the manager chooses.
+      setSaveFailedReason(result.message);
     },
-    [onClose, persist, showToast],
+    [editing, onClose, persist],
   );
 
-  // The Review step's Save button. Unlike closing, which gives up and leaves
-  // after two failed writes so ✕ never traps anyone, an explicit Save that
-  // fails stays open with the toast — the manager pressed it to keep the work.
+  // The save-failed dialog's Try again: run the same single save once more. On
+  // success the editor closes; on a fresh refusal the dialog stays with the new
+  // reason. Returns the promise so the button spins while it is in flight.
+  const handleRetrySave = useCallback(async () => {
+    const result = await persist(submissionRef.current, stepRef.current);
+    track("listing_editor_close_save", {
+      ok: result.ok,
+      editing,
+      retry: true,
+      ...(result.ok ? {} : { reason: result.message }),
+    });
+    if (result.ok) {
+      setSaveFailedReason(null);
+      onClose();
+      return;
+    }
+    setSaveFailedReason(result.message);
+  }, [editing, onClose, persist]);
+
+  const handleLeaveWithoutSaving = useCallback(() => {
+    track("listing_editor_leave_unsaved", { editing });
+    setSaveFailedReason(null);
+    onClose();
+  }, [editing, onClose]);
+
+  // The Review step's Save button. An explicit Save that fails stays open with a
+  // toast — the manager pressed it deliberately, so a single failure toast is
+  // the expected feedback, not the close path's typing-loop that this change
+  // removed.
   const handleSave = useCallback(
     async (stepIndex: number) => {
       stepRef.current = stepIndex;
-      const ok = await persist(submissionRef.current, stepIndex);
-      if (ok) onClose();
+      const result = await persist(submissionRef.current, stepIndex);
+      if (result.ok) onClose();
+      else showToast?.(result.message);
     },
-    [onClose, persist],
+    [onClose, persist, showToast],
   );
 
   return (
@@ -368,6 +415,13 @@ export function ListingWizardV2({
         onPublished?.(result.id);
       }}
     />
+      <ListingSaveFailedDialog
+        open={saveFailedReason != null}
+        reason={saveFailedReason ?? ""}
+        onKeepEditing={() => setSaveFailedReason(null)}
+        onTryAgain={handleRetrySave}
+        onLeaveWithoutSaving={handleLeaveWithoutSaving}
+      />
     </PortalAssistantConfigProvider>
   );
 }

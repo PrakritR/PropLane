@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 //
-// The v2 editor writes when the manager hits X. There is no Save & exit.
-// An untouched new listing writes nothing. A live edit writes in place.
+// The v2 editor saves ONCE, when the manager presses ✕. There is no typing
+// timer: type all you like and nothing is sent until you close. An untouched
+// new listing writes nothing. A refused close-save shows ONE dialog — Keep
+// editing / Try again / Leave without saving — never a toast that returns on
+// the next keystroke.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
@@ -31,16 +34,27 @@ vi.mock("@/lib/prepare-listing-submission-for-persist", () => ({
   listingSaveFailureMessage: (reason: string) => reason || "Could not save.",
 }));
 
-import { LISTING_DRAFT_AUTOSAVE_DEBOUNCE_MS } from "@/lib/manager-listing-draft-autosave";
 import { ListingWizardV2 } from "@/components/portal/listing-wizard-v2";
 
 afterEach(() => {
   cleanup();
-  saveManagerPropertyDraftToServer.mockClear();
-  updateExtraListingFromSubmissionOnServer.mockClear();
+  saveManagerPropertyDraftToServer.mockReset();
+  saveManagerPropertyDraftToServer.mockResolvedValue("mgr-draft-1");
+  updateExtraListingFromSubmissionOnServer.mockReset();
+  updateExtraListingFromSubmissionOnServer.mockResolvedValue(true as never);
 });
 
-describe("listing wizard v2 autosave", () => {
+/** The property-name field the mocks and the mock plan both type into. */
+function propertyNameField() {
+  return screen.getByPlaceholderText("Magnolia House");
+}
+
+/** The save-failed dialog, present only after a refused close-save. */
+function saveFailedDialog() {
+  return document.querySelector('[data-attr="listing-save-failed-dialog"]');
+}
+
+describe("listing wizard v2 — save on close, no typing timer", () => {
   it("does not write an untouched new listing on close", async () => {
     const onClose = vi.fn();
     render(<ListingWizardV2 onClose={onClose} userId="mgr-1" skuTier="starter" />);
@@ -49,18 +63,24 @@ describe("listing wizard v2 autosave", () => {
     expect(saveManagerPropertyDraftToServer).not.toHaveBeenCalled();
   });
 
-  it("flushes a dirty draft on X", async () => {
+  it("sends nothing while the manager types — even after well over two seconds", async () => {
+    render(<ListingWizardV2 onClose={vi.fn()} userId="mgr-1" skuTier="starter" />);
+    fireEvent.change(propertyNameField(), { target: { value: "Cards QA house" } });
+    // There is no debounce to fire; wait past the old 2s window to prove it.
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    expect(saveManagerPropertyDraftToServer).not.toHaveBeenCalled();
+  });
+
+  it("writes exactly one draft on ✕", async () => {
     const onClose = vi.fn();
     render(<ListingWizardV2 onClose={onClose} userId="mgr-1" skuTier="starter" />);
-    fireEvent.change(screen.getByPlaceholderText("Magnolia House"), {
-      target: { value: "Cards QA house" },
-    });
+    fireEvent.change(propertyNameField(), { target: { value: "Cards QA house" } });
     fireEvent.click(screen.getByRole("button", { name: /Close/i }));
-    await waitFor(() => expect(saveManagerPropertyDraftToServer).toHaveBeenCalled());
+    await waitFor(() => expect(saveManagerPropertyDraftToServer).toHaveBeenCalledTimes(1));
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("flushes a dirty live edit on X without forking a draft", async () => {
+  it("flushes a dirty live edit on ✕ without forking a draft", async () => {
     const onClose = vi.fn();
     const initial = { ...createDefaultListingSubmission(), buildingName: "Ash Flats" };
     render(
@@ -80,17 +100,82 @@ describe("listing wizard v2 autosave", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("autosave keeps the section the manager is on", async () => {
-    render(<ListingWizardV2 onClose={() => {}} userId="mgr-1" skuTier="starter" />);
-    fireEvent.change(screen.getByPlaceholderText("Magnolia House"), {
-      target: { value: "Cards QA house" },
+  describe("when the close-save is refused", () => {
+    function stubRefusal(message = "Select an owned workspace before adding a property.") {
+      saveManagerPropertyDraftToServer.mockImplementation(
+        async (_sub: unknown, _uid: unknown, opts?: { onError?: (m: string) => void }) => {
+          opts?.onError?.(message);
+          return null as unknown as string;
+        },
+      );
+    }
+
+    it("shows one dialog with the server reason and no toast", async () => {
+      const onClose = vi.fn();
+      const showToast = vi.fn();
+      render(<ListingWizardV2 onClose={onClose} userId="mgr-1" skuTier="starter" showToast={showToast} />);
+      fireEvent.change(propertyNameField(), { target: { value: "Cards QA house" } });
+      stubRefusal();
+      fireEvent.click(screen.getByRole("button", { name: /Close/i }));
+
+      await waitFor(() => expect(saveFailedDialog()).not.toBeNull());
+      expect(
+        document.querySelector('[data-attr="listing-save-failed-reason"]')?.textContent,
+      ).toMatch(/select an owned workspace/i);
+      expect(onClose).not.toHaveBeenCalled();
+      // The whole point of the change: no toast, on the first refusal or any after.
+      expect(showToast).not.toHaveBeenCalledWith(expect.stringMatching(/owned workspace|could not save/i));
+      // Exactly one write was attempted.
+      expect(saveManagerPropertyDraftToServer).toHaveBeenCalledTimes(1);
     });
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-rooms"]')!);
-    await waitFor(
-      () => expect(saveManagerPropertyDraftToServer).toHaveBeenCalled(),
-      { timeout: LISTING_DRAFT_AUTOSAVE_DEBOUNCE_MS + 2000 },
-    );
-    const opts = saveManagerPropertyDraftToServer.mock.calls.at(-1)?.[2] as { stepIndex?: number };
-    expect(opts.stepIndex).toBe(1);
+
+    it("Keep editing dismisses the dialog and keeps the form", async () => {
+      const onClose = vi.fn();
+      render(<ListingWizardV2 onClose={onClose} userId="mgr-1" skuTier="starter" />);
+      fireEvent.change(propertyNameField(), { target: { value: "Cards QA house" } });
+      stubRefusal();
+      fireEvent.click(screen.getByRole("button", { name: /Close/i }));
+      await waitFor(() => expect(saveFailedDialog()).not.toBeNull());
+
+      fireEvent.click(document.querySelector('[data-attr="listing-save-failed-keep"]')!);
+
+      await waitFor(() => expect(saveFailedDialog()).toBeNull());
+      expect(onClose).not.toHaveBeenCalled();
+      expect((propertyNameField() as HTMLInputElement).value).toBe("Cards QA house");
+    });
+
+    it("Try again sends exactly one more save and closes when it lands", async () => {
+      const onClose = vi.fn();
+      render(<ListingWizardV2 onClose={onClose} userId="mgr-1" skuTier="starter" />);
+      fireEvent.change(propertyNameField(), { target: { value: "Cards QA house" } });
+      stubRefusal();
+      fireEvent.click(screen.getByRole("button", { name: /Close/i }));
+      await waitFor(() => expect(saveFailedDialog()).not.toBeNull());
+      expect(saveManagerPropertyDraftToServer).toHaveBeenCalledTimes(1);
+
+      // The retry succeeds.
+      saveManagerPropertyDraftToServer.mockResolvedValue("mgr-draft-1");
+      fireEvent.click(document.querySelector('[data-attr="listing-save-failed-retry"]')!);
+
+      await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+      expect(saveManagerPropertyDraftToServer).toHaveBeenCalledTimes(2);
+      expect(saveFailedDialog()).toBeNull();
+    });
+
+    it("Leave without saving closes with no further write", async () => {
+      const onClose = vi.fn();
+      render(<ListingWizardV2 onClose={onClose} userId="mgr-1" skuTier="starter" />);
+      fireEvent.change(propertyNameField(), { target: { value: "Cards QA house" } });
+      stubRefusal();
+      fireEvent.click(screen.getByRole("button", { name: /Close/i }));
+      await waitFor(() => expect(saveFailedDialog()).not.toBeNull());
+      expect(saveManagerPropertyDraftToServer).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(document.querySelector('[data-attr="listing-save-failed-leave"]')!);
+
+      await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+      // No retry write happened — Leave discards.
+      expect(saveManagerPropertyDraftToServer).toHaveBeenCalledTimes(1);
+    });
   });
 });
