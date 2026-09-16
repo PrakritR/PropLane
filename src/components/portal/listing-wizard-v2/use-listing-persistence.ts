@@ -36,7 +36,12 @@ import { managerPropertyLimitMessage, managerTierPropertyLimitReached } from "@/
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { listingSaveFailureMessage } from "@/lib/prepare-listing-submission-for-persist";
 
-export type ListingPersistenceResult = { ok: true; id: string } | { ok: false; message: string };
+export type ListingPersistenceResult =
+  | { ok: true; id: string }
+  // `message` is toast copy (a full sentence); `reason` is the server's own
+  // words, shown verbatim in the save-failed dialog. `reason` is "" when the
+  // failure had no server explanation (a dropped connection, no session).
+  | { ok: false; message: string; reason: string };
 
 export function useListingPersistence({
   userId,
@@ -70,7 +75,7 @@ export function useListingPersistence({
 
   const saveDraft = useCallback(
     async (submission: ManagerListingSubmissionV1, stepIndex: number): Promise<ListingPersistenceResult> => {
-      if (!userId) return { ok: false, message: "Sign in to save this listing." };
+      if (!userId) return { ok: false, message: "Sign in to save this listing.", reason: "Sign in to save this listing." };
       setBusy(true);
       try {
         let serverReason = "";
@@ -89,6 +94,7 @@ export function useListingPersistence({
             message: serverReason
               ? `Could not save your progress — ${serverReason.replace(/\.$/, "")}. Your work is still here.`
               : "Could not save your progress. Check your connection. Your work is still here.",
+            reason: serverReason || "Check your connection and try again.",
           };
         }
         draftIdRef.current = savedId;
@@ -102,7 +108,7 @@ export function useListingPersistence({
 
   const publish = useCallback(
     async (submission: ManagerListingSubmissionV1): Promise<ListingPersistenceResult> => {
-      if (!userId) return { ok: false, message: "Sign in to publish this listing." };
+      if (!userId) return { ok: false, message: "Sign in to publish this listing.", reason: "Sign in to publish this listing." };
       const editing = editListingId?.trim();
       if (editing) {
         // Editing an existing listing updates it IN PLACE. It consumes no new
@@ -124,7 +130,11 @@ export function useListingPersistence({
           });
           return ok
             ? { ok: true, id: editing }
-            : { ok: false, message: listingSaveFailureMessage(serverReason) };
+            : {
+                ok: false,
+                message: listingSaveFailureMessage(serverReason),
+                reason: serverReason || "Check your connection and try again.",
+              };
         } finally {
           setBusy(false);
         }
@@ -132,10 +142,8 @@ export function useListingPersistence({
       // Courtesy pre-check only — the server is the authority and its refusal is
       // returned to the caller below.
       if (managerTierPropertyLimitReached(skuTier, propertyCount)) {
-        return {
-          ok: false,
-          message: managerPropertyLimitMessage(skuTier, { omitUpgradeCta: isNativeRuntimeSync() }),
-        };
+        const message = managerPropertyLimitMessage(skuTier, { omitUpgradeCta: isNativeRuntimeSync() });
+        return { ok: false, message, reason: message };
       }
       setBusy(true);
       try {
@@ -149,7 +157,12 @@ export function useListingPersistence({
         const id = draftId
           ? await publishManagerPropertyDraftToServer(draftId, submission, userId, opts)
           : await submitManagerPendingPropertyToServer(submission, userId, opts);
-        if (!id) return { ok: false, message: serverError || "Could not publish this listing." };
+        if (!id)
+          return {
+            ok: false,
+            message: serverError || "Could not publish this listing.",
+            reason: serverError || "Check your connection and try again.",
+          };
         draftIdRef.current = null;
         recordDelightMoment("listing_published");
         return { ok: true, id };

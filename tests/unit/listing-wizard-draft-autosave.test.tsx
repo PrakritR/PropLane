@@ -16,7 +16,6 @@ import {
   emptySharedSpace,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
-import { LISTING_DRAFT_AUTOSAVE_DEBOUNCE_MS } from "@/lib/manager-listing-draft-autosave";
 import { resetManagerSubscriptionTierClientCache } from "@/lib/manager-subscription-client";
 
 /** The route mints the object folder from the authenticated user, so it is a real uuid. */
@@ -174,9 +173,27 @@ function draftSaveErrorText(): string | null {
   return el ? (el.textContent ?? "") : null;
 }
 
-/** The way out beside the failed-save notice; rendered only after a CLOSE could not save. */
-function closeWithoutSavingButton(): HTMLButtonElement | null {
-  return document.querySelector('[data-attr="listing-wizard-close-without-saving"]');
+/** The save-failed dialog, present only after a refused CLOSE-save. */
+function saveFailedDialog(): HTMLElement | null {
+  return document.querySelector('[data-attr="listing-save-failed-dialog"]');
+}
+
+/** The server reason shown verbatim inside that dialog. */
+function saveFailedReasonText(): string | null {
+  const el = document.querySelector('[data-attr="listing-save-failed-reason"]');
+  return el ? (el.textContent ?? "") : null;
+}
+
+function clickSaveFailedTryAgain() {
+  const btn = document.querySelector('[data-attr="listing-save-failed-retry"]');
+  if (!btn) throw new Error("no Try again button");
+  fireEvent.click(btn);
+}
+
+function clickSaveFailedLeave() {
+  const btn = document.querySelector('[data-attr="listing-save-failed-leave"]');
+  if (!btn) throw new Error("no Leave without saving button");
+  fireEvent.click(btn);
 }
 
 function typePropertyName(value: string) {
@@ -187,19 +204,17 @@ function typeAddress(value: string) {
   fireEvent.change(wizardField("address"), { target: { value } });
 }
 
-describe("background autosave while the wizard stays open", () => {
-  it("persists a draft without closing", async () => {
+describe("no typing timer — nothing is written until close", () => {
+  it("sends nothing while the manager types, even well past two seconds", async () => {
     const { onClose } = renderWizard();
     typePropertyName("Ravenna Craftsman");
 
-    await waitFor(
-      () => expect(readAdminPropertyRows(5, MANAGER_ID)).toHaveLength(1),
-      { timeout: LISTING_DRAFT_AUTOSAVE_DEBOUNCE_MS + 5000 },
-    );
+    // There is no debounced autosave any more; wait past the old 2s window.
+    await new Promise((resolve) => setTimeout(resolve, 2500));
 
     expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByTestId("listing-wizard-autosave-status")).toHaveTextContent(/saved to drafts/i);
-    expect(readAdminPropertyRows(5, MANAGER_ID)[0]).toMatchObject({ buildingName: "Ravenna Craftsman" });
+    expect(readAdminPropertyRows(5, MANAGER_ID)).toHaveLength(0);
+    expect(calls).toEqual([]);
   });
 });
 
@@ -288,7 +303,7 @@ describe("closing the add-listing wizard saves the work in progress", () => {
     ]);
   });
 
-  it("keeps the wizard open when the draft write fails, rather than closing on a lie", async () => {
+  it("opens ONE dialog (not a toast) when the draft write fails", async () => {
     const { onClose, showToast } = renderWizard();
     vi.stubGlobal(
       "fetch",
@@ -298,15 +313,16 @@ describe("closing the add-listing wizard saves the work in progress", () => {
     typePropertyName("Ravenna Craftsman");
     clickClose();
 
-    await waitFor(() => expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/could not save/i)));
+    await waitFor(() => expect(saveFailedDialog()).not.toBeNull());
     expect(onClose).not.toHaveBeenCalled();
     expect(readAdminPropertyRows(5, MANAGER_ID)).toHaveLength(0);
-    // Rendered where the manager can actually read it, not only toasted.
-    expect(draftSaveErrorText()).toMatch(/could not save your progress/i);
+    // No toast, no footer notice — the dialog is the one channel.
+    expect(showToast).not.toHaveBeenCalledWith(expect.stringMatching(/could not save/i));
+    expect(draftSaveErrorText()).toBeNull();
   });
 
-  it("names the server's reason instead of blaming the connection", async () => {
-    const { showToast } = renderWizard();
+  it("shows the server's reason verbatim, not 'check your connection'", async () => {
+    renderWizard();
     vi.stubGlobal(
       "fetch",
       vi.fn(
@@ -322,35 +338,35 @@ describe("closing the add-listing wizard saves the work in progress", () => {
     typePropertyName("Ravenna Craftsman");
     clickClose();
 
-    await waitFor(() => expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/could not save/i)));
-    expect(draftSaveErrorText()).toMatch(/promo code: Codes must be 4-32/);
-    expect(draftSaveErrorText()).not.toMatch(/connection/i);
+    await waitFor(() => expect(saveFailedDialog()).not.toBeNull());
+    expect(saveFailedReasonText()).toMatch(/promo code: Codes must be 4-32/);
+    expect(saveFailedReasonText()).not.toMatch(/connection/i);
   });
 
-  it("a failed save is not a locked door: closing AGAIN retries, then closes without saving", async () => {
-    const { onClose, showToast } = renderWizard();
+  it("Try again retries once, then Leave without saving closes with nothing kept", async () => {
+    const { onClose } = renderWizard();
     const fetchMock = vi.fn(async () => ({ ok: false, status: 500 }) as unknown as Response);
     vi.stubGlobal("fetch", fetchMock);
 
     typePropertyName("Ravenna Craftsman");
     clickClose();
-    await waitFor(() => expect(draftSaveErrorText()).toMatch(/could not save your progress/i));
+    await waitFor(() => expect(saveFailedDialog()).not.toBeNull());
     expect(onClose).not.toHaveBeenCalled();
-    // The manager is offered the way out right beside the reason.
-    expect(closeWithoutSavingButton()).not.toBeNull();
     const callsAfterFirstClose = fetchMock.mock.calls.length;
 
-    clickClose();
+    // Try again is a genuine retry — one more write attempt.
+    clickSaveFailedTryAgain();
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(callsAfterFirstClose));
+    // It failed again, so the dialog is still up.
+    await waitFor(() => expect(saveFailedDialog()).not.toBeNull());
 
+    // Leave without saving is the way out — no write, no draft kept.
+    clickSaveFailedLeave();
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
-    // The second close was a genuine retry, not a silent discard...
-    expect(fetchMock.mock.calls.length).toBeGreaterThan(callsAfterFirstClose);
-    // ...and because it failed again, the manager is told nothing was kept.
-    expect(showToast).toHaveBeenLastCalledWith(expect.stringMatching(/closed without saving/i));
     expect(readAdminPropertyRows(5, MANAGER_ID)).toHaveLength(0);
   });
 
-  it("closing again after a failed save SAVES when the retry succeeds", async () => {
+  it("Try again SAVES when the retry succeeds", async () => {
     const { onClose, showToast } = renderWizard();
     const healthyFetch = globalThis.fetch;
     vi.stubGlobal(
@@ -360,68 +376,51 @@ describe("closing the add-listing wizard saves the work in progress", () => {
 
     typePropertyName("Ravenna Craftsman");
     clickClose();
-    await waitFor(() => expect(draftSaveErrorText()).toMatch(/could not save your progress/i));
+    await waitFor(() => expect(saveFailedDialog()).not.toBeNull());
 
     vi.stubGlobal("fetch", healthyFetch);
-    clickClose();
+    clickSaveFailedTryAgain();
 
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(showToast).toHaveBeenLastCalledWith("Progress saved to Drafts.");
     expect(readAdminPropertyRows(5, MANAGER_ID)).toHaveLength(1);
   });
 
-  it("the inline 'Close without saving' link closes at once, without another save attempt", async () => {
-    const { onClose, showToast } = renderWizard();
-    const fetchMock = vi.fn(async () => ({ ok: false, status: 500 }) as unknown as Response);
-    vi.stubGlobal("fetch", fetchMock);
-
-    typePropertyName("Ravenna Craftsman");
-    clickClose();
-    await waitFor(() => expect(closeWithoutSavingButton()).not.toBeNull());
-    const callsAfterFirstClose = fetchMock.mock.calls.length;
-
-    fireEvent.click(closeWithoutSavingButton()!);
-
-    expect(onClose).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls.length).toBe(callsAfterFirstClose);
-    expect(showToast).toHaveBeenLastCalledWith(expect.stringMatching(/closed without saving/i));
-  });
-
-  it("offers no 'Close without saving' link before a close has failed", async () => {
+  it("shows no dialog before a close has failed", async () => {
     renderWizard();
     typePropertyName("Ravenna Craftsman");
-    // A background autosave failure is not a close request; the link stays hidden.
-    expect(closeWithoutSavingButton()).toBeNull();
+    // Typing alone never opens the save-failed dialog.
+    expect(saveFailedDialog()).toBeNull();
   });
 
-  it("shows no inline failure notice when the close saves cleanly", async () => {
+  it("shows no failure surface when the close saves cleanly", async () => {
     const { onClose } = renderWizard();
 
     typePropertyName("Ravenna Craftsman");
     clickClose();
 
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(saveFailedDialog()).toBeNull();
     expect(draftSaveErrorText()).toBeNull();
   });
 
-  it("keeps the wizard open when no manager is signed in, rather than dropping the work", async () => {
+  it("opens the dialog when no manager is signed in, and Leave gets them out", async () => {
     // A session that expired mid-wizard must not turn Close into a silent
-    // discard — the same keep-open rule as a failed write.
+    // discard — the same keep-open rule, now via the dialog.
     MANAGER_ID = "";
-    const { onClose, showToast } = renderWizard();
+    const { onClose } = renderWizard();
 
     typePropertyName("Ravenna Craftsman");
     clickClose();
 
-    await waitFor(() => expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/could not save/i)));
+    await waitFor(() => expect(saveFailedDialog()).not.toBeNull());
+    expect(saveFailedReasonText()).toMatch(/sign in again/i);
     expect(onClose).not.toHaveBeenCalled();
     expect(calls).toEqual([]);
-    expect(draftSaveErrorText()).toMatch(/sign in again/i);
 
-    // ...but a session that never comes back must not hold the wizard hostage.
-    clickClose();
+    // ...but the manager is never held hostage.
+    clickSaveFailedLeave();
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
-    expect(showToast).toHaveBeenLastCalledWith(expect.stringMatching(/closed without saving/i));
   });
 
   it("saves the typed listing without any base64 when the media upload fails", async () => {
@@ -509,27 +508,19 @@ describe("closing the add-listing wizard saves the work in progress", () => {
     typePropertyName("Ravenna Craftsman");
     clickClose();
 
-    await waitFor(() =>
-      expect(showToast).toHaveBeenCalledWith(
-        expect.stringMatching(/could not save your progress.+attachments couldn't be saved/i),
-      ),
-    );
+    // The refusal opens the dialog; the reason mentions the dropped attachments.
+    await waitFor(() => expect(saveFailedDialog()).not.toBeNull());
     expect(onClose).not.toHaveBeenCalled();
-    // The inline notice carries the dropped attachments too, not just the failure.
-    expect(draftSaveErrorText()).toMatch(/could not save your progress.+attachments couldn't be saved/i);
+    expect(saveFailedReasonText()).toMatch(/attachments couldn't be saved/i);
 
     // The upload succeeds on the retry, and BOTH photos are saved.
     //
-    // This assertion used to be "1 photo, and keep warning": a failed upload
-    // was written back into live form state, so the dropped photo was really
-    // gone and no retry could recover it — the standing warning was then the
-    // honest thing to say. It is no longer true (PRP-201). A failed attachment
-    // stays in the form, so the retry genuinely stores it, and carrying the
-    // previous attempt's warning forward would tell the manager to "add them
+    // A failed attachment stays in the form, so the retry genuinely stores it
+    // (PRP-201) — carrying a warning forward would tell the manager to "add them
     // again next time" about photos that are now saved.
     uploadFails = () => false;
     serverFails = false;
-    clickClose();
+    clickSaveFailedTryAgain();
 
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(showToast).toHaveBeenLastCalledWith("Progress saved to Drafts.");
@@ -791,16 +782,15 @@ describe("editing an existing listing", () => {
     });
     clickClose();
 
-    await waitFor(() => expect(draftSaveErrorText()).toMatch(/could not save changes/i));
-    expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/could not save changes/i));
+    // The refused close-save opens the dialog, not a toast.
+    await waitFor(() => expect(saveFailedDialog()).not.toBeNull());
+    expect(showToast).not.toHaveBeenCalledWith(expect.stringMatching(/could not save changes/i));
     expect(onClose).not.toHaveBeenCalled();
 
-    // An edit that cannot be saved is not a locked door either: the offer to
-    // leave is right there, and closing again gets the manager out.
-    expect(closeWithoutSavingButton()).not.toBeNull();
-    clickClose();
+    // An edit that cannot be saved is not a locked door either: Leave without
+    // saving gets the manager out.
+    clickSaveFailedLeave();
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
-    expect(showToast).toHaveBeenLastCalledWith(expect.stringMatching(/closed without saving your latest changes/i));
   });
 
   it("repeats the server's OWN refusal instead of blaming the connection", async () => {
@@ -868,10 +858,12 @@ describe("editing an existing listing", () => {
 
     // The reported bug: the manager set a waiver code, the server refused the
     // save and said exactly why, and the wizard replaced that sentence with
-    // "Check your connection" — sending them to debug their wifi.
-    await waitFor(() => expect(draftSaveErrorText()).toMatch(/already in use on another property/i));
-    expect(draftSaveErrorText()).not.toMatch(/check your connection/i);
-    expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/already in use on another property/i));
+    // "Check your connection" — sending them to debug their wifi. The dialog now
+    // shows the server's own words.
+    await waitFor(() => expect(saveFailedDialog()).not.toBeNull());
+    expect(saveFailedReasonText()).toMatch(/already in use on another property/i);
+    expect(saveFailedReasonText()).not.toMatch(/check your connection/i);
+    expect(showToast).not.toHaveBeenCalledWith(expect.stringMatching(/could not save changes/i));
     expect(onClose).not.toHaveBeenCalled();
   });
 });
