@@ -301,6 +301,8 @@ export function AddResidentWizard({
       const outcome = form.kind === "prospect" ? await commitProspect(row, form, ctx) : await commitResident(row, form, ctx);
       if (outcome.failures.row) {
         showToast(outcome.failures.row);
+        setPreview(null);
+        if (/bed|room|capacity|property/i.test(outcome.failures.row)) goTo("home");
         return;
       }
       const who = form.kind === "prospect" ? "Prospect" : "Resident";
@@ -393,6 +395,7 @@ export function AddResidentWizard({
         sidePanel={<ResidentSidePanel form={form} derived={derived} propertyLabel={propertyLabel} />}
         lastLabel={form.kind === "prospect" ? "Add prospect" : "Add resident"}
         lastDisabled={todo.length > 0}
+        finishCount={todo.length}
         busy={busy}
         onFinish={onFinish}
         dataAttrPrefix="residents-wizard"

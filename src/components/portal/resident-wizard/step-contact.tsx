@@ -1,7 +1,6 @@
 "use client";
 
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import {
@@ -11,6 +10,7 @@ import {
   WizardRow,
   WizardSection,
   type FileStripState,
+  WizardSelect,
 } from "@/components/portal/add-workspace/parts";
 import type { AddPersonForm } from "./state";
 
@@ -43,7 +43,7 @@ export function ContactStep({
     <StepColumn>
       <StepHeading title={prospect ? "The prospect" : "The resident"} />
       <WizardSection title="Who are you adding?" dataAttr="residents-wizard-kind">
-        <FieldSingleSelect
+        <WizardSelect
           label="Adding"
           value={form.kind}
           onChange={(next) => patch({ kind: next === "prospect" ? "prospect" : "resident" })}
@@ -100,7 +100,7 @@ export function ContactStep({
               dataAttr="residents-wizard-phone"
             />
           </WizardField>
-          <FieldSingleSelect
+          <WizardSelect
             label="Preferred contact"
             value={form.preferredContact}
             onChange={(next) => patch({ preferredContact: next === "sms" ? "sms" : "email" })}

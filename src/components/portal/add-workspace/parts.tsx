@@ -15,6 +15,20 @@ import { cn } from "@/lib/utils";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input, Textarea } from "@/components/ui/input";
 
+/* ─────────────────────────── controls ─────────────────────────── */
+
+export const WIZARD_LABEL_CLASS = "mb-1.5 block text-[12.5px] font-bold normal-case tracking-normal text-foreground";
+
+/** The settings-kit single-select, labelled like every other wizard field. */
+export function WizardSelect(props: Parameters<typeof FieldSingleSelect>[0]) {
+  return <FieldSingleSelect labelClassName={WIZARD_LABEL_CLASS} {...props} />;
+}
+
+/** The settings-kit multi-select, labelled like every other wizard field. */
+export function WizardMultiSelect(props: Parameters<typeof CheckboxMultiSelect>[0]) {
+  return <CheckboxMultiSelect labelClassName={WIZARD_LABEL_CLASS} {...props} />;
+}
+
 /* ─────────────────────────── layout ─────────────────────────── */
 
 /** A bordered group inside a step — title on the rail, fields in the body. */
@@ -533,7 +547,7 @@ export function MessageStep({
   return (
     <WizardSection title={`Message the ${who}`} chip={<WizardChip>previewed before it sends</WizardChip>} dataAttr={dataAttr}>
       <WizardRow cols={2}>
-        <CheckboxMultiSelect
+        <WizardMultiSelect
           label="Send by"
           options={options}
           selected={draft.channels}
@@ -541,7 +555,7 @@ export function MessageStep({
           dataAttr={`${dataAttr}-channels`}
           emptyLabel="Select…"
         />
-        <FieldSingleSelect
+        <WizardSelect
           label="When"
           value="now"
           onChange={() => undefined}

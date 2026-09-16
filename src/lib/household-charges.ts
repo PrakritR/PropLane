@@ -4946,14 +4946,18 @@ export type ImportedTenancyMarks = {
   residentEmail: string;
   propertyId: string;
   applicationId: string;
+  /** yyyy-mm of the lease start — the month the upfront first-month / prorated charges belong to. */
+  moveInMonth?: string;
   /** Month key → mark. A month absent here is left exactly as generated. */
   months: Record<string, ImportedTenancyMonthMark>;
   oneTime?: { securityDeposit?: ImportedTenancyMonthMark; moveInFee?: ImportedTenancyMonthMark };
 };
 
-function monthKeyForCharge(charge: HouseholdCharge): string | null {
+function monthKeyForCharge(charge: HouseholdCharge, moveInMonth?: string): string | null {
   if (charge.rentMonth) return charge.rentMonth;
-  // Move-in charges carry no rentMonth; they belong to the lease-start month.
+  // Move-in charges carry no rentMonth and a human due label ("Before Jun 1,
+  // 2026"); they belong to the lease-start month the caller names.
+  if (moveInMonth && charge.applicationId) return moveInMonth;
   const label = charge.dueDateLabel?.trim();
   if (label && /^\d{4}-\d{2}/.test(label)) return label.slice(0, 7);
   return null;
@@ -5022,7 +5026,7 @@ export function markImportedTenancyCharges(marks: ImportedTenancyMarks): { updat
     if (charge.kind === "security_deposit") mark = marks.oneTime?.securityDeposit;
     else if (charge.kind === "move_in_fee") mark = marks.oneTime?.moveInFee;
     else if (isMonthlyKind(charge.kind)) {
-      const key = monthKeyForCharge(charge);
+      const key = monthKeyForCharge(charge, marks.moveInMonth);
       if (key) mark = marks.months[key];
     }
     if (!mark || mark.status === "due") return charge;

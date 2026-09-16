@@ -3,7 +3,6 @@
 import { useRef } from "react";
 import { FileText } from "lucide-react";
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input } from "@/components/ui/input";
 import { RESIDENT_LEASE_TERM_CUSTOM, residentLeaseTermSelectValue } from "@/lib/resident-manual-lease-terms";
 import { shortTermNightlyRate, shortTermStayChargeTitle, shortTermStayNightCount } from "@/lib/short-term-stay-pricing";
@@ -14,6 +13,7 @@ import {
   WizardLine,
   WizardRow,
   WizardSection,
+  WizardSelect,
 } from "@/components/portal/add-workspace/parts";
 import type { ResidentWizardDerived } from "./derived";
 import type { AddPersonForm, LeaseDocumentChoice } from "./state";
@@ -74,7 +74,7 @@ export function LeaseStep({
       <WizardSection title="Term" dataAttr="residents-wizard-lease-term">
         <WizardRow cols={3}>
           <div>
-            <FieldSingleSelect
+            <WizardSelect
               label="Lease term *"
               value={termSelectValue}
               onChange={(selected) => {
@@ -84,7 +84,7 @@ export function LeaseStep({
                 }
                 patch({ leaseTermCustomMode: false, leaseTerm: selected, marks: clearMark("leaseTerm") });
               }}
-              options={[...derived.leaseTermOptions, { value: RESIDENT_LEASE_TERM_CUSTOM, label: "Custom…" }]}
+              options={derived.leaseTermOptions.some((o) => o.value === RESIDENT_LEASE_TERM_CUSTOM) ? derived.leaseTermOptions : [...derived.leaseTermOptions, { value: RESIDENT_LEASE_TERM_CUSTOM, label: "Custom" }]}
               placeholder="Select…"
               dataAttr="residents-wizard-lease-term-select"
             />
@@ -113,7 +113,7 @@ export function LeaseStep({
             {money("rent", derived.isShortTerm ? "Rent per night" : "Monthly rent", derived.isShortTerm ? "85.00" : "875.00", true)}
             {!derived.isShortTerm ? money("utilities", "Monthly utilities", "175.00") : null}
             {!derived.isShortTerm ? (
-              <FieldSingleSelect
+              <WizardSelect
                 label="Rent due on"
                 value={form.rentDueDay}
                 onChange={(next) => patch({ rentDueDay: next === "15" ? "15" : next === "last" ? "last" : "1" })}
@@ -139,7 +139,7 @@ export function LeaseStep({
       )}
 
       <WizardSection title="Lease document" dataAttr="residents-wizard-lease-document">
-        <FieldSingleSelect
+        <WizardSelect
           label="This lease is"
           value={form.leaseDocument}
           onChange={(next) => patch({ leaseDocument: next === "draft" ? "draft" : next === "later" ? "later" : "signed" })}

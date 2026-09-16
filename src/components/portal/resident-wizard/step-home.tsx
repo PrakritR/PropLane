@@ -1,7 +1,6 @@
 "use client";
 
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input, Textarea } from "@/components/ui/input";
 import {
   FieldMark,
@@ -10,6 +9,7 @@ import {
   WizardLine,
   WizardRow,
   WizardSection,
+  WizardSelect,
 } from "@/components/portal/add-workspace/parts";
 import type { ResidentWizardDerived } from "./derived";
 import type { AddPersonForm } from "./state";
@@ -36,7 +36,7 @@ export function HomeStep({
       <StepHeading title={prospect ? "What they're interested in" : "Where they live"} />
       <WizardSection title="Property" dataAttr="residents-wizard-home">
         <WizardRow cols={2}>
-          <FieldSingleSelect
+          <WizardSelect
             label={`Property${prospect ? "" : " *"}`}
             value={form.propertyId}
             onChange={(next) => patch({ propertyId: next, roomId: "", bundleId: "", marks: withoutMark(form.marks, "propertyId") })}
@@ -45,7 +45,7 @@ export function HomeStep({
             dataAttr="residents-wizard-property"
           />
           {derived.showRoomSelect ? (
-            <FieldSingleSelect
+            <WizardSelect
               label="Room"
               value={form.roomId}
               onChange={(next) => patch({ roomId: next, bundleId: "", marks: withoutMark(form.marks, "roomId") })}
@@ -54,7 +54,7 @@ export function HomeStep({
               dataAttr="residents-wizard-room"
             />
           ) : derived.showBundleSelect ? (
-            <FieldSingleSelect
+            <WizardSelect
               label="Lease bundle"
               value={form.bundleId}
               onChange={(next) => patch({ bundleId: next, roomId: next ? "" : form.roomId })}
@@ -65,7 +65,7 @@ export function HomeStep({
               dataAttr="residents-wizard-bundle"
             />
           ) : (
-            <FieldSingleSelect
+            <WizardSelect
               label="Placement"
               value="whole"
               onChange={() => undefined}
@@ -84,7 +84,7 @@ export function HomeStep({
 
       {!prospect ? (
         <WizardSection title="How they rent it" dataAttr="residents-wizard-rent-model">
-          <FieldSingleSelect
+          <WizardSelect
             label="Renting"
             value={rentModel}
             onChange={(next) => {
