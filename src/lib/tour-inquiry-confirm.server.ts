@@ -429,6 +429,8 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
     if (deleteError) return { ok: false, status: 500, error: deleteError.message };
   }
 
+  // TODO(WS5): emit tour_claimed here
+
   let tenantNotification: TourNotificationResult | null = null;
   if (opts.notifyTenant) {
     // The tool path has no live request; links then resolve to the production
