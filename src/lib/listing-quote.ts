@@ -246,7 +246,7 @@ export function buildListingQuote(
   }
 
   const applicationFee = parseMoneyAmount(
-    listingApplicationFeeRaw(sub, isStay ? "short_term" : "standard"),
+    listingApplicationFeeRaw(sub, isStay ? "short_term" : "standard", leaseTerm),
   );
   if (applicationFee > 0) {
     applicationFees.unshift({ id: "application_fee", label: "Application fee", amount: applicationFee });

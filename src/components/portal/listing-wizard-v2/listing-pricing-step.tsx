@@ -7,33 +7,36 @@
  *    processing. First, because nothing below matters until money can move.
  *    "PropLane pays" always asks for a processing coverage code; no plan and no
  *    subscription promo can stand in for one.
- * 2. **Applications** — the application fee, the short-term fee, and the
- *    manager's own waiver code. Asked HERE and nowhere else: the Advanced tab
- *    used to ask for the same three again, with a second, unsanitised input.
- * 3. **Each room** — one editable table, a tab per lease type. The top row is
- *    **Every room**: same columns, same inputs; rooms follow it until changed
- *    (grey and dashed = following, ink with a dot = the room's own). Long-term
- *    carries a minimum term. Month-to-month and custom dates are "same as
- *    long-term" until the box is unticked. Short-term is rent per day, rent
- *    per week and a deposit — nothing else, the rate is all-in.
+ * 2. **Each room** — the lease types offered, then the **application fee**
+ *    directly under them (one amount, or one per lease type behind a checkbox;
+ *    a blank type follows the one amount), then one card per room with a tab
+ *    per lease type. The top card is **Default room**: same rows, same inputs;
+ *    rooms follow it until changed (grey and dashed = following, ink with a
+ *    dot = the room's own). Month-to-month and custom dates are "same as
+ *    long-term" until the box is unticked. Short-term is rent per night, rent
+ *    per week — the rate is all-in.
+ * 3. **Other fees live on the cards.** Every card — Default room or a room, on
+ *    every tab — lists its fees and adds one in place. A fee added on the
+ *    Default room is every room's; one added on a room is that room's; the tab
+ *    it is added on decides the lease types (the three lease types, or the two
+ *    stay types). There is no separate fees section and no More ▾: everything
+ *    a card knows is simply listed (the captain, 2026-09-15).
  * 4. **What a resident pays** (side panel) — signing ticks live there: Every
  *    room is house policy; pick a room to override and Reset to follow again.
  *
- * Nothing new is stored besides an optional per-room signing matrix. Rent is
- * `room.monthlyRent`; another lease type's own price is `room.termPricing[term]`
- * with ABSENT meaning "same as long-term" (PRP-463), which also drives signing
- * inherit; utilities, deposit and pricing mode are the fields they already
- * are; the house defaults are `listing-house-defaults.ts`. This screen is a
- * view over all of it.
+ * Nothing new is stored besides `applicationFeeByLeaseType` and an optional
+ * per-room signing matrix. Rent is `room.monthlyRent`; another lease type's
+ * own price is `room.termPricing[term]` with ABSENT meaning "same as
+ * long-term" (PRP-463), which also drives signing inherit; fees are the same
+ * `customFees` records scoped by `leaseTypes` / `roomIds`; the house defaults
+ * are `listing-house-defaults.ts`. This screen is a view over all of it.
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { AddRowButton, CardAction, CardFoot, CheckboxOption, ColumnHelp, EditorDone, FactRow, Field, MoneyInput, MoreRows, MultiPick, RecordCard, RowSelectCell, SameAsAllToggle } from "@/components/portal/listing-wizard-v2/wizard-primitives";
-import { ManagerApplicationFeeWaiverCodesModal } from "@/components/portal/pro-application-fee-waiver-codes-modal";
-import { Input, Select } from "@/components/ui/input";
+import { AddRowButton, CardAction, CardFoot, CheckboxOption, ColumnHelp, EditorDone, FactRow, MoneyInput, MultiPick, RecordCard, RowSelectCell, SameAsAllToggle } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { applicationFeeLeaseTypeKey } from "@/lib/listing-application-fee";
 import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
 import {
-  expandFeeScope,
   feeAppliesToLeaseType,
   feeAppliesToRoom,
   listingFeeRowIdForPresetId,
@@ -45,26 +48,34 @@ import {
 import {
   applyListingFeesToSubmission,
   ensureSubmissionListingFees,
+  seedSigningColumnFromLongTerm,
   isListingFeeAmountFilled,
-  LISTING_FEE_WIZARD_CADENCE_OPTIONS,
+  LISTING_FEE_PRESETS,
   listingFeeCadence,
   listingFeesForWizard,
   parseRemovedStandardListingFeeRows,
   patchListingFeeCadence,
-  seedSigningColumnFromLongTerm,
   type ListingFeeCadence,
   type ListingFeeRow,
   type RemovedStandardListingFeeRowId,
 } from "@/lib/listing-fees";
 import { SEATTLE_RENT_RULE_NOTE, listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
-import { LONG_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import { AIRBNB_LEASE_TERM, LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { isStayLeaseTerm } from "@/lib/listing-quote";
 import { LONG_TERM_UTILITIES_PAYMENT_OPTIONS } from "@/lib/listing-utilities-payment";
 import {
   applyHouseDefaultsToRooms,
+  applyHouseTermPricingToRooms,
+  houseTermPricingForSubmission,
+  resetRoomFieldToDefault,
   roomInheritsDefault,
+  termPriceFieldText,
+  writeRoomTermPrice,
+  writeTermPriceEntry,
   type ListingHouseDefaultField,
   type ListingHouseDefaults,
+  type ListingHouseTermPricing,
+  type ListingTermPriceField,
 } from "@/lib/listing-house-defaults";
 import {
   applyEntireHomeListingPricing,
@@ -74,6 +85,8 @@ import {
   type ManagerRoomSubmission,
 } from "@/lib/manager-listing-submission";
 import { cn } from "@/lib/utils";
+import { FieldMark } from "@/components/portal/listing-wizard-v2/found-online-card";
+import { prefillMarkFor } from "@/lib/listing-prefill/apply";
 
 type Patch = (next: Partial<ManagerListingSubmissionV1>) => void;
 
@@ -105,18 +118,29 @@ const PRICING_MODE_OPTIONS = [
 
 const isBase = (term: string) => term === LONG_TERM_LEASE_TERM;
 
-/** A room's value on `term` and where it came from. */
+const TERM_FIELD: Record<"rent" | "deposit" | "util", ListingTermPriceField> = {
+  rent: "monthlyRent",
+  deposit: "securityDeposit",
+  util: "utilitiesEstimate",
+};
+
+/**
+ * A room's value on `term` and where it came from: the room's own number
+ * (`own`), the term's Default room (`tdef`), the room's long-term number
+ * (`lt`), or the long-term Default room (`def`).
+ */
 function termValue(
   room: ManagerRoomSubmission,
   term: string,
   field: "rent" | "deposit" | "util",
   defaults: ListingHouseDefaults,
-): { text: string; src: "own" | "lt" | "def" } {
-  const own = room.termPricing?.[term];
+  termDefaults: ListingHouseTermPricing | undefined,
+): { text: string; src: "own" | "tdef" | "lt" | "def" } {
   if (!isBase(term)) {
-    if (field === "rent" && typeof own?.monthlyRent === "number") return { text: String(own.monthlyRent), src: "own" };
-    if (field === "deposit" && (own?.securityDeposit ?? "").trim()) return { text: own!.securityDeposit!, src: "own" };
-    if (field === "util" && (own?.utilitiesEstimate ?? "").trim()) return { text: own!.utilitiesEstimate!, src: "own" };
+    const own = termPriceFieldText(room.termPricing?.[term], TERM_FIELD[field]);
+    const def = termPriceFieldText(termDefaults?.[term], TERM_FIELD[field]);
+    if (own) return { text: own, src: def && own === def ? "tdef" : "own" };
+    if (def) return { text: def, src: "tdef" };
   }
   if (field === "rent") {
     if (isBase(term) && roomInheritsDefault(room, defaults, "monthlyRent")) {
@@ -145,30 +169,25 @@ function writeTerm(
   field: "monthlyRent" | "securityDeposit" | "utilitiesEstimate",
   value: string,
 ): ManagerRoomSubmission {
-  const all = { ...(room.termPricing ?? {}) };
-  const entry = { ...(all[term] ?? {}) };
-  if (value.trim() === "") delete entry[field];
-  else if (field === "monthlyRent") entry.monthlyRent = num(value);
-  else entry[field] = value;
-  if (Object.keys(entry).length === 0) delete all[term];
-  else all[term] = entry;
-  return { ...room, termPricing: Object.keys(all).length > 0 ? all : undefined };
+  return writeRoomTermPrice(room, term, field, value);
 }
 
 /**
  * Put ONE of a room's long-term numbers back on the house — the ↺ in that
- * cell. Emptying a cell already re-inherits it, but nothing on the table said
- * so (the captain's "I cant reset some of the information to default"). On
- * another lease tab the same ↺ goes through `writeTerm(…, "")`, which drops
- * that tab's override so the cell follows long-term again.
+ * cell and the "Same as default room" tick. The room takes its own COPY of
+ * the Default room's number (`resetRoomFieldToDefault`), never a blank: the
+ * card draws a blank follower as "$1,050 · Same as default room", but Review,
+ * the applicant's room list and the signed lease read the record and saw a
+ * room with no rent. On another lease tab the same ↺ goes through
+ * `writeTerm(…, "")`, which drops that tab's override so the cell follows
+ * long-term again.
  */
 function resetRoomField(
   room: ManagerRoomSubmission,
   field: "monthlyRent" | "utilitiesEstimate" | "securityDeposit",
+  defaults: ListingHouseDefaults,
 ): ManagerRoomSubmission {
-  if (field === "monthlyRent") return { ...room, monthlyRent: 0 };
-  if (field === "utilitiesEstimate") return { ...room, utilitiesEstimate: "" };
-  return { ...room, securityDeposit: undefined };
+  return resetRoomFieldToDefault(room, field, defaults);
 }
 
 /* ─────────────────────── the room cards ─────────────────────── */
@@ -184,7 +203,7 @@ const Card = ({ children, dataAttr }: { children: React.ReactNode; dataAttr?: st
 );
 
 const PRICE_HELP = {
-  all: "Set once. Every room ticked “Same as all rooms” copies this. Month-to-Month and Short-term start as “same as Long-term”.",
+  all: "Set once. Every room ticked “Same as default room” copies this. Month-to-Month and Short-term start as “same as Long-term”.",
   rent: "Base monthly rent for this room, before utilities and fees.",
   util: "A flat monthly utilities estimate, billed with rent. Blank means included.",
   dep: "Security deposit, collected at signing.",
@@ -197,50 +216,149 @@ const helpRow = (title: string, text: string) => (
   </span>
 );
 
+/* ─────────────────────── fees, on the card that charges them ─────────────────────── */
+
+const CADENCE_SHORT: Record<ListingFeeCadence, string> = { monthly: "/mo", weekly: "/wk", daily: "/day", nightly: "/night", "one-time": "once" };
+const MONTHLY_CADENCES: readonly ListingFeeCadence[] = ["monthly", "weekly", "daily", "one-time"];
+const STAY_CADENCES: readonly ListingFeeCadence[] = ["one-time", "daily", "weekly", "monthly"];
+/** Presets that never belong on a pricing card: the deposit has its own row, these two are charged when a lease ends. */
+const CARD_HIDDEN_PRESETS = new Set<string>(["security_deposit", "break_lease_fee", "holdover_daily", "short_term_nightly"]);
+const isStayTerm = (term: string) => term === SHORT_TERM_LEASE_TERM || term === AIRBNB_LEASE_TERM;
+
+/** Fee rows a pricing card can show at all, in the order the catalogue keeps them. */
+function cardFeeRows(sub: ManagerListingSubmissionV1): ListingFeeRow[] {
+  return listingFeesForWizard(sub).filter((f) => !f.presetId || !CARD_HIDDEN_PRESETS.has(f.presetId));
+}
+
 /**
- * The add-on fees on ONE room: name · amount · when · ✕, and + Add a fee.
- *
- * A fee scoped to exactly this room is edited here; a fee the house charges
- * on every room is shown so the manager sees the whole picture, but is edited
- * where it lives. Both are the same fee records the house-level section stores.
+ * The lease types a fee added on this tab is billed on: the stay types from a
+ * stay tab, the lease types from a lease tab — stored only when that is a real
+ * narrowing of what the listing offers (`narrowFeeScope`).
  */
-function RoomFeesRows({ sub, patch, room, term }: { sub: ManagerListingSubmissionV1; patch: Patch; room: ManagerRoomSubmission; term: string }) {
-  const rows = useMemo(() => listingFeesForWizard(sub).filter((f) => f.presetId !== "security_deposit"), [sub]);
-  const mine = rows.filter((f) => (f.roomIds ?? []).length === 1 && f.roomIds![0] === room.id);
-  const shared = rows.filter((f) => !mine.includes(f) && isListingFeeAmountFilled(f.amount ?? "") && feeAppliesToLeaseType(f, term) && feeAppliesToRoom(f, room.id));
-  const writeRows = (next: ListingFeeRow[]) => {
-    const held = listingFeesForWizard(sub).filter((f) => f.presetId === "security_deposit");
-    patch(applyListingFeesToSubmission(sub, [...next, ...held]));
+function feeScopeForTab(sub: ManagerListingSubmissionV1, term: string): string[] | undefined {
+  const offered = listingLeaseTypeScopeOptions(sub);
+  const stay = isStayTerm(term);
+  return narrowFeeScope(offered.filter((t) => isStayTerm(t) === stay), offered);
+}
+
+/**
+ * The add-on fees on ONE card: name · amount · when · ✕, and + Add a fee.
+ *
+ * `roomId` null is the Default room (or the whole place): its fees are every
+ * room's (no `roomIds`, exactly how "All rooms" was always stored). A room card
+ * edits the fees scoped to it alone and lists, read-only, every other fee that
+ * reaches it — so the whole picture is on the card but each fee is edited in
+ * one place. Standard fees (Holding deposit, Parking, HOA…) are the same
+ * records the old fees section held; typing one of their names adopts the
+ * preset, so billing and the lease document treat it exactly as before.
+ */
+function FeeRows({ sub, patch, roomId, term }: { sub: ManagerListingSubmissionV1; patch: Patch; roomId: string | null; term: string }) {
+  const rows = useMemo(() => cardFeeRows(sub), [sub]);
+  const stay = isStayTerm(term);
+  /* A standard slot with no amount is a fee the product offers, not one this listing charges — unless it was just adopted. */
+  const [revealed, setRevealed] = useState<string[]>([]);
+  const single = (f: ListingFeeRow) => (f.roomIds ?? []).length === 1;
+  const onThisCard = (f: ListingFeeRow) => (roomId ? single(f) && f.roomIds![0] === roomId : !single(f));
+  const priced = (f: ListingFeeRow) => !f.presetId || f.presetId === "custom" || isListingFeeAmountFilled(f.amount ?? "") || revealed.includes(f.id);
+  const mine = rows.filter((f) => onThisCard(f) && feeAppliesToLeaseType(f, term) && priced(f));
+  const shared = roomId
+    ? rows.filter((f) => !mine.includes(f) && isListingFeeAmountFilled(f.amount ?? "") && feeAppliesToLeaseType(f, term) && feeAppliesToRoom(f, roomId))
+    : [];
+  const held = () => listingFeesForWizard(sub).filter((f) => f.presetId && CARD_HIDDEN_PRESETS.has(f.presetId));
+  const writeRows = (next: ListingFeeRow[], extra?: Partial<ManagerListingSubmissionV1>) => {
+    const nextSub = applyListingFeesToSubmission(sub, [...next, ...held()]);
+    patch(extra ? ensureSubmissionListingFees({ ...nextSub, ...extra }) : nextSub);
   };
   const write = (id: string, next: Partial<ListingFeeRow>) => writeRows(rows.map((f) => (f.id === id ? { ...f, ...next } : f)));
-  const cad = (f: ListingFeeRow) => (listingFeeCadence(f) === "monthly" ? "/mo" : listingFeeCadence(f) === "weekly" ? "/wk" : listingFeeCadence(f) === "daily" ? "/day" : " once");
+  const add = () => {
+    const row: ListingFeeRow = {
+      ...emptyCustomFeeRow(),
+      presetId: "custom",
+      ...patchListingFeeCadence(stay ? "one-time" : "monthly"),
+      leaseTypes: feeScopeForTab(sub, term),
+      roomIds: roomId ? [roomId] : undefined,
+    };
+    writeRows([...rows, row]);
+  };
+  const remove = (fee: ListingFeeRow) => {
+    if (!fee.presetId || fee.presetId === "custom") return writeRows(rows.filter((f) => f.id !== fee.id));
+    // A standard fee is a slot the product offers; removing it is remembered so a resync does not bring it back.
+    const rowId = listingFeeRowIdForPresetId(fee.presetId);
+    const removed = new Set(parseRemovedStandardListingFeeRows(sub));
+    if (rowId) removed.add(rowId as RemovedStandardListingFeeRowId);
+    setRevealed((prev) => prev.filter((id) => id !== fee.id));
+    writeRows(rows.filter((f) => f.id !== fee.id), { removedStandardListingFeeRows: [...removed] });
+  };
+  /** The standard fees a name can adopt from this tab. */
+  const presets = LISTING_FEE_PRESETS.filter((p) => !CARD_HIDDEN_PRESETS.has(p.presetId) && Boolean(p.shortTermOnly) === stay);
+  /**
+   * Typing a standard fee's name on a custom row turns the row INTO that preset
+   * (amount and scope carried over), so "Parking" typed by hand bills as the
+   * parking preset always did.
+   */
+  const rename = (fee: ListingFeeRow, label: string) => {
+    const hit = fee.presetId === "custom" ? presets.find((p) => p.defaultLabel.toLowerCase() === label.trim().toLowerCase()) : undefined;
+    const slot = hit ? rows.find((f) => f.presetId === hit.presetId) : undefined;
+    if (!hit || !slot || (isListingFeeAmountFilled(slot.amount ?? "") && !onThisCard(slot))) return write(fee.id, { label });
+    const rowId = listingFeeRowIdForPresetId(hit.presetId);
+    const removed = parseRemovedStandardListingFeeRows(sub).filter((id) => id !== rowId);
+    setRevealed((prev) => (prev.includes(slot.id) ? prev : [...prev, slot.id]));
+    writeRows(
+      rows
+        .filter((f) => f.id !== fee.id)
+        .map((f) => (f.id === slot.id ? { ...f, amount: fee.amount, leaseTypes: fee.leaseTypes, roomIds: fee.roomIds, ...patchListingFeeCadence(listingFeeCadence(fee)) } : f)),
+      { removedStandardListingFeeRows: removed },
+    );
+  };
+  const listId = `listing-v2-fee-names-${roomId ?? "all"}-${stay ? "stay" : "lease"}`;
+  const cadences = stay ? STAY_CADENCES : MONTHLY_CADENCES;
   return (
     <>
       <FactRow label="Other fees">
-        <button
-          type="button"
-          data-attr="listing-v2-room-fee-add"
-          onClick={() => writeRows([...rows, { ...emptyCustomFeeRow(), presetId: "custom", roomIds: [room.id] }])}
-          className="text-[13.5px] font-bold text-primary hover:underline"
-        >
+        <button type="button" data-attr={roomId ? "listing-v2-room-fee-add" : "listing-v2-default-fee-add"} onClick={add} className="text-[13.5px] font-bold text-primary hover:underline">
           + Add a fee
         </button>
       </FactRow>
-      {mine.map((fee) => (
-        <div key={fee.id} className="grid grid-cols-[minmax(0,1.3fr)_104px_130px_28px] items-center gap-1.5 bg-foreground/[0.025] px-3.5 py-2 pl-7" data-attr="listing-v2-room-fee-row">
-          <Input aria-label="Fee name" value={fee.label} placeholder="Parking" onChange={(e) => write(fee.id, { label: e.target.value })} />
-          <MoneyInput label={`${fee.label || "Fee"} amount`} value={moneyValue(fee.amount)} placeholder="0" onChange={(v) => write(fee.id, { amount: sanitizeMoneyInput(v) })} />
-          <Select aria-label={`How often ${fee.label || "this fee"} is charged`} value={listingFeeCadence(fee)} onChange={(e) => write(fee.id, patchListingFeeCadence(e.target.value as ListingFeeCadence))}>
-            {LISTING_FEE_WIZARD_CADENCE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </Select>
-          <button type="button" aria-label={`Remove ${fee.label || "fee"}`} onClick={() => writeRows(rows.filter((f) => f.id !== fee.id))} className="grid h-7 w-7 place-items-center rounded-md text-muted hover:bg-foreground/[0.06] hover:text-foreground">✕</button>
-        </div>
-      ))}
+      <datalist id={listId}>
+        {presets.map((p) => (
+          <option key={p.presetId} value={p.defaultLabel} />
+        ))}
+      </datalist>
+      {mine.map((fee) => {
+        const name = fee.label || "Fee";
+        const isPreset = Boolean(fee.presetId && fee.presetId !== "custom");
+        const oneTime = listingFeeCadence(fee) === "one-time";
+        return (
+          <div key={fee.id} className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1.5 border-t border-border bg-foreground/[0.025] px-3.5 py-2 pl-7" data-attr="listing-v2-fee-row">
+            <input
+              aria-label="Fee name"
+              list={isPreset ? undefined : listId}
+              value={fee.label}
+              readOnly={isPreset}
+              placeholder="Parking"
+              onChange={(e) => rename(fee, e.target.value)}
+              className={cn(
+                "min-h-[36px] min-w-[120px] flex-1 rounded-lg border bg-card px-2.5 text-[13.5px] font-semibold text-foreground outline-none focus:border-primary",
+                isPreset ? "border-transparent bg-transparent px-0" : "border-border",
+              )}
+            />
+            <span className="flex items-center gap-1.5">
+              <MoneyInput label={`${name} amount`} value={moneyValue(fee.amount)} placeholder="0" onChange={(v) => write(fee.id, { amount: sanitizeMoneyInput(v) })} />
+              <RowSelectCell ariaLabel={`How often ${name} is charged`} value={listingFeeCadence(fee)} options={cadences.map((c) => ({ value: c, label: CADENCE_SHORT[c] }))} onChange={(v) => write(fee.id, patchListingFeeCadence(v as ListingFeeCadence))} />
+              {oneTime && fee.presetId !== "holding_deposit" ? (
+                <label className="flex cursor-pointer items-center gap-1 text-[12px] font-semibold text-foreground/70" title="The resident gets this back">
+                  <input type="checkbox" checked={Boolean(fee.refundable || fee.creditsTowardSecurity)} data-attr="listing-fee-refundable" onChange={(e) => write(fee.id, { refundable: e.target.checked, creditsTowardSecurity: e.target.checked ? fee.creditsTowardSecurity : false })} className="h-3.5 w-3.5 accent-[var(--pl-blue)]" />
+                  Refundable
+                </label>
+              ) : null}
+              <button type="button" aria-label={`Remove ${name}`} data-attr="listing-v2-fee-remove" onClick={() => remove(fee)} className="grid h-7 w-7 place-items-center rounded-md text-muted hover:bg-foreground/[0.06] hover:text-foreground">✕</button>
+            </span>
+          </div>
+        );
+      })}
       {shared.map((f) => (
         <FactRow key={f.id} sub label={f.label}>
-          <span className="text-[13px] text-foreground/70">{usd(num(f.amount ?? ""))}{cad(f)} · all rooms</span>
+          <span className="text-[13px] text-foreground/70">{usd(num(f.amount ?? ""))} {CADENCE_SHORT[listingFeeCadence(f)]} · {(f.roomIds ?? []).length ? `${f.roomIds!.length} rooms` : "all rooms"}</span>
         </FactRow>
       ))}
     </>
@@ -253,7 +371,9 @@ function MonthlyCards({
   term,
   feeScopeTerm,
   defaults,
+  termDefaults,
   onDefault,
+  onTermDefault,
   onRoom,
   dimmed,
 }: {
@@ -263,7 +383,10 @@ function MonthlyCards({
   /** Lease tab these cards are on — a room's fees respect Applies-to even when rent follows long-term. */
   feeScopeTerm: string;
   defaults: ListingHouseDefaults;
+  /** The Default room on every lease type but long-term. */
+  termDefaults: ListingHouseTermPricing | undefined;
   onDefault: (field: ListingHouseDefaultField, value: string | number) => void;
+  onTermDefault: (term: string, field: ListingTermPriceField, value: string) => void;
   onRoom: (id: string, next: ManagerRoomSubmission) => void;
   dimmed: boolean;
 }) {
@@ -272,11 +395,15 @@ function MonthlyCards({
   const [open, setOpen] = useState<string | null>(null);
   const [unticked, setUnticked] = useState<Set<string>>(new Set());
   const values = (room: ManagerRoomSubmission) => ({
-    rent: termValue(room, term, "rent", defaults),
-    util: termValue(room, term, "util", defaults),
-    dep: termValue(room, term, "deposit", defaults),
+    rent: termValue(room, term, "rent", defaults, termDefaults),
+    util: termValue(room, term, "util", defaults, termDefaults),
+    dep: termValue(room, term, "deposit", defaults, termDefaults),
     modeOwn: base ? !roomInheritsDefault(room, defaults, "pricingMode") : false,
   });
+  /** The term's Default room, one field: what it holds, and long-term's figure as the placeholder until it holds anything. */
+  const termDef = (field: ListingTermPriceField) => termPriceFieldText(termDefaults?.[term], field);
+  const ltText = (field: ListingTermPriceField) =>
+    field === "monthlyRent" ? (defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : "") : moneyValue(defaults[field]);
   const sameAsAll = (room: ManagerRoomSubmission) => {
     const v = values(room);
     return !unticked.has(room.id) && v.rent.src !== "own" && v.util.src !== "own" && v.dep.src !== "own" && !v.modeOwn;
@@ -291,7 +418,7 @@ function MonthlyCards({
     });
     const v = values(room);
     if (same) {
-      if (base) onRoom(room.id, { ...resetRoomField(resetRoomField(resetRoomField(room, "monthlyRent"), "utilitiesEstimate"), "securityDeposit"), pricingMode: undefined });
+      if (base) onRoom(room.id, { ...resetRoomField(resetRoomField(resetRoomField(room, "monthlyRent", defaults), "utilitiesEstimate", defaults), "securityDeposit", defaults), pricingMode: undefined });
       else {
         const all = { ...(room.termPricing ?? {}) };
         delete all[term];
@@ -306,54 +433,74 @@ function MonthlyCards({
     <>
       <RecordCard
         every
-        title="All rooms"
+        title="Default room"
         help={PRICE_HELP.all}
         dimmed={dimmed}
         dataAttr="listing-v2-price-defaults-card"
         rows={
           <div>
-            <FactRow first label={helpRow("Rent /mo", PRICE_HELP.rent)}>
+            <FactRow first label={<>{helpRow("Rent /mo", PRICE_HELP.rent)} {base ? <FieldMark kind={prefillMarkFor(sub, "houseDefaults")} /> : null}</>}>
               {base ? (
                 <MoneyInput label="Rent for every room" value={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : ""} placeholder="1,100" onChange={(v) => onDefault("monthlyRent", num(sanitizeMoneyInput(v)))} />
               ) : (
-                <span className="text-[13.5px] font-semibold text-foreground">{defaults.monthlyRent > 0 ? usd(defaults.monthlyRent) : "—"}</span>
+                <MoneyInput
+                  label={`Rent for every room on ${term}`}
+                  value={termDef("monthlyRent")}
+                  inherited={!termDef("monthlyRent")}
+                  placeholder={ltText("monthlyRent") || "1,100"}
+                  onChange={(v) => onTermDefault(term, "monthlyRent", sanitizeMoneyInput(v))}
+                  dataAttr="listing-v2-price-term-default-rent"
+                />
               )}
             </FactRow>
             <FactRow label={helpRow("Utilities /mo", PRICE_HELP.util)}>
               {base ? (
                 <MoneyInput label="Utilities for every room" value={moneyValue(defaults.utilitiesEstimate)} placeholder="150" onChange={(v) => onDefault("utilitiesEstimate", sanitizeMoneyInput(v))} />
               ) : (
-                <span className="text-[13.5px] font-semibold text-foreground">{moneyValue(defaults.utilitiesEstimate) ? usd(num(defaults.utilitiesEstimate)) : "—"}</span>
+                <MoneyInput
+                  label={`Utilities for every room on ${term}`}
+                  value={termDef("utilitiesEstimate")}
+                  inherited={!termDef("utilitiesEstimate")}
+                  placeholder={ltText("utilitiesEstimate") || "150"}
+                  onChange={(v) => onTermDefault(term, "utilitiesEstimate", sanitizeMoneyInput(v))}
+                  dataAttr="listing-v2-price-term-default-utilities"
+                />
               )}
             </FactRow>
             <FactRow label={helpRow("Deposit", PRICE_HELP.dep)}>
               {base ? (
                 <MoneyInput label="Deposit for every room" value={moneyValue(defaults.securityDeposit)} placeholder="1,000" onChange={(v) => onDefault("securityDeposit", sanitizeMoneyInput(v))} />
               ) : (
-                <span className="text-[13.5px] font-semibold text-foreground">{moneyValue(defaults.securityDeposit) ? usd(num(defaults.securityDeposit)) : "—"}</span>
+                <MoneyInput
+                  label={`Deposit for every room on ${term}`}
+                  value={termDef("securityDeposit")}
+                  inherited={!termDef("securityDeposit")}
+                  placeholder={ltText("securityDeposit") || "1,000"}
+                  onChange={(v) => onTermDefault(term, "securityDeposit", sanitizeMoneyInput(v))}
+                  dataAttr="listing-v2-price-term-default-deposit"
+                />
               )}
             </FactRow>
-            <MoreRows dataAttr="listing-v2-price-defaults-more">
-              <FactRow label="Listed rent">
-                {base ? (
-                  <RowSelectCell ariaLabel="Listed rent for every room" value={defaults.pricingMode || "fixed"} options={PRICING_MODE_OPTIONS} onChange={(v) => onDefault("pricingMode", v)} />
-                ) : (
-                  <span className="text-[13.5px] font-semibold text-foreground">{defaults.pricingMode === "flexible" ? "Flexible" : "Fixed"}</span>
-                )}
-              </FactRow>
-            </MoreRows>
+            <FactRow label="Listed rent">
+              {base ? (
+                <RowSelectCell ariaLabel="Listed rent for every room" value={defaults.pricingMode || "fixed"} options={PRICING_MODE_OPTIONS} onChange={(v) => onDefault("pricingMode", v)} />
+              ) : (
+                <span className="text-[13.5px] font-semibold text-foreground">{defaults.pricingMode === "flexible" ? "Flexible" : "Fixed"}</span>
+              )}
+            </FactRow>
+            <FeeRows sub={sub} patch={patch} roomId={null} term={feeScopeTerm} />
           </div>
         }
       />
       {rooms.map((room, i) => {
         const name = room.name.trim() || `Room ${i + 1}`;
-        const rent = termValue(room, term, "rent", defaults);
-        const util = termValue(room, term, "util", defaults);
-        const dep = termValue(room, term, "deposit", defaults);
+        const rent = termValue(room, term, "rent", defaults, termDefaults);
+        const util = termValue(room, term, "util", defaults, termDefaults);
+        const dep = termValue(room, term, "deposit", defaults, termDefaults);
         const mode = room.pricingMode ?? defaults.pricingMode ?? "fixed";
         const modeOwn = base ? !roomInheritsDefault(room, defaults, "pricingMode") : false;
         const resetOne = (field: "monthlyRent" | "utilitiesEstimate" | "securityDeposit") =>
-          onRoom(room.id, base ? resetRoomField(room, field) : writeTerm(room, term, field, ""));
+          onRoom(room.id, base ? resetRoomField(room, field, defaults) : writeTerm(room, term, field, ""));
         const writeOne = (field: "monthlyRent" | "utilitiesEstimate" | "securityDeposit", v: string) => {
           untouch(room.id);
           if (base) onRoom(room.id, field === "monthlyRent" ? { ...room, monthlyRent: num(sanitizeMoneyInput(v)) } : field === "utilitiesEstimate" ? { ...room, utilitiesEstimate: sanitizeMoneyInput(v) } : { ...room, securityDeposit: sanitizeMoneyInput(v) });
@@ -371,7 +518,7 @@ function MonthlyCards({
           <RecordCard
             key={room.id}
             title={name}
-            same={<SameAsAllToggle same={sameAsAll(room)} plural="rooms" noun="room" onChange={(next) => setSameAsAll(room, next)} onReset={() => setSameAsAll(room, true)} dataAttr="listing-v2-price-same-as-all" />}
+            same={<SameAsAllToggle same={sameAsAll(room)} noun="room" onChange={(next) => setSameAsAll(room, next)} onReset={() => setSameAsAll(room, true)} dataAttr="listing-v2-price-same-as-all" />}
             summary={summary}
             open={isOpen}
             onToggle={() => setOpen((prev) => (prev === room.id ? null : room.id))}
@@ -406,8 +553,7 @@ function MonthlyCards({
                 onChange={(v) => writeOne("securityDeposit", v)}
               />
             </FactRow>
-            <MoreRows dataAttr="listing-v2-price-more">
-              <FactRow label="Listed rent" own={modeOwn} onReset={() => onRoom(room.id, { ...room, pricingMode: undefined })} resetLabel={`Reset listed rent for ${name} to every room`}>
+            <FactRow label="Listed rent" own={modeOwn} onReset={() => onRoom(room.id, { ...room, pricingMode: undefined })} resetLabel={`Reset listed rent for ${name} to every room`}>
                 {base ? (
                   <RowSelectCell
                     ariaLabel={`Listed rent for ${name}`}
@@ -419,9 +565,8 @@ function MonthlyCards({
                 ) : (
                   <span className="text-[13.5px] font-semibold text-foreground">{listed(rentN, utilN, mode)}</span>
                 )}
-              </FactRow>
-              <RoomFeesRows sub={sub} patch={patch} room={room} term={feeScopeTerm} />
-            </MoreRows>
+            </FactRow>
+            <FeeRows sub={sub} patch={patch} roomId={room.id} term={feeScopeTerm} />
             <EditorDone onClick={() => setOpen(null)} dataAttr="listing-v2-price-done" />
           </RecordCard>
         );
@@ -433,11 +578,16 @@ function MonthlyCards({
 /** Short stays: rent per night and per week only. A stay deposit is a fee, added under Other fees. */
 function StayCards({
   sub,
+  patch,
+  term,
   defaults,
   onDefault,
   onRoom,
 }: {
   sub: ManagerListingSubmissionV1;
+  patch: Patch;
+  /** The stay tab these cards are on — a fee added here is billed on the stay types. */
+  term: string;
   defaults: ListingHouseDefaults;
   onDefault: (field: ListingHouseDefaultField, value: string | number) => void;
   onRoom: (id: string, next: ManagerRoomSubmission) => void;
@@ -465,7 +615,7 @@ function StayCards({
     <>
       <RecordCard
         every
-        title="All rooms"
+        title="Default room"
         help={PRICE_HELP.all}
         dataAttr="listing-v2-stay-defaults-card"
         rows={
@@ -476,6 +626,7 @@ function StayCards({
             <FactRow label="Rent /week">
               <MoneyInput label="Rent per week for every room" value={defaults.weeklyRentPrice > 0 ? String(defaults.weeklyRentPrice) : ""} placeholder="395" onChange={(v) => onDefault("weeklyRentPrice", num(sanitizeMoneyInput(v)))} />
             </FactRow>
+            <FeeRows sub={sub} patch={patch} roomId={null} term={term} />
           </div>
         }
       />
@@ -490,7 +641,7 @@ function StayCards({
           <RecordCard
             key={room.id}
             title={name}
-            same={<SameAsAllToggle same={sameAsAll(room)} plural="rooms" noun="room" onChange={(next) => setSameAsAll(room, next)} onReset={() => setSameAsAll(room, true)} dataAttr="listing-v2-stay-same-as-all" />}
+            same={<SameAsAllToggle same={sameAsAll(room)} noun="room" onChange={(next) => setSameAsAll(room, next)} onReset={() => setSameAsAll(room, true)} dataAttr="listing-v2-stay-same-as-all" />}
             summary={[night ? `${usd(num(night))}/night` : "Nightly rate not set", week ? `${usd(week)}/week` : "Weekly rate not set"].join(" · ")}
             open={isOpen}
             onToggle={() => setOpen((prev) => (prev === room.id ? null : room.id))}
@@ -503,6 +654,7 @@ function StayCards({
             <FactRow label="Rent /week" own={!weekInh} onReset={() => onRoom(room.id, { ...room, weeklyRentPrice: undefined })} resetLabel={`Reset weekly rent for ${name} to every room`}>
               <MoneyInput label={`${name} rent per week`} value={weekInh ? "" : room.weeklyRentPrice ? String(room.weeklyRentPrice) : ""} inherited={weekInh} placeholder={defaults.weeklyRentPrice > 0 ? String(defaults.weeklyRentPrice) : "395"} onChange={(v) => { untouch(room.id); onRoom(room.id, { ...room, weeklyRentPrice: num(sanitizeMoneyInput(v)) || undefined }); }} />
             </FactRow>
+            <FeeRows sub={sub} patch={patch} roomId={room.id} term={term} />
             <EditorDone onClick={() => setOpen(null)} dataAttr="listing-v2-stay-done" />
           </RecordCard>
         );
@@ -512,11 +664,11 @@ function StayCards({
 }
 
 /** The whole place: one rent, one utilities figure, one deposit. */
-function WholePlaceCard({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+function WholePlaceCard({ sub, patch, term }: { sub: ManagerListingSubmissionV1; patch: Patch; term: string }) {
   const write = (next: Parameters<typeof applyEntireHomeListingPricing>[1]) => patch(applyEntireHomeListingPricing(sub, next));
   return (
     <Card dataAttr="listing-v2-whole-place-card">
-      <FactRow first label="Rent /mo" required>
+      <FactRow first label={<>Rent /mo <FieldMark kind={prefillMarkFor(sub, "entireHomeMonthlyRent")} /></>} required>
         <MoneyInput label="Rent for the whole place" value={sub.entireHomeMonthlyRent ? String(sub.entireHomeMonthlyRent) : ""} placeholder="3,200" onChange={(v) => write({ entireHomeMonthlyRent: num(sanitizeMoneyInput(v)) || undefined })} />
       </FactRow>
       <FactRow label="Utilities /mo">
@@ -555,6 +707,7 @@ function WholePlaceCard({ sub, patch }: { sub: ManagerListingSubmissionV1; patch
           </FactRow>
         </>
       ) : null}
+      <FeeRows sub={sub} patch={patch} roomId={null} term={term} />
     </Card>
   );
 }
@@ -574,7 +727,7 @@ function BundlesSection({ sub, patch, defaults }: { sub: ManagerListingSubmissio
   const bundles = sub.bundles ?? [];
   const [open, setOpen] = useState<string | null>(null);
   const roomLabel = (r: ManagerRoomSubmission, i: number) => r.name.trim() || `Room ${i + 1}`;
-  const roomRent = (r: ManagerRoomSubmission) => termValue(r, LONG_TERM_LEASE_TERM, "rent", defaults);
+  const roomRent = (r: ManagerRoomSubmission) => termValue(r, LONG_TERM_LEASE_TERM, "rent", defaults, undefined);
   const write = (id: string, next: Partial<ManagerBundleRow>) => patch({ bundles: bundles.map((b) => (b.id === id ? { ...b, ...next } : b)) });
   const remove = (id: string) => {
     patch({ bundles: bundles.filter((b) => b.id !== id) });
@@ -657,155 +810,6 @@ function BundlesSection({ sub, patch, defaults }: { sub: ManagerListingSubmissio
   );
 }
 
-/* ─────────────────────── fees ─────────────────────── */
-
-function FeeRefundRows({ fee, onChange }: { fee: ListingFeeRow; onChange: (patch: Partial<ListingFeeRow>) => void }) {
-  if (fee.presetId === "security_deposit") return null;
-  if (listingFeeCadence(fee) !== "one-time") return null;
-  const refundable = fee.presetId === "holding_deposit" ? true : Boolean(fee.refundable || fee.creditsTowardSecurity);
-  const creditChecked = fee.presetId === "holding_deposit" ? fee.creditsTowardSecurity !== false : Boolean(fee.creditsTowardSecurity);
-  return (
-    <div className="px-3.5 pb-1">
-      {fee.presetId === "holding_deposit" ? (
-        <CheckboxOption label="Credits toward the security deposit" checked={creditChecked} onChange={(next) => onChange({ creditsTowardSecurity: next })} />
-      ) : (
-        <>
-          <CheckboxOption label="Refundable" checked={refundable} dataAttr="listing-fee-refundable" onChange={(next) => onChange({ refundable: next, creditsTowardSecurity: next ? fee.creditsTowardSecurity : false })} />
-          {refundable ? (
-            <CheckboxOption label="Reduces the security deposit by this amount" checked={creditChecked} dataAttr="listing-fee-credit-security" onChange={(next) => onChange({ creditsTowardSecurity: next, refundable: true })} />
-          ) : null}
-        </>
-      )}
-    </div>
-  );
-}
-
-function FeesSection({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
-  const terms = useMemo(() => listingLeaseTypeScopeOptions(sub), [sub]);
-  const rooms = sub.rooms ?? [];
-  const wholePlace = sub.listingPlaceCategoryId === "entire_home";
-  const seattle = listingFoldsAllMonthlyFeesIntoRent(sub);
-  const rows = useMemo(() => listingFeesForWizard(sub).filter((f) => f.presetId !== "security_deposit"), [sub]);
-  /* An empty standard slot is a slot the product offers, not a fee this listing charges. */
-  const [revealed, setRevealed] = useState<string[]>([]);
-  const [open, setOpen] = useState<string | null>(null);
-  const standardAll = rows.filter((f) => f.presetId && f.presetId !== "custom");
-  const standard = standardAll.filter((f) => isListingFeeAmountFilled(f.amount ?? "") || revealed.includes(f.id));
-  const unusedStandard = standardAll.filter((f) => !standard.includes(f));
-  const custom = rows.filter((f) => !f.presetId || f.presetId === "custom");
-  const shown = [...standard, ...custom];
-
-  const writeRows = (next: ListingFeeRow[]) => {
-    const held = listingFeesForWizard(sub).filter((f) => f.presetId === "security_deposit");
-    patch(applyListingFeesToSubmission(sub, [...next, ...held]));
-  };
-  const write = (id: string, next: Partial<ListingFeeRow>) => writeRows(rows.map((f) => (f.id === id ? { ...f, ...next } : f)));
-
-  const removeFee = (fee: ListingFeeRow) => {
-    setOpen(null);
-    if (!fee.presetId || fee.presetId === "custom") {
-      writeRows(rows.filter((f) => f.id !== fee.id));
-      return;
-    }
-    const rowId = listingFeeRowIdForPresetId(fee.presetId);
-    if (!rowId) return;
-    const removed = new Set(parseRemovedStandardListingFeeRows(sub));
-    removed.add(rowId as RemovedStandardListingFeeRowId);
-    const held = listingFeesForWizard(sub).filter((f) => f.presetId === "security_deposit");
-    const nextSub = applyListingFeesToSubmission(sub, [...rows.filter((f) => f.id !== fee.id), ...held]);
-    patch(ensureSubmissionListingFees({ ...nextSub, removedStandardListingFeeRows: [...removed] }));
-    setRevealed((prev) => prev.filter((id) => id !== fee.id));
-  };
-
-  const roomLabel = (r: ManagerRoomSubmission, i: number) => r.name.trim() || `Room ${i + 1}`;
-  const summaryFor = (fee: ListingFeeRow) => {
-    const amount = isListingFeeAmountFilled(fee.amount ?? "") ? usd(num(fee.amount ?? "")) : "Amount needed";
-    const cad = listingFeeCadence(fee);
-    const suffix = cad === "monthly" ? "/mo" : cad === "weekly" ? "/wk" : cad === "daily" ? "/day" : " once";
-    const leaseTypes = terms.length === 0 ? "Choose lease types above first" : expandFeeScope(fee.leaseTypes, terms).join(", ") || "No lease types";
-    const roomScope = wholePlace || rooms.length === 0 ? "" : expandFeeScope(fee.roomIds, rooms.map((r) => r.id)).length === rooms.length ? "All rooms" : `${expandFeeScope(fee.roomIds, rooms.map((r) => r.id)).length} rooms`;
-    return [`${amount}${isListingFeeAmountFilled(fee.amount ?? "") ? suffix : ""}`, roomScope, leaseTypes].filter(Boolean).join(" · ");
-  };
-
-  return (
-    <>
-      {shown.length === 0 ? (
-        <Card>
-          <FactRow first label={<span className="font-medium text-foreground/70">No fees beyond rent, the deposit and utilities</span>}>
-            <span />
-          </FactRow>
-        </Card>
-      ) : null}
-      {shown.map((fee) => {
-        const isCustom = !fee.presetId || fee.presetId === "custom";
-        const label = fee.label.trim() || "Fee";
-        const selectedRooms = expandFeeScope(fee.roomIds, rooms.map((r) => r.id)).map((id) => rooms.findIndex((r) => r.id === id)).filter((i) => i >= 0).map((i) => roomLabel(rooms[i]!, i));
-        return (
-          <RecordCard
-            key={fee.id}
-            title={isCustom ? undefined : fee.label}
-            name={isCustom ? fee.label : undefined}
-            nameLabel="Fee name"
-            namePlaceholder="Parking space"
-            onName={isCustom ? (v) => write(fee.id, { label: v }) : undefined}
-            summary={summaryFor(fee)}
-            open={open === fee.id}
-            onToggle={() => setOpen((prev) => (prev === fee.id ? null : fee.id))}
-            toggleLabel={label}
-            dataAttr="listing-v2-fee-card"
-          >
-            <FactRow first label="Amount" required>
-              <MoneyInput label={`${label} amount`} value={moneyValue(fee.amount)} placeholder="0" onChange={(v) => write(fee.id, { amount: sanitizeMoneyInput(v) })} />
-            </FactRow>
-            <FactRow label="Charged">
-              <RowSelectCell ariaLabel={`How often ${label} is charged`} value={listingFeeCadence(fee)} options={LISTING_FEE_WIZARD_CADENCE_OPTIONS} onChange={(v) => write(fee.id, patchListingFeeCadence(v as ListingFeeCadence))} />
-            </FactRow>
-            <FactRow label="Lease types">
-              {terms.length === 0 ? (
-                <span className="text-[13px] font-semibold text-[var(--status-pending-fg)]">Choose lease types above first →</span>
-              ) : (
-                <MultiPick label={`Lease types for ${label}`} options={terms} selected={expandFeeScope(fee.leaseTypes, terms)} allowOther={false} emptyLabel="None" onChange={(next) => write(fee.id, { leaseTypes: narrowFeeScope(next, terms) })} />
-              )}
-            </FactRow>
-            {wholePlace || rooms.length === 0 ? null : (
-              <FactRow label="Rooms">
-                <MultiPick label={`Rooms for ${label}`} options={rooms.map(roomLabel)} selected={selectedRooms} allowOther={false} emptyLabel="None" onChange={(next) => write(fee.id, { roomIds: narrowFeeScope(rooms.filter((r, i) => next.includes(roomLabel(r, i))).map((r) => r.id), rooms.map((r) => r.id)) })} />
-              </FactRow>
-            )}
-            <FeeRefundRows fee={fee} onChange={(next) => write(fee.id, next)} />
-            <CardFoot>
-              <CardAction onClick={() => removeFee(fee)} tone="danger" dataAttr="listing-v2-fee-remove">
-                Remove
-              </CardAction>
-            </CardFoot>
-          </RecordCard>
-        );
-      })}
-      <div className="mt-1">
-        <RowSelectCell
-          ariaLabel="Add a fee"
-          value=""
-          placeholder="Add a fee…"
-          className="w-full"
-          options={[...unusedStandard.map((fee) => ({ value: fee.id, label: fee.label })), { value: "__custom", label: "Something else…" }]}
-          onChange={(picked) => {
-            if (!picked) return;
-            if (picked === "__custom") {
-              const row = { ...emptyCustomFeeRow(), presetId: "custom" as const };
-              writeRows([...rows, row]);
-              setOpen(row.id);
-            } else {
-              setRevealed((prev) => (prev.includes(picked) ? prev : [...prev, picked]));
-              setOpen(picked);
-            }
-          }}
-        />
-      </div>
-      {seattle ? <p className="mt-3 rounded-xl border border-border bg-card px-4 py-3 text-[13px] leading-relaxed text-foreground">{SEATTLE_RENT_RULE_NOTE}</p> : null}
-    </>
-  );
-}
-
 /* ─────────────────────── the step ─────────────────────── */
 
 export function ListingPricingSections({
@@ -853,27 +857,63 @@ export function ListingPricingSections({
       houseDefaults: next,
     } as Partial<ManagerListingSubmissionV1>);
   };
-  /** "Same as long-term" is true when no room has its own price on this term. */
-  const sameAsLongTerm = (term: string) => !rooms.some((r) => r.termPricing?.[term] && Object.keys(r.termPricing[term]!).length > 0);
-  const [waiverCodesOpen, setWaiverCodesOpen] = useState(false);
+  /**
+   * The Default room on every lease type but long-term. Held like `defaults`:
+   * read once from the listing (or inferred from its rooms), then written
+   * through `onTermDefault`, which also moves every room still following it.
+   */
+  const [termDefaults, setTermDefaults] = useState<ListingHouseTermPricing | undefined>(() => houseTermPricingForSubmission(sub));
+  const onTermDefault = (term: string, field: ListingTermPriceField, value: string) => {
+    const previous = termDefaults;
+    const next = writeTermPriceEntry(termDefaults, term, field, value);
+    setTermDefaults(next);
+    patch({ rooms: applyHouseTermPricingToRooms(rooms, term, field, next, previous), houseTermPricing: next });
+  };
+  /** "Same as long-term" is true when neither the Default room nor any room has its own price on this term. */
+  const sameAsLongTerm = (term: string) =>
+    !(termDefaults?.[term] && Object.keys(termDefaults[term]!).length > 0) &&
+    !rooms.some((r) => r.termPricing?.[term] && Object.keys(r.termPricing[term]!).length > 0);
   const [showOwn, setShowOwn] = useState<Record<string, boolean>>({});
   const ownTable = (term: string) => showOwn[term] || !sameAsLongTerm(term);
   const stay = isStayLeaseTerm(activeLeaseTerm);
 
   /*
    * The application-fee switch. On means the listing charges one; off blanks
-   * the fee, the short-term fee and the waiver code so nothing is billed.
-   * A listing that already has any of them is on.
+   * the one amount, every per-type amount, the legacy short-term fee and the
+   * waiver code so nothing is billed. A listing that already has any of them is on.
    */
-  const feeStored = moneyFilled(sub.applicationFee) || moneyFilled(sub.shortTermApplicationFee) || Boolean(sub.applicationFeeWaiverCode);
+  const perType = sub.applicationFeeByLeaseType ?? {};
+  const legacyStay = moneyValue(sub.shortTermApplicationFee);
+  const feeStored = moneyFilled(sub.applicationFee) || Boolean(legacyStay) || Object.keys(perType).length > 0 || Boolean(sub.applicationFeeWaiverCode);
   const [feeOn, setFeeOn] = useState(feeStored);
   const chargeFee = feeOn || feeStored;
+  /*
+   * "Different application fee per lease type": one row per offered type. A
+   * blank row FOLLOWS the one amount (dashed, placeholder), exactly as a room
+   * follows the Default room — so "$50 everywhere, $25 for short stays" is one
+   * tick and one number. Unticking clears every per-type amount.
+   */
+  const splitStored = Object.keys(perType).length > 0 || Boolean(legacyStay);
+  const [splitOn, setSplitOn] = useState(splitStored);
+  const split = splitOn || splitStored;
+  /** A lease type's own fee: its map entry, or the legacy short-term fee for the stay row. */
+  const ownFee = (term: string) => perType[term] ?? (term === SHORT_TERM_LEASE_TERM ? legacyStay : "") ?? "";
+  const writeFee = (term: string, raw: string) => {
+    const v = sanitizeMoneyInput(raw);
+    const next = { ...perType };
+    if (v.trim() === "") delete next[term];
+    else next[term] = v;
+    patch({
+      applicationFeeByLeaseType: Object.keys(next).length ? next : undefined,
+      // Older readers still look here for a stay; keep them agreeing with the row.
+      ...(term === SHORT_TERM_LEASE_TERM ? { shortTermApplicationFee: v } : {}),
+    });
+  };
+  const feeTerms = tabs.map(applicationFeeLeaseTypeKey);
+  const termLabel = (term: string) => (term === "Month-to-Month" ? "Month to month" : term === SHORT_TERM_LEASE_TERM ? "Short-term" : term);
 
-  return (
+  const applicationsCard = (
     <>
-      <SectionTitle>How you get paid</SectionTitle>
-      <Card dataAttr="listing-v2-payments-card">{payments}</Card>
-
       <SectionTitle>Applications</SectionTitle>
       <Card dataAttr="listing-v2-applications-card">
         <div className="px-3.5 py-1">
@@ -883,18 +923,48 @@ export function ListingPricingSections({
             dataAttr="listing-v2-application-fee-on"
             onChange={(next) => {
               setFeeOn(next);
-              if (!next) patch({ applicationFee: "", shortTermApplicationFee: "", applicationFeeWaiverCode: "" });
+              if (!next) {
+                setSplitOn(false);
+                patch({ applicationFee: "", shortTermApplicationFee: "", applicationFeeByLeaseType: undefined, applicationFeeWaiverCode: "" });
+              }
             }}
           />
         </div>
         {chargeFee ? (
           <div data-attr="listing-v2-application-fee-rows">
-            <FactRow label="Application fee">
-              <MoneyInput label="Long-term application fee" value={moneyValue(sub.applicationFee)} placeholder="50" onChange={(v) => patch({ applicationFee: sanitizeMoneyInput(v) })} />
+            <FactRow label={split ? "Application fee (default)" : "Application fee"}>
+              <MoneyInput label="Application fee" value={moneyValue(sub.applicationFee)} placeholder="50" onChange={(v) => patch({ applicationFee: sanitizeMoneyInput(v) })} />
             </FactRow>
-            <FactRow label="Short-term fee">
-              <MoneyInput label="Short-term application fee" value={moneyValue(sub.shortTermApplicationFee ?? "")} placeholder={moneyValue(sub.applicationFee) || "50"} onChange={(v) => patch({ shortTermApplicationFee: sanitizeMoneyInput(v) })} />
-            </FactRow>
+            {feeTerms.length > 1 ? (
+              <div className="border-t border-border px-3.5 py-1">
+                <CheckboxOption
+                  label="Different application fee per lease type"
+                  checked={split}
+                  dataAttr="listing-v2-application-fee-split"
+                  onChange={(next) => {
+                    setSplitOn(next);
+                    if (!next) patch({ applicationFeeByLeaseType: undefined, shortTermApplicationFee: "" });
+                  }}
+                />
+              </div>
+            ) : null}
+            {split
+              ? feeTerms.map((term) => {
+                  const own = ownFee(term);
+                  return (
+                    <FactRow key={term} sub label={termLabel(term)} own={own !== ""} onReset={() => writeFee(term, "")} resetLabel={`Reset ${termLabel(term)} application fee to the amount above`}>
+                      <MoneyInput
+                        label={`${termLabel(term)} application fee`}
+                        value={own}
+                        inherited={own === ""}
+                        placeholder={moneyValue(sub.applicationFee) || "50"}
+                        dataAttr={`listing-v2-application-fee-${term}`}
+                        onChange={(v) => writeFee(term, v)}
+                      />
+                    </FactRow>
+                  );
+                })
+              : null}
             <FactRow label="Waiver code">
               <input
                 aria-label="Waiver code"
@@ -905,16 +975,22 @@ export function ListingPricingSections({
                 className="min-h-[36px] w-[150px] rounded-lg border border-border bg-card px-2.5 text-[13.5px] font-semibold text-foreground outline-none focus:border-primary"
               />
             </FactRow>
-            <FactRow label={<button type="button" data-attr="listing-v2-manage-waiver-codes" onClick={() => setWaiverCodesOpen(true)} className="text-[14px] font-bold text-primary hover:underline">Manage codes →</button>}>
-              <span />
-            </FactRow>
             <div className="border-t border-border">{applications}</div>
           </div>
         ) : null}
       </Card>
+    </>
+  );
+  const seattle = listingFoldsAllMonthlyFeesIntoRent(sub);
+
+  return (
+    <>
+      <SectionTitle>How you get paid</SectionTitle>
+      <Card dataAttr="listing-v2-payments-card">{payments}</Card>
 
       <SectionTitle>{wholePlace ? "The whole place" : "Each room"}</SectionTitle>
       <Card dataAttr="listing-v2-lease-types-card">{leaseTypesField}</Card>
+      {applicationsCard}
       {tabs.length === 0 ? (
         <Card>
           <FactRow first label={<span className="font-medium text-foreground/70">Choose at least one lease type</span>}>
@@ -947,8 +1023,15 @@ export function ListingPricingSections({
                 dataAttr={`listing-v2-same-as-long-term-${activeLeaseTerm}`}
                 onChange={(next) => {
                   if (next) {
-                    // Back to "same as long-term": clear every room's own price on this term.
-                    patch({ rooms: rooms.map((r) => { const all = { ...(r.termPricing ?? {}) }; delete all[activeLeaseTerm]; return { ...r, termPricing: Object.keys(all).length ? all : undefined }; }) });
+                    // Back to "same as long-term": clear the term's Default room and every room's own price on it.
+                    const block = { ...(termDefaults ?? {}) };
+                    delete block[activeLeaseTerm];
+                    const nextBlock = Object.keys(block).length ? block : undefined;
+                    setTermDefaults(nextBlock);
+                    patch({
+                      rooms: rooms.map((r) => { const all = { ...(r.termPricing ?? {}) }; delete all[activeLeaseTerm]; return { ...r, termPricing: Object.keys(all).length ? all : undefined }; }),
+                      houseTermPricing: nextBlock,
+                    });
                     setShowOwn((prev) => ({ ...prev, [activeLeaseTerm]: false }));
                   } else {
                     const seeded = seedSigningColumnFromLongTerm(sub, activeLeaseTerm);
@@ -963,9 +1046,9 @@ export function ListingPricingSections({
             </div>
           ) : null}
           {wholePlace ? (
-            <WholePlaceCard sub={sub} patch={patch} />
+            <WholePlaceCard sub={sub} patch={patch} term={activeLeaseTerm} />
           ) : stay ? (
-            <StayCards sub={sub} defaults={defaults} onDefault={onDefault} onRoom={onRoom} />
+            <StayCards sub={sub} patch={patch} term={activeLeaseTerm} defaults={defaults} onDefault={onDefault} onRoom={onRoom} />
           ) : (
             <MonthlyCards
               sub={sub}
@@ -973,7 +1056,9 @@ export function ListingPricingSections({
               term={!isBase(activeLeaseTerm) && !ownTable(activeLeaseTerm) ? LONG_TERM_LEASE_TERM : activeLeaseTerm}
               feeScopeTerm={activeLeaseTerm}
               defaults={defaults}
+              termDefaults={termDefaults}
               onDefault={onDefault}
+              onTermDefault={onTermDefault}
               onRoom={onRoom}
               dimmed={!isBase(activeLeaseTerm) && !ownTable(activeLeaseTerm)}
             />
@@ -981,19 +1066,11 @@ export function ListingPricingSections({
         </>
       )}
 
+      {seattle ? <p id="listing-v2-fees" className="mt-3 rounded-xl border border-border bg-card px-4 py-3 text-[13px] leading-relaxed text-foreground">{SEATTLE_RENT_RULE_NOTE}</p> : null}
+
       {wholePlace ? null : <BundlesSection sub={sub} patch={patch} defaults={defaults} />}
 
-      <SectionTitle>Other fees</SectionTitle>
-      <div id="listing-v2-fees" className="scroll-mt-4">
-        <FeesSection sub={sub} patch={patch} />
-      </div>
-
       <div className="mt-6">{leaseDocument}</div>
-      {/* Mounted only while open: the modal reads `useAppUi` at its top level, so
-          rendering it unconditionally drags a provider requirement into every
-          tree that renders Pricing — which is a dependency this screen does not
-          otherwise have. */}
-      {waiverCodesOpen ? <ManagerApplicationFeeWaiverCodesModal open onClose={() => setWaiverCodesOpen(false)} /> : null}
     </>
   );
 }

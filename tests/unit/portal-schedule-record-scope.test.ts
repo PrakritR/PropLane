@@ -4,6 +4,10 @@ import {
   managerPropertyAvailabilityStorageKey,
 } from "@/lib/demo-admin-scheduling";
 import {
+  MANAGER_KIND_AVAILABILITY_RECORD_TYPE,
+  managerKindAvailabilityStorageKey,
+} from "@/lib/manager-availability-kinds";
+import {
   expectedManagerScheduleRecordIds,
   isManagerScopedScheduleRecordType,
   managerScheduleRecordIdOwnedByUser,
@@ -17,7 +21,25 @@ describe("portal-schedule-record-scope", () => {
   it("recognizes manager-scoped schedule record types", () => {
     expect(isManagerScopedScheduleRecordType("calendar_share_settings")).toBe(true);
     expect(isManagerScopedScheduleRecordType("manager_property_availability")).toBe(true);
+    expect(isManagerScopedScheduleRecordType(MANAGER_KIND_AVAILABILITY_RECORD_TYPE)).toBe(true);
     expect(isManagerScopedScheduleRecordType("partner_inquiry_request")).toBe(false);
+  });
+
+  it("allows a kind-scoped availability key only for the owning manager", () => {
+    const ownServicesKey = managerKindAvailabilityStorageKey(userId, "services");
+    const ownTasksKey = managerKindAvailabilityStorageKey(userId, "tasks");
+    const victimKey = managerKindAvailabilityStorageKey(victimId, "services");
+
+    expect(managerScheduleRecordIdOwnedByUser(ownServicesKey, userId, MANAGER_KIND_AVAILABILITY_RECORD_TYPE)).toBe(
+      true,
+    );
+    expect(managerScheduleRecordIdOwnedByUser(ownTasksKey, userId, MANAGER_KIND_AVAILABILITY_RECORD_TYPE)).toBe(true);
+    expect(managerScheduleRecordIdOwnedByUser(victimKey, userId, MANAGER_KIND_AVAILABILITY_RECORD_TYPE)).toBe(false);
+  });
+
+  it("never lets a kind-scoped availability key validate as the tour-visible manager_availability type", () => {
+    const kindKey = managerKindAvailabilityStorageKey(userId, "services");
+    expect(managerScheduleRecordIdOwnedByUser(kindKey, userId, "manager_availability")).toBe(false);
   });
 
   it("allows calendar share keys only for the owning manager", () => {

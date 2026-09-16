@@ -9,8 +9,8 @@
  */
 
 import type { AdminPropertyRow } from "@/lib/demo-admin-property-inventory";
+import { listingBathroomCountForDisplay, listingSubmissionStreetLine } from "@/lib/manager-listing-submission";
 import { parseMoneyAmount } from "@/lib/parse-money";
-import { listingSubmissionStreetLine } from "@/lib/manager-listing-submission";
 
 const usd = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
 
@@ -115,7 +115,11 @@ export function propertyRowMeta(
 ): { beds: number; baths: number; rooms: number | null } {
   const rooms = row.submission?.rooms?.length ?? 0;
   const byRoom = row.submission?.listingPlaceCategoryId !== "entire_home";
-  return { beds: row.beds ?? 0, baths: row.baths ?? 0, rooms: byRoom && rooms > 0 ? rooms : null };
+  return {
+    beds: row.beds ?? 0,
+    baths: listingBathroomCountForDisplay(row.submission, row.baths ?? 0),
+    rooms: byRoom && rooms > 0 ? rooms : null,
+  };
 }
 
 /**
@@ -152,9 +156,10 @@ export function propertyRowDetail(
 ): string {
   const rooms = row.submission?.rooms?.length ?? 0;
   const byRoom = row.submission?.listingPlaceCategoryId !== "entire_home";
+  const baths = listingBathroomCountForDisplay(row.submission, row.baths ?? 0);
   return [
     byRoom && rooms > 0 ? `${rooms} ${rooms === 1 ? "room" : "rooms"}` : "",
-    row.beds || row.baths ? `${row.beds} bd / ${row.baths} ba` : "",
+    row.beds || baths ? `${row.beds} bd / ${baths} ba` : "",
     (row.neighborhood ?? "").trim(),
   ]
     .filter(Boolean)
@@ -167,10 +172,11 @@ export function propertyRowSummary(
 ): string {
   const rooms = row.submission?.rooms?.length ?? 0;
   const byRoom = row.submission?.listingPlaceCategoryId !== "entire_home";
+  const baths = listingBathroomCountForDisplay(row.submission, row.baths ?? 0);
   return [
     propertyRowRentLabel(row),
     byRoom && rooms > 0 ? `${rooms} ${rooms === 1 ? "room" : "rooms"}` : "",
-    row.beds || row.baths ? `${row.beds} bd / ${row.baths} ba` : "",
+    row.beds || baths ? `${row.beds} bd / ${baths} ba` : "",
     (row.neighborhood ?? "").trim(),
   ]
     .filter(Boolean)

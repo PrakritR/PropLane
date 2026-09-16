@@ -97,6 +97,9 @@ describe("portal-detail-routes", () => {
 
   it("builds promotion detail hrefs", () => {
     expect(promotionListHref("/portal")).toBe("/portal/promotion");
+    expect(promotionListHref("/portal", "all")).toBe("/portal/promotion");
+    expect(promotionListHref("/portal", "text")).toBe("/portal/promotion?kind=text");
+    expect(promotionListHref("/portal", "image")).toBe("/portal/promotion?kind=image");
     expect(promotionDetailHref("/portal", "row-1::flyer::entry-1")).toBe(
       "/portal/promotion/row-1%3A%3Aflyer%3A%3Aentry-1",
     );

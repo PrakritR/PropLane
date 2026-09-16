@@ -8,13 +8,15 @@
  * see in one glance what the next tier changes. Below: one card per workspace
  * with its record meter, its houses, and the managers who have access there.
  * Team membership is managed from Settings → Team; this pane shows the
- * per-workspace roll-up and links across.
+ * per-workspace roll-up and links across. Every owned workspace can be deleted,
+ * the default one included: an empty one goes on a plain confirm, one with
+ * houses through a dialog that names the workspace they move to.
  */
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Building2, ChevronDown, ChevronUp, Pencil, Trash2, UserPlus, Users } from "lucide-react";
+import { Building2, ChevronDown, ChevronUp, Pencil, Trash2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
@@ -156,7 +158,6 @@ function WorkspaceCard({
   onDelete,
   onMove,
   onOpenTeam,
-  onOpenVendors,
 }: {
   workspace: PortalWorkspace;
   ownedCount: number;
@@ -165,7 +166,6 @@ function WorkspaceCard({
   onDelete: () => void;
   onMove: (propertyId: string) => void;
   onOpenTeam: () => void;
-  onOpenVendors: () => void;
 }) {
   const records = workspace.propertyIds.length;
   const pct = Math.min(100, Math.round((records / WORKSPACE_PROPERTY_LIMIT) * 100));
@@ -186,15 +186,15 @@ function WorkspaceCard({
         {canManage ? (
           <div className="flex shrink-0 items-center">
             <PortalIconAction icon={Pencil} label={`Rename ${workspace.name}`} onClick={onRename} data-attr="workspace-rename" />
-            {!workspace.isDefault ? (
-              <PortalIconAction
-                icon={Trash2}
-                tone="danger"
-                label={`Delete ${workspace.name}`}
-                onClick={onDelete}
-                data-attr="workspace-delete"
-              />
-            ) : null}
+            {/* Every owned workspace can go, the default one included; the
+                confirm decides where its houses end up. */}
+            <PortalIconAction
+              icon={Trash2}
+              tone="danger"
+              label={`Delete ${workspace.name}`}
+              onClick={onDelete}
+              data-attr="workspace-delete"
+            />
           </div>
         ) : null}
       </div>
@@ -258,19 +258,6 @@ function WorkspaceCard({
         ))}
         {workspace.propertyIds.length === 0 ? <p className="px-4 py-3 text-sm text-muted">No properties yet.</p> : null}
       </div>
-      {canManage && !workspace.isDefault && workspace.propertyIds.length === 0 ? (
-        <div className="border-t border-dashed border-border px-4 py-2.5">
-          <button
-            type="button"
-            className="inline-flex min-h-10 w-full items-center justify-center rounded-lg border border-dashed border-red-200 px-3 text-sm font-semibold text-red-600 transition hover:bg-red-50"
-            onClick={onDelete}
-            data-attr="workspace-delete-empty"
-          >
-            Delete this workspace
-          </button>
-        </div>
-      ) : null}
-
       {workspace.owned ? (
         <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-2.5">
           <button
@@ -281,15 +268,6 @@ function WorkspaceCard({
           >
             <Users className="size-4" aria-hidden />
             Managers & permissions
-          </button>
-          <button
-            type="button"
-            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg px-2.5 text-sm font-semibold text-primary transition hover:bg-accent"
-            onClick={onOpenVendors}
-            data-attr="workspace-manage-vendors"
-          >
-            <UserPlus className="size-4" aria-hidden />
-            Vendors
           </button>
         </div>
       ) : null}
@@ -308,6 +286,9 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [moving, setMoving] = useState<{ id: string; destination: string } | null>(null);
+  // A workspace that still holds houses is deleted through this dialog, which
+  // names where the houses go (or, for the only workspace, why they cannot).
+  const [deleting, setDeleting] = useState<{ workspace: PortalWorkspace; destination: string | null } | null>(null);
   useEffect(() => {
     if (!openNew) return;
     setName("");
@@ -323,6 +304,10 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
   }, [openNew, pathname, searchParams]);
   if (!ctx) return null;
   const owned = ctx.workspaces.filter((w) => w.owned);
+  // Grants are per house, so a move carries them: name who keeps access before the click.
+  const movingMembers = moving
+    ? (owned.find((w) => w.propertyIds.includes(moving.id))?.members ?? []).filter((m) => m.propertyIds.includes(moving.id))
+    : [];
   const plan = ctx.plan;
   const atWorkspaceCap = plan ? !plan.unknown && plan.usage.workspaces >= plan.workspaceLimit : owned.length >= 3;
   const run = async (body: Record<string, unknown>, after?: () => void) => {
@@ -333,6 +318,18 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save changes.");
     }
+  };
+  // Deleting the workspace you are working in moves you to the next one; when
+  // none is left the page falls back to the account (server picks no workspace).
+  const deleteWorkspace = async (workspace: PortalWorkspace, moveTo?: string | null) => {
+    const wasActive = ctx.active?.id === workspace.id;
+    await run({ action: "delete", id: workspace.id, moveTo: moveTo ?? undefined }, () => {
+      setDeleting(null);
+      if (!wasActive) return;
+      const next = owned.find((row) => row.id !== workspace.id);
+      if (next) void ctx.select(next.id, { href: false });
+      else router.refresh();
+    });
   };
   return (
     <div className="space-y-4" data-attr="workspace-settings">
@@ -380,22 +377,19 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
               setEditing(workspace);
             }}
             onDelete={async () => {
-              const empty = workspace.propertyIds.length === 0;
+              if (workspace.propertyIds.length > 0) {
+                setError(null);
+                setDeleting({ workspace, destination: owned.find((row) => row.id !== workspace.id)?.id ?? null });
+                return;
+              }
               if (
                 await confirm({
                   title: "Delete workspace?",
-                  description: empty
-                    ? `Delete ${workspace.name}? It has no properties, so it will be removed now.`
-                    : `Delete ${workspace.name}? Move its properties to another workspace first.`,
+                  description: `Delete ${workspace.name}? It has no properties, so it will be removed now.`,
                   confirmLabel: "Delete",
                 })
               ) {
-                const wasActive = ctx.active?.id === workspace.id;
-                await run({ action: "delete", id: workspace.id }, () => {
-                  if (!wasActive) return;
-                  const next = owned.find((row) => row.id !== workspace.id);
-                  if (next) void ctx.select(next.id, { href: false });
-                });
+                await deleteWorkspace(workspace);
               }
             }}
             onMove={(propertyId) => setMoving({ id: propertyId, destination: owned.find((w) => w.id !== workspace.id)!.id })}
@@ -407,15 +401,6 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
                 }
                 router.push("/portal/profile?tab=team");
               })().catch((e) => setError(e instanceof Error ? e.message : "Could not open Team."));
-            }}
-            onOpenVendors={() => {
-              void (async () => {
-                if (ctx.active?.id !== workspace.id) {
-                  await ctx.select(workspace.id, { href: "/portal/vendors" });
-                  return;
-                }
-                router.push("/portal/vendors");
-              })().catch((e) => setError(e instanceof Error ? e.message : "Could not open Vendors."));
             }}
           />
         ))
@@ -446,8 +431,78 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
           </ModalFooter>
         </form>
       </Modal>
+      <Modal open={deleting !== null} onClose={() => setDeleting(null)} title={deleting ? `Delete ${deleting.workspace.name}?` : "Delete workspace?"}>
+        {deleting ? (
+          deleting.destination ? (
+            <>
+              <p className="mb-3 text-sm text-muted" data-attr="workspace-delete-move-copy">
+                {deleting.workspace.propertyIds.length === 1
+                  ? "Its house keeps ownership and permissions — it just moves."
+                  : `Its ${deleting.workspace.propertyIds.length} houses keep ownership and permissions — they just move.`}
+              </p>
+              <label className="block text-sm font-medium">
+                Move {deleting.workspace.propertyIds.length === 1 ? "1 house" : `${deleting.workspace.propertyIds.length} houses`} to
+                <Select
+                  aria-label="Destination workspace"
+                  value={deleting.destination}
+                  onChange={(event) => setDeleting((value) => value && { ...value, destination: event.target.value })}
+                  data-attr="workspace-delete-move-to"
+                >
+                  {owned
+                    .filter((workspace) => workspace.id !== deleting.workspace.id)
+                    .map((workspace) => (
+                      <option key={workspace.id} value={workspace.id}>
+                        {workspace.name} · {workspace.propertyIds.length} / {WORKSPACE_PROPERTY_LIMIT}
+                      </option>
+                    ))}
+                </Select>
+              </label>
+            </>
+          ) : (
+            <p className="mb-3 text-sm text-muted" data-attr="workspace-delete-only-copy">
+              {deleting.workspace.propertyIds.length === 1 ? "Its house needs" : `Its ${deleting.workspace.propertyIds.length} houses need`} somewhere to go,
+              and this is your only workspace. Add another workspace first, then move the houses there when you delete this one.
+            </p>
+          )
+        ) : null}
+        {error ? (
+          <p role="alert" className="mt-2 text-sm text-danger">
+            {error}
+          </p>
+        ) : null}
+        <ModalFooter>
+          <Button variant="ghost" onClick={() => setDeleting(null)}>
+            Cancel
+          </Button>
+          {deleting?.destination ? (
+            <Button variant="danger" onClick={() => deleteWorkspace(deleting.workspace, deleting.destination)} data-attr="workspace-delete-move">
+              Move and delete
+            </Button>
+          ) : (
+            <Button
+              onClick={() => {
+                setDeleting(null);
+                setName("");
+                setEditing("new");
+              }}
+              disabled={atWorkspaceCap}
+              data-attr="workspace-delete-add-first"
+            >
+              Add a workspace
+            </Button>
+          )}
+        </ModalFooter>
+      </Modal>
       <Modal open={moving !== null} onClose={() => setMoving(null)} title="Move property">
         <p className="mb-3 text-sm text-muted">Ownership and existing property permissions stay the same.</p>
+        {movingMembers.length > 0 ? (
+          <p className="mb-3 text-sm text-foreground" data-attr="workspace-move-keeps-access">
+            {movingMembers.map((member) => member.name).join(", ")} {movingMembers.length === 1 ? "keeps" : "keep"} access to this house in the new workspace.{" "}
+            <Link href="/portal/profile?tab=team" className="font-medium text-primary underline-offset-2 hover:underline" data-attr="workspace-move-change-access">
+              Change in Team
+            </Link>
+          </p>
+        ) : null}
         <Select aria-label="Destination workspace" value={moving?.destination ?? ""} onChange={(event) => setMoving((value) => value && { ...value, destination: event.target.value })}>
           {owned.map((workspace) => (
             <option key={workspace.id} value={workspace.id}>

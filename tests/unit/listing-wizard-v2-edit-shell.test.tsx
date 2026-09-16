@@ -2,8 +2,13 @@
 //
 // The listing editor's shell on an EDIT: the rail reads as a table of contents
 // (each section says what it currently holds), a listing with gaps carries a
-// "things to finish" card, the status block says the home is live, and saving
-// is the primary action on every section rather than only at the end.
+// "things to finish" card, and the status block says the home is live.
+//
+// Saving: typing and X write on their own on every section, so the footer
+// carries Continue rather than a Save on the way through. The Review step is
+// the one exception — it ends the flow, so it holds a physical "Save changes"
+// (the captain asked for a visible commit on top of autosave). Do not put that
+// button back on the earlier steps, and do not take it off Review.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -14,7 +19,7 @@ vi.mock("@/lib/demo-admin-property-inventory", () => ({
 }));
 vi.mock("@/lib/demo-property-pipeline", () => ({ submitManagerPendingPropertyToServer: vi.fn() }));
 
-import { ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
+import { LISTING_V2_STEPS, ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
 import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assistant-context";
 import { createDefaultListingSubmission, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 
@@ -76,26 +81,28 @@ describe("the rail on an edit", () => {
 });
 
 describe("the footer on an edit", () => {
-  it("saves from the first section — the manager did not come to walk six screens", () => {
-    const { onSaveExit } = mount(subWith({}), true);
-    const save = screen.getByRole("button", { name: "Save changes" });
-    fireEvent.click(save);
-    expect(onSaveExit).toHaveBeenCalledWith(0);
-    // The next section is still on offer, as a secondary action.
-    expect(screen.getByRole("button", { name: /^Next: Rooms$/ })).toBeTruthy();
+  it("continues to the next section — typing and X save, not a footer Save", () => {
+    mount(subWith({}), true);
+    expect(screen.getByRole("button", { name: /^Continue to Rooms$/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save & exit" })).toBeNull();
   });
 
-  it("publishes from the review, as before", () => {
-    const { onPublish } = mount(subWith({}), true);
+  it("review on a live listing has Save changes, not Publish — it is already listed", () => {
+    const { onSaveExit, onPublish } = mount(subWith({}), true);
     fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-review"]')!);
-    fireEvent.click(screen.getByRole("button", { name: "Publish changes" }));
-    expect(onPublish).toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Publish changes" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save draft" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(onSaveExit).toHaveBeenCalledWith(LISTING_V2_STEPS.length - 1);
+    expect(onPublish).not.toHaveBeenCalled();
   });
 
   it("keeps the linear flow for a NEW listing", () => {
     mount(subWith({}), false);
     expect(screen.getByRole("button", { name: /^Continue to Rooms$/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Save & exit" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Save & exit" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();
   });
 

@@ -15,15 +15,16 @@ describe("settings account vs workspace groups", () => {
   it("keeps person settings on Account", () => {
     expect(groupFor("profile")).toBe("Account");
     expect(groupFor("preferences")).toBe("Account");
+    expect(groupFor("notifications")).toBe("Account");
     expect(groupFor("security")).toBe("Account");
     expect(groupFor("feedback")).toBe("Account");
     expect(groupFor("account")).toBe("Account");
   });
 
-  it("keeps Team, Vendors, Workspaces, and Communication on Workspace", () => {
+  it("keeps Team, Workspaces, and Communication on Workspace", () => {
     expect(groupFor("workspaces")).toBe("Workspace");
     expect(groupFor("team")).toBe("Workspace");
-    expect(groupFor("vendors")).toBe("Workspace");
+    expect(groupFor("vendors")).toBeNull();
     expect(groupFor("messaging")).toBe("Workspace");
   });
 
@@ -32,7 +33,20 @@ describe("settings account vs workspace groups", () => {
     expect(groupFor("developer")).toBe("Account");
   });
 
+  it("redirects the retired Settings Vendors tab to the operations list", () => {
+    expect(src).toContain('rawTab === "vendors"');
+    expect(src).toContain('router.replace("/portal/vendors")');
+    expect(src).not.toContain('id: "vendors"');
+  });
+
   it("names Team after the active workspace", () => {
     expect(src).toContain("Team · ${workspaceName}");
+  });
+
+  it("puts Manager alerts on Notifications, not Preferences", () => {
+    expect(src).toContain('id: "notifications"');
+    const prefs = src.slice(src.indexOf('case "preferences"'), src.indexOf('case "notifications"'));
+    expect(prefs).not.toContain("ManagerNotificationRoutingSetting");
+    expect(src.slice(src.indexOf('case "notifications"'))).toContain("ManagerNotificationRoutingSetting");
   });
 });

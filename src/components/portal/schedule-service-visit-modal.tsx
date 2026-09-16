@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
@@ -14,6 +15,23 @@ import {
   type ScheduleVisitAssigneeChoice,
 } from "@/lib/schedule-service-visit";
 import { normalizeAssignee, type WorkAssignee } from "@/lib/work-assignment";
+import { fetchManagerTimeSuggestion } from "@/lib/manager-schedule-suggest.client";
+
+/** The pill shown beside "Visit arrival" — `null` once the manager types their
+ * own time, since a hand-picked time is no longer a suggestion. */
+type SuggestPill = "availability" | "proplane-pick" | "none";
+
+const SUGGEST_PILL_LABEL: Record<SuggestPill, string> = {
+  availability: "From your availability",
+  "proplane-pick": "PropLane pick",
+  none: "Nothing free in 14 days",
+};
+
+const SUGGEST_PILL_TONE: Record<SuggestPill, "success" | "info" | "danger"> = {
+  availability: "success",
+  "proplane-pick": "info",
+  none: "danger",
+};
 
 function pad2(n: number) {
   return String(n).padStart(2, "0");
@@ -82,6 +100,10 @@ export function ScheduleServiceVisitModal({
   const [visitLocal, setVisitLocal] = useState("");
   const [durationMinutes, setDurationMinutes] = useState<number>(60);
   const [busy, setBusy] = useState(false);
+  /** `null` = no pill: either a real scheduled/proposed time, or the manager
+   * has typed their own. Only the fetched-suggestion path shows one. */
+  const [suggestPill, setSuggestPill] = useState<SuggestPill | null>(null);
+  const [suggestLoading, setSuggestLoading] = useState(false);
 
   const self = useMemo<WorkAssignee | null>(() => {
     if (!managerUserId) return null;
@@ -89,12 +111,60 @@ export function ScheduleServiceVisitModal({
     return { type: "team", id: managerUserId, name: me?.name?.trim() || email?.trim() || "You" };
   }, [email, managerUserId, teamMembers]);
 
+  /** Ask the server for a suggestion at the given duration, optionally after a
+   * given ISO ("Next open"). Never throws — `fetchManagerTimeSuggestion` already
+   * folds every failure into `null`. */
+  const askSuggestion = useCallback(
+    async (duration: number, after?: string) => {
+      if (!row) return null;
+      setSuggestLoading(true);
+      try {
+        return await fetchManagerTimeSuggestion({
+          kind: "services",
+          durationMinutes: duration,
+          seed: row.id,
+          excludeWorkOrderId: row.id,
+          after,
+        });
+      } finally {
+        setSuggestLoading(false);
+      }
+    },
+    [row],
+  );
+
   useEffect(() => {
     if (!open || !row) return;
     setAssignee(initialAssignee(row, self));
-    setVisitLocal(toDatetimeLocalValue(row.scheduledAtIso) || toDatetimeLocalValue(row.preferredArrival));
     setDurationMinutes(60);
     setBusy(false);
+    setSuggestPill(null);
+    setSuggestLoading(false);
+
+    if (row.scheduledAtIso) {
+      setVisitLocal(toDatetimeLocalValue(row.scheduledAtIso));
+      return;
+    }
+    if (row.proposedVisit?.iso) {
+      setVisitLocal(toDatetimeLocalValue(row.proposedVisit.iso));
+      setSuggestPill(row.proposedVisit.source);
+      return;
+    }
+
+    setVisitLocal("");
+    let cancelled = false;
+    void askSuggestion(60).then((suggestion) => {
+      if (cancelled) return;
+      if (suggestion) {
+        setVisitLocal(toDatetimeLocalValue(suggestion.iso));
+        setSuggestPill(suggestion.source);
+      } else {
+        setSuggestPill("none");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
     // `self` resolves once the directory loads; re-running on it would clobber a
     // pick the manager already made.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -154,6 +224,19 @@ export function ScheduleServiceVisitModal({
     }
   };
 
+  const onNextOpen = async () => {
+    const after = fromDatetimeLocalValue(visitLocal) ?? new Date().toISOString();
+    const suggestion = await askSuggestion(durationMinutes, after);
+    if (suggestion) {
+      setVisitLocal(toDatetimeLocalValue(suggestion.iso));
+      setSuggestPill(suggestion.source);
+    } else {
+      showToast("No later open time in the next 14 days.");
+    }
+  };
+
+  const hasSuggestion = suggestPill === "availability" || suggestPill === "proplane-pick";
+
   return (
     <Modal
       open={open && Boolean(row)}
@@ -200,20 +283,56 @@ export function ScheduleServiceVisitModal({
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block space-y-1.5">
-              <span className="text-xs font-medium text-muted">Visit arrival</span>
-              <Input
-                type="datetime-local"
-                value={visitLocal}
-                onChange={(e) => setVisitLocal(e.target.value)}
-                disabled={busy}
-                data-attr="schedule-service-visit-datetime"
-              />
+              <span className="flex items-center gap-1.5 text-xs font-medium text-muted">
+                Visit arrival
+                {suggestPill ? (
+                  <span data-attr="schedule-service-visit-source">
+                    <Badge tone={SUGGEST_PILL_TONE[suggestPill]}>{SUGGEST_PILL_LABEL[suggestPill]}</Badge>
+                  </span>
+                ) : null}
+              </span>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="datetime-local"
+                  value={visitLocal}
+                  onChange={(e) => {
+                    setVisitLocal(e.target.value);
+                    setSuggestPill(null);
+                  }}
+                  disabled={busy || suggestLoading}
+                  className="flex-1"
+                  data-attr="schedule-service-visit-datetime"
+                />
+                {hasSuggestion ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={busy || suggestLoading}
+                    onClick={() => onNextOpen()}
+                    data-attr="schedule-service-visit-next-open"
+                  >
+                    Next open
+                  </Button>
+                ) : null}
+              </div>
             </label>
             <label className="block space-y-1.5">
               <span className="text-xs font-medium text-muted">Duration</span>
               <Select
                 value={String(durationMinutes)}
-                onChange={(e) => setDurationMinutes(Number(e.target.value) || 60)}
+                onChange={(e) => {
+                  const next = Number(e.target.value) || 60;
+                  setDurationMinutes(next);
+                  if (suggestPill === null) return;
+                  void askSuggestion(next).then((suggestion) => {
+                    if (suggestion) {
+                      setVisitLocal(toDatetimeLocalValue(suggestion.iso));
+                      setSuggestPill(suggestion.source);
+                    } else {
+                      setSuggestPill("none");
+                    }
+                  });
+                }}
                 disabled={busy}
                 data-attr="schedule-service-visit-duration"
               >

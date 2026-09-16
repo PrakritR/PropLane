@@ -1,8 +1,8 @@
-import { viewerAndLinkedOwnerIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import { sendPortalConversationEmails } from "@/lib/portal-email-send.server";
 import { resolveManagerOutboundFrom } from "@/lib/manager-outbound-identity.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { InboxThreadMessageChannel } from "@/lib/portal-inbox-storage";
 import { userHoldsAdminRole } from "@/lib/auth/admin-role";
 import { filterRecipientsBySenderScope } from "@/lib/inbox-recipient-scope";
 import {
@@ -145,17 +145,26 @@ export async function resolveInboxThreadReplyTarget(
   if (!threadRow) return null;
   const ownerUserId = (threadRow.owner_user_id as string | null) ?? null;
   const isOwner = ownerUserId === opts.senderUserId;
-  const isParticipant = String(threadRow.participant_email ?? "").toLowerCase() === senderEmail;
+  const managerScope = String(threadRow.scope ?? "") === MANAGER_INBOX_SCOPE;
+  // Manager Communication: being the person a thread was sent to is not
+  // access to it — that clause covers only legacy rows written with no owner.
+  // The other owner never invited this manager (see conversation-visibility).
+  const isParticipant =
+    String(threadRow.participant_email ?? "").toLowerCase() === senderEmail && (!managerScope || !ownerUserId);
   let delegatedOwner = false;
-  if (!isOwner && !isParticipant && ownerUserId) {
+  if (!isOwner && !isParticipant && ownerUserId && managerScope) {
+    // A co-manager may reply only on a thread about a house they hold
+    // Communication EDIT on — the same rule that lists it.
     try {
-      const ownerIds = await viewerAndLinkedOwnerIdsForModule(
-        db as Parameters<typeof viewerAndLinkedOwnerIdsForModule>[0],
-        opts.senderUserId,
-        "inbox",
-        "edit",
-      );
-      delegatedOwner = ownerIds.includes(ownerUserId);
+      const { visibleInboxThreadRecord } = await import("@/lib/communication/conversation-visibility.server");
+      delegatedOwner =
+        (await visibleInboxThreadRecord(db, opts.senderUserId, "edit", {
+          id: threadId,
+          owner_user_id: ownerUserId,
+          participant_email: (threadRow.participant_email as string | null) ?? null,
+          thread_type: (threadRow.thread_type as string | null) ?? null,
+          row_data: threadRow.row_data,
+        })) !== null;
     } catch {
       delegatedOwner = false;
     }
@@ -199,6 +208,10 @@ export async function commitInboxThreadReply(
     /** When set, stamps direction on the appended turn for assistant-thread rendering. */
     outbound?: boolean;
     messageId?: string;
+    /** Channel the turn actually went on; omitted = unknown (never assumed email). */
+    channel?: InboxThreadMessageChannel;
+    /** Email subject the turn left with, for the bubble's subject line. */
+    subject?: string;
   },
 ): Promise<void> {
   const { data: freshRow, error: readError } = await db
@@ -218,6 +231,8 @@ export async function commitInboxThreadReply(
     at: when,
     ...(opts.outbound !== undefined ? { outbound: opts.outbound } : {}),
     ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
+    ...(opts.channel ? { channel: opts.channel } : {}),
+    ...(opts.subject?.trim() ? { subject: opts.subject.trim() } : {}),
   });
   const { error: writeError } = await db.from("portal_inbox_thread_records").upsert(
     {
@@ -398,6 +413,10 @@ export async function deliverPortalMessageThreadSide(
      */
     messageId?: string;
     attachments?: { url: string; name?: string }[];
+    /** Channel the turn travelled on; omitted = unknown (never assumed email). */
+    channel?: InboxThreadMessageChannel;
+    /** Per-turn email subject; the thread-level `subject` above still labels the list. */
+    messageSubject?: string;
   },
 ): Promise<{ action: "append" | "create" | "skipped"; threadId: string }> {
   const existing = await findExistingPortalMessageThread(db, args);
@@ -421,6 +440,8 @@ export async function deliverPortalMessageThreadSide(
       at: args.when,
       outbound: args.outbound,
       ...(args.attachments?.length ? { attachments: args.attachments } : {}),
+      ...(args.channel ? { channel: args.channel } : {}),
+      ...(args.messageSubject?.trim() ? { subject: args.messageSubject.trim() } : {}),
     });
     await db.from("portal_inbox_thread_records").upsert(
       {
@@ -477,6 +498,14 @@ export async function deliverPortalMessageThreadSide(
         preview: args.preview,
         body: args.body,
         time: args.when,
+        // The root turn's OWN time. `time` advances with every later append (it
+        // is the list's sort key), and without `rootAt` the root inherits that
+        // moving value — so once anything is appended, the root sorts AFTER the
+        // reply to it, and a merged person-thread picks the reply as its first
+        // turn: an assistant answer became the thread's `from`, the thread was
+        // read as the PropLane Assistant conversation, and its composer
+        // defaulted back to In-app.
+        rootAt: args.when,
         unread: args.unread,
         scope: args.scope,
         ...(args.category ? { category: args.category } : {}),
@@ -484,6 +513,10 @@ export async function deliverPortalMessageThreadSide(
         // deterministic id so a redelivered webhook can still dedupe it.
         ...(args.messageId ? { rootMessageId: args.messageId } : {}),
         ...(args.attachments?.length ? { attachments: args.attachments } : {}),
+        // The root turn lives in `body`; its channel/subject stamps live beside it
+        // under `root*` so the bubble builders can label it like any other turn.
+        ...(args.channel ? { rootChannel: args.channel } : {}),
+        ...(args.messageSubject?.trim() ? { rootSubject: args.messageSubject.trim() } : {}),
       },
       updated_at: nowIso,
     },

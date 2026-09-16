@@ -98,7 +98,7 @@ export function buildLeaseTemplateSeeds(
     {
       seedKey: SHORT_TERM_SEED_KEY,
       kind: "short-term",
-      label: "Short-term lease",
+      label: "Short-term stay lease",
       applicationLeaseTerms: [SHORT_TERM_LEASE_TERM],
     },
   ];
@@ -108,7 +108,7 @@ function defaultLabelForLeaseTemplate(template: PropertyLeaseTemplate): string {
   if (template.listingSeedKey === BUNDLE_LONG_TERM_SEED_KEY) return "Lease bundle · Long-term";
   if (template.listingSeedKey === BUNDLE_SHORT_TERM_SEED_KEY) return "Lease bundle · Short-term";
   if (template.listingSeedKey === SHORT_TERM_SEED_KEY || template.kind === "short-term") {
-    return "Short-term lease";
+    return "Short-term stay lease";
   }
   return "Long-term lease";
 }
@@ -118,7 +118,7 @@ const KNOWN_DEFAULT_LEASE_TEMPLATE_LABELS: Partial<
   Record<PropertyLeaseListingSeedKey, readonly string[]>
 > = {
   primary: ["Long-term lease", "Individual room · Long-term", "Primary lease"],
-  "short-term": ["Short-term lease", "Individual · Short-term", "Short-term stay"],
+  "short-term": ["Short-term stay lease", "Short-term lease", "Individual · Short-term", "Short-term stay"],
   "fixed-term": ["Fixed-term lease"],
   "fixed-3-month": ["3-Month lease"],
   "fixed-9-month": ["9-Month lease"],

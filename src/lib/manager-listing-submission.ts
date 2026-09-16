@@ -1,5 +1,6 @@
 /** Full manager “add listing” payload — drives generated listing detail page (localStorage-backed). */
 
+import type { ListingPrefillRecordV1 } from "@/lib/listing-prefill/types";
 import {
   LISTING_PLACE_CATEGORY_OPTIONS,
   LISTING_PROPERTY_TYPE_OPTIONS,
@@ -19,12 +20,15 @@ import {
   sortLeaseTermsCanonical,
 } from "@/lib/rental-application/lease-terms";
 import { emptyHouseInfo, normalizeHouseInfo, type HouseInfoV1 } from "@/lib/house-info";
+import { normalizeApplicationFeeByLeaseType } from "@/lib/listing-application-fee";
 import { roomIsDailyPriced } from "@/lib/room-pricing";
 import { RENTAL_APPLICATION_SECTION_IDS } from "@/lib/rental-application/application-sections";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import type { UtilitiesPaymentModel } from "@/lib/listing-utilities-payment";
 import { normalizeUtilitiesPaymentModel } from "@/lib/listing-utilities-payment";
+import type { ListingHouseDefaults } from "@/lib/listing-house-defaults";
+import type { BathroomDefaults, SharedSpaceDefaults } from "@/lib/listing-record-defaults";
 import type { LeaseUtilityLine } from "@/lib/lease-utilities";
 import { normalizeLeaseUtilities } from "@/lib/lease-utilities";
 import {
@@ -71,12 +75,19 @@ export type ManagerRoomTermPrice = {
   dailyUtilitiesRate?: number;
 };
 
+/**
+ * One span of OCCUPIED dates on a room. A room is available by default; these
+ * rows (plus residents' stays and Bookings blocks) are what close it. The wizard
+ * edits the manager's own rows; the Airbnb calendar sync writes rows whose id
+ * carries its connection prefix. `src/lib/room-availability-timeline.ts` derives
+ * the renter-facing label from them.
+ */
 export type ManagerRoomUnavailableRange = {
   id: string;
   /** Inclusive YYYY-MM-DD — room cannot be leased overlapping this span. */
   start: string;
-  /** Inclusive YYYY-MM-DD */
-  end: string;
+  /** Inclusive YYYY-MM-DD, or null when the span has no end date yet. */
+  end: string | null;
 };
 
 /** One kind of bed in a room, and how many of it. */
@@ -136,7 +147,11 @@ export type ManagerRoomSubmission = {
   floor: string;
   monthlyRent: number;
   availability: string;
-  /** Earliest date this room can be occupied (YYYY-MM-DD). Required for new listings. */
+  /**
+   * Next date this room is free (YYYY-MM-DD), or "" when it is free now. Derived
+   * from `manualUnavailableRanges` and bookings by the wizard on every change
+   * (`roomAvailabilityPatch`); readers may keep trusting it as before.
+   */
   moveInAvailableDate: string;
   /** Keys, parking, access, what to bring — shown to placed residents. Required for new listings. */
   moveInInstructions: string;
@@ -493,6 +508,23 @@ export type ManagerSharedSpaceSubmission = {
   roomAccessIds: string[];
 };
 
+export const AI_COMMUNICATION_INFO_SECTIONS = ["tours", "rules", "pricing", "neighborhood"] as const;
+export type AiCommunicationInfoSection = (typeof AI_COMMUNICATION_INFO_SECTIONS)[number];
+export type AiCommunicationInfo = Record<AiCommunicationInfoSection, string>;
+
+export function normalizeAiCommunicationInfo(raw: unknown): AiCommunicationInfo | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const row = raw as Record<string, unknown>;
+  const out = {} as AiCommunicationInfo;
+  let any = false;
+  for (const key of AI_COMMUNICATION_INFO_SECTIONS) {
+    const value = typeof row[key] === "string" ? (row[key] as string).trim() : "";
+    out[key] = value;
+    if (value) any = true;
+  }
+  return any ? out : undefined;
+}
+
 export type ManagerListingSubmissionV1 = {
   v: 1;
   buildingName: string;
@@ -544,6 +576,16 @@ export type ManagerListingSubmissionV1 = {
   listingTotalBathroomsId?: string;
   /** Rentable bedroom slots — synced to `rooms.length` when leaving the home step. */
   listingBedroomSlots?: number;
+  /** Whole-home size in square feet (public). Absent on listings saved before it existed. */
+  houseSizeSqft?: number;
+  /** Lot size in square feet (public). The year built lives with the disclosure triggers below. */
+  lotSizeSqft?: number;
+  /**
+   * What the address prefill filled in and the values it replaced, so the
+   * wizard can mark and undo it (`src/lib/listing-prefill/apply.ts`).
+   * Manager-only: never on the public projection.
+   */
+  prefill?: ListingPrefillRecordV1;
   tagline: string;
   /**
    * Marketing / ad titles for this home (Facebook, Craigslist, etc.) so leasing
@@ -563,6 +605,12 @@ export type ManagerListingSubmissionV1 = {
    * resident-only instructions.
    */
   marketingNotes: string;
+  /**
+   * The other AI info sections (About this home is `marketingNotes`): what the
+   * leasing assistant should say about tours, house rules, pricing and the
+   * neighborhood. Assistant-only — never projected to the public listing.
+   */
+  aiCommunicationInfo?: AiCommunicationInfo;
   /** Quiet hours, guests, smoking, shared spaces — shown on House rules tab */
   houseRulesText: string;
   /** Manager-only internal notes about the house (not shown to residents). */
@@ -636,13 +684,20 @@ export type ManagerListingSubmissionV1 = {
   /**
    * The shortest long-term lease this listing offers, in months.
    *
-   * Long-term is "more than a month", so the floor is 2. Absent reads as 2 —
-   * every listing saved before this field existed offered exactly that. The
-   * wizard stores it; the apply flow reads it when it offers term choices.
+   * Stored by listings saved while the Pricing step still asked for it; the
+   * wizard no longer shows or writes it, and nothing reads it. Kept so those
+   * rows still normalise unchanged.
    */
   longTermMinimumMonths?: number;
   /** Short-term application fee when it differs from {@link applicationFee}. */
   shortTermApplicationFee?: string;
+  /**
+   * Application fee per lease type, keyed by the displayed lease term, holding
+   * only the types priced differently from {@link applicationFee}; a type with
+   * no entry follows the one amount. Read through
+   * `listingApplicationFeeRaw` (`src/lib/listing-application-fee.ts`).
+   */
+  applicationFeeByLeaseType?: Record<string, string>;
   /**
    * Standard fee rows the manager removed from the Pricing table. Persisted so
    * normalize/sync does not re-materialize them from legacy scalars.
@@ -744,6 +799,23 @@ export type ManagerListingSubmissionV1 = {
   /** Manager-defined fees beyond the standard fields (shown on the listing). */
   customFees?: ManagerCustomFeeRow[];
   sharedSpaces: ManagerSharedSpaceSubmission[];
+  /**
+   * The Default room / Default bathroom / Default shared space cards of the
+   * listing wizard. Each record still carries its own copy of every value, so
+   * these are what the top card shows on reopen — never a source a reader
+   * downstream has to resolve. Absent on older listings: the wizard infers them.
+   */
+  houseDefaults?: Partial<ListingHouseDefaults>;
+  /**
+   * The Pricing step's Default room on a lease type other than long-term,
+   * keyed like a room's `termPricing`. Every room still carries its own copy in
+   * `room.termPricing[term]` (absent = same as long-term, PRP-463), so this is
+   * only what the card shows on reopen. Absent: the wizard infers it from the
+   * rooms (`houseTermPricingForSubmission`).
+   */
+  houseTermPricing?: Record<string, ManagerRoomTermPrice>;
+  bathroomDefaults?: Partial<BathroomDefaults>;
+  sharedSpaceDefaults?: Partial<SharedSpaceDefaults>;
   /** One amenity per line or comma-separated */
   amenitiesText: string;
   /** When true, applicants/residents see Zelle instructions using `zelleContact`. */
@@ -1817,8 +1889,10 @@ export function normalizeManagerListingSubmissionV1(
               ? o.id.trim()
               : `unavail-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
           const start = typeof o.start === "string" ? o.start.trim() : "";
-          const end = typeof o.end === "string" ? o.end.trim() : "";
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) continue;
+          const rawEnd = typeof o.end === "string" ? o.end.trim() : "";
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) continue;
+          // An empty or malformed end means "no end date yet" — the room stays closed.
+          const end = /^\d{4}-\d{2}-\d{2}$/.test(rawEnd) ? rawEnd : null;
           out.push({ id, start, end });
         }
         return out;
@@ -1933,6 +2007,10 @@ export function normalizeManagerListingSubmissionV1(
   const standardFeeScopes = normalizeStandardFeeScopeMap(
     (sub as { standardFeeScopes?: unknown }).standardFeeScopes,
     { terms: resolveAllowedLeaseTerms(sub), roomIds: rooms.map((r) => r.id) },
+  );
+  const applicationFeeByLeaseType = normalizeApplicationFeeByLeaseType(
+    (sub as { applicationFeeByLeaseType?: unknown }).applicationFeeByLeaseType,
+    resolveAllowedLeaseTerms(sub),
   );
 
   if (paymentAtSigningByLeaseType) {
@@ -2203,8 +2281,12 @@ export function normalizeManagerListingSubmissionV1(
     listingStoriesId: typeof sub.listingStoriesId === "string" ? sub.listingStoriesId : "",
     listingTotalBathroomsId: typeof sub.listingTotalBathroomsId === "string" ? sub.listingTotalBathroomsId : "",
     listingBedroomSlots,
+    houseSizeSqft: positiveWholeNumber(sub.houseSizeSqft, 50_000),
+    lotSizeSqft: positiveWholeNumber(sub.lotSizeSqft, 50_000_000),
+    prefill: normalizePrefillRecord((sub as { prefill?: unknown }).prefill),
     homeStructureNote: typeof sub.homeStructureNote === "string" ? sub.homeStructureNote : "",
     marketingNotes: typeof sub.marketingNotes === "string" ? sub.marketingNotes : "",
+    aiCommunicationInfo: normalizeAiCommunicationInfo((sub as { aiCommunicationInfo?: unknown }).aiCommunicationInfo),
     alsoListedAs: typeof (sub as { alsoListedAs?: unknown }).alsoListedAs === "string"
       ? (sub as { alsoListedAs: string }).alsoListedAs.trim()
       : "",
@@ -2259,9 +2341,14 @@ export function normalizeManagerListingSubmissionV1(
     paymentAtSigningByLeaseType,
     inspectionsByLeaseType,
     standardFeeScopes,
+    applicationFeeByLeaseType,
     rooms: normalizedRooms,
     bathrooms,
     sharedSpaces,
+    houseDefaults: plainRecordOrUndefined(sub.houseDefaults),
+    houseTermPricing: normalizeRoomTermPricing((sub as { houseTermPricing?: unknown }).houseTermPricing),
+    bathroomDefaults: plainRecordOrUndefined(sub.bathroomDefaults),
+    sharedSpaceDefaults: plainRecordOrUndefined(sub.sharedSpaceDefaults),
     bundles: isEntireHomeListing({ listingPlaceCategoryId }) ? [] : bundles,
     quickFacts,
     customFees,
@@ -2684,6 +2771,33 @@ export function emptySharedSpace(index: number): ManagerSharedSpaceSubmission {
   };
 }
 
+/** A positive whole number within `max`, else absent — "0 sq ft" is never a fact. */
+function positiveWholeNumber(value: unknown, max: number): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+  const n = Math.round(value);
+  return n > 0 && n <= max ? n : undefined;
+}
+
+/** Keeps a well-formed prefill record, drops anything else rather than guessing. */
+function normalizePrefillRecord(raw: unknown): ListingPrefillRecordV1 | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const r = raw as Partial<ListingPrefillRecordV1>;
+  if (r.source !== "rentcast" && r.source !== "fixture" && r.source !== "file") return undefined;
+  const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+  return {
+    source: r.source,
+    fetchedAt: typeof r.fetchedAt === "string" ? r.fetchedAt : new Date(0).toISOString(),
+    fields: strings(r.fields),
+    adFields: strings(r.adFields),
+    previous: r.previous && typeof r.previous === "object" ? { ...(r.previous as Record<string, unknown>) } : {},
+    rentEstimateUsd: positiveWholeNumber(r.rentEstimateUsd, 100_000),
+    rentEstimateLowUsd: positiveWholeNumber(r.rentEstimateLowUsd, 100_000),
+    rentEstimateHighUsd: positiveWholeNumber(r.rentEstimateHighUsd, 100_000),
+    rentPerRoomUsd: positiveWholeNumber(r.rentPerRoomUsd, 100_000),
+    dismissedAddressKey: typeof r.dismissedAddressKey === "string" ? r.dismissedAddressKey : undefined,
+  };
+}
+
 /** One-line summary from structured listing basics (public quick facts). */
 export function formatListingBasicsSummary(sub: ManagerListingSubmissionV1): string {
   const chunks: string[] = [];
@@ -2695,6 +2809,7 @@ export function formatListingBasicsSummary(sub: ManagerListingSubmissionV1): str
   if (st) chunks.push(st);
   const tb = LISTING_TOTAL_BATH_OPTIONS.find((o) => o.id === sub.listingTotalBathroomsId)?.label;
   if (tb) chunks.push(tb);
+  if (sub.houseSizeSqft) chunks.push(`${sub.houseSizeSqft.toLocaleString("en-US")} sq ft`);
   const n = sub.listingBedroomSlots ?? sub.rooms.length;
   if (n > 0) {
     chunks.push(
@@ -2759,6 +2874,26 @@ export function bathroomCountFromListingTotalBathroomsId(id: string | undefined 
   return Math.min(12, Math.max(1, Math.ceil(n)));
 }
 
+/**
+ * The bathroom number a list row and saved `baths` field should show.
+ * Basics can be 1.5; that stays 1.5 even though it grows two bathroom cards.
+ */
+export function listingBathroomCountForDisplay(
+  sub: Pick<ManagerListingSubmissionV1, "listingTotalBathroomsId" | "bathrooms"> | null | undefined,
+  fallback = 1,
+): number {
+  if (!sub) return fallback;
+  const raw = (sub.listingTotalBathroomsId ?? "").trim();
+  if (raw === "4+") return 4.5;
+  if (raw) {
+    const n = Number.parseFloat(raw);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  const named = (sub.bathrooms ?? []).filter((b) => b.name.trim()).length;
+  if (named > 0) return named;
+  return fallback;
+}
+
 export type ApplyBedroomSlotsResult =
   | { ok: true; sub: ManagerListingSubmissionV1 }
   | { ok: false; message: string };
@@ -2792,15 +2927,36 @@ export type ApplyBathroomSlotsResult =
   | { ok: true; sub: ManagerListingSubmissionV1 }
   | { ok: false; message: string };
 
-/** Grow/shrink bathroom cards from the home-step bathroom count; autofill default names. */
+/** A stored defaults block passes through as it is; anything that is not a plain object is dropped. */
+function plainRecordOrUndefined<T extends object>(value: T | undefined | null): T | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : undefined;
+}
+
+/** The count as the manager typed it, halves kept: "2.5" → 2.5, "4+" → 4. */
+export function listingTotalBathroomsCount(id: string | undefined | null): number {
+  const raw = (id ?? "").trim();
+  if (!raw) return 1;
+  if (raw === "4+") return 4;
+  const n = Number.parseFloat(raw);
+  if (!Number.isFinite(n) || n <= 0) return 1;
+  return Math.min(12, Math.max(1, n));
+}
+
+/**
+ * Grow/shrink bathroom cards from the home-step bathroom count; autofill default names.
+ *
+ * A half count rounds up to a card, and the card that half adds is a half
+ * bath (toilet and sink): "2.5 bathrooms" opens the Bathrooms step with two
+ * full baths and one half. Only a card this call creates is typed that way —
+ * a bathroom the manager already has is never re-typed by the stepper.
+ */
 export function applyListingBathroomSlots(
   sub: ManagerListingSubmissionV1,
   target?: number,
 ): ApplyBathroomSlotsResult {
-  const clamped = Math.max(
-    1,
-    Math.min(12, Math.round(target ?? bathroomCountFromListingTotalBathroomsId(sub.listingTotalBathroomsId))),
-  );
+  const wanted = target ?? listingTotalBathroomsCount(sub.listingTotalBathroomsId);
+  const clamped = Math.max(1, Math.min(12, Math.ceil(wanted)));
+  const halfLast = wanted % 1 !== 0;
   let bathrooms = [...sub.bathrooms];
   if (bathrooms.length < clamped) {
     while (bathrooms.length < clamped) bathrooms.push(emptyBathroom(bathrooms.length));
@@ -2817,6 +2973,15 @@ export function applyListingBathroomSlots(
       bathrooms.pop();
     }
   }
+  // The half: an untouched last card is a half bath while the count says so,
+  // and goes back to a shower bath when the count becomes whole again. A card
+  // the manager has filled in is never re-typed by the stepper.
+  const halfShape = (bath: ManagerBathroomSubmission) => !bath.shower && !bath.bathtub && bath.sink !== false;
+  bathrooms = bathrooms.map((bath, i) => {
+    if (!isBathroomSlotRemovable(bath)) return bath;
+    if (halfLast && i === clamped - 1) return halfShape(bath) ? bath : { ...bath, shower: false, bathtub: false, sink: true, toilet: true };
+    return halfShape(bath) ? { ...bath, shower: true } : bath;
+  });
   bathrooms = bathrooms.map((bath, i) =>
     bath.name.trim()
       ? bath

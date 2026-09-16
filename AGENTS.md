@@ -118,12 +118,16 @@ npm run ship:production -- --skip-staging # temporary, policy-gated origin/main 
 Never ff `main` onto `production` except through the active dated policy
 option above. Retired: `scripts/promote-main-to-production.sh` (exits 1).
 
-## Production push also ships iOS
+## Production push also ships iOS — TestFlight and the App Store
 
 A `production` push deploys Vercel **and** `.github/workflows/ios-testflight.yml`.
 `upload_to_testflight` is not a ship - the distribute step
 (`scripts/ios-testflight-distribute.mjs`) assigns the build to the internal
-tester group. Gate fails closed; allowlist, not denylist. See `docs/mobile-app.md`.
+tester group, then `scripts/ios-app-store-release.mjs` submits the build to
+App Store review (release after approval; holds while Apple is reviewing).
+The store page is the committed `app-store/` folder - never a hand-dragged
+screenshot. Version numbers come from App Store Connect, not a Xcode edit.
+Gate fails closed; allowlist, not denylist. See `docs/mobile-app.md`.
 
 # Before you show a feature (agents)
 
@@ -265,7 +269,10 @@ Dashboard sections go in `MANAGER_DASHBOARD_SECTIONS` and gate on `visibility.<i
 control — never a sentence under it explaining it. Counts are steppers, picks
 are dropdowns (multi-select with an Other entry when several apply), never
 pills. Detail and the source guard: `docs/agents/ui-change-checklist.md`
-§ No subtext.
+§ No subtext. The settings kit (`portal-settings-ui.tsx`) has no
+`description` / `meta` props by design; reminder timings, channels and
+type pickers are `CheckboxMultiSelect` / `FieldSingleSelect`, never chips.
+Guard: `tests/unit/portal-settings-no-subtext.test.ts`.
 
 # Brand assets (PropLane)
 
@@ -394,7 +401,9 @@ answer. Fail closed to `true`.
 | Send listing modal | `docs/agents/send-listing-modal.md` | Server re-authorizes every id; reject the whole send if any fails |
 | Marketing mocks | `docs/agents/marketing-mocks.md` | Depict a real screen; derive counts from the rows drawn |
 | House printables | `docs/agents/house-printables.md` | The public page and both public printables render only `HOUSE_PUBLIC_SECTIONS`; a code or password never becomes a URL |
-| Portfolio import | `docs/agents/portfolio-import.md` | One draft model; counts never from the model; imported properties are `unlisted`; commit idempotent through receipts; invites explicit |
+| Listing wizard defaults | `docs/agents/listing-wizard-defaults.md` | A record follows the Default card per field; the card is saved on the submission, never resolved downstream; counts make the cards |
+| Property import | `docs/agents/portfolio-import.md` | The drafts are the import; the model answers only through the tool and cites rows; rent is what the tenant pays, never market rent |
+| Address prefill | `docs/agents/listing-prefill.md` | Facts from RentCast only; never fetch a listing page — ad text arrives by paste; default-only fill with marks and undo; nothing sets the rent |
 
 ## There are no "work orders" in the product — only services
 

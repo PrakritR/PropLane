@@ -203,7 +203,6 @@ export function ResidentNotificationPreferencesSettings() {
   return (
     <PortalSettingsSection
       title="Notification preferences"
-      description="Choose how you hear about each kind of update. The in-app inbox always keeps a record."
     >
       {loadState === "loading" ? (
         <PortalSettingsGroup>
@@ -254,10 +253,13 @@ export function ResidentNotificationPreferencesSettings() {
                 <PortalSettingsRow
                   key={category}
                   label={copy.label}
-                  description={copy.description}
-                  meta={rowMeta(category)}
                 >
                   <div className="flex items-center gap-5">
+                    {rowMeta(category) ? (
+                      <span aria-live="polite" className="text-[11.5px] font-semibold text-muted">
+                        {rowMeta(category)}
+                      </span>
+                    ) : null}
                     <label className="flex items-center gap-2 text-xs font-medium text-muted">
                       Email
                       <PortalSettingsToggle

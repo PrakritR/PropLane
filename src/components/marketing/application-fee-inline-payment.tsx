@@ -36,6 +36,7 @@ export function ApplicationFeeInlinePayment({
   residentName,
   managerUserId,
   rentalType,
+  leaseTerm,
   returnPath,
   onItemization,
 }: {
@@ -44,6 +45,8 @@ export function ApplicationFeeInlinePayment({
   residentName?: string;
   managerUserId: string;
   rentalType?: "standard" | "short_term";
+  /** The applicant's chosen lease type; the listing may price its fee per type. */
+  leaseTerm?: string;
   /** App path Stripe returns to after payment (must start with "/"). */
   returnPath: string;
   onItemization?: (view: ApplicationFeeItemizationView) => void;
@@ -80,6 +83,7 @@ export function ApplicationFeeInlinePayment({
           residentName,
           managerUserId,
           rentalType: rentalType === "short_term" ? "short_term" : undefined,
+          leaseTerm: leaseTerm?.trim() || undefined,
           mode: "embedded",
           returnPath,
         }),
@@ -117,7 +121,7 @@ export function ApplicationFeeInlinePayment({
       setLoading(false);
       inFlight.current = false;
     }
-  }, [propertyId, residentEmail, residentName, managerUserId, rentalType, returnPath, onItemization]);
+  }, [propertyId, residentEmail, residentName, managerUserId, rentalType, leaseTerm, returnPath, onItemization]);
 
   // The wizard is embedded in dual-mount (mobile-card + desktop-table) lists,
   // so TWO live copies of this component can exist with CSS deciding which is

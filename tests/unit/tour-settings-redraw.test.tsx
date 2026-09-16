@@ -112,22 +112,14 @@ describe("TourSettingsPanel redraw", () => {
     expect(toggle.getAttribute("aria-checked")).toBe("false");
   });
 
-  it("gives every settings row a real consequence line, not just its label", async () => {
+  it("gives every settings row a label and a control, never a sentence under it", async () => {
     stubFetch();
     render(<TourSettingsPanel />);
-    await screen.findByText("Notice required");
-
-    const noticeMeta = await screen.findByText(
-      "Tours can't be booked less than this many days out — same-day requests stay hidden until this window passes.",
-    );
-    expect(noticeMeta).toBeTruthy();
-    expect(noticeMeta.textContent).not.toBe("Notice required");
-
-    const autoConfirmMeta = await screen.findByText(
-      "Tours book straight into your calendar without asking you first.",
-    );
-    expect(autoConfirmMeta).toBeTruthy();
-    expect(autoConfirmMeta.textContent).not.toBe("Auto confirm tours");
+    const notice = await screen.findByText("Notice required");
+    // The label column is the label alone (AGENTS.md § No subtext).
+    expect(notice.parentElement?.textContent).toBe("Notice required");
+    expect(screen.queryByText(/same-day requests stay hidden/i)).toBeNull();
+    expect(screen.queryByText(/without asking you first/i)).toBeNull();
   });
 
   it("tags both sections with what they apply to", async () => {

@@ -135,4 +135,21 @@ describe("property row title and address lines (PLAN-0914-1345)", () => {
       propertyRowMeta({ beds: 3, baths: 2, submission: sub({ listingPlaceCategoryId: "entire_home", rooms: [room("A", 2400)] }) }),
     ).toEqual({ beds: 3, baths: 2, rooms: null });
   });
+
+  it("shows the Basics bathroom count when saved baths is still the default 1", () => {
+    expect(
+      propertyRowMeta({
+        beds: 9,
+        baths: 1,
+        submission: sub({ listingTotalBathroomsId: "3", rooms: Array.from({ length: 9 }, (_, i) => room(`R${i + 1}`, 900)) }),
+      }),
+    ).toEqual({ beds: 9, baths: 3, rooms: 9 });
+    expect(
+      propertyRowMeta({
+        beds: 2,
+        baths: 1,
+        submission: sub({ listingTotalBathroomsId: "1.5", rooms: [room("A", 900), room("B", 900)] }),
+      }),
+    ).toEqual({ beds: 2, baths: 1.5, rooms: 2 });
+  });
 });

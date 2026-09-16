@@ -43,7 +43,7 @@ export const FILTER_LIST_MAX_HEIGHT_PX = FIELD_SELECT_MENU_LIST_MAX_HEIGHT_PX;
 /** Fixed portal filter shell — same width/height for modal, sheet, and desktop dropdown. */
 export const PORTAL_FILTER_PANEL_WIDTH_CLASS = "w-[min(22rem,calc(100vw-2rem))]";
 export const PORTAL_FILTER_PANEL_WIDTH_PX = 22 * 16;
-export const PORTAL_FILTER_BROWSE_PANEL_WIDTH_PX = 28 * 16;
+export const PORTAL_FILTER_BROWSE_PANEL_WIDTH_PX = 44 * 16;
 
 /** Parse fixed panel height from portal filter size class names (total shell height). */
 export function portalFilterDropdownHeightPx(panelSizeClass: string): number {
@@ -138,8 +138,14 @@ export const PORTAL_FILTER_COMMUNICATION_MOBILE_SHEET_CLASS = PORTAL_FILTER_COMP
 export const PORTAL_FILTER_BROWSE_MOBILE_SHEET_CLASS =
   "h-[min(82dvh,42rem)] min-h-[min(70dvh,34rem)]";
 
+/**
+ * The public browse-homes Filters modal: wider than a portal toolbar filter
+ * because it holds a budget histogram and date rows, and capped by max-height
+ * (not a fixed height) so the body scrolls and the footer never covers the
+ * last field (PLAN-0914-2124).
+ */
 export const PORTAL_FILTER_BROWSE_PANEL_CLASS =
-  "w-[min(28rem,calc(100vw-2rem))] h-[min(36rem,82vh)] min-h-[28rem]";
+  "browse-filters-panel !w-[min(44rem,calc(100vw-2rem))] !max-w-none max-h-[min(46rem,88vh)]";
 export const PORTAL_FILTER_BODY_CLASS =
   "flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-2";
 

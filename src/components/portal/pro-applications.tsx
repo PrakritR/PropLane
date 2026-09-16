@@ -15,7 +15,7 @@ import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { Settings2, Share2 } from "lucide-react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
@@ -30,6 +30,7 @@ import {
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { ManagerApplicationOnBehalfModal } from "@/components/portal/pro-application-on-behalf-modal";
 import {
   PORTAL_DATA_TABLE_WRAP,
   PORTAL_DETAIL_BTN,
@@ -1408,7 +1409,7 @@ export function ManagerApplications({
           data-attr="application-pdf-download"
           onSelect={() => runApplicationPdfDownload(row, showToast)}
         >
-          Download application
+          Download
         </DropdownMenuItem>
       ),
     });
@@ -1693,16 +1694,44 @@ export function ManagerApplications({
     />
   );
 
+  /**
+   * Add an application by hand — the "on behalf" flow that already existed
+   * (`ManagerApplicationOnBehalfModal`) but nothing opened. The header + and
+   * the list's dashed Add row both land here.
+   */
+  const [addApplicationOpen, setAddApplicationOpen] = useState(false);
+  const applicationsManualAddButton = (
+    <PortalPrimaryIconAction
+      label="Add application"
+      data-attr="applications-add-manual"
+      onClick={() => setAddApplicationOpen(true)}
+    />
+  );
+
   const applicationsListActions = (
     <>
       {applicationsFilterSort}
       {applicationsSettingsButton}
       {applicationsAddButton}
+      {applicationsManualAddButton}
     </>
   );
 
   const applicationModals = (
     <>
+      {/* Mounted only while open: the modal reads the portfolio on render, and
+          the list page must not pay for that (or its imports) until asked. */}
+      {addApplicationOpen ? (
+        <ManagerApplicationOnBehalfModal
+          open
+          onClose={() => setAddApplicationOpen(false)}
+          onSubmitted={() => {
+            setAddApplicationOpen(false);
+            void syncManagerApplicationsFromServer({ force: true, managerUserId: userId });
+          }}
+          managerUserId={userId ?? null}
+        />
+      ) : null}
       <PortalNotificationPreviewModal
         open={approvePreviewRow !== null}
         title="Approve application"
@@ -1990,6 +2019,12 @@ export function ManagerApplications({
       ) : (
         <PortalRecordListSurface
           isEmpty={rowsForBucket.length === 0}
+          add={{
+            ariaLabel: "Add application",
+            onClick: () => setAddApplicationOpen(true),
+            dataAttr: "applications-add-row",
+            inline: true,
+          }}
           emptyCard={
             propertyFilters.length > 0
               ? {

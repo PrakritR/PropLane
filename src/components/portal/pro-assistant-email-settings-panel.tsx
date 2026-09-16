@@ -182,7 +182,6 @@ export function ManagerAssistantEmailSettingsPanel() {
     return (
       <PortalSettingsSection
         title="Work email"
-        description="Email your PropLane assistant from any device — same capabilities as texting your work number."
       >
         <PortalSettingsGroup>
           <p className="px-4 py-4 text-sm text-muted">Loading…</p>
@@ -193,7 +192,7 @@ export function ManagerAssistantEmailSettingsPanel() {
 
   if (error && !status) {
     return (
-      <PortalSettingsSection title="Work email" description="PropLane assistant over email.">
+      <PortalSettingsSection title="Work email">
         <PortalSettingsGroup>
           <div className="space-y-3 px-4 py-4">
             <p className="text-sm text-muted">{error}</p>
@@ -226,7 +225,6 @@ export function ManagerAssistantEmailSettingsPanel() {
     return (
       <PortalSettingsSection
         title="Work email"
-        description={`Your workspace's address for resident and prospect email. It is managed by ${owner}; you send and reply from it on the houses assigned to you.`}
       >
         <PortalSettingsGroup>
           <PortalSettingsField
@@ -288,7 +286,6 @@ export function ManagerAssistantEmailSettingsPanel() {
   return (
     <PortalSettingsSection
       title="Work email"
-      description="Request and manage the one address residents and prospects use to reach your workspace. Everyone on your team sends and replies from it."
     >
       <PortalSettingsGroup>
         <PortalSettingsField

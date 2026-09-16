@@ -29,7 +29,7 @@ export function ExpenseRowMenu({
       >
         <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" backdrop>
+      <DropdownMenuContent align="end">
         {onEdit ? (
           <DropdownMenuItem data-attr="expense-edit" onSelect={onEdit}>
             Edit

@@ -137,11 +137,6 @@ export function PortalChangePasswordPanel({ accountEmail }: { accountEmail: stri
   return (
     <PortalSettingsSection
       title="Login & security"
-      description={
-        settingFirstPassword
-          ? "You sign in with Google or Apple. Set a password to also sign in with your email."
-          : "Update your password or request a reset link."
-      }
       action={
         resolved ? (
           <Button

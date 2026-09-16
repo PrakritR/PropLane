@@ -22,7 +22,7 @@
  * act of the manager on that room, because it changes how every rent charge is
  * billed. Inheritance carries the monthly figure and nothing else about billing.
  */
-import type { ManagerListingSubmissionV1, ManagerRoomSubmission } from "@/lib/manager-listing-submission";
+import type { ManagerListingSubmissionV1, ManagerRoomSubmission, ManagerRoomTermPrice } from "@/lib/manager-listing-submission";
 import { bedsLine, parseBedsLine } from "@/lib/manager-listing-submission";
 import type { UtilitiesPaymentModel } from "@/lib/listing-utilities-payment";
 
@@ -58,9 +58,33 @@ export type ListingHouseDefaults = {
   shortTermMoveInFee: string;
   dailyRentRate: number;
   dailyUtilitiesRate: number;
+  /**
+   * Media and words most rooms share — the "generic" pictures, clip, blurb and
+   * move-in notes a room shows until it has its own. An empty list, `null` or
+   * `""` is unset. Lists compare by value, so two rooms holding the same three
+   * URLs both follow the house.
+   */
+  photoDataUrls: string[];
+  videoDataUrl: string | null;
+  detail: string;
+  moveInInstructions: string;
+  moveInPhotoDataUrls: string[];
+  moveInVideoDataUrl: string | null;
 };
 
 export type ListingHouseDefaultField = keyof ListingHouseDefaults;
+
+/** The list-valued fields — compared by value, inferred only when every room agrees. */
+export const LISTING_HOUSE_DEFAULT_LIST_FIELDS: readonly ListingHouseDefaultField[] = ["photoDataUrls", "moveInPhotoDataUrls"];
+/** Pictures, clips and words: a room that has its own keeps them even while the house has none. */
+export const LISTING_HOUSE_DEFAULT_MEDIA_FIELDS: readonly ListingHouseDefaultField[] = [
+  "photoDataUrls",
+  "videoDataUrl",
+  "detail",
+  "moveInInstructions",
+  "moveInPhotoDataUrls",
+  "moveInVideoDataUrl",
+];
 
 /** Every default field, in the order the band renders them. */
 export const LISTING_HOUSE_DEFAULT_FIELDS: readonly ListingHouseDefaultField[] = [
@@ -85,6 +109,12 @@ export const LISTING_HOUSE_DEFAULT_FIELDS: readonly ListingHouseDefaultField[] =
   "shortTermMoveInFee",
   "dailyRentRate",
   "dailyUtilitiesRate",
+  "photoDataUrls",
+  "videoDataUrl",
+  "detail",
+  "moveInInstructions",
+  "moveInPhotoDataUrls",
+  "moveInVideoDataUrl",
 ] as const;
 
 export function emptyListingHouseDefaults(): ListingHouseDefaults {
@@ -110,6 +140,12 @@ export function emptyListingHouseDefaults(): ListingHouseDefaults {
     shortTermMoveInFee: "",
     dailyRentRate: 0,
     dailyUtilitiesRate: 0,
+    photoDataUrls: [],
+    videoDataUrl: null,
+    detail: "",
+    moveInInstructions: "",
+    moveInPhotoDataUrls: [],
+    moveInVideoDataUrl: null,
   };
 }
 
@@ -161,6 +197,18 @@ export function roomDefaultFieldValue(
       return room.dailyRentRate ?? 0;
     case "dailyUtilitiesRate":
       return room.dailyUtilitiesRate ?? 0;
+    case "photoDataUrls":
+      return room.photoDataUrls ?? [];
+    case "videoDataUrl":
+      return room.videoDataUrl ?? null;
+    case "detail":
+      return (room.detail ?? "").trim();
+    case "moveInInstructions":
+      return (room.moveInInstructions ?? "").trim();
+    case "moveInPhotoDataUrls":
+      return room.moveInPhotoDataUrls ?? [];
+    case "moveInVideoDataUrl":
+      return room.moveInVideoDataUrl ?? null;
   }
 }
 
@@ -217,14 +265,39 @@ function writeRoomDefaultField(
       return defaults.dailyRentRate > 0 ? { ...room, dailyRentRate: defaults.dailyRentRate } : room;
     case "dailyUtilitiesRate":
       return defaults.dailyUtilitiesRate > 0 ? { ...room, dailyUtilitiesRate: defaults.dailyUtilitiesRate } : room;
+    // Media and words copy as they are, blank included: a room that is "the
+    // same as the house" shows the house's pictures, and none when the house
+    // has none. Each room keeps its own copy of the URLs, so every reader
+    // downstream — the public listing, the preview, the assistant — sees a
+    // plain room with plain photos and learns no new concept.
+    case "photoDataUrls":
+      return { ...room, photoDataUrls: [...defaults.photoDataUrls] };
+    case "videoDataUrl":
+      return { ...room, videoDataUrl: defaults.videoDataUrl };
+    case "detail":
+      return { ...room, detail: defaults.detail };
+    case "moveInInstructions":
+      return { ...room, moveInInstructions: defaults.moveInInstructions };
+    case "moveInPhotoDataUrls":
+      return { ...room, moveInPhotoDataUrls: [...defaults.moveInPhotoDataUrls] };
+    case "moveInVideoDataUrl":
+      return { ...room, moveInVideoDataUrl: defaults.moveInVideoDataUrl };
   }
 }
 
 /** An unset value — treated as inheriting rather than as a deliberate blank. */
 function isUnset(value: ListingHouseDefaults[ListingHouseDefaultField]): boolean {
+  if (value === null || value === undefined) return true;
+  if (Array.isArray(value)) return value.length === 0;
   if (typeof value === "string") return value.trim() === "";
   if (typeof value === "number") return value <= 0;
   return false; // a boolean is always a real answer
+}
+
+/** Equal by value — a list of URLs is the same list when its members are. */
+function sameValue(a: ListingHouseDefaults[ListingHouseDefaultField], b: ListingHouseDefaults[ListingHouseDefaultField]): boolean {
+  if (Array.isArray(a) || Array.isArray(b)) return JSON.stringify(a ?? []) === JSON.stringify(b ?? []);
+  return a === b;
 }
 
 /**
@@ -243,9 +316,13 @@ export function roomInheritsDefault(
   const roomValue = roomDefaultFieldValue(room, field);
   const defaultValue = defaults[field];
   if (typeof roomValue === "boolean" || typeof defaultValue === "boolean") return roomValue === defaultValue;
-  if (isUnset(defaultValue)) return true;
+  // Pictures, clips and words are the room's own the moment it has any while
+  // the house has none: the first house photos must never sweep away a room's.
+  // A fact (floor, rent, size) keeps the older rule — with no house value there
+  // is nothing to diverge from, and the first default fills the blanks.
+  if (isUnset(defaultValue)) return LISTING_HOUSE_DEFAULT_MEDIA_FIELDS.includes(field) ? isUnset(roomValue) : true;
   if (isUnset(roomValue)) return true;
-  return roomValue === defaultValue;
+  return sameValue(roomValue, defaultValue);
 }
 
 /** The fields this room has deliberately set differently from the house. */
@@ -257,15 +334,14 @@ export function roomOverriddenDefaults(
 }
 
 /**
- * The rooms that have not been edited at all, and are therefore the only ones a
- * change to the house defaults may move.
+ * The rooms that have not diverged on ANY field.
  *
- * The rule is per ROOM, not per field. Once a manager has set anything on a
- * room by hand, that room stops following the house for everything — including
- * the fields they left alone. Per-field following looked tidier but meant a
- * manager who had set Room 3's rent still found its beds changing underneath
- * them later. Overwriting an edited room is possible, but only through an
- * explicit "copy to all rooms", never as a side effect of typing.
+ * This is the per-ROOM reading the previous wizard (`pro-add-listing-form`)
+ * still uses: once a room differs anywhere, that wizard stops moving it at
+ * all. The v2 Rooms step no longer calls it — there a room follows the Default
+ * room field by field, exactly as {@link applyHouseDefaultsToRooms} judges it,
+ * so a room on its own floor still picks up a new default size or checklist.
+ * An explicit untick of "Same as default room" is the only whole-room freeze.
  */
 export function roomsFollowingDefaults(
   rooms: readonly ManagerRoomSubmission[],
@@ -317,6 +393,54 @@ export function applyHouseDefaultsToRooms(
   });
 }
 
+/** The three prices the Pricing step's Default room sets on the long-term tab. */
+export const LISTING_HOUSE_PRICE_FIELDS: readonly ListingHouseDefaultField[] = ["monthlyRent", "utilitiesEstimate", "securityDeposit"];
+
+/**
+ * Put ONE of a room's fields back on the Default card — the ↺ in a cell and
+ * the "Same as default room" tick. The room keeps its own COPY of the card's
+ * value, blank included: the record is what Review, the applicant's room
+ * list, the signed lease and the public page read, and none of them resolve
+ * the card. Blanking the field instead (what the Pricing step once did) drew
+ * "$1,050 · Same as default room" on screen while the record held $0.
+ */
+export function resetRoomFieldToDefault(
+  room: ManagerRoomSubmission,
+  field: ListingHouseDefaultField,
+  defaults: ListingHouseDefaults,
+): ManagerRoomSubmission {
+  const blank = emptyListingHouseDefaults();
+  const cleared = writeRoomDefaultField(room, field, blank);
+  return applyHouseDefaultsToRooms([cleared], defaults, { onlyFields: [field], roomIds: [room.id] })[0]!;
+}
+
+/**
+ * Fill every room still following the Default card on `fields` with the
+ * card's value — the one-time repair for a listing saved while the Pricing
+ * step blanked followers. Writes only where the card holds a value and the
+ * room does not; a room with its own number is left alone. Returns the same
+ * array when nothing changes, so a caller can patch only on a real change.
+ */
+export function fillRoomsFollowingDefaults(
+  rooms: readonly ManagerRoomSubmission[],
+  defaults: ListingHouseDefaults,
+  fields: readonly ListingHouseDefaultField[] = LISTING_HOUSE_PRICE_FIELDS,
+): readonly ManagerRoomSubmission[] {
+  let changed = false;
+  const out = rooms.map((room) => {
+    let next = room;
+    for (const field of fields) {
+      // Unset on the room while the card holds a value is exactly "following":
+      // the Pricing step already draws the card's number there.
+      if (isUnset(defaults[field]) || !isUnset(roomDefaultFieldValue(room, field))) continue;
+      next = writeRoomDefaultField(next, field, defaults);
+    }
+    if (next !== room) changed = true;
+    return next;
+  });
+  return changed ? out : rooms;
+}
+
 /**
  * Guess sensible defaults from rooms that already exist, so opening an older
  * listing in the new wizard does not show an empty band. Uses the most common
@@ -328,6 +452,14 @@ export function inferHouseDefaultsFromRooms(rooms: readonly ManagerRoomSubmissio
   if (rooms.length === 0) return defaults;
   const out = { ...defaults } as Record<string, unknown>;
   for (const field of LISTING_HOUSE_DEFAULT_FIELDS) {
+    // A photo list is the house's only when EVERY room carries the same one.
+    // Majority would crown one room's pictures as "the default" the moment two
+    // rooms happened to share them, and then push them onto a third.
+    if (LISTING_HOUSE_DEFAULT_LIST_FIELDS.includes(field) || field === "videoDataUrl" || field === "moveInVideoDataUrl") {
+      const first = roomDefaultFieldValue(rooms[0]!, field);
+      if (!isUnset(first) && rooms.every((room) => sameValue(roomDefaultFieldValue(room, field), first))) out[field] = first;
+      continue;
+    }
     const counts = new Map<string, { value: unknown; n: number }>();
     for (const room of rooms) {
       const value = roomDefaultFieldValue(room, field);
@@ -348,8 +480,136 @@ export function inferHouseDefaultsFromRooms(rooms: readonly ManagerRoomSubmissio
 
 /** Read the defaults a submission carries, falling back to what its rooms imply. */
 export function houseDefaultsForSubmission(sub: ManagerListingSubmissionV1): ListingHouseDefaults {
-  const stored = (sub as { houseDefaults?: Partial<ListingHouseDefaults> }).houseDefaults;
+  const stored = sub.houseDefaults;
   const inferred = inferHouseDefaultsFromRooms(sub.rooms ?? []);
   if (!stored) return inferred;
   return { ...inferred, ...stored };
+}
+
+/* ─────────────── the Default room on another lease type ─────────────── */
+
+/**
+ * The three prices the Pricing step's Default room sets on a lease type other
+ * than long-term. A block shaped like a room's `termPricing` holds them
+ * (`sub.houseTermPricing`); a room follows the block per field, with the same
+ * reading as the long-term defaults above: absent or equal is following, and a
+ * different number is the room's own.
+ *
+ * The one difference from long-term: with NO term default set, a room that
+ * already has its own price on the term keeps it when the first default is
+ * typed. The manager put that number there on purpose while the card above
+ * was empty, and the first default must not sweep it away.
+ */
+export type ListingTermPriceField = "monthlyRent" | "utilitiesEstimate" | "securityDeposit";
+
+export const LISTING_TERM_PRICE_FIELDS: readonly ListingTermPriceField[] = ["monthlyRent", "utilitiesEstimate", "securityDeposit"];
+
+export type ListingHouseTermPricing = Record<string, ManagerRoomTermPrice>;
+
+/** One term-price field as the text a money box shows; `""` when unset. */
+export function termPriceFieldText(entry: ManagerRoomTermPrice | undefined, field: ListingTermPriceField): string {
+  if (!entry) return "";
+  if (field === "monthlyRent") return typeof entry.monthlyRent === "number" && entry.monthlyRent > 0 ? String(entry.monthlyRent) : "";
+  return (entry[field] ?? "").replace(/^\$/, "").trim();
+}
+
+/**
+ * Write one field of one term's entry; an empty value clears that field, and
+ * an entry or block left empty disappears so absence keeps meaning "same as
+ * long-term".
+ */
+export function writeTermPriceEntry(
+  block: ListingHouseTermPricing | undefined,
+  term: string,
+  field: ListingTermPriceField,
+  value: string,
+): ListingHouseTermPricing | undefined {
+  const all = { ...(block ?? {}) };
+  const entry = { ...(all[term] ?? {}) };
+  const text = value.replace(/^\$/, "").trim();
+  if (text === "") delete entry[field];
+  else if (field === "monthlyRent") {
+    const n = Number(text.replace(/[^0-9.]/g, ""));
+    if (Number.isFinite(n) && n > 0) entry.monthlyRent = n;
+    else delete entry.monthlyRent;
+  } else entry[field] = text;
+  if (Object.keys(entry).length === 0) delete all[term];
+  else all[term] = entry;
+  return Object.keys(all).length > 0 ? all : undefined;
+}
+
+/** The same write on a room's own `termPricing`. */
+export function writeRoomTermPrice(
+  room: ManagerRoomSubmission,
+  term: string,
+  field: ListingTermPriceField,
+  value: string,
+): ManagerRoomSubmission {
+  return { ...room, termPricing: writeTermPriceEntry(room.termPricing, term, field, value) };
+}
+
+/**
+ * Is this room following the term's Default room on this field?
+ *
+ * True when the room has no value of its own on the term, or when its value
+ * equals the default it is judged against. With no default to judge against, a
+ * room that has a value is its own.
+ */
+export function roomFollowsTermDefault(
+  room: ManagerRoomSubmission,
+  term: string,
+  field: ListingTermPriceField,
+  termDefaults: ListingHouseTermPricing | undefined,
+): boolean {
+  const own = termPriceFieldText(room.termPricing?.[term], field);
+  if (own === "") return true;
+  const def = termPriceFieldText(termDefaults?.[term], field);
+  return def !== "" && own === def;
+}
+
+/**
+ * Push one field of a term's Default room onto every room still following it.
+ *
+ * As with {@link applyHouseDefaultsToRooms}, following is judged against the
+ * defaults as they were BEFORE the edit, or every room would read as diverged
+ * from the new number and freeze. A cleared default drops the field from every
+ * following room, so those rooms fall back to long-term.
+ */
+export function applyHouseTermPricingToRooms(
+  rooms: readonly ManagerRoomSubmission[],
+  term: string,
+  field: ListingTermPriceField,
+  next: ListingHouseTermPricing | undefined,
+  previous: ListingHouseTermPricing | undefined,
+): ManagerRoomSubmission[] {
+  const value = termPriceFieldText(next?.[term], field);
+  return rooms.map((room) => (roomFollowsTermDefault(room, term, field, previous) ? writeRoomTermPrice(room, term, field, value) : room));
+}
+
+/**
+ * The per-term Default rooms a submission carries, or, for a term the block
+ * does not cover, the most common value the rooms hold on it — so a listing
+ * priced room by room before the card existed does not open with an empty
+ * card above rooms that plainly have prices.
+ */
+export function houseTermPricingForSubmission(sub: ManagerListingSubmissionV1): ListingHouseTermPricing | undefined {
+  const stored = sub.houseTermPricing;
+  let out: ListingHouseTermPricing | undefined = stored ? { ...stored } : undefined;
+  const terms = new Set<string>();
+  for (const room of sub.rooms ?? []) for (const term of Object.keys(room.termPricing ?? {})) terms.add(term);
+  for (const term of terms) {
+    if (stored?.[term] && Object.keys(stored[term]).length > 0) continue;
+    for (const field of LISTING_TERM_PRICE_FIELDS) {
+      const counts = new Map<string, number>();
+      for (const room of sub.rooms ?? []) {
+        const text = termPriceFieldText(room.termPricing?.[term], field);
+        if (text === "") continue;
+        counts.set(text, (counts.get(text) ?? 0) + 1);
+      }
+      let best: { text: string; n: number } | null = null;
+      for (const [text, n] of counts) if (!best || n > best.n) best = { text, n };
+      if (best) out = writeTermPriceEntry(out, term, field, best.text);
+    }
+  }
+  return out;
 }

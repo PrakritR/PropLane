@@ -25,6 +25,9 @@ import {
 
 export type PromotionAssetKind = "flyer" | "text" | "upload";
 
+/** Workspace Promotion command-bar sections. Image = flyers + uploads (including PDFs). */
+export type PromotionKindSection = "all" | "text" | "image";
+
 export type PromotionAsset = {
   /** Stable expand key: `${rowId}::flyer::${entryId}` etc. */
   id: string;
@@ -176,6 +179,40 @@ export function promotionAssetKindIndices(assets: PromotionAsset[]): Map<string,
     indices.set(asset.id, index);
   }
   return indices;
+}
+
+export function promotionAssetMatchesKind(
+  asset: PromotionAsset,
+  kind: PromotionKindSection,
+): boolean {
+  if (kind === "all") return true;
+  if (kind === "text") return asset.kind === "text";
+  return asset.kind === "flyer" || asset.kind === "upload";
+}
+
+export function promotionAssetMatchesQuery(asset: PromotionAsset, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const title = promotionAssetListTitle(asset, 0);
+  const haystack = [title, asset.propertyLabel, asset.subtitle].join(" ").toLowerCase();
+  return haystack.includes(q);
+}
+
+export function countPromotionAssetsBySection(
+  assets: PromotionAsset[],
+): Record<PromotionKindSection, number> {
+  let text = 0;
+  let image = 0;
+  for (const asset of assets) {
+    if (asset.kind === "text") text += 1;
+    else image += 1;
+  }
+  return { all: assets.length, text, image };
+}
+
+/** New promotion modal default: Text on the Text section, Flyer on All / Image. */
+export function promotionNewKindForSection(kind: PromotionKindSection): PromotionAssetKind {
+  return kind === "text" ? "text" : "flyer";
 }
 
 /** List-row title: manager label when set, otherwise numbered Flyer N / Text N. */

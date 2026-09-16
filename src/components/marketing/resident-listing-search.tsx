@@ -1,5 +1,7 @@
 "use client";
 
+import { Sparkles } from "lucide-react";
+
 import Link from "next/link";
 import posthog from "posthog-js";
 import type { CSSProperties } from "react";
@@ -303,15 +305,26 @@ export function ResidentHousingChat({
   onApplyFilters,
   title = "Ask PropLane",
   subtitle = 'Describe what you need, e.g. "2 bed under $2000 in Ballard, moving in August"',
-  placeholder = "Tell us what you're looking for…",
+  placeholder,
   showMatchListings = true,
+  variant = "card",
 }: {
   onApplyFilters: (filters: ChatAppliedFilters) => void;
   title?: string;
   subtitle?: string;
   placeholder?: string;
   showMatchListings?: boolean;
+  /**
+   * `card` is the titled block the home-search page has always had. `inline`
+   * is the one-line form the browse filter sheet leads with: sparkle, input,
+   * Ask — no title or sentence above it (PLAN-0914-2124).
+   */
+  variant?: "card" | "inline";
 }) {
+  const inline = variant === "inline";
+  const resolvedPlaceholder =
+    placeholder ??
+    (inline ? "e.g. private bath under $1,800 in Fremont" : "Tell us what you're looking for…");
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [summary, setSummary] = useState<string | null>(null);
@@ -359,6 +372,44 @@ export function ResidentHousingChat({
     }
   }
 
+  if (inline) {
+    return (
+      <div className="min-w-0 max-w-full">
+        <form onSubmit={handleSubmit} className="flex min-w-0 items-center gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Sparkles
+              className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-primary"
+              strokeWidth={2}
+              aria-hidden
+            />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={resolvedPlaceholder}
+              aria-label="Describe the home you're looking for"
+              data-attr="resident-search-ai-chat-input"
+              className={`${inputCls} min-h-[44px] w-full pl-10`}
+            />
+          </div>
+          <Button
+            type="submit"
+            variant="secondary"
+            loading={status === "loading"}
+            disabled={status === "loading"}
+            data-attr="resident-search-ai-chat-submit"
+            className="min-h-[44px] shrink-0 rounded-xl px-4"
+          >
+            Ask
+          </Button>
+        </form>
+        {summary && (
+          <p className={`mt-2 text-sm ${status === "error" ? "text-red-500" : "text-foreground"}`}>{summary}</p>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="min-w-0 max-w-full">
       <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">{title}</p>
@@ -368,7 +419,7 @@ export function ResidentHousingChat({
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={placeholder}
+          placeholder={resolvedPlaceholder}
           aria-label="Describe the home you're looking for"
           data-attr="resident-search-ai-chat-input"
           className={`${inputCls} min-w-0 w-full flex-1`}

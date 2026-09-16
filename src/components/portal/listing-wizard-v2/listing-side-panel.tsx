@@ -24,6 +24,7 @@ import { buildListingQuote } from "@/lib/listing-quote";
 import { applyPaymentAtSigningCell, clearRoomPaymentAtSigning } from "@/lib/listing-fees";
 import { roomHasOwnPaymentAtSigning } from "@/lib/listing-fee-scope";
 import { isEntireHomeListing, type ManagerListingSubmissionV1, type ManagerRoomSubmission } from "@/lib/manager-listing-submission";
+import { deriveRoomAvailability, formatDateKeyShort, legacyMoveInDateAsSpan, manualRangesToSpans, todayDateKey } from "@/lib/room-availability-timeline";
 
 const usd = (n: number) => `$${Math.round(n || 0).toLocaleString("en-US")}`;
 
@@ -114,7 +115,7 @@ export function ListingPreviewPanel({ sub }: { sub: ManagerListingSubmissionV1 }
           ["Rooms", String(rooms.length)],
           ["Bathrooms", String((sub.bathrooms ?? []).length)],
           ["Residents", residents > 0 ? `Up to ${residents}` : "—"],
-          ["Available", rooms.find((r) => r.moveInAvailableDate)?.moveInAvailableDate || "Now"],
+          ["Available", listingAvailabilityFact(rooms)],
         ]}
       />
       {amenities.length > 0 ? (
@@ -411,4 +412,23 @@ export function PricingReceiptPanel({
       </PanelSection>
     </>
   );
+}
+
+/**
+ * What the listing reads as, across its rooms: "Now" when any room is free
+ * today, else the earliest day one opens, else "Not now". Derived from each
+ * room's occupied dates — never from a typed string.
+ */
+function listingAvailabilityFact(rooms: ManagerRoomSubmission[]): string {
+  const today = todayDateKey();
+  let earliest = "";
+  for (const room of rooms) {
+    const spans = manualRangesToSpans(room.manualUnavailableRanges);
+    const legacy = spans.length === 0 ? legacyMoveInDateAsSpan(room.moveInAvailableDate, today) : null;
+    const readout = deriveRoomAvailability(legacy ? [legacy] : spans, today);
+    if (!readout.occupiedNow) return "Now";
+    if (readout.availableFrom && (!earliest || readout.availableFrom < earliest)) earliest = readout.availableFrom;
+  }
+  if (rooms.length === 0) return "Now";
+  return earliest ? formatDateKeyShort(earliest) : "Not now";
 }

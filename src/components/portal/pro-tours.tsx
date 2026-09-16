@@ -21,7 +21,7 @@ import {
 } from "@/components/portal/settings-entry-points";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { CalendarPlus, Settings2, Share2 } from "lucide-react";
+import { CalendarClock, CalendarPlus, MessageSquare, Settings2, Share2, Trash2, XCircle } from "lucide-react";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -77,6 +77,7 @@ import {
 import { getPropertyById } from "@/lib/rental-application/data";
 import {
   cancelPlannedTourFromServer,
+  deletePlannedTourFromServer,
   proposePendingTourRescheduleFromServer,
   reschedulePlannedTourFromServer,
 } from "@/lib/tour-planned-change.client";
@@ -103,6 +104,13 @@ const TOUR_BUCKET_LABELS = MANAGER_TOUR_BUCKETS.map((id) => ({
 }));
 
 const BULK_BAR_BTN = PORTAL_BULK_BAR_BTN;
+/**
+ * Tour detail header actions are icons, not words: Message / Reschedule /
+ * Cancel are navigation on a phone-width header. Approve and Decline on a
+ * pending request stay as words — a decision that messages a prospect is
+ * never a bare glyph.
+ */
+const TOUR_DETAIL_ICON_BTN = "h-10 min-h-10 w-10 rounded-full px-0";
 
 function isPendingInquiry(row: ManagerTourRow): boolean {
   return row.bucket === "pending" && row.source === "inquiry";
@@ -114,6 +122,20 @@ function isPendingProposal(row: ManagerTourRow): boolean {
 
 function isUpcomingPlanned(row: ManagerTourRow): boolean {
   return row.bucket === "upcoming" && row.source === "planned";
+}
+
+/** Requests and planned tours can be deleted; a reschedule proposal is declined instead. */
+function isDeletableTour(row: ManagerTourRow): boolean {
+  return row.source === "inquiry" || row.source === "planned";
+}
+
+/** A live tour the guest is still expecting — deleting it offers them a message. */
+function isLiveTour(row: ManagerTourRow): boolean {
+  return isPendingInquiry(row) || isUpcomingPlanned(row);
+}
+
+function tourHasGuestContact(row: ManagerTourRow): boolean {
+  return Boolean(row.guestEmail?.includes("@") || row.guestPhone?.trim());
 }
 
 function isoToDatetimeLocal(iso: string): string {
@@ -140,7 +162,7 @@ type TourRescheduleTimes = {
   previousEndIso: string;
 };
 
-type TourNotifyAction = "confirm" | "decline" | "cancel" | "reschedule";
+type TourNotifyAction = "confirm" | "decline" | "cancel" | "reschedule" | "delete";
 
 type TourNotifyPreview = {
   action: TourNotifyAction;
@@ -148,6 +170,8 @@ type TourNotifyPreview = {
   subject: string;
   body: string;
   rowTimes?: Record<string, TourRescheduleTimes>;
+  /** Delete only: past rows that go with the live ones, with no message. */
+  silentRows?: ManagerTourRow[];
 };
 
 type GuestMessagePreview = {
@@ -193,7 +217,23 @@ const TOUR_NOTIFY_PREVIEW_COPY: Record<
     confirmLabelWithoutMessage: "Update time without messaging",
     confirmBusyLabel: "Sending…",
   },
+  delete: {
+    title: "Delete tour",
+    skipMessageLabel: "Don't message guest",
+    confirmLabel: "Delete tour & send notification",
+    confirmLabelWithoutMessage: "Delete tour only",
+    confirmBusyLabel: "Deleting…",
+  },
 };
+
+/** The message a deleted live tour sends: a request is "removed", a confirmed tour is "cancelled". */
+function tourDeleteMessageForRow(row: ManagerTourRow): { subject: string; body: string } {
+  const ctx = buildTourNotifyContext(row);
+  if (row.source === "inquiry") {
+    return { subject: TOUR_REQUEST_REMOVED_TENANT_SUBJECT, body: buildTourRequestRemovedTenantBody(ctx) };
+  }
+  return { subject: TOUR_CANCELED_TENANT_SUBJECT, body: buildTourCanceledTenantBody(ctx) };
+}
 
 function buildTourNotifyContext(row: ManagerTourRow) {
   const property = row.propertyId ? getPropertyById(row.propertyId) : undefined;
@@ -238,6 +278,9 @@ function tourNotifyMessageForRow(
   }
   if (preview.action === "cancel") {
     return { subject: TOUR_CANCELED_TENANT_SUBJECT, body: buildTourCanceledTenantBody(ctx) };
+  }
+  if (preview.action === "delete") {
+    return tourDeleteMessageForRow(row);
   }
   const times = preview.rowTimes?.[row.id];
   if (!times) {
@@ -314,6 +357,8 @@ export function ManagerTours({
   const [notifyBusy, setNotifyBusy] = useState(false);
   const [guestMessagePreview, setGuestMessagePreview] = useState<GuestMessagePreview | null>(null);
   const [guestMessageBusy, setGuestMessageBusy] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<ManagerTourRow[] | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [rescheduleTimePicker, setRescheduleTimePicker] = useState<{
     rows: ManagerTourRow[];
     startLocals: Record<string, string>;
@@ -565,6 +610,94 @@ export function ManagerTours({
       body: buildTourCanceledTenantBody(ctx),
     });
   }, []);
+
+  /**
+   * One request per row. A planned tour goes through the server delete (row
+   * dropped, reminder cancelled, Google event removed); a request goes through
+   * the request-removal route with `purge`, so it is dropped rather than left
+   * as a declined row. The guest is messaged only when asked.
+   */
+  const deleteTourRow = useCallback(
+    async (
+      row: ManagerTourRow,
+      message: { notify: boolean; subject?: string; body?: string; channels?: { viaEmail?: boolean; viaSms?: boolean } },
+    ): Promise<{ ok: boolean; error?: string }> => {
+      if (row.source === "planned") {
+        const result = await deletePlannedTourFromServer({
+          plannedEventId: row.sourceId,
+          notifyGuest: message.notify,
+          subject: message.subject,
+          body: message.body,
+          deliverViaEmail: message.channels?.viaEmail !== false,
+          deliverViaSms: message.channels?.viaSms === true,
+        });
+        return result.ok ? { ok: true } : { ok: false, error: result.error };
+      }
+      if (row.source === "inquiry") {
+        const result = await deletePartnerInquiryFromServer(row.sourceId, {
+          notifyTenant: message.notify,
+          subject: message.subject,
+          body: message.body,
+          purge: true,
+        });
+        return result.ok ? { ok: true } : { ok: false, error: result.error };
+      }
+      return { ok: false, error: "Reschedule proposals are declined, not deleted." };
+    },
+    [],
+  );
+
+  /**
+   * Past, cancelled and declined tours get a plain confirm. A live tour the
+   * guest can still be reached about opens the notification sheet first — the
+   * same one Cancel uses — so dropping it silently is a choice, not the default.
+   */
+  const openDeletePrompt = useCallback(
+    (rows: ManagerTourRow[]) => {
+      const eligible = rows.filter(isDeletableTour);
+      if (eligible.length === 0) {
+        showToast("Reschedule proposals are declined, not deleted.");
+        return;
+      }
+      const liveRows = eligible.filter((row) => isLiveTour(row) && tourHasGuestContact(row));
+      if (liveRows.length === 0) {
+        setDeleteConfirm(eligible);
+        return;
+      }
+      const first = liveRows[0]!;
+      const { subject, body } = tourDeleteMessageForRow(first);
+      setNotifyPreview({
+        action: "delete",
+        rows: liveRows,
+        subject,
+        body,
+        silentRows: eligible.filter((row) => !liveRows.includes(row)),
+      });
+    },
+    [showToast],
+  );
+
+  const submitDeleteConfirm = useCallback(async () => {
+    if (!deleteConfirm || deleteBusy) return;
+    const rows = deleteConfirm;
+    setDeleteBusy(true);
+    try {
+      for (const row of rows) {
+        const result = await deleteTourRow(row, { notify: false });
+        if (!result.ok) {
+          showToast(result.error ?? "Could not delete tour.");
+          return;
+        }
+      }
+      setDeleteConfirm(null);
+      setSelectedIds(new Set());
+      await refresh();
+      if (tourIdProp) navigate(listHrefForBucket(bucket));
+      showToast(rows.length === 1 ? "Tour deleted." : `${rows.length} tours deleted.`);
+    } finally {
+      setDeleteBusy(false);
+    }
+  }, [bucket, deleteBusy, deleteConfirm, deleteTourRow, listHrefForBucket, navigate, refresh, setSelectedIds, showToast, tourIdProp]);
 
   const openReschedulePreview = useCallback(
     (rows: ManagerTourRow[]) => {
@@ -852,6 +985,47 @@ export function ManagerTours({
           return;
         }
 
+        if (preview.action === "delete") {
+          for (const row of targetRows) {
+            const { subject: rowSubject, body: rowBody } = resolveRowMessage(row);
+            const result = await deleteTourRow(row, {
+              notify: !skipMessage,
+              subject: rowSubject,
+              body: rowBody,
+              channels,
+            });
+            if (!result.ok) {
+              showToast(result.error ?? "Could not delete tour.");
+              return;
+            }
+          }
+          // The past rows picked alongside the live ones have no one to tell;
+          // they go once the whole selection is being processed.
+          const silentRows = scope === "single" ? [] : preview.silentRows ?? [];
+          for (const row of silentRows) {
+            const result = await deleteTourRow(row, { notify: false });
+            if (!result.ok) {
+              showToast(result.error ?? "Could not delete tour.");
+              return;
+            }
+          }
+          setNotifyPreview(null);
+          setSelectedIds(new Set());
+          await refresh();
+          if (tourIdProp) navigate(listHrefForBucket(bucket));
+          const count = targetRows.length + silentRows.length;
+          showToast(
+            skipMessage
+              ? count === 1
+                ? "Tour deleted."
+                : `${count} tours deleted.`
+              : count === 1
+                ? "Tour deleted and guest notified."
+                : `${count} tours deleted and guests notified.`,
+          );
+          return;
+        }
+
         if (preview.action === "reschedule") {
           for (const row of targetRows) {
             const times = preview.rowTimes?.[row.id];
@@ -915,10 +1089,13 @@ export function ManagerTours({
       basePath,
       bucket,
       buildRescheduleNotifyContext,
+      deleteTourRow,
+      listHrefForBucket,
       navigate,
       notifyBusy,
       notifyPreview,
       refresh,
+      setSelectedIds,
       showToast,
       tourIdProp,
       userId,
@@ -1020,22 +1197,26 @@ export function ManagerTours({
         <Button
           type="button"
           variant="outline"
-          className={BULK_BAR_BTN}
+          className={TOUR_DETAIL_ICON_BTN}
           data-attr="tour-detail-message"
+          aria-label="Message guest"
+          title="Message"
           onClick={() => openGuestMessage(detailRow)}
         >
-          Message
+          <MessageSquare className="size-[18px] shrink-0" aria-hidden />
         </Button>
       ) : null}
       {(isPendingInquiry(detailRow) || isUpcomingPlanned(detailRow)) ? (
         <Button
           type="button"
           variant="outline"
-          className={BULK_BAR_BTN}
+          className={TOUR_DETAIL_ICON_BTN}
           data-attr="tour-detail-reschedule"
+          aria-label="Reschedule tour"
+          title="Reschedule"
           onClick={() => openReschedulePreview([detailRow])}
         >
-          Reschedule
+          <CalendarClock className="size-[18px] shrink-0" aria-hidden />
         </Button>
       ) : null}
       {detailRow.bucket === "pending" && detailRow.source === "inquiry" ? (
@@ -1088,11 +1269,26 @@ export function ManagerTours({
         <Button
           type="button"
           variant="outline"
-          className={`${BULK_BAR_BTN} text-rose-800`}
+          className={`${TOUR_DETAIL_ICON_BTN} text-rose-800`}
           data-attr="tour-detail-cancel"
+          aria-label="Cancel tour"
+          title="Cancel tour"
           onClick={() => openCancelPreview([detailRow])}
         >
-          Cancel tour
+          <XCircle className="size-[18px] shrink-0" aria-hidden />
+        </Button>
+      ) : null}
+      {isDeletableTour(detailRow) ? (
+        <Button
+          type="button"
+          variant="outline"
+          className={`${TOUR_DETAIL_ICON_BTN} !text-danger`}
+          data-attr="tour-detail-delete"
+          aria-label="Delete tour"
+          title="Delete tour"
+          onClick={() => openDeletePrompt([detailRow])}
+        >
+          <Trash2 className="size-[18px] shrink-0" aria-hidden />
         </Button>
       ) : null}
     </>
@@ -1193,13 +1389,60 @@ export function ManagerTours({
             Cancel tour
           </Button>
         ) : null}
+        {selectedTourRows.every(isDeletableTour) ? (
+          // `danger` is what the row ⋯ menu keys on to group this under its
+          // divider and arm the stray-tap guard.
+          <Button
+            type="button"
+            variant="danger"
+            className={BULK_BAR_BTN}
+            data-attr="tours-bulk-delete"
+            onClick={() => openDeletePrompt(selectedTourRows)}
+          >
+            Delete
+          </Button>
+        ) : null}
       </>
     ) : null;
 
   const notifyPreviewRow = notifyPreview?.rows[0] ?? null;
 
+  const deleteConfirmRow = deleteConfirm?.[0] ?? null;
+
   const modals = (
     <>
+      {deleteConfirm && deleteConfirmRow ? (
+        <Modal
+          open
+          title={deleteConfirm.length === 1 ? "Delete tour" : `Delete ${deleteConfirm.length} tours`}
+          onClose={() => {
+            if (deleteBusy) return;
+            setDeleteConfirm(null);
+          }}
+          footer={
+            <ModalFooter>
+              <Button type="button" variant="outline" disabled={deleteBusy} onClick={() => setDeleteConfirm(null)}>
+                Keep {deleteConfirm.length === 1 ? "tour" : "tours"}
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                data-attr="tours-delete-confirm"
+                disabled={deleteBusy}
+                onClick={() => submitDeleteConfirm()}
+              >
+                {deleteBusy ? "Deleting…" : deleteConfirm.length === 1 ? "Delete tour" : "Delete tours"}
+              </Button>
+            </ModalFooter>
+          }
+        >
+          <p className="text-sm text-muted" data-attr="tours-delete-confirm-body">
+            {deleteConfirm.length === 1
+              ? `Delete ${deleteConfirmRow.guestName}'s tour on ${deleteConfirmRow.whenLabel}? It comes off Tours and the calendar. This cannot be undone.`
+              : `Delete these ${deleteConfirm.length} tours? They come off Tours and the calendar. This cannot be undone.`}
+          </p>
+        </Modal>
+      ) : null}
       {rescheduleTimePicker ? (
         <Modal
           open
@@ -1224,10 +1467,7 @@ export function ManagerTours({
           }
           panelClassName="max-w-md"
         >
-          <p className="text-sm text-muted">
-            Choose the proposed time for each tour. You will review the guest notification next.
-          </p>
-          <div className="mt-4 max-h-[min(50vh,20rem)] space-y-4 overflow-y-auto">
+          <div className="max-h-[min(50vh,20rem)] space-y-4 overflow-y-auto">
             {rescheduleTimePicker.rows.map((row) => (
               <label key={row.id} className="block text-xs font-medium text-muted">
                 <span className="text-foreground">

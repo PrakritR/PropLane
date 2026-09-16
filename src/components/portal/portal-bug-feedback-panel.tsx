@@ -234,7 +234,7 @@ export function PortalBugFeedbackPanel({
   return (
     <>
       {embedded ? (
-        <PortalSettingsSection title="Feedback" description="Report issues or share product feedback.">
+        <PortalSettingsSection title="Feedback">
           <PortalSettingsGroup>
             <div className="px-4 py-4">{body}</div>
           </PortalSettingsGroup>

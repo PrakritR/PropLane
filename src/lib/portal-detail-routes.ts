@@ -9,6 +9,7 @@ export const PROPERTY_DETAIL_TABS = [
   "bookings",
   "requests",
   "promotion",
+  "ai-info",
 ] as const;
 
 export type PropertyDetailTabId = (typeof PROPERTY_DETAIL_TABS)[number];
@@ -23,6 +24,7 @@ export const PROPERTY_DETAIL_TAB_LABELS: Record<PropertyDetailTabId, string> = {
   bookings: "Bookings",
   requests: "Requests",
   promotion: "Promotion",
+  "ai-info": "AI info",
 };
 
 /** Property detail tabs that appear before application/lease in the manager UI. */
@@ -44,6 +46,7 @@ export const PROPERTY_DETAIL_TOP_TAB_LABELS = {
   lease: "Lease",
   requests: "Services",
   promotion: "Promotion",
+  "ai-info": "AI info",
 } as const;
 
 /** In-content scope chips under the Preview top tab (listing gallery vs house vs move-in). */
@@ -74,6 +77,7 @@ export const PROPERTY_DETAIL_TOP_TAB_DESCRIPTIONS: Record<PropertyDetailTopTabId
   lease: "Draft, send and e-sign",
   requests: "Repairs and resident requests",
   promotion: "Share and syndicate the listing",
+  "ai-info": "What the assistant says about this home",
 };
 
 export const PROPERTY_DETAIL_TOP_TAB_SHORT_LABELS: Partial<
@@ -83,6 +87,7 @@ export const PROPERTY_DETAIL_TOP_TAB_SHORT_LABELS: Partial<
   "move-in": "Move-in",
   application: "Apply",
   promotion: "Promo",
+  "ai-info": "AI",
 };
 
 export function propertyDetailTopNavId(tab: PropertyDetailTabId): PropertyDetailTopTabId {
@@ -94,6 +99,7 @@ export function propertyDetailTopNavId(tab: PropertyDetailTabId): PropertyDetail
   if (tab === "lease") return "lease";
   if (tab === "requests") return "requests";
   if (tab === "promotion") return "promotion";
+  if (tab === "ai-info") return "ai-info";
   if ((PROPERTY_DETAIL_SECTION_TABS as readonly string[]).includes(tab)) return "preview";
   return "preview";
 }
@@ -904,12 +910,28 @@ export function vendorDetailHref(basePath: string, vendorId: string): string {
   return `${basePath}/vendors/${encodeURIComponent(vendorId)}`;
 }
 
-/** Legacy promotion content filters — routes now redirect to the unified list. */
+/** Workspace Promotion sections — live in `?kind=`, never a path (collides with [assetId]). */
+export const PROMOTION_KIND_SECTIONS = ["all", "text", "image"] as const;
+export type PromotionKindSectionId = (typeof PROMOTION_KIND_SECTIONS)[number];
+
+/** Legacy mistaken top-level segments `/portal/text` and `/portal/image`. */
 export const PROMOTION_CONTENT_FILTERS = ["text", "image"] as const;
 export type PromotionContentFilterId = (typeof PROMOTION_CONTENT_FILTERS)[number];
 
-export function promotionListHref(basePath: string, _filter?: PromotionContentFilterId): string {
-  return `${basePath}/promotion`;
+export function parsePromotionKindSection(
+  value: string | null | undefined,
+): PromotionKindSectionId {
+  if (value === "text" || value === "image") return value;
+  return "all";
+}
+
+export function promotionListHref(
+  basePath: string,
+  kind: PromotionKindSectionId | PromotionContentFilterId = "all",
+): string {
+  const section = parsePromotionKindSection(kind);
+  if (section === "all") return `${basePath}/promotion`;
+  return `${basePath}/promotion?kind=${section}`;
 }
 
 export function promotionDetailHref(basePath: string, assetId: string): string {

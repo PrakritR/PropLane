@@ -189,7 +189,6 @@ export function PortalTextNotificationsBlock({
   return (
     <PortalSettingsSection
       title={title}
-      description={description}
     >
       <PortalSettingsGroup>
         <PortalSettingsFormBody className="space-y-3">

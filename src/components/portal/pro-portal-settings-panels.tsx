@@ -9,6 +9,7 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
   PortalSettingsGroup,
+  PortalSettingsLinkRow,
   PortalSettingsRow,
   PortalSettingsScopeTag,
   PortalSettingsSection,
@@ -32,8 +33,13 @@ import {
 } from "@/lib/manager-communication-deliver-via";
 import {
   ManagerSmsWorkNumberHint,
+  ManagerWorkEmailCopyControl,
   ManagerWorkNumberCopyControl,
 } from "@/components/portal/pro-sms-work-number-hint";
+import {
+  isManagerAssistantEmailStatus,
+  managerWorkEmailInUse,
+} from "@/lib/manager-assistant-email/manager-assistant-email-status";
 import { normalizeE164 } from "@/lib/phone-e164";
 import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
 import {
@@ -244,15 +250,10 @@ function PropertyScopeRow({
     <PortalSettingsRow
       className="flex-wrap items-start gap-y-2.5"
       label="Applies to"
-      meta={
-        noOptions
-          ? "Add a property listing before configuring these settings."
-          : multiSelect
-            ? "The settings below apply only to the properties checked here."
-            : "The settings below apply only to this property."
-      }
     >
-      {noOptions ? null : multiSelect ? (
+      {noOptions ? (
+        <span className="text-sm text-muted">No properties yet</span>
+      ) : multiSelect ? (
         <CheckboxMultiSelect
           label="Properties"
           hideLabel
@@ -359,7 +360,6 @@ export function ApplicationsSettingsPanel({
     <div className="space-y-6">
       <PortalSettingsSection
         title="Application handling"
-        description="Automation for approving applications and waiving the application fee."
         action={<PortalSettingsScopeTag>{propertyScopeTagLabel(selectedIds.length)}</PortalSettingsScopeTag>}
       >
         <PortalSettingsGroup>
@@ -376,11 +376,6 @@ export function ApplicationsSettingsPanel({
           {onWaiverCodeChange ? (
             <PortalSettingsRow
               label="Promo code"
-              meta={
-                selectedIds.length > 1
-                  ? `Applicants who enter this code on any of the ${selectedIds.length} selected properties waive the application fee. Leave empty to turn it off for those listings.`
-                  : "Applicants who enter this code on this property's application waive the application fee. Leave empty to turn it off."
-              }
             >
               <input
                 id="manager-application-promo-code"
@@ -397,10 +392,6 @@ export function ApplicationsSettingsPanel({
           ) : null}
           <PortalSettingsRow
             label="Auto-approve applications"
-            meta={
-              "Approve a submitted application without reviewing it first. Withdrawn applications are never approved." +
-              (selectedIds.length > 1 ? " Applies to every selected property." : "")
-            }
           >
             {/* No confirm() gate. The consequence is stated in this row's meta line
                 and again in the banner once it is on, and the setting is one click
@@ -425,7 +416,6 @@ export function ApplicationsSettingsPanel({
 
       <PortalSettingsSection
         title="Reminders"
-        description="Nudge applicants to finish, alert yourself when one stalls, or follow up after a tour."
         action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
       >
         <ApplicationRemindersSettingsBundle
@@ -574,7 +564,6 @@ export function TaskSettingsPanel({
     <div className="space-y-6">
       <PortalSettingsSection
         title="Task reminders"
-        description="Nudge the assignee before a task is due, or after it lapses."
         action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
       >
         <ManagerReminderRuleSettingsPanel
@@ -588,7 +577,6 @@ export function TaskSettingsPanel({
 
       <PortalSettingsSection
         title="Lifecycle automation"
-        description="Auto-create and auto-assign the routine tasks that follow an application, lease, or inspection."
         action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
       >
         <TaskAutomationSettingsFields
@@ -649,7 +637,6 @@ export function LeaseSettingsPanel({
     <div className="space-y-6">
       <PortalSettingsSection
         title="Lease documents"
-        description="After you approve an application, PropLane can build and send the lease for you. Every safety check that applies when you do this manually still applies. The landlord named on generated leases comes from your full name in Settings → Profile."
         action={<PortalSettingsScopeTag>{propertyScopeTagLabel(propertyId ? 1 : 0)}</PortalSettingsScopeTag>}
       >
         <PortalSettingsGroup>
@@ -663,7 +650,7 @@ export function LeaseSettingsPanel({
             />
           )}
           {LEASE_TOGGLE_ROWS.map(({ step, label, meta }) => (
-            <PortalSettingsRow key={step} label={label} meta={meta}>
+            <PortalSettingsRow key={step} label={label}>
               <PortalSettingsToggle
                 checked={automation[step]}
                 onChange={(next) => onAutomationChange({ ...automation, [step]: next })}
@@ -678,7 +665,6 @@ export function LeaseSettingsPanel({
 
       <PortalSettingsSection
         title="Reminders"
-        description="Nudge residents to sign, or alert yourself when a lease needs attention."
         action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
       >
         <LeaseRemindersSettingsBundle
@@ -707,15 +693,89 @@ export function ServicesSettingsPanel({
   return (
     <PortalSettingsSection
       title="Service reminders"
-      description="Reminders before a scheduled service visit or an add-on service return date."
       action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
     >
+      <AutoMessageAssigneeRow />
       <ServiceRemindersSettingsBundle
         teamMembers={teamMembers}
         workOrderFormRef={workOrderReminderFormRef}
         serviceOrderFormRef={serviceOrderReminderFormRef}
       />
     </PortalSettingsSection>
+  );
+}
+
+/**
+ * "Message assignee automatically" — Add service sends the assignment message
+ * to a vendor or teammate without the preview when this is on. Autosaves on
+ * flip through the same `/api/portal/automation-settings` PATCH every other
+ * automation preference uses; the row reports its own failure and reverts.
+ */
+function AutoMessageAssigneeRow() {
+  const { showToast } = useAppUi();
+  const demo = isDemoModeActive();
+  const reportSaveStatus = useReportSettingsSaveStatus();
+  const [value, setValue] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      if (demo) {
+        if (!cancelled) setValue(DEFAULT_MANAGER_AUTOMATION_SETTINGS.autoMessageAssignee);
+        return;
+      }
+      try {
+        const res = await fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" });
+        const body = (await res.json().catch(() => ({}))) as { settings?: unknown };
+        if (!res.ok) throw new Error("Could not load service settings.");
+        if (!cancelled) setValue(normalizeManagerAutomationSettings(body.settings).autoMessageAssignee);
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Could not load service settings.");
+        if (!cancelled) setValue(DEFAULT_MANAGER_AUTOMATION_SETTINGS.autoMessageAssignee);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [demo, showToast]);
+
+  const flip = async (next: boolean) => {
+    const previous = value;
+    setValue(next);
+    if (demo) return;
+    reportSaveStatus({ type: "start" });
+    try {
+      const res = await fetch("/api/portal/automation-settings", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ autoMessageAssignee: next }),
+        keepalive: true,
+      });
+      const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
+      if (!res.ok) throw new Error(body.error ?? "Could not save service settings.");
+      setValue(normalizeManagerAutomationSettings(body.settings).autoMessageAssignee);
+      reportSaveStatus({ type: "success" });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Could not save service settings.";
+      setValue(previous);
+      showToast(message);
+      reportSaveStatus({ type: "failure", reason: message });
+    }
+  };
+
+  return (
+    <PortalSettingsGroup>
+      <PortalSettingsRow label="Message assignee automatically">
+        <PortalSettingsToggle
+          checked={value === true}
+          onChange={(next) => void flip(next)}
+          label="Message assignee automatically"
+          disabled={value === null}
+          dataAttr="service-auto-message-assignee"
+        />
+      </PortalSettingsRow>
+    </PortalSettingsGroup>
   );
 }
 
@@ -749,7 +809,6 @@ export function InspectionsSettingsPanel({
   return (
     <PortalSettingsSection
       title="Inspection reminders"
-      description="Reminders around a move-in or move-out condition report."
       action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
     >
       <InspectionRemindersSettingsBundle
@@ -775,7 +834,6 @@ export function BookingsSettingsPanel({
   return (
     <PortalSettingsSection
       title="Booking reminders"
-      description="Nudge yourself before a booking on your calendar. An imported channel booking carries no guest contact, so there is no resident-facing reminder here."
       action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
     >
       <ManagerReminderRuleSettingsPanel
@@ -800,18 +858,19 @@ export function BookingsSettingsPanel({
 export function ResidentSettingsPanel() {
   return (
     <PortalSettingsSection
-      title="Where resident settings live"
-      description="This module has no settings of its own yet — resident-facing reminders live with the settings they belong to."
-      action={<PortalSettingsScopeTag variant="muted">Informational</PortalSettingsScopeTag>}
+      title="Resident settings"
+      action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
     >
       <PortalSettingsGroup>
-        <PortalSettingsRow
-          label="Payment reminder presets"
-          meta="Portfolio-wide payment reminder presets live under Payments settings."
+        <PortalSettingsLinkRow
+          label="Payment reminders"
+          href="/portal/settings/payments"
+          dataAttr="resident-settings-payment-reminders"
         />
-        <PortalSettingsRow
-          label="One household's reminders"
-          meta="Open that resident and use Reminders on their Payments tab to customize just their household."
+        <PortalSettingsLinkRow
+          label="Household reminders"
+          href="/portal/residents"
+          dataAttr="resident-settings-household-reminders"
         />
       </PortalSettingsGroup>
     </PortalSettingsSection>
@@ -1094,13 +1153,11 @@ export function TourSettingsPanel({
       <div className="space-y-6">
         <PortalSettingsSection
           title="Tour booking"
-          description="How prospects book a tour on your calendar."
           action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
         >
           <PortalSettingsGroup>
             <PortalSettingsRow
               label="Notice required"
-              meta="Tours can't be booked less than this many days out — same-day requests stay hidden until this window passes."
             >
               <TourNoticeStepper
                 value={noticeDays}
@@ -1111,7 +1168,6 @@ export function TourSettingsPanel({
             </PortalSettingsRow>
             <PortalSettingsRow
               label="Auto confirm tours"
-              meta="Tours book straight into your calendar without asking you first."
             >
               <PortalSettingsToggle
                 checked={automation.proposeTourConfirmations}
@@ -1126,7 +1182,6 @@ export function TourSettingsPanel({
 
         <PortalSettingsSection
           title="Tour reminders"
-          description="Nudge either the prospect before their tour, or yourself before tours on your calendar."
           action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
         >
           <div className="space-y-4">
@@ -1136,12 +1191,10 @@ export function TourSettingsPanel({
                 {
                   value: "guest",
                   label: "Guest tour reminders",
-                  description: "Sent to prospects before their scheduled tour.",
                 },
                 {
                   value: "manager",
                   label: "Your tour reminders",
-                  description: "Nudges you before tours on your calendar.",
                 },
               ]}
               onChange={setTourReminderType}
@@ -1260,7 +1313,6 @@ export function PaymentsSettingsPanel({
     return (
       <PortalSettingsSection
         title="Outgoing payment reminders"
-        description="Nudge yourself before a bill you owe is due — never sent to payees."
         action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
       >
         <OutgoingPaymentRemindersSettingsBundle
@@ -1274,7 +1326,6 @@ export function PaymentsSettingsPanel({
   return (
     <PortalSettingsSection
       title="Rent reminders"
-      description="Remind residents before rent is due, and alert yourself when it's still unpaid."
       action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
     >
       <IncomingPaymentRemindersSettingsBundle
@@ -1319,6 +1370,7 @@ export function CommunicationSettingsPanel({
   const [draft, setDraft] = useState<ManagerAutomationSettings>(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
   const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(DEFAULT_MANAGER_AUTOMATION_SETTINGS));
   const [smsSetup, setSmsSetup] = useState<{ phone: string | null; canSend: boolean } | null>(null);
+  const [workEmail, setWorkEmail] = useState<string | null>(null);
 
   const anySmsEnabled = useMemo(
     () =>
@@ -1338,12 +1390,16 @@ export function CommunicationSettingsPanel({
             setDraft(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
             setSavedSnapshot(JSON.stringify(DEFAULT_MANAGER_AUTOMATION_SETTINGS));
             setSmsSetup(null);
+            setWorkEmail(null);
           }
           return;
         }
-        const [settingsRes, numberRes] = await Promise.all([
+        const [settingsRes, numberRes, emailRes] = await Promise.all([
           fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" }),
           fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" }).catch(
+            () => null,
+          ),
+          fetch("/api/manager/assistant-email", { credentials: "include", cache: "no-store" }).catch(
             () => null,
           ),
         ]);
@@ -1366,6 +1422,11 @@ export function CommunicationSettingsPanel({
                   canSend: status.canSend,
                 }
               : null,
+          );
+          const emailBody =
+            emailRes && emailRes.ok ? ((await emailRes.json()) as unknown) : null;
+          setWorkEmail(
+            isManagerAssistantEmailStatus(emailBody) ? managerWorkEmailInUse(emailBody) : null,
           );
         }
       } catch (e) {
@@ -1465,14 +1526,10 @@ export function CommunicationSettingsPanel({
   return (
     <PortalSettingsSection
       title="Inbox automation"
-      description="What is genuinely specific to Communication — per-event channel choice now lives with each event's own reminder."
       action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
     >
       <PortalSettingsGroup>
-        <PortalSettingsRow
-          label="Auto-send AI drafts"
-          meta="When PropLane AI finishes a draft reply, send it without waiting for Approve. The same toggle appears on each draft card in your inbox."
-        >
+        <PortalSettingsRow label="Auto-send AI drafts">
           <PortalSettingsToggle
             checked={draft.inboxAiDraftAutoSend}
             onChange={(next) => setDraft((prev) => ({ ...prev, inboxAiDraftAutoSend: next }))}
@@ -1487,6 +1544,13 @@ export function CommunicationSettingsPanel({
           phone={smsSetup.phone}
           className="mt-4 rounded-xl border border-border bg-accent/30 px-3 py-2.5"
           dataAttr="communication-work-number-copy"
+        />
+      ) : null}
+      {workEmail ? (
+        <ManagerWorkEmailCopyControl
+          email={workEmail}
+          className="mt-4 rounded-xl border border-border bg-accent/30 px-3 py-2.5"
+          dataAttr="communication-work-email-copy"
         />
       ) : null}
       <ManagerSmsWorkNumberHint

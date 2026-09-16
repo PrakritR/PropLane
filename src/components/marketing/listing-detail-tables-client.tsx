@@ -1,8 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { ChevronRight } from "lucide-react";
+import { NoImagePlaceholder } from "@/components/ui/no-image-placeholder";
+import { roomAvailabilityTextClasses } from "@/lib/room-availability-style";
+import { isListingFallbackBathroom, isListingPlaceholderSharedSpace } from "@/components/marketing/listing-key-facts";
+import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useIsClient } from "@/hooks/use-is-client";
 import type {
@@ -28,22 +31,10 @@ import { listingApplyLabel, listingMessageLabel } from "@/lib/listing-prospect-c
 import { getRoomUnavailabilityWindows, LISTING_ROOM_CHOICE_SEP, type RoomUnavailabilityWindow } from "@/lib/rental-application/data";
 import { roomAvailabilityPillClasses, roomAvailabilityTone } from "@/lib/room-availability-style";
 import { formatRoomPriceAmount } from "@/lib/room-pricing";
-import {
-  addMonths,
-  buildMonthDayCells,
-  dateKey,
-  dayIsUnavailable,
-  monthAvailabilityTone,
-  monthToneLabel,
-  resolveAvailabilityMonthRange,
-  startOfLocalDay,
-  type MonthAvailabilityTone,
-} from "@/lib/room-availability-calendar";
+import { RoomAvailabilityMonthCalendar, type RoomCalendarSpan } from "@/components/room-availability-month-calendar";
 
 const LISTING_TABLE_HEAD =
   "text-[10px] font-semibold uppercase tracking-wide text-muted sm:text-[11px]";
-const LISTING_ROW_SURFACE =
-  "rounded-xl border border-border bg-card p-3 listing-detail-surface sm:p-4";
 const LISTING_FLOOR_CARD =
   "overflow-hidden rounded-xl border border-border bg-card shadow-sm listing-detail-surface";
 const LISTING_DETAIL_BUTTON =
@@ -101,117 +92,15 @@ function rangeSummaryLabel(w: RoomUnavailabilityWindow): string {
   return "Unavailable dates set";
 }
 
-function monthTonePillClasses(tone: MonthAvailabilityTone): string {
-  switch (tone) {
-    case "available":
-      return "portal-badge-success ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]";
-    case "unavailable":
-      return "portal-badge-danger ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]";
-    case "mixed":
-      return "portal-badge-pending ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]";
-  }
-}
-
-function availabilityDayClasses(unavailable: boolean, isPast: boolean, isToday: boolean): string {
-  const base = unavailable
-    ? "bg-rose-100 text-rose-950 ring-1 ring-inset ring-rose-300 [html[data-theme=dark]_&]:bg-rose-950/40 [html[data-theme=dark]_&]:text-rose-100 [html[data-theme=dark]_&]:ring-rose-700/60"
-    : "bg-emerald-100 text-emerald-950 ring-1 ring-inset ring-emerald-300 [html[data-theme=dark]_&]:portal-calendar-open-slot";
-  const past = isPast ? "opacity-45" : "";
-  const today = isToday ? "ring-2 ring-primary/50" : "";
-  return `${base} ${past} ${today}`;
-}
-
-function MonthAvailabilityCalendarGrid({
-  monthStart,
-  windows,
-  today,
-}: {
-  monthStart: Date;
-  windows: RoomUnavailabilityWindow[];
-  today: Date;
-}) {
-  const cells = buildMonthDayCells(monthStart);
-
-  return (
-    <>
-      <div className="grid grid-cols-7 gap-0.5 text-center text-[9px] font-semibold uppercase tracking-wide text-muted sm:text-[10px]">
-        {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((label) => (
-          <span key={label}>{label}</span>
-        ))}
-      </div>
-      <div className="mt-1 grid grid-cols-7 gap-0.5">
-        {cells.map((cell, idx) => {
-          if (!cell) return <span key={`empty-${idx}`} className="h-7 sm:h-8" />;
-          const unavailable = dayIsUnavailable(cell, windows);
-          const isToday = dateKey(cell) === dateKey(today);
-          const isPast = cell.getTime() < today.getTime();
-          return (
-            <span
-              key={dateKey(cell)}
-              className={`flex h-7 items-center justify-center rounded-md text-[11px] font-medium sm:h-8 sm:text-xs ${availabilityDayClasses(unavailable, isPast, isToday)}`}
-            >
-              {cell.getDate()}
-            </span>
-          );
-        })}
-      </div>
-    </>
-  );
-}
-
 function RoomAvailabilityTimelineCalendar({ windows }: { windows: RoomUnavailabilityWindow[] }) {
-  const today = startOfLocalDay(new Date());
-  const { startMonth, monthCount } = resolveAvailabilityMonthRange(windows);
-  const windowsKey = windows.map((w) => `${w.start?.toISOString() ?? ""}|${w.end?.toISOString() ?? ""}`).join(",");
-  const [monthOffset, setMonthOffset] = useState(0);
-  const [prevWindowsKey, setPrevWindowsKey] = useState(windowsKey);
-  if (windowsKey !== prevWindowsKey) {
-    setPrevWindowsKey(windowsKey);
-    setMonthOffset(0);
-  }
-
-  const clampedOffset = Math.min(Math.max(monthOffset, 0), Math.max(monthCount - 1, 0));
-  const monthStart = addMonths(startMonth, clampedOffset);
-  const tone = monthAvailabilityTone(monthStart, windows, today);
-
+  // Every window a renter sees is simply "not open" — one colour.
+  const spans: RoomCalendarSpan[] = windows.map((w) => ({ start: w.start, end: w.end, tone: "occupied" }));
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted">
         Green dates are open and red dates are unavailable. Use the arrows to browse upcoming months.
       </p>
-      <div className="rounded-xl border border-border bg-card p-3 sm:p-4">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <button
-            type="button"
-            aria-label="Previous month"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted transition hover:border-primary/45 hover:bg-accent/35 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
-            disabled={clampedOffset <= 0}
-            onClick={() => setMonthOffset((value) => Math.max(value - 1, 0))}
-          >
-            <ChevronLeft className="h-4 w-4" aria-hidden />
-          </button>
-          <div className="min-w-0 flex flex-1 flex-col items-center gap-1 text-center">
-            <p className="text-sm font-semibold text-foreground">
-              {monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
-            </p>
-            <span
-              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${monthTonePillClasses(tone)}`}
-            >
-              {monthToneLabel(tone)}
-            </span>
-          </div>
-          <button
-            type="button"
-            aria-label="Next month"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted transition hover:border-primary/45 hover:bg-accent/35 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
-            disabled={clampedOffset >= monthCount - 1}
-            onClick={() => setMonthOffset((value) => Math.min(value + 1, monthCount - 1))}
-          >
-            <ChevronRight className="h-4 w-4" aria-hidden />
-          </button>
-        </div>
-        <MonthAvailabilityCalendarGrid monthStart={monthStart} windows={windows} today={today} />
-      </div>
+      <RoomAvailabilityMonthCalendar spans={spans} />
     </div>
   );
 }
@@ -283,9 +172,15 @@ function truncateModalText(text: string | undefined, max = 100): string {
   return `${t.slice(0, max - 1)}…`;
 }
 
-function ListingModalStatGrid({ items }: { items: { label: string; value: React.ReactNode }[] }) {
+function ListingModalStatGrid({ items, columns }: { items: { label: string; value: React.ReactNode }[]; columns?: 2 }) {
   const colClass =
-    items.length >= 5 ? "sm:grid-cols-2 lg:grid-cols-3" : items.length >= 3 ? "sm:grid-cols-3" : "sm:grid-cols-2";
+    columns === 2
+      ? "grid-cols-2"
+      : items.length >= 5
+        ? "sm:grid-cols-2 lg:grid-cols-3"
+        : items.length >= 3
+          ? "sm:grid-cols-3"
+          : "sm:grid-cols-2";
   return (
     <div className={`grid gap-3 ${colClass}`}>
       {items.map((item) => (
@@ -344,45 +239,23 @@ function ListingModalTags({ tags }: { tags: readonly string[] }) {
   );
 }
 
-function ListingModalVideo({
-  label,
-  videoSrc,
-  placeholderTitle,
-  placeholderSubtitle,
-  autoPlayMuted = false,
-}: {
-  label: string;
-  videoSrc?: string | null;
-  placeholderTitle: string;
-  placeholderSubtitle: string;
-  autoPlayMuted?: boolean;
-}) {
-  return (
-    <ListingModalSection label={label}>
-      <div className={LISTING_MODAL_MEDIA_WRAP}>
-        {videoSrc ? (
-          <video
-            src={videoSrc}
-            controls
-            playsInline
-            autoPlay={autoPlayMuted}
-            muted={autoPlayMuted}
-            loop={autoPlayMuted}
-            className={`${LISTING_MODAL_MEDIA_FRAME} bg-black object-cover`}
-          />
-        ) : (
-          <div
-            className={`${LISTING_MODAL_MEDIA_FRAME} flex flex-col items-center justify-center border border-dashed border-border bg-accent/20 px-4 text-center`}
-          >
-            <span className="flex h-12 w-12 items-center justify-center rounded-full border border-border text-lg text-muted">
-              ▶
-            </span>
-            <p className="mt-3 text-sm font-semibold text-foreground">{placeholderTitle}</p>
-            <p className="mt-1 max-w-sm text-xs text-muted">{placeholderSubtitle}</p>
-          </div>
-        )}
+function ListingModalMedia({ photoUrls, videoSrc }: { photoUrls?: string[]; videoSrc?: string | null }) {
+  const photos = photoUrls?.filter(Boolean) ?? [];
+  const video = videoSrc?.trim() || null;
+  if (photos.length === 0 && !video) {
+    return (
+      <div className="relative h-[120px] w-full overflow-hidden rounded-xl border border-border">
+        <NoImagePlaceholder variant="compact" />
       </div>
-    </ListingModalSection>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      {photos.length > 0 ? <PhotoStrip imageUrls={photos} /> : null}
+      {video ? (
+        <video src={video} controls playsInline autoPlay muted loop className={`${LISTING_MODAL_MEDIA_FRAME} w-full bg-black object-cover`} />
+      ) : null}
+    </div>
   );
 }
 
@@ -459,34 +332,27 @@ function PreviewSafeModalActions(props: Parameters<typeof ListingModalActions>[0
   return <ListingModalActions {...props} />;
 }
 
-function InteractiveListingRow({
-  onOpen,
-  children,
-  className,
-  detailsClassName = "",
-}: {
-  onOpen: () => void;
-  children: ReactNode;
-  className: string;
-  detailsClassName?: string;
-}) {
-  return (
-    <div className={className}>
-      {children}
-      <DetailsButton className={detailsClassName} onClick={onOpen} />
-    </div>
-  );
-}
-
 function PhotoStrip({ captions, imageUrls }: { captions?: string[]; imageUrls?: string[] }) {
   const imgs = imageUrls?.filter(Boolean) ?? [];
   if (imgs.length > 0) {
+    // A strip, not a stack: the first photo large, the rest as tiles beside it,
+    // so the facts under it are one scroll away instead of six.
     return (
-      <div className={`${LISTING_MODAL_MEDIA_WRAP} space-y-3`}>
-        {imgs.map((src, i) => (
-          <div key={`${src.slice(0, 48)}-${i}`} className={`${LISTING_MODAL_MEDIA_FRAME} bg-accent/30`}>
+      <div className={`grid gap-2 ${imgs.length === 1 ? "grid-cols-1" : "grid-cols-[2fr_1fr]"}`}>
+        {imgs.slice(0, 5).map((src, i) => (
+          <div
+            key={`${src.slice(0, 48)}-${i}`}
+            className={`relative overflow-hidden rounded-lg bg-accent/30 ${i === 0 ? "row-span-2 aspect-[4/3]" : "aspect-[4/3]"} ${
+              imgs.length === 2 && i === 1 ? "row-span-2" : ""
+            }`}
+          >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={src} alt="" className="h-full w-full object-cover object-center" />
+            <img src={src} alt="" className="absolute inset-0 h-full w-full object-cover object-center" />
+            {i === 4 && imgs.length > 5 ? (
+              <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-sm font-bold text-white">
+                +{imgs.length - 5}
+              </span>
+            ) : null}
           </div>
         ))}
       </div>
@@ -536,7 +402,7 @@ export function ListingDetailModal({
   const newTabProps = listingLinkTargetProps(useListingPreviewNewTab());
   const textEnabled = isClawMessagingPubliclyEnabled(contactSmsPhone);
   const label = propertyLabel?.trim() || null;
-  const { applyHref: webApplyHref, messageHref: webMessageHref, stageMessageCompose } =
+  const { applyHref: webApplyHref, messageHref: webMessageHref, tourHref, stageMessageCompose } =
     useProspectListingHrefs(listingPropertyId);
   const textApplyHref = textEnabled
     ? buildSmsDeepLink({ intent: "apply", propertyId: listingPropertyId, propertyLabel: label, toPhone: contactSmsPhone })
@@ -584,27 +450,14 @@ export function ListingDetailModal({
         {state.kind === "room" ? (
           <ListingModalBody
             footer={
-              <PreviewSafeModalActions
+              // One action per sheet (PLAN-0914-2124): the tour is room-specific;
+              // Apply already sits in the page's own card / sticky bar.
+              <ListingModalCta
+                href={tourHref}
+                label="Schedule tour"
+                variant="primary"
+                dataAttr="listing-room-tour"
                 newTabProps={newTabProps}
-                primary={{
-                  href: textEnabled
-                    ? buildSmsDeepLink({
-                        intent: "apply",
-                        propertyId: listingPropertyId,
-                        propertyLabel: label,
-                        roomName: state.room.name,
-                        toPhone: contactSmsPhone,
-                      })
-                    : textApplyHref,
-                  label: applyLabel,
-                  dataAttr: "listing-text-apply-room",
-                }}
-                secondary={{
-                  href: textMessageHref,
-                  label: messageLabel,
-                  dataAttr: "listing-text-message",
-                  ...messageCtaExtras,
-                }}
               />
             }
           >
@@ -613,20 +466,10 @@ export function ListingDetailModal({
               const roomUnavailableWindows = getRoomUnavailabilityWindows(roomChoiceValue);
               return (
                 <>
-                  <ListingModalHeader eyebrow={state.floorLabel} title={state.room.name} />
-                  {(state.room.modal.photoUrls?.length ?? 0) > 0 ? (
-                    <ListingModalSection label="Photos">
-                      <PhotoStrip imageUrls={state.room.modal.photoUrls} />
-                    </ListingModalSection>
-                  ) : null}
-                  <ListingModalVideo
-                    label={state.room.modal.tourEyebrow}
-                    videoSrc={state.room.modal.videoSrc}
-                    placeholderTitle={state.room.modal.tourTitle}
-                    placeholderSubtitle={state.room.modal.tourSubtitle}
-                    autoPlayMuted
-                  />
+                  <ListingModalHeader title={state.room.name} />
+                  <ListingModalMedia photoUrls={state.room.modal.photoUrls} videoSrc={state.room.modal.videoSrc} />
                   <ListingModalStatGrid
+                    columns={2}
                     items={[
                       {
                         // Rent leads the grid, and is the one stat rendered at
@@ -651,25 +494,11 @@ export function ListingDetailModal({
                         })(),
                       },
                       {
-                        label: "Floor / level",
-                        value: state.room.modal.floorLine?.trim() || "—",
-                      },
-                      ...(state.room.utilitiesEstimate
-                        ? [{ label: "Utilities", value: state.room.utilitiesEstimate }]
-                        : []),
-                      {
-                        label: "Room details",
-                        value:
-                          state.room.modal.roomNotes?.trim() ? (
-                            <p className="line-clamp-4 whitespace-pre-wrap text-sm leading-relaxed">
-                              {truncateModalText(state.room.modal.roomNotes, 160)}
-                            </p>
-                          ) : (
-                            "No extra room notes"
-                          ),
+                        label: "Floor",
+                        value: state.room.modal.floorLine?.trim() || state.floorLabel || "—",
                       },
                       {
-                        label: "Bathrooms",
+                        label: "Bathroom",
                         value:
                           (state.room.modal.bathroomAccessLines?.length ?? 0) > 0 ? (
                             <ul className="space-y-1">
@@ -680,15 +509,51 @@ export function ListingDetailModal({
                               ))}
                             </ul>
                           ) : (
-                            "—"
+                            state.room.modal.bathroomShortLabel?.trim() || "—"
                           ),
                       },
+                      ...(state.room.utilitiesEstimate
+                        ? [{ label: "Utilities", value: state.room.utilitiesEstimate }]
+                        : []),
                       {
                         label: "Status",
                         value: <AvailabilityPill text={state.room.availability} variant="room" />,
                       },
+                      ...(state.room.modal.roomNotes?.trim()
+                        ? [
+                            {
+                              label: "Details",
+                              value: (
+                                <p className="line-clamp-4 whitespace-pre-wrap text-sm leading-relaxed">
+                                  {truncateModalText(state.room.modal.roomNotes, 160)}
+                                </p>
+                              ),
+                            },
+                          ]
+                        : []),
                     ]}
                   />
+                  {(() => {
+                    const bathTagPattern = /^(private|shared|house hall)\s+bath$/i;
+                    const highlightTags = state.room.modal.includedTags.filter((t) => !bathTagPattern.test(t));
+                    const furnishingLine = state.room.modal.furnishingDetail?.trim();
+                    const amenityLabels = state.room.modal.roomAmenityLabels ?? [];
+                    const tags = [...highlightTags, ...amenityLabels.filter((t) => !highlightTags.includes(t))];
+                    return (
+                      <>
+                        {tags.length > 0 ? (
+                          <ListingModalSection label="Included">
+                            <ListingModalTags tags={tags} />
+                            {furnishingLine ? <p className="mt-3 text-muted">{furnishingLine}</p> : null}
+                          </ListingModalSection>
+                        ) : furnishingLine ? (
+                          <ListingModalSection label="Included">
+                            <p className="text-muted">{furnishingLine}</p>
+                          </ListingModalSection>
+                        ) : null}
+                      </>
+                    );
+                  })()}
                   <ListingModalSection label="Availability timeline">
                     {roomUnavailableWindows.length > 0 ? (
                       <div className="space-y-2">
@@ -713,31 +578,6 @@ export function ListingDetailModal({
                       <RoomAvailabilityTimelineCalendar windows={roomUnavailableWindows} />
                     </div>
                   </ListingModalSection>
-                  {(() => {
-                    const bathTagPattern = /^(private|shared|house hall)\s+bath$/i;
-                    const highlightTags = state.room.modal.includedTags.filter((t) => !bathTagPattern.test(t));
-                    const furnishingLine = state.room.modal.furnishingDetail?.trim();
-                    const amenityLabels = state.room.modal.roomAmenityLabels ?? [];
-                    return (
-                      <>
-                        {highlightTags.length > 0 ? (
-                          <ListingModalSection label="Room highlights">
-                            <ListingModalTags tags={highlightTags} />
-                          </ListingModalSection>
-                        ) : null}
-                        {furnishingLine ? (
-                          <ListingModalSection label="Included in this room">
-                            <p className="text-muted">{furnishingLine}</p>
-                          </ListingModalSection>
-                        ) : null}
-                        {amenityLabels.length > 0 ? (
-                          <ListingModalSection label="Room amenities">
-                            <ListingModalTags tags={amenityLabels} />
-                          </ListingModalSection>
-                        ) : null}
-                      </>
-                    );
-                  })()}
                 </>
               );
             })()}
@@ -809,35 +649,32 @@ export function ListingDetailModal({
               />
             }
           >
-            <ListingModalHeader eyebrow={state.row.modal.eyebrow} title={state.row.name} subtitle={state.row.detail} />
-            {(state.row.modal.photoUrls?.length ?? 0) > 0 ? (
-              <ListingModalSection label="Photos">
-                <PhotoStrip imageUrls={state.row.modal.photoUrls} />
+            <ListingModalHeader title={state.row.name} />
+            <ListingModalMedia photoUrls={state.row.modal.photoUrls} videoSrc={state.row.modal.videoSrc} />
+            <ListingModalStatGrid
+              columns={2}
+              items={[
+                ...(state.row.detail && state.row.detail !== "—" ? [{ label: "Where", value: state.row.detail }] : []),
+                {
+                  label: "Used by",
+                  value:
+                    state.row.modal.usedByRoomNames.length > 0
+                      ? state.row.modal.usedByRoomNames.join(", ")
+                      : state.row.modal.setupCard || "—",
+                },
+                {
+                  label: "Fixtures",
+                  value: [state.row.shower ? "Shower" : null, state.row.bathtub ? "Tub" : null, state.row.toilet ? "Toilet" : null]
+                    .filter(Boolean)
+                    .join(" · ") || "—",
+                },
+              ]}
+            />
+            {state.row.modal.includedTags.length > 0 ? (
+              <ListingModalSection label="Included">
+                <ListingModalTags tags={state.row.modal.includedTags} />
               </ListingModalSection>
             ) : null}
-            <ListingModalVideo
-              label="Bathroom tour"
-              videoSrc={state.row.modal.videoSrc}
-              placeholderTitle="Video tour"
-              placeholderSubtitle="Add a bathroom video in the manager form to replace this placeholder."
-              autoPlayMuted
-            />
-            <ListingModalSection label="Used by">
-              {state.row.modal.usedByRoomNames.length > 0 ? (
-                <ul className="list-disc space-y-1 pl-5 text-sm leading-relaxed">
-                  {state.row.modal.usedByRoomNames.map((roomName) => (
-                    <li key={roomName}>{roomName}</li>
-                  ))}
-                </ul>
-              ) : state.row.modal.setupCard ? (
-                <p>{state.row.modal.setupCard}</p>
-              ) : (
-                <p className="text-muted">Room assignments not listed yet.</p>
-              )}
-            </ListingModalSection>
-            <ListingModalSection label="Info">
-              <ListingModalTags tags={state.row.modal.includedTags} />
-            </ListingModalSection>
           </ListingModalBody>
         ) : null}
 
@@ -860,23 +697,23 @@ export function ListingDetailModal({
               />
             }
           >
-            <ListingModalHeader eyebrow={state.row.modal.eyebrow} title={state.row.name} subtitle={state.row.detail} />
-            <ListingModalVideo
-              label={state.row.modal.tourEyebrow}
-              videoSrc={state.row.modal.videoSrc}
-              placeholderTitle={state.row.modal.tourTitle}
-              placeholderSubtitle={state.row.modal.tourSubtitle}
-              autoPlayMuted
+            <ListingModalHeader title={state.row.name} />
+            <ListingModalMedia photoUrls={state.row.modal.photoUrls} videoSrc={state.row.modal.videoSrc} />
+            <ListingModalStatGrid
+              columns={2}
+              items={[
+                ...(state.row.detail && state.row.detail !== "—" ? [{ label: "Where", value: state.row.detail }] : []),
+                ...(state.row.useNote?.trim() ? [{ label: "Use", value: state.row.useNote }] : []),
+                ...(state.row.availability && state.row.availability !== "—"
+                  ? [{ label: "Access", value: state.row.availability }]
+                  : []),
+              ]}
             />
-            {(state.row.modal.photoUrls?.length ?? 0) > 0 ? (
-              <ListingModalSection label="Photos">
-                <PhotoStrip imageUrls={state.row.modal.photoUrls} />
+            {state.row.modal.includedTags.length > 0 ? (
+              <ListingModalSection label="Included">
+                <ListingModalTags tags={state.row.modal.includedTags} />
               </ListingModalSection>
             ) : null}
-            {state.row.useNote ? <p className="text-sm text-muted">{state.row.useNote}</p> : null}
-            <ListingModalSection label="What's included">
-              <ListingModalTags tags={state.row.modal.includedTags} />
-            </ListingModalSection>
           </ListingModalBody>
         ) : null}
 
@@ -1072,6 +909,11 @@ export function InteractiveFloorPlanCard({
   );
 }
 
+/**
+ * Lease basics as a two-column ledger (PLAN-0914-2124): item on the left,
+ * amount on the right, the timing pill under the amount. Each row still opens
+ * its sheet for the full wording.
+ */
 export function LeaseBasicsTableInteractive({
   rows,
   listingPropertyId,
@@ -1090,100 +932,53 @@ export function LeaseBasicsTableInteractive({
 
   const longTerm = rows.filter((r) => r.section !== "short-term");
   const shortTerm = rows.filter((r) => r.section === "short-term");
-  const sectionGroups: { key: "long-term" | "short-term"; label: string; rows: LeaseBasicRow[] }[] = [];
+  const groups: { key: "long-term" | "short-term"; label: string; rows: LeaseBasicRow[] }[] = [];
   if (showTermSections) {
-    sectionGroups.push({ key: "long-term", label: "Long term", rows: longTerm });
-    sectionGroups.push({ key: "short-term", label: "Short term", rows: shortTerm });
+    groups.push({ key: "long-term", label: "Long term", rows: longTerm });
+    groups.push({ key: "short-term", label: "Short term", rows: shortTerm });
   } else {
-    if (longTerm.length) sectionGroups.push({ key: "long-term", label: "Long term", rows: longTerm });
-    if (shortTerm.length) sectionGroups.push({ key: "short-term", label: "Short term", rows: shortTerm });
+    if (longTerm.length) groups.push({ key: "long-term", label: "Long term", rows: longTerm });
+    if (shortTerm.length) groups.push({ key: "short-term", label: "Short term", rows: shortTerm });
   }
-
-  const renderMobileRows = (sectionRows: LeaseBasicRow[]) => {
-    if (sectionRows.length === 0) {
-      return (
-        <p className="rounded-xl border border-dashed border-border/80 bg-muted/20 px-4 py-3 text-sm text-muted">
-          No fees listed for this term.
-        </p>
-      );
-    }
-    return sectionRows.map((r) => (
-      <InteractiveListingRow
-        key={r.id}
-        onOpen={() => setModal({ kind: "lease", row: r })}
-        className={LISTING_ROW_SURFACE}
-        detailsClassName="mt-2.5 w-full"
-      >
-        <div className="flex items-start gap-2">
-          <span className="text-lg leading-none" aria-hidden>
-            {r.icon}
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-foreground">{r.title}</p>
-            <p className="mt-0.5 text-xs text-muted">{r.detail}</p>
-          </div>
-        </div>
-        <p className="mt-2 text-xs font-semibold text-foreground sm:text-sm">{r.price}</p>
-      </InteractiveListingRow>
-    ));
-  };
-
-  const renderDesktopRows = (sectionRows: LeaseBasicRow[]) => {
-    if (sectionRows.length === 0) {
-      return (
-        <p className="border-b border-border py-3 text-sm text-muted last:border-0">No fees listed for this term.</p>
-      );
-    }
-    return sectionRows.map((r) => (
-      <InteractiveListingRow
-        key={r.id}
-        onOpen={() => setModal({ kind: "lease", row: r })}
-        className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto] items-center gap-2 border-b border-border py-3 last:border-0 sm:gap-3 sm:py-3.5"
-      >
-        <div className="flex min-w-0 items-start gap-2">
-          <span className="shrink-0 text-base leading-none" aria-hidden>
-            {r.icon}
-          </span>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-foreground">{r.title}</p>
-            <p className="mt-0.5 text-xs text-muted">{r.detail}</p>
-          </div>
-        </div>
-        <p className="text-xs font-semibold text-foreground sm:text-sm">{r.price}</p>
-      </InteractiveListingRow>
-    ));
-  };
+  const showHeadings = groups.length > 1 || showTermSections;
 
   return (
     <>
-      <div className="space-y-5 md:hidden">
-        {sectionGroups.map((group) => (
-          <div key={group.key} className="space-y-2.5">
-            {sectionGroups.length > 1 || showTermSections ? (
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted">{group.label}</p>
+      <div className="space-y-6">
+        {groups.map((group) => (
+          <div key={group.key}>
+            {showHeadings ? (
+              <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-muted">{group.label}</p>
             ) : null}
-            {renderMobileRows(group.rows)}
+            {group.rows.length === 0 ? (
+              <p className="py-2 text-sm text-muted">No fees listed for this term.</p>
+            ) : (
+              <dl className="grid gap-x-8 sm:grid-cols-2">
+                {group.rows.map((r) => (
+                  <div key={r.id} className="border-b border-border">
+                    <button
+                      type="button"
+                      onClick={() => setModal({ kind: "lease", row: r })}
+                      data-attr="listing-lease-row"
+                      className="flex min-h-[48px] w-full items-center justify-between gap-4 py-2.5 text-left transition hover:text-primary"
+                    >
+                      <dt className="flex min-w-0 items-center gap-2 text-sm text-foreground">
+                        <span className="shrink-0 text-base leading-none" aria-hidden>
+                          {r.icon}
+                        </span>
+                        <span className="min-w-0 truncate">{r.title}</span>
+                      </dt>
+                      <dd className="shrink-0 text-right">
+                        <span className="block text-sm font-bold tabular-nums text-foreground">{r.price}</span>
+                        {r.status ? <span className="block text-[11px] font-medium text-muted">{r.status}</span> : null}
+                      </dd>
+                    </button>
+                  </div>
+                ))}
+              </dl>
+            )}
           </div>
         ))}
-      </div>
-      <div className="hidden min-w-0 md:block">
-        <div className="min-w-[560px] lg:min-w-0">
-          {sectionGroups.map((group) => (
-            <div key={group.key} className={group.key === "short-term" && (sectionGroups.length > 1 || showTermSections) ? "mt-6" : ""}>
-              {sectionGroups.length > 1 || showTermSections ? (
-                <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.18em] text-muted">{group.label}</p>
-              ) : null}
-              <div
-                className={`grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto] gap-2 border-b border-border pb-1.5 sm:gap-3 sm:pb-2 ${LISTING_TABLE_HEAD}`}
-              >
-                <span>Item</span>
-                <span>Price</span>
-                <span className="w-[80px] text-right sm:w-[88px] sm:text-left" />
-              </div>
-              {renderDesktopRows(group.rows)}
-            </div>
-          ))}
-        </div>
       </div>
       <ListingDetailModal
         state={modal}
@@ -1316,63 +1111,389 @@ export function BundleTableInteractive({
   );
 }
 
+const AMENITIES_PREVIEW_COUNT = 8;
+
+/**
+ * Amenities as the two-column icon list every rental marketplace settled on
+ * (PLAN-0914-2124): the first eight, then "Show all N amenities". The old
+ * per-row Details button and its filler sheet are gone — an amenity is a fact,
+ * not a record.
+ */
 export function AmenitiesTableInteractive({
   rows,
+}: {
+  rows: AmenityItem[];
+  listingPropertyId?: string;
+  propertyLabel?: string | null;
+  contactSmsPhone?: string | null;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const visible = showAll ? rows : rows.slice(0, AMENITIES_PREVIEW_COUNT);
+  const hidden = rows.length - visible.length;
+  if (rows.length === 0) return null;
+  return (
+    <div>
+      <ul className="grid gap-x-6 gap-y-2.5 sm:grid-cols-2">
+        {visible.map((a) => (
+          <li key={a.id} className="flex min-w-0 items-center gap-3 text-sm text-foreground">
+            <span className="w-6 shrink-0 text-center text-base leading-none" aria-hidden>
+              {a.icon}
+            </span>
+            <span className="min-w-0 font-medium">{a.label}</span>
+          </li>
+        ))}
+      </ul>
+      {rows.length > AMENITIES_PREVIEW_COUNT ? (
+        <button
+          type="button"
+          onClick={() => setShowAll((v) => !v)}
+          data-attr="listing-amenities-show-all"
+          aria-expanded={showAll}
+          className={`${LISTING_DETAIL_BUTTON} mt-4 !text-xs`}
+        >
+          {showAll ? "Show fewer amenities" : `Show all ${rows.length} amenities`}
+          {!showAll && hidden > 0 ? null : null}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Rooms · Bathrooms · Shared spaces (PLAN-0914-2124)                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A row's own photo: its first uploaded slide with a count badge, or the
+ * compact neutral tile when it has none. Never a stock image.
+ */
+export function ListingThumb({
+  urls,
+  className = "h-12 w-16",
+}: {
+  urls?: string[] | null;
+  className?: string;
+}) {
+  const list = urls?.filter(Boolean) ?? [];
+  const first = list[0];
+  return (
+    <span className={`relative block shrink-0 overflow-hidden rounded-lg border border-border bg-accent/25 ${className}`}>
+      {first ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={first} alt="" className="absolute inset-0 h-full w-full object-cover" />
+          {list.length > 1 ? (
+            <span className="absolute bottom-1 right-1 rounded-full bg-black/70 px-1.5 text-[10px] font-bold leading-4 text-white tabular-nums">
+              {list.length}
+            </span>
+          ) : null}
+        </>
+      ) : (
+        <NoImagePlaceholder variant="compact" label="" />
+      )}
+    </span>
+  );
+}
+
+const SPACE_TABLE_WRAP = "hidden overflow-hidden rounded-xl border border-border bg-card listing-detail-surface md:block";
+const SPACE_TABLE = "w-full text-sm";
+const SPACE_TH = `${LISTING_TABLE_HEAD} bg-[var(--pl-surface-muted)] px-3 py-2 text-left font-semibold`;
+const SPACE_TD = "border-t border-border px-3 py-2.5 align-middle";
+const SPACE_ROWS_MOBILE = "md:hidden";
+const SPACE_ROW_MOBILE =
+  "flex min-h-[64px] w-full items-center gap-3 py-2.5 text-left transition [&+&]:border-t [&+&]:border-border";
+const SPACE_SUBHEAD = "mb-3 mt-7 flex items-center gap-2 text-base font-bold tracking-tight text-foreground";
+
+function roomBathLabel(room: ListingRoomRow): string {
+  const short = room.modal.bathroomShortLabel?.trim();
+  if (short) return short.replace(/\s*bathroom$/i, " bath");
+  const n = room.bathroomShareCount;
+  if (n === 1) return "Private bath";
+  if (typeof n === "number" && n > 1) return `Shared · ${n}`;
+  return "—";
+}
+
+function roomRentCell(room: ListingRoomRow): string {
+  return roomRentLabel(room) ?? roomRentFallbackLabel(room) ?? "—";
+}
+
+function bathroomFixtures(row: ListingBathroomRow): string {
+  const parts: string[] = [];
+  if (row.shower) parts.push("Shower");
+  if (row.bathtub) parts.push("Tub");
+  if (row.toilet) parts.push("Toilet");
+  return parts.join(" · ") || "—";
+}
+
+function bathroomUsedBy(row: ListingBathroomRow): string {
+  const names = row.modal.usedByRoomNames;
+  if (names.length > 0) return names.join(", ");
+  return row.usedByLabel?.trim() || row.detail?.trim() || "—";
+}
+
+/**
+ * The rooms table, then bathrooms, then shared spaces — every row ends in ONE
+ * Details button (on a phone the whole row is the button) that opens that
+ * item's own sheet. No per-row apply or tour buttons: those live once, in the
+ * page's card / sticky bar.
+ */
+export function SpacesInteractive({
+  floorPlans,
+  bathrooms,
+  sharedSpaces,
   listingPropertyId,
   propertyLabel = null,
   contactSmsPhone = null,
 }: {
-  rows: AmenityItem[];
+  floorPlans: ListingFloorCard[];
+  bathrooms: ListingBathroomRow[];
+  sharedSpaces: ListingSharedRow[];
   listingPropertyId: string;
   propertyLabel?: string | null;
   contactSmsPhone?: string | null;
 }) {
   const [modal, setModal] = useState<ModalState>(null);
+  const rooms = floorPlans.flatMap((f) => f.rooms.map((room) => ({ room, floorLabel: f.floorLabel })));
+  // The builder's placeholder rows are words, not records: no thumb, no Details.
+  const realBathrooms = bathrooms.filter((b) => !isListingFallbackBathroom(b));
+  const realShared = sharedSpaces.filter((r) => !isListingPlaceholderSharedSpace(r));
+  const bathroomsListed = realBathrooms.length > 0;
+  if (rooms.length === 0 && !bathroomsListed && realShared.length === 0) return null;
 
   return (
     <>
-      <div className="space-y-2.5 md:hidden">
-        {rows.map((a) => (
-          <InteractiveListingRow
-            key={a.id}
-            onOpen={() => setModal({ kind: "amenity", row: a })}
-            className={LISTING_ROW_SURFACE}
-            detailsClassName="mt-2.5 w-full"
-          >
-            <div className="flex items-start gap-2">
-              <span className="text-lg text-primary" aria-hidden>
-                {a.icon}
-              </span>
-              <p className="text-sm font-semibold text-foreground">{a.label}</p>
-            </div>
-            <p className="mt-2 text-xs text-muted">House feature · included with this listing</p>
-          </InteractiveListingRow>
-        ))}
-      </div>
-      <div className="hidden min-w-0 md:block">
-        <div className="min-w-[560px] lg:min-w-0">
-          <div className={`grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto] gap-2 border-b border-border pb-1.5 sm:gap-3 sm:pb-2 ${LISTING_TABLE_HEAD}`}>
-            <span>Amenity</span>
-            <span>Info</span>
-            <span className="w-[80px] text-right sm:w-[88px] sm:text-left" />
+      {rooms.length > 0 ? (
+        <>
+          <div className={SPACE_TABLE_WRAP}>
+            <table className={SPACE_TABLE}>
+              <thead>
+                <tr>
+                  <th className={`${SPACE_TH} w-[84px]`}>
+                    <span className="sr-only">Photo</span>
+                  </th>
+                  <th className={SPACE_TH}>Room</th>
+                  <th className={SPACE_TH}>Floor</th>
+                  <th className={SPACE_TH}>Bath</th>
+                  <th className={SPACE_TH}>Available</th>
+                  <th className={`${SPACE_TH} text-right`}>Rent</th>
+                  <th className={SPACE_TH}>
+                    <span className="sr-only">Details</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rooms.map(({ room, floorLabel }) => (
+                  <tr key={room.id}>
+                    <td className={SPACE_TD}>
+                      <ListingThumb urls={room.modal.photoUrls} className="h-[54px] w-[72px]" />
+                    </td>
+                    <td className={`${SPACE_TD} font-bold text-foreground`}>{room.name}</td>
+                    <td className={`${SPACE_TD} whitespace-nowrap text-muted`}>{floorLabel}</td>
+                    <td className={`${SPACE_TD} whitespace-nowrap text-muted`}>{roomBathLabel(room)}</td>
+                    <td className={SPACE_TD}>
+                      <AvailabilityPill text={room.availability} variant="room" />
+                    </td>
+                    <td className={`${SPACE_TD} whitespace-nowrap text-right font-bold tabular-nums text-foreground`}>
+                      {roomRentCell(room)}
+                    </td>
+                    <td className={`${SPACE_TD} text-right`}>
+                      <button
+                        type="button"
+                        data-attr="listing-room-details"
+                        onClick={() => setModal({ kind: "room", room, floorLabel })}
+                        className={`${LISTING_DETAIL_BUTTON} !text-xs`}
+                      >
+                        Details
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          {rows.map((a) => (
-            <InteractiveListingRow
-              key={a.id}
-              onOpen={() => setModal({ kind: "amenity", row: a })}
-              className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto] items-center gap-2 border-b border-border py-3 last:border-0 sm:gap-3 sm:py-3.5"
-            >
-              <div className="flex min-w-0 items-start gap-2">
-                <span className="shrink-0 text-base text-primary" aria-hidden>
-                  {a.icon}
+          <div className={SPACE_ROWS_MOBILE}>
+            {rooms.map(({ room, floorLabel }) => (
+              <button
+                key={room.id}
+                type="button"
+                data-attr="listing-room-details"
+                onClick={() => setModal({ kind: "room", room, floorLabel })}
+                className={SPACE_ROW_MOBILE}
+              >
+                <ListingThumb urls={room.modal.photoUrls} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-bold text-foreground">{room.name}</span>
+                  <span className="block truncate text-xs text-muted">
+                    {floorLabel} · {roomBathLabel(room)}
+                  </span>
                 </span>
-                <p className="min-w-0 text-sm font-semibold text-foreground">{a.label}</p>
-              </div>
-              <p className="text-xs text-muted sm:text-sm">With listing</p>
-            </InteractiveListingRow>
-          ))}
-        </div>
-      </div>
+                <span className="shrink-0 text-right">
+                  <span className="block text-sm font-bold tabular-nums text-foreground">{roomRentCell(room)}</span>
+                  <span className={`block text-[11px] font-semibold ${roomAvailabilityTextClasses(roomAvailabilityTone(room.availability))}`}>
+                    {room.availability}
+                  </span>
+                </span>
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted" aria-hidden />
+              </button>
+            ))}
+          </div>
+        </>
+      ) : null}
+
+      {!bathroomsListed ? (
+        <>
+          <h3 className={SPACE_SUBHEAD} id="listing-bathrooms">
+            Bathrooms
+          </h3>
+          <p className="text-sm text-muted">No bathrooms listed yet.</p>
+        </>
+      ) : null}
+      {bathroomsListed ? (
+        <>
+          <h3 className={SPACE_SUBHEAD} id="listing-bathrooms">
+            Bathrooms
+            <span className="rounded-full border border-border bg-accent/35 px-2.5 py-0.5 text-xs font-semibold text-foreground listing-detail-surface">
+              {realBathrooms.length}
+            </span>
+          </h3>
+          <div className={SPACE_TABLE_WRAP}>
+            <table className={SPACE_TABLE}>
+              <thead>
+                <tr>
+                  <th className={`${SPACE_TH} w-[84px]`}>
+                    <span className="sr-only">Photo</span>
+                  </th>
+                  <th className={SPACE_TH}>Bathroom</th>
+                  <th className={SPACE_TH}>Used by</th>
+                  <th className={SPACE_TH}>Fixtures</th>
+                  <th className={SPACE_TH}>
+                    <span className="sr-only">Details</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {realBathrooms.map((row) => (
+                  <tr key={row.id}>
+                    <td className={SPACE_TD}>
+                      <ListingThumb urls={row.modal.photoUrls} className="h-[54px] w-[72px]" />
+                    </td>
+                    <td className={`${SPACE_TD} font-bold text-foreground`}>
+                      {row.name}
+                      {row.detail && row.detail !== "—" ? (
+                        <span className="font-medium text-muted"> · {row.detail}</span>
+                      ) : null}
+                    </td>
+                    <td className={`${SPACE_TD} text-muted`}>{bathroomUsedBy(row)}</td>
+                    <td className={`${SPACE_TD} whitespace-nowrap text-muted`}>{bathroomFixtures(row)}</td>
+                    <td className={`${SPACE_TD} text-right`}>
+                      <button
+                        type="button"
+                        data-attr="listing-bath-details"
+                        onClick={() => setModal({ kind: "bathroom", row })}
+                        className={`${LISTING_DETAIL_BUTTON} !text-xs`}
+                      >
+                        Details
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className={SPACE_ROWS_MOBILE}>
+            {realBathrooms.map((row) => (
+              <button
+                key={row.id}
+                type="button"
+                data-attr="listing-bath-details"
+                onClick={() => setModal({ kind: "bathroom", row })}
+                className={SPACE_ROW_MOBILE}
+              >
+                <ListingThumb urls={row.modal.photoUrls} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-bold text-foreground">{row.name}</span>
+                  <span className="block truncate text-xs text-muted">
+                    {bathroomUsedBy(row)} · {bathroomFixtures(row)}
+                  </span>
+                </span>
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted" aria-hidden />
+              </button>
+            ))}
+          </div>
+        </>
+      ) : null}
+
+      {realShared.length > 0 ? (
+        <>
+          <h3 className={SPACE_SUBHEAD} id="listing-shared">
+            Shared spaces
+            <span className="rounded-full border border-border bg-accent/35 px-2.5 py-0.5 text-xs font-semibold text-foreground listing-detail-surface">
+              {realShared.length}
+            </span>
+          </h3>
+          <div className={SPACE_TABLE_WRAP}>
+            <table className={SPACE_TABLE}>
+              <thead>
+                <tr>
+                  <th className={`${SPACE_TH} w-[84px]`}>
+                    <span className="sr-only">Photo</span>
+                  </th>
+                  <th className={SPACE_TH}>Space</th>
+                  <th className={SPACE_TH}>Where</th>
+                  <th className={SPACE_TH}>Use</th>
+                  <th className={SPACE_TH}>
+                    <span className="sr-only">Details</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {realShared.map((row) => (
+                  <tr key={row.id}>
+                    <td className={SPACE_TD}>
+                      <ListingThumb urls={row.modal.photoUrls} className="h-[54px] w-[72px]" />
+                    </td>
+                    <td className={`${SPACE_TD} font-bold text-foreground`}>{row.name}</td>
+                    <td className={`${SPACE_TD} text-muted`}>{row.detail && row.detail !== "—" ? row.detail : "—"}</td>
+                    <td className={`${SPACE_TD} text-muted`}>{row.useNote?.trim() || row.availability || "—"}</td>
+                    <td className={`${SPACE_TD} text-right`}>
+                      <button
+                        type="button"
+                        data-attr="listing-shared-details"
+                        onClick={() => setModal({ kind: "shared", row })}
+                        className={`${LISTING_DETAIL_BUTTON} !text-xs`}
+                      >
+                        Details
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className={SPACE_ROWS_MOBILE}>
+            {realShared.map((row) => (
+              <button
+                key={row.id}
+                type="button"
+                data-attr="listing-shared-details"
+                onClick={() => setModal({ kind: "shared", row })}
+                className={SPACE_ROW_MOBILE}
+              >
+                <ListingThumb urls={row.modal.photoUrls} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-bold text-foreground">{row.name}</span>
+                  <span className="block truncate text-xs text-muted">
+                    {[row.detail !== "—" ? row.detail : null, row.useNote?.trim() || null].filter(Boolean).join(" · ") || row.availability}
+                  </span>
+                </span>
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted" aria-hidden />
+              </button>
+            ))}
+          </div>
+        </>
+      ) : null}
+
       <ListingDetailModal
         state={modal}
         onClose={() => setModal(null)}

@@ -1205,7 +1205,7 @@ export function ManagerLeasesPipelinePanel({
                     data-attr="leases-bulk-renew"
                     onClick={() => setAmendLeaseRow(bulkRenewalsRow)}
                   >
-                    Renew lease
+                    Renew
                   </Button>
                   <Button
                     type="button"

@@ -145,7 +145,6 @@ export function ManagerCommsBillingPanel() {
   return (
     <PortalSettingsSection
       title="Communication credit"
-      description="Pro includes $10 and Business $100 of credit each month; Free has none. Control what you spend on texts, calls and work-number AI."
     >
       {loading && !summary ? (
         <p role="status" className="text-sm text-muted">
@@ -168,7 +167,6 @@ export function ManagerCommsBillingPanel() {
             <PortalSettingsRow
               className="flex-col items-start sm:flex-row sm:items-center [&>div]:max-w-full"
               label="Available communication credit"
-              description={`${summary.wallet.tier[0].toUpperCase()}${summary.wallet.tier.slice(1)} plan`}
             >
               <div className="flex flex-wrap items-center gap-4">
                 <p
@@ -366,7 +364,6 @@ export function ManagerCommsBillingPanel() {
           <PortalSettingsGroup>
             <PortalSettingsRow
               label="Budget alerts"
-              description="Alerts at 80% and 100%. This is an alert amount, not permission for automatic charges."
             >
               <div className="flex flex-wrap items-center gap-2">
                 <label className="sr-only" htmlFor="comms-budget">

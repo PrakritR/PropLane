@@ -41,7 +41,6 @@ import {
   PortalListAddRow,
   PORTAL_LIST_ADD_ICONS,
 } from "@/components/portal/portal-list-add-row";
-import { formatApplicationLeaseTermsLabel } from "@/lib/property-lease-template-sync";
 import { normalizePropertyApplicationTemplateLabel } from "@/lib/property-application-template-sync";
 
 type QuestionsSaveTarget =
@@ -398,11 +397,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
                 <p className="text-sm font-semibold text-foreground">
                   {normalizePropertyApplicationTemplateLabel(template.label)}
                 </p>
-                {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms) ? (
-                  <p className="mt-0.5 text-xs text-muted">
-                    Applicants: {formatApplicationLeaseTermsLabel(template.applicationLeaseTerms)}
-                  </p>
-                ) : null}
+
               </div>
             </div>
           </div>
@@ -418,15 +413,6 @@ export function ManagerPropertyApplicationQuestionsPanel({
             presets={availableSeeds.map((seed) => ({
               key: seed.seedKey,
               label: seed.label,
-              subtitle:
-                [
-                  "PropLane default application",
-                  formatApplicationLeaseTermsLabel(seed.applicationLeaseTerms)
-                    ? `Applicants: ${formatApplicationLeaseTermsLabel(seed.applicationLeaseTerms)}`
-                    : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · "),
             }))}
             onAdd={addSeedTemplate}
           />
@@ -488,7 +474,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
 
   return (
     <>
-      <PortalRecordListSurface className="mt-0" onBulkClear={embedInModal ? undefined : clearSelection} bulkCount={selectedIds.size} bulkActions={!embedInModal && selectedTemplateId ? (
+      <PortalRecordListSurface className="mt-0 pb-0 max-lg:pb-0" onBulkClear={embedInModal ? undefined : clearSelection} bulkCount={selectedIds.size} bulkActions={!embedInModal && selectedTemplateId ? (
         <>
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
             <Button

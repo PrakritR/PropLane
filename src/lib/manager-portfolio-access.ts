@@ -339,10 +339,13 @@ export type ManagerPropertyFilterOption = { id: string; label: string };
  * "Seed Property seed-1782590281847" left behind by an older seed. These must
  * never reach a user-facing dropdown.
  */
-function looksLikeRawPropertyId(value: string, id: string): boolean {
-  const v = value.trim();
+function looksLikeRawPropertyId(value: string, id: string | null | undefined): boolean {
+  const v = typeof value === "string" ? value.trim() : "";
   if (!v) return true;
-  if (v === id.trim()) return true;
+  // A cached listing can arrive without an id (a malformed browser-store row);
+  // that must not take the whole picker down.
+  const rawId = typeof id === "string" ? id.trim() : "";
+  if (rawId && v === rawId) return true;
   return /(?:^|[\s(])(?:seed|test)[-_]prop\b|\bseed-\d{6,}\b|\bseedwf[_-]|\bmgr-[a-z0-9]{4,}-[a-z0-9]{4,}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-|\d{12,}/i.test(v);
 }
 
@@ -375,7 +378,7 @@ function collapseRedundantPropertyCandidates(values: string[]): string[] {
  * to any non-id candidate, then a generic label — never the bare id. Shared by
  * every property picker so labels stay consistent and clean across surfaces.
  */
-export function safePropertyOptionLabel(candidates: Array<string | null | undefined>, id: string): string {
+export function safePropertyOptionLabel(candidates: Array<string | null | undefined>, id: string | null | undefined): string {
   const usable = collapseRedundantPropertyCandidates(
     candidates.map((c) => (c ?? "").trim()).filter((v) => v && !looksLikeRawPropertyId(v, id)),
   );
@@ -383,9 +386,10 @@ export function safePropertyOptionLabel(candidates: Array<string | null | undefi
   const distinctive = usable.find((v) => !looksLikeGenericPropertyTitle(v));
   if (distinctive) return distinctive;
   if (usable.length > 0) return usable[0];
+  const rawId = typeof id === "string" ? id.trim() : "";
   for (const c of candidates) {
     const v = (c ?? "").trim();
-    if (v && v !== id.trim()) return v;
+    if (v && v !== rawId) return v;
   }
   return "Untitled property";
 }
@@ -457,6 +461,8 @@ export function buildManagerPropertyFilterOptions(userId: string | null): Manage
   const labelById = new Map<string, string>();
 
   for (const p of readScopedExtraListings(scopeUserId)) {
+    // A browser-store row with no id has nothing to filter by; skip it rather than crash.
+    if (typeof p.id !== "string" || !p.id.trim()) continue;
     labelById.set(p.id, safePropertyOptionLabel([p.title, p.buildingName, p.address], p.id));
   }
   for (const r of readPendingManagerPropertiesForUser(scopeUserId)) {
@@ -466,7 +472,7 @@ export function buildManagerPropertyFilterOptions(userId: string | null): Manage
   const allExtras = readAllExtraListings();
   for (const rel of readProRelationships(scopeUserId)) {
     for (const pid of rel.assignedPropertyIds) {
-      if (!pid.trim() || labelById.has(pid)) continue;
+      if (typeof pid !== "string" || !pid.trim() || labelById.has(pid)) continue;
       const found = allExtras.find((x) => x.id === pid);
       const pending = readAllPendingManagerProperties().find((x) => x.id === pid);
       const pendingJoined = pending

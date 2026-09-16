@@ -611,13 +611,14 @@ export type InboxMessageDirection = "inbound" | "outbound" | "assistant";
  * can AGGREGATE email + SMS + WhatsApp + Gmail in one thread — adding a channel
  * is additive (tag the message), never a new parallel thread.
  */
-export type InboxChannel = "email" | "sms" | "whatsapp" | "gmail";
+export type InboxChannel = "email" | "sms" | "whatsapp" | "gmail" | "proplane";
 
 export const INBOX_CHANNEL_LABEL: Record<InboxChannel, string> = {
   email: "Email",
   sms: "SMS",
   whatsapp: "WhatsApp",
   gmail: "Gmail",
+  proplane: "In-app",
 };
 
 export type InboxBubbleMessage = {
@@ -632,8 +633,14 @@ export type InboxBubbleMessage = {
   status?: string;
   /** Optimistic send lifecycle for outbound bubbles. */
   delivery?: "sending" | "sent" | "failed";
-  /** Channel this message belongs to. Defaults to "email" when omitted. */
+  /** Channel this message travelled on. Omitted = unknown: no tag, never a guessed "Email". */
   channel?: InboxChannel;
+  /**
+   * Email subject to show as the bubble's first line. The builder sets it only
+   * when the subject is new to the thread or changed since the previous email
+   * turn, so a run of "Re: …" replies shows it once.
+   */
+  subject?: string;
   attachments?: { url: string; name?: string }[];
 };
 
@@ -1172,7 +1179,7 @@ export function InboxBubble({
   const outbound = message.direction === "outbound";
   const assistant = message.direction === "assistant";
   const alignEnd = outbound || (assistant && !alignAssistantStart);
-  const channel = message.channel ?? "email";
+  const channel = message.channel;
   const sending = message.delivery === "sending";
   const failed = message.delivery === "failed";
   const radius = inboxBubbleClusterRadius(alignEnd, cluster);
@@ -1222,6 +1229,11 @@ export function InboxBubble({
         <div
           className={`portal-inbox-inbound-bubble w-full px-4 py-2.5 text-[15px] leading-relaxed sm:text-base ${radius} ${fillClass} ${sending ? "opacity-80" : ""} ${failed ? "ring-2 ring-rose-400/50" : ""}`}
         >
+          {message.subject ? (
+            <p className="mb-1 break-words font-semibold [overflow-wrap:anywhere]" data-inbox-bubble-subject>
+              {message.subject}
+            </p>
+          ) : null}
           <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message.body || " "}</p>
           {message.attachments?.length ? (
             <div className="mt-2 flex flex-wrap gap-2">
@@ -1237,7 +1249,7 @@ export function InboxBubble({
               alignEnd ? "flex-row-reverse" : ""
             }`}
           >
-            {showChannel ? <InboxChannelTag channel={channel} /> : null}
+            {showChannel && channel ? <InboxChannelTag channel={channel} /> : null}
             <span className={sending ? "italic" : failed ? "font-medium text-rose-600" : ""}>{metaCaption}</span>
           </span>
         ) : null}

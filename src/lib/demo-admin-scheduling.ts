@@ -1,4 +1,5 @@
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { MANAGER_KIND_AVAILABILITY_RECORD_TYPE } from "@/lib/manager-availability-kinds";
 import { normalizeTourFormat, type TourFormat } from "@/lib/tour-format";
 import { emitAdminUi } from "@/lib/demo-admin-ui";
 import { logDemoOutboundEmail } from "@/lib/demo-outbound-mail";
@@ -163,6 +164,18 @@ function scheduleRecordScope(key: string): { managerUserId: string | null; prope
       managerUserId: propertyScoped[1] ?? null,
       propertyId: propertyScoped[2] ?? null,
       recordType: "manager_property_availability",
+    };
+  }
+  // Must come before the generic `axis_mgr_avail_slots_v2_` fallthrough below,
+  // which would otherwise swallow a kind key as portfolio `manager_availability`
+  // — the record type the public tour route reads. Services/tasks availability
+  // must never be offered to a prospect (see manager-availability-kinds.ts).
+  const kindScoped = key.match(/^axis_mgr_avail_slots_v2_(.+)_kind_(services|tasks)$/);
+  if (kindScoped) {
+    return {
+      managerUserId: kindScoped[1] ?? null,
+      propertyId: null,
+      recordType: MANAGER_KIND_AVAILABILITY_RECORD_TYPE,
     };
   }
   const shareScoped = key.match(/^axis_calendar_share_avail_(.+)_prop_(.+)$/);
@@ -952,7 +965,7 @@ export type DeletePartnerInquiryResult = { ok: boolean; error?: string };
 
 async function deleteTourInquiryFromServer(
   row: PartnerInquiry,
-  opts?: { notifyTenant?: boolean; subject?: string; body?: string },
+  opts?: { notifyTenant?: boolean; subject?: string; body?: string; purge?: boolean },
 ): Promise<DeletePartnerInquiryResult> {
   const selectedWindow = getPartnerInquiryWindows(row)[0];
   try {
@@ -968,6 +981,7 @@ async function deleteTourInquiryFromServer(
         notifyTenant: opts?.notifyTenant !== false,
         subject: opts?.subject,
         body: opts?.body,
+        ...(opts?.purge ? { purge: true } : {}),
       }),
     });
     if (res.ok) return { ok: true };
@@ -982,7 +996,8 @@ async function deleteTourInquiryFromServer(
 
 export async function deletePartnerInquiryFromServer(
   id: string,
-  opts?: { notifyTenant?: boolean; subject?: string; body?: string },
+  /** `purge` drops the request instead of leaving it as a declined row. */
+  opts?: { notifyTenant?: boolean; subject?: string; body?: string; purge?: boolean },
 ): Promise<DeletePartnerInquiryResult> {
   const row = readPartnerInquiries().find((r) => r.id === id);
   if (!row) return { ok: false };

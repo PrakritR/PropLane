@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ManagerAddListingForm } from "@/components/portal/pro-add-listing-form";
-import { ListingWizardV2 } from "@/components/portal/listing-wizard-v2";
+import { CreateWorkspace } from "@/components/portal/listing-wizard-v2/create-workspace";
 import { ListingWizardOverlay } from "@/components/portal/listing-wizard-v2/wizard-overlay";
 import {
   ManagerHousePropertiesPanel,
@@ -14,16 +14,8 @@ import {
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Settings2, Share2 } from "lucide-react";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
-import { listPortfolioImports } from "@/lib/portfolio-import.client";
-import type { PortfolioImportSummary } from "@/lib/portfolio-import/types";
 import {
   getSettingsEntryPoint,
   settingsDialogTitlePrefix,
@@ -62,12 +54,16 @@ import { loadManagerEffectivePlanTierClient } from "@/lib/manager-subscription-c
 import {
   ensureManagerFirstListingDraft,
   managerHasAnyListing,
+  managerNeedsFirstListingOnboarding,
+  markFirstListingWizardAutoOpened,
   markFirstListingWizardDismissed,
+  readFirstListingPortfolioSnapshot,
+  readFirstListingWizardAutoOpened,
   readFirstListingWizardDismissed,
   shouldAutoOpenFirstListingWizard,
-  managerNeedsFirstListingOnboarding,
-  readFirstListingPortfolioSnapshot,
   shouldSkipFirstListingOnboarding,
+  takePendingFirstListingAutoOpen,
+  writePendingFirstListingAutoOpen,
 } from "@/lib/manager-first-listing-onboarding";
 
 /**
@@ -129,6 +125,17 @@ export function ManagerProperties({
   }, []);
   /** Resume the seeded / first draft in the wizard (PRP-396). */
   const [resumeDraftId, setResumeDraftId] = useState<string | null>(null);
+  /** The draft the open editor last wrote — where closing it lands. */
+  const lastSavedDraftIdRef = useRef<string | null>(null);
+  // The page that routed here from an empty /all handed over "open the seeded
+  // draft" — take it exactly once, on the page that actually stays mounted.
+  useEffect(() => {
+    if (!userId) return;
+    const pending = takePendingFirstListingAutoOpen(userId);
+    if (!pending) return;
+    setResumeDraftId(pending);
+    setWizardOpen(true);
+  }, [userId]);
   /**
    * Closing the create-listing wizard is an ANSWER, remembered for good.
    *
@@ -150,21 +157,6 @@ export function ManagerProperties({
   /** Several selected listings, for a bulk share from the Properties list (AXI-140). */
   const [shareListingPropertyIds, setShareListingPropertyIds] = useState<string[] | undefined>();
   const [demoStage, setDemoStage] = useState<ManagerStageKey>("all");
-  /** The most recent unfinished portfolio import, for the slim banner above the list. */
-  const [openImport, setOpenImport] = useState<PortfolioImportSummary | null>(null);
-  useEffect(() => {
-    if (isDemoModeActive()) return;
-    let cancelled = false;
-    void listPortfolioImports().then((res) => {
-      if (cancelled || !res.ok) return;
-      const pending = res.imports.find((i) => i.status === "draft" || i.status === "uploaded" || i.status === "committing");
-      setOpenImport(pending ?? null);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [portfolioTick]);
-
   const activeStage = isDemoModeActive()
     ? demoStage
     : stageProp;
@@ -286,17 +278,28 @@ export function ManagerProperties({
           // that already had a draft still needs to land on Drafts, and one
           // where seeding was declined must not be stranded on an empty Listed.
           const snap = readFirstListingPortfolioSnapshot(userId);
-          if (linksKnown && !managerHasAnyListing(snap) && activeStage !== "drafts") {
-            setActiveStage("drafts");
-          }
-          if (
-            seeded &&
+          const mustMoveToDrafts = linksKnown && !managerHasAnyListing(snap) && activeStage !== "drafts";
+          const autoOpen =
+            Boolean(seeded) &&
             shouldAutoOpenFirstListingWizard({
               snap,
               dismissed: readFirstListingWizardDismissed(userId),
               coManagerLinksKnown: linksKnown,
-            })
-          ) {
+              autoOpenedThisSession: readFirstListingWizardAutoOpened(userId),
+            });
+          if (autoOpen && seeded) {
+            // One shot per session — set BEFORE any navigation so the page that
+            // mounts on Drafts cannot decide to open it a second time.
+            markFirstListingWizardAutoOpened(userId);
+          }
+          if (mustMoveToDrafts) {
+            // Moving stage remounts this page (`[stage]` is a dynamic segment),
+            // so opening the wizard here would be undone by the router a frame
+            // later and re-done by the fresh page — the open / close / open
+            // flicker. Hand the intent to the page that will mount instead.
+            if (autoOpen && seeded) writePendingFirstListingAutoOpen(userId, seeded.draftId);
+            setActiveStage("drafts");
+          } else if (autoOpen && seeded) {
             setResumeDraftId(seeded.draftId);
             setWizardOpen(true);
           }
@@ -357,15 +360,16 @@ export function ManagerProperties({
   const atPropertyLimit = skuLoaded && managerTierPropertyLimitReached(skuTier, propCount);
   const limitMax = maxPropertiesForManagerTier(skuTier);
 
-  const tryOpenAdd = () => {
+  /** The checks both ＋ menu items share: plan loaded, signed in, under the limit. */
+  const canOpenAdd = (): boolean => {
     if (!skuLoaded) {
       showToast("Loading subscription…");
       void loadSku();
-      return;
+      return false;
     }
     if (!scopeUserId) {
       showToast("Sign in to create a listing.");
-      return;
+      return false;
     }
     if (atPropertyLimit) {
       // Take the manager to the plans page rather than only saying no. This is
@@ -380,8 +384,12 @@ export function ManagerProperties({
       // there the message alone is the whole response.
       showToast(managerPropertyLimitMessage(skuTier, { omitUpgradeCta: isNativeRuntimeSync() }));
       if (!isNativeRuntimeSync()) router.push(MANAGER_PLAN_PORTAL_URL);
-      return;
+      return false;
     }
+    return true;
+  };
+  const tryOpenAdd = () => {
+    if (!canOpenAdd()) return;
     // Prefer resuming the first-listing draft when that is the only work left.
     const snap = readFirstListingPortfolioSnapshot(scopeUserId);
     if (managerNeedsFirstListingOnboarding(snap) && !shouldSkipFirstListingOnboarding({ email })) {
@@ -395,7 +403,6 @@ export function ManagerProperties({
     setResumeDraftId(null);
     setWizardOpen(true);
   };
-
   useEffect(() => {
     if (!isDemoModeActive()) return;
     const onOpen = () => tryOpenAdd();
@@ -509,23 +516,17 @@ export function ManagerProperties({
               </>
             }
             primary={
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <PortalPrimaryIconAction
-                    label="Add property"
-                    disabled={!skuLoaded}
-                    data-attr="manager-properties-add-top"
-                  />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent>
-                  <DropdownMenuItem data-attr="manager-properties-add-top-property" onSelect={tryOpenAdd}>
-                    Add property
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild data-attr="manager-properties-import">
-                    <Link href="/portal/properties/import">Import portfolio</Link>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              /*
+               * One door in. Create opens the listing editor; importing a file
+               * is a strip at the top of its Basics step, so there is no menu
+               * and no second workspace to choose between.
+               */
+              <PortalPrimaryIconAction
+                label="Create"
+                disabled={!skuLoaded}
+                data-attr="manager-properties-add-top"
+                onClick={tryOpenAdd}
+              />
             }
           />
           <ManagerPortalSettingsModal
@@ -546,24 +547,6 @@ export function ManagerProperties({
               </span>
             </p>
           ) : null}
-          {openImport ? (
-            <div
-              className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-border bg-card px-4 py-3 text-sm"
-              data-attr="properties-import-banner"
-            >
-              <span className="text-foreground">
-                {openImport.status === "committing" ? "Import in progress" : "Import saved"} — {openImport.fileName}
-                {openImport.status === "committing" ? ` · ${openImport.residentCount} residents` : ""}
-              </span>
-              <Link
-                href={`/portal/properties/import?importId=${encodeURIComponent(openImport.importId)}`}
-                className="font-semibold text-primary hover:underline"
-                data-attr="properties-import-banner-open"
-              >
-                Open import
-              </Link>
-            </div>
-          ) : null}
           {listPanel}
         </ManagerPortalPageShell>
       )}
@@ -572,22 +555,32 @@ export function ManagerProperties({
          * The redesigned listing workspace — a step rail, the form, and a panel
          * that shows what the manager just changed. It writes the same
          * submission shape as the original form, so a draft saved in either
-         * opens in the other.
+         * opens in the other. A file dropped on its Basics step turns the same
+         * workspace into the import: one draft per property the file held.
          */
         <ListingWizardOverlay>
-          <ListingWizardV2
-            onClose={dismissFirstListingWizard}
-            onSaved={(_sub, savedId) => {
-              // "Save & exit" on a NEW property opens that property, exactly as
-              // Publish does — a manager who just made a home expects to land in
-              // it, not back on a list that may not even show it yet.
+          <CreateWorkspace
+            onClose={() => {
+              // Closing a NEW property opens that property, exactly as Publish
+              // does — a manager who just made a home expects to land in it,
+              // not back on a list that may not even show it yet.
+              dismissFirstListingWizard();
+              const id = lastSavedDraftIdRef.current?.trim();
+              lastSavedDraftIdRef.current = null;
               void refreshPending().then(() => {
-                const id = savedId?.trim();
                 if (!id) return;
-                setWizardOpen(false);
-                setResumeDraftId(null);
                 router.push(propertyDetailHref(basePath, "drafts", id, "preview"), { scroll: false });
               });
+            }}
+            onDraftsChanged={() => {
+              void refreshPending();
+            }}
+            onSaved={(_sub, savedId) => {
+              // The editor autosaves two seconds after every change. A save
+              // never closes it — that used to bounce a manager to the draft's
+              // preview four seconds into typing. The id is kept for the close.
+              if (savedId?.trim()) lastSavedDraftIdRef.current = savedId.trim();
+              void refreshPending();
             }}
             onPublished={(listingId) => {
               setWizardOpen(false);

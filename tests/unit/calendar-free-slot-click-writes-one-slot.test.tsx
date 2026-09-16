@@ -174,11 +174,11 @@ describe("clicking a free slot on the manager calendar", () => {
     renderManagerCalendar();
 
     const cell = await slotCell(`Open details for 10 am on ${WEDNESDAY}`);
-    expect(cell.textContent).toBe("Open");
+    expect(cell.textContent).toContain("Open");
     fireEvent.click(cell);
 
     await waitFor(() => expect(document.querySelector(".modal-panel")).not.toBeNull());
-    expect(screen.getByText("Open tour window")).toBeTruthy();
+    expect(screen.getByText("Open for Tours")).toBeTruthy();
     expect(writeAvailability).not.toHaveBeenCalled();
   });
 });

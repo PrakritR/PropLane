@@ -265,6 +265,11 @@ export type DemoManagerWorkOrderRow = {
    * portal's scoping and dispatch keep reading what they always read.
    */
   assignee?: { type: "team" | "vendor"; id: string; name: string };
+  /** Checklist the manager attached when logging the service (`service-tasks.ts`). */
+  tasks?: { id: string; title: string; done: boolean }[];
+  /** Amount billed to the resident for this service, and the household charge it created. */
+  residentChargeCents?: number;
+  residentChargeId?: string;
   category?: "cleaning" | "plumbing" | "mold" | "electrical" | "hvac" | "general" | "appliance" | "access";
   vendorCostCents?: number;
   /** ISO timestamp when the vendor set labor cost via set-vendor-price (locks manager edits). */
@@ -297,6 +302,13 @@ export type DemoManagerWorkOrderRow = {
   paidViaGmailMessageId?: string;
   /** ISO timestamp of the resident's last manager reminder for this pending request. */
   residentReminderSentAt?: string;
+  /**
+   * A server-computed time suggestion for the schedule-visit modal to prefill,
+   * so the manager sees a proposed time (with its source) instead of an empty
+   * field on first open. Never overrides `scheduledAtIso` — that is an actual
+   * booking, not a suggestion.
+   */
+  proposedVisit?: { iso: string; source: "availability" | "proplane-pick"; suggestedAtIso?: string };
 };
 
 export const demoManagerWorkOrderRowsFull: DemoManagerWorkOrderRow[] = [];

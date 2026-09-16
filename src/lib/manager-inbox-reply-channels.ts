@@ -167,12 +167,27 @@ export function resolveAssistantInboxReplyChannels(    args: {
   };
 }
 
-/** Person threads in Communication default to in-app PropLane; email/SMS stay opt-in. */
+/**
+ * Person threads in Communication reply on the channel the person last reached
+ * us on: an email is answered by email, a text by text, a portal message
+ * in-app. A thread with no stamped inbound (legacy rows, or one the manager
+ * started) keeps the in-app default with email/SMS opt-in.
+ *
+ * The rule exists because the old in-app-only default let a manager answer a
+ * prospect who had only ever emailed the work address — the reply landed on a
+ * PropLane row nobody could read, and the bubble still said EMAIL.
+ */
 export function resolveCommunicationPersonThreadReplyChannels(args: {
   emailAvailable: boolean;
   smsAvailable: boolean;
+  lastInboundChannel?: "email" | "sms" | "proplane" | null;
 }): InboxReplyChannelFlags {
-  void args;
+  if (args.lastInboundChannel === "email" && args.emailAvailable) {
+    return { viaProplane: false, viaEmail: true, viaSms: false };
+  }
+  if (args.lastInboundChannel === "sms" && args.smsAvailable) {
+    return { viaProplane: false, viaEmail: false, viaSms: true };
+  }
   return {
     viaProplane: true,
     viaEmail: false,

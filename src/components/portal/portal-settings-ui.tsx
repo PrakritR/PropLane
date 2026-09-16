@@ -11,14 +11,18 @@ export function PortalSettingsSections({ children, className }: { children: Reac
   return <div className={cn("space-y-8 [html[data-native]_&]:space-y-6", className)}>{children}</div>;
 }
 
+/**
+ * A settings section is a title, an optional scope tag / action, and its rows.
+ * There is deliberately no `description` prop: a heading carries its label and
+ * nothing under it (AGENTS.md § No subtext). If a section needs explaining,
+ * the fix is a better title or a better row label, never a sentence here.
+ */
 export function PortalSettingsSection({
   title,
-  description,
   action,
   children,
 }: {
   title: string;
-  description?: string;
   action?: ReactNode;
   children: ReactNode;
 }) {
@@ -28,7 +32,6 @@ export function PortalSettingsSection({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 className="text-[15px] font-bold tracking-[-0.01em] text-foreground">{title}</h2>
-            {description ? <p className="mt-0.5 text-[13.5px] leading-relaxed text-muted">{description}</p> : null}
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             <PortalTitleActionsHost className="flex items-center gap-1 sm:gap-1.5" />
@@ -47,17 +50,18 @@ export function PortalSettingsGroup({ children, className }: { children: ReactNo
   );
 }
 
+/**
+ * One settings row: a label and its control. No `description` / `meta` line —
+ * a row that needs a sentence under it has the wrong label (AGENTS.md § No
+ * subtext). State that matters ("Last rotated 3 days ago") belongs in the
+ * control side as a value, not as grey text under the label.
+ */
 export function PortalSettingsRow({
   label,
-  description,
-  meta,
   children,
   className,
 }: {
   label: ReactNode;
-  description?: ReactNode;
-  /** Optional third line under `description` — smaller and quieter still (e.g. "Last changed 3 days ago"). */
-  meta?: ReactNode;
   children?: ReactNode;
   className?: string;
 }) {
@@ -70,8 +74,6 @@ export function PortalSettingsRow({
     >
       <div className="min-w-0">
         <p className="text-sm font-medium text-foreground">{label}</p>
-        {description ? <p className="mt-0.5 text-xs leading-relaxed text-muted">{description}</p> : null}
-        {meta ? <p className="mt-0.5 text-[11px] leading-relaxed text-muted/70">{meta}</p> : null}
       </div>
       {children ? <div className="shrink-0">{children}</div> : null}
     </div>
@@ -146,14 +148,12 @@ export function PortalSettingsToggle({
  */
 export function PortalSettingsDisclosureRow({
   label,
-  description,
   children,
   defaultOpen = false,
   dataAttr,
   className,
 }: {
   label: ReactNode;
-  description?: ReactNode;
   children: ReactNode;
   defaultOpen?: boolean;
   dataAttr?: string;
@@ -173,7 +173,6 @@ export function PortalSettingsDisclosureRow({
       >
         <div className="min-w-0">
           <p className="text-sm font-medium text-foreground">{label}</p>
-          {description ? <p className="mt-0.5 text-xs leading-relaxed text-muted">{description}</p> : null}
         </div>
         <ChevronRight
           className={cn("h-4 w-4 shrink-0 text-muted transition-transform", open ? "rotate-90" : undefined)}
@@ -221,9 +220,10 @@ export function PortalSettingsScopeTag({
 }
 
 /**
- * A row whose control is unavailable, with the reason always shown. A locked
- * row with no visible reason is the bug this exists to prevent — never render
- * one without `reason`.
+ * A row whose control is unavailable. The reason is always carried — on the
+ * lock icon's title and as screen-reader text — but never as a visible
+ * sentence under the label (AGENTS.md § No subtext). Never render one without
+ * `reason`: a locked row that cannot say why is the bug this exists to prevent.
  *
  * Critical: an UNKNOWN plan must never drive this component. Plan quotas are
  * read only through `resolveEffectiveManagerSkuTier`, and when it cannot
@@ -250,11 +250,16 @@ export function PortalSettingsLockedRow({
       )}
     >
       <div className="min-w-0">
-        <p className="flex items-center gap-1.5 text-sm font-medium text-foreground/70">
+        <p
+          className="flex items-center gap-1.5 text-sm font-medium text-foreground/70"
+          title={typeof reason === "string" ? reason : undefined}
+        >
           <Lock className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
           {label}
+          <span className="sr-only" data-slot="settings-locked-reason">
+            {reason}
+          </span>
         </p>
-        <p className="mt-0.5 text-xs leading-relaxed text-muted">{reason}</p>
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}
     </div>
@@ -355,7 +360,6 @@ export function PortalSettingsAutosaveField({
 
 export function PortalSettingsLinkRow({
   label,
-  description,
   value,
   icon,
   href,
@@ -363,7 +367,6 @@ export function PortalSettingsLinkRow({
   dataAttr,
 }: {
   label: string;
-  description?: string;
   value?: string;
   /** Leading icon rendered in a muted tile (settings category rows). */
   icon?: ReactNode;
@@ -383,7 +386,6 @@ export function PortalSettingsLinkRow({
       ) : null}
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-foreground">{label}</p>
-        {description ? <p className="mt-0.5 text-xs text-muted">{description}</p> : null}
       </div>
       <div className="flex shrink-0 items-center gap-1.5 text-sm text-muted">
         {value ? <span className="max-w-[10rem] truncate">{value}</span> : null}

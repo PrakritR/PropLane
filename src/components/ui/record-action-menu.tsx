@@ -143,13 +143,13 @@ export function RecordActionMenu({ label, activate, disabled = false, onOpen }: 
           event.stopPropagation();
         }}
         align="end"
-        glass
+
         aria-label={`Actions for ${label}`}
         data-attr="record-actions-menu"
         className="record-action-menu max-h-[min(var(--radix-dropdown-menu-content-available-height),28rem)] w-64 overflow-y-auto"
       >
         <DropdownMenuLabel className="truncate text-xs font-semibold text-muted">{label}</DropdownMenuLabel>
-        {onOpen ? <DropdownMenuItem onSelect={(event) => { event.preventDefault(); closeForAction(); onOpen(); }}>View details</DropdownMenuItem> : null}
+        {onOpen ? <DropdownMenuItem onSelect={(event) => { event.preventDefault(); closeForAction(); onOpen(); }}>View</DropdownMenuItem> : null}
         <RecordActionCloseContext.Provider value={closeForAction}>
         <RecordActionItemsContext.Provider value>
           {hasActions ? (

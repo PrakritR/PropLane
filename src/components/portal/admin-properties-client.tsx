@@ -131,10 +131,10 @@ export function AdminPropertiesClient() {
   };
 
   /**
-   * View listing and Unlist — and List, for an unlisted row.
+   * View and Unlist — and List, for an unlisted row.
    *
    * Staff act on the public catalog, not the content: there is no edit here,
-   * because the listing belongs to the manager who wrote it. "View listing"
+   * because the listing belongs to the manager who wrote it. "View"
    * opens the page a prospect sees, which is the honest way to check one
    * without handing staff an editor.
    */
@@ -148,7 +148,7 @@ export function AdminPropertiesClient() {
           data-attr="admin-property-view-listing"
           onClick={() => window.open(publicListingHrefForPropertyRow(singleSelected)!, "_blank", "noopener")}
         >
-          View listing
+          View
         </Button>
       ) : null}
       {activeKpi === 2 && singleSelected.listingId ? (

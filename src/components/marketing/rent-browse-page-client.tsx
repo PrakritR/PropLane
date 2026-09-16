@@ -67,12 +67,12 @@ export function RentBrowsePageClient() {
            * so the first listing is never pushed below the fold on a phone.
            */
           <SignedOutOnly>
-            <header className="mx-auto mt-2 max-w-[760px] text-center sm:mt-4">
+            <header className="mx-auto mt-1 max-w-[760px] text-center sm:mt-2">
               <p className="text-[12.5px] font-bold uppercase tracking-[0.08em] text-primary">For residents</p>
               <h1 className="mt-3 text-[clamp(1.9rem,4.4vw,3rem)] font-bold leading-[1.05] tracking-[-0.03em] text-foreground">
                 Find a room or a home. Apply from your phone.
               </h1>
-              <ul className="mt-5 flex flex-wrap items-center justify-center gap-2 text-[12.5px] font-semibold text-foreground/85">
+              <ul className="mt-4 flex flex-wrap items-center justify-center gap-2 text-[12.5px] font-semibold text-foreground/85">
                 {["Tour in a minute", "One application, e-signed lease", "Rent by card or bank, reminders first"].map((p) => (
                   <li key={p} className="rounded-full border border-border bg-card px-3 py-1.5">
                     {p}
@@ -83,35 +83,33 @@ export function RentBrowsePageClient() {
           </SignedOutOnly>
         )}
 
-        <div className="mb-10 mt-6 sm:mb-12 sm:mt-8">
+        <div className="mb-8 mt-5 sm:mb-10 sm:mt-7">
           <ResidentHousingBrowse propertyIds={browseIds} />
         </div>
 
         {isNative !== true ? (
-          <section className="mx-auto mt-10 max-w-2xl rounded-3xl border border-border/50 bg-card px-6 py-10 text-center shadow-sm sm:mt-14 sm:px-10">
-            <h2 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">
-              Ready to make one of these your home?
-            </h2>
-            <p className="mx-auto mt-2 max-w-md text-sm text-muted">
-              Create a free account to save the homes you like and apply in minutes.
+          <section
+            className="mx-auto mt-6 flex max-w-5xl flex-col items-stretch gap-3 rounded-2xl border border-border bg-card px-5 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4"
+            aria-label="Create an account to apply"
+          >
+            <p className="text-sm text-foreground">
+              <span className="text-[15px] font-bold">Ready to apply?</span>{" "}
+              <span className="text-muted">Create a free account to save homes and apply in minutes.</span>
             </p>
-            <div className="mt-6">
-              <Button asChild className="w-full sm:w-auto sm:px-8">
+            <div className="flex items-center justify-center gap-2 sm:justify-end">
+              <Link
+                href={residentSignInHref()}
+                data-attr="resident-browse-sign-in"
+                className="rounded-full px-3 py-2 text-sm font-semibold text-primary hover:underline"
+              >
+                Sign in
+              </Link>
+              <Button asChild className="rounded-full px-5">
                 <Link href={residentCreateAccountHref()} data-attr="resident-browse-get-started">
                   Get started
                 </Link>
               </Button>
             </div>
-            <p className="mt-5 text-sm text-muted">
-              Already have an account?{" "}
-              <Link
-                href={residentSignInHref()}
-                data-attr="resident-browse-sign-in"
-                className="font-semibold text-primary hover:underline"
-              >
-                Sign in
-              </Link>
-            </p>
           </section>
         ) : null}
       </div>

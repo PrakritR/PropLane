@@ -105,9 +105,10 @@ export function ManagerNotificationRoutingSetting() {
     return () => window.clearTimeout(timer);
   }, [load]);
 
+  const workNumberAssigned = Boolean(trimmedText(numberStatus?.number?.phoneNumber));
   const textConnectionReady = Boolean(
     numberStatus?.canSend &&
-      trimmedText(numberStatus.number?.phoneNumber) &&
+      workNumberAssigned &&
       trimmedText(numberStatus.personalPhone?.phone) &&
       numberStatus.personalPhone.forwardInbound,
   );
@@ -115,8 +116,11 @@ export function ManagerNotificationRoutingSetting() {
     if (textConnectionReady) {
       return `Alerts can be sent from ${formatManagerMessagingPhone(numberStatus?.number?.phoneNumber)} to ${formatManagerMessagingPhone(numberStatus?.personalPhone.phone)}.`;
     }
+    if (workNumberAssigned) {
+      return `Alerts can be sent from ${formatManagerMessagingPhone(numberStatus?.number?.phoneNumber)}.`;
+    }
     return "PropLane Assistant will keep receiving alerts until your personal phone and work number are ready.";
-  }, [numberStatus, textConnectionReady]);
+  }, [numberStatus, textConnectionReady, workNumberAssigned]);
 
   const save = useCallback(async () => {
     setSaving(true);
@@ -145,7 +149,6 @@ export function ManagerNotificationRoutingSetting() {
   return (
     <PortalSettingsSection
       title="Manager alerts"
-      description="Choose where proactive reminders reach you and which topics may text your phone."
       action={
         loadState === "ready" ? (
           <Button
@@ -183,10 +186,10 @@ export function ManagerNotificationRoutingSetting() {
         <div className="space-y-4">
           <div className="rounded-lg border border-border bg-accent/30 px-4 py-3">
             <p className="text-sm font-medium text-foreground">
-              {textConnectionReady ? "Phone connection ready" : "Assistant fallback active"}
+              {workNumberAssigned ? "Phone connection ready" : "Assistant fallback active"}
             </p>
             <p className="mt-1 text-xs leading-relaxed text-muted">{statusCopy}</p>
-            {!textConnectionReady ? (
+            {!workNumberAssigned ? (
               <Link
                 href={MANAGER_MESSAGING_SETTINGS_HREF}
                 className="mt-2 inline-flex min-h-10 items-center text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

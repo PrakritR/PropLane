@@ -79,7 +79,8 @@ describe("Login & security for an account with NO password (Google/Apple only)",
     expect(await screen.findByRole("button", { name: "Set password" })).toBeTruthy();
     expect(currentPasswordField()).toBeNull();
     expect(screen.queryByText(/current password/i)).toBeNull();
-    expect(screen.getByText(/set a password to also sign in with your email/i)).toBeTruthy();
+    // No sentence under the section title (AGENTS.md § No subtext).
+    expect(screen.queryByText(/set a password to also sign in with your email/i)).toBeNull();
   });
 
   it("drops the meaningless 'forgot your current password' reset escape hatch", async () => {

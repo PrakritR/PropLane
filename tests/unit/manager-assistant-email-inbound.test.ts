@@ -209,6 +209,27 @@ describe("processManagerAssistantInboundEmail", () => {
       );
     });
 
+    it("tells the mirror whether the reply actually left, so the tag is honest", async () => {
+      mocks.resolveManagerEmailInboundIdentity.mockResolvedValue(null);
+      await processManagerAssistantInboundEmail(db, fromProspect);
+      expect(mocks.mirrorAssistantEmailConversation).toHaveBeenCalledWith(
+        db,
+        expect.objectContaining({ replySent: true }),
+      );
+      // The mirror runs AFTER the send: it needs the outcome to stamp the reply.
+      const sendOrder = mocks.deliverManagerEmailReply.mock.invocationCallOrder[0];
+      const mirrorOrder = mocks.mirrorAssistantEmailConversation.mock.invocationCallOrder[0];
+      expect(sendOrder).toBeLessThan(mirrorOrder);
+
+      mocks.deliverManagerEmailReply.mockResolvedValue({ ok: false });
+      mocks.mirrorAssistantEmailConversation.mockClear();
+      await processManagerAssistantInboundEmail(db, { ...fromProspect, emailId: "email-failed-send" });
+      expect(mocks.mirrorAssistantEmailConversation).toHaveBeenCalledWith(
+        db,
+        expect.objectContaining({ replySent: false }),
+      );
+    });
+
     it("still shows the mail in Communication when no reply was produced", async () => {
       mocks.resolveManagerEmailInboundIdentity.mockResolvedValue(null);
       mocks.runLeasingEmailAgentTurn.mockResolvedValue(null);

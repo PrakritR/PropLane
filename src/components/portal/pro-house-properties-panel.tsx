@@ -4,14 +4,13 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { WORKSPACE_SELECTION_EVENT, activeWorkspaceScope, propertiesOutsideActiveWorkspace, workspaceContainsProperty } from "@/lib/workspaces/selection";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, Home, Pencil, Share2, Trash2 } from "lucide-react";
+import { ChevronDown, Eye, Home, Pencil, Share2, Trash2 } from "lucide-react";
 import {
   propertyRowAddress,
   propertyRowAddressLine,
   propertyRowMeta,
-  propertyRowRentLabel,
   propertyRowThumbnail,
   propertyRowTitle,
 } from "@/lib/property-row-summary";
@@ -47,6 +46,7 @@ import { ManagerPropertyRoomMoveInPanel } from "@/components/portal/pro-property
 import { ManagerPropertyApplicationQuestionsPanel } from "@/components/portal/pro-property-application-questions-panel";
 import { ManagerPropertyLeasePanel } from "@/components/portal/pro-property-lease-panel";
 import { ManagerPropertyPromotionPanel } from "@/components/portal/pro-property-promotion-panel";
+import { ManagerPropertyAiInfoPanel } from "@/components/portal/pro-property-ai-info-panel";
 import { ManagerPropertyTourPanel } from "@/components/portal/pro-property-tour-panel";
 import { ModalShell } from "@/components/ui/modal";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
@@ -76,15 +76,15 @@ import {
 import { ManagerPropertyRequestsPanel } from "@/components/portal/pro-property-requests-panel";
 import { PropertyResidentOnboardWizard } from "@/components/portal/property-resident-onboard-wizard";
 import { PortalPropertyRecordRow, PortalRowStatusChip } from "@/components/portal/portal-record-row";
-import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
-import { LEASE_PIPELINE_EVENT, readLeasePipeline } from "@/lib/lease-pipeline-storage";
+import { LEASE_PIPELINE_EVENT } from "@/lib/lease-pipeline-storage";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
+import { useListingContactWorkEmail } from "@/hooks/use-listing-contact-work-email";
 import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import {
   compareAdminPropertyRowsForDisplay,
@@ -160,7 +160,7 @@ import {
   normalizeManagerListingSubmissionV1,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
-import { withListingContactSmsPhone } from "@/lib/listing-contact-sms";
+import { withListingContactSmsPhone, withListingContactWorkEmail } from "@/lib/listing-contact-sms";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 
 function submissionForListedEdit(p: MockProperty): ManagerListingSubmissionV1 {
@@ -303,15 +303,28 @@ function ManagerPropertyInlineDetails({
   propertyTourId?: string;
 }) {
   const detailRouter = useRouter();
+  const detailPathname = usePathname();
+  const detailSearchParams = useSearchParams();
   const mock = useMemo(() => (row ? resolveAdminPropertyRowPreview(row) : null), [row]);
   const contactSmsPhone = useListingContactSmsPhone({
     listingId: row?.listingId,
     ownerManagerUserId: row?.managerUserId,
     viewerManagerUserId: managerUserId,
   });
+  // The preview shows BOTH of the manager's doors — the work number and the
+  // work email — resolved the way the public page resolves them, so a manager
+  // checking "how renters see this home" sees the same Text / Email buttons.
+  const contactWorkEmail = useListingContactWorkEmail({
+    listingId: row?.listingId,
+    ownerManagerUserId: row?.managerUserId,
+    viewerManagerUserId: managerUserId,
+  });
   const previewProperty = useMemo(
-    () => (mock ? withListingContactSmsPhone(mock, contactSmsPhone) : null),
-    [mock, contactSmsPhone],
+    () =>
+      mock
+        ? withListingContactWorkEmail(withListingContactSmsPhone(mock, contactSmsPhone), contactWorkEmail)
+        : null,
+    [mock, contactSmsPhone, contactWorkEmail],
   );
   const rich = useMemo(() => (previewProperty ? getListingRichContent(previewProperty) : null), [previewProperty]);
   const hasPreview = Boolean(previewProperty && rich);
@@ -454,6 +467,17 @@ function ManagerPropertyInlineDetails({
   const listingOwnerUserId = portalSub?.ownerUserId ?? managerUserId;
 
   const openFullListingEditor = () => setListingEditorOpen(true);
+  useEffect(() => {
+    if (detailSearchParams.get("edit") !== "1") return;
+    if (bucket === 5) {
+      setDraftEditorOpen(true);
+    } else if (canEditAction) {
+      setListingEditorOpen(true);
+    } else if (!canEditListing) {
+      return;
+    }
+    detailRouter.replace(detailPathname, { scroll: false });
+  }, [bucket, canEditAction, canEditListing, detailPathname, detailRouter, detailSearchParams]);
   const dangerBtnClass = `${propertyDetailFooterBtn} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`;
 
   const leaseAddHandlerRef = useRef<(() => void) | null>(null);
@@ -516,9 +540,9 @@ function ManagerPropertyInlineDetails({
         }
       : pendingDestructiveAction === "delete-draft"
         ? {
-            title: "Delete draft",
-            description: `Delete the draft for ${propertyShareLabel}? Your saved progress will be removed.`,
-            confirmLabel: "Delete draft",
+            title: "Delete",
+            description: `Delete ${propertyShareLabel}? Your saved progress will be removed.`,
+            confirmLabel: "Delete",
             dataAttr: "draft-delete-confirm",
           }
         : pendingDestructiveAction === "unlist"
@@ -597,7 +621,7 @@ function ManagerPropertyInlineDetails({
       bucket === 3 || bucket === 5
         ? ["preview"]
         : bucket === 2 && listingId
-          ? ["preview", "house-details", "move-in", "application", "lease", "tours", "bookings", "requests", "promotion"]
+          ? ["preview", "house-details", "move-in", "application", "lease", "tours", "bookings", "requests", "promotion", "ai-info"]
           : ["preview", "house-details", "move-in", "application", "lease"],
     [bucket, listingId],
   );
@@ -634,6 +658,7 @@ function ManagerPropertyInlineDetails({
     pushTopTab("lease", "lease");
     pushTopTab("requests", "requests");
     pushTopTab("promotion", "promotion");
+    pushTopTab("ai-info", "ai-info");
     return items;
   }, [availableTabs, propertiesBase, propertyRouteKey, stage]);
   /**
@@ -652,6 +677,7 @@ function ManagerPropertyInlineDetails({
       ["lease", "lease"],
       ["requests", "requests"],
       ["promotion", "promotion"],
+      ["ai-info", "ai-info"],
     ];
     return order.map(([id, tab]) => {
       const available = availableTabs.includes(tab);
@@ -678,6 +704,31 @@ function ManagerPropertyInlineDetails({
       const actions: PortalAdaptiveAction[] = [];
 
       if (bucket === 2 && listingId) {
+        actions.push({
+          id: "view-listing",
+          node: (
+            <Button
+              type="button"
+              variant="outline"
+              className={propertyDetailFooterBtn}
+              data-attr="listing-view"
+              aria-label="View"
+              title="View"
+              onClick={() => window.open(`/rent/listings/${encodeURIComponent(listingId)}`, "_blank", "noopener")}
+            >
+              <Eye className="size-4" aria-hidden />
+              <span className="sr-only">View</span>
+            </Button>
+          ),
+          menuItem: (
+            <DropdownMenuItem
+              data-attr="listing-view"
+              onSelect={() => window.open(`/rent/listings/${encodeURIComponent(listingId)}`, "_blank", "noopener")}
+            >
+              View
+            </DropdownMenuItem>
+          ),
+        });
         if (canEditAction) {
           actions.push({
             id: "edit-listing",
@@ -687,12 +738,12 @@ function ManagerPropertyInlineDetails({
                 variant="primary"
                 className={propertyDetailFooterBtn}
                 data-attr="listing-edit-full"
-                aria-label="Edit listing"
-                title="Edit listing"
+                aria-label="Edit"
+                title="Edit"
                 onClick={() => openFullListingEditor()}
               >
                 <Pencil className="size-4" aria-hidden />
-                <span className="sr-only">Edit listing</span>
+                <span className="sr-only">Edit</span>
               </Button>
             ),
             menuItem: (
@@ -700,7 +751,7 @@ function ManagerPropertyInlineDetails({
                 data-attr="listing-edit-full"
                 onSelect={() => openFullListingEditor()}
               >
-                Edit listing
+                Edit
               </DropdownMenuItem>
             ),
           });
@@ -713,12 +764,12 @@ function ManagerPropertyInlineDetails({
               variant="outline"
               className={propertyDetailFooterBtn}
               data-attr="listing-send-listing"
-              aria-label="Send listing"
-              title="Send listing"
+              aria-label="Send"
+              title="Send"
               onClick={() => onSendToProspect?.(listingId)}
             >
               <Share2 className="size-4" aria-hidden />
-              <span className="sr-only">Send listing</span>
+              <span className="sr-only">Send</span>
             </Button>
           ),
           menuItem: (
@@ -726,7 +777,7 @@ function ManagerPropertyInlineDetails({
               data-attr="listing-send-listing"
               onSelect={() => onSendToProspect?.(listingId)}
             >
-              Send listing
+              Send
             </DropdownMenuItem>
           ),
         });
@@ -787,7 +838,7 @@ function ManagerPropertyInlineDetails({
                 });
               }}
             >
-              Relist property
+              Relist
             </Button>
           ),
           menuItem: (
@@ -814,7 +865,7 @@ function ManagerPropertyInlineDetails({
                 });
               }}
             >
-              Relist property
+              Relist
             </DropdownMenuItem>
           ),
         });
@@ -829,7 +880,7 @@ function ManagerPropertyInlineDetails({
                 data-attr="listing-edit-full"
                 onClick={() => openFullListingEditor()}
               >
-                Edit listing
+                Edit
               </Button>
             ),
             menuItem: (
@@ -837,7 +888,7 @@ function ManagerPropertyInlineDetails({
                 data-attr="listing-edit-full"
                 onSelect={() => openFullListingEditor()}
               >
-                Edit listing
+                Edit
               </DropdownMenuItem>
             ),
           });
@@ -853,7 +904,7 @@ function ManagerPropertyInlineDetails({
                 data-attr="listing-delete"
                 onClick={() => setPendingDestructiveAction("delete-queue")}
               >
-                Delete from queue
+                Delete
               </Button>
             ),
             menuItem: (
@@ -861,7 +912,7 @@ function ManagerPropertyInlineDetails({
                 data-attr="listing-delete"
                 onSelect={() => setPendingDestructiveAction("delete-queue")}
               >
-                Delete from queue
+                Delete
               </DropdownMenuItem>
             ),
           });
@@ -877,8 +928,8 @@ function ManagerPropertyInlineDetails({
               variant="primary"
               className={propertyDetailFooterBtn}
               data-attr="draft-continue-editing"
-              aria-label="Continue editing"
-              title="Continue editing"
+              aria-label="Edit"
+              title="Edit"
               onClick={() => {
                 if (!skuLoaded) {
                   showToast("Loading subscription…");
@@ -891,7 +942,7 @@ function ManagerPropertyInlineDetails({
                   trash can at every width (see iconTitleActions); the words
                   live in the aria-label and the tooltip. */}
               <Pencil className="size-4" aria-hidden />
-              <span className="sr-only">Continue editing</span>
+              <span className="sr-only">Edit</span>
             </Button>
           ),
           menuItem: (
@@ -905,7 +956,7 @@ function ManagerPropertyInlineDetails({
                 setDraftEditorOpen(true);
               }}
             >
-              Continue editing
+              Edit
             </DropdownMenuItem>
           ),
         });
@@ -917,12 +968,12 @@ function ManagerPropertyInlineDetails({
               variant="outline"
               className={dangerBtnClass}
               data-attr="draft-delete"
-              aria-label="Delete draft"
-              title="Delete draft"
+              aria-label="Delete"
+              title="Delete"
               onClick={() => setPendingDestructiveAction("delete-draft")}
             >
               <Trash2 className="size-4" aria-hidden />
-              <span className="sr-only">Delete draft</span>
+              <span className="sr-only">Delete</span>
             </Button>
           ),
           menuItem: (
@@ -930,7 +981,7 @@ function ManagerPropertyInlineDetails({
               data-attr="draft-delete"
               onSelect={() => setPendingDestructiveAction("delete-draft")}
             >
-              Delete draft
+              Delete
             </DropdownMenuItem>
           ),
         });
@@ -1068,6 +1119,9 @@ function ManagerPropertyInlineDetails({
       {isListingPreview ? (
         hasPreview ? (
           <>
+            {/* The preview IS the public page (PLAN-0914-2124): the same
+                component the renter sees, with one manager extra — the empty
+                photo band's "Add photos" button opens the listing editor. */}
             <ListingDetailSections
               property={previewProperty!}
               rich={rich!}
@@ -1075,6 +1129,19 @@ function ManagerPropertyInlineDetails({
               expandSectionsOnMobile
               managerPreviewChrome
               hidePortalSubnav
+              onAddPhotos={
+                bucket === 5
+                  ? () => {
+                      if (!skuLoaded) {
+                        showToast("Loading subscription…");
+                        return;
+                      }
+                      setDraftEditorOpen(true);
+                    }
+                  : canEditListing
+                    ? () => openFullListingEditor()
+                    : undefined
+              }
             />
           </>
         ) : bucket === 3 || bucket === 5 ? (
@@ -1176,6 +1243,15 @@ function ManagerPropertyInlineDetails({
         />
       ) : null}
 
+      {activeDetailTab === "ai-info" && bucket === 2 && listingId ? (
+        <ManagerPropertyAiInfoPanel
+          propertyId={listingId}
+          managerUserId={managerUserId}
+          showToast={showToast}
+          onUpdated={onUpdated}
+        />
+      ) : null}
+
       {activeDetailTab === "requests" && bucket === 2 && stablePropertyId ? (
         <ManagerPropertyRequestsPanel
           sub={managerSubmission}
@@ -1203,7 +1279,7 @@ function ManagerPropertyInlineDetails({
       ) : null}
 
       {/*
-        Edit and Continue editing open the SAME editor the ADD flow uses — the
+        Edit opens the SAME editor the ADD flow uses — the
         redesigned workspace. They used to mount the original form directly, so
         a listing created in one editor reopened in the other: two surfaces for
         one record, and every pricing change had to be made twice.
@@ -1380,7 +1456,7 @@ export function ManagerHousePropertiesPanel({
     const onWorkspace = () => setTick((t) => t + 1);
     window.addEventListener(PROPERTY_PIPELINE_EVENT, on);
     window.addEventListener("axis-pro-relationships", on);
-    // A lease signed elsewhere changes the occupancy chip on its row.
+    // A lease signed elsewhere re-ranks its row (open rooms feed the attention score).
     window.addEventListener(LEASE_PIPELINE_EVENT, on);
     window.addEventListener(WORKSPACE_SELECTION_EVENT, onWorkspace);
     return () => {
@@ -1448,23 +1524,6 @@ export function ManagerHousePropertiesPanel({
   }, [tick, scopeUserId, activeStage, propertyKeyProp, searchQuery, applications]);
 
 
-  /**
-   * Signed leases per property, for the row's occupancy chip — the same
-   * Fully Signed rows the dashboard's occupancy figure counts.
-   */
-  const occupiedByProperty = useMemo(() => {
-    void tick;
-    const map = new Map<string, number>();
-    if (!scopeUserId) return map;
-    for (const lease of readLeasePipeline(scopeUserId)) {
-      if (lease.status !== "Fully Signed") continue;
-      const key = lease.propertyId?.trim();
-      if (!key) continue;
-      map.set(key, (map.get(key) ?? 0) + 1);
-    }
-    return map;
-  }, [tick, scopeUserId]);
-
   /** Rows per stage, for the empty state's "n drafts · open Drafts" link. */
   const stageCounts = useMemo(() => {
     void tick;
@@ -1521,12 +1580,12 @@ export function ManagerHousePropertiesPanel({
     const first = selectedPropertyEntries[0];
     if (!first) return;
     router.push(
-      propertyDetailHref(
+      `${propertyDetailHref(
         propertiesBase,
         activeStage,
         propertyKeyFromRow(first.row),
         detailTabProp ?? "preview",
-      ),
+      )}?edit=1`,
       { scroll: false },
     );
     clearSelection();
@@ -1900,26 +1959,15 @@ export function ManagerHousePropertiesPanel({
         actions={
           onAddProperty
             ? [
+                // One way in: Create opens the editor, and importing a file is
+                // a strip at the top of its Basics step.
                 {
-                  label: "Add property",
+                  label: "Create",
                   onClick: onAddProperty,
                   disabled: addPropertyDisabled,
                   reason: addPropertyDisabled ? "Loading your plan…" : undefined,
                   dataAttr: "manager-properties-create",
                 },
-                // Only the "all" tab offers the alternate path in — Listed /
-                // Unlisted / Drafts are already filtered views of a portfolio
-                // that (by definition) has at least one property in it.
-                ...(activeStage === "all"
-                  ? [
-                      {
-                        label: "Import portfolio",
-                        href: "/portal/properties/import",
-                        secondary: true,
-                        dataAttr: "properties-empty-import",
-                      },
-                    ]
-                  : []),
               ]
             : []
         }
@@ -2026,7 +2074,7 @@ export function ManagerHousePropertiesPanel({
                   })();
                 }}
               >
-                Delete draft
+                Delete
               </Button>
             ) : null}
           </div>
@@ -2048,47 +2096,22 @@ export function ManagerHousePropertiesPanel({
                     <PortalRowStatusChip tone="neutral" dataAttr="property-row-stage">Draft</PortalRowStatusChip>
                   ) : undefined
                 ) : (
-                  <span className="flex items-center gap-2">
-                    {propertyRowRentLabel(row)}
-                    {/* The row itself opens the home; the switch must not. */}
-                    <span
-                      className="flex items-center"
-                      onClick={(event) => event.stopPropagation()}
-                      onKeyDown={(event) => event.stopPropagation()}
-                    >
-                      <PortalSettingsToggle
-                        checked={sourceBucket === 2}
-                        onChange={() => void toggleRowListed({ sourceBucket, row })}
-                        label={sourceBucket === 2 ? `Unlist ${managerPropertyRowTitle(row, sourceBucket)}` : `List ${managerPropertyRowTitle(row, sourceBucket)}`}
-                        dataAttr="property-row-listed-toggle"
-                      />
-                    </span>
-                  </span>
+                  /* No rent figure and no Listed switch on the row: the tabs say
+                     where a home is, and List / Unlist lives in the ⋯ menu with its
+                     confirmation. */
+                  undefined
                 )
               }
-              chip={(() => {
-                // Drafts are not let; every other stage says how full the home is.
-                if (sourceBucket === 5) return undefined;
-                // Under All the row has to say its own state — the tab no longer does.
-                if (sourceBucket === 3) {
-                  return (
-                    <PortalRowStatusChip tone="neutral" dataAttr="property-row-stage">
-                      Off the market
-                    </PortalRowStatusChip>
-                  );
-                }
-                const rooms = row.submission?.rooms?.length ?? 0;
-                const spaces = row.submission?.listingPlaceCategoryId === "entire_home" ? 1 : Math.max(rooms, 1);
-                const occupied = Math.min(occupiedByProperty.get(propertyKeyFromRow(row)) ?? 0, spaces);
-                return (
-                  <PortalRowStatusChip
-                    tone={occupied >= spaces ? "ok" : occupied === 0 ? "warn" : "neutral"}
-                    dataAttr="property-row-occupancy"
-                  >
-                    {occupied === 0 && spaces === 1 ? "Vacant" : `${occupied} / ${spaces} occupied`}
+              chip={
+                // Under All the row has to say its own state — the tab no longer
+                // does. No occupancy count on the row: the glyph line already
+                // says how many rooms there are.
+                sourceBucket === 3 ? (
+                  <PortalRowStatusChip tone="neutral" dataAttr="property-row-stage">
+                    Off the market
                   </PortalRowStatusChip>
-                );
-              })()}
+                ) : undefined
+              }
               leading={
                 thumb ? (
                   // eslint-disable-next-line @next/next/no-img-element

@@ -15,6 +15,8 @@ type Body = {
   managerUserId?: string;
   /** Long-term vs short-term application — picks the listing's fee field. */
   rentalType?: "standard" | "short_term";
+  /** The applicant's lease type — picks the listing's per-type fee when it set one. */
+  leaseTerm?: string;
   /** Optional — when present, also reports whether the code currently looks redeemable. */
   waiverCode?: string;
   /** "manual" (Zelle/Venmo/other) never carries a Stripe service fee; defaults to "card". */
@@ -70,6 +72,7 @@ export async function POST(req: Request) {
         propertyId,
         managerUserId,
         rentalType: body.rentalType === "short_term" ? "short_term" : "standard",
+        leaseTerm: typeof body.leaseTerm === "string" ? body.leaseTerm.slice(0, 40) : undefined,
       },
       { allowZeroFee: true },
     );

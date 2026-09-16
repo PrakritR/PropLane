@@ -147,7 +147,7 @@ export function PortalTopBar({
           <ChevronDown className="h-4 w-4 text-muted" aria-hidden />
         </DropdownMenuTrigger>
 
-        <DropdownMenuContent backdrop>
+        <DropdownMenuContent>
           <div className="border-b border-border px-3 pb-2.5 pt-1.5">
             <p className="truncate text-[13.5px] font-semibold text-foreground">{displayName}</p>
             {email ? <p className="truncate text-[12px] text-muted">{email}</p> : null}

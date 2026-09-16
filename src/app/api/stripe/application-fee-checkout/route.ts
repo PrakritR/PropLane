@@ -15,6 +15,8 @@ type Body = {
   /** Listing owner Supabase user id (matches `profiles.id` / `MockProperty.managerUserId`). */
   managerUserId?: string;
   rentalType?: "standard" | "short_term";
+  /** The applicant's lease type — picks the listing's per-type fee when it set one. */
+  leaseTerm?: string;
   /** Checkout return path (defaults to public apply). Must start with `/`. */
   returnPath?: string;
   /**
@@ -71,6 +73,7 @@ export async function POST(req: Request) {
       residentName: residentName || undefined,
       managerUserId,
       rentalType: body.rentalType === "short_term" ? "short_term" : "standard",
+      leaseTerm: typeof body.leaseTerm === "string" ? body.leaseTerm.slice(0, 40) : undefined,
       mode,
       // Embedded returns the applicant to the same apply step after paying; the
       // wizard verifies the session server-side before treating the fee as paid.

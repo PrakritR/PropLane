@@ -111,21 +111,15 @@ describe("manager Properties at the Free plan cap — rendered surface", () => {
 
     const bannerHtml = document.body.innerHTML;
 
-    // "+ Add property" is refused, and says why — with the limit and the upgrade path.
-    // The row reads a uniform "ADD" like every other portal add row; "Add
-    // property" is its ACCESSIBLE name, which is what a user is actually
-    // offered here — so match on the role, not the visible glyph.
-    // The top "Add" is a menu (Add property / Import portfolio). Radix opens it on
-    // pointerdown, so drive the pointer like a finger would, then pick the item.
+    // "+ Create" is refused, and says why — with the limit and the upgrade path.
+    // The circle reads a bare glyph like every other portal add control; "Create"
+    // is its ACCESSIBLE name, which is what a user is actually offered here — so
+    // match on the role, not the visible glyph. One door in: no menu to open.
     const trigger = document.querySelector('[data-attr="manager-properties-add-top"]') as HTMLElement | null;
     expect(trigger).toBeTruthy();
+    expect(trigger!.getAttribute("aria-label")).toBe("Create");
     await act(async () => {
-      fireEvent.pointerDown(trigger!, { pointerId: 1, button: 0, clientX: 10, clientY: 10 });
-      fireEvent.pointerUp(trigger!, { pointerId: 1, button: 0, clientX: 10, clientY: 10 });
-    });
-    const addItem = await screen.findByRole("menuitem", { name: /^Add property$/i });
-    await act(async () => {
-      fireEvent.click(addItem);
+      fireEvent.click(trigger!);
     });
     await waitFor(() => {
       expect(screen.getByText(/Free includes 1 property/)).toBeTruthy();

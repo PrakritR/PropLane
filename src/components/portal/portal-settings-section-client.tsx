@@ -245,7 +245,6 @@ export function PortalSettingsSectionClient({
             ) : (
               <PortalSettingsSection
                 title="Settings module not found"
-                description="That settings section doesn't exist. Pick one from the list."
               >
                 <p className="px-1 text-sm text-muted">
                   Nothing here yet — choose a module from {MANAGER_PORTAL_SETTINGS_TABS[0]?.label} onward.

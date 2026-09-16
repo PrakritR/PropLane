@@ -63,6 +63,12 @@ function summarizeSelection(
   if (selected.length === 1) {
     return options.find((o) => o.value === selected[0])?.label ?? "1 selected";
   }
+  // A short selection reads as itself ("Inbox, Email", "1 day, 30 minutes");
+  // only a long one collapses to a count. Order follows the option list, not
+  // the order the picks were made in, so the trigger is stable.
+  const labels = options.filter((o) => selected.includes(o.value)).map((o) => o.label);
+  const joined = labels.join(", ");
+  if (labels.length === selected.length && joined.length <= 32) return joined;
   return `${selected.length} selected`;
 }
 
@@ -120,7 +126,12 @@ export function CheckboxMultiSelect({
   labelClassName?: string;
   hideLabel?: boolean;
   variant?: FieldSelectVariant;
-  menuFooter?: React.ReactNode;
+  /**
+   * Footer under the option list. A function form receives `close` so a footer
+   * action that leaves the menu (e.g. "Custom…" opening an inline entry) can
+   * dismiss it — the menu otherwise only closes on an outside click.
+   */
+  menuFooter?: React.ReactNode | ((close: () => void) => React.ReactNode);
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -295,7 +306,9 @@ export function CheckboxMultiSelect({
           )}
         </div>
         {menuFooter ? (
-          <div className={`shrink-0 border-t border-border ${FIELD_SELECT_MENU_OPTION_CLASS}`}>{menuFooter}</div>
+          <div className={`shrink-0 border-t border-border ${FIELD_SELECT_MENU_OPTION_CLASS}`}>
+            {typeof menuFooter === "function" ? menuFooter(() => setOpenAndReset(false)) : menuFooter}
+          </div>
         ) : null}
       </div>
     ) : null;

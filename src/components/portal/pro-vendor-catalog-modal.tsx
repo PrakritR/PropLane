@@ -135,9 +135,6 @@ export function ManagerVendorCatalogModal({
   return (
     <Modal open={open} title="Vendor catalog" onClose={onClose} panelClassName="max-w-lg">
       <div className="space-y-4 text-sm">
-        <p className="text-xs text-muted">
-          Search curated vendors and vendors shared by other managers on PropLane, then add them to your account.
-        </p>
         <Input
           value={catalogQuery}
           onChange={(e) => setCatalogQuery(e.target.value)}

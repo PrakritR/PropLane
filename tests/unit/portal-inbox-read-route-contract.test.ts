@@ -6,11 +6,25 @@ const state = vi.hoisted(() => ({
   rereadRows: null as Record<string, unknown>[] | null,
   rereadError: null as Error | null,
   rpc: vi.fn(),
-  linkedOwners: vi.fn(async () => []),
+  linkedOwners: vi.fn(async () => [] as string[]),
 }));
 
-vi.mock("@/lib/auth/co-manager-module-scope", () => ({
-  viewerAndLinkedOwnerIdsForModule: state.linkedOwners,
+// The route asks the Communication resolver (per house, per workspace) for the
+// owners it may read and which fetched rows survive. Here the owner set is the
+// contract under test; the house rule has its own coverage.
+vi.mock("@/lib/communication/conversation-visibility.server", () => ({
+  resolveCommunicationScope: async (db: unknown, viewerId: string, level: string) => {
+    const linked = await state.linkedOwners(db, viewerId, "inbox", level);
+    return {
+      viewerId,
+      level,
+      ownerIds: [viewerId, ...linked],
+      grantedHousesByOwner: new Map(),
+      workspaceHouseIds: null,
+      untaggedOwnedVisible: true,
+    };
+  },
+  filterVisibleInboxThreadRecords: async (_db: unknown, _scope: unknown, records: unknown[]) => records,
 }));
 vi.mock("@/lib/portal-inbox-thread-scope", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -231,7 +245,7 @@ describe("portal inbox markRead route contract", () => {
     state.linkedOwners.mockResolvedValueOnce([]);
     const denied = await POST(request({ action: "markRead", scope, sources: [{ id: ownerRow.id, observation: observation(ownerRow) }] }));
     expect(denied.status).toBe(404);
-    expect(state.linkedOwners).toHaveBeenLastCalledWith(state.ctx.db, "co-manager", "inbox", "edit");
+    expect(state.linkedOwners).toHaveBeenLastCalledWith(state.ctx!.db, "co-manager", "inbox", "edit");
     expect(state.rpc).not.toHaveBeenCalled();
 
     state.linkedOwners.mockResolvedValueOnce(["owner-2"]);

@@ -59,6 +59,9 @@ afterEach(() => {
 
 async function openSuggestions() {
   const input = screen.getByRole("textbox");
+  // The list only opens while the box has focus (PLAN-0915-2012), as it would
+  // for a real keystroke.
+  input.focus();
   fireEvent.change(input, { target: { value: "4709A 8th" } });
   await vi.advanceTimersByTimeAsync(400);
   return input;

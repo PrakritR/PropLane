@@ -46,6 +46,7 @@ import {
   syncPersistedInboxFromServer,
   upsertPersistedInboxRows,
   inboxThreadMessages,
+  lastInboundChannelOf,
   inboxThreadSortMs,
   inboxMessageOutbound,
   appendReplyToInboxThread,
@@ -186,6 +187,11 @@ function searchSkipsTrashNote(tabId: string) {
     : "Trash isn’t searched; clear the search, then open the Trash tab.";
 }
 
+/** "Re: Re: Propert" and "Propert" are the same topic for the bubble's subject line. */
+function subjectTopic(subject: string): string {
+  return subject.replace(/^(?:\s*(?:re|fwd?)\s*:\s*)+/i, "").trim().toLowerCase();
+}
+
 function previewLine(body: string, max = 100) {
   const t = body.trim().replace(/\s+/g, " ");
   if (t.length <= max) return t;
@@ -317,6 +323,32 @@ export const ManagerInbox = forwardRef<
       .catch(() => {
         if (!cancelled) setSmsCanSend(false);
       });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /* The address an email reply actually leaves from is the WORKSPACE work
+     email (`resolveManagerOutboundFrom`), not the viewer's login address — the
+     channel menu names that one so "Email · assist-…@prop-lane.space" matches
+     what the recipient sees in their From column. */
+  const [workEmailAddress, setWorkEmailAddress] = useState<string | null>(null);
+  useEffect(() => {
+    if (isDemoModeActive()) return;
+    let cancelled = false;
+    void fetch("/api/manager/assistant-email", { credentials: "include", cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (cancelled || !body || typeof body !== "object") return;
+        const status = body as {
+          canUse?: boolean;
+          workspaceEmail?: { address?: string | null } | null;
+          address?: string | null;
+        };
+        if (status.canUse !== true) return;
+        setWorkEmailAddress(status.workspaceEmail?.address?.trim() || status.address?.trim() || null);
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -749,6 +781,16 @@ export const ManagerInbox = forwardRef<
 
       const replyId = `reply-${Date.now().toString(36)}`;
       const attachmentMeta = attachmentMetaFromUrls(attachmentUrls);
+      const subject = thread.subject.startsWith("Re:")
+        ? thread.subject
+        : `Re: ${thread.subject}`;
+      // The bubble wears the channel the reply is leaving on — email first when
+      // several are on, since that is the one with a subject line to show.
+      const replyChannel: InboxThreadMessage["channel"] = emailAllowed
+        ? "email"
+        : smsAllowed
+          ? "sms"
+          : "proplane";
       const reply: InboxThreadMessage = {
         id: replyId,
         from: "Property manager",
@@ -757,6 +799,8 @@ export const ManagerInbox = forwardRef<
         outbound: true,
         delivery: "sending",
         attachments: attachmentMeta.length ? attachmentMeta : undefined,
+        channel: replyChannel,
+        ...(emailAllowed ? { subject } : {}),
       };
       persistInboxRef.current = false;
       setLocal((current) =>
@@ -797,9 +841,6 @@ export const ManagerInbox = forwardRef<
         );
       };
 
-      const subject = thread.subject.startsWith("Re:")
-        ? thread.subject
-        : `Re: ${thread.subject}`;
       let emailOk = false;
       let smsOk = false;
       let proplaneOk = false;
@@ -1198,6 +1239,13 @@ export const ManagerInbox = forwardRef<
   );
   const activeProplaneAvailable = Boolean(activeThread);
   const showReplyChannelPicker = Boolean(activeThread);
+  /* A primitive on purpose: the default-channel effects key on it, and a string
+     only changes when the person actually reaches us on a different channel —
+     not on every thread refresh, which would undo a manual channel switch. */
+  const activeLastInboundChannel = useMemo(
+    () => (activeThread ? lastInboundChannelOf(activeThread) : null),
+    [activeThread],
+  );
 
   /**
    * An email-only conversation has no SMS channel until someone supplies a
@@ -1280,6 +1328,7 @@ export const ManagerInbox = forwardRef<
       const person = resolveCommunicationPersonThreadReplyChannels({
         emailAvailable: activeEmailAvailable,
         smsAvailable: activeSmsAvailable,
+        lastInboundChannel: activeLastInboundChannel,
       });
       setReplyViaProplane(person.viaProplane);
       setReplyViaEmail(person.viaEmail);
@@ -1306,6 +1355,7 @@ export const ManagerInbox = forwardRef<
     channelsFor,
     activeEmailAvailable,
     activeSmsAvailable,
+    activeLastInboundChannel,
   ]);
 
   const activeIsSent = activeThread?.folder === "sent";
@@ -1318,6 +1368,9 @@ export const ManagerInbox = forwardRef<
   const activeBubbles = useMemo((): InboxBubbleMessage[] => {
     if (!activeThread) return [];
     const pendingRoot = pendingSendingThreadIds.has(activeThread.id);
+    // An email turn shows its subject once: on the first email turn, and again
+    // only when the subject changes ("Re: Propert" three times shows it once).
+    let lastEmailSubject = "";
     return inboxThreadMessages(activeThread).map((m, i) => {
       // Root direction follows the folder (a Sent thread we authored). Appended
       // messages default to outbound (a reply we sent), but a new message
@@ -1326,6 +1379,9 @@ export const ManagerInbox = forwardRef<
       const direction = inboxTurnDirection(activeThread, m, i, activeFolder);
       const delivery =
         m.delivery ?? (pendingRoot && i === 0 && direction === "outbound" ? ("sending" as const) : undefined);
+      const subject = m.channel === "email" ? (m.subject ?? "").trim() : "";
+      const showSubject = Boolean(subject) && subjectTopic(subject) !== subjectTopic(lastEmailSubject);
+      if (subject) lastEmailSubject = subject;
       return {
         id: m.id,
         author: m.from,
@@ -1333,9 +1389,11 @@ export const ManagerInbox = forwardRef<
         at: m.at,
         direction,
         delivery,
-        // Email is the only live channel today; the tag makes the thread
-        // omnichannel-ready so SMS/WhatsApp/Gmail can join the same person-thread.
-        channel: "email",
+        // The channel the turn was stamped with when written. Unstamped legacy
+        // turns show no tag — a guessed "Email" is how an in-app reply that never
+        // left PropLane used to look sent.
+        channel: m.channel,
+        ...(showSubject ? { subject } : {}),
         attachments: m.attachments,
       } satisfies InboxBubbleMessage;
     });
@@ -1784,6 +1842,7 @@ export const ManagerInbox = forwardRef<
       const person = resolveCommunicationPersonThreadReplyChannels({
         emailAvailable: activeEmailAvailable,
         smsAvailable: activeSmsAvailable,
+        lastInboundChannel: activeLastInboundChannel,
       });
       setAiDraftViaEmail(person.viaEmail);
       setAiDraftViaSms(person.viaSms);
@@ -1805,6 +1864,7 @@ export const ManagerInbox = forwardRef<
     activeThread?.id,
     activeEmailAvailable,
     activeSmsAvailable,
+    activeLastInboundChannel,
     channelsFor,
   ]);
 
@@ -1846,10 +1906,10 @@ export const ManagerInbox = forwardRef<
   const replySendingAs = useMemo(
     () => ({
       sms: smsSendingNumber ? formatTourContactPhoneDisplay(smsSendingNumber) : undefined,
-      email: viewerEmail?.trim() || undefined,
+      email: workEmailAddress ?? (viewerEmail?.trim() || undefined),
       proplane: "PropLane",
     }),
-    [smsSendingNumber, viewerEmail],
+    [smsSendingNumber, viewerEmail, workEmailAddress],
   );
 
   const replyChannelPicker = (

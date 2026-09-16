@@ -236,7 +236,10 @@ export function ManagerUnifiedInbox({
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [mobileThreadOpen, setMobileThreadOpen] = useState(Boolean(routeThreadId));
   const statusFilter = threadFilters?.status ?? listSegmentProp;
-  const listSegment = statusFilter === "read" ? "active" : statusFilter;
+  // "read" and "all" are refinements of the active segment for routing; "all"
+  // additionally lets archived rows through (`includeArchived`).
+  const listSegment = statusFilter === "read" || statusFilter === "all" ? "active" : statusFilter;
+  const includeArchived = statusFilter === "all";
   const appUi = useOptionalAppUi();
   const { userId, ready: sessionReady } = usePortalSession();
   const viewerId = resolveCommunicationViewerId(null, userId);
@@ -536,7 +539,7 @@ export function ManagerUnifiedInbox({
       rows = rows.filter((t) => t.folder === "trash");
     } else if (listSegment === "unread") {
       rows = rows.filter((t) => t.folder !== "trash" && t.folder === "inbox" && t.unread);
-    } else {
+    } else if (!includeArchived) {
       rows = rows.filter((t) => t.folder !== "trash");
     }
     if (q) {
@@ -588,12 +591,13 @@ export function ManagerUnifiedInbox({
         time: t.time,
         unread: t.folder === "inbox" && t.unread,
         unreadCount: inboxThreadUnreadCount(t),
-        // The house comes from the contact directory this panel already loads
-        // for its compose and filter pickers, joined by email. Nothing on the
-        // thread itself carries a property.
+        // The house the server resolved the thread to be about — the same set
+        // that decided the row is visible at all. The contact directory (joined
+        // by email) is the fallback for rows the server could not place.
         address: inboxRowAddressLabel(
-          filterContacts?.find((c) => c.email?.trim().toLowerCase() === t.email?.trim().toLowerCase())
-            ?.propertyLabel,
+          t.houses?.[0]?.label ??
+            filterContacts?.find((c) => c.email?.trim().toLowerCase() === t.email?.trim().toLowerCase())
+              ?.propertyLabel,
         ),
         category: inboxThreadCategoryLabel(t),
         // Sort on the SAME field the row is labelled with. `lastMsg.at` is the
@@ -604,7 +608,7 @@ export function ManagerUnifiedInbox({
         sortMs: inboxThreadSortMs(t.id, t.time),
       };
     });
-  }, [filteredEmail, query, listSegment]);
+  }, [filteredEmail, query, listSegment, includeArchived]);
 
   const explicitlyBoundSmsKeys = useMemo(
     () => new Set(filteredEmail.flatMap((thread) => [
@@ -697,10 +701,10 @@ export function ManagerUnifiedInbox({
       if (q && !haystack.includes(q)) return false;
       if (listSegment === "archived") return archived;
       if (listSegment === "unread") return !archived && unread;
-      return !archived;
+      return includeArchived || !archived;
     });
     return items.map(({ item }) => item);
-  }, [allSmsItems, query, listSegment]);
+  }, [allSmsItems, query, listSegment, includeArchived]);
 
   const occupiedResidentEmails = useMemo(() => {
     const occupied = new Set<string>();
@@ -966,7 +970,7 @@ export function ManagerUnifiedInbox({
                 compact
                 tone="muted"
                 section="communication"
-                workspaceAware={false}
+                workspaceAware
                 title={portalEmptyNoMatchTitle("messages", query)}
                 clear={{ label: "Clear search", onClick: () => setQuery(""), dataAttr: "unified-inbox-empty-clear-search" }}
                 dataAttr="unified-inbox-empty"
@@ -975,7 +979,7 @@ export function ManagerUnifiedInbox({
               <PortalListEmptyCard
                 compact
                 section="communication"
-                workspaceAware={false}
+                workspaceAware
                 title={portalEmptyCopy(`communication.${listSegment ?? "active"}` as PortalEmptyCopyKey).title}
                 sibling={listSegment && listSegment !== "active" ? { label: "Active conversations", href: `${commBase}/active`, dataAttr: "unified-inbox-empty-active" } : null}
                 actions={

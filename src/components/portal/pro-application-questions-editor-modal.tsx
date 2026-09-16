@@ -11,6 +11,7 @@ import {
 } from "@/components/portal/portal-collapsible-edit-row";
 import { PortalCollapsibleEditRow } from "@/components/portal/portal-collapsible-edit-row";
 import { Modal, ModalFooter, MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import {
   customApplicationFieldTypeLabel,
   emptyCustomApplicationField,
@@ -276,17 +277,25 @@ export function ManagerApplicationQuestionsEditorModal({
   }, [applicationFields]);
   const hasFieldErrors = fieldErrors.size > 0;
 
-  // The Preview pane always targets ONE section: whichever is currently open in
-  // the editor (first, in canonical section order, when more than one is open),
-  // falling back to the first section that has any questions at all.
+  // The Preview pane targets ONE section. It follows whichever section is open
+  // in the editor until the manager picks one in the pane itself — on a phone
+  // the editor list is hidden behind the preview, so the pane has to be able to
+  // walk the sections on its own (dropdown + Previous / Next).
+  const [previewSectionPick, setPreviewSectionPick] = useState<RentalApplicationSectionId | null>(null);
   const previewSectionId = useMemo((): RentalApplicationSectionId | null => {
+    if (previewSectionPick) return previewSectionPick;
     const openSection = RENTAL_APPLICATION_SECTIONS.find((s) => expandedSectionIds.has(s.id));
     if (openSection) return openSection.id;
     const firstWithQuestions = RENTAL_APPLICATION_SECTIONS.find((s) =>
       applicationFields.some((f) => (f.section ?? "additional") === s.id),
     );
     return (firstWithQuestions ?? RENTAL_APPLICATION_SECTIONS[0])?.id ?? null;
-  }, [expandedSectionIds, applicationFields]);
+  }, [previewSectionPick, expandedSectionIds, applicationFields]);
+  const previewSectionIndex = RENTAL_APPLICATION_SECTIONS.findIndex((s) => s.id === previewSectionId);
+  const stepPreviewSection = (delta: number) => {
+    const next = RENTAL_APPLICATION_SECTIONS[previewSectionIndex + delta];
+    if (next) setPreviewSectionPick(next.id);
+  };
   const previewSection = useMemo(
     () => RENTAL_APPLICATION_SECTIONS.find((s) => s.id === previewSectionId) ?? null,
     [previewSectionId],
@@ -541,11 +550,6 @@ export function ManagerApplicationQuestionsEditorModal({
       onClose={handleParentClose}
       dismissBlocked={Boolean(addChooserSectionId)}
       fullPage
-      description={
-          isTemplateEditor
-            ? "Name your application, then adjust questions below. Every custom application includes all standard questions."
-            : "Expand a section to see its questions. Tap a question to edit in place; use × to remove."
-        }
         presentation="dialog"
         dense
         footer={
@@ -767,12 +771,48 @@ export function ManagerApplicationQuestionsEditorModal({
           </div>
 
           {workspaceView === "preview" ? (
-            <div className="xl:sticky xl:top-4">
+            <div className="space-y-3 xl:sticky xl:top-4">
+              <FieldSingleSelect
+                label="Section"
+                labelClassName={MODAL_FIELD_LABEL_CLASS}
+                value={previewSectionId ?? ""}
+                options={RENTAL_APPLICATION_SECTIONS.map((section) => ({
+                  value: section.id,
+                  label: `${section.title} · ${applicationFields.filter((f) => (f.section ?? "additional") === section.id).length} questions`,
+                }))}
+                onChange={(next) => setPreviewSectionPick(next as RentalApplicationSectionId)}
+                dataAttr="application-preview-section"
+              />
               <ApplicationSectionPreviewPane
                 section={previewSection}
                 fields={previewFields}
                 applicationPreviewPropertyId={applicationPreviewPropertyId}
               />
+              <div className="flex items-center justify-between gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-full"
+                  disabled={previewSectionIndex <= 0}
+                  data-attr="application-preview-previous"
+                  onClick={() => stepPreviewSection(-1)}
+                >
+                  ‹ Previous
+                </Button>
+                <span className="text-xs text-muted" data-attr="application-preview-position">
+                  {previewSectionIndex + 1} of {RENTAL_APPLICATION_SECTIONS.length}
+                </span>
+                <Button
+                  type="button"
+                  variant="primary"
+                  className="rounded-full"
+                  disabled={previewSectionIndex < 0 || previewSectionIndex >= RENTAL_APPLICATION_SECTIONS.length - 1}
+                  data-attr="application-preview-next"
+                  onClick={() => stepPreviewSection(1)}
+                >
+                  Next ›
+                </Button>
+              </div>
             </div>
           ) : null}
           </div>

@@ -7,7 +7,7 @@ import { migrateAmenityOffersPropertyId } from "@/lib/manager-amenity-catalog-st
 import type { PropertyPipelineSnapshot, ManagerPropertyRecordStatus } from "@/lib/persisted-property-records";
 import { scopePropertyPipelineSnapshotForViewer } from "@/lib/persisted-property-records";
 import type { ManagerListingSubmissionV1, ManagerListingServiceOption } from "@/lib/manager-listing-submission";
-import { listingSubmissionLocationLabel } from "@/lib/manager-listing-submission";
+import { listingBathroomCountForDisplay, listingSubmissionLocationLabel } from "@/lib/manager-listing-submission";
 import { parseRecordOfArrays } from "@/lib/safe-local-storage";
 import { PROPERTY_PIPELINE_EVENT, serverSyncOriginatedEvent } from "@/lib/property-pipeline-events";
 import { createCoalescedRefresher, type CoalescedRefresher } from "@/lib/coalesced-refresh";
@@ -174,8 +174,36 @@ function writePendingMap(m: PendingMap) {
   writeJson(PENDING_BY_USER_KEY, m);
 }
 
+/** Text fields every picker trims; a cached row may have lost one. */
+const EXTRA_LISTING_TEXT_FIELDS = [
+  "title", "tagline", "address", "zip", "neighborhood", "rentLabel", "available", "buildingId", "buildingName", "unitLabel",
+] as const;
+
+/**
+ * A browser-store row is not trusted shape. One without an id has nothing any
+ * picker can key on and used to crash Communication, the service modal and the
+ * property filters with "Cannot read properties of undefined (reading 'trim')";
+ * it is dropped here, at the one boundary every reader crosses. Missing text
+ * fields become empty strings so `.trim()` is always safe.
+ */
+function sanitizeExtraListing(row: unknown): MockProperty | null {
+  if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+  const record = row as Record<string, unknown>;
+  if (typeof record.id !== "string" || !record.id.trim()) return null;
+  const out: Record<string, unknown> = { ...record, id: record.id.trim() };
+  for (const field of EXTRA_LISTING_TEXT_FIELDS) {
+    if (typeof out[field] !== "string") out[field] = "";
+  }
+  return out as unknown as MockProperty;
+}
+
 function readExtrasMap(): ExtrasMap {
-  return parseRecordOfArrays<MockProperty>(readJson(EXTRAS_BY_USER_KEY, {}));
+  const parsed = parseRecordOfArrays<unknown>(readJson(EXTRAS_BY_USER_KEY, {}));
+  const out: ExtrasMap = {};
+  for (const [userId, rows] of Object.entries(parsed)) {
+    out[userId] = rows.map(sanitizeExtraListing).filter((row): row is MockProperty => row !== null);
+  }
+  return out;
 }
 
 function writeExtrasMap(m: ExtrasMap, opts?: { silent?: boolean }) {
@@ -824,7 +852,7 @@ export function deriveLegacyFields(sub: ManagerListingSubmissionV1): Omit<Manage
     neighborhood: listingSubmissionLocationLabel(sub),
     unitLabel,
     beds: Math.max(rooms.length || 1, 1),
-    baths: Math.max(sub.bathrooms.filter((b) => b.name.trim()).length || 1, 1),
+    baths: listingBathroomCountForDisplay(sub),
     monthlyRent: minRent,
     petFriendly: sub.petFriendly,
     tagline: sub.tagline.trim() || sub.houseOverview.trim().slice(0, 120) || "Manager-submitted listing",

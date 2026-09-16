@@ -4,6 +4,11 @@ import {
   vendorAvailabilityStorageKey,
   vendorFlexiblePreferencesStorageKey,
 } from "@/lib/demo-admin-scheduling";
+import {
+  MANAGER_KIND_AVAILABILITY_RECORD_TYPE,
+  managerKindAvailabilityStorageKey,
+  parseManagerKindAvailabilityStorageKey,
+} from "@/lib/manager-availability-kinds";
 
 const MANAGER_PROPERTY_AVAIL_PREFIX = "axis_mgr_avail_slots_v2_";
 const CALENDAR_SHARE_PREFIX = "axis_calendar_share_avail_";
@@ -26,10 +31,17 @@ export function managerScheduleRecordIdOwnedByUser(
   if (!id || !uid) return false;
 
   if (recordType === "manager_availability") {
+    // A kind key (services/tasks) must never validate under the tour-visible
+    // record type — the public tour route reads `manager_availability`, and a
+    // client writing a kind id here would leak that availability to prospects.
+    if (parseManagerKindAvailabilityStorageKey(id)) return false;
     return id === `axis_admin_avail_slots_v2_admin_${uid}` || id.startsWith(`${MANAGER_PROPERTY_AVAIL_PREFIX}${uid}_`);
   }
   if (recordType === "manager_property_availability") {
     return id.startsWith(`${MANAGER_PROPERTY_AVAIL_PREFIX}${uid}_prop_`);
+  }
+  if (recordType === MANAGER_KIND_AVAILABILITY_RECORD_TYPE) {
+    return id === managerKindAvailabilityStorageKey(uid, "services") || id === managerKindAvailabilityStorageKey(uid, "tasks");
   }
   if (recordType === "calendar_share_settings") {
     return id.startsWith(`${CALENDAR_SHARE_PREFIX}${uid}_prop_`);
@@ -53,7 +65,8 @@ export function isManagerScopedScheduleRecordType(recordType: string): boolean {
     recordType === "calendar_share_settings" ||
     recordType === "vendor_availability" ||
     recordType === "vendor_flexible_preferences" ||
-    recordType === ROOM_DATE_BLOCK_RECORD_TYPE
+    recordType === ROOM_DATE_BLOCK_RECORD_TYPE ||
+    recordType === MANAGER_KIND_AVAILABILITY_RECORD_TYPE
   );
 }
 

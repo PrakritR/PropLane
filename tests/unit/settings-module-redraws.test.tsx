@@ -69,6 +69,9 @@ function stubFetch() {
       if (url.includes("/api/manager/messaging-number")) {
         return new Response("missing", { status: 404 });
       }
+      if (url.includes("/api/manager/assistant-email")) {
+        return new Response("missing", { status: 404 });
+      }
       throw new Error(`Unexpected fetch: ${url} (${init?.method ?? "GET"})`);
     }),
   );
@@ -157,14 +160,12 @@ describe("settings module redraws — scope tags", () => {
     expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
   });
 
-  it("Resident says plainly it has no settings of its own, tagged Informational", async () => {
+  it("Resident is two link rows under one tagged section, with no explanatory sentence", async () => {
     render(<ResidentSettingsPanel />);
-    expect(await screen.findByText("Informational")).toBeTruthy();
-    // Titled for what the section contains rather than repeating the module
-    // name. Both hosts already name the module — the standalone page's own
-    // heading and the gear sheet's dialog title — so a section titled
-    // "Residents" inside a page titled "Residents" rendered the word twice.
-    expect(screen.getByText("Where resident settings live")).toBeTruthy();
+    expect(await screen.findByText("All properties")).toBeTruthy();
+    expect(screen.getByText("Resident settings")).toBeTruthy();
+    expect(screen.queryByText("Informational")).toBeNull();
+    expect(screen.queryByText(/no settings of its own/i)).toBeNull();
   });
 });
 
@@ -218,43 +219,42 @@ describe("settings module redraws — Applies to is the first row", () => {
   });
 });
 
-describe("settings module redraws — every row carries a real consequence line", () => {
+describe("settings module redraws — every row is a label and its control, nothing under it", () => {
   it("Applications rows", async () => {
     stubFetch();
     render(<ControlledApplications />);
-    const meta = await screen.findByText(
-      "The settings below apply only to the properties checked here.",
-    );
-    expect(meta.textContent).not.toBe("Applies to");
-    const autoApproveMeta = await screen.findByText(
-      /Approve a submitted application without reviewing it first\./,
-    );
-    expect(autoApproveMeta.textContent).not.toBe("Auto-approve applications");
+    expect(await screen.findByText("Applies to")).toBeTruthy();
+    expect(screen.queryByText("The settings below apply only to the properties checked here.")).toBeNull();
+    expect(screen.queryByText(/Approve a submitted application without reviewing it first\./)).toBeNull();
   });
 
   it("Lease rows", async () => {
     stubFetch();
     render(<ControlledLease />);
-    expect(
-      await screen.findByText("Build the lease document as soon as an application is approved."),
-    ).toBeTruthy();
-    expect(await screen.findByText("Send the generated lease for signature when it is ready.")).toBeTruthy();
+    expect(await screen.findByText("Applies to")).toBeTruthy();
+    expect(screen.queryByText("Build the lease document as soon as an application is approved.")).toBeNull();
+    expect(screen.queryByText("Send the generated lease for signature when it is ready.")).toBeNull();
   });
 
-  it("Communication's Auto-send AI drafts row", async () => {
+  it("Communication's Auto-send AI drafts row has no helper subtext", async () => {
     stubFetch();
     render(<CommunicationSettingsPanel />);
-    const meta = await screen.findByText(
-      /When PropLane AI finishes a draft reply, send it without waiting for Approve\./,
-    );
-    expect(meta.textContent).not.toBe("Auto-send AI drafts");
+    await screen.findByRole("switch", { name: "Auto-send AI drafts" });
+    expect(
+      screen.queryByText(
+        /When PropLane AI finishes a draft reply, send it without waiting for Approve\./,
+      ),
+    ).toBeNull();
+    expect(
+      screen.queryByText(/per-event channel choice now lives with each event's own reminder/),
+    ).toBeNull();
   });
 
   it("Resident's pointer rows", async () => {
     render(<ResidentSettingsPanel />);
-    expect(
-      await screen.findByText("Portfolio-wide payment reminder presets live under Payments settings."),
-    ).toBeTruthy();
+    expect(await screen.findByText("Payment reminders")).toBeTruthy();
+    expect(screen.getByText("Household reminders")).toBeTruthy();
+    expect(screen.queryByText(/Portfolio-wide payment reminder presets/)).toBeNull();
   });
 });
 

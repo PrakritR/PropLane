@@ -55,6 +55,13 @@ export type ManagerAutomationSettings = {
   tourReminderDeliverViaSms: boolean;
   /** Resident portal inbox (PropLane channel). */
   tourReminderDeliverViaInbox: boolean;
+  /**
+   * Add service: when the assignee is a vendor or a teammate who is not the
+   * manager, send the assignment message without showing the preview first.
+   * Off by default — a mis-assigned service should never reach a vendor
+   * before the manager has read the message.
+   */
+  autoMessageAssignee: boolean;
   paymentReminderDeliverViaEmail: boolean;
   paymentReminderDeliverViaSms: boolean;
   /** Resident portal inbox (PropLane channel). */
@@ -166,6 +173,7 @@ export const DEFAULT_MANAGER_AUTOMATION_SETTINGS: ManagerAutomationSettings = {
   tourReminderDeliverViaEmail: true,
   tourReminderDeliverViaSms: false,
   tourReminderDeliverViaInbox: true,
+  autoMessageAssignee: false,
   paymentReminderDeliverViaEmail: true,
   // Payment reminders go out on BOTH channels by default. An email-only rent
   // reminder is the one the resident misses; SMS is the channel they read.
@@ -398,6 +406,7 @@ export function normalizeManagerAutomationSettings(raw: unknown): ManagerAutomat
     tourReminderDeliverViaEmail: row.tourReminderDeliverViaEmail !== false,
     tourReminderDeliverViaSms: row.tourReminderDeliverViaSms === true,
     tourReminderDeliverViaInbox: row.tourReminderDeliverViaInbox !== false,
+    autoMessageAssignee: row.autoMessageAssignee === true,
     paymentReminderDeliverViaEmail: row.paymentReminderDeliverViaEmail !== false,
     paymentReminderDeliverViaSms: row.paymentReminderDeliverViaSms === true,
     paymentReminderDeliverViaInbox: row.paymentReminderDeliverViaInbox !== false,
