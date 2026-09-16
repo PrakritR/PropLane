@@ -30,7 +30,7 @@ import {
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { ManagerApplicationOnBehalfModal } from "@/components/portal/pro-application-on-behalf-modal";
+import { AddResidentWizard } from "@/components/portal/resident-wizard";
 import {
   PORTAL_DATA_TABLE_WRAP,
   PORTAL_DETAIL_BTN,
@@ -213,6 +213,8 @@ function applicationRoomLabel(row: DemoApplicantRow): string {
 }
 
 /** Server PDF endpoint for an application, with the client-resolved room label as a display hint. */
+const EMPTY_LEASE_KEYS = { axisIds: new Set<string>(), emails: new Set<string>() };
+
 export function applicationPdfHref(row: DemoApplicantRow, opts?: { inline?: boolean }): string {
   const params = new URLSearchParams();
   const roomLabel = applicationRoomLabel(row);
@@ -1720,14 +1722,16 @@ export function ManagerApplications({
       {/* Mounted only while open: the modal reads the portfolio on render, and
           the list page must not pay for that (or its imports) until asked. */}
       {addApplicationOpen ? (
-        <ManagerApplicationOnBehalfModal
-          open
+        <AddResidentWizard
+          mode="application"
           onClose={() => setAddApplicationOpen(false)}
-          onSubmitted={() => {
-            setAddApplicationOpen(false);
+          managerUserId={userId ?? null}
+          propertyOptions={propertyOptions}
+          propertyTick={0}
+          executedLeaseKeys={EMPTY_LEASE_KEYS}
+          onAdded={() => {
             void syncManagerApplicationsFromServer({ force: true, managerUserId: userId });
           }}
-          managerUserId={userId ?? null}
         />
       ) : null}
       <PortalNotificationPreviewModal

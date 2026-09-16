@@ -82,7 +82,7 @@ vi.mock("@/components/portal/portal-notification-preview-modal", async (importOr
     );
   },
 }));
-vi.mock("@/components/portal/pro-add-scheduled-tour-modal", () => ({ ManagerAddScheduledTourModal: () => null }));
+vi.mock("@/components/portal/resident-wizard", () => ({ AddResidentWizard: () => null }));
 vi.mock("@/components/portal/manager-tour-availability-modal", () => ({ ManagerTourAvailabilityModal: () => null }));
 vi.mock("@/components/portal/pro-portal-settings-modal", () => ({ ManagerPortalSettingsModal: () => null }));
 vi.mock("@/components/portal/share-lead-link-modal", () => ({ ShareLeadLinkModal: () => null }));

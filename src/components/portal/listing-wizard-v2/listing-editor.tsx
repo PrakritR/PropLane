@@ -3377,8 +3377,8 @@ export function ListingEditorV2({
           {isEdit ? (
             nextStep == null ? (
               // A live listing's Review step: the one place with a physical
-              // Save. Autosave and ✕ still write on their own; this is the
-              // explicit "I'm done" that closes the editor once the write lands.
+              // Save. ✕ still writes on close; this is the explicit "I'm done"
+              // that closes the editor once the write lands.
               <button
                 type="button"
                 onClick={() => {

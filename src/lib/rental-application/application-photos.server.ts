@@ -139,6 +139,14 @@ export async function countApplicationPhotoObjects(db: ServiceClient, applicatio
 export type ApplicationPhotoWriteTarget = {
   ownership: StoredApplicationOwnership;
   bucket: string | null;
+  /**
+   * True when the MANAGER created this row (Add resident / Add application).
+   * Such a row is approved the moment it exists, so the "frozen once approved"
+   * rule below would lock the manager out of attaching the very documents the
+   * wizard collected. The manager who owns the row keeps write access; an
+   * applicant or guest never gains it through this flag.
+   */
+  manuallyAdded?: boolean;
   setupTokenHash: string | null;
   setupTokenExpiresAt: string | null;
   setupTokenConsumedAt: string | null;
@@ -167,7 +175,8 @@ export function authorizeApplicationPhotoWrite(params: {
   const { actor, row } = params;
   if (!row) return false;
   if (actor.kind === "admin") return true;
-  if (row.bucket && row.bucket !== "pending") return false;
+  const managerOwnsManualRow = actor.kind === "manager" && row.manuallyAdded === true && canActorAccessApplicationPhoto(actor, row.ownership);
+  if (row.bucket && row.bucket !== "pending" && !managerOwnsManualRow) return false;
   if (actor.kind === "guest") {
     const token = (params.setupToken ?? "").trim();
     if (!token) return false;
