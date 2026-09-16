@@ -3,7 +3,7 @@
 // The shared month grid: open days green, the manager's occupied dates red,
 // booked spans grey (and grey wins where both cover a day), today ringed, and
 // the prev arrow disabled on the first month.
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { RoomAvailabilityMonthCalendar, roomCalendarDayTone } from "@/components/room-availability-month-calendar";
 
@@ -39,4 +39,49 @@ describe("RoomAvailabilityMonthCalendar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next month" }));
     expect((screen.getByRole("button", { name: "Previous month" }) as HTMLButtonElement).disabled).toBe(false);
   });
+
+  it("stays read-only without interactive — days are not buttons", () => {
+    const { container } = render(<RoomAvailabilityMonthCalendar spans={[{ start: day(0), end: day(0), tone: "occupied" }]} />);
+    expect(container.querySelector("button[aria-label='Move occupied start']")).toBeNull();
+    const open = container.querySelector(`[data-tone="open"]`);
+    expect(open?.tagName).toBe("SPAN");
+  });
+
+  it("paints an open day on mouse down/up and ignores booked days", () => {
+    const onPaintRange = vi.fn();
+    const onResizeOccupied = vi.fn();
+    const { container } = render(
+      <RoomAvailabilityMonthCalendar
+        spans={[
+          { start: day(2), end: day(2), tone: "booked" },
+          { id: "occ-1", start: day(4), end: day(4), tone: "occupied" },
+        ]}
+        interactive={{ onPaintRange, onResizeOccupied }}
+      />,
+    );
+    const open = container.querySelector(`[data-tone="open"]`);
+    expect(open).toBeTruthy();
+    fireEvent.pointerDown(open!, { pointerId: 1, pointerType: "mouse", button: 0 });
+    fireEvent.pointerUp(window, { pointerId: 1, pointerType: "mouse" });
+    expect(onPaintRange).toHaveBeenCalledWith(open!.getAttribute("data-day"), open!.getAttribute("data-day"));
+
+    onPaintRange.mockClear();
+    const booked = container.querySelector(`[data-day="${key(day(2))}"][data-tone="booked"]`);
+    fireEvent.pointerDown(booked!, { pointerId: 1, pointerType: "mouse", button: 0 });
+    fireEvent.pointerUp(window, { pointerId: 1, pointerType: "mouse" });
+    expect(onPaintRange).not.toHaveBeenCalled();
+    expect(onResizeOccupied).not.toHaveBeenCalled();
+  });
+
+  it("does not paint on a touch tap that never holds", () => {
+    const onPaintRange = vi.fn();
+    const { container } = render(
+      <RoomAvailabilityMonthCalendar spans={[]} interactive={{ onPaintRange, onResizeOccupied: () => {} }} />,
+    );
+    const open = container.querySelector(`[data-tone="open"]`);
+    fireEvent.pointerDown(open!, { pointerId: 1, pointerType: "touch", button: 0 });
+    fireEvent.pointerUp(window, { pointerId: 1, pointerType: "touch" });
+    expect(onPaintRange).not.toHaveBeenCalled();
+  });
 });
+

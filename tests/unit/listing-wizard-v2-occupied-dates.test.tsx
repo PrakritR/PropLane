@@ -4,7 +4,7 @@
 // available by default, the round + adds an editable Start → End row, a dashed
 // footer under the rows adds the next one, nothing about the renter-facing label
 // is printed but every change still writes it beside the ranges, and the
-// calendar toggle shows the same spans as a month grid.
+// calendar switch stacks the month grid above the occupied from/until editors.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { OccupiedDates } from "@/components/portal/listing-wizard-v2/occupied-dates";
@@ -87,17 +87,35 @@ describe("OccupiedDates", () => {
     expect((screen.getByRole("button", { name: "Add occupied dates" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("flips to a month calendar that paints the occupied days and back", () => {
+  it("flips on a labeled Calendar switch and keeps Occupied from/until on screen", () => {
     const today = new Date();
     const key = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     const { container } = render(<OccupiedDates room={room({ manualUnavailableRanges: [{ id: "u1", start: key(today), end: key(today) }] })} propertyId={null} onRoom={() => {}} />);
-    fireEvent.click(screen.getByRole("button", { name: "View on calendar" }));
+    const toggle = screen.getByRole("switch", { name: "Calendar" });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
     const cell = container.querySelector(`[data-day="${key(today)}"]`);
     expect(cell?.getAttribute("data-tone")).toBe("occupied");
-    expect(screen.getByText("Occupied")).toBeTruthy(); // the legend
-    expect(screen.queryByLabelText("Occupied from")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Back to the list" }));
     expect(screen.getByLabelText("Occupied from")).toBeTruthy();
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByLabelText("Occupied from")).toBeTruthy();
+  });
+
+  it("paints occupied dates when the calendar drag commits an open range", () => {
+    const onRoom = vi.fn();
+    render(<OccupiedDates room={room()} propertyId={null} onRoom={onRoom} />);
+    fireEvent.click(screen.getByRole("switch", { name: "Calendar" }));
+    const cell = document.querySelector(`[data-tone="open"]`);
+    expect(cell).toBeTruthy();
+    const dayKey = cell!.getAttribute("data-day");
+    fireEvent.pointerDown(cell!, { pointerId: 1, pointerType: "mouse", button: 0 });
+    fireEvent.pointerUp(window, { pointerId: 1, pointerType: "mouse" });
+    expect(onRoom).toHaveBeenCalled();
+    const patch = onRoom.mock.calls[0]![0] as Partial<ManagerRoomSubmission>;
+    expect(patch.manualUnavailableRanges).toHaveLength(1);
+    expect(patch.manualUnavailableRanges![0]).toMatchObject({ start: dayKey, end: dayKey });
   });
 
   it("shows a legacy future Available from as one occupied row and materializes it on edit", () => {
