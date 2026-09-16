@@ -17,9 +17,11 @@
 import type { ManagerCustomFeeRow, ManagerListingSubmissionV1, PaymentAtSigningOptionId } from "@/lib/manager-listing-submission";
 import { PAYMENT_AT_SIGNING_OPTIONS, resolveAllowedLeaseTerms } from "@/lib/manager-listing-submission";
 import {
+  AIRBNB_LEASE_TERM,
   isLegacyFixedLeaseTerm,
   LONG_TERM_LEASE_TERM,
   LISTING_LEASE_TERM_OPTION_SET,
+  SHORT_TERM_LEASE_TERM,
 } from "@/lib/rental-application/lease-terms";
 
 /**
@@ -279,6 +281,19 @@ export function paymentAtSigningRows(
  * every lease type. A listing saved before this field existed collected the same
  * payments on every lease type — which is exactly what that fallback reproduces.
  */
+/** The listing fields signing inherit needs — matrix plus rooms (absent termPricing = same as long-term). */
+export type ListingSigningSource = Pick<
+  ManagerListingSubmissionV1,
+  | "paymentAtSigningIncludes"
+  | "paymentAtSigningByLeaseType"
+  | "allowedLeaseTerms"
+  | "leaseTermsBody"
+  | "shortTermRentalsAllowed"
+  | "airbnbRentalsAllowed"
+  | "rooms"
+  | "listingPlaceCategoryId"
+>;
+
 export function paymentAtSigningMatrix(
   sub: Pick<
     ManagerListingSubmissionV1,
@@ -288,12 +303,28 @@ export function paymentAtSigningMatrix(
     | "leaseTermsBody"
     | "shortTermRentalsAllowed"
     | "airbnbRentalsAllowed"
+    | "rooms"
+    | "listingPlaceCategoryId"
   >,
 ): Record<string, string[]> {
   const terms = listingLeaseTypeScopeOptions(sub);
   const stored = sub.paymentAtSigningByLeaseType;
   const legacy = (sub.paymentAtSigningIncludes ?? []).map(String);
   const out: Record<string, string[]> = {};
+  /*
+   * Same-as-long-term writes the Long-term column even when that lease type is
+   * not offered. Keep that column in the matrix so the next read can see it —
+   * otherwise a Month-to-Month-only listing ticks the receipt and the quote
+   * immediately drops the tick (the write landed on a key this loop never
+   * rebuilt).
+   */
+  const presentedOffered = terms.map((term) =>
+    isLegacyFixedLeaseTerm(term) ? LONG_TERM_LEASE_TERM : term,
+  );
+  const keepLongTermStore =
+    !presentedOffered.includes(LONG_TERM_LEASE_TERM) &&
+    presentedOffered.some((term) => listingTermFollowsLongTerm(sub, term));
+  const termsWithStore = keepLongTermStore ? [LONG_TERM_LEASE_TERM, ...terms] : terms;
   /*
    * Keyed by the term the SCREEN shows, not the one the listing stored.
    *
@@ -305,7 +336,7 @@ export function paymentAtSigningMatrix(
    * A row already stored under the presented name wins; otherwise a row saved
    * under the retired name is carried onto it, so nothing set before is lost.
    */
-  for (const term of terms) {
+  for (const term of termsWithStore) {
     const presented = isLegacyFixedLeaseTerm(term) ? LONG_TERM_LEASE_TERM : term;
     if (out[presented]) continue;
     const row = Array.isArray(stored?.[presented]) ? stored?.[presented] : stored?.[term];
@@ -314,18 +345,96 @@ export function paymentAtSigningMatrix(
   return out;
 }
 
-/** Is `rowKey` collected at signing on a lease of `leaseTerm`? */
-export function isPaymentDueAtSigning(
-  sub: Parameters<typeof paymentAtSigningMatrix>[0],
-  rowKey: string,
+/**
+ * True when this lease type still follows long-term prices — the same rule as
+ * the Pricing tab's "Same as long-term" box: no room has its own `termPricing`
+ * on that term. Entire-home and stay terms never follow; they have their own
+ * price fields.
+ */
+export function listingTermFollowsLongTerm(
+  sub: Pick<ManagerListingSubmissionV1, "rooms" | "listingPlaceCategoryId">,
   leaseTerm: string | null | undefined,
 ): boolean {
   const term = String(leaseTerm ?? "").trim();
+  if (!term || term === LONG_TERM_LEASE_TERM) return false;
+  if (term === SHORT_TERM_LEASE_TERM || term === AIRBNB_LEASE_TERM) return false;
+  if (sub.listingPlaceCategoryId === "entire_home") return false;
+  return !(sub.rooms ?? []).some((room) => {
+    const own = room.termPricing?.[term];
+    return Boolean(own && Object.keys(own).length > 0);
+  });
+}
+
+/** The matrix column a signing read or write actually uses. */
+export function resolvedSigningLeaseTerm(
+  sub: Pick<ManagerListingSubmissionV1, "rooms" | "listingPlaceCategoryId">,
+  leaseTerm: string | null | undefined,
+): string {
+  const term = String(leaseTerm ?? "").trim();
+  if (listingTermFollowsLongTerm(sub, term)) return LONG_TERM_LEASE_TERM;
+  return term || LONG_TERM_LEASE_TERM;
+}
+
+export function roomHasOwnPaymentAtSigning(
+  sub: ListingSigningSource,
+  roomId: string | null | undefined,
+  leaseTerm: string | null | undefined,
+): boolean {
+  if (!roomId) return false;
+  const resolved = resolvedSigningLeaseTerm(sub, leaseTerm);
+  const room = (sub.rooms ?? []).find((r) => r.id === roomId);
+  return Array.isArray(room?.paymentAtSigningByLeaseType?.[resolved]);
+}
+
+function signingKeysInclude(keys: readonly string[], rowKey: string, roomId?: string | null): boolean {
+  if (keys.includes(rowKey)) return true;
+  if (rowKey.startsWith(PAYMENT_AT_SIGNING_ROOM_RENT_KEY_PREFIX) && keys.includes("first_month_rent")) {
+    return true;
+  }
+  if (rowKey === "first_month_rent") {
+    if (roomId && keys.includes(`${PAYMENT_AT_SIGNING_ROOM_RENT_KEY_PREFIX}${roomId}`)) return true;
+    if (!roomId && keys.some((key) => key.startsWith(PAYMENT_AT_SIGNING_ROOM_RENT_KEY_PREFIX))) return true;
+  }
+  return false;
+}
+
+/** The stored tick list for one lease type, after same-as-long-term inherit and an optional room override. */
+export function paymentAtSigningKeysFor(
+  sub: ListingSigningSource,
+  leaseTerm: string | null | undefined,
+  roomId?: string | null,
+): string[] {
+  const term = String(leaseTerm ?? "").trim();
   const matrix = paymentAtSigningMatrix(sub);
-  if (term && matrix[term]) return matrix[term]!.includes(rowKey);
-  // No term named: due at signing if ANY offered lease type collects it, which is what
-  // the flat list meant before the matrix existed.
-  return Object.values(matrix).some((keys) => keys.includes(rowKey));
+  if (!term) {
+    const union = new Set<string>();
+    for (const keys of Object.values(matrix)) {
+      for (const key of keys) union.add(key);
+    }
+    return [...union];
+  }
+  const resolved = resolvedSigningLeaseTerm(sub, term);
+  if (roomId) {
+    const room = (sub.rooms ?? []).find((r) => r.id === roomId);
+    const own = room?.paymentAtSigningByLeaseType?.[resolved];
+    if (Array.isArray(own)) return [...own];
+  }
+  return matrix[resolved] ? [...matrix[resolved]!] : [];
+}
+
+/** Is `rowKey` collected at signing on a lease of `leaseTerm`? */
+export function isPaymentDueAtSigning(
+  sub: ListingSigningSource,
+  rowKey: string,
+  leaseTerm: string | null | undefined,
+  roomId?: string | null,
+): boolean {
+  const term = String(leaseTerm ?? "").trim();
+  if (!term) {
+    const matrix = paymentAtSigningMatrix(sub);
+    return Object.values(matrix).some((keys) => signingKeysInclude(keys, rowKey, roomId));
+  }
+  return signingKeysInclude(paymentAtSigningKeysFor(sub, term, roomId), rowKey, roomId);
 }
 
 /** Tick or untick one cell, returning the whole matrix. */

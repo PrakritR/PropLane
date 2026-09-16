@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { AlertCircle, CheckCircle2, Mail } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSelectedWorkspaceId } from "@/hooks/use-selected-workspace-id";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   PortalSettingsField,
@@ -78,11 +79,13 @@ export function ManagerAssistantEmailSettingsPanel() {
     }
   }, []);
 
+  // The address belongs to the ACTIVE workspace; read again on a switch.
+  const selectedWorkspace = useSelectedWorkspaceId();
   useEffect(() => {
     const controller = new AbortController();
     void Promise.resolve().then(() => load(controller.signal));
     return () => controller.abort();
-  }, [load]);
+  }, [load, selectedWorkspace]);
 
   const copyAddress = useCallback(async () => {
     const address = status?.address;

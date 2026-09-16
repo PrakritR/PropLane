@@ -188,7 +188,7 @@ function googleBusyWindowEndMs(offeredSlots: readonly string[], now: number = Da
  * fetched for a 21-day read would otherwise be served to a request offering
  * slots three months out, silently un-subtracting the tail.
  */
-async function googleBusyBlocks(
+export async function googleBusyBlocks(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   managerUserId: string,
   timeMin: string,

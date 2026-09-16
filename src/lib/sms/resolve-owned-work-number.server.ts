@@ -21,6 +21,7 @@ function phoneVariants(raw: string): string[] {
 
 type WorkNumberRow = {
   manager_user_id: string | null;
+  workspace_id: string | null;
   messaging_service_sid: string | null;
   provision_state: string | null;
   grace_expires_at: string | null;
@@ -40,7 +41,7 @@ function isUsableProvision(row: WorkNumberRow): boolean {
 function pickUniqueOwner(
   rows: WorkNumberRow[],
   preferredServiceSid: string | null,
-): { managerId: string; messagingServiceSid: string } | null {
+): { managerId: string; workspaceId: string | null; messagingServiceSid: string } | null {
   const candidates = rows.filter(isUsableProvision);
   if (candidates.length === 0) return null;
 
@@ -56,15 +57,18 @@ function pickUniqueOwner(
   const row = pool[0];
   const managerId = String(row.manager_user_id ?? "").trim();
   if (!managerId) return null;
+  const workspaceId = String(row.workspace_id ?? "").trim() || null;
   const messagingServiceSid =
     String(row.messaging_service_sid ?? "").trim() || preferredServiceSid || "";
   // Callers always need a Messaging Service id for outbound; borrow the
   // deployment SID when the row has not stored one yet (pre-attachment).
-  return messagingServiceSid ? { managerId, messagingServiceSid } : null;
+  return messagingServiceSid ? { managerId, workspaceId, messagingServiceSid } : null;
 }
 
 /**
- * Resolve which manager owns the dialed/texted work number.
+ * Resolve which manager — and which of their WORKSPACES — owns the dialed or
+ * texted work number. `workspaceId` is null only for a legacy row the
+ * migration could not place.
  *
  * Prefer rows attached to this deployment's Messaging Service. When that filter
  * yields nothing (number purchased / carrier-registered but not yet attached,
@@ -75,7 +79,7 @@ function pickUniqueOwner(
 export async function resolveOwnedWorkNumber(
   db: SupabaseClient,
   toPhone: string,
-): Promise<{ managerId: string; messagingServiceSid: string } | null> {
+): Promise<{ managerId: string; workspaceId: string | null; messagingServiceSid: string } | null> {
   const expectedServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim() || null;
   // Without a deployment Messaging Service, ownership cannot be tied to this
   // runtime — same fail-closed posture as the previous SID-only lookup.
@@ -84,7 +88,7 @@ export async function resolveOwnedWorkNumber(
   if (variants.length === 0) return null;
 
   const selectCols =
-    "manager_user_id, messaging_service_sid, provision_state, grace_expires_at, updated_at";
+    "manager_user_id, workspace_id, messaging_service_sid, provision_state, grace_expires_at, updated_at";
 
   if (expectedServiceSid) {
     const { data, error } = await db

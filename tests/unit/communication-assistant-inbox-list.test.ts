@@ -35,6 +35,14 @@ describe("communication assistant inbox list", () => {
     expect(rows).toHaveLength(1);
   });
 
+  it("does not grow a second assistant row while the only one is archived", () => {
+    // Archiving PropLane Assistant moves it to trash; the pin must count that
+    // row as present or Active would sprout a fresh empty Assistant next to it.
+    const archived = { ...buildResidentAssistantPlaceholderThread(RESIDENT), folder: "trash" as const };
+    expect(ensureAssistantThreadInRows([archived], buildResidentAssistantPlaceholderThread(RESIDENT))).toHaveLength(1);
+    expect(withPinnedPropLaneAssistantThreads([archived], "resident", RESIDENT, "active")).toHaveLength(1);
+  });
+
   it("pins the assistant row to the top of unified items", () => {
     const assistantId = `resident-agent-${RESIDENT}`;
     const assistant: UnifiedInboxListItem = {

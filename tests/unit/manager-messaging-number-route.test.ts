@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryDb } from "./support/memory-supabase";
 
 const mocks = vi.hoisted(() => ({
+  /** The workspace switcher's cookie, as the route reads it. */
+  cookies: {} as Record<string, string>,
   requireManagerRouteUser: vi.fn(),
   getEffectiveManagerSmsEntitlement: vi.fn(),
   reconcileManagerSmsEntitlement: vi.fn(),
@@ -26,11 +28,19 @@ vi.mock("@/lib/sms/manager-number-provisioning.server", () => ({
 }));
 vi.mock("@/lib/analytics/posthog", () => ({ track: mocks.track }));
 vi.mock("@/lib/rate-limit", () => ({ rateLimit: mocks.rateLimit }));
+vi.mock("next/headers", () => ({
+  cookies: async () => ({
+    get: (name: string) => (mocks.cookies[name] ? { value: mocks.cookies[name] } : undefined),
+  }),
+}));
 
 import { GET, POST } from "@/app/api/manager/messaging-number/route";
 
 const MANAGER = "00000000-0000-4000-8000-000000000001";
 const OWNER = "00000000-0000-4000-8000-000000000099";
+/** The viewer's own default workspace and the one the owner shares with them. */
+const MY_WS = "ws-manager";
+const SHARED_WS = "ws-owner";
 const originalProvisioning = process.env.SMS_PROVISIONING_ENABLED;
 
 function dbFor(input?: {
@@ -54,12 +64,24 @@ function dbFor(input?: {
     profiles: [
       {
         id: MANAGER,
+        email: "manager@example.com",
         phone: "+15105550123",
         phone_verified_at: "2026-08-25T12:00:00.000Z",
         sms_forward_inbound: true,
       },
+      ...(input?.coManager ? [{ id: OWNER, full_name: "Prakrit Ramachandran", email: "owner@example.com" }] : []),
     ],
-    manager_property_records: [],
+    // A work number belongs to a WORKSPACE. The viewer always owns a default
+    // workspace of their own; a co-manager additionally sees the owner's.
+    portal_workspaces: [
+      { id: MY_WS, owner_user_id: MANAGER, name: "My workspace", is_default: true, created_at: "2026-01-02" },
+      ...(input?.coManager
+        ? [{ id: SHARED_WS, owner_user_id: OWNER, name: "Owner's workspace", is_default: true, created_at: "2026-01-01" }]
+        : []),
+    ],
+    manager_property_records: input?.coManager
+      ? [{ id: "house-1", manager_user_id: OWNER, workspace_id: SHARED_WS, row_data: {} }]
+      : [],
     account_link_invites: input?.coManager
       ? [
           {
@@ -67,6 +89,8 @@ function dbFor(input?: {
             invitee_user_id: MANAGER,
             inviter_user_id: OWNER,
             status: "accepted",
+            assigned_property_ids: ["house-1"],
+            property_co_manager_permissions: { "house-1": { inbox: true } },
           },
         ]
       : [],
@@ -75,6 +99,7 @@ function dbFor(input?: {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.cookies = {};
   mocks.rateLimit.mockResolvedValue({ ok: true });
   delete process.env.SMS_PROVISIONING_ENABLED;
   const db = dbFor();
@@ -155,7 +180,7 @@ describe("manager messaging-number route", () => {
     process.env.SMS_PROVISIONING_ENABLED = "1";
     const response = await POST(new Request("https://prop-lane.test/api/manager/messaging-number", { method: "POST", body: "{}" }));
     expect(response.status).toBe(200);
-    expect(mocks.provisionManagerNumber).toHaveBeenCalledWith(db, MANAGER, undefined);
+    expect(mocks.provisionManagerNumber).toHaveBeenCalledWith(db, MANAGER, { workspaceId: MY_WS });
     expect(mocks.track).toHaveBeenCalledWith("messaging_number_requested", MANAGER, { state: "provisioning" });
   });
 
@@ -209,12 +234,13 @@ describe("manager messaging-number route", () => {
     const db = dbFor({ mode: "automatic", coManager: true });
     db.__tables.manager_sms_numbers.push({
       manager_user_id: OWNER,
+      workspace_id: SHARED_WS,
       phone_number: "+12065550199",
       provision_state: "active",
       registration_state: "approved",
     });
-    db.__tables.profiles.push({ id: OWNER, full_name: "Prakrit Ramachandran", email: "owner@example.com" });
     mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
+    mocks.cookies["proplane-workspace"] = SHARED_WS;
     process.env.SMS_PROVISIONING_ENABLED = "1";
 
     const response = await GET();
@@ -233,8 +259,8 @@ describe("manager messaging-number route", () => {
 
   it("tells a co-manager whose job it is when the workspace has no number yet", async () => {
     const db = dbFor({ mode: "automatic", coManager: true });
-    db.__tables.profiles.push({ id: OWNER, full_name: "Prakrit Ramachandran", email: "owner@example.com" });
     mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
+    mocks.cookies["proplane-workspace"] = SHARED_WS;
 
     const body = await (await GET()).json();
 
@@ -246,6 +272,7 @@ describe("manager messaging-number route", () => {
     const db = dbFor();
     db.__tables.manager_sms_numbers.push({
       manager_user_id: MANAGER,
+      workspace_id: MY_WS,
       provision_state: "failed",
       registration_state: "approved",
       attachment_state: "failed",
@@ -264,6 +291,7 @@ describe("manager messaging-number route", () => {
     const db = dbFor();
     db.__tables.manager_sms_numbers.push({
       manager_user_id: MANAGER,
+      workspace_id: MY_WS,
       phone_number: "+12065550123",
       provision_state: "provisioning",
       registration_state: "approved",
@@ -290,6 +318,7 @@ describe("manager messaging-number route", () => {
     const db = dbFor();
     db.__tables.manager_sms_numbers.push({
       manager_user_id: MANAGER,
+      workspace_id: MY_WS,
       phone_number: "+12065550123",
       provision_state: "provisioning",
       registration_state: "approved",
@@ -331,6 +360,7 @@ describe("manager messaging-number route", () => {
     const db = dbFor({ mode: "paused" });
     db.__tables.manager_sms_numbers.push({
       manager_user_id: MANAGER,
+      workspace_id: MY_WS,
       phone_number: "+12065550123",
       provision_state: "active",
       registration_state: "approved",
@@ -418,9 +448,10 @@ describe("manager messaging-number route", () => {
     expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
   });
 
-  it("refuses to buy a co-manager a second number for the same workspace", async () => {
+  it("refuses to buy a number for a workspace the viewer does not own", async () => {
     const db = dbFor({ mode: "automatic", coManager: true });
     mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
+    mocks.cookies["proplane-workspace"] = SHARED_WS;
     process.env.SMS_PROVISIONING_ENABLED = "1";
 
     const response = await POST(
@@ -430,11 +461,40 @@ describe("manager messaging-number route", () => {
       }),
     );
 
-    expect(response.status).toBe(409);
-    expect((await response.json()).code).toBe("workspace_number_shared");
+    expect(response.status).toBe(403);
+    expect((await response.json()).code).toBe("workspace_not_owned");
     // Refused before any billing or provider work, not after.
     expect(mocks.reconcileManagerSmsEntitlement).not.toHaveBeenCalled();
     expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
+  });
+
+  it("a co-manager's OWN empty workspace has no number and may set one up — never the owner's", async () => {
+    // The Sep 15 bug: an account with an accepted link elsewhere showed the
+    // INVITER's line inside its own, unrelated workspace.
+    const db = dbFor({ mode: "automatic", coManager: true });
+    db.__tables.manager_sms_numbers.push({
+      manager_user_id: OWNER,
+      workspace_id: SHARED_WS,
+      phone_number: "+12065550199",
+      provision_state: "active",
+      registration_state: "approved",
+    });
+    mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
+    mocks.cookies["proplane-workspace"] = MY_WS;
+    process.env.SMS_PROVISIONING_ENABLED = "1";
+
+    const body = await (await GET()).json();
+    expect(body.workspaceRole).toBe("primary");
+    expect(body.workspace).toMatchObject({ id: MY_WS, owned: true });
+    expect(body.number).toBeNull();
+    expect(body.workspaceNumber).toBeNull();
+    expect(body.canRequest).toBe(true);
+    expect(JSON.stringify(body.number)).not.toContain("+12065550199");
+    // Settings can still list every workspace and whose line each is.
+    expect(body.workspaces).toEqual([
+      expect.objectContaining({ workspaceId: MY_WS, owned: true, phoneNumber: null }),
+      expect.objectContaining({ workspaceId: SHARED_WS, owned: false, phoneNumber: "+12065550199", ownerName: "Prakrit Ramachandran" }),
+    ]);
   });
 
   it("keeps the environment kill switch ahead of provider provisioning", async () => {
@@ -478,6 +538,7 @@ describe("manager messaging-number route", () => {
       MANAGER,
     );
     expect(mocks.provisionManagerNumber).toHaveBeenCalledWith(db, MANAGER, {
+      workspaceId: MY_WS,
       areaCode: "206",
     });
     expect(mocks.track).toHaveBeenCalledWith(
@@ -512,6 +573,7 @@ describe("manager messaging-number route", () => {
     const db = dbFor({ mode: "automatic" });
     db.__tables.manager_sms_numbers.push({
       manager_user_id: MANAGER,
+      workspace_id: MY_WS,
       provision_state: "failed",
       registration_state: "approved",
       attachment_state: "failed",

@@ -16,7 +16,13 @@ import {
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import {
+  AVAILABILITY_KINDS,
+  AVAILABILITY_KIND_LABELS,
+  type AvailabilityKind,
+} from "@/lib/manager-availability-kinds";
+import { mergeOpenRuns, formatOpenRunKindsLabel, type OpenRun } from "@/lib/calendar-open-runs";
 import { Modal, ModalFooter, MODAL_HEADER_CLOSE_CLASS } from "@/components/ui/modal";
 import { X } from "lucide-react";
 import { PortalNotificationPreviewModal, type NotificationConfirmDraft } from "@/components/portal/portal-notification-preview-modal";
@@ -208,6 +214,10 @@ type RecurringBlockModalFormFieldsProps = {
   blockOccurrencesDraft: string | null;
   setBlockOccurrencesDraft: (draft: string | null) => void;
   slotRowIndices: number[];
+  /** Manager calendar only (`availabilityKeysByKind` supplied) — admin/vendor never see "Applies to". */
+  showAppliesTo: boolean;
+  blockKinds: AvailabilityKind[];
+  setBlockKinds: (next: AvailabilityKind[]) => void;
 };
 
 function RecurringBlockModalFormFields({
@@ -225,10 +235,28 @@ function RecurringBlockModalFormFields({
   blockOccurrencesDraft,
   setBlockOccurrencesDraft,
   slotRowIndices,
+  showAppliesTo,
+  blockKinds,
+  setBlockKinds,
 }: RecurringBlockModalFormFieldsProps) {
   return (
     <div className="space-y-4">
       <div className={BLOCK_MODAL_SUMMARY_CLASS}>{blockSummary}</div>
+
+      {showAppliesTo ? (
+        <div className="space-y-1.5">
+          <p className={BLOCK_MODAL_LABEL_CLASS}>Applies to</p>
+          <CheckboxMultiSelect
+            label="Applies to"
+            hideLabel
+            options={AVAILABILITY_KINDS.map((kind) => ({ value: kind, label: AVAILABILITY_KIND_LABELS[kind] }))}
+            selected={blockKinds}
+            onChange={(next) => setBlockKinds(next as AvailabilityKind[])}
+            dataAttr="calendar-block-applies-to"
+            className="w-full sm:w-64"
+          />
+        </div>
+      ) : null}
 
       <div className="space-y-1.5">
         <p className={BLOCK_MODAL_LABEL_CLASS}>Days of week</p>
@@ -346,18 +374,46 @@ const CALENDAR_GRID_GAP = "gap-px bg-accent/40 [html[data-theme=dark]_&]:portal-
 // Open availability is the quiet layer of the week — a faint tint with a soft
 // ring, the way Google Calendar draws free time — so the booked tours on top
 // of it are what the eye lands on. Forty solid green blocks were a wall.
-const CALENDAR_OPEN_SLOT =
-  "bg-emerald-50 text-emerald-700/80 ring-1 ring-inset ring-emerald-200/80 hover:bg-emerald-100/80 [html[data-theme=dark]_&]:portal-calendar-open-slot";
+// (Kept only for the dead, pre-compact `viewMode` render path below — every
+// live caller passes `compactAvailability`, which uses `CALENDAR_OPEN_RUN_TINTS`.)
 const CALENDAR_OPEN_SLOT_SOFT =
   "border-emerald-200 bg-emerald-50 text-emerald-800 [html[data-theme=dark]_&]:portal-calendar-open-slot";
 /**
- * Bookable by the 9-5 default, not by anything the manager painted. Deliberately
- * a dashed, lower-contrast cousin of the painted-open style: it IS live to
- * prospects (so it must not read as empty), but it is not a deliberate choice
- * the manager made (so it must not read the same as painted availability).
+ * Tint an open run by kind (PLAN-0914-1710 §1), split into fill + border
+ * instead of one `ring-1 ring-inset` class. A ring sits inside every cell's
+ * own edges, so two adjacent cells of the same run would each draw a full
+ * ring and the seam between them would still read as a divider. Borders are
+ * dropped per-edge inline in `renderSlotButton` (no `border-t` between
+ * cells, `border-t`/`rounded-t-lg` only on the first, `border-b`/`rounded-b-lg`
+ * only on the last) so only the run's OUTER edge draws a line and interior
+ * cells butt seamlessly. Services and tasks reuse existing theme-aware CSS
+ * variables (`--pl-accent-soft`, `--status-pending-*`) instead of new
+ * hard-coded colors, so dark mode is correct without touching globals.css.
  */
-const CALENDAR_DEFAULT_OPEN_SLOT =
-  "bg-emerald-50/60 text-emerald-700/70 ring-1 ring-inset ring-dashed ring-emerald-200/80 hover:bg-emerald-100/80 [html[data-theme=dark]_&]:portal-calendar-open-slot";
+const CALENDAR_OPEN_RUN_TINTS: Record<AvailabilityKind, { fill: string; border: string }> = {
+  tours: {
+    fill: "bg-emerald-50 text-emerald-700/80 hover:bg-emerald-100/80 [html[data-theme=dark]_&]:portal-calendar-open-slot",
+    border: "border-emerald-200/80",
+  },
+  services: {
+    fill: "bg-[var(--pl-accent-soft)] text-primary hover:brightness-95",
+    border: "border-primary/25",
+  },
+  tasks: {
+    fill: "bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)] hover:brightness-95",
+    border: "border-[var(--status-pending-fg)]/25",
+  },
+};
+/**
+ * Default-open run styling — the dashed, lower-contrast cousin of painted
+ * tours. Deliberately lower-contrast: it IS live to prospects (so it must not
+ * read as empty), but it is not a deliberate choice the manager made (so it
+ * must not read the same as painted availability).
+ */
+const CALENDAR_DEFAULT_OPEN_RUN_TINT = {
+  fill: "bg-emerald-50/60 text-emerald-700/70 hover:bg-emerald-100/80 [html[data-theme=dark]_&]:portal-calendar-open-slot",
+  border: "border-dashed border-emerald-200/80",
+};
 const CALENDAR_BADGE_SUCCESS =
   "rounded-full portal-badge-success";
 const CALENDAR_BADGE_INFO =
@@ -437,6 +493,42 @@ function unionAvailabilityForStorageKeys(keys: string[]): Set<string> {
     for (const slot of readAvailabilityDateSetForStorageKey(key)) union.add(slot);
   }
   return union;
+}
+
+/** Per-kind version of {@link unionAvailabilityForStorageKeys} — one Set per kind that has keys. */
+function unionAvailabilityByKind(
+  map: Partial<Record<AvailabilityKind, string[]>>,
+): Partial<Record<AvailabilityKind, Set<string>>> {
+  const out: Partial<Record<AvailabilityKind, Set<string>>> = {};
+  for (const kind of AVAILABILITY_KINDS) {
+    const keys = map[kind];
+    if (!keys?.length) continue;
+    out[kind] = unionAvailabilityForStorageKeys(keys);
+  }
+  return out;
+}
+
+/** Union across every kind's slot set — the "is this painted at all" view every existing consumer wants. */
+function unionOfKindSlots(byKind: Partial<Record<AvailabilityKind, Set<string>>>): Set<string> {
+  const union = new Set<string>();
+  for (const kind of AVAILABILITY_KINDS) {
+    const slots = byKind[kind];
+    if (!slots) continue;
+    for (const key of slots) union.add(key);
+  }
+  return union;
+}
+
+/** A merged open run, plus whether it is the implicit 9-5 default rather than something painted. */
+type CalendarOpenRun = OpenRun & { isDefault?: boolean };
+
+/** "6-8 am" / "6-6:30 am" — drops the repeated meridiem when start and end share one. */
+function formatOpenRunTimeRangeLabel(startSlot: number, endSlotExclusive: number): string {
+  const start = formatAvailabilitySlotLabel(startSlot);
+  const end = formatSlotEndLabel(endSlotExclusive);
+  const startMeridiem = start.slice(-2);
+  const endMeridiem = end.slice(-2);
+  return startMeridiem === endMeridiem ? `${start.slice(0, -3)}–${end}` : `${start}–${end}`;
 }
 
 function isInMonthPickRange(ds: string, pick: { start: string | null; end: string | null }): boolean {
@@ -573,10 +665,20 @@ function calendarCellPriority(meeting: DemoMeeting): number {
 }
 
 type CalendarBlockSelection =
-  | { kind: "availability"; dateStr: string; slotIndex: number }
+  | {
+      kind: "availability";
+      dateStr: string;
+      startSlot: number;
+      endSlotExclusive: number;
+      kinds: AvailabilityKind[];
+      /** The implicit 9-5 default window rather than something painted — removed via `removeDefaultSlot`, always kind "tours". */
+      isDefault?: boolean;
+    }
   | { kind: "meeting"; meeting: DemoMeeting };
 
 const slotRowIndices = Array.from({ length: SLOT_ROW_END - SLOT_ROW_START + 1 }, (_, i) => SLOT_ROW_START + i);
+/** Stable empty-Set identity — avoids a fresh object on every render for the `?? EMPTY_STRING_SET` fallback. */
+const EMPTY_STRING_SET: Set<string> = new Set();
 
 /**
  * End labels are EXCLUSIVE: slot 48 is midnight, the end of the day. Borrowing
@@ -747,6 +849,15 @@ export function PortalCalendarPanels({
   storageKey,
   /** When set, availability edits apply to every key (union display). */
   availabilityStorageKeys,
+  /**
+   * Manager calendar only: read/write availability per kind instead of one
+   * union. Absent means EXACTLY today's behaviour (admin, vendor, and
+   * co-manager callers never pass this) — `availabilityStorageKeys` is
+   * treated as the tours keys.
+   */
+  availabilityKeysByKind,
+  /** Which kind drag-painting, the block modal's default, and the toolbar target. */
+  editKind = "tours",
   calendarRefreshSignal,
   defaultViewMode = "week",
   pinMonthSchedule = false,
@@ -796,6 +907,8 @@ export function PortalCalendarPanels({
 }: {
   storageKey: string | null;
   availabilityStorageKeys?: string[];
+  availabilityKeysByKind?: Partial<Record<AvailabilityKind, string[]>>;
+  editKind?: AvailabilityKind;
   calendarRefreshSignal?: number;
   defaultViewMode?: CalendarMode;
   pinMonthSchedule?: boolean;
@@ -924,6 +1037,19 @@ export function PortalCalendarPanels({
     if (availabilityStorageKeys?.length) return availabilityStorageKeys;
     return storageKey ? [storageKey] : [];
   }, [availabilityStorageKeys, storageKey]);
+  /**
+   * Per-kind read/write keys. Absent `availabilityKeysByKind` (admin, vendor,
+   * co-manager) falls back to treating `writeStorageKeys` as the tours keys —
+   * EXACTLY today's single-union behaviour.
+   */
+  const kindKeysMap = useMemo<Partial<Record<AvailabilityKind, string[]>>>(() => {
+    if (availabilityKeysByKind) return availabilityKeysByKind;
+    return writeStorageKeys.length > 0 ? { tours: writeStorageKeys } : {};
+  }, [availabilityKeysByKind, writeStorageKeys]);
+  const hasEditableKeys = useMemo(
+    () => AVAILABILITY_KINDS.some((kind) => (kindKeysMap[kind]?.length ?? 0) > 0),
+    [kindKeysMap],
+  );
   const [viewMode, setViewMode] = useState<CalendarMode>(defaultViewMode);
   const [monthPick, setMonthPick] = useState<{ start: string | null; end: string | null }>({ start: null, end: null });
   const [uncontrolledAnchorDate, setUncontrolledAnchorDate] = useState(() => new Date());
@@ -952,9 +1078,11 @@ export function PortalCalendarPanels({
     },
     [anchorDateProp, onAnchorDateChange, uncontrolledAnchorDate],
   );
-  const [activeSlots, setActiveSlots] = useState<Set<string>>(() =>
-    writeStorageKeys.length > 0 ? unionAvailabilityForStorageKeys(writeStorageKeys) : new Set(),
+  const [activeSlotsByKind, setActiveSlotsByKind] = useState<Partial<Record<AvailabilityKind, Set<string>>>>(() =>
+    unionAvailabilityByKind(kindKeysMap),
   );
+  /** Union across every kind currently in view — every pre-Stage-B consumer wants this, not a single kind. */
+  const activeSlots = useMemo(() => unionOfKindSlots(activeSlotsByKind), [activeSlotsByKind]);
   const resolvedDefaultTourAvailability = useMemo(
     () => resolveDefaultTourAvailabilityConfig(defaultTourAvailability),
     [defaultTourAvailability],
@@ -966,6 +1094,13 @@ export function PortalCalendarPanels({
   const canEditDefaultTourHours =
     editableDefaultTourHours && Boolean(onDefaultTourHoursChange);
   /**
+   * The 9-5 default and the public tour-booking offer are TOURS concepts only
+   * (manager-availability-kinds.ts header) — reading the general per-kind
+   * union here would let a painted Services slot masquerade as a bookable
+   * tour window on the All view.
+   */
+  const toursActiveSlots = activeSlotsByKind.tours ?? EMPTY_STRING_SET;
+  /**
    * `Date.now()` cannot be called during render, and the memo below never
    * recomputed as time passed anyway — time was not one of its dependencies, so
    * the value was already pinned until `activeSlots` or the default config
@@ -975,16 +1110,16 @@ export function PortalCalendarPanels({
   const [offeringNow, setOfferingNow] = useState(() => Date.now());
   useEffect(() => {
     setOfferingNow(Date.now());
-  }, [activeSlots, resolvedDefaultTourAvailability]);
-  /** Painted availability plus the 9-5 default on days with no published windows. */
+  }, [toursActiveSlots, resolvedDefaultTourAvailability]);
+  /** Painted tour availability plus the 9-5 default on days with no published windows. */
   const offeredSlots = useMemo(
     () =>
       new Set(
-        resolveTourOfferingSlots([...activeSlots], offeringNow, resolvedDefaultTourAvailability).filter((slot) =>
+        resolveTourOfferingSlots([...toursActiveSlots], offeringNow, resolvedDefaultTourAvailability).filter((slot) =>
           slotIsBookable(slot),
         ),
       ),
-    [activeSlots, offeringNow, resolvedDefaultTourAvailability],
+    [toursActiveSlots, offeringNow, resolvedDefaultTourAvailability],
   );
   /**
    * Windows a prospect can book that the manager never painted — the implicit
@@ -992,8 +1127,8 @@ export function PortalCalendarPanels({
    * booking page, so a manager had no idea their calendar was open, let alone
    * which days. Shown as a distinct "default" state that can be removed.
    */
-  /** Availability edits target every scoped house (filter empty = whole portfolio). */
-  const canEditAvailability = !readOnly && writeStorageKeys.length > 0;
+  /** Availability edits target every scoped house (filter empty = whole portfolio) — or the current kind's keys. */
+  const canEditAvailability = !readOnly && hasEditableKeys;
   const defaultOnlySlots = useMemo(() => {
     const out = new Set<string>();
     for (const key of offeredSlots) {
@@ -1028,6 +1163,9 @@ export function PortalCalendarPanels({
   const [blockStartSlot, setBlockStartSlot] = useState(DEFAULT_VISIBLE_START_SLOT);
   const [blockEndSlotExclusive, setBlockEndSlotExclusive] = useState(DEFAULT_VISIBLE_START_SLOT + 2);
   const [blockWeekdays, setBlockWeekdays] = useState<number[]>([0, 1, 2, 3, 4]);
+  /** "Applies to" — manager calendar only (`availabilityKeysByKind` supplied); defaults to `editKind`. */
+  const [blockKinds, setBlockKinds] = useState<AvailabilityKind[]>([editKind]);
+  const showAppliesTo = Boolean(availabilityKeysByKind);
   const [blockCadence, setBlockCadence] = useState<RecurrenceCadence>("weekly");
   const [blockOccurrences, setBlockOccurrences] = useState(4);
   const [blockOccurrencesDraft, setBlockOccurrencesDraft] = useState<string | null>(null);
@@ -1035,6 +1173,8 @@ export function PortalCalendarPanels({
   const [copyToHousesScope, setCopyToHousesScope] = useState<"week" | "entire">("week");
   const [selectedHouseIds, setSelectedHouseIds] = useState<Set<string>>(new Set());
   const [selectedBlock, setSelectedBlock] = useState<CalendarBlockSelection | null>(null);
+  /** The half hour picked in the availability detail panel's "Delete one half hour" select. */
+  const [selectedRunHalfHour, setSelectedRunHalfHour] = useState<number | null>(null);
   const [durationChoice, setDurationChoice] = useState<number | "custom">(DEFAULT_EVENT_DURATION_MINUTES);
   const [customDurationText, setCustomDurationText] = useState(String(DEFAULT_EVENT_DURATION_MINUTES));
   const [tourGuestNotifyPreview, setTourGuestNotifyPreview] = useState<TourGuestNotifyPreview | null>(null);
@@ -1054,7 +1194,7 @@ export function PortalCalendarPanels({
   const [taskNotesExpanded, setTaskNotesExpanded] = useState(false);
 
   useEffect(() => {
-    if (writeStorageKeys.length === 0) return;
+    if (!hasEditableKeys) return;
     let cancelled = false;
     const load = async () => {
       try {
@@ -1063,20 +1203,20 @@ export function PortalCalendarPanels({
         /* offline or dev server restart — calendar still renders */
       }
       if (!cancelled) {
-        setActiveSlots(unionAvailabilityForStorageKeys(writeStorageKeys));
+        setActiveSlotsByKind(unionAvailabilityByKind(kindKeysMap));
       }
     };
     void load();
     return () => {
       cancelled = true;
     };
-  }, [writeStorageKeys]);
+  }, [hasEditableKeys, kindKeysMap]);
 
   // Poll every 60 s so approvals/cancellations from linked accounts propagate
   // automatically. Skip while the tab is hidden to avoid egress from background
   // tabs, and refresh once immediately when the tab becomes visible again.
   useEffect(() => {
-    if (writeStorageKeys.length === 0) return;
+    if (!hasEditableKeys) return;
     const refresh = () =>
       syncScheduleRecordsFromServer()
         .then(() => setMeetingRefresh((n) => n + 1))
@@ -1093,7 +1233,7 @@ export function PortalCalendarPanels({
       clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [writeStorageKeys]);
+  }, [hasEditableKeys]);
 
   const weekMonday = useMemo(() => startOfWeekMonday(anchorDate), [anchorDate]);
   const fullWeekDates = useMemo(() => [0, 1, 2, 3, 4, 5, 6].map((i) => addDays(weekMonday, i)), [weekMonday]);
@@ -1160,19 +1300,21 @@ export function PortalCalendarPanels({
   );
 
   const reloadAvailability = useCallback(() => {
-    if (writeStorageKeys.length === 0) return;
-    setActiveSlots(unionAvailabilityForStorageKeys(writeStorageKeys));
+    if (!hasEditableKeys) return;
+    setActiveSlotsByKind(unionAvailabilityByKind(kindKeysMap));
     void syncScheduleRecordsFromServer({ force: true }).finally(() => {
-      setActiveSlots(unionAvailabilityForStorageKeys(writeStorageKeys));
+      setActiveSlotsByKind(unionAvailabilityByKind(kindKeysMap));
     });
-  }, [writeStorageKeys]);
+  }, [hasEditableKeys, kindKeysMap]);
 
+  /** Writes to one kind's keys (defaults to `editKind` — the view's current target). */
   const mutateAvailability = useCallback(
-    (mutate: (current: Set<string>) => Set<string>) => {
-      if (writeStorageKeys.length === 0) return;
+    (mutate: (current: Set<string>) => Set<string>, kind: AvailabilityKind = editKind) => {
+      const keys = kindKeysMap[kind];
+      if (!keys?.length) return;
       setSaveStatus("saving");
       void Promise.all(
-        writeStorageKeys.map((key) => {
+        keys.map((key) => {
           const current = new Set(readAvailabilityDateSetForStorageKey(key));
           const next = mutate(current);
           return writeAvailabilityDateSetForStorageKeyToServer(next, key, { adminLabel: scheduleOwnerLabel });
@@ -1185,7 +1327,7 @@ export function PortalCalendarPanels({
             return;
           }
           await syncScheduleRecordsFromServer({ force: true });
-          setActiveSlots(unionAvailabilityForStorageKeys(writeStorageKeys));
+          setActiveSlotsByKind(unionAvailabilityByKind(kindKeysMap));
           setSaveStatus("saved");
         })
         .catch(() => {
@@ -1193,7 +1335,63 @@ export function PortalCalendarPanels({
           reloadAvailability();
         });
     },
-    [reloadAvailability, scheduleOwnerLabel, writeStorageKeys],
+    [editKind, kindKeysMap, reloadAvailability, scheduleOwnerLabel],
+  );
+
+  /**
+   * One day's open runs — painted (per kind, via `mergeOpenRuns`) plus the
+   * implicit 9-5 default merged into its own contiguous spans. Computed for
+   * the full week so both the mobile single-day strip and the desktop grid
+   * (which share `activeBlockDateStrs`) read the same runs.
+   */
+  const openRunsByDate = useMemo(() => {
+    const map = new Map<string, CalendarOpenRun[]>();
+    for (const ds of activeBlockDateStrs) {
+      const slotsByKind: Partial<Record<AvailabilityKind, number[]>> = {};
+      for (const kind of AVAILABILITY_KINDS) {
+        const slots = activeSlotsByKind[kind];
+        if (!slots) continue;
+        const indices = slotRowIndices.filter((slot) => slots.has(dateSlotKey(ds, slot)));
+        if (indices.length) slotsByKind[kind] = indices;
+      }
+      const runs: CalendarOpenRun[] = mergeOpenRuns(slotsByKind);
+
+      // Default-open runs never overlap a painted one — `defaultOnlySlots` already
+      // excludes anything published — so a simple contiguous scan is enough.
+      let runStart: number | null = null;
+      let prevSlot = -2;
+      const flushDefaultRun = () => {
+        if (runStart === null) return;
+        runs.push({ startSlot: runStart, endSlotExclusive: prevSlot + 1, kinds: ["tours"], isDefault: true });
+        runStart = null;
+      };
+      for (const slot of slotRowIndices) {
+        const isDefaultOpen = defaultOnlySlots.has(dateSlotKey(ds, slot));
+        if (isDefaultOpen) {
+          if (runStart === null) runStart = slot;
+          else if (slot !== prevSlot + 1) {
+            flushDefaultRun();
+            runStart = slot;
+          }
+          prevSlot = slot;
+        } else {
+          flushDefaultRun();
+        }
+      }
+      flushDefaultRun();
+
+      map.set(
+        ds,
+        runs.sort((a, b) => a.startSlot - b.startSlot),
+      );
+    }
+    return map;
+  }, [activeBlockDateStrs, activeSlotsByKind, defaultOnlySlots]);
+
+  const findOpenRun = useCallback(
+    (dateStr: string, slotIdx: number): CalendarOpenRun | undefined =>
+      openRunsByDate.get(dateStr)?.find((run) => slotIdx >= run.startSlot && slotIdx < run.endSlotExclusive),
+    [openRunsByDate],
   );
 
   const openSlotDetails = useCallback(
@@ -1202,6 +1400,7 @@ export function PortalCalendarPanels({
       // reopening must always start from the plain, non-armed state.
       setPendingTourAction(null);
       setGuestMessagePreview(null);
+      setSelectedRunHalfHour(null);
       if (meeting) {
         if (vendorCalendarActions?.canEditMeeting(meeting)) {
           vendorCalendarActions.onEditMeeting(meeting);
@@ -1214,19 +1413,30 @@ export function PortalCalendarPanels({
         return;
       }
       if (publishedActiveSlots.has(dateSlotKey(dateStr, slotIdx))) {
-        setSelectedBlock({ kind: "availability", dateStr, slotIndex: slotIdx });
+        // Select the WHOLE run the clicked cell belongs to (PLAN-0914-1710 §1),
+        // not just the one cell. The fallback only covers a stale-frame race
+        // between the click and `openRunsByDate` recomputing.
+        const run = findOpenRun(dateStr, slotIdx);
+        setSelectedBlock({
+          kind: "availability",
+          dateStr,
+          startSlot: run?.startSlot ?? slotIdx,
+          endSlotExclusive: run?.endSlotExclusive ?? slotIdx + 1,
+          kinds: run?.kinds ?? [editKind],
+        });
         return;
       }
       if (vendorCalendarActions) {
         vendorCalendarActions.onAddFromSlot(dateStr, slotIdx);
       }
     },
-    [publishedActiveSlots, vendorCalendarActions],
+    [editKind, findOpenRun, publishedActiveSlots, vendorCalendarActions],
   );
 
   /**
    * Removes one default window by storing an exclusion marker so the rest of
-   * that day stays on the implicit default.
+   * that day stays on the implicit default. Always kind "tours" — the default
+   * 9-5 grid is a tours-only concept (manager-availability-kinds.ts header).
    */
   const removeDefaultSlot = useCallback(
     (dateStr: string, slotIdx: number) => {
@@ -1234,45 +1444,55 @@ export function PortalCalendarPanels({
         const next = new Set(current);
         next.add(defaultTourSlotExclusionKey(dateStr, slotIdx));
         return next;
-      });
+      }, "tours");
     },
     [mutateAvailability],
   );
 
-  /** Paint one slot without opening the recurring-block modal. */
-  const addAvailabilitySlot = useCallback(
-    (dateStr: string, slotIdx: number) => {
-      mutateAvailability((current) =>
-        new Set(addExplicitTourSlotKeys([...current], dateStr, slotIdx, resolvedDefaultTourAvailability)),
-      );
-    },
-    [mutateAvailability, resolvedDefaultTourAvailability],
-  );
-
-  /** Remove one painted open slot (or close the detail panel after the same delete). */
-  const removeAvailabilitySlotAt = useCallback(
-    (dateStr: string, slotIdx: number) => {
-      const slotKey = dateSlotKey(dateStr, slotIdx);
+  /** Removes a whole contiguous default-open span in one write (one × on the grid). */
+  const removeDefaultRun = useCallback(
+    (dateStr: string, startSlot: number, endSlotExclusive: number) => {
       mutateAvailability((current) => {
         const next = new Set(current);
-        next.delete(slotKey);
+        for (let slot = startSlot; slot < endSlotExclusive; slot += 1) {
+          next.add(defaultTourSlotExclusionKey(dateStr, slot));
+        }
         return next;
-      });
-      setSelectedBlock((prev) =>
-        prev?.kind === "availability" &&
-        prev.dateStr === dateStr &&
-        prev.slotIndex === slotIdx
-          ? null
-          : prev,
-      );
+      }, "tours");
     },
     [mutateAvailability],
   );
 
-  const deleteAvailabilitySlot = useCallback(() => {
-    if (selectedBlock?.kind !== "availability") return;
-    removeAvailabilitySlotAt(selectedBlock.dateStr, selectedBlock.slotIndex);
-  }, [removeAvailabilitySlotAt, selectedBlock]);
+  /** Paint one slot without opening the recurring-block modal — targets the view's current kind. */
+  const addAvailabilitySlot = useCallback(
+    (dateStr: string, slotIdx: number) => {
+      mutateAvailability(
+        (current) => new Set(addExplicitTourSlotKeys([...current], dateStr, slotIdx, resolvedDefaultTourAvailability)),
+        editKind,
+      );
+    },
+    [editKind, mutateAvailability, resolvedDefaultTourAvailability],
+  );
+
+  /** Removes a whole painted run from every kind it is open for (one × on the grid, or "Delete block"/"Delete one half hour" for a 1-slot range). */
+  const removeOpenRun = useCallback(
+    (dateStr: string, startSlot: number, endSlotExclusive: number, kinds: AvailabilityKind[]) => {
+      for (const kind of kinds) {
+        mutateAvailability((current) => {
+          const next = new Set(current);
+          for (let slot = startSlot; slot < endSlotExclusive; slot += 1) {
+            next.delete(dateSlotKey(dateStr, slot));
+          }
+          return next;
+        }, kind);
+      }
+      setSelectedBlock((prev) =>
+        prev?.kind === "availability" && prev.dateStr === dateStr && prev.startSlot === startSlot ? null : prev,
+      );
+      showToast("Open block removed");
+    },
+    [mutateAvailability, showToast],
+  );
 
   const selectedDurationMinutes = useMemo(
     () =>
@@ -1940,9 +2160,12 @@ export function PortalCalendarPanels({
       setBlockCadence(selection ? "once" : "weekly");
       setBlockOccurrences(selection ? 1 : 4);
       setBlockOccurrencesDraft(null);
+      // Prefill from the current view's kind whether opened from a painted
+      // cell/drag or from the toolbar — there is no per-cell kind to read back.
+      setBlockKinds([editKind]);
       setBlockModalOpen(true);
     },
-    [anchorDate, viewMode, visibleStartSlot],
+    [anchorDate, editKind, viewMode, visibleStartSlot],
   );
 
   const openBlockModal = useCallback(() => {
@@ -2014,32 +2237,49 @@ export function PortalCalendarPanels({
   );
 
   const applyRecurringBlock = useCallback(() => {
-    if (blockWeekdays.length === 0 || blockEndSlotExclusive <= blockStartSlot) return;
+    const kinds = showAppliesTo ? blockKinds : [editKind];
+    if (blockWeekdays.length === 0 || blockEndSlotExclusive <= blockStartSlot || kinds.length === 0) return;
 
-    mutateAvailability((current) => {
-      const next = new Set(current);
-      const occurrences = blockCadence === "once" ? 1 : Math.max(1, blockOccurrences);
-      const baseDates = resolveBlockBaseDates(activeBlockDates, weekMonday, blockWeekdays);
+    // One `mutateAvailability` call per selected kind — each kind has its own
+    // storage keys, and each call independently reads that kind's current set.
+    for (const kind of kinds) {
+      mutateAvailability((current) => {
+        const next = new Set(current);
+        const occurrences = blockCadence === "once" ? 1 : Math.max(1, blockOccurrences);
+        const baseDates = resolveBlockBaseDates(activeBlockDates, weekMonday, blockWeekdays);
 
-      for (let occurrenceIndex = 0; occurrenceIndex < occurrences; occurrenceIndex += 1) {
-        const targetDates = baseDates.map((date) => {
-          if (blockCadence === "once" || blockCadence === "weekly") return addDays(date, occurrenceIndex * 7);
-          if (blockCadence === "biweekly") return addDays(date, occurrenceIndex * 14);
-          return addMonths(date, occurrenceIndex);
-        });
+        for (let occurrenceIndex = 0; occurrenceIndex < occurrences; occurrenceIndex += 1) {
+          const targetDates = baseDates.map((date) => {
+            if (blockCadence === "once" || blockCadence === "weekly") return addDays(date, occurrenceIndex * 7);
+            if (blockCadence === "biweekly") return addDays(date, occurrenceIndex * 14);
+            return addMonths(date, occurrenceIndex);
+          });
 
-        for (const targetDate of targetDates) {
-          const targetDateStr = toLocalDateStr(targetDate);
-          for (let slot = blockStartSlot; slot < blockEndSlotExclusive; slot += 1) {
-            next.add(dateSlotKey(targetDateStr, slot));
+          for (const targetDate of targetDates) {
+            const targetDateStr = toLocalDateStr(targetDate);
+            for (let slot = blockStartSlot; slot < blockEndSlotExclusive; slot += 1) {
+              next.add(dateSlotKey(targetDateStr, slot));
+            }
           }
         }
-      }
 
-      return next;
-    });
+        return next;
+      }, kind);
+    }
     setBlockModalOpen(false);
-  }, [activeBlockDates, blockCadence, blockEndSlotExclusive, blockOccurrences, blockStartSlot, blockWeekdays, mutateAvailability, weekMonday]);
+  }, [
+    activeBlockDates,
+    blockCadence,
+    blockEndSlotExclusive,
+    blockKinds,
+    blockOccurrences,
+    blockStartSlot,
+    blockWeekdays,
+    editKind,
+    mutateAvailability,
+    showAppliesTo,
+    weekMonday,
+  ]);
 
   const clearCurrentWeek = useCallback(() => {
     mutateAvailability((current) => {
@@ -2061,13 +2301,19 @@ export function PortalCalendarPanels({
       blockCadence === "once"
         ? "this week only"
         : `${blockCadence} for ${blockOccurrences} occurrence${blockOccurrences === 1 ? "" : "s"}`;
-    return `${days} · ${formatAvailabilitySlotLabel(blockStartSlot)}-${formatSlotEndLabel(blockEndSlotExclusive)} · ${repeats}`;
-  }, [blockCadence, blockEndSlotExclusive, blockOccurrences, blockStartSlot, blockWeekdays]);
+    // Tours-only keeps today's text unchanged — every other selection names the kinds.
+    const kindsSegment =
+      showAppliesTo && !(blockKinds.length === 1 && blockKinds[0] === "tours")
+        ? ` · ${blockKinds.map((kind) => AVAILABILITY_KIND_LABELS[kind].toLowerCase()).join(", ")}`
+        : "";
+    return `${days} · ${formatAvailabilitySlotLabel(blockStartSlot)}-${formatSlotEndLabel(blockEndSlotExclusive)}${kindsSegment} · ${repeats}`;
+  }, [blockCadence, blockEndSlotExclusive, blockKinds, blockOccurrences, blockStartSlot, blockWeekdays, showAppliesTo]);
 
   const closeSelectedBlock = useCallback(() => {
     setSelectedBlock(null);
     setPendingTourAction(null);
     setGuestMessagePreview(null);
+    setSelectedRunHalfHour(null);
   }, []);
 
   /**
@@ -2482,23 +2728,67 @@ export function PortalCalendarPanels({
       ) : selectedBlock?.kind === "availability" ? (
         <div className="space-y-5">
           <div className="rounded-2xl border px-4 py-3 text-sm portal-banner-success">
-            <p className="font-semibold">Open tour window</p>
+            <p className="font-semibold">
+              Open for {selectedBlock.kinds.map((kind) => AVAILABILITY_KIND_LABELS[kind]).join(", ")}
+            </p>
             <p className="mt-1">
               {formatRangeLabel(
-                localIsoForSlot(selectedBlock.dateStr, selectedBlock.slotIndex),
-                localIsoForSlot(selectedBlock.dateStr, selectedBlock.slotIndex + 1),
+                localIsoForSlot(selectedBlock.dateStr, selectedBlock.startSlot),
+                localIsoForSlot(selectedBlock.dateStr, selectedBlock.endSlotExclusive),
               )}
             </p>
           </div>
-          <p className="text-sm text-muted">Delete this slot if you no longer want applicants to book it.</p>
+          <div className="space-y-1.5">
+            <p className={BLOCK_MODAL_LABEL_CLASS}>Delete one half hour</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Select
+                className="min-h-9 w-40 rounded-xl px-3 py-1.5 text-sm"
+                aria-label="Half hour to delete"
+                value={String(selectedRunHalfHour ?? selectedBlock.startSlot)}
+                onChange={(e) => setSelectedRunHalfHour(Number.parseInt(e.target.value, 10))}
+              >
+                {Array.from(
+                  { length: selectedBlock.endSlotExclusive - selectedBlock.startSlot },
+                  (_, i) => selectedBlock.startSlot + i,
+                ).map((slot) => (
+                  <option key={slot} value={slot}>
+                    {formatOpenRunTimeRangeLabel(slot, slot + 1)}
+                  </option>
+                ))}
+              </Select>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 shrink-0 rounded-full px-3 text-xs"
+                onClick={() => {
+                  const slot = selectedRunHalfHour ?? selectedBlock.startSlot;
+                  removeOpenRun(selectedBlock.dateStr, slot, slot + 1, selectedBlock.kinds);
+                  closeSelectedBlock();
+                }}
+              >
+                Delete
+              </Button>
+            </div>
+          </div>
           <div className="flex flex-nowrap items-center gap-1.5 border-t border-border pt-4 sm:gap-2">
             <Button
               type="button"
               variant="outline"
               className="h-9 shrink-0 whitespace-nowrap rounded-full border-rose-200 px-3 text-xs text-rose-800 hover:bg-[var(--status-overdue-bg)] sm:h-10 sm:px-5 sm:text-sm"
-              onClick={deleteAvailabilitySlot}
+              onClick={() => {
+                // A default-open run is currently only ever removed instantly
+                // (single cell) or via its grid ×, never through this panel —
+                // clicking a default cell short-circuits before `openSlotDetails`
+                // in `renderSlotButton`. This branch is defensive for if that changes.
+                if (selectedBlock.isDefault) {
+                  removeDefaultRun(selectedBlock.dateStr, selectedBlock.startSlot, selectedBlock.endSlotExclusive);
+                } else {
+                  removeOpenRun(selectedBlock.dateStr, selectedBlock.startSlot, selectedBlock.endSlotExclusive, selectedBlock.kinds);
+                }
+                closeSelectedBlock();
+              }}
             >
-              Delete slot
+              Delete block
             </Button>
           </div>
         </div>
@@ -2788,11 +3078,27 @@ export function PortalCalendarPanels({
               const isMeetingStart = Boolean(
                 meeting && key === dateSlotKey(meeting.dateStr, meeting.startSlot),
               );
-              // Visible per-slot remove (PRP-414): painted Open + default Open windows.
-              const showRemoveAffordance =
-                canEditAvailability && !meeting && !coManagerOpen && (active || defaultOpen);
+              // A run merges same-kind-set contiguous open cells into one visual
+              // block (PLAN-0914-1710 §1) — only ever set for a painted or
+              // default-open cell, mutually exclusive with meeting/coManagerOpen.
+              const run = active || defaultOpen ? findOpenRun(ds, slotIdx) : undefined;
+              const isRunFirstCell = Boolean(run && run.startSlot === slotIdx);
+              const isRunLastCell = Boolean(run && run.endSlotExclusive === slotIdx + 1);
+              const runTint = run ? (run.isDefault ? CALENDAR_DEFAULT_OPEN_RUN_TINT : CALENDAR_OPEN_RUN_TINTS[run.kinds[0] ?? "tours"]) : undefined;
+              // Exactly one remove button per run, on its first cell (PRP-414 was
+              // per-cell; this replaces it — one × for the whole block instead).
+              const showRemoveAffordance = canEditAvailability && isRunFirstCell;
               return (
-                <div key={key} className="group/slot relative min-h-9 min-w-0">
+                <div
+                  key={key}
+                  className={cn(
+                    "group/slot relative min-h-9 min-w-0",
+                    // Pull a continuation cell up over the grid's `gap-px` row gap so
+                    // the run's fill reads as one continuous block instead of a
+                    // stack of 30-min cells with a hairline between each.
+                    run && !isRunFirstCell && "-mt-px",
+                  )}
+                >
                   <button
                     type="button"
                     onMouseDown={() => {
@@ -2841,19 +3147,24 @@ export function PortalCalendarPanels({
                       }
                       openSlotDetails(ds, slotIdx, e.currentTarget, meeting);
                     }}
-                    className={`portal-calendar-grid-slot h-full min-h-9 w-full px-2 text-center text-[11px] font-semibold transition ${
+                    className={cn(
+                      "portal-calendar-grid-slot relative h-full min-h-9 w-full px-2 text-center text-[11px] font-semibold transition",
                       meeting
                         ? `${meeting.color} ring-1 ring-inset`
                         : selected
                           ? "bg-primary/[0.14] text-primary ring-2 ring-inset ring-primary/35"
-                        : active
-                          ? CALENDAR_OPEN_SLOT
-                          : coManagerOpen
-                            ? CALENDAR_CO_MANAGER_SLOT
-                            : defaultOpen
-                              ? CALENDAR_DEFAULT_OPEN_SLOT
-                          : CALENDAR_EMPTY_SLOT
-                    }`}
+                          : run
+                            ? cn(
+                                runTint!.fill,
+                                "border-x",
+                                runTint!.border,
+                                isRunFirstCell ? cn("border-t", "rounded-t-lg") : "border-t-0",
+                                isRunLastCell ? cn("border-b", "rounded-b-lg") : "border-b-0",
+                              )
+                            : coManagerOpen
+                              ? CALENDAR_CO_MANAGER_SLOT
+                              : CALENDAR_EMPTY_SLOT,
+                    )}
                     title={
                       defaultOpen
                         ? canEditAvailability
@@ -2887,12 +3198,19 @@ export function PortalCalendarPanels({
                       )
                     ) : selected ? (
                       "Selected"
-                    ) : active ? (
-                      "Open"
+                    ) : run ? (
+                      isRunFirstCell ? (
+                        <span className="flex flex-col items-center justify-center leading-tight">
+                          <span className="block truncate">
+                            {run.isDefault ? "Open" : formatOpenRunKindsLabel(run.kinds)}
+                          </span>
+                          <span className="block truncate text-[9px] font-medium opacity-80">
+                            {formatOpenRunTimeRangeLabel(run.startSlot, run.endSlotExclusive)}
+                          </span>
+                        </span>
+                      ) : null
                     ) : coManagerOpen ? (
                       `${coManagerOverlay!.label}`
-                    ) : defaultOpen ? (
-                      "Open"
                     ) : (
                       readOnly ? "" : "Add"
                     )}
@@ -2902,7 +3220,7 @@ export function PortalCalendarPanels({
                       type="button"
                       data-attr="calendar-remove-availability-slot"
                       className={cn(
-                        "absolute right-0.5 top-0.5 z-[1] flex h-5 w-5 items-center justify-center rounded-full",
+                        "absolute right-1 top-1 z-[1] flex h-5 w-5 items-center justify-center rounded-full",
                         "bg-background/90 text-muted shadow-sm ring-1 ring-border/70",
                         "hover:bg-background hover:text-foreground",
                         // Always visible on coarse pointers; hover-reveal on fine pointers.
@@ -2910,13 +3228,13 @@ export function PortalCalendarPanels({
                         "[@media(hover:hover)_and_(pointer:fine)]:group-hover/slot:opacity-100",
                         "[@media(hover:hover)_and_(pointer:fine)]:focus-visible:opacity-100",
                       )}
-                      aria-label={`Remove ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`}
-                      title="Remove this open slot"
+                      aria-label={`Remove open block ${formatOpenRunTimeRangeLabel(run!.startSlot, run!.endSlotExclusive)} on ${ds}`}
+                      title="Remove this open block"
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        if (defaultOpen) removeDefaultSlot(ds, slotIdx);
-                        else removeAvailabilitySlotAt(ds, slotIdx);
+                        if (run!.isDefault) removeDefaultRun(ds, run!.startSlot, run!.endSlotExclusive);
+                        else removeOpenRun(ds, run!.startSlot, run!.endSlotExclusive, run!.kinds);
                       }}
                     >
                       <X className="h-3 w-3" aria-hidden />
@@ -3095,7 +3413,11 @@ export function PortalCalendarPanels({
                 variant="primary"
                 className="rounded-full"
                 onClick={applyRecurringBlock}
-                disabled={blockWeekdays.length === 0 || blockEndSlotExclusive <= blockStartSlot}
+                disabled={
+                  blockWeekdays.length === 0 ||
+                  blockEndSlotExclusive <= blockStartSlot ||
+                  (showAppliesTo && blockKinds.length === 0)
+                }
               >
                 Create block
               </Button>
@@ -3117,6 +3439,9 @@ export function PortalCalendarPanels({
             blockOccurrencesDraft={blockOccurrencesDraft}
             setBlockOccurrencesDraft={setBlockOccurrencesDraft}
             slotRowIndices={slotRowIndices}
+            showAppliesTo={showAppliesTo}
+            blockKinds={blockKinds}
+            setBlockKinds={setBlockKinds}
           />
         </Modal>
 
@@ -3532,6 +3857,9 @@ export function PortalCalendarPanels({
           blockOccurrencesDraft={blockOccurrencesDraft}
           setBlockOccurrencesDraft={setBlockOccurrencesDraft}
           slotRowIndices={slotRowIndices}
+          showAppliesTo={showAppliesTo}
+          blockKinds={blockKinds}
+          setBlockKinds={setBlockKinds}
         />
       </Modal>
       {selectedBlockModal}

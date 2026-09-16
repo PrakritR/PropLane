@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { resolveOwnerSendNumberRow } from "@/lib/sms/manager-workspace-role.server";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { readSmsSuppressionState } from "@/lib/sms-consent";
 import { ensureApplicationScopedSmsConsent } from "@/lib/sms/application-consent.server";
@@ -37,6 +38,7 @@ type RuntimeRow = {
 
 type NumberRow = {
   manager_user_id: string;
+  workspace_id?: string | null;
   phone_number: string | null;
   phone_number_sid: string | null;
   messaging_service_sid: string | null;
@@ -114,13 +116,15 @@ async function loadSendPolicy(
       .select("mode, pilot_manager_user_ids")
       .eq("singleton", true)
       .maybeSingle(),
-    db
-      .from("manager_sms_numbers")
-      .select(
-        "manager_user_id, phone_number, phone_number_sid, messaging_service_sid, campaign_sid, provision_state, registration_state, registration_ref, attachment_state, number_registration_state, grace_started_at, grace_expires_at, quarantined_at, quarantine_reason",
-      )
-      .eq("manager_user_id", ownerId)
-      .maybeSingle(),
+    // One line per WORKSPACE: the message about a house goes out from the
+    // line of the workspace that holds it; a house-less one from the owner's
+    // default workspace's line.
+    resolveOwnerSendNumberRow<NumberRow>(
+      db,
+      ownerId,
+      "manager_user_id, workspace_id, phone_number, phone_number_sid, messaging_service_sid, campaign_sid, provision_state, registration_state, registration_ref, attachment_state, number_registration_state, grace_started_at, grace_expires_at, quarantined_at, quarantine_reason",
+      { propertyId: input.propertyId ?? null },
+    ),
   ]);
   if (runtimeError || numberError || !runtime || !number) {
     return { allowed: false, reason: "control_plane_unreadable" };

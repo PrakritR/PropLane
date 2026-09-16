@@ -42,6 +42,8 @@ export type SmsNumberRegistrationState =
 
 export type ManagerSmsNumberRecord = {
   managerUserId: string;
+  /** The workspace this line belongs to; null only on a legacy row the migration could not place. */
+  workspaceId: string | null;
   phoneNumber: string | null;
   phoneNumberSid: string | null;
   messagingServiceSid: string | null;

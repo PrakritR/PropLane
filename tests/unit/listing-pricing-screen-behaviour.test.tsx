@@ -77,18 +77,22 @@ describe("Pricing puts payment setup first", () => {
     const paid = headings.findIndex((h) => h.includes("How you get paid"));
     const apps = headings.findIndex((h) => h.includes("Applications"));
     const rooms = headings.findIndex((h) => h.includes("Each room"));
-    const signing = headings.findIndex((h) => h.includes("At signing"));
 
     expect(paid).toBeGreaterThanOrEqual(0);
     expect(paid).toBeLessThan(rooms);
     // The application fee is asked AFTER the lease types it may differ by (the captain, 2026-09-15).
     expect(rooms).toBeLessThan(apps);
-    expect(apps).toBeLessThan(signing);
     const leaseTypes = document.querySelector('[data-attr="listing-v2-lease-types-card"]')!;
     const applications = document.querySelector('[data-attr="listing-v2-applications-card"]')!;
     expect(leaseTypes.compareDocumentPosition(applications) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // There is no separate fees section any more: fees live on the cards.
     expect(headings.some((h) => h.includes("Other fees"))).toBe(false);
+    expect(headings.some((h) => h.includes("At signing"))).toBe(false);
+    expect(document.querySelector('[data-attr="listing-v2-due-at-signing"]')).toBeNull();
+    expect(document.body.textContent).toContain("Due at signing");
+    const roomPickers = screen.getAllByLabelText("Room to quote");
+    expect(roomPickers.length).toBeGreaterThan(0);
+    expect(roomPickers.every((el) => el.textContent?.includes("Every room"))).toBe(true);
   });
 
   it("asks for the application fee and waiver code exactly once, with no Manage codes link", () => {
@@ -205,8 +209,10 @@ describe("collected at signing", () => {
       Array.from(nav.querySelectorAll("button")).find((b) => /rent|pricing|deposit/i.test(b.textContent || ""))!,
     );
 
-    // The step's tick list (the receipt panel under the step carries the same tick).
-    const tick = screen.getAllByRole("checkbox", { name: /Collect First month'?s rent at signing/i })[0] as HTMLInputElement;
+    // Desktop and mobile both mount the receipt; the duplicate bottom card is gone.
+    const ticks = screen.getAllByRole("checkbox", { name: /Collect First month'?s rent at signing/i });
+    expect(ticks.length).toBe(2);
+    const tick = ticks[0] as HTMLInputElement;
     // Untick, then tick again: both writes must land on the term the row reads.
     if (tick.checked) fireEvent.click(tick);
     fireEvent.click(screen.getAllByRole("checkbox", { name: /Collect First month'?s rent at signing/i })[0]!);

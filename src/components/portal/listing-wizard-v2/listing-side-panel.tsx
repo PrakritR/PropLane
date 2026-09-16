@@ -13,16 +13,17 @@
  *   house is actually judged on.
  * - **Shared spaces** — what the listing claims the house has.
  * - **Pricing** — the move-in receipt, and the only editable panel: its
- *   checkboxes write the same per-lease-type signing matrix the signing table
- *   writes, through one shared helper.
+ *   checkboxes write the per-lease-type signing matrix (Every room) or a
+ *   room override, through one shared helper.
  */
 
 import { useMemo } from "react";
 import { Image as ImageIcon, ImageOff, Check, AlertTriangle } from "lucide-react";
 import { PanelLine, PanelSection, RowSelectCell } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { buildListingQuote } from "@/lib/listing-quote";
-import { applyPaymentAtSigningCell } from "@/lib/listing-fees";
-import type { ManagerListingSubmissionV1, ManagerRoomSubmission } from "@/lib/manager-listing-submission";
+import { applyPaymentAtSigningCell, clearRoomPaymentAtSigning } from "@/lib/listing-fees";
+import { roomHasOwnPaymentAtSigning } from "@/lib/listing-fee-scope";
+import { isEntireHomeListing, type ManagerListingSubmissionV1, type ManagerRoomSubmission } from "@/lib/manager-listing-submission";
 import { deriveRoomAvailability, formatDateKeyShort, legacyMoveInDateAsSpan, manualRangesToSpans, todayDateKey } from "@/lib/room-availability-timeline";
 
 const usd = (n: number) => `$${Math.round(n || 0).toLocaleString("en-US")}`;
@@ -282,14 +283,23 @@ export function PricingReceiptPanel({
 }) {
   const quote = useMemo(() => buildListingQuote(sub, { roomId, leaseTerm }), [sub, roomId, leaseTerm]);
   const rooms = sub.rooms ?? [];
+  const wholePlace = isEntireHomeListing(sub);
+  const ownRoomSigning = roomHasOwnPaymentAtSigning(sub, roomId, leaseTerm);
 
   const toggle = (rowKey: string, on: boolean) => {
-    const next = applyPaymentAtSigningCell(sub, leaseTerm, rowKey, on);
+    const next = applyPaymentAtSigningCell(sub, leaseTerm, rowKey, on, roomId);
     patch({
       paymentAtSigningByLeaseType: next.paymentAtSigningByLeaseType,
       paymentAtSigningIncludes: next.paymentAtSigningIncludes,
       customFees: next.customFees,
+      rooms: next.rooms,
     });
+  };
+
+  const resetRoom = () => {
+    if (!roomId) return;
+    const next = clearRoomPaymentAtSigning(sub, roomId, leaseTerm);
+    patch({ rooms: next.rooms });
   };
 
   const monthlyBreakdown = [
@@ -308,15 +318,20 @@ export function PricingReceiptPanel({
     <>
       <PanelSection title="What a resident pays">
         <div className="mb-3 grid grid-cols-2 gap-2">
-          {rooms.length > 0 ? (
+          {wholePlace ? (
+            <span className="flex h-9 items-center text-[12.5px] font-semibold text-foreground">Whole place</span>
+          ) : rooms.length === 0 ? (
+            <span className="flex h-9 items-center text-[12.5px] font-semibold text-foreground">Every room</span>
+          ) : (
             <RowSelectCell
               ariaLabel="Room to quote"
-              value={roomId ?? ""}
-              options={rooms.map((room) => ({ value: room.id, label: room.name?.trim() || "Room" }))}
-              onChange={(v) => onRoomChange(v || null)}
+              value={roomId ?? "every"}
+              options={[
+                { value: "every", label: "Every room" },
+                ...rooms.map((room) => ({ value: room.id, label: room.name?.trim() || "Room" })),
+              ]}
+              onChange={(v) => onRoomChange(!v || v === "every" ? null : v)}
             />
-          ) : (
-            <span className="text-[12.5px] text-muted">Whole place</span>
           )}
           {lockLeaseTerm ? (
             <span className="flex h-9 items-center rounded-lg border border-border bg-accent/40 px-2 text-[13px] font-semibold text-foreground">
@@ -331,6 +346,19 @@ export function PricingReceiptPanel({
             />
           )}
         </div>
+        {ownRoomSigning ? (
+          <div className="mb-2 flex justify-end">
+            <button
+              type="button"
+              onClick={resetRoom}
+              className="text-[12.5px] font-bold text-primary hover:underline"
+              aria-label="Reset this room to Every room"
+            >
+              Reset
+            </button>
+          </div>
+        ) : null}
+        <p className="pt-1 text-[12px] font-extrabold uppercase tracking-[0.04em] text-foreground">Due at signing</p>
         {quote.signingLines.map((line) => (
           <PanelLine
             key={line.key}

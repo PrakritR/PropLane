@@ -23,8 +23,9 @@ describe("calendar views", () => {
     expect(src).toContain("return { all: tours + tasks + services, tours, tasks, bookings: 0, services };");
   });
 
-  it("single-kind views read only; availability is edited on All and Tours", () => {
-    expect(src).toContain("const calendarPanelsReadOnly = servicesOnlyView || tasksOnlyView;");
+  it("every view edits its own kind of availability; tours keys stay on All and Tours", () => {
+    expect(src).toContain("const calendarPanelsReadOnly = false;");
+    expect(src).toContain("defaultAvailabilityKindForCalendarView(");
     expect(src).toContain('calendarView === "all" || calendarView === "tours"');
   });
 

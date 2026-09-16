@@ -1162,7 +1162,7 @@ function RoomCardBody({
         </CardFields>
         {room ? <OccupiedDates room={room} propertyId={propertyId} onRoom={onRoom} /> : null}
 
-        <div className="border-t border-border px-3.5 pb-1 pt-2">
+        <div className="grid grid-cols-2 gap-x-4 border-t border-border px-3.5 pb-1 pt-2">
           <div className="flex items-center gap-2">
             <CheckboxOption
               label="Move-in checklist required"
@@ -2974,6 +2974,7 @@ export function ListingEditorV2({
   propertyId = null,
   onChange,
   onClose,
+  onSaveExit,
   onPublish,
   onStepChange,
   title,
@@ -2989,7 +2990,12 @@ export function ListingEditorV2({
   /** The listing's record id when it already has one — booked rows on the Rooms step need it. Null for a brand-new listing. */
   propertyId?: string | null;
   onChange: (next: ManagerListingSubmissionV1) => void;
-  /** Optional persist-in-place. Closing and typing save themselves in the parent. */
+  /**
+   * The Review step's explicit Save. Closing and typing already save
+   * themselves in the parent; this is the visible commit a manager reaches for
+   * on the last step — it writes whatever is unsaved and then leaves the
+   * editor, and on a failed write it stays open rather than dropping the work.
+   */
   onSaveExit?: (stepIndex: number) => void;
   /** Receives the step the manager left on, so a flush can keep the resume point. */
   onClose: (stepIndex: number) => void;
@@ -3016,6 +3022,11 @@ export function ListingEditorV2({
   /** What the Review step says about how renters reach the manager. */
   contact?: ListingContactDoors;
 }) {
+  // Save and Publish share one `busy`; remember which was pressed so only that
+  // button reads as in flight. The flag is read only while busy, so a stale
+  // true after the write lands is harmless and the next press resets it.
+  const [savePressed, setSavePressed] = useState(false);
+
   const [step, setStep] = useState(0);
   useEffect(() => {
     onStepChange?.(step);
@@ -3064,7 +3075,7 @@ export function ListingEditorV2({
   const rooms = useMemo(() => submission.rooms ?? [], [submission.rooms]);
   const leaseTerms = useMemo(() => listingLeaseTypeScopeOptions(submission), [submission]);
   const receiptTerm = quoteTerm && leaseTerms.includes(quoteTerm) ? quoteTerm : leaseTerms[0] ?? DEFAULT_QUOTE_TERM;
-  const receiptRoomId = quoteRoomId && rooms.some((r) => r.id === quoteRoomId) ? quoteRoomId : rooms[0]?.id ?? null;
+  const receiptRoomId = quoteRoomId && rooms.some((r) => r.id === quoteRoomId) ? quoteRoomId : null;
   const openRoom = rooms.find((r) => r.id === receiptRoomId) ?? rooms[0] ?? null;
 
   // The same assistant the previous wizard offered, told which step it is on so
@@ -3302,7 +3313,23 @@ export function ListingEditorV2({
             {pathPosition != null ? `Step ${pathPosition + railOffset} of ${pathIds.length + railOffset}` : "Optional detail"}
           </span>
           {isEdit ? (
-            nextStep == null ? null : (
+            nextStep == null ? (
+              // A live listing's Review step: the one place with a physical
+              // Save. Autosave and ✕ still write on their own; this is the
+              // explicit "I'm done" that closes the editor once the write lands.
+              <button
+                type="button"
+                onClick={() => {
+                  setSavePressed(true);
+                  onSaveExit?.(step);
+                }}
+                disabled={busy}
+                data-attr="listing-v2-save"
+                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
+              >
+                {busy ? "Saving…" : "Save changes"}
+              </button>
+            ) : (
               <button
                 type="button"
                 onClick={() => goTo(nextStep)}
@@ -3315,15 +3342,34 @@ export function ListingEditorV2({
               </button>
             )
           ) : step === last ? (
-            <button
-              type="button"
-              onClick={onPublish}
-              disabled={busy}
-              data-attr="listing-v2-publish"
-              className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
-            >
-              {busy ? "Publishing…" : "Publish"}
-            </button>
+            <div className="flex items-center gap-2">
+              {/* Keep it as a draft and leave; on a phone the text-only
+                  button lets Back + Save draft + Publish share one row. */}
+              <button
+                type="button"
+                onClick={() => {
+                  setSavePressed(true);
+                  onSaveExit?.(step);
+                }}
+                disabled={busy}
+                data-attr="listing-v2-save-draft"
+                className="min-h-[44px] rounded-full px-3 text-[14px] font-bold text-primary disabled:opacity-60 sm:border sm:border-border sm:bg-card sm:px-6 sm:text-foreground"
+              >
+                {busy && savePressed ? "Saving…" : "Save draft"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSavePressed(false);
+                  onPublish();
+                }}
+                disabled={busy}
+                data-attr="listing-v2-publish"
+                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
+              >
+                {busy && !savePressed ? "Publishing…" : "Publish"}
+              </button>
+            </div>
           ) : (
             <button
               type="button"

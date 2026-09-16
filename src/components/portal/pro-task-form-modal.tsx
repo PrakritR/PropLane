@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
@@ -57,6 +58,7 @@ import {
 import { scheduledTaskTitleForTour } from "@/lib/manager-scheduled-work-tasks";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import { formatRangeLabel } from "@/lib/demo-admin-scheduling";
+import { fetchManagerTimeSuggestion } from "@/lib/manager-schedule-suggest.client";
 import { getRoomOptionsForProperty } from "@/lib/rental-application/data";
 import type { ResidentMaintenanceCategoryLabel } from "@/lib/work-order-taxonomy";
 import type { WorkAssignee } from "@/lib/work-assignment";
@@ -142,6 +144,22 @@ function defaultTourScheduleFields(): { scheduleDate: string; startTime: string 
   };
 }
 
+/** The pill shown beside "Start time" for a suggested-but-unconfirmed start —
+ * `null` once the manager has typed their own date/time. */
+type TaskSuggestPill = "availability" | "proplane-pick" | "none";
+
+const TASK_SUGGEST_PILL_LABEL: Record<TaskSuggestPill, string> = {
+  availability: "From your availability",
+  "proplane-pick": "PropLane pick",
+  none: "Nothing free in 14 days",
+};
+
+const TASK_SUGGEST_PILL_TONE: Record<TaskSuggestPill, "success" | "info" | "danger"> = {
+  availability: "success",
+  "proplane-pick": "info",
+  none: "danger",
+};
+
 const EMPTY_FORM = {
   taskKind: "general" as ManagerTaskFormKind,
   // A new task is a booked slot by default, matching the schedule fields below.
@@ -166,6 +184,11 @@ const EMPTY_FORM = {
   checklistText: "",
   attachmentsText: "",
 };
+
+/** A general (non-tour) task has no duration field of its own — this is the
+ * form's own default, `EMPTY_FORM.durationMinutes`, used to size a suggested
+ * start into a start/end pair. */
+const TASK_SUGGEST_DURATION_MINUTES = Number(EMPTY_FORM.durationMinutes) || 60;
 
 export function ManagerTaskFormModal({
   open,
@@ -199,6 +222,12 @@ export function ManagerTaskFormModal({
   const [selectedRoomValue, setSelectedRoomValue] = useState("");
   const [residentTick, setResidentTick] = useState(0);
   const [serviceFooter, setServiceFooter] = useState<ServiceIntakeFooterState | null>(null);
+  /** `null` = no pill: editing an existing task, or the manager has typed a
+   * start of their own. Only a fetched-but-unconfirmed suggestion shows one. */
+  const [taskSuggestPill, setTaskSuggestPill] = useState<TaskSuggestPill | null>(null);
+  const [taskSuggestLoading, setTaskSuggestLoading] = useState(false);
+  /** Same seed for the initial pick and any "Next open" click within one Add session. */
+  const taskSuggestSeedRef = useRef<string>("");
 
   const propertyOptions = useMemo(
     () => buildManagerPropertyFilterOptions(managerUserId),
@@ -333,6 +362,75 @@ export function ManagerTaskFormModal({
       cancelled = true;
     };
   }, [open, editingId, managerUserId, teamMembers]);
+
+  /**
+   * A time suggestion for a brand-new task's start, once — never for an edit,
+   * and never once the manager has typed a start of their own. Deliberately
+   * keyed only on `open`/`editingId` (not `form.scheduleDate`/`form.startTime`)
+   * so a manager clearing the field back out does not refetch on every keystroke.
+   */
+  useEffect(() => {
+    if (!open || editingId) {
+      setTaskSuggestPill(null);
+      setTaskSuggestLoading(false);
+      return;
+    }
+    if (form.scheduleDate || form.startTime) return;
+    const seed = crypto.randomUUID();
+    taskSuggestSeedRef.current = seed;
+    let cancelled = false;
+    setTaskSuggestLoading(true);
+    void fetchManagerTimeSuggestion({
+      kind: "tasks",
+      durationMinutes: TASK_SUGGEST_DURATION_MINUTES,
+      seed,
+    }).then((suggestion) => {
+      if (cancelled) return;
+      setTaskSuggestLoading(false);
+      if (!suggestion) {
+        setTaskSuggestPill("none");
+        return;
+      }
+      const end = new Date(Date.parse(suggestion.iso) + TASK_SUGGEST_DURATION_MINUTES * 60_000);
+      setForm((current) => ({
+        ...current,
+        scheduleDate: localDatePart(suggestion.iso),
+        startTime: localTimePart(suggestion.iso),
+        endTime: localTimePart(end.toISOString()),
+      }));
+      setTaskSuggestPill(suggestion.source);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editingId]);
+
+  const onTaskNextOpen = useCallback(async () => {
+    const currentIso =
+      form.scheduleDate && form.startTime ? combineLocalDateTime(form.scheduleDate, form.startTime) : null;
+    const after = currentIso ?? new Date().toISOString();
+    setTaskSuggestLoading(true);
+    const suggestion = await fetchManagerTimeSuggestion({
+      kind: "tasks",
+      durationMinutes: TASK_SUGGEST_DURATION_MINUTES,
+      seed: taskSuggestSeedRef.current || crypto.randomUUID(),
+      after,
+    });
+    setTaskSuggestLoading(false);
+    if (!suggestion) {
+      showToast("No later open time in the next 14 days.");
+      return;
+    }
+    const end = new Date(Date.parse(suggestion.iso) + TASK_SUGGEST_DURATION_MINUTES * 60_000);
+    setForm((current) => ({
+      ...current,
+      scheduleDate: localDatePart(suggestion.iso),
+      startTime: localTimePart(suggestion.iso),
+      endTime: localTimePart(end.toISOString()),
+    }));
+    setTaskSuggestPill(suggestion.source);
+  }, [form.scheduleDate, form.startTime, showToast]);
 
   function updateTaskKind(nextKind: ManagerTaskFormKind) {
     setForm((current) => {
@@ -898,13 +996,14 @@ export function ManagerTaskFormModal({
                 id="manager-task-schedule-date"
                 type="date"
                 value={form.scheduleDate}
-                onChange={(e) =>
+                onChange={(e) => {
+                  setTaskSuggestPill(null);
                   setForm((current) => ({
                     ...current,
                     scheduleDate: e.target.value,
                     dueDate: e.target.value ? "" : current.dueDate,
-                  }))
-                }
+                  }));
+                }}
                 data-attr="manager-task-schedule-date"
               />
             </div>
@@ -935,17 +1034,44 @@ export function ManagerTaskFormModal({
                The span now turns on with the columns it is spanning. */
             <div className="grid gap-4 lg:col-span-2 sm:grid-cols-2">
               <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-                <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-start-time">
+                <label
+                  className={cn(MODAL_FIELD_LABEL_CLASS, "flex items-center gap-1.5")}
+                  htmlFor="manager-task-start-time"
+                >
                   Start time (optional)
+                  {taskSuggestPill ? (
+                    <span data-attr="manager-task-start-suggest-source">
+                      <Badge tone={TASK_SUGGEST_PILL_TONE[taskSuggestPill]}>
+                        {TASK_SUGGEST_PILL_LABEL[taskSuggestPill]}
+                      </Badge>
+                    </span>
+                  ) : null}
                 </label>
-                <Input
-                  id="manager-task-start-time"
-                  type="time"
-                  value={form.startTime}
-                  onChange={(e) => setForm((current) => ({ ...current, startTime: e.target.value }))}
-                  disabled={!form.scheduleDate}
-                  data-attr="manager-task-start-time"
-                />
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="manager-task-start-time"
+                    type="time"
+                    value={form.startTime}
+                    onChange={(e) => {
+                      setTaskSuggestPill(null);
+                      setForm((current) => ({ ...current, startTime: e.target.value }));
+                    }}
+                    disabled={!form.scheduleDate || taskSuggestLoading}
+                    className="flex-1"
+                    data-attr="manager-task-start-time"
+                  />
+                  {taskSuggestPill === "availability" || taskSuggestPill === "proplane-pick" ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={taskSuggestLoading}
+                      onClick={() => onTaskNextOpen()}
+                      data-attr="manager-task-start-next-open"
+                    >
+                      Next open
+                    </Button>
+                  ) : null}
+                </div>
               </div>
               <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
                 <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-end-time">
@@ -955,7 +1081,10 @@ export function ManagerTaskFormModal({
                   id="manager-task-end-time"
                   type="time"
                   value={form.endTime}
-                  onChange={(e) => setForm((current) => ({ ...current, endTime: e.target.value }))}
+                  onChange={(e) => {
+                    setTaskSuggestPill(null);
+                    setForm((current) => ({ ...current, endTime: e.target.value }));
+                  }}
                   disabled={!form.scheduleDate}
                   data-attr="manager-task-end-time"
                 />

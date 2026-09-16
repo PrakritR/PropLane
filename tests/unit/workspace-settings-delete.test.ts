@@ -5,21 +5,25 @@ import { describe, expect, it } from "vitest";
 const src = readFileSync(resolve("src/components/portal/workspace-settings.tsx"), "utf8");
 
 describe("workspace settings delete", () => {
-  it("uses a danger icon action for non-default workspaces", () => {
+  it("offers one danger icon action on every owned workspace, the default one included", () => {
     expect(src).toContain("data-attr=\"workspace-delete\"");
     expect(src).toContain("tone=\"danger\"");
-    expect(src).toContain("!workspace.isDefault");
+    expect(src).not.toContain("!workspace.isDefault");
+    expect(src).not.toContain("workspace-delete-empty");
+    expect(src).not.toContain("Delete this workspace");
   });
 
-  it("adds a dashed Delete this workspace row on empty extras", () => {
-    expect(src).toContain("data-attr=\"workspace-delete-empty\"");
-    expect(src).toContain("Delete this workspace");
+  it("deletes an empty workspace on a plain confirm and a full one through the move dialog", () => {
     expect(src).toContain("It has no properties, so it will be removed now.");
+    expect(src).toContain("data-attr=\"workspace-delete-move-to\"");
+    expect(src).toContain("Move and delete");
+    expect(src).toContain("data-attr=\"workspace-delete-add-first\"");
+    expect(src).not.toContain("Move its properties to another workspace first.");
   });
 
-  it("opens Team in that workspace and Vendors on the operations list, not Settings add", () => {
+  it("opens Team in that workspace, not a Settings Vendors tab", () => {
     expect(src).toContain("href: \"/portal/profile?tab=team\"");
-    expect(src).toContain("href: \"/portal/vendors\"");
-    expect(src).not.toContain("href=\"/portal/profile?tab=vendors\"");
+    expect(src).not.toContain("href: \"/portal/profile?tab=vendors\"");
+    expect(src).not.toContain("workspace-manage-vendors");
   });
 });

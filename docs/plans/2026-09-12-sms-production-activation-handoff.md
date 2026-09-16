@@ -33,11 +33,9 @@ implementation was not changed.
   `create_portal_workspace_with_limit(p_owner uuid,p_name text,p_limit integer)`.
   Client-supplied owner/cap fields are ignored. The courtesy precheck returns 403;
   a null atomic-RPC result after a concurrent last-slot loss returns 409.
-- The RPC validates owner, name, and cap 1..10; uses `search_path = ''` and
-  qualified objects/functions; acquires the same `workspace-owner:` transaction
-  advisory-lock key as the existing trigger; creates/counts the default workspace
-  under that lock; and inserts only below the passed cap. Execute is revoked from
-  PUBLIC, anon, and authenticated and granted only to service_role.
+- The RPC implementation described in this handoff was superseded by
+  [`20260916030000_workspace_delete_any.sql`](../../supabase/migrations/20260916030000_workspace_delete_any.sql),
+  which owns the current create/delete locking and authorization contract.
 
 ## Changed files
 

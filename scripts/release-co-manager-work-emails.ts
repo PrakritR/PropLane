@@ -33,7 +33,11 @@ async function listCandidates(db: SupabaseClient, email?: string): Promise<Candi
   const { data: rows, error } = await db
     .from("manager_assistant_emails")
     .select("manager_user_id, inbox_token, mailbox_local, provision_state")
-    .eq("provision_state", "active");
+    .eq("provision_state", "active")
+    // An address placed in a workspace belongs to that workspace — a
+    // co-manager may own one in a workspace of their own. Only unplaced
+    // legacy rows are candidates.
+    .is("workspace_id", null);
   if (error) throw error;
   const ids = (rows ?? []).map((r) => String(r.manager_user_id));
   if (ids.length === 0) return [];
