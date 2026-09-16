@@ -12,9 +12,10 @@
  * through the same `/api/portal/reminder-settings` PATCH the full panel uses,
  * so there is exactly one store and one normaliser.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { useSettingsPropertyScope } from "@/components/portal/settings-property-scope";
 import {
   DEFAULT_REMINDER_RULES,
   REMINDER_SUBJECT_META,
@@ -45,6 +46,13 @@ export function AutomationRuleRows({ rows, disabled: disabledProp }: { rows: Aut
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
   const reportSaveStatus = useReportSettingsSaveStatus();
+  // Per-property scope (PLAN-0916-1040); no-op workspace scope outside a provider.
+  const {
+    propertyId: scopePropertyId,
+    reportOverriddenPropertyIds,
+    resetSignal,
+  } = useSettingsPropertyScope();
+  const scopeKey = `automation-rules:${useId()}`;
   const [loading, setLoading] = useState(true);
   const [rules, setRules] = useState<Partial<Record<ReminderSubjectKind, ReminderRule>>>({});
   const [editing, setEditing] = useState<ReminderSubjectKind | null>(null);
@@ -53,15 +61,20 @@ export function AutomationRuleRows({ rows, disabled: disabledProp }: { rows: Aut
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      setLoading(true);
       try {
         if (demo) {
           if (!cancelled) setRules({ ...DEFAULT_REMINDER_RULES });
           return;
         }
-        const res = await fetch("/api/portal/reminder-settings", { credentials: "include", cache: "no-store" });
-        const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
+        const query = scopePropertyId ? `?propertyId=${encodeURIComponent(scopePropertyId)}` : "";
+        const res = await fetch(`/api/portal/reminder-settings${query}`, { credentials: "include", cache: "no-store" });
+        const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string; overriddenPropertyIds?: string[] };
         if (!res.ok) throw new Error(body.error ?? "Could not load reminder settings.");
-        if (!cancelled) setRules(normalizeReminderSettings(body.settings).rules);
+        if (!cancelled) {
+          setRules(normalizeReminderSettings(body.settings).rules);
+          reportOverriddenPropertyIds(scopeKey, body.overriddenPropertyIds ?? []);
+        }
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not load reminder settings.");
         if (!cancelled) setRules({ ...DEFAULT_REMINDER_RULES });
@@ -72,7 +85,39 @@ export function AutomationRuleRows({ rows, disabled: disabledProp }: { rows: Aut
     return () => {
       cancelled = true;
     };
-  }, [demo, showToast]);
+  }, [demo, showToast, scopePropertyId, scopeKey, reportOverriddenPropertyIds]);
+
+  // Reset the house's reminder override on the scope bar's request. Fire only when
+  // the signal advances past the mount value (StrictMode double-invokes mount).
+  const lastResetRef = useRef(resetSignal);
+  useEffect(() => {
+    if (resetSignal === lastResetRef.current) return;
+    lastResetRef.current = resetSignal;
+    if (!scopePropertyId || demo) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/portal/reminder-settings", {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ propertyId: scopePropertyId, reset: true }),
+        });
+        const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string; overriddenPropertyIds?: string[] };
+        if (!res.ok) throw new Error(body.error ?? "Could not reset reminder settings.");
+        if (!cancelled) {
+          setRules(normalizeReminderSettings(body.settings).rules);
+          reportOverriddenPropertyIds(scopeKey, body.overriddenPropertyIds ?? []);
+        }
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Could not reset reminder settings.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetSignal]);
 
   const save = useCallback(
     async (kind: ReminderSubjectKind, rule: ReminderRule) => {
@@ -83,13 +128,14 @@ export function AutomationRuleRows({ rows, disabled: disabledProp }: { rows: Aut
           method: "PATCH",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ kind, rule }),
+          body: JSON.stringify({ kind, rule, ...(scopePropertyId ? { propertyId: scopePropertyId } : {}) }),
           keepalive: true,
         });
-        const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
+        const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string; overriddenPropertyIds?: string[] };
         if (!res.ok) throw new Error(body.error ?? "Could not save reminder settings.");
         const saved = normalizeReminderSettings(body.settings).rules[kind];
         setRules((current) => ({ ...current, [kind]: saved }));
+        reportOverriddenPropertyIds(scopeKey, body.overriddenPropertyIds ?? []);
         reportSaveStatus({ type: "success" });
       } catch (e) {
         const message = e instanceof Error ? e.message : "Could not save reminder settings.";
@@ -97,7 +143,7 @@ export function AutomationRuleRows({ rows, disabled: disabledProp }: { rows: Aut
         reportSaveStatus({ type: "failure", reason: message });
       }
     },
-    [demo, reportSaveStatus, showToast],
+    [demo, reportSaveStatus, showToast, scopePropertyId, scopeKey, reportOverriddenPropertyIds],
   );
 
   const patch = useCallback(

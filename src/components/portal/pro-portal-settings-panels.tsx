@@ -22,6 +22,10 @@ import {
   PortalSettingsSections,
   PortalSettingsToggle,
 } from "@/components/portal/portal-settings-ui";
+import {
+  SettingsPropertyScopeEcho,
+  useSettingsPropertyScope,
+} from "@/components/portal/settings-property-scope";
 import { AutomationRuleRows } from "@/components/portal/automation-rule-rows";
 import { LeaseAutomationSettingsRows } from "@/components/portal/lease-automation-settings-rows";
 import { AutomatedMessagesList } from "@/components/portal/automated-messages-list";
@@ -91,6 +95,7 @@ import { TaskAutomationSettingsFields } from "@/components/portal/task-automatio
 import type { WorkAssignmentTeamMember } from "@/hooks/use-work-assignment-directory";
 import {
   DEFAULT_LIFECYCLE_AUTOMATION,
+  normalizeLifecycleAutomation,
   type LifecycleTaskAutomation,
 } from "@/lib/task-lifecycle-automation";
 import {
@@ -484,6 +489,14 @@ export function TaskSettingsPanel({
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
   const reportSaveStatus = useReportSettingsSaveStatus();
+  // Per-property scope (PLAN-0916-1040); the no-op workspace scope outside a provider.
+  const {
+    propertyId: scopePropertyId,
+    reportOverriddenPropertyIds,
+    reportLoading: reportScopeLoading,
+    resetSignal,
+  } = useSettingsPropertyScope();
+  const scopeKey = "task:lifecycle";
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [automation, setAutomation] = useState<LifecycleTaskAutomation>(DEFAULT_LIFECYCLE_AUTOMATION);
@@ -493,6 +506,7 @@ export function TaskSettingsPanel({
     let cancelled = false;
     (async () => {
       setLoading(true);
+      reportScopeLoading(scopeKey, true);
       try {
         if (demo) {
           if (!cancelled) {
@@ -501,24 +515,63 @@ export function TaskSettingsPanel({
           }
           return;
         }
-        const res = await fetch("/api/portal/task-automation-settings", { credentials: "include", cache: "no-store" });
+        const query = scopePropertyId ? `?propertyId=${encodeURIComponent(scopePropertyId)}` : "";
+        const res = await fetch(`/api/portal/task-automation-settings${query}`, { credentials: "include", cache: "no-store" });
         if (!res.ok) throw new Error("Could not load task settings.");
-        const body = (await res.json()) as { automation?: LifecycleTaskAutomation };
+        const body = (await res.json()) as { automation?: LifecycleTaskAutomation; overriddenPropertyIds?: string[] };
         const next = body.automation ?? DEFAULT_LIFECYCLE_AUTOMATION;
         if (!cancelled) {
           setAutomation(next);
           setSavedSnapshot(JSON.stringify(next));
+          reportOverriddenPropertyIds(scopeKey, body.overriddenPropertyIds ?? []);
         }
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not load task settings.");
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          reportScopeLoading(scopeKey, false);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [demo, showToast]);
+  }, [demo, showToast, scopePropertyId, scopeKey, reportOverriddenPropertyIds, reportScopeLoading]);
+
+  // Reset the house's lifecycle override when the scope bar requests it. Fire only
+  // when the signal advances past the mount value (StrictMode double-invokes mount).
+  const lastResetRef = useRef(resetSignal);
+  useEffect(() => {
+    if (resetSignal === lastResetRef.current) return;
+    lastResetRef.current = resetSignal;
+    if (!scopePropertyId || demo) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/portal/task-automation-settings", {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ propertyId: scopePropertyId, reset: true }),
+        });
+        const body = (await res.json().catch(() => ({}))) as { automation?: LifecycleTaskAutomation; overriddenPropertyIds?: string[]; error?: string };
+        if (!res.ok) throw new Error(body.error ?? "Could not reset task settings.");
+        const next = body.automation ?? DEFAULT_LIFECYCLE_AUTOMATION;
+        if (!cancelled) {
+          setAutomation(next);
+          setSavedSnapshot(JSON.stringify(next));
+          reportOverriddenPropertyIds(scopeKey, body.overriddenPropertyIds ?? []);
+        }
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Could not reset task settings.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetSignal]);
 
   const isDirty = useMemo(() => JSON.stringify(automation) !== savedSnapshot, [automation, savedSnapshot]);
 
@@ -539,18 +592,20 @@ export function TaskSettingsPanel({
           method: "PATCH",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ automation }),
+          // A house PATCH edits that house's own override; "" edits the workspace.
+          body: JSON.stringify({ automation, ...(scopePropertyId ? { propertyId: scopePropertyId } : {}) }),
           // A hard page unload (real reload/close, not a same-app route change) can abort an
           // ordinary in-flight fetch before it lands — this is exactly the write the
           // `pagehide`/`visibilitychange` flush in `settings-module-page.tsx` exists to send;
           // `keepalive` is what lets the browser actually finish it after the document goes away.
           keepalive: true,
         });
-        const body = (await res.json().catch(() => ({}))) as { automation?: LifecycleTaskAutomation; error?: string };
+        const body = (await res.json().catch(() => ({}))) as { automation?: LifecycleTaskAutomation; overriddenPropertyIds?: string[]; error?: string };
         if (!res.ok) throw new Error(body.error ?? "Could not save task settings.");
         const next = body.automation ?? automation;
         setAutomation(next);
         setSavedSnapshot(JSON.stringify(next));
+        reportOverriddenPropertyIds(scopeKey, body.overriddenPropertyIds ?? []);
         if (!options?.silent) showToast("Task settings saved.");
         onSaved?.();
         reportSaveStatus({ type: "success" });
@@ -566,7 +621,7 @@ export function TaskSettingsPanel({
         setSaving(false);
       }
     },
-    [automation, demo, isDirty, onSaved, reportSaveStatus, showToast],
+    [automation, demo, isDirty, onSaved, reportSaveStatus, showToast, scopePropertyId, scopeKey, reportOverriddenPropertyIds],
   );
 
   // `save` already checks `isDirty` itself, so it doubles directly as `saveIfDirty` — this is
@@ -604,7 +659,7 @@ export function TaskSettingsPanel({
     <div className="space-y-6">
       <PortalSettingsSection
         title="Task reminders"
-        action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+        action={<SettingsPropertyScopeEcho />}
       >
         <ManagerReminderRuleSettingsPanel
           kind="task"
@@ -618,7 +673,7 @@ export function TaskSettingsPanel({
 
       <PortalSettingsSection
         title="Lifecycle automation"
-        action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+        action={<SettingsPropertyScopeEcho />}
       >
         <TaskAutomationSettingsFields
           automation={automation}
@@ -915,7 +970,7 @@ export function InspectionsSettingsPanel({
     <PortalSettingsSections>
       <PortalSettingsSection
         title="Inspection reminders"
-        action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+        action={<SettingsPropertyScopeEcho />}
       >
         <InspectionRemindersSettingsBundle
           teamMembers={teamMembers}
@@ -923,7 +978,7 @@ export function InspectionsSettingsPanel({
           reviewFormRef={reviewReminderFormRef}
         />
       </PortalSettingsSection>
-      <PortalSettingsSection title="Messages sent automatically">
+      <PortalSettingsSection title="Messages sent automatically" action={<SettingsPropertyScopeEcho />}>
         <AutomatedMessagesList area="inspections" />
       </PortalSettingsSection>
     </PortalSettingsSections>
@@ -944,7 +999,7 @@ export function BookingsSettingsPanel({
   return (
     <PortalSettingsSection
       title="Booking reminders"
-      action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+      action={<SettingsPropertyScopeEcho />}
     >
       <ManagerReminderRuleSettingsPanel
         kind="booking"

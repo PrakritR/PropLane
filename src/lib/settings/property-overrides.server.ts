@@ -37,7 +37,8 @@ export type OperationsNamespace =
   | "reminderRules"
   | "paymentAutomation"
   | "lifecycleTasks"
-  | "serviceAutomation";
+  | "serviceAutomation"
+  | "automatedMessages";
 
 /** A `propertyId` that is not in this manager's workspace. Routes map it to 403. */
 export class ForeignPropertyError extends Error {

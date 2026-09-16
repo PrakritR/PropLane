@@ -104,6 +104,19 @@ function emptyToDash(v: unknown) {
  */
 const SETTINGS_TAB_PARAM = "tab";
 
+/**
+ * Operations panes that carry the per-property scope bar (PLAN-0916-1040).
+ *
+ * These are the panes whose every section is per-property today: Inspections and
+ * Bookings are reminder-only, and Tasks is reminders + lifecycle automation — all
+ * of which resolve override → workspace → default. The remaining Operations panes
+ * (Communication, Payments, Services, Reminders) mix per-property reminders with
+ * workspace-wide automation-settings that fan out across many sub-components, so
+ * making them fully per-property is a separate pass; until then they stay
+ * workspace-wide rather than show a picker that only scopes some of the pane.
+ */
+const SCOPED_OPERATIONS_PANES = new Set<SettingsGroupId>(["inspections", "bookings", "tasks"]);
+
 /** The two fields on this screen a person may write. */
 type ProfileField = "fullName" | "phone";
 
@@ -713,7 +726,7 @@ export function PortalProfileClient({
               />
             </div>
           )}
-          {paneGroup.group === "Operations" ? (
+          {SCOPED_OPERATIONS_PANES.has(paneGroup.id) ? (
             <SettingsPropertyScopeProvider
               propertyId={scopeProperty}
               onPropertyIdChange={setScopeProperty}
