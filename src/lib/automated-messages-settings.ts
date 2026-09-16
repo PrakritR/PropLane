@@ -73,12 +73,8 @@ export const AUTOMATED_MESSAGE_CATALOG: AutomatedMessageCatalogEntry[] = [
   { domain: "lease", event: "lease_countersigned", area: "lease", label: "Countersigned", audiences: ["resident", "manager"], placeholders: ["residentName", "propertyTitle", "url"] },
   { domain: "lease", event: "lease_signed", area: "lease", label: "Fully signed", audiences: ["resident", "manager"], placeholders: ["residentName", "propertyTitle", "url"] },
   { domain: "lease", event: "lease_voided", area: "lease", label: "Voided", audiences: ["resident", "manager"], placeholders: ["residentName", "propertyTitle"] },
-  { domain: "lease", event: "renewal_offered", area: "lease", label: "Renewal offer sent", audiences: ["resident"], placeholders: ["residentName", "propertyTitle", "termLabel", "amountLabel", "respondByLabel", "url"] },
-  { domain: "lease", event: "renewal_accepted", area: "lease", label: "Renewal accepted", audiences: ["resident", "manager"], placeholders: ["residentName", "propertyTitle"] },
-  { domain: "lease", event: "renewal_declined", area: "lease", label: "Renewal declined", audiences: ["resident", "manager"], placeholders: ["residentName", "propertyTitle", "leaseEndLabel"] },
-  { domain: "lease", event: "move_out_notice", area: "lease", label: "Move-out notice received", audiences: ["resident", "manager"], placeholders: ["residentName", "propertyTitle", "moveOutLabel", "url"] },
-  { domain: "lease", event: "amendment_sent", area: "lease", label: "Amendment sent", audiences: ["resident"], placeholders: ["residentName", "propertyTitle", "url"] },
-  { domain: "lease", event: "amendment_signed", area: "lease", label: "Amendment signed", audiences: ["resident", "manager"], placeholders: ["residentName", "propertyTitle", "url"] },
+  { domain: "lease", event: "move_out_notice", area: "lease", label: "Move-out date set", audiences: ["resident", "manager"], placeholders: ["residentName", "propertyTitle", "moveOutLabel"] },
+  { domain: "lease", event: "amendment_sent", area: "lease", label: "Lease extended", audiences: ["resident", "manager"], placeholders: ["residentName", "propertyTitle", "leaseEndLabel"] },
   // ---- Payments ----
   { domain: "payment", event: "charge_created", area: "payments", label: "Charge created", audiences: ["resident", "manager"], placeholders: ["title", "amountLabel", "propertyTitle"] },
   { domain: "payment", event: "payment_processing", area: "payments", label: "Payment processing", audiences: ["resident"], placeholders: ["title", "amountLabel"] },
@@ -102,12 +98,9 @@ export const AUTOMATED_MESSAGE_CATALOG: AutomatedMessageCatalogEntry[] = [
   { domain: "tour", event: "confirmed", area: "tours", label: "Tour confirmed", audiences: ["manager"], placeholders: ["guestName", "propertyTitle", "whenLabel"] },
   { domain: "tour", event: "cancelled_by_guest", area: "tours", label: "Cancelled by guest", audiences: ["manager"], placeholders: ["guestName", "propertyTitle", "whenLabel"] },
   { domain: "tour", event: "no_show", area: "tours", label: "No-show", audiences: ["resident"], placeholders: ["guestName", "propertyTitle", "slotsUrl"] },
-  // ---- Inspections ----
-  { domain: "inspection", event: "scheduled", area: "inspections", label: "Inspection scheduled", audiences: ["resident"], placeholders: ["residentName", "propertyTitle", "whenLabel"] },
-  { domain: "inspection", event: "report_shared", area: "inspections", label: "Report shared", audiences: ["resident"], placeholders: ["residentName", "propertyTitle", "url"] },
-  { domain: "inspection", event: "acknowledged", area: "inspections", label: "Report acknowledged", audiences: ["manager"], placeholders: ["residentName", "propertyTitle"] },
-  { domain: "inspection", event: "disputed", area: "inspections", label: "Report disputed", audiences: ["manager"], placeholders: ["residentName", "propertyTitle", "note", "url"] },
-  { domain: "inspection", event: "comparison_ready", area: "inspections", label: "Comparison ready", audiences: ["manager"], placeholders: ["residentName", "propertyTitle", "differences", "url"] },
+  // ---- Inspections (a report has two sides; the resident submits theirs, the manager may reopen it) ----
+  { domain: "inspection", event: "submitted", area: "inspections", label: "Resident submitted their photos", audiences: ["manager"], placeholders: ["residentName", "propertyTitle", "kind", "url"] },
+  { domain: "inspection", event: "reopened", area: "inspections", label: "Report reopened for the resident", audiences: ["resident"], placeholders: ["residentName", "propertyTitle", "kind", "url"] },
   // ---- Tasks ----
   { domain: "task", event: "assigned", area: "tasks", label: "Task assigned", audiences: ["resident"], placeholders: ["title", "dueDateLabel", "url"] },
   { domain: "task", event: "completed", area: "tasks", label: "Task completed", audiences: ["manager"], placeholders: ["title", "assigneeName"] },

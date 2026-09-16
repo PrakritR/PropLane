@@ -2,6 +2,19 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ReminderQueueRow } from "@/lib/reminders/queue.server";
 import type { ReminderSubjectKind } from "@/lib/reminders/rules";
 
+/** Kinds whose currency lives in `subjects/tenancy-current.server.ts`. */
+const TENANCY_KINDS: ReadonlySet<ReminderSubjectKind> = new Set<ReminderSubjectKind>([
+  "move_in",
+  "move_in_payment_method",
+  "lease_ending",
+  "lease_ending_manager",
+  "move_out",
+  "move_out_inspection_manager",
+  "deposit_accounting",
+  "countersign_overdue",
+  "renewal_offer_expiry",
+]);
+
 /** Kinds whose currency lives in `subjects/services-current.server.ts`. */
 const SERVICE_KINDS: ReadonlySet<ReminderSubjectKind> = new Set<ReminderSubjectKind>([
   "work_order_unassigned",
@@ -103,6 +116,11 @@ export async function reminderIsCurrent(db: SupabaseClient, row: ReminderQueueRo
 
   if (row.kind === "outgoing_payment") {
     return outgoingPaymentIsCurrent(db, row, expectedAnchor);
+  }
+
+  if (TENANCY_KINDS.has(row.kind)) {
+    const { tenancyReminderIsCurrent } = await import("./subjects/tenancy-current.server");
+    return tenancyReminderIsCurrent(db, row, expectedAnchor);
   }
 
   if (SERVICE_KINDS.has(row.kind)) {

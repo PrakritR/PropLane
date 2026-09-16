@@ -17,6 +17,7 @@ import {
   PortalSettingsToggle,
 } from "@/components/portal/portal-settings-ui";
 import { AutomationRuleRows } from "@/components/portal/automation-rule-rows";
+import { LeaseAutomationSettingsRows } from "@/components/portal/lease-automation-settings-rows";
 import { AutomatedMessagesList } from "@/components/portal/automated-messages-list";
 import { ServiceRequestAutomationRows, ServiceVendorAutomationRows } from "@/components/portal/service-automation-settings-section";
 import {
@@ -667,8 +668,42 @@ export function LeaseSettingsPanel({
         </PortalSettingsGroup>
       </PortalSettingsSection>
 
+      <PortalSettingsSection title="Lease ending" action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}>
+        <AutomationRuleRows
+          rows={[
+            { kind: "lease_ending_manager", multi: true },
+            { kind: "lease_ending", multi: true },
+            { kind: "renewal_offer_expiry" },
+            { kind: "countersign_overdue" },
+          ]}
+          disabled={loading || saving}
+        />
+      </PortalSettingsSection>
+
+      <PortalSettingsSection title="Move-in">
+        <AutomationRuleRows
+          rows={[
+            { kind: "move_in", multi: true },
+            { kind: "move_in_payment_method" },
+          ]}
+          disabled={loading || saving}
+        />
+      </PortalSettingsSection>
+
+      <PortalSettingsSection title="Move-out">
+        <AutomationRuleRows
+          rows={[
+            { kind: "move_out", multi: true },
+            { kind: "move_out_inspection_manager" },
+            { kind: "deposit_accounting", multi: true },
+          ]}
+          disabled={loading || saving}
+        />
+        <LeaseAutomationSettingsRows />
+      </PortalSettingsSection>
+
       <PortalSettingsSection
-        title="Reminders"
+        title="Signing reminders"
         action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
       >
         <LeaseRemindersSettingsBundle
@@ -676,6 +711,10 @@ export function LeaseSettingsPanel({
           formRef={reminderFormRef}
           disabled={loading || saving}
         />
+      </PortalSettingsSection>
+
+      <PortalSettingsSection title="Messages sent automatically">
+        <AutomatedMessagesList area="lease" disabled={loading || saving} />
       </PortalSettingsSection>
     </div>
   );
@@ -836,16 +875,21 @@ export function InspectionsSettingsPanel({
   useReportSettingsPanelFooter(onFooterReady, null);
 
   return (
-    <PortalSettingsSection
-      title="Inspection reminders"
-      action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
-    >
-      <InspectionRemindersSettingsBundle
-        teamMembers={teamMembers}
-        dueFormRef={dueReminderFormRef}
-        reviewFormRef={reviewReminderFormRef}
-      />
-    </PortalSettingsSection>
+    <PortalSettingsSections>
+      <PortalSettingsSection
+        title="Inspection reminders"
+        action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+      >
+        <InspectionRemindersSettingsBundle
+          teamMembers={teamMembers}
+          dueFormRef={dueReminderFormRef}
+          reviewFormRef={reviewReminderFormRef}
+        />
+      </PortalSettingsSection>
+      <PortalSettingsSection title="Messages sent automatically">
+        <AutomatedMessagesList area="inspections" />
+      </PortalSettingsSection>
+    </PortalSettingsSections>
   );
 }
 
