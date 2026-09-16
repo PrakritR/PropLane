@@ -24,3 +24,19 @@ it("passes every authorized collapsed source id to one folder transaction", asyn
     p_ids: ["email-new", "email-old"], p_scope: "manager", p_action: "archive",
   });
 });
+it("skips a collapsed source id the viewer cannot see instead of refusing the batch", async () => {
+  // The stored merge still names `email-gone`; the list no longer returns it.
+  const response = await POST(new Request("https://example.test/api/portal-inbox-threads", { method: "POST",
+    body: JSON.stringify({ action: "changeFolder", scope: "manager", folderAction: "archive", ids: ["email-new", "email-old", "email-gone"] }) }));
+  expect(response.status).toBe(200);
+  expect(mocks.rpc).toHaveBeenCalledWith("change_portal_inbox_thread_folders", {
+    p_ids: ["email-new", "email-old"], p_scope: "manager", p_action: "archive",
+  });
+});
+it("still refuses when none of the ids are the viewer's", async () => {
+  mocks.from.mockReturnValue({ select() { return this; }, in() { return this; }, then(resolve: (value: unknown) => unknown) { return Promise.resolve({ data: [], error: null }).then(resolve); } });
+  const refused = await POST(new Request("https://example.test/api/portal-inbox-threads", { method: "POST",
+    body: JSON.stringify({ action: "changeFolder", scope: "manager", folderAction: "archive", ids: ["email-gone"] }) }));
+  expect(refused.status).toBe(404);
+  expect(mocks.rpc).not.toHaveBeenCalled();
+});
