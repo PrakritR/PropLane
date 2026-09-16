@@ -29,6 +29,16 @@ type ChangeResult = {
 
 let CANCEL_RESULT: ChangeResult = { ok: true };
 const toasts: string[] = [];
+const deleteMocks = vi.hoisted(() => ({
+  dedicated: vi.fn(async (input?: { plannedEventId: string; notifyGuest?: boolean }) => {
+    void input;
+    return { ok: true };
+  }),
+  generic: vi.fn(async (id?: string) => {
+    void id;
+    return true;
+  }),
+}));
 
 vi.mock("@/components/providers/app-ui-provider", () => ({
   useConfirm: () => (req: { description?: unknown }) =>
@@ -65,6 +75,8 @@ vi.mock("@/lib/tour-planned-change.client", async (importOriginal) => {
   return {
     ...actual,
     cancelPlannedTourFromServer: async () => CANCEL_RESULT,
+    deletePlannedTourFromServer: (input: { plannedEventId: string; notifyGuest?: boolean }) =>
+      deleteMocks.dedicated(input),
   };
 });
 vi.mock("@/lib/google-calendar/delete-tour.client", () => ({
@@ -79,7 +91,7 @@ vi.mock("@/lib/demo-admin-scheduling", async (importOriginal) => {
     syncScheduleRecordsFromServer: vi.fn(async () => undefined),
     readAvailabilityDateSetForStorageKey: () => new Set<string>(),
     readPlannedEvents: () => [],
-    deletePlannedEventFromServer: vi.fn(async () => true),
+    deletePlannedEventFromServer: (id: string) => deleteMocks.generic(id),
     deletePartnerInquiryFromServer: vi.fn(async () => ({ ok: true })),
     acceptPartnerInquiryFromServer: vi.fn(async () => ({ ok: true })),
     writeAvailabilityDateSetForStorageKeyToServer: vi.fn(async () => true),
@@ -121,11 +133,11 @@ async function confirmGuestNotificationModal() {
   fireEvent.click(btn);
 }
 
-async function openTourModal() {
+async function openTourModal(meeting: DemoMeeting = confirmedTour()) {
   render(
     <PortalCalendarPanels
       storageKey="axis_mgr_avail_slots_v2_guest_notice"
-      externalMeetings={[confirmedTour()]}
+      externalMeetings={[meeting]}
       scheduleOwnerLabel="Test Manager"
     />,
   );
@@ -158,6 +170,8 @@ afterEach(cleanup);
 beforeEach(() => {
   toasts.length = 0;
   CANCEL_RESULT = { ok: true };
+  deleteMocks.dedicated.mockClear();
+  deleteMocks.generic.mockClear();
 });
 
 describe("cancelling a confirmed tour reports the guest notification honestly", () => {
@@ -193,5 +207,23 @@ describe("cancelling a confirmed tour reports the guest notification honestly", 
         calendarSync: { ok: false, error: "token expired" },
       }),
     ).toBe("Tour cancelled and the guest was notified, but your Google Calendar did not update.");
+  });
+
+  it("deletes a confirmed tour without email through the reservation-aware lifecycle", async () => {
+    await openTourModal({ ...confirmedTour(), email: "" });
+
+    fireEvent.click(document.querySelector('[data-attr="tour-delete-open"]')!);
+    fireEvent.click(await waitFor(() => {
+      const button = document.querySelector('[data-attr="tour-delete-submit"]') as HTMLButtonElement | null;
+      if (!button) throw new Error("delete confirmation not ready");
+      return button;
+    }));
+
+    await waitFor(() => expect(deleteMocks.dedicated).toHaveBeenCalledWith({
+      plannedEventId: "planned-1",
+      notifyGuest: false,
+    }));
+    expect(deleteMocks.generic).not.toHaveBeenCalled();
+    expect(toasts.at(-1)).toBe("Event deleted.");
   });
 });
