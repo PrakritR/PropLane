@@ -2,8 +2,7 @@
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
-import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { Link2, UserPlus } from "lucide-react";
+import { usePublishTitleActions } from "@/components/portal/portal-title-actions-slot";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -833,7 +832,9 @@ export function ProAccountLinksPanel({
     for (const property of coManagedProperties) map.set(property.id, property.label);
     for (const inv of remoteInvites) {
       for (const [id, label] of Object.entries(inv.assignedPropertyLabels ?? {})) {
-        if (id.trim() && label.trim()) map.set(id, label.trim());
+        if (typeof id === "string" && id.trim() && typeof label === "string" && label.trim()) {
+          map.set(id, label.trim());
+        }
       }
     }
     return map;
@@ -2738,12 +2739,6 @@ export function ProAccountLinksPanel({
     </>
   );
 
-  /*
-   * The Team tab as three blocks (Mobbin polish §12): the members table with
-   * the owner on top, the pending invites with their two actions, and the
-   * invite-by-link card. The flat person rows and the dashed Add box are gone;
-   * every row's Access button opens the same per-member editor as before.
-   */
   const memberRows: TeamMemberRow[] = [
     {
       id: "owner",
@@ -2757,14 +2752,14 @@ export function ProAccountLinksPanel({
       .filter((entry) => entry.kind === "local" || entry.invite.status === "accepted")
       .map((entry) => ({
         id: entry.id,
-        name: entry.name,
+        name: entry.name || entry.axisId || "Team member",
         detail: (entry.kind === "remote" ? entry.invite.linkedEmail?.trim() : "") || entry.axisId,
         role: "co_manager" as const,
         propertiesLabel: entry.preview || "No houses yet",
         joinedAt: entry.kind === "remote" ? entry.invite.respondedAt : null,
-        onAccess: () => openTeamDetail(entry.id),
-        checked: selectedIds.has(entry.id),
-        onSelectedChange: () => toggleSelected(entry.id),
+        onEdit: () => openTeamDetail(entry.id),
+        onPermissions: () => openTeamDetail(entry.id),
+        onRemove: () => openTeamRemovePreview([entry]),
       })),
   ];
   const pendingInvites = [...visibleIncomingPending, ...visibleOutgoingPending];
@@ -2788,6 +2783,24 @@ export function ProAccountLinksPanel({
       />
     </div>
   );
+
+  const inviteAction = (
+    <Button
+      type="button"
+      data-attr="co-manager-invite-top"
+      disabled={linkAccountBlocked}
+      onClick={openLinkModal}
+    >
+      Invite
+    </Button>
+  );
+  const titleControls = (
+    <div className="flex items-center gap-1 sm:gap-1.5" data-attr="team-title-actions">
+      {teamFilterSheet}
+      {inviteAction}
+    </div>
+  );
+  const publishedToTitle = usePublishTitleActions(titleControls, Boolean(bare) && !routeLinkId);
 
   if (routeLinkId) {
     if (!routeEntry) {
@@ -2860,44 +2873,24 @@ export function ProAccountLinksPanel({
     );
   }
 
-  const inviteAction = (
-    <PortalPrimaryIconAction
-      label="Invite manager"
-      icon={UserPlus}
-      data-attr="co-manager-invite-top"
-      disabled={linkAccountBlocked}
-      onClick={openLinkModal}
-    />
-  );
-
-  // One door each: email invite is the primary, the shareable link is the
-  // secondary beside it. Neither is repeated inside the members block or as
-  // its own card below the list.
-  const inviteLinkAction = (
-    <PortalIconAction
-      icon={Link2}
-      label="Copy invite link"
-      data-attr="team-invite-link-create"
-      disabled={inviteLinkBlocked}
-      onClick={openInviteLinkModal}
-    />
-  );
-
   const teamBody = (
     <>
-      <PortalListControlStack
-        className="mb-2 max-lg:mb-1.5"
-        variant="command"
-        stickyDestinations={!bare}
-        actions={
-          <>
-            {teamFilterSheet}
-            {inviteLinkAction}
-          </>
-        }
-        primary={inviteAction}
-        activeFilterChips={teamActiveFilterChips}
-      />
+      {publishedToTitle ? (
+        teamActiveFilterChips ? (
+          <div className="mb-2 min-w-0" data-attr="portal-list-active-filter-chips">
+            {teamActiveFilterChips}
+          </div>
+        ) : null
+      ) : (
+        <PortalListControlStack
+          className="mb-2 max-lg:mb-1.5"
+          variant="command"
+          stickyDestinations={!bare}
+          actions={teamFilterSheet}
+          primary={inviteAction}
+          activeFilterChips={teamActiveFilterChips}
+        />
+      )}
       <div className="space-y-4">
         {teamListAlerts}
         {teamListBody}

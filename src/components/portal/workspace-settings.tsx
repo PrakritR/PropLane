@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Building2, ChevronDown, ChevronUp, Pencil, Trash2, UserPlus, Users } from "lucide-react";
+import { Building2, ChevronDown, ChevronUp, Pencil, Trash2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
@@ -158,7 +158,6 @@ function WorkspaceCard({
   onDelete,
   onMove,
   onOpenTeam,
-  onOpenVendors,
 }: {
   workspace: PortalWorkspace;
   ownedCount: number;
@@ -167,7 +166,6 @@ function WorkspaceCard({
   onDelete: () => void;
   onMove: (propertyId: string) => void;
   onOpenTeam: () => void;
-  onOpenVendors: () => void;
 }) {
   const records = workspace.propertyIds.length;
   const pct = Math.min(100, Math.round((records / WORKSPACE_PROPERTY_LIMIT) * 100));
@@ -270,15 +268,6 @@ function WorkspaceCard({
           >
             <Users className="size-4" aria-hidden />
             Managers & permissions
-          </button>
-          <button
-            type="button"
-            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg px-2.5 text-sm font-semibold text-primary transition hover:bg-accent"
-            onClick={onOpenVendors}
-            data-attr="workspace-manage-vendors"
-          >
-            <UserPlus className="size-4" aria-hidden />
-            Vendors
           </button>
         </div>
       ) : null}
@@ -412,15 +401,6 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
                 }
                 router.push("/portal/profile?tab=team");
               })().catch((e) => setError(e instanceof Error ? e.message : "Could not open Team."));
-            }}
-            onOpenVendors={() => {
-              void (async () => {
-                if (ctx.active?.id !== workspace.id) {
-                  await ctx.select(workspace.id, { href: "/portal/vendors" });
-                  return;
-                }
-                router.push("/portal/vendors");
-              })().catch((e) => setError(e instanceof Error ? e.message : "Could not open Vendors."));
             }}
           />
         ))
