@@ -120,8 +120,9 @@ describe("ManagerNotificationRoutingSetting", () => {
 
     render(<ManagerNotificationRoutingSetting />);
 
-    expect(await screen.findByText("Assistant fallback active")).toBeTruthy();
-    expect(screen.queryByText("Phone connection ready")).toBeNull();
+    expect(await screen.findByText("Phone connection ready")).toBeTruthy();
+    expect(screen.queryByText("Assistant fallback active")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Finish messaging setup" })).toBeNull();
   });
 
   it("explains the Assistant fallback when work-number setup is incomplete", async () => {
@@ -138,5 +139,24 @@ describe("ManagerNotificationRoutingSetting", () => {
 
     expect(await screen.findByText("Assistant fallback active")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Finish messaging setup" })).toBeTruthy();
+  });
+
+  it("hides Finish messaging setup once a work number is assigned", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo) =>
+        String(input).includes("messaging-number")
+          ? Response.json({
+              ...numberStatus,
+              personalPhone: { ...numberStatus.personalPhone, forwardInbound: false },
+            })
+          : Response.json({ settings: DEFAULT_MANAGER_AUTOMATION_SETTINGS }),
+      ),
+    );
+
+    render(<ManagerNotificationRoutingSetting />);
+
+    expect(await screen.findByText("Phone connection ready")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Finish messaging setup" })).toBeNull();
   });
 });

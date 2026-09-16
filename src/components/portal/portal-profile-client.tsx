@@ -1,12 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
-import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import {
+  Bell,
   CreditCard,
-  HardHat,
   KeyRound,
   Lock,
   MessageSquareText,
@@ -28,7 +27,6 @@ import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras
 import { WorkspaceSettings } from "@/components/portal/workspace-settings";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { ProAccountLinksPanel } from "@/components/portal/pro-account-links-panel";
-import { ManagerVendorsPanel } from "@/components/portal/pro-vendors-panel";
 import {
   PortalSettingsAutosaveField,
   PortalSettingsField,
@@ -93,10 +91,10 @@ type ProfileField = "fullName" | "phone";
 type SettingsGroupId =
   | "workspaces"
   | "team"
-  | "vendors"
   | "profile"
   | "billing"
   | "messaging"
+  | "notifications"
   | "preferences"
   | "security"
   | "developer"
@@ -150,6 +148,7 @@ export function PortalProfileClient({
   const workspaceName = workspaces?.active?.name;
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [fullName, setFullName] = useState(dashToEmpty(initialFullName));
   const [phone, setPhone] = useState(phoneDashToEmpty(initialPhone));
   /** Per-field outcome, so a failure is reported on the row it happened to. */
@@ -299,7 +298,6 @@ export function PortalProfileClient({
     if (!demo && variant === "manager") {
       list.push({ id: "workspaces", label: "Workspaces", description: "Plan limits, your workspaces, and who works in each.", icon: Settings2, group: "Workspace" });
       list.push({ id: "team", label: "Team", description: "Managers you share houses with, and exactly what each can do.", icon: Users, group: "Workspace" });
-      list.push({ id: "vendors", label: "Vendors", description: "Vendors you dispatch to, invite links, and defaults.", icon: HardHat, group: "Workspace" });
       list.push({
         id: "billing",
         label: "Billing & plan",
@@ -316,6 +314,15 @@ export function PortalProfileClient({
           "Personal mobile, your work number for texts and calls, and what reaches you after a call.",
         icon: MessagesSquare,
         group: "Workspace",
+      });
+    }
+    if (variant === "manager") {
+      list.push({
+        id: "notifications",
+        label: "Notifications",
+        description: "Manager alerts and device notifications.",
+        icon: Bell,
+        group: "Account",
       });
     }
     list.push(
@@ -380,6 +387,9 @@ export function PortalProfileClient({
   }, []);
 
   const rawTab = searchParams.get(SETTINGS_TAB_PARAM);
+  useEffect(() => {
+    if (rawTab === "vendors") router.replace("/portal/vendors");
+  }, [rawTab, router]);
   const billingGroup = groups.find((g) => g.id === "billing") ?? null;
   const activeGroup =
     groups.find((g) => g.id === rawTab) ?? (billingOverride ? billingGroup : null) ?? null;
@@ -453,27 +463,8 @@ export function PortalProfileClient({
         return <WorkspaceSettings openNew={searchParams?.get("new") === "1"} />;
       case "team":
         return (
-          <PortalSettingsSection
-            title={workspaceName ? `Team · ${workspaceName}` : "Team"}
-          >
+          <PortalSettingsSection title={workspaceName ? `Team · ${workspaceName}` : "Team"}>
             {settingsUserId ? <ProAccountLinksPanel userId={settingsUserId} bare /> : <p className="text-sm text-muted">Loading…</p>}
-          </PortalSettingsSection>
-        );
-      case "vendors":
-        return (
-          <PortalSettingsSection
-            title={workspaceName ? `Vendors · ${workspaceName}` : "Vendors"}
-            action={
-              <Link
-                href="/portal/vendors"
-                className="inline-flex min-h-10 items-center rounded-lg px-3 text-sm font-semibold text-primary hover:bg-accent"
-                data-attr="settings-vendors-open-section"
-              >
-                Open Vendors
-              </Link>
-            }
-          >
-            <ManagerVendorsPanel bare />
           </PortalSettingsSection>
         );
       case "profile":
@@ -504,7 +495,12 @@ export function PortalProfileClient({
             </PortalSettingsSection>
             <AssistantDisplaySetting />
             <AssistantCustomInstructionsSetting role={variant} />
-            {variant === "manager" ? <ManagerNotificationRoutingSetting /> : null}
+          </>
+        );
+      case "notifications":
+        return (
+          <>
+            <ManagerNotificationRoutingSetting />
             <NotificationsToggle />
           </>
         );

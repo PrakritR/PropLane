@@ -17,9 +17,9 @@ describe("workspace settings delete", () => {
     expect(src).toContain("It has no properties, so it will be removed now.");
   });
 
-  it("opens Team in that workspace and Vendors on the operations list, not Settings add", () => {
+  it("opens Team in that workspace, not a Settings Vendors tab", () => {
     expect(src).toContain("href: \"/portal/profile?tab=team\"");
-    expect(src).toContain("href: \"/portal/vendors\"");
-    expect(src).not.toContain("href=\"/portal/profile?tab=vendors\"");
+    expect(src).not.toContain("href: \"/portal/profile?tab=vendors\"");
+    expect(src).not.toContain("workspace-manage-vendors");
   });
 });
