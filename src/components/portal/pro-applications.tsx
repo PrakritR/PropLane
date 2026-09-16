@@ -17,7 +17,7 @@ import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
-import { Settings2, Share2 } from "lucide-react";
+import { Plus, Settings2, Share2 } from "lucide-react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { armFilterSheetOpenSuppressFromOverlayDismiss } from "@/components/ui/field-select-portal-interaction";
@@ -2029,19 +2029,16 @@ export function ManagerApplications({
                     tabs.map((t) => ({ id: t.id, label: t.label, count: t.count, href: applicationsListHref(t.id) })),
                     bucket,
                   ),
-                  // Applications has no "add": the pill does what the bar's share glyph does,
-                  // and only on the tabs a new application can reach.
+                  // Incomplete and Pending: the pill matches the header + (add
+                  // an applicant). Share-a-link stays on the header share glyph.
                   actions:
                     bucket === "incomplete" || bucket === "pending"
                       ? [
                           {
-                            label: "Send application link",
-                            secondary: true,
-                            icon: Share2,
-                            onClick: openSendApplicationInvite,
-                            disabled: shareableProperties.length === 0,
-                            reason: shareableProperties.length === 0 ? "List a property first — applications are sent for a listing." : undefined,
-                            dataAttr: "applications-empty-send",
+                            label: "Add applicant",
+                            icon: Plus,
+                            onClick: () => setAddApplicationOpen(true),
+                            dataAttr: "applications-empty-add",
                           },
                         ]
                       : [],

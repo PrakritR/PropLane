@@ -94,6 +94,7 @@ import {
   PaymentListingLateFeeSettings,
   type PaymentListingLateFeeHandle,
 } from "@/components/portal/payment-late-fee-settings";
+import { ManagerPaymentSetupPanel } from "@/components/portal/pro-payment-setup-modal";
 import { ReminderTypePicker } from "@/components/portal/reminder-type-picker";
 import { TaskAutomationSettingsFields } from "@/components/portal/task-automation-settings-fields";
 import type { WorkAssignmentTeamMember } from "@/hooks/use-work-assignment-directory";
@@ -1015,17 +1016,14 @@ export function BookingsSettingsPanel({
 }
 
 export const RESIDENT_SETTINGS_AREAS = [
-  { value: "payments", label: "Payment reminders" },
   { value: "household", label: "Household reminders" },
 ] as const;
 
 export type ResidentSettingsArea = (typeof RESIDENT_SETTINGS_AREAS)[number]["value"];
 
 /**
- * Resident settings stay in this tab: pick a house, then Payment or Household
- * reminders. The panels themselves are the same reminder bundles Payments and
- * Lease already use — this hub does not navigate to those modules or to the
- * residents list.
+ * Resident settings stay in this tab: pick a house, then household / resident-life
+ * reminders only. Rent and payment reminders live under Payment settings.
  */
 export function ResidentSettingsPanel({
   propertyOptions,
@@ -1046,6 +1044,7 @@ export function ResidentSettingsPanel({
   paymentsFormRef?: React.Ref<PaymentAutomationSettingsHandle>;
   householdFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
 }) {
+  void paymentsFormRef;
   const selected = propertyOptions.find((house) => house.id === selectedPropertyId);
   const title = selected?.label ?? "Resident settings";
 
@@ -1080,18 +1079,14 @@ export function ResidentSettingsPanel({
               value={area}
               options={RESIDENT_SETTINGS_AREAS.map((row) => ({ value: row.value, label: row.label }))}
               onChange={(next) => {
-                if (next === "payments" || next === "household") onAreaChange(next);
+                if (next === "household") onAreaChange(next);
               }}
               dataAttr="resident-settings-area"
             />
           </PortalSettingsRow>
         </PortalSettingsGroup>
       </PortalSettingsSection>
-      {area === "payments" ? (
-        <IncomingPaymentRemindersSettingsBundle teamMembers={teamMembers} formRef={paymentsFormRef} />
-      ) : (
-        <LeaseRemindersSettingsBundle teamMembers={teamMembers} formRef={householdFormRef} />
-      )}
+      <LeaseRemindersSettingsBundle teamMembers={teamMembers} formRef={householdFormRef} />
     </div>
   );
 }
@@ -1512,17 +1507,18 @@ export function TourSettingsPanel({
   );
 }
 
+export const PAYMENTS_SETTINGS_AREAS = [
+  { value: "setup", label: "Payment setup" },
+  { value: "rent", label: "Rent reminders" },
+  { value: "late-fees", label: "Late fees" },
+] as const;
+
+export type PaymentsSettingsArea = (typeof PAYMENTS_SETTINGS_AREAS)[number]["value"];
+
 /**
- * Payments settings IS the reminder schedule — there is no second thing here.
- *
- * This tab was four radio presets (Basics / Standard / Gentle / Due date only)
- * writing the very same `/api/portal/automation-settings` fields the Payments
- * page's separate Reminders dialog wrote through a chip picker. Two dialogs,
- * one setting, each able to silently undo the other.
- *
- * The presets went rather than the chips: they asked the manager to choose
- * between named bundles instead of just saying when to remind, and could only
- * express four of the arrangements the chips express directly.
+ * Payment settings is workspace-scoped Stripe + processing fee, then rent
+ * reminders and late fees. Household / resident-life reminders live under
+ * Resident settings. Workspace comes from the portal top-left switcher.
  */
 export function PaymentsSettingsPanel({
   onSaved,
@@ -1544,8 +1540,11 @@ export function PaymentsSettingsPanel({
   propertyOptions?: { id: string; label: string }[];
   initialPropertyId?: string;
 }) {
+  const workspaces = useWorkspaces();
   const remindersRef = useRef<PaymentAutomationSettingsHandle | null>(null);
   const lateFeeRef = useRef<PaymentListingLateFeeHandle | null>(null);
+  const [area, setArea] = useState<PaymentsSettingsArea>("setup");
+  const [houseId, setHouseId] = useState("");
 
   useImperativeHandle(
     formRef,
@@ -1561,6 +1560,19 @@ export function PaymentsSettingsPanel({
 
   useReportSettingsPanelFooter(onFooterReady, null);
 
+  const houses = useMemo(
+    () => filterPropertyOptionsForActiveWorkspace(propertyOptions),
+    [propertyOptions, workspaces?.active?.id],
+  );
+  const firstHouseId = houses[0]?.id ?? "";
+  useEffect(() => {
+    const preferred = initialPropertyId?.trim() || firstHouseId;
+    setHouseId((current) => {
+      if (current && houses.some((house) => house.id === current)) return current;
+      return preferred;
+    });
+  }, [firstHouseId, houses, initialPropertyId]);
+
   if (mode === "outgoing") {
     return (
       <PortalSettingsSection
@@ -1575,41 +1587,79 @@ export function PaymentsSettingsPanel({
     );
   }
 
+  const selectedHouse = houses.find((house) => house.id === houseId);
+  const workspaceName = workspaces?.active?.name;
+  const showHouse = area === "late-fees";
+  const title = showHouse
+    ? (selectedHouse?.label ?? "Payment settings")
+    : (workspaceName ?? "Payment settings");
+
   return (
-    <PortalSettingsSections>
-      <PortalSettingsSection
-        title="Rent reminders"
-        action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
-      >
-        <IncomingPaymentRemindersSettingsBundle
-          teamMembers={teamMembers}
-          onSaved={onSaved}
-          formRef={remindersRef}
-        />
+    <div className="space-y-6">
+      <PortalSettingsSection title={title}>
+        <PortalSettingsGroup>
+          {showHouse ? (
+            <PortalSettingsRow label="House">
+              {houses.length === 0 ? (
+                <span className="text-sm text-muted">No houses yet</span>
+              ) : (
+                <FieldSingleSelect
+                  hideLabel
+                  label="House"
+                  value={houseId || houses[0]?.id || ""}
+                  options={houses.map((house) => ({ value: house.id, label: house.label }))}
+                  onChange={setHouseId}
+                  dataAttr="payments-settings-house"
+                />
+              )}
+            </PortalSettingsRow>
+          ) : null}
+          <PortalSettingsRow label="Settings">
+            <FieldSingleSelect
+              hideLabel
+              label="Settings"
+              value={area}
+              options={PAYMENTS_SETTINGS_AREAS.map((row) => ({ value: row.value, label: row.label }))}
+              onChange={(next) => {
+                if (next === "setup" || next === "rent" || next === "late-fees") setArea(next);
+              }}
+              dataAttr="payments-settings-area"
+            />
+          </PortalSettingsRow>
+        </PortalSettingsGroup>
       </PortalSettingsSection>
-      <PortalSettingsSection
-        title="Late fees"
-        action={
-          <PortalSettingsScopeTag>
-            {propertyOptions.length === 0 ? "No properties selected" : "1 property"}
-          </PortalSettingsScopeTag>
-        }
-      >
+
+      {area === "setup" ? (
+        <ManagerPaymentSetupPanel active propertyOptions={houses} />
+      ) : null}
+
+      {area === "rent" ? (
+        <>
+          <IncomingPaymentRemindersSettingsBundle
+            teamMembers={teamMembers}
+            onSaved={onSaved}
+            formRef={remindersRef}
+          />
+          <PortalSettingsSection title="Delinquency">
+            <AutomationRuleRows rows={[{ kind: "delinquency_manager" }]} />
+          </PortalSettingsSection>
+          <PortalSettingsSection title="Messages sent automatically">
+            <AutomatedMessagesList area="payments" />
+          </PortalSettingsSection>
+        </>
+      ) : null}
+
+      {area === "late-fees" ? (
         <PortalSettingsGroup>
           <PaymentListingLateFeeSettings
             ref={lateFeeRef}
-            propertyOptions={propertyOptions}
-            initialPropertyId={initialPropertyId}
+            propertyOptions={houses}
+            initialPropertyId={houseId}
+            hideAppliesTo
           />
         </PortalSettingsGroup>
-      </PortalSettingsSection>
-      <PortalSettingsSection title="Delinquency">
-        <AutomationRuleRows rows={[{ kind: "delinquency_manager" }]} />
-      </PortalSettingsSection>
-      <PortalSettingsSection title="Messages sent automatically">
-        <AutomatedMessagesList area="payments" />
-      </PortalSettingsSection>
-    </PortalSettingsSections>
+      ) : null}
+    </div>
   );
 }
 

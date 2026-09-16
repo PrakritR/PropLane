@@ -141,7 +141,8 @@ describe("settings module redraws — scope tags", () => {
     cleanup();
 
     render(<PaymentsSettingsPanel teamMembers={[]} />);
-    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
+    expect(await screen.findByRole("button", { name: "Settings" })).toBeTruthy();
+    expect(screen.getByText("Payment setup")).toBeTruthy();
     cleanup();
 
     render(<BookingsSettingsPanel teamMembers={[]} />);
@@ -167,7 +168,7 @@ describe("settings module redraws — scope tags", () => {
         propertyOptions={PROPERTY_OPTIONS}
         selectedPropertyId="prop-1"
         onPropertyIdChange={() => {}}
-        area="payments"
+        area="household"
         onAreaChange={() => {}}
         teamMembers={[]}
       />,
@@ -262,22 +263,22 @@ describe("settings module redraws — every row is a label and its control, noth
     ).toBeNull();
   });
 
-  it("Resident keeps Payment and Household reminders in this tab", async () => {
+  it("Resident keeps Household reminders in this tab", async () => {
     stubFetch();
     render(
       <ResidentSettingsPanel
         propertyOptions={PROPERTY_OPTIONS}
         selectedPropertyId="prop-1"
         onPropertyIdChange={() => {}}
-        area="payments"
+        area="household"
         onAreaChange={() => {}}
         teamMembers={[]}
       />,
     );
     expect(await screen.findByRole("button", { name: "Settings" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    expect(screen.getByRole("option", { name: "Payment reminders" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "Household reminders" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Payment reminders" })).toBeNull();
     expect(screen.queryByText(/Portfolio-wide payment reminder presets/)).toBeNull();
   });
 });

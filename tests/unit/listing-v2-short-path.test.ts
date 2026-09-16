@@ -4,7 +4,7 @@
  *
  * The editor's Continue button walks a SHORT path — Basics (title, photos,
  * description) → Pricing → Review — and treats Rooms, Bathrooms and Shared spaces
- * as optional detail reachable from the rail and from Add details on Basics.
+ * as optional detail reachable from the rail.
  * A home let by the room keeps Rooms on the path, because there the rooms ARE the
  * product; and a detail step the manager already filled in stays on the path.
  */

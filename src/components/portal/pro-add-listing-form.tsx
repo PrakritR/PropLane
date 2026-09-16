@@ -5880,7 +5880,7 @@ export function ManagerAddListingForm({
 
                 <p className="mt-4 border-t border-border pt-4 text-xs text-muted">
                   Payment methods: configure in{" "}
-                  <span className="font-medium text-foreground">Payments → Payment setup</span>.
+                  <span className="font-medium text-foreground">Settings → Payments → Payment setup</span>.
                 </p>
               </ListingSubsection>
             </div>

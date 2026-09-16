@@ -133,8 +133,10 @@ export const PaymentListingLateFeeSettings = forwardRef<
   {
     propertyOptions: { id: string; label: string }[];
     initialPropertyId?: string;
+    /** When the host already picked the house (Payment settings chrome). */
+    hideAppliesTo?: boolean;
   }
->(function PaymentListingLateFeeSettings({ propertyOptions, initialPropertyId }, ref) {
+>(function PaymentListingLateFeeSettings({ propertyOptions, initialPropertyId, hideAppliesTo = false }, ref) {
   const { userId: managerUserId } = useManagerUserId();
   const { showToast } = useAppUi();
   const reportSaveStatus = useReportSettingsSaveStatus();
@@ -268,6 +270,7 @@ export const PaymentListingLateFeeSettings = forwardRef<
 
   return (
     <>
+      {hideAppliesTo ? null : (
       <PortalSettingsRow className="flex-wrap items-start gap-y-2.5" label="Applies to">
         {propertyOptions.length === 0 ? (
           <span className="text-sm text-muted">No houses yet</span>
@@ -283,6 +286,7 @@ export const PaymentListingLateFeeSettings = forwardRef<
           />
         )}
       </PortalSettingsRow>
+      )}
       <PortalSettingsRow label="Late fee amount">
         <LateFeeAmountInput value={amount} onChange={setAmount} disabled={unavailable} />
       </PortalSettingsRow>

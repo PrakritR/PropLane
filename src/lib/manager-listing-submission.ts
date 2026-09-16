@@ -2103,24 +2103,14 @@ export function normalizeManagerListingSubmissionV1(
     };
   });
 
-  let sharedSpaces = sub.sharedSpaces;
-  if (!Array.isArray(sharedSpaces)) sharedSpaces = [];
+  let sharedSpaces = Array.isArray(sub.sharedSpaces) ? sub.sharedSpaces : [];
   const legacySharedText = (legacy as LegacyListingSubmissionFields).sharedSpacesDescription?.trim();
-  if (sharedSpaces.length === 0 && legacySharedText) {
-    sharedSpaces = [
-      {
-        id: rid("sspace"),
-        name: "Shared areas",
-        location: "",
-        detail: legacySharedText,
-        amenitiesText: "",
-        photoDataUrls: [],
-        videoDataUrl: null,
-        roomAccessIds: rooms.map((r) => r.id),
-      },
-    ];
-  } else {
-    sharedSpaces = sharedSpaces.map((ss) => ({
+  /* PLAN-0916-1228: leftover free-text is house copy, never a phantom "Shared areas" row. */
+  let houseDescription = typeof sub.houseDescription === "string" ? sub.houseDescription : undefined;
+  if (legacySharedText && sharedSpaces.length === 0) {
+    houseDescription = [houseDescription?.trim(), legacySharedText].filter(Boolean).join("\n\n") || undefined;
+  }
+  sharedSpaces = sharedSpaces.map((ss) => ({
       ...(function normalizeSharedSpaceRow() {
         const rawLocation =
           typeof (ss as ManagerSharedSpaceSubmission & { location?: unknown }).location === "string"
@@ -2191,7 +2181,6 @@ export function normalizeManagerListingSubmissionV1(
         typeof ss.name === "string" ? ss.name : "",
       ),
     }));
-  }
 
   const applicationFeeStripeEnabled = sub.axisPaymentsEnabled !== false;
 
@@ -2285,7 +2274,7 @@ export function normalizeManagerListingSubmissionV1(
       ? (sub as { alsoListedAs: string }).alsoListedAs.trim()
       : "",
     houseRulesText: typeof sub.houseRulesText === "string" ? sub.houseRulesText : "",
-    houseDescription: typeof sub.houseDescription === "string" ? sub.houseDescription : undefined,
+    houseDescription,
     generalHouseInfo: typeof sub.generalHouseInfo === "string" ? sub.generalHouseInfo : "",
     wifiNetworkName: typeof sub.wifiNetworkName === "string" ? sub.wifiNetworkName : "",
     wifiPassword: typeof sub.wifiPassword === "string" ? sub.wifiPassword : "",

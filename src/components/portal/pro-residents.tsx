@@ -295,7 +295,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ManagerAddPaymentModal } from "@/components/portal/pro-add-payment-modal";
-import { ManagerPaymentSetupModal } from "@/components/portal/pro-payment-setup-modal";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { ManagerAddServiceModal } from "@/components/portal/pro-add-service-modal";
@@ -513,7 +512,6 @@ export function ManagerResidents({
   const [residentDetailSettingsOpen, setResidentDetailSettingsOpen] = useState(false);
   const [residentDetailSettingsTab, setResidentDetailSettingsTab] =
     useState<ManagerPortalSettingsTab>("applications");
-  const [residentPaymentSetupOpen, setResidentPaymentSetupOpen] = useState(false);
   const [addResidentPaymentOpen, setAddResidentPaymentOpen] = useState(false);
   const [addResidentServiceOpen, setAddResidentServiceOpen] = useState(false);
   const [embeddedPaymentFooterActions, setEmbeddedPaymentFooterActions] = useState<ReactNode>(null);
@@ -2167,18 +2165,14 @@ export function ManagerResidents({
       .finally(() => setErSaving(false));
   }
 
-  function openResidentPaymentSetup() {
+  function openResidentPaymentSettings() {
     if (!selected) return;
-    // `ActiveResident` has no `assignedPropertyId` — reading it here failed the
-    // production type check. The fallback is already applied where these rows are
-    // built (`row.assignedPropertyId || row.propertyId`), so `propertyId` carries
-    // it and nothing is lost by dropping the duplicate.
     const propId = selected.propertyId.trim();
     if (!propId) {
       showToast("This resident isn't linked to a property yet.");
       return;
     }
-    setResidentPaymentSetupOpen(true);
+    setResidentPaymentSettingsOpen(true);
   }
 
   /**
@@ -3144,7 +3138,7 @@ export function ManagerResidents({
                                   onSettings={() => setResidentPaymentSettingsOpen(true)}
                                   settingsLabel={paymentsSettingsEntry.label}
                                   settingsDataAttr={paymentsSettingsEntry.dataAttr}
-                                  onEdit={() => openResidentPaymentSetup()}
+                                  onEdit={() => openResidentPaymentSettings()}
                                 />
                               ) : null}
                               <PortalPageScrollBody
@@ -3703,17 +3697,6 @@ export function ManagerResidents({
         initialTab="payments"
         scopedTitle={settingsDialogTitlePrefix(paymentsSettingsEntry)}
         paymentsMode="incoming"
-      />
-      <ManagerPaymentSetupModal
-        open={residentPaymentSetupOpen}
-        onClose={() => {
-          setResidentPaymentSetupOpen(false);
-          setPropertyTick((n) => n + 1);
-          setHcTick((n) => n + 1);
-        }}
-        portalBase={portalBase}
-        propertyOptions={propertyOptions}
-        presetPropertyIds={selected?.propertyId.trim() ? [selected.propertyId.trim()] : undefined}
       />
 
       {addResidentOpen ? (

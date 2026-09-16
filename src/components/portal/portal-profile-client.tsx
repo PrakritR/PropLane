@@ -446,12 +446,12 @@ export function PortalProfileClient({
     }
     if (variant === "manager") {
       list.push(
-        { id: "payments", label: "Payments", description: "Rent reminders and payment rules.", icon: Wallet, group: "Operations" },
+        { id: "payments", label: "Payments", description: "Payment setup, rent reminders, and late fees.", icon: Wallet, group: "Operations" },
+        { id: "services", label: "Services", description: "Service rules.", icon: Wrench, group: "Operations" },
         { id: "tasks", label: "Tasks", description: "Task automation.", icon: CheckSquare, group: "Operations" },
-        { id: "reminders", label: "Reminders", description: "Reminder matrix and quiet hours.", icon: BellRing, group: "Operations" },
         { id: "bookings", label: "Bookings", description: "Booking rules.", icon: CalendarDays, group: "Operations" },
         { id: "inspections", label: "Inspections", description: "Inspection rules.", icon: ClipboardCheck, group: "Operations" },
-        { id: "services", label: "Services", description: "Service rules.", icon: Wrench, group: "Operations" },
+        { id: "reminders", label: "Reminders", description: "Reminder matrix and quiet hours.", icon: BellRing, group: "Operations" },
       );
     }
     return list;

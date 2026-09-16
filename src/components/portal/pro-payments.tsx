@@ -16,7 +16,7 @@ import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import type { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { Settings2, Wrench } from "lucide-react";
+import { Settings2 } from "lucide-react";
 import type { DemoManagerOutgoingPaymentRow, DemoManagerPaymentLedgerRow } from "@/data/demo-portal";
 import { parseMoneyLabel } from "@/lib/portal-monthly-profit";
 import { ManagerPaymentsLedgerPanel } from "@/components/portal/pro-payments-ledger-panel";
@@ -37,7 +37,6 @@ import { convertLapsedRolloverLeasesToMonthToMonth } from "@/lib/lease-rollover-
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { ManagerAddPaymentModal } from "@/components/portal/pro-add-payment-modal";
-import { ManagerPaymentSetupModal } from "@/components/portal/pro-payment-setup-modal";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import {
   getPaymentsSettingsEntryPoint,
@@ -277,7 +276,6 @@ export function ManagerPayments({
   const [applicationTick, setApplicationTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
   const [paymentSettingsOpen, setPaymentSettingsOpen] = useState(false);
-  const [paymentSetupOpen, setPaymentSetupOpen] = useState(false);
   const [paymentsFilterOpen, setPaymentsFilterOpen] = useState(false);
   const [listSort, setListSort] = useState<PaymentListSort>(DEFAULT_PAYMENT_LIST_SORT);
   const [incomingGroupMode, setIncomingGroupMode] = useState<PortalListGroupMode>(
@@ -405,7 +403,7 @@ export function ManagerPayments({
       if (connect === "done") {
         showToast("Bank account linked. You're ready to receive resident payments.");
       } else if (connect === "refresh") {
-        showToast("Setup link expired. Open Payment setup to try again.");
+        showToast("Setup link expired. Open Payment settings to try again.");
       }
       const url = new URL(window.location.href);
       url.searchParams.delete("connect");
@@ -426,7 +424,7 @@ export function ManagerPayments({
       if (e.data?.connect === "done") {
         showToast("Bank account linked. You're ready to receive resident payments.");
       } else if (e.data?.connect === "refresh") {
-        showToast("Setup link expired. Open Payment setup to try again.");
+        showToast("Setup link expired. Open Payment settings to try again.");
       }
       window.dispatchEvent(new Event("axis-stripe-connect-refresh"));
     };
@@ -661,20 +659,10 @@ export function ManagerPayments({
     page had already done.
   */
 
-  const paymentsSetupButton = (
-    <PortalIconAction
-      icon={Wrench}
-      label="Payment setup"
-      data-attr="payments-setup"
-      onClick={() => setPaymentSetupOpen(true)}
-    />
-  );
-
   const paymentsListActions = (
     <>
       {paymentsFilterSort}
       {paymentsSettingsMenu}
-      {paymentsSetupButton}
     </>
   );
 
@@ -839,12 +827,6 @@ export function ManagerPayments({
           setOutgoingTick((n) => n + 1);
           void syncManagerOutgoingExpensesFromServer(true);
         }}
-      />
-      <ManagerPaymentSetupModal
-        open={paymentSetupOpen}
-        onClose={() => setPaymentSetupOpen(false)}
-        portalBase={portalBase}
-        propertyOptions={propertyOptionsForFilter}
       />
     </>
   );

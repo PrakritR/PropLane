@@ -199,8 +199,7 @@ export type ListingEditorLeadingStep = {
  * The steps a listing HAS to pass through. Basics already carries the title,
  * the photos and the description; Pricing carries the price; Review publishes.
  * Rooms, Bathrooms and Shared spaces are detail a manager adds when they want
- * to — Continue skips them, the rail marks them optional, and Basics offers
- * them under Add details.
+ * to — Continue skips them, and the rail marks them optional.
  *
  * The one exception is deliberate: a home let BY THE ROOM keeps Rooms on the
  * path, because there the rooms are the product and each carries its own price.
@@ -1299,50 +1298,6 @@ function RoomCardBody({
   );
 }
 
-/** The way into the detail steps from Basics. */
-function AddDetailsRow({
-  sub,
-  pathIds,
-  onOpen,
-}: {
-  sub: ManagerListingSubmissionV1;
-  pathIds: ListingV2StepId[];
-  onOpen: (id: ListingV2StepId) => void;
-}) {
-  const rooms = sub.rooms?.length ?? 0;
-  const baths = sub.bathrooms?.length ?? 0;
-  const spaces = sub.sharedSpaces?.length ?? 0;
-  const rows: Array<{ id: ListingV2StepId; label: string; count: string }> = [
-    { id: "rooms", label: "Rooms", count: rooms ? `${rooms}` : "" },
-    { id: "bathrooms", label: "Bathrooms", count: baths ? `${baths}` : "" },
-    { id: "spaces", label: "Shared spaces", count: spaces ? `${spaces}` : "" },
-  ];
-  const offStep = rows.filter((row) => !pathIds.includes(row.id));
-  if (offStep.length === 0) return null;
-  return (
-    <div className="mt-8 max-w-[860px]" data-attr="listing-v2-add-details">
-      <p className="mb-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-foreground/70">Add details</p>
-      <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
-        {offStep.map((row) => (
-          <li key={row.id}>
-            <button
-              type="button"
-              onClick={() => onOpen(row.id)}
-              data-attr={`listing-v2-add-details-${row.id}`}
-              className="flex min-h-[52px] w-full items-center justify-between gap-3 px-4 text-left hover:bg-foreground/[0.03]"
-            >
-              <span className="text-[14px] font-semibold text-foreground">{row.label}</span>
-              <span className="flex items-center gap-2 text-[13px] font-semibold text-foreground/70">
-                {row.count}
-                <span aria-hidden className="text-primary">›</span>
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
 
 function StepRooms({
   sub,
@@ -2836,7 +2791,7 @@ function HouseKeepingPanel({ sub, patch }: { sub: ManagerListingSubmissionV1; pa
   const [open, setOpen] = useState(false);
   return (
     <AdvancedPanel
-      summary="Move-in · The building · Local compliance"
+      summary="Advanced"
       open={open}
       onToggle={() => setOpen((prev) => !prev)}
       dataAttr="listing-v2-house-keeping"
@@ -3246,11 +3201,6 @@ export function ListingEditorV2({
         return (
           <>
             <StepBasics sub={submission} patch={patch} lead={basicsLead} onHouseDefaults={setDefaults} />
-            <AddDetailsRow
-              sub={submission}
-              pathIds={pathIds}
-              onOpen={(id) => goTo(stepIndexOf(id))}
-            />
             <div className="mt-8 max-w-[860px]">
               <HouseKeepingPanel sub={submission} patch={patch} />
             </div>

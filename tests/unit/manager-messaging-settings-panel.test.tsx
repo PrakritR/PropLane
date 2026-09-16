@@ -1,8 +1,6 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import {
   cleanup,
   fireEvent,
@@ -163,8 +161,6 @@ describe("ManagerMessagingSettingsPanel", () => {
       canRequest: true,
     };
     showToast.mockClear();
-    let finishRefresh!: (response: Response) => void;
-    const pendingRefresh = new Promise<Response>((resolve) => { finishRefresh = resolve; });
     const assigned: ManagerMessagingNumberStatus = {
       ...refreshed,
       canRequest: false,
@@ -177,37 +173,17 @@ describe("ManagerMessagingSettingsPanel", () => {
         lastError: null,
       },
     };
-    const fetchMock = messagingFetchMock([Response.json(stale), pendingRefresh, Response.json(assigned)]);
+    const fetchMock = messagingFetchMock([Response.json(refreshed), Response.json(assigned)]);
     vi.stubGlobal("fetch", fetchMock);
-    const { container } = render(<ManagerMessagingSettingsPanel />);
-    const stages: string[] = [];
-    const capture = (label: string) => stages.push(`<section><h2>${label}</h2>${container.innerHTML}</section>`);
+    render(<ManagerMessagingSettingsPanel />);
 
-    const refresh = await screen.findByRole("button", { name: "Refresh eligibility" });
-    capture("1. Settled stale eligibility");
-    fireEvent.click(refresh);
-    const checking = await screen.findByRole("button", { name: "Checking…" });
-    expect(checking.getAttribute("aria-busy")).toBe("true");
-    expect((checking as HTMLButtonElement).disabled).toBe(true);
-    capture("2. Checking eligibility");
-    expect(showToast).not.toHaveBeenCalled();
-    finishRefresh(Response.json(refreshed));
     expect(await screen.findByRole("button", { name: "Request work number" })).toBeTruthy();
-    expect(showToast).toHaveBeenCalledWith("Messaging eligibility refreshed.");
-    expect(numberCalls(fetchMock)).toHaveLength(2);
-    expect(JSON.parse(String(numberCalls(fetchMock)[1]?.[1]?.body)).action).toBe("refresh_eligibility");
-    capture("3. Recovered eligibility permits setup");
+    expect(JSON.parse(String(numberCalls(fetchMock)[0]?.[1]?.body)).action).toBe("refresh_eligibility");
     fireEvent.click(screen.getByRole("button", { name: "Request work number" }));
     expect(await screen.findByText("+1 (510) 555-0199")).toBeTruthy();
-    expect(numberCalls(fetchMock)).toHaveLength(3);
-    expect(JSON.parse(String(numberCalls(fetchMock)[2]?.[1]?.body))).toEqual({ action: "request_number", areaCode: "510" });
+    expect(numberCalls(fetchMock)).toHaveLength(2);
+    expect(JSON.parse(String(numberCalls(fetchMock)[1]?.[1]?.body))).toEqual({ action: "request_number", areaCode: "510" });
     expect(screen.queryByRole("button", { name: "Request work number" })).toBeNull();
-    capture("4. Assigned work number; texting runtime remains off");
-    if (process.env.WORK_NUMBER_EVIDENCE_DIR) {
-      mkdirSync(process.env.WORK_NUMBER_EVIDENCE_DIR, { recursive: true });
-      writeFileSync(join(process.env.WORK_NUMBER_EVIDENCE_DIR, `recovery-${reason}.html`),
-        `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Work-number recovery: ${reason}</title><link rel="stylesheet" href="product.css"><style>body{padding:24px;font-family:Arial,sans-serif}main{max-width:800px;margin:auto}section{margin:32px 0;padding:20px;border:1px solid #ddd}h2{margin-bottom:20px;font-size:20px}</style><body><main><h1>Work-number recovery: ${reason}</h1><p>Actual component rendered during interaction tests. Billing and provisioning responses are fixtures; this is not a live provider transaction.</p>${stages.join("")}</main></body></html>`);
-    }
   });
 
   it("shows a recoverable error for a malformed API payload", async () => {
@@ -266,8 +242,9 @@ describe("ManagerMessagingSettingsPanel", () => {
     fireEvent.click(request);
 
     await waitFor(() => expect(numberCalls(fetchMock)).toHaveLength(2));
-    expect(numberCalls(fetchMock)[0]?.[1]).not.toMatchObject({ method: "POST" });
-    expect(numberCalls(fetchMock)[1]?.[1]).toMatchObject({ method: "POST" });
+    expect(JSON.parse(String(numberCalls(fetchMock)[0]?.[1]?.body))).toEqual({
+      action: "refresh_eligibility",
+    });
     expect(JSON.parse(String(numberCalls(fetchMock)[1]?.[1]?.body))).toEqual({
       action: "request_number",
       areaCode: "510",
@@ -389,11 +366,8 @@ describe("ManagerMessagingSettingsPanel", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<ManagerMessagingSettingsPanel />);
 
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Tell residents about this number",
-      }),
-    );
+    await screen.findByText("+1 (855) 916-8031");
+    window.dispatchEvent(new Event("axis:work-contact-announce"));
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(
       within(dialog).getByRole("button", { name: "Notify all residents" }),
@@ -488,7 +462,7 @@ describe("ManagerMessagingSettingsPanel", () => {
     ).toBeNull();
   });
 
-  it("offers the resident broadcast once the number can actually send", async () => {
+  it("does not offer a work-number resident broadcast from this card", async () => {
     const usable: ManagerMessagingNumberStatus = {
       ...pausedStatus,
       canSend: true,
@@ -508,11 +482,11 @@ describe("ManagerMessagingSettingsPanel", () => {
     );
     render(<ManagerMessagingSettingsPanel />);
 
+    expect(await screen.findByText("+1 (855) 916-8031")).toBeTruthy();
     expect(
-      await screen.findByRole("button", {
-        name: "Tell residents about this number",
-      }),
-    ).toBeTruthy();
+      screen.queryByRole("button", { name: "Tell residents about this number" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Refresh status" })).toBeNull();
   });
 
   it("never asks billing again for an assigned number whose plan already has a settled answer", async () => {
@@ -539,7 +513,12 @@ describe("ManagerMessagingSettingsPanel", () => {
     await screen.findByText("+1 (206) 555-0123");
     await Promise.resolve();
     expect(numberCalls(fetchMock)).toHaveLength(1);
+    expect(numberCalls(fetchMock)[0]?.[1]).toMatchObject({
+      method: "POST",
+      body: JSON.stringify({ action: "refresh_eligibility" }),
+    });
     expect(screen.queryByRole("button", { name: "Check eligibility" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Refresh eligibility" })).toBeNull();
   });
 
   it("settles a brand-new account's unconfirmed plan without asking the manager to press anything", async () => {
@@ -553,18 +532,16 @@ describe("ManagerMessagingSettingsPanel", () => {
       entitlement: { eligible: false, reason: "plan_unreadable" },
       number: null,
     };
-    const fetchMock = messagingFetchMock([Response.json(unchecked), Response.json({
+    const fetchMock = messagingFetchMock([Response.json({
           ...unchecked,
-          // Once reconciled, the plan class settles — here to a confirmed free
-          // plan, which is what the upsell copy keys off under plan-tier gating.
           planTier: "free",
           entitlement: { eligible: true, tier: "free", source: "none" },
-        }),]);
+        })]);
     vi.stubGlobal("fetch", fetchMock);
     render(<ManagerMessagingSettingsPanel />);
 
-    await waitFor(() => expect(numberCalls(fetchMock)).toHaveLength(2));
-    expect(JSON.parse(String(numberCalls(fetchMock)[1]?.[1]?.body))).toEqual({
+    await waitFor(() => expect(numberCalls(fetchMock)).toHaveLength(1));
+    expect(JSON.parse(String(numberCalls(fetchMock)[0]?.[1]?.body))).toEqual({
       action: "refresh_eligibility",
     });
     expect(screen.queryByRole("button", { name: "Check eligibility" })).toBeNull();
@@ -584,7 +561,7 @@ describe("ManagerMessagingSettingsPanel", () => {
     );
     render(<ManagerMessagingSettingsPanel />);
 
-    const link = await screen.findByRole("link", { name: "View plans" });
+    const link = await screen.findByRole("link", { name: "Upgrade to a paid plan" });
     expect(link.getAttribute("href")).toBe("/portal/profile?tab=billing");
   });
 
