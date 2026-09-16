@@ -16,6 +16,17 @@ Property management software for listing units, screening applicants, signing le
 
 Properties, tour scheduling, rental applications, resident & lease management, move-in / move-out inspections, household charges, Stripe Connect payouts, work orders & vendors, inbox, documents & tax reporting, co-managers, and subscription billing (Free / Pro / Business).
 
+In **Settings → Workspaces**, adding your first named workspace creates just
+that workspace and marks it **Default**. Use the trash icon beside the pencil
+to delete any workspace you own, including the default. Empty workspaces need
+only confirmation; workspaces with houses ask for another workspace you own
+and **Move and delete** moves the houses and removes the workspace together.
+Ownership and permissions stay with the houses; destination capacity still
+applies. If your only workspace has houses, add another workspace first.
+Deleting the default passes its label to the oldest remaining workspace.
+Deleting the last empty workspace returns to **Create your first workspace**;
+adding a house with no workspace still creates **My workspace** automatically.
+
 ### Resident portal (`/resident`)
 
 Rent & utility payments (card incl. Apple Pay / Google Pay, ACH, Link via Stripe Connect), My home (house info & rules, opt-in housemate sharing, move-in / move-out inspections), services & work orders, inbox, lease & receipts. Full workspace unlocks after lease approval.
