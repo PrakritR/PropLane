@@ -34,7 +34,7 @@ import { isAssistantEmailAddress } from "@/lib/manager-assistant-email/assistant
 import { classifyAssistantEmailSender } from "@/lib/manager-assistant-email/assistant-email-sender-role.server";
 import {
   loadManagerAssistantEmail,
-  resolveManagerIdByAssistantInboundAddresses,
+  resolveAssistantMailboxByInboundAddresses,
 } from "@/lib/manager-assistant-email/manager-assistant-email.server";
 import { mirrorAssistantEmailConversation } from "@/lib/manager-assistant-email/mirror-assistant-email-conversation.server";
 import { mirrorAssistantEmailTurnToInbox } from "@/lib/manager-assistant-email/mirror-assistant-email-to-inbox.server";
@@ -108,15 +108,19 @@ export async function processManagerAssistantInboundEmail(
 ): Promise<AssistantInboundEmailResult> {
   if (!isAssistantEmailAddress(parsed.toEmails)) return { handled: false };
 
-  const mailboxUserId = await resolveManagerIdByAssistantInboundAddresses(db, parsed.toEmails);
+  const mailbox0 = await resolveAssistantMailboxByInboundAddresses(db, parsed.toEmails);
+  const mailboxUserId = mailbox0?.managerUserId ?? null;
   if (!mailboxUserId) return { handled: true, replied: false };
 
-  /* One work email per WORKSPACE. An address still held by a pure co-manager
-     (requested before addresses became workspace-owned) answers as the owner's
-     workspace — the same collapse the SMS webhook does for a legacy line —
-     BEFORE the sender is classified, so the writer reaches the owner's
-     residents and listings and the thread lands in the owner's Communication. */
-  const { ownerUserId: managerUserId } = await resolveWorkspaceOwnerForWorkEmail(db, mailboxUserId);
+  /* One work email per WORKSPACE. The address answers for the workspace it is
+     placed in — its owner's residents and listings, its Communication. A
+     legacy address still held by a pure co-manager (requested before addresses
+     became workspace-owned, never placed) collapses to the owner's workspace,
+     the same collapse the SMS webhook does for a legacy line — BEFORE the
+     sender is classified. */
+  const { ownerUserId: managerUserId, workspaceId } = await resolveWorkspaceOwnerForWorkEmail(db, mailboxUserId, {
+    workspaceId: mailbox0?.workspaceId ?? null,
+  });
 
   const claim = await claimInboundEmail(db, parsed.emailId, managerUserId);
   if (claim === "duplicate") return { handled: true, replied: false, idempotent: true };
@@ -134,8 +138,9 @@ export async function processManagerAssistantInboundEmail(
      address that collapsed to an owner without their own falls back to the
      mailbox that was actually written to, so the reply never comes from nowhere. */
   const mailbox =
-    (await loadManagerAssistantEmail(db, managerUserId)) ??
-    (managerUserId !== mailboxUserId ? await loadManagerAssistantEmail(db, mailboxUserId) : null);
+    (workspaceId ? await loadManagerAssistantEmail(db, managerUserId, workspaceId) : null) ??
+    (await loadManagerAssistantEmail(db, managerUserId, null)) ??
+    (managerUserId !== mailboxUserId ? await loadManagerAssistantEmail(db, mailboxUserId, null) : null);
   const senderEmail = parsed.fromEmail.trim().toLowerCase();
   const senderName = parsed.fromName?.trim() || senderEmail;
 

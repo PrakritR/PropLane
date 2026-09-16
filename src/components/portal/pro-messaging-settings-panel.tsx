@@ -24,6 +24,7 @@ import {
 } from "@/components/portal/portal-message-compose-fields";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { useSelectedWorkspaceId } from "@/hooks/use-selected-workspace-id";
 import { buildManagerInboxLiveContacts } from "@/lib/manager-inbox-contacts";
 import { ManagerSmsWorkNumberHint } from "@/components/portal/pro-sms-work-number-hint";
 import { useManagerCommunicationDeliverVia } from "@/hooks/use-manager-communication-deliver-via";
@@ -228,6 +229,8 @@ export function ManagerMessagingSettingsPanel({
   const [workEmail, setWorkEmail] = useState<string | null>(null);
   const { channelsFor } = useManagerCommunicationDeliverVia();
 
+  // The line and address belong to the ACTIVE workspace; read again on a switch.
+  const selectedWorkspace = useSelectedWorkspaceId();
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError(null);
@@ -269,7 +272,7 @@ export function ManagerMessagingSettingsPanel({
     const controller = new AbortController();
     void Promise.resolve().then(() => load(controller.signal));
     return () => controller.abort();
-  }, [load, personalPhoneRefreshKey]);
+  }, [load, personalPhoneRefreshKey, selectedWorkspace]);
 
   // Best-effort: a failed read simply leaves the announcement about the number,
   // exactly as it was before there was an email to name.
@@ -291,7 +294,7 @@ export function ManagerMessagingSettingsPanel({
       }
     })();
     return () => controller.abort();
-  }, [personalPhoneRefreshKey]);
+  }, [personalPhoneRefreshKey, selectedWorkspace]);
 
   const numberInProgress =
     status?.number?.state === "pending_registration" ||
@@ -587,6 +590,34 @@ export function ManagerMessagingSettingsPanel({
   const planMessage = messagingUpsellMessage(status);
   const phoneNumber = statusPhoneNumber || null;
   const isCoManager = status.workspaceRole === "co_manager";
+  // One line per WORKSPACE. When the account can see more than one, the
+  // section header offers every workspace's line, owned or shared, so a
+  // manager with a second workspace sees at a glance which has a number and
+  // whose it is — and never mistakes a neighbour's for this one's.
+  const allWorkspaces = status.workspaces ?? [];
+  const allWorkspacesAction =
+    allWorkspaces.length > 1 ? (
+      <details className="relative" data-attr="messaging-number-all-workspaces">
+        <summary className="cursor-pointer list-none rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-foreground">
+          All workspaces
+        </summary>
+        <div className="absolute right-0 z-20 mt-2 w-[min(92vw,24rem)] rounded-2xl border border-border bg-card p-1 shadow-lg">
+          {allWorkspaces.map((w) => (
+            <div key={w.workspaceId} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+              <div className="min-w-0">
+                <div className="truncate font-semibold text-foreground">{w.workspaceName}</div>
+                <div className="text-xs text-muted">
+                  {w.owned ? "Owned" : `Shared · ${w.ownerName?.trim() || "another manager"}`}
+                </div>
+              </div>
+              <div className="shrink-0 text-right text-xs">
+                {w.phoneNumber ? formatManagerMessagingPhone(w.phoneNumber) : w.owned ? "No number yet" : "Not set up"}
+              </div>
+            </div>
+          ))}
+        </div>
+      </details>
+    ) : undefined;
   const unverifiedEntitlement = entitlementIsUnverified(status);
   /**
    * Whether it is safe to tell every resident "text me at this number".
@@ -625,6 +656,7 @@ export function ManagerMessagingSettingsPanel({
     return (
       <PortalSettingsSection
         title={workspaceName ? `Work number · ${workspaceName}` : "Work number"}
+        action={allWorkspacesAction}
       >
         <PortalSettingsGroup>
           <PortalSettingsField
@@ -677,6 +709,7 @@ export function ManagerMessagingSettingsPanel({
     <>
     <PortalSettingsSection
       title={workspaceName ? `Work number · ${workspaceName}` : "Work number"}
+      action={allWorkspacesAction}
     >
       <PortalSettingsGroup>
         <PortalSettingsField

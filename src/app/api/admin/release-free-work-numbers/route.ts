@@ -40,7 +40,7 @@ export async function POST(req: Request) {
     const db = createSupabaseServiceRoleClient();
     const { data: rows, error } = await db
       .from("manager_sms_numbers")
-      .select("manager_user_id, phone_number, phone_number_sid, provision_state")
+      .select("manager_user_id, workspace_id, phone_number, phone_number_sid, provision_state")
       .neq("provision_state", "released");
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -70,7 +70,8 @@ export async function POST(req: Request) {
         failed.push({ managerUserId, error: "twilio_release_failed" });
         continue;
       }
-      await releaseManagerNumber(db, managerUserId);
+      // Release THIS row only — an owner may hold one line per workspace.
+      await releaseManagerNumber(db, managerUserId, (row.workspace_id as string | null) ?? null);
       released.push({ managerUserId, phoneNumber: (row.phone_number as string | null) ?? null });
     }
 

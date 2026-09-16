@@ -58,12 +58,24 @@ export type ManagerMessagingNumberStatus = {
   planTier: ManagerMessagingPlanTier;
   entitlement: ManagerMessagingEntitlement;
   number: ManagerMessagingNumber | null;
+  /** The workspace this status is about — the switcher's active workspace. */
+  workspace?: { id: string; name: string; owned: boolean; isDefault: boolean } | null;
+  /** Every workspace the viewer can see with its line, for Settings. */
+  workspaces?: Array<{
+    workspaceId: string;
+    workspaceName: string;
+    owned: boolean;
+    isDefault: boolean;
+    ownerName: string | null;
+    phoneNumber: string | null;
+    provisionState: string | null;
+  }>;
   /**
-   * The workspace's shared line, for a co-manager. A work number belongs to the
-   * workspace, so a pure co-manager reads the owner's number here and never
-   * requests one of their own. `phoneNumber` is null while the owner has not
-   * set one up; `ownerName` tells the co-manager whose job that is. Absent for
-   * an owner (their own `number` is the workspace's).
+   * The line of a SHARED workspace. A work number belongs to the workspace,
+   * so inside a workspace someone else owns the viewer reads the owner's
+   * number here and never requests one of their own. `phoneNumber` is null
+   * while the owner has not set one up; `ownerName` tells the viewer whose
+   * job that is. Absent in an owned workspace (its own `number` is the line).
    */
   workspaceNumber?: {
     phoneNumber: string | null;

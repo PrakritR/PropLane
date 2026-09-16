@@ -81,23 +81,23 @@ describe("a co-manager's own number and address are scoped to their assigned hou
   });
 });
 
-describe("provisioning is refused for a pure co-manager, on both channels", () => {
+describe("provisioning inside a workspace someone else owns is refused, on both channels", () => {
   const ROUTE = readFileSync(
     join(process.cwd(), "src/app/api/manager/assistant-email/route.ts"),
     "utf8",
   );
 
-  it("the assistant-email request is a 409 workspace_email_shared, not a 403 with a redirect", () => {
-    expect(ROUTE).toContain('code: "workspace_email_shared"');
+  it("the assistant-email request is a 403 workspace_not_owned, never a redirect to the owner's settings", () => {
+    expect(ROUTE).toContain('code: "workspace_not_owned"');
     expect(ROUTE).not.toContain("Co-managers use the account owner's assistant email.");
   });
 
-  it("the work number request is the matching 409", () => {
+  it("the work number request is the matching 403", () => {
     const numberRoute = readFileSync(
       join(process.cwd(), "src/app/api/manager/messaging-number/route.ts"),
       "utf8",
     );
-    expect(numberRoute).toContain('code: "workspace_number_shared"');
+    expect(numberRoute).toContain('code: "workspace_not_owned"');
   });
 });
 

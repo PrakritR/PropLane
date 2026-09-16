@@ -75,7 +75,7 @@ describe("resolveOwnedWorkNumber", () => {
   it("returns the manager when the dialed number is an active work number", async () => {
     vi.stubEnv("TWILIO_MESSAGING_SERVICE_SID", SERVICE_SID);
     const owned = await resolveOwnedWorkNumber(seed(), WORK);
-    expect(owned).toEqual({ managerId: OWNER, messagingServiceSid: SERVICE_SID });
+    expect(owned).toEqual({ managerId: OWNER, workspaceId: null, messagingServiceSid: SERVICE_SID });
   });
 
   it("rejects numbers that are not in manager_sms_numbers", async () => {
@@ -98,7 +98,7 @@ describe("resolveOwnedWorkNumber", () => {
       ],
     });
     const owned = await resolveOwnedWorkNumber(db, WORK);
-    expect(owned).toEqual({ managerId: OWNER, messagingServiceSid: SERVICE_SID });
+    expect(owned).toEqual({ managerId: OWNER, workspaceId: null, messagingServiceSid: SERVICE_SID });
   });
 });
 

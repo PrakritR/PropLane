@@ -15,43 +15,37 @@ To address:
    scope), so support mail is handled inside the app next to the rest of the
    unified inbox.
 
-## One work email per WORKSPACE (a co-manager never gets an address of their own)
+## One work email per WORKSPACE (a portal_workspaces row, not a person)
 
 Same rule as the work number (`docs/agents/sms-system.md` "One work number per
-WORKSPACE"), same helpers underneath. The owner's `manager_assistant_emails` row
-IS the workspace's address. `resolveWorkspaceWorkEmails` /
-`resolveWorkspaceWorkEmail` (`src/lib/manager-assistant-email/manager-assistant-email.server.ts`)
-are the one answer to "whose address is this"; every reader below goes through them.
+WORKSPACE"), same helpers underneath. `manager_assistant_emails` is keyed on
+`workspace_id` (one ACTIVE address per workspace); `manager_user_id` is the
+workspace's owner. `resolveWorkspaceWorkEmail` / `resolveWorkspaceWorkEmails`
+/ `loadWorkspaceAssistantEmail`
+(`src/lib/manager-assistant-email/manager-assistant-email.server.ts`) answer
+for the ACTIVE workspace (`src/lib/workspaces/active.server.ts`); every reader
+below goes through them.
 
-- A pure co-manager (accepted link, no owned houses) reads and sends from the
-  owner's address. `GET /api/manager/assistant-email` returns it as
-  `workspaceEmail` with `ownerName`; `canRequest` is false and `POST
-  request_address` is a 409 (`workspace_email_shared`). `ensureManagerAssistantEmail`
-  refuses at the write as well, so no other caller can mint one.
-- Every manager-sent Communication email — both `deliverPortalInboxMessage` and
-  `POST /api/portal/send-inbox-message` — carries `From: <sender's name>
+- **Owned workspace** — its own row. `GET /api/manager/assistant-email` returns
+  it as `address`, with `workspace` and `workspaces[]` for Settings; `POST
+  request_address` mints for THAT workspace
+  (`ensureManagerAssistantEmail(db, owner, workspace)`), and adopts an owner's
+  legacy unplaced row for their default workspace rather than minting twice.
+- **Shared workspace** — the owner's address for that workspace, read-only, as
+  `workspaceEmail` with `ownerName`; `canRequest` is false and `POST` is a 403
+  `workspace_not_owned` (`WorkspaceNotOwnedError` at the write too).
+- Every manager-sent Communication email carries `From: <sender's name>
   <workspace address>` via `resolveManagerOutboundFrom`. The name is who wrote;
-  the address is the workspace's. That is the email form of the number's
-  "Sent by <teammate>".
-- Inbound on an address still held by a pure co-manager (requested before this
-  rule) collapses to the workspace owner BEFORE the sender is classified
-  (`resolveWorkspaceOwnerForWorkEmail`), so the writer reaches the owner's
-  residents and listings and the thread lands in the owner's Communication.
-  Retire such addresses with `scripts/release-co-manager-work-emails.ts`
-  (dry-run by default).
+  the address is the active workspace's.
+- **Inbound** follows the address: `resolveAssistantMailboxByInboundAddresses`
+  returns the row's `workspaceId`, and the workspace's owner is resolved from it
+  BEFORE the sender is classified. Only a legacy unplaced address still
+  collapses a pure co-manager to the inviter; retire those with
+  `scripts/release-co-manager-work-emails.ts` (dry-run by default, unplaced
+  rows only).
 - A manager or co-manager writing to the shared address is still recognised by
   their OWN profile email and scoped to their assigned houses; their exchange
-  is mirrored into THEIR PropLane Assistant thread, not the owner's.
-- A resident writing in gets memory: one `agent_sessions` row of kind
-  `resident_email` per (workspace owner, resident email), last twelve turns
-  (`src/lib/agent/resident-email-session.server.ts`) — the same shape the
-  prospect's `leasing_email` session has.
-- "Can this address answer?" means BOTH directions. `resolveActiveManagerWorkEmail`
-  (what the resident card, listings and welcome email read) requires
-  `isAssistantEmailChannelEnabled()`: `RESEND_API_KEY` to send AND, on Vercel,
-  `RESEND_INBOUND_WEBHOOK_SECRET` to receive. Without the secret the Settings
-  card says "Assigned — replies off" and the address is shown to nobody.
-  Coverage: `tests/unit/workspace-work-email-routing.test.ts`.
+  mirrors into THEIR assistant thread.
 
 ## How it works
 

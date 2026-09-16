@@ -193,7 +193,12 @@ export async function POST(req: Request) {
   // already reads it. The texter never learns which teammate set the line up.
   let managerId: string;
   try {
-    managerId = (await resolveWorkspaceOwnerForWorkNumber(db, numberOwnerId, { throwOnError: true })).ownerUserId;
+    managerId = (
+      await resolveWorkspaceOwnerForWorkNumber(db, numberOwnerId, {
+        throwOnError: true,
+        workspaceId: ownedNumber?.workspaceId ?? null,
+      })
+    ).ownerUserId;
   } catch {
     return NextResponse.json({ error: "Workspace unavailable." }, { status: 503 });
   }
@@ -625,7 +630,10 @@ export async function POST(req: Request) {
     // the owner's houses — tenant records stay with the property owner, the
     // reply still goes out from the line that was texted — instead of turning
     // every prospect away with a "message your property manager" notice.
-    const workspace = await resolveWorkspaceOwnerForWorkNumber(db, managerId, { throwOnError: true });
+    const workspace = await resolveWorkspaceOwnerForWorkNumber(db, managerId, {
+      throwOnError: true,
+      workspaceId: ownedNumber?.workspaceId ?? null,
+    });
     handled = await handleClawLeasingInbound({
       from: fromPhone,
       text: body,

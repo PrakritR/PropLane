@@ -15,10 +15,8 @@ import {
   getEffectiveManagerSmsEntitlement,
   reconcileManagerSmsEntitlement,
 } from "@/lib/sms/manager-sms-entitlement.server";
-import {
-  isPureCoManagerWorkspace,
-  resolveWorkspaceWorkNumbers,
-} from "@/lib/sms/manager-workspace-role.server";
+import { resolveWorkspaceWorkNumbers } from "@/lib/sms/manager-workspace-role.server";
+import { resolveActiveWorkspaceFromRequest, type ActiveWorkspace } from "@/lib/workspaces/active.server";
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
 import { provisionManagerNumber } from "@/lib/sms/manager-number-provisioning.server";
 import {
@@ -44,15 +42,19 @@ const NUMBER_SELECT =
 async function buildStatus(
   db: SupabaseClient,
   userId: string,
+  workspace: ActiveWorkspace,
 ): Promise<ManagerMessagingNumberStatus> {
+  // Everything below is about the ACTIVE workspace: an owned workspace's own
+  // row (none = none, never a neighbour's), a shared workspace's owner line.
+  // The switcher decides; co-manager links do not.
   const [
     runtimeResult,
     entitlement,
     planTierResult,
     numberResult,
     profileResult,
-    pureCoManager,
     automationSettings,
+    all,
   ] = await Promise.all([
     db
       .from("sms_runtime_config")
@@ -62,19 +64,22 @@ async function buildStatus(
     getEffectiveManagerSmsEntitlement(db, userId),
   // Nav tier inherits linked-owner paid plans for co-managers (matches portal locks).
     getManagerPortalNavSubscriptionTier(userId),
-    db
-      .from("manager_sms_numbers")
-      .select(NUMBER_SELECT)
-      .eq("manager_user_id", userId)
-      .maybeSingle(),
+    workspace.owned
+      ? db
+          .from("manager_sms_numbers")
+          .select(NUMBER_SELECT)
+          .eq("workspace_id", workspace.id)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
     db
       .from("profiles")
       .select("phone, phone_verified_at, sms_forward_inbound")
       .eq("id", userId)
       .maybeSingle(),
-    isPureCoManagerWorkspace(db, userId),
     loadManagerAutomationSettings(db, userId).catch(() => null),
+    resolveWorkspaceWorkNumbers(db, userId).catch(() => null),
   ]);
+  const pureCoManager = !workspace.owned;
 
   const configuredMode = runtimeResult.error
     ? "paused"
@@ -167,14 +172,13 @@ async function buildStatus(
   // being retired, but it is never the number the UI leads with.
   let workspaceNumber: ManagerMessagingNumberStatus["workspaceNumber"] = null;
   if (pureCoManager) {
-    const workspace = await resolveWorkspaceWorkNumbers(db, userId).catch(() => null);
-    const primary = workspace?.numbers[0];
-    if (primary) {
+    const shared = all?.numbers.find((n) => n.workspaceId === workspace.id);
+    if (shared) {
       workspaceNumber = {
         phoneNumber:
-          normalizeProvisionState(primary.provisionState) === "active" ? primary.phoneNumber : null,
-        ownerUserId: primary.ownerUserId,
-        ownerName: primary.ownerName,
+          normalizeProvisionState(shared.provisionState) === "active" ? shared.phoneNumber : null,
+        ownerUserId: shared.ownerUserId,
+        ownerName: shared.ownerName,
       };
     }
   }
@@ -183,6 +187,16 @@ async function buildStatus(
     mode,
     workspaceRole: pureCoManager ? "co_manager" : "primary",
     workspaceNumber,
+    workspace: { id: workspace.id, name: workspace.name, owned: workspace.owned, isDefault: workspace.isDefault },
+    workspaces: (all?.numbers ?? []).map((n) => ({
+      workspaceId: n.workspaceId,
+      workspaceName: n.workspaceName,
+      owned: n.owned,
+      isDefault: n.isDefault,
+      ownerName: n.ownerName,
+      phoneNumber: normalizeProvisionState(n.provisionState) === "active" ? n.phoneNumber : null,
+      provisionState: n.provisionState,
+    })),
     provisioningAvailable: provisioningEnvEnabled && modeAllowsManager,
     sendingAvailable: sendEnvEnabled && modeAllowsManager,
     planTier,
@@ -228,6 +242,8 @@ function publicStatus(
     mode: status.mode,
     workspaceRole: status.workspaceRole,
     workspaceNumber: status.workspaceNumber ?? null,
+    workspace: status.workspace ?? null,
+    workspaces: status.workspaces ?? [],
     provisioningAvailable: status.provisioningAvailable,
     sendingAvailable: status.sendingAvailable,
     planTier: status.planTier,
@@ -274,7 +290,13 @@ export async function GET() {
   if (!actor)
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
-  const status = await buildStatus(actor.db, actor.userId);
+  let workspace: ActiveWorkspace;
+  try {
+    workspace = await resolveActiveWorkspaceFromRequest(actor.db, actor.userId);
+  } catch {
+    return NextResponse.json({ error: "Workspace unavailable. Try again." }, { status: 503 });
+  }
+  const status = await buildStatus(actor.db, actor.userId, workspace);
   return NextResponse.json(publicStatus(status), {
     headers: { "Cache-Control": "private, no-store" },
   });
@@ -317,6 +339,12 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
+  let workspace: ActiveWorkspace;
+  try {
+    workspace = await resolveActiveWorkspaceFromRequest(actor.db, actor.userId);
+  } catch {
+    return NextResponse.json({ error: "Workspace unavailable. Try again." }, { status: 503 });
+  }
 
   if (action === "refresh_eligibility") {
     // Explicit refresh must recover stale Free/trial snapshots after an
@@ -339,30 +367,24 @@ export async function POST(req: Request) {
     // This branch deliberately returns before every runtime/provisioning gate.
     // It may update the stored billing snapshot, but it can never buy a number.
     return NextResponse.json(
-      publicStatus(await buildStatus(actor.db, actor.userId)),
+      publicStatus(await buildStatus(actor.db, actor.userId, workspace)),
       {
         headers: { "Cache-Control": "private, no-store" },
       },
     );
   }
 
-  // A work number belongs to the workspace. A co-manager who owns no houses
-  // sends from the owner's line and may not buy a second one for the same
-  // workspace — refused before any billing or provider work.
-  let pureCoManager: boolean;
-  try {
-    pureCoManager = await isPureCoManagerWorkspace(actor.db, actor.userId, { throwOnError: true });
-  } catch {
-    return NextResponse.json({ error: "Workspace unavailable. Try again." }, { status: 503 });
-  }
-  if (pureCoManager) {
+  // A work number belongs to the workspace, and only its OWNER may buy one.
+  // Inside a workspace someone else shares with you, texts go out from the
+  // owner's line — refused before any billing or provider work.
+  if (!workspace.owned) {
     return NextResponse.json(
       {
         error:
-          "Your workspace already has a work number. Texts go out from the number your workspace owner set up.",
-        code: "workspace_number_shared",
+          "This workspace already has a work number. Texts go out from the number its owner set up.",
+        code: "workspace_not_owned",
       },
-      { status: 409, headers: { "Cache-Control": "private, no-store" } },
+      { status: 403, headers: { "Cache-Control": "private, no-store" } },
     );
   }
 
@@ -411,9 +433,9 @@ export async function POST(req: Request) {
   const result = await provisionManagerNumber(
     actor.db,
     actor.userId,
-    areaCode ? { areaCode } : undefined,
+    { workspaceId: workspace.id, ...(areaCode ? { areaCode } : {}) },
   );
-  const next = publicStatus(await buildStatus(actor.db, actor.userId));
+  const next = publicStatus(await buildStatus(actor.db, actor.userId, workspace));
   if (!result.ok) {
     return NextResponse.json(
       {

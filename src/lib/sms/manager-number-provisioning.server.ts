@@ -7,6 +7,7 @@ import {
 } from "@/lib/claw-leasing-links";
 import { managerCarrierRegistrationNeedsAttention } from "@/lib/sms/manager-messaging-number";
 import { isPureCoManagerWorkspace } from "@/lib/sms/manager-workspace-role.server";
+import { ensureDefaultWorkspaceId, loadWorkspaceById } from "@/lib/workspaces/active.server";
 import {
   isProvisioningEnabled,
   managerCanSendFromOwnNumber,
@@ -28,9 +29,10 @@ import {
  * already reads. Both are written together here so they never drift.
  *
  * Design invariants:
- * - Exactly one number per manager (PK is manager_user_id). Idempotent: a
- *   manager who already has an active number keeps it; re-running never buys a
- *   second number.
+ * - Exactly one number per WORKSPACE (unique on workspace_id; manager_user_id
+ *   is the workspace owner). Idempotent: a workspace that already has an
+ *   active number keeps it; re-running never buys a second number. The
+ *   profile cache holds the owner's DEFAULT workspace's line only.
  * - Real Twilio purchases only happen when `SMS_PROVISIONING_ENABLED=1`. Off by
  *   default so a fleet parks in `pending_registration` at zero cost.
  * - Sending from the manager's own number is gated on that manager's OWN
@@ -51,6 +53,7 @@ export function mapNumberRow(row: Record<string, unknown> | null | undefined): M
   if (!row) return null;
   return {
     managerUserId: String(row.manager_user_id ?? ""),
+    workspaceId: String(row.workspace_id ?? "").trim() || null,
     phoneNumber: (row.phone_number as string | null) ?? null,
     phoneNumberSid: (row.phone_number_sid as string | null) ?? null,
     messagingServiceSid: (row.messaging_service_sid as string | null) ?? null,
@@ -75,45 +78,102 @@ export function mapNumberRow(row: Record<string, unknown> | null | undefined): M
   };
 }
 
-export async function getManagerNumberRecord(
+/** The row a WORKSPACE holds, or null. */
+export async function getWorkspaceNumberRecord(
   db: SupabaseClient,
-  managerUserId: string,
+  workspaceId: string,
 ): Promise<ManagerSmsNumberRecord | null> {
-  const id = managerUserId.trim();
+  const id = workspaceId.trim();
   if (!id) return null;
-  const { data } = await db.from(TABLE).select("*").eq("manager_user_id", id).maybeSingle();
+  const { data } = await db.from(TABLE).select("*").eq("workspace_id", id).maybeSingle();
   return mapNumberRow(data as Record<string, unknown> | null);
 }
 
 /**
- * Idempotently ensure a state row exists for a manager (parked in
+ * A manager's number record. With a workspace: that workspace's row. Without:
+ * the row of the owner's DEFAULT workspace — the line every legacy per-user
+ * reader (the profile cache, reminders, relays) means — or, before the
+ * migration placed it, the owner's unplaced legacy row.
+ */
+export async function getManagerNumberRecord(
+  db: SupabaseClient,
+  managerUserId: string,
+  workspaceId?: string | null,
+): Promise<ManagerSmsNumberRecord | null> {
+  const id = managerUserId.trim();
+  if (!id) return null;
+  if (workspaceId?.trim()) return getWorkspaceNumberRecord(db, workspaceId);
+  const query = db.from(TABLE).select("*").eq("manager_user_id", id);
+  // A real builder is thenable and yields every row; a single-row double
+  // only answers `maybeSingle`, and its one row is the one record.
+  const { data } =
+    typeof (query as { then?: unknown }).then === "function" ? await query : await query.maybeSingle();
+  const list = Array.isArray(data) ? data : data ? [data] : [];
+  const rows = (list as Record<string, unknown>[]).map((row) => mapNumberRow(row)!).filter(Boolean);
+  if (rows.length === 0) return null;
+  if (rows.length === 1) return rows[0];
+  const placed = rows.filter((r) => r.workspaceId);
+  if (placed.length > 0) {
+    const { data: workspaces } = await db
+      .from("portal_workspaces")
+      .select("id, is_default")
+      .in("id", placed.map((r) => r.workspaceId as string));
+    const defaultId = (workspaces ?? []).find((w) => w.is_default)?.id;
+    const inDefault = defaultId ? placed.find((r) => r.workspaceId === String(defaultId)) : null;
+    if (inDefault) return inDefault;
+  }
+  return rows.find((r) => !r.workspaceId) ?? rows[0];
+}
+
+/**
+ * Idempotently ensure a state row exists for a WORKSPACE (parked in
  * `pending_registration` with the shared registration ref by default so a
  * single-shared-registration deployment works with no extra wiring). Never buys
- * a number. Safe to call on every signup / activation.
+ * a number. Safe to call on every signup / activation. Without a workspace the
+ * owner's default workspace is meant.
  */
 export async function ensureManagerNumberRecord(
   db: SupabaseClient,
   managerUserId: string,
+  workspaceId?: string | null,
 ): Promise<ManagerSmsNumberRecord | null> {
   const id = managerUserId.trim();
   if (!id) return null;
-  const existing = await getManagerNumberRecord(db, id);
+  let wsId = workspaceId?.trim() || "";
+  if (!wsId) {
+    try {
+      wsId = await ensureDefaultWorkspaceId(db, id);
+    } catch {
+      return null;
+    }
+  }
+  const existing = await getWorkspaceNumberRecord(db, wsId);
   if (existing) return existing;
+  // A legacy row of this owner's that the migration could not place answers
+  // for their default workspace; adopt it rather than opening a second row.
+  const { data: legacy } = await db.from(TABLE).select("id").eq("manager_user_id", id).is("workspace_id", null).maybeSingle();
+  if (legacy?.id) {
+    await db.from(TABLE).update({ workspace_id: wsId, updated_at: nowIso() }).eq("id", legacy.id).is("workspace_id", null)
+      .then(() => undefined, () => undefined);
+    const adopted = await getWorkspaceNumberRecord(db, wsId);
+    if (adopted) return adopted;
+  }
   await db
     .from(TABLE)
     .upsert(
       {
         manager_user_id: id,
+        workspace_id: wsId,
         provision_state: "pending_registration",
         registration_state: "pending",
         registration_ref: sharedRegistrationRef(),
         requested_at: nowIso(),
         updated_at: nowIso(),
       },
-      { onConflict: "manager_user_id" },
+      { onConflict: "workspace_id" },
     )
     .then(() => undefined, () => undefined);
-  return getManagerNumberRecord(db, id);
+  return getWorkspaceNumberRecord(db, wsId);
 }
 
 export type ProvisionResult =
@@ -128,26 +188,41 @@ export type ProvisionResult =
 export async function provisionManagerNumber(
   db: SupabaseClient,
   managerUserId: string,
-  opts?: { areaCode?: string },
+  opts?: { areaCode?: string; workspaceId?: string | null },
 ): Promise<ProvisionResult> {
   const id = managerUserId.trim();
   if (!id) return { ok: false, error: "Missing manager id.", state: "failed" };
 
-  // One work number per workspace. A co-manager with no houses of their own
-  // sends from the owner's line; buying them a second number for the same
-  // workspace is refused here so no caller — route, signup backfill, or a
-  // display-time "ensure" — can spend money on one by accident. An unreadable
-  // ownership answer is treated as a co-manager: the purchase is the
-  // irreversible side, so it waits.
-  let pureCoManager = true;
-  try {
-    pureCoManager = await isPureCoManagerWorkspace(db, id, { throwOnError: true });
-  } catch {
-    return { ok: false, error: "workspace_unavailable", state: "failed" };
+  // One work number per WORKSPACE, bought only by its owner. With a workspace
+  // named, ownership is re-derived from the workspace row — never from the
+  // caller. Without one (signup backfill, legacy callers) the owner's default
+  // workspace is meant, and a pure co-manager — linked, no houses of their
+  // own — is refused as before: they send from the owner's line inside the
+  // shared workspace, and their own default workspace is empty. An unreadable
+  // answer is treated as a refusal: the purchase is the irreversible side.
+  let wsId = opts?.workspaceId?.trim() || "";
+  let isDefaultWorkspace = true;
+  if (wsId) {
+    const workspace = await loadWorkspaceById(db, wsId);
+    if (!workspace) return { ok: false, error: "workspace_unavailable", state: "failed" };
+    if (workspace.ownerUserId !== id) return { ok: false, error: "workspace_not_owned", state: "pending_registration" };
+    isDefaultWorkspace = workspace.isDefault;
+  } else {
+    let pureCoManager = true;
+    try {
+      pureCoManager = await isPureCoManagerWorkspace(db, id, { throwOnError: true });
+    } catch {
+      return { ok: false, error: "workspace_unavailable", state: "failed" };
+    }
+    if (pureCoManager) return { ok: false, error: "workspace_number_shared", state: "pending_registration" };
+    try {
+      wsId = await ensureDefaultWorkspaceId(db, id);
+    } catch {
+      return { ok: false, error: "workspace_unavailable", state: "failed" };
+    }
   }
-  if (pureCoManager) return { ok: false, error: "workspace_number_shared", state: "pending_registration" };
 
-  const record = await ensureManagerNumberRecord(db, id);
+  const record = await ensureManagerNumberRecord(db, id, wsId);
   if (!record) return { ok: false, error: "Could not initialize work-number state.", state: "failed" };
 
   // 1. Idempotent short-circuit — already has a real active number.
@@ -160,7 +235,7 @@ export async function provisionManagerNumber(
     await db
       .from(TABLE)
       .update({ provision_state: "pending_registration", updated_at: nowIso() })
-      .eq("manager_user_id", id)
+      .eq("workspace_id", wsId)
       .neq("provision_state", "active")
       .then(() => undefined, () => undefined);
     return { ok: false, error: "provisioning_disabled", state: "pending_registration" };
@@ -168,13 +243,13 @@ export async function provisionManagerNumber(
 
   // 3. Mark provisioning in-flight (observable) and bump the attempt counter.
   const requestId = randomUUID();
-  const { data: claimed, error: claimLockError } = await db.rpc("claim_manager_sms_provisioning", {
-    p_manager_user_id: id,
+  const { data: claimed, error: claimLockError } = await db.rpc("claim_workspace_sms_provisioning", {
+    p_workspace_id: wsId,
     p_request_id: requestId,
   });
   if (claimLockError) return { ok: false, error: "Could not lock work-number setup.", state: "failed" };
   if (claimed !== true) {
-    const current = await getManagerNumberRecord(db, id);
+    const current = await getWorkspaceNumberRecord(db, wsId);
     if (current?.phoneNumber && current.provisionState === "active") {
       return { ok: true, number: current.phoneNumber, state: "active", alreadyProvisioned: true };
     }
@@ -186,7 +261,7 @@ export async function provisionManagerNumber(
   //     claim always fails against a Claw-stamped profile and we churn
   //     buy→release→failed every sweep tick. (The bridge keeps the Claw line on
   //     purpose, so only clear when real provisioning is active.)
-  if (!isClawSharedLineBridgeEnabled()) {
+  if (!isClawSharedLineBridgeEnabled() && isDefaultWorkspace) {
     const { data: prof0 } = await db.from("profiles").select("sms_from_number").eq("id", id).maybeSingle();
     const cur = String(prof0?.sms_from_number ?? "").trim();
     let safeToClear = cur && (isLegacyClawSharedSmsNumber(cur) || isPlaceholderManagerWorkNumber(cur));
@@ -208,7 +283,7 @@ export async function provisionManagerNumber(
         .eq("id", id)
         .eq("sms_from_number", cur);
       if (clearError) {
-        await recordProvisionFailure(db, id, requestId, "Could not clear the legacy work-number cache.");
+        await recordProvisionFailure(db, wsId, requestId, "Could not clear the legacy work-number cache.");
         return { ok: false, error: "Could not prepare work-number setup.", state: "failed" };
       }
     }
@@ -243,10 +318,10 @@ export async function provisionManagerNumber(
         quarantine_reason: "provider_release_unconfirmed",
         last_error: purchase.error.slice(0, 500),
         updated_at: nowIso(),
-      }).eq("manager_user_id", id).eq("provision_request_id", requestId);
+      }).eq("workspace_id", wsId).eq("provision_request_id", requestId);
       return { ok: false, error: purchase.error, state: "provisioning" };
     }
-    await recordProvisionFailure(db, id, requestId, purchase.error);
+    await recordProvisionFailure(db, wsId, requestId, purchase.error);
     return { ok: false, error: purchase.error, state: "failed" };
   }
   const { error: providerPersistError } = await db.from("sms_provisioning_operations").update({
@@ -264,18 +339,23 @@ export async function provisionManagerNumber(
       quarantine_reason: "provider_operation_persistence_failed",
       last_error: "Provider number purchased; awaiting reconciliation.",
       updated_at: nowIso(),
-    }).eq("manager_user_id", id).eq("provision_request_id", requestId);
+    }).eq("workspace_id", wsId).eq("provision_request_id", requestId);
     return { ok: false, error: "Provider setup is awaiting reconciliation.", state: "provisioning" };
   }
 
   // 5. Atomically claim the profile slot; on race, release the bought number so
-  //    it is not orphaned/billed, then reconcile to the winner.
-  const { data: profileClaimed, error: claimErr } = await db
-    .from("profiles")
-    .update({ sms_from_number: purchase.number, updated_at: nowIso() })
-    .eq("id", id)
-    .is("sms_from_number", null)
-    .select("sms_from_number");
+  //    it is not orphaned/billed, then reconcile to the winner. The profile
+  //    cache is the owner's DEFAULT workspace's line only — a second
+  //    workspace's number lives on its own row, guarded by the workspace lock
+  //    above and the one-row-per-workspace index, and never touches the cache.
+  const { data: profileClaimed, error: claimErr } = isDefaultWorkspace
+    ? await db
+        .from("profiles")
+        .update({ sms_from_number: purchase.number, updated_at: nowIso() })
+        .eq("id", id)
+        .is("sms_from_number", null)
+        .select("sms_from_number")
+    : { data: [{ sms_from_number: purchase.number }], error: null };
 
   if (claimErr || !profileClaimed || profileClaimed.length === 0) {
     const released = await releaseTwilioNumber(purchase.sid).catch(() => false);
@@ -291,7 +371,7 @@ export async function provisionManagerNumber(
     const stored = String(prof?.sms_from_number ?? "").trim();
     const storedIsReal = stored && !isLegacyClawSharedSmsNumber(stored) && !isPlaceholderManagerWorkNumber(stored);
     if (storedIsReal) {
-      const winner = await getManagerNumberRecord(db, id);
+      const winner = await getWorkspaceNumberRecord(db, wsId);
       if (winner?.phoneNumber === stored && winner.provisionState !== "failed" && winner.provisionState !== "released") {
         return { ok: true, number: stored, state: winner.provisionState, alreadyProvisioned: true };
       }
@@ -302,10 +382,10 @@ export async function provisionManagerNumber(
         quarantine_reason: "provider_release_unconfirmed",
         last_error: "A purchased number could not be safely released; operator review is required.",
         updated_at: nowIso(),
-      }).eq("manager_user_id", id).eq("provision_request_id", requestId);
+      }).eq("workspace_id", wsId).eq("provision_request_id", requestId);
       return { ok: false, error: "Provider cleanup requires review.", state: "provisioning" };
     }
-    await recordProvisionFailure(db, id, requestId, claimErr?.message ?? "Could not persist the work number.");
+    await recordProvisionFailure(db, wsId, requestId, claimErr?.message ?? "Could not persist the work number.");
     return { ok: false, error: claimErr?.message ?? "Could not persist the work number.", state: "failed" };
   }
 
@@ -333,7 +413,7 @@ export async function provisionManagerNumber(
       last_error: null,
       updated_at: nowIso(),
     })
-    .eq("manager_user_id", id)
+    .eq("workspace_id", wsId)
     .eq("provision_request_id", requestId)
     .select("manager_user_id");
 
@@ -356,10 +436,10 @@ export async function provisionManagerNumber(
         quarantine_reason: "provider_release_unconfirmed",
         last_error: "Purchased number persistence failed and provider release is unconfirmed.",
         updated_at: nowIso(),
-      }).eq("manager_user_id", id).eq("provision_request_id", requestId);
+      }).eq("workspace_id", wsId).eq("provision_request_id", requestId);
       return { ok: false, error: "Provider cleanup requires review.", state: "provisioning" };
     }
-    await recordProvisionFailure(db, id, requestId, persistError?.message ?? "Could not persist the purchased work number.");
+    await recordProvisionFailure(db, wsId, requestId, persistError?.message ?? "Could not persist the purchased work number.");
     return { ok: false, error: "Could not persist the purchased work number.", state: "failed" };
   }
 
@@ -370,14 +450,14 @@ export async function provisionManagerNumber(
 
 async function recordProvisionFailure(
   db: SupabaseClient,
-  managerUserId: string,
+  workspaceId: string,
   requestId: string,
   error: string,
 ): Promise<void> {
   await db
     .from(TABLE)
     .update({ provision_state: "failed", attachment_state: "failed", last_error: error.slice(0, 500), updated_at: nowIso() })
-    .eq("manager_user_id", managerUserId)
+    .eq("workspace_id", workspaceId)
     .eq("provision_request_id", requestId)
     .then(() => undefined, () => undefined);
 }
@@ -609,18 +689,19 @@ export async function activatePendingManagerNumbers(
 
   let query = db
     .from(TABLE)
-    .select("manager_user_id, provision_state, phone_number")
+    .select("manager_user_id, workspace_id, provision_state, phone_number")
     .in("provision_state", ["pending_registration", "failed"])
     .limit(limit);
   if (opts?.managerUserIds?.length) query = query.in("manager_user_id", opts.managerUserIds.slice(0, limit));
 
   const { data } = await query;
-  const rows = (data ?? []) as Array<{ manager_user_id: string; provision_state: string; phone_number: string | null }>;
+  const rows = (data ?? []) as Array<{ manager_user_id: string; workspace_id: string | null; provision_state: string; phone_number: string | null }>;
   result.considered = rows.length;
 
   for (const row of rows) {
     if (!needsProvisioning({ provisionState: normalizeProvisionState(row.provision_state) })) continue;
-    const res = await provisionManagerNumber(db, String(row.manager_user_id));
+    const workspaceId = String(row.workspace_id ?? "").trim() || null;
+    const res = await provisionManagerNumber(db, String(row.manager_user_id), workspaceId ? { workspaceId } : undefined);
     if (res.ok) result.provisioned++;
     else if (res.state === "pending_registration") result.parked++;
     else {
@@ -665,26 +746,28 @@ export async function setManagerRegistrationState(
  * be restored by flipping the state back to `active`. Does NOT release at the
  * provider (that is a destructive, money-adjacent op left to an operator).
  */
-export async function releaseManagerNumber(db: SupabaseClient, managerUserId: string): Promise<void> {
+export async function releaseManagerNumber(db: SupabaseClient, managerUserId: string, workspaceId?: string | null): Promise<void> {
   const id = managerUserId.trim();
   if (!id) return;
-  await db
+  let q = db
     .from(TABLE)
     .update({ provision_state: "released", released_at: nowIso(), updated_at: nowIso() })
-    .eq("manager_user_id", id)
-    .then(() => undefined, () => undefined);
+    .eq("manager_user_id", id);
+  if (workspaceId?.trim()) q = q.eq("workspace_id", workspaceId.trim());
+  await q.then(() => undefined, () => undefined);
 }
 
 /** Restore a previously released number (reverse of {@link releaseManagerNumber}). */
-export async function restoreManagerNumber(db: SupabaseClient, managerUserId: string): Promise<void> {
+export async function restoreManagerNumber(db: SupabaseClient, managerUserId: string, workspaceId?: string | null): Promise<void> {
   const id = managerUserId.trim();
   if (!id) return;
-  await db
+  let q = db
     .from(TABLE)
     .update({ provision_state: "active", released_at: null, updated_at: nowIso() })
     .eq("manager_user_id", id)
-    .eq("provision_state", "released")
-    .then(() => undefined, () => undefined);
+    .eq("provision_state", "released");
+  if (workspaceId?.trim()) q = q.eq("workspace_id", workspaceId.trim());
+  await q.then(() => undefined, () => undefined);
 }
 
 /**
@@ -695,8 +778,10 @@ export async function restoreManagerNumber(db: SupabaseClient, managerUserId: st
 export async function resolveActiveManagerSendNumber(
   db: SupabaseClient,
   managerUserId: string,
+  /** The workspace the send is made from; omitted = the owner's default workspace. */
+  workspaceId?: string | null,
 ): Promise<string | null> {
-  const record = await getManagerNumberRecord(db, managerUserId);
+  const record = await getManagerNumberRecord(db, managerUserId, workspaceId);
   if (!managerCanSendFromOwnNumber(record)) return null;
   return record?.phoneNumber ?? null;
 }

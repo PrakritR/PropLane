@@ -124,6 +124,7 @@ import {
   type ScheduledInboxMessageRecord,
 } from "@/lib/scheduled-inbox-messages";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { useSelectedWorkspaceId } from "@/hooks/use-selected-workspace-id";
 import { ManagerCreateWorkOrderModal } from "@/components/portal/pro-create-work-order-modal";
 import { ManagerCreateServiceRequestModal } from "@/components/portal/pro-create-service-request-modal";
 import {
@@ -299,6 +300,8 @@ export const ManagerInbox = forwardRef<
     );
   }, [manualScheduledMessages, scheduledMessages]);
   const { userId, email: viewerEmail } = useManagerUserId();
+  // The line and address below belong to the ACTIVE workspace; re-read them on a switch.
+  const selectedWorkspace = useSelectedWorkspaceId();
   const [smsCanSend, setSmsCanSend] = useState(false);
   /** The line texts leave on — the manager's own number, or the workspace's shared one. */
   const [smsSendingNumber, setSmsSendingNumber] = useState<string | null>(null);
@@ -326,7 +329,7 @@ export const ManagerInbox = forwardRef<
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectedWorkspace]);
 
   /* The address an email reply actually leaves from is the WORKSPACE work
      email (`resolveManagerOutboundFrom`), not the viewer's login address — the
@@ -352,7 +355,7 @@ export const ManagerInbox = forwardRef<
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectedWorkspace]);
 
   const [local, setLocal] = useState<InboxThread[]>(() => loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[]);
   const localRef = useRef(local);
