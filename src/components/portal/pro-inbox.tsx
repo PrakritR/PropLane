@@ -169,6 +169,7 @@ type InboxThread = {
   messages?: InboxThreadMessage[];
   aiDraft?: InboxAiDraft;
   aiDraftQueue?: InboxAiDraft[];
+  resolvedAiDraftIds?: string[];
 };
 
 function threadEligibleForAiDraft(thread: InboxThread): boolean {

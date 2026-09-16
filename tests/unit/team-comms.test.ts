@@ -262,6 +262,41 @@ describe("team-comms: postTeamThreadMessage", () => {
 });
 
 describe("team-comms: updateTeamThreadMailboxState", () => {
+  const draft = (text: string, generatedAt: string) => ({ text, status: "pending_approval", generatedAt, requiresReview: true });
+
+  it("keeps a pending review draft the client never saw — an archive from a stale tab cannot wipe it", async () => {
+    const { db, tables } = fakeDb();
+    await postTeamThreadMessage(db, {
+      ownerManagerUserId: "owner-1", actorName: "Jamie", subject: "s0", text: "root", messageId: "m0",
+    });
+    const rowData = tables.portal_inbox_thread_records[0]!.row_data as Record<string, unknown>;
+    rowData.aiDraft = draft("first", "g1");
+    rowData.aiDraftQueue = [draft("second", "g2")];
+    await updateTeamThreadMailboxState(db, { id: "team-thread:owner-1" }, {
+      id: "team-thread:owner-1", folder: "trash", unread: false, aiDraft: undefined,
+    });
+    const after = tables.portal_inbox_thread_records[0]!.row_data as Record<string, unknown>;
+    expect(after.folder).toBe("trash");
+    expect((after.aiDraft as { text: string }).text).toBe("first");
+    expect((after.aiDraftQueue as Array<{ text: string }>).map((d) => d.text)).toEqual(["second"]);
+  });
+
+  it("removes exactly the drafts the viewer resolved and promotes the next one", async () => {
+    const { db, tables } = fakeDb();
+    await postTeamThreadMessage(db, {
+      ownerManagerUserId: "owner-1", actorName: "Jamie", subject: "s0", text: "root", messageId: "m0",
+    });
+    const rowData = tables.portal_inbox_thread_records[0]!.row_data as Record<string, unknown>;
+    rowData.aiDraft = draft("first", "g1");
+    rowData.aiDraftQueue = [draft("second", "g2"), draft("third", "g3")];
+    await updateTeamThreadMailboxState(db, { id: "team-thread:owner-1" }, {
+      id: "team-thread:owner-1", aiDraft: draft("second", "g2"), resolvedAiDraftIds: ["g1", "g3"],
+    });
+    const after = tables.portal_inbox_thread_records[0]!.row_data as Record<string, unknown>;
+    expect((after.aiDraft as { text: string }).text).toBe("second");
+    expect(after.aiDraftQueue).toBeUndefined();
+  });
+
   it("merges only folder / unread / draft slots — the turns others appended survive a stale client snapshot", async () => {
     const { db, tables } = fakeDb();
     await postTeamThreadMessage(db, {

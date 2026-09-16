@@ -106,6 +106,13 @@ export type PersistedInboxThread = {
    */
   aiDraftQueue?: InboxAiDraft[];
   /**
+   * `generatedAt` of every draft this browser approved or discarded on the
+   * thread. A shared (team) thread's draft slots are server-authoritative:
+   * the mailbox merge removes exactly these and keeps everything else, so a
+   * stale snapshot can never wipe a draft the viewer never saw.
+   */
+  resolvedAiDraftIds?: string[];
+  /**
    * What the conversation is about, stamped by the send path (see
    * `deliverPortalInboxMessage`'s `eventCategory`). ABSENT on every row written
    * before that stamp existed — an absent category renders no chip, never a
@@ -742,10 +749,21 @@ export function inboxThreadCounterpartyEmail(
  * draft (if any) becomes `aiDraft`, so an automated draft that arrived while
  * an earlier one was still waiting is never lost.
  */
-export function advanceInboxAiDraft<T extends Pick<PersistedInboxThread, "aiDraft" | "aiDraftQueue">>(thread: T): T {
+export function advanceInboxAiDraft<
+  T extends Pick<PersistedInboxThread, "aiDraft" | "aiDraftQueue" | "resolvedAiDraftIds">,
+>(thread: T): T {
   const queue = Array.isArray(thread.aiDraftQueue) ? thread.aiDraftQueue.filter(Boolean) : [];
   const [next, ...rest] = queue;
-  return { ...thread, aiDraft: next, aiDraftQueue: rest.length > 0 ? rest : undefined };
+  const resolvedId = thread.aiDraft?.generatedAt?.trim();
+  const resolved = resolvedId
+    ? [...new Set([...(thread.resolvedAiDraftIds ?? []), resolvedId])]
+    : thread.resolvedAiDraftIds;
+  return {
+    ...thread,
+    aiDraft: next,
+    aiDraftQueue: rest.length > 0 ? rest : undefined,
+    ...(resolved && resolved.length > 0 ? { resolvedAiDraftIds: resolved } : {}),
+  };
 }
 
 /**

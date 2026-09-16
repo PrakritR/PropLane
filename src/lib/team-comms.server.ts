@@ -313,14 +313,43 @@ function advanceDraftSlots(rowData: Record<string, unknown>): { aiDraft: unknown
 
 const TEAM_THREAD_FOLDERS = new Set(["inbox", "sent", "trash"]);
 
+type DraftSlot = { generatedAt?: unknown } | null | undefined;
+
+function draftId(draft: DraftSlot): string {
+  return typeof draft?.generatedAt === "string" ? draft.generatedAt.trim() : "";
+}
+
+/**
+ * The server's draft slots after the viewer's approvals/discards are applied.
+ * Only drafts the browser names in `resolvedAiDraftIds` are removed; a
+ * snapshot that simply never saw a draft (it was queued after the page
+ * loaded, or by an automation the viewer is not the audience of) changes
+ * nothing, so a pending review draft survives an archive from a stale tab.
+ */
+function mergeTeamDraftSlots(
+  row: Record<string, unknown>,
+  requested: Record<string, unknown>,
+): { aiDraft: unknown; aiDraftQueue: unknown } {
+  const resolved = new Set(
+    Array.isArray(requested.resolvedAiDraftIds)
+      ? requested.resolvedAiDraftIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+      : [],
+  );
+  const slots = [row.aiDraft as DraftSlot, ...(Array.isArray(row.aiDraftQueue) ? (row.aiDraftQueue as DraftSlot[]) : [])]
+    .filter((draft) => draft && !resolved.has(draftId(draft)));
+  const [head, ...rest] = slots;
+  return { aiDraft: head, aiDraftQueue: rest.length > 0 ? rest : undefined };
+}
+
 /**
  * The browser's copy of a team thread is never written back wholesale: the
  * row is shared by the owner and every co-manager on the house, so a stale
  * client snapshot would drop turns others appended (and would stamp the
  * viewer's own email onto `participant_email`). Only the mailbox state a
- * viewer legitimately owns — folder, unread, and the draft slots they
+ * viewer legitimately owns — folder, unread, and the specific drafts they
  * approved or discarded — is merged, under the same CAS the appends use.
- * Messages, root and house tag stay exactly as the server holds them.
+ * Messages, root, house tag and every other draft stay exactly as the server
+ * holds them.
  */
 export async function updateTeamThreadMailboxState(
   db: SupabaseClient,
@@ -341,8 +370,7 @@ export async function updateTeamThreadMailboxState(
       folder,
       unread: typeof requested.unread === "boolean" ? requested.unread : row.unread,
       ...(folder === "trash" && row.folder !== "trash" ? { previousFolder: row.folder } : {}),
-      aiDraft: requested.aiDraft,
-      aiDraftQueue: Array.isArray(requested.aiDraftQueue) && requested.aiDraftQueue.length > 0 ? requested.aiDraftQueue : undefined,
+      ...mergeTeamDraftSlots(row, requested),
     };
     const { data: changed, error: writeError } = await db
       .from("portal_inbox_thread_records")
