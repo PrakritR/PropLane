@@ -1,3 +1,4 @@
+import { emitInspectionSubmission } from "@/lib/inspection-events.server";
 import "server-only";
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
@@ -375,6 +376,12 @@ export async function changeResidentSubmission(actor: InspectionActor, id: strin
   const saved = await updateInspection(actor, report, next.document);
   track(saved.document.residentSubmission ? "inspection_submitted" : "inspection_reopened", actor.context.userId,
     { inspection_id: id, kind: report.kind, portal: actor.role });
+  // The other side hears about it (PLAN-0915). Best-effort: the submission is saved above.
+  await emitInspectionSubmission(actor.context.db, {
+    report: saved,
+    submitted: Boolean(saved.document.residentSubmission),
+    actor: { userId: actor.context.userId, email: actor.context.email },
+  }).catch(() => undefined);
   return saved;
 }
 

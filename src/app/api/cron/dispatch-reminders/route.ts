@@ -31,6 +31,11 @@ import {
   sweepWorkOrderEscalations,
   sweepWorkOrderNoOnMyWay,
 } from "@/lib/reminders/subjects/services.server";
+import { sweepMoveInPaymentMethod, sweepTenancyReminders } from "@/lib/reminders/subjects/tenancy.server";
+import { sweepCountersignOverdue, sweepRenewalOfferExpiry } from "@/lib/reminders/subjects/leases.server";
+import { sweepApplicationEscalations, sweepTourNoShowPrompts, sweepTourRequestReminders } from "@/lib/reminders/subjects/leasing.server";
+import { sweepUnansweredMessages } from "@/lib/reminders/subjects/communication.server";
+import { sweepDocumentSignatureReminders, sweepResidentWelcome, sweepTaskOverdue } from "@/lib/reminders/subjects/followups.server";
 import { expireVendorOffers } from "@/lib/work-order-offer-expiry.server";
 import { autoCloseResidentConfirmations } from "@/lib/work-order-resident-confirmation.server";
 import { sweepTourReminders } from "@/lib/reminders/subjects/tours.server";
@@ -101,6 +106,20 @@ export async function GET(req: Request) {
       ["service_request_decision", sweepServiceRequestDecision],
       ["service_request_unpaid", sweepServiceRequestUnpaid],
       ["vendor_document_expiry", sweepVendorDocumentExpiry],
+      // PLAN-0915 leases, move-in, move-out.
+      ["tenancy", sweepTenancyReminders],
+      ["move_in_payment_method", sweepMoveInPaymentMethod],
+      ["countersign_overdue", sweepCountersignOverdue],
+      ["renewal_offer_expiry", sweepRenewalOfferExpiry],
+      // PLAN-0915 tours, applications, communication.
+      ["tour_requests", sweepTourRequestReminders],
+      ["tour_no_show", sweepTourNoShowPrompts],
+      ["application_escalations", sweepApplicationEscalations],
+      ["message_unanswered", sweepUnansweredMessages],
+      // PLAN-0915 tasks, documents, residents.
+      ["task_overdue", sweepTaskOverdue],
+      ["document_signature", sweepDocumentSignatureReminders],
+      ["resident_welcome", sweepResidentWelcome],
     ] as const) {
       try {
         swept += await sweep(db);

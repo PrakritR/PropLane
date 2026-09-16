@@ -5,15 +5,25 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import {
   Bell,
+  BellRing,
+  Building2,
+  Calendar,
+  CalendarDays,
+  CheckSquare,
+  ClipboardCheck,
   CreditCard,
+  FileText,
+  Home,
   KeyRound,
   Lock,
   MessageSquareText,
   MessagesSquare,
+  ScrollText,
   Settings2,
   SlidersHorizontal,
   UserRound,
-  Users,
+  Wallet,
+  Wrench,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,7 +36,6 @@ import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
 import { WorkspaceSettings } from "@/components/portal/workspace-settings";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
-import { ProAccountLinksPanel } from "@/components/portal/pro-account-links-panel";
 import {
   PortalSettingsAutosaveField,
   PortalSettingsField,
@@ -47,6 +56,12 @@ import { ManagerPlan } from "@/components/portal/pro-plan";
 import { ManagerApiKeysPanel } from "@/components/portal/pro-api-keys-panel";
 import { ManagerMessagingSettingsPanel } from "@/components/portal/pro-messaging-settings-panel";
 import { ManagerAssistantEmailSettingsPanel } from "@/components/portal/pro-assistant-email-settings-panel";
+import { CommunicationSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
+import { SettingsModulePage } from "@/components/portal/settings-module-page";
+import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
+import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
+import { filterPropertyOptionsForActiveWorkspace } from "@/lib/workspaces/selection";
+import type { ManagerPortalSettingsTab } from "@/components/portal/pro-portal-settings-modal";
 import { PortalTextNotificationsBlock } from "@/components/portal/portal-text-notifications-block";
 import { MANAGER_PLAN_PORTAL_HASH } from "@/lib/portals/manager-plan-path";
 import { AssistantDisplaySetting } from "@/components/portal/assistant-display-setting";
@@ -54,7 +69,6 @@ import { AssistantCustomInstructionsSetting } from "@/components/portal/assistan
 import { ManagerNotificationRoutingSetting } from "@/components/portal/pro-notification-routing-setting";
 import { NotificationsToggle } from "@/components/native/notifications-toggle";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
-import { isDemoModeActive } from "@/lib/demo/demo-session";
 import type { PortalKind } from "@/lib/portal-types";
 import { formatProplaneIdForDisplay } from "@/lib/manager-id";
 import {
@@ -90,7 +104,6 @@ type ProfileField = "fullName" | "phone";
 
 type SettingsGroupId =
   | "workspaces"
-  | "team"
   | "profile"
   | "billing"
   | "messaging"
@@ -99,14 +112,39 @@ type SettingsGroupId =
   | "security"
   | "developer"
   | "feedback"
-  | "account";
+  | "account"
+  | "properties"
+  | "applications"
+  | "lease"
+  | "tours"
+  | "resident"
+  | "payments"
+  | "tasks"
+  | "reminders"
+  | "bookings"
+  | "inspections"
+  | "services";
+
+const HUB_MODULE_TABS: Partial<Record<SettingsGroupId, ManagerPortalSettingsTab>> = {
+  properties: "properties",
+  applications: "applications",
+  lease: "lease",
+  tours: "tours",
+  resident: "resident",
+  payments: "payments",
+  tasks: "tasks",
+  reminders: "automation",
+  bookings: "bookings",
+  inspections: "inspections",
+  services: "services",
+};
 
 type SettingsGroup = {
   id: SettingsGroupId;
   label: string;
   description: string;
   icon: ComponentType<{ className?: string }>;
-  group: "Workspace" | "Account";
+  group: "Account" | "Operations" | "Portfolio";
 };
 
 function ManagerMessagingSettingsPane() {
@@ -121,8 +159,22 @@ function ManagerMessagingSettingsPane() {
       />
       <ManagerMessagingSettingsPanel personalPhoneRefreshKey={personalPhoneRefreshKey} />
       <ManagerAssistantEmailSettingsPanel />
+      <CommunicationSettingsPanel />
     </>
   );
+}
+
+function HubSettingsModulePane({ tab }: { tab: ManagerPortalSettingsTab }) {
+  const { userId } = useManagerUserId();
+  const workspaces = useWorkspaces();
+  const propertyOptions = useMemo(
+    () =>
+      filterPropertyOptionsForActiveWorkspace(
+        buildManagerPropertyFilterOptions(resolveManagerScopeUserId(userId)),
+      ),
+    [userId, workspaces?.active?.id],
+  );
+  return <SettingsModulePage tab={tab} propertyOptions={propertyOptions} />;
 }
 
 export function PortalProfileClient({
@@ -143,9 +195,6 @@ export function PortalProfileClient({
   idValue: string;
 }) {
   const demo = isDemoModeActive();
-  const { userId: settingsUserId } = useManagerUserId();
-  const workspaces = useWorkspaces();
-  const workspaceName = workspaces?.active?.name;
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -296,24 +345,13 @@ export function PortalProfileClient({
       },
     ];
     if (!demo && variant === "manager") {
-      list.push({ id: "workspaces", label: "Workspaces", description: "Plan limits, your workspaces, and who works in each.", icon: Settings2, group: "Workspace" });
-      list.push({ id: "team", label: "Team", description: "Managers you share houses with, and exactly what each can do.", icon: Users, group: "Workspace" });
+      list.push({ id: "workspaces", label: "Workspaces", description: "Plan limits, your workspaces, and who works in each.", icon: Settings2, group: "Account" });
       list.push({
         id: "billing",
         label: "Billing & plan",
         description: "Subscription and payment details.",
         icon: CreditCard,
         group: "Account",
-      });
-    }
-    if (!demo && variant === "manager") {
-      list.push({
-        id: "messaging",
-        label: "Communication",
-        description:
-          "Personal mobile, your work number for texts and calls, and what reaches you after a call.",
-        icon: MessagesSquare,
-        group: "Workspace",
       });
     }
     if (variant === "manager") {
@@ -368,6 +406,36 @@ export function PortalProfileClient({
         group: "Account",
       },
     );
+    if (variant === "manager") {
+      list.push(
+        { id: "properties", label: "Properties", description: "Houses in this workspace.", icon: Building2, group: "Portfolio" },
+        { id: "applications", label: "Applications", description: "Application handling for this workspace.", icon: FileText, group: "Portfolio" },
+        { id: "lease", label: "Leases", description: "Lease automation for this workspace.", icon: ScrollText, group: "Portfolio" },
+        { id: "tours", label: "Tours", description: "Tour notice and reminders.", icon: Calendar, group: "Portfolio" },
+        { id: "resident", label: "Residents", description: "Resident settings for this workspace.", icon: Home, group: "Portfolio" },
+      );
+    }
+    if (!demo && variant === "manager") {
+      list.push(
+        {
+          id: "messaging",
+          label: "Communication",
+          description: "Personal mobile, your work number for texts and calls, and what reaches you after a call.",
+          icon: MessagesSquare,
+          group: "Operations",
+        },
+      );
+    }
+    if (variant === "manager") {
+      list.push(
+        { id: "payments", label: "Payments", description: "Rent reminders and payment rules.", icon: Wallet, group: "Operations" },
+        { id: "tasks", label: "Tasks", description: "Task automation.", icon: CheckSquare, group: "Operations" },
+        { id: "reminders", label: "Reminders", description: "Reminder matrix and quiet hours.", icon: BellRing, group: "Operations" },
+        { id: "bookings", label: "Bookings", description: "Booking rules.", icon: CalendarDays, group: "Operations" },
+        { id: "inspections", label: "Inspections", description: "Inspection rules.", icon: ClipboardCheck, group: "Operations" },
+        { id: "services", label: "Services", description: "Service rules.", icon: Wrench, group: "Operations" },
+      );
+    }
     return list;
   }, [demo, idLabel, variant]);
 
@@ -389,6 +457,11 @@ export function PortalProfileClient({
   const rawTab = searchParams.get(SETTINGS_TAB_PARAM);
   useEffect(() => {
     if (rawTab === "vendors") router.replace("/portal/vendors");
+    if (rawTab === "team") router.replace("/portal/profile?tab=workspaces");
+    if (rawTab === "communication") router.replace("/portal/profile?tab=messaging");
+    if (rawTab === "automation") router.replace("/portal/profile?tab=reminders");
+    if (rawTab === "leases") router.replace("/portal/profile?tab=lease");
+    if (rawTab === "residents") router.replace("/portal/profile?tab=resident");
   }, [rawTab, router]);
   const billingGroup = groups.find((g) => g.id === "billing") ?? null;
   const activeGroup =
@@ -458,15 +531,11 @@ export function PortalProfileClient({
   }, [activeGroup?.id]);
 
   const renderPane = (id: SettingsGroupId): ReactNode => {
+    const moduleTab = HUB_MODULE_TABS[id];
+    if (moduleTab) return <HubSettingsModulePane tab={moduleTab} />;
     switch (id) {
       case "workspaces":
         return <WorkspaceSettings openNew={searchParams?.get("new") === "1"} />;
-      case "team":
-        return (
-          <PortalSettingsSection title={workspaceName ? `Team · ${workspaceName}` : "Team"}>
-            {settingsUserId ? <ProAccountLinksPanel userId={settingsUserId} bare /> : <p className="text-sm text-muted">Loading…</p>}
-          </PortalSettingsSection>
-        );
       case "profile":
         return personalInfoSection;
       case "billing":
@@ -542,7 +611,7 @@ export function PortalProfileClient({
     >
       <div ref={layoutTopRef} className="lg:flex lg:items-start lg:gap-10">
         <PortalSettingsNav
-          className="sticky top-0 max-lg:hidden"
+          className="max-lg:hidden"
           name={emptyToDash(fullName)}
           email={initialEmail}
           items={groups.map((g) => ({
@@ -558,7 +627,7 @@ export function PortalProfileClient({
           {activeGroup === null ? (
             <div className="space-y-5 lg:hidden">
               <PortalSettingsProfileHeader name={emptyToDash(fullName)} email={initialEmail} />
-              {(["Account", "Workspace"] as const).map((group) => {
+              {(["Account", "Portfolio", "Operations"] as const).map((group) => {
                 const groupItems = groups.filter((item) => item.group === group);
                 if (groupItems.length === 0) return null;
                 return (

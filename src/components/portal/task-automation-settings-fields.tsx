@@ -1,9 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
-import { ChoiceChips } from "@/components/ui/choice-chips";
-import { ToggleChips } from "@/components/ui/toggle-chips";
+import { FieldSingleSelect, CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { CustomChipInput, REMINDER_FIELD_LABEL_CLASS } from "@/components/portal/reminder-settings-shared";
 import type { WorkAssignmentTeamMember } from "@/hooks/use-work-assignment-directory";
@@ -88,13 +86,13 @@ export function TaskAutomationSettingsFields({
   return (
     <div className="space-y-4">
       <div className="space-y-1.5">
-        <p className={REMINDER_FIELD_LABEL_CLASS}>Tasks for</p>
-        <ChoiceChips
+        <FieldSingleSelect
           label="Tasks for"
+          labelClassName={REMINDER_FIELD_LABEL_CLASS}
           value={section}
           options={sectionOptions}
           onChange={(value) => {
-            if (LIFECYCLE_SECTIONS.includes(value)) setSection(value);
+            if (LIFECYCLE_SECTIONS.includes(value as LifecycleSection)) setSection(value as LifecycleSection);
           }}
           disabled={loading || saving}
           dataAttr="task-automation-section"
@@ -171,31 +169,33 @@ export function TaskAutomationSettingsFields({
                 </div>
 
                 <div className="sm:col-span-2">
-                  <p className={REMINDER_FIELD_LABEL_CLASS}>Remind before due</p>
-                  <ToggleChips
+                  <CheckboxMultiSelect
                     label="Remind before due"
-                    className="mt-1.5"
+                    labelClassName={REMINDER_FIELD_LABEL_CLASS}
                     options={reminderChipOptions(reminderSorted)}
                     selected={reminderTokens}
                     onChange={(tokens) => commitReminderMinutes(tokens.map((t) => Number(t)))}
                     disabled={loading || saving}
+                    emptyLabel="None selected"
                     dataAttr={`task-automation-${key}-reminder-before`}
-                    trailing={
-                      <CustomChipInput
-                        open={customOpenFor === key}
-                        onOpen={() => setCustomOpenFor(key)}
-                        onClose={() => setCustomOpenFor(null)}
-                        onCommit={(minutes) => {
-                          commitReminderMinutes([...reminderSorted, minutes]);
-                          return true;
-                        }}
-                        unit="min"
-                        min={5}
-                        max={1440}
-                        disabled={loading || saving}
-                        dataAttr={`task-automation-${key}-reminder-custom`}
-                        placeholder="Custom minutes before due"
-                      />
+                    menuFooter={
+                      <div className="border-t border-border p-2">
+                        <CustomChipInput
+                          open={customOpenFor === key}
+                          onOpen={() => setCustomOpenFor(key)}
+                          onClose={() => setCustomOpenFor(null)}
+                          onCommit={(minutes) => {
+                            commitReminderMinutes([...reminderSorted, minutes]);
+                            return true;
+                          }}
+                          unit="min"
+                          min={5}
+                          max={1440}
+                          disabled={loading || saving}
+                          dataAttr={`task-automation-${key}-reminder-custom`}
+                          placeholder="Custom minutes before due"
+                        />
+                      </div>
                     }
                   />
                 </div>

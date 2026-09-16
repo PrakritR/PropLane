@@ -66,15 +66,7 @@ import {
   writePendingFirstListingAutoOpen,
 } from "@/lib/manager-first-listing-onboarding";
 
-/**
- * This gear has never opened property-level settings — it has always opened
- * the Applications settings tab (`initialTab="applications"` below). No
- * property-settings surface exists in this codebase (checked: no
- * `pro-property-*-panel.tsx` settings panel, no unused `ManagerPortalSettingsTab`
- * for it, no `editAction` usage that leads there). Reuse the Applications entry
- * so the label finally tells the truth instead of inventing a new page.
- */
-const propertiesSettingsEntry = getSettingsEntryPoint("applications");
+const propertiesSettingsEntry = getSettingsEntryPoint("properties");
 
 export function ManagerProperties({
   stage: stageProp = "listed",
@@ -493,14 +485,6 @@ export function ManagerProperties({
             }}
             actions={
               <>
-                {/*
-                  This button has never opened property-level settings — there is
-                  no such surface in the codebase (see settings-entry-points.ts and
-                  the applications entry it reuses here). It opens the Applications
-                  settings tab, so it is now labeled for that honestly instead of
-                  claiming to be "Property settings". A genuine per-property
-                  settings surface is a product gap, not something to invent here.
-                */}
                 <PortalIconAction
                   icon={Settings2}
                   label={propertiesSettingsEntry.label}
@@ -532,7 +516,7 @@ export function ManagerProperties({
           <ManagerPortalSettingsModal
             open={listSettingsOpen}
             onClose={() => setListSettingsOpen(false)}
-            initialTab="applications"
+            initialTab="properties"
             scopedTitle={settingsDialogTitlePrefix(propertiesSettingsEntry)}
           />
           {atPropertyLimit && limitMax != null ? (

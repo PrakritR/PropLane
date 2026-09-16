@@ -21,8 +21,10 @@ describe("workspace settings delete", () => {
     expect(src).not.toContain("Move its properties to another workspace first.");
   });
 
-  it("opens Team in that workspace, not a Settings Vendors tab", () => {
-    expect(src).toContain("href: \"/portal/profile?tab=team\"");
+  it("opens Team on this pane, not a separate Settings tab", () => {
+    expect(src).toContain("id=\"workspace-team\"");
+    expect(src).toContain("href: false");
+    expect(src).not.toContain("href: \"/portal/profile?tab=team\"");
     expect(src).not.toContain("href: \"/portal/profile?tab=vendors\"");
     expect(src).not.toContain("workspace-manage-vendors");
   });

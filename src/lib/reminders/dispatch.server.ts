@@ -56,10 +56,10 @@ export type DispatchSummary = {
  * override the choices someone already made.
  */
 const CATEGORY_BY_KIND: Record<ReminderSubjectKind, NotificationCategory> = {
-  inspection: "leases",
-  inspection_manager: "leases",
-  tour: "leases",
-  tour_interest: "leases",
+  inspection: "inspections",
+  inspection_manager: "inspections",
+  tour: "tours",
+  tour_interest: "tours",
   task: "messages",
   service_order: "maintenance",
   work_order: "maintenance",
@@ -96,16 +96,16 @@ const CATEGORY_BY_KIND: Record<ReminderSubjectKind, NotificationCategory> = {
   application_no_lease_manager: "applications",
   cosigner: "applications",
   group_application: "applications",
-  tour_request_unanswered: "leases",
-  tour_request_reoffer: "leases",
-  tour_no_show_manager: "leases",
-  tour_feedback: "leases",
+  tour_request_unanswered: "tours",
+  tour_request_reoffer: "tours",
+  tour_no_show_manager: "tours",
+  tour_feedback: "tours",
   delinquency_manager: "payments",
   message_unanswered: "messages",
   document_signature: "leases",
   task_overdue: "messages",
   resident_welcome: "account",
-  inspection_acknowledge: "leases",
+  inspection_acknowledge: "inspections",
 };
 
 /**

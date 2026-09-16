@@ -16,7 +16,10 @@ export type ActionEventDomain =
   | "lease"
   | "application"
   | "service_request"
-  | "tour";
+  | "tour"
+  | "inspection"
+  | "task"
+  | "message";
 export type ActionEventAudience = "manager" | "resident" | "vendor";
 export type ActionEventRendered = { subject: string; text: string; smsText?: string };
 export type ActionEventRecipient = {

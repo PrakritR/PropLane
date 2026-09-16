@@ -16,10 +16,11 @@ import {
   type SettingsModuleSaveStatus,
 } from "@/components/portal/settings-module-page";
 import { getSettingsEntryPointForTab } from "@/components/portal/settings-entry-points";
-import { MANAGER_PORTAL_SETTINGS_TABS } from "@/lib/portal-settings-section";
+import { MANAGER_PORTAL_SETTINGS_TABS, managerSettingsHubTab } from "@/lib/portal-settings-section";
 import { PORTAL_TOOLBAR_PILL_BUTTON, PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE } from "@/components/portal/portal-metrics";
 
 export type ManagerPortalSettingsTab =
+  | "properties"
   | "applications"
   | "tours"
   | "lease"
@@ -155,7 +156,9 @@ export function ProPortalSettingsModal({
     if (!ok) return;
     closeCalledRef.current = true;
     onClose();
-    if (typeof window !== "undefined") window.location.assign(`/portal/settings/${tab}`);
+    if (typeof window !== "undefined") {
+      window.location.assign(`/portal/profile?tab=${managerSettingsHubTab(tab)}`);
+    }
   }, [flushPendingSaves, onClose, tab]);
 
   return (

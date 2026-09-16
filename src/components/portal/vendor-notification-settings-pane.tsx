@@ -4,9 +4,10 @@
  * Vendor → Settings → Notifications (PLAN-0915).
  *
  * Replaces the three toggles nothing read. Every row is a label and its
- * control on the settings kit: per-topic Email / Text, the offer-expiry nudge,
- * visit reminders, the weekly summary, and the vendor's own quiet hours for
- * texts. Autosaves through `/api/vendor/notification-settings`, which is what
+ * control on the settings kit: per-topic Email / Text, visit reminders, and
+ * the vendor's own quiet hours for texts. (The offer-expiry lead and a weekly
+ * summary are in the settings shape but have no sender yet, so they are not
+ * drawn — a control nothing reads is the sin this pane replaces.) Autosaves through `/api/vendor/notification-settings`, which is what
  * `resolveChannels` reads at send time.
  */
 import { useEffect, useState } from "react";
@@ -15,7 +16,6 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
   DEFAULT_VENDOR_NOTIFICATION_SETTINGS,
   VENDOR_NOTIFICATION_TOPICS,
-  VENDOR_OFFER_EXPIRING_LEAD_OPTIONS,
   VENDOR_TOPIC_LABELS,
   VENDOR_VISIT_REMINDER_OPTIONS,
   normalizeVendorNotificationSettings,
@@ -126,19 +126,6 @@ export function VendorNotificationSettingsPane() {
           ))}
         </PortalSettingsGroup>
         <PortalSettingsGroup>
-          <PortalSettingsRow label="Offer expiring soon">
-            <FieldSingleSelect
-              label="Offer expiring soon"
-              hideLabel
-              variant="cell"
-                    wrapperClassName="w-44"
-              options={VENDOR_OFFER_EXPIRING_LEAD_OPTIONS.map((option) => ({ value: String(option.value ?? "off"), label: option.label }))}
-              value={String(value.offerExpiringLeadMinutes ?? "off")}
-              onChange={(next) => void patch({ offerExpiringLeadMinutes: next === "off" ? null : Number(next) })}
-              disabled={disabled}
-              dataAttr="vendor-notify-offer-expiring"
-            />
-          </PortalSettingsRow>
           <PortalSettingsRow label="Visit reminders" className="flex-wrap gap-y-2.5">
             <div className="flex flex-wrap items-center justify-end gap-3">
               <FieldSingleSelect
@@ -165,22 +152,6 @@ export function VendorNotificationSettingsPane() {
                 </span>
               ) : null}
             </div>
-          </PortalSettingsRow>
-          <PortalSettingsRow label="Weekly summary">
-            <FieldSingleSelect
-              label="Weekly summary"
-              hideLabel
-              variant="cell"
-                    wrapperClassName="w-44"
-              options={[
-                { value: "off", label: "Off" },
-                { value: "monday", label: "Monday 8:00 AM" },
-              ]}
-              value={value.weeklySummary}
-              onChange={(next) => void patch({ weeklySummary: next })}
-              disabled={disabled}
-              dataAttr="vendor-notify-weekly-summary"
-            />
           </PortalSettingsRow>
         </PortalSettingsGroup>
       </PortalSettingsSection>

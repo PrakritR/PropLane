@@ -124,7 +124,7 @@ describe("DEFAULT_NOTIFICATION_PREFERENCES + normalize", () => {
     expect(out.messages.inbox).toBe(true); // inbox not user-suppressible
     expect(out.messages.sms).toBe(true);
     expect(Object.keys(out).sort()).toEqual(
-      ["account", "applications", "leases", "maintenance", "messages", "payments", "voice_calls"].sort(),
+      ["account", "applications", "inspections", "leases", "maintenance", "messages", "payments", "tours", "voice_calls"].sort(),
     );
   });
 });

@@ -55,6 +55,7 @@ export const MANAGER_SETTINGS_ENTRY_POINTS = {
   inspections: entryPoint("inspections", "Inspection settings", "inspections"),
   payments: entryPoint("payments", "Payment settings", "payments"),
   leases: entryPoint("leases", "Lease settings", "lease"),
+  properties: entryPoint("properties", "Property settings", "properties"),
   applications: entryPoint("applications", "Application settings", "applications"),
   tours: entryPoint("tours", "Tour settings", "tours"),
   // No `ManagerPortalSettingsTab` fits this — background checks are a
@@ -67,12 +68,10 @@ export const MANAGER_SETTINGS_ENTRY_POINTS = {
   // either, this module has only ever had defaults, not a settings tab.
   vendors: entryPoint("vendors", "Vendor defaults"),
   residents: entryPoint("residents", "Resident settings", "resident"),
-  // The Notifications hub — reminders grouped by module plus manager alert
-  // routing and quiet hours. The tab id stays `automation` (that union lives
-  // in `pro-portal-settings-modal.tsx`, owned elsewhere, and
-  // `/portal/settings/automation` is a real URL today) — only the id here and
-  // the nav label in `portal-settings-section.ts` changed to "notifications".
-  notifications: entryPoint("notifications", "Notification settings", "automation"),
+  // Reminder matrix plus quiet hours. The tab id stays `automation`; the hub
+  // query and rail label are `reminders` so this does not collide with Account
+  // Notifications.
+  notifications: entryPoint("notifications", "Reminder settings", "automation"),
   // Every other section has a settings gear; Communication did not. This
   // entry is what that new gear (in `pro-communication.tsx`) opens.
   communication: entryPoint("communication", "Communication settings", "communication"),
@@ -101,7 +100,7 @@ export function getSettingsEntryPoint(id: ManagerSettingsModuleId): ManagerSetti
  * caller that only knows which tab it is about to open (e.g. a shared modal
  * instance reused across several resident-detail subsections). Falls back to
  * the generic resident-detail entry only for a tab with no dedicated entry
- * point at all — every one of the eleven `ManagerPortalSettingsTab` values
+ * point at all — every current `ManagerPortalSettingsTab` value
  * has its own gear today (`communication` and `automation`/`notifications`
  * included); the fallback exists for defensiveness, not because any current
  * tab still needs it.

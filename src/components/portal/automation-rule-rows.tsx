@@ -25,7 +25,7 @@ import {
 import { timingOptions } from "@/lib/reminders/timings";
 import { fillReminderTemplate, reminderSubjectSettingsMeta } from "@/lib/reminders/subject-settings-meta";
 import { ReminderMessageUpdateModal } from "@/components/portal/reminder-settings-shared";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { useReportSettingsSaveStatus } from "@/components/portal/settings-save-status-context";
 
@@ -35,8 +35,10 @@ export type AutomationRuleRowSpec = {
   label?: string;
   /** Show the Template pen. Default on. */
   template?: boolean;
-  /** Single-timing picker. Default on; off for kinds whose timing is several values. */
+  /** Single-timing picker. Default on; off to hide timing entirely. */
   timing?: boolean;
+  /** Several timings at once ("90, 60, 30 days before") as one multi-select. */
+  multi?: boolean;
 };
 
 export function AutomationRuleRows({ rows, disabled: disabledProp }: { rows: AutomationRuleRowSpec[]; disabled?: boolean }) {
@@ -131,7 +133,19 @@ export function AutomationRuleRows({ rows, disabled: disabledProp }: { rows: Aut
           return (
             <PortalSettingsRow key={spec.kind} label={label} className="flex-wrap gap-y-2.5">
               <div className="flex flex-wrap items-center justify-end gap-2">
-                {spec.timing !== false && rule.enabled ? (
+                {spec.multi && rule.enabled ? (
+                  <CheckboxMultiSelect
+                    label={meta?.timingLabel ?? "Timing"}
+                    hideLabel
+                    variant="cell"
+                    className="w-52"
+                    options={options}
+                    selected={rule.timings ?? []}
+                    onChange={(next) => patch(spec.kind, { timings: next.length ? next : rule.timings })}
+                    disabled={disabled}
+                    dataAttr={`automation-rule-${spec.kind}-timings`}
+                  />
+                ) : spec.timing !== false && rule.enabled ? (
                   <FieldSingleSelect
                     label={meta?.timingLabel ?? "Timing"}
                     hideLabel

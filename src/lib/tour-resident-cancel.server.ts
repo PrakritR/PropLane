@@ -1,3 +1,4 @@
+import { emitTourManagerEvent } from "@/lib/tour-events.server";
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cancelPlannedTour } from "@/lib/tour-planned-change.server";
@@ -159,6 +160,20 @@ export async function cancelResidentTour(
       });
     } catch {
       // The cancellation already landed; a failed inbox note must not undo it.
+    }
+    // The alert (PLAN-0915): the inbox note above is the record; this follows
+    // the manager's alert destination and their per-event switch.
+    if (outcome === "tour-cancelled") {
+      await emitTourManagerEvent(db, {
+        event: "cancelled_by_guest",
+        managerUserId,
+        tourId: input.inquiryId,
+        guestName,
+        guestEmail: email,
+        propertyTitle: propertyTitle || undefined,
+        propertyId: propertyId || undefined,
+        reason: reason || undefined,
+      }).catch(() => undefined);
     }
   }
 

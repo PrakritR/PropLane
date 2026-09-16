@@ -83,6 +83,20 @@ export function activeWorkspacePropertyIds(): string[] | null {
 }
 
 /**
+ * Settings "Applies to" lists. `null` selection means not narrowing yet (tests
+ * and first paint) — pass the options through. An empty array is a workspace
+ * with no houses, so the picker is empty.
+ */
+export function filterPropertyOptionsForActiveWorkspace<T extends { id: string }>(
+  options: readonly T[],
+): T[] {
+  const ids = activeWorkspacePropertyIds();
+  if (ids === null) return [...options];
+  const allowed = new Set(ids);
+  return options.filter((option) => allowed.has(option.id));
+}
+
+/**
  * The active workspace as copy needs it: its name, and whether it is narrowing
  * the account at all. `null` until the selection has loaded or when there is no
  * active workspace — callers then read the whole account, as the filter does.

@@ -7,11 +7,13 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 const mocks = vi.hoisted(() => ({ context: {} as Mocked<WorkspaceContextValue>, confirm: vi.fn(), refresh: vi.fn(), push: vi.fn() }));
 vi.mock("@/components/portal/workspace-provider", () => ({ useWorkspaces: () => mocks.context }));
-vi.mock("@/components/providers/app-ui-provider", () => ({ useConfirm: () => mocks.confirm }));
+vi.mock("@/components/providers/app-ui-provider", () => ({ useConfirm: () => mocks.confirm, useAppUi: () => ({ showToast: vi.fn() }) }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/portal/profile", useSearchParams: () => new URLSearchParams(), useRouter: () => ({ refresh: mocks.refresh, push: mocks.push }) }));
 vi.mock("@/lib/manager-portfolio-access", () => ({ resolvePropertyLabelForId: () => "Test house" }));
 vi.mock("@/lib/analytics/track-client", () => ({ track: vi.fn() }));
 vi.mock("@/components/portal/modal-assistant-strip", () => ({ ModalAssistantStrip: () => null }));
+vi.mock("@/hooks/use-manager-user-id", () => ({ useManagerUserId: () => ({ userId: "owner" }) }));
+vi.mock("@/components/portal/pro-account-links-panel", () => ({ ProAccountLinksPanel: () => <div data-attr="workspace-team-panel">Team</div> }));
 import { WorkspaceSettings } from "@/components/portal/workspace-settings";
 const workspace = (id: string, propertyIds: string[] = [], isDefault = false) => ({ id, name: id, ownerUserId: "owner", propertyPermissions: {}, propertyIds, owned: true, isDefault, members: [] });
 function mount(workspaces = [workspace("Original", [], true), workspace("Second")]) {

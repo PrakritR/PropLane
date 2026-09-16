@@ -2,6 +2,29 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ReminderQueueRow } from "@/lib/reminders/queue.server";
 import type { ReminderSubjectKind } from "@/lib/reminders/rules";
 
+/** Kinds whose currency lives in `subjects/leasing-current.server.ts`. */
+const LEASING_KINDS: ReadonlySet<ReminderSubjectKind> = new Set<ReminderSubjectKind>([
+  "tour_request_unanswered",
+  "tour_request_reoffer",
+  "tour_no_show_manager",
+  "application_decision_manager",
+  "application_no_lease_manager",
+  "message_unanswered",
+]);
+
+/** Kinds whose currency lives in `subjects/tenancy-current.server.ts`. */
+const TENANCY_KINDS: ReadonlySet<ReminderSubjectKind> = new Set<ReminderSubjectKind>([
+  "move_in",
+  "move_in_payment_method",
+  "lease_ending",
+  "lease_ending_manager",
+  "move_out",
+  "move_out_inspection_manager",
+  "deposit_accounting",
+  "countersign_overdue",
+  "renewal_offer_expiry",
+]);
+
 /** Kinds whose currency lives in `subjects/services-current.server.ts`. */
 const SERVICE_KINDS: ReadonlySet<ReminderSubjectKind> = new Set<ReminderSubjectKind>([
   "work_order_unassigned",
@@ -97,12 +120,36 @@ export async function reminderIsCurrent(db: SupabaseClient, row: ReminderQueueRo
     return leaseIsCurrent(db, row, expectedAnchor);
   }
 
-  if (row.kind === "payment_manager") {
+  if (row.kind === "payment_manager" || row.kind === "delinquency_manager") {
     return paymentManagerReminderIsCurrent(db, row, expectedAnchor);
   }
 
   if (row.kind === "outgoing_payment") {
     return outgoingPaymentIsCurrent(db, row, expectedAnchor);
+  }
+
+  if (row.kind === "task_overdue") {
+    const { data, error } = await db.from("portal_schedule_records").select("row_data").eq("manager_user_id", row.managerUserId).eq("record_type", "manager_tasks").maybeSingle();
+    if (error) throw error;
+    const tasks = (data?.row_data as { tasks?: unknown } | null)?.tasks;
+    const task = (Array.isArray(tasks) ? tasks : []).find((candidate) => candidate && typeof candidate === "object" && String((candidate as Record<string, unknown>).id ?? "") === row.subjectId) as Record<string, unknown> | undefined;
+    return Boolean(task && task.completed !== true && reminderAnchorMatches(expectedAnchor, task.start ?? task.dueDate));
+  }
+  if (row.kind === "document_signature") {
+    const { data, error } = await db.from("manager_documents").select("manager_user_id, signature_status, signature_requested_at, deleted_at").eq("id", row.subjectId).maybeSingle();
+    if (error) throw error;
+    return Boolean(data && String(data.manager_user_id ?? "") === row.managerUserId && data.signature_status === "pending" && !data.deleted_at && reminderAnchorMatches(expectedAnchor, data.signature_requested_at));
+  }
+  if (row.kind === "resident_welcome") return true;
+
+  if (LEASING_KINDS.has(row.kind)) {
+    const { leasingReminderIsCurrent } = await import("./subjects/leasing-current.server");
+    return leasingReminderIsCurrent(db, row, expectedAnchor);
+  }
+
+  if (TENANCY_KINDS.has(row.kind)) {
+    const { tenancyReminderIsCurrent } = await import("./subjects/tenancy-current.server");
+    return tenancyReminderIsCurrent(db, row, expectedAnchor);
   }
 
   if (SERVICE_KINDS.has(row.kind)) {
