@@ -1,16 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { isKnownProductionWebHost } from "@/lib/app-url";
 import {
   formatGoogleCalendarConnectError,
-  GOOGLE_CALENDAR_PRODUCTION_PUBLISH_STEPS,
   GOOGLE_CALENDAR_UNVERIFIED_APP_STEPS,
   isGoogleCalendarOAuthBlocked,
 } from "@/lib/google-calendar/connect-errors";
-import { BANNER_INFO_CLASS, BANNER_NEUTRAL_CLASS } from "@/lib/ui-styles";
+import { BANNER_INFO_CLASS } from "@/lib/ui-styles";
 
 type GoogleCalendarStatus = {
   connected: boolean;
@@ -25,11 +23,20 @@ type GoogleCalendarStatus = {
   managerEmail?: string | null;
 };
 
-function isProductionCalendarHost(): boolean {
-  if (typeof window === "undefined") return false;
-  return isKnownProductionWebHost(window.location.hostname);
-}
-
+/**
+ * Status card, not an instruction wall.
+ *
+ * The panel used to render a "Production Google sign-in" block with two
+ * numbered lists (the Advanced/Test-users steps AND the Google Cloud Console
+ * publish-to-Production steps) ahead of every connect click, on every host.
+ * The publish steps are a ONE-TIME action for whoever owns the Google Cloud
+ * project, not something a manager does per connect — they do not belong in
+ * this panel at all; see the WS3 handoff notes for the exact console steps.
+ * What a manager needs before clicking Connect is one honest line about the
+ * unverified-app screen, shown below. The numbered Test-users recovery steps
+ * stay, but only appear after a real `access_denied` — that is troubleshooting
+ * for a failure that happened, not a wall shown before anything went wrong.
+ */
 export function GoogleCalendarConnectPanel({
   onConnectionChange,
   presentation = "card",
@@ -42,9 +49,7 @@ export function GoogleCalendarConnectPanel({
   const [busy, setBusy] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
   const [connectBlocked, setConnectBlocked] = useState(false);
-  const [showConnectSteps, setShowConnectSteps] = useState(false);
   const inDialog = presentation === "dialog";
-  const onProduction = useMemo(() => isProductionCalendarHost(), []);
 
   const load = useCallback(async () => {
     try {
@@ -83,14 +88,6 @@ export function GoogleCalendarConnectPanel({
     );
   }, [showToast, status?.configured]);
 
-  const connect = useCallback(() => {
-    if (onProduction && !showConnectSteps) {
-      setShowConnectSteps(true);
-      return;
-    }
-    startConnect();
-  }, [onProduction, showConnectSteps, startConnect]);
-
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const gcal = params.get("gcal");
@@ -98,7 +95,6 @@ export function GoogleCalendarConnectPanel({
     if (gcal === "connected") {
       setConnectError(null);
       setConnectBlocked(false);
-      setShowConnectSteps(false);
       showToast("Google Calendar connected.");
     }
     if (gcal === "error") {
@@ -106,7 +102,6 @@ export function GoogleCalendarConnectPanel({
       const message = formatGoogleCalendarConnectError(reason);
       setConnectError(message);
       setConnectBlocked(isGoogleCalendarOAuthBlocked(reason));
-      setShowConnectSteps(true);
       showToast(message);
     }
     params.delete("gcal");
@@ -171,64 +166,47 @@ export function GoogleCalendarConnectPanel({
               <li>
                 Add {connectEmail ? <strong>{connectEmail}</strong> : "the Google account you use on PropLane"}.
               </li>
-              <li>Save, then click Grant calendar access again and use Advanced → Go to PropLane (unsafe).</li>
+              <li>Save, then click Connect Google Calendar again and use Advanced → Go to PropLane (unsafe).</li>
             </ol>
           ) : null}
         </div>
       ) : null}
 
-      {!status.connected && (onProduction || showConnectSteps) ? (
-        <div className={BANNER_NEUTRAL_CLASS} data-attr="google-calendar-connect-steps">
-          <p className="text-sm font-medium text-foreground">
-            {onProduction ? "Production Google sign-in" : "Google sign-in"}
-          </p>
-          <p className="mt-1 text-xs text-muted">
-            Google shows an unverified-app warning for Calendar until the OAuth app is published. That is normal —
-            localhost skips it only when your account is already a test user.
-            {connectEmail ? (
-              <>
-                {" "}
-                PropLane will open Google as <strong>{connectEmail}</strong>.
-              </>
-            ) : null}
-          </p>
-          <ol className="mt-2 list-decimal space-y-1 pl-4 text-xs text-muted">
-            {GOOGLE_CALENDAR_UNVERIFIED_APP_STEPS.map((step) => (
-              <li key={step}>{step}</li>
-            ))}
-          </ol>
-          {onProduction ? (
-            <>
-              <p className="mt-3 text-xs font-semibold text-foreground">To allow every manager (no Advanced step):</p>
-              <ol className="mt-1 list-decimal space-y-1 pl-4 text-xs text-muted">
-                {GOOGLE_CALENDAR_PRODUCTION_PUBLISH_STEPS.map((step) => (
-                  <li key={step}>{step}</li>
-                ))}
-              </ol>
-            </>
-          ) : null}
-        </div>
-      ) : null}
-
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          {status.connected && status.email ? (
-            <p className="text-sm font-medium text-foreground">{status.email}</p>
+        <div className="min-w-0 space-y-1">
+          {status.connected ? (
+            <div className="flex items-center gap-2">
+              <span className="truncate text-sm font-medium text-foreground">
+                {status.email ?? "Connected"}
+              </span>
+              <span
+                className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-emerald-600 [html[data-theme=dark]_&]:text-emerald-400"
+                data-attr="google-calendar-live-badge"
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
+                Live
+              </span>
+            </div>
           ) : status.missingSecret ? (
             <p className="text-sm text-muted">
-              Linked via Google sign-in, but server is missing GOOGLE_CALENDAR_CLIENT_SECRET. Add it to Vercel
-              environment variables (same secret as Supabase Google provider), then redeploy.
+              Google Calendar isn&apos;t set up on this server yet — ask an admin to finish the setup.
             </p>
           ) : (
-            <p className="text-sm text-muted">
-              {status.configured
-                ? status.googleAuthUser
-                  ? "You signed in with Google. Grant calendar access to sync tours and block double-bookings."
-                  : "Connect your Google account to sync tours and events."
-                : status.googleAuthUser
-                  ? "You signed in with Google. Link calendar access below, or sign in again and approve calendar permissions when prompted."
-                  : "Sign in with Continue with Google (not email/password) to link your personal calendar automatically."}
-            </p>
+            <>
+              <p className="text-sm text-muted">
+                {status.configured
+                  ? "Connect your Google account to sync tours and block double-bookings."
+                  : status.googleAuthUser
+                    ? "You signed in with Google. Link calendar access below to finish."
+                    : "Sign in with Continue with Google to link your calendar automatically."}
+              </p>
+              {status.configured ? (
+                <p className="text-xs text-muted">
+                  The first time, Google shows an &quot;unverified app&quot; screen — choose Advanced → Go to
+                  PropLane (unsafe) to continue. This is expected until Google finishes verifying the app.
+                </p>
+              ) : null}
+            </>
           )}
         </div>
         <div className="flex shrink-0 gap-2">
@@ -236,18 +214,9 @@ export function GoogleCalendarConnectPanel({
             <Button type="button" variant="outline" disabled={busy} onClick={() => disconnect()}>
               Disconnect
             </Button>
-          ) : showConnectSteps && onProduction ? (
-            <>
-              <Button type="button" variant="outline" disabled={busy} onClick={() => setShowConnectSteps(false)}>
-                Back
-              </Button>
-              <Button type="button" variant="primary" disabled={busy || !status.configured} onClick={startConnect}>
-                Continue to Google
-              </Button>
-            </>
           ) : (
-            <Button type="button" variant="primary" disabled={busy || !status.configured} onClick={connect}>
-              {status.googleAuthUser ? "Grant calendar access" : "Connect"}
+            <Button type="button" variant="primary" disabled={busy || !status.configured} onClick={startConnect}>
+              Connect Google Calendar
             </Button>
           )}
         </div>
@@ -268,3 +237,6 @@ export function GoogleCalendarConnectPanel({
     </div>
   );
 }
+
+/** Kept for callers that still surface the unverified-app steps standalone. */
+export { GOOGLE_CALENDAR_UNVERIFIED_APP_STEPS };
