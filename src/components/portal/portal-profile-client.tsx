@@ -590,7 +590,7 @@ export function PortalProfileClient({
       skipInitialScroll.current = false;
       return;
     }
-    contentColRef.current?.scrollTo({ top: 0, behavior: "auto" });
+    contentColRef.current?.scrollTo?.({ top: 0, behavior: "auto" });
     layoutTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
   }, [activeGroup?.id]);
 

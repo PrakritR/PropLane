@@ -1183,7 +1183,7 @@ export function VendorSettingsPanel() {
       return;
     }
     // Desktop: the content column is its own scroll container; mobile: the shell scrolls.
-    contentColRef.current?.scrollTo({ top: 0, behavior: "auto" });
+    contentColRef.current?.scrollTo?.({ top: 0, behavior: "auto" });
     layoutTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
   }, [activeGroup?.id]);
 
