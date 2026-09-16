@@ -628,36 +628,6 @@ export function PortalCalendar({
                   dataAttr="calendar-empty"
                 />
               </div>
-            ) : servicesOnlyView ? (
-              <div className="flex min-h-0 flex-1 flex-col">
-                {propertiesLoading && managerProperties.length === 0 ? (
-                  <p className="text-sm text-muted">Loading houses from the backend…</p>
-                ) : (
-                  <PortalCalendarPanels
-                    key={`services-${scopedCalendarPropertyIds.join(",")}`}
-                    storageKey={null}
-                    calendarRefreshSignal={calendarRefreshSignal}
-                    tourScopeLabel={tourScopeLabel}
-                    bareSurface
-                    unavailableMessage={
-                      managerProperties.length === 0
-                        ? "No houses found for this manager account yet."
-                        : calendarUnavailableMessage
-                    }
-                    compactAvailability
-                    availabilityHeading="Your availability"
-                    externalMeetings={mergedExternalMeetings}
-                    onGoogleCalendarRefresh={() => setGoogleCalendarTick((n) => n + 1)}
-                    onMeetingsChanged={() => setCalendarRefreshSignal((n) => n + 1)}
-                    readOnly
-                    eventSummaryLabel="visit"
-                    preferEventCountsInDayHeader
-                    anchorDate={calendarAnchorDate}
-                    onAnchorDateChange={setCalendarAnchorDate}
-                    flowScroll
-                  />
-                )}
-              </div>
             ) : (
               <div className="flex min-h-0 flex-1 flex-col gap-3">
                 {showCoManagerCoordination && availabilityView ? (
