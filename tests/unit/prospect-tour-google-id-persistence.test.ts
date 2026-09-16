@@ -128,6 +128,92 @@ describe("Google Calendar id persistence boundary", () => {
     expect(google.create).toHaveBeenCalledOnce();
   });
 
+  it("keeps a moved live create recoverable through its current-window patch", async () => {
+    const moved = {
+      ...EVENT,
+      start: "2099-09-11T17:00:00.000Z",
+      end: "2099-09-11T17:30:00.000Z",
+    };
+    google.create.mockResolvedValue("google-created-stale-1");
+    google.update.mockResolvedValue("google-created-stale-1");
+    rpc.mockImplementation(async (name: string) => {
+      if (name === "begin_prospect_tour_google_calendar_create") {
+        return { data: { allowed: true, generation: "00000000-0000-4000-8000-000000000003" }, error: null };
+      }
+      if (name === "persist_confirmed_tour_google_calendar_id") {
+        const calls = rpc.mock.calls.filter(([called]) => called === "persist_confirmed_tour_google_calendar_id");
+        return { data: calls.length === 1 ? { ok: false, reason: "changed" } : { ok: true }, error: null };
+      }
+      if (name === "settle_prospect_tour_google_calendar_create") return { data: { ok: true, state: "reconcile_current" }, error: null };
+      if (name === "settle_prospect_tour_google_calendar_current_reconciliation") return { data: true, error: null };
+      return { data: null, error: null };
+    });
+    const db = {
+      rpc,
+      from: vi.fn(() => ({
+        select() { return this; },
+        eq() { return this; },
+        maybeSingle: async () => ({ data: { row_data: { payload: [moved] } }, error: null }),
+      })),
+    };
+
+    await expect(syncPlannedTourToGoogleCalendar(db as never, "manager-jain", {
+      plannedEventId: EVENT.id,
+      title: EVENT.title,
+      start: EVENT.start,
+      end: EVENT.end,
+    })).resolves.toBe("google-created-stale-1");
+
+    expect(rpc).toHaveBeenCalledWith("settle_prospect_tour_google_calendar_create", expect.objectContaining({
+      p_planned_event_id: EVENT.id,
+      p_result: "cleanup_ready",
+    }));
+    expect(rpc).toHaveBeenCalledWith("settle_prospect_tour_google_calendar_current_reconciliation", {
+      p_planned_event_id: EVENT.id,
+      p_generation: "00000000-0000-4000-8000-000000000003",
+      p_expected_start: moved.start,
+      p_expected_end: moved.end,
+    });
+    expect(google.remove).not.toHaveBeenCalled();
+  });
+
+  it("reports a second move after current-window persistence as deferred", async () => {
+    const moved = {
+      ...EVENT,
+      start: "2099-09-12T17:00:00.000Z",
+      end: "2099-09-12T17:30:00.000Z",
+    };
+    google.create.mockResolvedValue("google-created-second-move-1");
+    google.update.mockResolvedValue("google-created-second-move-1");
+    rpc.mockImplementation(async (name: string) => {
+      if (name === "begin_prospect_tour_google_calendar_create") {
+        return { data: { allowed: true, generation: "00000000-0000-4000-8000-000000000004" }, error: null };
+      }
+      if (name === "persist_confirmed_tour_google_calendar_id") {
+        const calls = rpc.mock.calls.filter(([called]) => called === "persist_confirmed_tour_google_calendar_id");
+        return { data: calls.length === 1 ? { ok: false, reason: "changed" } : { ok: true }, error: null };
+      }
+      if (name === "settle_prospect_tour_google_calendar_create") return { data: { ok: true, state: "reconcile_current" }, error: null };
+      if (name === "settle_prospect_tour_google_calendar_current_reconciliation") return { data: false, error: null };
+      return { data: null, error: null };
+    });
+    const db = {
+      rpc,
+      from: vi.fn(() => ({
+        select() { return this; },
+        eq() { return this; },
+        maybeSingle: async () => ({ data: { row_data: { payload: [moved] } }, error: null }),
+      })),
+    };
+
+    await expect(syncPlannedTourToGoogleCalendar(db as never, "manager-jain", {
+      plannedEventId: EVENT.id,
+      title: EVENT.title,
+      start: EVENT.start,
+      end: EVENT.end,
+    })).resolves.toEqual({ googleCalendarEventId: null, disposition: "deferred" });
+  });
+
   it("does not issue Google create when the durable intent says an earlier generation is still in flight", async () => {
     rpc.mockResolvedValue({ data: { allowed: false, reason: "in_flight" }, error: null });
 
@@ -136,7 +222,7 @@ describe("Google Calendar id persistence boundary", () => {
       title: EVENT.title,
       start: EVENT.start,
       end: EVENT.end,
-    })).resolves.toBeNull();
+    })).resolves.toEqual({ googleCalendarEventId: null, disposition: "deferred" });
 
     expect(rpc).toHaveBeenCalledWith("begin_prospect_tour_google_calendar_create", expect.objectContaining({
       p_planned_event_id: EVENT.id,

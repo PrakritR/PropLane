@@ -33,6 +33,11 @@ type GoogleCalendarUpsertInput = {
 
 type GoogleCalendarUpsertResult = { googleCalendarEventId: string | null; created: boolean };
 
+export type PlannedTourGoogleCalendarSyncAttempt = {
+  googleCalendarEventId: string | null;
+  disposition: "synced" | "skipped" | "deferred";
+};
+
 async function upsertGoogleCalendarEvent(
   db: SupabaseClient,
   managerUserId: string,
@@ -120,6 +125,22 @@ async function settlePlannedTourGoogleCreateIntent(
   if (rpcError) throw new Error(rpcError.message);
 }
 
+async function settlePlannedTourGoogleCurrentReconciliation(
+  db: SupabaseClient,
+  plannedEventId: string,
+  generation: string,
+  expectedEvent: { start: string; end: string },
+): Promise<boolean> {
+  const { data, error } = await db.rpc("settle_prospect_tour_google_calendar_current_reconciliation", {
+    p_planned_event_id: plannedEventId,
+    p_generation: generation,
+    p_expected_start: expectedEvent.start,
+    p_expected_end: expectedEvent.end,
+  });
+  if (error) throw new Error(error.message);
+  return data === true;
+}
+
 async function recordPlannedTourGoogleCleanupFailure(
   db: SupabaseClient,
   managerUserId: string,
@@ -203,9 +224,45 @@ export async function syncPlannedTourToGoogleCalendar(
     googleCalendarEventId?: string | null;
   },
   options?: { ownsGoogleCreateIntent?: boolean },
-): Promise<string | null> {
-  const syncOnce = async (current: typeof event, allowReconcile: boolean): Promise<string | null> => {
+): Promise<string | null | PlannedTourGoogleCalendarSyncAttempt> {
+  const attempt = await syncPlannedTourToGoogleCalendarAttempt(db, managerUserId, event, options);
+  // Preserve compatibility for completed and unlinked callers while making a
+  // held/replaced current-window reconciliation observable to the bounded
+  // calendar wrapper. `null` previously conflated these two states.
+  return attempt.disposition === "deferred" ? attempt : attempt.googleCalendarEventId;
+}
+
+/**
+ * Like `syncPlannedTourToGoogleCalendar`, but exposes a held create lease to
+ * durable booking recovery. A held lease is not a successful calendar effect:
+ * another worker owns the current reconciliation and this booking must remain
+ * pending for a later sweep.
+ */
+export async function syncPlannedTourToGoogleCalendarAttempt(
+  db: SupabaseClient,
+  managerUserId: string,
+  event: {
+    plannedEventId: string;
+    title: string;
+    start: string;
+    end: string;
+    propertyTitle?: string;
+    attendeeName?: string;
+    attendeeEmail?: string;
+    attendeePhone?: string;
+    notes?: string;
+    instructions?: string;
+    googleCalendarEventId?: string | null;
+  },
+  options?: { ownsGoogleCreateIntent?: boolean },
+): Promise<PlannedTourGoogleCalendarSyncAttempt> {
+  const syncOnce = async (
+    current: typeof event,
+    allowReconcile: boolean,
+    ownsCurrentReconciliation = false,
+  ): Promise<{ googleCalendarEventId: string | null; deferred: boolean }> => {
     let createGeneration: string | null = null;
+    let createDeferred = false;
     let upsert: GoogleCalendarUpsertResult;
     try {
       upsert = await upsertGoogleCalendarEvent(db, managerUserId, {
@@ -217,8 +274,9 @@ export async function syncPlannedTourToGoogleCalendar(
         location: current.propertyTitle,
         googleCalendarEventId: current.googleCalendarEventId,
       }, async () => {
-        if (options?.ownsGoogleCreateIntent) return true;
+        if (options?.ownsGoogleCreateIntent || ownsCurrentReconciliation) return true;
         createGeneration = await beginPlannedTourGoogleCreateIntent(db, managerUserId, current);
+        createDeferred = createGeneration === null;
         return createGeneration !== null;
       });
     } catch (error) {
@@ -228,7 +286,7 @@ export async function syncPlannedTourToGoogleCalendar(
       throw error;
     }
     const googleCalendarEventId = upsert.googleCalendarEventId;
-    if (!googleCalendarEventId) return null;
+    if (!googleCalendarEventId) return { googleCalendarEventId: null, deferred: createDeferred };
     let persisted: GoogleIdPersistenceResult;
     try {
       persisted = await persistPlannedEventGoogleCalendarId(db, current.plannedEventId, googleCalendarEventId, current);
@@ -240,7 +298,7 @@ export async function syncPlannedTourToGoogleCalendar(
     }
     if (persisted.ok) {
       if (createGeneration) await settlePlannedTourGoogleCreateIntent(db, current.plannedEventId, createGeneration, "persisted");
-      return googleCalendarEventId;
+      return { googleCalendarEventId, deferred: false };
     }
     // The remote call returned. Persist a cleanup-ready state before trying a
     // compensating delete, so a crash cannot hide this deterministic remote id.
@@ -252,7 +310,7 @@ export async function syncPlannedTourToGoogleCalendar(
       if (error) throw new Error(error.message);
       const live = rowsFromPlannedRecord(data?.row_data).find((row) => String(row.id ?? "") === current.plannedEventId);
       if (live && !live.canceledAt && typeof live.start === "string" && typeof live.end === "string") {
-        return syncOnce({
+        const reconciled = await syncOnce({
           plannedEventId: current.plannedEventId,
           title: String(live.title ?? current.title),
           start: live.start,
@@ -264,7 +322,22 @@ export async function syncPlannedTourToGoogleCalendar(
           notes: typeof live.notes === "string" ? live.notes : undefined,
           instructions: typeof live.instructions === "string" ? live.instructions : undefined,
           googleCalendarEventId: typeof live.googleCalendarEventId === "string" ? live.googleCalendarEventId : googleCalendarEventId,
-        }, false);
+        }, false, true);
+        // The first create generation remains durable until this exact current
+        // window was pushed and its Google id passed the lifecycle-safe CAS.
+        // If another worker already claimed it, this is deliberately a no-op:
+        // that worker still owns the durable reconciliation lease.
+        if (createGeneration && reconciled.googleCalendarEventId) {
+          const settled = await settlePlannedTourGoogleCurrentReconciliation(db, current.plannedEventId, createGeneration, {
+            start: live.start,
+            end: live.end,
+          });
+          // A second move can win after the current-window id CAS but before
+          // this final settlement. The trigger has kept the intent current;
+          // do not report the older patch as a completed calendar effect.
+          if (!settled) return { googleCalendarEventId: null, deferred: true };
+        }
+        return reconciled;
       }
     }
     // A deleted/cancelled event must not be resurrected. The remote id is
@@ -289,9 +362,13 @@ export async function syncPlannedTourToGoogleCalendar(
         throw error;
       }
     }
-    return null;
+    return { googleCalendarEventId: null, deferred: false };
   };
-  return syncOnce(event, true);
+  const result = await syncOnce(event, true);
+  return {
+    googleCalendarEventId: result.googleCalendarEventId,
+    disposition: result.deferred ? "deferred" : result.googleCalendarEventId ? "synced" : "skipped",
+  };
 }
 
 function workOrderCalendarTitle(row: DemoManagerWorkOrderRow): string {

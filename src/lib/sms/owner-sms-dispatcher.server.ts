@@ -74,6 +74,11 @@ export type OwnerSmsEnqueueInput = {
   traceId?: string | null;
   /** Durable final-dispatch fence for the one prospect scheduling follow-up. */
   prospectTourReminderId?: string | null;
+  /** Submission identity used only by the final provider-boundary recheck. */
+  prospectTourReminderSubmission?: {
+    outboxId: string;
+    workerId: string;
+  } | null;
   /** Booking-keyed final-dispatch fence for an autonomous tour confirmation. */
   prospectTourBookingConfirmationId?: string | null;
   prospectBurst?: {
@@ -228,6 +233,32 @@ async function loadSendPolicy(
 
   if (quietHoursBlocks(input.purpose === "tour_interest_followup" ? "automated" : input.sendClass, now, { tz: input.recipientTimezone ?? "America/Los_Angeles", startHour: 21, endHour: 8 })) {
     return { allowed: false, reason: "quiet_hours", deferUntil: new Date(now.getTime() + 60 * 60 * 1000).toISOString() };
+  }
+
+  // begin_prospect_tour_reminder_submission fences the queued attempt before
+  // budget and credit work. Those awaits are long enough for a reply, booking,
+  // handoff, opt-out, deferral, or archive to cancel the reminder. Re-read the
+  // exact durable reminder at the last policy boundary so `submitting` never
+  // means authorization survives a later lifecycle transition.
+  if (input.purpose === PROSPECT_TOUR_REMINDER_PURPOSE) {
+    const reminderId = input.prospectTourReminderId?.trim();
+    const submission = input.prospectTourReminderSubmission;
+    if (submission) {
+      if (!reminderId || !submission.outboxId.trim() || !submission.workerId.trim()) {
+        return { allowed: false, reason: "invalid_prospect_tour_reminder_identity" };
+      }
+      const { data: current, error } = await db.rpc("prospect_tour_reminder_submission_is_current", {
+        p_reminder_id: reminderId,
+        p_outbox_id: submission.outboxId,
+        p_outbox_worker_id: submission.workerId,
+        p_manager_user_id: ownerId,
+        p_conversation_key: input.conversationKey ?? null,
+        p_recipient_phone_e164: recipient,
+        p_property_id: input.propertyId ?? null,
+      });
+      if (error) return { allowed: false, reason: "prospect_tour_reminder_state_unavailable" };
+      if (current !== true) return { allowed: false, reason: "prospect_tour_reminder_stale" };
+    }
   }
 
   return {
@@ -967,6 +998,10 @@ export async function dispatchOwnerSmsOutbox(
         recipientPhone: row.recipient_phone, recipientEmail: row.recipient_email, body: row.body,
         sendClass: row.send_class, purpose: row.purpose, conversationKey: row.conversation_key,
         propertyId: row.property_id, dedupeKey: row.dedupe_key, recipientTimezone: row.recipient_timezone,
+        prospectTourReminderId: row.prospect_tour_reminder_id,
+        prospectTourReminderSubmission: row.prospect_tour_reminder_id
+          ? { outboxId: row.id, workerId }
+          : null,
       });
       if (!finalPolicy.allowed || finalPolicy.fromNumber !== policy.fromNumber) {
         await finishCommsCredit(db, row.manager_user_id, creditKey, true);

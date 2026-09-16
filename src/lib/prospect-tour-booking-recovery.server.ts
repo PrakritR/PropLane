@@ -3,7 +3,10 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
 import { runPlannedTourCalendarSync } from "@/lib/google-calendar/planned-tour-sync.server";
-import { syncPlannedTourToGoogleCalendar } from "@/lib/google-calendar/sync.server";
+import {
+  syncPlannedTourToGoogleCalendar,
+  syncPlannedTourToGoogleCalendarAttempt,
+} from "@/lib/google-calendar/sync.server";
 import { deleteGoogleCalendarEvent } from "@/lib/google-calendar/api.server";
 import { buildConversationKey } from "@/lib/sms-conversation-identity";
 import { dispatchOwnerSmsOutbox, enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
@@ -66,7 +69,7 @@ export async function loadConfirmedProspectTourBooking(
 export async function recoverProspectTourBookingSideEffects(
   db: SupabaseClient,
   booking: BookingRow,
-): Promise<{ calendarSync: { ok: boolean; skipped?: boolean; error?: string }; managerNotification: { ok: boolean; suppressed?: boolean; error?: string } }> {
+): Promise<{ calendarSync: { ok: boolean; skipped?: boolean; deferred?: boolean; error?: string }; managerNotification: { ok: boolean; suppressed?: boolean; error?: string } }> {
   // A booking snapshot is an audit record, never permission to recreate a
   // deleted or cancelled event. All recovery reads the current calendar row.
   const liveEvent = await loadCurrentPlannedEvent(db, booking.planned_event_id);
@@ -78,7 +81,7 @@ export async function recoverProspectTourBookingSideEffects(
   }
   const event = liveEvent;
   const offer = booking.offer_snapshot ?? {};
-  let calendarSync: { ok: boolean; skipped?: boolean; error?: string } = {
+  let calendarSync: { ok: boolean; skipped?: boolean; deferred?: boolean; error?: string } = {
     ok: booking.calendar_sync_status !== "pending",
     skipped: booking.calendar_sync_status === "skipped" || undefined,
   };
@@ -88,7 +91,7 @@ export async function recoverProspectTourBookingSideEffects(
     // updates that remote event instead of creating a duplicate from the older
     // booking snapshot.
     calendarSync = await runPlannedTourCalendarSync(() =>
-      syncPlannedTourToGoogleCalendar(db, booking.manager_user_id, {
+      syncPlannedTourToGoogleCalendarAttempt(db, booking.manager_user_id, {
         plannedEventId: booking.planned_event_id,
         title: text(event.title) || "Prospect tour",
         start: text(event.start),

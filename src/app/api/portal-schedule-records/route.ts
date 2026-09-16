@@ -5,7 +5,6 @@ import {
   managerScheduleRecordIdOwnedByUser,
   vendorScheduleRecordTypes,
 } from "@/lib/portal-schedule-record-scope";
-import { reconcileManagerPlannedEventsWrite } from "@/lib/planned-events-write-scope";
 import { syncManagerAvailabilityToGoogleCalendar } from "@/lib/google-calendar/sync.server";
 import { summarizeAvailabilityChange } from "@/lib/availability-change-summary";
 import { resolvePropertyOwnerUserId } from "@/lib/property-owner.server";
@@ -48,6 +47,34 @@ async function announceAvailabilityChange(input: {
     propertyId: input.propertyId,
     changeKey: change.changeKey,
   });
+}
+
+const PLANNED_EVENTS_RECORD_ID = "axis_admin_planned_events_v1";
+
+type PlannedEventValue = Record<string, unknown>;
+
+function plannedEventsFromRow(row: Record<string, unknown> | null | undefined): PlannedEventValue[] {
+  const rowData = row?.row_data;
+  if (!rowData || typeof rowData !== "object" || Array.isArray(rowData)) return [];
+  const payload = (rowData as Record<string, unknown>).payload;
+  return Array.isArray(payload)
+    ? payload.filter(
+        (item): item is PlannedEventValue =>
+          Boolean(item && typeof item === "object" && !Array.isArray(item)),
+      )
+    : [];
+}
+
+function plannedEventId(event: PlannedEventValue): string {
+  return typeof event.id === "string" ? event.id.trim() : String(event.id ?? "").trim();
+}
+
+function plannedEventOwner(event: PlannedEventValue): string {
+  return typeof event.managerUserId === "string" ? event.managerUserId.trim() : "";
+}
+
+function isTourPlannedEvent(event: PlannedEventValue): boolean {
+  return typeof event.kind === "string" && event.kind.trim() === "tour";
 }
 
 const route = createJsonRecordRoute({
@@ -95,35 +122,63 @@ const route = createJsonRecordRoute({
     // (partner inquiries, planned events) keep their existing owner handling.
     return managerScoped ? { ...record, manager_user_id: user.id } : record;
   },
-  reconcileExisting: (record, user, existing) => {
-    if (user.role === "admin" || String(record.id) !== "axis_admin_planned_events_v1") {
-      return record;
-    }
-    return reconcileManagerPlannedEventsWrite(record, user.id, existing);
-  },
-  atomicWrite: async ({ db, user, record, existing }) => {
-    // The shared planned-events singleton is a JSON read model. A manager's
-    // POST replaces only their own slice inside a DB transaction, so a stale
-    // browser save cannot erase a concurrent calendar/tour append.
-    if (String(record.id) !== "axis_admin_planned_events_v1") {
+  atomicWrite: async ({ db, user, record, existing, expectedPayload, expectedPayloadKnown }) => {
+    if (String(record.id) !== PLANNED_EVENTS_RECORD_ID) {
       return { handled: false };
     }
     const rowData = record.row_data;
     const payload = rowData && typeof rowData === "object" && !Array.isArray(rowData)
       ? (rowData as { payload?: unknown }).payload
       : [];
+    const existingEvents = plannedEventsFromRow(existing);
+    const existingById = new Map(
+      existingEvents
+        .map((event) => [plannedEventId(event), event] as const)
+        .filter(([id]) => Boolean(id)),
+    );
+
     const events = (Array.isArray(payload) ? payload : [])
-      .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item)))
-      .filter((item) => !item.managerUserId || String(item.managerUserId) === user.id)
-      .map((item) => ({ ...item, managerUserId: user.id }));
-    const existingRowData = existing?.row_data && typeof existing.row_data === "object" && !Array.isArray(existing.row_data)
-      ? existing.row_data as { payload?: unknown }
+      .filter(
+        (item): item is Record<string, unknown> =>
+          Boolean(item && typeof item === "object" && !Array.isArray(item)),
+      )
+      .filter((item) => {
+        const id = plannedEventId(item);
+        const stored = id ? existingById.get(id) : undefined;
+        // Tours are lifecycle-owned by their dedicated cancel/reschedule routes,
+        // even for admins. A generic snapshot can never delete or rewrite one.
+        if (isTourPlannedEvent(item) || (stored && isTourPlannedEvent(stored))) return false;
+        if (user.role === "admin") return true;
+        if (stored && plannedEventOwner(stored) !== user.id) return false;
+        const claimedOwner = plannedEventOwner(item);
+        return !claimedOwner || claimedOwner === user.id;
+      })
+      .map((item) => user.role === "admin" ? item : ({ ...item, managerUserId: user.id }));
+
+    const expectedPayloadValue = expectedPayloadKnown && Array.isArray(expectedPayload)
+      ? expectedPayload
       : null;
-    const expectedEvents = (Array.isArray(existingRowData?.payload) ? existingRowData.payload : [])
-      .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object" && !Array.isArray(item)))
-      .filter((item) => String(item.managerUserId ?? "") === user.id);
-    const result = await replaceManagerPlannedScheduleSlice(db, { managerUserId: user.id, events, expectedEvents });
-    if (!result.available) return { handled: false };
+    const expectedEvents = expectedPayloadValue
+      ? expectedPayloadValue
+          .filter(
+            (item): item is Record<string, unknown> =>
+              Boolean(item && typeof item === "object" && !Array.isArray(item)),
+          )
+          .filter((item) => !isTourPlannedEvent(item))
+          .filter((item) => user.role === "admin" || plannedEventOwner(item) === user.id)
+      : null;
+    const result = await replaceManagerPlannedScheduleSlice(db, {
+      managerUserId: user.id,
+      actorIsAdmin: user.role === "admin",
+      events,
+      expectedEvents,
+    });
+    // A manager's shared snapshot cannot safely fall back to an ordinary
+    // upsert: an old database would otherwise reopen the exact lost-booking
+    // race this transaction boundary is meant to close.
+    if (!result.available) {
+      return { handled: true, error: "Calendar write is unavailable. Refresh and try again.", status: 503 };
+    }
     if (!result.ok) return { handled: true, error: result.reason, status: 409 };
     return { handled: true };
   },

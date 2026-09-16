@@ -10,14 +10,21 @@ vi.mock("@/lib/agent-notify.server", () => ({ notifyManagerFromAgent: notifyMana
 vi.mock("@/lib/google-calendar/planned-tour-sync.server", () => ({
   runPlannedTourCalendarSync: async (run: () => Promise<unknown>) => {
     try {
-      await run();
+      const result = await run() as { disposition?: unknown } | null;
+      if (result?.disposition === "deferred") {
+        return { ok: false, deferred: true, error: "Google Calendar synchronization is in flight." };
+      }
+      if (result?.disposition === "skipped") return { ok: true, skipped: true };
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : "Google sync failed" };
     }
   },
 }));
-vi.mock("@/lib/google-calendar/sync.server", () => ({ syncPlannedTourToGoogleCalendar: syncGoogle }));
+vi.mock("@/lib/google-calendar/sync.server", () => ({
+  syncPlannedTourToGoogleCalendar: syncGoogle,
+  syncPlannedTourToGoogleCalendarAttempt: syncGoogle,
+}));
 vi.mock("@/lib/google-calendar/api.server", () => ({ deleteGoogleCalendarEvent: deleteGoogle }));
 vi.mock("@/lib/sms/owner-sms-dispatcher.server", () => ({ enqueueOwnerSms, dispatchOwnerSmsOutbox }));
 
@@ -184,6 +191,31 @@ describe("prospect tour booking crash recovery", () => {
       expect.objectContaining({ table: "prospect_tour_bookings", manager_notification_status: "completed" }),
     ]));
     expect(updates.filter((update) => update.table === "prospect_tour_bookings" && "planned_event_id" in update)).toHaveLength(0);
+  });
+
+  it("keeps an SMS booking calendar effect pending while a competing create owns the lease", async () => {
+    const row = booking({
+      confirmation_outbox_id: "outbox-existing",
+      confirmation_status: "submitted",
+      calendar_sync_status: "pending",
+      manager_notification_status: "completed",
+    });
+    syncGoogle.mockResolvedValueOnce({ googleCalendarEventId: null, disposition: "deferred" });
+    const { db, updates } = dbFor({ bookingRows: [row], existingOutbox: { id: "outbox-existing", status: "sent" } });
+
+    const result = await recoverPendingProspectTourBookingSideEffects(db);
+
+    expect(result).toEqual({ scanned: 1, recovered: 0, failed: 1 });
+    expect(updates).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        table: "prospect_tour_bookings",
+        calendar_sync_status: "pending",
+        calendar_sync_error: "Google Calendar synchronization is in flight.",
+      }),
+    ]));
+    expect(updates).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ table: "prospect_tour_bookings", calendar_sync_status: "completed" }),
+    ]));
   });
 
   it("recovers a committed confirmation after a newer inbound supersedes its burst revision", async () => {
@@ -425,5 +457,57 @@ describe("prospect tour booking crash recovery", () => {
     expect(updates).toEqual(expect.arrayContaining([
       expect.objectContaining({ table: "prospect_tour_google_calendar_create_intents", state: "cleanup_required" }),
     ]));
+  });
+
+  it("reclaims a failed current-window follow-up and settles it on a later sweep", async () => {
+    const intent = {
+      planned_event_id: "planned-create-retry-current-1",
+      manager_user_id: MANAGER,
+      google_calendar_event_id: "deterministic-google-id-retry-1",
+      generation: "00000000-0000-4000-8000-000000000125",
+    };
+    const claims: unknown[] = [[intent], [intent], []];
+    const updates: Record<string, unknown>[] = [];
+    const rpc = vi.fn(async (name: string) => {
+      if (name === "claim_prospect_tour_google_calendar_create_reconciliation") {
+        return { data: claims.shift() ?? [], error: null };
+      }
+      if (name === "complete_prospect_tour_google_calendar_create_reconciliation") return { data: true, error: null };
+      return { data: null, error: null };
+    });
+    const db = {
+      rpc,
+      from(table: string) {
+        const query: Record<string, unknown> = {};
+        const self = () => query;
+        query.select = self;
+        query.eq = self;
+        query.update = (values: Record<string, unknown>) => { updates.push({ table, ...values }); return query; };
+        query.maybeSingle = async () => ({
+          data: table === "portal_schedule_records" ? {
+            row_data: { payload: [{ id: intent.planned_event_id, kind: "tour", title: "Moved tour", start: "2099-12-03T18:00:00.000Z", end: "2099-12-03T18:30:00.000Z" }] },
+          } : null,
+          error: null,
+        });
+        query.then = (resolve: (value: unknown) => unknown) => Promise.resolve({ error: null }).then(resolve);
+        return query;
+      },
+    };
+    syncGoogle.mockRejectedValueOnce(new Error("follow-up patch failed")).mockResolvedValueOnce(intent.google_calendar_event_id);
+
+    await expect(recoverExpiredProspectTourGoogleCalendarCreates(db as never)).resolves.toEqual({
+      scanned: 2,
+      reconciled: 1,
+      failed: 1,
+    });
+    expect(syncGoogle).toHaveBeenCalledTimes(2);
+    expect(updates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ table: "prospect_tour_google_calendar_create_intents", state: "cleanup_required", last_error: "follow-up patch failed" }),
+    ]));
+    expect(rpc).toHaveBeenCalledWith("complete_prospect_tour_google_calendar_create_reconciliation", expect.objectContaining({
+      p_planned_event_id: intent.planned_event_id,
+      p_generation: intent.generation,
+      p_state: "settled",
+    }));
   });
 });

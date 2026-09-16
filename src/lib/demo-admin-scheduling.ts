@@ -19,6 +19,7 @@ const SESSION_CACHE_PREFIX = "axis_sched_cache_v1:";
 const SCHEDULE_SYNC_META_KEY = `${SESSION_CACHE_PREFIX}__synced_at`;
 const SCHEDULE_SYNC_TTL_MS = 10_000;
 let scheduleSyncPromise: Promise<boolean> | null = null;
+const pendingJsonWrites = new Map<string, Promise<boolean>>();
 
 /** A manager registered as available for tours at a property. */
 export type PropertyManagerEntry = { userId: string; label: string; propertyId?: string };
@@ -215,10 +216,45 @@ function scheduleRecordScope(key: string): { managerUserId: string | null; prope
 
 function writeJson(key: string, value: unknown) {
   if (!isBrowser()) return;
+  const expectedPayload = key === PLANNED_KEY ? readCachedJsonForWrite(key) : undefined;
   memoryStore.set(key, value);
   writeSessionJson(key, value);
   emitAdminUi();
-  void writeJsonToServer(key, value).catch(() => undefined);
+  const priorWrite = pendingJsonWrites.get(key);
+  const persist = () => writeJsonToServer(
+      key,
+      value,
+      key === PLANNED_KEY
+        ? { expectedPayloadKnown: expectedPayload.known, expectedPayload: expectedPayload.value }
+        : undefined,
+    );
+  // Preserve browser mutation order. A second local change observes the first
+  // local result as its baseline, so it must not overtake the first request.
+  const write = priorWrite ? priorWrite.then(persist, persist) : persist();
+  pendingJsonWrites.set(key, write);
+  void write.catch(() => undefined);
+}
+
+function readCachedJsonForWrite(key: string): { known: boolean; value: unknown } {
+  if (memoryStore.has(key)) return { known: true, value: memoryStore.get(key) };
+  const cached = readSessionJson<unknown>(key);
+  if (cached !== undefined) {
+    memoryStore.set(key, cached);
+    return { known: true, value: cached };
+  }
+  // A missing cache is not an observed empty snapshot. The server must reject
+  // the write until the caller has loaded the shared singleton.
+  return { known: false, value: null };
+}
+
+async function flushJsonWrite(key: string): Promise<boolean> {
+  const write = pendingJsonWrites.get(key);
+  if (!write) return true;
+  try {
+    return await write;
+  } finally {
+    if (pendingJsonWrites.get(key) === write) pendingJsonWrites.delete(key);
+  }
 }
 
 async function persistPublicPartnerInquiry(
@@ -250,9 +286,22 @@ async function persistPublicPartnerInquiry(
   return { ok: false, error };
 }
 
-async function writeJsonToServer(key: string, value: unknown): Promise<boolean> {
+async function writeJsonToServer(
+  key: string,
+  value: unknown,
+  options?: { expectedPayloadKnown?: boolean; expectedPayload?: unknown },
+): Promise<boolean> {
   if (!isBrowser()) return false;
   const scope = scheduleRecordScope(key);
+  const expectedSnapshot =
+    key === PLANNED_KEY
+      ? {
+          expectedPayloadKnown: options?.expectedPayloadKnown === true,
+          ...(options?.expectedPayloadKnown === true
+            ? { expectedPayload: options.expectedPayload }
+            : {}),
+        }
+      : {};
   const res = await fetch("/api/portal-schedule-records", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -267,8 +316,15 @@ async function writeJsonToServer(key: string, value: unknown): Promise<boolean> 
         adminLabel: typeof memoryStore.get(`${key}:adminLabel`) === "string" ? memoryStore.get(`${key}:adminLabel`) : undefined,
         payload: value,
       },
+      ...expectedSnapshot,
     }),
   });
+  if (!res.ok && key === PLANNED_KEY) {
+    // A stale or unobserved singleton write must not leave the calendar on a
+    // local-only branch. Re-read the server row so the next action has a real
+    // baseline and the UI reflects whichever write won the CAS.
+    void syncScheduleRecordsFromServer({ force: true });
+  }
   return res.ok;
 }
 
@@ -721,7 +777,7 @@ export function deletePlannedEvent(id: string): boolean {
 
 export async function deletePlannedEventFromServer(id: string): Promise<boolean> {
   if (!deletePlannedEvent(id)) return false;
-  return writeJsonToServer(PLANNED_KEY, readPlannedEvents());
+  return flushJsonWrite(PLANNED_KEY);
 }
 
 /** Manager-entered tour that skips the public inquiry flow. */
@@ -920,8 +976,8 @@ export async function acceptPartnerInquiryFromServer(
   }
   if (!row || !acceptPartnerInquiry(id, opts)) return { ok: false, error: "Could not approve request." };
   const [inquiriesOk, plannedOk, eventRecordsOk] = await Promise.all([
-    writeJsonToServer(INQ_KEY, readPartnerInquiries()),
-    writeJsonToServer(PLANNED_KEY, readPlannedEvents()),
+    flushJsonWrite(INQ_KEY),
+    flushJsonWrite(PLANNED_KEY),
     deletePartnerInquiryEventRecords(row),
   ]);
   return inquiriesOk && plannedOk && eventRecordsOk ? { ok: true } : { ok: false, error: "Could not sync approval." };
@@ -1009,7 +1065,7 @@ export async function deletePartnerInquiryFromServer(
   }
   if (!deletePartnerInquiryLocally(row)) return { ok: false };
   const [inquiriesOk, eventRecordsOk] = await Promise.all([
-    writeJsonToServer(INQ_KEY, readPartnerInquiries()),
+    flushJsonWrite(INQ_KEY),
     deletePartnerInquiryEventRecords(row),
   ]);
   return { ok: inquiriesOk && eventRecordsOk };

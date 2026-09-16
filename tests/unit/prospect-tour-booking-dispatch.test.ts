@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   finish: vi.fn(),
   ownerNumber: vi.fn(),
   suppression: vi.fn(),
+  scopedConsent: vi.fn(),
   consent: vi.fn(),
   logMessage: vi.fn(),
 }));
@@ -35,7 +36,7 @@ vi.mock("@/lib/sms/number-registration-policy", async (importOriginal) => ({
 }));
 vi.mock("@/lib/sms-consent", () => ({
   readSmsSuppressionState: mocks.suppression,
-  readScopedSmsConsentState: vi.fn(),
+  readScopedSmsConsentState: mocks.scopedConsent,
 }));
 vi.mock("@/lib/sms/application-consent.server", () => ({
   ensureApplicationScopedSmsConsent: mocks.consent,
@@ -141,6 +142,14 @@ function createDb(boundary: ReturnType<typeof vi.fn>, row = bookingRow) {
         boundary(name, args);
         return { data: { outcome: "started", costs_reserved: true }, error: null };
       }
+      if (name === "begin_prospect_tour_reminder_submission") {
+        boundary(name, args);
+        return { data: "started", error: null };
+      }
+      if (name === "prospect_tour_reminder_submission_is_current") {
+        boundary(name, args);
+        return { data: true, error: null };
+      }
       if (name === "apply_sms_delivery_status") return { data: true, error: null };
       return { data: true, error: null };
     }),
@@ -157,6 +166,7 @@ describe("owner dispatcher tour booking confirmation boundary", () => {
     mocks.finish.mockReset();
     mocks.ownerNumber.mockReset();
     mocks.suppression.mockReset();
+    mocks.scopedConsent.mockReset();
     mocks.logMessage.mockReset();
     mocks.enabled.mockReturnValue(true);
     mocks.plan.mockResolvedValue({ allowance: 1500, legacy: 1500 });
@@ -180,6 +190,7 @@ describe("owner dispatcher tour booking confirmation boundary", () => {
       quarantine_reason: null,
     }, error: null });
     mocks.suppression.mockResolvedValue({ ok: true, optedOut: false });
+    mocks.scopedConsent.mockResolvedValue({ ok: true, state: "granted" });
     mocks.consent.mockResolvedValue({ ok: true, granted: true });
     mocks.logMessage.mockResolvedValue(true);
     mocks.send.mockResolvedValue({ sent: true, sid: "SM-SINK-1" });
@@ -247,5 +258,78 @@ describe("owner dispatcher tour booking confirmation boundary", () => {
     expect(result).toMatchObject({ ok: true, claimed: 1, submitted: 0, blocked: 1, unknown: 0 });
     expect(boundary).not.toHaveBeenCalled();
     expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it("rechecks a prospect reminder after budget and credit awaits before provider submission", async () => {
+    const reminderRow = {
+      ...bookingRow,
+      id: "outbox-reminder-1",
+      send_class: "automated",
+      purpose: "prospect_tour_followup",
+      conversation_key: `${MANAGER_ID}:prospect:+15550001111`,
+      property_id: "property-1",
+      dedupe_key: "prospect-tour-reminder:reminder-1",
+      prospect_tour_reminder_id: "reminder-1",
+      prospect_tour_booking_confirmation_id: null,
+    };
+    const boundary = vi.fn();
+    const db = createDb(boundary, reminderRow);
+    db.rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
+      if (name === "claim_sms_outbox") return { data: [reminderRow], error: null };
+      if (name === "begin_prospect_tour_reminder_submission") {
+        boundary(name, args);
+        return { data: "started", error: null };
+      }
+      if (name === "prospect_tour_reminder_submission_is_current") {
+        boundary(name, args);
+        return { data: false, error: null };
+      }
+      return { data: true, error: null };
+    }) as never;
+    const { dispatchOwnerSmsOutbox } = await import("@/lib/sms/owner-sms-dispatcher.server");
+
+    const result = await dispatchOwnerSmsOutbox({ workerId: "worker-reminder-1" }, db);
+
+    expect(result).toMatchObject({ ok: true, claimed: 1, submitted: 0, blocked: 1, unknown: 0 });
+    expect(boundary).toHaveBeenCalledWith(
+      "prospect_tour_reminder_submission_is_current",
+      expect.objectContaining({
+        p_reminder_id: "reminder-1",
+        p_outbox_id: "outbox-reminder-1",
+        p_outbox_worker_id: "worker-reminder-1",
+        p_manager_user_id: MANAGER_ID,
+        p_conversation_key: reminderRow.conversation_key,
+        p_recipient_phone_e164: reminderRow.recipient_phone,
+        p_property_id: reminderRow.property_id,
+      }),
+    );
+    expect(mocks.finish).toHaveBeenCalledWith(db, MANAGER_ID, "sms_outbound:outbox-reminder-1", true);
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it("submits a prospect reminder only after its final durable fence remains current", async () => {
+    const reminderRow = {
+      ...bookingRow,
+      id: "outbox-reminder-current",
+      send_class: "automated",
+      purpose: "prospect_tour_followup",
+      conversation_key: `${MANAGER_ID}:prospect:+15550001111`,
+      property_id: "property-1",
+      dedupe_key: "prospect-tour-reminder:reminder-current",
+      prospect_tour_reminder_id: "reminder-current",
+      prospect_tour_booking_confirmation_id: null,
+    };
+    const boundary = vi.fn();
+    const db = createDb(boundary, reminderRow);
+    const { dispatchOwnerSmsOutbox } = await import("@/lib/sms/owner-sms-dispatcher.server");
+
+    const result = await dispatchOwnerSmsOutbox({ workerId: "worker-reminder-current" }, db);
+
+    expect(result).toMatchObject({ ok: true, claimed: 1, submitted: 1, blocked: 0, unknown: 0 });
+    expect(boundary).toHaveBeenCalledWith(
+      "prospect_tour_reminder_submission_is_current",
+      expect.objectContaining({ p_reminder_id: "reminder-current" }),
+    );
+    expect(mocks.send).toHaveBeenCalledOnce();
   });
 });

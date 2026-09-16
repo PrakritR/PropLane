@@ -36,11 +36,18 @@ export async function mutatePlannedScheduleEvent(
 
 export async function replaceManagerPlannedScheduleSlice(
   db: Db,
-  args: { managerUserId: string; events: Record<string, unknown>[]; expectedEvents: Record<string, unknown>[] },
+  args: {
+    managerUserId: string;
+    actorIsAdmin: boolean;
+    events: Record<string, unknown>[];
+    /** Null means the caller did not provide an observed baseline. */
+    expectedEvents: Record<string, unknown>[] | null;
+  },
 ): Promise<PlannedScheduleMutationResult> {
   if (typeof (db as { rpc?: unknown }).rpc !== "function") return { available: false };
   const { data, error } = await db.rpc("replace_manager_planned_schedule_slice", {
     p_manager_user_id: args.managerUserId,
+    p_actor_is_admin: args.actorIsAdmin,
     p_events: args.events,
     p_expected_events: args.expectedEvents,
   });

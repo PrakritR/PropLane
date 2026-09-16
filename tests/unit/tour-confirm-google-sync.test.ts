@@ -213,6 +213,14 @@ describe("runPlannedTourCalendarSync", () => {
     expect(result).toEqual({ ok: false, error: "boom" });
   });
 
+  it("keeps an owned create lease distinct from a completed calendar effect", async () => {
+    await expect(runPlannedTourCalendarSync(async () => ({ disposition: "deferred" as const }))).resolves.toEqual({
+      ok: false,
+      deferred: true,
+      error: "Google Calendar synchronization is in flight.",
+    });
+  });
+
   it("gives up on a push that never settles instead of hanging the confirm", async () => {
     vi.useFakeTimers();
     try {

@@ -49,6 +49,10 @@ type RecordConfig = {
     user: RecordUser;
     record: Record<string, unknown>;
     existing: Record<string, unknown> | null;
+    /** Client-observed payload used by a table-specific compare-and-swap. */
+    expectedPayload: unknown;
+    /** Whether the caller actually supplied an observed payload. */
+    expectedPayloadKnown: boolean;
   }) => Promise<AtomicWriteResult>;
 };
 
@@ -119,6 +123,8 @@ export function createJsonRecordRoute(config: RecordConfig) {
           ids?: unknown[];
           row?: Record<string, unknown>;
           rows?: Record<string, unknown>[];
+          expectedPayload?: unknown;
+          expectedPayloadKnown?: boolean;
         };
         if (body.action === "delete" || body.action === "deleteIds") {
           const ids = body.action === "deleteIds"
@@ -182,6 +188,11 @@ export function createJsonRecordRoute(config: RecordConfig) {
               user: ctx.user,
               record: finalRecord,
               existing: recordExists ? ((existing?.[0] as Record<string, unknown>) ?? null) : null,
+              expectedPayload: body.expectedPayload,
+              expectedPayloadKnown:
+                body.expectedPayloadKnown === true ||
+                (body.expectedPayloadKnown === undefined &&
+                  Object.prototype.hasOwnProperty.call(body, "expectedPayload")),
             });
             if (atomic.handled) {
               if (atomic.error) return NextResponse.json({ error: atomic.error }, { status: atomic.status ?? 500 });

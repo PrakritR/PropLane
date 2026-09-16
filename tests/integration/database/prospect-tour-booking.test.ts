@@ -83,6 +83,9 @@ const genericScheduleMigration = "supabase/migrations/20260915105500_atomic_plan
 const reminderMigration = "supabase/migrations/20260915104500_prospect_sms_tour_reminders.sql";
 const budgetOwnershipMigration = "supabase/migrations/20260916100000_prospect_tour_confirmation_budget_ownership.sql";
 const googleCreateIntentMigration = "supabase/migrations/20260916100500_prospect_tour_google_create_intents.sql";
+const googleChangedWindowCorrectionMigration = "supabase/migrations/20260916101000_prospect_tour_google_changed_window_reconciliation.sql";
+const plannedScheduleObservedBaselineMigration = "supabase/migrations/20260916101500_planned_schedule_observed_baseline.sql";
+const reminderFinalFenceMigration = "supabase/migrations/20260916102000_prospect_tour_reminder_final_fence.sql";
 const profilesMigration = "supabase/migrations/20250418140000_profiles_manager_purchases.sql";
 const automationMigration = "supabase/migrations/20260628120001_payment_automation_settings.sql";
 const managerSmsNumbersMigration = "supabase/migrations/20260725120000_manager_sms_numbers.sql";
@@ -238,6 +241,9 @@ describe.skipIf(!configuredPort)("confirmed tour schedule transaction boundary",
     for (const name of correctionMigrations) await db.query(await readFile(`supabase/migrations/${name}`, "utf8"));
     await db.query(await readFile(budgetOwnershipMigration, "utf8"));
     await db.query(await readFile(googleCreateIntentMigration, "utf8"));
+    await db.query(await readFile(googleChangedWindowCorrectionMigration, "utf8"));
+    await db.query(await readFile(plannedScheduleObservedBaselineMigration, "utf8"));
+    await db.query(await readFile(reminderFinalFenceMigration, "utf8"));
     await db.query(
       `insert into portal_schedule_records(id, record_type, row_data)
        values ('axis_admin_planned_events_v1', 'axis_admin_planned_events_v1', $1),
@@ -366,7 +372,7 @@ describe.skipIf(!configuredPort)("confirmed tour schedule transaction boundary",
     )).rows[0].result;
     expect(appended).toMatchObject({ ok: true });
     const stale = (await db.query(
-      "select replace_manager_planned_schedule_slice($1::uuid,$2::jsonb,$3::jsonb) result",
+      "select replace_manager_planned_schedule_slice($1::uuid,$2::jsonb,$3::jsonb,false) result",
       [owner, JSON.stringify([]), JSON.stringify([])],
     )).rows[0].result;
     expect(stale).toMatchObject({ ok: false, reason: "stale_schedule" });
@@ -374,6 +380,85 @@ describe.skipIf(!configuredPort)("confirmed tour schedule transaction boundary",
       "select row_data->'payload' @> $1::jsonb present from portal_schedule_records where id='axis_admin_planned_events_v1'",
       [JSON.stringify([{ id: "ordinary-1" }])],
     )).rows[0].present).toBe(true);
+  });
+
+  it("uses an observed non-tour baseline while preserving bookings and protected owners", async () => {
+    const otherManager = "22222222-2222-4222-8222-222222222222";
+    const adminActor = "33333333-3333-4333-8333-333333333333";
+    const ownTask = { id: "baseline-own-task", kind: "task", managerUserId: owner, title: "Old task", start: "2030-08-01T17:00:00.000Z", end: "2030-08-01T17:30:00.000Z" };
+    const unassigned = { id: "baseline-unassigned", kind: "meeting", title: "Legacy unassigned", start: "2030-08-01T18:00:00.000Z", end: "2030-08-01T18:30:00.000Z" };
+    const nullOwned = { id: "baseline-null", kind: "meeting", managerUserId: null, title: "Legacy null", start: "2030-08-01T19:00:00.000Z", end: "2030-08-01T19:30:00.000Z" };
+    const other = { id: "baseline-other", kind: "meeting", managerUserId: otherManager, title: "Other manager", start: "2030-08-01T20:00:00.000Z", end: "2030-08-01T20:30:00.000Z" };
+    await db.query(
+      "update portal_schedule_records set row_data=jsonb_build_object('id','axis_admin_planned_events_v1','recordType','axis_admin_planned_events_v1','payload',$1::jsonb) where id='axis_admin_planned_events_v1'",
+      [JSON.stringify([unassigned, nullOwned, other, ownTask])],
+    );
+
+    // The manager observed A, then an SMS confirmation committed B before the
+    // stale task snapshot reached the RPC. B and its relational ledger must
+    // survive because generic snapshots do not own tour lifecycle.
+    const booking = await seedProspectBooking(db, "20");
+    expect((await confirmProspect(db, booking)).rows[0].result).toMatchObject({ ok: true });
+    const updatedTask = { ...ownTask, title: "Updated task" };
+    const newTask = { ...ownTask, id: "baseline-new-task", title: "New task" };
+    expect((await db.query(
+      "select replace_manager_planned_schedule_slice($1::uuid,$2::jsonb,$3::jsonb,false) result",
+      [owner, JSON.stringify([updatedTask, newTask]), JSON.stringify([ownTask])],
+    )).rows[0].result).toMatchObject({ ok: true });
+    const payloadAfterBooking = (await db.query(
+      "select row_data->'payload' payload from portal_schedule_records where id='axis_admin_planned_events_v1'",
+    )).rows[0].payload as Array<Record<string, unknown>>;
+    expect(payloadAfterBooking.map((row) => row.id)).toEqual(expect.arrayContaining([
+      unassigned.id, nullOwned.id, other.id, updatedTask.id, newTask.id, booking.plannedEvent.id,
+    ]));
+    expect(payloadAfterBooking.find((row) => row.id === unassigned.id)).not.toHaveProperty("managerUserId");
+    expect(payloadAfterBooking.find((row) => row.id === nullOwned.id)).toHaveProperty("managerUserId", null);
+    expect((await db.query(
+      "select status from tour_slot_reservations where planned_event_id=$1",
+      [booking.plannedEvent.id],
+    )).rows[0].status).toBe("active");
+    expect((await db.query(
+      "select status from prospect_tour_bookings where planned_event_id=$1",
+      [booking.plannedEvent.id],
+    )).rows[0].status).toBe("confirmed");
+
+    // A same-id takeover of the missing-owner row is rejected under the lock.
+    expect((await db.query(
+      "select replace_manager_planned_schedule_slice($1::uuid,$2::jsonb,$3::jsonb,false) result",
+      [owner, JSON.stringify([updatedTask, newTask, { ...unassigned, managerUserId: owner }]), JSON.stringify([updatedTask, newTask])],
+    )).rows[0].result).toMatchObject({ ok: false, reason: "event_id_conflict" });
+
+    // A different manager can update only their own slice without adopting the
+    // two legacy rows or disturbing this manager's tasks and confirmed tour.
+    const updatedOther = { ...other, title: "Other manager updated" };
+    expect((await db.query(
+      "select replace_manager_planned_schedule_slice($1::uuid,$2::jsonb,$3::jsonb,false) result",
+      [otherManager, JSON.stringify([updatedOther]), JSON.stringify([other])],
+    )).rows[0].result).toMatchObject({ ok: true });
+
+    // Admin authority is explicit and CAS-bound for non-tour rows. Ownership is
+    // preserved byte-for-byte and the tour remains outside this generic write.
+    const currentNonTours = [unassigned, nullOwned, updatedOther, updatedTask, newTask];
+    const adminUpdatedUnassigned = { ...unassigned, title: "Admin updated legacy row" };
+    expect((await db.query(
+      "select replace_manager_planned_schedule_slice($1::uuid,$2::jsonb,$3::jsonb,true) result",
+      [adminActor, JSON.stringify([adminUpdatedUnassigned, nullOwned, updatedOther, updatedTask, newTask]), JSON.stringify(currentNonTours)],
+    )).rows[0].result).toMatchObject({ ok: true });
+
+    // Explicit authorized deletion of a non-tour task is coherent and cannot
+    // be repurposed to remove the server-owned confirmed tour.
+    expect((await db.query(
+      "select replace_manager_planned_schedule_slice($1::uuid,$2::jsonb,$3::jsonb,false) result",
+      [owner, JSON.stringify([updatedTask]), JSON.stringify([updatedTask, newTask])],
+    )).rows[0].result).toMatchObject({ ok: true });
+    const finalPayload = (await db.query(
+      "select row_data->'payload' payload from portal_schedule_records where id='axis_admin_planned_events_v1'",
+    )).rows[0].payload as Array<Record<string, unknown>>;
+    expect(finalPayload.some((row) => row.id === newTask.id)).toBe(false);
+    expect(finalPayload.find((row) => row.id === booking.plannedEvent.id)).toMatchObject({
+      id: booking.plannedEvent.id,
+      kind: "tour",
+    });
   });
 
   it("arbitrates the two-hour and legacy tour-interest queues in both dispatch orderings", async () => {
@@ -384,18 +469,33 @@ describe.skipIf(!configuredPort)("confirmed tour schedule transaction boundary",
       await db.query("insert into prospect_sms_bursts(id,manager_user_id,counterparty_phone_e164,revision,status,lease_owner,lease_expires_at) values($1,$2,'+12065550999',1,'generating','worker',now()+interval '5 minutes')", [burstId, owner]);
       await db.query("insert into prospect_tour_scheduling_state(id,manager_user_id,conversation_key,property_id,trusted_phone_e164,status,revision) values($1,$2,$3,'property-1','+12065550999','offered',1)", [stateId, owner, conversation]);
       await db.query("insert into prospect_sms_tour_reminders(id,burst_id,burst_revision,manager_user_id,scheduling_state_id,scheduling_state_revision,conversation_key,recipient_phone_e164,property_id,status) values($1,$2,1,$3,$4,1,$5,'+12065550999','property-1','enqueued')", [reminderId, burstId, owner, stateId, conversation]);
-      await db.query("insert into sms_outbox(id,manager_user_id,recipient_phone,conversation_key,status,lease_owner,lease_expires_at,prospect_tour_reminder_id) values($1,$2,'+12065550999',$3,'claimed','new-worker',now()+interval '5 minutes',$4)", [newOutboxId, owner, conversation, reminderId]);
+      await db.query("insert into sms_outbox(id,manager_user_id,recipient_phone,conversation_key,property_id,status,lease_owner,lease_expires_at,prospect_tour_reminder_id) values($1,$2,'+12065550999',$3,'property-1','claimed','new-worker',now()+interval '5 minutes',$4)", [newOutboxId, owner, conversation, reminderId]);
       await db.query("insert into sms_delivery_attempts(id,outbox_id,state) values($1,$2,'claimed')", [attemptId, newOutboxId]);
       await db.query("insert into portal_reminder_records(id,manager_user_id,kind,payload,status) values($1,$2,'tour_interest',jsonb_build_object('conversationKey',$3::text),case when $4::text='submitted' then 'sent' else 'scheduled' end)", [oldReminderId, owner, conversation, oldStatus]);
       await db.query("insert into sms_outbox(id,manager_user_id,recipient_phone,conversation_key,status,dedupe_key,dispatch_started_at,provider_message_sid) values($1,$2,'+12065550999',$3,$4,'tour-interest:'||$5::text,case when $4='submitted' then now() else null end,case when $4='submitted' then 'SM-old' else null end)", [oldOutboxId, owner, conversation, oldStatus, oldReminderId]);
       await db.query("insert into manager_tour_followup_controls(manager_user_id,conversation_key,archived) values($1,$2,$3) on conflict(manager_user_id,conversation_key) do update set archived=excluded.archived", [owner, conversation, archived]);
-      return { reminderId, newOutboxId, oldOutboxId, oldReminderId, attemptId };
+      return { reminderId, newOutboxId, oldOutboxId, oldReminderId, attemptId, stateId, burstId, conversation };
     };
 
     const quiet = await seed("deferred");
     expect((await db.query("select begin_prospect_tour_reminder_submission($1,$2,'new-worker',$3,now()) result", [quiet.reminderId, quiet.newOutboxId, quiet.attemptId])).rows[0].result).toBe("started");
     expect((await db.query("select status from sms_outbox where id=$1", [quiet.oldOutboxId])).rows[0].status).toBe("blocked");
     expect((await db.query("select status from portal_reminder_records where id=$1", [quiet.oldReminderId])).rows[0].status).toBe("cancelled");
+    const finalFence = () => db.query(
+      "select prospect_tour_reminder_submission_is_current($1,$2,'new-worker',$3,$4,'+12065550999','property-1') result",
+      [quiet.reminderId, quiet.newOutboxId, owner, quiet.conversation],
+    );
+    expect((await finalFence()).rows[0].result).toBe(true);
+    for (const status of ["booked", "handoff", "opted_out", "deferred"]) {
+      await db.query("update prospect_tour_scheduling_state set status=$1 where id=$2", [status, quiet.stateId]);
+      expect((await finalFence()).rows[0].result).toBe(false);
+      await db.query("update prospect_tour_scheduling_state set status='offered' where id=$1", [quiet.stateId]);
+    }
+    await db.query("update manager_tour_followup_controls set archived=true where manager_user_id=$1 and conversation_key=$2", [owner, quiet.conversation]);
+    expect((await finalFence()).rows[0].result).toBe(false);
+    await db.query("update manager_tour_followup_controls set archived=false where manager_user_id=$1 and conversation_key=$2", [owner, quiet.conversation]);
+    await db.query("update prospect_sms_bursts set revision=revision+1 where id=$1", [quiet.burstId]);
+    expect((await finalFence()).rows[0].result).toBe(false);
 
     const oldFirst = await seed("submitted");
     expect((await db.query("select begin_prospect_tour_reminder_submission($1,$2,'new-worker',$3,now()) result", [oldFirst.reminderId, oldFirst.newOutboxId, oldFirst.attemptId])).rows[0].result).toBe("stale");
@@ -1379,6 +1479,46 @@ describe.skipIf(!configuredPort)("confirmed tour schedule transaction boundary",
       "select state from prospect_tour_google_calendar_create_intents where planned_event_id=$1",
       [initial.id],
     )).rows[0]).toMatchObject({ state: "reconcile_current" });
+  });
+
+  it("keeps a successful stale create reclaimable until the current window is durably reconciled", async () => {
+    await db.query("delete from prospect_tour_google_calendar_create_intents");
+    const initial = event("google-stale-create-current-recovery-1", "2099-11-23:20", "2099-11-23T17:00:00.000Z");
+    expect((await mutate(db, "append", initial)).rows[0].result).toMatchObject({ ok: true });
+    const intent = (await db.query<{ result: { generation: string; googleCalendarEventId: string } }>(
+      "select begin_prospect_tour_google_calendar_create($1,$2,$3,$4,'original-create',120) result",
+      [owner, initial.id, initial.start, initial.end],
+    )).rows[0].result;
+    const moved = { ...initial, slotKey: "2099-11-24:20", start: "2099-11-24T17:00:00.000Z", end: "2099-11-24T17:30:00.000Z" };
+    expect((await mutate(db, "replace", moved)).rows[0].result).toMatchObject({ ok: true });
+
+    // The stale provider result is known, but a worker crash before the B
+    // follow-up must leave B's reconciliation visible to the sweeper.
+    expect((await db.query(
+      "select settle_prospect_tour_google_calendar_create($1,$2,'cleanup_ready') result",
+      [initial.id, intent.generation],
+    )).rows[0].result).toMatchObject({ ok: true, state: "reconcile_current" });
+    expect((await db.query(
+      "select * from claim_prospect_tour_google_calendar_cleanup('stale-cleanup-worker',120)",
+    )).rows).toHaveLength(0);
+    expect((await db.query(
+      "select * from claim_prospect_tour_google_calendar_create_reconciliation('current-window-worker',120)",
+    )).rows[0]).toMatchObject({ planned_event_id: initial.id, generation: intent.generation });
+
+    // A claimed worker that dies is reclaimable. Its successor can settle only
+    // the exact B window, so a second move cannot be silently marked complete.
+    await db.query(
+      "update prospect_tour_google_calendar_create_intents set state='reconcile_current',lease_owner=null,lease_expires_at=null where planned_event_id=$1",
+      [initial.id],
+    );
+    expect((await db.query<{ settled: boolean }>(
+      "select settle_prospect_tour_google_calendar_current_reconciliation($1,$2,$3,$4) settled",
+      [initial.id, intent.generation, moved.start, moved.end],
+    )).rows[0].settled).toBe(true);
+    expect((await db.query(
+      "select state,expected_start,expected_end from prospect_tour_google_calendar_create_intents where planned_event_id=$1",
+      [initial.id],
+    )).rows[0]).toMatchObject({ state: "settled", expected_start: new Date(moved.start), expected_end: new Date(moved.end) });
   });
 
   it("keeps Google cleanup durable across cancel/delete retries and preserves a moved event", async () => {
