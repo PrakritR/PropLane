@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { useEffect } from "react";
 
 import { AssistantConversationProvider, useOptionalAssistantConversation } from "@/lib/axis-assistant/assistant-conversation-context";
 import { useAssistantConversation } from "@/lib/axis-assistant/use-assistant-conversation";
@@ -227,5 +228,28 @@ describe("server-backed assistant conversation history", () => {
     });
 
     expect(result.current.threads).not.toContainEqual(expect.objectContaining({ id: OLDER }));
+  });
+
+  it("keeps portal children mounted when the workspace archive key changes", () => {
+    const mounts = { count: 0 };
+    function Child() {
+      useEffect(() => {
+        mounts.count += 1;
+      }, []);
+      return <div>portal child</div>;
+    }
+    const view = render(
+      <AssistantConversationProvider endpoint={ENDPOINT} archiveKey="">
+        <Child />
+      </AssistantConversationProvider>,
+    );
+    expect(mounts.count).toBe(1);
+    view.rerender(
+      <AssistantConversationProvider endpoint={ENDPOINT} archiveKey="workspace-2">
+        <Child />
+      </AssistantConversationProvider>,
+    );
+    expect(mounts.count).toBe(1);
+    expect(screen.getByText("portal child")).toBeTruthy();
   });
 });

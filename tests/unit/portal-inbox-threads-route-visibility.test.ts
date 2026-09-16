@@ -5,7 +5,7 @@ import { createMemoryDb } from "./support/memory-supabase";
  * Manager Communication through the real resolver: the GET route lists only
  * the conversations the viewer may see — per house for a co-manager, per
  * active workspace for everyone, and one PropLane Assistant thread per
- * account. Owner scope in the store query is modeled as the owner filter it
+ * manager per workspace. Owner scope in the store query is modeled as the owner filter it
  * is; the house / workspace rule is the real code.
  */
 
@@ -106,13 +106,13 @@ beforeEach(() => {
 });
 
 describe("GET /api/portal-inbox-threads — manager Communication visibility", () => {
-  it("shows a co-manager only the granted house's conversations in the shared workspace, plus their own assistant", async () => {
+  it("shows a co-manager only the granted house's conversations in the shared workspace", async () => {
     state.viewer = { id: C, email: "c@example.test" };
     state.cookie = W1;
-    expect(await listIds()).toEqual([`agent_notice_${C}`, "t-h1"]);
+    expect(await listIds()).toEqual(["t-h1"]);
   });
 
-  it("shows the co-manager nothing of the owner's in their own workspace — and never the uninvited owner's thread", async () => {
+  it("shows the co-manager their own default-workspace assistant at home — and never the uninvited owner's thread", async () => {
     state.viewer = { id: C, email: "c@example.test" };
     state.cookie = WC;
     expect(await listIds()).toEqual([`agent_notice_${C}`, "t-c"]);
@@ -121,12 +121,12 @@ describe("GET /api/portal-inbox-threads — manager Communication visibility", (
     expect(await listIds()).toEqual([`agent_notice_${C}`, "t-c"]);
   });
 
-  it("narrows the owner to the active workspace, keeping untagged conversations in the default one", async () => {
+  it("narrows the owner to the active workspace, keeping the legacy assistant in the default one", async () => {
     state.viewer = { id: A, email: "a@example.test" };
     state.cookie = W1;
     expect(await listIds()).toEqual([`agent_notice_${A}`, "t-h1", "t-untagged"]);
     state.cookie = W2;
-    expect(await listIds()).toEqual([`agent_notice_${A}`, "t-h2"]);
+    expect(await listIds()).toEqual(["t-h2"]);
   });
 
   it("labels each listed conversation with the house it is about", async () => {

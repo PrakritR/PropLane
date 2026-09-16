@@ -5,6 +5,21 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 
 import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
 
+vi.mock("next/link", () => ({
+  default: ({
+    href,
+    children,
+    ...rest
+  }: {
+    href: string;
+    children: React.ReactNode;
+  }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}));
+
 const statusState = vi.fn();
 vi.mock("@/hooks/use-manager-messaging-number-status", () => ({
   useManagerMessagingNumberStatus: () => statusState(),
@@ -57,6 +72,19 @@ function assistantEmailPayload(address: string | null) {
   };
 }
 
+function stubEmail(address: string | null) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo) => {
+      const url = typeof input === "string" ? input : input.url;
+      if (url.includes("/api/manager/assistant-email")) {
+        return Response.json(assistantEmailPayload(address));
+      }
+      return new Response(null, { status: 404 });
+    }),
+  );
+}
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -64,7 +92,7 @@ afterEach(() => {
 });
 
 describe("ManagerWorkNumberCard identity", () => {
-  it("shows work email on the same card and has no megaphone", async () => {
+  it("shows work email on its own box and has no phone glyph", async () => {
     statusState.mockReturnValue({
       ready: true,
       resolved: true,
@@ -74,16 +102,7 @@ describe("ManagerWorkNumberCard identity", () => {
     });
     const writeText = vi.fn(async () => undefined);
     vi.stubGlobal("navigator", { clipboard: { writeText } });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo) => {
-        const url = typeof input === "string" ? input : input.url;
-        if (url.includes("/api/manager/assistant-email")) {
-          return Response.json(assistantEmailPayload("inbox@axis.housing"));
-        }
-        return new Response(null, { status: 404 });
-      }),
-    );
+    stubEmail("inbox@axis.housing");
 
     render(<ManagerWorkNumberCard />);
 
@@ -91,9 +110,10 @@ describe("ManagerWorkNumberCard identity", () => {
     await waitFor(() => {
       expect(screen.getByText("inbox@axis.housing")).toBeTruthy();
     });
-    expect(screen.getByText("Your work email")).toBeTruthy();
+    expect(screen.getByText(/Your work email/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Tell residents" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Tell residents about this number" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Set up messaging" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Copy email" }));
     await waitFor(() => {
@@ -101,7 +121,7 @@ describe("ManagerWorkNumberCard identity", () => {
     });
   });
 
-  it("hides the email row when the workspace has no address", async () => {
+  it("keeps a Set up work email box when the workspace has no address", async () => {
     statusState.mockReturnValue({
       ready: true,
       resolved: true,
@@ -109,17 +129,43 @@ describe("ManagerWorkNumberCard identity", () => {
       status: status(),
       retry: () => {},
     });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => Response.json(assistantEmailPayload(null))),
-    );
+    stubEmail(null);
 
     render(<ManagerWorkNumberCard />);
 
     expect(screen.getByText(/Your work number/)).toBeTruthy();
     await waitFor(() => {
-      expect(fetch).toHaveBeenCalled();
+      expect(screen.getByText("Set up work email")).toBeTruthy();
     });
-    expect(screen.queryByText("Your work email")).toBeNull();
+    expect(screen.getByRole("link", { name: /Set up work email/ }).getAttribute("href")).toBe(
+      "/portal/profile?tab=messaging",
+    );
+  });
+
+  it("renders setup boxes in the live identity slots when nothing is assigned", async () => {
+    statusState.mockReturnValue({
+      ready: true,
+      resolved: true,
+      statusError: false,
+      status: status({
+        number: null,
+        canSend: false,
+      }),
+      retry: () => {},
+    });
+    stubEmail(null);
+
+    render(<ManagerWorkNumberCard />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Set up work number")).toBeTruthy();
+      expect(screen.getByText("Set up work email")).toBeTruthy();
+    });
+    expect(screen.getByRole("link", { name: /Set up work number/ }).getAttribute("data-attr")).toBe(
+      "manager-work-number-setup",
+    );
+    expect(screen.getByRole("link", { name: /Set up work email/ }).getAttribute("data-attr")).toBe(
+      "manager-work-email-setup",
+    );
   });
 });

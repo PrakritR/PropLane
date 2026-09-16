@@ -25,6 +25,7 @@ type SessionActor = {
   landlordId: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   db: any;
+  workspace?: { id: string };
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -77,12 +78,14 @@ export async function ensureAgentSession(
       }
       if (data?.id) return String(data.id);
     }
-    const sessionValues = {
+    const sessionValues: Record<string, unknown> = {
       landlord_id: actor.landlordId,
       user_id: actor.userId,
       portal,
       kind,
     };
+    const workspaceId = "workspace" in actor && actor.workspace?.id ? actor.workspace.id : undefined;
+    if (workspaceId) sessionValues.workspace_id = workspaceId;
     let { data: created, error } = await actor.db
       .from("agent_sessions")
       .insert({
@@ -99,6 +102,17 @@ export async function ensureAgentSession(
       ({ data: created, error } = await actor.db
         .from("agent_sessions")
         .insert(sessionValues)
+        .select("id")
+        .single());
+    }
+    if (error && isMissingColumn(error, "workspace_id")) {
+      const { workspace_id: _drop, ...withoutWorkspace } = sessionValues;
+      ({ data: created, error } = await actor.db
+        .from("agent_sessions")
+        .insert({
+          ...withoutWorkspace,
+          title: kind === PORTAL_CHAT_SESSION_KIND ? UNTITLED_THREAD : agentChatThreadTitle(opts.title ?? ""),
+        })
         .select("id")
         .single());
     }

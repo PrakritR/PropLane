@@ -15,7 +15,6 @@ import {
   selectCommunicationThreadUrl,
 } from "@/lib/portal-communication-nav";
 import { ManagerInbox, type ManagerInboxHandle } from "@/components/portal/pro-inbox";
-import { CommunicationArchivedInboxButton } from "@/components/portal/communication-archived-inbox-button";
 import { ManagerWorkNumberCard } from "@/components/portal/pro-work-number-card";
 import { ManagerSmsPanel, smsOutboundPreviewPrefix, type ManagerSmsPanelHandle } from "@/components/portal/pro-sms-panel";
 
@@ -33,6 +32,7 @@ import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
 import {
   INBOX_LIST_SCROLL,
   InboxConversationRow,
+  InboxListSegmentTabs,
   InboxThreadEmpty,
   InboxTwoPane,
   PORTAL_INBOX_LIST_TOOLBAR_CLASS,
@@ -46,9 +46,10 @@ import {
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
 import { isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
 import {
+  assistantUnifiedListItemFromThread,
   buildManagerAssistantPlaceholderThread,
   communicationInboxListPreview,
-  managerAgentNoticeThreadId,
+  ensurePinnedManagerAssistantUnifiedItems,
   pinPropLaneAssistantUnifiedItems,
   propLaneAssistantListPreview,
   propLaneAssistantListSubtitle,
@@ -56,6 +57,7 @@ import {
   resolveCommunicationViewerId,
   withPinnedPropLaneAssistantThreads,
 } from "@/lib/communication-assistant-inbox-list";
+import { useActiveWorkspaceIdentity } from "@/hooks/use-selected-workspace-id";
 import {
   buildResidentPlaceholderInboxItems,
   parseContactInboxThreadId,
@@ -224,7 +226,7 @@ export function ManagerUnifiedInbox({
   onAddConversation?: () => void;
   /** Rebuild the parent-owned contact directory after its source has completed. */
   onApplicationsLoaded?: () => void;
-  /** Filter status follows the labeled Archived destination button. */
+  /** Filter status follows the Active | Archived tabs. */
   onArchivedViewChange?: (next: Extract<InboxListSegment, "active" | "archived">) => void;
 }) {
   const isClient = useIsClient();
@@ -239,14 +241,26 @@ export function ManagerUnifiedInbox({
   const setQuery = onSearchQueryChange ?? setInternalQuery;
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [mobileThreadOpen, setMobileThreadOpen] = useState(Boolean(routeThreadId));
-  const statusFilter = threadFilters?.status ?? listSegmentProp;
-  // "read" and "all" are refinements of the active segment for routing; "all"
-  // additionally lets archived rows through (`includeArchived`).
-  const listSegment = statusFilter === "read" || statusFilter === "all" ? "active" : statusFilter;
-  const includeArchived = statusFilter === "all";
+  const statusFilter =
+    threadFilters?.status ?? (listSegmentProp === "unread" ? "unread" : "active");
+  // Active | Archived is the URL tab. Filter unread/read refines inside that
+  // folder and must not collapse Archived back to Active.
+  const folder: Extract<InboxListSegment, "active" | "archived"> =
+    listSegmentProp === "archived" ? "archived" : "active";
+  const listSegment: InboxListSegment =
+    folder === "archived" ? "archived" : statusFilter === "unread" ? "unread" : "active";
+  const includeArchived = folder === "archived" || statusFilter === "all";
   const appUi = useOptionalAppUi();
   const { userId, ready: sessionReady } = usePortalSession();
   const viewerId = resolveCommunicationViewerId(null, userId);
+  const workspaceIdentity = useActiveWorkspaceIdentity();
+  const assistantWorkspace = useMemo(
+    () =>
+      workspaceIdentity.id
+        ? { id: workspaceIdentity.id, isDefault: workspaceIdentity.isDefault }
+        : null,
+    [workspaceIdentity.id, workspaceIdentity.isDefault],
+  );
   const viewerEpochRef = useRef(0);
   const viewerAuthority = useMemo(() => ({ viewerId }), [viewerId]);
   const currentViewerAuthorityRef = useRef(viewerAuthority);
@@ -287,7 +301,9 @@ export function ManagerUnifiedInbox({
     smsPollHaltedRef.current = false;
     setSmsPollHalted(false);
   }, [viewerAuthority, viewerId]);
-  const assistantThreadId = viewerId ? propLaneAssistantThreadIdForPortal("manager", viewerId) : null;
+  const assistantThreadId = viewerId
+    ? propLaneAssistantThreadIdForPortal("manager", viewerId, assistantWorkspace)
+    : null;
   const [initialListState, setInitialListState] = useState<"loading" | "ready" | "error">("loading");
   const [initialListViewerId, setInitialListViewerId] = useState<string | null>(null);
   const initialLoadGeneration = useRef(0);
@@ -328,23 +344,20 @@ export function ManagerUnifiedInbox({
   }, []);
 
   useEffect(() => {
-    if (!isClient || !initialListReady || !viewerId?.trim() || listSegment !== "active") return;
+    if (!isClient || !initialListReady || !viewerId?.trim()) return;
     let staged: PersistedInboxThread[] | null = null;
     setEmailThreads((current) => {
-      const hasAssistant = current.some(
-        (thread) =>
-          isPropLaneAssistantInboxThread(thread) ||
-          thread.id === managerAgentNoticeThreadId(viewerId),
-      );
-      if (hasAssistant) return current;
-      const next = [buildManagerAssistantPlaceholderThread(viewerId), ...current];
+      const placeholder = buildManagerAssistantPlaceholderThread(viewerId, assistantWorkspace);
+      const hasLive = current.some((thread) => thread.id === placeholder.id && thread.folder !== "trash");
+      if (hasLive) return current;
+      const next = withPinnedPropLaneAssistantThreads(current, "manager", viewerId, listSegment, assistantWorkspace);
       staged = next;
       return next;
     });
     if (staged) {
       queueMicrotask(() => stagePersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, staged!));
     }
-  }, [initialListReady, isClient, listSegment, viewerId]);
+  }, [assistantWorkspace, initialListReady, isClient, listSegment, viewerId]);
 
   const loadSms = useCallback(async ({ force = false, initialGeneration }: { force?: boolean; initialGeneration?: number } = {}): Promise<boolean> => {
     const requestViewerEpoch = viewerEpochRef.current;
@@ -524,7 +537,13 @@ export function ManagerUnifiedInbox({
       filterEmailInboxThreads(emailThreads, { keepSmsLike: !smsUiEnabled }),
       { mergeFolders: true },
     );
-    const withAssistant = withPinnedPropLaneAssistantThreads(base, "manager", viewerId, listSegment);
+    const withAssistant = withPinnedPropLaneAssistantThreads(
+      base,
+      "manager",
+      viewerId,
+      listSegment,
+      assistantWorkspace,
+    );
     if (!threadFilters || !filterContacts) return withAssistant;
     return withAssistant.filter((t) =>
       isPropLaneAssistantInboxThread(t) ||
@@ -534,7 +553,7 @@ export function ManagerUnifiedInbox({
         counterpartyEmail: t.email,
       }),
     );
-  }, [emailThreads, threadFilters, filterContacts, listSegment, smsUiEnabled, viewerId]);
+  }, [assistantWorkspace, emailThreads, threadFilters, filterContacts, listSegment, smsUiEnabled, viewerId]);
 
   const emailListItems = useMemo((): UnifiedInboxListItem[] => {
     const q = query.trim().toLowerCase();
@@ -745,8 +764,25 @@ export function ManagerUnifiedInbox({
       [...emailListItems, ...smsListItems, ...placeholderListItems],
       listSort,
     );
-    return pinPropLaneAssistantUnifiedItems(merged, assistantThreadId);
-  }, [assistantThreadId, emailListItems, listSort, placeholderListItems, smsListItems]);
+    if (!assistantThreadId || !viewerId) {
+      return pinPropLaneAssistantUnifiedItems(merged, assistantThreadId);
+    }
+    const live =
+      emailThreads.find((thread) => thread.id === assistantThreadId) ??
+      buildManagerAssistantPlaceholderThread(viewerId, assistantWorkspace);
+    const item = assistantUnifiedListItemFromThread({ ...live, folder: "inbox" }, listSegment);
+    return ensurePinnedManagerAssistantUnifiedItems(merged, item);
+  }, [
+    assistantThreadId,
+    assistantWorkspace,
+    emailListItems,
+    emailThreads,
+    listSegment,
+    listSort,
+    placeholderListItems,
+    smsListItems,
+    viewerId,
+  ]);
 
   // SSR and the first client paint must agree — local inbox + contact rows load only after mount.
   const listRows = initialListReady
@@ -931,11 +967,10 @@ export function ManagerUnifiedInbox({
       <ManagerWorkNumberCard />
       {listChrome === "internal" ? (
         <div className={PORTAL_INBOX_LIST_TOOLBAR_CLASS}>
-          <CommunicationArchivedInboxButton
+          <InboxListSegmentTabs
             commBase={commBase}
-            listSegment={listSegment}
-            onViewChange={onArchivedViewChange}
-            className="w-full"
+            value={listSegmentProp}
+            onChange={onArchivedViewChange}
           />
           <div className="flex min-w-0 items-center gap-1">
             <div className="relative min-w-0 flex-1">

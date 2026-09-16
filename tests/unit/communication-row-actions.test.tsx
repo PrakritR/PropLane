@@ -93,32 +93,33 @@ it("deletes all ordinary email members after confirmation", async () => {
   expect(mocks.confirm).toHaveBeenCalledOnce();
 });
 
-it("archives the PropLane Assistant and PropLane admin conversations like any other row", async () => {
+it("does not offer Archive on PropLane Assistant, and still archives the PropLane admin conversation", async () => {
   render(<Harness />);
-  open("PropLane Assistant"); fireEvent.click(await screen.findByRole("menuitem", { name: "Archive" }));
-  await waitFor(() => expect(mocks.archive).toHaveBeenLastCalledWith("test-inbox", [ASSISTANT_ID]));
+  open("PropLane Assistant");
+  await screen.findByText("No actions available.");
+  expect(screen.queryByRole("menuitem", { name: "Archive" })).toBeNull();
+  fireEvent.keyDown(await screen.findByRole("menu"), { key: "Escape" });
   await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
   open("PropLane admin"); fireEvent.click(await screen.findByRole("menuitem", { name: "Archive" }));
   await waitFor(() => expect(mocks.archive).toHaveBeenLastCalledWith("test-inbox", ["assistant-email-proof-1", "gone-from-list"]));
   expect(mocks.sms).not.toHaveBeenCalled();
 });
 
-it("offers the assistant and admin rows Archive in a role portal too", async () => {
+it("does not offer Archive on the assistant in a role portal either", async () => {
   render(<Harness manager={false} />);
   open("PropLane Assistant");
-  await screen.findByRole("menuitem", { name: "Archive" });
-  expect(screen.queryByRole("menuitem", { name: "Edit" })).toBeNull();
+  await screen.findByText("No actions available.");
+  expect(screen.queryByRole("menuitem", { name: "Archive" })).toBeNull();
 });
 
-it("restores an archived PropLane Assistant but never deletes it forever", async () => {
+it("never restores or deletes PropLane Assistant, and still deletes the admin mirror", async () => {
   render(<Harness archived />);
   open("PropLane Assistant");
-  await screen.findByRole("menuitem", { name: "Restore" });
+  await screen.findByText("No actions available.");
+  expect(screen.queryByRole("menuitem", { name: "Restore" })).toBeNull();
   expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
-  fireEvent.click(screen.getByRole("menuitem", { name: "Restore" }));
-  await waitFor(() => expect(mocks.restore).toHaveBeenCalledWith("test-inbox", [ASSISTANT_ID]));
+  fireEvent.keyDown(await screen.findByRole("menu"), { key: "Escape" });
   await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
-  // The admin mirror is an ordinary person thread: Restore and Delete both stay.
   open("PropLane admin");
   await screen.findByRole("menuitem", { name: "Restore" });
   expect(screen.getByRole("menuitem", { name: "Delete" })).toBeTruthy();

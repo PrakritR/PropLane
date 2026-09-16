@@ -29,6 +29,7 @@ export function CommunicationFilterSortFields({
   onFiltersChange,
   listSort,
   onListSortChange,
+  hideArchived = false,
 }: {
   propertyOptions: { value: string; label: string }[];
   roleOptions: { value: CommunicationFilterRole; label: string }[];
@@ -36,6 +37,7 @@ export function CommunicationFilterSortFields({
   onFiltersChange: (next: CommunicationThreadFilters) => void;
   listSort: CommunicationListSort;
   onListSortChange: (next: CommunicationListSort) => void;
+  hideArchived?: boolean;
 }) {
   const [draftFilters, setDraftFilters] = usePortalFilterDraft(
     filters,
@@ -49,7 +51,11 @@ export function CommunicationFilterSortFields({
 
   return (
     <FilterFieldsAccordion>
-      <CommunicationStatusFilter value={draftFilters.status ?? "active"} onChange={(status) => setDraftFilters({ ...draftFilters, status })} />
+      <CommunicationStatusFilter
+        value={draftFilters.status ?? "active"}
+        onChange={(status) => setDraftFilters({ ...draftFilters, status })}
+        hideArchived={hideArchived}
+      />
       <FilterCollapsibleSection
         sectionId="house"
         label="House"

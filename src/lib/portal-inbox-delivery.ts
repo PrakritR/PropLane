@@ -15,6 +15,7 @@ import { sendPushToUser } from "@/lib/push-notifications.server";
 import { inboxDeepLinkForRole } from "@/lib/platform/parity";
 import { enqueueWebhookEvent } from "@/lib/webhooks/deliver.server";
 import { webhookEventBuilders } from "@/lib/webhooks/events";
+import { isManagerAgentNoticeThreadId } from "@/lib/communication-manager-assistant-thread";
 // Pinned to Pacific, matching `formatInboxStamp` and every other inbox stamp
 // writer. These stamps are persisted and later re-parsed for conversation
 // ordering, but carry no timezone: this writer runs server-side (UTC on Vercel)
@@ -180,7 +181,7 @@ export async function resolveInboxThreadReplyTarget(
     // Older notifications stamped their event type onto the one canonical
     // assistant thread. Resolve that owner-bound identity without requiring a
     // production data rewrite; a human conversation's name is never a signal.
-    threadType: ownerUserId && threadId === `agent_notice_${ownerUserId}` &&
+    threadType: ownerUserId && isManagerAgentNoticeThreadId(threadId, ownerUserId) &&
       threadRow.scope === MANAGER_INBOX_SCOPE
       ? "agent_notice"
       : String(threadRow.thread_type ?? ""),

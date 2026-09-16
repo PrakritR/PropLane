@@ -52,13 +52,15 @@ const AssistantConversationContext = createContext<AssistantConversationValue | 
 function AssistantConversationState({
   endpoint,
   storageScope,
+  archiveKey,
   children,
 }: {
   endpoint: string;
   storageScope?: string;
+  archiveKey?: string;
   children: ReactNode;
 }) {
-  const conversation = useAssistantConversation(endpoint, { storageScope });
+  const conversation = useAssistantConversation(endpoint, { storageScope, archiveKey });
   return (
     <AssistantConversationContext.Provider value={conversation}>
       {children}
@@ -66,19 +68,30 @@ function AssistantConversationState({
   );
 }
 
-/** One conversation shared by the popup and the docked right rail (unless storageScope is set). */
+/**
+ * One conversation shared by the popup and the docked right rail (unless storageScope is set).
+ * archiveKey swaps the in-memory archive on a workspace switch without remounting
+ * the portal tree — a React key here remounted WorkspaceProvider and looped fetches.
+ */
 export function AssistantConversationProvider({
   endpoint,
   storageScope,
+  archiveKey,
   children,
 }: {
   endpoint: string;
   /** Isolates chat history — used for modal strips so they do not inherit the main thread. */
   storageScope?: string;
+  /** Reloads the portal archive when the manager switches workspace. */
+  archiveKey?: string;
   children: ReactNode;
 }) {
   return (
-    <AssistantConversationState key={`${endpoint}:${storageScope ?? "portal-chat"}`} endpoint={endpoint} storageScope={storageScope}>
+    <AssistantConversationState
+      endpoint={endpoint}
+      storageScope={storageScope}
+      archiveKey={archiveKey}
+    >
       {children}
     </AssistantConversationState>
   );

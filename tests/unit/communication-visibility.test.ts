@@ -7,10 +7,10 @@ import {
 
 /**
  * Communication is decided per HOUSE and per WORKSPACE by one resolver. These
- * tables pin the three rules: the Assistant thread is one account's alone, a
- * co-manager sees another owner's conversation only on a granted house, and
- * the active workspace narrows (an untagged conversation lives in the owner's
- * default workspace).
+ * tables pin the three rules: the Assistant thread is one manager's in one
+ * workspace, a co-manager sees another owner's conversation only on a granted
+ * house, and the active workspace narrows (an untagged conversation lives in
+ * the owner's default workspace).
  */
 
 const VIEWER = "viewer-1";
@@ -24,15 +24,33 @@ function scope(overrides: Partial<CommunicationScope> = {}): CommunicationScope 
     grantedHousesByOwner: new Map(),
     workspaceHouseIds: null,
     untaggedOwnedVisible: true,
+    activeWorkspaceId: null,
+    workspaceByLine: new Map(),
     ...overrides,
   };
 }
 
-describe("conversationVisible — PropLane Assistant is one thread per account", () => {
-  it("shows the viewer's own assistant thread in every workspace, tagged or not", () => {
-    const narrowed = scope({ workspaceHouseIds: new Set(["house-z"]), untaggedOwnedVisible: false });
-    expect(conversationVisible(narrowed, { ownerId: VIEWER, houseIds: [], threadType: "agent_notice" })).toBe(true);
-    expect(conversationVisible(narrowed, { ownerId: VIEWER, houseIds: [], threadId: `agent_notice_${VIEWER}` })).toBe(true);
+describe("conversationVisible — PropLane Assistant is one thread per manager per workspace", () => {
+  it("shows the viewer's assistant only in the workspace that owns that thread", () => {
+    const brooklyn = scope({
+      workspaceHouseIds: new Set(["house-z"]),
+      untaggedOwnedVisible: false,
+      activeWorkspaceId: "ws-brooklyn",
+    });
+    const roosevelt = scope({
+      workspaceHouseIds: new Set(["house-r"]),
+      untaggedOwnedVisible: true,
+      activeWorkspaceId: "ws-roosevelt",
+    });
+    expect(conversationVisible(brooklyn, { ownerId: VIEWER, houseIds: [], threadType: "agent_notice" })).toBe(false);
+    expect(conversationVisible(brooklyn, { ownerId: VIEWER, houseIds: [], threadId: `agent_notice_${VIEWER}` })).toBe(false);
+    expect(conversationVisible(brooklyn, {
+      ownerId: VIEWER,
+      houseIds: [],
+      threadId: `agent_notice_${VIEWER}__ws-brooklyn`,
+      threadType: "agent_notice",
+    })).toBe(true);
+    expect(conversationVisible(roosevelt, { ownerId: VIEWER, houseIds: [], threadId: `agent_notice_${VIEWER}` })).toBe(true);
   });
 
   it("never shows another owner's assistant thread, even with a full grant on every house", () => {
@@ -81,16 +99,23 @@ describe("conversationVisible — the active workspace narrows", () => {
     expect(conversationVisible(otherActive, { ownerId: VIEWER, houseIds: [] })).toBe(false);
   });
 
-  it("shows nothing but the assistant in a brand-new workspace with no houses", () => {
+  it("shows nothing but the workspace-scoped assistant in a brand-new workspace with no houses", () => {
     const empty = scope({
       workspaceHouseIds: new Set(),
       untaggedOwnedVisible: false,
+      activeWorkspaceId: "ws-empty",
       grantedHousesByOwner: new Map([[OWNER, new Set(["house-a"])]]),
     });
     expect(conversationVisible(empty, { ownerId: VIEWER, houseIds: ["house-a"] })).toBe(false);
     expect(conversationVisible(empty, { ownerId: VIEWER, houseIds: [] })).toBe(false);
     expect(conversationVisible(empty, { ownerId: OWNER, houseIds: ["house-a"] })).toBe(false);
-    expect(conversationVisible(empty, { ownerId: VIEWER, houseIds: [], threadType: "agent_notice" })).toBe(true);
+    expect(conversationVisible(empty, { ownerId: VIEWER, houseIds: [], threadType: "agent_notice" })).toBe(false);
+    expect(conversationVisible(empty, {
+      ownerId: VIEWER,
+      houseIds: [],
+      threadId: `agent_notice_${VIEWER}__ws-empty`,
+      threadType: "agent_notice",
+    })).toBe(true);
   });
 
   it("requires the SAME house to be both granted and in the workspace for a co-manager", () => {
