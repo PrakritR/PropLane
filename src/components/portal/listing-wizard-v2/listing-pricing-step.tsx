@@ -86,6 +86,8 @@ import {
   type ManagerRoomSubmission,
 } from "@/lib/manager-listing-submission";
 import { cn } from "@/lib/utils";
+import { FieldMark } from "@/components/portal/listing-wizard-v2/found-online-card";
+import { prefillMarkFor } from "@/lib/listing-prefill/apply";
 
 type Patch = (next: Partial<ManagerListingSubmissionV1>) => void;
 
@@ -438,7 +440,7 @@ function MonthlyCards({
         dataAttr="listing-v2-price-defaults-card"
         rows={
           <div>
-            <FactRow first label={helpRow("Rent /mo", PRICE_HELP.rent)}>
+            <FactRow first label={<>{helpRow("Rent /mo", PRICE_HELP.rent)} {base ? <FieldMark kind={prefillMarkFor(sub, "houseDefaults")} /> : null}</>}>
               {base ? (
                 <MoneyInput label="Rent for every room" value={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : ""} placeholder="1,100" onChange={(v) => onDefault("monthlyRent", num(sanitizeMoneyInput(v)))} />
               ) : (
@@ -667,7 +669,7 @@ function WholePlaceCard({ sub, patch, term }: { sub: ManagerListingSubmissionV1;
   const write = (next: Parameters<typeof applyEntireHomeListingPricing>[1]) => patch(applyEntireHomeListingPricing(sub, next));
   return (
     <Card dataAttr="listing-v2-whole-place-card">
-      <FactRow first label="Rent /mo" required>
+      <FactRow first label={<>Rent /mo <FieldMark kind={prefillMarkFor(sub, "entireHomeMonthlyRent")} /></>} required>
         <MoneyInput label="Rent for the whole place" value={sub.entireHomeMonthlyRent ? String(sub.entireHomeMonthlyRent) : ""} placeholder="3,200" onChange={(v) => write({ entireHomeMonthlyRent: num(sanitizeMoneyInput(v)) || undefined })} />
       </FactRow>
       <FactRow label="Utilities /mo">

@@ -457,7 +457,7 @@ function AmenityPick({
   );
 }
 
-function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+function StepBasics({ sub, patch, onHouseDefaults }: { sub: ManagerListingSubmissionV1; patch: Patch; onHouseDefaults: (next: ListingHouseDefaults) => void }) {
   const rentByRoom = sub.listingPlaceCategoryId !== "entire_home";
   const roomCount = sub.rooms?.length || sub.listingBedroomSlots || 1;
   const setRentModel = (id: "shared_home" | "entire_home") => patch({ listingPlaceCategoryId: id, rentalModelStamp: id });
@@ -618,7 +618,7 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
             }}
           />
         </Field>
-        <FoundOnlineCard sub={sub} patch={patch} lookup={lookup} />
+        <FoundOnlineCard sub={sub} patch={patch} lookup={lookup} onHouseDefaults={onHouseDefaults} />
         <FieldRow cols={4}>
           <Field label="City" required>
             <Input value={sub.city} onChange={(e) => patch({ city: e.target.value })} />
@@ -2740,22 +2740,14 @@ function HouseKeepingGroups({ sub, patch }: { sub: ManagerListingSubmissionV1; p
  */
 function RentEstimateLine({ sub }: { sub: ManagerListingSubmissionV1 }) {
   const r = sub.prefill;
-  if (!r || (!r.rentEstimateUsd && !r.listedRentUsd)) return null;
+  if (!r?.rentEstimateUsd) return null;
   const usd = (n: number) => `$${n.toLocaleString("en-US")}`;
-  const parts: string[] = [];
-  if (r.rentEstimateUsd) {
-    const range = r.rentEstimateLowUsd && r.rentEstimateHighUsd ? ` · range ${usd(r.rentEstimateLowUsd)}–${usd(r.rentEstimateHighUsd)}` : "";
-    parts.push(`Estimate ≈ ${usd(r.rentEstimateUsd)}/mo${range}`);
-  }
-  if (r.listedRentUsd) {
-    const when = r.listedRentAt ? new Date(r.listedRentAt) : null;
-    const label = when && !Number.isNaN(when.getTime()) ? ` in ${when.toLocaleDateString("en-US", { month: "short", year: "numeric" })}` : "";
-    parts.push(`Listed at ${usd(r.listedRentUsd)}${label}`);
-  }
+  const range = r.rentEstimateLowUsd && r.rentEstimateHighUsd ? ` · range ${usd(r.rentEstimateLowUsd)}–${usd(r.rentEstimateHighUsd)}` : "";
+  const perRoom = r.rentPerRoomUsd && r.fields.includes("houseDefaults") ? ` · ≈ ${usd(r.rentPerRoomUsd)} per room` : "";
   return (
     <p className="-mt-2 mb-4 text-[12.5px] font-semibold text-muted" data-attr="listing-v2-rent-estimate">
       <span aria-hidden className="mr-1 text-[var(--pl-blue-deep)]">✦</span>
-      {parts.join(" · ")}
+      {`Estimate ≈ ${usd(r.rentEstimateUsd)}/mo${range}${perRoom}`}
     </p>
   );
 }
@@ -3085,7 +3077,7 @@ export function ListingEditorV2({
       case "basics":
         return (
           <>
-            <StepBasics sub={submission} patch={patch} />
+            <StepBasics sub={submission} patch={patch} onHouseDefaults={setDefaults} />
             <AddDetailsRow
               sub={submission}
               pathIds={pathIds}

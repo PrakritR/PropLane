@@ -2,16 +2,11 @@
  * Address prefill — the shapes shared by the lookup route, the pure apply
  * step and the wizard card.
  *
- * Two kinds of information flow through here and they are kept apart on
- * purpose (docs/agents/listing-prefill.md):
- *
- * - FACTS about the home (type, beds, baths, size, year, floors, lot, the
- *   amenities a record carries, a rent estimate) come from a licensed
- *   property-records provider by address.
- * - The AD for the home (headline, description, extra amenities, pet rule)
- *   comes only from text the manager pastes. PropLane never fetches a listing
- *   page — every listing site forbids it — so an earlier ad is only ever
- *   POINTED AT (site, title, date, link) by a search index.
+ * FACTS about the home (type, beds, baths, size, year, floors, lot, the
+ * amenities a record carries, a rent estimate) come from a licensed
+ * property-records provider by address. Nothing else is looked up: PropLane
+ * never fetches a listing page or searches for one
+ * (docs/agents/listing-prefill.md).
  */
 
 /** The property-type ids the wizard's tiles use (`PROPERTY_KIND_TILES`). */
@@ -37,41 +32,17 @@ export type RentEstimate = {
   comparables: number | null;
 };
 
-/** A public ad the search index found for the address. Never fetched. */
-export type PriorAdMatch = {
-  site: string;
-  title: string;
-  url: string;
-  snippet: string;
-  /** ISO date when the index reports one. */
-  postedAt: string | null;
-  listedRentUsd: number | null;
-};
-
 export type ListingPrefillStatus = "found" | "none" | "quota" | "error" | "unavailable";
 
 export type ListingPrefillResult = {
   status: ListingPrefillStatus;
   facts: AddressFacts | null;
   rent: RentEstimate | null;
-  priorAd: PriorAdMatch | null;
   /** True when this answer came from the 30-day cache and cost no lookup. */
   cached: boolean;
   /** Lookups left this month on a capped plan; null when unlimited. */
   lookupsLeft: number | null;
   source: "rentcast" | "fixture" | null;
-};
-
-/** What the extractor reads out of pasted ad text. Every field may be absent. */
-export type ExtractedAd = {
-  headline: string | null;
-  description: string | null;
-  amenities: string[];
-  petsAllowed: boolean | null;
-  listedRentUsd: number | null;
-  bedrooms: number | null;
-  bathrooms: number | null;
-  squareFeet: number | null;
 };
 
 /**
@@ -83,20 +54,19 @@ export type ListingPrefillRecordV1 = {
   /** `file` — written by the property import (a spreadsheet the manager uploaded). */
   source: "rentcast" | "fixture" | "file";
   fetchedAt: string;
-  /** Submission keys the facts prefill wrote. */
+  /** Submission keys the facts prefill wrote (`houseDefaults` / `entireHomeMonthlyRent` mean the estimated rent). */
   fields: string[];
-  /** Submission keys the pasted-ad import wrote. */
+  /** Submission keys the property import wrote — marked "Imported" rather than "Filled". */
   adFields: string[];
   /** Exact values the touched keys held before, so Undo restores them. */
   previous: Record<string, unknown>;
   rentEstimateUsd?: number;
   rentEstimateLowUsd?: number;
   rentEstimateHighUsd?: number;
-  listedRentUsd?: number;
-  listedRentAt?: string | null;
+  /** The estimate split per bedroom, when the click wrote it as the Default room's rent. */
+  rentPerRoomUsd?: number;
   /** The address key the manager dismissed with "Not this home". */
   dismissedAddressKey?: string;
-  adDismissed?: boolean;
 };
 
 /** Address parts the route accepts; the wizard sends what the autocomplete filled. */
