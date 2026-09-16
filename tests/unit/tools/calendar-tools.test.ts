@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { AgentContext } from "@/lib/tools/context";
 import { buildRegistry } from "@/lib/tools/registry";
 import {
@@ -531,6 +531,31 @@ describe("create_calendar_event", () => {
       payload: Record<string, unknown>[];
     };
     expect(rowData.payload.find((e) => e.title === "Roof inspection")!.kind).toBeUndefined();
+  });
+
+  it.each([true, false])("passes a valid RPC payload for an off-grid event with blocksTours=%s", async (blocksTours) => {
+    const ctx = makeCtx(seedTables());
+    const rpc = vi.fn(async (_name: string, args: { p_operation: string; p_event: Row }) => {
+      if (args.p_operation === "append" && !args.p_event.slotKey) {
+        return { data: null, error: { message: "invalid tour event" } };
+      }
+      return { data: { ok: true }, error: null };
+    });
+    Object.assign(ctx.db, { rpc });
+    const window = {
+      startsAtIso: "2026-07-25T16:45:00.000Z",
+      endsAtIso: "2026-07-25T17:15:00.000Z",
+    };
+    const result = await executeWrite(createCalendarEventTool, ctx, { ...input, ...window, blocksTours });
+    expect(result.ok).toBe(true);
+    expect(rpc).toHaveBeenCalledOnce();
+    expect(rpc.mock.calls[0][0]).toBe("mutate_confirmed_tour_schedule");
+    const args = rpc.mock.calls[0][1];
+    expect(args.p_operation).toBe(blocksTours ? "append" : "append_event");
+    expect(args.p_event.start).toBe(window.startsAtIso);
+    expect(args.p_event.end).toBe(window.endsAtIso);
+    expect(args.p_event.slotKey).toBe(blocksTours ? "2026-07-25:19" : undefined);
+    expect(args.p_event.kind).toBe(blocksTours ? "tour" : undefined);
   });
 
   it("says in the preview whether the time stays bookable", async () => {

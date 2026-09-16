@@ -10,6 +10,7 @@ import {
 } from "@/lib/demo-admin-scheduling";
 import { managerScheduleRecordIdOwnedByUser } from "@/lib/portal-schedule-record-scope";
 import { mutateConfirmedTourSchedule } from "@/lib/tour-schedule-persistence.server";
+import { slotKeyForInstant } from "@/lib/tour-slot-math";
 import {
   INQUIRIES_RECORD_ID,
   PLANNED_RECORD_ID,
@@ -590,7 +591,9 @@ export const createCalendarEventTool = defineWriteTool({
       // still be booked over it from the public page, which is exactly the
       // double-book this whole subsystem exists to prevent. Default stays off:
       // an ordinary meeting should not silently close a booking window.
-      ...(input.blocksTours === true ? { kind: "tour" as const } : {}),
+      ...(input.blocksTours === true
+        ? { kind: "tour" as const, slotKey: slotKeyForInstant(input.startsAtIso) ?? undefined }
+        : {}),
     };
     const atomic = await mutateConfirmedTourSchedule(ctx.db, {
       operation: input.blocksTours === true ? "append" : "append_event",
