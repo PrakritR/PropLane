@@ -108,12 +108,16 @@ import {
   entireHomeMonthlyRentAmount,
   formatLeaseTermsBodyFromAllowed,
   isEntireHomeListing,
+  MAX_LISTING_BATHROOMS,
+  MAX_LISTING_ROOMS,
   normalizeManagerListingSubmissionV1,
   normalizeRoomSizeSqft,
   resolveAllowedLeaseTerms,
   syncAirbnbLeaseTermInAllowed,
   syncShortTermLeaseTermInAllowed,
+  duplicateBathroomEntry,
   duplicateRoomEntry,
+  duplicateSharedSpaceEntry,
   emptyBathroom,
   emptyBundleRow,
   emptyCustomFeeRow,
@@ -2871,7 +2875,7 @@ export function ManagerAddListingForm({
   };
 
   const duplicateRoom = (i: number) => {
-    if (sub.rooms.length >= 20) {
+    if (sub.rooms.length >= MAX_LISTING_ROOMS) {
       showToast("Maximum 20 rooms.");
       return;
     }
@@ -2882,6 +2886,30 @@ export function ManagerAddListingForm({
       rooms: [...s.rooms.slice(0, i + 1), copy, ...s.rooms.slice(i + 1)],
     }));
     showToast("Room duplicated — edit the copy below.");
+  };
+
+  const duplicateBathroom = (i: number) => {
+    if (sub.bathrooms.length >= MAX_LISTING_BATHROOMS) {
+      showToast("Maximum 12 bathrooms.");
+      return;
+    }
+    const copy = duplicateBathroomEntry(sub.bathrooms[i]!);
+    expandListingItem(listingItemKey("bathroom", copy.id));
+    setSub((s) => ({
+      ...s,
+      bathrooms: [...s.bathrooms.slice(0, i + 1), copy, ...s.bathrooms.slice(i + 1)],
+    }));
+    showToast("Bathroom duplicated — edit the copy below.");
+  };
+
+  const duplicateSharedSpace = (i: number) => {
+    const copy = duplicateSharedSpaceEntry(sub.sharedSpaces[i]!);
+    expandListingItem(listingItemKey("shared", copy.id));
+    setSub((s) => ({
+      ...s,
+      sharedSpaces: [...s.sharedSpaces.slice(0, i + 1), copy, ...s.sharedSpaces.slice(i + 1)],
+    }));
+    showToast("Shared space duplicated — edit the copy below.");
   };
 
   const addBathroom = () => {
@@ -6002,7 +6030,7 @@ export function ManagerAddListingForm({
                           variant="outline"
                           className={LISTING_WIZARD_ACTION_BTN}
                           onClick={() => duplicateRoom(i)}
-                          disabled={sub.rooms.length >= 20}
+                          disabled={sub.rooms.length >= MAX_LISTING_ROOMS}
                         >
                           Duplicate
                         </Button>
@@ -6402,16 +6430,27 @@ export function ManagerAddListingForm({
                     bodyClassName={ROOM_PRICE_GRID}
                     toggleDataAttr={`listing-bathroom-toggle-${b.id}`}
                     headerActions={
-                      sub.bathrooms.length > 1 ? (
+                      <>
                         <Button
                           type="button"
                           variant="outline"
-                          className={LISTING_WIZARD_REMOVE_BTN}
-                          onClick={() => removeBathroom(i)}
+                          className={LISTING_WIZARD_ACTION_BTN}
+                          onClick={() => duplicateBathroom(i)}
+                          disabled={sub.bathrooms.length >= MAX_LISTING_BATHROOMS}
                         >
-                          Remove
+                          Duplicate
                         </Button>
-                      ) : null
+                        {sub.bathrooms.length > 1 ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className={LISTING_WIZARD_REMOVE_BTN}
+                            onClick={() => removeBathroom(i)}
+                          >
+                            Remove
+                          </Button>
+                        ) : null}
+                      </>
                     }
                   >
                       <div className="sm:col-span-2" data-wizard-field={bathNameKey}>
@@ -6658,6 +6697,14 @@ export function ManagerAddListingForm({
                       toggleDataAttr={`listing-shared-toggle-${sp.id}`}
                       headerActions={
                         <>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className={LISTING_WIZARD_ACTION_BTN}
+                            onClick={() => duplicateSharedSpace(i)}
+                          >
+                            Duplicate
+                          </Button>
                           <Button type="button" variant="outline" className={LISTING_WIZARD_REMOVE_BTN} onClick={() => removeSharedSpace(i)}>
                             Remove
                           </Button>

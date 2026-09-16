@@ -24,7 +24,7 @@ import {
 } from "@/lib/demo-property-pipeline";
 import { deleteSubmissionMediaObjects } from "@/lib/listing-media-storage";
 import { migrateAmenityOffersPropertyId } from "@/lib/manager-amenity-catalog-storage";
-import { legacyAdminFieldsToSubmission, normalizeManagerListingSubmissionV1, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { duplicateListingSubmission, legacyAdminFieldsToSubmission, normalizeManagerListingSubmissionV1, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { collectLinkedPropertyIdsForModule, readLinkedListingsForUser, safePropertyOptionLabel } from "@/lib/manager-portfolio-access";
 import type { ManagerPropertyRecordStatus } from "@/lib/persisted-property-records";
 import { parseMonthlyRent } from "@/lib/listings-search";
@@ -724,6 +724,19 @@ export async function saveManagerPropertyDraftToServer(
   // egress of a button a manager can press on every wizard step.
   writeSideStorage({ ...fresh, drafts }, managerUserId);
   return listingId;
+}
+
+/**
+ * Clone a listing into a NEW draft. Never overwrites the source id, never publishes.
+ */
+export async function duplicateManagerPropertyDraftToServer(
+  source: ManagerListingSubmissionV1,
+  managerUserId: string,
+  opts?: Pick<SaveManagerPropertyDraftOptions, "onError">,
+): Promise<string | null> {
+  return saveManagerPropertyDraftToServer(duplicateListingSubmission(source), managerUserId, {
+    onError: opts?.onError,
+  });
 }
 
 /**

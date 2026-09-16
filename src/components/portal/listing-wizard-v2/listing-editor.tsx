@@ -56,6 +56,11 @@ import {
   resolveAllowedLeaseTerms,
   syncAirbnbLeaseTermInAllowed,
   syncShortTermLeaseTermInAllowed,
+  duplicateBathroomEntry,
+  duplicateRoomEntry,
+  duplicateSharedSpaceEntry,
+  MAX_LISTING_BATHROOMS,
+  MAX_LISTING_ROOMS,
   type ManagerListingSubmissionV1,
   type ManagerBathroomRoomAccessKind,
   type ManagerBathroomSubmission,
@@ -81,7 +86,7 @@ import {
 } from "@/lib/listing-room-derived-pricing";
 import { getHouseInfoValue, normalizeHouseInfo, setHouseInfoValue } from "@/lib/house-info";
 import { applyListingBathroomSlots, applyListingBedroomSlots } from "@/lib/manager-listing-submission";
-import { useConfirm } from "@/components/providers/app-ui-provider";
+import { useConfirm, useOptionalAppUi } from "@/components/providers/app-ui-provider";
 import {
   applyBathroomDefaults,
   BATHROOM_INHERIT_FIELDS,
@@ -1295,6 +1300,7 @@ function StepRooms({
   /** Rooms whose "Same as default room" was unticked on purpose: their own on every field until re-ticked. */
   const [unticked, setUnticked] = useState<Set<string>>(new Set());
   const confirm = useConfirm();
+  const ui = useOptionalAppUi();
   const rooms = sub.rooms ?? [];
   const baths = sub.bathrooms ?? [];
   const wholePlace = sub.listingPlaceCategoryId === "entire_home";
@@ -1481,6 +1487,16 @@ function StepRooms({
             namePlaceholder={`${wholePlace ? "Bedroom" : "Room"} ${i + 1}`}
             onName={(v) => writeRoom(room.id, { name: v })}
             same={<SameAsAllToggle same={sameAsAll(room)} noun={noun} onChange={(next) => setSameAsAll(room, next)} onReset={() => setSameAsAll(room, true)} dataAttr="listing-v2-room-same-as-all" />}
+            onDuplicate={() => {
+              if (rooms.length >= MAX_LISTING_ROOMS) {
+                ui?.showToast("Maximum 20 rooms.");
+                return;
+              }
+              const copy = duplicateRoomEntry(room);
+              const idx = rooms.findIndex((r) => r.id === room.id);
+              writeRooms([...rooms.slice(0, idx + 1), copy, ...rooms.slice(idx + 1)]);
+              setOpen(copy.id);
+            }}
             onRemove={rooms.length > 1 && isRoomSlotRemovable(room) ? () => { writeRooms(rooms.filter((r) => r.id !== room.id)); if (open === room.id) setOpen(null); } : undefined}
             removeLabel={`Remove ${label}`}
             summary={summaryFor(room)}
@@ -1678,6 +1694,7 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
   const defaults = bathroomDefaultsForSubmission(sub);
   const own = useOwnFields();
   const confirm = useConfirm();
+  const ui = useOptionalAppUi();
   const baths = sub.bathrooms ?? [];
   const rooms = sub.rooms ?? [];
   const wholePlace = sub.listingPlaceCategoryId === "entire_home";
@@ -1828,6 +1845,16 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
             namePlaceholder={`Bathroom ${i + 1}`}
             onName={(v) => writeBath(bath.id, { ...bath, name: v })}
             same={<SameAsAllToggle same={sameAsAll(bath)} noun="bathroom" onChange={(next) => setSameAsAll(bath, next)} onReset={() => setSameAsAll(bath, true)} dataAttr="listing-v2-bath-same-as-all" />}
+            onDuplicate={() => {
+              if (baths.length >= MAX_LISTING_BATHROOMS) {
+                ui?.showToast("Maximum 12 bathrooms.");
+                return;
+              }
+              const copy = duplicateBathroomEntry(bath);
+              const idx = baths.findIndex((b) => b.id === bath.id);
+              patch({ bathrooms: [...baths.slice(0, idx + 1), copy, ...baths.slice(idx + 1)] });
+              setOpen(copy.id);
+            }}
             onRemove={() => {
               patch({ bathrooms: baths.filter((b) => b.id !== bath.id) });
               if (open === bath.id) setOpen(null);
@@ -1862,6 +1889,10 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
         icon={Bath}
         dataAttr="listing-v2-add-bath"
         onClick={() => {
+          if (baths.length >= MAX_LISTING_BATHROOMS) {
+            ui?.showToast("Maximum 12 bathrooms.");
+            return;
+          }
           const base = baths[0];
           const id = `bath-${Date.now()}`;
           const blank = base
@@ -2110,6 +2141,12 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
             namePlaceholder="Kitchen"
             onName={(v) => writeSpace(space.id, { ...space, name: v })}
             same={<SameAsAllToggle same={sameAsAll(space)} noun="shared space" onChange={(next) => setSameAsAll(space, next)} onReset={() => setSameAsAll(space, true)} dataAttr="listing-v2-space-same-as-all" />}
+            onDuplicate={() => {
+              const copy = duplicateSharedSpaceEntry(space);
+              const idx = spaces.findIndex((sp) => sp.id === space.id);
+              patch({ sharedSpaces: [...spaces.slice(0, idx + 1), copy, ...spaces.slice(idx + 1)] });
+              setOpen(copy.id);
+            }}
             onRemove={() => {
               patch({ sharedSpaces: spaces.filter((sp) => sp.id !== space.id) });
               if (open === space.id) setOpen(null);

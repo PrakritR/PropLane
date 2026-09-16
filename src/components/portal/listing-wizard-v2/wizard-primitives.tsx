@@ -1234,6 +1234,8 @@ export function RecordCard({
   rows,
   help,
   same,
+  onDuplicate,
+  duplicateLabel,
   onRemove,
   removeLabel,
 }: {
@@ -1243,6 +1245,9 @@ export function RecordCard({
   help?: string;
   /** The "Same as default room" line under the name. */
   same?: ReactNode;
+  /** Labeled Duplicate, left of ✕. Hidden on Default cards by not passing this. */
+  onDuplicate?: () => void;
+  duplicateLabel?: string;
   /** The ✕ in the header that removes the record. */
   onRemove?: () => void;
   removeLabel?: string;
@@ -1291,13 +1296,24 @@ export function RecordCard({
           )}
           {same}
         </span>
+        {onDuplicate ? (
+          <button
+            type="button"
+            onClick={onDuplicate}
+            aria-label={duplicateLabel ?? `Duplicate ${toggleLabel ?? name ?? "this"}`}
+            data-attr={dataAttr ? `${dataAttr}-duplicate` : "listing-v2-card-duplicate"}
+            className="inline-flex h-11 shrink-0 items-center justify-center rounded-md border border-border px-2.5 text-[12px] font-bold text-primary hover:bg-foreground/[0.06]"
+          >
+            Duplicate
+          </button>
+        ) : null}
         {onRemove ? (
           <button
             type="button"
             onClick={onRemove}
             aria-label={removeLabel ?? `Remove ${toggleLabel ?? name ?? "this"}`}
             data-attr={dataAttr ? `${dataAttr}-remove` : "listing-v2-card-remove"}
-            className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-muted hover:bg-foreground/[0.06] hover:text-foreground"
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-md text-muted hover:bg-foreground/[0.06] hover:text-foreground"
           >
             ✕
           </button>

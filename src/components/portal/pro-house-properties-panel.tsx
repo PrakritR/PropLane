@@ -6,7 +6,7 @@ import { WORKSPACE_SELECTION_EVENT, activeWorkspaceScope, propertiesOutsideActiv
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, Eye, Home, Pencil, Share2, Trash2 } from "lucide-react";
+import { ChevronDown, Copy, Eye, Home, Pencil, Share2, Trash2 } from "lucide-react";
 import {
   propertyRowAddress,
   propertyRowAddressLine,
@@ -90,6 +90,7 @@ import {
   compareAdminPropertyRowsForDisplay,
   deleteManagerPropertyDraft,
   deleteUnlistedManagerProperty,
+  duplicateManagerPropertyDraftToServer,
   listAdminRow,
   readAdminPropertyRows,
   resolveAdminPropertyRowPreview,
@@ -198,6 +199,59 @@ function submissionForAdminRow(row: AdminPropertyRow): ManagerListingSubmissionV
       tagline: row.tagline,
     }),
   );
+}
+
+function listingSubmissionForDuplicate(
+  row: AdminPropertyRow,
+  managerUserId: string,
+): ManagerListingSubmissionV1 {
+  const listingId = row.listingId?.trim();
+  if (listingId) {
+    const ownerId = linkedPropertyOwnerId(managerUserId, listingId) ?? managerUserId;
+    const owned = readExtraListingsForUser(ownerId).find((x) => x.id === listingId);
+    if (owned) return submissionForListedEdit(owned);
+    if (ownerId !== managerUserId) {
+      const own = readExtraListingsForUser(managerUserId).find((x) => x.id === listingId);
+      if (own) return submissionForListedEdit(own);
+    }
+  }
+  return submissionForAdminRow(row);
+}
+
+function propertyRowCanDuplicate(
+  managerUserId: string | null,
+  entry: { linked: boolean; row: AdminPropertyRow },
+): boolean {
+  if (!managerUserId) return false;
+  if (!entry.linked) return true;
+  const pid = entry.row.listingId?.trim() || entry.row.adminRefId.trim();
+  return hasLinkedPropertyModuleLevel(managerUserId, pid, "properties", "edit");
+}
+
+async function duplicatePropertyRowAsDraft(opts: {
+  row: AdminPropertyRow;
+  managerUserId: string | null;
+  showToast: (message: string) => void;
+  onOpenDraft: (draftId: string) => void;
+  onUpdated: () => void;
+}): Promise<void> {
+  const { row, managerUserId, showToast, onOpenDraft, onUpdated } = opts;
+  if (!managerUserId) {
+    showToast("Could not duplicate.");
+    return;
+  }
+  const id = await duplicateManagerPropertyDraftToServer(
+    listingSubmissionForDuplicate(row, managerUserId),
+    managerUserId,
+    { onError: () => showToast("Could not duplicate.") },
+  );
+  if (!id) {
+    showToast("Could not duplicate.");
+    return;
+  }
+  onUpdated();
+  showToast("Draft created.");
+  onOpenDraft(id);
 }
 
 /** Lets the browser paint after click before heavy localStorage writes (better INP on delete/unlist). */
@@ -408,6 +462,7 @@ function ManagerPropertyInlineDetails({
   const displaySub = portalSub?.sub ?? null;
   const [listingEditorOpen, setListingEditorOpen] = useState(false);
   const [draftEditorOpen, setDraftEditorOpen] = useState(false);
+  const [duplicateBusy, setDuplicateBusy] = useState(false);
   const [shareApplicationOpen, setShareApplicationOpen] = useState(false);
   const [portalSettingsOpen, setPortalSettingsOpen] = useState(false);
   const [residentOnboardOpen, setResidentOnboardOpen] = useState(false);
@@ -467,6 +522,50 @@ function ManagerPropertyInlineDetails({
   const listingOwnerUserId = portalSub?.ownerUserId ?? managerUserId;
 
   const openFullListingEditor = () => setListingEditorOpen(true);
+  const canDuplicateAction = Boolean(row && managerUserId && canEditLevel);
+  const runDuplicateProperty = () => {
+    if (!row || duplicateBusy || !canDuplicateAction) return;
+    setDuplicateBusy(true);
+    void duplicatePropertyRowAsDraft({
+      row,
+      managerUserId,
+      showToast,
+      onUpdated,
+      onOpenDraft: (id) => {
+        detailRouter.push(
+          `${propertyDetailHref(propertiesBase, "all", id, "preview")}?edit=1`,
+          { scroll: false },
+        );
+      },
+    }).finally(() => setDuplicateBusy(false));
+  };
+  const duplicateFooterAction = (): PortalAdaptiveAction => ({
+    id: "duplicate-listing",
+    node: (
+      <Button
+        type="button"
+        variant="outline"
+        className={propertyDetailFooterBtn}
+        data-attr="listing-duplicate"
+        aria-label="Duplicate"
+        title="Duplicate"
+        disabled={duplicateBusy}
+        onClick={() => runDuplicateProperty()}
+      >
+        <Copy className="size-4" aria-hidden />
+        <span className="sr-only">Duplicate</span>
+      </Button>
+    ),
+    menuItem: (
+      <DropdownMenuItem
+        data-attr="listing-duplicate"
+        disabled={duplicateBusy}
+        onSelect={() => runDuplicateProperty()}
+      >
+        Duplicate
+      </DropdownMenuItem>
+    ),
+  });
   useEffect(() => {
     if (detailSearchParams.get("edit") !== "1") return;
     if (bucket === 5) {
@@ -781,6 +880,7 @@ function ManagerPropertyInlineDetails({
             </DropdownMenuItem>
           ),
         });
+        if (canDuplicateAction) actions.push(duplicateFooterAction());
         actions.push({
           id: "unlist",
           node: (
@@ -893,6 +993,7 @@ function ManagerPropertyInlineDetails({
             ),
           });
         }
+        if (canDuplicateAction) actions.push(duplicateFooterAction());
         if (canDeleteAction) {
           actions.push({
             id: "delete-queue",
@@ -960,6 +1061,7 @@ function ManagerPropertyInlineDetails({
             </DropdownMenuItem>
           ),
         });
+        if (canDuplicateAction) actions.push(duplicateFooterAction());
         actions.push({
           id: "delete-draft",
           node: (
@@ -1008,8 +1110,11 @@ function ManagerPropertyInlineDetails({
     canEditAction,
     canEditListing,
     canDeleteAction,
+    canDuplicateAction,
+    duplicateBusy,
     sharePropertyId,
     openFullListingEditor,
+    runDuplicateProperty,
     onSendToProspect,
     showToast,
     onUpdated,
@@ -1553,6 +1658,9 @@ export function ManagerHousePropertiesPanel({
   );
 
   const canBulkEdit = selectedPropertyEntries.length === 1;
+  const canBulkDuplicate =
+    selectedPropertyEntries.length === 1 &&
+    propertyRowCanDuplicate(managerUserId, selectedPropertyEntries[0]!);
   // Share is NOT gated on a single selection the way Edit is. The share modal's
   // `listing` and `apply` kinds are multi-select by design — several listings
   // become a filtered browse link — so requiring exactly one hid the multi-send
@@ -1597,6 +1705,33 @@ export function ManagerHousePropertiesPanel({
     propertyKeyFromRow,
     router,
     selectedPropertyEntries,
+  ]);
+
+  const runDuplicateSelected = useCallback(() => {
+    const first = selectedPropertyEntries[0];
+    if (!first || !canBulkDuplicate) return;
+    void duplicatePropertyRowAsDraft({
+      row: first.row,
+      managerUserId,
+      showToast,
+      onUpdated: handlePropertyUpdated,
+      onOpenDraft: (id) => {
+        clearSelection();
+        router.push(
+          `${propertyDetailHref(propertiesBase, "all", id, "preview")}?edit=1`,
+          { scroll: false },
+        );
+      },
+    });
+  }, [
+    canBulkDuplicate,
+    clearSelection,
+    handlePropertyUpdated,
+    managerUserId,
+    propertiesBase,
+    router,
+    selectedPropertyEntries,
+    showToast,
   ]);
 
   const runBulkRelist = useCallback(() => {
@@ -2011,6 +2146,17 @@ export function ManagerHousePropertiesPanel({
                 {selectedPropertyEntries.length > 1
                   ? `Share ${selectedPropertyEntries.length}`
                   : "Share"}
+              </Button>
+            ) : null}
+            {canBulkDuplicate ? (
+              <Button
+                type="button"
+                variant="outline"
+                className={PORTAL_BULK_BAR_BTN}
+                data-attr="properties-bulk-duplicate"
+                onClick={runDuplicateSelected}
+              >
+                Duplicate
               </Button>
             ) : null}
             {canBulkUnlist ? (
