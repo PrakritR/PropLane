@@ -145,6 +145,7 @@ export const PaymentListingLateFeeSettings = forwardRef<
   const [baseline, setBaseline] = useState<LateFeeBaseline | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   const firstOptionId = propertyOptions[0]?.id ?? "";
   useEffect(() => {
@@ -192,6 +193,7 @@ export const PaymentListingLateFeeSettings = forwardRef<
   const save = useCallback(
     async (options?: { silent?: boolean }) => {
       if (!pendingSave || !baseline || !managerUserId) return true;
+      savingRef.current = true;
       setSaving(true);
       reportSaveStatus({ type: "start" });
       try {
@@ -223,6 +225,7 @@ export const PaymentListingLateFeeSettings = forwardRef<
         reportSaveStatus({ type: "failure", reason: message });
         return false;
       } finally {
+        savingRef.current = false;
         setSaving(false);
       }
     },
@@ -238,15 +241,16 @@ export const PaymentListingLateFeeSettings = forwardRef<
 
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (!pendingSave || saving) return;
+    if (!pendingSave) return;
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     autosaveTimerRef.current = setTimeout(() => {
+      if (savingRef.current) return;
       void save({ silent: true });
     }, 600);
     return () => {
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     };
-  }, [pendingSave, save, saving]);
+  }, [pendingSave, save]);
 
   useFlushSettingsAutosaveOnUnmount(save, pendingSave);
 

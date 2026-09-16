@@ -85,4 +85,40 @@ describe("Payment settings late fee amount", () => {
     const [, , next] = persistOnServer.mock.calls.at(-1)!;
     expect(next).toMatchObject({ lateFeeAmount: "75", lateFeeGraceDays: 6 });
   });
+
+  it("does not retry a failed persist until the manager edits again", async () => {
+    const sub = normalizeManagerListingSubmissionV1({
+      ...createDefaultListingSubmission(),
+      lateFeeAmount: "50",
+      lateFeeGraceDays: 5,
+    });
+    resolveHit.mockReturnValue({
+      saveTarget: { mode: "listing", saveId: "house-1" },
+      sub,
+    });
+    persistOnServer.mockResolvedValue(false);
+
+    render(
+      <PaymentListingLateFeeSettings
+        propertyOptions={[{ id: "house-1", label: "5257 Brooklyn" }]}
+        initialPropertyId="house-1"
+      />,
+    );
+
+    const amount = await screen.findByLabelText("Late fee amount");
+    await waitFor(() => expect((amount as HTMLInputElement).disabled).toBe(false));
+    await userEvent.clear(amount);
+    await userEvent.type(amount, "75");
+
+    await waitFor(() => expect(persistOnServer).toHaveBeenCalledTimes(1), { timeout: 2000 });
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(persistOnServer).toHaveBeenCalledTimes(1);
+    expect(showToast).toHaveBeenCalledTimes(1);
+
+    persistOnServer.mockResolvedValue(true);
+    await userEvent.type(amount, "0");
+    await waitFor(() => expect(persistOnServer).toHaveBeenCalledTimes(2), { timeout: 2000 });
+    const [, , next] = persistOnServer.mock.calls.at(-1)!;
+    expect(next).toMatchObject({ lateFeeAmount: "750" });
+  });
 });
