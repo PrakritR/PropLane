@@ -25,11 +25,9 @@ describe("manager payment settings — serviceFeePayer field", () => {
     expect(normalizeManagerManualPaymentSettings({ serviceFeePayer: "proplane" }).serviceFeePayer).toBe("proplane");
   });
 
-  it("clears stored Zelle/Venmo config while keeping the service-fee choice", () => {
-    // bc91cc80 removed Zelle/Venmo from manager setup, and the normalizer now
-    // forces them off rather than trusting whatever is still on the row. Managers
-    // configured before the change keep that data in storage, so reading it back
-    // as "enabled" would put a dead payment channel in front of residents.
+  it("drops retired off-platform config while keeping the service-fee choice", () => {
+    // Off-platform channels were removed (PLAN-0916). Managers configured before
+    // the change keep that data in storage; the normalizer must not read it back.
     const s = normalizeManagerManualPaymentSettings({
       serviceFeePayer: "manager",
       zellePaymentsEnabled: true,
@@ -37,11 +35,7 @@ describe("manager payment settings — serviceFeePayer field", () => {
       venmoPaymentsEnabled: true,
       venmoContact: "@me",
     });
-    expect(s.serviceFeePayer).toBe("manager");
-    expect(s.zellePaymentsEnabled).toBe(false);
-    expect(s.zelleContact).toBe("");
-    expect(s.venmoPaymentsEnabled).toBe(false);
-    expect(s.venmoContact).toBe("");
+    expect(s).toEqual({ axisPaymentsEnabled: true, serviceFeePayer: "manager" });
   });
 });
 

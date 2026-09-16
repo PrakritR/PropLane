@@ -33,16 +33,11 @@ export type ManagerApplicationSettings = {
    * this manager (default). `every_time` — charge on every new application.
    */
   applicationFeeChargePolicy: ApplicationFeeChargePolicy;
-  /** Optional custom payment instructions (Zelle/Venmo/cash, etc.). */
-  applicationFeeOtherEnabled: boolean;
-  applicationFeeOtherInstructions: string;
 };
 
 export const DEFAULT_MANAGER_APPLICATION_SETTINGS: ManagerApplicationSettings = {
   applicationFeeCents: null,
   applicationFeeChargePolicy: "first_only",
-  applicationFeeOtherEnabled: false,
-  applicationFeeOtherInstructions: "",
 };
 
 /** Legacy per-listing fallback used when no manager-level value and no listing value exists. */
@@ -80,15 +75,9 @@ export function normalizeManagerApplicationSettings(raw: unknown): ManagerApplic
         cents > MAX_MANAGER_APPLICATION_FEE_CENTS ? MAX_MANAGER_APPLICATION_FEE_CENTS : cents;
     }
   }
-  const instructions =
-    typeof row.applicationFeeOtherInstructions === "string" ? row.applicationFeeOtherInstructions.trim() : "";
-  const applicationFeeOtherEnabled =
-    row.applicationFeeOtherEnabled === true && instructions.length > 0;
   return {
     applicationFeeCents,
     applicationFeeChargePolicy: normalizeApplicationFeeChargePolicy(row.applicationFeeChargePolicy),
-    applicationFeeOtherEnabled,
-    applicationFeeOtherInstructions: instructions,
   };
 }
 

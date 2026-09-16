@@ -19,8 +19,6 @@ type Body = {
   leaseTerm?: string;
   /** Optional — when present, also reports whether the code currently looks redeemable. */
   waiverCode?: string;
-  /** "manual" (Zelle/Venmo/other) never carries a Stripe service fee; defaults to "card". */
-  channel?: "card" | "manual";
   /**
    * Only honored for a signed-in caller whose own session email matches it —
    * the repeat-applicant waiver reveals that this address has applied to this
@@ -81,12 +79,10 @@ export async function POST(req: Request) {
     }
 
     const ownerUserId = resolved.value.managerUserId;
-    const channel = body.channel === "manual" ? "manual" : "card";
     const itemization = await resolveApplicationFeeItemization(
       db,
       ownerUserId,
       resolved.value.applicationFeeCents,
-      channel,
       resolved.value.listing,
       // Same property the checkout mint passes. Without it the workspace's
       // fee-payer choice never loads here, so a listing whose workspace says
@@ -125,10 +121,6 @@ export async function POST(req: Request) {
       feePayer: itemization.feePayer,
       chargePolicy,
       repeatApplicantFeeWaived,
-      applicationFeeOtherEnabled: managerSettings.applicationFeeOtherEnabled,
-      applicationFeeOtherInstructions: managerSettings.applicationFeeOtherEnabled
-        ? managerSettings.applicationFeeOtherInstructions
-        : "",
       // `error` already carries the distinction the applicant needs: a failed
       // CHECK now says "we couldn't check that code just now", never that the
       // code is invalid. No machine tag is added here until a surface actually

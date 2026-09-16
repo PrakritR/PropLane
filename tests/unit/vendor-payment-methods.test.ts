@@ -6,58 +6,33 @@ import {
   vendorPaymentMethodSummaryLines,
 } from "@/lib/vendor-payment-methods";
 
-describe("vendor payment methods", () => {
-  it("derives accepted methods from toggles and contacts", () => {
-    expect(
-      acceptedPaymentMethodsForVendor({
-        zellePaymentsEnabled: true,
-        zelleContact: "pay@example.com",
-        venmoPaymentsEnabled: true,
-        venmoContact: "@vendor",
-        achPaymentsEnabled: true,
-      }),
-    ).toEqual(["zelle", "venmo", "ach"]);
+describe("vendor payment methods (ACH through Stripe Connect only)", () => {
+  it("derives accepted methods from the ACH toggle", () => {
+    expect(acceptedPaymentMethodsForVendor({ achPaymentsEnabled: true })).toEqual(["ach"]);
+    expect(acceptedPaymentMethodsForVendor({ achPaymentsEnabled: false })).toEqual([]);
   });
 
-  it("prefers explicit acceptedPaymentMethods when set", () => {
+  it("ignores retired methods a stored row may still list", () => {
     expect(
       acceptedPaymentMethodsForVendor({
-        acceptedPaymentMethods: ["venmo"],
-        zellePaymentsEnabled: true,
-        zelleContact: "pay@example.com",
+        acceptedPaymentMethods: ["venmo", "zelle"] as unknown as "ach"[],
+        achPaymentsEnabled: true,
       }),
-    ).toEqual(["venmo"]);
+    ).toEqual(["ach"]);
   });
 
   it("builds summary lines for reminders", () => {
-    expect(
-      vendorPaymentMethodSummaryLines({
-        zellePaymentsEnabled: true,
-        zelleContact: "pay@example.com",
-        achPaymentsEnabled: true,
-      }),
-    ).toEqual(["Zelle: pay@example.com", "Bank (ACH) via Stripe Connect"]);
+    expect(vendorPaymentMethodSummaryLines({ achPaymentsEnabled: true })).toEqual(["Bank (ACH) via Stripe Connect"]);
+    expect(vendorPaymentMethodSummaryLines({ achPaymentsEnabled: false })).toEqual([]);
   });
 
   it("builds accepted methods array for save payloads", () => {
-    expect(
-      buildVendorAcceptedPaymentMethods({
-        zellePaymentsEnabled: true,
-        zelleContact: "pay@example.com",
-        venmoPaymentsEnabled: false,
-        venmoContact: "",
-        achPaymentsEnabled: false,
-      }),
-    ).toEqual(["zelle"]);
+    expect(buildVendorAcceptedPaymentMethods({ achPaymentsEnabled: true })).toEqual(["ach"]);
+    expect(buildVendorAcceptedPaymentMethods({ achPaymentsEnabled: false })).toEqual([]);
   });
 
   it("labels unset methods", () => {
     expect(vendorPaymentMethodSummaryLabel(null)).toBe("No payment methods set");
-    expect(
-      vendorPaymentMethodSummaryLabel({
-        zellePaymentsEnabled: true,
-        zelleContact: "pay@example.com",
-      }),
-    ).toBe("Zelle");
+    expect(vendorPaymentMethodSummaryLabel({ achPaymentsEnabled: true })).toBe("Bank (ACH)");
   });
 });

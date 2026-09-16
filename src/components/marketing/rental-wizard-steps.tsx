@@ -14,7 +14,6 @@ import { ApplicationFeeInlinePayment } from "@/components/marketing/application-
 import { ApplicationPhotoField, IncomeProofPhotos } from "@/components/marketing/application-photo-field";
 import { ListingAddressAutocomplete } from "@/components/portal/listing-address-autocomplete";
 import { SmsConsentCheckbox } from "@/components/marketing/sms-consent-checkbox";
-import { listingApplicationFeeChannels, resolveApplicationFeePayChannel, isAchApplicationFeeChannel, resolveApplicationFeeOtherInstructions } from "@/lib/rental-application/application-fee-channel";
 import {
   applicationFeeChargeLabel,
   applicationFeeReviewNote,
@@ -122,10 +121,6 @@ export type WizardStepsProps = {
   };
   /** Manager id resolved from the server fee preview when the browser catalog missed it. */
   resolvedManagerUserId?: string;
-  applicationFeeCheckBusy?: boolean;
-  applicationFeeCheckError?: string | null;
-  applicationFeePaymentVerified?: boolean;
-  onCheckApplicationFeePayment?: () => void;
   /** Waiver-code entry (a named part of the fee step, not a buried field). */
   waiverCodeBusy?: boolean;
   waiverCodeError?: string | null;
@@ -163,7 +158,6 @@ export type WizardStepsProps = {
   /** Prior submitted application answers are available to copy into this form. */
   savedAutofillAvailable?: boolean;
   onApplySavedAutofill?: () => void;
-  managerFeeOther?: { enabled: boolean; instructions: string };
 };
 
 function displayOrDash(v: string | null | undefined) {
@@ -223,10 +217,6 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     applicationFeeGate,
     occupancySyncEpoch,
     showAvailabilityWarnings,
-    applicationFeeCheckBusy,
-    applicationFeeCheckError,
-    applicationFeePaymentVerified,
-    onCheckApplicationFeePayment,
     waiverCodeBusy,
     waiverCodeError,
     onApplyWaiverCode,
@@ -236,7 +226,6 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     savedApplicationId = "",
     savedAutofillAvailable = false,
     onApplySavedAutofill,
-    managerFeeOther = { enabled: false, instructions: "" },
   } = p;
 
   const listingSub = (() => {
@@ -2121,10 +2110,6 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
 
   if (step === 11) {
     const prop = form.propertyId ? getPropertyById(form.propertyId) : undefined;
-    const sub = prop?.listingSubmission?.v === 1 ? prop.listingSubmission : undefined;
-    const channels = listingApplicationFeeChannels(sub, managerFeeOther);
-    const payChannel = resolveApplicationFeePayChannel(sub, form.applicationFeePayChannel, managerFeeOther);
-    const otherInstructionsText = resolveApplicationFeeOtherInstructions(sub, managerFeeOther);
     // Headline application fee for the summary card, from the gate — which the
     // wizard derives from the SERVER's authoritative fee preview (manager-level
     // setting), never from the listing's grandfathered `applicationFee` text.
@@ -2134,19 +2119,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     const appFeeLabel = applicationFeeGate.needsFee ? applicationFeeGate.displayLabel : "—";
     const codeWaived = Boolean(form.applicationFeeWaived);
     const managerUserIdForPay = resolvedManagerUserId.trim() || prop?.managerUserId?.trim() || "";
-    const enabledChannels = [
-      channels.ach ? ("ach" as const) : null,
-      channels.other ? ("other" as const) : null,
-    ].filter((channel): channel is "ach" | "other" => Boolean(channel));
     const feeStillDue = applicationFeeGate.needsFee && !applicationFeeGate.paid;
-    const showChannelPick = feeStillDue && enabledChannels.length > 1;
-    const showOtherInstructions = feeStillDue && payChannel === "other" && otherInstructionsText;
-    const singleChannelLabel =
-      enabledChannels.length === 1
-        ? enabledChannels[0] === "ach"
-          ? "Card or Apple Pay"
-          : "Other"
-        : null;
     return (
       <div className="space-y-6">
         <div>
@@ -2225,51 +2198,12 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             )}
           </div>
         ) : null}
-        {showChannelPick ? (
-          <div className="space-y-3 rounded-2xl border border-border bg-card p-5">
-            <p className="text-sm font-semibold text-foreground">Payment method</p>
-            {channels.ach ? (
-              <label className="flex cursor-pointer gap-3 rounded-xl border border-border bg-accent/30 p-3">
-                <input
-                  type="radio"
-                  name="application-fee-channel"
-                  className="mt-1 h-4 w-4 shrink-0 border-border text-primary"
-                  checked={payChannel === "ach"}
-                  onChange={() => patch({ applicationFeePayChannel: "ach", applicationFeeZelleSentConfirmed: false })}
-                />
-                <span>
-                  <span className="text-sm font-semibold text-foreground">Card or Apple Pay</span>
-                  <span className="mt-0.5 block text-xs leading-relaxed text-muted">
-                    Pay instantly with Apple Pay, Google Pay, or any debit/credit card. No added fees — PropLane covers payment processing.
-                  </span>
-                </span>
-              </label>
-            ) : null}
-            {channels.other ? (
-              <label className="flex cursor-pointer gap-3 rounded-xl border border-border bg-accent/30 p-3">
-                <input
-                  type="radio"
-                  name="application-fee-channel"
-                  className="mt-1 h-4 w-4 shrink-0 border-border text-primary"
-                  checked={form.applicationFeePayChannel === "other"}
-                  onChange={() => patch({ applicationFeePayChannel: "other", applicationFeeZelleSentConfirmed: false })}
-                />
-                <span>
-                  <span className="text-sm font-semibold text-foreground">Other</span>
-                  <span className="mt-0.5 block text-xs leading-relaxed text-muted">
-                    Follow the manager&apos;s instructions to pay the fee.
-                  </span>
-                </span>
-              </label>
-            ) : null}
-          </div>
-        ) : null}
-        {feeStillDue && singleChannelLabel ? (
+        {feeStillDue ? (
           <div className="rounded-2xl border border-border bg-card px-4 py-4 text-sm text-foreground">
-            <span className="font-semibold text-foreground">Payment method:</span> {singleChannelLabel}
+            <span className="font-semibold text-foreground">Payment method:</span> Card or Apple Pay
           </div>
         ) : null}
-        {feeStillDue && isAchApplicationFeeChannel(payChannel) ? (
+        {feeStillDue ? (
           applicationFeeGate.pending ? (
             <div className="flex min-h-[80px] items-center justify-center rounded-2xl border border-border bg-card text-sm text-muted">
               Confirming the application fee…
@@ -2298,39 +2232,6 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             </div>
           )
         ) : null}
-        {feeStillDue && payChannel === "other" ? (
-          <div className="space-y-3 rounded-2xl border border-border bg-card p-4 sm:p-5" data-attr="application-fee-manual-pay">
-            {showOtherInstructions ? (
-              <div className="rounded-xl border px-4 py-3 text-sm portal-banner-pending">
-                <p className="font-semibold">Payment instructions</p>
-                <p className="mt-2 whitespace-pre-wrap leading-relaxed">{otherInstructionsText}</p>
-                <p className="mt-2 leading-relaxed">
-                  Follow the instructions above, then tap <span className="font-semibold">Check payment</span> below.
-                </p>
-              </div>
-            ) : null}
-            {applicationFeePaymentVerified ? (
-              <p className="text-sm font-medium text-[var(--status-confirmed-fg)]">Payment verified.</p>
-            ) : applicationFeeCheckError ? (
-              <p className="text-sm text-red-600">{applicationFeeCheckError}</p>
-            ) : (
-              <p className="text-sm text-muted">
-                After you send payment, check that we received it before submitting your application.
-              </p>
-            )}
-            <Button
-              type="button"
-              variant="primary"
-              className="w-full rounded-full sm:w-auto"
-              disabled={applicationFeeCheckBusy || applicationFeeGate.paid}
-              data-attr="application-fee-check-payment"
-              onClick={() => onCheckApplicationFeePayment?.()}
-            >
-              {applicationFeeCheckBusy ? "Checking…" : applicationFeeGate.paid ? "Payment received" : "Check payment"}
-            </Button>
-          </div>
-        ) : null}
-        <FieldError msg={errors.applicationFeeZelleSentConfirmed} />
       </div>
     );
   }

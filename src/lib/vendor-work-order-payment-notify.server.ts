@@ -94,13 +94,7 @@ export async function deliverVendorWorkOrderPaymentNotify(
     .select("row_data")
     .eq("vendor_user_id", input.vendorUserId)
     .maybeSingle();
-  const vendorRow = (vendorDirectory?.row_data ?? {}) as {
-    zellePaymentsEnabled?: boolean;
-    zelleContact?: string;
-    venmoPaymentsEnabled?: boolean;
-    venmoContact?: string;
-    achPaymentsEnabled?: boolean;
-  };
+  const vendorRow = (vendorDirectory?.row_data ?? {}) as { achPaymentsEnabled?: boolean };
   const paymentMethodLines = vendorPaymentMethodSummaryLines(vendorRow);
 
   const unit = rowData.unit?.trim();

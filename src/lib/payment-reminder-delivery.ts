@@ -1,6 +1,5 @@
 import { chargeDueLabel, isUnpaidHouseholdCharge, type HouseholdCharge } from "@/lib/household-charges";
 import { formatPacificDateTime } from "@/lib/pacific-time";
-import { appendManualPaymentInstructions } from "@/lib/manual-payment-instructions";
 import { sendPushToUser } from "@/lib/push-notifications.server";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { canSendResidentOutboundSms, sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
@@ -36,16 +35,12 @@ export async function deliverPaymentReminder(input: {
   managerDeliverViaEmail?: boolean;
   managerDeliverViaSms?: boolean;
   managerDeliverViaInbox?: boolean;
-  /** Combined reminders already include portal pay copy — skip per-charge Zelle/Venmo blocks. */
-  skipManualPaymentInstructions?: boolean;
   /** Extra dedup rows to record when one send covers several charges. */
   bundledDedupEntries?: { dedupId: string; chargeId: string }[];
 }): Promise<{ sent: boolean; error?: string }> {
   const { db, charge, managerId, dedupId, managerName, managerSmsFromNumber, apiKey, from, subject, slotLabel } =
     input;
-  const text = input.skipManualPaymentInstructions
-    ? input.text
-    : appendManualPaymentInstructions(input.text, charge);
+  const text = input.text;
   const html = reminderHtmlFromText(text);
   if (!isUnpaidHouseholdCharge(charge)) {
     return { sent: false, error: "charge_paid" };

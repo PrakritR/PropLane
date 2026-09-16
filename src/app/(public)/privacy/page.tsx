@@ -81,7 +81,7 @@ export default function PrivacyPolicyPage() {
             <p className="mt-2">
               We share information with service providers that help us operate PropLane, including Supabase (authentication
               and database hosting), Stripe (payments), Twilio (SMS), Resend (email), Google (sign-in and optional
-              Calendar and Gmail integrations), and Google Firebase (push notifications). We do not sell your personal
+              Calendar integration), and Google Firebase (push notifications). We do not sell your personal
               information.
             </p>
             <p className="mt-2">
@@ -115,7 +115,7 @@ export default function PrivacyPolicyPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-foreground">Google sign-in, Calendar, and Gmail</h2>
+            <h2 className="text-lg font-semibold text-foreground">Google sign-in and Calendar</h2>
             <p className="mt-2">
               You may sign in with Google or connect your Google Calendar to PropLane. When you do, we receive your
               Google account email and, if you authorize it, access to your Google Calendar events through Google&apos;s
@@ -133,19 +133,14 @@ export default function PrivacyPolicyPage() {
               Google events — only blocked time may appear on your scheduling views.
             </p>
             <p className="mt-2">
-              Managers and vendors may also optionally link Gmail to auto-track payment receipts. When enabled, PropLane
-              searches recent messages that match supported payment providers, such as Zelle or Venmo, and reads the
-              sender, subject, and message body only to identify a payment reference and amount. We use that information
-              to match a receipt to a charge or service and mark the corresponding payment record as paid. PropLane
-              does not send, modify, or delete Gmail messages, and does not use Gmail data for advertising.
+              PropLane does not request access to Gmail and never reads your email.
             </p>
             <p className="mt-2">
-              Google access and refresh tokens are stored for the connected PropLane account so requested Calendar and
-              Gmail synchronization can continue. Gmail message content is processed for payment matching; PropLane
-              stores the resulting payment status and source message identifier rather than a copy of the full message.
+              Google access and refresh tokens are stored for the connected PropLane account so requested Calendar
+              synchronization can continue.
             </p>
             <p className="mt-2">
-              You can disconnect Google Calendar or Gmail at any time from the applicable PropLane portal settings. You
+              You can disconnect Google Calendar at any time from the applicable PropLane portal settings. You
               can also revoke PropLane&apos;s access from your{" "}
               <a
                 href="https://myaccount.google.com/permissions"
@@ -175,7 +170,7 @@ export default function PrivacyPolicyPage() {
             <h2 className="text-lg font-semibold text-foreground">Your choices</h2>
             <ul className="mt-3 list-disc space-y-2 ps-5">
               <li>Update profile information in the manager or resident portal.</li>
-              <li>Disconnect Google Calendar or Gmail from the applicable portal settings.</li>
+              <li>Disconnect Google Calendar from the applicable portal settings.</li>
               <li>Disable push notifications in your device Settings.</li>
               <li>
                 Delete your account at any time from your portal&rsquo;s profile or settings page. This permanently

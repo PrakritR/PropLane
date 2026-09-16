@@ -25,7 +25,7 @@ import {
   scheduleMessageTool,
   cancelScheduledMessageTool,
 } from "./domains/resident/messaging";
-import { reportManualPaymentTool, startRentPaymentTool } from "./domains/resident/payments";
+import { startRentPaymentTool } from "./domains/resident/payments";
 import { getResidentLinksTool } from "./domains/portal-links";
 import { residentListOpenTourSlotsTool, residentRequestTourTool } from "./domains/tours";
 import {
@@ -79,7 +79,6 @@ const ALL_RESIDENT_TOOLS: ResidentTool[] = [
   scheduleMessageTool,
   cancelScheduledMessageTool,
   // Payments
-  reportManualPaymentTool,
   startRentPaymentTool,
   // Tours. Available in the application phase too — touring is exactly what a
   // resident does before they are approved.

@@ -128,7 +128,7 @@ function postBody(extra: Record<string, unknown> = {}) {
   return new Request("http://localhost/api/portal/work-orders/approve-pay", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ workOrder: workOrderRow, category: "plumbing", paymentChannel: "zelle", ...extra }),
+    body: JSON.stringify({ workOrder: workOrderRow, category: "plumbing", ...extra }),
   });
 }
 
@@ -183,7 +183,7 @@ describe("approve-pay double-pay guard", () => {
       action: "vendor_double_pay_acknowledged",
       actor_user_id: MANAGER,
       landlord_id: MANAGER,
-      input_summary: { workOrderId: WORK_ORDER, payoutId: "payout_1", payoutStatus: "paid", paymentChannel: "zelle" },
+      input_summary: { workOrderId: WORK_ORDER, payoutId: "payout_1", payoutStatus: "paid", paymentChannel: "ach" },
     });
     // The acknowledgement was on record before the bookkeeping write landed.
     const upsert = db.log.upserts.find((u) => u.table === "portal_work_order_records");

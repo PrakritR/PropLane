@@ -2,7 +2,6 @@ import { z } from "zod";
 import { defineTool } from "../../registry";
 import type { ResidentAgentContext } from "../../resident-context";
 import type { HouseholdCharge } from "@/lib/household-charges";
-import { canPayHouseholdChargeWithManualChannel } from "@/lib/platform/resident-payments";
 import { queryResidentBalance } from "@/lib/resident-balance-summary.server";
 import { queryResidentLedger } from "@/lib/reports/queries";
 import { listResidentSavedPaymentMethods } from "@/lib/stripe-resident-customer";
@@ -33,10 +32,7 @@ export const getMyBalanceTool = defineTool({
   },
 });
 
-/**
- * Safe projection of the resident's own charge. Zelle/Venmo payment contact
- * strings are deliberately dropped — only availability booleans are exposed.
- */
+/** Safe projection of the resident's own charge. */
 function summarizeOwnCharge(c: HouseholdCharge) {
   return {
     id: c.id,
@@ -48,16 +44,13 @@ function summarizeOwnCharge(c: HouseholdCharge) {
     status: c.status || null,
     dueDate: c.dueDateLabel || null,
     paidAt: c.paidAt || null,
-    manualPaymentReported: c.manualPaymentChannel || null,
-    zelleAvailable: canPayHouseholdChargeWithManualChannel(c, "zelle"),
-    venmoAvailable: canPayHouseholdChargeWithManualChannel(c, "venmo"),
   };
 }
 
 export const listMyChargesTool = defineTool({
   name: "list_my_charges",
   description:
-    "List the resident's own charges (rent, deposits, fees) with id, title, amount, balance, status, and due date. Use this to collect charge ids for start_rent_payment or report_manual_payment, and for 'what charges do I have'.",
+    "List the resident's own charges (rent, deposits, fees) with id, title, amount, balance, status, and due date. Use this to collect charge ids for start_rent_payment, and for 'what charges do I have'.",
   kind: "read",
   inputSchema: z
     .object({

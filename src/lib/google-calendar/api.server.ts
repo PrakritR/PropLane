@@ -51,7 +51,7 @@ function stateSecret(): string {
  *
  * On production we may serve multiple domains (prop-lane.space and the legacy Axis host).
  * Google Cloud typically allowlists one callback origin; map every live production host
- * to the deployment's canonical origin so Calendar/Gmail connect works from any of them.
+ * to the deployment's canonical origin so Calendar connect works from any of them.
  *
  * `GOOGLE_CALENDAR_REDIRECT_ORIGIN` is for local multi-port dev only — never applied on
  * production hosts, or a laptop .env.local would break production OAuth callbacks.

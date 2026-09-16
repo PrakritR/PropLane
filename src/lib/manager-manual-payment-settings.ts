@@ -1,26 +1,20 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { sanitizePaymentContactInput } from "@/lib/listing-form-inputs";
 import {
   normalizeListingPaymentWaiverCode,
   normalizeServiceFeeChoice,
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
 
+/**
+ * The name is historical: this once held off-platform payment handles and a
+ * receipt inbox. Those channels are gone (PLAN-0916); what remains is the
+ * manager's Stripe-side payment policy — whether PropLane payments are on and
+ * who bears the service fee.
+ */
 export type ManagerManualPaymentSettings = {
-  /**
-   * Allow residents/applicants to pay via Stripe ACH (bank). Defaults on —
-   * managers turn it off from Payment setup when they only want Zelle/Venmo.
-   */
+  /** Allow residents/applicants to pay via Stripe (bank + card). Defaults on. */
   axisPaymentsEnabled: boolean;
-  zellePaymentsEnabled: boolean;
-  zelleContact: string;
-  venmoPaymentsEnabled: boolean;
-  venmoContact: string;
-  /** Secret token for payments+<token>@ inbound receipt matching. */
-  paymentInboxToken?: string;
-  /** When false, receipt emails are ignored even if forwarded to the inbox. */
-  receiptAutoMarkEnabled?: boolean;
   /**
    * Who pays the online payment service fee on resident charges. Consulted on
    * Pro and Business (Free forces resident) — see `resolveServiceFeePayer`.
@@ -50,31 +44,14 @@ export type ManagerManualPaymentSettings = {
   adminServiceFeeOverride?: ServiceFeePayer | null;
 };
 
-export type ManagerManualPaymentSettingsView = ManagerManualPaymentSettings & {
-  paymentInboxAddress?: string;
-};
+export type ManagerManualPaymentSettingsView = ManagerManualPaymentSettings;
 
 export const DEFAULT_MANAGER_MANUAL_PAYMENT_SETTINGS: ManagerManualPaymentSettings = {
   axisPaymentsEnabled: true,
-  zellePaymentsEnabled: false,
-  zelleContact: "",
-  venmoPaymentsEnabled: false,
-  venmoContact: "",
-  receiptAutoMarkEnabled: true,
   serviceFeePayer: "resident",
 };
 
 export const MANAGER_MANUAL_PAYMENT_SETTINGS_EVENT = "axis:manager-manual-payment-settings";
-
-/** Zelle enrollments are an email address or a phone number; do not accept a
- * handle-shaped value here because residents would be sent to an unverifiable
- * destination. Phone is deliberately the first/common path in the UI. */
-export function isValidZelleContact(value: string): boolean {
-  const contact = sanitizePaymentContactInput(value).trim();
-  const email = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact);
-  const phoneDigits = contact.replace(/\D/g, "");
-  return email || (phoneDigits.length >= 10 && phoneDigits.length <= 15);
-}
 
 type ServiceFeeSelection = { serviceFeePayer: ServiceFeePayer; serviceFeeWaiverCode?: string };
 
@@ -128,18 +105,8 @@ export function resolveSavedServiceFeeSelection(
 
 export function normalizeManagerManualPaymentSettings(raw: unknown): ManagerManualPaymentSettings {
   const row = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
-  const zelleContact = sanitizePaymentContactInput(String(row.zelleContact ?? "")).trim();
-  const venmoContact = sanitizePaymentContactInput(String(row.venmoContact ?? "")).trim();
-  const paymentInboxTokenRaw = String(row.paymentInboxToken ?? "").trim();
-  const paymentInboxToken = /^[a-zA-Z0-9_-]{8,24}$/.test(paymentInboxTokenRaw) ? paymentInboxTokenRaw : undefined;
   return {
     axisPaymentsEnabled: row.axisPaymentsEnabled !== false,
-    zellePaymentsEnabled: false,
-    zelleContact: "",
-    venmoPaymentsEnabled: false,
-    venmoContact: "",
-    ...(paymentInboxToken ? { paymentInboxToken } : {}),
-    receiptAutoMarkEnabled: row.receiptAutoMarkEnabled === false ? false : true,
     serviceFeePayer: normalizeServiceFeeChoice(row.serviceFeePayer),
     /*
      * The stored code is carried through as-is. Judging it needs the coverage
@@ -161,14 +128,8 @@ export function normalizeManagerManualPaymentSettings(raw: unknown): ManagerManu
 }
 
 /** Browser-safe projection — same shape; contacts only when enabled. */
-export function managerManualPaymentSettingsPublic(
-  settings: ManagerManualPaymentSettings,
-  extras?: Pick<ManagerManualPaymentSettingsView, "paymentInboxAddress">,
-): ManagerManualPaymentSettingsView {
-  return {
-    ...normalizeManagerManualPaymentSettings(settings),
-    ...(extras?.paymentInboxAddress ? { paymentInboxAddress: extras.paymentInboxAddress } : {}),
-  };
+export function managerManualPaymentSettingsPublic(settings: ManagerManualPaymentSettings): ManagerManualPaymentSettingsView {
+  return normalizeManagerManualPaymentSettings(settings);
 }
 
 type StorageMode = "column" | "row_data";

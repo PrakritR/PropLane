@@ -113,7 +113,6 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       managerDeliverViaEmail: automationSettings.paymentReminderDeliverViaEmail,
       managerDeliverViaSms: automationSettings.paymentReminderDeliverViaSms,
       managerDeliverViaInbox: automationSettings.paymentReminderDeliverViaInbox,
-      skipManualPaymentInstructions: chargeIds.length > 1,
     });
 
     if (!result.sent) {

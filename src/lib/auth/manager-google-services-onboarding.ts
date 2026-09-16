@@ -3,7 +3,7 @@ import { nativeAwarePath } from "@/lib/auth/native-auth-entry";
 /** Default landing path after manager signup or plan selection. */
 export const MANAGER_PORTAL_ENTRY_PATH = "/portal/dashboard";
 
-/** Post-signup onboarding: progressive Google Calendar + Gmail consent (not bundled into sign-in). */
+/** Post-signup onboarding: progressive Google Calendar consent (not bundled into sign-in). */
 export const MANAGER_GOOGLE_SERVICES_ONBOARDING_PATH = "/auth/connect-google-services";
 
 /** Client redirect after pricing / account creation. */

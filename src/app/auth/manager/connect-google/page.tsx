@@ -13,8 +13,6 @@ import {
 } from "@/components/auth/manager-onboarding-inline-setup";
 import { useAuthWelcomeChrome } from "@/components/auth/use-auth-welcome-chrome";
 import { Button } from "@/components/ui/button";
-import { isGmailPaymentsOAuthBlocked } from "@/lib/gmail-payments/connect-errors";
-import { GMAIL_PAYMENTS_ENABLED } from "@/lib/gmail-payments/enabled";
 import { MANAGER_GOOGLE_SERVICES_PATH } from "@/lib/auth/manager-google-services";
 import {
   shouldOfferWorkNumberSetup,
@@ -106,13 +104,6 @@ function PhoneStepCard({
   );
 }
 
-function gmailOnboardingError(reason: string | null): string {
-  if (isGmailPaymentsOAuthBlocked(reason)) {
-    return "Google has not approved Gmail access for this account yet. You can skip for now and connect later without blocking account setup.";
-  }
-  return reason?.trim() || "Gmail could not be connected. You can retry or skip for now.";
-}
-
 function ServiceCard({
   service,
   title,
@@ -121,17 +112,15 @@ function ServiceCard({
   status,
   loading,
 }: {
-  service: "calendar" | "gmail";
+  service: "calendar";
   title: string;
   description: string;
   icon: React.ReactNode;
   status: ServiceStatus;
   loading: boolean;
 }) {
-  const connectEndpoint =
-    service === "calendar"
-      ? "/api/portal/google-calendar/connect"
-      : "/api/portal/gmail-payments/connect";
+  void service;
+  const connectEndpoint = "/api/portal/google-calendar/connect";
   const href = `${connectEndpoint}?returnTo=${encodeURIComponent(MANAGER_GOOGLE_SERVICES_PATH)}`;
   const connectedLabel = status.email ? `Connected as ${status.email}` : "Connected";
 
@@ -179,8 +168,8 @@ function ServiceCard({
               : !status.configured
                 ? "Google connection unavailable"
                 : status.connected
-                  ? `Reconnect ${service === "calendar" ? "Calendar" : "Gmail"}`
-                  : `Connect ${service === "calendar" ? "Calendar" : "Gmail"}`}
+                  ? "Reconnect Calendar"
+                  : "Connect Calendar"}
           </span>
           <ChevronRight className="h-4 w-4" aria-hidden />
         </a>
@@ -193,7 +182,6 @@ function GoogleServicesContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [calendar, setCalendar] = useState<ServiceStatus>(EMPTY_STATUS);
-  const [gmail, setGmail] = useState<ServiceStatus>(EMPTY_STATUS);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [workNumber, setWorkNumber] = useState<WorkNumberOnboardingStatus | null>(null);
@@ -228,14 +216,9 @@ function GoogleServicesContent() {
 
   const oauthMessage = useMemo(() => {
     if (searchParams.get("calendar") === "connected") return "Google Calendar is connected.";
-    if (searchParams.get("gmail") === "connected") return "Gmail payment tracking is connected.";
     const calendarReason = searchParams.get("calendarReason");
     if (searchParams.get("calendar") === "error") {
       return calendarReason || "Google Calendar could not be connected. You can retry or skip for now.";
-    }
-    const gmailReason = searchParams.get("gmailReason");
-    if (searchParams.get("gmail") === "error") {
-      return gmailOnboardingError(gmailReason);
     }
     return null;
   }, [searchParams]);
@@ -244,34 +227,22 @@ function GoogleServicesContent() {
     let cancelled = false;
     void (async () => {
       try {
-        const [calendarResponse, gmailResponse] = await Promise.all([
-          fetch("/api/portal/google-calendar", { credentials: "include", cache: "no-store" }),
-          fetch("/api/portal/gmail-payments", { credentials: "include", cache: "no-store" }),
-        ]);
+        const calendarResponse = await fetch("/api/portal/google-calendar", { credentials: "include", cache: "no-store" });
         if (cancelled) return;
-        if (calendarResponse.status === 401 || gmailResponse.status === 401) {
+        if (calendarResponse.status === 401) {
           router.replace(`/auth/sign-in?next=${encodeURIComponent(MANAGER_GOOGLE_SERVICES_PATH)}`);
           return;
         }
         const calendarBody = (await calendarResponse.json().catch(() => ({}))) as Partial<ServiceStatus> & {
           error?: string;
         };
-        const gmailBody = (await gmailResponse.json().catch(() => ({}))) as {
-          status?: Partial<ServiceStatus>;
-          error?: string;
-        };
-        if (!calendarResponse.ok || !gmailResponse.ok) {
-          throw new Error(calendarBody.error || gmailBody.error || "Could not check Google connections.");
+        if (!calendarResponse.ok) {
+          throw new Error(calendarBody.error || "Could not check Google connections.");
         }
         setCalendar({
           connected: calendarBody.connected === true,
           email: calendarBody.email?.trim() || null,
           configured: calendarBody.configured !== false,
-        });
-        setGmail({
-          connected: gmailBody.status?.connected === true,
-          email: gmailBody.status?.email?.trim() || null,
-          configured: gmailBody.status?.configured !== false,
         });
       } catch (error) {
         if (!cancelled) {
@@ -286,7 +257,7 @@ function GoogleServicesContent() {
     };
   }, [router]);
 
-  const hasConnection = calendar.connected || gmail.connected;
+  const hasConnection = calendar.connected;
   const provisionedNumber = workNumberOnboardingPhone(workNumber);
   const phoneVerified = Boolean(phoneSettings?.phoneVerifiedAt);
   const phoneDisplay = formatUsPhone(phoneSettings?.phone);
@@ -371,7 +342,7 @@ function GoogleServicesContent() {
 
         <div className="mx-auto mt-4 flex max-w-xl items-start gap-2 rounded-2xl border border-primary/15 bg-primary/[0.055] px-3.5 py-3 text-xs leading-relaxed text-muted sm:mt-5">
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
-          <p>Calendar access never grants Gmail access, and Gmail access never grants Calendar access.</p>
+          <p>Calendar access is the only Google permission PropLane asks for.</p>
         </div>
 
         {oauthMessage ? (
@@ -397,20 +368,6 @@ function GoogleServicesContent() {
             status={calendar}
             loading={loading}
           />
-          {/* Gmail receipt matching is off (PRP-130) — `gmail.readonly` is a
-              RESTRICTED Google scope, and Zelle/Venmo are recorded by hand for
-              now. Calendar alone is only "sensitive", which is the whole point
-              of removing this card. */}
-          {GMAIL_PAYMENTS_ENABLED ? (
-            <ServiceCard
-              service="gmail"
-              title="Gmail payment receipts"
-              description="Read supported payment receipts and automatically match them to payments. PropLane cannot send or delete email."
-              icon={<Mail className="h-5 w-5" />}
-              status={gmail}
-              loading={loading}
-            />
-          ) : null}
         </div>
 
         <div className="mt-5 flex flex-col items-center gap-3 sm:mt-6">

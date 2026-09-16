@@ -121,17 +121,7 @@ function compactPremisesAccessParagraph(
   return `Resident shall have ${floorClause}, ${bathroomClause}, and shared, non-exclusive use of the kitchen, living areas, laundry facilities, hallways, and other designated common areas together with other residents.`;
 }
 
-function compactPaymentInstruction(
-  sub: ManagerListingSubmissionV1 | undefined,
-  paymentMethod: string,
-  escapeHtml: (s: string) => string,
-): string {
-  if (sub?.zellePaymentsEnabled && sub.zelleContact?.trim()) {
-    return `Payments shall be made by Zelle to <strong>${escapeHtml(sub.zelleContact.trim())}</strong>.`;
-  }
-  if (sub?.venmoPaymentsEnabled && sub.venmoContact?.trim() && !sub?.zellePaymentsEnabled) {
-    return `Payments shall be made by Venmo to <strong>${escapeHtml(sub.venmoContact.trim())}</strong>.`;
-  }
+function compactPaymentInstruction(paymentMethod: string): string {
   return `Payments shall be made ${paymentMethod.replace(/^Payment (may be|shall be) made (via|by) /i, "by ").replace(/\.$/, "")}.`;
 }
 
@@ -398,7 +388,7 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
   const premisesLine = `${roomLabel}, ${address}${cityZip ? `, ${escapeHtml(cityZip)}` : ""}`;
   const leaseTermLine = `${leaseStart} through ${leaseEnd}`;
   const premisesAccess = compactPremisesAccessParagraph(specificRoom, bathroomArrangement, escapeHtml);
-  const paymentInstruction = compactPaymentInstruction(sub, paymentMethod, escapeHtml);
+  const paymentInstruction = compactPaymentInstruction(paymentMethod);
   const utilitiesBullets = utilitiesIncludedBullets(leaseUtilityLines, escapeHtml);
   const houseRulesBlock = houseRules
     ? `<p>${houseRules}</p><p>No smoking, vaping, illegal drugs, or unauthorized pets are permitted inside the property.</p>`

@@ -1,8 +1,6 @@
 "use client";
 
-import { MANAGER_MANUAL_PAYMENT_AUTO_CHECK_MS } from "@/lib/resident-manual-payment-client";
-import { useEffect, useMemo, useState, useCallback, useRef, type ComponentProps } from "react";
-import { Button } from "@/components/ui/button";
+import { useEffect, useMemo, useState, useCallback, type ComponentProps } from "react";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -281,7 +279,6 @@ export function ManagerPayments({
   const [paymentSettingsOpen, setPaymentSettingsOpen] = useState(false);
   const [paymentSetupOpen, setPaymentSetupOpen] = useState(false);
   const [paymentsFilterOpen, setPaymentsFilterOpen] = useState(false);
-  const [checkingManualPayments, setCheckingManualPayments] = useState(false);
   const [listSort, setListSort] = useState<PaymentListSort>(DEFAULT_PAYMENT_LIST_SORT);
   const [incomingGroupMode, setIncomingGroupMode] = useState<PortalListGroupMode>(
     DEFAULT_PORTAL_LIST_GROUP_MODE,
@@ -637,59 +634,6 @@ export function ManagerPayments({
     onGroupModeChange: setGroupMode,
   };
 
-  // A silent scan still has to be able to say it is broken. Nothing is left to press
-  // once the Check button is gone, so an expired Gmail link would otherwise stop
-  // confirming receipts with no signal at all; the first failure of a mount speaks,
-  // the repeats stay quiet.
-  const manualCheckFailureReportedRef = useRef(false);
-  const reportManualCheckFailure = useCallback(
-    (silent: boolean | undefined, message: string) => {
-      if (!silent) {
-        showToast(message);
-        return;
-      }
-      if (manualCheckFailureReportedRef.current) return;
-      manualCheckFailureReportedRef.current = true;
-      showToast(message);
-    },
-    [showToast],
-  );
-
-  const runCheckManualPayments = useCallback((options?: { silent?: boolean }) => {
-    void (async () => {
-      setCheckingManualPayments(true);
-      try {
-        const response = await fetch("/api/portal/gmail-payments/sync", { method: "POST", credentials: "include" });
-        const body = (await response.json().catch(() => ({}))) as {
-          result?: { scanned?: number; markedPaid?: number; ambiguous?: number; unmatched?: number };
-          error?: string;
-        };
-        if (!response.ok) {
-          reportManualCheckFailure(
-            options?.silent,
-            body.error ?? "Could not check payments. Link Gmail in Payment setup first.",
-          );
-          return;
-        }
-        const result = body.result;
-        const markedPaid = result?.markedPaid ?? 0;
-        if (!options?.silent || markedPaid > 0) {
-          showToast(
-            result
-              ? `Checked ${result.scanned ?? 0} receipt${result.scanned === 1 ? "" : "s"}; ${markedPaid} confirmed.${result.ambiguous ? ` ${result.ambiguous} ambiguous — left pending.` : ""}`
-              : "Payment check complete.",
-          );
-        }
-        await syncHouseholdChargesFromServer(true);
-        setHcTick((n) => n + 1);
-      } catch {
-        reportManualCheckFailure(options?.silent, "Could not check payments.");
-      } finally {
-        setCheckingManualPayments(false);
-      }
-    })();
-  }, [reportManualCheckFailure, showToast]);
-
   const paymentsFilterSort = <PaymentsFilterSheet {...paymentsFilterSheetProps} />;
 
   /*
@@ -733,34 +677,6 @@ export function ManagerPayments({
       {paymentsSetupButton}
     </>
   );
-
-  const hasIncomingManualCandidates = direction === "incoming" && counts.pending + counts.overdue > 0;
-  const checkingManualPaymentsRef = useRef(checkingManualPayments);
-  useEffect(() => {
-    checkingManualPaymentsRef.current = checkingManualPayments;
-  }, [checkingManualPayments]);
-
-  // One scan on arrival, then the interval. With no Check button, an interval-only
-  // scan would leave a manager who has just forwarded a receipt watching an unpaid
-  // charge for up to a minute with no way to ask now; the same visibility and
-  // in-flight guards keep it from doubling up with the timer.
-  const didInitialManualCheckRef = useRef(false);
-  useEffect(() => {
-    if (!hasIncomingManualCandidates || isDemoModeActive()) return;
-    if (
-      !didInitialManualCheckRef.current &&
-      document.visibilityState === "visible" &&
-      !checkingManualPaymentsRef.current
-    ) {
-      didInitialManualCheckRef.current = true;
-      runCheckManualPayments({ silent: true });
-    }
-    const timer = window.setInterval(() => {
-      if (document.visibilityState !== "visible" || checkingManualPaymentsRef.current) return;
-      runCheckManualPayments({ silent: true });
-    }, MANAGER_MANUAL_PAYMENT_AUTO_CHECK_MS);
-    return () => window.clearInterval(timer);
-  }, [hasIncomingManualCandidates, runCheckManualPayments]);
 
   const activeFilterChips = useMemo((): PortalActiveFilterChip[] => {
     const chips: PortalActiveFilterChip[] = [];

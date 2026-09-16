@@ -148,8 +148,6 @@ export async function PATCH(req: Request) {
     const feePatchRequested =
       "applicationFeeCents" in body ||
       "applicationFeeChargePolicy" in body ||
-      "applicationFeeOtherEnabled" in body ||
-      "applicationFeeOtherInstructions" in body ||
       "waiverCode" in body;
     if (!feePatchRequested) {
       return NextResponse.json({ automation, taskAutomation });
@@ -168,21 +166,9 @@ export async function PATCH(req: Request) {
     const applicationFeeChargePolicy: ApplicationFeeChargePolicy =
       rawPolicy === "every_time" ? "every_time" : rawPolicy === "first_only" ? "first_only" : existing.applicationFeeChargePolicy;
 
-    const instructionsRaw =
-      "applicationFeeOtherInstructions" in body
-        ? String(body.applicationFeeOtherInstructions ?? "").trim()
-        : existing.applicationFeeOtherInstructions;
-    const instructions = instructionsRaw.slice(0, 4000);
-    const applicationFeeOtherEnabled =
-      "applicationFeeOtherEnabled" in body
-        ? body.applicationFeeOtherEnabled === true && instructions.length > 0
-        : existing.applicationFeeOtherEnabled && instructions.length > 0;
-
     const nextSettings: ManagerApplicationSettings = normalizeManagerApplicationSettings({
       applicationFeeCents: validated.applicationFeeCents,
       applicationFeeChargePolicy,
-      applicationFeeOtherEnabled,
-      applicationFeeOtherInstructions: instructions,
     });
     const saved = await saveManagerApplicationSettings(ctx.db, ctx.userId, nextSettings);
 

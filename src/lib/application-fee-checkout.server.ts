@@ -94,10 +94,10 @@ export type ResolvedApplicationFeeProperty = {
  * (never trust it blindly — otherwise a fee could be routed to an arbitrary
  * manager's Connect account) and resolves the server-stored fee amount.
  *
- * Deliberately does NOT require any particular payment channel — a manager
- * whose listing only offers Zelle/Venmo still has an application fee (and can
- * still issue waiver codes for it), so this is shared by the fee preview, the
- * waiver redeem route, AND the Stripe checkout below, which layers its own
+ * Deliberately does NOT check that online payments are switched on — a listing
+ * with payments paused still has an application fee (and can still issue
+ * waiver codes for it), so this is shared by the fee preview, the waiver
+ * redeem route, AND the Stripe checkout below, which layers its own
  * ACH-enabled check on top since only IT actually needs Stripe.
  */
 export async function resolveApplicationFeeProperty(
@@ -188,18 +188,11 @@ export type ApplicationFeeItemization = {
  * Who bears the service fee + the itemized breakdown, WITHOUT creating any
  * Stripe object — used both to preview the charge before the applicant pays
  * and inside `createApplicationFeeCheckout` so the two can never drift.
- *
- * `channel` matters: a Zelle/Venmo/other application fee is a manual bank
- * transfer that never touches Stripe, so it never incurs Stripe's processing
- * cost — the service fee line is always $0 on that channel, regardless of
- * plan or manager setting. Only the "card" (Stripe Checkout) channel can ever
- * carry a non-zero service fee.
  */
 export async function resolveApplicationFeeItemization(
   db: SupabaseClient,
   managerUserId: string,
   applicationFeeCents: number,
-  channel: "card" | "manual" = "card",
   listing?: ManagerListingSubmissionV1 | null,
   /** The listing this fee is for, so its workspace can answer when the home has no choice of its own. */
   propertyId?: string | null,
@@ -222,7 +215,7 @@ export async function resolveApplicationFeeItemization(
       listingPaymentWaiverCodeMatchesServer(workspace.serviceFeeWaiverCode),
   });
   const fee =
-    channel === "manual" || applicationFeeCents <= 0
+    applicationFeeCents <= 0
       ? { residentAddedFeeCents: 0, totalCents: Math.max(0, applicationFeeCents) }
       : residentServiceFeeBreakdown(applicationFeeCents, "card", feePayer);
   return {
@@ -271,7 +264,7 @@ export async function createApplicationFeeCheckout(
       ok: false,
       status: 422,
       code: "AXIS_PAYMENTS_DISABLED",
-      error: "Online card payments are not enabled for this property. Use Zelle or Venmo if available.",
+      error: "Online payments are not enabled for this property. Contact the manager before applying.",
     };
   }
 
@@ -289,7 +282,6 @@ export async function createApplicationFeeCheckout(
     db,
     managerUserId,
     applicationFeeCents,
-    "card",
     listing,
     input.propertyId,
   );

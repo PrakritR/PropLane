@@ -26,8 +26,6 @@ export type ApplicationFeePreview = {
   totalCents: number;
   chargePolicy?: ApplicationFeeChargePolicy;
   repeatApplicantFeeWaived?: boolean;
-  applicationFeeOtherEnabled?: boolean;
-  applicationFeeOtherInstructions?: string;
 };
 
 export type ApplicationFeePreviewFetchResult = {
@@ -117,8 +115,6 @@ export async function fetchApplicationFeePreview(input: {
         totalCents?: number;
         chargePolicy?: ApplicationFeeChargePolicy;
         repeatApplicantFeeWaived?: boolean;
-        applicationFeeOtherEnabled?: boolean;
-        applicationFeeOtherInstructions?: string;
       };
       if (!res.ok || typeof data.applicationFeeCents !== "number") {
         return { preview: null };
@@ -129,8 +125,6 @@ export async function fetchApplicationFeePreview(input: {
         totalCents: typeof data.totalCents === "number" ? data.totalCents : data.applicationFeeCents,
         chargePolicy: data.chargePolicy,
         repeatApplicantFeeWaived: data.repeatApplicantFeeWaived,
-        applicationFeeOtherEnabled: data.applicationFeeOtherEnabled,
-        applicationFeeOtherInstructions: data.applicationFeeOtherInstructions,
       };
       const value: ApplicationFeePreviewFetchResult = {
         preview,

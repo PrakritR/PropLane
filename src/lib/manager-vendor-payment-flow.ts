@@ -15,12 +15,15 @@ export const MANAGER_VENDOR_PAY_METHOD_OPTIONS: {
   feeLabel: string;
 }[] = [
   { id: "ach", title: "Bank (ACH)", feeLabel: "Pay through PropLane · Stripe Connect" },
-  { id: "zelle", title: "Zelle", feeLabel: "No added fees" },
-  { id: "venmo", title: "Venmo", feeLabel: "No added fees" },
 ];
 
-export function managerVendorPayMethodLabel(method: ManagerVendorPayMethod): string {
-  return VENDOR_ACCEPTED_PAYMENT_METHOD_LABELS[method];
+/**
+ * Label for a payout channel. A stored work order may still name a channel the
+ * product no longer offers (paid before PLAN-0916); those read as a plain
+ * "PropLane" payout rather than as `undefined`.
+ */
+export function managerVendorPayMethodLabel(method: ManagerVendorPayMethod | string): string {
+  return (VENDOR_ACCEPTED_PAYMENT_METHOD_LABELS as Record<string, string>)[method] ?? "Recorded by hand";
 }
 
 export function availableManagerVendorPayMethods(
@@ -47,8 +50,6 @@ export function enrichOutgoingRowWithVendorPayments(
     ...row,
     vendorId: vendor.id,
     vendorPaymentMethods: methods,
-    zelleContactSnapshot: vendor.zellePaymentsEnabled ? vendor.zelleContact?.trim() || undefined : undefined,
-    venmoContactSnapshot: vendor.venmoPaymentsEnabled ? vendor.venmoContact?.trim() || undefined : undefined,
     achAvailable: methods.includes("ach"),
   };
 }

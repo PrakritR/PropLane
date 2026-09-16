@@ -55,8 +55,6 @@ const MIGRATED_ROUTES = [
   "resident/extend-lease/route.ts",
   "resident/check-move-out-availability/route.ts",
   "resident/sms-conversations/route.ts",
-  "portal/resident-report-manual-payment/route.ts",
-  "portal/resident-check-manual-payment/route.ts",
   "portal/work-orders/send-reminder/route.ts",
   "portal/service-requests/send-reminder/route.ts",
   "portal-service-requests/route.ts",

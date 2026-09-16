@@ -18,10 +18,6 @@ function vendor(overrides: Partial<ManagerVendorRow> = {}): ManagerVendorRow {
     email: "",
     notes: "",
     active: true,
-    zellePaymentsEnabled: true,
-    zelleContact: "ace@email.com",
-    venmoPaymentsEnabled: false,
-    venmoContact: "",
     achPaymentsEnabled: true,
     ...overrides,
   };
@@ -29,12 +25,12 @@ function vendor(overrides: Partial<ManagerVendorRow> = {}): ManagerVendorRow {
 
 describe("manager-vendor-payment-flow", () => {
   it("derives available pay methods from vendor profile", () => {
-    expect(availableManagerVendorPayMethods(vendor())).toEqual(["zelle", "ach"]);
+    expect(availableManagerVendorPayMethods(vendor())).toEqual(["ach"]);
     expect(defaultManagerVendorPayMethod(vendor())).toBe("ach");
-    expect(defaultManagerVendorPayMethod(vendor({ achPaymentsEnabled: false }))).toBe("zelle");
+    expect(defaultManagerVendorPayMethod(vendor({ achPaymentsEnabled: false }))).toBeNull();
   });
 
-  it("enriches outgoing rows with vendor payment snapshots", () => {
+  it("enriches outgoing rows with the vendor's payout availability", () => {
     const base: DemoManagerOutgoingPaymentRow = {
       id: "wo-1",
       propertyName: "Oak",
@@ -48,9 +44,8 @@ describe("manager-vendor-payment-flow", () => {
       workOrderId: "wo-1",
     };
     const enriched = enrichOutgoingRowWithVendorPayments(base, vendor());
-    expect(enriched.zelleContactSnapshot).toBe("ace@email.com");
     expect(enriched.achAvailable).toBe(true);
-    expect(enriched.vendorPaymentMethods).toEqual(["zelle", "ach"]);
+    expect(enriched.vendorPaymentMethods).toEqual(["ach"]);
   });
 
   it("gates pay actions by method availability", () => {
@@ -69,8 +64,9 @@ describe("manager-vendor-payment-flow", () => {
       },
       vendor(),
     );
-    expect(managerCanPayOutgoingRowWithMethod(row, "zelle")).toBe(true);
-    expect(managerCanPayOutgoingRowWithMethod(row, "venmo")).toBe(false);
-    expect(managerCanPayOutgoingRowWithMethod({ ...row, bucket: "paid" }, "zelle")).toBe(false);
+    expect(managerCanPayOutgoingRowWithMethod(row, "ach")).toBe(true);
+    expect(managerCanPayOutgoingRowWithMethod({ ...row, bucket: "paid" }, "ach")).toBe(false);
+    const unlinked = enrichOutgoingRowWithVendorPayments(row, vendor({ achPaymentsEnabled: false }));
+    expect(managerCanPayOutgoingRowWithMethod(unlinked, "ach")).toBe(false);
   });
 });

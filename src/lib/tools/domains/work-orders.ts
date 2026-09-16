@@ -1026,7 +1026,7 @@ export const completeWorkOrderTool = defineWriteTool({
 export const approveAndPayWorkOrderTool = defineWriteTool({
   name: "approve_and_pay_work_order",
   description:
-    "Approve a finished work order and pay the vendor: completes it, logs expenses, marks the vendor paid, and — for the ACH channel — transfers the labor cost to the vendor's connected Stripe bank account. The transfer amount is anchored to the accepted bid (else the work order's stored labor cost) and can never be supplied as input. Work order ids come from list_work_orders.",
+    "Approve a finished work order and pay the vendor: completes it, logs expenses, marks the vendor paid, and transfers the labor cost to the vendor's connected Stripe bank account. The transfer amount is anchored to the accepted bid (else the work order's stored labor cost) and can never be supplied as input. Work order ids come from list_work_orders.",
   destructive: true,
   inputSchema: z
     .object({
@@ -1034,10 +1034,6 @@ export const approveAndPayWorkOrderTool = defineWriteTool({
       category: z
         .enum(WORK_ORDER_CATEGORY_VALUES)
         .describe("Maintenance category; determines the expense category the labor cost books to."),
-      paymentChannel: z
-        .enum(["ach", "zelle", "venmo"])
-        .optional()
-        .describe("How the vendor is paid. Only 'ach' (default) triggers a real Stripe transfer; zelle/venmo are bookkeeping-only."),
     })
     .strict(),
   preview: async (ctx, input) => {
@@ -1057,7 +1053,7 @@ export const approveAndPayWorkOrderTool = defineWriteTool({
     // Materials booked mirror the approve-pay pipeline: an accepted bid's
     // materials when one exists, else none.
     const materialsCents = bid?.materialsCents ?? 0;
-    const channel = input.paymentChannel ?? "ach";
+    const channel = "ach" as const;
     const laborCategory = WORK_ORDER_CATEGORY_TO_EXPENSE[input.category as WorkOrderCategory] ?? "maintenance";
     const lines = [
       { label: "Work order", value: owned.row.title || owned.id },
@@ -1070,9 +1066,7 @@ export const approveAndPayWorkOrderTool = defineWriteTool({
       { label: "Payment channel", value: channel.toUpperCase() },
       { label: "Expense category", value: laborCategory },
     ];
-    if (channel !== "ach") {
-      lines.push({ label: "Note", value: "Bookkeeping only — no Stripe transfer for this channel." });
-    } else if (!owned.vendorUserId) {
+    if (!owned.vendorUserId) {
       lines.push({ label: "Note", value: "Vendor has no linked Axis account — recorded as paid, no transfer occurs." });
     }
     return {
@@ -1094,7 +1088,7 @@ export const approveAndPayWorkOrderTool = defineWriteTool({
     }
     const bid = await findAcceptedBid(ctx, owned.id);
     const laborCents = bid?.amountCents ?? owned.row.vendorCostCents ?? 0;
-    const channel = input.paymentChannel ?? "ach";
+    const channel = "ach" as const;
 
     // One-shot dedupe: vendor_payouts is one row per work order, so a retry can
     // never double-transfer — but the audit intent is still recorded first.
@@ -1136,10 +1130,10 @@ export const approveAndPayWorkOrderTool = defineWriteTool({
       expenseEntryCount: result.expenseEntryIds.length,
     });
     const payoutPart =
-      channel === "ach" && laborCents > 0 && owned.vendorUserId
+      laborCents > 0 && owned.vendorUserId
         ? ` A ${centsLabel(laborCents)} transfer to ${owned.row.vendorName || "the vendor"} was initiated (the vendor sees the payout status in their portal).`
         : laborCents > 0
-          ? ` Recorded ${centsLabel(laborCents)} labor as paid via ${channel.toUpperCase()} (no Stripe transfer).`
+          ? ` Recorded ${centsLabel(laborCents)} labor as paid (the vendor has not linked a bank, so no transfer was sent).`
           : "";
     return { reply: `Approved and paid "${owned.row.title || owned.id}".${payoutPart}`, resultSummary: { workOrderId: owned.id, laborCents, paymentChannel: channel } };
   },

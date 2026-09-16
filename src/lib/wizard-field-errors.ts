@@ -51,7 +51,7 @@ export const RENTAL_WIZARD_STEP_FIELD_ORDER: Record<number, string[]> = {
   7: ["ref1Name", "ref1Relationship", "ref1Phone"],
   8: ["occupancyCount", "evictionHistory", "bankruptcyHistory", "criminalHistory"],
   9: ["consentCredit", "consentTruth", "digitalSignature", "dateSigned"],
-  11: ["applicationFeeZelleSentConfirmed"],
+  11: [],
 };
 
 export const LISTING_STEP_FIELD_ORDER: Record<number, string[]> = {
@@ -81,8 +81,6 @@ export const LISTING_STEP_FIELD_ORDER: Record<number, string[]> = {
     "otherMonthlyFees",
     "monthToMonthSurcharge",
     "customLeaseSurcharge",
-    "zelleContact",
-    "venmoContact",
     "residentPaymentMethods",
     "serviceFeeWaiverCode",
   ],

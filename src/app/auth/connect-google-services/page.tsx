@@ -32,10 +32,7 @@ type GoogleServicesStatus = {
   pending: boolean;
   calendarConnected: boolean;
   calendarConfigured: boolean;
-  gmailConnected: boolean;
-  gmailConfigured: boolean;
   calendarEmail: string | null;
-  gmailEmail: string | null;
 };
 
 type PhoneSettings = {
@@ -45,11 +42,6 @@ type PhoneSettings = {
 
 function formatGcalConnectError(reason: string | null): string {
   return formatGoogleCalendarConnectError(reason);
-}
-
-function formatGmailConnectError(reason: string | null): string {
-  if (!reason) return "Could not connect Gmail.";
-  return `Could not connect Gmail: ${decodeURIComponent(reason)}`;
 }
 
 function formatUsPhone(e164: string | null | undefined): string {
@@ -164,17 +156,13 @@ function ConnectGoogleServicesContent() {
 
   useEffect(() => {
     const gcal = searchParams.get("gcal");
-    const gmailPay = searchParams.get("gmail-pay");
-    if (!gcal && !gmailPay) return;
+    if (!gcal) return;
 
     if (gcal === "connected") showToast("Google Calendar connected.");
     if (gcal === "error") showToast(formatGcalConnectError(searchParams.get("reason")));
-    if (gmailPay === "connected") showToast("Gmail connected for payment tracking.");
-    if (gmailPay === "error") showToast(formatGmailConnectError(searchParams.get("reason")));
 
     const params = new URLSearchParams(searchParams.toString());
     params.delete("gcal");
-    params.delete("gmail-pay");
     params.delete("reason");
     const next = `${MANAGER_GOOGLE_SERVICES_ONBOARDING_PATH}${params.size ? `?${params}` : ""}`;
     window.history.replaceState({}, "", next);

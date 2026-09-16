@@ -58,7 +58,7 @@ export async function POST(req: Request) {
       materialsCostCents?: number;
       materialsMemo?: string;
       workDoneSummary?: string;
-      paymentChannel?: "ach" | "zelle" | "venmo";
+      paymentChannel?: "ach";
       acknowledgeExistingPayout?: unknown;
     };
 

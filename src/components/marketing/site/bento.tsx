@@ -63,7 +63,7 @@ export function SiteBento() {
             </div>
           </MockFrame>
         </Tile>
-        <Tile title="Rent without the chase" body="Card, bank or Zelle; reminders that draft first; late fees you set once.">
+        <Tile title="Rent without the chase" body="Card or bank; reminders that draft first; late fees you set once.">
           <MockFrame title="Payments · This month">
             <p className="text-[12px] font-semibold uppercase tracking-wide text-muted">Collected this month</p>
             <p className="mt-1 text-[28px] font-bold tabular-nums tracking-tight text-foreground">$7,250</p>

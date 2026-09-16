@@ -119,11 +119,6 @@ const { PATCH } = await import("@/app/api/portal/manager-manual-payment-settings
 
 const BASE = {
   axisPaymentsEnabled: true,
-  zellePaymentsEnabled: false,
-  zelleContact: "",
-  venmoPaymentsEnabled: false,
-  venmoContact: "",
-  receiptAutoMarkEnabled: true,
 };
 
 async function patch(label: string, body: Record<string, unknown>) {

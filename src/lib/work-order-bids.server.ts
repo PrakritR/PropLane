@@ -20,7 +20,6 @@ import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveVendorNextAvailableSlot } from "@/lib/vendor-availability-server";
 import { buildVendorBidDeclinedEmail } from "@/lib/vendor-visit-email";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
-import { generateWorkOrderPaymentReference } from "@/lib/payment-reference";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -691,7 +690,6 @@ export async function markWorkOrderDoneByVendor(
     automationStatus: "vendor_marked_done",
     vendorMarkedDoneAt: now,
     vendorMarkedDoneNote: note || undefined,
-    paymentReference: rowData.paymentReference?.trim() || generateWorkOrderPaymentReference(workOrderId),
   };
 
   const { error } = await db

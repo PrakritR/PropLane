@@ -19,7 +19,6 @@ import {
 } from "@/lib/claw-resident-intents";
 import { managerPortalUrlFromPath, residentPortalUrl } from "@/lib/claw-resident-links";
 import { residentInboundAck, type ClawThreadTopic } from "@/lib/claw-resident-messaging.server";
-import { reportManualPaymentForResident } from "@/lib/resident-report-manual-payment.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export type ResidentSmsActionResult = {
@@ -334,31 +333,13 @@ export async function runResidentSmsAction(args: {
     }
     case "i_paid": {
       threadTopic = "payment";
-      if (!residentEmail) {
-        residentReply = `Cool — can you note it here so we can match it?\n${residentPortalUrl("payments")}`;
-        break;
-      }
-      const report = await reportManualPaymentForResident({
-        residentUserId: args.residentUserId,
-        residentEmail,
-        textHint: text,
-        managerUserId: args.managerUserId,
-      });
-      if (!report.ok) {
-        residentReply = [
-          "Hmm, I couldn't match that to an open charge.",
-          `Can you mark it here? ${residentPortalUrl("payments")}`,
-        ].join("\n");
-        wants = "confirm offline payment (no open charge matched)";
-        break;
-      }
-      const channelLabel = report.channel === "venmo" ? "Venmo" : "Zelle";
+      // Off-platform payments are no longer recorded (PLAN-0916): every rent
+      // payment goes through PropLane, so point them at the payment link.
       residentReply = [
-        `Nice — noted you paid via ${channelLabel}.`,
-        "We'll confirm once it shows up on our side.",
+        "Thanks for the heads up — payments go through PropLane so they post automatically.",
+        `If it's not showing yet, pay here: ${residentPortalUrl("payments")}`,
       ].join("\n");
-      autoFiledNote = `Resident reported ${channelLabel} payment on ${report.charges.length} charge(s).`;
-      wants = `confirm ${channelLabel} payment received`;
+      wants = "says they paid (pointed at PropLane payments)";
       break;
     }
     case "lease": {

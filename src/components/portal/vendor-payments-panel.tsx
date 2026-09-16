@@ -16,8 +16,6 @@ import {
 } from "@/components/portal/portal-data-table";
 import { PortalPaymentsTable, type PortalPaymentTableRow } from "@/components/portal/portal-payments-table";
 import { VendorPaymentMethodsModal } from "@/components/portal/vendor-payment-methods-modal";
-import { GmailPaymentAutoTrackPanel } from "@/components/portal/gmail-payment-auto-track-panel";
-import { formatGmailPaymentsConnectError } from "@/lib/gmail-payments/connect-errors";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { CANONICAL_DEMO_MANAGER_NAME } from "@/lib/demo/demo-canonical-accounts";
@@ -33,9 +31,7 @@ import { fetchVendorPayoutsResult, type VendorPayout } from "@/lib/vendor-payout
 import { vendorPayoutTimeline, type VendorPayoutTimelineStep } from "@/lib/vendor-payout-timeline";
 import { VendorPayoutTimeline } from "@/components/portal/vendor-payout-timeline";
 import type { VendorInvoice } from "@/lib/vendor-invoices";
-import { VENDOR_ACCEPTED_PAYMENT_METHOD_LABELS } from "@/lib/vendor-payment-methods";
 import { managerVendorPayMethodLabel } from "@/lib/manager-vendor-payment-flow";
-import { workOrderPaymentReference } from "@/lib/manual-payment-instructions";
 
 type VendorPaymentBucket = "pending" | "paid";
 
@@ -172,57 +168,14 @@ function VendorPaymentExpandedDetail({
   bucket: VendorPaymentBucket;
 }) {
   const paidChannel = workOrder.vendorPaymentChannel;
-  const paymentRef = workOrderPaymentReference(workOrder);
 
   return (
     <div className={PORTAL_MOBILE_DETAIL_EXPAND}>
-      {workOrder.paidViaGmailMessageId && bucket === "paid" ? (
-        <div className="glass-card mb-4 rounded-lg px-3 py-2.5 text-[var(--status-confirmed-fg)]">
-          <p className="text-xs font-semibold">Payment confirmed automatically</p>
-          <p className="mt-1 text-sm leading-relaxed">
-            Your incoming Zelle or Venmo payment was matched and marked paid.
-          </p>
-        </div>
-      ) : null}
       {paidChannel && bucket === "paid" ? (
         <div className="glass-card mb-4 rounded-lg px-3 py-2.5 text-[var(--status-confirmed-fg)]">
           <p className="text-xs font-semibold">Paid via {managerVendorPayMethodLabel(paidChannel)}</p>
-          {paidChannel === "zelle" && workOrder.vendorZelleContactSnapshot ? (
-            <p className="mt-1 text-sm leading-relaxed">
-              Sent to <span className="font-mono font-medium">{workOrder.vendorZelleContactSnapshot}</span>
-            </p>
-          ) : null}
-          {paidChannel === "venmo" && workOrder.vendorVenmoContactSnapshot ? (
-            <p className="mt-1 text-sm leading-relaxed">
-              Sent to <span className="font-mono font-medium">{workOrder.vendorVenmoContactSnapshot}</span>
-            </p>
-          ) : null}
-          {paidChannel === "ach" ? (
-            <p className="mt-1 text-sm leading-relaxed">
-              {row.payoutStatus ?? "ACH transfer through PropLane when your bank is linked."}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-
-      {bucket === "pending" && vendorProfile?.zellePaymentsEnabled && vendorProfile.zelleContact?.trim() ? (
-        <div className="glass-card mb-4 rounded-lg px-3 py-2.5 text-[var(--status-confirmed-fg)]">
-          <p className="text-xs font-semibold">{VENDOR_ACCEPTED_PAYMENT_METHOD_LABELS.zelle}</p>
           <p className="mt-1 text-sm leading-relaxed">
-            Your manager can send to{" "}
-            <span className="font-mono font-medium">{vendorProfile.zelleContact.trim()}</span>. Include code{" "}
-            <span className="font-mono font-medium">{paymentRef}</span> in the memo.
-          </p>
-        </div>
-      ) : null}
-
-      {bucket === "pending" && vendorProfile?.venmoPaymentsEnabled && vendorProfile.venmoContact?.trim() ? (
-        <div className="glass-card mb-4 rounded-lg px-3 py-2.5 text-[var(--status-approved-fg)]">
-          <p className="text-xs font-semibold">{VENDOR_ACCEPTED_PAYMENT_METHOD_LABELS.venmo}</p>
-          <p className="mt-1 text-sm leading-relaxed">
-            Your manager can send to{" "}
-            <span className="font-mono font-medium">{vendorProfile.venmoContact.trim()}</span>. Include code{" "}
-            <span className="font-mono font-medium">{paymentRef}</span> in the note.
+            {row.payoutStatus ?? "ACH transfer through PropLane when your bank is linked."}
           </p>
         </div>
       ) : null}
@@ -333,22 +286,14 @@ export function VendorPaymentsPanel() {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const connect = params.get("connect");
-    const gmailPay = params.get("gmail-pay");
     if (connect === "done") {
       showToast("Bank account linked.");
     } else if (connect === "refresh") {
       showToast("Setup link expired. Open Payment methods and try again.");
-    } else if (gmailPay === "connected") {
-      showToast("Gmail linked for payment tracking.");
-    } else if (gmailPay === "error") {
-      const reason = params.get("reason");
-      showToast(formatGmailPaymentsConnectError(reason));
     }
-    if (connect || gmailPay) {
+    if (connect) {
       const url = new URL(window.location.href);
       url.searchParams.delete("connect");
-      url.searchParams.delete("gmail-pay");
-      url.searchParams.delete("reason");
       window.history.replaceState({}, "", url.pathname + url.search);
     }
   }, [showToast]);
@@ -549,17 +494,7 @@ export function VendorPaymentsPanel() {
         >
           Waiting on a property manager to connect with you. Completed work will appear here once you&apos;re linked.
         </p>
-      ) : (
-        <div className="mb-4">
-          <GmailPaymentAutoTrackPanel
-            role="vendor"
-            demo={demo}
-            autoMarkEnabled
-            onAutoMarkChange={() => undefined}
-            showToast={showToast}
-          />
-        </div>
-      )}
+      ) : null}
 
       {showSelection && selectedIds.size > 0 ? (
         <div className="mb-3">

@@ -173,7 +173,7 @@ function summarizeRooms(sub: Record<string, unknown> | null) {
 export const getPropertyDetailsTool = defineTool({
   name: "get_property_details",
   description:
-    "Get one of the current landlord's properties in detail: title, address, zip, neighborhood, beds/baths, rent, lifecycle status, per-room name/rent/availability/move-in date, and which resident payment methods the listing accepts. Pass a property id from list_properties. Photos and payment contact details (Zelle/Venmo handles) are never returned.",
+    "Get one of the current landlord's properties in detail: title, address, zip, neighborhood, beds/baths, rent, lifecycle status, per-room name/rent/availability/move-in date, and which resident payment methods the listing accepts. Pass a property id from list_properties. Photos are never returned.",
   kind: "read",
   inputSchema: z
     .object({
@@ -201,7 +201,7 @@ export const getPropertyDetailsTool = defineTool({
         petFriendly: src?.petFriendly === true,
         rooms: summarizeRooms(sub),
         acceptedPaymentMethods: sub
-          ? acceptedPaymentMethodsForListing(sub as { acceptedPaymentMethods?: ("zelle" | "venmo" | "ach" | "card")[] })
+          ? acceptedPaymentMethodsForListing(sub as { acceptedPaymentMethods?: ("ach" | "card")[] })
           : null,
       },
     };

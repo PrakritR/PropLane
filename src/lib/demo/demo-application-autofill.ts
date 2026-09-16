@@ -97,7 +97,6 @@ export function buildDemoApplicationAutofill(propertyId: string): RentalWizardFo
     dateSigned: todayISO(),
     applicationFeeAcknowledged: true,
     applicationFeePayChannel: "stripe",
-    applicationFeeZelleSentConfirmed: false,
     customFieldAnswers: [],
   };
 }

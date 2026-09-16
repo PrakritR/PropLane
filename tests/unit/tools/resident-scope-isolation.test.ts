@@ -15,7 +15,7 @@ import {
   scheduleMessageTool,
   cancelScheduledMessageTool,
 } from "@/lib/tools/domains/resident/messaging";
-import { reportManualPaymentTool, startRentPaymentTool } from "@/lib/tools/domains/resident/payments";
+import { startRentPaymentTool } from "@/lib/tools/domains/resident/payments";
 import {
   listMyServiceRequestsTool,
   listMyWorkOrdersTool,
@@ -51,7 +51,6 @@ function charge(owner: { id: string; email: string }, id: string, extra: Record<
       balanceLabel: "$100",
       status: "pending",
       dueDateLabel: "2026-07-01",
-      zelleContactSnapshot: "zelle-contact-secret",
       createdAt: "2026-06-01T00:00:00.000Z",
       ...extra,
     },
@@ -282,14 +281,13 @@ describe("resident read tools: cross-resident isolation", () => {
     expect(JSON.stringify(res)).not.toContain("B SECRET LEDGER");
   });
 
-  it("list_my_charges returns only own charges and drops payment contact strings", async () => {
+  it("list_my_charges returns only own charges", async () => {
     const { ctx } = seed();
     const res = (await listMyChargesTool.handler(ctx, {})) as { count: number; charges: { id: string }[] };
     expect(res.charges.map((c) => c.id)).toEqual(["CH-A"]);
     const json = JSON.stringify(res);
     expect(json).not.toContain("CH-B");
-    expect(json).not.toContain("zelle-contact-secret");
-    expect(res.charges[0]).toMatchObject({ zelleAvailable: true, venmoAvailable: false });
+    expect(res.charges[0]).toMatchObject({ id: "CH-A", status: "pending" });
   });
 
   it("get_my_lease returns own lease without the document body", async () => {
@@ -373,19 +371,13 @@ describe("resident write tools: previews reject foreign/invalid ids", () => {
       { managerIds: [MANAGER, FOREIGN_MANAGER], activeManagerId: MANAGER },
     );
 
-    const preview = await previewWrite(reportManualPaymentTool, ctx, {
-      chargeIds: ["CH-OTHER-MANAGER"],
-      channel: "zelle",
-    });
+    const preview = await previewWrite(startRentPaymentTool, ctx, { chargeIds: ["CH-OTHER-MANAGER"] });
     expect(preview.ok).toBe(false);
 
-    const exec = await executeWrite(reportManualPaymentTool, ctx, {
-      chargeIds: ["CH-OTHER-MANAGER"],
-      channel: "zelle",
-    });
+    const exec = await executeWrite(startRentPaymentTool, ctx, { chargeIds: ["CH-OTHER-MANAGER"] });
     expect(exec.ok).toBe(false);
+    // The foreign charge row was never touched and no checkout was minted.
     expect(mutations.filter((mutation) => mutation.table === "portal_household_charge_records")).toEqual([]);
-    expect(mutations.filter((mutation) => mutation.table === "audit_log")).toEqual([]);
   });
 
   it("add_service_request_note rejects another resident's request", async () => {
@@ -394,16 +386,6 @@ describe("resident write tools: previews reject foreign/invalid ids", () => {
     expect(preview.ok).toBe(false);
     const exec = await executeWrite(addServiceRequestNoteTool, ctx, { requestId: "SR-B", note: "hi" });
     expect(exec.ok).toBe(false);
-  });
-
-  it("report_manual_payment rejects another resident's charge in preview and execute", async () => {
-    const { ctx, mutations } = seed();
-    const preview = await previewWrite(reportManualPaymentTool, ctx, { chargeIds: ["CH-B"], channel: "zelle" });
-    expect(preview.ok).toBe(false);
-    const exec = await executeWrite(reportManualPaymentTool, ctx, { chargeIds: ["CH-B"], channel: "zelle" });
-    expect(exec.ok).toBe(false);
-    // The foreign charge row was never touched.
-    expect(mutations.filter((m) => m.table === "portal_household_charge_records")).toEqual([]);
   });
 
   it("start_rent_payment rejects another resident's charge", async () => {
@@ -488,25 +470,6 @@ describe("resident write tools: happy paths write audited, scoped rows", () => {
     const notes = (row.row_data as { notes: string }).notes;
     expect(notes).toContain("Original note");
     expect(notes).toContain("Please expedite");
-  });
-
-  it("report_manual_payment patches own charge, audits per charge per day, notifies manager", async () => {
-    const { ctx, mutations, tables } = seed();
-    const exec = await executeWrite(reportManualPaymentTool, ctx, { chargeIds: ["CH-A"], channel: "zelle" });
-    expect(exec.ok).toBe(true);
-
-    const audit = mutations.find((m) => m.table === "audit_log" && m.kind === "insert");
-    expect(audit?.values.dedupe_key).toBe(`report_manual_payment:${RES_A.id}:CH-A:${auditDayBucket()}`);
-
-    const row = tables.portal_household_charge_records!.find((r) => r.id === "CH-A")!;
-    expect((row.row_data as { manualPaymentChannel?: string }).manualPaymentChannel).toBe("zelle");
-    // Manager got an inbox notification.
-    expect(mutations.some((m) => m.table === "portal_inbox_thread_records")).toBe(true);
-
-    // Same charge, same day: idempotent, no error.
-    const again = await executeWrite(reportManualPaymentTool, ctx, { chargeIds: ["CH-A"], channel: "zelle" });
-    expect(again.ok).toBe(true);
-    if (again.ok) expect(again.reply).toContain("already");
   });
 
   it("send_message_to_manager delivers through the scoped inbox pipeline and audits per content per day", async () => {

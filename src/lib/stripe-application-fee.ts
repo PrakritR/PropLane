@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { APPLICATION_FEE_CHECKOUT_PURPOSE, axisAchCheckoutPaid } from "@/lib/stripe-axis-ach-checkout";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import { cancelFuturePaymentRemindersForCharge } from "@/lib/payment-reminder-lifecycle.server";
-import { ensureApplicationFeeChargeRow } from "@/lib/resident-check-manual-payment.server";
+import { ensureApplicationFeeChargeRow } from "@/lib/application-fee-charge-row.server";
 import { syncLedgerPaymentEntry } from "@/lib/reports/ledger-sync";
 
 export function includesHoldingDeposit(session: Stripe.Checkout.Session): boolean {

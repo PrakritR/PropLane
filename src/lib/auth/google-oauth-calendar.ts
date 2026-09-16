@@ -15,8 +15,8 @@ export function isManagerOAuthPath(intent: OAuthSignInIntent | null | undefined,
 }
 
 /**
- * Google sign-in/sign-up does NOT request Calendar or Gmail scopes — managers
- * connect those progressively on /auth/connect-google-services after account
+ * Google sign-in/sign-up does NOT request the Calendar scope — managers
+ * connect it progressively on /auth/connect-google-services after account
  * creation so consent is explicit and scoped.
  */
 export function shouldRequestGoogleCalendarOnSignIn(

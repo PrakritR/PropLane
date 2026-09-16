@@ -72,32 +72,15 @@ export async function PATCH(req: Request) {
       insuranceProvider?: string;
       insurancePolicyNumber?: string;
       insuranceExpiresAt?: string;
-      zellePaymentsEnabled?: boolean;
-      zelleContact?: string;
-      venmoPaymentsEnabled?: boolean;
-      venmoContact?: string;
       achPaymentsEnabled?: boolean;
-      acceptedPaymentMethods?: ("zelle" | "venmo" | "ach")[];
+      acceptedPaymentMethods?: "ach"[];
     };
 
-    const zellePaymentsEnabled =
-      body.zellePaymentsEnabled !== undefined ? body.zellePaymentsEnabled : own.row.zellePaymentsEnabled;
-    const zelleContact = body.zelleContact !== undefined ? body.zelleContact.trim() : own.row.zelleContact;
-    const venmoPaymentsEnabled =
-      body.venmoPaymentsEnabled !== undefined ? body.venmoPaymentsEnabled : own.row.venmoPaymentsEnabled;
-    const venmoContact = body.venmoContact !== undefined ? body.venmoContact.trim() : own.row.venmoContact;
     const achPaymentsEnabled =
       body.achPaymentsEnabled !== undefined ? body.achPaymentsEnabled : own.row.achPaymentsEnabled;
-    const acceptedPaymentMethods =
-      body.acceptedPaymentMethods !== undefined
-        ? body.acceptedPaymentMethods
-        : buildVendorAcceptedPaymentMethods({
-            zellePaymentsEnabled: Boolean(zellePaymentsEnabled),
-            zelleContact: zelleContact ?? "",
-            venmoPaymentsEnabled: Boolean(venmoPaymentsEnabled),
-            venmoContact: venmoContact ?? "",
-            achPaymentsEnabled: Boolean(achPaymentsEnabled),
-          });
+    // ACH through Stripe Connect is the only payout method (PLAN-0916), so the
+    // stored list is derived from the toggle rather than trusted from the body.
+    const acceptedPaymentMethods = buildVendorAcceptedPaymentMethods({ achPaymentsEnabled: Boolean(achPaymentsEnabled) });
 
     // Phone must normalize to E.164 (international allowed) when provided —
     // profiles.phone is what the SMS agent dials, so reject junk up front.
@@ -136,10 +119,6 @@ export async function PATCH(req: Request) {
         body.insurancePolicyNumber !== undefined ? body.insurancePolicyNumber.trim() : own.row.insurancePolicyNumber,
       insuranceExpiresAt:
         body.insuranceExpiresAt !== undefined ? body.insuranceExpiresAt.trim() : own.row.insuranceExpiresAt,
-      zellePaymentsEnabled,
-      zelleContact,
-      venmoPaymentsEnabled,
-      venmoContact,
       achPaymentsEnabled,
       acceptedPaymentMethods,
       updatedAt: new Date().toISOString(),
