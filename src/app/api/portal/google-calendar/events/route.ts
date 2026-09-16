@@ -1,8 +1,10 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 
 import { classifyGoogleCalendarEventsFetchError, listGoogleCalendarEventsPaged } from "@/lib/google-calendar/api.server";
 import { debugGoogleCalendarLog } from "@/lib/google-calendar/debug-log.server";
 import { googleCalendarEventsToMeetings } from "@/lib/google-calendar/meetings";
+import { loadPersistedGoogleMeetings } from "@/lib/google-calendar/persisted-meetings.server";
+import { pullGoogleCalendarMeetings } from "@/lib/google-calendar/pull.server";
 import { deleteProplaneGoogleCalendarEvent } from "@/lib/google-calendar/sync.server";
 import { loadGoogleCalendarConnection } from "@/lib/google-calendar/settings";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -48,8 +50,34 @@ export async function GET(req: Request) {
     if (!connection.connected) {
       return NextResponse.json({ meetings: [] });
     }
+
+    // Poll-on-read fallback: WS3's chosen renewal/sync path for hosts where a
+    // live Google push channel cannot be stood up (Testing-mode OAuth app, no
+    // domain-verified webhook host — see pull.server.ts). Scheduled after the
+    // response so a slow incremental sync never adds latency to this request;
+    // the webhook route triggers the same function synchronously when push is
+    // live, so a manager's calendar view is never the ONLY thing keeping the
+    // mirror current.
+    const pullTask = () =>
+      pullGoogleCalendarMeetings(ctx.db, ctx.userId).catch((e) =>
+        console.warn(`[google-calendar] poll-on-read pull failed for manager ${ctx.userId.slice(-6)}`, e),
+      );
+    try {
+      after(pullTask);
+    } catch {
+      void pullTask();
+    }
+
     const { events, truncated } = await listGoogleCalendarEventsPaged(ctx.db, ctx.userId, timeMin, timeMax);
-    const meetings = googleCalendarEventsToMeetings(events);
+    // `google_meeting` rows the pull already persisted for this window are
+    // merged in too, deduped by Google event id (live wins) — see
+    // `tour-availability.server.ts`'s busy path for the same pattern. This is
+    // what makes a persisted meeting show up here even when the live call was
+    // truncated, rate-limited, or simply has not re-run since the pull did.
+    const liveIds = new Set(events.map((event) => event.id));
+    const persisted = await loadPersistedGoogleMeetings(ctx.db, ctx.userId, timeMin, timeMax);
+    const merged = [...events, ...persisted.filter((event) => !liveIds.has(event.id))];
+    const meetings = googleCalendarEventsToMeetings(merged);
     if (truncated) {
       return NextResponse.json({
         meetings,

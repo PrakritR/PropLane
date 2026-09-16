@@ -6,6 +6,7 @@ import {
   listGoogleCalendarEvents,
 } from "@/lib/google-calendar/api.server";
 import { googleEventBlocksTours } from "@/lib/google-calendar/busy";
+import { loadPersistedGoogleMeetings } from "@/lib/google-calendar/persisted-meetings.server";
 import { publicSchedulingHostLabel } from "@/lib/public-host-label";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { listPropertyTourHostUserIds } from "@/lib/tour-host-enumeration.server";
@@ -206,7 +207,15 @@ export async function googleBusyBlocks(
       listGoogleCalendarEvents(db, managerUserId, timeMin, timeMax),
       GOOGLE_BUSY_READ_BUDGET_MS,
     );
-    const blocks = events
+    // Persisted `google_meeting` rows (webhook/poll-pulled — see
+    // pull.server.ts) are ADDED to the live pull rather than replacing it, so
+    // a manager whose live read got truncated or briefly failed still has the
+    // mirror to fall back on. Deduped by Google event id so a meeting present
+    // in both never becomes two blocks — the live copy wins on any overlap.
+    const liveIds = new Set(events.map((event) => event.id));
+    const persisted = await loadPersistedGoogleMeetings(db, managerUserId, timeMin, timeMax);
+    const combined = [...events, ...persisted.filter((event) => !liveIds.has(event.id))];
+    const blocks = combined
       .filter(googleEventBlocksTours)
       .map((event) => ({ start: event.start, end: event.end }));
     cacheGoogleBusyBlocks(managerUserId, blocks, windowEndMs);
