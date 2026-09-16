@@ -518,15 +518,19 @@ export function PortalProfileClient({
     window.history.pushState(null, "", urlForTab(null));
   }, [urlForTab]);
 
-  // Reset scroll when the pane changes — the shell scrolls in an inner
-  // container, so a router-style scroll-to-top never happens on its own.
+  // Reset scroll when the pane changes. On desktop the content column is its own
+  // scroll container (independent of the rail), so resetting its `scrollTop` is
+  // what lands a switched pane at the top; on mobile the whole shell scrolls, so
+  // scrollIntoView on the layout top still applies there.
   const layoutTopRef = useRef<HTMLDivElement>(null);
+  const contentColRef = useRef<HTMLDivElement>(null);
   const skipInitialScroll = useRef(true);
   useEffect(() => {
     if (skipInitialScroll.current) {
       skipInitialScroll.current = false;
       return;
     }
+    contentColRef.current?.scrollTo({ top: 0, behavior: "auto" });
     layoutTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
   }, [activeGroup?.id]);
 
@@ -609,7 +613,7 @@ export function PortalProfileClient({
       // other manager section, drop the duplicate in-page title on phones.
       hideTitleOnMobileNav
     >
-      <div ref={layoutTopRef} className="lg:flex lg:items-start lg:gap-10">
+      <div ref={layoutTopRef} className="lg:flex lg:h-full lg:min-h-0 lg:flex-1 lg:gap-10">
         <PortalSettingsNav
           className="max-lg:hidden"
           name={emptyToDash(fullName)}
@@ -623,7 +627,10 @@ export function PortalProfileClient({
           activeId={paneGroup.id}
           onSelect={openGroup}
         />
-        <div className="min-w-0 flex-1 lg:max-w-3xl">
+        <div
+          ref={contentColRef}
+          className="min-w-0 flex-1 lg:min-h-0 lg:max-w-3xl lg:overflow-y-auto lg:overscroll-contain"
+        >
           {activeGroup === null ? (
             <div className="space-y-5 lg:hidden">
               <PortalSettingsProfileHeader name={emptyToDash(fullName)} email={initialEmail} />

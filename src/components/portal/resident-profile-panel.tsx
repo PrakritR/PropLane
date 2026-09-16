@@ -394,12 +394,15 @@ export function ResidentProfilePanel({
   }, [urlForTab]);
 
   const layoutTopRef = useRef<HTMLDivElement>(null);
+  const contentColRef = useRef<HTMLDivElement>(null);
   const skipInitialScroll = useRef(true);
   useEffect(() => {
     if (skipInitialScroll.current) {
       skipInitialScroll.current = false;
       return;
     }
+    // Desktop: the content column is its own scroll container; mobile: the shell scrolls.
+    contentColRef.current?.scrollTo({ top: 0, behavior: "auto" });
     layoutTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
   }, [activeGroup?.id]);
 
@@ -444,9 +447,9 @@ export function ResidentProfilePanel({
       title="Settings"
       hideTitleOnMobileNav
     >
-      <div ref={layoutTopRef} className="lg:flex lg:items-start lg:gap-10">
+      <div ref={layoutTopRef} className="lg:flex lg:h-full lg:min-h-0 lg:flex-1 lg:gap-10">
         <PortalSettingsNav
-          className="sticky top-0 max-lg:hidden"
+          className="max-lg:hidden"
           name={name}
           email={email}
           items={groups.map((g) => ({
@@ -457,7 +460,10 @@ export function ResidentProfilePanel({
           activeId={paneGroup.id}
           onSelect={openGroup}
         />
-        <div className="min-w-0 flex-1 lg:max-w-3xl">
+        <div
+          ref={contentColRef}
+          className="min-w-0 flex-1 lg:min-h-0 lg:max-w-3xl lg:overflow-y-auto lg:overscroll-contain"
+        >
           {activeGroup === null ? (
             <div className="space-y-5 lg:hidden">
               <PortalSettingsProfileHeader name={name} email={email} />
