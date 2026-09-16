@@ -23,8 +23,12 @@ export const REMINDER_DISPATCH_CRON = `*/${REMINDER_DISPATCH_INTERVAL_MINUTES} *
 
 /** Below five minutes a reminder cannot beat its own dispatch tick. */
 export const MIN_TIMING_MINUTES = REMINDER_DISPATCH_INTERVAL_MINUTES;
-/** 30 days. Past this it is a campaign, not a reminder. */
-export const MAX_TIMING_MINUTES = 30 * DAY;
+/**
+ * 90 days. A lease-ending notice legitimately fires 90 days out; past this it
+ * is a campaign, not a reminder. Mirrored by the `portal_reminder_records`
+ * lead check (supabase/migrations/20260915120000_automated_communication_reminder_kinds.sql).
+ */
+export const MAX_TIMING_MINUTES = 90 * DAY;
 /** More than this per subject is a mailing list. */
 export const MAX_TIMINGS = 6;
 
@@ -70,7 +74,9 @@ export function formatTiming(timing: ReminderTiming): string {
   return `${formatMinutes(timing.minutes)} ${timing.direction}`;
 }
 
-const PRESET_MINUTES = [15 * MINUTE, 30 * MINUTE, 1 * HOUR, 2 * HOUR, 4 * HOUR, 1 * DAY, 2 * DAY, 3 * DAY, 7 * DAY];
+// 14, 30, 60 and 90 days exist for the lease-ending and move-out kinds; a tour
+// or a visit never needs them, but the picker is one list for every subject.
+const PRESET_MINUTES = [15 * MINUTE, 30 * MINUTE, 1 * HOUR, 2 * HOUR, 4 * HOUR, 12 * HOUR, 1 * DAY, 2 * DAY, 3 * DAY, 5 * DAY, 7 * DAY, 10 * DAY, 14 * DAY, 21 * DAY, 30 * DAY, 60 * DAY, 90 * DAY];
 
 /**
  * Options offered for a subject.

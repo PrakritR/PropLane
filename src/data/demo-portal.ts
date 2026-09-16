@@ -302,6 +302,25 @@ export type DemoManagerWorkOrderRow = {
   paidViaGmailMessageId?: string;
   /** ISO timestamp of the resident's last manager reminder for this pending request. */
   residentReminderSentAt?: string;
+  // ---- PLAN-0915 vendor loop stamps ----
+  /** When the current offer round expires; mirrors `work_order_vendor_offers.expires_at`. */
+  offerExpiresAt?: string;
+  /** Vendor tapped On my way. */
+  enRouteAt?: string;
+  /** The resident said "not fixed"; the vendor's done no longer stands. */
+  reopenedAt?: string;
+  enRouteEtaMinutes?: number;
+  /** "Was this fixed?" — asked when the vendor marked it done. */
+  residentConfirmation?: {
+    requestedAt: string;
+    /** HMAC token id so the signed link can be revoked by re-asking. */
+    tokenId: string;
+    respondedAt?: string;
+    verdict?: "fixed" | "not_fixed" | "auto_closed";
+    note?: string;
+    rating?: number;
+    ratedAt?: string;
+  };
 };
 
 export const demoManagerWorkOrderRowsFull: DemoManagerWorkOrderRow[] = [];

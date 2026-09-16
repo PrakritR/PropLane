@@ -15,9 +15,7 @@ import {
 } from "@/lib/manager-scheduled-work-tasks";
 import { updateManagerWorkOrder } from "@/lib/manager-work-orders-storage";
 import { readActiveManagerVendorRows } from "@/lib/manager-vendors-storage";
-import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import type { WorkAssignee } from "@/lib/work-assignment";
-import { notifyResidentOfWorkOrderUpdate } from "@/lib/work-order-resident-notifications";
 
 /**
  * Who takes the visit. `self` is the signed-in manager; `team` is a co-manager
@@ -137,6 +135,8 @@ export async function scheduleServiceVisit(input: {
   }
 
   const scheduledLabel = formatServiceVisitLabel(visitAtIso);
+  // A visit that already had a time is being moved, not booked.
+  const wasScheduled = row.bucket === "scheduled" && Boolean(row.scheduledAtIso) && row.scheduledAtIso !== visitAtIso;
   let assigneeName = input.managerName?.trim() || "You";
   let taskAssignee: WorkAssignee = {
     type: "team",
@@ -211,33 +211,19 @@ export async function scheduleServiceVisit(input: {
   const vendorEmailed = await sendVendorVisitEmail(nextRow, visitAtIso, scheduledLabel);
 
   if (!isDemoModeActive()) {
-    void notifyResidentOfWorkOrderUpdate("visit_scheduled", nextRow, { scheduledLabel }).then(
-      (notify) => {
-        if (notify.ok) {
-          track("work_order_resident_notified", {
-            stage: "visit_scheduled",
-            work_order_id: nextRow.id,
-          });
-        }
-      },
-    );
-
-    const managerNotice = buildManagerVisitScheduledNotice({
-      title: nextRow.title,
-      scheduledLabel,
-      assigneeName,
-      propertyLabel: nextRow.propertyName,
-      residentName: nextRow.residentName,
-    });
-    void deliverPortalInboxMessage({
-      fromName: "PropLane Portal",
-      toUserIds: [managerUserId],
-      subject: managerNotice.subject,
-      text: managerNotice.text,
-      eventCategory: "maintenance",
-      deliverViaEmail: false,
-      deliverViaSms: false,
-    });
+    // Resident and manager copies ride the action-event bus (PLAN-0915) so the
+    // per-event switch, template and each recipient's preferences apply. The
+    // `scheduled` event was rendered for years and never emitted.
+    void fetch("/api/portal/work-orders/visit-scheduled", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workOrderId: nextRow.id, kind: wasScheduled ? "rescheduled" : "scheduled", scheduledLabel }),
+    })
+      .then((res) => {
+        if (res.ok) track("work_order_resident_notified", { stage: "visit_scheduled", work_order_id: nextRow.id });
+      })
+      .catch(() => undefined);
   }
 
   return {

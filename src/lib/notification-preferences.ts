@@ -1,5 +1,23 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isPhoneOptedOut } from "@/lib/sms-consent";
+import { isVendorQuietHour, type VendorNotificationTopic } from "@/lib/vendor-notification-settings";
+
+export type ResolveChannelsOptions = {
+  /**
+   * Which vendor Settings row gates this message. Ignored for every other
+   * role. Absent on a vendor recipient, the category picks a sensible topic
+   * (`payments` → payments, `messages` → messages, anything else → schedule).
+   */
+  vendorTopic?: VendorNotificationTopic;
+  /**
+   * A vendor's own visit reminder: gated by their "Visit reminders" row (off =
+   * nothing outward, text per its own toggle) rather than a topic.
+   */
+  vendorVisitReminder?: boolean;
+  /** An emergency: a vendor's quiet-hours bypass applies. */
+  urgent?: boolean;
+  now?: Date;
+};
 
 /**
  * Notification categories a user can tune independently. `account` covers
@@ -135,6 +153,7 @@ export async function resolveChannels(
   userId: string,
   category: NotificationCategory,
   recipientProfile?: RecipientProfile | null,
+  options?: ResolveChannelsOptions,
 ): Promise<ResolvedChannels> {
   // Resident/vendor delivery remains always-on. Manager recipients branch to
   // the preference-aware Assistant/SMS router below.
@@ -155,6 +174,13 @@ export async function resolveChannels(
       "@/lib/manager-notification-routing.server"
     );
     return resolveManagerNotificationChannels(db, userId, category, profile);
+  }
+
+  // A vendor's own Settings → Notifications pane decides, per topic. Before
+  // PLAN-0915 those toggles were saved and read by nobody; this branch is what
+  // makes them mean something. Inbox stays on as the durable record.
+  if (role === "vendor") {
+    return resolveVendorChannels(db, userId, category, profile, options);
   }
 
   // Load the recipient's saved preferences for this category. Fail OPEN on a
@@ -189,4 +215,43 @@ export async function resolveChannels(
     email: categoryPreference.email,
     sms,
   };
+}
+
+async function resolveVendorChannels(
+  db: SupabaseClient,
+  userId: string,
+  category: NotificationCategory,
+  profile: RecipientProfile | null,
+  options?: ResolveChannelsOptions,
+): Promise<ResolvedChannels> {
+  const topic: VendorNotificationTopic =
+    options?.vendorTopic ?? (category === "payments" ? "payments" : category === "messages" ? "messages" : "schedule");
+  let settings;
+  try {
+    const { loadVendorNotificationSettings } = await import("@/lib/vendor-notification-settings.server");
+    settings = await loadVendorNotificationSettings(db, userId);
+  } catch {
+    // Fail open like the resident path: an unreadable settings row must never
+    // be the reason a vendor stops hearing about work.
+    const { DEFAULT_VENDOR_NOTIFICATION_SETTINGS } = await import("@/lib/vendor-notification-settings");
+    settings = DEFAULT_VENDOR_NOTIFICATION_SETTINGS;
+  }
+  const pref = options?.vendorVisitReminder
+    ? settings.visitReminderTimings.length === 0
+      ? { email: false, sms: false }
+      : { email: settings.topics.schedule.email, sms: settings.visitReminderSms }
+    : settings.topics[topic];
+  // Account-safety notices are never silenced, for vendors as for everyone.
+  const email = category === "account" ? true : pref.email;
+  const phone = String(profile?.phone ?? "").trim();
+  let sms = false;
+  if (phone && (category === "account" || pref.sms)) {
+    sms = !(await isPhoneOptedOut(db, phone));
+    if (sms && category !== "account") {
+      const { losAngelesHour } = await import("@/lib/reminders/rules");
+      const quiet = isVendorQuietHour(settings.quietHours, losAngelesHour(options?.now ?? new Date()));
+      if (quiet && !(options?.urgent && settings.emergencyBypassQuietHours)) sms = false;
+    }
+  }
+  return { inbox: true, email, sms };
 }

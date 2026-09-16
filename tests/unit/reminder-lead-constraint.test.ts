@@ -51,7 +51,7 @@ describe("portal_reminder_records lead constraint", () => {
 
   it("accepts a signed lead in either direction", () => {
     // The magnitude bounds are the real rule; the sign only carries direction.
-    expect(constraint).toMatch(/abs\(lead_minutes\) between 5 and 43200/i);
+    expect(constraint).toMatch(/abs\(lead_minutes\) between 5 and 129600/i);
   });
 
   it("does not decide validity from the kind", () => {
@@ -66,7 +66,7 @@ describe("portal_reminder_records lead constraint", () => {
       for (const timing of DEFAULT_REMINDER_RULES[kind]?.timings ?? []) {
         const lead = leadFor(timing);
         const magnitude = Math.abs(lead);
-        if (!(magnitude >= 5 && magnitude <= 43200)) {
+        if (!(magnitude >= 5 && magnitude <= 129600)) {
           rejected.push(`${kind} ${timing} -> ${lead}`);
         }
       }

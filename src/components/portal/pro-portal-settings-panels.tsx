@@ -13,8 +13,12 @@ import {
   PortalSettingsRow,
   PortalSettingsScopeTag,
   PortalSettingsSection,
+  PortalSettingsSections,
   PortalSettingsToggle,
 } from "@/components/portal/portal-settings-ui";
+import { AutomationRuleRows } from "@/components/portal/automation-rule-rows";
+import { AutomatedMessagesList } from "@/components/portal/automated-messages-list";
+import { ServiceRequestAutomationRows, ServiceVendorAutomationRows } from "@/components/portal/service-automation-settings-section";
 import {
   DEFAULT_APPLICATION_AUTOMATION,
   normalizeApplicationAutomation,
@@ -691,17 +695,42 @@ export function ServicesSettingsPanel({
   useReportSettingsPanelFooter(onFooterReady, null);
 
   return (
-    <PortalSettingsSection
-      title="Service reminders"
-      action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
-    >
-      <AutoMessageAssigneeRow />
-      <ServiceRemindersSettingsBundle
-        teamMembers={teamMembers}
-        workOrderFormRef={workOrderReminderFormRef}
-        serviceOrderFormRef={serviceOrderReminderFormRef}
-      />
-    </PortalSettingsSection>
+    <PortalSettingsSections>
+      <PortalSettingsSection title="Requests" action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}>
+        <ServiceRequestAutomationRows />
+        <AutomationRuleRows
+          rows={[
+            { kind: "work_order_unassigned" },
+            { kind: "work_order_unassigned_emergency" },
+            { kind: "service_request_decision" },
+            { kind: "service_request_unpaid" },
+          ]}
+        />
+      </PortalSettingsSection>
+      <PortalSettingsSection title="Vendors">
+        <ServiceVendorAutomationRows />
+        <AutomationRuleRows
+          rows={[
+            { kind: "vendor_offer_expiry" },
+            { kind: "work_order_no_on_my_way" },
+            { kind: "vendor_invoice_nudge" },
+            { kind: "invoice_approval" },
+            { kind: "vendor_document_expiry", label: "Warn before vendor documents expire" },
+          ]}
+        />
+      </PortalSettingsSection>
+      <PortalSettingsSection title="Visit reminders">
+        <AutoMessageAssigneeRow />
+        <ServiceRemindersSettingsBundle
+          teamMembers={teamMembers}
+          workOrderFormRef={workOrderReminderFormRef}
+          serviceOrderFormRef={serviceOrderReminderFormRef}
+        />
+      </PortalSettingsSection>
+      <PortalSettingsSection title="Messages sent automatically">
+        <AutomatedMessagesList area="services" />
+      </PortalSettingsSection>
+    </PortalSettingsSections>
   );
 }
 
