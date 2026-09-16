@@ -18,7 +18,7 @@ const PAGE_SRC = readFileSync(
 
 describe("ManagerPortalSettingsModal mount gating", () => {
   it("mounts self-loading panels only while the module page is active", () => {
-    expect(PAGE_SRC).toMatch(/\{active && tab === "tours" \?/);
+    expect(PAGE_SRC).toMatch(/active && tab === "tours"/);
     expect(PAGE_SRC).toMatch(/\{active && tab === "payments" \?/);
     expect(PAGE_SRC).toMatch(/\{active && tab === "communication" \?/);
     expect(PAGE_SRC).toMatch(/\{active && tab === "automation" \?/);

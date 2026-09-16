@@ -86,6 +86,10 @@ import {
   InspectionRemindersSettingsBundle,
   ServiceRemindersSettingsBundle,
 } from "@/components/portal/reminder-settings-bundles";
+import {
+  PaymentListingLateFeeSettings,
+  type PaymentListingLateFeeHandle,
+} from "@/components/portal/payment-late-fee-settings";
 import { ReminderTypePicker } from "@/components/portal/reminder-type-picker";
 import { TaskAutomationSettingsFields } from "@/components/portal/task-automation-settings-fields";
 import type { WorkAssignmentTeamMember } from "@/hooks/use-work-assignment-directory";
@@ -1473,6 +1477,8 @@ export function PaymentsSettingsPanel({
   mode = "incoming",
   teamMembers = [],
   outgoingReminderFormRef,
+  propertyOptions = [],
+  initialPropertyId,
 }: {
   onSaved?: () => void;
   onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
@@ -1481,7 +1487,24 @@ export function PaymentsSettingsPanel({
   mode?: "incoming" | "outgoing";
   teamMembers?: WorkAssignmentTeamMember[];
   outgoingReminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
+  propertyOptions?: { id: string; label: string }[];
+  initialPropertyId?: string;
 }) {
+  const remindersRef = useRef<PaymentAutomationSettingsHandle | null>(null);
+  const lateFeeRef = useRef<PaymentListingLateFeeHandle | null>(null);
+
+  useImperativeHandle(
+    formRef,
+    () => ({
+      saveIfDirty: async () => {
+        if ((await remindersRef.current?.saveIfDirty()) === false) return false;
+        if ((await lateFeeRef.current?.saveIfDirty()) === false) return false;
+        return true;
+      },
+    }),
+    [],
+  );
+
   useReportSettingsPanelFooter(onFooterReady, null);
 
   if (mode === "outgoing") {
@@ -1507,8 +1530,24 @@ export function PaymentsSettingsPanel({
         <IncomingPaymentRemindersSettingsBundle
           teamMembers={teamMembers}
           onSaved={onSaved}
-          formRef={formRef}
+          formRef={remindersRef}
         />
+      </PortalSettingsSection>
+      <PortalSettingsSection
+        title="Late fees"
+        action={
+          <PortalSettingsScopeTag>
+            {propertyOptions.length === 0 ? "No properties selected" : "1 property"}
+          </PortalSettingsScopeTag>
+        }
+      >
+        <PortalSettingsGroup>
+          <PaymentListingLateFeeSettings
+            ref={lateFeeRef}
+            propertyOptions={propertyOptions}
+            initialPropertyId={initialPropertyId}
+          />
+        </PortalSettingsGroup>
       </PortalSettingsSection>
       <PortalSettingsSection title="Delinquency">
         <AutomationRuleRows rows={[{ kind: "delinquency_manager" }]} />

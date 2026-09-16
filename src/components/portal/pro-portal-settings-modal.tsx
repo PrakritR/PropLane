@@ -2,14 +2,18 @@
 
 import { ChevronRight, ExternalLink, Pencil } from "lucide-react";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { SaveStatus } from "@/components/ui/save-status";
 import type { AutosaveState } from "@/hooks/use-autosave-draft";
+import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import {
   SettingsPanelModalSaveButton,
   type ManagerSettingsPanelFooter,
 } from "@/components/portal/pro-portal-settings-panels";
+import { ManagerPropertyApplicationFormEditor } from "@/components/portal/pro-edit-application-modal";
+import { ManagerPropertyLeaseFormEditor } from "@/components/portal/pro-edit-leases-modal";
 import {
   SettingsModulePage,
   type SettingsModulePageHandle,
@@ -18,6 +22,13 @@ import {
 import { getSettingsEntryPointForTab } from "@/components/portal/settings-entry-points";
 import { MANAGER_PORTAL_SETTINGS_TABS, managerSettingsHubTab } from "@/lib/portal-settings-section";
 import { PORTAL_TOOLBAR_PILL_BUTTON, PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE } from "@/components/portal/portal-metrics";
+import { cn } from "@/lib/utils";
+
+type SettingsEditorPane = "form" | "automation";
+
+function isFormAutomationTab(tab: ManagerPortalSettingsTab): boolean {
+  return tab === "applications" || tab === "lease";
+}
 
 export type ManagerPortalSettingsTab =
   | "properties"
@@ -44,6 +55,7 @@ export function ProPortalSettingsModal({
   initialPropertyId,
   paymentsMode = "incoming",
   editAction,
+  onFormSaved,
 }: {
   open: boolean;
   onClose: () => void;
@@ -52,8 +64,13 @@ export function ProPortalSettingsModal({
    * out of the list toolbar and under Settings, so a section that still has a
    * per-property editor hands it in here; it renders as the first row and
    * closes this dialog before opening the editor.
+   *
+   * Applications and Lease no longer pass this — their form editors live on
+   * the Form pane inside this sheet.
    */
   editAction?: { label: string; description?: string; onSelect: () => void; dataAttr?: string };
+  /** Fired after the inline application / lease form writes a listing. */
+  onFormSaved?: () => void;
   initialTab?: ManagerPortalSettingsTab;
   /** Incoming payments = resident rent reminders; outgoing = manager payee reminders. */
   paymentsMode?: "incoming" | "outgoing";
@@ -77,10 +94,22 @@ export function ProPortalSettingsModal({
 }) {
   const [tab, setTab] = useState<ManagerPortalSettingsTab>(initialTab);
   const [panelFooter, setPanelFooter] = useState<ManagerSettingsPanelFooter | null>(null);
+  const [editorPane, setEditorPane] = useState<SettingsEditorPane>("form");
+  const [formBulkActions, setFormBulkActions] = useState<ReactNode | null>(null);
+  const { userId: managerUserId } = useManagerUserId();
+  const { showToast } = useAppUi();
 
   useEffect(() => {
-    if (open) setTab(initialTab);
+    if (open) {
+      setTab(initialTab);
+      setEditorPane("form");
+      setFormBulkActions(null);
+    }
   }, [open, initialTab]);
+
+  useEffect(() => {
+    if (isFormAutomationTab(tab)) setEditorPane("form");
+  }, [tab]);
 
   /** Idle/saving/saved/failed for the `SaveStatus` mark beside the modal title. */
   const [saveStatus, setSaveStatus] = useState<{
@@ -127,6 +156,26 @@ export function ProPortalSettingsModal({
     },
     [tab, flushPendingSaves],
   );
+
+  const selectEditorPane = useCallback(
+    async (next: SettingsEditorPane) => {
+      if (editorPane === next) return;
+      const { ok } = await flushPendingSaves();
+      if (!ok) return;
+      setFormBulkActions(null);
+      setPanelFooter(null);
+      setEditorPane(next);
+    },
+    [editorPane, flushPendingSaves],
+  );
+
+  const handleFormBulkActions = useCallback((actions: ReactNode | null) => {
+    setFormBulkActions(actions);
+  }, []);
+
+  const handleFormSaved = useCallback(() => {
+    onFormSaved?.();
+  }, [onFormSaved]);
 
   /**
    * `onClose` used to run BEFORE the flush, so a panel that unmounts
@@ -176,7 +225,10 @@ export function ProPortalSettingsModal({
           ? `${scopedTitle ?? MANAGER_PORTAL_SETTINGS_TABS.find((item) => item.id === tab)?.label ?? "Settings"} settings`
           : "Portal settings"
       }
-      panelClassName="max-w-lg p-3 sm:p-4"
+      panelClassName={cn(
+        "p-3 sm:p-4",
+        isFormAutomationTab(tab) && editorPane === "form" ? "max-w-4xl" : "max-w-lg",
+      )}
       status={
         <SaveStatus
           status={{
@@ -198,11 +250,19 @@ export function ProPortalSettingsModal({
       // safe, but blocking dismissal here keeps the "saving…" mark truthful.
       dismissBlocked={saveStatus.state === "saving"}
       footer={
-        panelFooter ? (
-          <ModalFooter>
-            <SettingsPanelModalSaveButton {...panelFooter} />
-          </ModalFooter>
-        ) : undefined
+        isFormAutomationTab(tab) && editorPane === "form"
+          ? formBulkActions
+            ? (
+                <ModalFooter className="w-full justify-start">{formBulkActions}</ModalFooter>
+              )
+            : undefined
+          : panelFooter
+            ? (
+                <ModalFooter>
+                  <SettingsPanelModalSaveButton {...panelFooter} />
+                </ModalFooter>
+              )
+            : undefined
       }
     >
       {editAction ? (
@@ -255,7 +315,7 @@ export function ProPortalSettingsModal({
               type="button"
               className={tab === item.id ? PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE : PORTAL_TOOLBAR_PILL_BUTTON}
               data-attr={`manager-settings-tab-${item.id}`}
-              onClick={() => selectTab(item.id)}
+              onClick={() => void selectTab(item.id)}
             >
               {item.label}
             </button>
@@ -263,17 +323,62 @@ export function ProPortalSettingsModal({
         </div>
       )}
 
-      <SettingsModulePage
-        ref={pageRef}
-        tab={tab}
-        propertyOptions={propertyOptions}
-        initialPropertyId={initialPropertyId}
-        paymentsMode={paymentsMode}
-        onCalendarSettingsSaved={onCalendarSettingsSaved}
-        onFooterChange={setPanelFooter}
-        onSaveStatusChange={handleSaveStatusChange}
-        active={open}
-      />
+      {isFormAutomationTab(tab) ? (
+        <div className="mb-4 flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            className={editorPane === "form" ? PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE : PORTAL_TOOLBAR_PILL_BUTTON}
+            data-attr="manager-settings-pane-form"
+            onClick={() => void selectEditorPane("form")}
+          >
+            Form
+          </button>
+          <button
+            type="button"
+            className={editorPane === "automation" ? PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE : PORTAL_TOOLBAR_PILL_BUTTON}
+            data-attr="manager-settings-pane-automation"
+            onClick={() => void selectEditorPane("automation")}
+          >
+            Automation
+          </button>
+        </div>
+      ) : null}
+
+      {isFormAutomationTab(tab) && editorPane === "form" ? (
+        tab === "applications" ? (
+          <ManagerPropertyApplicationFormEditor
+            active={open}
+            propertyOptions={propertyOptions}
+            initialPropertyId={initialPropertyId}
+            managerUserId={managerUserId}
+            onSaved={handleFormSaved}
+            showToast={showToast}
+            onBulkActionsChange={handleFormBulkActions}
+          />
+        ) : (
+          <ManagerPropertyLeaseFormEditor
+            active={open}
+            propertyOptions={propertyOptions}
+            initialPropertyId={initialPropertyId}
+            managerUserId={managerUserId}
+            onSaved={handleFormSaved}
+            showToast={showToast}
+            onBulkActionsChange={handleFormBulkActions}
+          />
+        )
+      ) : (
+        <SettingsModulePage
+          ref={pageRef}
+          tab={tab}
+          propertyOptions={propertyOptions}
+          initialPropertyId={initialPropertyId}
+          paymentsMode={paymentsMode}
+          onCalendarSettingsSaved={onCalendarSettingsSaved}
+          onFooterChange={setPanelFooter}
+          onSaveStatusChange={handleSaveStatusChange}
+          active={open}
+        />
+      )}
     </Modal>
   );
 }

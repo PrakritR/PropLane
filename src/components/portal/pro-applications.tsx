@@ -43,7 +43,6 @@ import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible
 import { ApplicationDetailReviewBody } from "@/components/portal/application-detail-review-body";
 import { downloadBackgroundCheckForApplication, ApplicationScreeningPanel } from "@/components/portal/application-screening-panel";
 import { ApplicationHoldingFeeToggle } from "@/components/portal/application-holding-fee-box";
-import { ManagerEditApplicationModal } from "@/components/portal/pro-edit-application-modal";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { CheckrScreeningModal } from "@/components/portal/checkr-screening-modal";
@@ -551,7 +550,6 @@ export function ManagerApplications({
     setApplicationsFilterOpen(false);
     setInviteModalOpen(true);
   }, []);
-  const [editApplicationOpen, setEditApplicationOpen] = useState(false);
   const [screeningModalOpen, setScreeningModalOpen] = useState(false);
   const [applicationSettingsOpen, setApplicationSettingsOpen] = useState(false);
   const [checkrScreeningRowId, setCheckrScreeningRowId] = useState<string | null>(null);
@@ -1669,8 +1667,8 @@ export function ManagerApplications({
     </PortalFilterSortSheet>
   );
 
-  // Edit moved under Settings ("Edit application form") so the toolbar is one
-  // row of plain icons; Send application is the share glyph.
+  // Application form lives inside Settings (Form | Automation), so the toolbar
+  // stays one row of plain icons; Send application is the share glyph.
   const applicationsSettingsButton = (
     <PortalIconAction
       icon={Settings2}
@@ -1855,14 +1853,6 @@ export function ManagerApplications({
         kind="apply"
         properties={shareableProperties}
       />
-      <ManagerEditApplicationModal
-        open={editApplicationOpen}
-        onClose={() => setEditApplicationOpen(false)}
-        propertyOptions={propertyOptions}
-        managerUserId={userId}
-        onSaved={() => setPortfolioTick((n) => n + 1)}
-        showToast={showToast}
-      />
       {checkrScreeningModal}
     </>
   );
@@ -2004,12 +1994,7 @@ export function ManagerApplications({
         scopedTitle={settingsDialogTitlePrefix(applicationsSettingsEntry)}
         propertyOptions={propertyOptions}
         initialPropertyId={propertyFilters.length === 1 ? propertyFilters[0] : undefined}
-        editAction={{
-          label: "Edit application form",
-          description: "Questions, documents, and fee settings per property.",
-          dataAttr: "application-edit-open",
-          onSelect: () => setEditApplicationOpen(true),
-        }}
+        onFormSaved={() => setPortfolioTick((n) => n + 1)}
       />
       {checkrScreeningModal}
       {!authReady && rows.length === 0 ? (

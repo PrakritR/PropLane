@@ -529,6 +529,8 @@ export const SettingsModulePage = forwardRef<
           mode={paymentsMode}
           teamMembers={teamMembers}
           outgoingReminderFormRef={outgoingPaymentReminderFormRef}
+          propertyOptions={scopedPropertyOptions}
+          initialPropertyId={initialPropertyId}
         />
       ) : null}
 
