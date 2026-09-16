@@ -452,10 +452,14 @@ describe("prospect tour booking crash recovery", () => {
     expect(syncGoogle).toHaveBeenCalledWith(db, MANAGER, expect.objectContaining({
       plannedEventId: intent.planned_event_id,
       googleCalendarEventId: intent.google_calendar_event_id,
-    }), { ownsGoogleCreateIntent: true });
+    }), expect.objectContaining({
+      ownsGoogleCreateIntent: true,
+      googleCreateGeneration: intent.generation,
+      googleCreateWorkerId: expect.stringMatching(/^prospect-tour-google-create-recovery-/),
+    }));
     expect(rpc.mock.calls.some(([name]) => name === "complete_prospect_tour_google_calendar_create_reconciliation")).toBe(false);
     expect(updates).toEqual(expect.arrayContaining([
-      expect.objectContaining({ table: "prospect_tour_google_calendar_create_intents", state: "cleanup_required" }),
+      expect.objectContaining({ table: "prospect_tour_google_calendar_create_intents", state: "reconcile_current" }),
     ]));
   });
 
@@ -473,6 +477,7 @@ describe("prospect tour booking crash recovery", () => {
         return { data: claims.shift() ?? [], error: null };
       }
       if (name === "complete_prospect_tour_google_calendar_create_reconciliation") return { data: true, error: null };
+      if (name === "begin_prospect_tour_google_calendar_reconciliation_write") return { data: true, error: null };
       return { data: null, error: null };
     });
     const db = {
@@ -493,7 +498,10 @@ describe("prospect tour booking crash recovery", () => {
         return query;
       },
     };
-    syncGoogle.mockRejectedValueOnce(new Error("follow-up patch failed")).mockResolvedValueOnce(intent.google_calendar_event_id);
+    syncGoogle.mockRejectedValueOnce(new Error("follow-up patch failed")).mockResolvedValueOnce({
+      googleCalendarEventId: intent.google_calendar_event_id,
+      disposition: "synced",
+    });
 
     await expect(recoverExpiredProspectTourGoogleCalendarCreates(db as never)).resolves.toEqual({
       scanned: 2,
@@ -502,7 +510,7 @@ describe("prospect tour booking crash recovery", () => {
     });
     expect(syncGoogle).toHaveBeenCalledTimes(2);
     expect(updates).toEqual(expect.arrayContaining([
-      expect.objectContaining({ table: "prospect_tour_google_calendar_create_intents", state: "cleanup_required", last_error: "follow-up patch failed" }),
+      expect.objectContaining({ table: "prospect_tour_google_calendar_create_intents", state: "reconcile_current", last_error: "follow-up patch failed" }),
     ]));
     expect(rpc).toHaveBeenCalledWith("complete_prospect_tour_google_calendar_create_reconciliation", expect.objectContaining({
       p_planned_event_id: intent.planned_event_id,

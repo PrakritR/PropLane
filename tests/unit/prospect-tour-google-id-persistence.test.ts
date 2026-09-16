@@ -67,7 +67,7 @@ describe("Google Calendar id persistence boundary", () => {
     google.create.mockResolvedValue("google-cancel-1");
     google.remove.mockRejectedValue(new Error("Google delete transient failure"));
     rpc.mockImplementation(async (name: string) => {
-      if (name === "begin_prospect_tour_google_calendar_create") return { data: { allowed: true, generation: "00000000-0000-4000-8000-000000000001" }, error: null };
+      if (name === "begin_prospect_tour_google_calendar_write") return { data: { allowed: true, generation: "00000000-0000-4000-8000-000000000001" }, error: null };
       if (name === "persist_confirmed_tour_google_calendar_id") return { data: { ok: false, reason: "cancelled" }, error: null };
       if (name === "settle_prospect_tour_google_calendar_create") return { data: { ok: true, state: "reconciled" }, error: null };
       if (name === "enqueue_prospect_tour_google_calendar_cleanup") return { data: null, error: null };
@@ -109,7 +109,7 @@ describe("Google Calendar id persistence boundary", () => {
   it("records a create intent before Google insert and settles it only after lifecycle-safe persistence", async () => {
     google.create.mockResolvedValue("google-created-1");
     rpc.mockImplementation(async (name: string) => {
-      if (name === "begin_prospect_tour_google_calendar_create") return { data: { allowed: true, generation: "00000000-0000-4000-8000-000000000002" }, error: null };
+      if (name === "begin_prospect_tour_google_calendar_write") return { data: { allowed: true, generation: "00000000-0000-4000-8000-000000000002" }, error: null };
       if (name === "persist_confirmed_tour_google_calendar_id") return { data: { ok: true }, error: null };
       if (name === "settle_prospect_tour_google_calendar_create") return { data: { ok: true, state: "settled" }, error: null };
       return { data: null, error: null };
@@ -123,12 +123,38 @@ describe("Google Calendar id persistence boundary", () => {
     })).resolves.toBe("google-created-1");
 
     const calls = rpc.mock.calls.map(([name]) => name);
-    expect(calls.indexOf("begin_prospect_tour_google_calendar_create")).toBeLessThan(calls.indexOf("persist_confirmed_tour_google_calendar_id"));
+    expect(calls.indexOf("begin_prospect_tour_google_calendar_write")).toBeLessThan(calls.indexOf("persist_confirmed_tour_google_calendar_id"));
     expect(calls.indexOf("persist_confirmed_tour_google_calendar_id")).toBeLessThan(calls.indexOf("settle_prospect_tour_google_calendar_create"));
     expect(google.create).toHaveBeenCalledOnce();
   });
 
-  it("keeps a moved live create recoverable through its current-window patch", async () => {
+  it("records the actual existing remote id before a Google PATCH", async () => {
+    google.update.mockResolvedValue("legacy-google-id-1");
+    rpc.mockImplementation(async (name: string) => {
+      if (name === "begin_prospect_tour_google_calendar_write") {
+        return { data: { allowed: true, generation: "00000000-0000-4000-8000-000000000099" }, error: null };
+      }
+      if (name === "persist_confirmed_tour_google_calendar_id") return { data: { ok: true }, error: null };
+      if (name === "settle_prospect_tour_google_calendar_create") return { data: { ok: true, state: "settled" }, error: null };
+      return { data: null, error: null };
+    });
+
+    await expect(syncPlannedTourToGoogleCalendar({ rpc } as never, "manager-jain", {
+      plannedEventId: EVENT.id,
+      title: EVENT.title,
+      start: EVENT.start,
+      end: EVENT.end,
+      googleCalendarEventId: "legacy-google-id-1",
+    })).resolves.toBe("legacy-google-id-1");
+
+    expect(rpc).toHaveBeenCalledWith("begin_prospect_tour_google_calendar_write", expect.objectContaining({
+      p_google_calendar_event_id: "legacy-google-id-1",
+    }));
+    expect(google.update).toHaveBeenCalledOnce();
+    expect(google.create).not.toHaveBeenCalled();
+  });
+
+  it("defers a moved live create to the durably claimed recovery worker", async () => {
     const moved = {
       ...EVENT,
       start: "2099-09-11T17:00:00.000Z",
@@ -137,7 +163,7 @@ describe("Google Calendar id persistence boundary", () => {
     google.create.mockResolvedValue("google-created-stale-1");
     google.update.mockResolvedValue("google-created-stale-1");
     rpc.mockImplementation(async (name: string) => {
-      if (name === "begin_prospect_tour_google_calendar_create") {
+      if (name === "begin_prospect_tour_google_calendar_write") {
         return { data: { allowed: true, generation: "00000000-0000-4000-8000-000000000003" }, error: null };
       }
       if (name === "persist_confirmed_tour_google_calendar_id") {
@@ -162,18 +188,17 @@ describe("Google Calendar id persistence boundary", () => {
       title: EVENT.title,
       start: EVENT.start,
       end: EVENT.end,
-    })).resolves.toBe("google-created-stale-1");
+    })).resolves.toEqual({ googleCalendarEventId: null, disposition: "deferred" });
 
     expect(rpc).toHaveBeenCalledWith("settle_prospect_tour_google_calendar_create", expect.objectContaining({
       p_planned_event_id: EVENT.id,
       p_result: "cleanup_ready",
     }));
-    expect(rpc).toHaveBeenCalledWith("settle_prospect_tour_google_calendar_current_reconciliation", {
-      p_planned_event_id: EVENT.id,
-      p_generation: "00000000-0000-4000-8000-000000000003",
-      p_expected_start: moved.start,
-      p_expected_end: moved.end,
-    });
+    expect(rpc).not.toHaveBeenCalledWith(
+      "settle_prospect_tour_google_calendar_current_reconciliation",
+      expect.anything(),
+    );
+    expect(google.update).not.toHaveBeenCalled();
     expect(google.remove).not.toHaveBeenCalled();
   });
 
@@ -186,7 +211,7 @@ describe("Google Calendar id persistence boundary", () => {
     google.create.mockResolvedValue("google-created-second-move-1");
     google.update.mockResolvedValue("google-created-second-move-1");
     rpc.mockImplementation(async (name: string) => {
-      if (name === "begin_prospect_tour_google_calendar_create") {
+      if (name === "begin_prospect_tour_google_calendar_write") {
         return { data: { allowed: true, generation: "00000000-0000-4000-8000-000000000004" }, error: null };
       }
       if (name === "persist_confirmed_tour_google_calendar_id") {
@@ -224,7 +249,7 @@ describe("Google Calendar id persistence boundary", () => {
       end: EVENT.end,
     })).resolves.toEqual({ googleCalendarEventId: null, disposition: "deferred" });
 
-    expect(rpc).toHaveBeenCalledWith("begin_prospect_tour_google_calendar_create", expect.objectContaining({
+    expect(rpc).toHaveBeenCalledWith("begin_prospect_tour_google_calendar_write", expect.objectContaining({
       p_planned_event_id: EVENT.id,
       p_expected_start: EVENT.start,
       p_expected_end: EVENT.end,

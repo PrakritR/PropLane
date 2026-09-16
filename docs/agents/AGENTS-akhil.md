@@ -28,9 +28,10 @@ RLS, tool layer, listing photos). This file is how to work **with him**.
 - Run localhost servers only during active testing or review. Stop task-owned
   servers when active use ends, including before handoff; a Review URL is not
   a reason to leave one running. Verify process ownership before stopping it.
-- Coordinate agents so only one whole-project typecheck, build, or broad test
-  suite runs at a time. Never duplicate checks in the same worktree. After
-  interruption, verify child processes exited instead of leaving Node workers.
+- Designate exactly one heavy-validation owner. Delegates run focused checks
+  only unless that slot is explicitly transferred; never duplicate a
+  whole-project typecheck, build, or broad test suite in the same worktree.
+  After interruption, verify child processes exited instead of leaving Node workers.
 - Act as a collaborator: when scoping something big, name alternatives and
   drawbacks, then pick. Approach the problem from more than one angle.
 - Prefer quality, simplicity, robustness, scalability, and long-term

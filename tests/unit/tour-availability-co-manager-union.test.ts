@@ -131,6 +131,13 @@ function fakeDb() {
         };
         return builder;
       }
+      if (table === "tour_slot_reservations") {
+        return {
+          select: () => ({
+            eq: () => ({ in: async () => ({ data: [], error: null }) }),
+          }),
+        };
+      }
       return {};
     },
   };

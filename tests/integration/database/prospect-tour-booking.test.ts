@@ -65,10 +65,25 @@ const toolHarness = vi.hoisted(() => ({
   loadConfirmedProspectTourBooking: vi.fn(),
   recoverProspectTourBookingSideEffects: vi.fn(),
 }));
+const googleProviderHarness = vi.hoisted(() => ({
+  create: vi.fn(),
+  update: vi.fn(),
+  remove: vi.fn(),
+  connection: vi.fn(),
+}));
 vi.mock("@/lib/tour-availability.server", () => ({ listOpenTourSlots: toolHarness.listOpenTourSlots }));
 vi.mock("@/lib/prospect-tour-booking-recovery.server", () => ({
   loadConfirmedProspectTourBooking: toolHarness.loadConfirmedProspectTourBooking,
   recoverProspectTourBookingSideEffects: toolHarness.recoverProspectTourBookingSideEffects,
+}));
+vi.mock("@/lib/google-calendar/api.server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/google-calendar/api.server")>()),
+  createGoogleCalendarEvent: googleProviderHarness.create,
+  updateGoogleCalendarEvent: googleProviderHarness.update,
+  deleteGoogleCalendarEvent: googleProviderHarness.remove,
+}));
+vi.mock("@/lib/google-calendar/settings", () => ({
+  loadGoogleCalendarConnection: googleProviderHarness.connection,
 }));
 
 import type { AgentContext } from "@/lib/tools/context";
@@ -86,6 +101,7 @@ const googleCreateIntentMigration = "supabase/migrations/20260916100500_prospect
 const googleChangedWindowCorrectionMigration = "supabase/migrations/20260916101000_prospect_tour_google_changed_window_reconciliation.sql";
 const plannedScheduleObservedBaselineMigration = "supabase/migrations/20260916101500_planned_schedule_observed_baseline.sql";
 const reminderFinalFenceMigration = "supabase/migrations/20260916102000_prospect_tour_reminder_final_fence.sql";
+const googleProviderWriteFenceMigration = "supabase/migrations/20260916102500_prospect_tour_google_provider_write_fence.sql";
 const profilesMigration = "supabase/migrations/20250418140000_profiles_manager_purchases.sql";
 const automationMigration = "supabase/migrations/20260628120001_payment_automation_settings.sql";
 const managerSmsNumbersMigration = "supabase/migrations/20260725120000_manager_sms_numbers.sql";
@@ -244,6 +260,7 @@ describe.skipIf(!configuredPort)("confirmed tour schedule transaction boundary",
     await db.query(await readFile(googleChangedWindowCorrectionMigration, "utf8"));
     await db.query(await readFile(plannedScheduleObservedBaselineMigration, "utf8"));
     await db.query(await readFile(reminderFinalFenceMigration, "utf8"));
+    await db.query(await readFile(googleProviderWriteFenceMigration, "utf8"));
     await db.query(
       `insert into portal_schedule_records(id, record_type, row_data)
        values ('axis_admin_planned_events_v1', 'axis_admin_planned_events_v1', $1),
@@ -280,6 +297,99 @@ describe.skipIf(!configuredPort)("confirmed tour schedule transaction boundary",
       "select mutate_confirmed_tour_schedule($1, $2::jsonb, $3::text[]) result",
       [operation, JSON.stringify(value), []],
     );
+
+  function googleRecoveryDb(client: Client, options: { hangPersist?: boolean } = {}) {
+    return {
+      async rpc(name: string, args: Record<string, unknown> = {}) {
+        if (name === "claim_prospect_tour_google_calendar_create_reconciliation") {
+          const result = await client.query(
+            "select * from claim_prospect_tour_google_calendar_create_reconciliation($1,$2)",
+            [args.p_worker_id, args.p_lease_seconds],
+          );
+          return { data: result.rows, error: null };
+        }
+        if (name === "begin_prospect_tour_google_calendar_reconciliation_write") {
+          const result = await client.query<{ value: boolean }>(
+            "select begin_prospect_tour_google_calendar_reconciliation_write($1,$2,$3,$4,$5,$6) value",
+            [
+              args.p_planned_event_id,
+              args.p_generation,
+              args.p_worker_id,
+              args.p_expected_start,
+              args.p_expected_end,
+              args.p_provider_seconds,
+            ],
+          );
+          return { data: result.rows[0]?.value ?? false, error: null };
+        }
+        if (name === "validate_prospect_tour_google_calendar_write") {
+          const result = await client.query<{ value: boolean }>(
+            "select validate_prospect_tour_google_calendar_write($1,$2,$3,$4,$5) value",
+            [
+              args.p_planned_event_id,
+              args.p_generation,
+              args.p_expected_start,
+              args.p_expected_end,
+              args.p_worker_id,
+            ],
+          );
+          return { data: result.rows[0]?.value ?? false, error: null };
+        }
+        if (name === "persist_confirmed_tour_google_calendar_id") {
+          if (options.hangPersist) return new Promise<never>(() => undefined);
+          const result = await client.query<{ value: Record<string, unknown> }>(
+            "select persist_confirmed_tour_google_calendar_id($1,$2,$3,$4) value",
+            [args.p_planned_event_id, args.p_google_calendar_event_id, args.p_expected_start, args.p_expected_end],
+          );
+          return { data: result.rows[0]?.value ?? null, error: null };
+        }
+        if (name === "complete_prospect_tour_google_calendar_create_reconciliation") {
+          const result = await client.query<{ value: boolean }>(
+            "select complete_prospect_tour_google_calendar_create_reconciliation($1,$2,$3,$4) value",
+            [args.p_planned_event_id, args.p_generation, args.p_worker_id, args.p_state],
+          );
+          return { data: result.rows[0]?.value ?? false, error: null };
+        }
+        return { data: null, error: { message: `unexpected rpc ${name}` } };
+      },
+      from(table: string) {
+        const filters = new Map<string, unknown>();
+        let updateValues: Record<string, unknown> | null = null;
+        const query = {
+          select() { return query; },
+          eq(column: string, value: unknown) { filters.set(column, value); return query; },
+          update(values: Record<string, unknown>) { updateValues = values; return query; },
+          async maybeSingle() {
+            if (table !== "portal_schedule_records") return { data: null, error: null };
+            const result = await client.query("select row_data from portal_schedule_records where id=$1", [filters.get("id")]);
+            return { data: result.rows[0] ?? null, error: null };
+          },
+          then(resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) {
+            const operation = async () => {
+              if (table !== "prospect_tour_google_calendar_create_intents" || !updateValues) {
+                return { data: null, error: null };
+              }
+              const assignments = Object.keys(updateValues).map((key, index) => `${key}=$${index + 1}`);
+              const values = Object.values(updateValues);
+              const plannedEventId = filters.get("planned_event_id");
+              const generation = filters.get("generation");
+              const leaseOwner = filters.get("lease_owner");
+              const state = filters.get("state");
+              await client.query(
+                `update prospect_tour_google_calendar_create_intents set ${assignments.join(",")}
+                 where planned_event_id=$${values.length + 1} and generation=$${values.length + 2}
+                   and lease_owner=$${values.length + 3} and state=$${values.length + 4}`,
+                [...values, plannedEventId, generation, leaseOwner, state],
+              );
+              return { data: null, error: null };
+            };
+            return operation().then(resolve, reject);
+          },
+        };
+        return query;
+      },
+    };
+  }
 
   const seedProspectBooking = async (client: Client, suffix: string) => {
     const burstId = randomUUID();
@@ -1519,6 +1629,104 @@ describe.skipIf(!configuredPort)("confirmed tour schedule transaction boundary",
       "select state,expected_start,expected_end from prospect_tour_google_calendar_create_intents where planned_event_id=$1",
       [initial.id],
     )).rows[0]).toMatchObject({ state: "settled", expected_start: new Date(moved.start), expected_end: new Date(moved.end) });
+  });
+
+  it("serializes expired recovery writers and converges the provider sink to the latest window after process death", async () => {
+    const { recoverExpiredProspectTourGoogleCalendarCreates } = await vi.importActual<
+      typeof import("@/lib/prospect-tour-booking-recovery.server")
+    >("@/lib/prospect-tour-booking-recovery.server");
+    const { GoogleCalendarWriteSupersededError } = await vi.importActual<
+      typeof import("@/lib/google-calendar/api.server")
+    >("@/lib/google-calendar/api.server");
+    googleProviderHarness.connection.mockResolvedValue({ connected: true, syncEnabled: true });
+    googleProviderHarness.create.mockReset();
+    googleProviderHarness.update.mockReset();
+
+    await db.query("delete from prospect_tour_google_calendar_create_intents");
+    const initial = event("google-provider-ordering-1", "2099-11-25:20", "2099-11-25T17:00:00.000Z");
+    const movedB = { ...initial, slotKey: "2099-11-26:20", start: "2099-11-26T17:00:00.000Z", end: "2099-11-26T17:30:00.000Z" };
+    const movedC = { ...initial, slotKey: "2099-11-27:20", start: "2099-11-27T17:00:00.000Z", end: "2099-11-27T17:30:00.000Z" };
+    expect((await mutate(db, "append", initial)).rows[0].result).toMatchObject({ ok: true });
+    const intent = (await db.query<{ result: { generation: string; googleCalendarEventId: string } }>(
+      "select begin_prospect_tour_google_calendar_create($1,$2,$3,$4,'original-create',120) result",
+      [owner, initial.id, initial.start, initial.end],
+    )).rows[0].result;
+    expect((await mutate(db, "replace", movedB)).rows[0].result).toMatchObject({ ok: true });
+    expect((await db.query(
+      "select settle_prospect_tour_google_calendar_create($1,$2,'cleanup_ready') result",
+      [initial.id, intent.generation],
+    )).rows[0].result).toMatchObject({ ok: true, state: "reconcile_current" });
+
+    let releasePatchB!: () => void;
+    const patchB = new Promise<void>((resolve) => {
+      releasePatchB = resolve;
+    });
+    let providerVersion = 1;
+    let providerSink = { start: initial.start, end: initial.end };
+    googleProviderHarness.update.mockImplementation(async (
+      _db,
+      _manager,
+      _id,
+      input: { start: string; end: string },
+      conditional?: { validateCurrent?: () => Promise<boolean> },
+    ) => {
+      // Model Google's GET ETag -> durable revalidation -> PATCH If-Match
+      // protocol. Both writers can read v1, but only one can commit it.
+      const readVersion = providerVersion;
+      if (!conditional?.validateCurrent || !await conditional.validateCurrent()) {
+        throw new GoogleCalendarWriteSupersededError();
+      }
+      if (input.start === movedB.start) await patchB;
+      if (readVersion !== providerVersion) throw new GoogleCalendarWriteSupersededError();
+      providerSink = { start: input.start, end: input.end };
+      providerVersion += 1;
+      return intent.googleCalendarEventId;
+    });
+
+    const abandonedWorker = recoverExpiredProspectTourGoogleCalendarCreates(googleRecoveryDb(db) as never, 1);
+    await vi.waitFor(() => expect(googleProviderHarness.update).toHaveBeenCalledTimes(1));
+    expect((await mutate(db, "replace", movedC)).rows[0].result).toMatchObject({ ok: true });
+
+    // Simulate a worker whose bounded lease and deadline expired while PATCH B
+    // is still delayed at the provider. The successor resolves C from the real
+    // database and conditionally writes it first.
+    await db.query(
+      "update prospect_tour_google_calendar_create_intents set provider_deadline_at=now()-interval '1 second',lease_expires_at=now()-interval '1 second' where planned_event_id=$1",
+      [initial.id],
+    );
+    await expect(recoverExpiredProspectTourGoogleCalendarCreates(googleRecoveryDb(db) as never, 1)).resolves.toEqual({
+      scanned: 1,
+      reconciled: 1,
+      failed: 0,
+    });
+    expect(providerSink).toEqual({ start: movedC.start, end: movedC.end });
+    expect(providerVersion).toBe(2);
+
+    // The old PATCH B resumes only after C is terminal. Its stale ETag gets
+    // 412 semantics, so it cannot overwrite C and is never locally persisted.
+    releasePatchB();
+    await expect(abandonedWorker).resolves.toEqual({
+      scanned: 1,
+      reconciled: 0,
+      failed: 1,
+    });
+    expect(providerSink).toEqual({ start: movedC.start, end: movedC.end });
+    expect(providerVersion).toBe(2);
+
+    // A still-slower stale worker that only finishes GET after C also fails the
+    // post-GET durable check even though it observed C's fresh provider ETag.
+    expect((await db.query<{ valid: boolean }>(
+      "select validate_prospect_tour_google_calendar_write($1,$2,$3,$4,'expired-b-worker') valid",
+      [initial.id, intent.generation, movedB.start, movedB.end],
+    )).rows[0].valid).toBe(false);
+    const stored = (await db.query<{ row_data: { payload: Array<Record<string, unknown>> } }>(
+      "select row_data from portal_schedule_records where id='axis_admin_planned_events_v1'",
+    )).rows[0].row_data.payload.find((row) => row.id === initial.id);
+    expect(stored).toMatchObject({ start: movedC.start, end: movedC.end, googleCalendarEventId: intent.googleCalendarEventId });
+    expect((await db.query(
+      "select state,expected_start,expected_end from prospect_tour_google_calendar_create_intents where planned_event_id=$1",
+      [initial.id],
+    )).rows[0]).toMatchObject({ state: "settled", expected_start: new Date(movedC.start), expected_end: new Date(movedC.end) });
   });
 
   it("keeps Google cleanup durable across cancel/delete retries and preserves a moved event", async () => {

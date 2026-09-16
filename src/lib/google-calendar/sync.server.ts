@@ -5,6 +5,7 @@ import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import {
   createGoogleCalendarEvent,
   deleteGoogleCalendarEvent,
+  GoogleCalendarWriteSupersededError,
   updateGoogleCalendarEvent,
 } from "@/lib/google-calendar/api.server";
 import { loadGoogleCalendarConnection } from "@/lib/google-calendar/settings";
@@ -38,25 +39,50 @@ export type PlannedTourGoogleCalendarSyncAttempt = {
   disposition: "synced" | "skipped" | "deferred";
 };
 
+type PlannedTourGoogleCalendarSyncOptions = {
+  ownsGoogleCreateIntent?: boolean;
+  googleCreateGeneration?: string;
+  googleCreateWorkerId?: string;
+};
+
 async function upsertGoogleCalendarEvent(
   db: SupabaseClient,
   managerUserId: string,
   input: GoogleCalendarUpsertInput,
-  beforeCreate?: () => Promise<boolean>,
+  beforeWrite?: () => Promise<boolean>,
+  validateCurrent?: () => Promise<boolean>,
 ): Promise<GoogleCalendarUpsertResult> {
   const connection = await loadGoogleCalendarConnection(db, managerUserId);
   if (!connection.connected || !connection.syncEnabled) return { googleCalendarEventId: null, created: false };
+  if (beforeWrite && !await beforeWrite()) return { googleCalendarEventId: null, created: false };
 
   const existingId = input.googleCalendarEventId?.trim() || null;
   if (existingId) {
     try {
-      return { googleCalendarEventId: await updateGoogleCalendarEvent(db, managerUserId, existingId, input), created: false };
-    } catch {
+      return {
+        googleCalendarEventId: await updateGoogleCalendarEvent(
+          db,
+          managerUserId,
+          existingId,
+          input,
+          validateCurrent ? { validateCurrent } : undefined,
+        ),
+        created: false,
+      };
+    } catch (error) {
+      if (error instanceof GoogleCalendarWriteSupersededError) throw error;
       // Stale or deleted remote event — fall through to create.
     }
   }
-  if (beforeCreate && !await beforeCreate()) return { googleCalendarEventId: null, created: false };
-  return { googleCalendarEventId: await createGoogleCalendarEvent(db, managerUserId, input), created: true };
+  return {
+    googleCalendarEventId: await createGoogleCalendarEvent(
+      db,
+      managerUserId,
+      input,
+      validateCurrent ? { validateCurrent } : undefined,
+    ),
+    created: true,
+  };
 }
 
 function deterministicGoogleEventId(managerUserId: string, plannedEventId: string): string {
@@ -91,22 +117,40 @@ async function completePlannedTourGoogleCleanup(
   if (error) throw new Error(error.message);
 }
 
-async function beginPlannedTourGoogleCreateIntent(
+async function beginPlannedTourGoogleWriteIntent(
   db: SupabaseClient,
   managerUserId: string,
-  event: { plannedEventId: string; start: string; end: string },
+  event: { plannedEventId: string; start: string; end: string; googleCalendarEventId?: string | null },
 ): Promise<string | null> {
-  const { data, error } = await db.rpc("begin_prospect_tour_google_calendar_create", {
+  const { data, error } = await db.rpc("begin_prospect_tour_google_calendar_write", {
     p_manager_user_id: managerUserId,
     p_planned_event_id: event.plannedEventId,
+    p_google_calendar_event_id: event.googleCalendarEventId?.trim() || null,
     p_expected_start: event.start,
     p_expected_end: event.end,
     p_worker_id: `planned-tour-google-sync:${crypto.randomUUID()}`,
-    p_lease_seconds: 120,
+    p_provider_seconds: 30,
   });
   if (error) throw new Error(error.message);
   const result = data as { allowed?: unknown; generation?: unknown } | null;
   return result?.allowed === true && typeof result.generation === "string" ? result.generation : null;
+}
+
+async function validatePlannedTourGoogleWriteIntent(
+  db: SupabaseClient,
+  event: { plannedEventId: string; start: string; end: string },
+  generation: string,
+  workerId?: string,
+): Promise<boolean> {
+  const { data, error } = await db.rpc("validate_prospect_tour_google_calendar_write", {
+    p_planned_event_id: event.plannedEventId,
+    p_generation: generation,
+    p_expected_start: event.start,
+    p_expected_end: event.end,
+    p_worker_id: workerId?.trim() || null,
+  });
+  if (error) throw new Error(error.message);
+  return data === true;
 }
 
 async function settlePlannedTourGoogleCreateIntent(
@@ -123,22 +167,6 @@ async function settlePlannedTourGoogleCreateIntent(
     p_error: error instanceof Error ? error.message : error ? String(error) : null,
   });
   if (rpcError) throw new Error(rpcError.message);
-}
-
-async function settlePlannedTourGoogleCurrentReconciliation(
-  db: SupabaseClient,
-  plannedEventId: string,
-  generation: string,
-  expectedEvent: { start: string; end: string },
-): Promise<boolean> {
-  const { data, error } = await db.rpc("settle_prospect_tour_google_calendar_current_reconciliation", {
-    p_planned_event_id: plannedEventId,
-    p_generation: generation,
-    p_expected_start: expectedEvent.start,
-    p_expected_end: expectedEvent.end,
-  });
-  if (error) throw new Error(error.message);
-  return data === true;
 }
 
 async function recordPlannedTourGoogleCleanupFailure(
@@ -223,7 +251,7 @@ export async function syncPlannedTourToGoogleCalendar(
     instructions?: string;
     googleCalendarEventId?: string | null;
   },
-  options?: { ownsGoogleCreateIntent?: boolean },
+  options?: PlannedTourGoogleCalendarSyncOptions,
 ): Promise<string | null | PlannedTourGoogleCalendarSyncAttempt> {
   const attempt = await syncPlannedTourToGoogleCalendarAttempt(db, managerUserId, event, options);
   // Preserve compatibility for completed and unlinked callers while making a
@@ -254,12 +282,10 @@ export async function syncPlannedTourToGoogleCalendarAttempt(
     instructions?: string;
     googleCalendarEventId?: string | null;
   },
-  options?: { ownsGoogleCreateIntent?: boolean },
+  options?: PlannedTourGoogleCalendarSyncOptions,
 ): Promise<PlannedTourGoogleCalendarSyncAttempt> {
   const syncOnce = async (
     current: typeof event,
-    allowReconcile: boolean,
-    ownsCurrentReconciliation = false,
   ): Promise<{ googleCalendarEventId: string | null; deferred: boolean }> => {
     let createGeneration: string | null = null;
     let createDeferred = false;
@@ -274,12 +300,26 @@ export async function syncPlannedTourToGoogleCalendarAttempt(
         location: current.propertyTitle,
         googleCalendarEventId: current.googleCalendarEventId,
       }, async () => {
-        if (options?.ownsGoogleCreateIntent || ownsCurrentReconciliation) return true;
-        createGeneration = await beginPlannedTourGoogleCreateIntent(db, managerUserId, current);
+        if (options?.ownsGoogleCreateIntent) return true;
+        createGeneration = await beginPlannedTourGoogleWriteIntent(db, managerUserId, current);
         createDeferred = createGeneration === null;
         return createGeneration !== null;
+      }, async () => {
+        const generation = options?.ownsGoogleCreateIntent
+          ? options.googleCreateGeneration?.trim()
+          : createGeneration;
+        if (!generation) return false;
+        return validatePlannedTourGoogleWriteIntent(
+          db,
+          current,
+          generation,
+          options?.ownsGoogleCreateIntent ? options.googleCreateWorkerId : undefined,
+        );
       });
     } catch (error) {
+      if (error instanceof GoogleCalendarWriteSupersededError) {
+        return { googleCalendarEventId: null, deferred: true };
+      }
       if (createGeneration) {
         await settlePlannedTourGoogleCreateIntent(db, current.plannedEventId, createGeneration, "unknown", error).catch(() => undefined);
       }
@@ -304,51 +344,16 @@ export async function syncPlannedTourToGoogleCalendarAttempt(
     // compensating delete, so a crash cannot hide this deterministic remote id.
     if (createGeneration) await settlePlannedTourGoogleCreateIntent(db, current.plannedEventId, createGeneration, "cleanup_ready");
 
-    if (persisted.reason === "changed" && allowReconcile) {
-      const { data, error } = await db.from("portal_schedule_records")
-        .select("row_data").eq("id", PLANNED_RECORD_ID).maybeSingle();
-      if (error) throw new Error(error.message);
-      const live = rowsFromPlannedRecord(data?.row_data).find((row) => String(row.id ?? "") === current.plannedEventId);
-      if (live && !live.canceledAt && typeof live.start === "string" && typeof live.end === "string") {
-        const reconciled = await syncOnce({
-          plannedEventId: current.plannedEventId,
-          title: String(live.title ?? current.title),
-          start: live.start,
-          end: live.end,
-          propertyTitle: typeof live.propertyTitle === "string" ? live.propertyTitle : undefined,
-          attendeeName: typeof live.attendeeName === "string" ? live.attendeeName : undefined,
-          attendeeEmail: typeof live.attendeeEmail === "string" ? live.attendeeEmail : undefined,
-          attendeePhone: typeof live.attendeePhone === "string" ? live.attendeePhone : undefined,
-          notes: typeof live.notes === "string" ? live.notes : undefined,
-          instructions: typeof live.instructions === "string" ? live.instructions : undefined,
-          googleCalendarEventId: typeof live.googleCalendarEventId === "string" ? live.googleCalendarEventId : googleCalendarEventId,
-        }, false, true);
-        // The first create generation remains durable until this exact current
-        // window was pushed and its Google id passed the lifecycle-safe CAS.
-        // If another worker already claimed it, this is deliberately a no-op:
-        // that worker still owns the durable reconciliation lease.
-        if (createGeneration && reconciled.googleCalendarEventId) {
-          const settled = await settlePlannedTourGoogleCurrentReconciliation(db, current.plannedEventId, createGeneration, {
-            start: live.start,
-            end: live.end,
-          });
-          // A second move can win after the current-window id CAS but before
-          // this final settlement. The trigger has kept the intent current;
-          // do not report the older patch as a completed calendar effect.
-          if (!settled) return { googleCalendarEventId: null, deferred: true };
-        }
-        return reconciled;
-      }
+    if (persisted.reason === "changed") {
+      // Never start an unclaimed recursive PATCH. The schedule trigger leaves
+      // the intent in reconcile_current, and the recovery worker registers a
+      // fresh provider deadline before it writes the latest window. This keeps
+      // an expired predecessor from finishing B after a successor settled C.
+      return { googleCalendarEventId: null, deferred: true };
     }
     // A deleted/cancelled event must not be resurrected. The remote id is
     // deterministic, so compensating this stale write is safe even if the
     // local id was never persisted.
-    if (persisted.reason === "changed") {
-      // Do not delete here: another sync may already have reconciled the same
-      // deterministic remote id to a newer event. Leave recovery pending so it
-      // reloads the live event rather than resurrecting this stale snapshot.
-      throw new Error("planned_tour_changed_during_google_sync");
-    }
     if (persisted.reason === "missing" || persisted.reason === "cancelled") {
       // The schedule mutation's trigger writes the same obligation for a
       // committed cancel/delete. This explicit upsert also covers a process
@@ -364,7 +369,7 @@ export async function syncPlannedTourToGoogleCalendarAttempt(
     }
     return { googleCalendarEventId: null, deferred: false };
   };
-  const result = await syncOnce(event, true);
+  const result = await syncOnce(event);
   return {
     googleCalendarEventId: result.googleCalendarEventId,
     disposition: result.deferred ? "deferred" : result.googleCalendarEventId ? "synced" : "skipped",

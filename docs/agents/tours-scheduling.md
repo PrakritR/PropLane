@@ -158,8 +158,11 @@ remove the last place two definitions of "open" can drift.
   Coverage: `tests/unit/tour-host-enumeration.test.ts`,
   `tests/unit/tour-availability-co-manager-union.test.ts`,
   `tests/unit/tour-inquiry-eligible-hosts.test.ts`.
-- **Already-booked** is pending inquiries AND confirmed planned tours; a
-  reschedule drops the stale `slotKey` so the old window is not still blocked.
+- **Already-booked** is pending inquiries, confirmed planned tours, AND active
+  `tour_slot_reservations`. The reservation is the atomic booking authority, so
+  it still closes the slot if the shared planned-event read model is missing or
+  stale; released reservations do not block. A reschedule drops the stale
+  `slotKey` so the old window is not still blocked.
 - **Calendar-busy** is the manager's linked Google Calendar, cached per manager
   in-process because this route is public and uncached — and only reused for a
   window the cached read actually COVERS, since busy time is subtracted across
@@ -209,6 +212,17 @@ guest about, missing from the manager's own calendar. "No calendar linked" is
 `skipped`, a Google failure is `ok: false` on a confirm that still succeeded, and
 the calendar toasts it the same way for confirm and cancel. Coverage:
 `tests/unit/tour-confirm-google-sync.test.ts`, `tests/unit/tour-planned-change.test.ts`.
+
+Every tour create/PATCH registers a durable provider-write deadline before the
+remote call. Recovery extends the same fence while it owns the intent; a
+successor cannot write until both the prior lease and bounded provider window
+expire. Tour PATCHes also use Google's [conditional modification
+protocol](https://developers.google.com/workspace/calendar/api/guides/version-resources):
+read the event ETag, revalidate the exact durable generation, owner, and window,
+then send `If-Match`. A 412 or failed post-read validation never retries the old
+payload; it leaves `reconcile_current` for recovery to resolve the latest window.
+This provider CAS, rather than lease duration, prevents an older B write from
+landing after recovery has written a later C move.
 
 Confirmed, rescheduled, and canceled notices append to the resident's canonical
 manager-and-property Communication thread. Resolve the manager email and label

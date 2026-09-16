@@ -897,6 +897,18 @@ export type GoogleCalendarEventWriteInput = {
   transparency?: "opaque" | "transparent";
 };
 
+export class GoogleCalendarWriteSupersededError extends Error {
+  constructor() {
+    super("Google Calendar event changed before the tour update could be applied.");
+    this.name = "GoogleCalendarWriteSupersededError";
+  }
+}
+
+type GoogleCalendarConditionalWrite = {
+  /** Called after the provider version is read and immediately before PATCH. */
+  validateCurrent: () => Promise<boolean>;
+};
+
 function googleCalendarEventBody(input: GoogleCalendarEventWriteInput) {
   return {
     summary: input.title,
@@ -912,6 +924,7 @@ export async function createGoogleCalendarEvent(
   db: SupabaseClient,
   managerUserId: string,
   input: GoogleCalendarEventWriteInput,
+  conditionalWrite?: GoogleCalendarConditionalWrite,
 ): Promise<string | null> {
   const { connection, accessToken } = await getGoogleCalendarAccessToken(db, managerUserId);
   if (!connection.syncEnabled) return null;
@@ -932,7 +945,7 @@ export async function createGoogleCalendarEvent(
     // rather than merely accepting the id: the local tour may have moved to a
     // new window while the first create was in flight.
     if (res.status === 409 && input.id) {
-      return updateGoogleCalendarEvent(db, managerUserId, input.id, input);
+      return updateGoogleCalendarEvent(db, managerUserId, input.id, input, conditionalWrite);
     }
     throw new Error(data.error?.message ?? "Could not create Google Calendar event.");
   }
@@ -944,6 +957,7 @@ export async function updateGoogleCalendarEvent(
   managerUserId: string,
   eventId: string,
   input: GoogleCalendarEventWriteInput,
+  conditionalWrite?: GoogleCalendarConditionalWrite,
 ): Promise<string | null> {
   const trimmedId = eventId.trim();
   if (!trimmedId) return null;
@@ -951,6 +965,21 @@ export async function updateGoogleCalendarEvent(
   if (!connection.syncEnabled) return null;
   const calendarId = encodeURIComponent(connection.calendarId ?? "primary");
   const encodedEventId = encodeURIComponent(trimmedId);
+  let ifMatch: string | null = null;
+  if (conditionalWrite) {
+    const current = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events/${encodedEventId}`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: googleCalendarFetchSignal(),
+      },
+    );
+    const currentData = (await current.json().catch(() => ({}))) as { etag?: string; error?: { message?: string } };
+    if (!current.ok) throw new Error(currentData.error?.message ?? "Could not read Google Calendar event version.");
+    ifMatch = current.headers.get("etag")?.trim() || currentData.etag?.trim() || null;
+    if (!ifMatch) throw new Error("Google Calendar event version was unavailable.");
+    if (!await conditionalWrite.validateCurrent()) throw new GoogleCalendarWriteSupersededError();
+  }
   const res = await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events/${encodedEventId}`,
     {
@@ -958,6 +987,7 @@ export async function updateGoogleCalendarEvent(
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
+        ...(ifMatch ? { "If-Match": ifMatch } : {}),
       },
       body: JSON.stringify(googleCalendarEventBody(input)),
       signal: googleCalendarFetchSignal(),
@@ -965,6 +995,7 @@ export async function updateGoogleCalendarEvent(
   );
   const data = (await res.json().catch(() => ({}))) as { id?: string; error?: { message?: string } };
   if (!res.ok) {
+    if (conditionalWrite && res.status === 412) throw new GoogleCalendarWriteSupersededError();
     throw new Error(data.error?.message ?? "Could not update Google Calendar event.");
   }
   return data.id?.trim() || trimmedId;

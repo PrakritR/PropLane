@@ -10,6 +10,11 @@ import { summarizeAvailabilityChange } from "@/lib/availability-change-summary";
 import { resolvePropertyOwnerUserId } from "@/lib/property-owner.server";
 import { emitAvailabilityChangedEvent } from "@/lib/tour-events.server";
 import { replaceManagerPlannedScheduleSlice } from "@/lib/planned-schedule-persistence.server";
+import {
+  PARTNER_INQUIRIES_RECORD_ID,
+  PLANNED_EVENTS_RECORD_ID,
+  projectScheduleRecordsForViewer,
+} from "@/lib/schedule-record-projection.server";
 
 export const runtime = "nodejs";
 
@@ -49,8 +54,6 @@ async function announceAvailabilityChange(input: {
   });
 }
 
-const PLANNED_EVENTS_RECORD_ID = "axis_admin_planned_events_v1";
-
 type PlannedEventValue = Record<string, unknown>;
 
 function plannedEventsFromRow(row: Record<string, unknown> | null | undefined): PlannedEventValue[] {
@@ -79,6 +82,15 @@ function isTourPlannedEvent(event: PlannedEventValue): boolean {
 
 const route = createJsonRecordRoute({
   table: "portal_schedule_records",
+  readRecords: async ({ db }) => {
+    const { data, error } = await db
+      .from("portal_schedule_records")
+      .select("id, manager_user_id, property_id, record_type, row_data, updated_at")
+      .order("updated_at", { ascending: false })
+      .limit(500);
+    return { data: data as Record<string, unknown>[] | null, error };
+  },
+  projectRead: async ({ db, user, records }) => projectScheduleRecordsForViewer(db, user, records),
   scope: (query, user) => {
     const q = query as {
       eq: (column: string, value: string) => unknown;
@@ -181,6 +193,18 @@ const route = createJsonRecordRoute({
     }
     if (!result.ok) return { handled: true, error: result.reason, status: 409 };
     return { handled: true };
+  },
+  authorizeDelete: async ({ records }) => {
+    if (records.some((record) => {
+      const id = String(record.id ?? "").trim();
+      return id === PLANNED_EVENTS_RECORD_ID || id === PARTNER_INQUIRIES_RECORD_ID;
+    })) {
+      return {
+        ok: false,
+        error: "Shared calendar and inquiry records must be changed through their dedicated lifecycle routes.",
+      };
+    }
+    return { ok: true };
   },
   assertInsertAllowed: (record, user) => {
     if (user.role === "admin") return null;

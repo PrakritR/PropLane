@@ -4,7 +4,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
 import { runPlannedTourCalendarSync } from "@/lib/google-calendar/planned-tour-sync.server";
 import {
-  syncPlannedTourToGoogleCalendar,
   syncPlannedTourToGoogleCalendarAttempt,
 } from "@/lib/google-calendar/sync.server";
 import { deleteGoogleCalendarEvent } from "@/lib/google-calendar/api.server";
@@ -297,6 +296,7 @@ export async function recoverExpiredProspectTourGoogleCalendarCreates(
   let reconciled = 0;
   let failed = 0;
   for (let index = 0; index < limit; index += 1) {
+    let reconcilingLiveEvent = false;
     const { data, error } = await db.rpc("claim_prospect_tour_google_calendar_create_reconciliation", {
       p_worker_id: workerId,
       p_lease_seconds: 120,
@@ -312,22 +312,44 @@ export async function recoverExpiredProspectTourGoogleCalendarCreates(
     try {
       const live = await loadCurrentPlannedEvent(db, plannedEventId);
       if (live && !live.canceledAt) {
-        // The deterministic id makes a second create/update idempotent. This
-        // is a live event, so it wins over an abandoned prior generation. Keep
-        // the reconciliation lease until the remote write and lifecycle-safe
-        // local persistence both succeed; a crash remains reclaimable.
-        const syncedId = await syncPlannedTourToGoogleCalendar(db, managerUserId, {
+        reconcilingLiveEvent = true;
+        const expectedStart = text(live.start);
+        const expectedEnd = text(live.end);
+        const { data: writeStarted, error: writeStartError } = await db.rpc(
+          "begin_prospect_tour_google_calendar_reconciliation_write",
+          {
+            p_planned_event_id: plannedEventId,
+            p_generation: generation,
+            p_worker_id: workerId,
+            p_expected_start: expectedStart,
+            p_expected_end: expectedEnd,
+            p_provider_seconds: 30,
+          },
+        );
+        if (writeStartError || writeStarted !== true) {
+          throw new Error("prospect_tour_google_create_reconciliation_lost");
+        }
+        // Register the provider deadline before PATCH. A crashed/expired owner
+        // remains the only possible writer until that bounded request window
+        // closes; only then may a successor push the latest local window.
+        const attempt = await syncPlannedTourToGoogleCalendarAttempt(db, managerUserId, {
           plannedEventId,
           title: text(live.title) || "Prospect tour",
-          start: text(live.start),
-          end: text(live.end),
+          start: expectedStart,
+          end: expectedEnd,
           propertyTitle: text(live.propertyTitle) || undefined,
           attendeeName: text(live.attendeeName) || undefined,
           attendeeEmail: text(live.attendeeEmail) || undefined,
           attendeePhone: text(live.attendeePhone) || undefined,
           googleCalendarEventId: text(live.googleCalendarEventId) || googleCalendarEventId,
-        }, { ownsGoogleCreateIntent: true });
-        if (!syncedId) throw new Error("prospect_tour_google_create_reconciliation_not_synced");
+        }, {
+          ownsGoogleCreateIntent: true,
+          googleCreateGeneration: generation,
+          googleCreateWorkerId: workerId,
+        });
+        if (attempt.disposition !== "synced" || !attempt.googleCalendarEventId) {
+          throw new Error("prospect_tour_google_create_reconciliation_not_synced");
+        }
         const { data: completedIntent, error: completeIntentError } = await db.rpc(
           "complete_prospect_tour_google_calendar_create_reconciliation",
           {
@@ -355,7 +377,13 @@ export async function recoverExpiredProspectTourGoogleCalendarCreates(
     } catch (error) {
       failed += 1;
       await db.from("prospect_tour_google_calendar_create_intents")
-        .update({ state: "cleanup_required", lease_owner: null, lease_expires_at: null, last_error: error instanceof Error ? error.message : "Google create reconciliation failed.", updated_at: new Date().toISOString() })
+        .update({
+          state: reconcilingLiveEvent ? "reconcile_current" : "cleanup_required",
+          lease_owner: null,
+          lease_expires_at: null,
+          last_error: error instanceof Error ? error.message : "Google create reconciliation failed.",
+          updated_at: new Date().toISOString(),
+        })
         .eq("planned_event_id", plannedEventId)
         .eq("generation", generation)
         .eq("lease_owner", workerId)

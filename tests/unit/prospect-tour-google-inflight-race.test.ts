@@ -47,7 +47,7 @@ describe("in-flight Google create cancellation recovery", () => {
     let persistReached = false;
     const neverPersist = new Promise<never>(() => undefined);
     const rpc = vi.fn(async (name: string) => {
-      if (name === "begin_prospect_tour_google_calendar_create") {
+      if (name === "begin_prospect_tour_google_calendar_write") {
         return { data: { allowed: true, generation, googleCalendarEventId: deterministicId }, error: null };
       }
       if (name === "persist_confirmed_tour_google_calendar_id") {
