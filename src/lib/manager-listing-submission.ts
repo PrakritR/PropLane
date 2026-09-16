@@ -1377,6 +1377,35 @@ function rid(prefix: string) {
   return `${prefix}-${Date.now()}-${idCounter}`;
 }
 
+/** Cap copied from the add-listing form — Duplicate and Add share it. */
+export const MAX_LISTING_ROOMS = 20;
+/** Cap copied from the add-listing form — Duplicate and Add share it. */
+export const MAX_LISTING_BATHROOMS = 12;
+
+function remapIds(ids: readonly string[] | undefined, map: ReadonlyMap<string, string>): string[] {
+  return (ids ?? []).map((id) => map.get(id)).filter((id): id is string => Boolean(id));
+}
+
+function copyRecordName(name: string, fallback: string, keepName: boolean): string {
+  if (keepName) return name;
+  const trimmed = name.trim();
+  return trimmed ? `${trimmed} (copy)` : `${fallback} (copy)`;
+}
+
+function remapAccessKinds(
+  kinds: Partial<Record<string, ManagerBathroomRoomAccessKind>> | undefined,
+  map: ReadonlyMap<string, string> | undefined,
+): Partial<Record<string, ManagerBathroomRoomAccessKind>> | undefined {
+  if (!kinds) return kinds;
+  if (!map) return { ...kinds };
+  const next: Partial<Record<string, ManagerBathroomRoomAccessKind>> = {};
+  for (const [oldId, kind] of Object.entries(kinds)) {
+    const nid = map.get(oldId);
+    if (nid && kind) next[nid] = kind;
+  }
+  return Object.keys(next).length ? next : undefined;
+}
+
 /** True when the listing is rented as one lease for the full unit. */
 export function isEntireHomeListing(sub: Pick<ManagerListingSubmissionV1, "listingPlaceCategoryId">): boolean {
   return sub.listingPlaceCategoryId === "entire_home";
@@ -2629,11 +2658,14 @@ export function emptyCustomApplicationField(section?: string): ManagerCustomAppl
 }
 
 /** Copy a room for the add-listing form (new id so file inputs / keys stay unique). */
-export function duplicateRoomEntry(source: ManagerRoomSubmission): ManagerRoomSubmission {
+export function duplicateRoomEntry(
+  source: ManagerRoomSubmission,
+  opts?: { keepName?: boolean },
+): ManagerRoomSubmission {
   return {
     ...source,
     id: rid("room"),
-    name: source.name.trim() ? `${source.name.trim()} (copy)` : "Room (copy)",
+    name: copyRecordName(source.name, "Room", opts?.keepName === true),
     photoDataUrls: [...source.photoDataUrls],
     videoDataUrl: source.videoDataUrl,
     moveInPhotoDataUrls: [...(source.moveInPhotoDataUrls ?? [])],
@@ -2646,6 +2678,131 @@ export function duplicateRoomEntry(source: ManagerRoomSubmission): ManagerRoomSu
       start: r.start,
       end: r.end,
     })),
+  };
+}
+
+/** Copy a bathroom card. Pass `roomIdMap` when the rooms themselves were reminted. */
+export function duplicateBathroomEntry(
+  source: ManagerBathroomSubmission,
+  opts?: { keepName?: boolean; roomIdMap?: ReadonlyMap<string, string> },
+): ManagerBathroomSubmission {
+  const assigned = opts?.roomIdMap
+    ? remapIds(source.assignedRoomIds, opts.roomIdMap)
+    : [...(source.assignedRoomIds ?? [])];
+  return {
+    ...source,
+    id: rid("bath"),
+    name: copyRecordName(source.name, "Bathroom", opts?.keepName === true),
+    photoDataUrls: [...(source.photoDataUrls ?? [])],
+    videoDataUrl: source.videoDataUrl ?? null,
+    assignedRoomIds: assigned,
+    accessKindByRoomId: remapAccessKinds(source.accessKindByRoomId, opts?.roomIdMap),
+  };
+}
+
+/** Copy a shared-space card. Pass `roomIdMap` when the rooms themselves were reminted. */
+export function duplicateSharedSpaceEntry(
+  source: ManagerSharedSpaceSubmission,
+  opts?: { keepName?: boolean; roomIdMap?: ReadonlyMap<string, string> },
+): ManagerSharedSpaceSubmission {
+  const roomAccessIds = opts?.roomIdMap
+    ? remapIds(source.roomAccessIds, opts.roomIdMap)
+    : [...(source.roomAccessIds ?? [])];
+  return {
+    ...source,
+    id: rid("sspace"),
+    name: copyRecordName(source.name, "Shared space", opts?.keepName === true),
+    photoDataUrls: [...(source.photoDataUrls ?? [])],
+    videoDataUrl: source.videoDataUrl ?? null,
+    roomAccessIds,
+  };
+}
+
+function remapSigningMatrix(
+  matrix: Record<string, string[]> | undefined,
+  roomIdMap: ReadonlyMap<string, string>,
+): Record<string, string[]> | undefined {
+  if (!matrix) return matrix;
+  const next: Record<string, string[]> = {};
+  for (const [term, keys] of Object.entries(matrix)) {
+    next[term] = keys.map((key) => {
+      if (!key.startsWith("room_rent:")) return key;
+      const mapped = roomIdMap.get(key.slice(10));
+      return mapped ? `room_rent:${mapped}` : key;
+    });
+  }
+  return next;
+}
+
+function remapFeeRoomIds(
+  fees: ManagerCustomFeeRow[] | undefined,
+  roomIdMap: ReadonlyMap<string, string>,
+): ManagerCustomFeeRow[] | undefined {
+  if (!fees) return fees;
+  return fees.map((fee) => ({
+    ...fee,
+    roomIds: fee.roomIds?.length ? remapIds(fee.roomIds, roomIdMap) : fee.roomIds,
+  }));
+}
+
+function remapStandardFeeScopes(
+  scopes: ManagerListingSubmissionV1["standardFeeScopes"],
+  roomIdMap: ReadonlyMap<string, string>,
+): ManagerListingSubmissionV1["standardFeeScopes"] {
+  if (!scopes) return scopes;
+  const next: NonNullable<ManagerListingSubmissionV1["standardFeeScopes"]> = {};
+  for (const [id, scope] of Object.entries(scopes)) {
+    next[id] = {
+      ...scope,
+      roomIds: scope.roomIds?.length ? remapIds(scope.roomIds, roomIdMap) : scope.roomIds,
+    };
+  }
+  return next;
+}
+
+/**
+ * Clone a listing into a new draft payload: new nested ids, property name
+ * `{name} (copy)`, photos kept as URL copies. Room / bathroom / space names stay.
+ */
+export function duplicateListingSubmission(source: ManagerListingSubmissionV1): ManagerListingSubmissionV1 {
+  const src = normalizeManagerListingSubmissionV1(source);
+  const roomIdMap = new Map<string, string>();
+  const rooms = src.rooms.map((room) => {
+    const copy = duplicateRoomEntry(room, { keepName: true });
+    roomIdMap.set(room.id, copy.id);
+    return copy;
+  });
+  const bathrooms = src.bathrooms.map((bath) =>
+    duplicateBathroomEntry(bath, { keepName: true, roomIdMap }),
+  );
+  const sharedSpaces = src.sharedSpaces.map((space) =>
+    duplicateSharedSpaceEntry(space, { keepName: true, roomIdMap }),
+  );
+  const bundles = src.bundles.map((bundle) => ({
+    ...bundle,
+    id: rid("bundle"),
+    includedRoomIds: bundle.includedRoomIds?.length
+      ? remapIds(bundle.includedRoomIds, roomIdMap)
+      : bundle.includedRoomIds,
+  }));
+  const quickFacts = src.quickFacts.map((fact) => ({ ...fact, id: rid("qf") }));
+  const customApplicationFields = (src.customApplicationFields ?? []).map((field) => ({
+    ...field,
+    id: mintCustomApplicationFieldId(),
+  }));
+  return {
+    ...src,
+    buildingName: copyRecordName(src.buildingName, "Property", false),
+    rooms,
+    bathrooms,
+    sharedSpaces,
+    bundles,
+    quickFacts,
+    customFees: remapFeeRoomIds(src.customFees, roomIdMap),
+    customApplicationFields,
+    listingBedroomSlots: rooms.length,
+    paymentAtSigningByLeaseType: remapSigningMatrix(src.paymentAtSigningByLeaseType, roomIdMap),
+    standardFeeScopes: remapStandardFeeScopes(src.standardFeeScopes, roomIdMap),
   };
 }
 
