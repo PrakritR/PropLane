@@ -1,7 +1,7 @@
 /**
  * Merge per-kind open slot sets for one calendar day into contiguous runs, so
  * a calendar grid can render one bar per stretch of identical availability
- * ("Open · Tours, Services" for 9-10, "Open · Services" for 10-11) rather than
+ * ("Tours · Services" for 9-10, "Services" for 10-11) rather than
  * one cell per 30-minute slot.
  */
 import { AVAILABILITY_KIND_LABELS, AVAILABILITY_KINDS, type AvailabilityKind } from "@/lib/manager-availability-kinds";

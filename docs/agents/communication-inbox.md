@@ -235,6 +235,23 @@ conversations) plus the archive toggle. Invariants:
   `tests/unit/communication-visibility.test.ts`,
   `tests/unit/portal-inbox-thread-scope.test.ts`,
   `tests/unit/portal-inbox-thread-reply.test.ts`.
+- **The manager↔manager Team thread is server-owned and shared.** WS5 added
+  exactly one new `portal_inbox_thread_records` kind, `thread_type: "team"`
+  (`team-thread:<owner>[:<propertyId>]`, `src/lib/team-comms.server.ts`) —
+  one per owning account per house, plus a house-less one for the owner
+  alone. It is where every `team`-audience action event posts (owner:
+  [`automated-communication.md`](automated-communication.md)). It reads and
+  replies through the same house rules as rule (2) above: `inbox` on the
+  house at `read` lists it, `edit` posts to it, and the send route
+  re-derives membership from the thread id itself (`assertTeamThreadMember`)
+  before `postTeamThreadMessage` appends under a CAS on `updated_at` and
+  mirrors the post to SMS. A reply is an in-app post (no person
+  counterparty — `isTeamInboxThread` treats it like an assistant thread).
+  The browser's wholesale `replace` never carries a team thread and
+  `/api/portal-inbox-threads` merges only mailbox state (read / archive /
+  resolved drafts) for one, so a stale snapshot can never overwrite turns
+  others posted. Coverage: `tests/unit/team-comms.test.ts`,
+  `tests/unit/action-events-team-audience.test.ts`.
 - **A conversation's `time` is BOTH its label and its sort key, so every writer
   must stamp it identically.** The canonical shape is `formatInboxStamp`
   (`portal-inbox-storage.ts`) — `"Aug 3, 5:31 PM"`, en-US and pinned to

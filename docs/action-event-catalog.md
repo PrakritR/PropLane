@@ -25,14 +25,24 @@ idempotency, deferral, and retry.
 - Put only ids, enums, and non-sensitive routing facts in `payload`. Audience
   copy is rendered before it reaches the bus.
 
+Team-only additions outside that constant: `tour.claimed` and
+`availability.changed` (`tour-events.server.ts`). The `team` audience and the
+auto-send / draft-for-review gate are described in
+[`docs/agents/automated-communication.md`](agents/automated-communication.md).
+
 ## Consumer and thread contract
 
-Each `(event, audience, recipient)` creates one `action_event_deliveries` row.
+Each `(event, audience, recipient)` creates one `action_event_deliveries` row;
+a `team` recipient's key is `team:<ownerUserId>` (`teamRecipientKey`) so it
+never shares the owner's own throttle window. The row carries
+`draft_for_review`, so a retried failed draft re-queues the draft rather than
+falling through to a real send.
 Replays cannot create another consumer row. The same event-derived `messageId`
 is passed through `deliverPortalInboxMessage`, so a retry cannot append the same
 turn twice even if delivery succeeded before the outbox status was committed.
 
-Delivery continues to use one person-pair conversation, Pacific timestamps,
+Delivery (for every audience but `team`, which posts once into the owner's
+Team thread) continues to use one person-pair conversation, Pacific timestamps,
 server-side recipient authorization, and the durable inbox rules in
 `docs/agents/communication-inbox.md`. Email and SMS follow the recipient's
 category preferences. Deferred and failed rows are retried by

@@ -1169,7 +1169,6 @@ export function PortalCalendarPanels({
   const [copyToHousesScope, setCopyToHousesScope] = useState<"week" | "entire">("week");
   const [selectedHouseIds, setSelectedHouseIds] = useState<Set<string>>(new Set());
   const [selectedBlock, setSelectedBlock] = useState<CalendarBlockSelection | null>(null);
-  /** The half hour picked in the availability detail panel's "Delete one half hour" select. */
   const [durationChoice, setDurationChoice] = useState<number | "custom">(DEFAULT_EVENT_DURATION_MINUTES);
   const [customDurationText, setCustomDurationText] = useState(String(DEFAULT_EVENT_DURATION_MINUTES));
   const [tourGuestNotifyPreview, setTourGuestNotifyPreview] = useState<TourGuestNotifyPreview | null>(null);
@@ -1483,7 +1482,7 @@ export function PortalCalendarPanels({
     [editKind, mutateAvailability, resolvedDefaultTourAvailability],
   );
 
-  /** Removes a whole painted run from every kind it is open for (one × on the grid, or "Delete block"/"Delete one half hour" for a 1-slot range). */
+  /** Removes a whole painted run from every kind it is open for ("Delete block" in the edit dialog, or the strip step of a Save). */
   const removeOpenRun = useCallback(
     (dateStr: string, startSlot: number, endSlotExclusive: number, kinds: AvailabilityKind[]) => {
       for (const kind of kinds) {

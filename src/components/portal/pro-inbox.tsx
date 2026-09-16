@@ -1911,6 +1911,7 @@ export const ManagerInbox = forwardRef<
     activeThread?.id,
     activeThread?.aiDraft?.text,
     activeThread?.aiDraft?.status,
+    activeThread?.aiDraft?.requiresReview,
     activeEmailAvailable,
     activeSmsAvailable,
     activeProplaneAvailable,

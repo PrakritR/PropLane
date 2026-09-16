@@ -74,14 +74,11 @@ export async function emitTourManagerEvent(
 }
 
 /**
- * A manager claims a shared/unassigned tour (WS4 territory — no "claim"
- * concept exists in the tour model yet; this is the team-audience emitter the
- * approved plan asks WS5 to provide so WS4's claim path can call it once it
- * exists). Team-only: the claim is news for the team, not the guest.
- *
- * Exported signature WS4 calls: `emitTourClaimedEvent(db, { managerUserId,
- * tourId, guestName, propertyTitle?, propertyId?, whenLabel?, claimedByUserId,
- * claimedByName })`.
+ * A manager claims a shared pending tour — called by `confirmTourInquiry`
+ * (`tour-inquiry-confirm.server.ts`) once the WS4 claim guard has let exactly
+ * one approver through. Team-only: the claim is news for the team, not the
+ * guest. `managerUserId` is the PROPERTY OWNER whose team hears it;
+ * `claimedByUserId` is the acting manager the post is attributed to.
  */
 export async function emitTourClaimedEvent(
   db: SupabaseClient,

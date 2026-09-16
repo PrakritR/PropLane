@@ -4,10 +4,10 @@ import "server-only";
  * Manager <-> manager "Team" thread (WS5) + its SMS mirror (WS6), PLAN-0915
  * phase 5.
  *
- * There is no manager<->manager messaging today (see
- * `docs/agents/communication-inbox.md`: "There is NO manager<->manager
- * thread today"). This module adds exactly one new kind of
- * `portal_inbox_thread_records` row — `thread_type: "team"` — that every
+ * Before WS5 there was no manager<->manager messaging at all. This module
+ * adds exactly one new kind of `portal_inbox_thread_records` row —
+ * `thread_type: "team"` (documented in `docs/agents/communication-inbox.md`
+ * and `docs/agents/automated-communication.md`) — that every
  * team-audience action event posts into, attributed "as <acting manager>". It
  * reuses the existing table (additive: `thread_type` is an unconstrained
  * free-text column, see
