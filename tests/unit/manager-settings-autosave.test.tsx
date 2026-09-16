@@ -37,6 +37,10 @@ import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-
 
 const PROPERTY_OPTIONS = [{ id: "prop-1", label: "Ballard House" }];
 
+async function openAutomationPane() {
+  await userEvent.click(await screen.findByRole("button", { name: /^automation$/i }));
+}
+
 /** Every PATCH body the component sent. */
 let patches: Array<Record<string, unknown>>;
 /** What GET reports as stored — deliberately NOT updated by PATCH, so a
@@ -87,6 +91,7 @@ describe("Applications settings", () => {
       />,
     );
 
+    await openAutomationPane();
     expect(screen.queryByRole("button", { name: /^save$/i })).toBeNull();
 
     const toggle = await screen.findByRole("switch", { name: /auto-approve applications/i });
@@ -111,6 +116,7 @@ describe("Applications settings", () => {
         initialPropertyId="prop-1"
       />,
     );
+    await openAutomationPane();
     await userEvent.click(await screen.findByRole("switch", { name: /auto-approve applications/i }));
     expect(confirmSpy).not.toHaveBeenCalled();
     await waitFor(() => expect(patches).toHaveLength(1));
@@ -126,6 +132,7 @@ describe("Applications settings", () => {
         initialPropertyId="prop-1"
       />,
     );
+    await openAutomationPane();
     const toggle = await screen.findByRole("switch", { name: /auto-approve applications/i });
     await userEvent.click(toggle);
     await waitFor(() => expect(patches).toHaveLength(1));
