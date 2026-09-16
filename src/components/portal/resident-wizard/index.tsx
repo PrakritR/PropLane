@@ -65,6 +65,8 @@ export function AddResidentWizard({
   propertyTick,
   executedLeaseKeys,
   initialKind = "resident",
+  mode = "person",
+  defaultPropertyId,
 }: {
   onClose: () => void;
   /** The row landed (and whatever else the wizard created). */
@@ -74,9 +76,15 @@ export function AddResidentWizard({
   propertyTick: number;
   executedLeaseKeys: { axisIds: Set<string>; emails: Set<string> };
   initialKind?: "resident" | "prospect";
+  /**
+   * "tour" is the Tours tab's door: the prospect flow with When first-class —
+   * Guest · Home · When · Review, no kind switch, "Schedule tour" at the end.
+   */
+  mode?: "person" | "tour";
+  defaultPropertyId?: string;
 }) {
   const { showToast } = useAppUi();
-  const [form, setForm] = useState<AddPersonForm>(() => emptyAddPersonForm(initialKind));
+  const [form, setForm] = useState<AddPersonForm>(() => ({ ...emptyAddPersonForm(mode === "tour" ? "prospect" : initialKind), propertyId: defaultPropertyId ?? "" }));
   const [stepIdx, setStepIdx] = useState(0);
   const [strip, setStrip] = useState<FileStripState>({ kind: "blank" });
   const [busy, setBusy] = useState(false);
@@ -96,18 +104,23 @@ export function AddResidentWizard({
   const stepId = stepIds[current]!;
   const goTo = useCallback((id: string) => setStepIdx(Math.max(0, stepIds.indexOf(id))), [stepIds]);
   const propertyLabel = useMemo(() => propertyOptions.find((p) => p.id === form.propertyId)?.label ?? null, [propertyOptions, form.propertyId]);
-  const todo = useMemo(() => thingsToFinish(form), [form]);
+  const todo = useMemo(() => {
+    const base = thingsToFinish(form);
+    if (mode === "tour" && !form.propertyId) base.push({ step: "home", label: "Property to show" });
+    return base;
+  }, [form, mode]);
 
   const steps = useMemo<AddWorkspaceStep[]>(() => {
     const missing = (id: string) => todo.some((t) => t.step === id);
     const rent = moneyOr0(form.rent);
     const paidMonths = Object.values(form.paymentMarks).filter((m) => m.status === "paid").length;
     if (form.kind === "prospect") {
+      const tourMode = mode === "tour";
       return [
-        { id: "contact", label: "Prospect", incomplete: missing("contact"), summary: form.name.trim() ? [form.name.trim(), form.phone.trim() || form.email.trim()].filter(Boolean).join(" · ") : "Who they are" },
-        { id: "home", label: "Interested in", summary: propertyLabel ? `${propertyLabel}${derived.listingSays ? ` · ${derived.listingSays.split(" · ")[0]}` : ""}` : "No property yet" },
-        { id: "tour", label: "Tour", incomplete: missing("tour"), summary: form.tourFormat === "none" ? "No tour yet" : form.tourDate ? `${form.tourDate} · ${form.tourStart} · ${form.tourFormat === "virtual" ? "virtual" : "in person"}` : "Pick a time" },
-        { id: "review", label: "Review", incomplete: todo.length > 0, summary: todo.length ? `${todo.length} to finish` : "Ready to add" },
+        { id: "contact", label: tourMode ? "Guest" : "Prospect", incomplete: missing("contact"), summary: form.name.trim() ? [form.name.trim(), form.phone.trim() || form.email.trim()].filter(Boolean).join(" · ") : "Who they are" },
+        { id: "home", label: tourMode ? "Home" : "Interested in", incomplete: tourMode && !form.propertyId, summary: propertyLabel ? `${propertyLabel}${derived.listingSays ? ` · ${derived.listingSays.split(" · ")[0]}` : ""}` : "No property yet" },
+        { id: "tour", label: tourMode ? "When" : "Tour", incomplete: missing("tour"), summary: form.tourFormat === "none" ? "No tour yet" : form.tourDate ? `${form.tourDate} · ${form.tourStart} · ${form.tourFormat === "virtual" ? "virtual" : "in person"}` : "Pick a time" },
+        { id: "review", label: "Review", incomplete: todo.length > 0, summary: todo.length ? `${todo.length} to finish` : tourMode ? "Ready to schedule" : "Ready to add" },
       ];
     }
     return [
@@ -119,7 +132,7 @@ export function AddResidentWizard({
       { id: "documents", label: "Documents", offPath: true, summary: form.documents.length ? `${form.documents.length} attached` : "None attached" },
       { id: "review", label: "Review", incomplete: todo.length > 0, summary: todo.length ? `${todo.length} to finish` : "Ready to add" },
     ];
-  }, [form, todo, propertyLabel, derived.listingSays, derived.isShortTerm, derived.isAirbnb]);
+  }, [form, todo, propertyLabel, derived.listingSays, derived.isShortTerm, derived.isAirbnb, mode]);
 
   /* ─────────── files ─────────── */
 
@@ -310,7 +323,7 @@ export function AddResidentWizard({
         if (/bed|room|capacity|property/i.test(outcome.failures.row)) goTo("home");
         return;
       }
-      const who = form.kind === "prospect" ? "Prospect" : "Resident";
+      const who = mode === "tour" ? "Tour" : form.kind === "prospect" ? "Prospect" : "Resident";
       const problems = Object.entries(outcome.failures)
         .filter(([stage]) => stage !== "row")
         .map(([, msg]) => msg);
@@ -327,7 +340,7 @@ export function AddResidentWizard({
         if (!sent.ok) problems.push(sent.message);
         else showToast(`${who} added. ${sent.message}`);
       } else {
-        showToast(`${who} added.${outcome.notes.length ? ` ${outcome.notes.join(" · ")}.` : ""}`);
+        showToast(`${who} ${mode === "tour" ? "scheduled" : "added"}.${outcome.notes.length ? ` ${outcome.notes.join(" · ")}.` : ""}`);
       }
       if (form.message.channels.includes("link") && form.kind === "resident") {
         try {
@@ -386,26 +399,26 @@ export function AddResidentWizard({
   return (
     <>
       <AddWorkspace
-        title={form.kind === "prospect" ? "Add prospect" : "Add resident"}
+        title={mode === "tour" ? "Schedule tour" : form.kind === "prospect" ? "Add prospect" : "Add resident"}
         subtitle={propertyLabel ?? undefined}
         steps={steps}
         current={current}
         onJump={setStepIdx}
         onClose={onClose}
         dirty={addPersonFormIsDirty(form)}
-        discardTitle={form.kind === "prospect" ? "Discard this prospect?" : "Discard this resident?"}
-        assistantContext={form.kind === "prospect" ? "Add prospect" : "Add resident"}
-        assistantScopeKey="add-resident-wizard"
+        discardTitle={mode === "tour" ? "Discard this tour?" : form.kind === "prospect" ? "Discard this prospect?" : "Discard this resident?"}
+        assistantContext={mode === "tour" ? "Schedule tour" : form.kind === "prospect" ? "Add prospect" : "Add resident"}
+        assistantScopeKey={mode === "tour" ? "schedule-tour-wizard" : "add-resident-wizard"}
         railHeader={railHeader}
         sidePanel={<ResidentSidePanel form={form} derived={derived} propertyLabel={propertyLabel} />}
-        lastLabel={form.kind === "prospect" ? "Add prospect" : "Add resident"}
+        lastLabel={mode === "tour" ? "Schedule tour" : form.kind === "prospect" ? "Add prospect" : "Add resident"}
         lastDisabled={todo.length > 0}
         finishCount={todo.length}
         busy={busy}
         onFinish={onFinish}
-        dataAttrPrefix="residents-wizard"
+        dataAttrPrefix={mode === "tour" ? "tour-wizard" : "residents-wizard"}
       >
-        {stepId === "contact" ? <ContactStep form={form} patch={patch} strip={strip} onPickFile={onPickStartFile} onUndoFill={onUndoFill} busy={busy} /> : null}
+        {stepId === "contact" ? <ContactStep form={form} patch={patch} strip={strip} onPickFile={onPickStartFile} onUndoFill={onUndoFill} busy={busy} lockKind={mode === "tour"} /> : null}
         {stepId === "home" ? <HomeStep form={form} patch={patch} derived={derived} propertyOptions={propertyOptions} /> : null}
         {stepId === "application" ? <ApplicationStep form={form} patch={patch} derived={derived} propertyLabel={propertyLabel} /> : null}
         {stepId === "lease" ? <LeaseStep form={form} patch={patch} derived={derived} onPickLeasePdf={onPickLeasePdf} busy={busy} /> : null}
@@ -417,7 +430,7 @@ export function AddResidentWizard({
       {preview ? (
         <PortalNotificationPreviewModal
           open
-          title={form.kind === "prospect" ? "Add prospect — tour confirmation" : "Add resident — notification preview"}
+          title={form.kind === "prospect" ? "Tour confirmation" : "Add resident — notification preview"}
           onClose={() => !busy && setPreview(null)}
           recipient={preview.row.email ?? ""}
           recipientPhone={preview.row.manualResidentDetails?.phone?.trim() || ""}
@@ -430,8 +443,8 @@ export function AddResidentWizard({
           smsAvailable={Boolean(preview.row.manualResidentDetails?.phone?.trim())}
           defaultViaEmail={form.message.channels.includes("email")}
           defaultViaSms={form.message.channels.includes("sms")}
-          confirmLabel={form.kind === "prospect" ? "Add prospect & send" : "Add resident & send notice"}
-          confirmLabelWithoutMessage={form.kind === "prospect" ? "Add prospect only" : "Add resident only"}
+          confirmLabel={mode === "tour" ? "Schedule & send" : form.kind === "prospect" ? "Add prospect & send" : "Add resident & send notice"}
+          confirmLabelWithoutMessage={mode === "tour" ? "Schedule only" : form.kind === "prospect" ? "Add prospect only" : "Add resident only"}
           confirmBusy={busy}
           showSkipMessage
           onConfirm={(skipMessage, channels, draft) => void finish(preview.row, skipMessage, channels, draft)}
