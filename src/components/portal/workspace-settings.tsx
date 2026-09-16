@@ -6,17 +6,19 @@
  * Top: the plan, stated as what it buys — workspaces, properties, team seats —
  * with usage meters and a Free / Pro / Business comparison, so a manager can
  * see in one glance what the next tier changes. Below: one card per workspace
- * with its record meter, its houses, and the managers who have access there.
- * Team membership is on this same pane — pick a workspace (top-left switcher
- * or a card), then the members list under Team. Every owned workspace can be
- * deleted, the default one included: an empty one goes on a plain confirm, one
- * with houses through a dialog that names the workspace they move to.
+ * with its record meter, its houses, and — under "Managers & permissions" — the
+ * team on that workspace: you, every co-manager who holds a house there, the
+ * pending invites, and that card's Invite. There is no separate Team section;
+ * the team panel renders each card's section (see ProAccountLinksPanel's
+ * renderWorkspaces). Every owned workspace can be deleted, the default one
+ * included: an empty one goes on a plain confirm, one with houses through a
+ * dialog that names the workspace they move to.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Building2, ChevronDown, ChevronUp, Pencil, Trash2, Users } from "lucide-react";
+import { Building2, ChevronDown, ChevronUp, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
@@ -34,8 +36,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useWorkspaces } from "./workspace-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
-import { ProAccountLinksPanel } from "@/components/portal/pro-account-links-panel";
-import { PortalSettingsSection } from "@/components/portal/portal-settings-ui";
+import { ProAccountLinksPanel, type WorkspaceTeamApi } from "@/components/portal/pro-account-links-panel";
 
 const TIER_ORDER: WorkspacePlanTier[] = ["free", "pro", "business"];
 
@@ -160,7 +161,7 @@ function WorkspaceCard({
   onRename,
   onDelete,
   onMove,
-  onOpenTeam,
+  teamSection,
 }: {
   workspace: PortalWorkspace;
   ownedCount: number;
@@ -168,13 +169,13 @@ function WorkspaceCard({
   onRename: () => void;
   onDelete: () => void;
   onMove: (propertyId: string) => void;
-  onOpenTeam: () => void;
+  /** "Managers & permissions" for an owned workspace, rendered by the team panel. */
+  teamSection: ReactNode;
 }) {
   const records = workspace.propertyIds.length;
   const pct = Math.min(100, Math.round((records / WORKSPACE_PROPERTY_LIMIT) * 100));
-  const members = workspace.members ?? [];
   return (
-    <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm" data-attr="workspace-card">
+    <section id={`workspace-${workspace.id}`} className="scroll-mt-4 overflow-hidden rounded-2xl border border-border bg-card shadow-sm" data-attr="workspace-card">
       <div className="flex items-center gap-3 px-4 py-3">
         <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-accent text-primary" aria-hidden>
           <Building2 className="size-5" />
@@ -202,7 +203,7 @@ function WorkspaceCard({
         ) : null}
       </div>
 
-      <div className="grid gap-4 border-t border-border px-4 py-3 sm:grid-cols-2">
+      <div className="border-t border-border px-4 py-3">
         <div>
           <div className="flex items-baseline justify-between">
             <span className="text-[13px] font-medium text-foreground">Property records</span>
@@ -215,34 +216,6 @@ function WorkspaceCard({
             <div className={cn("h-full rounded-full", records >= WORKSPACE_PROPERTY_LIMIT ? "bg-[var(--status-pending-fg)]" : "bg-primary")} style={{ width: `${pct}%` }} />
           </div>
           <p className="mt-1 text-xs text-muted">Drafts count toward this workspace&apos;s records.</p>
-        </div>
-        <div>
-          <div className="flex items-baseline justify-between">
-            <span className="text-[13px] font-medium text-foreground">Team on this workspace</span>
-            <span className="text-sm font-semibold tabular-nums">{workspace.owned ? members.length : "—"}</span>
-          </div>
-          {workspace.owned ? (
-            members.length === 0 ? (
-              <p className="mt-1.5 text-xs text-muted">Only you. Invite a manager to share these houses.</p>
-            ) : (
-              <ul className="mt-1.5 space-y-1">
-                {members.slice(0, 4).map((member) => (
-                  <li key={member.userId} className="flex items-center gap-2 text-xs">
-                    <span className="grid size-6 shrink-0 place-items-center rounded-full bg-[var(--secondary)] text-[10px] font-bold text-foreground" aria-hidden>
-                      {member.name.slice(0, 2).toUpperCase()}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-foreground">{member.name}</span>
-                    <span className="shrink-0 text-muted">
-                      {member.propertyIds.length} {member.propertyIds.length === 1 ? "house" : "houses"} · {member.modules.length} {member.modules.length === 1 ? "module" : "modules"}
-                    </span>
-                  </li>
-                ))}
-                {members.length > 4 ? <li className="text-xs text-muted">+{members.length - 4} more</li> : null}
-              </ul>
-            )
-          ) : (
-            <p className="mt-1.5 text-xs text-muted">Only the houses and modules granted to you are available here.</p>
-          )}
         </div>
       </div>
 
@@ -262,20 +235,24 @@ function WorkspaceCard({
         {workspace.propertyIds.length === 0 ? <p className="px-4 py-3 text-sm text-muted">No properties yet.</p> : null}
       </div>
       {workspace.owned ? (
-        <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-2.5">
-          <button
-            type="button"
-            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg px-2.5 text-sm font-semibold text-primary transition hover:bg-accent"
-            onClick={onOpenTeam}
-            data-attr="workspace-manage-team"
-          >
-            <Users className="size-4" aria-hidden />
-            Managers & permissions
-          </button>
-        </div>
-      ) : null}
+        teamSection
+      ) : (
+        <p className="border-t border-border px-4 py-2.5 text-sm text-muted" data-attr="workspace-shared-access">
+          Only the houses and modules granted to you are available here. The owner manages who else has access.
+        </p>
+      )}
     </section>
   );
+}
+
+/**
+ * The team panel owns the invites and every team modal; the cards only decide
+ * where each workspace's section sits. Until the signed-in manager is known the
+ * cards render with no team section rather than waiting on it.
+ */
+function WorkspaceCards({ userId, children }: { userId: string | null; children: (team: WorkspaceTeamApi | null) => ReactNode }) {
+  if (!userId) return <>{children(null)}</>;
+  return <ProAccountLinksPanel userId={userId} renderWorkspaces={children} />;
 }
 
 export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {}) {
@@ -298,11 +275,15 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
     setName("");
     setEditing("new");
   }, [openNew]);
+  // "Invite a manager" in the switcher lands on the active workspace's card;
+  // the cards mount after the workspaces load, so the hash is honored here.
+  const cardsLoading = ctx?.loading ?? true;
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (window.location.hash !== "#workspace-team") return;
-    document.getElementById("workspace-team")?.scrollIntoView({ block: "start" });
-  }, []);
+    if (cardsLoading || typeof window === "undefined") return;
+    const hash = window.location.hash;
+    if (!hash.startsWith("#workspace-")) return;
+    document.getElementById(hash.slice(1))?.scrollIntoView({ block: "start" });
+  }, [cardsLoading]);
   const closeEditor = useCallback(() => {
     setEditing(null);
     if (!openNew || typeof window === "undefined") return;
@@ -341,7 +322,8 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
     });
   };
   return (
-    <div className="space-y-4" data-attr="workspace-settings">
+    // Bottom room so the last card's ⋯ can scroll clear of the assistant FAB.
+    <div className="space-y-4 pb-20" data-attr="workspace-settings">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-lg font-semibold">Workspaces</h2>
@@ -375,7 +357,8 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
           <Button onClick={() => run({ action: "initialize" })}>Create workspace</Button>
         </div>
       ) : (
-        ctx.workspaces.map((workspace) => (
+        <WorkspaceCards userId={userId}>
+          {(team) => ctx.workspaces.map((workspace) => (
           <WorkspaceCard
             key={workspace.id}
             workspace={workspace}
@@ -402,22 +385,11 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
               }
             }}
             onMove={(propertyId) => setMoving({ id: propertyId, destination: owned.find((w) => w.id !== workspace.id)!.id })}
-            onOpenTeam={() => {
-              void (async () => {
-                if (ctx.active?.id !== workspace.id) {
-                  await ctx.select(workspace.id, { href: false });
-                }
-                document.getElementById("workspace-team")?.scrollIntoView({ block: "start" });
-              })().catch((e) => setError(e instanceof Error ? e.message : "Could not open Team."));
-            }}
+            teamSection={team ? team.section(workspace) : null}
           />
-        ))
+          ))}
+        </WorkspaceCards>
       )}
-      <div id="workspace-team" data-attr="workspace-team">
-        <PortalSettingsSection title="Team">
-          {userId ? <ProAccountLinksPanel userId={userId} bare /> : <p className="text-sm text-muted">Loading…</p>}
-        </PortalSettingsSection>
-      </div>
       <Modal open={editing !== null} onClose={closeEditor} title={editing === "new" ? "Add workspace" : "Rename workspace"}>
         <form
           onSubmit={(event) => {
@@ -511,9 +483,7 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
         {movingMembers.length > 0 ? (
           <p className="mb-3 text-sm text-foreground" data-attr="workspace-move-keeps-access">
             {movingMembers.map((member) => member.name).join(", ")} {movingMembers.length === 1 ? "keeps" : "keep"} access to this house in the new workspace.{" "}
-            <Link href="/portal/profile?tab=workspaces#workspace-team" className="font-medium text-primary underline-offset-2 hover:underline" data-attr="workspace-move-change-access">
-              Change in Team
-            </Link>
+            Change it under the workspace&apos;s Managers &amp; permissions.
           </p>
         ) : null}
         <Select aria-label="Destination workspace" value={moving?.destination ?? ""} onChange={(event) => setMoving((value) => value && { ...value, destination: event.target.value })}>

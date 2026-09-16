@@ -7,6 +7,17 @@
 number is the owner's; a co-manager sends and reads on it within their inbox
 grant. See `docs/agents/sms-system.md` "One work number per WORKSPACE".
 
+**The team is shown per workspace, never as its own list.** Settings →
+Workspaces renders "Managers & permissions" inside every owned workspace card:
+you, each co-manager who holds a house there (grouped by the houses granted —
+one person can sit under two cards), that card's pending invites, and that
+card's Invite (picker scoped to the card's houses). A grant with no houses yet
+sits under the default workspace only (`grantBelongsToWorkspace`,
+`src/lib/workspaces/team-scope.ts`). Row actions are **Edit** (the member page)
+and **Disconnect**; the word "Remove" is not used for taking someone off the
+team. `ProAccountLinksPanel`'s `renderWorkspaces` owns this; the same panel
+still serves `/portal/teams/managers/<id>`.
+
 **A co-manager link grants nothing until a module is granted.** Assignment is
 NOT the grant: an accepted `account_link_invites` row whose per-property
 permissions entry is absent or `{}` confers **no access**. Grants are

@@ -61,7 +61,7 @@ export function buildCoManagerLinkRemovedBody(params: {
       ? `Properties affected: ${properties.join(", ")}`
       : "Your co-manager access on PropLane was updated.";
   return [
-    `${actorName} removed your co-manager link on PropLane.`,
+    `${actorName} disconnected you from their team on PropLane.`,
     "",
     propertyLine,
     "",
