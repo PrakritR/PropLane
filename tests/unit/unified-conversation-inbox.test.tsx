@@ -180,8 +180,8 @@ describe("unified conversation inbox (no folder tabs)", () => {
     // Trashed conversation is NOT in the default view.
     expect(screen.queryByText("Old Flyer")).toBeNull();
 
-    expect(screen.getByRole("tab", { name: "Active" })).toBeTruthy();
-    expect(screen.getByRole("tab", { name: "Archived" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /^Active/ })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /^Archived/ })).toBeTruthy();
     expect(screen.queryByRole("tab", { name: "Unread" })).toBeNull();
     cleanup();
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" threadFilters={{ status: "read", propertyIds: [], roles: [], contactIds: [] }} />);

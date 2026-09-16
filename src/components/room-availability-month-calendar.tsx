@@ -15,7 +15,7 @@
  * handles. Grey booked days never start a drag. Default stays read-only.
  */
 
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   addMonths,
@@ -234,9 +234,11 @@ export function RoomAvailabilityMonthCalendar({
   const holdTimerRef = useRef<number | null>(null);
   const holdOriginRef = useRef<{ x: number; y: number; dayKey: string } | null>(null);
   const interactiveRef = useRef(interactive);
-  interactiveRef.current = interactive;
   const spansRef = useRef(spans);
-  spansRef.current = spans;
+  useLayoutEffect(() => {
+    interactiveRef.current = interactive;
+    spansRef.current = spans;
+  }, [interactive, spans]);
 
   const clearHold = () => {
     if (holdTimerRef.current != null) {

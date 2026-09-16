@@ -745,7 +745,10 @@ export function ManagerMessagingSettingsPanel({
                   data-attr="messaging-open-billing"
                 >
                   <Link href="/portal/profile?tab=billing">
-                    {status.entitlement.reason === "trialing" ? "Activate paid plan" : "Upgrade to a paid plan"}
+                    {!status.entitlement.eligible &&
+                    status.entitlement.reason === "trialing"
+                      ? "Activate paid plan"
+                      : "Upgrade to a paid plan"}
                   </Link>
                 </Button>
               )}
