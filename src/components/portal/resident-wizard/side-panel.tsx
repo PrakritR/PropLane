@@ -16,12 +16,14 @@ export function ResidentSidePanel({
   form,
   derived,
   propertyLabel,
+  mode = "person",
 }: {
   form: AddPersonForm;
   derived: ResidentWizardDerived;
   propertyLabel: string | null;
+  mode?: "person" | "tour" | "application";
 }) {
-  const prospect = form.kind === "prospect";
+  const prospect = form.kind === "prospect" && mode !== "application";
   const rent = moneyOr0(form.rent);
   const utilities = moneyOr0(form.utilities);
   const deposit = moneyOr0(form.securityDeposit);
@@ -43,6 +45,29 @@ export function ResidentSidePanel({
   const paid = rows.filter((r) => (form.paymentMarks[r.monthKey]?.status ?? (r.isCurrent ? "due" : "paid")) === "paid");
   const due = rows.filter((r) => !paid.includes(r));
   const quiet = form.message.channels.includes("none") || form.message.channels.length === 0 || (form.message.channels.length === 1 && form.message.channels[0] === "link");
+
+  if (mode === "application") {
+    const creates: CreatesItem[] = [
+      { tone: "yes", text: "A pending application, started by you — no application fee" },
+      { tone: "no", text: "No lease or charges until it is approved" },
+      form.documents.length ? { tone: "yes", text: `${form.documents.length} ${form.documents.length === 1 ? "document" : "documents"} kept privately on the application` } : { tone: "no", text: "No documents attached" },
+      quiet ? { tone: "no", text: "No message — it stays as you filled it" } : { tone: "warn", text: "Review-and-sign link previewed before it sends" },
+    ];
+    return (
+      <PreviewPanel
+        title="Application preview"
+        name={form.name.trim() || "New applicant"}
+        sub={form.email.trim() || "email not set"}
+        facts={[
+          { label: "Property", value: propertyLabel ?? "Not set", warn: !propertyLabel },
+          { label: "Lands in", value: "Application › Pending" },
+          { label: "Fee", value: "None (manager-added)" },
+          { label: "Screening", value: "Available once saved" },
+        ]}
+        creates={creates}
+      />
+    );
+  }
 
   if (prospect) {
     const creates: CreatesItem[] = [

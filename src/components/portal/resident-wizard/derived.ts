@@ -159,9 +159,8 @@ export function useResidentWizardDerived(
     const room = roomOptions.find((r) => r.id === roomId);
     const parts: string[] = [];
     if (room) parts.push(`${room.name}${room.monthlyRent ? ` · $${room.monthlyRent}/mo listed` : ""}`);
-    else if (listing?.title) parts.push(listing.title);
     return parts.length ? parts.join(" · ") : null;
-  }, [propertyId, roomId, roomOptions, listing]);
+  }, [propertyId, roomId, roomOptions]);
 
   const showBundleSelect = bundleOptions.length > 0;
   const showRoomSelect = rentedByRoom && !bundleId.trim() && roomOptions.length > 0;

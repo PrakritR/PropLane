@@ -423,12 +423,74 @@ export function buildProspectRow(form: AddPersonForm, ctx: BuildRowContext): Bui
   return { ok: true, row };
 }
 
+/**
+ * An application started by the manager on the applicant's behalf: a pending,
+ * in-progress draft carrying whatever the manager filled. The applicant opens
+ * the secure link, adds what only they can (SSN if screening needs it,
+ * consent, signature) and submits — or the manager keeps it as filled.
+ */
+export function buildApplicationDraftRow(
+  form: AddPersonForm,
+  ctx: BuildRowContext,
+  customQuestions: readonly { key: string; label: string; type: RentalCustomFieldAnswer["type"]; section?: string }[] = [],
+): BuildRowResult {
+  if (!form.name.trim()) return { ok: false, error: "Enter the applicant's name." };
+  if (!form.email.trim()) return { ok: false, error: "Enter the applicant's email." };
+  if (!form.propertyId.trim()) return { ok: false, error: "Pick the property they are applying for." };
+  const axisId = `PROPLANE-${(ctx.idSuffix ?? (() => Date.now().toString(36).toUpperCase().slice(-8)))()}`;
+  const propLabel = ctx.propertyLabelFor(form.propertyId) ?? form.propertyId;
+  const placement = resolveManualResidentAssignment({ propertyId: form.propertyId, roomId: form.roomId, bundleId: form.bundleId });
+  const leaseFields = residentLeaseTermToApplicationFields(form.leaseTerm, form.leaseTermCustomMode, form.propertyId);
+  const answers = applicationAnswersForRow(form);
+  const custom = customAnswersForRow(form, customQuestions);
+  const row: DemoApplicantRow = {
+    id: axisId,
+    name: form.name.trim(),
+    email: form.email.trim(),
+    property: propLabel,
+    stage: "In progress",
+    bucket: "pending",
+    detail: "Started by you",
+    propertyId: form.propertyId,
+    managerUserId: ctx.userId ?? undefined,
+    manuallyAdded: true,
+    manualResidentDetails: {
+      phone: form.phone.trim() || undefined,
+      roomNumber: placement.placementLabel?.trim() || undefined,
+      notes: form.notes.trim() || undefined,
+      ...(form.vehicles > 0 ? { vehicles: form.vehicles } : {}),
+      ...(form.preferredContact === "sms" ? { preferredContact: "sms" as const } : {}),
+    },
+    application: {
+      propertyId: form.propertyId,
+      roomChoice1: placement.assignedRoomChoice,
+      bundleId: placement.bundleId,
+      ...(leaseFields.leaseTerm ? { leaseTerm: leaseFields.leaseTerm, rentalType: leaseFields.rentalType } : {}),
+      leaseStart: form.moveInDate || undefined,
+      fullLegalName: form.name.trim(),
+      email: form.email.trim(),
+      phone: form.phone.trim() || undefined,
+      ...answers,
+      ...(custom.length ? { customFieldAnswers: custom } : {}),
+      wizardStep: 1,
+      wizardMaxStepReached: 1,
+    } as unknown as DemoApplicantRow["application"],
+  };
+  return { ok: true, row };
+}
+
 /* ─────────────────────────── things to finish ─────────────────────────── */
 
 export type ThingToFinish = { step: string; label: string };
 
-export function thingsToFinish(form: AddPersonForm): ThingToFinish[] {
+export function thingsToFinish(form: AddPersonForm, mode: "person" | "tour" | "application" = "person"): ThingToFinish[] {
   const out: ThingToFinish[] = [];
+  if (mode === "application") {
+    if (!form.name.trim()) out.push({ step: "contact", label: "Applicant's name" });
+    if (!form.email.trim()) out.push({ step: "contact", label: "Applicant's email" });
+    if (!form.propertyId.trim()) out.push({ step: "home", label: "Property they're applying for" });
+    return out;
+  }
   if (!form.name.trim()) out.push({ step: "contact", label: form.kind === "prospect" ? "Prospect's name" : "Resident's name" });
   if (form.kind === "prospect") {
     if (!form.email.trim() && !form.phone.trim()) out.push({ step: "contact", label: "An email or phone" });

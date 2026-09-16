@@ -25,6 +25,7 @@ export function ContactStep({
   onUndoFill,
   busy,
   lockKind = false,
+  mode = "person",
 }: {
   form: AddPersonForm;
   patch: (next: Partial<AddPersonForm>) => void;
@@ -34,6 +35,7 @@ export function ContactStep({
   busy: boolean;
   /** Tours door: the kind is fixed to prospect and the picker is not shown. */
   lockKind?: boolean;
+  mode?: "person" | "tour" | "application";
 }) {
   const prospect = form.kind === "prospect";
   const touched = (key: string) => {
@@ -44,7 +46,7 @@ export function ContactStep({
   };
   return (
     <StepColumn>
-      <StepHeading title={lockKind ? "The guest" : prospect ? "The prospect" : "The resident"} />
+      <StepHeading title={mode === "application" ? "The applicant" : lockKind ? "The guest" : prospect ? "The prospect" : "The resident"} />
       {lockKind ? null : (
       <WizardSection title="Who are you adding?" dataAttr="residents-wizard-kind">
         <WizardSelect
@@ -59,7 +61,7 @@ export function ContactStep({
         />
       </WizardSection>
       )}
-      {!prospect ? (
+      {!prospect || mode === "application" ? (
         <FileStartStrip
           state={strip}
           chips={RESIDENT_FILE_CHIPS}

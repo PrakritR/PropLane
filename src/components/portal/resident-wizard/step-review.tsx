@@ -17,15 +17,18 @@ export function ReviewStep({
   derived,
   propertyLabel,
   goTo,
+  mode = "person",
 }: {
   form: AddPersonForm;
   patch: (next: Partial<AddPersonForm>) => void;
   derived: ResidentWizardDerived;
   propertyLabel: string | null;
   goTo: (stepId: string) => void;
+  mode?: "person" | "tour" | "application";
 }) {
-  const todo = useMemo(() => thingsToFinish(form), [form]);
-  const prospect = form.kind === "prospect";
+  const todo = useMemo(() => thingsToFinish(form, mode), [form, mode]);
+  const prospect = form.kind === "prospect" && mode !== "application";
+  const applicationMode = mode === "application";
   const missing = (step: string) => todo.some((t) => t.step === step);
   const a = form.application;
   const rows = useMemo(() => (prospect || form.billingStart === "next_due" ? [] : paymentSchedulePreview(form)), [form, prospect]);
@@ -57,7 +60,7 @@ export function ReviewStep({
       ) : null}
 
       <ReviewCard
-        title={prospect ? "Prospect" : "Resident"}
+        title={applicationMode ? "Applicant" : prospect ? "Prospect" : "Resident"}
         status={missing("contact") ? "incomplete" : "complete"}
         onEdit={() => goTo("contact")}
         dataAttr="residents-wizard-review-contact"
@@ -79,7 +82,29 @@ export function ReviewStep({
           ...(prospect ? [{ label: "Wants", value: [form.wantedMoveIn ? `move-in ${form.wantedMoveIn}` : null, form.budget ? `up to $${form.budget}/mo` : null].filter(Boolean).join(" · ") || "—" }] : []),
         ]}
       />
-      {prospect ? (
+      {applicationMode ? (
+        <>
+          <ReviewCard
+            title="Application"
+            status="optional"
+            onEdit={() => goTo("application")}
+            dataAttr="residents-wizard-review-application"
+            facts={[
+              { label: "About", value: [a.dateOfBirth ? `DOB ${a.dateOfBirth}` : null, `${Math.max(1, Number(a.occupancyCount) || 1)} ${Number(a.occupancyCount) === 1 || !a.occupancyCount ? "person" : "people"}`, a.pets ? a.pets : "no pets"].filter(Boolean).join(" · ") },
+              { label: "Employment", value: a.notEmployed ? "Not currently employed" : a.employer ? `${a.employer}${a.monthlyIncome ? ` · $${a.monthlyIncome}/mo` : ""}` : "Not entered" },
+              { label: "Current address", value: a.currentStreet ? `${a.currentStreet}${a.currentCity ? `, ${a.currentCity}` : ""}` : "Not entered" },
+              { label: "Lands in", value: "Application › Pending · In progress" },
+            ]}
+          />
+          <ReviewCard
+            title="Documents"
+            status="optional"
+            onEdit={() => goTo("documents")}
+            dataAttr="residents-wizard-review-documents"
+            facts={[{ label: "Attached", value: form.documents.length ? form.documents.map((d) => d.file.name).join(" · ") : "None" }]}
+          />
+        </>
+      ) : prospect ? (
         <ReviewCard
           title="Tour"
           status={form.tourFormat === "none" ? "optional" : missing("tour") ? "incomplete" : "complete"}
@@ -138,7 +163,16 @@ export function ReviewStep({
         </>
       )}
 
-      <MessageStep who={prospect ? "prospect" : "resident"} draft={message} onChange={onMessage} emailAvailable={emailAvailable} smsAvailable={smsAvailable} linkLabel={prospect ? "Copy the application link" : "Copy their account link"} dataAttr="residents-wizard-message" />
+      <MessageStep
+        who={applicationMode ? "applicant" : prospect ? "prospect" : "resident"}
+        draft={message}
+        onChange={onMessage}
+        emailAvailable={emailAvailable}
+        smsAvailable={smsAvailable}
+        linkLabel={prospect ? "Copy the application link" : "Copy their account link"}
+        dataAttr="residents-wizard-message"
+        fixedBody={applicationMode ? "The email carries their secure review-and-sign link, so PropLane writes it; a text says the same." : undefined}
+      />
     </StepColumn>
   );
 }

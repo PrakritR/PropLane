@@ -267,6 +267,48 @@ export async function commitProspect(built: DemoApplicantRow, form: AddPersonFor
   return { ok: Object.keys(failures).length === 0, row, failures, notes, tourId };
 }
 
+/** Add application: a pending in-progress draft the applicant finishes through their secure link. */
+export async function commitApplicationDraft(row: DemoApplicantRow, form: AddPersonForm, ctx: CommitContext): Promise<CommitOutcome> {
+  const failures: CommitOutcome["failures"] = {};
+  const notes: string[] = [];
+  appendManagerApplicationRow(row, { skipServerMirror: true });
+  const persisted = await upsertApplicationRowToServerAwait(row);
+  if (!persisted.ok) {
+    dropRowFromCache(row.id);
+    return { ok: false, row, failures: { row: persisted.error ?? "Could not save the application." }, notes };
+  }
+  await syncManagerApplicationsFromServer({ force: true, managerUserId: ctx.userId });
+  const attachments = await uploadDocuments(row, form.documents, failures);
+  if (attachments.changed) {
+    const updated: DemoApplicantRow = {
+      ...row,
+      application: { ...(row.application ?? {}), ...attachments.applicationPatch } as DemoApplicantRow["application"],
+      manualResidentDetails: { ...row.manualResidentDetails, ...(attachments.other.length ? { documents: attachments.other } : {}) },
+    };
+    replaceManagerApplicationRowInCache(updated);
+    const saved = await upsertApplicationRowToServerAwait(updated);
+    if (!saved.ok) failures.documents = saved.error ?? "Documents were uploaded but could not be linked to the application.";
+  }
+  return { ok: Object.keys(failures).length === 0, row, failures, notes };
+}
+
+/**
+ * The "review & sign" email for a manager-started application — composed by
+ * the server because it carries the applicant's secure resume link. `preview`
+ * returns the text so the same words can go by SMS.
+ */
+export async function sendApplicationStartedEmail(applicationId: string, opts: { preview?: boolean } = {}): Promise<{ ok: boolean; error?: string; preview?: { to?: string; subject?: string; text?: string }; skipped?: boolean }> {
+  const res = await fetch("/api/portal/send-manager-application-started", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ applicationId, preview: opts.preview === true }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; preview?: { to?: string; subject?: string; text?: string }; skipped?: boolean };
+  if (!res.ok || data.ok === false) return { ok: false, error: data.error ?? "Could not send the application email." };
+  return { ok: true, preview: data.preview, skipped: data.skipped };
+}
+
 async function uploadDocuments(
   row: DemoApplicantRow,
   documents: AttachedDocument[],
