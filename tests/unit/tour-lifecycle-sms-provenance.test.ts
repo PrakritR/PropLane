@@ -24,6 +24,14 @@ import { cancelPlannedTour, reschedulePlannedTour } from "@/lib/tour-planned-cha
 const INQUIRIES_RECORD_ID = "axis_admin_partner_inquiries_v1";
 const PLANNED_RECORD_ID = "axis_admin_planned_events_v1";
 const MANAGER = "00000000-0000-4000-8000-000000000001";
+const NUMBER_ROW = {
+  manager_user_id: MANAGER,
+  phone_number: "+12065550999",
+  provision_state: "active",
+  registration_state: "approved",
+  attachment_state: "attached",
+  number_registration_state: "approved",
+};
 const GUEST = "guest@example.com";
 const PHONE = "+12065550100";
 const START = "2099-08-06T17:00:00.000Z";
@@ -83,6 +91,8 @@ function makeDb(options: {
         order: () => chain,
         limit: () => chain,
         then: (resolve: (value: unknown) => unknown) => {
+          // The owner's lines are read as a list now (one per workspace).
+          if (table === "manager_sms_numbers") return Promise.resolve(resolve({ data: [NUMBER_ROW], error: null }));
           if (table !== "sms_consent_events") return Promise.resolve(resolve({ data: [], error: null }));
           if (filters.get("purpose") === "manager_conversation") conversationLedgerReads += 1;
           const matches = consentEvents.filter((event) =>
@@ -103,17 +113,7 @@ function makeDb(options: {
             return { data: null, error: null };
           }
           if (table === "manager_property_records") return { data: null, error: null };
-          if (table === "manager_sms_numbers") return {
-            data: {
-              manager_user_id: MANAGER,
-              phone_number: "+12065550999",
-              provision_state: "active",
-              registration_state: "approved",
-              attachment_state: "attached",
-              number_registration_state: "approved",
-            },
-            error: null,
-          };
+          if (table === "manager_sms_numbers") return { data: NUMBER_ROW, error: null };
           if (table === "portal_inbox_thread_records") {
             const row = inboxRows.find((candidate) => candidate.id === filters.get("id"));
             return { data: row ?? null, error: null };

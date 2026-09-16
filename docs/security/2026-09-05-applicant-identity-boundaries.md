@@ -77,7 +77,7 @@ Observed 25 direct mutation sites across 15 runtime source files; 80 source file
 
 - `src/app/api/auth/resident-setup-link/route.ts`
 - `src/app/api/cosigner-submissions/route.ts`
-- `src/app/api/cron/send-move-in-reminders/route.ts`
+- `src/lib/reminders/subjects/tenancy.server.ts` (replaced `src/app/api/cron/send-move-in-reminders/route.ts` in PLAN-0915; the move-in reminder now links the house-info page instead of embedding access codes, so the signed-lease gate lives in the page, not the message)
 - `src/app/api/manager-applications/[id]/pdf/route.ts`
 - `src/app/api/manager-applications/route.ts`
 - `src/app/api/portal/application-photos/route.ts`

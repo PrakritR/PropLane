@@ -36,6 +36,10 @@ export type UnifiedServiceRow = {
   scheduledIso: string;
   /** ISO the row was created, used for ordering when nothing is scheduled. */
   createdIso: string;
+  /** A server-computed time suggestion, from either source (Stage D). Present
+   * whether it was auto-booked (then `scheduledIso` above is also set) or is
+   * still only a proposal awaiting manager confirmation. */
+  proposedVisit?: { iso: string; source: "availability" | "proplane-pick"; suggestedAtIso?: string };
 };
 
 /**
@@ -78,6 +82,8 @@ export function maintenanceState(bucket: string | undefined | null): ServiceRowS
   }
 }
 
+type ProposedVisitInput = { iso: string; source: "availability" | "proplane-pick"; suggestedAtIso?: string };
+
 type AddOnInput = {
   id: string;
   offerName?: string | null;
@@ -87,6 +93,7 @@ type AddOnInput = {
   propertyId?: string | null;
   requestedAt?: string | null;
   approvedAt?: string | null;
+  proposedVisit?: ProposedVisitInput;
 };
 
 type MaintenanceInput = {
@@ -101,6 +108,7 @@ type MaintenanceInput = {
   unit?: string | null;
   scheduledAtIso?: string | null;
   createdAtIso?: string | null;
+  proposedVisit?: ProposedVisitInput;
 };
 
 /**
@@ -131,6 +139,7 @@ export function buildUnifiedServiceRows(input: {
       unitLabel: "",
       scheduledIso: req.approvedAt?.trim() ?? "",
       createdIso: req.requestedAt?.trim() ?? "",
+      proposedVisit: req.proposedVisit,
     });
   }
 
@@ -149,6 +158,7 @@ export function buildUnifiedServiceRows(input: {
       unitLabel: wo.unit?.trim() ?? "",
       scheduledIso: wo.scheduledAtIso?.trim() ?? "",
       createdIso: wo.createdAtIso?.trim() ?? "",
+      proposedVisit: wo.proposedVisit,
     });
   }
 

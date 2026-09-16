@@ -1,3 +1,4 @@
+import { loadAutomatedMessageSettings } from "@/lib/automated-messages-settings.server";
 import { NextResponse } from "next/server";
 import { orFilterForIdentity } from "@/lib/supabase/or-filter";
 import { isAdminUser } from "@/lib/auth/admin-preview";
@@ -773,6 +774,7 @@ export async function POST(req: Request) {
         };
       }
       const transition = managerUserId ? buildDurableLeaseTransitionEnvelope({
+        automated: await loadAutomatedMessageSettings(ctx.db, managerUserId).catch(() => null),
         managerUserId,
         previous: plan.previousRow,
         lease: plan.record.row_data as LeasePipelineRow,

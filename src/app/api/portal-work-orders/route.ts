@@ -13,8 +13,16 @@ import {
 } from "@/lib/repair-service-request-scopes.server";
 import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 import { workOrderEvent } from "@/lib/work-order-events.server";
+import { loadServiceAutomationSettings } from "@/lib/service-automation-settings.server";
+import { responsePromisePhrase } from "@/lib/service-automation-settings";
 import type { WorkOrderRowWithDispatch } from "@/lib/work-order-dispatch";
 import { prepareDispatch } from "@/lib/work-order-dispatch.server";
+import {
+  autoTimeNewWorkOrder,
+  notifyVisitAutoBooked,
+  willDispatchRun,
+  type AutoTimeOutcome,
+} from "@/lib/work-order-auto-time.server";
 import {
   syncWorkOrderToGoogleCalendar,
   workOrderGoogleCalendarSyncChanged,
@@ -317,6 +325,14 @@ async function emitCreatedWorkOrder(
     channel: "services",
   });
   const residentEmail = row.residentEmail?.trim().toLowerCase();
+  const emergency = row.priority === "Emergency";
+  const facts = {
+    reference: row.reference || "Work order",
+    title: row.title || "Work order",
+    propertyLabel: row.propertyName || undefined,
+    residentName: row.residentName?.trim() || undefined,
+    emergency,
+  };
   await workOrderEvent(db, {
     eventId: `${row.id}:created`,
     event: "created",
@@ -325,11 +341,35 @@ async function emitCreatedWorkOrder(
     senderUserId: actor.userId,
     senderEmail: actor.email,
     senderName: row.residentName?.trim() || undefined,
-    facts: { reference: row.reference || "Work order", title: row.title || "Work order", propertyLabel: row.propertyName || undefined },
-    recipients: [
-      ...managerRecipients.map((userId) => ({ audience: "manager" as const, userId })),
-      ...(actor.role !== "resident" && residentEmail?.includes("@") ? [{ audience: "resident" as const, email: residentEmail }] : []),
-    ],
+    facts,
+    recipients: managerRecipients.map((userId) => ({ audience: "manager" as const, userId })),
+  }).catch(() => undefined);
+
+  // The resident's acknowledgement carries the manager's response promise and
+  // is sent AS the manager — a resident who filed it cannot be its own sender,
+  // which is why, before PLAN-0915, a resident-filed request was acknowledged
+  // by nobody.
+  if (!residentEmail?.includes("@")) return;
+  const [{ data: manager }, serviceSettings] = await Promise.all([
+    db.from("profiles").select("email, full_name, sms_from_number").eq("id", ownerId).maybeSingle(),
+    loadServiceAutomationSettings(db, ownerId).catch(() => null),
+  ]);
+  const managerEmail = String(manager?.email ?? "").trim().toLowerCase();
+  if (!managerEmail) return;
+  await workOrderEvent(db, {
+    eventId: `${row.id}:created:resident`,
+    event: "created",
+    managerUserId: ownerId,
+    workOrderId: row.id,
+    senderUserId: ownerId,
+    senderEmail: managerEmail,
+    senderName: String(manager?.full_name ?? "").trim() || undefined,
+    facts: {
+      ...facts,
+      responsePromise: serviceSettings ? responsePromisePhrase(serviceSettings.responsePromise) || undefined : undefined,
+      emergencyPhone: String(manager?.sms_from_number ?? "").trim() || undefined,
+    },
+    recipients: [{ audience: "resident" as const, email: residentEmail }],
   }).catch(() => undefined);
 }
 
@@ -458,6 +498,54 @@ export async function POST(req: Request) {
       };
     };
 
+    /** A brand-new resident-filed row may already have a workable visit time —
+     * Stage C's suggestion engine gets a chance to book (from painted
+     * availability) or merely propose one BEFORE the row is persisted, so a
+     * fresh service never opens to an empty "Not scheduled" field when the
+     * manager's own availability already answers it. Never runs for an edit of
+     * an existing row, a manager-authored row, or ahead of vendor auto-dispatch
+     * (that pipeline books its own vendor's slot and stays the source of truth
+     * for the row — see `willDispatchRun`, the same predicate `prepareDispatch`
+     * itself gates on). */
+    const maybeAutoTimeNewResidentRow = async (
+      existing: ExistingRecord | null,
+      row: DemoManagerWorkOrderRow,
+    ): Promise<{ row: DemoManagerWorkOrderRow; outcome: AutoTimeOutcome }> => {
+      const rowManagerUserId = row.managerUserId?.trim();
+      if (existing || actor.role !== "resident" || !rowManagerUserId) {
+        return { row, outcome: { kind: "none" } };
+      }
+      // Best-effort — a failed lookup here must never block filing the request
+      // itself, so it falls back to "untimed" rather than throwing.
+      try {
+        const dispatchWillRun = await willDispatchRun(db, rowManagerUserId, row);
+        return await autoTimeNewWorkOrder(db, rowManagerUserId, row, { dispatchWillRun });
+      } catch (e) {
+        console.error("autoTimeNewWorkOrder failed", row.id, e);
+        return { row, outcome: { kind: "none" } };
+      }
+    };
+
+    /** Best-effort resident notice, after the response is sent, for a row this
+     * request just booked outright. A failed notification never fails the
+     * request that just created the service. */
+    const maybeNotifyAutoBookedVisit = (
+      outcome: AutoTimeOutcome,
+      managerUserId: string | null | undefined,
+      row: DemoManagerWorkOrderRow,
+    ): void => {
+      if (outcome.kind !== "booked" || !managerUserId) return;
+      const task = () =>
+        notifyVisitAutoBooked(db, managerUserId, row).catch((e) =>
+          console.error("notifyVisitAutoBooked failed", row.id, e),
+        );
+      try {
+        after(task);
+      } catch {
+        void task();
+      }
+    };
+
     if (body.action === "replace") {
       const rows = Array.isArray(body.rows) ? body.rows : [];
       // The manager client mirrors its FULL local list through this replace
@@ -472,22 +560,24 @@ export async function POST(req: Request) {
         if (existing && !(await actorMayWriteRecord(existing))) continue;
         const stamped = await stampResidentWorkOrder(row);
         if (!stamped) continue;
+        const { row: timedRow, outcome: autoTimeOutcome } = await maybeAutoTimeNewResidentRow(existing, stamped);
         const { vendorUserId, rejected } = await resolveVendorUserId(
           db,
-          stamped.vendorId,
-          await resolveVendorOwnerManagerUserId(db, actor, stamped),
+          timedRow.vendorId,
+          await resolveVendorOwnerManagerUserId(db, actor, timedRow),
         );
         if (rejected) continue;
-        const persisted = recordForActor(actor, stamped, vendorUserId);
+        const persisted = recordForActor(actor, timedRow, vendorUserId);
         preserveServerDispatch(persisted.row_data, existing);
         const { error: upsertError } = await db
           .from("portal_work_order_records")
           .upsert(persisted, { onConflict: "id" });
         if (!upsertError) {
           if (!existing) {
-            await emitCreatedWorkOrder(db, actor, stamped, persisted.manager_user_id);
+            await emitCreatedWorkOrder(db, actor, timedRow, persisted.manager_user_id);
           }
-          maybePrepareDispatch(existing, stamped.id);
+          maybePrepareDispatch(existing, timedRow.id);
+          maybeNotifyAutoBookedVisit(autoTimeOutcome, persisted.manager_user_id, persisted.row_data);
           await maybeSyncWorkOrderGoogleCalendar(existing, persisted);
         }
       }
@@ -527,24 +617,26 @@ export async function POST(req: Request) {
     if (!stamped) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
+    const { row: timedRow, outcome: autoTimeOutcome } = await maybeAutoTimeNewResidentRow(existing, stamped);
     const { vendorUserId, rejected } = await resolveVendorUserId(
       db,
-      stamped.vendorId,
-      await resolveVendorOwnerManagerUserId(db, actor, stamped),
+      timedRow.vendorId,
+      await resolveVendorOwnerManagerUserId(db, actor, timedRow),
     );
     if (rejected) return NextResponse.json({ error: "Forbidden: vendor not available to this manager." }, { status: 403 });
     // Single-row upserts also serve both create and edit; `existing` (fetched
     // above) being null means a genuinely new row → notify the resident.
-    const persisted = recordForActor(actor, stamped, vendorUserId);
+    const persisted = recordForActor(actor, timedRow, vendorUserId);
     preserveServerDispatch(persisted.row_data, existing);
     const { error } = await db
       .from("portal_work_order_records")
       .upsert(persisted, { onConflict: "id" });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     if (!existing) {
-      await emitCreatedWorkOrder(db, actor, stamped, persisted.manager_user_id);
+      await emitCreatedWorkOrder(db, actor, timedRow, persisted.manager_user_id);
     }
-    maybePrepareDispatch(existing, stamped.id);
+    maybePrepareDispatch(existing, timedRow.id);
+    maybeNotifyAutoBookedVisit(autoTimeOutcome, persisted.manager_user_id, persisted.row_data);
     await maybeSyncWorkOrderGoogleCalendar(existing, persisted);
     return NextResponse.json({ ok: true, row: persisted.row_data });
   } catch (e) {

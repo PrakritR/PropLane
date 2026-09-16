@@ -45,6 +45,8 @@ export type ManagerAutomationSettings = {
    * approval flows through the same preview/confirm gate as every other write.
    */
   proposeTourConfirmations: boolean;
+  /** What an applicant is promised on submit: "you will hear back within N days" (0 = no promise). PLAN-0915. */
+  applicationResponsePromiseDays: 0 | 1 | 2 | 3 | 5;
   /** Confirmed tour reminders sent before the tour start time. */
   tourReminderEnabled: boolean;
   /** @deprecated Legacy single value — use tourReminderMinutesBeforeList. Kept in sync with the list minimum. */
@@ -167,6 +169,7 @@ export const DEFAULT_MANAGER_AUTOMATION_SETTINGS: ManagerAutomationSettings = {
   lateFeeNoticeDaysAfterDue: 5,
   sameDayReminderEnabled: true,
   proposeTourConfirmations: false,
+  applicationResponsePromiseDays: 3,
   tourReminderEnabled: true,
   tourReminderMinutesBefore: DEFAULT_TOUR_REMINDER_MINUTES_BEFORE,
   tourReminderMinutesBeforeList: [DEFAULT_TOUR_REMINDER_MINUTES_BEFORE],
@@ -392,6 +395,9 @@ export function normalizeManagerAutomationSettings(raw: unknown): ManagerAutomat
     // Opt-in: OFF unless the manager explicitly saved `true`. Same idiom as
     // overdueDailyEnabled — no saved value must never auto-enable a proposal.
     proposeTourConfirmations: row.proposeTourConfirmations === true,
+    applicationResponsePromiseDays: ([0, 1, 2, 3, 5] as const).includes(row.applicationResponsePromiseDays as 0 | 1 | 2 | 3 | 5)
+      ? (row.applicationResponsePromiseDays as 0 | 1 | 2 | 3 | 5)
+      : base.applicationResponsePromiseDays,
     tourReminderEnabled: row.tourReminderEnabled !== false,
     ...(() => {
       const tourReminderMinutesBeforeList = normalizeTourReminderMinutesBeforeList(
@@ -444,16 +450,38 @@ export async function loadManagerAutomationSettings(
   return normalizeManagerAutomationSettings(data?.row_data ?? null);
 }
 
+/**
+ * Keys in `row_data` this module does not own. `reminderRules`,
+ * `serviceAutomation` and `automatedMessages` live in the same blob (see their
+ * own `*.server.ts` loaders), so a save here must carry them across rather
+ * than replace the row — before PLAN-0915 a Payments save silently reset every
+ * reminder rule to defaults.
+ */
+const SIBLING_ROW_DATA_KEYS = ["reminderRules", "serviceAutomation", "automatedMessages", "leaseAutomation"] as const;
+
 export async function saveManagerAutomationSettings(
   db: SupabaseClient,
   managerUserId: string,
   settings: ManagerAutomationSettings,
 ): Promise<ManagerAutomationSettings> {
   const normalized = normalizeManagerAutomationSettings(settings);
+  const { data: existing } = await db
+    .from("manager_automation_settings")
+    .select("row_data")
+    .eq("manager_user_id", managerUserId)
+    .maybeSingle();
+  const current =
+    existing?.row_data && typeof existing.row_data === "object" && !Array.isArray(existing.row_data)
+      ? (existing.row_data as Record<string, unknown>)
+      : {};
+  const siblings: Record<string, unknown> = {};
+  for (const key of SIBLING_ROW_DATA_KEYS) {
+    if (current[key] !== undefined) siblings[key] = current[key];
+  }
   const { error } = await db.from("manager_automation_settings").upsert(
     {
       manager_user_id: managerUserId,
-      row_data: normalized,
+      row_data: { ...siblings, ...normalized },
       updated_at: new Date().toISOString(),
     },
     { onConflict: "manager_user_id" },

@@ -81,6 +81,7 @@ import {
   settingsDialogTitlePrefix,
 } from "@/components/portal/settings-entry-points";
 import { ScheduleServiceVisitModal } from "@/components/portal/schedule-service-visit-modal";
+import { formatServiceVisitLabel } from "@/lib/schedule-service-visit";
 import { EditServiceWorkOrderModal } from "@/components/portal/edit-service-work-order-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
@@ -502,6 +503,30 @@ export function ManagerAllServicesPanel({
                 </DropdownMenuItem>
               ),
             });
+            // A suggested time is waiting to be confirmed — same commit path as
+            // "Schedule visit" (the modal prefills from `proposedVisit`), just a
+            // clearer label when there is already something to confirm.
+            if (selectedWorkOrder.proposedVisit) {
+              actions.push({
+                id: "confirm-time",
+                node: (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={PORTAL_BULK_BAR_BTN}
+                    data-attr="services-bulk-confirm-time"
+                    onClick={openSelectedForSchedule}
+                  >
+                    Confirm time
+                  </Button>
+                ),
+                menuItem: (
+                  <DropdownMenuItem data-attr="services-bulk-confirm-time" onSelect={openSelectedForSchedule}>
+                    Confirm time
+                  </DropdownMenuItem>
+                ),
+              });
+            }
           }
 
           actions.push({
@@ -543,6 +568,13 @@ export function ManagerAllServicesPanel({
       omitPropertyInSubtitle ? null : row.propertyLabel,
       groupMode === "house" ? row.residentName || row.residentEmail : null,
       row.unitLabel,
+      // The visit time rides on the row so a manager sees at a glance what is booked
+      // and what PropLane has only proposed (see `visitSourcePill` in the detail).
+      row.scheduledIso
+        ? formatServiceVisitLabel(row.scheduledIso)
+        : row.proposedVisit
+          ? `Proposed ${formatServiceVisitLabel(row.proposedVisit.iso)}`
+          : null,
     ].filter(Boolean);
     return (
       <PortalServiceRecordRow

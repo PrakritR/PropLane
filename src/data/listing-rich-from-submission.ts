@@ -45,6 +45,7 @@ import {
   type ListingFeeDisplayRow,
   type ListingFeePresetId,
 } from "@/lib/listing-fees";
+import { houseDefaultsForSubmission, roomInheritsDefault } from "@/lib/listing-house-defaults";
 import { shortTermNightlyRate } from "@/lib/short-term-stay-pricing";
 
 function normalizeLeaseRentPriceLabel(raw: string, period: "month" | "day"): string {
@@ -667,39 +668,6 @@ function twoOrMoreRoomDetailBody(rooms: ManagerRoomSubmission[]): string {
     .join(" ");
 }
 
-function preferredMultiRoomBundle(
-  sub: ManagerListingSubmissionV1,
-): ManagerBundleRow | undefined {
-  const bundles = (sub.bundles ?? []).filter(bundleRowHasContent);
-  return (
-    bundles.find((b) => (b.includedRoomIds?.length ?? 0) >= 2) ??
-    bundles.find((b) => /two or more|group lease|multi/i.test(b.label))
-  );
-}
-
-function multiRoomLeaseBasicRow(
-  rooms: ManagerRoomSubmission[],
-  sub: ManagerListingSubmissionV1,
-): LeaseBasicRow | null {
-  if (isEntireHomeListing(sub)) return null;
-  const autoPrice = twoOrMoreRoomPriceLabel(rooms);
-  if (!autoPrice) return null;
-  const bundle = preferredWholeHouseBundle(sub, rooms) ?? preferredMultiRoomBundle(sub);
-  const rawPrice = bundle?.price.trim() || autoPrice;
-  return {
-    id: "lease-multi-room",
-    section: "long-term",
-    icon: "🏘️",
-    title: bundle?.label.trim() || "Two or more rooms",
-    detail: bundle?.roomsLine.trim() || bundleRoomsDetailLine(bundle?.includedRoomIds ?? [], rooms) || "Combine bedrooms on one lease",
-    price: normalizeLeaseRentPriceLabel(rawPrice, "month"),
-    status: "Monthly rent",
-    body: bundle?.roomsLine.trim()
-      ? `${bundle.roomsLine.trim()}.`
-      : twoOrMoreRoomDetailBody(rooms),
-  };
-}
-
 /** Bundle rent packages from the listing pricing tab (not per-room rents). */
 function bundleLeaseBasicRows(
   sub: ManagerListingSubmissionV1,
@@ -732,9 +700,100 @@ function bundleLeaseBasicRows(
     });
   }
   if (rows.length > 0) return rows;
+  return [];
+}
 
-  const multiLt = multiRoomLeaseBasicRow(rooms, sub);
-  return multiLt ? [multiLt] : [];
+function longTermRoomRentAmount(room: ManagerRoomSubmission, sub: ManagerListingSubmissionV1): number {
+  const defaults = houseDefaultsForSubmission(sub);
+  if (roomInheritsDefault(room, defaults, "monthlyRent") && defaults.monthlyRent > 0) {
+    return defaults.monthlyRent;
+  }
+  const equivalent = roomMonthlyEquivalent(room);
+  if (equivalent > 0) return equivalent;
+  if (room.monthlyRent > 0) return room.monthlyRent;
+  return defaults.monthlyRent > 0 ? defaults.monthlyRent : 0;
+}
+
+function longTermRoomLeaseBasicRows(
+  sub: ManagerListingSubmissionV1,
+  rooms: ManagerRoomSubmission[],
+): LeaseBasicRow[] {
+  if (isEntireHomeListing(sub)) return [];
+  return [...rooms]
+    .filter((room) => room.name.trim() || room.monthlyRent > 0)
+    .sort(compareRoomsByFloorThenName)
+    .flatMap((room) => {
+      const rent = longTermRoomRentAmount(room, sub);
+      if (!(rent > 0)) return [];
+      const name = room.name.trim() || "Room";
+      const price = `${formatListingFeeDisplay(String(rent))}/mo`;
+      return [
+        {
+          id: `lease-room-${room.id}`,
+          section: "long-term" as const,
+          icon: "🚪",
+          title: name,
+          detail: room.floor?.trim() || "Room",
+          price: normalizeLeaseRentPriceLabel(price, "month"),
+          status: "Monthly rent",
+          body: `Long-term rent for ${name}: ${price}.`,
+        },
+      ];
+    });
+}
+
+function formSecurityDepositAmounts(
+  sub: ManagerListingSubmissionV1,
+  rooms: ManagerRoomSubmission[],
+): number[] {
+  const defaults = houseDefaultsForSubmission(sub);
+  const fallback = parseMoneyAmount((defaults.securityDeposit || sub.securityDeposit || "").trim());
+  if (isEntireHomeListing(sub) || rooms.length === 0) {
+    return fallback > 0 ? [fallback] : [];
+  }
+  const amounts = rooms.map((room) => {
+    const own = (room.securityDeposit ?? "").trim();
+    if (own) return parseMoneyAmount(own);
+    if ((defaults.securityDeposit ?? "").trim()) return parseMoneyAmount(defaults.securityDeposit);
+    return fallback;
+  }).filter((n) => n > 0);
+  if (amounts.length > 0) return amounts;
+  return fallback > 0 ? [fallback] : [];
+}
+
+function overlayFormDepositOnFeeRows(
+  rows: ListingFeeDisplayRow[],
+  sub: ManagerListingSubmissionV1,
+  rooms: ManagerRoomSubmission[],
+): ListingFeeDisplayRow[] {
+  const amounts = formSecurityDepositAmounts(sub, rooms);
+  if (amounts.length === 0) return rows.filter((row) => row.id !== "security-deposit");
+  const lo = Math.min(...amounts);
+  const hi = Math.max(...amounts);
+  const price = lo === hi ? formatListingFeeDisplay(String(lo)) : `${formatListingFeeDisplay(String(lo))}–${formatListingFeeDisplay(String(hi))}`;
+  let found = false;
+  const next = rows.map((row) => {
+    if (row.id !== "security-deposit") return row;
+    found = true;
+    return {
+      ...row,
+      price,
+      body: `${row.title}: ${price} (refundable security deposit).`,
+    };
+  });
+  if (found) return next;
+  return [
+    {
+      id: "security-deposit",
+      icon: "🔒",
+      title: "Security deposit",
+      detail: "One-time charge",
+      price,
+      status: "One-time",
+      body: `Security deposit: ${price} (refundable security deposit).`,
+    },
+    ...next,
+  ];
 }
 
 function entireHomeLongTermRentRow(
@@ -874,6 +933,7 @@ function buildLeaseBasicsRows(
 
   const entireLt = entireHomeLongTermRentRow(sub, rooms);
   if (entireLt) rows.push(entireLt);
+  rows.push(...longTermRoomLeaseBasicRows(sub, rooms));
   rows.push(...bundleLeaseBasicRows(sub, rooms));
 
   if (feeMeaningfulForListing(sub.applicationFee)) {
@@ -890,9 +950,11 @@ function buildLeaseBasicsRows(
   }
 
   rows.push(
-    ...listingFeeRowsForLeaseBasicsSection(sub, "long-term", formatListingFeeDisplay).map((r) =>
-      listingFeeDisplayToLeaseBasicRow(r, "long-term"),
-    ),
+    ...overlayFormDepositOnFeeRows(
+      listingFeeRowsForLeaseBasicsSection(sub, "long-term", formatListingFeeDisplay),
+      sub,
+      rooms,
+    ).map((r) => listingFeeDisplayToLeaseBasicRow(r, "long-term")),
   );
 
   if (sub.shortTermRentalsAllowed) {

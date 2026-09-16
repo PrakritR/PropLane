@@ -169,6 +169,12 @@ export type ManagerRoomSubmission = {
    * term, so what the wizard shows and what the ledger bills are the same number.
    */
   termPricing?: Record<string, ManagerRoomTermPrice>;
+  /**
+   * Per-room payment-at-signing ticks, same shape as the listing matrix.
+   * Absent means this room follows the house policy (Every room). A term with
+   * no entry follows that term's listing column after same-as-long-term inherit.
+   */
+  paymentAtSigningByLeaseType?: Record<string, string[]>;
   detail: string;
   /** Furnishing level or what is included (shown on listing). */
   furnishing: string;
@@ -1662,6 +1668,22 @@ function normalizeSigningMatrix(
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/** Per-room signing ticks: known terms only, de-duplicated. Empty rows stay — they mean "this room collects nothing". */
+function normalizeRoomSigningMatrix(raw: unknown): Record<string, string[]> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const out: Record<string, string[]> = {};
+  for (const [term, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!LISTING_LEASE_TERM_OPTION_SET.has(term)) continue;
+    if (!Array.isArray(value)) continue;
+    out[term] = [
+      ...new Set(
+        value.filter((v): v is string => typeof v === "string" && v.trim().length > 0).map((v) => v.trim()),
+      ),
+    ];
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 /** Coerces older saved submissions into the current v1 shape (preserves listing data where possible). */
 export type NormalizeManagerListingSubmissionOptions = {
   accountPaymentWaiverGranted?: boolean;
@@ -1877,6 +1899,9 @@ export function normalizeManagerListingSubmissionV1(
       })(),
       termPricing: normalizeRoomTermPricing(
         (legacyRoom as ManagerRoomSubmission & { termPricing?: unknown }).termPricing,
+      ),
+      paymentAtSigningByLeaseType: normalizeRoomSigningMatrix(
+        (legacyRoom as ManagerRoomSubmission & { paymentAtSigningByLeaseType?: unknown }).paymentAtSigningByLeaseType,
       ),
     };
   });

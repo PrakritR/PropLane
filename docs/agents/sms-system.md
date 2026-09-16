@@ -35,34 +35,54 @@ context so the model uses the already-scoped row for intent narrowing and can
 pass the opaque id to existing tools. The primary key remains unchanged and is
 never exposed as the conversational handle.
 
-## One work number per WORKSPACE (a co-manager never gets a line of their own)
+## One work number per WORKSPACE (a portal_workspaces row, not a person)
 
-A work number belongs to the workspace — the owner plus every co-manager
-with an accepted `account_link_invites` row — not to whoever's row it was
-bought under. The owner's `manager_sms_numbers` row IS the workspace's number.
-`resolveWorkspaceOwnerForWorkNumber` / `resolveWorkspaceWorkNumbers`
-(`src/lib/sms/manager-workspace-role.server.ts`) are the one answer to "whose
-line is this"; every reader below goes through them.
+A work number belongs to a **workspace** — a `portal_workspaces` row — and
+every workspace the switcher can land on has its own: `manager_sms_numbers`
+is keyed on `workspace_id` (unique), `manager_user_id` is the workspace's
+owner, and an owner with three workspaces may hold three lines
+(`20260916000000_work_identity_per_workspace.sql`). "Workspace" here is never
+"owner plus co-manager links": an account that owns no houses but still
+carries an accepted link somewhere is the owner of its own, empty workspace
+and sees NO number there — never the inviter's (that was the Sep 15 2026 bug).
 
-- A pure co-manager (accepted link, no owned houses) reads and sends from the
-  owner's line. `GET /api/manager/messaging-number` returns it as
-  `workspaceNumber` with `ownerName`; `canRequest` is false and `POST
-  request_number` is a 409 (`workspace_number_shared`). `provisionManagerNumber`,
-  the signup backfill and `resolveManagerWorkNumber` all refuse to buy one.
-- Inbound on a line still held by a pure co-manager (bought before this rule)
-  collapses to the workspace owner BEFORE resident identity, leasing, and
-  logging, so the texter reaches the owner's residents and listings and the
-  thread lands in the owner's inbox. The old "This is a co-manager's PropLane
-  assistant number…" bounce is gone and must not come back. Retire such lines
-  with `scripts/release-co-manager-work-numbers.ts` (dry-run by default).
+`resolveActiveWorkspace` (`src/lib/workspaces/active.server.ts`) is the one
+answer to "which workspace does this request mean": the cookie's selection if
+the viewer can see it, else their owned default. Every reader below goes
+through it or through the workspace-keyed helpers in
+`src/lib/sms/manager-workspace-role.server.ts`.
+
+- **Owned workspace** — its own row. `GET /api/manager/messaging-number`
+  returns it as `number`, with `workspace` and a `workspaces[]` list for
+  Settings; `POST request_number` provisions for THAT workspace
+  (`provisionManagerNumber(db, owner, { workspaceId })`, locked by
+  `claim_workspace_sms_provisioning`). The `profiles.sms_from_number` cache
+  holds the owner's DEFAULT workspace's line only.
+- **Shared workspace** — the owner's line for that workspace, read-only, as
+  `workspaceNumber` with `ownerName`; `canRequest` is false and `POST` is a
+  403 `workspace_not_owned`. A co-manager never gets a line in a workspace
+  they do not own, and never sees a line from a workspace they were not
+  granted.
+- **Inbound** follows the number: `resolveOwnedWorkNumber` returns the row's
+  `workspaceId`, and `resolveWorkspaceOwnerForWorkNumber(db, owner, { workspaceId })`
+  answers with that workspace's owner before resident identity, leasing and
+  logging. Only a legacy row the migration could not place (no `workspace_id`)
+  still uses the pure-co-manager collapse to the inviter; retire those with
+  `scripts/release-co-manager-work-numbers.ts` (dry-run by default, unplaced
+  rows only).
+- **Outbound** goes out from the line of the workspace the message is about:
+  `resolveOwnerSendNumberRow` picks the house's workspace line, else the
+  owner's default (`owner-sms-dispatcher.server.ts`).
+- **Placement**: a conversation about no house shows in the workspace whose
+  line carried it (`conversation-visibility.server.ts` rule 3, `lines`);
+  only when no line places it does the owner's default workspace rule apply.
 - "Sent by <teammate>" inside Communication is a read-time join from
   `manager_sms_messages.message_sid` to `sms_outbox.actor_user_id`; never shown
-  to the texter. Coverage: `tests/unit/workspace-work-number-routing.test.ts`.
+  to the texter. Coverage: `tests/unit/workspace-work-identity.test.ts`,
+  `tests/unit/workspace-work-number-routing.test.ts`.
 
 The work EMAIL follows the identical rule — one address per workspace, held by
-the owner, co-managers send and reply from it, legacy co-manager addresses
-collapse to the owner on inbound. See `docs/agents/inbound-email-inbox.md`
-"One work email per WORKSPACE".
+its owner. See `docs/agents/inbound-email-inbox.md` "One work email per WORKSPACE".
 
 ## Conversation houses (which house a thread is about)
 

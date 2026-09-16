@@ -22,6 +22,7 @@ import {
 } from "@/lib/resident-service-notices";
 import {
   approveServiceRequest,
+  attachProposedVisitToServiceRequest,
   deleteServiceRequest,
   denyServiceRequest,
   updateServiceRequest,
@@ -181,6 +182,9 @@ export function ManagerServiceRequestDetail({
         }
         approveServiceRequest(req.id, draft?.body, draft?.assignee);
         onUpdated();
+        // Approval is the add-on's "arrival": propose a visit time from the manager's
+        // service availability (or a PropLane pick) so the row carries a time to confirm.
+        void attachProposedVisitToServiceRequest(req.id).then(() => onUpdated());
         onApproved?.();
         if (req.managerUserId) {
           void createScheduledWorkTask(req.managerUserId, {

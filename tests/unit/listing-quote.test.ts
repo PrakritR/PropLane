@@ -120,6 +120,38 @@ describe("buildListingQuote", () => {
     );
   });
 
+  it("collects long-term signing ticks on month-to-month while same-as-long-term holds", () => {
+    const inherited = buildListingQuote(listing(), { roomId: "room-a", leaseTerm: MONTH_TO_MONTH });
+    expect(inherited.signingTotal).toBe(2675);
+  });
+
+  it("quotes Every room from house defaults, not the first room", () => {
+    const base = listing();
+    const sub = listing({
+      houseDefaults: { monthlyRent: 1050, securityDeposit: "250", utilitiesEstimate: "50" },
+      rooms: (base.rooms ?? []).map((room) => ({ ...room })),
+    } as ManagerListingSubmissionV1);
+    const quote = buildListingQuote(sub, { roomId: null, leaseTerm: LONG_TERM_LEASE_TERM });
+    expect(quote.monthlyRent).toBe(1050);
+    expect(quote.monthlyUtilities).toBe(50);
+    expect(quote.securityDeposit).toBe(250);
+  });
+
+  it("lets one room keep its own signing ticks after Reset is available", () => {
+    const sub = listing({
+      rooms: (listing().rooms ?? []).map((room) =>
+        room.id === "room-a"
+          ? { ...room, paymentAtSigningByLeaseType: { [LONG_TERM_LEASE_TERM]: ["security_deposit"] } }
+          : room,
+      ),
+    });
+    const own = buildListingQuote(sub, { roomId: "room-a", leaseTerm: LONG_TERM_LEASE_TERM });
+    const house = buildListingQuote(sub, { roomId: null, leaseTerm: LONG_TERM_LEASE_TERM });
+    expect(own.signingLines.find((l) => l.key === "security_deposit")?.dueAtSigning).toBe(true);
+    expect(own.signingLines.find((l) => l.label === "First month's rent")?.dueAtSigning).toBe(false);
+    expect(house.signingLines.find((l) => l.label === "First month's rent")?.dueAtSigning).toBe(true);
+  });
+
   it("keeps a fee scoped to one room off every other room's receipt", () => {
     const sub = withCustomFees(listing(), [
       { id: "fee-parking", label: "Parking", amount: "75", frequency: "monthly", presetId: "custom", roomIds: ["room-a"] },

@@ -1,3 +1,4 @@
+import { loadAutomatedMessageSettings } from "@/lib/automated-messages-settings.server";
 import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { managerCanAccessLeaseRecord, type LeaseScopeRecord } from "@/lib/auth/manager-lease-scope";
@@ -210,6 +211,7 @@ export async function POST(req: Request) {
     const managerUserId = record.manager_user_id ?? null;
     const transition = managerUserId
       ? buildDurableLeaseTransitionEnvelope({
+        automated: await loadAutomatedMessageSettings(db, managerUserId).catch(() => null),
           managerUserId,
           previous: stored,
           lease: next,

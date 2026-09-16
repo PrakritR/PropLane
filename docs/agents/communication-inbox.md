@@ -73,7 +73,10 @@ conversations) plus the archive toggle. Invariants:
   `/communication/{active|unread|archived}[/{threadId}]` preserve deep links.
   On all three portals, status lives in **Filter** (All conversations, Read,
   Unread, Archived) rather than a segment rail; `archived` is the trashed view
-  and `unread` is the unread-only view.
+  and `unread` is the unread-only view. Manager Communication also exposes a
+  labeled **Archived** destination button on the conversation list
+  (`communication-archived-inbox-toggle`) — the same job as admin's
+  `admin-inbox-archived-toggle`, not a folder-tab rail.
   Unread rows also show a per-row dot on `InboxConversationRow` that clears when
   the thread is opened. Admin still routes
   `/communication/inbox/{tab}` and reaches archived through its

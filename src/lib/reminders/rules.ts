@@ -48,6 +48,44 @@ export const REMINDER_SUBJECT_KINDS = [
   "booking",
   "inspection",
   "inspection_manager",
+  // ---- Services: escalations and the vendor loop (PLAN-0915) ----
+  "work_order_unassigned",
+  "work_order_unassigned_emergency",
+  "work_order_no_on_my_way",
+  "vendor_offer_expiry",
+  "vendor_invoice_nudge",
+  "invoice_approval",
+  "service_request_decision",
+  "service_request_unpaid",
+  "vendor_document_expiry",
+  // ---- Leases, move-in, move-out ----
+  "lease_ending",
+  "lease_ending_manager",
+  "renewal_offer_expiry",
+  "countersign_overdue",
+  "move_in",
+  "move_in_payment_method",
+  "move_out",
+  "move_out_inspection_manager",
+  "deposit_accounting",
+  // ---- Applications ----
+  "application_documents",
+  "application_decision_manager",
+  "application_no_lease_manager",
+  "cosigner",
+  "group_application",
+  // ---- Tours ----
+  "tour_request_unanswered",
+  "tour_request_reoffer",
+  "tour_no_show_manager",
+  "tour_feedback",
+  // ---- Payments, communication, documents, tasks, residents, inspections ----
+  "delinquency_manager",
+  "message_unanswered",
+  "document_signature",
+  "task_overdue",
+  "resident_welcome",
+  "inspection_acknowledge",
 ] as const;
 
 export type ReminderSubjectKind = (typeof REMINDER_SUBJECT_KINDS)[number];
@@ -65,6 +103,12 @@ export type ReminderAudience = {
   manager: boolean;
   counterparty: boolean;
   team: boolean;
+  /**
+   * The vendor dispatched to the work. Only service kinds render a control for
+   * it; every other kind normalises it to `false` so a saved rule from before
+   * vendors were an audience keeps meaning exactly what it did.
+   */
+  vendor: boolean;
 };
 
 export type ReminderRule = {
@@ -122,8 +166,8 @@ export type ReminderSettings = {
 
 /** Floor: below five minutes a reminder cannot beat its own dispatch tick. */
 export const MIN_LEAD_MINUTES = 5;
-/** Ceiling: 30 days. Beyond this a "reminder" is really a scheduled campaign. */
-export const MAX_LEAD_MINUTES = 30 * 24 * 60;
+/** Ceiling: 90 days, so a lease-ending notice can fire at 90 and 60. Beyond this a "reminder" is really a scheduled campaign. */
+export const MAX_LEAD_MINUTES = 90 * 24 * 60;
 /** More than this many per subject is a mailing list, not a reminder. */
 export const MAX_LEADS_PER_RULE = 6;
 
@@ -186,6 +230,186 @@ export function formatLeadSummary(leadMinutes: readonly number[]): string {
   return `${parts.join(", ")} before`;
 }
 
+/**
+ * Kinds whose rule may fan out to the dispatched vendor. Everything else
+ * normalises `audience.vendor` to false, so the control never appears on a
+ * subject that has nobody to reach.
+ */
+export const VENDOR_AUDIENCE_KINDS: ReadonlySet<ReminderSubjectKind> = new Set<ReminderSubjectKind>([
+  "work_order",
+  "vendor_offer_expiry",
+  "vendor_invoice_nudge",
+  "vendor_document_expiry",
+]);
+
+/**
+ * Kinds that must not wait for quiet hours to end. An emergency that is still
+ * unassigned at 2 a.m. is exactly the thing the manager wants woken for; the
+ * `applyQuietHours` push-forward is skipped for these and nothing else.
+ */
+export const URGENT_REMINDER_KINDS: ReadonlySet<ReminderSubjectKind> = new Set<ReminderSubjectKind>([
+  "work_order_unassigned_emergency",
+]);
+
+/** Kinds whose control is a single row (toggle + one timing) rather than the full panel. */
+export const COMPACT_RULE_KINDS: ReadonlySet<ReminderSubjectKind> = new Set<ReminderSubjectKind>([
+  "work_order_unassigned",
+  "work_order_unassigned_emergency",
+  "work_order_no_on_my_way",
+  "vendor_offer_expiry",
+  "vendor_invoice_nudge",
+  "invoice_approval",
+  "service_request_decision",
+  "service_request_unpaid",
+  "vendor_document_expiry",
+  "lease_ending",
+  "lease_ending_manager",
+  "renewal_offer_expiry",
+  "countersign_overdue",
+  "move_in",
+  "move_in_payment_method",
+  "move_out",
+  "move_out_inspection_manager",
+  "deposit_accounting",
+  "application_documents",
+  "application_decision_manager",
+  "application_no_lease_manager",
+  "cosigner",
+  "group_application",
+  "tour_request_unanswered",
+  "tour_request_reoffer",
+  "tour_no_show_manager",
+  "tour_feedback",
+  "delinquency_manager",
+  "message_unanswered",
+  "document_signature",
+  "task_overdue",
+  "resident_welcome",
+  "inspection_acknowledge",
+]);
+
+type RuleShape = {
+  enabled?: boolean;
+  timings: string[];
+  audience: Partial<ReminderAudience>;
+  email?: boolean;
+  sms?: boolean;
+};
+
+/** One place for the shape every new rule shares, so a default reads as a sentence. */
+function rule(shape: RuleShape): ReminderRule {
+  const leadMinutes = shape.timings
+    .map((key) => parseTimingKey(key))
+    .filter((timing): timing is NonNullable<typeof timing> => Boolean(timing))
+    .map((timing) => timing.minutes);
+  // Pre-normalised: furthest-out first, deduped — the same order
+  // `normalizeLeadMinutesList` produces, so defaults round-trip unchanged.
+  const ordered = [...new Set(leadMinutes)].sort((a, b) => b - a);
+  return {
+    enabled: shape.enabled ?? true,
+    leadMinutes: ordered.length ? ordered : [DAY],
+    timings: shape.timings,
+    audience: { manager: false, counterparty: false, team: false, vendor: false, ...shape.audience },
+    teamUserIds: [],
+    inbox: true,
+    email: shape.email ?? true,
+    sms: shape.sms ?? false,
+  };
+}
+
+const MANAGER = { manager: true } as const;
+const COUNTERPARTY = { counterparty: true } as const;
+const VENDOR = { vendor: true } as const;
+
+/**
+ * Defaults for the PLAN-0915 kinds. Escalations are anchored on "created" and
+ * count forward; notices count back from the thing they announce. Every one of
+ * these is a single-timing row in Settings unless it lists several timings.
+ */
+const PLAN_0915_DEFAULT_RULES: Omit<
+  ReminderRules,
+  | "tour" | "tour_interest" | "task" | "service_order" | "work_order" | "application" | "application_manager"
+  | "application_post_tour" | "lease" | "lease_manager" | "payment_manager" | "outgoing_payment" | "booking"
+  | "inspection" | "inspection_manager"
+> = {
+  // Services
+  work_order_unassigned: rule({ timings: ["after:1440"], audience: MANAGER }),
+  work_order_unassigned_emergency: rule({ timings: ["after:60"], audience: MANAGER, sms: true }),
+  work_order_no_on_my_way: rule({ enabled: false, timings: ["after:15"], audience: MANAGER }),
+  vendor_offer_expiry: rule({ timings: ["before:240"], audience: VENDOR }),
+  vendor_invoice_nudge: rule({ timings: ["after:4320"], audience: VENDOR }),
+  invoice_approval: rule({ timings: ["after:4320"], audience: MANAGER }),
+  service_request_decision: rule({ timings: ["after:2880"], audience: MANAGER }),
+  service_request_unpaid: rule({ timings: ["after:4320"], audience: COUNTERPARTY }),
+  vendor_document_expiry: rule({ timings: ["before:43200", "before:10080"], audience: { vendor: true, manager: true } }),
+  // Leases, move-in, move-out
+  // 60 and 30 days would be the natural pair, but the timing ceiling is 30
+  // days (`MAX_TIMING_MINUTES`); the lease sweeper raises it for this kind.
+  lease_ending: rule({ timings: ["before:86400", "before:43200"], audience: COUNTERPARTY }),
+  lease_ending_manager: rule({ timings: ["before:129600", "before:86400", "before:43200"], audience: MANAGER }),
+  renewal_offer_expiry: rule({ timings: ["before:4320"], audience: COUNTERPARTY }),
+  countersign_overdue: rule({ timings: ["after:2880"], audience: MANAGER }),
+  move_in: rule({ timings: ["before:10080", "before:1440"], audience: { counterparty: true, manager: true } }),
+  move_in_payment_method: rule({ timings: ["before:7200"], audience: COUNTERPARTY }),
+  move_out: rule({ timings: ["before:43200", "before:10080", "before:1440"], audience: COUNTERPARTY }),
+  move_out_inspection_manager: rule({ timings: ["before:20160"], audience: MANAGER }),
+  deposit_accounting: rule({ timings: ["before:20160", "before:4320"], audience: MANAGER }),
+  // Applications
+  application_documents: rule({ timings: ["after:2880"], audience: COUNTERPARTY }),
+  application_decision_manager: rule({ timings: ["after:4320"], audience: MANAGER }),
+  application_no_lease_manager: rule({ timings: ["after:2880"], audience: MANAGER }),
+  cosigner: rule({ timings: ["after:2880"], audience: COUNTERPARTY }),
+  group_application: rule({ timings: ["after:2880"], audience: COUNTERPARTY }),
+  // Tours
+  tour_request_unanswered: rule({ timings: ["after:240"], audience: MANAGER }),
+  tour_request_reoffer: rule({ timings: ["after:1440"], audience: COUNTERPARTY }),
+  tour_no_show_manager: rule({ timings: ["after:30"], audience: MANAGER }),
+  tour_feedback: rule({ enabled: false, timings: ["after:120"], audience: COUNTERPARTY }),
+  // Payments, communication, documents, tasks, residents, inspections
+  delinquency_manager: rule({ timings: ["after:14400"], audience: MANAGER }),
+  message_unanswered: rule({ timings: ["after:1440"], audience: MANAGER }),
+  document_signature: rule({ timings: ["after:4320"], audience: COUNTERPARTY }),
+  task_overdue: rule({ timings: ["after:1440"], audience: { counterparty: true, manager: true } }),
+  resident_welcome: rule({ enabled: false, timings: ["after:5", "after:2880", "after:10080"], audience: COUNTERPARTY }),
+  inspection_acknowledge: rule({ timings: ["after:7200"], audience: COUNTERPARTY }),
+};
+
+const PLAN_0915_SUBJECT_META: Record<keyof typeof PLAN_0915_DEFAULT_RULES, ReminderSubjectMeta> = {
+  work_order_unassigned: { kind: "work_order_unassigned", label: "Escalate if unassigned", anchorLabel: "the request was filed", counterpartyLabel: "resident" },
+  work_order_unassigned_emergency: { kind: "work_order_unassigned_emergency", label: "Escalate emergency if unassigned", anchorLabel: "the request was filed", counterpartyLabel: "resident" },
+  work_order_no_on_my_way: { kind: "work_order_no_on_my_way", label: "Vendor has not tapped On my way", anchorLabel: "the visit window opened", counterpartyLabel: "resident" },
+  vendor_offer_expiry: { kind: "vendor_offer_expiry", label: "Offer expiring soon", anchorLabel: "the offer expires", counterpartyLabel: "vendor" },
+  vendor_invoice_nudge: { kind: "vendor_invoice_nudge", label: "Invoice nudge to vendor", anchorLabel: "the vendor marked it done", counterpartyLabel: "vendor" },
+  invoice_approval: { kind: "invoice_approval", label: "Invoice approval reminder", anchorLabel: "the invoice arrived", counterpartyLabel: "vendor" },
+  service_request_decision: { kind: "service_request_decision", label: "Add-on request awaiting decision", anchorLabel: "the request was submitted", counterpartyLabel: "resident" },
+  service_request_unpaid: { kind: "service_request_unpaid", label: "Approved but unpaid", anchorLabel: "the request was approved", counterpartyLabel: "resident" },
+  vendor_document_expiry: { kind: "vendor_document_expiry", label: "Vendor documents expiring", anchorLabel: "the document expires", counterpartyLabel: "vendor" },
+  lease_ending: { kind: "lease_ending", label: "Tell the resident before the lease ends", anchorLabel: "the lease end date", counterpartyLabel: "resident" },
+  lease_ending_manager: { kind: "lease_ending_manager", label: "Remind me before a lease ends", anchorLabel: "the lease end date", counterpartyLabel: "resident" },
+  renewal_offer_expiry: { kind: "renewal_offer_expiry", label: "Renewal offer expiry reminder", anchorLabel: "the offer expires", counterpartyLabel: "resident" },
+  countersign_overdue: { kind: "countersign_overdue", label: "Countersignature overdue", anchorLabel: "the resident signed", counterpartyLabel: "resident" },
+  move_in: { kind: "move_in", label: "Move-in reminder", anchorLabel: "the move-in date", counterpartyLabel: "resident" },
+  move_in_payment_method: { kind: "move_in_payment_method", label: "Payment method missing before first due", anchorLabel: "the first charge is due", counterpartyLabel: "resident" },
+  move_out: { kind: "move_out", label: "Move-out checklist to resident", anchorLabel: "the move-out date", counterpartyLabel: "resident" },
+  move_out_inspection_manager: { kind: "move_out_inspection_manager", label: "Remind me to schedule the move-out inspection", anchorLabel: "the move-out date", counterpartyLabel: "resident" },
+  deposit_accounting: { kind: "deposit_accounting", label: "Deposit accounting due", anchorLabel: "the deposit deadline", counterpartyLabel: "resident" },
+  application_documents: { kind: "application_documents", label: "Documents requested reminder", anchorLabel: "documents were requested", counterpartyLabel: "applicant" },
+  application_decision_manager: { kind: "application_decision_manager", label: "Decision reminder", anchorLabel: "the application was submitted", counterpartyLabel: "applicant" },
+  application_no_lease_manager: { kind: "application_no_lease_manager", label: "Approved, no lease sent", anchorLabel: "the application was approved", counterpartyLabel: "applicant" },
+  cosigner: { kind: "cosigner", label: "Cosigner reminder", anchorLabel: "the cosigner was invited", counterpartyLabel: "cosigner" },
+  group_application: { kind: "group_application", label: "Group members outstanding", anchorLabel: "the first member applied", counterpartyLabel: "applicant" },
+  tour_request_unanswered: { kind: "tour_request_unanswered", label: "Tour request unanswered", anchorLabel: "the request came in", counterpartyLabel: "guest" },
+  tour_request_reoffer: { kind: "tour_request_reoffer", label: "Offer the guest other times", anchorLabel: "the request came in", counterpartyLabel: "guest" },
+  tour_no_show_manager: { kind: "tour_no_show_manager", label: "No-show prompt", anchorLabel: "the tour ended", counterpartyLabel: "guest" },
+  tour_feedback: { kind: "tour_feedback", label: "Post-tour feedback", anchorLabel: "the tour ended", counterpartyLabel: "guest" },
+  delinquency_manager: { kind: "delinquency_manager", label: "Delinquency reminder", anchorLabel: "the rent due date", counterpartyLabel: "resident" },
+  message_unanswered: { kind: "message_unanswered", label: "Unanswered message reminder", anchorLabel: "the resident wrote", counterpartyLabel: "resident" },
+  document_signature: { kind: "document_signature", label: "Signature reminder", anchorLabel: "the signature was requested", counterpartyLabel: "signer" },
+  task_overdue: { kind: "task_overdue", label: "Overdue reminder", anchorLabel: "the task due date", counterpartyLabel: "assignee" },
+  resident_welcome: { kind: "resident_welcome", label: "Welcome sequence", anchorLabel: "the account was created", counterpartyLabel: "resident" },
+  inspection_acknowledge: { kind: "inspection_acknowledge", label: "Acknowledge reminder", anchorLabel: "the report was shared", counterpartyLabel: "resident" },
+};
+
 export type ReminderSubjectMeta = {
   kind: ReminderSubjectKind;
   label: string;
@@ -196,6 +420,7 @@ export type ReminderSubjectMeta = {
 };
 
 export const REMINDER_SUBJECT_META: Record<ReminderSubjectKind, ReminderSubjectMeta> = {
+  ...PLAN_0915_SUBJECT_META,
   inspection: { kind: "inspection", label: "Room photos", anchorLabel: "the move-in or move-out date", counterpartyLabel: "resident" },
   inspection_manager: { kind: "inspection_manager", label: "Missing room photos", anchorLabel: "the move-in or move-out date", counterpartyLabel: "resident" },
   tour: {
@@ -282,17 +507,18 @@ export const REMINDER_SUBJECT_META: Record<ReminderSubjectKind, ReminderSubjectM
  * field exists so adding one later is a delivery change, not a schema change.
  */
 export const DEFAULT_REMINDER_RULES: ReminderRules = {
+  ...PLAN_0915_DEFAULT_RULES,
   // BOTH sides by default: a move-in or move-out condition report is somebody's job on the
   // day, and if only the resident is reminded nobody in the office knows it was missed.
-  inspection: { enabled: true, leadMinutes: [DAY], timings: ["before:1440", "after:1440", "after:10080"], audience: { manager: true, counterparty: true, team: false }, teamUserIds: [], inbox: true, email: true, sms: false },
+  inspection: { enabled: true, leadMinutes: [DAY], timings: ["before:1440", "after:1440", "after:10080"], audience: { manager: true, counterparty: true, team: false, vendor: false }, teamUserIds: [], inbox: true, email: true, sms: false },
   // Anchored on the move date now, not on a report edit: the manager is told when the day is
   // here and nobody has photographed the room.
-  inspection_manager: { enabled: true, leadMinutes: [DAY], timings: ["after:1440", "after:10080"], audience: { manager: true, counterparty: false, team: false }, teamUserIds: [], inbox: true, email: true, sms: false },
+  inspection_manager: { enabled: true, leadMinutes: [DAY], timings: ["after:1440", "after:10080"], audience: { manager: true, counterparty: false, team: false, vendor: false }, teamUserIds: [], inbox: true, email: true, sms: false },
   tour: {
     enabled: true,
     leadMinutes: [1 * DAY, 30 * MINUTE],
     // Guest copies ride the legacy tour-reminder path; this rule is manager-only.
-    audience: { manager: true, counterparty: false, team: false },
+    audience: { manager: true, counterparty: false, team: false, vendor: false },
     teamUserIds: [],
     inbox: true,
     email: true,
@@ -301,7 +527,7 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
   task: {
     enabled: true,
     leadMinutes: [1 * DAY],
-    audience: { manager: true, counterparty: true, team: false },
+    audience: { manager: true, counterparty: true, team: false, vendor: false },
     teamUserIds: [],
     inbox: true,
     email: true,
@@ -310,7 +536,7 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
   service_order: {
     enabled: true,
     leadMinutes: [1 * DAY, 1 * HOUR],
-    audience: { manager: true, counterparty: true, team: false },
+    audience: { manager: true, counterparty: true, team: false, vendor: false },
     teamUserIds: [],
     inbox: true,
     email: true,
@@ -319,7 +545,9 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
   work_order: {
     enabled: true,
     leadMinutes: [1 * DAY, 30 * MINUTE],
-    audience: { manager: true, counterparty: true, team: false },
+    // The vendor is reminded of their own visit by default: before PLAN-0915
+    // a vendor heard about a visit once, when it was booked, and never again.
+    audience: { manager: true, counterparty: true, team: false, vendor: true },
     teamUserIds: [],
     inbox: true,
     email: true,
@@ -329,7 +557,7 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
     enabled: true,
     leadMinutes: [3 * DAY, 1 * DAY],
     timings: ["after:1440", "after:4320"],
-    audience: { manager: false, counterparty: true, team: false },
+    audience: { manager: false, counterparty: true, team: false, vendor: false },
     teamUserIds: [],
     inbox: true,
     email: true,
@@ -339,7 +567,7 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
     enabled: true,
     leadMinutes: [7 * DAY, 3 * DAY],
     timings: ["after:4320", "after:10080"],
-    audience: { manager: true, counterparty: false, team: false },
+    audience: { manager: true, counterparty: false, team: false, vendor: false },
     teamUserIds: [],
     inbox: true,
     email: true,
@@ -347,14 +575,14 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
   },
   tour_interest: {
     enabled: false, leadMinutes: [1440], timings: ["after:1440"],
-    audience: { manager: false, counterparty: true, team: false }, teamUserIds: [],
+    audience: { manager: false, counterparty: true, team: false, vendor: false }, teamUserIds: [],
     inbox: true, email: false, sms: true,
   },
   application_post_tour: {
     enabled: true,
     leadMinutes: [3 * DAY, 1 * DAY],
     timings: ["after:1440", "after:4320"],
-    audience: { manager: false, counterparty: true, team: false },
+    audience: { manager: false, counterparty: true, team: false, vendor: false },
     teamUserIds: [],
     inbox: true,
     email: true,
@@ -364,7 +592,7 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
     enabled: true,
     leadMinutes: [3 * DAY, 1 * DAY],
     timings: ["after:1440", "after:4320"],
-    audience: { manager: false, counterparty: true, team: false },
+    audience: { manager: false, counterparty: true, team: false, vendor: false },
     teamUserIds: [],
     inbox: true,
     email: true,
@@ -374,7 +602,7 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
     enabled: true,
     leadMinutes: [3 * DAY, 1 * DAY],
     timings: ["after:1440", "after:4320"],
-    audience: { manager: true, counterparty: false, team: false },
+    audience: { manager: true, counterparty: false, team: false, vendor: false },
     teamUserIds: [],
     inbox: true,
     email: true,
@@ -384,7 +612,7 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
     enabled: true,
     leadMinutes: [3 * DAY, 1 * DAY],
     timings: ["after:1440", "after:4320"],
-    audience: { manager: true, counterparty: false, team: false },
+    audience: { manager: true, counterparty: false, team: false, vendor: false },
     teamUserIds: [],
     inbox: true,
     email: true,
@@ -398,7 +626,7 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
     // payee, amount, due date and property — the accounts-payable data the read
     // API hands to no co-manager at all — so a broad audience has to be a
     // deliberate choice, never something a manager inherits by not looking.
-    audience: { manager: true, counterparty: false, team: false },
+    audience: { manager: true, counterparty: false, team: false, vendor: false },
     teamUserIds: [],
     inbox: true,
     email: true,
@@ -412,13 +640,14 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
     timings: ["before:4320", "before:1440"],
     // Manager-side only: an imported channel booking carries no guest contact,
     // so `counterparty` has nobody to reach. See the note at the top of this file.
-    audience: { manager: true, counterparty: false, team: false },
+    audience: { manager: true, counterparty: false, team: false, vendor: false },
     teamUserIds: [],
     inbox: true,
     email: true,
     sms: false,
   },
 };
+
 
 export const DEFAULT_QUIET_HOURS: QuietHours = {
   enabled: true,
@@ -463,7 +692,7 @@ function normalizeTemplate(
   return { subject, body };
 }
 
-export function normalizeRule(raw: unknown, fallback: ReminderRule): ReminderRule {
+export function normalizeRule(raw: unknown, fallback: ReminderRule, kind?: ReminderSubjectKind): ReminderRule {
   const row = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   const audienceRaw =
     row.audience && typeof row.audience === "object" && !Array.isArray(row.audience)
@@ -481,6 +710,11 @@ export function normalizeRule(raw: unknown, fallback: ReminderRule): ReminderRul
       manager: normalizeBoolean(audienceRaw.manager, fallback.audience.manager),
       counterparty: normalizeBoolean(audienceRaw.counterparty, fallback.audience.counterparty),
       team: normalizeBoolean(audienceRaw.team, fallback.audience.team),
+      // Without a kind (a caller normalising a bare rule) the fallback decides
+      // whether a vendor audience is even possible.
+      vendor: (kind ? VENDOR_AUDIENCE_KINDS.has(kind) : fallback.audience.vendor)
+        ? normalizeBoolean(audienceRaw.vendor, fallback.audience.vendor)
+        : false,
     },
     teamUserIds: normalizeTeamUserIds(row.teamUserIds, fallback.teamUserIds),
     inbox: normalizeBoolean(row.inbox, fallback.inbox),
@@ -513,7 +747,7 @@ export function normalizeReminderSettings(raw: unknown): ReminderSettings {
       : {};
   const rules = {} as ReminderRules;
   for (const kind of REMINDER_SUBJECT_KINDS) {
-    rules[kind] = normalizeRule(rulesRaw[kind], DEFAULT_REMINDER_RULES[kind]);
+    rules[kind] = normalizeRule(rulesRaw[kind], DEFAULT_REMINDER_RULES[kind], kind);
     // Keeps stored settings equal to what the dispatcher actually does: these
     // fields are hardcoded in `subjects/tour-interest.server.ts` and can never
     // be honoured from a saved rule. See `fixed-rule-fields.ts` for the
@@ -521,7 +755,7 @@ export function normalizeReminderSettings(raw: unknown): ReminderSettings {
     // marks these fields read-only rather than letting them silently revert.
     if (kind === "tour_interest") rules[kind] = {
       ...rules[kind], leadMinutes: [1440], timings: ["after:1440"],
-      audience: { manager: false, counterparty: true, team: false }, teamUserIds: [],
+      audience: { manager: false, counterparty: true, team: false, vendor: false }, teamUserIds: [],
       inbox: true, email: false, sms: true,
     };
   }
@@ -540,7 +774,7 @@ function migrateLegacyReminderRules(rules: ReminderRules): ReminderRules {
         enabled: application.enabled,
         leadMinutes: application.leadMinutes,
         timings: application.timings,
-        audience: { manager: true, counterparty: false, team: application.audience.team },
+        audience: { manager: true, counterparty: false, team: application.audience.team, vendor: false },
         teamUserIds: application.teamUserIds,
         template: application.template,
         inbox: application.inbox,
@@ -552,7 +786,7 @@ function migrateLegacyReminderRules(rules: ReminderRules): ReminderRules {
     rules.application = normalizeRule(
       {
         ...application,
-        audience: { manager: false, counterparty: true, team: false },
+        audience: { manager: false, counterparty: true, team: false, vendor: false },
       },
       DEFAULT_REMINDER_RULES.application,
     );
@@ -565,7 +799,7 @@ function migrateLegacyReminderRules(rules: ReminderRules): ReminderRules {
         enabled: lease.enabled,
         leadMinutes: lease.leadMinutes,
         timings: lease.timings,
-        audience: { manager: true, counterparty: false, team: lease.audience.team },
+        audience: { manager: true, counterparty: false, team: lease.audience.team, vendor: false },
         teamUserIds: lease.teamUserIds,
         template: lease.template,
         inbox: lease.inbox,
@@ -577,7 +811,7 @@ function migrateLegacyReminderRules(rules: ReminderRules): ReminderRules {
     rules.lease = normalizeRule(
       {
         ...lease,
-        audience: { manager: false, counterparty: true, team: false },
+        audience: { manager: false, counterparty: true, team: false, vendor: false },
       },
       DEFAULT_REMINDER_RULES.lease,
     );
@@ -604,7 +838,7 @@ export function isQuietHour(quietHours: QuietHours, hour: number): boolean {
  * Vercel. Reading the zoned hour explicitly is what makes "9pm-8am" mean 9pm
  * Pacific rather than 9pm wherever the dispatcher happens to run.
  */
-function losAngelesHour(at: Date): number {
+export function losAngelesHour(at: Date): number {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Los_Angeles",
     hour: "numeric",
@@ -650,11 +884,19 @@ export function reminderSendTimes(
   anchorIso: string,
   quietHours: QuietHours = DEFAULT_QUIET_HOURS,
   now: Date = new Date(),
+  options?: {
+    /**
+     * Skip the quiet-hours push. Only `URGENT_REMINDER_KINDS` pass this: an
+     * unassigned emergency must not politely wait until 8 a.m.
+     */
+    urgent?: boolean;
+  },
 ): { leadMinutes: number; sendAt: Date }[] {
   if (!rule.enabled) return [];
   if (!rule.inbox && !rule.email && !rule.sms) return [];
   const anchorMs = new Date(anchorIso).getTime();
   if (!Number.isFinite(anchorMs)) return [];
+  const applyQuiet = (at: Date) => (options?.urgent ? at : applyQuietHours(at, quietHours));
 
   const anchor = new Date(anchorMs);
   const out: { leadMinutes: number; sendAt: Date }[] = [];
@@ -665,7 +907,7 @@ export function reminderSendTimes(
       const timing = parseTimingKey(key);
       if (!timing) continue;
       const raw = timingSendAt(timing, anchor);
-      const sendAt = applyQuietHours(raw, quietHours);
+      const sendAt = applyQuiet(raw);
       if (timing.direction === "before" && sendAt.getTime() >= anchorMs) continue;
       if (timing.direction === "after" && sendAt.getTime() <= anchorMs) continue;
       if (sendAt.getTime() <= now.getTime()) continue;
@@ -677,7 +919,7 @@ export function reminderSendTimes(
 
   for (const leadMinutes of rule.leadMinutes) {
     const raw = new Date(anchorMs - leadMinutes * 60_000);
-    const sendAt = applyQuietHours(raw, quietHours);
+    const sendAt = applyQuiet(raw);
     // Quiet hours can push a send past the thing it was reminding about; that
     // reminder is no longer a reminder, so it is dropped rather than sent late.
     if (sendAt.getTime() >= anchorMs) continue;

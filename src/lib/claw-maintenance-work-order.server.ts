@@ -12,6 +12,12 @@ import {
 } from "@/lib/claw-maintenance-detect";
 import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 import { prepareDispatch } from "@/lib/work-order-dispatch.server";
+import {
+  autoTimeNewWorkOrder,
+  notifyVisitAutoBooked,
+  willDispatchRun,
+  type AutoTimeOutcome,
+} from "@/lib/work-order-auto-time.server";
 import { workOrderEvent } from "@/lib/work-order-events.server";
 import {
   workOrderCategoryForResidentLabel,
@@ -222,7 +228,7 @@ export async function createWorkOrderFromResidentSms(args: {
   });
 
   const id = `REQ-SMS-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const row: DemoManagerWorkOrderRow = {
+  const draftRow: DemoManagerWorkOrderRow = {
     id,
     propertyName: ctx.propertyName,
     propertyId: ctx.propertyId ?? undefined,
@@ -247,6 +253,22 @@ export async function createWorkOrderFromResidentSms(args: {
     ...(photoDataUrls.length > 0 ? { photoDataUrls } : {}),
   };
 
+  // Same on-arrival timing as a resident-filed portal request (Stage D): book
+  // from the manager's own availability when vendor auto-dispatch isn't about
+  // to claim this row, otherwise just propose a time. Best-effort — a failed
+  // lookup here (e.g. the dispatch-settings read) must never block filing the
+  // service itself, so it falls back to "untimed" rather than throwing.
+  let row: DemoManagerWorkOrderRow = draftRow;
+  let autoTimeOutcome: AutoTimeOutcome = { kind: "none" };
+  try {
+    const dispatchWillRun = await willDispatchRun(db, managerUserId, draftRow);
+    ({ row, outcome: autoTimeOutcome } = await autoTimeNewWorkOrder(db, managerUserId, draftRow, {
+      dispatchWillRun,
+    }));
+  } catch (e) {
+    console.error("autoTimeNewWorkOrder failed", id, e);
+  }
+
   const { data: persisted, error } = await db
     .from("portal_work_order_records")
     .upsert(
@@ -268,6 +290,11 @@ export async function createWorkOrderFromResidentSms(args: {
 
   const persistedRow = (persisted?.row_data ?? row) as DemoManagerWorkOrderRow;
   const reference = persistedRow.reference?.trim() || undefined;
+
+  // Never throws — errors are logged and swallowed inside.
+  if (autoTimeOutcome.kind === "booked") {
+    await notifyVisitAutoBooked(db, managerUserId, persistedRow);
+  }
 
   const senderUserId = args.senderUserId?.trim() || args.residentUserId?.trim() || "";
   if (senderUserId) {

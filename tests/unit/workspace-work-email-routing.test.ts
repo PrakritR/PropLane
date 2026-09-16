@@ -4,9 +4,13 @@
  * Every manager-role account used to request its own `assist-<name>@` address,
  * co-managers included, so one workspace answered from several identities and a
  * co-manager's mail left as an address nobody else on the team could see. Now
- * the address belongs to the workspace: a co-manager with no houses of their
- * own reads and sends from the owner's address, is never minted one, and a
- * legacy address they still hold answers for the owner's workspace.
+ * the address belongs to the workspace — a portal_workspaces row (the full
+ * model is in workspace-work-identity.test.ts). This file pins the LEGACY
+ * world the migration meets: rows with no workspace_id, accounts with no
+ * workspace rows yet. An owner's unplaced address answers for their default
+ * workspace; a pure co-manager's unplaced address collapses to the inviter;
+ * and inside the workspace an owner shares, a co-manager sends from the
+ * owner's address and is never minted one there.
  */
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -33,10 +37,14 @@ function seed(links: Record<string, unknown>[], extra: Record<string, Record<str
       { id: solo, full_name: "Solo", email: "s@example.com", role: "manager" },
     ],
     profile_roles: [],
+    portal_workspaces: [
+      { id: "ws-owner", owner_user_id: owner, name: "My workspace", is_default: true, created_at: "2026-01-01" },
+      { id: "ws-other", owner_user_id: other, name: "My workspace", is_default: true, created_at: "2026-01-02" },
+    ],
     manager_property_records: [
-      { id: "house-a", manager_user_id: owner },
-      { id: "house-b", manager_user_id: owner },
-      { id: "house-c", manager_user_id: other },
+      { id: "house-a", manager_user_id: owner, workspace_id: "ws-owner", row_data: {} },
+      { id: "house-b", manager_user_id: owner, workspace_id: "ws-owner", row_data: {} },
+      { id: "house-c", manager_user_id: other, workspace_id: "ws-other", row_data: {} },
     ],
     manager_assistant_emails: [
       {
@@ -56,47 +64,49 @@ const accepted = (inviter: string, invitee: string, houses: string[]) => ({
   invitee_user_id: invitee,
   status: "accepted",
   assigned_property_ids: houses,
+  property_co_manager_permissions: Object.fromEntries(houses.map((h) => [h, { inbox: true }])),
 });
 
 afterEach(() => vi.unstubAllEnvs());
 
-describe("resolveWorkspaceWorkEmails — what an account reads and sends from", () => {
-  it("an owner gets their own address", async () => {
+describe("resolveWorkspaceWorkEmails — one entry per workspace the account can see", () => {
+  it("an owner's unplaced legacy address answers for their default workspace", async () => {
     await expect(resolveWorkspaceWorkEmails(seed([]) as never, owner)).resolves.toEqual({
       role: "primary",
-      emails: [{ ownerUserId: owner, ownerName: "Prakrit Ramachandran", address: OWNER_ADDRESS }],
+      emails: [
+        expect.objectContaining({ workspaceId: "ws-owner", owned: true, ownerUserId: owner, ownerName: "Prakrit Ramachandran", address: OWNER_ADDRESS }),
+      ],
     });
   });
 
-  it("a co-manager gets the owner's address, named, and never one of their own", async () => {
+  it("a co-manager sees their OWN empty workspace (no address) and the owner's, named — never one of their own in the owner's", async () => {
     const db = seed([accepted(owner, co, ["house-a"])]);
-    await expect(resolveWorkspaceWorkEmails(db as never, co)).resolves.toEqual({
-      role: "co_manager",
-      emails: [{ ownerUserId: owner, ownerName: "Prakrit Ramachandran", address: OWNER_ADDRESS }],
-    });
-    await expect(resolveWorkspaceWorkEmail(db as never, co)).resolves.toMatchObject({ address: OWNER_ADDRESS });
+    const { role, emails } = await resolveWorkspaceWorkEmails(db as never, co);
+    expect(role).toBe("co_manager");
+    expect(emails).toEqual([
+      expect.objectContaining({ owned: true, ownerUserId: co, address: null }),
+      expect.objectContaining({ workspaceId: "ws-owner", owned: false, ownerUserId: owner, ownerName: "Prakrit Ramachandran", address: OWNER_ADDRESS }),
+    ]);
+    // Acting inside the owner's workspace, the owner's address is the one in use.
+    await expect(resolveWorkspaceWorkEmail(db as never, co, "ws-owner")).resolves.toMatchObject({ address: OWNER_ADDRESS });
+    // Acting in their own, there is none — and never the owner's.
+    await expect(resolveWorkspaceWorkEmail(db as never, co, null)).resolves.toMatchObject({ owned: true, address: null });
   });
 
-  it("lists a workspace whose owner has not set one up, with a null address, so the UI can say whose job it is", async () => {
+  it("lists a shared workspace whose owner has not set one up, with a null address, so the UI can say whose job it is", async () => {
     const db = seed([accepted(other, co, ["house-c"])]);
-    await expect(resolveWorkspaceWorkEmails(db as never, co)).resolves.toEqual({
-      role: "co_manager",
-      // No full name on file: the email stands in, exactly as the number does.
-      emails: [{ ownerUserId: other, ownerName: "maya@example.com", address: null }],
-    });
-  });
-
-  it("with several owners, the one with the most houses assigned comes first", async () => {
-    const db = seed([accepted(owner, co, ["house-a"]), accepted(other, co, ["house-c", "house-d"])]);
     const { emails } = await resolveWorkspaceWorkEmails(db as never, co);
-    expect(emails.map((e) => e.ownerUserId)).toEqual([other, owner]);
+    // No full name on file: the email stands in, exactly as the number does.
+    expect(emails.find((e) => e.workspaceId === "ws-other")).toEqual(
+      expect.objectContaining({ owned: false, ownerUserId: other, ownerName: "maya@example.com", address: null }),
+    );
   });
 
   it("a manager with no accepted link owns their own (empty) workspace", async () => {
     const db = seed([{ ...accepted(owner, solo, ["house-a"]), status: "pending" }]);
     await expect(resolveWorkspaceWorkEmails(db as never, solo)).resolves.toEqual({
       role: "primary",
-      emails: [{ ownerUserId: solo, ownerName: "Solo", address: null }],
+      emails: [expect.objectContaining({ owned: true, ownerUserId: solo, ownerName: "Solo", address: null })],
     });
   });
 });
@@ -107,6 +117,7 @@ describe("resolveWorkspaceOwnerForWorkEmail — whose workspace an address answe
     await expect(resolveWorkspaceOwnerForWorkEmail(db as never, co)).resolves.toEqual({
       ownerUserId: owner,
       sharedFromCoManager: true,
+      workspaceId: null,
     });
   });
 
@@ -114,12 +125,13 @@ describe("resolveWorkspaceOwnerForWorkEmail — whose workspace an address answe
     await expect(resolveWorkspaceOwnerForWorkEmail(seed([]) as never, owner)).resolves.toEqual({
       ownerUserId: owner,
       sharedFromCoManager: false,
+      workspaceId: null,
     });
   });
 });
 
-describe("ensureManagerAssistantEmail — a co-manager is never minted an address", () => {
-  it("refuses a pure co-manager at the write, not only in the route", async () => {
+describe("ensureManagerAssistantEmail — a co-manager is never minted an address in the OWNER's workspace", () => {
+  it("refuses a workspace-less call from a pure co-manager at the write, not only in the route", async () => {
     const db = seed([accepted(owner, co, ["house-a"])]);
     await expect(ensureManagerAssistantEmail(db as never, co)).rejects.toBeInstanceOf(WorkspaceEmailSharedError);
     const { data } = await (db as never as { from: (t: string) => { select: () => Promise<{ data: unknown[] }> } })
@@ -141,13 +153,14 @@ describe("ensureManagerAssistantEmail — a co-manager is never minted an addres
 });
 
 describe("the address the rest of the product sees", () => {
-  it("resolveActiveManagerWorkEmail hands a co-manager the workspace address", async () => {
+  it("resolveActiveManagerWorkEmail names the workspace's address when asked for that workspace", async () => {
     vi.stubEnv("RESEND_API_KEY", "test-key");
     const db = seed([accepted(owner, co, ["house-a"])]);
-    await expect(resolveActiveManagerWorkEmail(db as never, co)).resolves.toBe(OWNER_ADDRESS);
+    await expect(resolveActiveManagerWorkEmail(db as never, co, "ws-owner")).resolves.toBe(OWNER_ADDRESS);
+    await expect(resolveActiveManagerWorkEmail(db as never, owner)).resolves.toBe(OWNER_ADDRESS);
   });
 
-  it("a legacy co-manager row never leaks its own address once it is shared", async () => {
+  it("a legacy co-manager row never leaks its own address into the owner's workspace", async () => {
     vi.stubEnv("RESEND_API_KEY", "test-key");
     const db = seed([accepted(owner, co, ["house-a"])], {
       manager_assistant_emails: [
@@ -155,12 +168,7 @@ describe("the address the rest of the product sees", () => {
         { manager_user_id: co, inbox_token: "tok000000002", mailbox_local: "assist-akhil", provision_state: "active" },
       ],
     });
-    await expect(resolveActiveManagerWorkEmail(db as never, co)).resolves.toBe(OWNER_ADDRESS);
-  });
-
-  it("a co-manager's outbound mail carries THEIR name at the WORKSPACE address", async () => {
-    const db = seed([accepted(owner, co, ["house-a"])]);
-    await expect(resolveManagerOutboundFrom(db as never, co)).resolves.toBe(`Akhil <${OWNER_ADDRESS}>`);
+    await expect(resolveActiveManagerWorkEmail(db as never, co, "ws-owner")).resolves.toBe(OWNER_ADDRESS);
   });
 
   it("an owner's outbound mail carries their own name at their own address", async () => {
@@ -169,7 +177,7 @@ describe("the address the rest of the product sees", () => {
     );
   });
 
-  it("falls back to the shared sender when the workspace has no address yet", async () => {
+  it("falls back to the shared sender when the active workspace has no address yet", async () => {
     const db = seed([accepted(other, co, ["house-c"])]);
     await expect(resolveManagerOutboundFrom(db as never, co)).resolves.toBeNull();
   });
@@ -178,7 +186,7 @@ describe("the address the rest of the product sees", () => {
 describe("the inbound path collapses before it classifies", () => {
   it("resolves the workspace owner before claiming the message or reading the sender", () => {
     const source = readFileSync("src/lib/manager-assistant-email/process-assistant-inbound.server.ts", "utf8");
-    const collapse = source.indexOf("resolveWorkspaceOwnerForWorkEmail(db, mailboxUserId)");
+    const collapse = source.indexOf("resolveWorkspaceOwnerForWorkEmail(db, mailboxUserId, {");
     const claim = source.indexOf("claimInboundEmail(db, parsed.emailId, managerUserId)");
     const classify = source.indexOf("classifyAssistantEmailSender(db, {");
     expect(collapse).toBeGreaterThan(-1);

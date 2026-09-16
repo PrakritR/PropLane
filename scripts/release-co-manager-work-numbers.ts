@@ -33,7 +33,11 @@ async function listCandidates(db: SupabaseClient, email?: string): Promise<Candi
     .from("manager_sms_numbers")
     .select("manager_user_id, phone_number, phone_number_sid, provision_state")
     .neq("provision_state", "released")
-    .not("phone_number", "is", null);
+    .not("phone_number", "is", null)
+    // A line placed in a workspace belongs to that workspace — a co-manager
+    // may own one in a workspace of their own. Only the unplaced legacy rows
+    // (bought per user before lines were workspace-owned) are candidates.
+    .is("workspace_id", null);
   const { data: rows, error } = await query;
   if (error) throw error;
   const ids = (rows ?? []).map((r) => String(r.manager_user_id));

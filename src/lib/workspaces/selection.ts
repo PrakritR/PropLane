@@ -12,6 +12,11 @@ function activeWorkspace() {
   return selection.workspaces.find((w) => w.id === selection!.activeWorkspaceId) ?? null;
 }
 
+/** The selected workspace id, or null before the selection loads. Readers that cache per workspace key on this. */
+export function selectedWorkspaceId(): string | null {
+  return selection?.activeWorkspaceId ?? null;
+}
+
 /**
  * True once the account holds more than one workspace. Only account-level
  * rows (no house at all) consult this: they live in the owned default

@@ -109,24 +109,24 @@ describe("the work email belongs to the workspace, exactly like the work number"
   const messaging = readFileSync("src/app/api/manager/messaging-number/route.ts", "utf8");
   const assistantEmail = readFileSync("src/app/api/manager/assistant-email/route.ts", "utf8");
 
-  it("assistant-email's canRequest is off for a pure co-manager, and POST refuses before billing", () => {
+  it("assistant-email's canRequest is off inside a shared workspace, and POST refuses before billing", () => {
     const start = assistantEmail.indexOf("canRequest:");
     expect(start).toBeGreaterThan(-1);
     expect(assistantEmail.slice(start, start + 200)).toContain("!pureCoManager");
     const post = assistantEmail.slice(assistantEmail.indexOf("export async function POST"));
-    expect(post.indexOf("workspace_email_shared")).toBeGreaterThan(-1);
-    expect(post.indexOf("workspace_email_shared")).toBeLessThan(
+    expect(post.indexOf("workspace_not_owned")).toBeGreaterThan(-1);
+    expect(post.indexOf("workspace_not_owned")).toBeLessThan(
       post.indexOf("const entitlement = await reconcileManagerSmsEntitlement("),
     );
   });
 
-  it("messaging-number's canRequest is off for a pure co-manager, and POST refuses before billing", () => {
+  it("messaging-number's canRequest is off inside a shared workspace, and POST refuses before billing", () => {
     const start = messaging.indexOf("canRequest:");
     expect(start).toBeGreaterThan(-1);
     expect(messaging.slice(start, start + 200)).toContain("!pureCoManager");
     const post = messaging.slice(messaging.indexOf("export async function POST"));
-    expect(post.indexOf("workspace_number_shared")).toBeGreaterThan(-1);
-    expect(post.indexOf("workspace_number_shared")).toBeLessThan(post.indexOf("const entitlement = await reconcileManagerSmsEntitlement("));
+    expect(post.indexOf("workspace_not_owned")).toBeGreaterThan(-1);
+    expect(post.indexOf("workspace_not_owned")).toBeLessThan(post.indexOf("const entitlement = await reconcileManagerSmsEntitlement("));
   });
 
   it("the assistant-email panel gives a co-manager the workspace address, not a Request button", () => {

@@ -15,6 +15,7 @@ import {
   selectCommunicationThreadUrl,
 } from "@/lib/portal-communication-nav";
 import { ManagerInbox, type ManagerInboxHandle } from "@/components/portal/pro-inbox";
+import { CommunicationArchivedInboxButton } from "@/components/portal/communication-archived-inbox-button";
 import { ManagerWorkNumberCard } from "@/components/portal/pro-work-number-card";
 import { ManagerSmsPanel, smsOutboundPreviewPrefix, type ManagerSmsPanelHandle } from "@/components/portal/pro-sms-panel";
 
@@ -192,6 +193,7 @@ export function ManagerUnifiedInbox({
   listActions,
   onAddConversation,
   onApplicationsLoaded,
+  onArchivedViewChange,
 }: {
   tabId: string;
   commBase: string;
@@ -222,6 +224,8 @@ export function ManagerUnifiedInbox({
   onAddConversation?: () => void;
   /** Rebuild the parent-owned contact directory after its source has completed. */
   onApplicationsLoaded?: () => void;
+  /** Filter status follows the labeled Archived destination button. */
+  onArchivedViewChange?: (next: Extract<InboxListSegment, "active" | "archived">) => void;
 }) {
   const isClient = useIsClient();
   const [emailThreads, setEmailThreads] = useState<PersistedInboxThread[]>([]);
@@ -924,9 +928,15 @@ export function ManagerUnifiedInbox({
 
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-      <ManagerWorkNumberCard onTellResidents={onAddConversation} />
+      <ManagerWorkNumberCard />
       {listChrome === "internal" ? (
         <div className={PORTAL_INBOX_LIST_TOOLBAR_CLASS}>
+          <CommunicationArchivedInboxButton
+            commBase={commBase}
+            listSegment={listSegment}
+            onViewChange={onArchivedViewChange}
+            className="w-full"
+          />
           <div className="flex min-w-0 items-center gap-1">
             <div className="relative min-w-0 flex-1">
               <input

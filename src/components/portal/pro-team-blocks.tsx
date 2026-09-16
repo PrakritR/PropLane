@@ -127,11 +127,11 @@ export function TeamMembersBlock({ members }: { members: TeamMemberRow[] }) {
       <ul>
         {members.map((m) => {
           const pill = ROLE_PILL[m.role];
-          const items: TeamRowMenuItem[] = [
+          const items = ([
             m.onEdit ? { id: "edit", label: "Edit", onSelect: m.onEdit, dataAttr: "team-member-edit" } : null,
             m.onPermissions ? { id: "permissions", label: "Permissions", onSelect: m.onPermissions, dataAttr: "team-member-permissions" } : null,
             m.onRemove ? { id: "remove", label: "Remove", onSelect: m.onRemove, destructive: true, dataAttr: "team-member-remove" } : null,
-          ].filter((item): item is TeamRowMenuItem => item != null);
+          ] as (TeamRowMenuItem | null)[]).filter((item): item is TeamRowMenuItem => item != null);
           return (
             <li key={m.id} className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/60 px-4 py-2.5", MEMBER_GRID)} data-attr="team-member-row">
               <span className="flex min-w-0 items-center gap-2.5">

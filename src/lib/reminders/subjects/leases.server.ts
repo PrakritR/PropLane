@@ -192,3 +192,136 @@ export async function sweepLeaseReminders(db: SupabaseClient, now: Date = new Da
   }
   return queued;
 }
+
+/**
+ * `countersign_overdue` — the resident has signed and the manager has not
+ * (PLAN-0915 phase 2). Anchored on the resident's signature moment, so the
+ * timing reads "2 days after the resident signed".
+ */
+export async function sweepCountersignOverdue(db: SupabaseClient, now: Date = new Date()): Promise<number> {
+  const { data, error } = await db
+    .from("portal_lease_pipeline_records")
+    .select("id, manager_user_id, resident_email, row_data, updated_at")
+    .order("updated_at", { ascending: false })
+    .limit(MAX_ROWS);
+  if (error) throw error;
+  const candidates = ((data ?? []) as LeaseRecord[])
+    .map((record) => {
+      const lease = normalizeLeasePipelineRow(record.row_data);
+      const managerUserId = String(record.manager_user_id ?? lease.managerUserId ?? "").trim();
+      if (!managerUserId || lease.fullySignedAt || lease.voidedAt) return null;
+      const residentSignedAt = lease.residentSignedAt?.trim() || lease.residentSignature?.signedAtIso?.trim() || "";
+      const managerSigned = Boolean(lease.managerSignedAt?.trim() || lease.managerSignature?.signedAtIso?.trim());
+      if (!residentSignedAt || managerSigned) return null;
+      const ms = Date.parse(residentSignedAt);
+      if (!Number.isFinite(ms) || !withinAge(new Date(ms).toISOString(), now, 60)) return null;
+      return { record, lease, managerUserId, anchorIso: new Date(ms).toISOString() };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+  if (candidates.length === 0) return 0;
+  const managerIds = candidates.map((entry) => entry.managerUserId);
+  const [settingsByManager, managerRecipients] = await Promise.all([
+    loadReminderSettingsForManagers(db, managerIds),
+    loadManagerReminderRecipients(db, managerIds),
+  ]);
+  const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
+  let queued = 0;
+  for (const entry of candidates) {
+    const settings = settingsByManager.get(entry.managerUserId);
+    if (!settings?.rules.countersign_overdue.enabled) continue;
+    const manager = managerRecipients.get(entry.managerUserId);
+    const recipients: ReminderRecipient[] = manager
+      ? [{ email: manager.email, role: "manager", name: manager.name, userId: entry.managerUserId }]
+      : [];
+    if (settings.rules.countersign_overdue.audience.team) {
+      recipients.push(
+        ...teamReminderRecipients(
+          await loadTeamReminderRecipients(db, entry.managerUserId, settings.rules.countersign_overdue.teamUserIds ?? [], {
+            module: REMINDER_SUBJECT_CO_MANAGER_MODULE.countersign_overdue,
+            propertyId: entry.lease.propertyId ?? null,
+          }),
+        ),
+      );
+    }
+    if (recipients.length === 0) continue;
+    queued += await materializeReminders(
+      db,
+      {
+        managerUserId: entry.managerUserId,
+        kind: "countersign_overdue",
+        subjectId: entry.record.id,
+        anchorIso: entry.anchorIso,
+        recipients,
+        payload: {
+          title: "lease",
+          propertyLabel: entry.lease.unit?.trim() || null,
+          counterpartyName: entry.lease.residentName ?? null,
+          url: `${origin}/portal/leases`,
+          notificationCategory: "leases",
+        },
+      },
+      settings,
+      now,
+    );
+  }
+  return queued;
+}
+
+/**
+ * `renewal_offer_expiry` — a renewal (a re-sent lease with `pendingRenewal`)
+ * the resident has not signed while the current term runs out. Anchored on
+ * the current lease end, so "3 days before" means three days before the
+ * resident would otherwise be out of contract.
+ */
+export async function sweepRenewalOfferExpiry(db: SupabaseClient, now: Date = new Date()): Promise<number> {
+  const { data, error } = await db
+    .from("portal_lease_pipeline_records")
+    .select("id, manager_user_id, resident_email, row_data, updated_at")
+    .order("updated_at", { ascending: false })
+    .limit(MAX_ROWS);
+  if (error) throw error;
+  const candidates = ((data ?? []) as LeaseRecord[])
+    .map((record) => {
+      const lease = normalizeLeasePipelineRow(record.row_data);
+      const raw = record.row_data as { pendingRenewal?: unknown };
+      const managerUserId = String(record.manager_user_id ?? lease.managerUserId ?? "").trim();
+      if (!managerUserId || !raw.pendingRenewal || lease.fullySignedAt || lease.voidedAt) return null;
+      if (!leaseNeedsResidentReminder(lease)) return null;
+      const currentEnd = String(lease.application?.leaseEnd ?? "").trim();
+      const ms = Date.parse(currentEnd.includes("T") ? currentEnd : `${currentEnd}T17:00:00`);
+      if (!Number.isFinite(ms) || ms <= now.getTime()) return null;
+      const residentEmail = (lease.residentEmail?.trim() || record.resident_email?.trim() || "").toLowerCase();
+      if (!residentEmail.includes("@")) return null;
+      return { record, lease, managerUserId, residentEmail, anchorIso: new Date(ms).toISOString() };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+  if (candidates.length === 0) return 0;
+  const settingsByManager = await loadReminderSettingsForManagers(db, candidates.map((entry) => entry.managerUserId));
+  const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
+  let queued = 0;
+  for (const entry of candidates) {
+    const settings = settingsByManager.get(entry.managerUserId);
+    if (!settings?.rules.renewal_offer_expiry.enabled) continue;
+    queued += await materializeReminders(
+      db,
+      {
+        managerUserId: entry.managerUserId,
+        kind: "renewal_offer_expiry",
+        subjectId: entry.record.id,
+        anchorIso: entry.anchorIso,
+        recipients: [{ email: entry.residentEmail, role: "counterparty", name: entry.lease.residentName ?? null, userId: entry.lease.residentUserId ?? null }],
+        payload: {
+          title: "renewal offer",
+          propertyLabel: entry.lease.unit?.trim() || null,
+          counterpartyName: entry.lease.residentName ?? null,
+          dueDateLabel: new Date(entry.anchorIso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+          url: `${origin}/resident/lease`,
+          notificationCategory: "leases",
+        },
+      },
+      settings,
+      now,
+    );
+  }
+  return queued;
+}

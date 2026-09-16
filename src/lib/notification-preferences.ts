@@ -1,5 +1,26 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isPhoneOptedOut } from "@/lib/sms-consent";
+import { isVendorQuietHour, type VendorNotificationTopic } from "@/lib/vendor-notification-settings";
+import { normalizeResidentTextSettings, type ResidentTextSettings } from "@/lib/resident-text-settings";
+
+export { DEFAULT_RESIDENT_TEXT_SETTINGS, normalizeResidentTextSettings, type ResidentTextSettings } from "@/lib/resident-text-settings";
+
+export type ResolveChannelsOptions = {
+  /**
+   * Which vendor Settings row gates this message. Ignored for every other
+   * role. Absent on a vendor recipient, the category picks a sensible topic
+   * (`payments` → payments, `messages` → messages, anything else → schedule).
+   */
+  vendorTopic?: VendorNotificationTopic;
+  /**
+   * A vendor's own visit reminder: gated by their "Visit reminders" row (off =
+   * nothing outward, text per its own toggle) rather than a topic.
+   */
+  vendorVisitReminder?: boolean;
+  /** An emergency: a vendor's quiet-hours bypass applies. */
+  urgent?: boolean;
+  now?: Date;
+};
 
 /**
  * Notification categories a user can tune independently. `account` covers
@@ -13,6 +34,8 @@ export type NotificationCategory =
   | "payments"
   | "maintenance"
   | "applications"
+  | "tours"
+  | "inspections"
   | "voice_calls"
   | "account";
 
@@ -22,6 +45,8 @@ export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
   "payments",
   "maintenance",
   "applications",
+  "tours",
+  "inspections",
   "voice_calls",
   "account",
 ];
@@ -51,6 +76,10 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   payments: { inbox: true, email: true, sms: true },
   maintenance: { inbox: true, email: true, sms: true },
   applications: { inbox: true, email: true, sms: true },
+  // PLAN-0915: tours and inspections were folded into `leases` before, so a
+  // resident could not quiet tour texts without also quieting their lease.
+  tours: { inbox: true, email: true, sms: true },
+  inspections: { inbox: true, email: true, sms: true },
   // A phone call is the one channel a manager cannot scroll back through, so
   // the summary defaults to reaching them everywhere — including SMS on their
   // real mobile, which is usually where they already are when a call lands.
@@ -78,6 +107,7 @@ export function normalizeNotificationPreferences(raw: unknown): NotificationPref
   return out;
 }
 
+
 export async function loadNotificationPreferences(
   db: SupabaseClient,
   userId: string,
@@ -90,16 +120,46 @@ export async function loadNotificationPreferences(
   return normalizeNotificationPreferences(data?.row_data ?? null);
 }
 
+export async function loadResidentTextSettings(db: SupabaseClient, userId: string): Promise<ResidentTextSettings> {
+  const { data } = await db.from("notification_preferences").select("row_data").eq("user_id", userId).maybeSingle();
+  return normalizeResidentTextSettings((data?.row_data as Record<string, unknown> | null)?.resident);
+}
+
+/** Save under `row_data.resident`, keeping the category rows and the vendor blob beside it. */
+export async function saveResidentTextSettings(db: SupabaseClient, userId: string, raw: unknown): Promise<ResidentTextSettings> {
+  const next = normalizeResidentTextSettings(raw);
+  const { data: existing } = await db.from("notification_preferences").select("row_data").eq("user_id", userId).maybeSingle();
+  const rowData =
+    existing?.row_data && typeof existing.row_data === "object" && !Array.isArray(existing.row_data)
+      ? { ...(existing.row_data as Record<string, unknown>) }
+      : {};
+  rowData.resident = next;
+  const { error } = await db
+    .from("notification_preferences")
+    .upsert({ user_id: userId, row_data: rowData, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+  if (error) throw error;
+  return next;
+}
+
 export async function saveNotificationPreferences(
   db: SupabaseClient,
   userId: string,
   prefs: unknown,
 ): Promise<NotificationPreferences> {
   const normalized = normalizeNotificationPreferences(prefs);
+  // The same row also carries `resident` (text settings) and `vendor`
+  // (PLAN-0915); a category save must not wipe them.
+  const { data: existing } = await db.from("notification_preferences").select("row_data").eq("user_id", userId).maybeSingle();
+  const current =
+    existing?.row_data && typeof existing.row_data === "object" && !Array.isArray(existing.row_data)
+      ? (existing.row_data as Record<string, unknown>)
+      : {};
+  const siblings: Record<string, unknown> = {};
+  for (const key of ["resident", "vendor"]) if (current[key] !== undefined) siblings[key] = current[key];
   const { error } = await db.from("notification_preferences").upsert(
     {
       user_id: userId,
-      row_data: normalized,
+      row_data: { ...siblings, ...normalized },
       updated_at: new Date().toISOString(),
     },
     { onConflict: "user_id" },
@@ -135,6 +195,7 @@ export async function resolveChannels(
   userId: string,
   category: NotificationCategory,
   recipientProfile?: RecipientProfile | null,
+  options?: ResolveChannelsOptions,
 ): Promise<ResolvedChannels> {
   // Resident/vendor delivery remains always-on. Manager recipients branch to
   // the preference-aware Assistant/SMS router below.
@@ -155,6 +216,13 @@ export async function resolveChannels(
       "@/lib/manager-notification-routing.server"
     );
     return resolveManagerNotificationChannels(db, userId, category, profile);
+  }
+
+  // A vendor's own Settings → Notifications pane decides, per topic. Before
+  // PLAN-0915 those toggles were saved and read by nobody; this branch is what
+  // makes them mean something. Inbox stays on as the durable record.
+  if (role === "vendor") {
+    return resolveVendorChannels(db, userId, category, profile, options);
   }
 
   // Load the recipient's saved preferences for this category. Fail OPEN on a
@@ -178,6 +246,17 @@ export async function resolveChannels(
   let sms = false;
   if (phone && categoryPreference.sms) {
     sms = !(await isPhoneOptedOut(db, phone));
+    // The resident's own quiet window for texts (PLAN-0915). Account-safety
+    // notices and emergencies still text; everything else waits for email.
+    if (sms && category !== "account" && !options?.urgent) {
+      try {
+        const text = await loadResidentTextSettings(db, userId);
+        const { losAngelesHour } = await import("@/lib/reminders/rules");
+        if (isVendorQuietHour(text.quietHours, losAngelesHour(options?.now ?? new Date()))) sms = false;
+      } catch {
+        // Unreadable settings never silence a text the resident asked for.
+      }
+    }
   }
 
   return {
@@ -189,4 +268,43 @@ export async function resolveChannels(
     email: categoryPreference.email,
     sms,
   };
+}
+
+async function resolveVendorChannels(
+  db: SupabaseClient,
+  userId: string,
+  category: NotificationCategory,
+  profile: RecipientProfile | null,
+  options?: ResolveChannelsOptions,
+): Promise<ResolvedChannels> {
+  const topic: VendorNotificationTopic =
+    options?.vendorTopic ?? (category === "payments" ? "payments" : category === "messages" ? "messages" : "schedule");
+  let settings;
+  try {
+    const { loadVendorNotificationSettings } = await import("@/lib/vendor-notification-settings.server");
+    settings = await loadVendorNotificationSettings(db, userId);
+  } catch {
+    // Fail open like the resident path: an unreadable settings row must never
+    // be the reason a vendor stops hearing about work.
+    const { DEFAULT_VENDOR_NOTIFICATION_SETTINGS } = await import("@/lib/vendor-notification-settings");
+    settings = DEFAULT_VENDOR_NOTIFICATION_SETTINGS;
+  }
+  const pref = options?.vendorVisitReminder
+    ? settings.visitReminderTimings.length === 0
+      ? { email: false, sms: false }
+      : { email: settings.topics.schedule.email, sms: settings.visitReminderSms }
+    : settings.topics[topic];
+  // Account-safety notices are never silenced, for vendors as for everyone.
+  const email = category === "account" ? true : pref.email;
+  const phone = String(profile?.phone ?? "").trim();
+  let sms = false;
+  if (phone && (category === "account" || pref.sms)) {
+    sms = !(await isPhoneOptedOut(db, phone));
+    if (sms && category !== "account") {
+      const { losAngelesHour } = await import("@/lib/reminders/rules");
+      const quiet = isVendorQuietHour(settings.quietHours, losAngelesHour(options?.now ?? new Date()));
+      if (quiet && !(options?.urgent && settings.emergencyBypassQuietHours)) sms = false;
+    }
+  }
+  return { inbox: true, email, sms };
 }

@@ -13,6 +13,7 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
   DEFAULT_REMINDER_RULES,
+  VENDOR_AUDIENCE_KINDS,
   normalizeReminderSettings,
   type ReminderRule,
   type ReminderSubjectKind,
@@ -373,6 +374,22 @@ export function ManagerReminderRuleSettingsPanel({
                     ) : (
                       <PortalSettingsLockedRow label={meta.notifyCounterpartyLabel} reason={counterpartyLockedReason} />
                     )}
+
+                    {/* The dispatched vendor, only on kinds that have one (PLAN-0915). */}
+                    {meta.notifyVendorLabel && VENDOR_AUDIENCE_KINDS.has(kind) ? (
+                      <PortalSettingsRow
+                        className="flex-wrap items-start gap-y-2.5"
+                        label={meta.notifyVendorLabel}
+                      >
+                        <PortalSettingsToggle
+                          checked={rule.audience.vendor}
+                          onChange={(next) => patchRule({ audience: { ...rule.audience, vendor: next } })}
+                          label={`Notify ${meta.notifyVendorLabel}`}
+                          disabled={disabled}
+                          dataAttr={`reminder-rule-${kind}-notify-vendor`}
+                        />
+                      </PortalSettingsRow>
+                    ) : null}
                   </>
                 )}
               </PortalSettingsGroup>

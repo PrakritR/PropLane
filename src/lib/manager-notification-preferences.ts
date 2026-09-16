@@ -126,6 +126,8 @@ export function managerNotificationCategoryForEvent(
       return "voice_calls";
     case "leases":
     case "leasing":
+    case "tours":
+    case "inspections":
       return "leasing";
     case "messages":
     case "account":

@@ -8,6 +8,7 @@ import {
   type VendorInvoiceStatus,
 } from "@/lib/vendor-invoices";
 import { createBillFromVendorInvoice } from "@/lib/manager-bills.server";
+import { notifyVendorOfInvoiceDecision } from "@/lib/vendor-invoice-decision-notify.server";
 
 export const runtime = "nodejs";
 
@@ -122,6 +123,20 @@ export async function PATCH(
         console.error("Failed to create bill for approved vendor invoice", error);
         return NextResponse.json({ error: "Failed to create bill for approved invoice." }, { status: 500 });
       }
+    }
+
+    // Tell the vendor. Before PLAN-0915 an approval or a rejection was silent
+    // on their side; only "received" and "paid" ever reached them.
+    if (status === "approved" || status === "rejected") {
+      await notifyVendorOfInvoiceDecision(auth.db, {
+        managerUserId: auth.userId,
+        vendorUserId: String(existing.vendor_user_id),
+        invoiceId: id,
+        workOrderId: (responseData as { work_order_id?: string | null }).work_order_id ?? null,
+        totalCents: Number(existing.total_cents ?? 0),
+        decision: status,
+        note: typeof body.decisionNote === "string" ? body.decisionNote.trim() : "",
+      }).catch(() => undefined);
     }
 
     const event = MANAGER_DECISIONS[status];
