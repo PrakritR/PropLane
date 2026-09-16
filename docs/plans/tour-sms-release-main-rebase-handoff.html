@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Tour SMS release main rebase handoff</title>
+  <style>
+    body { font: 16px/1.55 system-ui, sans-serif; max-width: 100ch; margin: 36px auto; padding: 0 24px; color: #202422; background: #fafaf8; }
+    h1, h2 { line-height: 1.25; }
+    section { padding: 18px 0; border-top: 1px solid #ccd2cc; }
+    code { overflow-wrap: anywhere; }
+    li { margin: 7px 0; }
+    .ok { color: #176b3a; }
+    .pending { color: #8a5a00; }
+  </style>
+</head>
+<body><main>
+  <h1>Tour SMS release: main rebase handoff</h1>
+  <p>September 16, 2026. This is the bounded Sol implementation-manager handoff for integrating the reviewed tour SMS release onto the newly fetched <code>origin/main</code>. The governing plan remains <a href="tour-sms-release-extra-cycle-plan.html">the authorized extra correction plan</a>, with implementation evidence in <a href="tour-sms-release-extra-cycle-handoff.html">the extra-cycle handoff</a> and operational preparation in <a href="tour-sms-release-extra-cycle-ops.html">the extra-cycle operations report</a>.</p>
+
+  <section>
+    <h2>Repository state</h2>
+    <ul>
+      <li>Worktree: <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/8/AXIS-2</code>.</li>
+      <li>Local unpublished branch: <code>tour-sms-release-20260916</code>.</li>
+      <li>Pre-rebase source: <code>0910023c736c29a16db976fcafa5aef2b73a19f3</code>, based on <code>b1fa8f1fc6a1ff80c98c70f6675f347b2842977f</code>.</li>
+      <li>New upstream base: <code>2776cdb096c99a2e3058e2205bbec5824f2751b5</code>.</li>
+      <li>Rebased implementation HEAD before this handoff commit: <code>1332cea5f4b9a4a9fb0d59d74c4a456be320f57f</code>.</li>
+      <li>Recovery ref: <code>refs/backup/tour-sms-release-20260916-pre-main-2776cdb</code> points to the exact pre-rebase source.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Integration result and decisions</h2>
+    <p>The 15-commit series rebased successfully. Fourteen commits are patch-identical under <code>git range-diff</code>. The first commit differs only in the expected integration of <code>tests/unit/manager-portal-settings-modal-mount.test.ts</code>.</p>
+    <p>There was one textual conflict. Upstream loosened the Tours mount assertion to the direct <code>active &amp;&amp; tab === "tours"</code> expression, while the release introduced <code>shouldMountTourSettings(active, tab, propertyHubArea)</code>. The resolution retains the helper assertion and its four behavioral truth-table cases. This preserves the active gate for both the direct Tours tab and the Properties hub Tours area.</p>
+    <p>Upstream's independently added settings behavior remains intact: resident settings still default to Household, Payments still receives property options and initial property scope, and Operations-only reminder property scope remains separate. The Tour manager reminder intentionally remains workspace-scoped. It was not wrapped in the Operations property-scope provider or given an arbitrary property id.</p>
+    <p>No other semantic conflict was found across the upstream tour wizard, reminders, settings, inbox, payment, or resident-wizard work. Prospect SMS reminder delivery remains independent from the manager reminder-settings property override protocol.</p>
+  </section>
+
+  <section>
+    <h2>Migration integrity</h2>
+    <p class="ok">All 13 reviewed tour migration files are byte-identical to the pre-rebase backup ref. The final additive migration remains <code>supabase/migrations/20260916103000_confirmed_tour_lifecycle_cas.sql</code> with SHA-256 <code>887aafedc720485562c52611e4852bbd49e1e5c4c76fd4fa0dc16c5025689e96</code>. No SQL migration bytes were edited.</p>
+  </section>
+
+  <section>
+    <h2>Focused verification</h2>
+    <ul>
+      <li class="ok"><code>PATH=/Users/akhilvemuri/.nvm/versions/node/v22.23.0/bin:$PATH npx vitest run tests/unit/manager-portal-settings-modal-mount.test.ts tests/unit/manager-settings-module-access.test.ts tests/unit/settings-module-redraws.test.tsx tests/unit/reminders-property-scope.test.ts tests/unit/portal-schedule-records-protocol.test.ts tests/unit/demo-admin-scheduling-public-create.test.ts tests/unit/prospect-tour-scheduling-boundary.test.ts tests/unit/tour-planned-change.test.ts tests/unit/room-availability-month-calendar.test.tsx --maxWorkers=1</code>: exit 0, 85/85.</li>
+      <li class="ok"><code>PATH=/Users/akhilvemuri/.nvm/versions/node/v22.23.0/bin:$PATH npx vitest run tests/unit/settings-property-overrides.test.ts tests/unit/manager-settings-autosave.test.tsx tests/unit/partner-inquiry-sms-consent.test.ts --maxWorkers=1</code>: exit 0, 21/21.</li>
+      <li class="ok"><code>PATH=/Users/akhilvemuri/.nvm/versions/node/v22.23.0/bin:$PATH npx eslint src/components/portal/settings-module-page.tsx src/lib/portal-settings-module-visibility.ts tests/unit/manager-portal-settings-modal-mount.test.ts</code>: exit 0, no errors and five pre-existing/upstream warnings in <code>settings-module-page.tsx</code>.</li>
+      <li class="ok"><code>git diff --check origin/main..HEAD</code>: exit 0.</li>
+      <li class="ok">The exact 13-file migration comparison against the backup ref exited 0.</li>
+    </ul>
+    <p class="pending">No broad suite, browser, localhost server, PostgreSQL harness, remote mutation, provider call, push, deployment, or production action was run in this bounded integration pass. Root owns broad validation, the fresh Astra review, release operations, and deployment verification.</p>
+  </section>
+
+  <section>
+    <h2>Delegation and remaining hazards</h2>
+    <p>Terra performed an independent read-only overlap review and found no semantic blocker beyond the one resolved settings test conflict. The planned Luna test review could not be spawned because the shared agent thread limit was reached; no substitute model was used. The focused test inventory was completed locally from the repository contracts and Terra evidence.</p>
+    <p>Upstream changed branch policy from long-lived keepers to one prompt branch named <code>agent/&lt;lane&gt;/…</code>, deleted after merge. This legacy-named branch predates that rule and remains unpublished. Do not push it under the current name without reconciling the new prompt-branch policy. A push, merge, or branch deletion was outside this pass.</p>
+  </section>
+
+  <section>
+    <h2>Fresh review prompt</h2>
+    <p>Review <code>origin/main</code> at <code>2776cdb096c99a2e3058e2205bbec5824f2751b5</code> through the final handoff HEAD on the local tour release branch. Use this document, the extra-cycle plan, handoff, operations evidence, and review cycle 3. Independently verify the settings conflict resolution, upstream reminder/property-scope coexistence, all H1-H3 and M1-M3 release boundaries, migration byte integrity, and exact test evidence. Record findings in standalone HTML. Do not perform remote writes, provider calls, push, deployment, or production changes.</p>
+  </section>
+</main></body>
+</html>
