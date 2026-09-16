@@ -58,7 +58,7 @@ async function prepareFileForUpload(file: File): Promise<PreparedUpload> {
   }
 }
 
-async function uploadApplicationPhoto(params: {
+export async function uploadApplicationPhoto(params: {
   applicationId: string;
   slot: ApplicationPhotoSlot;
   file: File;

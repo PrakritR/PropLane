@@ -78,6 +78,7 @@ async function loadApplicationRow(db: ServiceClient, applicationId: string): Pro
     application,
     target: {
       bucket: typeof row.bucket === "string" ? row.bucket : null,
+      manuallyAdded: row.manuallyAdded === true,
       setupTokenHash: typeof row.setupTokenHash === "string" ? row.setupTokenHash : null,
       setupTokenExpiresAt: typeof row.setupTokenExpiresAt === "string" ? row.setupTokenExpiresAt : null,
       setupTokenConsumedAt: typeof row.setupTokenConsumedAt === "string" ? row.setupTokenConsumedAt : null,
