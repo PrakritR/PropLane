@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Resume tour release final review</title><style>body{font:17px/1.6 system-ui,sans-serif;max-width:90ch;margin:40px auto;padding:0 24px}code,pre{overflow-wrap:anywhere;white-space:pre-wrap}</style></head><body><main>
 <h1>Tour release: fresh session required</h1>
+<p><strong>Superseded on the resumed turn:</strong> fresh review cycle 3 successfully started. It found release-blocking defects. See <a href="tour-sms-release-review-cycle-3.html">the final review</a> and <a href="tour-sms-release-validation-final.html">updated validation</a>. Do not follow the historical prompt below to restart cycle 3; it is no longer an unrun cycle. Further correction/review requires Akhil's direction under the three-cycle cap.</p>
 <p>The three duplicate TypeScript processes from the screenshot have been stopped. One-heavy-job and active-use-only localhost preferences are saved. No production release was made.</p>
 <h2>Blocker</h2>
 <p>Starting the mandatory fresh Astra reviewer failed with <code>agent thread limit reached</code>. Review cycle 3 has not run. This is a tool/session-capacity blocker, not a new code finding or a completed review. Do not count the failed spawn as a review and do not run a fourth review cycle. The Akhil feature-cycle skill requires a fresh context; it must not be silently replaced by the implementing context.</p>
