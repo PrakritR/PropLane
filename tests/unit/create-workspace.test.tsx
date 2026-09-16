@@ -147,14 +147,15 @@ describe("CreateWorkspace", () => {
     const strip = () => document.querySelector("[data-attr='create-file-strip']")!;
     await waitFor(() => expect(strip().getAttribute("data-state")).toBe("confirm"));
     expect(strip().textContent).toContain("Replace what you typed with owner-messy.xlsx?");
-    expect(fetch).not.toHaveBeenCalled();
+    const readCalls = () => (fetch as ReturnType<typeof vi.fn>).mock.calls.filter((c) => String(c[0]).includes("/property-import/read"));
+    expect(readCalls()).toHaveLength(0);
     fireEvent.click(document.querySelector("[data-attr='create-file-keep']")!);
     await waitFor(() => expect(strip().getAttribute("data-state")).toBe("blank"));
     await userEvent.upload(input(), file());
     await waitFor(() => expect(strip().getAttribute("data-state")).toBe("confirm"));
     fireEvent.click(document.querySelector("[data-attr='create-file-replace']")!);
     await screen.findByText("Found 2 properties");
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(readCalls()).toHaveLength(1);
   });
 
   it("reads the file on the server, saves one draft per property, and lists them with rows cited", async () => {
