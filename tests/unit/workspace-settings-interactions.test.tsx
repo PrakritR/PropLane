@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import React from "react";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi, type Mocked } from "vitest";
+import type { WorkspaceContextValue } from "@/components/portal/workspace-provider";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-const mocks = vi.hoisted(() => ({ context: {} as any, confirm: vi.fn(), refresh: vi.fn(), push: vi.fn() }));
+const mocks = vi.hoisted(() => ({ context: {} as Mocked<WorkspaceContextValue>, confirm: vi.fn(), refresh: vi.fn(), push: vi.fn() }));
 vi.mock("@/components/portal/workspace-provider", () => ({ useWorkspaces: () => mocks.context }));
 vi.mock("@/components/providers/app-ui-provider", () => ({ useConfirm: () => mocks.confirm }));
 vi.mock("next/navigation", () => ({ usePathname: () => "/portal/profile", useSearchParams: () => new URLSearchParams(), useRouter: () => ({ refresh: mocks.refresh, push: mocks.push }) }));
@@ -12,9 +13,9 @@ vi.mock("@/lib/manager-portfolio-access", () => ({ resolvePropertyLabelForId: ()
 vi.mock("@/lib/analytics/track-client", () => ({ track: vi.fn() }));
 vi.mock("@/components/portal/modal-assistant-strip", () => ({ ModalAssistantStrip: () => null }));
 import { WorkspaceSettings } from "@/components/portal/workspace-settings";
-const workspace = (id: string, propertyIds: string[] = [], isDefault = false) => ({ id, name: id, propertyIds, owned: true, isDefault, members: [] });
+const workspace = (id: string, propertyIds: string[] = [], isDefault = false) => ({ id, name: id, ownerUserId: "owner", propertyPermissions: {}, propertyIds, owned: true, isDefault, members: [] });
 function mount(workspaces = [workspace("Original", [], true), workspace("Second")]) {
-  mocks.context = { workspaces, active: workspaces[0], loading: false, plan: null, mutate: vi.fn().mockResolvedValue(undefined), select: vi.fn().mockResolvedValue(undefined) };
+  mocks.context = { workspaces, active: workspaces[0] ?? null, loading: false, plan: null, error: null, refresh: vi.fn<WorkspaceContextValue["refresh"]>().mockResolvedValue(undefined), mutate: vi.fn<WorkspaceContextValue["mutate"]>().mockResolvedValue(undefined), select: vi.fn<WorkspaceContextValue["select"]>().mockResolvedValue(undefined) };
   return render(<WorkspaceSettings />);
 }
 function evidence(name: string) {
