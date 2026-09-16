@@ -104,28 +104,30 @@ it("deletes all ordinary email members after confirmation", async () => {
   expect(mocks.confirm).toHaveBeenCalledOnce();
 });
 
-it("offers Archive on PropLane Assistant and still archives the PropLane admin conversation", async () => {
+it("does not offer Archive on PropLane Assistant, and still archives the PropLane admin conversation", async () => {
   render(<Harness />);
   open("PropLane Assistant");
-  fireEvent.click(await screen.findByRole("menuitem", { name: "Archive" }));
-  await waitFor(() => expect(mocks.archive).toHaveBeenCalledWith("test-inbox", [ASSISTANT_ID]));
+  await screen.findByText("No actions available.");
+  expect(screen.queryByRole("menuitem", { name: "Archive" })).toBeNull();
+  fireEvent.keyDown(await screen.findByRole("menu"), { key: "Escape" });
   await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
   open("PropLane admin"); fireEvent.click(await screen.findByRole("menuitem", { name: "Archive" }));
   await waitFor(() => expect(mocks.archive).toHaveBeenLastCalledWith("test-inbox", ["assistant-email-proof-1", "gone-from-list"]));
   expect(mocks.sms).not.toHaveBeenCalled();
 });
 
-it("offers Archive on the assistant in a role portal too", async () => {
+it("does not offer Archive on the assistant in a role portal either", async () => {
   render(<Harness manager={false} />);
   open("PropLane Assistant");
-  fireEvent.click(await screen.findByRole("menuitem", { name: "Archive" }));
-  await waitFor(() => expect(mocks.archive).toHaveBeenCalledWith("test-inbox", [ASSISTANT_ID]));
+  await screen.findByText("No actions available.");
+  expect(screen.queryByRole("menuitem", { name: "Archive" })).toBeNull();
 });
 
-it("restores PropLane Assistant without Delete, and still deletes the admin mirror", async () => {
+it("never restores or deletes PropLane Assistant, and still deletes the admin mirror", async () => {
   render(<Harness archived />);
   open("PropLane Assistant");
-  expect(screen.getByRole("menuitem", { name: "Restore" })).toBeTruthy();
+  await screen.findByText("No actions available.");
+  expect(screen.queryByRole("menuitem", { name: "Restore" })).toBeNull();
   expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
   fireEvent.keyDown(await screen.findByRole("menu"), { key: "Escape" });
   await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
