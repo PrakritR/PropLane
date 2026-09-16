@@ -10,8 +10,9 @@
  * to reach a form, the editor for opening as a wall of selects. So the two are
  * ONE editor now: a brand-new property opens straight in it at Basics, where
  * the property type is a row of tiles, how-you-rent-it is two cards, and the
- * address and bedroom count sit right under them. Typing and X save the
- * draft (or the live listing, when editing). Publish is the last section.
+ * address and bedroom count sit right under them. X saves the draft (or the
+ * live listing, when editing); typing does not start a timer. Publish is the
+ * last section.
  *
  * `AddPropertyFlow` and {@link submissionFromAddProperty} are kept for callers
  * that already collected those answers elsewhere.
@@ -22,6 +23,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assistant-context";
 import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
 import { useListingContactWorkEmail } from "@/hooks/use-listing-contact-work-email";
@@ -44,7 +47,6 @@ import {
 import { loadManagerPaymentWaiverGrantedClient } from "@/lib/manager-subscription-client";
 import { prepareListingSubmissionForPersist } from "@/lib/prepare-listing-submission-for-persist";
 import {
-  LISTING_DRAFT_AUTOSAVE_DEBOUNCE_MS,
   listingSubmissionFingerprint,
   listingWizardHasUnsavedInput,
 } from "@/lib/manager-listing-draft-autosave";
@@ -182,7 +184,8 @@ export function ListingWizardV2({
     ),
   );
   const stepRef = useRef(0);
-  const closeTriesRef = useRef(0);
+  const lastPersistErrorRef = useRef("Could not save this listing.");
+  const [saveFail, setSaveFail] = useState<{ message: string; stepIndex: number } | null>(null);
   const [dirty, setDirty] = useState(false);
   useEffect(() => {
     setDirty(listingWizardHasUnsavedInput(submission, savedFingerprintRef.current));
@@ -212,11 +215,17 @@ export function ListingWizardV2({
   }, [paymentWaiverGranted]);
 
   const persist = useCallback(
-    async (raw: ManagerListingSubmissionV1, stepIndex: number): Promise<boolean> => {
+    async (
+      raw: ManagerListingSubmissionV1,
+      stepIndex: number,
+      opts?: { notify?: boolean },
+    ): Promise<boolean> => {
+      const notify = opts?.notify !== false;
       if (!listingWizardHasUnsavedInput(raw, savedFingerprintRef.current)) return true;
       const prepared = await persistSubmission(raw);
       if (!prepared.ok) {
-        showToast?.(prepared.message);
+        lastPersistErrorRef.current = prepared.message;
+        if (notify) showToast?.(prepared.message);
         return false;
       }
       if (prepared.droppedMediaCount > 0) {
@@ -227,7 +236,8 @@ export function ListingWizardV2({
         ? await publish(prepared.submission)
         : await saveDraft(prepared.submission, stepIndex);
       if (!result.ok) {
-        showToast?.(result.message);
+        lastPersistErrorRef.current = result.message;
+        if (notify) showToast?.(result.message);
         return false;
       }
       savedFingerprintRef.current = listingSubmissionFingerprint(prepared.submission);
@@ -245,14 +255,6 @@ export function ListingWizardV2({
       flushRef.current = null;
     };
   }, [flushRef, persist]);
-
-  useEffect(() => {
-    if (!dirty) return;
-    const handle = window.setTimeout(() => {
-      void persist(submissionRef.current, stepRef.current);
-    }, LISTING_DRAFT_AUTOSAVE_DEBOUNCE_MS);
-    return () => window.clearTimeout(handle);
-  }, [dirty, persist, submission]);
 
   /**
    * The doors the listing will print — resolved exactly as the public page and
@@ -296,24 +298,19 @@ export function ListingWizardV2({
   const handleClose = useCallback(
     async (stepIndex: number) => {
       stepRef.current = stepIndex;
-      const ok = await persist(submissionRef.current, stepIndex);
+      const ok = await persist(submissionRef.current, stepIndex, { notify: false });
       if (ok) {
-        closeTriesRef.current = 0;
+        setSaveFail(null);
         onClose();
         return;
       }
-      closeTriesRef.current += 1;
-      if (closeTriesRef.current >= 2) {
-        showToast?.("Could not save. Nothing was kept.");
-        onClose();
-      }
+      setSaveFail({ message: lastPersistErrorRef.current, stepIndex });
     },
-    [onClose, persist, showToast],
+    [onClose, persist],
   );
 
-  // The Review step's Save button. Unlike closing, which gives up and leaves
-  // after two failed writes so ✕ never traps anyone, an explicit Save that
-  // fails stays open with the toast — the manager pressed it to keep the work.
+  // The Review step's Save button. Close failures open one dialog; an
+  // explicit Save that fails stays open with the toast.
   const handleSave = useCallback(
     async (stepIndex: number) => {
       stepRef.current = stepIndex;
@@ -325,6 +322,7 @@ export function ListingWizardV2({
 
   return (
     <PortalAssistantConfigProvider endpoint="/api/agent/chat" managerName={null}>
+      <>
       <ListingEditorV2
         title={label}
         propertyId={editListingId ?? initialDraftId ?? null}
@@ -368,6 +366,42 @@ export function ListingWizardV2({
         onPublished?.(result.id);
       }}
     />
+      <Modal
+        open={saveFail !== null}
+        title="Could not save"
+        onClose={() => setSaveFail(null)}
+        assistantStrip={false}
+        footer={
+          <ModalFooter>
+            <Button variant="outline" onClick={() => setSaveFail(null)}>
+              Keep editing
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => (saveFail ? handleClose(saveFail.stepIndex) : undefined)}
+            >
+              Try again
+            </Button>
+            <Button
+              variant="danger"
+              data-attr="listing-wizard-close-without-saving"
+              onClick={() => {
+                setSaveFail(null);
+                onClose();
+              }}
+            >
+              Leave without saving
+            </Button>
+          </ModalFooter>
+        }
+      >
+        {saveFail ? (
+          <p className="text-[14px] font-medium text-foreground" data-testid="listing-wizard-draft-save-error">
+            {saveFail.message}
+          </p>
+        ) : null}
+      </Modal>
+      </>
     </PortalAssistantConfigProvider>
   );
 }

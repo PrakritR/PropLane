@@ -16,14 +16,12 @@ export function CommunicationRowActions({ row, bulk, archived, emailThreads, man
   manager?: boolean;
 }) {
   const members = [...new Set([row.key, ...(row.memberKeys ?? [])])].map(parseUnifiedInboxKey);
-  // Archive and restore are for ordinary conversations. PropLane Assistant
-  // stays in every list and cannot be archived away. The assistant-email
-  // mirror ("PropLane admin") is an ordinary person thread and still archives.
-  // Members are not checked against `emailThreads`: a merged person-row can
-  // carry a stale source id from an earlier merge that the list no longer
-  // returns, and requiring every member to be present left such a row with
-  // "No actions available." while the header could still archive it. The
-  // mutations only send the ids the list actually holds.
+  // Archive and restore are on every conversation, including PropLane
+  // Assistant. Members are not checked against `emailThreads`: a merged
+  // person-row can carry a stale source id from an earlier merge that the
+  // list no longer returns, and requiring every member to be present left
+  // such a row with "No actions available." while the header could still
+  // archive it. The mutations only send the ids the list actually holds.
   const permitted = members.every((member) => {
     if (!member) return false;
     return member.channel !== "sms" || manager;
@@ -39,11 +37,11 @@ export function CommunicationRowActions({ row, bulk, archived, emailThreads, man
     const thread = emailThreads.find((entry) => entry.id === member.threadId);
     return Boolean(thread && assistantInboxCollapseKey(thread));
   });
-  const canArchive = permitted && !assistantRow;
-  const archiveOrRestore = archived && !assistantRow ? (
+  const canArchive = permitted;
+  const archiveOrRestore = archived ? (
     <>
       <Button variant="outline" onClick={() => bulk.handleRestore()}>Restore</Button>
-      {emailOnly ? <Button variant="danger" onClick={() => bulk.handleDelete()}>Delete</Button> : null}
+      {emailOnly && !assistantRow ? <Button variant="danger" onClick={() => bulk.handleDelete()}>Delete</Button> : null}
     </>
   ) : canArchive ? <Button variant="outline" onClick={() => bulk.handleArchive()}>Archive</Button> : null;
   const canEdit = manager && bulk.canEditContact;

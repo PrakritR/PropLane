@@ -144,12 +144,10 @@ export type AddPersonForm = {
 };
 
 export const PAYMENT_METHOD_OPTIONS = [
-  { value: "zelle", label: "Zelle" },
-  { value: "venmo", label: "Venmo" },
-  { value: "check", label: "Check" },
-  { value: "cash", label: "Cash" },
   { value: "card", label: "Card" },
   { value: "bank", label: "Bank transfer" },
+  { value: "check", label: "Check" },
+  { value: "cash", label: "Cash" },
   { value: "other", label: "Other" },
 ];
 
@@ -194,7 +192,7 @@ export function emptyAddPersonForm(kind: AddPersonKind = "resident"): AddPersonF
     depositPaid: true,
     moveInFeePaid: true,
     oneTimePaidOn: "",
-    oneTimeMethod: "zelle",
+    oneTimeMethod: "card",
     documents: [],
     marks: {},
     message: { channels: ["email"], subject: "", body: "" },

@@ -48,11 +48,11 @@ export function PaymentsStep({
   const dueLabel = form.rentDueDay === "last" ? "last day" : form.rentDueDay === "15" ? "15th" : "1st";
   const termLabel = form.moveInDate && form.moveOutDate ? `${form.moveInDate} → ${form.moveOutDate}` : form.moveInDate ? `from ${form.moveInDate}` : "dates on Lease";
   const setMark = (monthKey: string, next: Partial<PaymentMark>, row: { dueOn: string }) => {
-    const current: PaymentMark = form.paymentMarks[monthKey] ?? { status: "paid", paidOn: row.dueOn, method: "zelle" };
+    const current: PaymentMark = form.paymentMarks[monthKey] ?? { status: "paid", paidOn: row.dueOn, method: "card" };
     patch({ paymentMarks: { ...form.paymentMarks, [monthKey]: { ...current, ...next } } });
   };
   const markFor = (monthKey: string, row: { dueOn: string; isCurrent: boolean }): PaymentMark =>
-    form.paymentMarks[monthKey] ?? { status: row.isCurrent ? "due" : "paid", paidOn: row.dueOn, method: "zelle" };
+    form.paymentMarks[monthKey] ?? { status: row.isCurrent ? "due" : "paid", paidOn: row.dueOn, method: "card" };
   const visibleRows = form.billingStart === "next_due" ? [] : rows;
   const paidTotal = visibleRows.reduce((sum, r) => (markFor(r.monthKey, r).status === "paid" ? sum + r.total : sum), 0);
   const dueTotal = visibleRows.reduce((sum, r) => {

@@ -126,7 +126,7 @@ export async function commitResident(row: DemoApplicantRow, form: AddPersonForm,
           const rows = paymentSchedulePreview(form);
           const months: ImportedTenancyMarks["months"] = {};
           for (const r of rows) {
-            const mark = form.paymentMarks[r.monthKey] ?? { status: r.isCurrent ? "due" : "paid", paidOn: r.dueOn, method: "zelle" };
+            const mark = form.paymentMarks[r.monthKey] ?? { status: r.isCurrent ? "due" : "paid", paidOn: r.dueOn, method: "card" };
             months[r.monthKey] = {
               status: mark.status,
               paidOn: mark.paidOn,

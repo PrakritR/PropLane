@@ -95,7 +95,7 @@ export function useUnifiedCommunicationBulk({
 
   const handleArchive = useCallback(async () => {
     const emailIds = selectedRows
-      .filter((row) => row.channel === "email" && !row.threadId.startsWith("agent_notice_") && !row.threadId.startsWith("resident-agent-"))
+      .filter((row) => row.channel === "email")
       .map((row) => row.threadId);
     const smsIds = selectedRows.filter((row) => row.channel === "sms").map((row) => row.threadId);
 

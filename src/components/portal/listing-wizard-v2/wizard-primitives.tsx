@@ -145,7 +145,14 @@ export function ListingWorkspace({
           {subtitle ? <p className="hidden truncate text-[12.5px] text-foreground/70 sm:block">{subtitle}</p> : null}
         </div>
         {headerCenter ? <div className="min-w-0 shrink-0">{headerCenter}</div> : null}
-        {saveState ? <div className="hidden shrink-0 text-[12.5px] text-muted sm:block">{saveState}</div> : null}
+        {saveState ? (
+          <div
+            className="shrink-0 text-[12.5px] font-semibold text-foreground"
+            data-testid="listing-wizard-autosave-status"
+          >
+            {saveState}
+          </div>
+        ) : null}
         <div className="flex shrink-0 items-center gap-2">
           {headerAside}
           {onClose ? (
