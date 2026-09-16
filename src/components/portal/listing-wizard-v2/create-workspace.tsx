@@ -31,8 +31,8 @@ import {
   type ImportStripState,
 } from "@/components/portal/listing-wizard-v2/import-upload-step";
 import { ImportPropertySwitcher } from "@/components/portal/listing-wizard-v2/import-property-switcher";
-import { LISTING_V2_STEPS } from "@/components/portal/listing-wizard-v2/listing-editor";
-import { ListingWorkspace, SideBelow, StepRail } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { LISTING_V2_STEPS, listingRailChrome, listingV2PathStepIds, type ListingV2StepId } from "@/components/portal/listing-wizard-v2/listing-editor";
+import { ListingWorkspace, RailCover, RailNotice, RailStatus, SideBelow, StepRail } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assistant-context";
 import { deleteManagerPropertyDraft, saveManagerPropertyDraftToServer } from "@/lib/demo-admin-property-inventory";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -129,6 +129,7 @@ export function CreateWorkspace({
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   /** blank: the editor on a listing typed by hand; import: the Found list; edit: one imported property open. */
   const [phase, setPhase] = useState<"blank" | "import" | "edit">("blank");
+  const [editStep, setEditStep] = useState<ListingV2StepId>("basics");
   const [busy, setBusy] = useState(false);
   /** A file picked while Basics already held typed work — waits for Replace / Keep. */
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -290,7 +291,7 @@ export function CreateWorkspace({
   }, []);
 
   const openEntry = useCallback(
-    async (key: string) => {
+    async (key: string, stepId: ListingV2StepId = "basics") => {
       if (phase === "edit" && key !== selectedKey) {
         const ok = await flushOpenEditor();
         if (!ok) {
@@ -299,6 +300,7 @@ export function CreateWorkspace({
         }
       }
       setSelectedKey(key);
+      setEditStep(stepId);
       setPhase("edit");
     },
     [flushOpenEditor, phase, selectedKey, showToast],
@@ -445,15 +447,24 @@ export function CreateWorkspace({
           ) : undefined
         }
         flushRef={flushRef}
+        initialStep={editStep}
       />
     );
   }
 
   // The Import step, drawn on the same shell the editor uses — same header,
   // rail, footer — so stepping into Basics changes nothing but the body.
+  const chrome = selected ? listingRailChrome(selected.submission) : null;
+  const pathIds = selected ? listingV2PathStepIds(selected.submission) : LISTING_V2_STEPS.map((s) => s.id);
   const railSteps = [
     { id: IMPORT_STEP_ID, label: "Import", summary: importSummary, attention: needLook },
-    ...LISTING_V2_STEPS.map((s) => ({ id: s.id, label: s.label, offPath: entries.length === 0 })),
+    ...LISTING_V2_STEPS.map((s) => ({
+      id: s.id,
+      label: s.label,
+      summary: chrome?.summaries[s.id],
+      attention: chrome?.attention[s.id] ?? 0,
+      offPath: !pathIds.includes(s.id),
+    })),
   ];
   const canContinue = entries.length > 0 && !busy;
   const sidePanel = <ImportUploadSidePanel state={read} draftCount={entries.length} />;
@@ -467,7 +478,12 @@ export function CreateWorkspace({
         onClose={onClose}
         headerCenter={
           entries.length > 1 && selected ? (
-            <ImportPropertySwitcher entries={switcherEntries} selectedKey={selected.key} onSelect={(key) => void openEntry(key)} disabled={busy} />
+            <ImportPropertySwitcher
+              entries={switcherEntries}
+              selectedKey={selected.key}
+              onSelect={setSelectedKey}
+              disabled={busy}
+            />
           ) : null
         }
         rail={
@@ -476,10 +492,25 @@ export function CreateWorkspace({
             current={0}
             onJump={(index) => {
               if (index === 0 || !selected) return;
-              void openEntry(selected.key);
+              const step = LISTING_V2_STEPS[index - 1];
+              if (!step) return;
+              void openEntry(selected.key, step.id);
             }}
           />
         }
+        railHeader={
+          selected && chrome ? (
+            <>
+              <RailCover
+                photoUrl={chrome.coverUrl}
+                photoCount={chrome.photoCount}
+                onAddPhotos={() => void openEntry(selected.key, "basics")}
+              />
+              <RailNotice count={chrome.summaries.open} onOpen={() => void openEntry(selected.key, "review")} />
+            </>
+          ) : null
+        }
+        railFooter={<RailStatus listed={false} />}
         sidePanel={sidePanel}
         footer={
           <>
@@ -488,11 +519,11 @@ export function CreateWorkspace({
                 Back
               </button>
             </div>
-            <span className="hidden text-[12.5px] text-muted sm:inline">Step 1 of {LISTING_V2_STEPS.length + 1}</span>
+            <span className="min-w-0 flex-1 truncate text-center text-[12.5px] text-muted">Step 1 of {pathIds.length + 1}</span>
             <button
               type="button"
               disabled={!canContinue}
-              onClick={() => selected && void openEntry(selected.key)}
+              onClick={() => selected && void openEntry(selected.key, "basics")}
               data-attr="import-upload-continue"
               className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
             >
