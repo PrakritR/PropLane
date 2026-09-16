@@ -43,7 +43,7 @@ import { listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
 import { listingApplicationFeeRaw } from "@/lib/listing-application-fee";
 import { houseDefaultsForSubmission, roomInheritsDefault } from "@/lib/listing-house-defaults";
 import { LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM, AIRBNB_LEASE_TERM } from "@/lib/rental-application/lease-terms";
-import type { ManagerListingSubmissionV1, ManagerRoomSubmission } from "@/lib/manager-listing-submission";
+import { isEntireHomeListing, type ManagerListingSubmissionV1, type ManagerRoomSubmission } from "@/lib/manager-listing-submission";
 
 /** One line on the move-in receipt. */
 export type ListingQuoteLine = {
@@ -190,14 +190,23 @@ export function buildListingQuote(
   const rooms = sub.rooms ?? [];
   const room = options.roomId ? rooms.find((r) => r.id === options.roomId) ?? null : null;
   const roomId = room?.id ?? null;
+  const defaults = houseDefaultsForSubmission(sub);
 
   const baseMonthlyRent = room
     ? roomRentForTerm(room, leaseTerm, sub)
-    : (sub.entireHomeMonthlyRent ?? 0) || (rooms[0] ? roomRentForTerm(rooms[0], leaseTerm, sub) : 0);
-  const monthlyUtilities = isStay ? 0 : room ? roomUtilitiesForTerm(room, leaseTerm, sub) : 0;
+    : isEntireHomeListing(sub)
+      ? (sub.entireHomeMonthlyRent ?? 0)
+      : defaults.monthlyRent > 0
+        ? defaults.monthlyRent
+        : 0;
+  const monthlyUtilities = isStay
+    ? 0
+    : room
+      ? roomUtilitiesForTerm(room, leaseTerm, sub)
+      : parseMoneyAmount(defaults.utilitiesEstimate ?? "");
   const securityDeposit = room
     ? roomDepositForTerm(room, leaseTerm, sub, isStay)
-    : parseMoneyAmount(sub.securityDeposit ?? "");
+    : parseMoneyAmount((defaults.securityDeposit || sub.securityDeposit || "").trim());
 
   const applicable = listingFeesForWizard(sub).filter(
     (fee) => feeAppliesToLeaseType(fee, leaseTerm) && feeAppliesToRoom(fee, roomId),
@@ -255,8 +264,8 @@ export function buildListingQuote(
     ? `${PAYMENT_AT_SIGNING_ROOM_RENT_KEY_PREFIX}${roomId}`
     : "first_month_rent";
   const rentDueAtSigning =
-    isPaymentDueAtSigning(sub, rentKey, leaseTerm) ||
-    (Boolean(roomId) && isPaymentDueAtSigning(sub, "first_month_rent", leaseTerm));
+    isPaymentDueAtSigning(sub, rentKey, leaseTerm, roomId) ||
+    (Boolean(roomId) && isPaymentDueAtSigning(sub, "first_month_rent", leaseTerm, roomId));
 
   /*
    * The first month's line carries the recurring fees that also fall due in
@@ -282,7 +291,7 @@ export function buildListingQuote(
       key: "first_month_utilities",
       label: "First month utilities",
       amount: monthlyUtilities,
-      dueAtSigning: isPaymentDueAtSigning(sub, "first_month_utilities", leaseTerm),
+      dueAtSigning: isPaymentDueAtSigning(sub, "first_month_utilities", leaseTerm, roomId),
     });
   }
   const securityDepositCredit = oneTime
@@ -295,7 +304,7 @@ export function buildListingQuote(
       label: "Security deposit",
       note: securityDepositCredit > 0 ? "Refundable (after other deposit credits)" : "Refundable",
       amount: netSecurityDeposit,
-      dueAtSigning: isPaymentDueAtSigning(sub, "security_deposit", leaseTerm),
+      dueAtSigning: isPaymentDueAtSigning(sub, "security_deposit", leaseTerm, roomId),
     });
   }
   for (const fee of oneTime) {
@@ -305,7 +314,7 @@ export function buildListingQuote(
       label: feeLabel(fee),
       note: isRefundable(fee) ? "Refundable" : "Non-refundable",
       amount: amountForTerm(fee, isStay),
-      dueAtSigning: isPaymentDueAtSigning(sub, key, leaseTerm),
+      dueAtSigning: isPaymentDueAtSigning(sub, key, leaseTerm, roomId),
     });
   }
 

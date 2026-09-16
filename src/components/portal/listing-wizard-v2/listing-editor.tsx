@@ -2580,7 +2580,7 @@ export function ListingEditorV2({
   const rooms = useMemo(() => submission.rooms ?? [], [submission.rooms]);
   const leaseTerms = useMemo(() => listingLeaseTypeScopeOptions(submission), [submission]);
   const receiptTerm = quoteTerm && leaseTerms.includes(quoteTerm) ? quoteTerm : leaseTerms[0] ?? DEFAULT_QUOTE_TERM;
-  const receiptRoomId = quoteRoomId && rooms.some((r) => r.id === quoteRoomId) ? quoteRoomId : rooms[0]?.id ?? null;
+  const receiptRoomId = quoteRoomId && rooms.some((r) => r.id === quoteRoomId) ? quoteRoomId : null;
   const openRoom = rooms.find((r) => r.id === receiptRoomId) ?? rooms[0] ?? null;
 
   // The same assistant the previous wizard offered, told which step it is on so

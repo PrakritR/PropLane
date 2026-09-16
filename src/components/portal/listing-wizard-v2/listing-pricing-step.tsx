@@ -16,12 +16,13 @@
  *    carries a minimum term. Month-to-month and custom dates are "same as
  *    long-term" until the box is unticked. Short-term is rent per day, rent
  *    per week and a deposit — nothing else, the rate is all-in.
- * 4. **At signing** — what each lease type collects up front, beside the
- *    receipt, which is the same panel it always was.
+ * 4. **What a resident pays** (side panel) — signing ticks live there: Every
+ *    room is house policy; pick a room to override and Reset to follow again.
  *
- * Nothing new is stored. Rent is `room.monthlyRent`; another lease type's own
- * price is `room.termPricing[term]` with ABSENT meaning "same as long-term"
- * (PRP-463); utilities, deposit and pricing mode are the fields they already
+ * Nothing new is stored besides an optional per-room signing matrix. Rent is
+ * `room.monthlyRent`; another lease type's own price is `room.termPricing[term]`
+ * with ABSENT meaning "same as long-term" (PRP-463), which also drives signing
+ * inherit; utilities, deposit and pricing mode are the fields they already
  * are; the house defaults are `listing-house-defaults.ts`. This screen is a
  * view over all of it.
  */
@@ -40,25 +41,24 @@ import {
   listingPricingLeaseTabs,
   listingPricingTabToLeaseTerm,
   narrowFeeScope,
-  PAYMENT_AT_SIGNING_ROOM_RENT_KEY_PREFIX,
 } from "@/lib/listing-fee-scope";
 import {
   applyListingFeesToSubmission,
   ensureSubmissionListingFees,
-  applyPaymentAtSigningCell,
   isListingFeeAmountFilled,
   LISTING_FEE_WIZARD_CADENCE_OPTIONS,
   listingFeeCadence,
   listingFeesForWizard,
   parseRemovedStandardListingFeeRows,
   patchListingFeeCadence,
+  seedSigningColumnFromLongTerm,
   type ListingFeeCadence,
   type ListingFeeRow,
   type RemovedStandardListingFeeRowId,
 } from "@/lib/listing-fees";
 import { SEATTLE_RENT_RULE_NOTE, listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
 import { LONG_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
-import { buildListingQuote, isStayLeaseTerm } from "@/lib/listing-quote";
+import { isStayLeaseTerm } from "@/lib/listing-quote";
 import { LONG_TERM_UTILITIES_PAYMENT_OPTIONS } from "@/lib/listing-utilities-payment";
 import {
   applyHouseDefaultsToRooms,
@@ -806,51 +806,6 @@ function FeesSection({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: P
   );
 }
 
-/* ─────────────────────── due at signing ─────────────────────── */
-
-/**
- * What is collected before move-in, as a tick list with the amounts and the
- * total — the receipt the side panel shows, here where the ticks are made.
- */
-function DueAtSigning({ sub, patch, term }: { sub: ManagerListingSubmissionV1; patch: Patch; term: string }) {
-  const rentByRoom = sub.listingPlaceCategoryId !== "entire_home";
-  const rooms = sub.rooms ?? [];
-  const [roomId, setRoomId] = useState<string | null>(null);
-  const quoteRoomId = rentByRoom ? (roomId && rooms.some((r) => r.id === roomId) ? roomId : rooms[0]?.id ?? null) : null;
-  const leaseTerm = listingPricingTabToLeaseTerm(term);
-  const quote = useMemo(() => buildListingQuote(sub, { roomId: quoteRoomId, leaseTerm }), [sub, quoteRoomId, leaseTerm]);
-  const toggle = (rawKey: string, on: boolean) => {
-    // The quote names the rent line per room; the step sets the LISTING's
-    // policy for this lease type, so the tick lands on the shared key.
-    const key = rawKey.startsWith(PAYMENT_AT_SIGNING_ROOM_RENT_KEY_PREFIX) ? "first_month_rent" : rawKey;
-    const next = applyPaymentAtSigningCell(sub, leaseTerm, key, on);
-    patch({ paymentAtSigningByLeaseType: next.paymentAtSigningByLeaseType, paymentAtSigningIncludes: next.paymentAtSigningIncludes, customFees: next.customFees });
-  };
-  const who = rentByRoom ? rooms.find((r) => r.id === quoteRoomId)?.name.trim() || "Room" : "The whole place";
-  return (
-    <Card dataAttr="listing-v2-due-at-signing">
-      {rentByRoom && rooms.length > 1 ? (
-        <FactRow first label="Room">
-          <RowSelectCell ariaLabel="Room to quote" value={quoteRoomId ?? ""} options={rooms.map((room, i) => ({ value: room.id, label: room.name.trim() || `Room ${i + 1}` }))} onChange={(v) => setRoomId(v || null)} />
-        </FactRow>
-      ) : null}
-      {quote.signingLines.map((line, i) => (
-        <div key={line.key} className={cn("flex min-h-[48px] items-center justify-between gap-3 px-3.5 py-1.5", (i > 0 || (rentByRoom && rooms.length > 1)) && "border-t border-border")}>
-          <label className="flex min-w-0 cursor-pointer items-center gap-2.5">
-            <input type="checkbox" checked={line.dueAtSigning} onChange={(e) => toggle(line.key, e.target.checked)} aria-label={`Collect ${line.label} at signing`} className="h-4 w-4 shrink-0 accent-[var(--pl-blue)]" />
-            <span className="truncate text-[14px] font-semibold text-foreground">{line.label}</span>
-          </label>
-          <span className={cn("shrink-0 text-[13.5px] font-semibold tabular-nums", line.dueAtSigning ? "text-foreground" : "text-foreground/50 line-through")}>{usd(line.amount)}</span>
-        </div>
-      ))}
-      <div className="flex items-center justify-between gap-3 rounded-b-2xl border-t border-border bg-[var(--pl-surface-muted)] px-3.5 py-3">
-        <span className="text-[14px] font-semibold text-foreground">Due at signing · {who}</span>
-        <b className="text-[18px] font-extrabold tabular-nums text-foreground">{usd(quote.signingTotal)}</b>
-      </div>
-    </Card>
-  );
-}
-
 /* ─────────────────────── the step ─────────────────────── */
 
 export function ListingPricingSections({
@@ -996,6 +951,11 @@ export function ListingPricingSections({
                     patch({ rooms: rooms.map((r) => { const all = { ...(r.termPricing ?? {}) }; delete all[activeLeaseTerm]; return { ...r, termPricing: Object.keys(all).length ? all : undefined }; }) });
                     setShowOwn((prev) => ({ ...prev, [activeLeaseTerm]: false }));
                   } else {
+                    const seeded = seedSigningColumnFromLongTerm(sub, activeLeaseTerm);
+                    patch({
+                      paymentAtSigningByLeaseType: seeded.paymentAtSigningByLeaseType,
+                      paymentAtSigningIncludes: seeded.paymentAtSigningIncludes,
+                    });
                     setShowOwn((prev) => ({ ...prev, [activeLeaseTerm]: true }));
                   }
                 }}
@@ -1027,9 +987,6 @@ export function ListingPricingSections({
       <div id="listing-v2-fees" className="scroll-mt-4">
         <FeesSection sub={sub} patch={patch} />
       </div>
-
-      <SectionTitle>At signing</SectionTitle>
-      <DueAtSigning sub={sub} patch={patch} term={active} />
 
       <div className="mt-6">{leaseDocument}</div>
       {/* Mounted only while open: the modal reads `useAppUi` at its top level, so
