@@ -21,6 +21,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { notifyTenantTourConfirmed } from "@/lib/tour-notification-delivery.server";
 import type { TourNotificationChannels, TourNotificationResult } from "@/lib/tour-notification-delivery.server";
 import { isActivePlannedTourEvent } from "@/lib/tour-slot-math";
+import { emitTourClaimedEvent } from "@/lib/tour-events.server";
 import { canAssign, normalizeAssignee, type WorkAssignee } from "@/lib/work-assignment";
 import { createPrepareForTourTask } from "@/lib/manager-default-tasks.server";
 
@@ -429,7 +430,21 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
     if (deleteError) return { ok: false, status: 500, error: deleteError.message };
   }
 
-  // TODO(WS5): emit tour_claimed here
+  // Tell the rest of the team this tour is now taken (WS5 team audience).
+  // Best-effort: a comms failure must never fail the claim itself.
+  try {
+    await emitTourClaimedEvent(db, {
+      managerUserId,
+      tourId: String(plannedEvent.id),
+      guestName: textField(row, "name"),
+      propertyTitle: textField(row, "propertyTitle") || undefined,
+      propertyId: textField(row, "propertyId") || undefined,
+      whenLabel: formatRangeLabel(start, end),
+      claimedByUserId: opts.actorUserId,
+    });
+  } catch {
+    // swallow — the tour is claimed regardless of the team notice
+  }
 
   let tenantNotification: TourNotificationResult | null = null;
   if (opts.notifyTenant) {
