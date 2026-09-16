@@ -289,6 +289,13 @@ Scripts restart dev servers and open the browser via `bin/fm-proplane-open-local
 
 ## Promote main → staging (QA)
 
+For Akhil-authorized releases only, his explicit September 16 request waives
+staging QA until **2026-09-23T21:08:02Z**. See the
+[dated exception](plans/staging-qa-exception-20260916.html). Keep the staging
+branch, schema/deployment alignment, local testing, reviews and all other gates.
+Record QA as waived, never passed. This does not renew `--skip-staging` or permit
+direct main → production. After expiry, the normal QA requirement resumes.
+
 ```bash
 git checkout main
 git pull
