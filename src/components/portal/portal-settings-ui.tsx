@@ -491,7 +491,11 @@ export function PortalSettingsNav({
   return (
     <aside
       className={cn(
-        "sticky top-0 flex w-60 max-h-[calc(100dvh-5.5rem)] shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card/60 p-2.5",
+        // A full-height flex column that fills the settings body and scrolls its
+        // own <nav> — never a `sticky` block capped at 100dvh inside a shorter
+        // scroll body, which clipped the last item ("Services") out of reach.
+        // The right-hand content column scrolls independently (portal-profile-client).
+        "flex w-60 shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card/60 p-2.5 lg:h-full lg:min-h-0 lg:self-stretch",
         className,
       )}
     >

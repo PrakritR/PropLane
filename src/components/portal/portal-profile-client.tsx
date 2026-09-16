@@ -58,7 +58,12 @@ import { ManagerMessagingSettingsPanel } from "@/components/portal/pro-messaging
 import { ManagerAssistantEmailSettingsPanel } from "@/components/portal/pro-assistant-email-settings-panel";
 import { CommunicationSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
 import { SettingsModulePage } from "@/components/portal/settings-module-page";
-import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
+import {
+  SettingsPropertyScopeBar,
+  SettingsPropertyScopeProvider,
+} from "@/components/portal/settings-property-scope";
+import { buildManagerPropertyFilterOptions, MANAGER_PORTFOLIO_REFRESH_EVENTS } from "@/lib/manager-portfolio-access";
+import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import { filterPropertyOptionsForActiveWorkspace } from "@/lib/workspaces/selection";
 import type { ManagerPortalSettingsTab } from "@/components/portal/pro-portal-settings-modal";
@@ -98,6 +103,19 @@ function emptyToDash(v: unknown) {
  * phones without a server round trip.
  */
 const SETTINGS_TAB_PARAM = "tab";
+
+/**
+ * Operations panes that carry the per-property scope bar (PLAN-0916-1040).
+ *
+ * These are the panes whose every section is per-property today: Inspections and
+ * Bookings are reminder-only, and Tasks is reminders + lifecycle automation — all
+ * of which resolve override → workspace → default. The remaining Operations panes
+ * (Communication, Payments, Services, Reminders) mix per-property reminders with
+ * workspace-wide automation-settings that fan out across many sub-components, so
+ * making them fully per-property is a separate pass; until then they stay
+ * workspace-wide rather than show a picker that only scopes some of the pane.
+ */
+const SCOPED_OPERATIONS_PANES = new Set<SettingsGroupId>(["inspections", "bookings", "tasks"]);
 
 /** The two fields on this screen a person may write. */
 type ProfileField = "fullName" | "phone";
@@ -498,6 +516,48 @@ export function PortalProfileClient({
     [pathname, searchParams],
   );
 
+  // The property scope for Operations settings rides in the URL beside `?tab=`
+  // so a reload and the browser back button keep the chosen house. pushState is
+  // the same history mechanism `openGroup` uses (Next syncs it into
+  // useSearchParams). "" is the workspace default ("All properties").
+  const { userId: managerUserId, ready: managerReady } = useManagerUserId();
+  const workspaces = useWorkspaces();
+  const scopeProperty = searchParams.get("property") ?? "";
+  // The picker options come from the client property store, which hydrates
+  // asynchronously from /api/property-records; recompute when the pipeline syncs
+  // (the same tick pattern pro-bookings uses) or the options are empty on load.
+  const [propertyTick, setPropertyTick] = useState(0);
+  useEffect(() => {
+    if (!managerReady || !managerUserId || variant !== "manager") return;
+    void syncPropertyPipelineFromServer().then(() => setPropertyTick((n) => n + 1));
+  }, [managerReady, managerUserId, variant]);
+  useEffect(() => {
+    if (variant !== "manager") return;
+    const bump = () => setPropertyTick((n) => n + 1);
+    for (const eventName of MANAGER_PORTFOLIO_REFRESH_EVENTS) window.addEventListener(eventName, bump);
+    return () => {
+      for (const eventName of MANAGER_PORTFOLIO_REFRESH_EVENTS) window.removeEventListener(eventName, bump);
+    };
+  }, [variant]);
+  const scopeOptions = useMemo(
+    () =>
+      filterPropertyOptionsForActiveWorkspace(
+        buildManagerPropertyFilterOptions(resolveManagerScopeUserId(managerUserId)),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [managerUserId, workspaces?.active?.id, propertyTick],
+  );
+  const setScopeProperty = useCallback(
+    (id: string) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (id) params.set("property", id);
+      else params.delete("property");
+      const query = params.toString();
+      window.history.pushState(null, "", query ? `${pathname}?${query}` : pathname);
+    },
+    [pathname, searchParams],
+  );
+
   const openGroup = useCallback(
     (id: string) => {
       setBillingOverride(false);
@@ -518,15 +578,19 @@ export function PortalProfileClient({
     window.history.pushState(null, "", urlForTab(null));
   }, [urlForTab]);
 
-  // Reset scroll when the pane changes — the shell scrolls in an inner
-  // container, so a router-style scroll-to-top never happens on its own.
+  // Reset scroll when the pane changes. On desktop the content column is its own
+  // scroll container (independent of the rail), so resetting its `scrollTop` is
+  // what lands a switched pane at the top; on mobile the whole shell scrolls, so
+  // scrollIntoView on the layout top still applies there.
   const layoutTopRef = useRef<HTMLDivElement>(null);
+  const contentColRef = useRef<HTMLDivElement>(null);
   const skipInitialScroll = useRef(true);
   useEffect(() => {
     if (skipInitialScroll.current) {
       skipInitialScroll.current = false;
       return;
     }
+    contentColRef.current?.scrollTo?.({ top: 0, behavior: "auto" });
     layoutTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
   }, [activeGroup?.id]);
 
@@ -609,7 +673,7 @@ export function PortalProfileClient({
       // other manager section, drop the duplicate in-page title on phones.
       hideTitleOnMobileNav
     >
-      <div ref={layoutTopRef} className="lg:flex lg:items-start lg:gap-10">
+      <div ref={layoutTopRef} className="lg:flex lg:h-full lg:min-h-0 lg:flex-1 lg:gap-10">
         <PortalSettingsNav
           className="max-lg:hidden"
           name={emptyToDash(fullName)}
@@ -623,7 +687,10 @@ export function PortalProfileClient({
           activeId={paneGroup.id}
           onSelect={openGroup}
         />
-        <div className="min-w-0 flex-1 lg:max-w-3xl">
+        <div
+          ref={contentColRef}
+          className="min-w-0 flex-1 lg:min-h-0 lg:max-w-3xl lg:overflow-y-auto lg:overscroll-contain"
+        >
           {activeGroup === null ? (
             <div className="space-y-5 lg:hidden">
               <PortalSettingsProfileHeader name={emptyToDash(fullName)} email={initialEmail} />
@@ -659,9 +726,22 @@ export function PortalProfileClient({
               />
             </div>
           )}
-          <PortalSettingsSections className={activeGroup === null ? "max-lg:hidden" : undefined}>
-            {renderPane(paneGroup.id)}
-          </PortalSettingsSections>
+          {SCOPED_OPERATIONS_PANES.has(paneGroup.id) ? (
+            <SettingsPropertyScopeProvider
+              propertyId={scopeProperty}
+              onPropertyIdChange={setScopeProperty}
+              options={scopeOptions}
+            >
+              <SettingsPropertyScopeBar />
+              <PortalSettingsSections className={activeGroup === null ? "max-lg:hidden" : undefined}>
+                {renderPane(paneGroup.id)}
+              </PortalSettingsSections>
+            </SettingsPropertyScopeProvider>
+          ) : (
+            <PortalSettingsSections className={activeGroup === null ? "max-lg:hidden" : undefined}>
+              {renderPane(paneGroup.id)}
+            </PortalSettingsSections>
+          )}
         </div>
       </div>
     </ManagerPortalPageShell>
