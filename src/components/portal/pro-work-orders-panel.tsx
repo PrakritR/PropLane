@@ -101,11 +101,11 @@ function formatScheduledLabel(iso: string): string {
   return d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-/** Same pill Stage C shows in the Schedule visit modal
- * (`schedule-service-visit-modal.tsx`, `data-attr="schedule-service-visit-source"`),
- * reused rather than re-styled: booked-on-arrival (the visit time IS the
- * suggestion) reads as a plain fact, a still-open proposal reads as a call to
- * confirm it. `null` when there is nothing to say. */
+/** The same source the Schedule visit modal names in its "Visit arrival"
+ * label (`schedule-service-visit-modal.tsx`, `data-attr="schedule-service-visit-source"`),
+ * as a pill here because a list row has no label to carry it: booked-on-arrival
+ * (the visit time IS the suggestion) reads as a plain fact, a still-open
+ * proposal reads as a call to confirm it. `null` when there is nothing to say. */
 function visitSourcePill(row: DemoManagerWorkOrderRow): ReactNode {
   const proposed = row.proposedVisit;
   if (!proposed) return null;
