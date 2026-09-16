@@ -25,7 +25,7 @@ import { ReminderMessageUpdateModal } from "@/components/portal/reminder-setting
 import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { useReportSettingsSaveStatus } from "@/components/portal/settings-save-status-context";
 
-const AUDIENCE_LABEL: Record<AutomatedMessageAudience, string> = { resident: "Resident", manager: "You", vendor: "Vendor" };
+const AUDIENCE_LABEL: Record<AutomatedMessageAudience, string> = { resident: "Resident", manager: "You", vendor: "Vendor", team: "Team" };
 
 export function AutomatedMessagesList({ area, disabled: disabledProp }: { area: AutomatedMessageCatalogEntry["area"]; disabled?: boolean }) {
   const { showToast } = useAppUi();

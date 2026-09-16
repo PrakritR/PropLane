@@ -9,6 +9,7 @@ import { loadAutomatedMessageSettings } from "@/lib/automated-messages-settings.
 import { applyAutomatedMessageSetting } from "@/lib/automated-messages-settings";
 import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
 import { managerNotificationCategoryForEvent } from "@/lib/manager-notification-preferences";
+import { postTeamThreadMessage, mirrorTeamThreadMessageToSms } from "@/lib/team-comms.server";
 
 export type ActionEventDomain =
   | "work_order"
@@ -19,14 +20,32 @@ export type ActionEventDomain =
   | "tour"
   | "inspection"
   | "task"
-  | "message";
-export type ActionEventAudience = "manager" | "resident" | "vendor";
+  | "message"
+  /** WS5: team-only, no resident/vendor/manager side. */
+  | "availability";
+/**
+ * `team` (WS5): one rendered copy posted once into the manager's Team thread
+ * (`team-comms.server.ts`), never fanned out per co-manager the way the other
+ * three audiences are. `recipient.userId` for a `team` recipient is the
+ * OWNING manager's user id (see `team-comms.server.ts` module doc for the
+ * per-owner, not per-workspace, scope this implies).
+ */
+export type ActionEventAudience = "manager" | "resident" | "vendor" | "team";
 export type ActionEventRendered = { subject: string; text: string; smsText?: string };
 export type ActionEventRecipient = {
   audience: ActionEventAudience;
   userId?: string;
   email?: string;
   rendered: ActionEventRendered;
+  /**
+   * Resident/vendor only: route this recipient through manager-approval
+   * draft-for-review instead of immediate send (WS5 decision: "party-facing
+   * -> draft-for-review", per-workspace opt-in — see
+   * `src/lib/automation-send-mode.ts`). Absent/false on every existing call
+   * site, so this is purely additive — nothing auto-sends today changes
+   * behavior unless a call site explicitly opts in.
+   */
+  draftForReview?: boolean;
 };
 
 export type ActionDeliveryPolicy = { deferSms: boolean; digest: boolean; nextAttemptAt: string | null };
@@ -73,12 +92,91 @@ async function deliverProjection(
     domain?: string;
     eventType?: string;
     urgent?: boolean;
+    draftForReview?: boolean;
     finalizeGuard?: { status: "pending" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "deferred"; dueAt: string };
   },
 ): Promise<"delivered" | "submitted" | "deferred" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "stale"> {
   const text = input.digest
     ? `Several updates were recorded. Open PropLane for the latest status.`
     : input.rendered.text;
+  // Team (WS5): one copy, posted once into the manager's Team thread instead
+  // of fanned out per recipient. Never digested — a digest placeholder in a
+  // shared team channel would be meaningless without knowing whose events.
+  if (input.recipient.audience === "team" && input.recipient.userId) {
+    const updatedAt = input.now.toISOString();
+    const messageId = `action-event:${input.eventKey}:team:${input.recipient.userId}`;
+    try {
+      const posted = await postTeamThreadMessage(db, {
+        ownerManagerUserId: input.recipient.userId,
+        actorUserId: input.senderUserId,
+        actorName: input.senderName?.trim() || "PropLane Portal",
+        subject: input.rendered.subject,
+        text: input.rendered.text,
+        smsText: input.rendered.smsText,
+        messageId,
+        urgent: input.urgent,
+      });
+      if (!posted.ok) throw new Error(posted.error);
+      // Best-effort SMS mirror (WS6) — never fail the team-thread post over a text failure.
+      await mirrorTeamThreadMessageToSms(db, {
+        ownerManagerUserId: input.recipient.userId,
+        actorUserId: input.senderUserId,
+        subject: input.rendered.subject,
+        text: input.rendered.smsText ?? input.rendered.text,
+        messageId,
+        urgent: input.urgent,
+        now: input.now,
+      }).catch(() => undefined);
+      const { error } = await db.from("action_event_deliveries").update({
+        status: "delivered", attempts: input.attempts + 1, last_error: null, next_attempt_at: null,
+        delivered_at: updatedAt, sms_deferred_until: null, updated_at: updatedAt,
+      }).eq("id", input.deliveryId);
+      if (error) throw new Error(`Could not finalize action-event delivery: ${error.message}`);
+      return "delivered";
+    } catch (error) {
+      const { error: updateError } = await db.from("action_event_deliveries").update({
+        status: "failed", attempts: input.attempts + 1,
+        last_error: error instanceof Error ? error.message : "Team post failed",
+        next_attempt_at: new Date(input.now.getTime() + 5 * 60_000).toISOString(), updated_at: updatedAt,
+      }).eq("id", input.deliveryId);
+      if (updateError) throw new Error(`Could not finalize action-event delivery: ${updateError.message}`);
+      return "failed";
+    }
+  }
+  // Draft-for-review (WS5, opt-in): a resident/vendor recipient a call site
+  // marked `draftForReview` lands as a manager-approval draft instead of an
+  // immediate send. Queuing the draft IS the terminal, successful outcome for
+  // this delivery — it must never retry into a real send later.
+  if (input.draftForReview && (input.recipient.audience === "resident" || input.recipient.audience === "vendor")) {
+    const updatedAt = input.now.toISOString();
+    try {
+      const { queueActionEventDraftForReview } = await import("@/lib/action-event-draft-review.server");
+      const queued = await queueActionEventDraftForReview(db, {
+        managerUserId: input.senderUserId,
+        recipientEmail: input.recipient.email,
+        recipientUserId: input.recipient.userId,
+        subject: input.rendered.subject,
+        text,
+        origin: `automation:${input.domain ?? "unknown"}:${input.eventType ?? "unknown"}`,
+        draftId: input.eventKey,
+      });
+      if (!queued.ok) throw new Error(queued.error);
+      const { error } = await db.from("action_event_deliveries").update({
+        status: "delivered", attempts: input.attempts + 1, last_error: null, next_attempt_at: null,
+        delivered_at: updatedAt, sms_deferred_until: null, updated_at: updatedAt,
+      }).eq("id", input.deliveryId);
+      if (error) throw new Error(`Could not finalize action-event delivery: ${error.message}`);
+      return "delivered";
+    } catch (error) {
+      const { error: updateError } = await db.from("action_event_deliveries").update({
+        status: "failed", attempts: input.attempts + 1,
+        last_error: error instanceof Error ? error.message : "Draft queue failed",
+        next_attempt_at: new Date(input.now.getTime() + 5 * 60_000).toISOString(), updated_at: updatedAt,
+      }).eq("id", input.deliveryId);
+      if (updateError) throw new Error(`Could not finalize action-event delivery: ${updateError.message}`);
+      return "failed";
+    }
+  }
   // A manager's own copy of an event they (or the system acting as them) sent
   // is a self-send, which the inbox drops as "No recipients selected". It is
   // really an Assistant notice — the same surface reminders use for the
@@ -285,6 +383,10 @@ export async function emitActionEvent(
       next_attempt_at: policy.nextAttemptAt,
       sms_deferred_until: policy.deferSms ? policy.nextAttemptAt : null,
       rendered: recipient.rendered,
+      // Persisted so a retry of a FAILED draft-queue attempt re-queues the
+      // draft rather than falling through to a real send — see
+      // `retryDueActionEventDeliveries` below.
+      draft_for_review: Boolean(recipient.draftForReview),
     }, { onConflict: "event_id,audience,recipient_key", ignoreDuplicates: true }).select("id,status,attempts").maybeSingle();
     if (!delivery) continue;
     const outcome = await deliverProjection(db, {
@@ -305,6 +407,7 @@ export async function emitActionEvent(
       domain: input.domain,
       eventType: input.event,
       urgent: input.urgent,
+      draftForReview: recipient.draftForReview,
     });
     if (outcome === "delivered") delivered++;
     else if (outcome === "submitted") submitted++;
@@ -323,7 +426,7 @@ export async function retryDueActionEventDeliveries(
 ): Promise<{ attempted: number; delivered: number; submitted: number; failed: number }> {
   const now = opts.now ?? new Date();
   const { data, error } = await db.from("action_event_deliveries")
-    .select("id,event_id,audience,recipient_user_id,recipient_email,status,attempts,next_attempt_at,sms_deferred_until,rendered")
+    .select("id,event_id,audience,recipient_user_id,recipient_email,status,attempts,next_attempt_at,sms_deferred_until,rendered,draft_for_review")
     .in("status", ["pending", "failed", "email_failed", "sms_failed", "channels_failed", "deferred"])
     .lte("next_attempt_at", now.toISOString())
     .order("next_attempt_at", { ascending: true })
@@ -385,6 +488,7 @@ export async function retryDueActionEventDeliveries(
       domain: event.domain ? String(event.domain) : undefined,
       eventType: event.event_type ? String(event.event_type) : undefined,
       urgent: Boolean((event.payload as { emergency?: unknown } | null)?.emergency),
+      draftForReview: Boolean(row.draft_for_review),
       finalizeGuard: { status: row.status as "pending" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "deferred", dueAt: claimUntil },
     });
     if (["failed", "email_failed", "sms_failed", "channels_failed"].includes(outcome)) failed++;
