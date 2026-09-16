@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
@@ -144,20 +143,22 @@ function defaultTourScheduleFields(): { scheduleDate: string; startTime: string 
   };
 }
 
-/** The pill shown beside "Start time" for a suggested-but-unconfirmed start —
- * `null` once the manager has typed their own date/time. */
-type TaskSuggestPill = "availability" | "proplane-pick" | "none";
+/** Where a suggested-but-unconfirmed schedule came from, shown as plain text
+ * in the Schedule label row — `null` once the manager has typed their own
+ * date/time. Text, not a Badge: a pill inside the label wrapped it onto two
+ * lines and knocked it out of line with its neighbours. */
+type TaskSuggestSource = "availability" | "proplane-pick" | "none";
 
-const TASK_SUGGEST_PILL_LABEL: Record<TaskSuggestPill, string> = {
+const TASK_SUGGEST_SOURCE_LABEL: Record<TaskSuggestSource, string> = {
   availability: "From your availability",
-  "proplane-pick": "PropLane pick",
+  "proplane-pick": "✦ PropLane pick",
   none: "Nothing free in 14 days",
 };
 
-const TASK_SUGGEST_PILL_TONE: Record<TaskSuggestPill, "success" | "info" | "danger"> = {
-  availability: "success",
-  "proplane-pick": "info",
-  none: "danger",
+const TASK_SUGGEST_SOURCE_CLASS: Record<TaskSuggestSource, string> = {
+  availability: "text-[var(--status-confirmed-fg)]",
+  "proplane-pick": "text-primary",
+  none: "text-danger",
 };
 
 const EMPTY_FORM = {
@@ -222,12 +223,10 @@ export function ManagerTaskFormModal({
   const [selectedRoomValue, setSelectedRoomValue] = useState("");
   const [residentTick, setResidentTick] = useState(0);
   const [serviceFooter, setServiceFooter] = useState<ServiceIntakeFooterState | null>(null);
-  /** `null` = no pill: editing an existing task, or the manager has typed a
-   * start of their own. Only a fetched-but-unconfirmed suggestion shows one. */
-  const [taskSuggestPill, setTaskSuggestPill] = useState<TaskSuggestPill | null>(null);
+  /** `null` = no source text: editing an existing task, or the manager has
+   * typed a start of their own. Only a fetched-but-unconfirmed suggestion shows one. */
+  const [taskSuggestSource, setTaskSuggestSource] = useState<TaskSuggestSource | null>(null);
   const [taskSuggestLoading, setTaskSuggestLoading] = useState(false);
-  /** Same seed for the initial pick and any "Next open" click within one Add session. */
-  const taskSuggestSeedRef = useRef<string>("");
 
   const propertyOptions = useMemo(
     () => buildManagerPropertyFilterOptions(managerUserId),
@@ -371,24 +370,22 @@ export function ManagerTaskFormModal({
    */
   useEffect(() => {
     if (!open || editingId) {
-      setTaskSuggestPill(null);
+      setTaskSuggestSource(null);
       setTaskSuggestLoading(false);
       return;
     }
     if (form.scheduleDate || form.startTime) return;
-    const seed = crypto.randomUUID();
-    taskSuggestSeedRef.current = seed;
     let cancelled = false;
     setTaskSuggestLoading(true);
     void fetchManagerTimeSuggestion({
       kind: "tasks",
       durationMinutes: TASK_SUGGEST_DURATION_MINUTES,
-      seed,
+      seed: crypto.randomUUID(),
     }).then((suggestion) => {
       if (cancelled) return;
       setTaskSuggestLoading(false);
       if (!suggestion) {
-        setTaskSuggestPill("none");
+        setTaskSuggestSource("none");
         return;
       }
       const end = new Date(Date.parse(suggestion.iso) + TASK_SUGGEST_DURATION_MINUTES * 60_000);
@@ -398,7 +395,7 @@ export function ManagerTaskFormModal({
         startTime: localTimePart(suggestion.iso),
         endTime: localTimePart(end.toISOString()),
       }));
-      setTaskSuggestPill(suggestion.source);
+      setTaskSuggestSource(suggestion.source);
     });
     return () => {
       cancelled = true;
@@ -406,31 +403,6 @@ export function ManagerTaskFormModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editingId]);
 
-  const onTaskNextOpen = useCallback(async () => {
-    const currentIso =
-      form.scheduleDate && form.startTime ? combineLocalDateTime(form.scheduleDate, form.startTime) : null;
-    const after = currentIso ?? new Date().toISOString();
-    setTaskSuggestLoading(true);
-    const suggestion = await fetchManagerTimeSuggestion({
-      kind: "tasks",
-      durationMinutes: TASK_SUGGEST_DURATION_MINUTES,
-      seed: taskSuggestSeedRef.current || crypto.randomUUID(),
-      after,
-    });
-    setTaskSuggestLoading(false);
-    if (!suggestion) {
-      showToast("No later open time in the next 14 days.");
-      return;
-    }
-    const end = new Date(Date.parse(suggestion.iso) + TASK_SUGGEST_DURATION_MINUTES * 60_000);
-    setForm((current) => ({
-      ...current,
-      scheduleDate: localDatePart(suggestion.iso),
-      startTime: localTimePart(suggestion.iso),
-      endTime: localTimePart(end.toISOString()),
-    }));
-    setTaskSuggestPill(suggestion.source);
-  }, [form.scheduleDate, form.startTime, showToast]);
 
   function updateTaskKind(nextKind: ManagerTaskFormKind) {
     setForm((current) => {
@@ -938,13 +910,6 @@ export function ManagerTaskFormModal({
                   </option>
                 ))}
               </Select>
-              <p className="mt-1 text-xs text-muted">
-                {form.urgency === "scheduled"
-                  ? "Books a slot on the calendar."
-                  : form.urgency === "deadline"
-                    ? "Just a time to finish by — no slot is reserved."
-                    : "No due date — still needs to get done."}
-              </p>
             </div>
 
             <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
@@ -970,45 +935,6 @@ export function ManagerTaskFormModal({
               </Select>
             </div>
 
-            <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-recurrence">
-                Repeats
-              </label>
-              <Select
-                id="manager-task-recurrence"
-                value={form.recurrence}
-                onChange={(e) => setForm((current) => ({ ...current, recurrence: e.target.value as ManagerTaskRecurrence }))}
-                data-attr="manager-task-recurrence"
-              >
-                <option value="none">Does not repeat</option>
-                <option value="daily">Every day</option>
-                <option value="weekly">Every week</option>
-                <option value="monthly">Every month (same day, month-end clamped)</option>
-              </Select>
-            </div>
-
-            {form.urgency === "scheduled" ? (
-            <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-schedule-date">
-                Schedule date (optional)
-              </label>
-              <Input
-                id="manager-task-schedule-date"
-                type="date"
-                value={form.scheduleDate}
-                onChange={(e) => {
-                  setTaskSuggestPill(null);
-                  setForm((current) => ({
-                    ...current,
-                    scheduleDate: e.target.value,
-                    dueDate: e.target.value ? "" : current.dueDate,
-                  }));
-                }}
-                data-attr="manager-task-schedule-date"
-              />
-            </div>
-            ) : null}
-
             {showDueDate ? (
               <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
                 <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-due-date">
@@ -1025,72 +951,102 @@ export function ManagerTaskFormModal({
             ) : null}
 
             {form.urgency === "scheduled" ? (
-            /* `lg:col-span-2`, not `sm:`: the form grid around this is
-               `grid-cols-1 lg:grid-cols-2`, so between 640px and 1024px this row
-               was the ONLY child claiming two columns — which conjured an implicit
-               second track out of a one-column grid and threw every sibling into
-               it. That is why "Add task" in a 900px window laid its labels out in
-               a 100px gutter and truncated them to "Inspect un…" and "Medi…".
-               The span now turns on with the columns it is spanning. */
-            <div className="grid gap-4 lg:col-span-2 sm:grid-cols-2">
-              <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-                <label
-                  className={cn(MODAL_FIELD_LABEL_CLASS, "flex items-center gap-1.5")}
-                  htmlFor="manager-task-start-time"
-                >
-                  Start time (optional)
-                  {taskSuggestPill ? (
-                    <span data-attr="manager-task-start-suggest-source">
-                      <Badge tone={TASK_SUGGEST_PILL_TONE[taskSuggestPill]}>
-                        {TASK_SUGGEST_PILL_LABEL[taskSuggestPill]}
-                      </Badge>
-                    </span>
-                  ) : null}
+            /* One Schedule row: date · start – end under a single label, with
+               the suggestion source as plain text on the label's right.
+               `lg:col-span-2`, not `sm:`: the form grid around this is
+               `grid-cols-1 lg:grid-cols-2`, so between 640px and 1024px a
+               `sm:col-span-2` child was the ONLY one claiming two columns —
+               which conjured an implicit second track out of a one-column grid
+               and threw every sibling into it. The span turns on with the
+               columns it is spanning. */
+            <div
+              className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, "lg:col-span-2")}
+              data-attr="manager-task-schedule"
+            >
+              <div className="flex items-baseline justify-between gap-3">
+                <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-schedule-date">
+                  Schedule
                 </label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="manager-task-start-time"
-                    type="time"
-                    value={form.startTime}
-                    onChange={(e) => {
-                      setTaskSuggestPill(null);
-                      setForm((current) => ({ ...current, startTime: e.target.value }));
-                    }}
-                    disabled={!form.scheduleDate || taskSuggestLoading}
-                    className="flex-1"
-                    data-attr="manager-task-start-time"
-                  />
-                  {taskSuggestPill === "availability" || taskSuggestPill === "proplane-pick" ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={taskSuggestLoading}
-                      onClick={() => onTaskNextOpen()}
-                      data-attr="manager-task-start-next-open"
-                    >
-                      Next open
-                    </Button>
-                  ) : null}
-                </div>
+                {taskSuggestLoading ? (
+                  <span className="text-xs font-semibold text-muted" data-attr="manager-task-start-suggest-source">
+                    Finding a time…
+                  </span>
+                ) : taskSuggestSource ? (
+                  <span
+                    className={cn("text-xs font-semibold", TASK_SUGGEST_SOURCE_CLASS[taskSuggestSource])}
+                    data-attr="manager-task-start-suggest-source"
+                  >
+                    {TASK_SUGGEST_SOURCE_LABEL[taskSuggestSource]}
+                  </span>
+                ) : null}
               </div>
-              <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-                <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-end-time">
-                  End time (optional)
-                </label>
+              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 sm:grid-cols-[1.25fr_1fr_auto_1fr]">
+                <Input
+                  id="manager-task-schedule-date"
+                  type="date"
+                  aria-label="Schedule date"
+                  value={form.scheduleDate}
+                  onChange={(e) => {
+                    setTaskSuggestSource(null);
+                    setForm((current) => ({
+                      ...current,
+                      scheduleDate: e.target.value,
+                      dueDate: e.target.value ? "" : current.dueDate,
+                    }));
+                  }}
+                  disabled={taskSuggestLoading}
+                  className="col-span-3 min-w-0 sm:col-span-1"
+                  data-attr="manager-task-schedule-date"
+                />
+                <Input
+                  id="manager-task-start-time"
+                  type="time"
+                  aria-label="Start time"
+                  value={form.startTime}
+                  onChange={(e) => {
+                    setTaskSuggestSource(null);
+                    setForm((current) => ({ ...current, startTime: e.target.value }));
+                  }}
+                  disabled={!form.scheduleDate || taskSuggestLoading}
+                  className="min-w-0"
+                  data-attr="manager-task-start-time"
+                />
+                <span aria-hidden="true" className="text-sm text-muted">
+                  –
+                </span>
                 <Input
                   id="manager-task-end-time"
                   type="time"
+                  aria-label="End time"
                   value={form.endTime}
                   onChange={(e) => {
-                    setTaskSuggestPill(null);
+                    setTaskSuggestSource(null);
                     setForm((current) => ({ ...current, endTime: e.target.value }));
                   }}
-                  disabled={!form.scheduleDate}
+                  disabled={!form.scheduleDate || taskSuggestLoading}
+                  className="min-w-0"
                   data-attr="manager-task-end-time"
                 />
               </div>
             </div>
             ) : null}
+
+            <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-recurrence">
+                Repeats
+              </label>
+              <Select
+                id="manager-task-recurrence"
+                value={form.recurrence}
+                onChange={(e) => setForm((current) => ({ ...current, recurrence: e.target.value as ManagerTaskRecurrence }))}
+                data-attr="manager-task-recurrence"
+              >
+                <option value="none">Does not repeat</option>
+                <option value="daily">Every day</option>
+                <option value="weekly">Every week</option>
+                <option value="monthly">Every month (same day, month-end clamped)</option>
+              </Select>
+            </div>
           </>
         )}
 

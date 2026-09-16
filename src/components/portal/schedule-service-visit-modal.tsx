@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
@@ -17,20 +17,22 @@ import {
 import { normalizeAssignee, type WorkAssignee } from "@/lib/work-assignment";
 import { fetchManagerTimeSuggestion } from "@/lib/manager-schedule-suggest.client";
 
-/** The pill shown beside "Visit arrival" — `null` once the manager types their
- * own time, since a hand-picked time is no longer a suggestion. */
-type SuggestPill = "availability" | "proplane-pick" | "none";
+/** Where the suggested "Visit arrival" came from, shown as plain text on the
+ * label's right — `null` once the manager types their own time, since a
+ * hand-picked time is no longer a suggestion. Text, not a Badge: a pill inside
+ * the label wrapped it onto two lines. */
+type SuggestSource = "availability" | "proplane-pick" | "none";
 
-const SUGGEST_PILL_LABEL: Record<SuggestPill, string> = {
+const SUGGEST_SOURCE_LABEL: Record<SuggestSource, string> = {
   availability: "From your availability",
-  "proplane-pick": "PropLane pick",
+  "proplane-pick": "✦ PropLane pick",
   none: "Nothing free in 14 days",
 };
 
-const SUGGEST_PILL_TONE: Record<SuggestPill, "success" | "info" | "danger"> = {
-  availability: "success",
-  "proplane-pick": "info",
-  none: "danger",
+const SUGGEST_SOURCE_CLASS: Record<SuggestSource, string> = {
+  availability: "text-[var(--status-confirmed-fg)]",
+  "proplane-pick": "text-primary",
+  none: "text-danger",
 };
 
 function pad2(n: number) {
@@ -100,9 +102,9 @@ export function ScheduleServiceVisitModal({
   const [visitLocal, setVisitLocal] = useState("");
   const [durationMinutes, setDurationMinutes] = useState<number>(60);
   const [busy, setBusy] = useState(false);
-  /** `null` = no pill: either a real scheduled/proposed time, or the manager
-   * has typed their own. Only the fetched-suggestion path shows one. */
-  const [suggestPill, setSuggestPill] = useState<SuggestPill | null>(null);
+  /** `null` = no source text: either a real scheduled/proposed time, or the
+   * manager has typed their own. Only the fetched-suggestion path shows one. */
+  const [suggestSource, setSuggestSource] = useState<SuggestSource | null>(null);
   const [suggestLoading, setSuggestLoading] = useState(false);
 
   const self = useMemo<WorkAssignee | null>(() => {
@@ -111,11 +113,10 @@ export function ScheduleServiceVisitModal({
     return { type: "team", id: managerUserId, name: me?.name?.trim() || email?.trim() || "You" };
   }, [email, managerUserId, teamMembers]);
 
-  /** Ask the server for a suggestion at the given duration, optionally after a
-   * given ISO ("Next open"). Never throws — `fetchManagerTimeSuggestion` already
-   * folds every failure into `null`. */
+  /** Ask the server for a suggestion at the given duration. Never throws —
+   * `fetchManagerTimeSuggestion` already folds every failure into `null`. */
   const askSuggestion = useCallback(
-    async (duration: number, after?: string) => {
+    async (duration: number) => {
       if (!row) return null;
       setSuggestLoading(true);
       try {
@@ -124,7 +125,6 @@ export function ScheduleServiceVisitModal({
           durationMinutes: duration,
           seed: row.id,
           excludeWorkOrderId: row.id,
-          after,
         });
       } finally {
         setSuggestLoading(false);
@@ -138,7 +138,7 @@ export function ScheduleServiceVisitModal({
     setAssignee(initialAssignee(row, self));
     setDurationMinutes(60);
     setBusy(false);
-    setSuggestPill(null);
+    setSuggestSource(null);
     setSuggestLoading(false);
 
     if (row.scheduledAtIso) {
@@ -147,7 +147,7 @@ export function ScheduleServiceVisitModal({
     }
     if (row.proposedVisit?.iso) {
       setVisitLocal(toDatetimeLocalValue(row.proposedVisit.iso));
-      setSuggestPill(row.proposedVisit.source);
+      setSuggestSource(row.proposedVisit.source);
       return;
     }
 
@@ -157,9 +157,9 @@ export function ScheduleServiceVisitModal({
       if (cancelled) return;
       if (suggestion) {
         setVisitLocal(toDatetimeLocalValue(suggestion.iso));
-        setSuggestPill(suggestion.source);
+        setSuggestSource(suggestion.source);
       } else {
-        setSuggestPill("none");
+        setSuggestSource("none");
       }
     });
     return () => {
@@ -224,18 +224,6 @@ export function ScheduleServiceVisitModal({
     }
   };
 
-  const onNextOpen = async () => {
-    const after = fromDatetimeLocalValue(visitLocal) ?? new Date().toISOString();
-    const suggestion = await askSuggestion(durationMinutes, after);
-    if (suggestion) {
-      setVisitLocal(toDatetimeLocalValue(suggestion.iso));
-      setSuggestPill(suggestion.source);
-    } else {
-      showToast("No later open time in the next 14 days.");
-    }
-  };
-
-  const hasSuggestion = suggestPill === "availability" || suggestPill === "proplane-pick";
 
   return (
     <Modal
@@ -283,38 +271,31 @@ export function ScheduleServiceVisitModal({
 
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block space-y-1.5">
-              <span className="flex items-center gap-1.5 text-xs font-medium text-muted">
+              <span className="flex items-baseline justify-between gap-3 text-xs font-medium text-muted">
                 Visit arrival
-                {suggestPill ? (
-                  <span data-attr="schedule-service-visit-source">
-                    <Badge tone={SUGGEST_PILL_TONE[suggestPill]}>{SUGGEST_PILL_LABEL[suggestPill]}</Badge>
+                {suggestLoading ? (
+                  <span className="font-semibold" data-attr="schedule-service-visit-source">
+                    Finding a time…
+                  </span>
+                ) : suggestSource ? (
+                  <span
+                    className={cn("font-semibold", SUGGEST_SOURCE_CLASS[suggestSource])}
+                    data-attr="schedule-service-visit-source"
+                  >
+                    {SUGGEST_SOURCE_LABEL[suggestSource]}
                   </span>
                 ) : null}
               </span>
-              <div className="flex items-center gap-2">
-                <Input
-                  type="datetime-local"
-                  value={visitLocal}
-                  onChange={(e) => {
-                    setVisitLocal(e.target.value);
-                    setSuggestPill(null);
-                  }}
-                  disabled={busy || suggestLoading}
-                  className="flex-1"
-                  data-attr="schedule-service-visit-datetime"
-                />
-                {hasSuggestion ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={busy || suggestLoading}
-                    onClick={() => onNextOpen()}
-                    data-attr="schedule-service-visit-next-open"
-                  >
-                    Next open
-                  </Button>
-                ) : null}
-              </div>
+              <Input
+                type="datetime-local"
+                value={visitLocal}
+                onChange={(e) => {
+                  setVisitLocal(e.target.value);
+                  setSuggestSource(null);
+                }}
+                disabled={busy || suggestLoading}
+                data-attr="schedule-service-visit-datetime"
+              />
             </label>
             <label className="block space-y-1.5">
               <span className="text-xs font-medium text-muted">Duration</span>
@@ -323,13 +304,13 @@ export function ScheduleServiceVisitModal({
                 onChange={(e) => {
                   const next = Number(e.target.value) || 60;
                   setDurationMinutes(next);
-                  if (suggestPill === null) return;
+                  if (suggestSource === null) return;
                   void askSuggestion(next).then((suggestion) => {
                     if (suggestion) {
                       setVisitLocal(toDatetimeLocalValue(suggestion.iso));
-                      setSuggestPill(suggestion.source);
+                      setSuggestSource(suggestion.source);
                     } else {
-                      setSuggestPill("none");
+                      setSuggestSource("none");
                     }
                   });
                 }}
