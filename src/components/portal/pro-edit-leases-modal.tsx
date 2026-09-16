@@ -1,10 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Modal, ModalFooter } from "@/components/ui/modal";
 import { ManagerPropertyLeasePanel } from "@/components/portal/pro-property-lease-panel";
 import { ManagerSettingsPropertyField } from "@/components/portal/pro-portal-settings-panels";
-import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import { resolveManagerListingSubmissionForPropertyId } from "@/lib/manager-property-save-target";
 import { syncPropertyLeaseTemplatesFromListing } from "@/lib/property-lease-template-sync";
 
@@ -105,66 +103,5 @@ export function ManagerPropertyLeaseFormEditor({
         />
       )}
     </div>
-  );
-}
-
-/**
- * Pick ONE property, then manage its lease templates.
- *
- * The settings sheet now hosts this editor on the Form pane; this modal
- * remains for any standalone caller.
- *
- * The panel's own selection action is published up and rendered in this modal's
- * footer: `BulkActionBar` is `position: fixed`, so left to itself it escaped to
- * the page behind the dialog.
- */
-export function ManagerEditLeasesModal({
-  open,
-  onClose,
-  propertyOptions,
-  managerUserId,
-  onSaved,
-  showToast,
-}: {
-  open: boolean;
-  onClose: () => void;
-  propertyOptions: ManagerPropertyFilterOption[];
-  managerUserId: string | null;
-  onSaved: () => void;
-  showToast: (m: string) => void;
-}) {
-  const [bulkActions, setBulkActions] = useState<ReactNode | null>(null);
-
-  useEffect(() => {
-    if (!open) setBulkActions(null);
-  }, [open]);
-
-  const closeAll = () => {
-    setBulkActions(null);
-    onClose();
-  };
-
-  return (
-    <Modal
-      open={open}
-      title="Edit lease"
-      onClose={closeAll}
-      panelClassName="max-w-4xl"
-      assistantContext="Edit lease"
-      footer={
-        bulkActions ? (
-          <ModalFooter className="w-full justify-start">{bulkActions}</ModalFooter>
-        ) : undefined
-      }
-    >
-      <ManagerPropertyLeaseFormEditor
-        active={open}
-        propertyOptions={propertyOptions}
-        managerUserId={managerUserId}
-        onSaved={onSaved}
-        showToast={showToast}
-        onBulkActionsChange={setBulkActions}
-      />
-    </Modal>
   );
 }

@@ -6,7 +6,11 @@ import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
-import { parseSanitizedInteger, sanitizeMoneyInput } from "@/lib/listing-form-inputs";
+import {
+  parseSanitizedInteger,
+  parseSanitizedMoneyNumber,
+  sanitizeMoneyInput,
+} from "@/lib/listing-form-inputs";
 import {
   persistManagerListingSubmission,
   persistManagerListingSubmissionOnServer,
@@ -24,7 +28,7 @@ export type PaymentListingLateFeeHandle = {
   saveIfDirty: () => Promise<boolean>;
 };
 
-const GRACE_MIN_DAYS = 0;
+const GRACE_MIN_DAYS = 1;
 const GRACE_MAX_DAYS = 30;
 
 function clampGraceDays(n: number): number {
@@ -167,7 +171,7 @@ export const PaymentListingLateFeeSettings = forwardRef<
       setLoaded(true);
       return;
     }
-    const nextAmount = (hit.sub.lateFeeAmount ?? "50").replace(/^\$/, "").trim() || "50";
+    const nextAmount = sanitizeMoneyInput(hit.sub.lateFeeAmount ?? "50") || "50";
     const nextGrace = clampGraceDays(Number(hit.sub.lateFeeGraceDays ?? 5) || 5);
     setAmount(nextAmount);
     setGraceDays(nextGrace);
@@ -182,28 +186,34 @@ export const PaymentListingLateFeeSettings = forwardRef<
 
   const isDirty =
     baseline != null && (amount !== baseline.amount || graceDays !== baseline.graceDays);
+  const amountReady = parseSanitizedMoneyNumber(amount) > 0;
+  const pendingSave = isDirty && amountReady;
 
   const save = useCallback(
     async (options?: { silent?: boolean }) => {
-      if (!isDirty || !baseline || !managerUserId) return true;
+      if (!pendingSave || !baseline || !managerUserId) return true;
       setSaving(true);
       reportSaveStatus({ type: "start" });
       try {
+        const nextAmount = sanitizeMoneyInput(amount);
+        const nextGrace = clampGraceDays(graceDays);
         const next: ManagerListingSubmissionV1 = {
           ...baseline.sub,
-          lateFeeAmount: sanitizeMoneyInput(amount) || "50",
-          lateFeeGraceDays: clampGraceDays(graceDays),
+          lateFeeAmount: nextAmount,
+          lateFeeGraceDays: nextGrace,
         };
         const ok = demo
           ? persistManagerListingSubmission(baseline.saveTarget, managerUserId, next)
           : await persistManagerListingSubmissionOnServer(baseline.saveTarget, managerUserId, next);
         if (!ok) throw new Error("Could not save late fee.");
         setBaseline({
-          amount: next.lateFeeAmount ?? "50",
-          graceDays: next.lateFeeGraceDays ?? 5,
+          amount: nextAmount,
+          graceDays: nextGrace,
           saveTarget: baseline.saveTarget,
           sub: next,
         });
+        setAmount((current) => (current === amount ? nextAmount : current));
+        setGraceDays((current) => (current === graceDays ? nextGrace : current));
         if (!options?.silent) showToast("Late fee saved.");
         reportSaveStatus({ type: "success" });
         return true;
@@ -216,19 +226,19 @@ export const PaymentListingLateFeeSettings = forwardRef<
         setSaving(false);
       }
     },
-    [amount, baseline, demo, graceDays, isDirty, managerUserId, reportSaveStatus, showToast],
+    [amount, baseline, demo, graceDays, managerUserId, pendingSave, reportSaveStatus, showToast],
   );
 
   const saveIfDirty = useCallback(async (): Promise<boolean> => {
-    if (!isDirty) return true;
+    if (!pendingSave) return true;
     return save({ silent: true });
-  }, [isDirty, save]);
+  }, [pendingSave, save]);
 
   useImperativeHandle(ref, () => ({ saveIfDirty }), [saveIfDirty]);
 
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (!isDirty || saving) return;
+    if (!pendingSave || saving) return;
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     autosaveTimerRef.current = setTimeout(() => {
       void save({ silent: true });
@@ -236,20 +246,21 @@ export const PaymentListingLateFeeSettings = forwardRef<
     return () => {
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     };
-  }, [isDirty, save, saving]);
+  }, [pendingSave, save, saving]);
 
-  useFlushSettingsAutosaveOnUnmount(save, isDirty);
+  useFlushSettingsAutosaveOnUnmount(save, pendingSave);
 
   const selectProperty = async (next: string) => {
     if (next === propertyId) return;
-    if (isDirty) {
+    if (pendingSave) {
       const ok = await save({ silent: true });
       if (!ok) return;
     }
     setPropertyId(next);
   };
 
-  const disabled = saving || propertyOptions.length === 0 || !baseline;
+  const unavailable = propertyOptions.length === 0 || !baseline;
+  const disabled = saving || unavailable;
 
   return (
     <>
@@ -269,7 +280,7 @@ export const PaymentListingLateFeeSettings = forwardRef<
         )}
       </PortalSettingsRow>
       <PortalSettingsRow label="Late fee amount">
-        <LateFeeAmountInput value={amount} onChange={setAmount} disabled={disabled} />
+        <LateFeeAmountInput value={amount} onChange={setAmount} disabled={unavailable} />
       </PortalSettingsRow>
       <PortalSettingsRow label="Grace days">
         <LateFeeGraceStepper value={graceDays} onChange={setGraceDays} disabled={disabled} />
