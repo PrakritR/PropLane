@@ -793,6 +793,8 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   sms_provider_events: "Raw provider webhook log; carries no account column.",
   sms_segment_usage: "Aggregate billing counters; carries no account column.",
   rate_limit_buckets: "Hashed request counters keyed by bucket, with no account column and a short reset window.",
+  tour_inquiry_claims:
+    "Short-lived confirm mutex keyed by inquiry id; the row is deleted when the confirm attempt finishes and carries no account column.",
   application_document_storage_aliases:
     "Child of manager_application_records (cascades); keyed on the storage path, not an account.",
 };
