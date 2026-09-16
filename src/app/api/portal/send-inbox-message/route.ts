@@ -355,6 +355,7 @@ export async function POST(req: Request) {
           subject,
           text,
           messageId,
+          consumeDraft: true,
         });
         if (!posted.ok) return NextResponse.json({ ok: false, error: posted.error }, { status: 500 });
         const mirrorTask = () =>

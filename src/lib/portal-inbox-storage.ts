@@ -466,6 +466,18 @@ export function invalidatePersistedInboxCache(key: string): void {
   inboxSuccessfulServerSyncAtByKey.set(cacheKey, 0);
 }
 
+/**
+ * The manager<->manager Team thread (`team-comms.server.ts`) is shared by
+ * several accounts and appended server-side under a CAS; the wholesale
+ * `replace` a browser sends on every local change must never carry it, or a
+ * stale snapshot overwrites turns others posted. Explicit single-row upserts
+ * (approve / discard a draft, archive) still go, and the route merges only
+ * that mailbox state.
+ */
+function isSharedTeamThread(thread: Pick<PersistedInboxThread, "id" | "threadType">): boolean {
+  return thread.threadType === "team" || thread.id.startsWith("team-thread:");
+}
+
 async function postInboxRows(
   action: "replace" | "upsert",
   key: string,
@@ -482,6 +494,8 @@ async function postInboxRows(
   };
   // Demo sandbox is local-only: pretend the server write succeeded.
   if (isDemoModeActive()) return true;
+  const replaceRows = action === "replace" ? rows.filter((row) => !isSharedTeamThread(row)) : rows;
+  if (replaceRows.length === 0) return true;
   try {
     const res = await fetch("/api/portal-inbox-threads", {
       method: "POST",
@@ -489,7 +503,7 @@ async function postInboxRows(
       credentials: "include",
       body: JSON.stringify(
         action === "replace"
-          ? { action, rows: rows.map(serialize) }
+          ? { action, rows: replaceRows.map(serialize) }
           : { action, row: serialize(rows[0]!) },
       ),
     });
@@ -583,15 +597,18 @@ export function persistInbox(key: string, threads: PersistedInboxThread[]): void
       const deleted = await deleteInboxThreadIds(removedIds);
       if (!deleted) return;
     }
-    const storedRows = threads.map((thread) => {
-      const {
-        readSources: _readSources,
-        readSourcesComplete: _readSourcesComplete,
-        smsBindingKeys: _smsBindingKeys,
-        ...stored
-      } = thread;
-      return { ...stored, scope: key };
-    });
+    const storedRows = threads
+      .filter((thread) => !isSharedTeamThread(thread))
+      .map((thread) => {
+        const {
+          readSources: _readSources,
+          readSourcesComplete: _readSourcesComplete,
+          smsBindingKeys: _smsBindingKeys,
+          ...stored
+        } = thread;
+        return { ...stored, scope: key };
+      });
+    if (storedRows.length === 0) return;
     await fetch("/api/portal-inbox-threads", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

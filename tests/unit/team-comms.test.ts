@@ -24,6 +24,7 @@ import {
   postTeamThreadMessage,
   resolveTeamNoticeRecipientIds,
   teamThreadId,
+  updateTeamThreadMailboxState,
 } from "@/lib/team-comms.server";
 
 type Row = Record<string, unknown> & { id?: string };
@@ -240,6 +241,53 @@ describe("team-comms: postTeamThreadMessage", () => {
       ownerManagerUserId: "  ", actorName: "Jamie", subject: "s", text: "t", messageId: "m",
     });
     expect(result.ok).toBe(false);
+  });
+
+  it("approving a queued team draft consumes it and promotes the next one", async () => {
+    const { db, tables } = fakeDb();
+    await postTeamThreadMessage(db, {
+      ownerManagerUserId: "owner-1", actorName: "Jamie", subject: "s0", text: "root", messageId: "m0",
+    });
+    const rowData = tables.portal_inbox_thread_records[0]!.row_data as Record<string, unknown>;
+    rowData.aiDraft = { text: "first draft", status: "pending_approval", generatedAt: "g1", requiresReview: true };
+    rowData.aiDraftQueue = [{ text: "second draft", status: "pending_approval", generatedAt: "g2", requiresReview: true }];
+    await postTeamThreadMessage(db, {
+      ownerManagerUserId: "owner-1", actorName: "Jamie", subject: "s1", text: "first draft", messageId: "m1", consumeDraft: true,
+    });
+    const after = tables.portal_inbox_thread_records[0]!.row_data as Record<string, unknown>;
+    expect((after.aiDraft as { text: string }).text).toBe("second draft");
+    expect(after.aiDraftQueue).toBeUndefined();
+    expect((after.messages as Array<{ body: string }>).map((m) => m.body)).toEqual(["first draft"]);
+  });
+});
+
+describe("team-comms: updateTeamThreadMailboxState", () => {
+  it("merges only folder / unread / draft slots — the turns others appended survive a stale client snapshot", async () => {
+    const { db, tables } = fakeDb();
+    await postTeamThreadMessage(db, {
+      ownerManagerUserId: "owner-1", actorName: "Jamie", subject: "s0", text: "root", messageId: "m0",
+    });
+    await postTeamThreadMessage(db, {
+      ownerManagerUserId: "owner-1", actorUserId: "co-1", actorName: "Sam", subject: "s1", text: "from Sam", messageId: "m1",
+    });
+    await updateTeamThreadMailboxState(db, { id: "team-thread:owner-1" }, {
+      id: "team-thread:owner-1",
+      unread: false,
+      folder: "trash",
+      messages: [],
+      body: "clobbered",
+      email: "viewer@example.com",
+      aiDraft: undefined,
+    });
+    const row = tables.portal_inbox_thread_records[0]!;
+    const rowData = row.row_data as Record<string, unknown>;
+    expect(rowData.unread).toBe(false);
+    expect(rowData.folder).toBe("trash");
+    expect(rowData.previousFolder).toBe("inbox");
+    expect(rowData.body).toBe("root");
+    expect(rowData.email).toBe("");
+    expect((rowData.messages as Array<{ id: string }>).map((m) => m.id)).toEqual(["m1"]);
+    expect(row.participant_email).toBeNull();
   });
 });
 

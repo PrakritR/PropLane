@@ -194,6 +194,8 @@ export async function postTeamThreadMessage(
     smsText?: string;
     messageId: string;
     urgent?: boolean;
+    /** A manager approving a queued team draft: the head draft whose text this is gets consumed and the next promoted. */
+    consumeDraft?: boolean;
   },
 ): Promise<{ ok: true; posted: boolean } | { ok: false; error: string }> {
   const ownerId = input.ownerManagerUserId.trim();
@@ -262,11 +264,17 @@ export async function postTeamThreadMessage(
         actorUserId: input.actorUserId ?? ownerId,
       });
     }
+    const head = rowData.aiDraft as { text?: unknown } | null | undefined;
+    const consumed =
+      input.consumeDraft && head && typeof head.text === "string" && head.text.trim() === input.text.trim()
+        ? advanceDraftSlots(rowData)
+        : {};
     const { data: written, error: writeError } = await db
       .from("portal_inbox_thread_records")
       .update({
         row_data: {
           ...rowData,
+          ...consumed,
           ...(propertyId ? { propertyId } : {}),
           ...(propertyTitle && !rowData.propertyTitle ? { propertyTitle } : {}),
           ...(rootless
@@ -295,6 +303,61 @@ export async function postTeamThreadMessage(
     // Lost the CAS to a concurrent append — loop re-reads and tries again.
   }
   return { ok: false, error: "Could not post to the team thread." };
+}
+
+function advanceDraftSlots(rowData: Record<string, unknown>): { aiDraft: unknown; aiDraftQueue: unknown } {
+  const queue = Array.isArray(rowData.aiDraftQueue) ? rowData.aiDraftQueue.filter(Boolean) : [];
+  const [next, ...rest] = queue;
+  return { aiDraft: next, aiDraftQueue: rest.length > 0 ? rest : undefined };
+}
+
+const TEAM_THREAD_FOLDERS = new Set(["inbox", "sent", "trash"]);
+
+/**
+ * The browser's copy of a team thread is never written back wholesale: the
+ * row is shared by the owner and every co-manager on the house, so a stale
+ * client snapshot would drop turns others appended (and would stamp the
+ * viewer's own email onto `participant_email`). Only the mailbox state a
+ * viewer legitimately owns — folder, unread, and the draft slots they
+ * approved or discarded — is merged, under the same CAS the appends use.
+ * Messages, root and house tag stay exactly as the server holds them.
+ */
+export async function updateTeamThreadMailboxState(
+  db: SupabaseClient,
+  target: { id: string },
+  requested: Record<string, unknown>,
+): Promise<void> {
+  for (let attempt = 0; attempt < TEAM_THREAD_APPEND_ATTEMPTS; attempt += 1) {
+    const { data, error } = await db
+      .from("portal_inbox_thread_records")
+      .select("row_data, updated_at")
+      .eq("id", target.id)
+      .maybeSingle();
+    if (error || !data) throw new Error("Could not load the team thread.");
+    const row = (data.row_data ?? {}) as Record<string, unknown>;
+    const folder = TEAM_THREAD_FOLDERS.has(String(requested.folder)) ? requested.folder : row.folder;
+    const next = {
+      ...row,
+      folder,
+      unread: typeof requested.unread === "boolean" ? requested.unread : row.unread,
+      ...(folder === "trash" && row.folder !== "trash" ? { previousFolder: row.folder } : {}),
+      aiDraft: requested.aiDraft,
+      aiDraftQueue: Array.isArray(requested.aiDraftQueue) && requested.aiDraftQueue.length > 0 ? requested.aiDraftQueue : undefined,
+    };
+    const { data: changed, error: writeError } = await db
+      .from("portal_inbox_thread_records")
+      .update({
+        row_data: next,
+        updated_at: new Date(Math.max(Date.now(), Date.parse(String(data.updated_at ?? "")) + 1 || 0)).toISOString(),
+      })
+      .eq("id", target.id)
+      .eq("updated_at", data.updated_at)
+      .select("id")
+      .maybeSingle();
+    if (writeError) throw new Error("Could not save the team thread state.");
+    if (changed) return;
+  }
+  throw new Error("Team thread changed; retry the mailbox action.");
 }
 
 // ---- WS6: SMS mirror ----

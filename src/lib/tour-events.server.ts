@@ -12,6 +12,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { emitActionEvent } from "@/lib/action-events.server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { resolvePropertyOwnerUserId } from "@/lib/property-owner.server";
 
 export type TourManagerEvent = "confirmed" | "cancelled_by_guest";
 
@@ -48,10 +49,13 @@ export async function emitTourManagerEvent(
     { audience: "manager", userId: input.managerUserId, rendered: { ...rendered, text: `${rendered.text}\n\n${url}` } },
   ];
   // WS5: team hears about a confirmed tour (who is showing up); a guest
-  // cancellation stays a manager-only nudge.
+  // cancellation stays a manager-only nudge. The team is the PROPERTY
+  // OWNER's — `managerUserId` here is the host, who may be a co-manager on
+  // the owner's house, and the owner's thread is where the claim notice went.
   if (input.event === "confirmed") {
     const teamRendered = renderTourTeamEvent(input);
-    recipients.push({ audience: "team", userId: input.managerUserId, rendered: { ...teamRendered, text: `${teamRendered.text}\n\n${url}` } });
+    const ownerUserId = (await resolvePropertyOwnerUserId(db, input.propertyId)) ?? input.managerUserId;
+    recipients.push({ audience: "team", userId: ownerUserId, rendered: { ...teamRendered, text: `${teamRendered.text}\n\n${url}` } });
   }
   await emitActionEvent(db, {
     eventId: `${input.tourId}:${input.event}:${input.whenLabel ?? ""}`,

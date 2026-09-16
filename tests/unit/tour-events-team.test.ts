@@ -13,14 +13,21 @@ import {
   renderTourTeamEvent,
 } from "@/lib/tour-events.server";
 
-function fakeDb(profiles: Record<string, { email?: string; full_name?: string }>) {
+function fakeDb(
+  profiles: Record<string, { email?: string; full_name?: string }>,
+  propertyOwners: Record<string, string> = {},
+) {
   const from = (table: string) => {
-    if (table !== "profiles") throw new Error(`unexpected table ${table}`);
+    if (table !== "profiles" && table !== "manager_property_records") throw new Error(`unexpected table ${table}`);
     let matchedId = "";
     return {
       select() { return this; },
       eq(_column: string, value: string) { matchedId = value; return this; },
       maybeSingle() {
+        if (table === "manager_property_records") {
+          const owner = propertyOwners[matchedId];
+          return Promise.resolve({ data: owner ? { manager_user_id: owner } : null, error: null });
+        }
         const row = profiles[matchedId];
         return Promise.resolve({ data: row ? { email: row.email, full_name: row.full_name } : null, error: null });
       },
@@ -35,6 +42,21 @@ describe("tour-events: team audience + new events (WS5)", () => {
   it("renderTourTeamEvent produces neutral, team-voiced copy (no 'I')", () => {
     const rendered = renderTourTeamEvent({ guestName: "Alex Guest", propertyTitle: "5257 Brooklyn", whenLabel: "4:00 PM" });
     expect(rendered.text).toBe("A tour with Alex Guest at 5257 Brooklyn is confirmed for 4:00 PM.");
+  });
+
+  it("the 'confirmed' team copy goes to the PROPERTY OWNER's team, not the co-manager host's", async () => {
+    const db = fakeDb({ "co-host": { email: "co@example.com", full_name: "Co Host" } }, { "prop-1": "owner-1" });
+    await emitTourManagerEvent(db, {
+      event: "confirmed", managerUserId: "co-host", tourId: "tour-2", propertyId: "prop-1",
+      guestName: "Alex Guest", propertyTitle: "5257 Brooklyn", whenLabel: "4:00 PM",
+    });
+    const call = emitActionEvent.mock.calls[0]![1] as { recipients: Array<{ audience: string; userId: string }> };
+    expect(call.recipients).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ audience: "manager", userId: "co-host" }),
+        expect.objectContaining({ audience: "team", userId: "owner-1" }),
+      ]),
+    );
   });
 
   it("emitTourManagerEvent adds a team recipient only for 'confirmed', not 'cancelled_by_guest'", async () => {
