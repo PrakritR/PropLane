@@ -524,6 +524,47 @@ export function addExplicitTourSlotKeys(
   return [...next];
 }
 
+export type TourAvailabilityWindow = { start: string; end: string };
+
+/**
+ * Merge a manager's painted slot keys into contiguous ISO windows, dropping
+ * anything already in the past.
+ *
+ * Used by `syncManagerAvailabilityToGoogleCalendar` (sync.server.ts) to turn
+ * dozens of individually-painted half hours into a handful of Google events
+ * rather than one event per slot. Slots are sorted by their real instant
+ * (`slotStartMs`), so a day boundary — or any gap — naturally breaks a run:
+ * the next slot's start only equals the current window's end when the two are
+ * truly back-to-back half hours.
+ */
+export function mergeTourAvailabilitySlotsIntoWindows(
+  storedKeys: readonly string[],
+  now: number = Date.now(),
+): TourAvailabilityWindow[] {
+  const { publishedSlots } = partitionTourAvailabilityStoredKeys(storedKeys);
+  const dated = publishedSlots
+    .map((key) => ({ key, startMs: slotStartMs(key) }))
+    .filter((entry): entry is { key: string; startMs: number } => entry.startMs !== null && entry.startMs >= now)
+    .sort((a, b) => a.startMs - b.startMs);
+
+  const windows: TourAvailabilityWindow[] = [];
+  let current: { startMs: number; endMs: number } | null = null;
+  for (const entry of dated) {
+    if (current && entry.startMs === current.endMs) {
+      current.endMs = entry.startMs + TOUR_SLOT_DURATION_MS;
+      continue;
+    }
+    if (current) {
+      windows.push({ start: new Date(current.startMs).toISOString(), end: new Date(current.endMs).toISOString() });
+    }
+    current = { startMs: entry.startMs, endMs: entry.startMs + TOUR_SLOT_DURATION_MS };
+  }
+  if (current) {
+    windows.push({ start: new Date(current.startMs).toISOString(), end: new Date(current.endMs).toISOString() });
+  }
+  return windows;
+}
+
 export function buildDefaultTourSlotKeys(
   now: number = Date.now(),
   days: number = DEFAULT_TOUR_HORIZON_DAYS,

@@ -7,8 +7,10 @@ import {
   updateGoogleCalendarEvent,
 } from "@/lib/google-calendar/api.server";
 import { loadGoogleCalendarConnection } from "@/lib/google-calendar/settings";
+import { mergeTourAvailabilitySlotsIntoWindows, payloadSlots } from "@/lib/tour-slot-math";
 
 import {
+  PROPLANE_AVAILABILITY_TYPE_MARKER,
   PROPLANE_GOOGLE_CALENDAR_MARKER,
   PROPLANE_TOUR_TYPE_MARKER,
   PROPLANE_WORK_ORDER_TYPE_MARKER,
@@ -268,6 +270,86 @@ export async function deletePlannedTourByGoogleCalendarEventId(
   );
   if (writeError) throw new Error(writeError.message);
   return true;
+}
+
+/** Bounds the Google round trips one availability save can trigger. */
+const MAX_AVAILABILITY_WINDOWS_PER_PUSH = 60;
+
+function googleCalendarAvailabilityEventIds(rowData: unknown): string[] {
+  if (!rowData || typeof rowData !== "object" || Array.isArray(rowData)) return [];
+  const ids = (rowData as Record<string, unknown>).googleCalendarEventIds;
+  return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string" && id.trim().length > 0) : [];
+}
+
+/** Writes the ids of the currently-pushed availability events back onto the same schedule record. */
+async function persistAvailabilityGoogleCalendarEventIds(
+  db: SupabaseClient,
+  recordId: string,
+  eventIds: string[],
+): Promise<void> {
+  const id = recordId.trim();
+  if (!id) return;
+  const { data, error } = await db.from("portal_schedule_records").select("row_data").eq("id", id).maybeSingle();
+  if (error || !data?.row_data) return;
+  const rowData = data.row_data as Record<string, unknown>;
+  const { error: writeError } = await db
+    .from("portal_schedule_records")
+    .update({ row_data: { ...rowData, googleCalendarEventIds: eventIds }, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (writeError) throw new Error(writeError.message);
+}
+
+/**
+ * Push a manager's painted tour availability to Google as FREE ("Open for
+ * tours") events — the WS3 decision "everything the manager enters lands on
+ * Google; availability as free, tours as busy". Confirmed tours and work
+ * orders keep going through {@link syncPlannedTourToGoogleCalendar} /
+ * {@link syncWorkOrderToGoogleCalendar} above, which never set transparency
+ * and so stay opaque (busy) — this function is the only caller that opts in
+ * to `"transparent"`.
+ *
+ * Diff-free by design: every window this record previously pushed (tracked as
+ * `row_data.googleCalendarEventIds` on the SAME schedule record) is deleted
+ * and the current merged set is recreated, rather than reconciled window by
+ * window. A save here is a manager action, not a hot loop, so the extra
+ * Google round trips are cheap, and delete-then-recreate can never leave a
+ * stale half-pushed window behind the way a partial diff could.
+ */
+export async function syncManagerAvailabilityToGoogleCalendar(
+  db: SupabaseClient,
+  managerUserId: string,
+  input: { recordId: string; rowData: unknown; previousRowData: unknown },
+): Promise<void> {
+  const managerId = managerUserId.trim();
+  if (!managerId) return;
+  const connection = await loadGoogleCalendarConnection(db, managerId);
+  if (!connection.connected || !connection.syncEnabled) return;
+
+  const staleIds = googleCalendarAvailabilityEventIds(input.previousRowData);
+  await Promise.all(staleIds.map((id) => deleteGoogleCalendarEvent(db, managerId, id).catch(() => undefined)));
+
+  const slots = payloadSlots(input.rowData);
+  const windows = mergeTourAvailabilitySlotsIntoWindows(slots);
+  const boundedWindows = windows.slice(0, MAX_AVAILABILITY_WINDOWS_PER_PUSH);
+  if (boundedWindows.length < windows.length) {
+    console.warn(
+      `[google-calendar] availability push truncated to ${MAX_AVAILABILITY_WINDOWS_PER_PUSH} windows for manager ${managerId.slice(-6)} record ${input.recordId}`,
+    );
+  }
+
+  const newIds: string[] = [];
+  for (const window of boundedWindows) {
+    const id = await createGoogleCalendarEvent(db, managerId, {
+      title: "Open for tours",
+      description: [PROPLANE_GOOGLE_CALENDAR_MARKER, PROPLANE_AVAILABILITY_TYPE_MARKER].join("\n"),
+      start: window.start,
+      end: window.end,
+      transparency: "transparent",
+    }).catch(() => null);
+    if (id) newIds.push(id);
+  }
+
+  await persistAvailabilityGoogleCalendarEventIds(db, input.recordId, newIds).catch(() => undefined);
 }
 
 export async function deleteProplaneGoogleCalendarEvent(
