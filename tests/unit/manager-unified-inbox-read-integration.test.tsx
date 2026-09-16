@@ -161,6 +161,7 @@ vi.mock("@/components/portal/portal-inbox-ui", () => ({
 }));
 
 import { ManagerUnifiedInbox } from "@/components/portal/pro-unified-inbox";
+import { loadManagerSmsConversationsClient } from "@/lib/manager-sms-conversations-client";
 
 const email = (id: string, body: string, key: string, observation: string) => ({
   id,
@@ -197,6 +198,14 @@ function deferred<T>() {
   let reject!: (reason?: unknown) => void;
   const promise = new Promise<T>((ok, fail) => { resolve = ok; reject = fail; });
   return { promise, resolve, reject };
+}
+
+async function waitForSmsConversations() {
+  await waitFor(() => expect(loadManagerSmsConversationsClient).toHaveBeenCalled());
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
 }
 
 beforeEach(() => {
@@ -261,6 +270,7 @@ describe("ManagerUnifiedInbox observed-read wiring", () => {
 
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
     const initialList = await screen.findByTestId("manager-list");
+    await waitForSmsConversations();
     fireEvent.click((await within(initialList).findByText("EMAIL B BODY")).closest("button")!);
     const thread = await screen.findByTestId("resident-thread");
     expect(within(thread).getByText("K1 NATIVE BODY")).toBeTruthy();
@@ -320,6 +330,7 @@ describe("ManagerUnifiedInbox observed-read wiring", () => {
     window.localStorage.setItem(openedKey, JSON.stringify(["existing-opened-id"]));
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
     const initialList = await screen.findByTestId("manager-list");
+    await waitForSmsConversations();
     const getItem = vi.spyOn(window.localStorage, "getItem").mockImplementation(() => {
       throw new Error("storage read denied");
     });
@@ -401,6 +412,7 @@ describe("ManagerUnifiedInbox observed-read wiring", () => {
     const setItem = vi.spyOn(window.localStorage, "setItem");
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
     const list = await screen.findByTestId("manager-list");
+    await waitForSmsConversations();
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(state.post).not.toHaveBeenCalled();
     expect(setItem).not.toHaveBeenCalled();

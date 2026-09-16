@@ -60,7 +60,12 @@ describe("portal chat routes bind their own registry + persona", () => {
   ])("%s", (file, registry, prompt, portal) => {
     const source = read(file);
     expect(source).toContain(`registry: ${registry}`);
-    expect(source).toContain(`const system = withAssistantTaskContext(withAgentCustomInstructions(${prompt}, customInstructions), contextHint)`);
+    expect(source).toContain(
+      `withAssistantTaskContext(withAgentCustomInstructions(${prompt}, customInstructions), contextHint)`,
+    );
+    if (file === "src/app/api/agent/chat/route.ts") {
+      expect(source).toContain("withManagerWorkspacePrompt(");
+    }
     expect(source).toContain("resolvePromptMeta(");
     expect(source).toContain("system,");
     expect(source).toContain("loadAgentCustomInstructions(ctx.db, ctx.userId)");
