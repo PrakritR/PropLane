@@ -49,6 +49,17 @@ export type ManagerAssistantEmailStatus = {
     ownerUserId: string;
     ownerName: string | null;
   } | null;
+  /** The workspace this status is about — the switcher's active workspace. */
+  workspace?: { id: string; name: string; owned: boolean; isDefault: boolean } | null;
+  /** Every workspace the viewer can see with its address, for Settings. */
+  workspaces?: Array<{
+    workspaceId: string;
+    workspaceName: string;
+    owned: boolean;
+    isDefault: boolean;
+    ownerName: string | null;
+    address: string | null;
+  }>;
   address: string | null;
   state: ManagerAssistantEmailState;
   canRequest: boolean;
@@ -69,12 +80,12 @@ export type ManagerAssistantEmailStatus = {
 export const MANAGER_ASSISTANT_EMAIL_SETTINGS_HREF = "/portal/profile?tab=messaging";
 
 /**
- * The address this account actually sends from and is reached at.
+ * The address the ACTIVE workspace sends from and is reached at.
  *
- * The workspace's address wins: for a co-manager that is the owner's, and their
- * own legacy row (if any) is the one being retired. For an owner the two are
- * the same row. Every surface that shows "your work email" — Settings,
- * onboarding — reads this rather than `address` directly.
+ * In a shared workspace that is the owner's address (`workspaceEmail`); in an
+ * owned one it is the workspace's own row (`address`). Every surface that
+ * shows "your work email" — Settings, onboarding — reads this rather than
+ * `address` directly.
  */
 export function managerWorkEmailInUse(status: ManagerAssistantEmailStatus): string | null {
   const workspace = status.workspaceEmail?.address?.trim();

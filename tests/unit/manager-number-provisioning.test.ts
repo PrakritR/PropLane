@@ -26,29 +26,13 @@ import {
 const MGR = "00000000-0000-4000-8000-000000000001";
 
 function seed() {
-  const db = createMemoryDb({
+  // The shared double already answers `ensure_default_portal_workspace` (the
+  // owner's default workspace is created on first use) and the per-workspace
+  // provisioning claim, exactly as the SQL does.
+  return createMemoryDb({
     profiles: [{ id: MGR, sms_from_number: null }],
     manager_sms_numbers: [],
   });
-  Object.assign(db, {
-    rpc: vi.fn(async (name: string, params: Record<string, string>) => {
-      if (name !== "claim_manager_sms_provisioning") return { data: null, error: null };
-      const rows = (db as unknown as { __tables: Record<string, Array<Record<string, unknown>>> }).__tables
-        .manager_sms_numbers;
-      const row = rows.find((candidate) => candidate.manager_user_id === params.p_manager_user_id);
-      if (!row || !["pending_registration", "failed"].includes(String(row.provision_state))) {
-        return { data: false, error: null };
-      }
-      row.provision_state = "provisioning";
-      row.provision_request_id = params.p_request_id;
-      row.attachment_state = "attaching";
-      row.attempts = Number(row.attempts ?? 0) + 1;
-      row.last_error = null;
-      row.updated_at = new Date().toISOString();
-      return { data: true, error: null };
-    }),
-  });
-  return db;
 }
 
 async function markCarrierRegistered(db: ReturnType<typeof seed>) {

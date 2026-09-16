@@ -15,10 +15,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  *     asked for. A grant on one house never unlocks the owner's other houses,
  *     and a conversation about no house is never shared.
  *  3. The active workspace NARROWS. A conversation shows in the workspace that
- *     holds its house. A conversation about no house belongs to the viewer's
- *     own default workspace (the rule account-level rows already follow), so
- *     it is visible only when that workspace is active or the account is not
- *     partitioned at all.
+ *     holds its house. A conversation about no house follows the LINE it went
+ *     through: a text to a workspace's work number shows in that workspace
+ *     (work numbers and work emails belong to a workspace, one each). Only
+ *     when no line places it does it fall back to the viewer's own default
+ *     workspace (the rule account-level rows already follow), visible when
+ *     that workspace is active or the account is not partitioned at all.
  *
  * Narrowing never widens: the workspace cookie is read on the server and the
  * grant is the authority. Every lookup here degrades SAFELY — a failed grant
@@ -41,6 +43,10 @@ export type CommunicationScope = {
   workspaceHouseIds: Set<string> | null;
   /** Whether a conversation about no house that the viewer OWNS shows in the active workspace. */
   untaggedOwnedVisible: boolean;
+  /** The active workspace, when the account is partitioned; null = not narrowing. */
+  activeWorkspaceId: string | null;
+  /** The viewer's own work lines (phone digits / lower-cased address) → the workspace each belongs to. */
+  workspaceByLine: Map<string, string>;
 };
 
 export type VisibilityInput = {
@@ -49,12 +55,46 @@ export type VisibilityInput = {
   /** `agent_notice` marks the assistant thread; the id prefix is accepted for older rows. */
   threadType?: string | null;
   threadId?: string | null;
+  /**
+   * The work lines this conversation went through — the number texted or the
+   * address written to. Places a house-less thread in the workspace that holds
+   * that line. Optional: a caller that cannot say passes nothing and the
+   * default-workspace rule applies.
+   */
+  lines?: readonly string[];
 };
 
 const AGENT_NOTICE_PREFIX = "agent_notice_";
 
 function clean(id: unknown): string {
   return typeof id === "string" ? id.trim() : "";
+}
+
+/** A phone as its 10 digits, an address lower-cased — the key both sides of a line lookup use. */
+export function lineKey(raw: unknown): string {
+  const value = clean(raw);
+  if (!value) return "";
+  if (value.includes("@")) return value.toLowerCase();
+  const digits = value.replace(/\D/g, "");
+  if (digits.length === 11 && digits.startsWith("1")) return digits.slice(1);
+  return digits;
+}
+
+/** The work address an email thread was written to, when the store stamped one (`row_data.workLine`). */
+function threadWorkLines(rowData: unknown): string[] {
+  if (!rowData || typeof rowData !== "object") return [];
+  const line = (rowData as { workLine?: unknown }).workLine;
+  return typeof line === "string" && line.trim() ? [line.trim()] : [];
+}
+
+/** The workspace a house-less conversation belongs to by the line it used, or null when no line places it. */
+function workspaceForLines(scope: CommunicationScope, lines: readonly string[] | undefined): string | null {
+  if (!lines || scope.workspaceByLine.size === 0) return null;
+  for (const line of lines) {
+    const found = scope.workspaceByLine.get(lineKey(line));
+    if (found) return found;
+  }
+  return null;
 }
 
 /** Pure. Decides one conversation against a resolved scope. */
@@ -71,7 +111,11 @@ export function conversationVisible(scope: CommunicationScope, input: Visibility
   // Own rows, and legacy owner-less rows the store query matched by the
   // viewer's email: house decides the workspace; no house means default only.
   if (!ownerId || ownerId === scope.viewerId) {
-    if (houses.length === 0) return scope.untaggedOwnedVisible;
+    if (houses.length === 0) {
+      const lineWorkspace = workspaceForLines(scope, input.lines);
+      if (lineWorkspace && scope.activeWorkspaceId) return lineWorkspace === scope.activeWorkspaceId;
+      return scope.untaggedOwnedVisible;
+    }
     return houses.some(inWorkspace);
   }
 
@@ -111,6 +155,8 @@ export async function resolveCommunicationScope(
     grantedHousesByOwner: new Map(),
     workspaceHouseIds: null,
     untaggedOwnedVisible: true,
+    activeWorkspaceId: null,
+    workspaceByLine: new Map(),
   };
   if (!viewerId) return scope;
 
@@ -146,9 +192,36 @@ export async function resolveCommunicationScope(
     if (!active) return scope;
     scope.workspaceHouseIds = new Set(active.propertyIds.map(clean).filter(Boolean));
     scope.untaggedOwnedVisible = active.owned && active.isDefault;
+    scope.activeWorkspaceId = active.id;
+    // The viewer's own lines, one per owned workspace. A failure here leaves
+    // the map empty, which is the default-workspace rule — never wider.
+    const ownedIds = workspaces.filter((w) => w.owned).map((w) => w.id);
+    if (ownedIds.length > 0) {
+      const [numbers, emails] = await Promise.all([
+        db.from("manager_sms_numbers").select("workspace_id, phone_number").in("workspace_id", ownedIds),
+        db.from("manager_assistant_emails").select("workspace_id, inbox_token, mailbox_local, provision_state").in("workspace_id", ownedIds),
+      ]);
+      for (const row of numbers.data ?? []) {
+        const key = lineKey(row.phone_number);
+        const ws = clean(row.workspace_id);
+        if (key && ws) scope.workspaceByLine.set(key, ws);
+      }
+      const { assistantEmailAddress, assistantMailboxAddress } = await import("@/lib/manager-assistant-email/assistant-email-address");
+      for (const row of emails.data ?? []) {
+        if (row.provision_state !== "active") continue;
+        const ws = clean(row.workspace_id);
+        if (!ws) continue;
+        const local = clean(row.mailbox_local);
+        const token = clean(row.inbox_token);
+        if (local) scope.workspaceByLine.set(lineKey(assistantMailboxAddress(local)), ws);
+        if (token) scope.workspaceByLine.set(lineKey(assistantEmailAddress(token)), ws);
+      }
+    }
   } catch {
     scope.workspaceHouseIds = null;
     scope.untaggedOwnedVisible = true;
+    scope.activeWorkspaceId = null;
+    scope.workspaceByLine = new Map();
   }
   return scope;
 }
@@ -305,6 +378,7 @@ export async function filterVisibleInboxThreadRecords<T extends StoredInboxThrea
         houseIds: houses.map((h) => h.propertyId),
         threadType: record.thread_type ?? null,
         threadId: record.id,
+        lines: threadWorkLines(record.row_data),
       })
     ) {
       visible.push({ ...record, houses });

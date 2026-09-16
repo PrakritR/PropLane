@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { WORKSPACE_SELECTION_EVENT, selectedWorkspaceId } from "@/lib/workspaces/selection";
 import {
   loadManagerMessagingNumberStatusClient,
   readManagerMessagingNumberStatusClient,
@@ -37,6 +38,21 @@ export function useManagerMessagingNumberStatus(): ManagerMessagingNumberStatusS
     if (!sessionReady || !userId) return;
     void loadManagerMessagingNumberStatusClient(userId);
   }, [attempt, sessionReady, userId]);
+
+  // A work number belongs to the WORKSPACE, so the status is stale the moment
+  // the switcher moves. Drop the cache and read again only when the selected
+  // workspace actually changed — the selection event also fires on refreshes.
+  const workspaceRef = useRef<string | null>(selectedWorkspaceId());
+  useEffect(() => {
+    const onSelection = () => {
+      const next = selectedWorkspaceId();
+      if (next === workspaceRef.current) return;
+      workspaceRef.current = next;
+      retry();
+    };
+    window.addEventListener(WORKSPACE_SELECTION_EVENT, onSelection);
+    return () => window.removeEventListener(WORKSPACE_SELECTION_EVENT, onSelection);
+  }, [retry]);
 
   if (!sessionReady || !userId) {
     return {

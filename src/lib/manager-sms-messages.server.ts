@@ -26,7 +26,7 @@ import {
   loadManagerSmsContactMap,
   managerSmsContactKey,
 } from "@/lib/sms/manager-sms-contacts.server";
-import { resolveWorkspaceWorkNumbers } from "@/lib/sms/manager-workspace-role.server";
+import { resolveViewerWorkNumber } from "@/lib/sms/manager-workspace-role.server";
 import { loadConversationHouses } from "@/lib/sms/conversation-houses.server";
 import { conversationVisible, resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
 import { labelFromManagerPropertyRecordRow } from "@/lib/co-manager-property-label";
@@ -680,10 +680,14 @@ export async function fetchManagerSmsConversations(
   // One work number per workspace. A co-manager leads with the owner's line —
   // that is the number their replies go out from — even when a legacy line of
   // their own is still on file. Owners read their own row as before.
+  // The line Communication leads with is the ACTIVE workspace's: an owned
+  // workspace's own row (none = null, never a neighbour's), a shared
+  // workspace's owner line. Outside a request there is no selection and the
+  // viewer's own default line wins.
   const workspaceNumber = isClawSharedLineBridgeEnabled()
     ? null
-    : await resolveWorkspaceWorkNumbers(db, managerUserId)
-        .then((w) => (w.role === "co_manager" ? w.numbers.find((n) => n.phoneNumber)?.phoneNumber ?? null : null))
+    : await resolveViewerWorkNumber(db, managerUserId)
+        .then((n) => n?.phoneNumber ?? null)
         .catch(() => null);
   const ownNumber = isClawSharedLineBridgeEnabled()
     ? clawLeasingAgentPhoneE164()
@@ -1024,6 +1028,13 @@ export async function fetchManagerSmsConversations(
             conversationVisible(scope, {
               ownerId: String(conversation.ownerManagerUserId ?? "").trim() || managerUserId,
               houseIds: (conversation.houses ?? []).map((house) => house.propertyId),
+              // The work line the thread went through: the number texted on an
+              // inbound, the number sent from on an outbound. Places a thread
+              // about no house in the workspace that holds that line.
+              lines: conversation.messages
+                .filter((m) => m.source === "work_number")
+                .map((m) => (m.direction === "inbound" ? m.toPhone : m.fromPhone) ?? "")
+                .filter(Boolean),
             }),
           );
         })();

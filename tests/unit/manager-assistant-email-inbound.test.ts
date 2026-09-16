@@ -49,6 +49,12 @@ vi.mock("@/lib/agent/leasing-email-agent.server", () => ({
 
 vi.mock("@/lib/manager-assistant-email/manager-assistant-email.server", () => ({
   resolveManagerIdByAssistantInboundAddresses: mocks.resolveManagerIdByAssistantInboundAddresses,
+  // The code resolves the MAILBOX (owner + workspace); the spec still thinks in owner ids, so
+  // the mailbox is that owner on a legacy, unplaced row unless a case says otherwise.
+  resolveAssistantMailboxByInboundAddresses: async (db: unknown, addresses: string[]) => {
+    const managerUserId = await mocks.resolveManagerIdByAssistantInboundAddresses(db, addresses);
+    return managerUserId ? { managerUserId, workspaceId: null } : null;
+  },
   loadManagerAssistantEmail: mocks.loadManagerAssistantEmail,
 }));
 
@@ -131,6 +137,7 @@ describe("processManagerAssistantInboundEmail", () => {
     mocks.resolveWorkspaceOwnerForWorkEmail.mockImplementation(async (_db: unknown, id: string) => ({
       ownerUserId: id,
       sharedFromCoManager: false,
+      workspaceId: null,
     }));
     mocks.findOrCreateResidentEmailSession.mockResolvedValue({ id: "res-sess", landlord_id: "mgr-1" });
     mocks.loadResidentEmailHistory.mockResolvedValue([]);
@@ -271,6 +278,7 @@ describe("processManagerAssistantInboundEmail", () => {
       mocks.resolveWorkspaceOwnerForWorkEmail.mockResolvedValue({
         ownerUserId: "owner-1",
         sharedFromCoManager: true,
+        workspaceId: null,
       });
       mocks.resolveManagerEmailInboundIdentity.mockResolvedValue(null);
       mocks.loadManagerAssistantEmail.mockImplementation(async (_db: unknown, id: string) =>
@@ -307,6 +315,7 @@ describe("processManagerAssistantInboundEmail", () => {
       mocks.resolveWorkspaceOwnerForWorkEmail.mockResolvedValue({
         ownerUserId: "owner-1",
         sharedFromCoManager: true,
+        workspaceId: null,
       });
       mocks.resolveManagerEmailInboundIdentity.mockResolvedValue(null);
       mocks.loadManagerAssistantEmail.mockImplementation(async (_db: unknown, id: string) =>
