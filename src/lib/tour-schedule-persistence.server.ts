@@ -11,6 +11,10 @@ type ScheduleMutation = {
   /** Manager-only legacy approval override. Autonomous and manual creation
    * never set this; the database remains the single-winner fence for them. */
   allowConflict?: boolean;
+  /** Required for a replacement. The database compares this exact active
+   * lifecycle window while holding the shared schedule lock, before it makes
+   * any reservation or notification-eligible state change. */
+  expected?: { start: string; end: string; generation: string | null };
 };
 
 type LegacyScheduleDb = {
@@ -44,6 +48,16 @@ export async function mutateConfirmedTourSchedule(
     const rowData = data?.row_data as { payload?: unknown } | undefined;
     const rows = Array.isArray(rowData?.payload) ? rowData.payload.filter((row): row is Record<string, unknown> => Boolean(row && typeof row === "object")) : [];
     const id = String(mutation.event.id ?? "");
+    if (mutation.operation === "replace") {
+      const current = rows.find((row) => row.id === id);
+      if (!current || typeof current.canceledAt === "string" && current.canceledAt) {
+        return { ok: false, reason: "stale_event" };
+      }
+      if (!mutation.expected || current.start !== mutation.expected.start || current.end !== mutation.expected.end ||
+        (typeof current.rescheduleNotificationGeneration === "string" ? current.rescheduleNotificationGeneration : null) !== mutation.expected.generation) {
+        return { ok: false, reason: "stale_event" };
+      }
+    }
     const next = mutation.operation === "append" || mutation.operation === "append_event"
       ? [...rows, mutation.event]
       : mutation.operation === "delete"
@@ -81,6 +95,10 @@ export async function mutateConfirmedTourSchedule(
     p_event: mutation.event,
     p_remove_inquiry_ids: mutation.removeInquiryIds ?? [],
     p_allow_conflict: mutation.allowConflict === true,
+    p_expected_start: mutation.expected?.start ?? null,
+    p_expected_end: mutation.expected?.end ?? null,
+    p_expected_generation: mutation.expected?.generation ?? null,
+    p_expected_generation_known: Boolean(mutation.expected),
   });
   if (error) return { ok: false, reason: error.message };
   const result = data as { ok?: unknown; reason?: unknown } | null;

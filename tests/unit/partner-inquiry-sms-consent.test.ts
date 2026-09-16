@@ -16,13 +16,17 @@ vi.mock("@/lib/sms-consent", () => ({
 }));
 
 const upsertCalls: unknown[][] = [];
+let existingInquiryPayload: Record<string, unknown>[] = [];
 function makeDb() {
   const chain: Record<string, unknown> = {
     select: () => chain,
     eq: () => chain,
     or: () => chain,
     limit: () => Promise.resolve({ data: [], error: null }),
-    maybeSingle: () => Promise.resolve({ data: null, error: null }),
+    maybeSingle: () => Promise.resolve({
+      data: existingInquiryPayload.length > 0 ? { row_data: { payload: existingInquiryPayload } } : null,
+      error: null,
+    }),
     upsert: (records: unknown) => {
       upsertCalls.push(records as unknown[]);
       return Promise.resolve({ data: null, error: null });
@@ -124,6 +128,7 @@ describe("partner-inquiries route SMS consent persistence", () => {
   beforeEach(() => {
     recordOptIn.mockClear();
     upsertCalls.length = 0;
+    existingInquiryPayload = [];
     linkTourInquiryToResident.mockClear();
     vi.mocked(getPortalAccessContext).mockResolvedValue({
       user: null,
@@ -217,6 +222,20 @@ describe("partner-inquiries route resident tour linking", () => {
       inquiryId: "inq-1",
       email: "resident@example.com",
     });
+  });
+
+  it("preserves both existing owner inquiries when a signed-in resident books publicly", async () => {
+    existingInquiryPayload = [
+      { id: "owner-a-inquiry", managerUserId: "owner-a", propertyId: "property-a" },
+      { id: "owner-b-inquiry", managerUserId: "owner-b", propertyId: "property-b" },
+    ];
+    const res = await postWith(makeRow({ email: "other@example.com" }));
+    expect(res.status).toBe(200);
+
+    const records = upsertCalls.at(-1) as Record<string, unknown>[];
+    const singleton = records.find((record) => record.record_type === "axis_admin_partner_inquiries_v1");
+    const payload = (singleton?.row_data as { payload?: Record<string, unknown>[] } | undefined)?.payload ?? [];
+    expect(payload.map((row) => row.id)).toEqual(["inq-1", "owner-a-inquiry", "owner-b-inquiry"]);
   });
 
   it("links tours for signed-in managers who book through a property link", async () => {

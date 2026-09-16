@@ -40,6 +40,12 @@ type RecordConfig = {
   assignOwnership?: (record: Record<string, unknown>, user: RecordUser) => Record<string, unknown>;
   /** Reject INSERT when the record id is not owned by the caller (returns error message). */
   assertInsertAllowed?: (record: Record<string, unknown>, user: RecordUser) => string | null;
+  /** Batch authorization before any existing-row reads or writes occur. */
+  authorizeUpsert?: (args: {
+    db: ReturnType<typeof createSupabaseServiceRoleClient>;
+    user: RecordUser;
+    records: Record<string, unknown>[];
+  }) => Promise<{ ok: true } | { ok: false; error: string; status?: number }>;
   /** Reconcile an upsert with server-stored state before it is persisted. */
   reconcileExisting?: (
     record: Record<string, unknown>,
@@ -203,9 +209,18 @@ export function createJsonRecordRoute(config: RecordConfig) {
 
         const rows = body.action === "replace" ? body.rows ?? [] : body.row ? [body.row] : [];
         if (rows.length === 0) return NextResponse.json({ error: "row required" }, { status: 400 });
-        for (const row of rows) {
+        const records = rows.map((row) => {
           const normalized = config.normalize ? config.normalize(row) : row;
-          const record = config.buildUpsert(normalized, ctx.user);
+          return config.buildUpsert(normalized, ctx.user);
+        });
+        if (records.some((record) => !record.id)) return NextResponse.json({ error: "row id required" }, { status: 400 });
+        if (config.authorizeUpsert) {
+          const authorization = await config.authorizeUpsert({ db: ctx.db, user: ctx.user, records });
+          if (!authorization.ok) {
+            return NextResponse.json({ error: authorization.error }, { status: authorization.status ?? 403 });
+          }
+        }
+        for (const record of records) {
           if (!record.id) return NextResponse.json({ error: "row id required" }, { status: 400 });
           const id = String(record.id);
           const { data: existing, error: existingError } = await ctx.db

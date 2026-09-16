@@ -119,13 +119,18 @@ describe("prospect tour scheduling persistence boundary", () => {
       { data: { ok: true }, error: null },
     ]);
     await expect(mutateConfirmedTourSchedule(db, { operation: "append", event: EVENT })).resolves.toEqual({ ok: true });
-    await expect(mutateConfirmedTourSchedule(db, { operation: "replace", event: { ...EVENT, start: "2030-06-10T18:00:00.000Z" }, removeInquiryIds: ["inq-1"] })).resolves.toEqual({ ok: true });
+    await expect(mutateConfirmedTourSchedule(db, {
+      operation: "replace",
+      event: { ...EVENT, start: "2030-06-10T18:00:00.000Z" },
+      removeInquiryIds: ["inq-1"],
+      expected: { start: EVENT.start, end: EVENT.end, generation: null },
+    })).resolves.toEqual({ ok: true });
     await expect(mutateConfirmedTourSchedule(db, { operation: "cancel", event: EVENT })).resolves.toEqual({ ok: true });
 
     expect(rpc.mock.calls.map(([name, args]) => [name, args])).toEqual([
-      ["mutate_confirmed_tour_schedule", { p_operation: "append", p_event: EVENT, p_remove_inquiry_ids: [], p_allow_conflict: false }],
-      ["mutate_confirmed_tour_schedule", { p_operation: "replace", p_event: { ...EVENT, start: "2030-06-10T18:00:00.000Z" }, p_remove_inquiry_ids: ["inq-1"], p_allow_conflict: false }],
-      ["mutate_confirmed_tour_schedule", { p_operation: "cancel", p_event: EVENT, p_remove_inquiry_ids: [], p_allow_conflict: false }],
+      ["mutate_confirmed_tour_schedule", { p_operation: "append", p_event: EVENT, p_remove_inquiry_ids: [], p_allow_conflict: false, p_expected_start: null, p_expected_end: null, p_expected_generation: null, p_expected_generation_known: false }],
+      ["mutate_confirmed_tour_schedule", { p_operation: "replace", p_event: { ...EVENT, start: "2030-06-10T18:00:00.000Z" }, p_remove_inquiry_ids: ["inq-1"], p_allow_conflict: false, p_expected_start: EVENT.start, p_expected_end: EVENT.end, p_expected_generation: null, p_expected_generation_known: true }],
+      ["mutate_confirmed_tour_schedule", { p_operation: "cancel", p_event: EVENT, p_remove_inquiry_ids: [], p_allow_conflict: false, p_expected_start: null, p_expected_end: null, p_expected_generation: null, p_expected_generation_known: false }],
     ]);
   });
 

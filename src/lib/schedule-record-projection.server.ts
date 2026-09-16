@@ -67,8 +67,22 @@ function busyProjection(item: ScheduleItem): ScheduleItem {
     "slotKey",
     "slotBlocked",
     "assignee",
+    // Safe lifecycle/roster signals: required for a viewer to distinguish a
+    // canceled busy block and for the claim route's trusted host check.
+    "canceledAt",
+    "eligibleHostUserIds",
+    "requestedWindows",
   ];
-  return Object.fromEntries(allowed.flatMap((key) => key in item ? [[key, item[key]]] : []));
+  const projected = Object.fromEntries(allowed.flatMap((key) => key in item ? [[key, item[key]]] : []));
+  if (Array.isArray(item.requestedWindows)) {
+    projected.requestedWindows = item.requestedWindows
+      .map((window) => object(window))
+      .filter((window): window is ScheduleItem => Boolean(window))
+      .map((window) => Object.fromEntries(
+        ["start", "end", "slotKey"].flatMap((key) => key in window ? [[key, window[key]]] : []),
+      ));
+  }
+  return projected;
 }
 
 async function propertyOwners(db: Db, propertyIds: Set<string>): Promise<Map<string, string>> {
@@ -116,14 +130,17 @@ export async function projectScheduleRecordsForViewer(
     }
   }
 
-  const [owners, linked] = await Promise.all([
+  const [owners, linked, applicationHosts] = await Promise.all([
     propertyOwners(db, propertyIds),
     manager && !admin
       ? linkedOwnerScopeForModule(db, user.id, "calendar", "read")
       : Promise.resolve(null),
+    manager && !admin
+      ? linkedOwnerScopeForModule(db, user.id, "applications", "edit")
+      : Promise.resolve(null),
   ]);
 
-  const maySeeItem = (item: ScheduleItem): "full" | "busy" | null => {
+  const maySeeItem = (item: ScheduleItem, pendingInquiry = false): "full" | "busy" | null => {
     if (admin) return "full";
     if (!manager) return null;
     const managerUserId = itemManagerUserId(item);
@@ -131,8 +148,15 @@ export async function projectScheduleRecordsForViewer(
     const propertyId = itemPropertyId(item);
     const owner = propertyId ? owners.get(propertyId) ?? "" : "";
     if (owner === user.id) return "full";
-    if (!propertyId || !owner || !linked?.propertyIdsByOwner.get(owner)?.has(propertyId)) return null;
-    return "busy";
+    if (!propertyId || !owner) return null;
+    if (linked?.propertyIdsByOwner.get(owner)?.has(propertyId)) return "busy";
+    if (
+      pendingInquiry &&
+      applicationHosts?.propertyIdsByOwner.get(owner)?.has(propertyId) &&
+      Array.isArray(item.eligibleHostUserIds) &&
+      item.eligibleHostUserIds.some((id) => text(id) === user.id)
+    ) return "busy";
+    return null;
   };
 
   const projected: ScheduleRecord[] = [];
@@ -144,7 +168,7 @@ export async function projectScheduleRecordsForViewer(
       if (!admin && !manager) continue;
       const rowData = object(record.row_data) ?? {};
       const payload = recordPayload(record).flatMap((item) => {
-        const access = maySeeItem(item);
+        const access = maySeeItem(item, sharedInquiries && text(item.status).toLowerCase() === "pending");
         return access === "full" ? [item] : access === "busy" ? [busyProjection(item)] : [];
       });
       // A manager needs an observed empty planned-event baseline to safely use
@@ -163,7 +187,9 @@ export async function projectScheduleRecordsForViewer(
 
     if (isStandaloneInquiry(record)) {
       const item = object(record.row_data);
-      const access = item ? maySeeItem(item) : null;
+      const access = item
+        ? maySeeItem(item, text(item.status).toLowerCase() === "pending")
+        : null;
       if (!access || !item) continue;
       projected.push({ ...record, row_data: access === "full" ? item : busyProjection(item) });
       continue;

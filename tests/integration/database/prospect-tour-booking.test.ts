@@ -88,6 +88,7 @@ vi.mock("@/lib/google-calendar/settings", () => ({
 
 import type { AgentContext } from "@/lib/tools/context";
 import { confirmProspectSmsTourTool, prepareProspectTourConfirmationTool } from "@/lib/tools/domains/tours";
+import { mutateConfirmedTourSchedule } from "@/lib/tour-schedule-persistence.server";
 
 const configuredPort = process.env.PROSPECT_TOUR_TEST_PORT;
 const owner = "11111111-1111-4111-8111-111111111111";
@@ -102,6 +103,7 @@ const googleChangedWindowCorrectionMigration = "supabase/migrations/202609161010
 const plannedScheduleObservedBaselineMigration = "supabase/migrations/20260916101500_planned_schedule_observed_baseline.sql";
 const reminderFinalFenceMigration = "supabase/migrations/20260916102000_prospect_tour_reminder_final_fence.sql";
 const googleProviderWriteFenceMigration = "supabase/migrations/20260916102500_prospect_tour_google_provider_write_fence.sql";
+const lifecycleCasMigration = "supabase/migrations/20260916103000_confirmed_tour_lifecycle_cas.sql";
 const profilesMigration = "supabase/migrations/20250418140000_profiles_manager_purchases.sql";
 const automationMigration = "supabase/migrations/20260628120001_payment_automation_settings.sql";
 const managerSmsNumbersMigration = "supabase/migrations/20260725120000_manager_sms_numbers.sql";
@@ -261,6 +263,7 @@ describe.skipIf(!configuredPort)("confirmed tour schedule transaction boundary",
     await db.query(await readFile(plannedScheduleObservedBaselineMigration, "utf8"));
     await db.query(await readFile(reminderFinalFenceMigration, "utf8"));
     await db.query(await readFile(googleProviderWriteFenceMigration, "utf8"));
+    await db.query(await readFile(lifecycleCasMigration, "utf8"));
     await db.query(
       `insert into portal_schedule_records(id, record_type, row_data)
        values ('axis_admin_planned_events_v1', 'axis_admin_planned_events_v1', $1),
@@ -292,11 +295,43 @@ describe.skipIf(!configuredPort)("confirmed tour schedule transaction boundary",
     end: new Date(Date.parse(start) + 30 * 60_000).toISOString(),
   });
 
-  const mutate = (client: Client, operation: "append" | "cancel" | "replace", value: Record<string, unknown>) =>
-    client.query(
-      "select mutate_confirmed_tour_schedule($1, $2::jsonb, $3::text[]) result",
-      [operation, JSON.stringify(value), []],
+  const mutate = async (
+    client: Client,
+    operation: "append" | "cancel" | "replace",
+    value: Record<string, unknown>,
+    expected?: { start: string; end: string; generation: string | null },
+  ) => {
+    let observed = expected;
+    if (operation === "replace" && !observed) {
+      const current = (await client.query<{ event: Record<string, unknown> | null }>(
+        `select value event from portal_schedule_records,
+          jsonb_array_elements(row_data->'payload') value
+         where id='axis_admin_planned_events_v1' and value->>'id'=$1`,
+        [String(value.id)],
+      )).rows[0]?.event;
+      observed = current ? {
+        start: String(current.start),
+        end: String(current.end),
+        generation: typeof current.rescheduleNotificationGeneration === "string" ? current.rescheduleNotificationGeneration : null,
+      } : undefined;
+    }
+    return client.query(
+      "select mutate_confirmed_tour_schedule($1, $2::jsonb, $3::text[], $4, $5::timestamptz, $6::timestamptz, $7, $8) result",
+      [operation, JSON.stringify(value), [], false, observed?.start ?? null, observed?.end ?? null, observed?.generation ?? null, Boolean(observed)],
     );
+  };
+
+  const mutationRpcDb = (client: Client) => ({
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      if (name !== "mutate_confirmed_tour_schedule") throw new Error(`unexpected RPC ${name}`);
+      const result = await client.query(
+        "select mutate_confirmed_tour_schedule($1, $2::jsonb, $3::text[], $4, $5::timestamptz, $6::timestamptz, $7, $8) result",
+        [args.p_operation, JSON.stringify(args.p_event), args.p_remove_inquiry_ids, args.p_allow_conflict,
+          args.p_expected_start, args.p_expected_end, args.p_expected_generation, args.p_expected_generation_known],
+      );
+      return { data: result.rows[0]?.result ?? null, error: null };
+    },
+  }) as never;
 
   function googleRecoveryDb(client: Client, options: { hangPersist?: boolean } = {}) {
     return {
@@ -475,6 +510,10 @@ describe.skipIf(!configuredPort)("confirmed tour schedule transaction boundary",
   it("reapplies cleanly and rejects a stale manager-slice replacement after a concurrent append", async () => {
     await db.query(await readFile(migration, "utf8"));
     await db.query(await readFile(genericScheduleMigration, "utf8"));
+    // Replaying an older idempotent migration must still finish at the current
+    // safe schema. Production migration order always reapplies the additive
+    // lifecycle correction after the original four-argument definition.
+    await db.query(await readFile(lifecycleCasMigration, "utf8"));
     const ordinary = { ...event("ordinary-1", "2030-06-09:18", "2030-06-09T16:00:00.000Z"), kind: "meeting" };
     const appended = (await db.query(
       "select mutate_planned_schedule_event('append',$1::jsonb,null,null) result",
@@ -688,6 +727,117 @@ describe.skipIf(!configuredPort)("confirmed tour schedule transaction boundary",
       connections.delete(a);
       connections.delete(b);
     }
+  });
+
+  it("rejects cancel-first and ABA stale replacements under the lifecycle CAS", async () => {
+    const original = event("lifecycle-cas", "2030-07-01:20", "2030-07-01T17:00:00.000Z");
+    expect((await mutate(db, "append", original)).rows[0].result).toMatchObject({ ok: true });
+    const expected = { start: String(original.start), end: String(original.end), generation: null };
+    expect((await mutate(db, "cancel", original)).rows[0].result).toMatchObject({ ok: true });
+    const staleAfterCancel = { ...original, start: "2030-07-02T17:00:00.000Z", end: "2030-07-02T17:30:00.000Z", slotKey: "2030-07-02:20", rescheduleNotificationGeneration: "move-b" };
+    expect((await mutate(db, "replace", staleAfterCancel, expected)).rows[0].result).toMatchObject({ ok: false, reason: "stale_event" });
+
+    const aba = event("lifecycle-aba", "2030-07-03:20", "2030-07-03T17:00:00.000Z");
+    expect((await mutate(db, "append", aba)).rows[0].result).toMatchObject({ ok: true });
+    const abaExpected = { start: String(aba.start), end: String(aba.end), generation: null };
+    const moved = { ...aba, start: "2030-07-04T17:00:00.000Z", end: "2030-07-04T17:30:00.000Z", slotKey: "2030-07-04:20", rescheduleNotificationGeneration: "move-b" };
+    expect((await mutate(db, "replace", moved, abaExpected)).rows[0].result).toMatchObject({ ok: true });
+    const returnedToA = { ...aba, rescheduleNotificationGeneration: "move-c" };
+    expect((await mutate(db, "replace", returnedToA, { start: moved.start, end: moved.end, generation: "move-b" })).rows[0].result).toMatchObject({ ok: true });
+    expect((await mutate(db, "replace", { ...moved, rescheduleNotificationGeneration: "stale-b" }, abaExpected)).rows[0].result)
+      .toMatchObject({ ok: false, reason: "stale_event" });
+  });
+
+  it("treats conflict override as append-only and preserves a failed replacement reservation", async () => {
+    const source = event("replace-override-source", "2041-01-01:20", "2041-01-01T17:00:00.000Z");
+    const occupied = event("replace-override-occupied", "2041-01-02:20", "2041-01-02T17:00:00.000Z");
+    expect((await mutate(db, "append", source)).rows[0].result).toMatchObject({ ok: true });
+    expect((await mutate(db, "append", occupied)).rows[0].result).toMatchObject({ ok: true });
+
+    const replacement = { ...source, start: occupied.start, end: occupied.end, slotKey: occupied.slotKey };
+    const attempted = await db.query(
+      "select mutate_confirmed_tour_schedule('replace', $1::jsonb, '{}'::text[], true, $2::timestamptz, $3::timestamptz, null, true) result",
+      [JSON.stringify(replacement), source.start, source.end],
+    );
+    expect(attempted.rows[0].result).toMatchObject({ ok: false, reason: "conflict" });
+
+    const activeSource = await db.query<{ count: number }>(
+      "select count(*)::int count from tour_slot_reservations where manager_user_id=$1 and planned_event_id=$2 and slot_key=$3 and status='active'",
+      [owner, source.id, source.slotKey],
+    );
+    expect(activeSource.rows[0].count).toBe(1);
+    const payload = (await db.query<{ payload: Record<string, unknown>[] }>(
+      "select row_data->'payload' payload from portal_schedule_records where id='axis_admin_planned_events_v1'",
+    )).rows[0].payload;
+    expect(payload.find((item) => item.id === source.id)).toMatchObject({
+      start: source.start,
+      end: source.end,
+      slotKey: source.slotKey,
+    });
+  });
+
+  it("uses active reservation intervals as durable authority, including concurrent writers", async () => {
+    await db.query(
+      `insert into tour_slot_reservations(manager_user_id,property_id,slot_key,starts_at,ends_at,planned_event_id,status)
+       values($1,'property-1','orphan-1000','2030-07-10T17:00:00Z','2030-07-10T17:30:00Z','orphan-interval','active')`,
+      [owner],
+    );
+    const overlap = event("orphan-overlap", "2030-07-10:1945", "2030-07-10T16:45:00.000Z");
+    expect((await mutate(db, "append", overlap)).rows[0].result).toMatchObject({ ok: false, reason: "conflict" });
+    const adjacent = event("orphan-adjacent", "2030-07-10:2030", "2030-07-10T17:30:00.000Z");
+    expect((await mutate(db, "append", adjacent)).rows[0].result).toMatchObject({ ok: true });
+
+    const a = await connect(); const b = await connect();
+    try {
+      const [left, right] = await Promise.all([
+        mutate(a, "append", event("interval-race-a", "2040-01-11:20", "2040-01-11T18:00:00.000Z")),
+        mutate(b, "append", event("interval-race-b", "2040-01-11:1945", "2040-01-11T17:45:00.000Z")),
+      ]);
+      const results = [left.rows[0].result, right.rows[0].result];
+      expect(results.filter((result) => result.ok === true)).toHaveLength(1);
+      expect(results.filter((result) => result.reason === "conflict")).toHaveLength(1);
+    } finally {
+      await a.end(); await b.end(); connections.delete(a); connections.delete(b);
+    }
+
+    const otherManager = "22222222-2222-4222-8222-222222222222";
+    await db.query("insert into auth.users(id) values($1) on conflict do nothing", [otherManager]);
+    await db.query(
+      `insert into tour_slot_reservations(manager_user_id,property_id,slot_key,starts_at,ends_at,planned_event_id,status)
+       values($1,'property-1','other-host-held','2030-07-12T17:00:00Z','2030-07-12T17:30:00Z','other-host-event','active')`,
+      [otherManager],
+    );
+    expect((await mutate(db, "append", event("different-host-overlap", "2030-07-12:20", "2030-07-12T17:00:00.000Z"))).rows[0].result)
+      .toMatchObject({ ok: true });
+  });
+
+  it("threads lifecycle CAS through the real TypeScript persistence wrapper", async () => {
+    const original = event("wrapper-cas", "2030-07-13:20", "2030-07-13T17:00:00.000Z");
+    expect((await mutate(db, "append", original)).rows[0].result).toMatchObject({ ok: true });
+    const expected = { start: String(original.start), end: String(original.end), generation: null };
+    const a = await connect(); const b = await connect();
+    try {
+      const left = { ...original, start: "2030-07-14T17:00:00.000Z", end: "2030-07-14T17:30:00.000Z", slotKey: "2030-07-14:20", rescheduleNotificationGeneration: "wrapper-b" };
+      const right = { ...original, start: "2030-07-15T17:00:00.000Z", end: "2030-07-15T17:30:00.000Z", slotKey: "2030-07-15:20", rescheduleNotificationGeneration: "wrapper-c" };
+      const results = await Promise.all([
+        mutateConfirmedTourSchedule(mutationRpcDb(a), { operation: "replace", event: left, expected }),
+        mutateConfirmedTourSchedule(mutationRpcDb(b), { operation: "replace", event: right, expected }),
+      ]);
+      expect(results.filter((result) => result.ok)).toHaveLength(1);
+      expect(results.filter((result) => !result.ok && result.reason === "stale_event")).toHaveLength(1);
+    } finally {
+      await a.end(); await b.end(); connections.delete(a); connections.delete(b);
+    }
+  });
+
+  it("exposes only the safe lifecycle-CAS RPC signature", async () => {
+    const signatures = (await db.query<{ signature: string }>(
+      `select oid::regprocedure::text signature from pg_proc
+       where pronamespace='public'::regnamespace and proname='mutate_confirmed_tour_schedule'`,
+    )).rows.map((row) => row.signature);
+    expect(signatures).toEqual([
+      "mutate_confirmed_tour_schedule(text,jsonb,text[],boolean,timestamp with time zone,timestamp with time zone,text,boolean)",
+    ]);
   });
 
   it("preserves different-slot appends and releases a cancelled slot for reuse", async () => {

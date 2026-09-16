@@ -336,7 +336,11 @@ export async function reschedulePlannedTour(
   const { plannedRows, event } = loaded;
 
   const managerUserId = textField(event, "managerUserId");
-  const previous = { start: textField(event, "start"), end: textField(event, "end") };
+  const previous = {
+    start: textField(event, "start"),
+    end: textField(event, "end"),
+    generation: textField(event, "rescheduleNotificationGeneration") || null,
+  };
   if (previous.start === start && previous.end === end) {
     return { ok: false, status: 400, error: "That is the time this tour is already booked for." };
   }
@@ -367,8 +371,18 @@ export async function reschedulePlannedTour(
     ...(instructions ? { instructions } : {}),
     rescheduleNotificationGeneration: rescheduleGeneration,
   };
-  const persisted = await mutateConfirmedTourSchedule(db, { operation: "replace", event: moved });
-  if (!persisted.ok) return { ok: false, status: persisted.reason === "not_found" ? 404 : 500, error: persisted.reason };
+  const persisted = await mutateConfirmedTourSchedule(db, {
+    operation: "replace",
+    event: moved,
+    expected: previous,
+  });
+  if (!persisted.ok) {
+    return {
+      ok: false,
+      status: persisted.reason === "not_found" ? 404 : ["conflict", "stale_event", "expected_window_required"].includes(persisted.reason) ? 409 : 500,
+      error: persisted.reason,
+    };
+  }
 
   let guestNotification: TourNotificationResult | null = null;
   if (opts.notifyGuest) {
@@ -380,7 +394,7 @@ export async function reschedulePlannedTour(
         managerUserId,
         adminLabel: textField(event, "adminLabel") || undefined,
       },
-      previousWindow: previous,
+      previousWindow: { start: previous.start, end: previous.end },
       rescheduleGeneration,
       reason: opts.reason,
       instructions: instructions || textField(event, "instructions") || null,

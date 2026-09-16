@@ -1232,7 +1232,12 @@ function buildPartnerInquiry(payload: Omit<PartnerInquiry, "id" | "status" | "cr
 function insertPartnerInquiryLocally(row: PartnerInquiry) {
   const rows = readPartnerInquiries();
   rows.unshift(row);
-  writeJson(INQ_KEY, rows);
+  // Public booking has already been persisted by its dedicated route. Keep
+  // this optimistic mirror memory/session-local so it cannot issue a generic
+  // singleton snapshot write and erase another manager's inquiry.
+  memoryStore.set(INQ_KEY, rows);
+  writeSessionJson(INQ_KEY, rows);
+  emitAdminUi();
 }
 
 function normalizePartnerInquiryWindows(row: Pick<PartnerInquiry, "requestedWindows" | "proposedStart" | "proposedEnd" | "adminUserId" | "adminLabel">): PartnerInquiryWindow[] {

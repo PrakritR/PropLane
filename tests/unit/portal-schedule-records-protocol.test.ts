@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { isActivePlannedEvent, type PlannedEvent } from "@/lib/demo-admin-scheduling";
 
 type Row = Record<string, unknown>;
 
@@ -42,20 +43,40 @@ function query(table: string): Query {
   const rowsFor = (): Row[] => {
     if (table === "portal_schedule_records") {
       const id = typeof filters.id === "string" ? filters.id : null;
-      const source = id ? state.scheduleRows.filter((row) => row.id === id) : state.scheduleRows;
+      const ids = Array.isArray(filters["in:id"]) ? filters["in:id"] as unknown[] : null;
+      const propertyIds = Array.isArray(filters["in:property_id"])
+        ? filters["in:property_id"] as unknown[]
+        : null;
+      const legacyPropertyIds = Array.isArray(filters["in:row_data->>propertyId"])
+        ? filters["in:row_data->>propertyId"] as unknown[]
+        : null;
+      const source = id
+        ? state.scheduleRows.filter((row) => row.id === id)
+        : ids
+          ? state.scheduleRows.filter((row) => ids.includes(row.id))
+          : propertyIds
+            ? state.scheduleRows.filter((row) => propertyIds.includes(row.property_id))
+            : legacyPropertyIds
+              ? state.scheduleRows.filter((row) => legacyPropertyIds.includes((row.row_data as Row | undefined)?.propertyId))
+          : state.scheduleRows;
+      const excluded = Array.isArray(filters.neq) ? filters.neq : [];
+      const ordinary = excluded.length > 0
+        ? source.filter((row) => !excluded.includes(row.id))
+        : source;
       // Scope checks are the only queries carrying an .or() filter. The real
       // route's scope allows own ordinary rows and its shared singleton rows.
       if (filters.scope === true && !state.admin) {
         const viewer = (state.portal.user as { id: string }).id;
-        return source.filter((row) => {
+        const scoped = ordinary.filter((row) => {
           if (row.id === "axis_admin_planned_events_v1" || row.id === "axis_admin_partner_inquiries_v1") return true;
           return row.manager_user_id === viewer;
         });
+        return typeof filters.limit === "number" ? scoped.slice(0, filters.limit) : scoped;
       }
-      return source;
+      return typeof filters.limit === "number" ? ordinary.slice(0, filters.limit) : ordinary;
     }
     if (table === "manager_property_records") {
-      const ids = Array.isArray(filters.in) ? filters.in : [];
+      const ids = Array.isArray(filters["in:id"]) ? filters["in:id"] as unknown[] : [];
       return state.properties.filter((row) => ids.length === 0 || ids.includes(row.id));
     }
     if (table === "account_link_invites") {
@@ -76,13 +97,21 @@ function query(table: string): Query {
   Object.assign(chain, {
     select: () => chain,
     order: () => chain,
-    limit: () => chain,
+    limit: (value: number) => {
+      filters.limit = value;
+      return chain;
+    },
     eq: (column: string, value: unknown) => {
       filters[column] = value;
       return chain;
     },
-    in: (_column: string, values: unknown[]) => {
-      filters.in = values;
+    in: (column: string, values: unknown[]) => {
+      filters[`in:${column}`] = values;
+      return chain;
+    },
+    neq: (_column: string, value: unknown) => {
+      const excluded = Array.isArray(filters.neq) ? filters.neq : [];
+      filters.neq = [...excluded, value];
       return chain;
     },
     or: () => {
@@ -176,11 +205,87 @@ describe("portal schedule-records protocol", () => {
     expect(state.scheduleRows).toEqual([]);
   });
 
+  it("rejects inquiry singleton upsert and mixed replace before any row is mutated", async () => {
+    const { POST } = await import("@/app/api/portal-schedule-records/route");
+    const ordinary = { id: "ordinary-owner-a", manager_user_id: "owner-a", record_type: "event", row_data: { id: "ordinary-owner-a" } };
+    for (const [id, roles] of [
+      ["resident-1", ["resident"]],
+      ["manager-other", ["manager"]],
+      ["owner-a", ["manager"]],
+      ["vendor-1", ["vendor"]],
+      ["admin-1", ["admin"]],
+    ] as const) {
+      portal(id, [...roles]);
+      for (const payload of [[], [{ id: "forged-inquiry", managerUserId: "owner-a" }]]) {
+        const inquiry = { id: inquiriesId, recordType: inquiriesId, payload };
+        state.scheduleRows = [ordinary, singleton(inquiriesId, [{ id: "stored-inquiry" }])];
+        const upsert = await POST(post({ action: "upsert", row: inquiry }));
+        expect(upsert.status).toBe(403);
+        expect(state.scheduleRows).toEqual([ordinary, singleton(inquiriesId, [{ id: "stored-inquiry" }])]);
+        for (const rows of [[ordinary, inquiry], [inquiry, ordinary]]) {
+          const response = await POST(post({ action: "replace", rows }));
+          expect(response.status).toBe(403);
+          expect(state.scheduleRows).toEqual([ordinary, singleton(inquiriesId, [{ id: "stored-inquiry" }])]);
+        }
+      }
+    }
+  });
+
+  it("does not let more than 500 unrelated ordinary rows starve an owned row or singleton baseline", async () => {
+    const { GET } = await import("@/app/api/portal-schedule-records/route");
+    const unrelated = Array.from({ length: 501 }, (_, index) => ({
+      id: `ordinary-other-${index}`,
+      manager_user_id: "owner-other",
+      record_type: "event",
+      row_data: { id: `ordinary-other-${index}` },
+    }));
+    state.scheduleRows = [
+      ...unrelated,
+      { id: "ordinary-owner-a", manager_user_id: "owner-a", record_type: "event", row_data: { id: "ordinary-owner-a" } },
+      singleton(plannedId, []),
+    ];
+    const body = await (await GET()).json() as { rows: Row[] };
+    expect(body.rows.some((row) => row.id === "ordinary-owner-a")).toBe(true);
+    expect(body.rows.some((row) => row.id === plannedId)).toBe(true);
+  });
+
+  it("pages linked ordinary rows by authorized property before the limit", async () => {
+    const { GET } = await import("@/app/api/portal-schedule-records/route");
+    portal("co-a");
+    state.links = [{
+      status: "accepted",
+      invitee_user_id: "co-a",
+      inviter_user_id: "owner-a",
+      assigned_property_ids: ["property-a"],
+      property_co_manager_permissions: { "property-a": { applications: { edit: true } } },
+    }];
+    state.scheduleRows = [
+      ...Array.from({ length: 501 }, (_, index) => ({
+        id: `unrelated-owner-row-${index}`,
+        manager_user_id: "owner-a",
+        property_id: "property-b",
+        record_type: "tour_inquiry",
+        row_data: { id: `unrelated-${index}`, kind: "tour", status: "pending", managerUserId: "owner-a", propertyId: "property-b" },
+      })),
+      {
+        id: "authorized-older-inquiry",
+        manager_user_id: "owner-a",
+        property_id: "property-a",
+        record_type: "tour_inquiry",
+        row_data: { id: "authorized-older-inquiry", kind: "tour", status: "pending", managerUserId: "owner-a", propertyId: "property-a", eligibleHostUserIds: ["co-a"] },
+      },
+      singleton(plannedId, []),
+    ];
+    const body = await (await GET()).json() as { rows: Row[] };
+    expect(body.rows.filter((row) => row.id === "authorized-older-inquiry")).toHaveLength(1);
+    expect(body.rows.some((row) => String(row.id).startsWith("unrelated-owner-row-"))).toBe(false);
+  });
+
   it("projects shared and standalone tours by authenticated property authority without leaking prospect contacts", async () => {
     const { GET } = await import("@/app/api/portal-schedule-records/route");
     const ownerATour = {
       id: "tour-a", kind: "tour", managerUserId: "owner-a", propertyId: "property-a", start: "2030-01-01T18:00:00.000Z", end: "2030-01-01T18:30:00.000Z",
-      guestName: "Ava Prospect", guestPhone: "+15550000001", guestEmail: "ava@example.test",
+      guestName: "Ava Prospect", guestPhone: "+15550000001", guestEmail: "ava@example.test", canceledAt: "2030-01-01T17:00:00.000Z",
     };
     const ownerBTour = {
       id: "tour-b", kind: "tour", managerUserId: "owner-b", propertyId: "property-b", start: "2030-01-01T19:00:00.000Z", end: "2030-01-01T19:30:00.000Z",
@@ -234,6 +339,8 @@ describe("portal schedule-records protocol", () => {
     body = await (await GET()).json() as { rows: Row[] };
     const coPlanned = body.rows.find((row) => row.id === plannedId)!;
     expect((coPlanned.payload as Row[]).map((row) => row.id)).toEqual(["tour-a"]);
+    expect((coPlanned.payload as Row[])[0]).toMatchObject({ canceledAt: "2030-01-01T17:00:00.000Z" });
+    expect(isActivePlannedEvent((coPlanned.payload as Row[])[0] as PlannedEvent)).toBe(false);
     expect(JSON.stringify(body)).not.toContain("Ava Prospect");
     expect(JSON.stringify(body)).not.toContain("ava@example.test");
     expect(body.rows.some((row) => row.id === "inquiry-a" && row.kind === "tour")).toBe(true);
@@ -272,5 +379,34 @@ describe("portal schedule-records protocol", () => {
       expectedEvents: [ownTask],
     }));
     expect(JSON.stringify(state.replace.mock.calls)).not.toContain("tour-new");
+  });
+
+  it("projects a pending inquiry to an applications-edit host only when the trusted roster includes them", async () => {
+    const { GET } = await import("@/app/api/portal-schedule-records/route");
+    state.scheduleRows = [singleton(inquiriesId, [{
+      id: "inquiry-rostered",
+      kind: "tour",
+      status: "pending",
+      managerUserId: "owner-a",
+      propertyId: "property-a",
+      eligibleHostUserIds: ["co-a"],
+      requestedWindows: [{ start: "2030-01-02T18:00:00.000Z", end: "2030-01-02T18:30:00.000Z", adminLabel: "Owner A" }],
+      guestName: "Ava Prospect",
+    }])];
+    portal("co-a");
+    state.links = [{
+      status: "accepted",
+      invitee_user_id: "co-a",
+      inviter_user_id: "owner-a",
+      assigned_property_ids: ["property-a"],
+      property_co_manager_permissions: { "property-a": { applications: { edit: true } } },
+    }];
+    const body = await (await GET()).json() as { rows: Row[] };
+    const inquiry = body.rows.find((row) => row.id === inquiriesId);
+    expect(inquiry).toBeDefined();
+    expect((inquiry!.payload as Row[]).map((row) => row.id)).toEqual(["inquiry-rostered"]);
+    expect((inquiry!.payload as Row[])[0]).toMatchObject({ eligibleHostUserIds: ["co-a"] });
+    expect((inquiry!.payload as Row[])[0]).toMatchObject({ requestedWindows: [{ start: "2030-01-02T18:00:00.000Z", end: "2030-01-02T18:30:00.000Z" }] });
+    expect(JSON.stringify(inquiry)).not.toContain("Ava Prospect");
   });
 });

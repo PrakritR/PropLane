@@ -10,6 +10,7 @@ import { summarizeAvailabilityChange } from "@/lib/availability-change-summary";
 import { resolvePropertyOwnerUserId } from "@/lib/property-owner.server";
 import { emitAvailabilityChangedEvent } from "@/lib/tour-events.server";
 import { replaceManagerPlannedScheduleSlice } from "@/lib/planned-schedule-persistence.server";
+import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
 import {
   PARTNER_INQUIRIES_RECORD_ID,
   PLANNED_EVENTS_RECORD_ID,
@@ -80,32 +81,94 @@ function isTourPlannedEvent(event: PlannedEventValue): boolean {
   return typeof event.kind === "string" && event.kind.trim() === "tour";
 }
 
+function scheduleRecordScope(
+  query: unknown,
+  user: { id: string; role: string },
+): unknown {
+  const q = query as { or: (filters: string) => unknown };
+  if (user.role === "admin") return query;
+  if (user.role === "vendor") {
+    return q.or(
+      `manager_user_id.eq.${user.id},id.eq.axis_vendor_avail_slots_v2_${user.id},id.eq.axis_vendor_flex_prefs_${user.id}`,
+    );
+  }
+  return q.or(
+    `manager_user_id.eq.${user.id},id.like.axis_mgr_avail_slots_v2_${user.id}%,id.like.axis_calendar_share_avail_${user.id}_prop_%,id.eq.axis_manager_tasks_v1_${user.id},id.eq.axis_admin_partner_inquiries_v1,id.eq.axis_admin_planned_events_v1`,
+  );
+}
+
+function scheduleUserHasRole(user: { role: string; roles?: string[] }, role: string): boolean {
+  return user.role === role || user.roles?.includes(role) === true;
+}
+
 const route = createJsonRecordRoute({
   table: "portal_schedule_records",
-  readRecords: async ({ db }) => {
-    const { data, error } = await db
+  readRecords: async ({ db, user }) => {
+    const select = "id, manager_user_id, property_id, record_type, row_data, updated_at";
+    // Shared JSON containers are fetched by exact id so an ordinary-row limit
+    // can never hide the baseline or pending-inquiry singleton. Ordinary rows
+    // are scoped first and only then bounded for predictable egress.
+    const singletonQuery = db
       .from("portal_schedule_records")
-      .select("id, manager_user_id, property_id, record_type, row_data, updated_at")
+      .select(select)
+      .in("id", [PLANNED_EVENTS_RECORD_ID, PARTNER_INQUIRIES_RECORD_ID]);
+    let ordinaryQuery = db
+      .from("portal_schedule_records")
+      .select(select)
+      .neq("id", PLANNED_EVENTS_RECORD_ID)
+      .neq("id", PARTNER_INQUIRIES_RECORD_ID)
       .order("updated_at", { ascending: false })
       .limit(500);
-    return { data: data as Record<string, unknown>[] | null, error };
+    ordinaryQuery = scheduleRecordScope(ordinaryQuery, user) as typeof ordinaryQuery;
+    const reads = [singletonQuery, ordinaryQuery];
+    if (!scheduleUserHasRole(user, "admin") && scheduleUserHasRole(user, "manager")) {
+      const [calendar, applications] = await Promise.all([
+        linkedOwnerScopeForModule(db, user.id, "calendar", "read"),
+        linkedOwnerScopeForModule(db, user.id, "applications", "edit"),
+      ]);
+      const linkedPropertyIds = [...new Set([...calendar.propertyIds, ...applications.propertyIds])];
+      if (linkedPropertyIds.length > 0) {
+        const linkedColumnQuery =
+          db
+            .from("portal_schedule_records")
+            .select(select)
+            .neq("id", PLANNED_EVENTS_RECORD_ID)
+            .neq("id", PARTNER_INQUIRIES_RECORD_ID)
+            .in("property_id", linkedPropertyIds)
+            .order("updated_at", { ascending: false })
+            .limit(500);
+        // Legacy standalone inquiry rows may carry propertyId only inside
+        // row_data. Scope that JSON path before its own limit too; projection
+        // still performs the authoritative ownership/grant check.
+        const linkedLegacyQuery = db
+          .from("portal_schedule_records")
+          .select(select)
+          .neq("id", PLANNED_EVENTS_RECORD_ID)
+          .neq("id", PARTNER_INQUIRIES_RECORD_ID)
+          .in("row_data->>propertyId", linkedPropertyIds)
+          .order("updated_at", { ascending: false })
+          .limit(500);
+        reads.push(
+          linkedColumnQuery,
+          linkedLegacyQuery,
+        );
+      }
+    }
+    const results = await Promise.all(reads);
+    const records = new Map<string, Record<string, unknown>>();
+    for (const result of results) {
+      for (const record of (result.data ?? []) as Record<string, unknown>[]) {
+        const id = String(record.id ?? "").trim();
+        if (id && !records.has(id)) records.set(id, record);
+      }
+    }
+    return {
+      data: [...records.values()],
+      error: results.find((result) => result.error)?.error ?? null,
+    };
   },
   projectRead: async ({ db, user, records }) => projectScheduleRecordsForViewer(db, user, records),
-  scope: (query, user) => {
-    const q = query as {
-      eq: (column: string, value: string) => unknown;
-      or: (filters: string) => unknown;
-    };
-    if (user.role === "admin") return query;
-    if (user.role === "vendor") {
-      return q.or(
-        `manager_user_id.eq.${user.id},id.eq.axis_vendor_avail_slots_v2_${user.id},id.eq.axis_vendor_flex_prefs_${user.id}`,
-      );
-    }
-    return q.or(
-      `manager_user_id.eq.${user.id},id.like.axis_mgr_avail_slots_v2_${user.id}%,id.like.axis_calendar_share_avail_${user.id}_prop_%,id.like.axis_manager_tasks_v1_${user.id},id.eq.axis_admin_partner_inquiries_v1,id.eq.axis_admin_planned_events_v1`,
-    );
-  },
+  scope: scheduleRecordScope,
   buildUpsert: (row, user) => {
     const recordType = String(row.recordType ?? row.record_type ?? "event");
     return {
@@ -193,6 +256,16 @@ const route = createJsonRecordRoute({
     }
     if (!result.ok) return { handled: true, error: result.reason, status: 409 };
     return { handled: true };
+  },
+  authorizeUpsert: async ({ records }) => {
+    if (records.some((record) => String(record.id ?? "").trim() === PARTNER_INQUIRIES_RECORD_ID)) {
+      return {
+        ok: false,
+        error: "Inquiry records must be changed through their dedicated lifecycle routes.",
+        status: 403,
+      };
+    }
+    return { ok: true };
   },
   authorizeDelete: async ({ records }) => {
     if (records.some((record) => {

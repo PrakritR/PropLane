@@ -320,6 +320,29 @@ describe("reschedulePlannedTour", () => {
     expect(notifyRescheduled).not.toHaveBeenCalled();
   });
 
+  it("does not notify or sync when the atomic lifecycle CAS rejects a stale move", async () => {
+    const staleDb = {
+      ...db(),
+      rpc: vi.fn(async () => ({ data: { ok: false, reason: "stale_event" }, error: null })),
+    } as never;
+    const result = await reschedulePlannedTour(staleDb, {
+      plannedEventId: "planned-1",
+      actorUserId: MANAGER,
+      start: NEW_START,
+      end: NEW_END,
+      notifyGuest: true,
+    });
+    expect(result).toMatchObject({ ok: false, status: 409, error: "stale_event" });
+    expect(notifyRescheduled).not.toHaveBeenCalled();
+    expect(syncGoogle).not.toHaveBeenCalled();
+    expect(staleDb.rpc).toHaveBeenCalledWith("mutate_confirmed_tour_schedule", expect.objectContaining({
+      p_expected_start: TOUR.start,
+      p_expected_end: TOUR.end,
+      p_expected_generation: null,
+      p_expected_generation_known: true,
+    }));
+  });
+
   it("rejects an end at or before the start", async () => {
     const result = await reschedulePlannedTour(db(), {
       plannedEventId: "planned-1",
