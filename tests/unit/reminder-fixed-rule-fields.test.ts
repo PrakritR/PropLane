@@ -61,7 +61,7 @@ describe("normalizeReminderSettings overwrites exactly the fields FIXED_RULE_FIE
 
   it("audience: a saved audience is discarded for manager-off / counterparty-on / team-off", () => {
     const rule = saveDifferentValues();
-    expect(rule.audience).toEqual({ manager: false, counterparty: true, team: false });
+    expect(rule.audience).toEqual({ manager: false, counterparty: true, team: false, vendor: false });
     expect(rule.teamUserIds).toEqual([]);
   });
 

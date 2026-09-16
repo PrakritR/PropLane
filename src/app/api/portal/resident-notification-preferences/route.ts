@@ -3,8 +3,12 @@ import { NextResponse } from "next/server";
 import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
 import {
   NOTIFICATION_CATEGORIES,
+  loadNotificationPreferences,
+  loadResidentTextSettings,
   normalizeNotificationPreferences,
+  normalizeResidentTextSettings,
   saveNotificationPreferences,
+  saveResidentTextSettings,
   type ChannelPreference,
   type NotificationPreferences,
 } from "@/lib/notification-preferences";
@@ -108,9 +112,10 @@ export async function GET() {
     }
 
     const preferences = normalizeNotificationPreferences(row?.row_data ?? null);
+    const text = normalizeResidentTextSettings((row?.row_data as Record<string, unknown> | null)?.resident);
     const sms = await resolveSmsAvailability(auth.ctx);
 
-    return NextResponse.json({ categories: NOTIFICATION_CATEGORIES, preferences, sms });
+    return NextResponse.json({ categories: NOTIFICATION_CATEGORIES, preferences, text, sms });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not load notification preferences.";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -118,7 +123,7 @@ export async function GET() {
 }
 
 type ChannelPatch = { email?: unknown; sms?: unknown };
-type PatchBody = { preferences?: unknown };
+type PatchBody = { preferences?: unknown; text?: unknown };
 
 /**
  * Merges an incoming per-category channel patch ONTO the caller's current
@@ -159,6 +164,19 @@ export async function PATCH(req: Request) {
     } catch {
       return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
     }
+    // The resident's own text settings (quiet hours) ride the same route.
+    if (body.text && typeof body.text === "object") {
+      const current = await loadResidentTextSettings(db, userId);
+      const incoming = body.text as { quietHours?: Record<string, unknown> };
+      const text = await saveResidentTextSettings(db, userId, {
+        ...current,
+        quietHours: { ...current.quietHours, ...(incoming.quietHours ?? {}) },
+      });
+      if (!body.preferences) {
+        const sms = await resolveSmsAvailability(auth.ctx);
+        return NextResponse.json({ categories: NOTIFICATION_CATEGORIES, preferences: await loadNotificationPreferences(db, userId), text, sms });
+      }
+    }
     if (!body.preferences || typeof body.preferences !== "object") {
       return NextResponse.json({ error: "preferences must be an object." }, { status: 400 });
     }
@@ -175,9 +193,9 @@ export async function PATCH(req: Request) {
     const current = normalizeNotificationPreferences(row?.row_data ?? null);
     const merged = applyPreferencesPatch(current, body.preferences);
     const saved = await saveNotificationPreferences(db, userId, merged);
-    const sms = await resolveSmsAvailability(auth.ctx);
+    const [sms, text] = await Promise.all([resolveSmsAvailability(auth.ctx), loadResidentTextSettings(db, userId)]);
 
-    return NextResponse.json({ categories: NOTIFICATION_CATEGORIES, preferences: saved, sms });
+    return NextResponse.json({ categories: NOTIFICATION_CATEGORIES, preferences: saved, text, sms });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not save notification preferences.";
     return NextResponse.json({ error: message }, { status: 500 });

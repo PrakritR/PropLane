@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import { resolveManagerScopeUserId } from "@/lib/demo/demo-session";
+import { filterPropertyOptionsForActiveWorkspace } from "@/lib/workspaces/selection";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import {
@@ -21,7 +23,7 @@ import {
   type ManagerSettingsPanelFooter,
 } from "@/components/portal/pro-portal-settings-panels";
 import { SaveStatus } from "@/components/ui/save-status";
-import { MANAGER_PORTAL_SETTINGS_TABS } from "@/lib/portal-settings-section";
+import { MANAGER_PORTAL_SETTINGS_TABS, managerSettingsHubTab } from "@/lib/portal-settings-section";
 import type { ManagerPortalSettingsTab } from "@/components/portal/pro-portal-settings-modal";
 
 /**
@@ -67,9 +69,13 @@ export function PortalSettingsSectionClient({
    * nothing here and needs no loading state. Every other module ignores it.
    */
   const { userId } = useManagerUserId();
+  const workspaces = useWorkspaces();
   const propertyOptions = useMemo(
-    () => buildManagerPropertyFilterOptions(resolveManagerScopeUserId(userId)),
-    [userId],
+    () =>
+      filterPropertyOptionsForActiveWorkspace(
+        buildManagerPropertyFilterOptions(resolveManagerScopeUserId(userId)),
+      ),
+    [userId, workspaces?.active?.id],
   );
 
   useEffect(() => {
@@ -149,7 +155,9 @@ export function PortalSettingsSectionClient({
     }
     const { ok } = (await pageRef.current?.flushPendingSaves()) ?? { ok: true };
     if (!ok) return;
-    if (typeof window !== "undefined") window.location.assign(`${basePath}/settings/${nextTab}`);
+    if (typeof window !== "undefined") {
+      window.location.assign(`${basePath}/profile?tab=${managerSettingsHubTab(nextTab)}`);
+    }
   }
 
   const showList = mobileListOpen || !tab;

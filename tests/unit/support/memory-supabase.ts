@@ -11,6 +11,13 @@ type Filter = (row: Row) => boolean;
 
 export type MemoryDb = {
   from: (table: string) => Builder;
+  /**
+   * The two RPCs the work-identity code calls, behaving like their SQL:
+   * `ensure_default_portal_workspace` creates-or-finds the owner's default
+   * workspace; `claim_workspace_sms_provisioning` is the per-workspace
+   * provisioning lock. Anything else is an error, like an unknown function.
+   */
+  rpc: (fn: string, args?: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }>;
   __tables: Record<string, Row[]>;
 };
 
@@ -195,5 +202,30 @@ export function createMemoryDb(seed: Record<string, Row[]> = {}): MemoryDb {
     return builder;
   }
 
-  return { from: makeBuilder, __tables: tables };
+  let seq = 0;
+  const rpc: MemoryDb["rpc"] = async (fn, args = {}) => {
+    if (fn === "ensure_default_portal_workspace") {
+      const owner = String(args.p_owner ?? "");
+      const rows = ensure("portal_workspaces");
+      const existing = rows.find((w) => w.owner_user_id === owner && w.is_default === true);
+      if (existing) return { data: existing.id, error: null };
+      const id = `ws-default-${owner}-${++seq}`;
+      rows.push({ id, owner_user_id: owner, name: "My workspace", is_default: true, created_at: new Date(2026, 0, seq).toISOString() });
+      return { data: id, error: null };
+    }
+    if (fn === "claim_workspace_sms_provisioning") {
+      const row = ensure("manager_sms_numbers").find(
+        (r) => r.workspace_id === args.p_workspace_id && ["pending_registration", "failed"].includes(String(r.provision_state)),
+      );
+      if (!row) return { data: false, error: null };
+      row.provision_state = "provisioning";
+      row.provision_request_id = args.p_request_id;
+      row.attachment_state = "attaching";
+      row.attempts = Number(row.attempts ?? 0) + 1;
+      row.last_error = null;
+      return { data: true, error: null };
+    }
+    return { data: null, error: { message: `unknown rpc ${fn}` } };
+  };
+  return { from: makeBuilder, rpc, __tables: tables };
 }

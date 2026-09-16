@@ -60,12 +60,12 @@ describe("formatting reads like a person", () => {
 describe("options", () => {
   it("offers before longest-first and after shortest-first", () => {
     const before = timingOptions(["before"]);
-    expect(before[0]!.label).toBe("7 days before");
+    expect(before[0]!.label).toBe("90 days before");
     expect(before.at(-1)!.label).toBe("15 minutes before");
 
     const after = timingOptions(["after"]);
     expect(after[0]!.label).toBe("15 minutes after");
-    expect(after.at(-1)!.label).toBe("7 days after");
+    expect(after.at(-1)!.label).toBe("90 days after");
   });
 
   it("can offer both directions together", () => {

@@ -21,6 +21,8 @@ import {
   feeAppliesToLeaseType,
   listingFeeRowIdForPresetId,
   paymentAtSigningMatrix,
+  PAYMENT_AT_SIGNING_ROOM_RENT_KEY_PREFIX,
+  resolvedSigningLeaseTerm,
   setPaymentAtSigningCell,
   standardFeeScopeFor,
 } from "@/lib/listing-fee-scope";
@@ -614,17 +616,80 @@ export function applyPaymentAtSigningCell<T extends ManagerListingSubmissionV1>(
   leaseTerm: string,
   rowKey: string,
   on: boolean,
+  roomId?: string | null,
 ): T {
-  const next = setPaymentAtSigningCell(paymentAtSigningMatrix(sub), leaseTerm, rowKey, on);
+  const key = rowKey.startsWith(PAYMENT_AT_SIGNING_ROOM_RENT_KEY_PREFIX) ? "first_month_rent" : rowKey;
+  const resolved = resolvedSigningLeaseTerm(sub, leaseTerm);
+
+  if (roomId) {
+    const rooms = sub.rooms ?? [];
+    const room = rooms.find((r) => r.id === roomId);
+    if (!room) return sub;
+    const own = room.paymentAtSigningByLeaseType?.[resolved];
+    const seed = Array.isArray(own)
+      ? [...own]
+      : [...(paymentAtSigningMatrix(sub)[resolved] ?? [])].map((stored) =>
+          stored.startsWith(PAYMENT_AT_SIGNING_ROOM_RENT_KEY_PREFIX) ? "first_month_rent" : stored,
+        );
+    const nextRoomMatrix = setPaymentAtSigningCell(
+      { ...(room.paymentAtSigningByLeaseType ?? {}), [resolved]: [...new Set(seed)] },
+      resolved,
+      key,
+      on,
+    );
+    return {
+      ...sub,
+      rooms: rooms.map((r) =>
+        r.id === roomId ? { ...r, paymentAtSigningByLeaseType: nextRoomMatrix } : r,
+      ),
+    } as T;
+  }
+
+  const next = setPaymentAtSigningCell(paymentAtSigningMatrix(sub), resolved, key, on);
   const withMatrix = {
     ...sub,
     paymentAtSigningByLeaseType: next,
     paymentAtSigningIncludes: derivePaymentAtSigningIncludesFromMatrix(next),
   } as T;
-  const standardId = PAYMENT_AT_SIGNING_OPTIONS.find((o) => o.id === rowKey)?.id;
+  const standardId = PAYMENT_AT_SIGNING_OPTIONS.find((o) => o.id === key)?.id;
   if (!standardId) return withMatrix;
   const stillOn = derivePaymentAtSigningIncludesFromMatrix(next).includes(standardId);
   return applyPaymentAtSigningSelection(withMatrix, standardId, stillOn);
+}
+
+/** Copy long-term ticks onto `leaseTerm` when that column is still empty — used when unchecking "Same as long-term". */
+export function seedSigningColumnFromLongTerm<T extends ManagerListingSubmissionV1>(sub: T, leaseTerm: string): T {
+  const term = String(leaseTerm ?? "").trim();
+  if (!term || term === LONG_TERM_LEASE_TERM) return sub;
+  const matrix = paymentAtSigningMatrix(sub);
+  if ((matrix[term] ?? []).length > 0) return sub;
+  const next = { ...matrix, [term]: [...(matrix[LONG_TERM_LEASE_TERM] ?? [])] };
+  return {
+    ...sub,
+    paymentAtSigningByLeaseType: next,
+    paymentAtSigningIncludes: derivePaymentAtSigningIncludesFromMatrix(next),
+  } as T;
+}
+
+/** Drop this room's signing override on the resolved term so it follows Every room again. */
+export function clearRoomPaymentAtSigning<T extends ManagerListingSubmissionV1>(
+  sub: T,
+  roomId: string,
+  leaseTerm: string,
+): T {
+  const resolved = resolvedSigningLeaseTerm(sub, leaseTerm);
+  return {
+    ...sub,
+    rooms: (sub.rooms ?? []).map((room) => {
+      if (room.id !== roomId) return room;
+      const all = { ...(room.paymentAtSigningByLeaseType ?? {}) };
+      delete all[resolved];
+      return {
+        ...room,
+        paymentAtSigningByLeaseType: Object.keys(all).length > 0 ? all : undefined,
+      };
+    }),
+  } as T;
 }
 
 /** Apply fee list to submission — updates customFees and legacy scalars. */

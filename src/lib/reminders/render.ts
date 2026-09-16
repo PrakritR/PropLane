@@ -85,6 +85,39 @@ const SUBJECT_NOUN: Record<ReminderSubjectKind, string> = {
   payment_manager: "payment",
   outgoing_payment: "payment",
   booking: "booking",
+  work_order_unassigned: "unassigned service request",
+  work_order_unassigned_emergency: "unassigned emergency",
+  work_order_no_on_my_way: "visit",
+  vendor_offer_expiry: "offer",
+  vendor_invoice_nudge: "invoice",
+  invoice_approval: "invoice",
+  service_request_decision: "add-on request",
+  service_request_unpaid: "add-on service",
+  vendor_document_expiry: "document",
+  lease_ending: "lease",
+  lease_ending_manager: "lease",
+  renewal_offer_expiry: "renewal offer",
+  countersign_overdue: "lease",
+  move_in: "move-in",
+  move_in_payment_method: "first payment",
+  move_out: "move-out",
+  move_out_inspection_manager: "move-out inspection",
+  deposit_accounting: "deposit accounting",
+  application_documents: "application",
+  application_decision_manager: "application",
+  application_no_lease_manager: "application",
+  cosigner: "cosigner form",
+  group_application: "group application",
+  tour_request_unanswered: "tour request",
+  tour_request_reoffer: "tour request",
+  tour_no_show_manager: "tour",
+  tour_feedback: "tour",
+  delinquency_manager: "rent",
+  message_unanswered: "message",
+  document_signature: "document",
+  task_overdue: "task",
+  resident_welcome: "account",
+  inspection_acknowledge: "inspection report",
 };
 
 function greeting(name?: string | null): string {
@@ -149,7 +182,7 @@ function templateContextFromPayload(
 export function renderReminder(input: {
   kind: ReminderSubjectKind;
   leadMinutes: number;
-  recipientRole: "manager" | "counterparty" | "team";
+  recipientRole: "manager" | "counterparty" | "team" | "vendor";
   payload: ReminderPayload;
 }): RenderedReminder {
   const { kind, leadMinutes, payload } = input;
@@ -163,7 +196,10 @@ export function renderReminder(input: {
     );
   }
 
-  const recipientRole = input.recipientRole === "team" ? "manager" : input.recipientRole;
+  // A vendor reads the visit as their own appointment, the same voice as the
+  // counterparty; only the manager is told about someone else's.
+  const recipientRole =
+    input.recipientRole === "team" ? "manager" : input.recipientRole === "vendor" ? "counterparty" : input.recipientRole;
   const noun = SUBJECT_NOUN[kind];
   const phrase = leadPhrase(leadMinutes);
   const title = (payload.title ?? "").trim();

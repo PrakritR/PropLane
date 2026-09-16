@@ -13,6 +13,8 @@
 import { track } from "@/lib/analytics/posthog";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 import { workOrderEvent } from "@/lib/work-order-events.server";
+import { fillSiblingOffers } from "@/lib/work-order-offer-expiry.server";
+import { requestResidentConfirmation } from "@/lib/work-order-resident-confirmation.server";
 import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveVendorNextAvailableSlot } from "@/lib/vendor-availability-server";
@@ -438,20 +440,33 @@ export async function acceptWorkOrderBid(
       .in("id", declined.map((b) => b.id));
   }
 
-  // Once a vendor is assigned, no other offered vendor should keep seeing this work
-  // order in their portal (same "loses read access on reassignment" behavior as the
-  // single-vendor Phase 2 flow) — withdraw every offer on this work order.
-  await db
-    .from("work_order_vendor_offers")
-    .update({ status: "withdrawn", updated_at: now })
-    .eq("work_order_id", record.work_order_id)
-    .eq("status", "sent");
-
   const { data: workOrder } = await db
     .from("portal_work_order_records")
     .select("manager_user_id, resident_email, property_id, assigned_property_id, row_data")
     .eq("id", record.work_order_id)
     .maybeSingle();
+
+  // Once a vendor is assigned, no other offered vendor should keep seeing this work
+  // order in their portal (same "loses read access on reassignment" behavior as the
+  // single-vendor Phase 2 flow). Offers still open are marked `filled` and those
+  // vendors told once; vendors who actually bid get the richer declined-bid email
+  // below, so they are excluded here rather than messaged twice.
+  if (workOrder) {
+    await fillSiblingOffers(db, {
+      workOrderId: record.work_order_id,
+      managerUserId: String(workOrder.manager_user_id),
+      acceptedVendorDirectoryId: record.vendor_directory_id,
+      acceptedVendorUserId: record.vendor_user_id,
+      excludeVendorUserIds: declined.map((b) => b.vendor_user_id),
+      row: (workOrder.row_data ?? {}) as DemoManagerWorkOrderRow,
+      sender: { userId: actor.userId, email: actor.email, name: actor.fullName },
+    }).catch(() => undefined);
+  }
+  await db
+    .from("work_order_vendor_offers")
+    .update({ status: "withdrawn", updated_at: now })
+    .eq("work_order_id", record.work_order_id)
+    .eq("status", "sent");
 
   const vendors = await vendorNamesById(db, [record.vendor_directory_id ?? "", ...declined.map((b) => b.vendor_directory_id ?? "")]);
   const winningVendor = record.vendor_directory_id ? vendors.get(record.vendor_directory_id) : undefined;
@@ -685,9 +700,15 @@ export async function markWorkOrderDoneByVendor(
     .eq("id", workOrderId);
   if (error) return { ok: false, status: 500, error: error.message };
 
+  // "Was this fixed?" — a signed link for the resident when the manager has the
+  // step on. The stamp lives on the row so the answer can be matched back.
+  const confirmation = await requestResidentConfirmation(db, workOrderId, String(workOrder.manager_user_id), nextRowData).catch(() => null);
+  const finalRowData = confirmation?.rowData ?? nextRowData;
+
   await workOrderEvent(db, {
     eventId: `${workOrderId}:completed:${now}`,
     event: "completed",
+    senderAudience: "vendor",
     managerUserId: String(workOrder.manager_user_id),
     workOrderId,
     senderUserId: actor.userId,
@@ -698,6 +719,7 @@ export async function markWorkOrderDoneByVendor(
       title: rowData.title || "Work order",
       propertyLabel: rowData.propertyName || undefined,
       vendorName: actor.fullName || rowData.vendorName || undefined,
+      confirmUrl: confirmation?.confirmUrl,
     },
     recipients: [
       { audience: "manager", userId: String(workOrder.manager_user_id) },
@@ -706,5 +728,5 @@ export async function markWorkOrderDoneByVendor(
   }).catch(() => undefined);
 
   track("work_order_vendor_marked_done", actor.userId, { work_order_id: workOrderId });
-  return { ok: true, workOrder: nextRowData };
+  return { ok: true, workOrder: finalRowData };
 }

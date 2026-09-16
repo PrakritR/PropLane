@@ -1,3 +1,4 @@
+import { emitLeaseDateChange } from "@/lib/domain-action-events.server";
 import { formatPacificDate } from "@/lib/pacific-time";
 import { buildAiGeneratedLeaseHtml, leaseContextFromApplication } from "@/lib/generated-lease";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -426,6 +427,14 @@ export async function amendLeaseMoveOutDate(
   }
 
   const direction = newLeaseEnd < currentEnd ? "decrease" : "extend";
+  // Tell both sides. Best-effort: the date change is committed above and must
+  // survive a notification outage.
+  await emitLeaseDateChange(db, {
+    managerUserId: ownerId,
+    lease: { ...leaseRow, ...updatedRow } as LeasePipelineRow,
+    newLeaseEnd,
+    direction,
+  }).catch(() => undefined);
   return { ok: true, direction, newLeaseEnd };
 }
 

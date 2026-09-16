@@ -489,8 +489,13 @@ export function PortalSettingsNav({
   }, []);
 
   return (
-    <aside className={cn("w-60 shrink-0 rounded-2xl border border-border bg-card/60 p-2.5", className)}>
-      <div className="flex items-center gap-3 border-b border-border px-1 pb-3.5">
+    <aside
+      className={cn(
+        "sticky top-0 flex w-60 max-h-[calc(100dvh-5.5rem)] shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-card/60 p-2.5",
+        className,
+      )}
+    >
+      <div className="flex shrink-0 items-center gap-3 border-b border-border px-1 pb-3.5">
         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
           {profileInitials(name, email)}
         </span>
@@ -499,7 +504,7 @@ export function PortalSettingsNav({
           {email ? <p className="truncate text-xs text-muted">{email}</p> : null}
         </div>
       </div>
-      <nav aria-label="Settings sections" className="pt-2.5">
+      <nav aria-label="Settings sections" className="min-h-0 flex-1 overflow-y-auto overscroll-contain pt-2.5">
         {itemGroups.map((group, groupIndex) => (
           <div key={group.label ?? "settings"} className={groupIndex > 0 ? "mt-3 border-t border-border pt-3" : undefined}>
             {group.label ? (

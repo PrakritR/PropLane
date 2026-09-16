@@ -119,13 +119,6 @@ export function Navbar1({
             </Button>
           ) : (
             <>
-              <Link
-                href={auth.login.url}
-                className="mr-1 inline-flex items-center gap-1.5 whitespace-nowrap px-2 py-2 text-sm font-semibold text-foreground transition-colors hover:text-primary"
-              >
-                {auth.login.text}
-                <ArrowRightIcon className="size-4" />
-              </Link>
               {auth.secondary ? (
                 <Button
                   asChild
@@ -143,6 +136,13 @@ export function Navbar1({
               >
                 <Link href={auth.signup.url}>{auth.signup.text}</Link>
               </Button>
+              <Link
+                href={auth.login.url}
+                className="inline-flex items-center gap-1.5 whitespace-nowrap px-2 py-2 text-sm font-semibold text-foreground transition-colors hover:text-primary"
+              >
+                {auth.login.text}
+                <ArrowRightIcon className="size-4" />
+              </Link>
             </>
           )}
         </div>
@@ -184,14 +184,14 @@ export function Navbar1({
                 </Button>
               ) : (
                 <div className="flex flex-col gap-3">
-                  <Button asChild variant="outline">
-                    <Link href={auth.login.url}>{auth.login.text}</Link>
-                  </Button>
                   <Button
                     asChild
                     className="btn-brand-cta text-white hover:brightness-110"
                   >
                     <Link href={auth.signup.url}>{auth.signup.text}</Link>
+                  </Button>
+                  <Button asChild variant="outline">
+                    <Link href={auth.login.url}>{auth.login.text}</Link>
                   </Button>
                 </div>
               )}

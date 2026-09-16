@@ -13,6 +13,8 @@ import {
 } from "@/lib/repair-service-request-scopes.server";
 import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 import { workOrderEvent } from "@/lib/work-order-events.server";
+import { loadServiceAutomationSettings } from "@/lib/service-automation-settings.server";
+import { responsePromisePhrase } from "@/lib/service-automation-settings";
 import type { WorkOrderRowWithDispatch } from "@/lib/work-order-dispatch";
 import { prepareDispatch } from "@/lib/work-order-dispatch.server";
 import {
@@ -323,6 +325,14 @@ async function emitCreatedWorkOrder(
     channel: "services",
   });
   const residentEmail = row.residentEmail?.trim().toLowerCase();
+  const emergency = row.priority === "Emergency";
+  const facts = {
+    reference: row.reference || "Work order",
+    title: row.title || "Work order",
+    propertyLabel: row.propertyName || undefined,
+    residentName: row.residentName?.trim() || undefined,
+    emergency,
+  };
   await workOrderEvent(db, {
     eventId: `${row.id}:created`,
     event: "created",
@@ -331,11 +341,35 @@ async function emitCreatedWorkOrder(
     senderUserId: actor.userId,
     senderEmail: actor.email,
     senderName: row.residentName?.trim() || undefined,
-    facts: { reference: row.reference || "Work order", title: row.title || "Work order", propertyLabel: row.propertyName || undefined },
-    recipients: [
-      ...managerRecipients.map((userId) => ({ audience: "manager" as const, userId })),
-      ...(actor.role !== "resident" && residentEmail?.includes("@") ? [{ audience: "resident" as const, email: residentEmail }] : []),
-    ],
+    facts,
+    recipients: managerRecipients.map((userId) => ({ audience: "manager" as const, userId })),
+  }).catch(() => undefined);
+
+  // The resident's acknowledgement carries the manager's response promise and
+  // is sent AS the manager — a resident who filed it cannot be its own sender,
+  // which is why, before PLAN-0915, a resident-filed request was acknowledged
+  // by nobody.
+  if (!residentEmail?.includes("@")) return;
+  const [{ data: manager }, serviceSettings] = await Promise.all([
+    db.from("profiles").select("email, full_name, sms_from_number").eq("id", ownerId).maybeSingle(),
+    loadServiceAutomationSettings(db, ownerId).catch(() => null),
+  ]);
+  const managerEmail = String(manager?.email ?? "").trim().toLowerCase();
+  if (!managerEmail) return;
+  await workOrderEvent(db, {
+    eventId: `${row.id}:created:resident`,
+    event: "created",
+    managerUserId: ownerId,
+    workOrderId: row.id,
+    senderUserId: ownerId,
+    senderEmail: managerEmail,
+    senderName: String(manager?.full_name ?? "").trim() || undefined,
+    facts: {
+      ...facts,
+      responsePromise: serviceSettings ? responsePromisePhrase(serviceSettings.responsePromise) || undefined : undefined,
+      emergencyPhone: String(manager?.sms_from_number ?? "").trim() || undefined,
+    },
+    recipients: [{ audience: "resident" as const, email: residentEmail }],
   }).catch(() => undefined);
 }
 

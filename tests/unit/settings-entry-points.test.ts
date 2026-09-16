@@ -17,6 +17,7 @@ import type { ManagerPortalSettingsTab } from "@/components/portal/pro-portal-se
  * check, per this file's own required assertions.
  */
 const VALID_MANAGER_PORTAL_SETTINGS_TABS = new Set<ManagerPortalSettingsTab>([
+  "properties",
   "applications",
   "tours",
   "lease",

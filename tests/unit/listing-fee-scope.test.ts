@@ -255,6 +255,9 @@ describe("payment at signing, per lease type", () => {
 
   it("answers per lease, and per listing when no lease names a term", () => {
     const sub = subWithRooms();
+    sub.rooms = (sub.rooms ?? []).map((room, i) =>
+      i === 0 ? { ...room, termPricing: { "Month-to-Month": { monthlyRent: 1100 } } } : room,
+    );
     sub.paymentAtSigningByLeaseType = {
       "Long-term": ["security_deposit"],
       "Month-to-Month": [],
@@ -263,6 +266,17 @@ describe("payment at signing, per lease type", () => {
     expect(isPaymentDueAtSigning(sub, "security_deposit", "Long-term")).toBe(true);
     expect(isPaymentDueAtSigning(sub, "security_deposit", "Month-to-Month")).toBe(false);
     expect(isPaymentDueAtSigning(sub, "security_deposit", null)).toBe(true);
+  });
+
+  it("follows long-term signing while same-as-long-term still holds", () => {
+    const sub = subWithRooms();
+    sub.paymentAtSigningByLeaseType = {
+      "Long-term": ["security_deposit", "first_month_rent"],
+      "Month-to-Month": [],
+      Custom: [],
+    };
+    expect(isPaymentDueAtSigning(sub, "security_deposit", "Month-to-Month")).toBe(true);
+    expect(isPaymentDueAtSigning(sub, "first_month_rent", "Month-to-Month")).toBe(true);
   });
 });
 
@@ -416,6 +430,9 @@ describe("what is due at signing is the property's own fees", () => {
 
   it("totals what THIS lease's term collects, not the union", () => {
     const sub = subWithRooms();
+    sub.rooms = (sub.rooms ?? []).map((room, i) =>
+      i === 0 ? { ...room, termPricing: { "Month-to-Month": { monthlyRent: 1100 } } } : room,
+    );
     sub.paymentAtSigningByLeaseType = {
       "Long-term": ["security_deposit", "move_in_fee"],
       "Month-to-Month": ["security_deposit"],

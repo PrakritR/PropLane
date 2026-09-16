@@ -62,13 +62,15 @@ describe("manager list chrome: no headline-row buttons", () => {
       "pro-documents-panel.tsx",
       "pro-promotion.tsx",
       "pro-vendors-panel.tsx",
-      "pro-account-links-panel.tsx",
     ];
     for (const file of withPrimary) {
       const src = portalSource(file);
       expect(src, file).toContain("PortalPrimaryIconAction");
       expect(src, file).toMatch(/\bprimary=\{/);
     }
+    // Team has one door: its Invite button is published beside the title.
+    expect(portalSource("pro-account-links-panel.tsx")).toContain("usePublishTitleActions(titleControls");
+    expect(portalSource("pro-account-links-panel.tsx")).toContain('data-attr="co-manager-invite-top"');
     // Communication's primary sits in the conversation-list head instead.
     expect(portalSource("pro-communication.tsx")).toContain("listActions={communicationCommandActions}");
     expect(portalSource("pro-communication.tsx")).not.toContain("titleAside={communicationCommandActions}");

@@ -6,15 +6,26 @@ import { Minus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect, CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
+import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
+import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
+import {
+  activeWorkspaceScope,
+  filterPropertyOptionsForActiveWorkspace,
+} from "@/lib/workspaces/selection";
 import {
   PortalSettingsGroup,
-  PortalSettingsLinkRow,
   PortalSettingsRow,
   PortalSettingsScopeTag,
   PortalSettingsSection,
+  PortalSettingsSections,
   PortalSettingsToggle,
 } from "@/components/portal/portal-settings-ui";
+import { AutomationRuleRows } from "@/components/portal/automation-rule-rows";
+import { LeaseAutomationSettingsRows } from "@/components/portal/lease-automation-settings-rows";
+import { AutomatedMessagesList } from "@/components/portal/automated-messages-list";
+import { ServiceRequestAutomationRows, ServiceVendorAutomationRows } from "@/components/portal/service-automation-settings-section";
 import {
   DEFAULT_APPLICATION_AUTOMATION,
   normalizeApplicationAutomation,
@@ -252,7 +263,12 @@ function PropertyScopeRow({
       label="Applies to"
     >
       {noOptions ? (
-        <span className="text-sm text-muted">No properties yet</span>
+        <span className="text-sm text-muted">
+          {(() => {
+            const scope = activeWorkspaceScope();
+            return scope ? `No houses in ${scope.name} yet` : "No houses yet";
+          })()}
+        </span>
       ) : multiSelect ? (
         <CheckboxMultiSelect
           label="Properties"
@@ -415,14 +431,38 @@ export function ApplicationsSettingsPanel({
       </PortalSettingsSection>
 
       <PortalSettingsSection
-        title="Reminders"
+        title="Application reminders"
         action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
       >
+        <ManagerAutomationSelectRow
+          label="Response promise"
+          field="applicationResponsePromiseDays"
+          options={[
+            { value: "3", label: "Answer within 3 days" },
+            { value: "1", label: "Answer within 1 day" },
+            { value: "2", label: "Answer within 2 days" },
+            { value: "5", label: "Answer within 5 days" },
+            { value: "0", label: "No promise" },
+          ]}
+          parse={(value) => Number(value) as 0 | 1 | 2 | 3 | 5}
+          dataAttr="applications-response-promise"
+        />
+        <AutomationRuleRows
+          rows={[
+            { kind: "application_decision_manager" },
+            { kind: "application_no_lease_manager" },
+          ]}
+          disabled={loading || saving}
+        />
         <ApplicationRemindersSettingsBundle
           teamMembers={teamMembers}
           formRef={reminderFormRef}
           disabled={loading || saving}
         />
+      </PortalSettingsSection>
+
+      <PortalSettingsSection title="Messages sent automatically">
+        <AutomatedMessagesList area="applications" disabled={loading || saving} />
       </PortalSettingsSection>
     </div>
   );
@@ -573,6 +613,7 @@ export function TaskSettingsPanel({
           formRef={reminderFormRef}
           disabled={saving}
         />
+        <AutomationRuleRows rows={[{ kind: "task_overdue" }]} disabled={saving} />
       </PortalSettingsSection>
 
       <PortalSettingsSection
@@ -663,8 +704,42 @@ export function LeaseSettingsPanel({
         </PortalSettingsGroup>
       </PortalSettingsSection>
 
+      <PortalSettingsSection title="Lease ending" action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}>
+        <AutomationRuleRows
+          rows={[
+            { kind: "lease_ending_manager", multi: true },
+            { kind: "lease_ending", multi: true },
+            { kind: "renewal_offer_expiry" },
+            { kind: "countersign_overdue" },
+          ]}
+          disabled={loading || saving}
+        />
+      </PortalSettingsSection>
+
+      <PortalSettingsSection title="Move-in">
+        <AutomationRuleRows
+          rows={[
+            { kind: "move_in", multi: true },
+            { kind: "move_in_payment_method" },
+          ]}
+          disabled={loading || saving}
+        />
+      </PortalSettingsSection>
+
+      <PortalSettingsSection title="Move-out">
+        <AutomationRuleRows
+          rows={[
+            { kind: "move_out", multi: true },
+            { kind: "move_out_inspection_manager" },
+            { kind: "deposit_accounting", multi: true },
+          ]}
+          disabled={loading || saving}
+        />
+        <LeaseAutomationSettingsRows />
+      </PortalSettingsSection>
+
       <PortalSettingsSection
-        title="Reminders"
+        title="Signing reminders"
         action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
       >
         <LeaseRemindersSettingsBundle
@@ -672,6 +747,11 @@ export function LeaseSettingsPanel({
           formRef={reminderFormRef}
           disabled={loading || saving}
         />
+        <AutomationRuleRows rows={[{ kind: "document_signature" }]} disabled={loading || saving} />
+      </PortalSettingsSection>
+
+      <PortalSettingsSection title="Messages sent automatically">
+        <AutomatedMessagesList area="lease" disabled={loading || saving} />
       </PortalSettingsSection>
     </div>
   );
@@ -691,17 +771,42 @@ export function ServicesSettingsPanel({
   useReportSettingsPanelFooter(onFooterReady, null);
 
   return (
-    <PortalSettingsSection
-      title="Service reminders"
-      action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
-    >
-      <AutoMessageAssigneeRow />
-      <ServiceRemindersSettingsBundle
-        teamMembers={teamMembers}
-        workOrderFormRef={workOrderReminderFormRef}
-        serviceOrderFormRef={serviceOrderReminderFormRef}
-      />
-    </PortalSettingsSection>
+    <PortalSettingsSections>
+      <PortalSettingsSection title="Requests" action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}>
+        <ServiceRequestAutomationRows />
+        <AutomationRuleRows
+          rows={[
+            { kind: "work_order_unassigned" },
+            { kind: "work_order_unassigned_emergency" },
+            { kind: "service_request_decision" },
+            { kind: "service_request_unpaid" },
+          ]}
+        />
+      </PortalSettingsSection>
+      <PortalSettingsSection title="Vendors">
+        <ServiceVendorAutomationRows />
+        <AutomationRuleRows
+          rows={[
+            { kind: "vendor_offer_expiry" },
+            { kind: "work_order_no_on_my_way" },
+            { kind: "vendor_invoice_nudge" },
+            { kind: "invoice_approval" },
+            { kind: "vendor_document_expiry", label: "Warn before vendor documents expire" },
+          ]}
+        />
+      </PortalSettingsSection>
+      <PortalSettingsSection title="Visit reminders">
+        <AutoMessageAssigneeRow />
+        <ServiceRemindersSettingsBundle
+          teamMembers={teamMembers}
+          workOrderFormRef={workOrderReminderFormRef}
+          serviceOrderFormRef={serviceOrderReminderFormRef}
+        />
+      </PortalSettingsSection>
+      <PortalSettingsSection title="Messages sent automatically">
+        <AutomatedMessagesList area="services" />
+      </PortalSettingsSection>
+    </PortalSettingsSections>
   );
 }
 
@@ -807,16 +912,21 @@ export function InspectionsSettingsPanel({
   useReportSettingsPanelFooter(onFooterReady, null);
 
   return (
-    <PortalSettingsSection
-      title="Inspection reminders"
-      action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
-    >
-      <InspectionRemindersSettingsBundle
-        teamMembers={teamMembers}
-        dueFormRef={dueReminderFormRef}
-        reviewFormRef={reviewReminderFormRef}
-      />
-    </PortalSettingsSection>
+    <PortalSettingsSections>
+      <PortalSettingsSection
+        title="Inspection reminders"
+        action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+      >
+        <InspectionRemindersSettingsBundle
+          teamMembers={teamMembers}
+          dueFormRef={dueReminderFormRef}
+          reviewFormRef={reviewReminderFormRef}
+        />
+      </PortalSettingsSection>
+      <PortalSettingsSection title="Messages sent automatically">
+        <AutomatedMessagesList area="inspections" />
+      </PortalSettingsSection>
+    </PortalSettingsSections>
   );
 }
 
@@ -846,34 +956,85 @@ export function BookingsSettingsPanel({
   );
 }
 
+export const RESIDENT_SETTINGS_AREAS = [
+  { value: "payments", label: "Payment reminders" },
+  { value: "household", label: "Household reminders" },
+] as const;
+
+export type ResidentSettingsArea = (typeof RESIDENT_SETTINGS_AREAS)[number]["value"];
+
 /**
- * Resident settings has no controls of its own today: portfolio-wide payment
- * reminder presets live under Payments settings, and a single household's
- * reminders are customized from that resident's own Payments tab — there is
- * no portfolio-wide resident preference to hold on this module yet. Redrawn
- * to say that plainly on the kit (a scope tag plus two pointer rows) rather
- * than leave an unexplained blank panel. Revisit this once a real
- * resident-scoped preference exists to configure.
+ * Resident settings stay in this tab: pick a house, then Payment or Household
+ * reminders. The panels themselves are the same reminder bundles Payments and
+ * Lease already use — this hub does not navigate to those modules or to the
+ * residents list.
  */
-export function ResidentSettingsPanel() {
+export function ResidentSettingsPanel({
+  propertyOptions,
+  selectedPropertyId,
+  onPropertyIdChange,
+  area,
+  onAreaChange,
+  teamMembers = [],
+  paymentsFormRef,
+  householdFormRef,
+}: {
+  propertyOptions: { id: string; label: string }[];
+  selectedPropertyId: string;
+  onPropertyIdChange: (propertyId: string) => void;
+  area: ResidentSettingsArea;
+  onAreaChange: (area: ResidentSettingsArea) => void;
+  teamMembers?: WorkAssignmentTeamMember[];
+  paymentsFormRef?: React.Ref<PaymentAutomationSettingsHandle>;
+  householdFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
+}) {
+  const selected = propertyOptions.find((house) => house.id === selectedPropertyId);
+  const title = selected?.label ?? "Resident settings";
+
+  if (propertyOptions.length === 0) {
+    return (
+      <PortalSettingsSection title="Resident settings">
+        <PortalSettingsGroup>
+          <PortalSettingsRow label="No houses in this workspace yet" />
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+    );
+  }
+
   return (
-    <PortalSettingsSection
-      title="Resident settings"
-      action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
-    >
-      <PortalSettingsGroup>
-        <PortalSettingsLinkRow
-          label="Payment reminders"
-          href="/portal/settings/payments"
-          dataAttr="resident-settings-payment-reminders"
-        />
-        <PortalSettingsLinkRow
-          label="Household reminders"
-          href="/portal/residents"
-          dataAttr="resident-settings-household-reminders"
-        />
-      </PortalSettingsGroup>
-    </PortalSettingsSection>
+    <div className="space-y-6">
+      <PortalSettingsSection title={title}>
+        <PortalSettingsGroup>
+          <PortalSettingsRow label="House">
+            <FieldSingleSelect
+              hideLabel
+              label="House"
+              value={selectedPropertyId}
+              options={propertyOptions.map((house) => ({ value: house.id, label: house.label }))}
+              onChange={onPropertyIdChange}
+              dataAttr="resident-settings-house"
+            />
+          </PortalSettingsRow>
+          <PortalSettingsRow label="Settings">
+            <FieldSingleSelect
+              hideLabel
+              label="Settings"
+              value={area}
+              options={RESIDENT_SETTINGS_AREAS.map((row) => ({ value: row.value, label: row.label }))}
+              onChange={(next) => {
+                if (next === "payments" || next === "household") onAreaChange(next);
+              }}
+              dataAttr="resident-settings-area"
+            />
+          </PortalSettingsRow>
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+      {area === "payments" ? (
+        <IncomingPaymentRemindersSettingsBundle teamMembers={teamMembers} formRef={paymentsFormRef} />
+      ) : (
+        <LeaseRemindersSettingsBundle teamMembers={teamMembers} formRef={householdFormRef} />
+      )}
+    </div>
   );
 }
 
@@ -1250,6 +1411,20 @@ export function TourSettingsPanel({
             )}
           </div>
         </PortalSettingsSection>
+
+        <PortalSettingsSection title="Requests and follow-ups">
+          <AutomationRuleRows
+            rows={[
+              { kind: "tour_request_unanswered" },
+              { kind: "tour_request_reoffer" },
+              { kind: "tour_no_show_manager" },
+            ]}
+          />
+        </PortalSettingsSection>
+
+        <PortalSettingsSection title="Messages sent automatically">
+          <AutomatedMessagesList area="tours" />
+        </PortalSettingsSection>
       </div>
 
       <TourInterestSettings />
@@ -1324,16 +1499,24 @@ export function PaymentsSettingsPanel({
   }
 
   return (
-    <PortalSettingsSection
-      title="Rent reminders"
-      action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
-    >
-      <IncomingPaymentRemindersSettingsBundle
-        teamMembers={teamMembers}
-        onSaved={onSaved}
-        formRef={formRef}
-      />
-    </PortalSettingsSection>
+    <PortalSettingsSections>
+      <PortalSettingsSection
+        title="Rent reminders"
+        action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+      >
+        <IncomingPaymentRemindersSettingsBundle
+          teamMembers={teamMembers}
+          onSaved={onSaved}
+          formRef={formRef}
+        />
+      </PortalSettingsSection>
+      <PortalSettingsSection title="Delinquency">
+        <AutomationRuleRows rows={[{ kind: "delinquency_manager" }]} />
+      </PortalSettingsSection>
+      <PortalSettingsSection title="Messages sent automatically">
+        <AutomatedMessagesList area="payments" />
+      </PortalSettingsSection>
+    </PortalSettingsSections>
   );
 }
 
@@ -1559,7 +1742,187 @@ export function CommunicationSettingsPanel({
         canSend={smsSetup?.canSend === true}
         className="mt-4 rounded-xl border border-border bg-accent/30 px-3 py-2.5"
       />
+      <div className="mt-6 space-y-3">
+        <p className="text-[15px] font-bold tracking-[-0.01em] text-foreground">Follow-ups</p>
+        <AutomationRuleRows rows={[{ kind: "message_unanswered" }, { kind: "resident_welcome", multi: true }]} />
+      </div>
+      <div className="mt-6 space-y-3">
+        <p className="text-[15px] font-bold tracking-[-0.01em] text-foreground">Messages sent automatically</p>
+        <AutomatedMessagesList area="communication" />
+      </div>
     </PortalSettingsSection>
+  );
+}
+
+export const PROPERTY_SETTINGS_AREAS = [
+  { value: "applications", label: "Application settings" },
+  { value: "lease", label: "Lease settings" },
+  { value: "tours", label: "Tour settings" },
+] as const;
+
+export type PropertySettingsArea = (typeof PROPERTY_SETTINGS_AREAS)[number]["value"];
+
+/**
+ * Property settings stay in this tab: pick a house, then Application / Lease /
+ * Tour. The host mounts those modules underneath with the house locked, so
+ * the chevron rows never leave Settings for the listing.
+ */
+export function PropertySettingsPanel({
+  propertyOptions,
+  selectedPropertyId,
+  onPropertyIdChange,
+  area,
+  onAreaChange,
+}: {
+  propertyOptions?: { id: string; label: string }[];
+  selectedPropertyId: string;
+  onPropertyIdChange: (propertyId: string) => void;
+  area: PropertySettingsArea;
+  onAreaChange: (area: PropertySettingsArea) => void;
+}) {
+  const { userId } = useManagerUserId();
+  const workspaces = useWorkspaces();
+  const workspaceName = workspaces?.active?.name;
+  const options = useMemo(() => {
+    const loaded = buildManagerPropertyFilterOptions(resolveManagerScopeUserId(userId));
+    const source = propertyOptions && propertyOptions.length > 0 ? propertyOptions : loaded;
+    return filterPropertyOptionsForActiveWorkspace(source);
+  }, [propertyOptions, userId, workspaces?.active?.id]);
+  useEffect(() => {
+    if (selectedPropertyId || !options[0]) return;
+    onPropertyIdChange(options[0].id);
+  }, [options, selectedPropertyId, onPropertyIdChange]);
+  const selected = options.find((house) => house.id === selectedPropertyId);
+  const title = selected?.label ?? (workspaceName ? `${workspaceName} houses` : "Houses");
+
+  if (options.length === 0) {
+    return (
+      <PortalSettingsSection title={title}>
+        <PortalSettingsGroup>
+          <PortalSettingsRow
+            label={workspaceName ? `No houses in ${workspaceName} yet` : "No houses yet"}
+          />
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+    );
+  }
+
+  return (
+    <PortalSettingsSection title={title}>
+      <PortalSettingsGroup>
+        <PortalSettingsRow label="House">
+          <FieldSingleSelect
+            hideLabel
+            label="House"
+            value={selectedPropertyId || options[0]?.id || ""}
+            options={options.map((house) => ({ value: house.id, label: house.label }))}
+            onChange={onPropertyIdChange}
+            dataAttr="property-settings-house"
+          />
+        </PortalSettingsRow>
+        <PortalSettingsRow label="Settings">
+          <FieldSingleSelect
+            hideLabel
+            label="Settings"
+            value={area}
+            options={PROPERTY_SETTINGS_AREAS.map((row) => ({ value: row.value, label: row.label }))}
+            onChange={(next) => {
+              if (next === "applications" || next === "lease" || next === "tours") onAreaChange(next);
+            }}
+            dataAttr="property-settings-area"
+          />
+        </PortalSettingsRow>
+      </PortalSettingsGroup>
+    </PortalSettingsSection>
+  );
+}
+
+/**
+ * One autosaving select bound to a single `ManagerAutomationSettings` field —
+ * the same PATCH every other automation preference uses (PLAN-0915).
+ */
+function ManagerAutomationSelectRow<K extends keyof ManagerAutomationSettings>({
+  label,
+  field,
+  options,
+  parse,
+  dataAttr,
+}: {
+  label: string;
+  field: K;
+  options: { value: string; label: string }[];
+  parse: (value: string) => ManagerAutomationSettings[K];
+  dataAttr: string;
+}) {
+  const { showToast } = useAppUi();
+  const demo = isDemoModeActive();
+  const reportSaveStatus = useReportSettingsSaveStatus();
+  const [value, setValue] = useState<ManagerAutomationSettings[K] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      if (demo) {
+        if (!cancelled) setValue(DEFAULT_MANAGER_AUTOMATION_SETTINGS[field]);
+        return;
+      }
+      try {
+        const res = await fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" });
+        const body = (await res.json().catch(() => ({}))) as { settings?: unknown };
+        if (!res.ok) throw new Error("Could not load settings.");
+        if (!cancelled) setValue(normalizeManagerAutomationSettings(body.settings)[field]);
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Could not load settings.");
+        if (!cancelled) setValue(DEFAULT_MANAGER_AUTOMATION_SETTINGS[field]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [demo, field, showToast]);
+
+  const change = async (raw: string) => {
+    const next = parse(raw);
+    const previous = value;
+    setValue(next);
+    if (demo) return;
+    reportSaveStatus({ type: "start" });
+    try {
+      const res = await fetch("/api/portal/automation-settings", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: next }),
+        keepalive: true,
+      });
+      const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
+      if (!res.ok) throw new Error(body.error ?? "Could not save settings.");
+      setValue(normalizeManagerAutomationSettings(body.settings)[field]);
+      reportSaveStatus({ type: "success" });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Could not save settings.";
+      setValue(previous);
+      showToast(message);
+      reportSaveStatus({ type: "failure", reason: message });
+    }
+  };
+
+  return (
+    <PortalSettingsGroup>
+      <PortalSettingsRow label={label}>
+        <FieldSingleSelect
+          label={label}
+          hideLabel
+          variant="cell"
+          wrapperClassName="w-56"
+          options={options}
+          value={value === null ? options[0]!.value : String(value)}
+          onChange={(next) => void change(next)}
+          disabled={value === null}
+          dataAttr={dataAttr}
+        />
+      </PortalSettingsRow>
+    </PortalSettingsGroup>
   );
 }
 

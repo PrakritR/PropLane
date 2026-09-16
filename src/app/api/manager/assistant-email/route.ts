@@ -11,10 +11,11 @@ import {
   isAssistantEmailReceivingEnabled,
   isAssistantEmailSendingEnabled,
   isAssistantEmailStorageError,
-  loadManagerAssistantEmail,
+  loadWorkspaceAssistantEmail,
   probeAssistantEmailStorageReady,
   resolveWorkspaceWorkEmails,
   WorkspaceEmailSharedError,
+  WorkspaceNotOwnedError,
 } from "@/lib/manager-assistant-email/manager-assistant-email.server";
 import type { ManagerAssistantEmailStatus } from "@/lib/manager-assistant-email/manager-assistant-email-status";
 import {
@@ -25,8 +26,8 @@ import {
   getEffectiveManagerSmsEntitlement,
   reconcileManagerSmsEntitlement,
 } from "@/lib/sms/manager-sms-entitlement.server";
-import { isPureCoManagerWorkspace } from "@/lib/sms/manager-workspace-role.server";
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
+import { resolveActiveWorkspaceFromRequest, type ActiveWorkspace } from "@/lib/workspaces/active.server";
 
 export const runtime = "nodejs";
 
@@ -46,19 +47,25 @@ async function hasStoredEntitlementRow(
 async function buildStatus(
   db: SupabaseClient,
   userId: string,
+  workspace: ActiveWorkspace,
 ): Promise<ManagerAssistantEmailStatus> {
   // Read the entitlement EXACTLY the way the work number does — no
   // `preferPaid`, no trial demotion. Those two differences were what made a
   // manager who qualifies for a number fail to qualify for the email.
-  const [entitlement, planTierResult, row, pureCoManager, storageReady, automationSettings] =
+  //
+  // Everything below is about the ACTIVE workspace: an owned workspace's own
+  // address (none = none, never a neighbour's), a shared workspace's owner
+  // address. The switcher decides; co-manager links do not.
+  const [entitlement, planTierResult, row, storageReady, automationSettings, all] =
     await Promise.all([
       getEffectiveManagerSmsEntitlement(db, userId),
       getManagerPortalNavSubscriptionTier(userId),
-      loadManagerAssistantEmail(db, userId),
-      isPureCoManagerWorkspace(db, userId),
+      workspace.owned ? loadWorkspaceAssistantEmail(db, workspace) : Promise.resolve(null),
       probeAssistantEmailStorageReady(db),
       loadManagerAutomationSettings(db, userId).catch(() => null),
+      resolveWorkspaceWorkEmails(db, userId).catch(() => null),
     ]);
+  const pureCoManager = !workspace.owned;
 
   const planTier: ManagerAssistantEmailStatus["planTier"] =
     planTierResult === "free" ? "free" : planTierResult === null ? "unknown" : "paid";
@@ -77,13 +84,12 @@ async function buildStatus(
   // can say it is being retired, but it is never the address the UI leads with.
   let workspaceEmail: ManagerAssistantEmailStatus["workspaceEmail"] = null;
   if (pureCoManager) {
-    const workspace = await resolveWorkspaceWorkEmails(db, userId).catch(() => null);
-    const primary = workspace?.emails[0];
-    if (primary) {
+    const shared = all?.emails.find((e) => e.workspaceId === workspace.id);
+    if (shared) {
       workspaceEmail = {
-        address: channelEnabled ? primary.address : null,
-        ownerUserId: primary.ownerUserId,
-        ownerName: primary.ownerName,
+        address: channelEnabled ? shared.address : null,
+        ownerUserId: shared.ownerUserId,
+        ownerName: shared.ownerName,
       };
     }
   }
@@ -133,6 +139,15 @@ async function buildStatus(
     entitlement,
     workspaceRole,
     workspaceEmail,
+    workspace: { id: workspace.id, name: workspace.name, owned: workspace.owned, isDefault: workspace.isDefault },
+    workspaces: (all?.emails ?? []).map((e) => ({
+      workspaceId: e.workspaceId,
+      workspaceName: e.workspaceName,
+      owned: e.owned,
+      isDefault: e.isDefault,
+      ownerName: e.ownerName,
+      address: channelEnabled ? e.address : null,
+    })),
     address: row?.address ?? null,
     state,
     // One address per workspace, exactly like the number: a pure co-manager
@@ -148,7 +163,13 @@ export async function GET() {
   const actor = await requireManagerRouteUser();
   if (!actor) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
-  const status = await buildStatus(actor.db, actor.userId);
+  let workspace: ActiveWorkspace;
+  try {
+    workspace = await resolveActiveWorkspaceFromRequest(actor.db, actor.userId);
+  } catch {
+    return NextResponse.json({ error: "Workspace unavailable. Try again." }, { status: 503 });
+  }
+  const status = await buildStatus(actor.db, actor.userId, workspace);
   return NextResponse.json(status, { headers: { "Cache-Control": "private, no-store" } });
 }
 
@@ -163,6 +184,12 @@ export async function POST(req: Request) {
   const action = body.action === undefined ? "request_address" : body.action;
   if (action !== "request_address" && action !== "refresh_eligibility") {
     return NextResponse.json({ error: "Unknown work-email action." }, { status: 400 });
+  }
+  let workspace: ActiveWorkspace;
+  try {
+    workspace = await resolveActiveWorkspaceFromRequest(actor.db, actor.userId);
+  } catch {
+    return NextResponse.json({ error: "Workspace unavailable. Try again." }, { status: 503 });
   }
 
   if (action === "refresh_eligibility") {
@@ -181,7 +208,7 @@ export async function POST(req: Request) {
         { status: 429, headers: { "Retry-After": "60", "Cache-Control": "private, no-store" } },
       );
     }
-    const current = await buildStatus(actor.db, actor.userId);
+    const current = await buildStatus(actor.db, actor.userId, workspace);
     const neverReconciled =
       !current.entitlement.eligible &&
       !(await hasStoredEntitlementRow(actor.db, actor.userId));
@@ -195,14 +222,14 @@ export async function POST(req: Request) {
       );
     }
     await reconcileManagerSmsEntitlement(actor.db, actor.userId);
-    return NextResponse.json(await buildStatus(actor.db, actor.userId), {
+    return NextResponse.json(await buildStatus(actor.db, actor.userId, workspace), {
       headers: { "Cache-Control": "private, no-store" },
     });
   }
 
-  // A work email belongs to the workspace, exactly like the work number. A
-  // co-manager who owns no houses sends from the owner's address and may not
-  // request a second one for the same workspace — refused before any billing
+  // A work email belongs to the workspace, exactly like the work number, and
+  // only its OWNER may set one up. Inside a workspace someone else shares with
+  // you, mail goes out from the owner's address — refused before any billing
   // or storage work.
   //
   // Scope still comes from the assignment, not the address:
@@ -211,20 +238,14 @@ export async function POST(req: Request) {
   // assigned to them — so writing to the shared address answers about their
   // assigned houses and nothing else, and their questions land in THEIR
   // Communication, not the owner's.
-  let pureCoManager: boolean;
-  try {
-    pureCoManager = await isPureCoManagerWorkspace(actor.db, actor.userId, { throwOnError: true });
-  } catch {
-    return NextResponse.json({ error: "Workspace unavailable. Try again." }, { status: 503 });
-  }
-  if (pureCoManager) {
+  if (!workspace.owned) {
     return NextResponse.json(
       {
         error:
-          "Your workspace already has a work email. Mail goes out from the address your workspace owner set up.",
-        code: "workspace_email_shared",
+          "This workspace already has a work email. Mail goes out from the address its owner set up.",
+        code: "workspace_not_owned",
       },
-      { status: 409, headers: { "Cache-Control": "private, no-store" } },
+      { status: 403, headers: { "Cache-Control": "private, no-store" } },
     );
   }
 
@@ -259,20 +280,20 @@ export async function POST(req: Request) {
     );
   }
 
-  const existing = await loadManagerAssistantEmail(actor.db, actor.userId);
-  if (existing) {
-    return NextResponse.json(await buildStatus(actor.db, actor.userId), {
+  const existing = await loadWorkspaceAssistantEmail(actor.db, workspace);
+  if (existing?.workspaceId) {
+    return NextResponse.json(await buildStatus(actor.db, actor.userId, workspace), {
       headers: { "Cache-Control": "private, no-store" },
     });
   }
 
   try {
-    await ensureManagerAssistantEmail(actor.db, actor.userId);
+    await ensureManagerAssistantEmail(actor.db, actor.userId, workspace);
   } catch (cause) {
-    if (cause instanceof WorkspaceEmailSharedError) {
+    if (cause instanceof WorkspaceEmailSharedError || cause instanceof WorkspaceNotOwnedError) {
       return NextResponse.json(
         { error: cause.message, code: cause.code },
-        { status: 409, headers: { "Cache-Control": "private, no-store" } },
+        { status: cause instanceof WorkspaceNotOwnedError ? 403 : 409, headers: { "Cache-Control": "private, no-store" } },
       );
     }
     const message = cause instanceof Error ? cause.message : "";
@@ -291,7 +312,7 @@ export async function POST(req: Request) {
     );
   }
   track("assistant_email_requested", actor.userId, {});
-  return NextResponse.json(await buildStatus(actor.db, actor.userId), {
+  return NextResponse.json(await buildStatus(actor.db, actor.userId, workspace), {
     headers: { "Cache-Control": "private, no-store" },
   });
 }

@@ -10,13 +10,21 @@ import {
 import { allocateAssistantMailboxLocal } from "@/lib/manager-assistant-email/assistant-mailbox-local.server";
 import {
   isPureCoManagerWorkspace,
-  listWorkspaceOwnersForCoManager,
+  readSelectedWorkspaceIdSafely,
 } from "@/lib/sms/manager-workspace-role.server";
+import {
+  ensureDefaultWorkspaceId,
+  listViewerWorkspaces,
+  resolveActiveWorkspace,
+  type ActiveWorkspace,
+} from "@/lib/workspaces/active.server";
 
 export type ManagerAssistantEmailProvisionState = "active" | "released";
 
 export type ManagerAssistantEmailRow = {
   managerUserId: string;
+  /** The workspace this address belongs to; null only on a legacy row the migration could not place. */
+  workspaceId: string | null;
   inboxToken: string;
   mailboxLocal: string | null;
   address: string;
@@ -25,6 +33,7 @@ export type ManagerAssistantEmailRow = {
 
 type StoredAssistantEmailRow = {
   manager_user_id?: string;
+  workspace_id?: string | null;
   inbox_token?: string;
   mailbox_local?: string | null;
   provision_state?: string;
@@ -45,6 +54,7 @@ function rowFromStored(
   const mailboxLocal = String(data.mailbox_local ?? "").trim().toLowerCase() || null;
   return {
     managerUserId,
+    workspaceId: String(data.workspace_id ?? "").trim() || null,
     inboxToken: token,
     mailboxLocal,
     address: publicAddress(token, mailboxLocal),
@@ -89,14 +99,23 @@ export function isAssistantEmailStorageError(error: { code?: string; message?: s
   return code === "PGRST205" || /manager_assistant_emails/i.test(message);
 }
 
-export async function resolveManagerIdByAssistantEmailToken(
+/** The mailbox an inbound address resolves to: the row's owner and the workspace it is placed in. */
+export type AssistantMailboxTarget = { managerUserId: string; workspaceId: string | null };
+
+function mailboxTarget(data: { manager_user_id?: unknown; workspace_id?: unknown } | null): AssistantMailboxTarget | null {
+  const managerUserId = typeof data?.manager_user_id === "string" ? data.manager_user_id : "";
+  if (!managerUserId) return null;
+  return { managerUserId, workspaceId: String(data?.workspace_id ?? "").trim() || null };
+}
+
+export async function resolveAssistantMailboxByToken(
   db: SupabaseClient,
   token: string,
-): Promise<string | null> {
+): Promise<AssistantMailboxTarget | null> {
   if (!ASSISTANT_EMAIL_TOKEN_PATTERN.test(token)) return null;
   const { data, error } = await db
     .from("manager_assistant_emails")
-    .select("manager_user_id, provision_state")
+    .select("manager_user_id, workspace_id, provision_state")
     .eq("inbox_token", token)
     .maybeSingle();
   if (error) {
@@ -104,16 +123,23 @@ export async function resolveManagerIdByAssistantEmailToken(
     return null;
   }
   if (!data || data.provision_state !== "active") return null;
-  return typeof data.manager_user_id === "string" ? data.manager_user_id : null;
+  return mailboxTarget(data);
 }
 
-async function resolveManagerIdByAssistantMailboxLocal(
+export async function resolveManagerIdByAssistantEmailToken(
+  db: SupabaseClient,
+  token: string,
+): Promise<string | null> {
+  return (await resolveAssistantMailboxByToken(db, token))?.managerUserId ?? null;
+}
+
+async function resolveAssistantMailboxByLocal(
   db: SupabaseClient,
   mailboxLocal: string,
-): Promise<string | null> {
+): Promise<AssistantMailboxTarget | null> {
   const { data, error } = await db
     .from("manager_assistant_emails")
-    .select("manager_user_id, provision_state")
+    .select("manager_user_id, workspace_id, provision_state")
     .eq("mailbox_local", mailboxLocal.trim().toLowerCase())
     .maybeSingle();
   if (error) {
@@ -121,7 +147,19 @@ async function resolveManagerIdByAssistantMailboxLocal(
     return null;
   }
   if (!data || data.provision_state !== "active") return null;
-  return typeof data.manager_user_id === "string" ? data.manager_user_id : null;
+  return mailboxTarget(data);
+}
+
+/** Resolve the mailbox from any supported assistant To address (legacy plus or assist-*). */
+export async function resolveAssistantMailboxByInboundAddresses(
+  db: SupabaseClient,
+  addresses: string[],
+): Promise<AssistantMailboxTarget | null> {
+  const token = extractAssistantEmailToken(addresses);
+  if (token) return resolveAssistantMailboxByToken(db, token);
+  const mailboxLocal = extractAssistantMailboxLocal(addresses);
+  if (mailboxLocal) return resolveAssistantMailboxByLocal(db, mailboxLocal);
+  return null;
 }
 
 /** Resolve manager from any supported assistant To address (legacy plus or assist-*). */
@@ -129,23 +167,16 @@ export async function resolveManagerIdByAssistantInboundAddresses(
   db: SupabaseClient,
   addresses: string[],
 ): Promise<string | null> {
-  const token = extractAssistantEmailToken(addresses);
-  if (token) return resolveManagerIdByAssistantEmailToken(db, token);
-  const mailboxLocal = extractAssistantMailboxLocal(addresses);
-  if (mailboxLocal) return resolveManagerIdByAssistantMailboxLocal(db, mailboxLocal);
-  return null;
+  return (await resolveAssistantMailboxByInboundAddresses(db, addresses))?.managerUserId ?? null;
 }
 
 /** Backfill a readable assist-* address for legacy plus-only rows. */
 export async function upgradeManagerAssistantMailboxLocal(
   db: SupabaseClient,
   managerUserId: string,
+  workspaceId?: string | null,
 ): Promise<ManagerAssistantEmailRow | null> {
-  const { data, error } = await db
-    .from("manager_assistant_emails")
-    .select("manager_user_id, inbox_token, mailbox_local, provision_state")
-    .eq("manager_user_id", managerUserId)
-    .maybeSingle();
+  const { data, error } = await activeRowQuery(db, managerUserId, workspaceId);
   if (error || !data || data.provision_state !== "active") return null;
   const existingLocal = String(data.mailbox_local ?? "").trim();
   if (existingLocal) return rowFromStored(managerUserId, data);
@@ -159,7 +190,7 @@ export async function upgradeManagerAssistantMailboxLocal(
   const { error: updateError } = await db
     .from("manager_assistant_emails")
     .update({ mailbox_local: mailboxLocal, updated_at: now })
-    .eq("manager_user_id", managerUserId)
+    .eq("inbox_token", token)
     .is("mailbox_local", null);
   if (updateError) {
     console.warn("assistant-email mailbox upgrade failed", updateError.message);
@@ -169,22 +200,49 @@ export async function upgradeManagerAssistantMailboxLocal(
   return rowFromStored(managerUserId, { ...data, mailbox_local: mailboxLocal });
 }
 
+const ROW_SELECT = "manager_user_id, workspace_id, inbox_token, mailbox_local, provision_state";
+
+/**
+ * The ACTIVE address row for a workspace. Without a workspace id: the owner's
+ * row that is not placed in any workspace — a legacy row — never a row from
+ * one of their workspaces, so an old caller cannot pull workspace B's address
+ * onto workspace A by mistake.
+ */
+function activeRowQuery(db: SupabaseClient, managerUserId: string, workspaceId?: string | null) {
+  const ws = workspaceId?.trim();
+  const q = db.from("manager_assistant_emails").select(ROW_SELECT).eq("provision_state", "active");
+  return (ws ? q.eq("workspace_id", ws) : q.eq("manager_user_id", managerUserId).is("workspace_id", null)).maybeSingle();
+}
+
+/**
+ * The address of ONE workspace (or, with no workspace, the owner's legacy
+ * unplaced row). Most callers want `loadWorkspaceAssistantEmail` /
+ * `resolveWorkspaceWorkEmail`; the owner-only form is for legacy rows.
+ */
 export async function loadManagerAssistantEmail(
   db: SupabaseClient,
   managerUserId: string,
+  workspaceId?: string | null,
 ): Promise<ManagerAssistantEmailRow | null> {
-  const { data, error } = await db
-    .from("manager_assistant_emails")
-    .select("manager_user_id, inbox_token, mailbox_local, provision_state")
-    .eq("manager_user_id", managerUserId)
-    .maybeSingle();
+  const { data, error } = await activeRowQuery(db, managerUserId, workspaceId);
   if (error || !data || data.provision_state !== "active") return null;
   const row = rowFromStored(managerUserId, data);
   if (!row) return null;
   if (!row.mailboxLocal) {
-    return (await upgradeManagerAssistantMailboxLocal(db, managerUserId)) ?? row;
+    return (await upgradeManagerAssistantMailboxLocal(db, managerUserId, workspaceId)) ?? row;
   }
   return row;
+}
+
+/** The address a workspace holds: its own row, else the owner's legacy unplaced row (default workspace only). */
+export async function loadWorkspaceAssistantEmail(
+  db: SupabaseClient,
+  workspace: Pick<ActiveWorkspace, "id" | "ownerUserId" | "isDefault">,
+): Promise<ManagerAssistantEmailRow | null> {
+  const placed = await loadManagerAssistantEmail(db, workspace.ownerUserId, workspace.id);
+  if (placed) return placed;
+  if (!workspace.isDefault) return null;
+  return loadManagerAssistantEmail(db, workspace.ownerUserId, null);
 }
 
 /** Whether THIS DEPLOYMENT can send mail at all, independent of any manager. */
@@ -212,34 +270,21 @@ export function isAssistantEmailChannelEnabled(): boolean {
 }
 
 export type WorkspaceWorkEmail = {
+  workspaceId: string;
+  workspaceName: string;
+  /** The viewer owns this workspace (may set its address up); false = shared with them. */
+  owned: boolean;
+  isDefault: boolean;
   ownerUserId: string;
   ownerName: string | null;
   address: string | null;
 };
 
-/**
- * The work email(s) this account sends and is reached at, one per workspace.
- *
- * The email twin of `resolveWorkspaceWorkNumbers`, and the rule is the same:
- * a work email belongs to the workspace, not to whoever requested it. An owner
- * (anyone with a house of their own, or nobody's co-manager) gets their own
- * row. A pure co-manager gets each linked owner's row — never one of their
- * own. A workspace whose owner has not set one up yet is still listed, with a
- * null address, so the UI can say whose job it is to set it up.
- */
-export async function resolveWorkspaceWorkEmails(
-  db: SupabaseClient,
-  userId: string,
-): Promise<{ role: "primary" | "co_manager"; emails: WorkspaceWorkEmail[] }> {
-  const pure = await isPureCoManagerWorkspace(db, userId);
-  const ownerIds = pure
-    ? (await listWorkspaceOwnersForCoManager(db, userId)).map((o) => o.ownerUserId)
-    : [userId];
-  const role = pure ? ("co_manager" as const) : ("primary" as const);
-  if (ownerIds.length === 0) return { role, emails: [] };
-
+async function emailsForWorkspaces(db: SupabaseClient, workspaces: ActiveWorkspace[]): Promise<WorkspaceWorkEmail[]> {
+  if (workspaces.length === 0) return [];
+  const ownerIds = [...new Set(workspaces.map((w) => w.ownerUserId))];
   const [rows, { data: profileRows }] = await Promise.all([
-    Promise.all(ownerIds.map((ownerUserId) => loadManagerAssistantEmail(db, ownerUserId))),
+    Promise.all(workspaces.map((w) => loadWorkspaceAssistantEmail(db, w))),
     db.from("profiles").select("id, full_name, email").in("id", ownerIds),
   ]);
   const nameByOwner = new Map(
@@ -248,28 +293,49 @@ export async function resolveWorkspaceWorkEmails(
       String(p.full_name ?? "").trim() || String(p.email ?? "").trim() || null,
     ]),
   );
-  return {
-    role,
-    emails: ownerIds.map((ownerUserId, index) => ({
-      ownerUserId,
-      ownerName: nameByOwner.get(ownerUserId) ?? null,
-      address: rows[index]?.address?.trim() || null,
-    })),
-  };
+  return workspaces.map((w, index) => ({
+    workspaceId: w.id,
+    workspaceName: w.name,
+    owned: w.owned,
+    isDefault: w.isDefault,
+    ownerUserId: w.ownerUserId,
+    ownerName: nameByOwner.get(w.ownerUserId) ?? null,
+    address: rows[index]?.address?.trim() || null,
+  }));
 }
 
 /**
- * The one work email this account sends from and is reached at, or null.
+ * The work email of every workspace this account can see, one per workspace.
  *
- * An owner's own row; for a pure co-manager, the workspace they hold the most
- * houses in (the same tie-break the work number uses).
+ * The email twin of `resolveWorkspaceWorkNumbers`, same rule: an address
+ * belongs to the workspace it is placed in. An owned workspace without one is
+ * listed with a null address so the UI can offer to set it up; a shared
+ * workspace shows its owner's address for THAT workspace only. Owned first,
+ * default first of those.
+ */
+export async function resolveWorkspaceWorkEmails(
+  db: SupabaseClient,
+  userId: string,
+): Promise<{ role: "primary" | "co_manager"; emails: WorkspaceWorkEmail[] }> {
+  const workspaces = await listViewerWorkspaces(db, userId);
+  const pure = await isPureCoManagerWorkspace(db, userId);
+  return { role: pure ? ("co_manager" as const) : ("primary" as const), emails: await emailsForWorkspaces(db, workspaces) };
+}
+
+/**
+ * The work email the viewer is acting from: the ACTIVE workspace's address.
+ * `selectedWorkspaceId` overrides the request cookie; outside a request the
+ * viewer's own default workspace wins. Null when that workspace has none.
  */
 export async function resolveWorkspaceWorkEmail(
   db: SupabaseClient,
   userId: string,
+  selectedWorkspaceId?: string | null,
 ): Promise<WorkspaceWorkEmail | null> {
-  const { emails } = await resolveWorkspaceWorkEmails(db, userId);
-  return emails[0] ?? null;
+  const selected = selectedWorkspaceId === undefined ? await readSelectedWorkspaceIdSafely() : selectedWorkspaceId;
+  const workspace = await resolveActiveWorkspace(db, userId, selected);
+  const [entry] = await emailsForWorkspaces(db, [workspace]);
+  return entry ?? null;
 }
 
 /**
@@ -293,9 +359,11 @@ export async function resolveWorkspaceWorkEmail(
 export async function resolveActiveManagerWorkEmail(
   db: SupabaseClient,
   managerUserId: string,
+  /** The workspace the surface is about (a house's workspace). Omitted: the manager's own default workspace. */
+  workspaceId?: string | null,
 ): Promise<string | null> {
   if (!isAssistantEmailChannelEnabled()) return null;
-  const workspace = await resolveWorkspaceWorkEmail(db, managerUserId);
+  const workspace = await resolveWorkspaceWorkEmail(db, managerUserId, workspaceId ?? null);
   return workspace?.address?.trim() || null;
 }
 
@@ -307,23 +375,53 @@ export class WorkspaceEmailSharedError extends Error {
   }
 }
 
+export class WorkspaceNotOwnedError extends Error {
+  readonly code = "workspace_not_owned";
+  constructor() {
+    super("Only the owner of this workspace can set up its work email.");
+    this.name = "WorkspaceNotOwnedError";
+  }
+}
+
 /**
- * Create the manager's work email if they do not have one.
+ * Create a WORKSPACE's work email if it does not have one.
  *
- * One address per workspace: a pure co-manager (linked, no houses of their
- * own) sends and is reached at the owner's address, so this refuses to mint a
- * second one for the same workspace — the same rule `provisionManagerNumber`
- * applies to the work number. Refused here, at the write, not only in the
- * route, so no other caller can quietly hand a co-manager their own mailbox.
+ * One address per workspace, minted only by its owner: a co-manager sends and
+ * is reached at the owner's address for that workspace and may never mint a
+ * second one — refused here, at the write, so no other caller can quietly
+ * hand a co-manager a mailbox. With no workspace named, the actor's own
+ * default workspace is meant (the signup and legacy callers).
  */
 export async function ensureManagerAssistantEmail(
   db: SupabaseClient,
   managerUserId: string,
+  workspace?: Pick<ActiveWorkspace, "id" | "ownerUserId" | "owned" | "isDefault"> | null,
 ): Promise<ManagerAssistantEmailRow> {
-  const existing = await loadManagerAssistantEmail(db, managerUserId);
-  if (existing) return existing;
-  if (await isPureCoManagerWorkspace(db, managerUserId, { throwOnError: true })) {
-    throw new WorkspaceEmailSharedError();
+  let target = workspace ?? null;
+  if (!target) {
+    // A pure co-manager's own default workspace is empty by definition; they
+    // reach the owner's address through the shared workspace instead.
+    if (await isPureCoManagerWorkspace(db, managerUserId, { throwOnError: true })) {
+      throw new WorkspaceEmailSharedError();
+    }
+    const id = await ensureDefaultWorkspaceId(db, managerUserId);
+    target = { id, ownerUserId: managerUserId, owned: true, isDefault: true };
+  }
+  if (!target.owned || target.ownerUserId !== managerUserId) throw new WorkspaceNotOwnedError();
+
+  const existing = await loadWorkspaceAssistantEmail(db, target);
+  if (existing) {
+    // A legacy unplaced row answering for the default workspace is adopted
+    // by it, so the next reader finds it by workspace like every other row.
+    if (!existing.workspaceId) {
+      await db
+        .from("manager_assistant_emails")
+        .update({ workspace_id: target.id, updated_at: new Date().toISOString() })
+        .eq("inbox_token", existing.inboxToken)
+        .is("workspace_id", null);
+      return { ...existing, workspaceId: target.id };
+    }
+    return existing;
   }
 
   const token = generateAssistantEmailToken();
@@ -332,6 +430,7 @@ export async function ensureManagerAssistantEmail(
   const now = new Date().toISOString();
   const { error } = await db.from("manager_assistant_emails").insert({
     manager_user_id: managerUserId,
+    workspace_id: target.id,
     inbox_token: token,
     mailbox_local: mailboxLocal,
     provision_state: "active",
@@ -339,13 +438,14 @@ export async function ensureManagerAssistantEmail(
     updated_at: now,
   });
   if (error?.code === "23505") {
-    const raced = await loadManagerAssistantEmail(db, managerUserId);
+    const raced = await loadWorkspaceAssistantEmail(db, target);
     if (raced) return raced;
   }
   if (error) throw new Error(error.message);
 
   return {
     managerUserId,
+    workspaceId: target.id,
     inboxToken: token,
     mailboxLocal,
     address: assistantMailboxAddress(mailboxLocal),

@@ -8,6 +8,7 @@
  * directory row on save.
  */
 
+import { VendorNotificationSettingsPane } from "@/components/portal/vendor-notification-settings-pane";
 import { useCallback, useEffect, useState } from "react";
 import { Building2, Mail, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -294,35 +295,10 @@ export function VendorWorkspaceAccessPane({
   );
 }
 
-export function VendorNotificationsPane({ ctx }: { ctx: Ctx }) {
-  const rows: Array<{ key: "notifyNewOffers" | "notifyScheduleChanges" | "notifyPayments"; label: string; hint: string }> = [
-    { key: "notifyNewOffers", label: "New offers", hint: "A manager sends you a job to quote or accept." },
-    { key: "notifyScheduleChanges", label: "Schedule changes", hint: "A visit is confirmed, moved, or cancelled." },
-    { key: "notifyPayments", label: "Payments", hint: "An invoice is approved or a payout lands." },
-  ];
-  return (
-    <PortalSettingsSection title="Notifications">
-      <PortalSettingsGroup>
-        <ul className="divide-y divide-border">
-          {rows.map((row) => (
-            <li key={row.key} className="flex items-center gap-3 px-4 py-3">
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold text-foreground">{row.label}</span>
-                <span className="block text-xs text-muted">{row.hint}</span>
-              </span>
-              <input
-                type="checkbox"
-                className="h-5 w-5 shrink-0 rounded border-border"
-                checked={ctx.profile[row.key]}
-                disabled={ctx.loading || ctx.saving}
-                aria-label={row.label}
-                data-attr={`vendor-notify-${row.key}`}
-                onChange={(e) => void ctx.save({ [row.key]: e.target.checked })}
-              />
-            </li>
-          ))}
-        </ul>
-      </PortalSettingsGroup>
-    </PortalSettingsSection>
-  );
+/** The notification pane no longer reads the business profile: its settings live in
+ * `notification_preferences` and are honoured at send (PLAN-0915). The `ctx` prop is
+ * kept so the settings shell's pane table needs no change. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function VendorNotificationsPane(_props: { ctx: Ctx }) {
+  return <VendorNotificationSettingsPane />;
 }

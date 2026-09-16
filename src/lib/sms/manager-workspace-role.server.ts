@@ -1,4 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { listViewerWorkspaces, loadWorkspaceById, resolveActiveWorkspace, type ActiveWorkspace } from "@/lib/workspaces/active.server";
+import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
 
 /** Accepted co-manager links where this user is the invitee (linked workspace, no owned rows). */
 export async function getAcceptedCoManagerInviterIds(
@@ -64,16 +66,28 @@ export async function isPureCoManagerWorkspace(
 export async function resolveWorkspaceOwnerForWorkNumber(
   db: SupabaseClient,
   numberOwnerUserId: string,
-  opts: { throwOnError?: boolean } = {},
-): Promise<{ ownerUserId: string; sharedFromCoManager: boolean }> {
+  opts: { throwOnError?: boolean; workspaceId?: string | null } = {},
+): Promise<{ ownerUserId: string; sharedFromCoManager: boolean; workspaceId: string | null }> {
+  // A row placed in a workspace answers for that workspace's owner — the
+  // switcher's workspace, not a guess from co-manager links. Only a legacy
+  // row with no workspace (the migration could not place it) still falls
+  // through to the co-manager collapse below.
+  const placed = opts.workspaceId?.trim();
+  if (placed) {
+    const workspace = await loadWorkspaceById(db, placed);
+    if (workspace?.ownerUserId) {
+      return { ownerUserId: workspace.ownerUserId, sharedFromCoManager: false, workspaceId: workspace.id };
+    }
+    if (opts.throwOnError) throw new Error("Workspace for this line unavailable.");
+  }
   if (!(await isPureCoManagerWorkspace(db, numberOwnerUserId, opts))) {
-    return { ownerUserId: numberOwnerUserId, sharedFromCoManager: false };
+    return { ownerUserId: numberOwnerUserId, sharedFromCoManager: false, workspaceId: null };
   }
   const owners = await listWorkspaceOwnersForCoManager(db, numberOwnerUserId, opts);
   const best = owners[0];
   return best
-    ? { ownerUserId: best.ownerUserId, sharedFromCoManager: true }
-    : { ownerUserId: numberOwnerUserId, sharedFromCoManager: false };
+    ? { ownerUserId: best.ownerUserId, sharedFromCoManager: true, workspaceId: null }
+    : { ownerUserId: numberOwnerUserId, sharedFromCoManager: false, workspaceId: null };
 }
 
 /**
@@ -116,40 +130,61 @@ export async function listWorkspaceOwnersForCoManager(
 }
 
 export type WorkspaceWorkNumber = {
+  workspaceId: string;
+  workspaceName: string;
+  /** The viewer owns this workspace (may set its line up); false = shared with them. */
+  owned: boolean;
+  isDefault: boolean;
   ownerUserId: string;
   ownerName: string | null;
   phoneNumber: string | null;
   provisionState: string | null;
 };
 
+const NUMBER_SUMMARY = "workspace_id, manager_user_id, phone_number, provision_state";
+
 /**
- * The work number(s) this account sends and replies from, one per workspace.
+ * The work number of every workspace this account can see, one per workspace.
  *
- * An owner (anyone with a house of their own, or nobody's co-manager) gets
- * their own row. A pure co-manager gets each linked owner's row — never one of
- * their own, which is the whole "one number per workspace" rule. A workspace
- * whose owner has not set a number up yet is still listed, with a null number,
- * so the UI can say whose job it is to set one up.
+ * A workspace's line is the row placed in it. An owned workspace without one
+ * is listed with a null number so the UI can offer to set it up; a shared
+ * workspace shows its owner's line for THAT workspace only — a co-manager
+ * never gets a line of their own, and never sees a line from a workspace they
+ * were not granted. Owned workspaces come first, the default first of those,
+ * so `numbers[0]` is the viewer's own default line when they have one.
  */
 export async function resolveWorkspaceWorkNumbers(
   db: SupabaseClient,
   userId: string,
 ): Promise<{ role: "primary" | "co_manager"; numbers: WorkspaceWorkNumber[] }> {
+  const workspaces = await listViewerWorkspaces(db, userId);
   const pure = await isPureCoManagerWorkspace(db, userId);
-  const ownerIds = pure
-    ? (await listWorkspaceOwnersForCoManager(db, userId)).map((o) => o.ownerUserId)
-    : [userId];
-  if (ownerIds.length === 0) return { role: pure ? "co_manager" : "primary", numbers: [] };
+  return { role: pure ? "co_manager" : "primary", numbers: await numbersForWorkspaces(db, workspaces) };
+}
+
+/** The line of ONE workspace, or null when it has none. */
+export async function resolveWorkNumberForWorkspace(
+  db: SupabaseClient,
+  workspace: ActiveWorkspace,
+): Promise<WorkspaceWorkNumber> {
+  const [entry] = await numbersForWorkspaces(db, [workspace]);
+  return entry;
+}
+
+async function numbersForWorkspaces(
+  db: SupabaseClient,
+  workspaces: ActiveWorkspace[],
+): Promise<WorkspaceWorkNumber[]> {
+  if (workspaces.length === 0) return [];
+  const workspaceIds = workspaces.map((w) => w.id);
+  const ownerIds = [...new Set(workspaces.map((w) => w.ownerUserId))];
   const [{ data: numberRows }, { data: profileRows }] = await Promise.all([
-    db
-      .from("manager_sms_numbers")
-      .select("manager_user_id, phone_number, provision_state")
-      .in("manager_user_id", ownerIds),
+    db.from("manager_sms_numbers").select(NUMBER_SUMMARY).in("workspace_id", workspaceIds),
     db.from("profiles").select("id, full_name, email").in("id", ownerIds),
   ]);
-  const numberByOwner = new Map(
+  const numberByWorkspace = new Map(
     (numberRows ?? []).map((r) => [
-      String(r.manager_user_id ?? "").trim(),
+      String(r.workspace_id ?? "").trim(),
       {
         phoneNumber: typeof r.phone_number === "string" && r.phone_number.trim() ? r.phone_number.trim() : null,
         provisionState: typeof r.provision_state === "string" ? r.provision_state : null,
@@ -162,13 +197,78 @@ export async function resolveWorkspaceWorkNumbers(
       String(p.full_name ?? "").trim() || String(p.email ?? "").trim() || null,
     ]),
   );
-  return {
-    role: pure ? "co_manager" : "primary",
-    numbers: ownerIds.map((ownerUserId) => ({
-      ownerUserId,
-      ownerName: nameByOwner.get(ownerUserId) ?? null,
-      phoneNumber: numberByOwner.get(ownerUserId)?.phoneNumber ?? null,
-      provisionState: numberByOwner.get(ownerUserId)?.provisionState ?? null,
-    })),
-  };
+  return workspaces.map((w) => ({
+    workspaceId: w.id,
+    workspaceName: w.name,
+    owned: w.owned,
+    isDefault: w.isDefault,
+    ownerUserId: w.ownerUserId,
+    ownerName: nameByOwner.get(w.ownerUserId) ?? null,
+    phoneNumber: numberByWorkspace.get(w.id)?.phoneNumber ?? null,
+    provisionState: numberByWorkspace.get(w.id)?.provisionState ?? null,
+  }));
+}
+
+/** The selected workspace id from the current request, or undefined outside one. */
+export async function readSelectedWorkspaceIdSafely(): Promise<string | undefined> {
+  try {
+    const { cookies } = await import("next/headers");
+    return (await cookies()).get(WORKSPACE_COOKIE)?.value || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The line the VIEWER is acting from right now: the active workspace's row.
+ * `selectedWorkspaceId` overrides the request cookie for callers that hold it.
+ */
+export async function resolveViewerWorkNumber(
+  db: SupabaseClient,
+  viewerUserId: string,
+  selectedWorkspaceId?: string | null,
+): Promise<WorkspaceWorkNumber | null> {
+  const selected = selectedWorkspaceId === undefined ? await readSelectedWorkspaceIdSafely() : selectedWorkspaceId;
+  const workspace = await resolveActiveWorkspace(db, viewerUserId, selected);
+  return resolveWorkNumberForWorkspace(db, workspace);
+}
+
+/**
+ * The number row an OWNER sends from for one message: the line of the
+ * workspace that holds the house the message is about; a house-less message
+ * goes out from the owner's default workspace's line. A legacy row the
+ * migration could not place still answers when nothing else does. Returns
+ * `columns` as selected, unmapped, so the dispatcher keeps its own row type.
+ */
+export async function resolveOwnerSendNumberRow<T extends { workspace_id?: string | null }>(
+  db: SupabaseClient,
+  ownerUserId: string,
+  columns: string,
+  opts: { propertyId?: string | null } = {},
+): Promise<{ data: T | null; error: { message: string } | null }> {
+  const query = db.from("manager_sms_numbers").select(columns).eq("manager_user_id", ownerUserId);
+  // A real builder is thenable and yields every row; a single-row double
+  // only answers `maybeSingle`, and its one row is the one candidate.
+  const { data, error } =
+    typeof (query as { then?: unknown }).then === "function" ? await query : await query.maybeSingle();
+  if (error) return { data: null, error };
+  const list = Array.isArray(data) ? data : data ? [data] : [];
+  const rows = (list as unknown as T[]).filter(Boolean);
+  if (rows.length === 0) return { data: null, error: null };
+  if (rows.length === 1) return { data: rows[0], error: null };
+  const propertyId = opts.propertyId?.trim();
+  if (propertyId) {
+    const { data: house } = await db.from("manager_property_records").select("workspace_id").eq("id", propertyId).maybeSingle();
+    const houseWorkspace = String(house?.workspace_id ?? "").trim();
+    const match = houseWorkspace ? rows.find((r) => String(r.workspace_id ?? "") === houseWorkspace) : null;
+    if (match) return { data: match, error: null };
+  }
+  const placedIds = rows.map((r) => String(r.workspace_id ?? "").trim()).filter(Boolean);
+  if (placedIds.length > 0) {
+    const { data: workspaces } = await db.from("portal_workspaces").select("id, is_default").in("id", placedIds);
+    const defaultId = String((workspaces ?? []).find((w) => w.is_default)?.id ?? "");
+    const inDefault = defaultId ? rows.find((r) => String(r.workspace_id ?? "") === defaultId) : null;
+    if (inDefault) return { data: inDefault, error: null };
+  }
+  return { data: rows.find((r) => !r.workspace_id) ?? rows[0], error: null };
 }

@@ -7,10 +7,10 @@
  * with usage meters and a Free / Pro / Business comparison, so a manager can
  * see in one glance what the next tier changes. Below: one card per workspace
  * with its record meter, its houses, and the managers who have access there.
- * Team membership is managed from Settings → Team; this pane shows the
- * per-workspace roll-up and links across. Every owned workspace can be deleted,
- * the default one included: an empty one goes on a plain confirm, one with
- * houses through a dialog that names the workspace they move to.
+ * Team membership is on this same pane — pick a workspace (top-left switcher
+ * or a card), then the members list under Team. Every owned workspace can be
+ * deleted, the default one included: an empty one goes on a plain confirm, one
+ * with houses through a dialog that names the workspace they move to.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -33,6 +33,9 @@ import {
 } from "@/lib/workspaces/types";
 import { cn } from "@/lib/utils";
 import { useWorkspaces } from "./workspace-provider";
+import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { ProAccountLinksPanel } from "@/components/portal/pro-account-links-panel";
+import { PortalSettingsSection } from "@/components/portal/portal-settings-ui";
 
 const TIER_ORDER: WorkspacePlanTier[] = ["free", "pro", "business"];
 
@@ -277,6 +280,7 @@ function WorkspaceCard({
 
 export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {}) {
   const ctx = useWorkspaces();
+  const { userId } = useManagerUserId();
   const confirm = useConfirm();
   const pathname = usePathname();
   const router = useRouter();
@@ -294,6 +298,11 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
     setName("");
     setEditing("new");
   }, [openNew]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.location.hash !== "#workspace-team") return;
+    document.getElementById("workspace-team")?.scrollIntoView({ block: "start" });
+  }, []);
   const closeEditor = useCallback(() => {
     setEditing(null);
     if (!openNew || typeof window === "undefined") return;
@@ -396,15 +405,19 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
             onOpenTeam={() => {
               void (async () => {
                 if (ctx.active?.id !== workspace.id) {
-                  await ctx.select(workspace.id, { href: "/portal/profile?tab=team" });
-                  return;
+                  await ctx.select(workspace.id, { href: false });
                 }
-                router.push("/portal/profile?tab=team");
+                document.getElementById("workspace-team")?.scrollIntoView({ block: "start" });
               })().catch((e) => setError(e instanceof Error ? e.message : "Could not open Team."));
             }}
           />
         ))
       )}
+      <div id="workspace-team" data-attr="workspace-team">
+        <PortalSettingsSection title="Team">
+          {userId ? <ProAccountLinksPanel userId={userId} bare /> : <p className="text-sm text-muted">Loading…</p>}
+        </PortalSettingsSection>
+      </div>
       <Modal open={editing !== null} onClose={closeEditor} title={editing === "new" ? "Add workspace" : "Rename workspace"}>
         <form
           onSubmit={(event) => {
@@ -498,7 +511,7 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
         {movingMembers.length > 0 ? (
           <p className="mb-3 text-sm text-foreground" data-attr="workspace-move-keeps-access">
             {movingMembers.map((member) => member.name).join(", ")} {movingMembers.length === 1 ? "keeps" : "keep"} access to this house in the new workspace.{" "}
-            <Link href="/portal/profile?tab=team" className="font-medium text-primary underline-offset-2 hover:underline" data-attr="workspace-move-change-access">
+            <Link href="/portal/profile?tab=workspaces#workspace-team" className="font-medium text-primary underline-offset-2 hover:underline" data-attr="workspace-move-change-access">
               Change in Team
             </Link>
           </p>

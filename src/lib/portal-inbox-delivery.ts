@@ -4,6 +4,7 @@ import { resolveManagerOutboundFrom } from "@/lib/manager-outbound-identity.serv
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { InboxThreadMessageChannel } from "@/lib/portal-inbox-storage";
 import { userHoldsAdminRole } from "@/lib/auth/admin-role";
+import type { VendorNotificationTopic } from "@/lib/vendor-notification-settings";
 import { filterRecipientsBySenderScope } from "@/lib/inbox-recipient-scope";
 import {
   ensureSmsIncludesPortalLink,
@@ -14,6 +15,7 @@ import { sendPushToUser } from "@/lib/push-notifications.server";
 import { inboxDeepLinkForRole } from "@/lib/platform/parity";
 import { enqueueWebhookEvent } from "@/lib/webhooks/deliver.server";
 import { webhookEventBuilders } from "@/lib/webhooks/events";
+import { isManagerAgentNoticeThreadId } from "@/lib/communication-manager-assistant-thread";
 // Pinned to Pacific, matching `formatInboxStamp` and every other inbox stamp
 // writer. These stamps are persisted and later re-parsed for conversation
 // ordering, but carry no timezone: this writer runs server-side (UTC on Vercel)
@@ -179,7 +181,7 @@ export async function resolveInboxThreadReplyTarget(
     // Older notifications stamped their event type onto the one canonical
     // assistant thread. Resolve that owner-bound identity without requiring a
     // production data rewrite; a human conversation's name is never a signal.
-    threadType: ownerUserId && threadId === `agent_notice_${ownerUserId}` &&
+    threadType: ownerUserId && isManagerAgentNoticeThreadId(threadId, ownerUserId) &&
       threadRow.scope === MANAGER_INBOX_SCOPE
       ? "agent_notice"
       : String(threadRow.thread_type ?? ""),
@@ -558,6 +560,12 @@ export async function deliverPortalInboxMessage(
     suppressInbox?: boolean;
     /** Deterministic action-event message id. Replays append at most once. */
     messageId?: string;
+    /** Which vendor Settings row gates a vendor recipient's email/text. */
+    vendorTopic?: VendorNotificationTopic;
+    /** A vendor's own visit reminder; see `ResolveChannelsOptions.vendorVisitReminder`. */
+    vendorVisitReminder?: boolean;
+    /** Emergency: a vendor's quiet-hours bypass applies. */
+    urgent?: boolean;
     /**
      * Server-resolved existing work-number threads, keyed by recipient email.
      * When supplied, missing/ambiguous entries are reported as unavailable
@@ -677,7 +685,11 @@ export async function deliverPortalInboxMessage(
       if (recipient.userId) {
         channelByEmail.set(
           recipient.email,
-          await resolveChannels(db, recipient.userId, eventCategory, profileById.get(recipient.userId) ?? null),
+          await resolveChannels(db, recipient.userId, eventCategory, profileById.get(recipient.userId) ?? null, {
+            vendorTopic: opts.vendorTopic,
+            vendorVisitReminder: opts.vendorVisitReminder,
+            urgent: opts.urgent,
+          }),
         );
       } else {
         // Email-only recipient (no account row): no stored prefs and no verified

@@ -408,7 +408,8 @@ describe("PRP-470 initial Communication readiness", () => {
     await act(async () => resolveInbox([]));
     await waitFor(() => expect(screen.queryByText("Loading conversations…")).toBeNull());
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/api/manager/sms-conversations"))).toBe(false);
-    expect(screen.getByText("Nothing archived")).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Archived" })).toBeTruthy();
+    expect(screen.getByText("PropLane Assistant")).toBeTruthy();
   });
 
   it("shows a retryable load error and recovers on retry", async () => {

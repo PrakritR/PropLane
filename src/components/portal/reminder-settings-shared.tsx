@@ -406,6 +406,7 @@ export function CustomChipInput({
             }
             if (e.key === "Escape") {
               e.preventDefault();
+              e.stopPropagation();
               close();
             }
           }}

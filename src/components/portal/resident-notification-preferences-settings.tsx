@@ -1,5 +1,6 @@
 "use client";
 
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Inbox } from "lucide-react";
 
@@ -13,6 +14,7 @@ import {
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import type { ChannelPreference, NotificationCategory, NotificationPreferences } from "@/lib/notification-preferences";
+import { DEFAULT_RESIDENT_TEXT_SETTINGS, normalizeResidentTextSettings, type ResidentTextSettings } from "@/lib/resident-text-settings";
 
 type SmsAvailability =
   | { available: true }
@@ -23,6 +25,7 @@ type ApiResponse = {
   categories?: NotificationCategory[];
   preferences?: NotificationPreferences;
   sms?: SmsAvailability;
+  text?: unknown;
   error?: string;
 };
 
@@ -36,10 +39,12 @@ type RowStatus = "idle" | "saving" | "saved" | "error";
  */
 const CATEGORY_COPY: Record<NotificationCategory, { label: string; description: string }> = {
   messages: { label: "Messages", description: "New messages from your property manager." },
-  leases: { label: "Lease", description: "Lease signing, renewal, and move-out updates." },
+  leases: { label: "Lease, move-in & move-out", description: "Lease signing, renewal, and move-out updates." },
   payments: { label: "Payments", description: "Rent charges, receipts, and payment reminders." },
   maintenance: { label: "Maintenance", description: "Updates on service and maintenance requests." },
   applications: { label: "Applications", description: "Updates on applications you've submitted." },
+  tours: { label: "Tours", description: "Tour confirmations, changes, and reminders." },
+  inspections: { label: "Inspections", description: "Move-in and move-out photo reminders." },
   voice_calls: { label: "Phone calls", description: "Summaries of phone calls related to your home." },
   account: { label: "Account & security", description: "Verification, password, and account-safety notices." },
 };
@@ -54,6 +59,8 @@ const DEMO_PREFERENCES: NotificationPreferences = {
   payments: { inbox: true, email: true, sms: true },
   maintenance: { inbox: true, email: true, sms: true },
   applications: { inbox: true, email: true, sms: true },
+  tours: { inbox: true, email: true, sms: true },
+  inspections: { inbox: true, email: true, sms: true },
   voice_calls: { inbox: true, email: true, sms: true },
   account: { inbox: true, email: true, sms: true },
 };
@@ -64,6 +71,8 @@ const DEMO_CATEGORIES: NotificationCategory[] = [
   "payments",
   "maintenance",
   "applications",
+  "tours",
+  "inspections",
   "voice_calls",
   "account",
 ];
@@ -95,6 +104,7 @@ export function ResidentNotificationPreferencesSettings() {
     demo ? DEMO_PREFERENCES : null,
   );
   const [sms, setSms] = useState<SmsAvailability | null>(demo ? { available: true } : null);
+  const [text, setText] = useState<ResidentTextSettings>(DEFAULT_RESIDENT_TEXT_SETTINGS);
   const [rowStatus, setRowStatus] = useState<Record<string, RowStatus>>({});
   const savedTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
@@ -113,6 +123,7 @@ export function ResidentNotificationPreferencesSettings() {
       setCategories(body.categories);
       setPreferences(body.preferences);
       setSms(body.sms ?? null);
+      setText(normalizeResidentTextSettings(body.text));
       setLoadState("ready");
     } catch {
       setLoadState("error");
@@ -190,6 +201,27 @@ export function ResidentNotificationPreferencesSettings() {
     if (status === "saved") return "Saved";
     if (status === "error") return "Could not save — try again.";
     return undefined;
+  };
+
+  const saveText = async (patch: { quietHours: Partial<ResidentTextSettings["quietHours"]> }) => {
+    const previous = text;
+    setText((current) => normalizeResidentTextSettings({ quietHours: { ...current.quietHours, ...patch.quietHours } }));
+    if (demo) return;
+    try {
+      const res = await fetch("/api/portal/resident-notification-preferences", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: patch }),
+        keepalive: true,
+      });
+      const body = (await res.json().catch(() => ({}))) as { text?: unknown; error?: string };
+      if (!res.ok) throw new Error(body.error ?? "Could not save text settings.");
+      setText(normalizeResidentTextSettings(body.text));
+    } catch (e) {
+      setText(previous);
+      showToast(e instanceof Error ? e.message : "Could not save text settings.");
+    }
   };
 
   const smsDisabled = !sms || sms.available === false;
@@ -284,8 +316,52 @@ export function ResidentNotificationPreferencesSettings() {
               );
             })}
           </PortalSettingsGroup>
+
+          <PortalSettingsGroup>
+            <PortalSettingsRow label="Quiet hours for texts" className="flex-wrap gap-y-2.5">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {text.quietHours.enabled ? (
+                  <>
+                    <FieldSingleSelect
+                      label="Quiet hours start"
+                      hideLabel
+                      variant="cell"
+                      wrapperClassName="w-28"
+                      options={HOUR_OPTIONS}
+                      value={String(text.quietHours.startHour)}
+                      onChange={(next) => void saveText({ quietHours: { startHour: Number(next) } })}
+                      dataAttr="resident-text-quiet-start"
+                    />
+                    <span className="text-xs text-muted">to</span>
+                    <FieldSingleSelect
+                      label="Quiet hours end"
+                      hideLabel
+                      variant="cell"
+                      wrapperClassName="w-28"
+                      options={HOUR_OPTIONS}
+                      value={String(text.quietHours.endHour)}
+                      onChange={(next) => void saveText({ quietHours: { endHour: Number(next) } })}
+                      dataAttr="resident-text-quiet-end"
+                    />
+                  </>
+                ) : null}
+                <PortalSettingsToggle
+                  checked={text.quietHours.enabled}
+                  onChange={(next) => void saveText({ quietHours: { enabled: next } })}
+                  label="Quiet hours for texts"
+                  disabled={smsDisabled}
+                  dataAttr="resident-text-quiet-enabled"
+                />
+              </div>
+            </PortalSettingsRow>
+          </PortalSettingsGroup>
         </>
       )}
     </PortalSettingsSection>
   );
 }
+
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => ({
+  value: String(hour),
+  label: `${((hour + 11) % 12) + 1}:00 ${hour < 12 ? "AM" : "PM"}`,
+}));

@@ -22,6 +22,23 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 vi.mock("@/lib/sms/manager-workspace-role.server", () => ({
   isPureCoManagerWorkspace: async () => false,
   listWorkspaceOwnersForCoManager: async () => [],
+  readSelectedWorkspaceIdSafely: async () => undefined,
+}));
+// An owner acting in their own default workspace; the address is that workspace's row.
+vi.mock("@/lib/workspaces/active.server", () => ({
+  resolveActiveWorkspace: async (_db: unknown, viewerUserId: string) => ({
+    id: `ws-${viewerUserId}`,
+    name: "My workspace",
+    ownerUserId: viewerUserId,
+    owned: true,
+    isDefault: true,
+    propertyIds: [],
+  }),
+  listViewerWorkspaces: async (_db: unknown, viewerUserId: string) => [
+    { id: `ws-${viewerUserId}`, name: "My workspace", ownerUserId: viewerUserId, owned: true, isDefault: true, propertyIds: [] },
+  ],
+  ensureDefaultWorkspaceId: async (_db: unknown, ownerUserId: string) => `ws-${ownerUserId}`,
+  loadWorkspaceById: async () => null,
 }));
 
 import {
@@ -42,6 +59,8 @@ function dbWith(row: Record<string, unknown> | null, opts: { throws?: boolean } 
       const chain = {
         select: () => chain,
         eq: () => chain,
+        // The legacy-row fallback filters on `workspace_id is null`.
+        is: () => chain,
         // The profiles read the workspace resolver makes for owner names.
         in: async () => ({ data: [], error: null }),
         maybeSingle: async () => {
@@ -58,6 +77,7 @@ function dbWith(row: Record<string, unknown> | null, opts: { throws?: boolean } 
 
 const ACTIVE_ROW = {
   manager_user_id: "m1",
+  workspace_id: "ws-m1",
   inbox_token: "tok123456789",
   mailbox_local: "assist-jane",
   provision_state: "active",

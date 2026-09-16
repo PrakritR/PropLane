@@ -12,6 +12,17 @@ function activeWorkspace() {
   return selection.workspaces.find((w) => w.id === selection!.activeWorkspaceId) ?? null;
 }
 
+/** The selected workspace id, or null before the selection loads. Readers that cache per workspace key on this. */
+export function selectedWorkspaceId(): string | null {
+  return selection?.activeWorkspaceId ?? null;
+}
+
+export function activeWorkspaceIdentity(): { id: string; isDefault: boolean } | null {
+  const active = activeWorkspace();
+  if (!active) return null;
+  return { id: active.id, isDefault: active.isDefault };
+}
+
 /**
  * True once the account holds more than one workspace. Only account-level
  * rows (no house at all) consult this: they live in the owned default
@@ -69,6 +80,20 @@ export function activeWorkspacePropertyIds(): string[] | null {
   const active = activeWorkspace();
   if (!active) return null;
   return active.propertyIds.map((id) => id.trim()).filter(Boolean);
+}
+
+/**
+ * Settings "Applies to" lists. `null` selection means not narrowing yet (tests
+ * and first paint) — pass the options through. An empty array is a workspace
+ * with no houses, so the picker is empty.
+ */
+export function filterPropertyOptionsForActiveWorkspace<T extends { id: string }>(
+  options: readonly T[],
+): T[] {
+  const ids = activeWorkspacePropertyIds();
+  if (ids === null) return [...options];
+  const allowed = new Set(ids);
+  return options.filter((option) => allowed.has(option.id));
 }
 
 /**

@@ -62,7 +62,8 @@ describe("listing multi-room lease basics", () => {
     expect(floorRoom?.utilitiesEstimate).toBeTruthy();
     expect(listingRoomPriceMetaLine(floorRoom!)).toMatch(/\$3,000\/mo/);
     expect(listingRoomPriceMetaLine(floorRoom!)).toMatch(/\$150/);
-    expect(rich.leaseBasics.some((row) => row.id === "lease-room-room-1")).toBe(false);
+    expect(rich.leaseBasics.some((row) => row.id === "lease-room-room-1")).toBe(true);
+    expect(rich.leaseBasics.find((row) => row.id === "lease-room-room-1")?.price).toMatch(/3,000|3000/);
     expect(rich.leaseBasics.some((row) => row.id === "lease-utilities")).toBe(false);
     expect(rich.leaseBasics.some((row) => row.id === "lease-signing")).toBe(false);
     expect(rich.pricingBreakdown?.some((line) => line.label === "Security deposit")).toBe(true);
@@ -216,6 +217,29 @@ describe("listing multi-room lease basics", () => {
     expect(leaseRow?.price).toBe("$2,200/mo");
     expect(rich.bundleCards[0]?.label).toBe("Two or more rooms");
     expect(rich.bundleCards[0]?.price).toBe("$2,200/mo");
+  });
+
+  it("lists each room's listing-form rent in lease basics and keeps the auto two-room sum in Bundles", () => {
+    const sub = createDefaultListingSubmission();
+    sub.applicationFee = "50";
+    sub.securityDeposit = "100";
+    sub.houseDefaults = { monthlyRent: 1050, securityDeposit: "250" };
+    sub.rooms = [
+      { ...sub.rooms[0]!, id: "room-5", name: "Room 5", monthlyRent: 1050, securityDeposit: "250" },
+      { ...sub.rooms[0]!, id: "room-4", name: "Room 4", monthlyRent: 1150, securityDeposit: "250" },
+    ];
+    sub.bundles = [];
+
+    const property = mockProperty({ id: "form-prices-in-lease-basics", listingSubmission: sub });
+    const rich = listingRichFromManagerSubmission(property, sub);
+
+    expect(rich.leaseBasics.find((row) => row.id === "lease-room-room-5")?.price).toMatch(/1,050|1050/);
+    expect(rich.leaseBasics.find((row) => row.id === "lease-room-room-4")?.price).toMatch(/1,150|1150/);
+    expect(rich.leaseBasics.some((row) => row.id === "lease-multi-room")).toBe(false);
+    expect(rich.leaseBasics.some((row) => /two or more rooms/i.test(row.title))).toBe(false);
+    expect(rich.leaseBasics.find((row) => row.id === "security-deposit")?.price).toMatch(/250/);
+    expect(rich.leaseBasics.find((row) => row.id === "lease-application")?.price).toMatch(/50/);
+    expect(rich.bundleCards[0]?.label).toBe("Two or more rooms");
   });
 
   it("does not show bundle cards for entire-home listings", () => {

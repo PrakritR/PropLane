@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   activeWorkspacePropertyIds,
   activeWorkspaceScope,
+  filterPropertyOptionsForActiveWorkspace,
   propertiesOutsideActiveWorkspace,
   setWorkspaceSelection,
   workspaceContainsProperty,
@@ -133,5 +134,27 @@ describe("active workspace scope", () => {
     expect(workspaceContainsProperty(undefined)).toBe(false);
     setWorkspaceSelection({ ...payload, activeWorkspaceId: "w-default" });
     expect(workspaceContainsProperty(undefined)).toBe(false);
+  });
+
+  it("filters Applies-to options to the active workspace houses", () => {
+    setWorkspaceSelection(payload);
+    expect(
+      filterPropertyOptionsForActiveWorkspace([
+        { id: "p1", label: "One" },
+        { id: "p2", label: "Two" },
+        { id: "p-other", label: "Other" },
+      ]),
+    ).toEqual([]);
+    setWorkspaceSelection({ ...payload, activeWorkspaceId: "w-default" });
+    expect(
+      filterPropertyOptionsForActiveWorkspace([
+        { id: "p1", label: "One" },
+        { id: "p2", label: "Two" },
+        { id: "p-other", label: "Other" },
+      ]),
+    ).toEqual([
+      { id: "p1", label: "One" },
+      { id: "p2", label: "Two" },
+    ]);
   });
 });

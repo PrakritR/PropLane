@@ -5,11 +5,23 @@ import type { HouseholdCharge } from "@/lib/household-charges";
 import type { ServiceRequest } from "@/lib/service-requests-storage";
 import { residentHasSignedLease, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { emitActionEvent, type ActionEventAudience, type ActionEventRendered } from "@/lib/action-events.server";
+import { applyAutomatedMessageSetting, type AutomatedMessageSettings } from "@/lib/automated-messages-settings";
+import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { leaseDetailHref, residentDocumentsLeaseDetailHref } from "@/lib/portal-detail-routes";
 
 export const ACTION_EVENT_CATALOG = {
-  payment: ["charge_created", "payment_processing", "payment_received", "payment_failed", "payment_refunded"],
+  payment: [
+    "charge_created",
+    "payment_processing",
+    "payment_received",
+    "payment_failed",
+    "payment_refunded",
+    // PLAN-0915 phase 3
+    "partial_received",
+    "late_fee_applied",
+    "deposit_received",
+  ],
   lease: [
     "lease_created",
     "lease_sent",
@@ -21,6 +33,9 @@ export const ACTION_EVENT_CATALOG = {
     "lease_countersigned",
     "lease_signed",
     "lease_voided",
+    // PLAN-0915 phase 2: date changes made outside the signing flow.
+    "move_out_notice",
+    "amendment_sent",
   ],
   work_order: ["created", "vendor_offered", "accepted", "scheduled", "completed", "invoiced", "paid"],
   application: [
@@ -45,9 +60,17 @@ export type LeaseActionEvent = (typeof ACTION_EVENT_CATALOG.lease)[number];
 export type ApplicationActionEvent = (typeof ACTION_EVENT_CATALOG.application)[number];
 export type ServiceRequestActionEvent = (typeof ACTION_EVENT_CATALOG.service_request)[number];
 
-type PaymentFacts = { title: string; amountLabel: string; propertyLabel?: string };
-type LeaseFacts = { residentName: string; propertyLabel?: string; status?: string };
-type ApplicationFacts = { applicantName: string; propertyLabel?: string };
+type PaymentFacts = { title: string; amountLabel: string; propertyLabel?: string; balanceLabel?: string; dueDateLabel?: string };
+type LeaseFacts = {
+  residentName: string;
+  propertyLabel?: string;
+  status?: string;
+  /** The sent/signed lease is a renewal of a signed one, so the copy says so. */
+  renewal?: boolean;
+  /** For the date-change events: the new end / move-out date, formatted. */
+  dateLabel?: string;
+};
+type ApplicationFacts = { applicantName: string; propertyLabel?: string; responsePromise?: string };
 type ServiceRequestFacts = { offerName: string; residentName: string; priceLabel?: string };
 
 export function renderPaymentActionEvent(
@@ -68,6 +91,16 @@ export function renderPaymentActionEvent(
   if (event === "payment_failed" && audience === "manager") text = `Payment failed for “${title}”${at}.`;
   if (event === "payment_refunded" && audience === "resident") text = `${amount} for “${title}” was refunded.`;
   if (event === "payment_refunded" && audience === "manager") text = `${amount} for “${title}”${at} was refunded.`;
+  const balance = facts.balanceLabel?.trim();
+  const due = facts.dueDateLabel?.trim();
+  if (event === "partial_received" && audience === "resident")
+    text = `A payment toward “${title}” was received.${balance ? ` ${balance} remains${due ? `, due ${due}` : ""}.` : ""}`;
+  if (event === "partial_received" && audience === "manager")
+    text = `A partial payment was received for “${title}”${at}.${balance ? ` ${balance} remains.` : ""}`;
+  if (event === "late_fee_applied" && audience === "resident") text = `A ${amount} late fee was added for “${title}”. It is in Payments.`;
+  if (event === "late_fee_applied" && audience === "manager") text = `A ${amount} late fee was applied${at} for “${title}”.`;
+  if (event === "deposit_received" && audience === "resident") text = `Your ${amount} security deposit was received and is held per your lease.`;
+  if (event === "deposit_received" && audience === "manager") text = `The ${amount} security deposit${at} was received.`;
   return text ? { subject: `${title} · Payment update`, text, smsText: text } : null;
 }
 
@@ -78,24 +111,39 @@ export function renderLeaseActionEvent(
 ): ActionEventRendered | null {
   const resident = facts.residentName.trim() || "Resident";
   const at = facts.propertyLabel?.trim() ? ` for ${facts.propertyLabel.trim()}` : "";
+  const noun = facts.renewal ? "renewal" : "lease";
+  const date = facts.dateLabel?.trim() || "the new date";
   let text: string | null = null;
   if (event === "lease_created" && audience === "resident") text = `A lease${at} was created for you. You can review it in PropLane.`;
   if (event === "lease_created" && audience === "manager") text = `A lease${at} was created for ${resident}.`;
-  if (event === "lease_sent" && audience === "resident") text = `Your lease${at} is ready to review and sign.`;
-  if (event === "lease_sent" && audience === "manager") text = `${resident} was sent the lease${at}.`;
+  if (event === "lease_sent" && audience === "resident")
+    text = facts.renewal
+      ? `Your renewal${at} is ready to review and sign. Your current lease keeps running until it is signed.`
+      : `Your lease${at} is ready to review and sign.`;
+  if (event === "lease_sent" && audience === "manager") text = `${resident} was sent the ${noun}${at}.`;
   if (event === "lease_signed_by_resident" && audience === "resident")
-    text = `Thanks — your lease${at} is signed. It now goes to your property manager to countersign, and you will hear from us when it is fully executed.`;
+    text = `Thanks — your ${noun}${at} is signed. It now goes to your property manager to countersign, and you will hear from us when it is fully executed.`;
   if (event === "lease_signed_by_resident" && audience === "manager")
-    text = `${resident} signed the lease${at}. It is waiting on your countersignature.`;
+    text = `${resident} signed the ${noun}${at}. It is waiting on your countersignature.`;
   if (event === "lease_countersigned" && audience === "resident")
-    text = `Your property manager signed the lease${at}. It is waiting on your signature.`;
+    text = `Your property manager signed the ${noun}${at}. It is waiting on your signature.`;
   if (event === "lease_countersigned" && audience === "manager")
-    text = `You signed the lease${at}. It is waiting on ${resident}.`;
-  if (event === "lease_signed" && audience === "resident") text = `Your lease${at} is fully signed. The executed copy is available in Documents.`;
-  if (event === "lease_signed" && audience === "manager") text = `${resident}’s lease${at} is fully signed.`;
+    text = `You signed the ${noun}${at}. It is waiting on ${resident}.`;
+  if (event === "lease_signed" && audience === "resident")
+    text = facts.renewal
+      ? `Your renewal${at} is fully signed. The new term is in Documents and your payments will follow it.`
+      : `Your lease${at} is fully signed. The executed copy is available in Documents.`;
+  if (event === "lease_signed" && audience === "manager") text = `${resident}’s ${noun}${at} is fully signed.`;
   if (event === "lease_voided" && audience === "resident") text = `Your lease${at} was voided. Contact your property manager with questions.`;
   if (event === "lease_voided" && audience === "manager") text = `${resident}’s lease${at} was voided.`;
-  return text ? { subject: `${resident} · Lease update`, text, smsText: text } : null;
+  if (event === "move_out_notice" && audience === "resident")
+    text = `Your move-out date${at} is now ${date}. A move-out checklist and inspection details will follow.`;
+  if (event === "move_out_notice" && audience === "manager")
+    text = `${resident}’s move-out${at} is now ${date}. Schedule the inspection and relist the room.`;
+  if (event === "amendment_sent" && audience === "resident")
+    text = `Your lease${at} now runs to ${date}. An updated lease is ready to review and sign.`;
+  if (event === "amendment_sent" && audience === "manager") text = `${resident}’s lease${at} was extended to ${date}. The updated lease is waiting to be signed.`;
+  return text ? { subject: `${resident} · ${facts.renewal ? "Renewal" : "Lease"} update`, text, smsText: text } : null;
 }
 
 export function renderApplicationActionEvent(
@@ -107,7 +155,7 @@ export function renderApplicationActionEvent(
   const at = facts.propertyLabel?.trim() ? ` for ${facts.propertyLabel.trim()}` : "";
   let text: string | null = null;
   if (event === "application_submitted" && audience === "resident")
-    text = `We received your application${at}. Your property manager will review it and you will hear back here.`;
+    text = `We received your application${at}.${facts.responsePromise?.trim() ? ` You will hear back ${facts.responsePromise.trim()}.` : " Your property manager will review it and you will hear back here."}`;
   if (event === "application_submitted" && audience === "manager")
     text = `${applicant} submitted an application${at}.`;
   if (event === "application_approved" && audience === "resident")
@@ -189,9 +237,13 @@ export async function emitApplicationTransition(
       ? input.actor
       : await managerSender(db, input.managerUserId);
   if (!actor.email) return;
+  const promiseDays = await loadManagerAutomationSettings(db, input.managerUserId)
+    .then((settings) => settings.applicationResponsePromiseDays)
+    .catch(() => 0);
   const facts: ApplicationFacts = {
     applicantName: input.application.name?.trim() || input.application.email?.trim() || "An applicant",
     propertyLabel: input.application.property?.trim() || undefined,
+    responsePromise: promiseDays > 0 ? `within ${promiseDays} ${promiseDays === 1 ? "day" : "days"}` : undefined,
   };
   const audiences: Array<{ audience: ActionEventAudience; userId?: string; email?: string }> = [
     {
@@ -220,6 +272,7 @@ export async function emitApplicationTransition(
     senderEmail: actor.email,
     senderName: actor.name,
     payload: { bucket: input.application.bucket ?? null },
+    templateContext: { applicantName: facts.applicantName, propertyTitle: facts.propertyLabel ?? "", responsePromise: facts.responsePromise ?? "" },
     recipients: audiences.flatMap((recipient) => {
       const rendered = renderApplicationActionEvent(event, recipient.audience, facts);
       return rendered ? [{ ...recipient, rendered }] : [];
@@ -331,11 +384,18 @@ async function managerSender(db: SupabaseClient, managerUserId: string) {
   };
 }
 
-export function paymentEventForTransition(previousStatus: string | null, nextStatus: string): PaymentActionEvent | null {
-  if (!previousStatus) return "charge_created";
+export function paymentEventForTransition(
+  previousStatus: string | null,
+  nextStatus: string,
+  charge?: { kind?: string; sourceChargeId?: string | null },
+): PaymentActionEvent | null {
+  // A late fee is created against an original charge; its birth is the fee
+  // being applied, not just "a charge was created".
+  if (!previousStatus) return charge?.sourceChargeId ? "late_fee_applied" : "charge_created";
   if (previousStatus === nextStatus) return null;
   if (nextStatus === "processing") return "payment_processing";
-  if (nextStatus === "paid") return "payment_received";
+  if (nextStatus === "partially_paid") return "partial_received";
+  if (nextStatus === "paid") return charge?.kind === "security_deposit" || charge?.kind === "holding_deposit" ? "deposit_received" : "payment_received";
   if (nextStatus === "failed") return "payment_failed";
   if (nextStatus === "refunded") return "payment_refunded";
   return null;
@@ -345,7 +405,7 @@ export async function emitHouseholdChargeTransition(
   db: SupabaseClient,
   input: { managerUserId: string; previousStatus: string | null; charge: HouseholdCharge; transitionId?: string },
 ): Promise<void> {
-  const event = paymentEventForTransition(input.previousStatus, input.charge.status);
+  const event = paymentEventForTransition(input.previousStatus, input.charge.status, { kind: input.charge.kind, sourceChargeId: input.charge.sourceChargeId });
   if (!event || !input.managerUserId) return;
   const sender = await managerSender(db, input.managerUserId);
   if (!sender.email) return;
@@ -353,6 +413,8 @@ export async function emitHouseholdChargeTransition(
     title: input.charge.title || "Charge",
     amountLabel: input.charge.amountLabel || input.charge.balanceLabel || "",
     propertyLabel: input.charge.propertyLabel || undefined,
+    balanceLabel: input.charge.balanceLabel || undefined,
+    dueDateLabel: input.charge.dueDateLabel || undefined,
   };
   const audiences: Array<{ audience: ActionEventAudience; userId?: string; email?: string }> = [
     { audience: "resident", userId: input.charge.residentUserId ?? undefined, email: input.charge.residentEmail || undefined },
@@ -369,6 +431,7 @@ export async function emitHouseholdChargeTransition(
     senderEmail: sender.email,
     senderName: sender.name,
     payload: { status: input.charge.status, kind: input.charge.kind, propertyId: input.charge.propertyId },
+    templateContext: { title: facts.title, amountLabel: facts.amountLabel, propertyTitle: facts.propertyLabel ?? "", balanceLabel: facts.balanceLabel ?? "", dueDateLabel: facts.dueDateLabel ?? "" },
     recipients: audiences.flatMap((recipient) => {
       const rendered = renderPaymentActionEvent(event, recipient.audience, facts);
       return rendered ? [{ ...recipient, rendered }] : [];
@@ -422,6 +485,8 @@ export function buildDurableLeaseTransitionEnvelope(input: {
   actor: { userId: string; email: string; name?: string };
   triggeringActorUserId?: string;
   occurredAt?: string;
+  /** The manager's per-event switch and templates; absent = defaults. */
+  automated?: AutomatedMessageSettings | null;
 }): DurableLeaseTransitionEnvelope | null {
   const event = leaseEventForTransition(input.previous, input.lease);
   if (!event) return null;
@@ -432,7 +497,12 @@ export function buildDurableLeaseTransitionEnvelope(input: {
           : event === "lease_voided" ? input.lease.voidedAt : input.lease.updatedAtIso;
   const labels = [input.lease.unit, input.lease.roomChoice].map((value) => String(value ?? "").trim()).filter(Boolean);
   const propertyLabel = [...new Set(labels)].join(" · ") || undefined;
-  const facts: LeaseFacts = { residentName: input.lease.residentName || "Resident", propertyLabel, status: input.lease.status };
+  const facts: LeaseFacts = {
+    residentName: input.lease.residentName || "Resident",
+    propertyLabel,
+    status: input.lease.status,
+    renewal: Boolean((input.lease as { pendingRenewal?: unknown }).pendingRenewal),
+  };
   const base = resolveEmailLinkBaseUrl();
   const managerPath = leaseDetailHref("/portal", event === "lease_signed" ? "completed" : "signed", input.lease.id);
   const residentPath = residentDocumentsLeaseDetailHref("/resident", input.lease.id);
@@ -441,7 +511,16 @@ export function buildDurableLeaseTransitionEnvelope(input: {
     { audience: "manager" as const, userId: input.managerUserId, email: undefined },
   ];
   const deliveries = recipients.flatMap((recipient) => {
-    const rendered = renderLeaseActionEvent(event, recipient.audience, facts);
+    const defaultRendered = renderLeaseActionEvent(event, recipient.audience, facts);
+    const rendered = defaultRendered
+      ? applyAutomatedMessageSetting(input.automated, {
+          domain: "lease",
+          event,
+          audience: recipient.audience,
+          rendered: defaultRendered,
+          context: { residentName: facts.residentName, propertyTitle: propertyLabel ?? "", url: "" },
+        })
+      : null;
     const recipientKey = recipient.userId?.trim() || recipient.email?.trim().toLowerCase() || "";
     if (!rendered || !recipientKey) return [];
     const directUrl = `${base}${recipient.audience === "manager" ? managerPath : residentPath}`;
@@ -482,6 +561,7 @@ export async function emitLeaseTransition(
     residentName: input.lease.residentName || "Resident",
     propertyLabel: input.lease.unit || input.lease.roomChoice || undefined,
     status: input.lease.status,
+    renewal: Boolean((input.lease as { pendingRenewal?: unknown }).pendingRenewal),
   };
   const audiences: Array<{ audience: ActionEventAudience; userId?: string; email?: string }> = [
     { audience: "resident", userId: input.lease.residentUserId ?? undefined, email: input.lease.residentEmail || undefined },
@@ -513,6 +593,56 @@ export async function emitLeaseTransition(
     senderEmail: input.actor.email,
     senderName: input.actor.name,
     payload: { status: input.lease.status, propertyId: input.lease.propertyId },
+    recipients: audiences.flatMap((recipient) => {
+      const rendered = renderLeaseActionEvent(event, recipient.audience, facts);
+      return rendered ? [{ ...recipient, rendered }] : [];
+    }),
+  });
+}
+
+/**
+ * A date change made outside the signing flow (PLAN-0915 phase 2).
+ *
+ * `amendLeaseMoveOutDate` writes through its own RPC, so the signing-flow
+ * transition never fires for it and, before this, neither party heard about a
+ * changed move-out date. An earlier date is a move-out notice; a later one is
+ * an extension whose regenerated lease now waits to be signed.
+ */
+export async function emitLeaseDateChange(
+  db: SupabaseClient,
+  input: {
+    managerUserId: string;
+    lease: LeasePipelineRow;
+    newLeaseEnd: string;
+    direction: "extend" | "decrease";
+    actor?: { userId: string; email: string; name?: string };
+  },
+): Promise<void> {
+  const actor = input.actor?.userId && input.actor.email ? input.actor : await managerSender(db, input.managerUserId);
+  if (!actor.email) return;
+  const event: LeaseActionEvent = input.direction === "decrease" ? "move_out_notice" : "amendment_sent";
+  const dateLabel = new Date(`${input.newLeaseEnd}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+  const facts: LeaseFacts = {
+    residentName: input.lease.residentName || "Resident",
+    propertyLabel: input.lease.unit || input.lease.roomChoice || undefined,
+    dateLabel,
+  };
+  const audiences: Array<{ audience: ActionEventAudience; userId?: string; email?: string }> = [
+    { audience: "resident", userId: input.lease.residentUserId ?? undefined, email: input.lease.residentEmail || undefined },
+    { audience: "manager", userId: input.managerUserId },
+  ];
+  await emitActionEvent(db, {
+    eventId: `${input.lease.id}:${event}:${input.newLeaseEnd}`,
+    domain: "lease",
+    event,
+    managerUserId: input.managerUserId,
+    entityId: input.lease.id,
+    category: "leases",
+    senderUserId: actor.userId,
+    senderEmail: actor.email,
+    senderName: actor.name,
+    payload: { newLeaseEnd: input.newLeaseEnd, direction: input.direction, propertyId: input.lease.propertyId },
+    templateContext: { residentName: facts.residentName, propertyTitle: facts.propertyLabel ?? "", moveOutLabel: dateLabel, leaseEndLabel: dateLabel },
     recipients: audiences.flatMap((recipient) => {
       const rendered = renderLeaseActionEvent(event, recipient.audience, facts);
       return rendered ? [{ ...recipient, rendered }] : [];

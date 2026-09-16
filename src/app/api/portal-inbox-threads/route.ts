@@ -66,7 +66,12 @@ export async function GET(request: Request) {
 
     if (scopeParam === MANAGER_INBOX_SCOPE && ctx.user.id) {
       try {
-        await ensureManagerAgentNoticeThread(ctx.db, ctx.user.id);
+        const { resolveActiveWorkspaceFromRequest } = await import("@/lib/workspaces/active.server");
+        const active = await resolveActiveWorkspaceFromRequest(ctx.db, ctx.user.id);
+        await ensureManagerAgentNoticeThread(ctx.db, ctx.user.id, {
+          id: active.id,
+          isDefault: active.isDefault,
+        });
       } catch (e) {
         console.error("ensureManagerAgentNoticeThread failed", e);
       }

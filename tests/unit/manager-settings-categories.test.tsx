@@ -68,19 +68,38 @@ vi.mock("@/components/portal/pro-api-keys-panel", () => ({
 vi.mock("@/components/portal/pro-messaging-settings-panel", () => ({
   ManagerMessagingSettingsPanel: () => <div data-testid="pane-messaging" />,
 }));
+vi.mock("@/components/portal/pro-portal-settings-panels", () => ({
+  CommunicationSettingsPanel: () => <div data-testid="pane-communication-module" />,
+}));
+vi.mock("@/components/portal/settings-module-page", () => ({
+  SettingsModulePage: ({ tab }: { tab: string }) => <div data-testid={`pane-module-${tab}`} />,
+}));
 
 import { PortalProfileClient } from "@/components/portal/portal-profile-client";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
 
 const CATEGORIES = [
   "profile",
+  "workspaces",
   "billing",
-  "messaging",
+  "notifications",
   "preferences",
   "security",
   "developer",
   "feedback",
   "account",
+  "properties",
+  "applications",
+  "lease",
+  "tours",
+  "resident",
+  "messaging",
+  "payments",
+  "tasks",
+  "reminders",
+  "bookings",
+  "inspections",
+  "services",
 ] as const;
 
 function goto(search: string) {
@@ -171,8 +190,13 @@ describe("manager settings categories", () => {
     const prefs = renderSettings();
     expect(screen.getByText("Theme")).toBeTruthy();
     expect(screen.getByTestId("pane-assistant-display")).toBeTruthy();
-    expect(screen.getByTestId("pane-notifications")).toBeTruthy();
     prefs.unmount();
+
+    // Device notifications now have a category of their own under Account.
+    goto("?tab=notifications");
+    const notifications = renderSettings();
+    expect(screen.getByTestId("pane-notifications")).toBeTruthy();
+    notifications.unmount();
 
     // …and nothing else left Account with it.
     goto("?tab=account");

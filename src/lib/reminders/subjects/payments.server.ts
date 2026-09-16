@@ -203,6 +203,43 @@ export async function sweepPaymentManagerReminders(db: SupabaseClient, now: Date
       settings,
       now,
     );
+
+    // `delinquency_manager` (PLAN-0915): the same charge, much later — a
+    // separate row so it has its own timing and can point at the notice tool
+    // rather than nudge again. Never writes a notice itself.
+    if (settings.rules.delinquency_manager?.enabled) {
+      const delinquencyTeam = settings.rules.delinquency_manager.audience.team
+        ? teamReminderRecipients(teamRecipientsScopedToSubject(teamRecipientsByManager.get(entry.managerUserId) ?? [], propertyId, "payments"))
+        : [];
+      queued += await materializeReminders(
+        db,
+        {
+          managerUserId: entry.managerUserId,
+          kind: "delinquency_manager",
+          subjectId: entry.record.id,
+          anchorIso: entry.anchorIso,
+          recipients: [
+            ...(managerRecipient ? [{ email: managerRecipient.email, role: "manager" as const, name: managerRecipient.name, userId: entry.managerUserId }] : []),
+            ...delinquencyTeam,
+          ],
+          payload: {
+            title: chargeTitle,
+            chargeTitle,
+            residentName,
+            counterpartyName: residentName,
+            propertyTitle,
+            propertyLabel: propertyTitle,
+            amountLabel: amountLabelFor(entry.charge),
+            dueDateLabel: dueDateLabelFromAnchor(entry.anchorIso),
+            duePhrase: duePhraseFor(entry.anchorIso, now),
+            url: `${origin}/portal/payments`,
+            notificationCategory: "payments",
+          },
+        },
+        settings,
+        now,
+      );
+    }
   }
   return queued;
 }

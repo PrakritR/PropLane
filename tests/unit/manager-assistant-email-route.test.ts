@@ -3,7 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const MANAGER = "mgr-assistant-email";
 
+const { MY_WS, SHARED_WS } = vi.hoisted(() => ({
+  MY_WS: { id: "ws-mine", name: "My workspace", ownerUserId: "mgr-assistant-email", owned: true, isDefault: true, propertyIds: [] as string[] },
+  SHARED_WS: { id: "ws-owner-1", name: "Jane's workspace", ownerUserId: "owner-1", owned: false, isDefault: true, propertyIds: ["house-1"] },
+}));
+
 const mocks = vi.hoisted(() => ({
+  /** The switcher's active workspace, as the route resolves it from the request. */
+  activeWorkspace: null as null | Record<string, unknown>,
   requireManagerRouteUser: vi.fn(),
   getManagerPortalNavSubscriptionTier: vi.fn(),
   getEffectiveManagerSmsEntitlement: vi.fn(),
@@ -30,14 +37,17 @@ vi.mock("@/lib/sms/manager-sms-entitlement.server", () => ({
   reconcileManagerSmsEntitlement: mocks.reconcileManagerSmsEntitlement,
 }));
 
-const { WorkspaceEmailSharedError } = vi.hoisted(() => ({
+const { WorkspaceEmailSharedError, WorkspaceNotOwnedError } = vi.hoisted(() => ({
   WorkspaceEmailSharedError: class WorkspaceEmailSharedError extends Error {
     readonly code = "workspace_email_shared";
+  },
+  WorkspaceNotOwnedError: class WorkspaceNotOwnedError extends Error {
+    readonly code = "workspace_not_owned";
   },
 }));
 
 vi.mock("@/lib/manager-assistant-email/manager-assistant-email.server", () => ({
-  loadManagerAssistantEmail: mocks.loadManagerAssistantEmail,
+  loadWorkspaceAssistantEmail: mocks.loadManagerAssistantEmail,
   ensureManagerAssistantEmail: mocks.ensureManagerAssistantEmail,
   isAssistantEmailProvisioningEnabled: mocks.isAssistantEmailProvisioningEnabled,
   // Same env reads as the real module, so vi.stubEnv keeps driving the states.
@@ -49,10 +59,11 @@ vi.mock("@/lib/manager-assistant-email/manager-assistant-email.server", () => ({
   probeAssistantEmailStorageReady: mocks.probeAssistantEmailStorageReady,
   resolveWorkspaceWorkEmails: mocks.resolveWorkspaceWorkEmails,
   WorkspaceEmailSharedError,
+  WorkspaceNotOwnedError,
 }));
 
-vi.mock("@/lib/sms/manager-workspace-role.server", () => ({
-  isPureCoManagerWorkspace: mocks.isPureCoManagerWorkspace,
+vi.mock("@/lib/workspaces/active.server", () => ({
+  resolveActiveWorkspaceFromRequest: async () => mocks.activeWorkspace ?? MY_WS,
 }));
 
 vi.mock("@/lib/analytics/posthog", () => ({
@@ -112,7 +123,7 @@ beforeEach(() => {
   });
   mocks.isAssistantEmailProvisioningEnabled.mockReturnValue(true);
   mocks.probeAssistantEmailStorageReady.mockResolvedValue(true);
-  mocks.isPureCoManagerWorkspace.mockResolvedValue(false);
+  mocks.activeWorkspace = null;
   mocks.resolveWorkspaceWorkEmails.mockResolvedValue({ role: "primary", emails: [] });
 });
 
@@ -133,7 +144,7 @@ describe("work-email eligibility matches the work number", () => {
     const trial = { eligible: true, tier: "pro", source: "stripe", trial: true };
     mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue(trial);
     mocks.reconcileManagerSmsEntitlement.mockResolvedValue(trial);
-    mocks.loadManagerAssistantEmail.mockResolvedValue(existing ? { address: "assistant@test.invalid" } : null);
+    mocks.loadManagerAssistantEmail.mockResolvedValue(existing ? { address: "assistant@test.invalid", workspaceId: "ws-mine" } : null);
     expect(await (await GET()).json()).toMatchObject({
       canRequest: !existing,
       canUse: existing,
@@ -163,7 +174,7 @@ describe("work-email eligibility matches the work number", () => {
   it.each(["stripe", "apple"])("preserves use for active %s paid or comp grants", async (source) => {
     vi.stubEnv("RESEND_API_KEY", "test-key");
     mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({ eligible: true, tier: "business", source });
-    mocks.loadManagerAssistantEmail.mockResolvedValue({ address: "assistant@test.invalid" });
+    mocks.loadManagerAssistantEmail.mockResolvedValue({ address: "assistant@test.invalid", workspaceId: "ws-mine" });
     expect(await (await GET()).json()).toMatchObject({ canUse: true });
   });
 
@@ -175,7 +186,7 @@ describe("work-email eligibility matches the work number", () => {
   it("reports an address it cannot send from as assigned, not ready", async () => {
     vi.stubEnv("RESEND_API_KEY", "");
     mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({ eligible: true, tier: "pro", source: "stripe" });
-    mocks.loadManagerAssistantEmail.mockResolvedValue({ address: "assistant@test.invalid" });
+    mocks.loadManagerAssistantEmail.mockResolvedValue({ address: "assistant@test.invalid", workspaceId: "ws-mine" });
     expect(await (await GET()).json()).toMatchObject({
       state: "assigned_send_off",
       canUse: false,
@@ -188,7 +199,7 @@ describe("work-email eligibility matches the work number", () => {
    * is their card expired sends them to support instead of to billing.
    */
   it("separates a deployment with mail off from a lapsed plan", async () => {
-    mocks.loadManagerAssistantEmail.mockResolvedValue({ address: "assistant@test.invalid" });
+    mocks.loadManagerAssistantEmail.mockResolvedValue({ address: "assistant@test.invalid", workspaceId: "ws-mine" });
 
     vi.stubEnv("RESEND_API_KEY", "");
     mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({ eligible: true, tier: "pro", source: "stripe" });
@@ -272,7 +283,8 @@ describe("POST /api/manager/assistant-email", () => {
 describe("one work email per workspace", () => {
   beforeEach(() => {
     vi.stubEnv("RESEND_API_KEY", "test-key");
-    mocks.isPureCoManagerWorkspace.mockResolvedValue(true);
+    // The switcher is on the workspace Jane shares with this manager.
+    mocks.activeWorkspace = SHARED_WS;
     mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({
       eligible: true,
       tier: "pro",
@@ -280,8 +292,27 @@ describe("one work email per workspace", () => {
     });
     mocks.resolveWorkspaceWorkEmails.mockResolvedValue({
       role: "co_manager",
-      emails: [{ ownerUserId: "owner-1", ownerName: "Jane Smith", address: "assist-jane-smith@prop-lane.space" }],
+      emails: [
+        { workspaceId: "ws-mine", workspaceName: "My workspace", owned: true, isDefault: true, ownerUserId: MANAGER, ownerName: "Me", address: null },
+        { workspaceId: "ws-owner-1", workspaceName: "Jane's workspace", owned: false, isDefault: true, ownerUserId: "owner-1", ownerName: "Jane Smith", address: "assist-jane-smith@prop-lane.space" },
+      ],
     });
+  });
+
+  it("the co-manager's OWN workspace shows no address and may request one — never Jane's", async () => {
+    mocks.activeWorkspace = MY_WS;
+    mocks.isAssistantEmailProvisioningEnabled.mockReturnValue(true);
+    mocks.probeAssistantEmailStorageReady.mockResolvedValue(true);
+    const body = await (await GET()).json();
+    expect(body.workspaceRole).toBe("primary");
+    expect(body.workspace).toMatchObject({ id: "ws-mine", owned: true });
+    expect(body.workspaceEmail).toBeNull();
+    expect(body.address).toBeNull();
+    expect(body.canRequest).toBe(true);
+    expect(body.workspaces.map((w: { workspaceId: string; address: string | null }) => [w.workspaceId, w.address])).toEqual([
+      ["ws-mine", null],
+      ["ws-owner-1", "assist-jane-smith@prop-lane.space"],
+    ]);
   });
 
   it("GET hands a co-manager the owner's address and no Request button", async () => {
@@ -307,7 +338,7 @@ describe("one work email per workspace", () => {
     expect(body.workspaceEmail?.ownerName).toBe("Jane Smith");
   });
 
-  it("POST refuses a co-manager with workspace_email_shared before any billing work", async () => {
+  it("POST refuses a workspace the viewer does not own before any billing work", async () => {
     const res = await POST(
       new Request("http://localhost/api/manager/assistant-email", {
         method: "POST",
@@ -315,14 +346,14 @@ describe("one work email per workspace", () => {
         body: JSON.stringify({ action: "request_address" }),
       }),
     );
-    expect(res.status).toBe(409);
-    expect((await res.json()).code).toBe("workspace_email_shared");
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("workspace_not_owned");
     expect(mocks.reconcileManagerSmsEntitlement).not.toHaveBeenCalled();
     expect(mocks.ensureManagerAssistantEmail).not.toHaveBeenCalled();
   });
 
   it("POST surfaces a refusal the write itself makes as the same 409", async () => {
-    mocks.isPureCoManagerWorkspace.mockResolvedValue(false);
+    mocks.activeWorkspace = MY_WS;
     mocks.ensureManagerAssistantEmail.mockRejectedValue(new WorkspaceEmailSharedError("shared"));
     const res = await POST(
       new Request("http://localhost/api/manager/assistant-email", {

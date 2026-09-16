@@ -14,9 +14,47 @@ import {
 } from "@/lib/manager-notification-routing.server";
 import type { ManagerNotificationCategory } from "@/lib/manager-notification-preferences";
 import { formatPacificDateTime } from "@/lib/pacific-time";
+import {
+  managerAgentNoticeThreadId,
+  type ManagerAssistantWorkspace,
+} from "@/lib/communication-manager-assistant-thread";
+import { resolveActiveWorkspaceFromRequest } from "@/lib/workspaces/active.server";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 const MANAGER_AGENT_FROM_NAME = "PropLane Assistant";
+
+async function managerNoticeWorkspace(
+  db: SupabaseClient,
+  landlordId: string,
+  propertyId?: string | null,
+): Promise<ManagerAssistantWorkspace | null> {
+  const houseId = propertyId?.trim();
+  if (houseId) {
+    const { data } = await db
+      .from("manager_property_records")
+      .select("workspace_id")
+      .eq("id", houseId)
+      .maybeSingle();
+    const workspaceId = typeof data?.workspace_id === "string" ? data.workspace_id.trim() : "";
+    if (workspaceId) {
+      const { data: workspace } = await db
+        .from("portal_workspaces")
+        .select("id, is_default")
+        .eq("id", workspaceId)
+        .maybeSingle();
+      if (workspace?.id) {
+        return { id: String(workspace.id), isDefault: Boolean(workspace.is_default) };
+      }
+      return { id: workspaceId, isDefault: false };
+    }
+  }
+  try {
+    const active = await resolveActiveWorkspaceFromRequest(db, landlordId);
+    return { id: active.id, isDefault: active.isDefault };
+  } catch {
+    return null;
+  }
+}
 
 export async function notifyManagerFromAgent(
   db: SupabaseClient,
@@ -32,6 +70,8 @@ export async function notifyManagerFromAgent(
     idempotencyKey?: string;
     /** PII-minimized copy for push/SMS lock screens. Inbox keeps the full text. */
     externalText?: string;
+    /** When set, the notice lands in that house's workspace assistant chat. */
+    propertyId?: string | null;
   },
 ): Promise<{ delivered: boolean; suppressed: boolean }> {
   const channels = await resolveManagerNotificationChannels(
@@ -41,19 +81,11 @@ export async function notifyManagerFromAgent(
   );
   const nowIso = new Date().toISOString();
   /**
-   * ONE PropLane Assistant thread per manager.
-   *
-   * Every notice used to mint its own id — `Date.now()` plus a random suffix
-   * when no idempotency key was supplied — so the inbox filled with a separate
-   * "PropLane Assistant" conversation per notification. Reported as "there are
-   * so many proplane assisntnts not sure why. there should be one sinuglar
-   * proplane assisntants that you can message" (AXI-150).
-   *
-   * Notices are now turns in a single conversation. `idempotencyKey` keeps
-   * doing its job at the MESSAGE level instead of the thread level: a retry
-   * carries the same message id and is skipped rather than appended twice.
+   * ONE PropLane Assistant thread per manager per workspace. Legacy
+   * `agent_notice_{userId}` stays the default workspace's chat.
    */
-  const threadId = `agent_notice_${args.landlordId}`;
+  const workspace = await managerNoticeWorkspace(db, args.landlordId, args.propertyId);
+  const threadId = managerAgentNoticeThreadId(args.landlordId, workspace);
   const messageId = args.idempotencyKey
     ? `agent_notice_msg_${createHash("sha256").update(`${args.landlordId}:${args.idempotencyKey}`).digest("hex").slice(0, 24)}`
     : `agent_notice_msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
@@ -152,14 +184,16 @@ export async function notifyManagerFromAgent(
 /**
  * Create the manager's PropLane Assistant inbox thread if missing.
  *
- * Idempotent on `agent_notice_{landlordId}` so Communication always has a
+ * Idempotent on the manager+workspace thread id so Communication always has a
  * conversation to open even before the first agent notification lands.
  */
 export async function ensureManagerAgentNoticeThread(
   db: SupabaseClient,
   landlordId: string,
+  workspace?: ManagerAssistantWorkspace | null,
 ): Promise<string> {
-  const threadId = `agent_notice_${landlordId.trim()}`;
+  const resolved = workspace ?? (await managerNoticeWorkspace(db, landlordId));
+  const threadId = managerAgentNoticeThreadId(landlordId.trim(), resolved);
   const { data: existing } = await db
     .from("portal_inbox_thread_records")
     .select("id")

@@ -2,7 +2,7 @@ import { LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/data";
 import type { ManagerListingSubmissionV1, ManagerRoomSubmission } from "@/lib/manager-listing-submission";
 import { normalizeManagerListingSubmissionV1, PAYMENT_AT_SIGNING_OPTIONS, isEntireHomeListing, entireHomeMonthlyRentAmount } from "@/lib/manager-listing-submission";
 import { leaseDocumentFeeLines, listingPresetFeeAmount } from "@/lib/listing-fees";
-import { paymentAtSigningMatrix } from "@/lib/listing-fee-scope";
+import { paymentAtSigningKeysFor } from "@/lib/listing-fee-scope";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import {
   formatUtilitiesListingLine,
@@ -133,6 +133,7 @@ export function computeLeasePaymentAtSigning(
    * term — reads the flat list exactly as before.
    */
   leaseTerm?: string | null,
+  roomId?: string | null,
 ): number {
   const legacyFallback = () =>
     amounts.securityDeposit +
@@ -143,8 +144,9 @@ export function computeLeasePaymentAtSigning(
   if (!sub?.v) return legacyFallback();
   const n = normalizeManagerListingSubmissionV1(sub);
   const term = String(leaseTerm ?? "").trim();
-  const matrix = term ? paymentAtSigningMatrix(n)[term] : undefined;
-  const includes = matrix ?? n.paymentAtSigningIncludes ?? [];
+  const includes = term
+    ? paymentAtSigningKeysFor(n, term, roomId)
+    : n.paymentAtSigningIncludes ?? [];
 
   let sum = 0;
   if (includes.includes("security_deposit")) sum += amounts.securityDeposit;

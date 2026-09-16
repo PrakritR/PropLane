@@ -4,6 +4,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { NotificationCategory } from "@/lib/notification-preferences";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 import { isWithinQuietHours } from "@/lib/sms/number-registration-policy";
+import { vendorTopicForEvent } from "@/lib/vendor-notification-settings";
+import { loadAutomatedMessageSettings } from "@/lib/automated-messages-settings.server";
+import { applyAutomatedMessageSetting } from "@/lib/automated-messages-settings";
+import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
+import { managerNotificationCategoryForEvent } from "@/lib/manager-notification-preferences";
 
 export type ActionEventDomain =
   | "work_order"
@@ -11,7 +16,10 @@ export type ActionEventDomain =
   | "lease"
   | "application"
   | "service_request"
-  | "tour";
+  | "tour"
+  | "inspection"
+  | "task"
+  | "message";
 export type ActionEventAudience = "manager" | "resident" | "vendor";
 export type ActionEventRendered = { subject: string; text: string; smsText?: string };
 export type ActionEventRecipient = {
@@ -61,12 +69,48 @@ async function deliverProjection(
     attempts: number;
     now: Date;
     smsDeferredUntil?: string | null;
+    /** `(domain, event_type)` so a vendor recipient's topic can be derived on both first send and retry. */
+    domain?: string;
+    eventType?: string;
+    urgent?: boolean;
     finalizeGuard?: { status: "pending" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "deferred"; dueAt: string };
   },
 ): Promise<"delivered" | "submitted" | "deferred" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "stale"> {
   const text = input.digest
     ? `Several updates were recorded. Open PropLane for the latest status.`
     : input.rendered.text;
+  // A manager's own copy of an event they (or the system acting as them) sent
+  // is a self-send, which the inbox drops as "No recipients selected". It is
+  // really an Assistant notice — the same surface reminders use for the
+  // manager — so route it there, where their alert destination applies.
+  if (input.recipient.audience === "manager" && input.recipient.userId && input.recipient.userId === input.senderUserId) {
+    const updatedAt = input.now.toISOString();
+    try {
+      await notifyManagerFromAgent(db, {
+        landlordId: input.recipient.userId,
+        subject: input.rendered.subject,
+        text,
+        externalText: input.rendered.smsText ?? text,
+        threadType: "action_event",
+        category: managerNotificationCategoryForEvent(input.category),
+        idempotencyKey: `action-event:${input.eventKey}:manager:${input.recipient.userId}`,
+      });
+      const { error } = await db.from("action_event_deliveries").update({
+        status: "delivered", attempts: input.attempts + 1, last_error: null, next_attempt_at: null,
+        delivered_at: updatedAt, sms_deferred_until: null, updated_at: updatedAt,
+      }).eq("id", input.deliveryId);
+      if (error) throw new Error(`Could not finalize action-event delivery: ${error.message}`);
+      return "delivered";
+    } catch (error) {
+      const { error: updateError } = await db.from("action_event_deliveries").update({
+        status: "failed", attempts: input.attempts + 1,
+        last_error: error instanceof Error ? error.message : "Assistant notice failed",
+        next_attempt_at: new Date(input.now.getTime() + 5 * 60_000).toISOString(), updated_at: updatedAt,
+      }).eq("id", input.deliveryId);
+      if (updateError) throw new Error(`Could not finalize action-event delivery: ${updateError.message}`);
+      return "failed";
+    }
+  }
   const result = await deliverPortalInboxMessage(db, {
     senderUserId: input.senderUserId,
     senderEmail: input.senderEmail,
@@ -81,6 +125,11 @@ async function deliverProjection(
     suppressEmail: input.retryMode === "sms",
     suppressInbox: Boolean(input.retryMode),
     messageId: `action-event:${input.eventKey}:${input.recipient.audience}:${input.recipient.userId ?? input.recipient.email}`,
+    vendorTopic:
+      input.recipient.audience === "vendor" && input.domain && input.eventType
+        ? vendorTopicForEvent(input.domain, input.eventType)
+        : undefined,
+    urgent: input.urgent,
   }).catch((error: unknown) => ({
     ok: false as const,
     error: error instanceof Error ? error.message : "Delivery failed",
@@ -169,11 +218,30 @@ export async function emitActionEvent(
     urgent?: boolean;
     occurredAt?: string;
     now?: Date;
+    /**
+     * Placeholder values for a manager-authored template of this event
+     * (Settings → <area> → Messages sent automatically). Absent = the default
+     * copy in `rendered` is what goes out.
+     */
+    templateContext?: Record<string, string>;
   },
 ): Promise<ActionEventResult> {
   const eventKey = input.eventId.trim();
   if (!eventKey) throw new Error("emitActionEvent requires an idempotency eventId");
   const now = input.now ?? new Date();
+  // The manager's per-event switch and template. Loaded once per event; a read
+  // failure means "defaults", never "silence".
+  const automated = await loadAutomatedMessageSettings(db, input.managerUserId).catch(() => null);
+  const recipients = input.recipients.flatMap((recipient) => {
+    const applied = applyAutomatedMessageSetting(automated, {
+      domain: input.domain,
+      event: input.event,
+      audience: recipient.audience,
+      rendered: recipient.rendered,
+      context: input.templateContext,
+    });
+    return applied ? [{ ...recipient, rendered: applied }] : [];
+  });
   const { data: inserted, error: insertError } = await db.from("action_events").upsert({
     event_key: eventKey,
     domain: input.domain,
@@ -200,7 +268,7 @@ export async function emitActionEvent(
   let submitted = 0;
   let deferred = 0;
   let failed = 0;
-  for (const recipient of input.recipients) {
+  for (const recipient of recipients) {
     const recipientKey = recipient.userId?.trim() || recipient.email?.trim().toLowerCase() || "";
     if (!recipientKey || !recipient.rendered.subject.trim() || !recipient.rendered.text.trim()) continue;
     const since = new Date(now.getTime() - 10 * 60_000).toISOString();
@@ -234,6 +302,9 @@ export async function emitActionEvent(
       attempts: Number(delivery.attempts ?? 0),
       now,
       smsDeferredUntil: policy.deferSms ? policy.nextAttemptAt : null,
+      domain: input.domain,
+      eventType: input.event,
+      urgent: input.urgent,
     });
     if (outcome === "delivered") delivered++;
     else if (outcome === "submitted") submitted++;
@@ -280,7 +351,7 @@ export async function retryDueActionEventDeliveries(
     if (!claim) continue;
     attempted++;
     const { data: event, error: eventError } = await db.from("action_events")
-      .select("event_key,category,sender_user_id,sender_email,sender_name")
+      .select("event_key,category,sender_user_id,sender_email,sender_name,domain,event_type,payload")
       .eq("id", row.event_id)
       .maybeSingle();
     if (eventError || !event?.sender_user_id || !event.sender_email) {
@@ -311,6 +382,9 @@ export async function retryDueActionEventDeliveries(
       attempts: Number(row.attempts ?? 0),
       now: claimTime,
       smsDeferredUntil: retryingQuietEmail ? retainedSmsDue : null,
+      domain: event.domain ? String(event.domain) : undefined,
+      eventType: event.event_type ? String(event.event_type) : undefined,
+      urgent: Boolean((event.payload as { emergency?: unknown } | null)?.emergency),
       finalizeGuard: { status: row.status as "pending" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "deferred", dueAt: claimUntil },
     });
     if (["failed", "email_failed", "sms_failed", "channels_failed"].includes(outcome)) failed++;

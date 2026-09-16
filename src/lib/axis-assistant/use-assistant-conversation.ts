@@ -160,10 +160,13 @@ function upsertThread(
 export type AssistantConversationOptions = {
   /** Isolates modal threads from the portal-wide archive. */
   storageScope?: string;
+  /** When this changes, drop the in-memory archive (workspace switch). */
+  archiveKey?: string;
 };
 
 export function useAssistantConversation(endpoint: string, options: AssistantConversationOptions = {}) {
   const storageScope = options.storageScope?.trim() || undefined;
+  const archiveKey = options.archiveKey ?? "";
   const multiThread = !storageScope;
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<PendingChatAttachment[]>([]);
@@ -278,6 +281,7 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
   // a Supabase request without any assistant interaction.
   const archiveHydrated = useRef(false);
   const archiveLoadInFlight = useRef<Promise<void> | null>(null);
+  const archiveKeyRef = useRef(archiveKey);
   const hydrateArchive = useCallback(async () => {
     if (!multiThread || archiveHydrated.current) return;
     if (archiveLoadInFlight.current) return archiveLoadInFlight.current;
@@ -302,6 +306,26 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
       archiveLoadInFlight.current = null;
     }
   }, [fetchThreadList, fetchTranscript, multiThread]);
+
+  useEffect(() => {
+    if (archiveKeyRef.current === archiveKey) return;
+    archiveKeyRef.current = archiveKey;
+    if (!multiThread) return;
+    const shouldRehydrate = archiveHydrated.current;
+    archiveHydrated.current = false;
+    archiveLoadInFlight.current = null;
+    hasInteractedWithConversation.current = false;
+    setMessages([]);
+    setActiveThreadId("");
+    setThreads([]);
+    setPendingAction(null);
+    setLastTools([]);
+    setError(null);
+    setInput("");
+    setHistoryOpen(false);
+    setHistorySearch("");
+    if (shouldRehydrate) void hydrateArchive();
+  }, [archiveKey, hydrateArchive, multiThread]);
 
   useEffect(() => {
     if (!multiThread) saveAssistantChatMessages(endpoint, visibleConversationMessages(messages), storageScope);

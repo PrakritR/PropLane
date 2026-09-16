@@ -8,6 +8,10 @@ import {
   canonicalResidentAgentThreadId,
 } from "@/lib/agent/resident-inbox-agent-ids";
 import { isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
+import {
+  managerAgentNoticeThreadId,
+  type ManagerAssistantWorkspace,
+} from "@/lib/communication-manager-assistant-thread";
 import { portalSessionViewerId } from "@/lib/auth/portal-session-gate";
 import {
   inboxThreadMessages,
@@ -17,16 +21,14 @@ import {
 } from "@/lib/portal-inbox-storage";
 import { unifiedInboxKey, type UnifiedInboxListItem } from "@/lib/unified-inbox-merge";
 
+export { managerAgentNoticeThreadId } from "@/lib/communication-manager-assistant-thread";
+
 type InboxListSegment = "active" | "unread" | "archived";
 
 export const MANAGER_AGENT_NOTICE_FROM_NAME = "PropLane Assistant";
 
 /** User-visible channel label for in-app PropLane Assistant threads (not email/SMS). */
 export const PROPLANE_ASSISTANT_CHANNEL_LABEL = "PropLane";
-
-export function managerAgentNoticeThreadId(landlordId: string): string {
-  return `agent_notice_${landlordId.trim()}`;
-}
 
 export function buildResidentAssistantPlaceholderThread(residentUserId: string): PersistedInboxThread {
   const id = canonicalResidentAgentThreadId(residentUserId);
@@ -43,15 +45,18 @@ export function buildResidentAssistantPlaceholderThread(residentUserId: string):
   } as PersistedInboxThread;
 }
 
-export function buildManagerAssistantPlaceholderThread(landlordId: string): PersistedInboxThread {
-  const id = managerAgentNoticeThreadId(landlordId);
+export function buildManagerAssistantPlaceholderThread(
+  landlordId: string,
+  workspace?: ManagerAssistantWorkspace | null,
+): PersistedInboxThread {
+  const id = managerAgentNoticeThreadId(landlordId, workspace);
   return {
     id,
     folder: "inbox",
     from: MANAGER_AGENT_NOTICE_FROM_NAME,
     email: "",
     subject: "PropLane Assistant",
-    preview: "Ask about your portfolio, residents, leases, and maintenance.",
+    preview: "Ask about this workspace’s portfolio, residents, leases, and maintenance.",
     time: "",
     unread: false,
     threadType: "agent_notice",
@@ -62,12 +67,14 @@ export function ensureAssistantThreadInRows(
   threads: PersistedInboxThread[],
   placeholder: PersistedInboxThread,
 ): PersistedInboxThread[] {
-  if (
-    threads.some(
-      (thread) =>
-        thread.id === placeholder.id || isPropLaneAssistantInboxThread(thread),
-    )
-  ) {
+  const index = threads.findIndex((thread) => thread.id === placeholder.id);
+  if (index >= 0) {
+    const existing = threads[index]!;
+    if (existing.folder === "trash") {
+      const next = [...threads];
+      next[index] = { ...existing, folder: "inbox" };
+      return next;
+    }
     return threads;
   }
   return [placeholder, ...threads];
@@ -87,19 +94,28 @@ export function resolveCommunicationViewerId(
   return portalSessionViewerId();
 }
 
-/** Inject a placeholder assistant row on Active when the server list is still empty. */
+/**
+ * Inject / restore the viewer’s PropLane Assistant row.
+ * Manager: every Communication section, keyed by workspace.
+ * Resident: Active only (unchanged).
+ */
 export function withPinnedPropLaneAssistantThreads(
   threads: PersistedInboxThread[],
   portal: CommunicationAssistantPortal,
   viewerId: string | null | undefined,
   listSegment: InboxListSegment,
+  workspace?: ManagerAssistantWorkspace | null,
 ): PersistedInboxThread[] {
-  if (!viewerId?.trim() || listSegment !== "active") return threads;
-  const placeholder =
-    portal === "resident"
-      ? buildResidentAssistantPlaceholderThread(viewerId)
-      : buildManagerAssistantPlaceholderThread(viewerId);
-  return ensureAssistantThreadInRows(threads, placeholder);
+  if (!viewerId?.trim()) return threads;
+  if (portal === "resident") {
+    if (listSegment !== "active") return threads;
+    return ensureAssistantThreadInRows(threads, buildResidentAssistantPlaceholderThread(viewerId));
+  }
+  const placeholder = buildManagerAssistantPlaceholderThread(viewerId, workspace);
+  const pinned = ensureAssistantThreadInRows(threads, placeholder);
+  const liveId = placeholder.id;
+  const prefix = `agent_notice_${viewerId.trim()}`;
+  return pinned.filter((thread) => thread.id === liveId || !thread.id.startsWith(prefix));
 }
 
 function previewLine(body: string, max = 80): string {
@@ -148,18 +164,30 @@ export function pinPropLaneAssistantUnifiedItems(
   const id = assistantThreadId?.trim();
   if (!id) return items;
   const index = items.findIndex((item) => item.threadId === id);
-  if (index <= 0) return items;
+  if (index < 0) return items;
+  if (index === 0) return items;
   const assistant = items[index]!;
   return [assistant, ...items.filter((item) => item.threadId !== id)];
+}
+
+/** Put the live assistant row first even when the section filter dropped it (Unread / Archived). */
+export function ensurePinnedManagerAssistantUnifiedItems(
+  items: UnifiedInboxListItem[],
+  assistant: UnifiedInboxListItem | null | undefined,
+): UnifiedInboxListItem[] {
+  if (!assistant?.threadId) return items;
+  const without = items.filter((item) => item.threadId !== assistant.threadId);
+  return [assistant, ...without];
 }
 
 export function propLaneAssistantThreadIdForPortal(
   portal: CommunicationAssistantPortal,
   viewerId: string,
+  workspace?: ManagerAssistantWorkspace | null,
 ): string {
   return portal === "resident"
     ? canonicalResidentAgentThreadId(viewerId)
-    : managerAgentNoticeThreadId(viewerId);
+    : managerAgentNoticeThreadId(viewerId, workspace);
 }
 
 export function propLaneAssistantListSubtitle(thread: PersistedInboxThread): string {
@@ -198,8 +226,11 @@ export function resolveCommunicationInboxThread(
   // compiler cannot carry the narrowing across `assistantId`.
   const viewer = viewerId?.trim() ?? "";
   const assistantId = viewer ? propLaneAssistantThreadIdForPortal(portal, viewer) : null;
-  if (!assistantId || expandedId !== assistantId) return null;
+  const matchesAssistant =
+    expandedId === assistantId ||
+    (portal === "manager" && expandedId.startsWith(`agent_notice_${viewer}`));
+  if (!matchesAssistant) return null;
   return portal === "resident"
     ? buildResidentAssistantPlaceholderThread(viewer)
-    : buildManagerAssistantPlaceholderThread(viewer);
+    : { ...buildManagerAssistantPlaceholderThread(viewer), id: expandedId };
 }
