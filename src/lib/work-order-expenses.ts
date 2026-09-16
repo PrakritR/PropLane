@@ -118,18 +118,12 @@ export function mergeWorkOrderCompletion(
 export function markWorkOrderPaid(
   row: DemoManagerWorkOrderRow,
   paidAt: string = new Date().toISOString(),
-  payment?: {
-    channel?: DemoManagerWorkOrderRow["vendorPaymentChannel"];
-    zelleContactSnapshot?: string;
-    venmoContactSnapshot?: string;
-  },
+  payment?: { channel?: DemoManagerWorkOrderRow["vendorPaymentChannel"] },
 ): DemoManagerWorkOrderRow {
   return {
     ...row,
     automationStatus: "paid",
     paidAt,
     vendorPaymentChannel: payment?.channel ?? row.vendorPaymentChannel,
-    vendorZelleContactSnapshot: payment?.zelleContactSnapshot ?? row.vendorZelleContactSnapshot,
-    vendorVenmoContactSnapshot: payment?.venmoContactSnapshot ?? row.vendorVenmoContactSnapshot,
   };
 }

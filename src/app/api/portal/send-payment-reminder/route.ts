@@ -4,7 +4,7 @@ import { isAdminUser } from "@/lib/auth/admin-preview";
 import { collectLinkedPropertyIdsForUser } from "@/lib/auth/manager-lease-scope";
 import { track } from "@/lib/analytics/posthog";
 import { chargeDueLabel, isUnpaidHouseholdCharge, type HouseholdCharge } from "@/lib/household-charges";
-import { buildManualPaymentInstructionLines, buildPaymentReminderBody } from "@/lib/manual-payment-instructions";
+import { buildPaymentReminderBody } from "@/lib/manual-payment-instructions";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -179,7 +179,6 @@ export async function POST(req: Request) {
         dueDate,
         propertyLabel,
         managerName,
-        manualPaymentLines: buildManualPaymentInstructionLines(ownedCharge),
       });
 
     // Always write Axis inbox when we have any email key (real or sandbox).

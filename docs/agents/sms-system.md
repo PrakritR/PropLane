@@ -488,11 +488,23 @@ proved it controls via the verification code, honours
 `profiles.sms_forward_inbound`, and dedupes on the inbound MessageSid so a
 webhook retry cannot text twice.
 
-Manager-directed ALERT SMS (tour alerts, work-order alerts, manager assistant
-introductions, and other platform-to-manager notices) are still outside it.
-Managers receive those through the durable portal inbox, email, and push paths,
-and they must not be silently moved onto a manager work number until they have
-a consent scope of their own. The legacy pooled proxy-number relay is
+Team notices (WS5/WS6 — the manager↔manager Team thread's SMS mirror,
+`mirrorTeamThreadMessageToSms` in `team-comms.server.ts`) are in the slice
+with their own scope: purpose `team_notice`, `automated` class (`transactional`
+when urgent), sent from the
+OWNER's registered workspace number to the property + module roster minus
+the actor, consent materialized from the recipient manager's own verified
+work phone (`sms/team-notice-consent.server.ts` — an applicant's stamp never
+vouches for a co-manager; unverified, missing, mismatched or
+`sms_forward_inbound = false` grants nothing, a STOP is never overwritten).
+Quiet hours defer them like any automated send. Owner of what fires them:
+[automated-communication.md](automated-communication.md).
+
+Every other manager-directed ALERT SMS (tour alerts, work-order alerts, manager
+assistant introductions, and other platform-to-manager notices) is still
+outside it. Managers receive those through the durable portal inbox, email,
+and push paths, and they must not be silently moved onto a manager work number
+until they have a consent scope of their own. The legacy pooled proxy-number relay is
 retired: `/api/twilio/inbound` routes only owned work numbers and uses
 `sms_inbound_receipts` as the execution idempotency authority.
 
@@ -807,9 +819,10 @@ Twilio Verify remains a separate transport; the pooled proxy relay is retired.
 (`src/lib/sms/weekly-rent-reminder.server.ts`, cron
 `/api/cron/weekly-rent-reminders`) sends `automated` from the manager's own
 number and is idempotent per owner/resident/ISO week through the durable outbox
-unique key. Purpose-specific consent is materialized only from the rental
-application's server-owned consent timestamp and matching phone; a later scoped
-revoke always wins.
+unique key. Purpose-specific consent is materialized only from server-owned
+evidence and a matching phone — the rental application's consent timestamp,
+or for the manager-directed `manager_inbound_forward` / `team_notice` purposes
+that manager's own phone verification; a later scoped revoke always wins.
 
 STOP/START/HELP are authenticated and applied by one transactional RPC. A
 MessageSid-unique control receipt plus Twilio's immutable Message `dateCreated`

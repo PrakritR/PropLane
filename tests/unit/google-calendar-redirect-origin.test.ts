@@ -5,7 +5,6 @@ import {
   googleCalendarOAuthRedirectUri,
   resolveGoogleCalendarRedirectOrigin,
 } from "@/lib/google-calendar/api.server";
-import { gmailPaymentsOAuthRedirectUri } from "@/lib/gmail-payments/api.server";
 import { httpsOAuthCallbackUrls } from "@/lib/auth/native-oauth-redirect-urls";
 
 describe("resolveGoogleCalendarRedirectOrigin", () => {
@@ -38,9 +37,6 @@ describe("resolveGoogleCalendarRedirectOrigin", () => {
     );
     expect(googleCalendarOAuthRedirectUri("https://prop-lane.space")).toBe(
       "https://www.axis-seattle-housing.com/api/portal/google-calendar/callback",
-    );
-    expect(gmailPaymentsOAuthRedirectUri("https://prop-lane.space")).toBe(
-      "https://www.axis-seattle-housing.com/api/portal/gmail-payments/callback",
     );
   });
 

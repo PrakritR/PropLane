@@ -80,7 +80,17 @@ function makeDb(input: { inquiries: Record<string, unknown>[]; planned?: Record<
         }
         return { error: null };
       },
-      delete: () => ({ in: async () => ({ error: null }) }),
+      // WS4(shared-avail): the atomic claim guard's table. These tests are not
+      // about the claim race itself (see tour-inquiry-confirm-claim.test.ts) —
+      // every insert here succeeds so `confirmTourInquiry` proceeds normally.
+      insert: async () => ({ data: null, error: null }),
+      delete: () => ({
+        in: async () => ({ error: null }),
+        eq: () => ({
+          then: (resolve: (value: { error: null }) => void) => resolve({ error: null }),
+          lt: async () => ({ error: null }),
+        }),
+      }),
     }),
   };
   return { db: db as never, written };

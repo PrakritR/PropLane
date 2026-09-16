@@ -15,18 +15,22 @@ import {
 } from "@/lib/rental-application/application-fee-channel";
 
 describe("manager-listing-submission new fields", () => {
-  it("normalizes house move-in and application fee other fields", () => {
+  it("normalizes house move-in fields and drops retired off-platform fee channels", () => {
     const sub = normalizeManagerListingSubmissionV1({
       ...createDefaultListingSubmission(),
       houseMoveInAvailableDate: "2026-07-01",
       houseMoveInInstructions: "Pick up keys at front desk.",
+      // Legacy rows may still carry these; the normalized listing never does (PLAN-0916).
       applicationFeeOtherEnabled: true,
       applicationFeeOtherInstructions: "Pay by check at office.",
-    });
+      zellePaymentsEnabled: true,
+      zelleContact: "pay@example.com",
+    } as never);
     expect(sub.houseMoveInAvailableDate).toBe("2026-07-01");
     expect(sub.houseMoveInInstructions).toBe("Pick up keys at front desk.");
-    expect(sub.applicationFeeOtherEnabled).toBe(true);
-    expect(sub.applicationFeeOtherInstructions).toBe("Pay by check at office.");
+    expect(sub).not.toHaveProperty("applicationFeeOtherEnabled");
+    expect(sub).not.toHaveProperty("zellePaymentsEnabled");
+    expect(sub).not.toHaveProperty("zelleContact");
   });
 
   it("createDefaultListingServiceOptions starts empty", () => {
@@ -54,30 +58,10 @@ describe("manager-listing-submission new fields", () => {
 });
 
 describe("application-fee-channel", () => {
-  it("resolves other channel when enabled with instructions", () => {
-    const sub = normalizeManagerListingSubmissionV1({
-      ...createDefaultListingSubmission(),
-      applicationFeeStripeEnabled: false,
-      axisPaymentsEnabled: false,
-      applicationFeeOtherEnabled: true,
-      applicationFeeOtherInstructions: "Mail check to 123 Main St.",
-    });
-    const channels = listingApplicationFeeChannels(sub);
-    expect(channels.other).toBe(true);
-    expect(resolveApplicationFeePayChannel(sub, "other")).toBe("other");
-  });
-
-  it("never enables zelle or venmo application-fee channels", () => {
-    const sub = normalizeManagerListingSubmissionV1({
-      ...createDefaultListingSubmission(),
-      zellePaymentsEnabled: true,
-      zelleContact: "pay@example.com",
-      venmoPaymentsEnabled: true,
-      venmoContact: "@landlord",
-    });
-    const channels = listingApplicationFeeChannels(sub);
-    expect(channels.zelle).toBe(false);
-    expect(channels.venmo).toBe(false);
+  it("always resolves to the PropLane (ACH/card) channel", () => {
+    const sub = normalizeManagerListingSubmissionV1({ ...createDefaultListingSubmission(), axisPaymentsEnabled: true });
+    expect(resolveApplicationFeePayChannel()).toBe("ach");
+    expect(listingApplicationFeeChannels(sub)).toEqual({ ach: true, stripe: true });
   });
 
   it("includes ACH when axis payments are enabled", () => {

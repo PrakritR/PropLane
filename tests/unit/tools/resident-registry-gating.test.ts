@@ -65,7 +65,6 @@ const UNGATED_TOOLS = [
   "get_my_application_status",
   "get_move_in_info",
   "request_lease_extension",
-  "report_manual_payment",
   "start_rent_payment",
 ];
 

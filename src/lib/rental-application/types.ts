@@ -179,13 +179,8 @@ export type RentalWizardFormState = {
   dateSigned: string;
   /** Step 12 — non-refundable application processing fee acknowledgement */
   applicationFeeAcknowledged: boolean;
-  /**
-   * Step 12 — how the applicant will satisfy the listing application fee when the listing offers multiple payment paths.
-   * “stripe” uses a Stripe Checkout Session for the application fee.
-   */
-  applicationFeePayChannel: "ach" | "zelle" | "venmo" | "other" | "stripe";
-  /** Step 12 — applicant attests they sent a manual fee payment (manager must still mark the charge paid). */
-  applicationFeeZelleSentConfirmed: boolean;
+  /** Step 12 — the application fee is paid online through PropLane (`stripe` is the legacy spelling of `ach`). */
+  applicationFeePayChannel: "ach" | "stripe";
   /** Step 12 — a manager-issued code the applicant entered to waive the application fee. */
   applicationFeeWaiverCode: string;
   /**

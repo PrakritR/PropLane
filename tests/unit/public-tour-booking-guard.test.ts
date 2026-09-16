@@ -110,13 +110,13 @@ function hostDb(opts: {
         return {
           select: () => ({
             eq: () => ({
-              eq: () => ({
-                eq: async (_col: string, inviteeId: string) => ({
-                  data: opts.linkError
-                    ? null
-                    : (opts.links ?? []).filter((row) => row.invitee_user_id === inviteeId),
-                  error: opts.linkError ? { message: "boom" } : null,
-                }),
+              // `listPropertyTourHostUserIds` enumerates every accepted invitee
+              // of the owner (two `.eq()`s: status, inviter_user_id) and filters
+              // by `assigned_property_ids` in JS — it has to answer "every
+              // eligible host", not "is this one candidate eligible".
+              eq: async () => ({
+                data: opts.linkError ? null : (opts.links ?? []),
+                error: opts.linkError ? { message: "boom" } : null,
               }),
             }),
           }),

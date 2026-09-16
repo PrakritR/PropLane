@@ -299,6 +299,7 @@ export async function executeDispatch(
     senderName: args.actor.fullName,
     facts: {
       reference: row.reference || "Work order",
+      propertyId: row.assignedPropertyId || row.propertyId || undefined,
       title: row.title || "Work order",
       propertyLabel: row.propertyName || undefined,
       scheduledFor: scheduledIso ? formatPacificDateTime(scheduledIso) : undefined,

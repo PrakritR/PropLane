@@ -19,14 +19,8 @@ import type { MockProperty } from "@/data/types";
 import {
   resolveAllowedLeaseTerms,
 } from "@/lib/manager-listing-submission";
-import { parseMoneyAmount } from "@/lib/parse-money";
 import { propertyAllowsShortTermRental, listingAllowedLeaseTerms, getPropertyById, isEntireHomeProperty } from "./data";
 import { LEASE_TERM_OPTIONS, acceptedLeaseTermsFromStored } from "./lease-terms";
-import { listingApplicationFeeAmount } from "@/lib/household-charges";
-import {
-  isAchApplicationFeeChannel,
-  resolveApplicationFeePayChannel,
-} from "./application-fee-channel";
 import type { RentalWizardErrors, RentalWizardFormState } from "./types";
 import { digitsOnly, parseMoneyInput } from "./masks";
 import { customFieldsForWizardStep, listingCustomApplicationFields, validateCustomFieldAnswers } from "./custom-fields";
@@ -418,21 +412,8 @@ export function validateStandardWizardStep(
   }
 
   if (step === 11) {
-    const pid = f.propertyId.trim();
-    const sub = prop?.listingSubmission?.v === 1 ? prop.listingSubmission : undefined;
-    const amount = sub ? parseMoneyAmount(sub.applicationFee) : listingApplicationFeeAmount(pid).amount;
-    const needsFee = Boolean(pid && amount > 0);
-    if (needsFee) {
-      const feeProp = prop ?? getPropertyById(pid);
-      const feeSub = feeProp?.listingSubmission?.v === 1 ? feeProp.listingSubmission : undefined;
-      const payChannel = resolveApplicationFeePayChannel(feeSub, f.applicationFeePayChannel);
-      if (!isAchApplicationFeeChannel(payChannel) && !f.applicationFeeZelleSentConfirmed) {
-        e.applicationFeeZelleSentConfirmed =
-          payChannel === "other"
-            ? "Check payment before submitting your application."
-            : `Tap Check payment after sending the application fee by ${payChannel === "venmo" ? "Venmo" : "Zelle"}.`;
-      }
-    }
+    // The application fee is paid inline through PropLane; the wizard's submit
+    // gate (not field validation) decides whether the payment has landed.
     return e;
   }
 

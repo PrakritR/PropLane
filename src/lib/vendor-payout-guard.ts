@@ -4,9 +4,9 @@
  * A work order carries at most one `vendor_payouts` row (unique index), and a
  * row in `pending` or `paid` means PropLane already moved (or is moving) money
  * to the vendor through Stripe Connect. Marking the same job paid again by
- * Zelle / Venmo / ACH would pay the vendor twice on a different rail. The
- * server refuses that write with a 409 naming the payout unless the manager
- * explicitly acknowledges it, and the acknowledgement is written to
+ * hand would pay the vendor twice. The server refuses that write with a 409
+ * naming the payout unless the manager explicitly acknowledges it, and the
+ * acknowledgement is written to
  * `audit_log` before anything else is touched. `failed` and `skipped` payouts
  * moved no money, so they never block.
  *

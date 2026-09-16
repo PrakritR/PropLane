@@ -33,9 +33,9 @@ describe("classifyResidentSmsIntent", () => {
     expect(classifyResidentSmsIntent("my toilet is broken can you fix").intent).toBe("maintenance");
   });
 
-  it("maps offline payment reports", () => {
-    expect(classifyResidentSmsIntent("I paid via zelle").intent).toBe("i_paid");
-    expect(classifyResidentSmsIntent("sent venmo for rent").intent).toBe("i_paid");
+  it("maps 'I already paid' messages", () => {
+    expect(classifyResidentSmsIntent("I just paid").intent).toBe("i_paid");
+    expect(classifyResidentSmsIntent("we sent the rent over").intent).toBe("i_paid");
   });
 
   it("maps lease / applications / move-in", () => {

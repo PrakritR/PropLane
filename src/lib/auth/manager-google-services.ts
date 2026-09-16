@@ -12,13 +12,13 @@ export function normalizeGoogleServiceReturnPath(value: string | null | undefine
 
 export function googleServiceResultPath(
   returnPath: string,
-  service: "calendar" | "gmail",
+  service: "calendar",
   result: "connected" | "error",
   reason?: string,
 ): string {
   const url = new URL(returnPath, "https://proplane-internal.invalid");
   const onboarding = url.pathname === MANAGER_GOOGLE_SERVICES_PATH;
-  const resultKey = onboarding ? service : service === "calendar" ? "gcal" : "gmail-pay";
+  const resultKey = onboarding ? service : "gcal";
   const reasonKey = onboarding ? `${service}Reason` : "reason";
   url.searchParams.set(resultKey, result);
   if (reason) url.searchParams.set(reasonKey, reason);

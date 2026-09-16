@@ -6,14 +6,11 @@ import {
   normalizeGoogleServiceReturnPath,
 } from "@/lib/auth/manager-google-services";
 import { GOOGLE_CALENDAR_OAUTH_SCOPES } from "@/lib/google-calendar/scopes";
-import { GMAIL_PAYMENTS_OAUTH_SCOPES } from "@/lib/gmail-payments/scopes";
 
 describe("manager Google services onboarding", () => {
-  it("keeps Calendar and Gmail permissions in separate scope sets", () => {
+  it("asks for Calendar only — Gmail is not a PropLane scope", () => {
     expect(GOOGLE_CALENDAR_OAUTH_SCOPES).toContain("calendar.events");
-    expect(GOOGLE_CALENDAR_OAUTH_SCOPES).not.toContain("gmail.readonly");
-    expect(GMAIL_PAYMENTS_OAUTH_SCOPES).toContain("gmail.readonly");
-    expect(GMAIL_PAYMENTS_OAUTH_SCOPES).not.toContain("calendar.events");
+    expect(GOOGLE_CALENDAR_OAUTH_SCOPES).not.toContain("gmail");
   });
 
   it("rejects cross-origin callback destinations", () => {
@@ -33,8 +30,8 @@ describe("manager Google services onboarding", () => {
     expect(googleServiceResultPath("/portal/calendar", "calendar", "connected")).toBe(
       "/portal/calendar?gcal=connected",
     );
-    expect(googleServiceResultPath("/portal/payments", "gmail", "error", "Access denied")).toBe(
-      "/portal/payments?gmail-pay=error&reason=Access+denied",
+    expect(googleServiceResultPath("/portal/calendar", "calendar", "error", "Access denied")).toBe(
+      "/portal/calendar?gcal=error&reason=Access+denied",
     );
   });
 });

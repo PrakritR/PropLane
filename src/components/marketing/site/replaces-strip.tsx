@@ -3,7 +3,7 @@ import { SITE_MEASURE } from "@/components/marketing/site/primitives";
 const REPLACES: { from: string; to: string }[] = [
   { from: "the spreadsheet", to: "a ledger" },
   { from: "group texts", to: "one inbox" },
-  { from: "chasing Zelle", to: "rent that collects itself" },
+  { from: "chasing rent by text", to: "rent that collects itself" },
   { from: "PDF leases", to: "drafted & e-signed" },
   { from: "“who’s the plumber?”", to: "vendors that show up" },
 ];

@@ -325,33 +325,30 @@ Alternate flat-cents rails (Plaid Transfer / Dwolla / Moov, ~$0.25/transfer)
 only beat Stripe above ~1,000 payments/month once monthly minimums are counted
 — re-evaluate at that scale, not before.
 
-## A resident pays through PropLane only — Zelle and Venmo are retired
+## A resident pays through PropLane only — off-platform channels are gone (PLAN-0916)
 
 `ResidentAcceptedPaymentMethod` is `"ach" | "card"`, and
 `acceptedPaymentMethodsForListing` keeps only those two whatever a stored
-listing still lists, so a legacy `acceptedPaymentMethods` array cannot put a
-retired rail back in front of a resident. `isPayableHouseholdCharge` is
-PropLane/Stripe ACH alone, and `residentManualChannelsForCharges` /
-`availableManualChannelsForCharges` return an empty list — the resident panel's
-manual-channel branch is therefore unreachable rather than deleted.
-`residentPaymentMethodsSummary` says either "PropLane payments — bank (ACH),
-card (Apple Pay), or Link" or, when the manager has not finished setup, to ask
-the manager to finish it; it never advertises a channel the product no longer
-accepts.
+listing still lists. `isPayableHouseholdCharge` and `filterChargesForPayMethod`
+are PropLane/Stripe alone (`src/lib/platform/resident-payments.ts`); the
+resident payments panel has no manual-channel branch. `residentPaymentMethodsSummary`
+says either "PropLane payments — bank (ACH), card (Apple Pay), or Link" or, when
+the manager has not finished setup, to ask the manager to finish it.
 
-The manager side is normalized to match rather than trusted:
-`normalizeManagerManualPaymentSettings` forces `zellePaymentsEnabled` /
-`venmoPaymentsEnabled` off and their contacts empty, and
-`applyManagerManualPaymentsToListings` clears the per-charge
-`zelleContactSnapshot` / `venmoContactSnapshot`. Payment setup no longer offers
-Link Zelle / Link Venmo. `normalizeManagerListingSubmissionV1` does the same for
-the listing copy so a lease clause cannot promise a retired channel — see
-[`lease-generation.md`](lease-generation.md) § "Payment instructions read the
-NORMALIZED listing".
+There is no receipt inbox, no Gmail connection, no "I paid by hand" report from
+the resident, and no per-charge payment reference code. `HouseholdCharge` has no
+`zelleContactSnapshot` / `venmoContactSnapshot` / `manualPaymentChannel` /
+`paymentReference` fields; a legacy row that still carries them is ignored on
+read. `ManagerManualPaymentSettings` (the name is historical) holds only
+`axisPaymentsEnabled` and the service-fee payer. `normalizeManagerListingSubmissionV1`
+strips `RETIRED_LISTING_PAYMENT_KEYS` so a lease clause or the public listing
+can never print a retired handle. The application fee is paid inline through
+Stripe only — the "Other / manager instructions" fee channel went with it.
 
-The receipt-matching pipeline behind those channels still exists but is
-switched off in one place; it is documented in
-[`manual-payment-detection.md`](manual-payment-detection.md).
+A payment the manager took by hand (cash, check) is still recorded with the
+`mark_charge_paid` tool or the ledger's Mark paid action. Vendors are paid by
+ACH through Stripe Connect only (`VendorAcceptedPaymentMethod` is `"ach"`).
+Guard: `tests/unit/no-off-platform-payment-channels.test.ts`.
 
 # Resident Payments section: Charges-only (§9.3, post-financials-merge)
 

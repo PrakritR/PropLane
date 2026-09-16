@@ -14,7 +14,12 @@
  */
 import { fillReminderTemplate } from "@/lib/reminders/subject-settings-meta";
 
-export type AutomatedMessageAudience = "manager" | "resident" | "vendor";
+/**
+ * `team` is a workspace-wide audience (WS5, PLAN-0915 phase 5): one rendered
+ * copy posted once into the manager's Team thread (`team-comms.server.ts`),
+ * never fanned out per co-manager the way `resident`/`vendor`/`manager` are.
+ */
+export type AutomatedMessageAudience = "manager" | "resident" | "vendor" | "team";
 
 export type AutomatedMessageSetting = {
   enabled: boolean;
@@ -47,12 +52,12 @@ export const AUTOMATED_MESSAGE_CATALOG: AutomatedMessageCatalogEntry[] = [
   { domain: "work_order", event: "offer_expired", area: "services", label: "Offer expired", audiences: ["vendor", "manager"], placeholders: ["title", "propertyTitle", "url"] },
   { domain: "work_order", event: "offer_filled", area: "services", label: "Offer filled by another vendor", audiences: ["vendor"], placeholders: ["title", "propertyTitle"] },
   { domain: "work_order", event: "vendor_declined", area: "services", label: "Vendor declined", audiences: ["manager"], placeholders: ["vendorName", "title", "propertyTitle", "note", "url"] },
-  { domain: "work_order", event: "accepted", area: "services", label: "Vendor accepted", audiences: ["resident", "vendor", "manager"], placeholders: ["vendorName", "title", "propertyTitle", "whenLabel", "amountLabel", "accessInstructions", "residentContact"] },
+  { domain: "work_order", event: "accepted", area: "services", label: "Vendor accepted", audiences: ["resident", "vendor", "manager", "team"], placeholders: ["vendorName", "title", "propertyTitle", "whenLabel", "amountLabel", "accessInstructions", "residentContact"] },
   { domain: "work_order", event: "scheduled", area: "services", label: "Visit scheduled", audiences: ["resident", "vendor", "manager"], placeholders: ["vendorName", "title", "propertyTitle", "whenLabel"] },
   { domain: "work_order", event: "rescheduled", area: "services", label: "Visit rescheduled", audiences: ["resident", "vendor", "manager"], placeholders: ["vendorName", "title", "propertyTitle", "whenLabel"] },
   { domain: "work_order", event: "cancelled", area: "services", label: "Visit cancelled", audiences: ["resident", "vendor", "manager"], placeholders: ["vendorName", "title", "propertyTitle", "note"] },
   { domain: "work_order", event: "en_route", area: "services", label: "Vendor on the way", audiences: ["resident"], placeholders: ["vendorName", "title", "propertyTitle"] },
-  { domain: "work_order", event: "completed", area: "services", label: "Marked done", audiences: ["resident", "vendor", "manager"], placeholders: ["vendorName", "title", "propertyTitle", "confirmUrl"] },
+  { domain: "work_order", event: "completed", area: "services", label: "Marked done", audiences: ["resident", "vendor", "manager", "team"], placeholders: ["vendorName", "title", "propertyTitle", "confirmUrl"] },
   { domain: "work_order", event: "resident_confirmed", area: "services", label: "Resident confirmed the fix", audiences: ["resident", "manager"], placeholders: ["residentName", "title", "propertyTitle", "ratingUrl"] },
   { domain: "work_order", event: "resident_reopened", area: "services", label: "Resident says not fixed", audiences: ["resident", "vendor", "manager"], placeholders: ["residentName", "title", "propertyTitle", "note", "url"] },
   { domain: "work_order", event: "auto_closed", area: "services", label: "Closed after no reply", audiences: ["resident"], placeholders: ["title", "propertyTitle"] },
@@ -68,7 +73,7 @@ export const AUTOMATED_MESSAGE_CATALOG: AutomatedMessageCatalogEntry[] = [
   { domain: "service_request", event: "service_request_returned", area: "services", label: "Add-on returned", audiences: ["resident", "manager"], placeholders: ["residentName", "offerName"] },
   // ---- Leases ----
   { domain: "lease", event: "lease_created", area: "lease", label: "Lease created", audiences: ["resident", "manager"], placeholders: ["residentName", "propertyTitle", "url"] },
-  { domain: "lease", event: "lease_sent", area: "lease", label: "Lease sent for signature", audiences: ["resident", "manager"], placeholders: ["residentName", "propertyTitle", "url"] },
+  { domain: "lease", event: "lease_sent", area: "lease", label: "Lease sent for signature", audiences: ["resident", "manager", "team"], placeholders: ["residentName", "propertyTitle", "url"] },
   { domain: "lease", event: "lease_signed_by_resident", area: "lease", label: "Signed by resident", audiences: ["resident", "manager"], placeholders: ["residentName", "propertyTitle", "url"] },
   { domain: "lease", event: "lease_countersigned", area: "lease", label: "Countersigned", audiences: ["resident", "manager"], placeholders: ["residentName", "propertyTitle", "url"] },
   { domain: "lease", event: "lease_signed", area: "lease", label: "Fully signed", audiences: ["resident", "manager"], placeholders: ["residentName", "propertyTitle", "url"] },
@@ -78,7 +83,7 @@ export const AUTOMATED_MESSAGE_CATALOG: AutomatedMessageCatalogEntry[] = [
   // ---- Payments ----
   { domain: "payment", event: "charge_created", area: "payments", label: "Charge created", audiences: ["resident", "manager"], placeholders: ["title", "amountLabel", "propertyTitle"] },
   { domain: "payment", event: "payment_processing", area: "payments", label: "Payment processing", audiences: ["resident"], placeholders: ["title", "amountLabel"] },
-  { domain: "payment", event: "payment_received", area: "payments", label: "Payment received", audiences: ["resident", "manager"], placeholders: ["title", "amountLabel", "propertyTitle"] },
+  { domain: "payment", event: "payment_received", area: "payments", label: "Payment received", audiences: ["resident", "manager", "team"], placeholders: ["title", "amountLabel", "propertyTitle"] },
   { domain: "payment", event: "partial_received", area: "payments", label: "Partial payment", audiences: ["resident", "manager"], placeholders: ["title", "amountLabel", "balanceLabel", "dueDateLabel"] },
   { domain: "payment", event: "payment_failed", area: "payments", label: "Payment failed", audiences: ["resident", "manager"], placeholders: ["title", "propertyTitle"] },
   { domain: "payment", event: "payment_refunded", area: "payments", label: "Refunded", audiences: ["resident", "manager"], placeholders: ["title", "amountLabel"] },
@@ -86,12 +91,15 @@ export const AUTOMATED_MESSAGE_CATALOG: AutomatedMessageCatalogEntry[] = [
   { domain: "payment", event: "deposit_received", area: "payments", label: "Deposit received", audiences: ["resident", "manager"], placeholders: ["amountLabel", "propertyTitle"] },
   // ---- Applications ----
   { domain: "application", event: "application_submitted", area: "applications", label: "Submitted", audiences: ["resident"], placeholders: ["applicantName", "propertyTitle", "responsePromise"] },
-  { domain: "application", event: "application_approved", area: "applications", label: "Approved", audiences: ["resident", "manager"], placeholders: ["applicantName", "propertyTitle"] },
-  { domain: "application", event: "application_declined", area: "applications", label: "Declined", audiences: ["resident", "manager"], placeholders: ["applicantName", "propertyTitle"] },
+  { domain: "application", event: "application_approved", area: "applications", label: "Approved", audiences: ["resident", "manager", "team"], placeholders: ["applicantName", "propertyTitle"] },
+  { domain: "application", event: "application_declined", area: "applications", label: "Declined", audiences: ["resident", "manager", "team"], placeholders: ["applicantName", "propertyTitle"] },
   { domain: "application", event: "application_withdrawn", area: "applications", label: "Withdrawn", audiences: ["resident", "manager"], placeholders: ["applicantName", "propertyTitle"] },
   // ---- Tours ----
-  { domain: "tour", event: "confirmed", area: "tours", label: "Tour confirmed", audiences: ["manager"], placeholders: ["guestName", "propertyTitle", "whenLabel"] },
+  { domain: "tour", event: "confirmed", area: "tours", label: "Tour confirmed", audiences: ["manager", "team"], placeholders: ["guestName", "propertyTitle", "whenLabel"] },
   { domain: "tour", event: "cancelled_by_guest", area: "tours", label: "Cancelled by guest", audiences: ["manager"], placeholders: ["guestName", "propertyTitle", "whenLabel"] },
+  // ---- WS5: shared-tour claim + availability, team-only ----
+  { domain: "tour", event: "claimed", area: "tours", label: "Tour claimed by a teammate", audiences: ["team"], placeholders: ["guestName", "propertyTitle", "whenLabel", "claimedByName"] },
+  { domain: "availability", event: "changed", area: "communication", label: "Availability changed", audiences: ["team"], placeholders: ["changedByName", "summary"] },
   // ---- Inspections (a report has two sides; the resident submits theirs, the manager may reopen it) ----
   { domain: "inspection", event: "submitted", area: "inspections", label: "Resident submitted their photos", audiences: ["manager"], placeholders: ["residentName", "propertyTitle", "kind", "url"] },
   { domain: "inspection", event: "reopened", area: "inspections", label: "Report reopened for the resident", audiences: ["resident"], placeholders: ["residentName", "propertyTitle", "kind", "url"] },
@@ -120,7 +128,7 @@ export function normalizeAutomatedMessageSettings(raw: unknown): AutomatedMessag
   const row = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   const out: AutomatedMessageSettings = {};
   for (const [key, value] of Object.entries(row)) {
-    if (!/^[a-z_]+:[a-z_]+:(manager|resident|vendor)$/.test(key)) continue;
+    if (!/^[a-z_]+:[a-z_]+:(manager|resident|vendor|team)$/.test(key)) continue;
     const entry = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
     const template = normalizeTemplate(entry.template);
     out[key] = { enabled: typeof entry.enabled === "boolean" ? entry.enabled : true, ...(template ? { template } : {}) };

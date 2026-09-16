@@ -6,7 +6,7 @@
  * kind's storage key.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { PortalCalendarPanels } from "@/components/portal/portal-calendar-panels";
 import { toLocalDateStr, startOfWeekMonday } from "@/lib/demo-admin-scheduling";
 import { resolveDefaultTourAvailabilityConfig } from "@/lib/tour-slot-math";
@@ -92,22 +92,27 @@ function renderKindAvailability() {
 describe("kind-scoped availability (PLAN-0914-1710 §2)", () => {
   it("labels a services run distinctly from a tours-only run", () => {
     const { container } = renderKindAvailability();
-    // The run label is the first line inside the two-line "Open" / "Open · Kind" span.
+    // The run label is the first line inside the two-line span. Tours-only now
+    // reads "Tours" (not the bare word "Open") and a services run names itself
+    // (PLAN-0916-0041).
     const labels = Array.from(container.querySelectorAll("span.flex.flex-col > span:first-child")).map(
       (el) => el.textContent,
     );
-    expect(labels).toContain("Open");
+    expect(labels).toContain("Tours");
     expect(labels.some((label) => label?.includes("Services"))).toBe(true);
   });
 
-  it("removing the services run's × writes only the services key", async () => {
+  it("deleting the services run via its dialog writes only the services key", async () => {
     const { container } = renderKindAvailability();
-    const removeButtons = Array.from(
-      container.querySelectorAll('[data-attr="calendar-remove-availability-slot"]'),
-    ) as HTMLButtonElement[];
-    const servicesRemove = removeButtons.find((btn) => btn.getAttribute("aria-label")?.includes("12"));
-    expect(servicesRemove).toBeTruthy();
-    fireEvent.click(servicesRemove!);
+    const monday = toLocalDateStr(startOfWeekMonday(new Date()));
+    // The floating grid × is gone (PLAN-0916-0041); deletion is via the
+    // click-through edit dialog's "Delete block".
+    expect(container.querySelectorAll('[data-attr="calendar-remove-availability-slot"]').length).toBe(0);
+    const servicesCells = container.querySelectorAll(`[aria-label="Open details for 12 pm on ${monday}"]`);
+    expect(servicesCells.length).toBeGreaterThanOrEqual(1);
+    fireEvent.click(servicesCells[0] as HTMLElement);
+    await waitFor(() => expect(document.querySelector(".modal-panel")).not.toBeNull());
+    fireEvent.click(screen.getAllByText("Delete block")[0]!);
     await waitFor(() => {
       expect(writeAvailability).toHaveBeenCalled();
     });

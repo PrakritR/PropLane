@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { signedInWithGoogle } from "@/lib/google-calendar/link-from-auth.server";
-import { googleCalendarOAuthRedirectUri } from "@/lib/google-calendar/api.server";
+import { googleCalendarOAuthRedirectUri, stopGoogleCalendarWatch } from "@/lib/google-calendar/api.server";
 import { debugGoogleCalendarLog } from "@/lib/google-calendar/debug-log.server";
 import {
   clearGoogleCalendarConnection,
@@ -87,6 +87,12 @@ export async function DELETE() {
   try {
     const ctx = await requireManager();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    const connection = await loadGoogleCalendarConnection(ctx.db, ctx.userId);
+    if (connection.channelId && connection.channelResourceId) {
+      await stopGoogleCalendarWatch(ctx.db, ctx.userId, connection.channelId, connection.channelResourceId).catch(
+        () => undefined,
+      );
+    }
     await clearGoogleCalendarConnection(ctx.db, ctx.userId);
     return NextResponse.json(googleCalendarPublicStatus(DEFAULT_GOOGLE_CALENDAR_CONNECTION));
   } catch (e) {

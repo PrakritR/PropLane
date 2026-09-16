@@ -21,6 +21,8 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { notifyTenantTourConfirmed } from "@/lib/tour-notification-delivery.server";
 import type { TourNotificationChannels, TourNotificationResult } from "@/lib/tour-notification-delivery.server";
 import { isActivePlannedTourEvent } from "@/lib/tour-slot-math";
+import { emitTourClaimedEvent } from "@/lib/tour-events.server";
+import { resolvePropertyOwnerUserId } from "@/lib/property-owner.server";
 import { canAssign, normalizeAssignee, type WorkAssignee } from "@/lib/work-assignment";
 import { createPrepareForTourTask } from "@/lib/manager-default-tasks.server";
 
@@ -31,6 +33,61 @@ export const PLANNED_RECORD_ID = "axis_admin_planned_events_v1";
 export const INQUIRY_EVENT_RECORD_TYPE = "partner_inquiry_request";
 
 const MAX_EVENT_DURATION_MS = 480 * 60_000;
+
+/**
+ * WS4(shared-avail): the DB-level guard behind `confirmTourInquiry` — see
+ * `supabase/migrations/20260916120500_tour_inquiry_claim_guard.sql`.
+ *
+ * `confirmTourInquiry` reads the pending-inquiry and planned-event singletons,
+ * decides, then writes them back — a non-atomic read-modify-write. Two
+ * co-managers approving the SAME pending request concurrently could both pass
+ * their (stale) double-book check and both upsert; the second write simply
+ * clobbers the first, so one manager's booking silently vanished even though
+ * both callers were told `ok: true`. A single INSERT against a primary key can
+ * only ever leave one row behind, so exactly one of two concurrent claims on
+ * the same `inquiry_id` wins — the loser's insert hits a unique violation
+ * (23505) and maps to a 409 here, before either caller touches the singletons.
+ */
+const TOUR_INQUIRY_CLAIM_STALE_MS = 2 * 60_000;
+
+type TourInquiryClaimResult = { ok: true } | { ok: false; status: 409 | 500; error: string };
+
+export async function acquireTourInquiryClaim(
+  db: Db,
+  inquiryId: string,
+  claimantUserId: string,
+): Promise<TourInquiryClaimResult> {
+  const insertClaim = () =>
+    db.from("tour_inquiry_claims").insert({ inquiry_id: inquiryId, claimed_by: claimantUserId });
+
+  const first = await insertClaim();
+  if (!first.error) return { ok: true };
+  if (first.error.code !== "23505") return { ok: false, status: 500, error: first.error.message };
+
+  // Stale-claim recovery: a confirm that crashed mid-flight (a serverless
+  // instance CAN be frozen right after this insert) would otherwise leave an
+  // orphaned row that locks this inquiry out of ever being confirmed again.
+  // Anything older than the TTL is treated as abandoned and cleared before the
+  // one retry — a live second confirm still loses, because ITS row is fresh.
+  const staleBefore = new Date(Date.now() - TOUR_INQUIRY_CLAIM_STALE_MS).toISOString();
+  await db.from("tour_inquiry_claims").delete().eq("inquiry_id", inquiryId).lt("claimed_at", staleBefore);
+
+  const second = await insertClaim();
+  if (second.error) {
+    return { ok: false, status: 409, error: "Another manager already took this tour." };
+  }
+  return { ok: true };
+}
+
+/**
+ * Always called before `confirmTourInquiry` returns, success or failure — a
+ * failed confirm (a validation error, a write failure) must stay retryable,
+ * and a successful one removes the inquiry from the pending set entirely, so
+ * nothing is lost by clearing the mutex either way.
+ */
+export async function releaseTourInquiryClaim(db: Db, inquiryId: string): Promise<void> {
+  await db.from("tour_inquiry_claims").delete().eq("inquiry_id", inquiryId);
+}
 
 function asObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
@@ -188,6 +245,18 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
   const id = opts.inquiryId.trim();
   if (!id) return { ok: false, status: 400, error: "id required" };
 
+  // WS4(shared-avail): the claim is taken BEFORE anything is read. Everything
+  // below is a read-modify-write of the pending-inquiry and planned-event
+  // singletons, and a snapshot taken outside the claim is exactly what let a
+  // second confirm (read while the first held the claim, claimed after it
+  // released) book the same request twice and write its stale inquiry list
+  // back over the first one's. The claim serializes the whole window per
+  // `inquiryId`; the `finally` always releases it, so a failed confirm stays
+  // retryable and a successful one has removed the request anyway.
+  const claim = await acquireTourInquiryClaim(db, id, opts.actorUserId);
+  if (!claim.ok) return { ok: false, status: claim.status, error: claim.error };
+
+  try {
   const { data: inquiryRecord, error: inquiryError } = await db
     .from("portal_schedule_records")
     .select("row_data")
@@ -195,9 +264,27 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
     .maybeSingle();
   if (inquiryError) return { ok: false, status: 500, error: inquiryError.message };
 
+  const { data: plannedRecord, error: plannedReadError } = await db
+    .from("portal_schedule_records")
+    .select("row_data")
+    .eq("id", PLANNED_RECORD_ID)
+    .maybeSingle();
+  if (plannedReadError) return { ok: false, status: 500, error: plannedReadError.message };
+  const plannedRows = rowsFromRecord(plannedRecord?.row_data);
+
+  // Read under the claim, so this is the row's CURRENT state: a request a
+  // previous confirm already turned into a booking is gone from the pending
+  // set and present in the planned set — that is a 409, not a 404, because
+  // the caller is racing a booking that happened, not chasing a typo.
   const inquiries = rowsFromRecord(inquiryRecord?.row_data);
   const row = inquiries.find((item) => textField(item, "id") === id);
   if (!row || textField(row, "kind") !== "tour" || textField(row, "status") !== "pending") {
+    const alreadyBooked = plannedRows.some(
+      (event) => textField(event, "sourceInquiryId") === id && isActivePlannedTourEvent(event),
+    );
+    if (alreadyBooked) {
+      return { ok: false, status: 409, error: "Another manager already took this tour." };
+    }
     return { ok: false, status: 404, error: "Tour request not found." };
   }
 
@@ -251,14 +338,6 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
   // Competing inquiries booked the original 30-min window, so slot clearing keys off windowEnd, not the custom end.
   const windowEnd = selectedWindow.end;
   const end = resolveConfirmedEnd(start, windowEnd, requestedEnd);
-
-  const { data: plannedRecord, error: plannedReadError } = await db
-    .from("portal_schedule_records")
-    .select("row_data")
-    .eq("id", PLANNED_RECORD_ID)
-    .maybeSingle();
-  if (plannedReadError) return { ok: false, status: 500, error: plannedReadError.message };
-  const plannedRows = rowsFromRecord(plannedRecord?.row_data);
 
   // Handing a tour to a peer ALWAYS re-checks their calendar: a request can sit
   // in Pending for days, and committing somebody else's afternoon on stale
@@ -364,6 +443,27 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
     if (deleteError) return { ok: false, status: 500, error: deleteError.message };
   }
 
+  // Tell the rest of the team this tour is now taken (WS5 team audience).
+  // The team that hears is the PROPERTY OWNER's — a co-manager claiming a
+  // tour on the owner's house is the owner's team's news, not a note in the
+  // claimer's own thread. Best-effort: a comms failure must never fail the
+  // claim itself.
+  try {
+    const propertyId = textField(row, "propertyId");
+    const ownerUserId = (await resolvePropertyOwnerUserId(db, propertyId)) ?? filedManagerUserId ?? managerUserId;
+    await emitTourClaimedEvent(db, {
+      managerUserId: ownerUserId || managerUserId,
+      tourId: String(plannedEvent.id),
+      guestName: textField(row, "name"),
+      propertyTitle: textField(row, "propertyTitle") || undefined,
+      propertyId: textField(row, "propertyId") || undefined,
+      whenLabel: formatRangeLabel(start, end),
+      claimedByUserId: opts.actorUserId,
+    });
+  } catch {
+    // swallow — the tour is claimed regardless of the team notice
+  }
+
   let tenantNotification: TourNotificationResult | null = null;
   if (opts.notifyTenant) {
     // The tool path has no live request; links then resolve to the production
@@ -415,4 +515,7 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
   }).catch(() => undefined);
 
   return { ok: true, plannedEvent, message: formatRangeLabel(start, end), tenantNotification, calendarSync };
+  } finally {
+    await releaseTourInquiryClaim(db, id);
+  }
 }

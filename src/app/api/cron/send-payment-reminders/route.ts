@@ -248,7 +248,6 @@ export async function GET(req: Request) {
         managerDeliverViaEmail: message.deliverViaEmail ?? settings.paymentReminderDeliverViaEmail,
         managerDeliverViaSms: message.deliverViaSms ?? settings.paymentReminderDeliverViaSms,
         managerDeliverViaInbox: settings.paymentReminderDeliverViaInbox,
-        skipManualPaymentInstructions: chargeIds.length > 1,
       });
       if (result.error) errors.push(result.error);
       if (result.sent) {
@@ -292,8 +291,6 @@ export async function GET(req: Request) {
             blocksLeaseUntilPaid: false,
             dueDateLabel: "Due immediately",
             sourceChargeId: charge.id,
-            zelleContactSnapshot: charge.zelleContactSnapshot,
-            venmoContactSnapshot: charge.venmoContactSnapshot,
           };
 
           await db.from("portal_household_charge_records").upsert(

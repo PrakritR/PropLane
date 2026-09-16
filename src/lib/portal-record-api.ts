@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { getPortalAccessContext } from "@/lib/auth/portal-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -27,6 +28,19 @@ type RecordConfig = {
     user: RecordUser,
     existing: Record<string, unknown> | null,
   ) => Record<string, unknown>;
+  /**
+   * Best-effort side effect after a successful upsert (e.g. pushing an
+   * availability record to Google Calendar). Runs AFTER the upsert, is never
+   * awaited into a failure of the request — a save always succeeds locally
+   * even if this throws — and receives the pre-upsert row so a caller can
+   * diff against what was there before.
+   */
+  afterWrite?: (args: {
+    record: Record<string, unknown>;
+    user: RecordUser;
+    existing: Record<string, unknown> | null;
+    db: SupabaseClient;
+  }) => void | Promise<void>;
 };
 
 async function getUserContext() {
@@ -155,6 +169,18 @@ export function createJsonRecordRoute(config: RecordConfig) {
           }
           const { error } = await ctx.db.from(config.table).upsert(finalRecord, { onConflict: "id" });
           if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+          if (config.afterWrite) {
+            try {
+              await config.afterWrite({
+                record: finalRecord,
+                user: ctx.user,
+                existing: recordExists ? ((existing?.[0] as Record<string, unknown>) ?? null) : null,
+                db: ctx.db,
+              });
+            } catch (e) {
+              console.warn(`[portal-record-api] afterWrite hook failed for ${config.table}/${id}`, e);
+            }
+          }
         }
         return NextResponse.json({ ok: true });
       } catch (e) {

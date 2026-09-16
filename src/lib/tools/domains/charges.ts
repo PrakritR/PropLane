@@ -450,12 +450,12 @@ export const deleteChargeTool = defineWriteTool({
   },
 });
 
-const MANUAL_CHANNELS = ["zelle", "venmo", "cash", "check", "other"] as const;
+const MANUAL_CHANNELS = ["cash", "check", "other"] as const;
 
 export const markChargePaidTool = defineWriteTool({
   name: "mark_charge_paid",
   description:
-    "Record that a resident paid one of the landlord's charges outside Axis (Zelle, Venmo, cash, or check). Pass the charge id from list_charges; this cancels the charge's future payment reminders and records the payment in the ledger.",
+    "Record that a resident paid one of the landlord's charges outside PropLane (cash or check). Pass the charge id from list_charges; this cancels the charge's future payment reminders and records the payment in the ledger.",
   inputSchema: z
     .object({
       chargeId: z.string().min(1).describe("Id of the unpaid charge to mark paid (from list_charges)."),
@@ -478,14 +478,6 @@ export const markChargePaidTool = defineWriteTool({
       { label: "Charge", value: charge.title || "—" },
       { label: "Amount", value: charge.balanceLabel || charge.amountLabel || "—" },
     ];
-    if (charge.manualPaymentChannel) {
-      const reportedAt = charge.manualPaymentReportedAt ? new Date(charge.manualPaymentReportedAt) : null;
-      const reportedOn = reportedAt && !Number.isNaN(reportedAt.getTime()) ? ` on ${formatChargeDueDateLabel(reportedAt)}` : "";
-      lines.push({
-        label: "Resident reported",
-        value: `Resident reported sending ${charge.manualPaymentChannel === "zelle" ? "Zelle" : "Venmo"}${reportedOn}`,
-      });
-    }
     if (input.channel) lines.push({ label: "Payment method", value: input.channel });
     lines.push({ label: "Effect", value: "Future reminders cancelled; payment recorded in the ledger" });
     return {

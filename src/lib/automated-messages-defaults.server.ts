@@ -17,7 +17,7 @@ import {
   type ServiceRequestActionEvent,
 } from "@/lib/domain-action-events.server";
 import { renderWorkOrderEvent, type WorkOrderEventType } from "@/lib/work-order-events.server";
-import { renderTourManagerEvent, type TourManagerEvent } from "@/lib/tour-events.server";
+import { renderTourManagerEvent, renderTourTeamEvent, type TourManagerEvent } from "@/lib/tour-events.server";
 import { renderInspectionEvent } from "@/lib/inspection-events.server";
 
 const SAMPLE = {
@@ -71,6 +71,20 @@ function renderDefault(domain: string, event: string, audience: AutomatedMessage
   }
   if (domain === "tour" && audience === "manager") {
     return renderTourManagerEvent(event as TourManagerEvent, { guestName: "Alex Prospect", propertyTitle: "5257 Brooklyn Ave NE", whenLabel: "Thu, Sep 18 · 4:00–4:30 PM", reason: "schedule changed" });
+  }
+  // WS5: team-audience tour events.
+  if (domain === "tour" && audience === "team" && event === "confirmed") {
+    return renderTourTeamEvent({ guestName: "Alex Prospect", propertyTitle: "5257 Brooklyn Ave NE", whenLabel: "Thu, Sep 18 · 4:00–4:30 PM" });
+  }
+  if (domain === "tour" && audience === "team" && event === "claimed") {
+    return {
+      subject: "Alex Prospect · Tour claimed",
+      text: "Heads up team — I'm taking the Thu, Sep 18 · 4:00–4:30 PM tour with Alex Prospect at 5257 Brooklyn Ave NE.",
+    };
+  }
+  // WS5: availability, team-only.
+  if (domain === "availability" && audience === "team" && event === "changed") {
+    return { subject: "Availability changed", text: "Jordan Manager blocked Fri 2-5pm." };
   }
   if (domain === "inspection") {
     return renderInspectionEvent(event as "submitted" | "reopened", audience, { residentName: "Alex Resident", propertyLabel: "5257 Brooklyn Ave NE · Room B", kind: "move_in" });

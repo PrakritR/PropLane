@@ -72,8 +72,6 @@ function payoutStatusForRow(
   if (payout?.status === "paid") return { status: "paid", label: "Paid" };
   if (payout?.status === "failed") return { status: "failed", label: "Payout failed" };
   if (payout?.status === "skipped") return { status: "skipped", label: "Payout skipped" };
-  if (row.vendorPaymentChannel === "zelle") return { status: "paid", label: "Paid via Zelle" };
-  if (row.vendorPaymentChannel === "venmo") return { status: "paid", label: "Paid via Venmo" };
   if (row.vendorPaymentChannel === "ach") return { status: "paid", label: "Paid via ACH" };
   return { status: "paid", label: "Paid" };
 }

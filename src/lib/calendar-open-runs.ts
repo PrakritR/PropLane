@@ -1,7 +1,7 @@
 /**
  * Merge per-kind open slot sets for one calendar day into contiguous runs, so
  * a calendar grid can render one bar per stretch of identical availability
- * ("Open · Tours, Services" for 9-10, "Open · Services" for 10-11) rather than
+ * ("Tours · Services" for 9-10, "Services" for 10-11) rather than
  * one cell per 30-minute slot.
  */
 import { AVAILABILITY_KIND_LABELS, AVAILABILITY_KINDS, type AvailabilityKind } from "@/lib/manager-availability-kinds";
@@ -53,8 +53,12 @@ export function mergeOpenRuns(slotsByKind: Partial<Record<AvailabilityKind, Iter
   return runs;
 }
 
-/** "Open" for tours-only (the pre-existing single-kind label); "Open · <kinds>" otherwise. */
+/**
+ * The block label reads by its category: a tours-only block is "Tours", a
+ * mixed block is "Tours · Services". (Previously tours-only rendered the bare
+ * word "Open", which read as "not yet configured" — see PLAN-0916-0041.)
+ */
 export function formatOpenRunKindsLabel(kinds: AvailabilityKind[]): string {
-  if (kinds.length === 1 && kinds[0] === "tours") return "Open";
-  return `Open · ${kinds.map((kind) => AVAILABILITY_KIND_LABELS[kind]).join(", ")}`;
+  if (kinds.length === 0) return "Open";
+  return kinds.map((kind) => AVAILABILITY_KIND_LABELS[kind]).join(" · ");
 }

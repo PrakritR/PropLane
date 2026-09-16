@@ -3,6 +3,7 @@ import type { DemoMeeting } from "@/components/portal/portal-calendar-panels";
 import type { GoogleCalendarApiEvent } from "@/lib/google-calendar/api.server";
 import { googleEventBlocksTours, googleCalendarEventInformational } from "@/lib/google-calendar/busy";
 import {
+  PROPLANE_AVAILABILITY_TYPE_MARKER,
   PROPLANE_GOOGLE_CALENDAR_MARKER,
   PROPLANE_TOUR_TYPE_MARKER,
   PROPLANE_WORK_ORDER_TYPE_MARKER,
@@ -135,6 +136,16 @@ export function isGoogleCalendarWorkOrderEvent(event: GoogleCalendarApiEvent): b
   return /^(?:My work|Service)\s*·/i.test(event.summary.trim()) || /\s·\s/.test(event.summary);
 }
 
+/**
+ * A painted-availability echo: the "Open for tours" event
+ * `syncManagerAvailabilityToGoogleCalendar` pushed, coming back through the
+ * live events feed. The manager's own open cells already draw that window, so
+ * the echo must never render a second block on top of them or count anywhere.
+ */
+export function isGoogleCalendarAvailabilityEcho(event: Pick<GoogleCalendarApiEvent, "description">): boolean {
+  return descriptionHasMarker(event.description, PROPLANE_AVAILABILITY_TYPE_MARKER);
+}
+
 export function isGoogleCalendarPrivateBlock(
   meeting: Pick<DemoMeeting, "source" | "kind" | "googleCalendarPrivate">,
 ): boolean {
@@ -226,6 +237,7 @@ export function meetingCalendarGridTooltip(meeting: DemoMeeting): string {
  */
 export function googleCalendarEventsToMeetings(events: GoogleCalendarApiEvent[]): DemoMeeting[] {
   return events
+    .filter((event) => !isGoogleCalendarAvailabilityEcho(event))
     .map((event) => {
       const start = new Date(event.start);
       const end = new Date(event.end);

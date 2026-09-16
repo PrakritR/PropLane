@@ -26,8 +26,6 @@ import {
   ingestInboundEmailReply,
 } from "@/lib/inbound-email/inbound-email-reply.server";
 import { parseReplyAddress } from "@/lib/inbound-email/reply-address.server";
-import { isPaymentInboxEmail } from "@/lib/payment-receipt-email/payment-inbox";
-import { processInboundPaymentReceiptEmail } from "@/lib/payment-receipt-email/process-receipt.server";
 import { isAssistantEmailAddress } from "@/lib/manager-assistant-email/assistant-email-address";
 import { processManagerAssistantInboundEmail } from "@/lib/manager-assistant-email/process-assistant-inbound.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -176,30 +174,6 @@ export async function POST(req: Request) {
       console.error("inbound-email assistant ingest failed", parsed.emailId, e);
       return new Response("Ingest failed", { status: 500 });
     }
-  }
-
-  if (isPaymentInboxEmail(parsed.toEmails)) {
-    const processReceipt = () =>
-      processInboundPaymentReceiptEmail(parsed, createSupabaseServiceRoleClient())
-        .then((result) => {
-          if (result.outcome === "marked_paid") {
-            console.info(
-              "payment-receipt marked paid",
-              result.emailId,
-              result.chargeId,
-              result.channel,
-            );
-          } else if (result.outcome === "no_match" || result.outcome === "ambiguous") {
-            console.warn("payment-receipt unmatched", result);
-          }
-        })
-        .catch((e) => console.warn("payment-receipt processing errored", parsed.emailId, e));
-    try {
-      after(processReceipt);
-    } catch {
-      void processReceipt();
-    }
-    return ok({ paymentInbox: true });
   }
 
   let created: boolean;

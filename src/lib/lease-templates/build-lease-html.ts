@@ -908,22 +908,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
     : (sub?.petFriendly ?? room?.petFriendly ?? list?.petFriendly)
       ? "Pets may be permitted subject to prior written approval from Landlord and compliance with the property&apos;s pet rules. Any applicable pet charges must be separately specified in writing."
       : "No pets or animals of any kind are permitted on the Premises without prior written consent of Landlord.";
-  // Read the NORMALIZED listing, never the raw submission: normalization is what
-  // decides which channels the product still accepts, and a lease must not promise
-  // a channel the portal has retired just because an old listing row still carries it.
-  const manualPaymentMethods = [
-    subNorm?.zellePaymentsEnabled && subNorm.zelleContact?.trim()
-      ? `Zelle to <strong>${escapeHtml(subNorm.zelleContact.trim())}</strong>`
-      : "",
-    subNorm?.venmoPaymentsEnabled && subNorm.venmoContact?.trim()
-      ? `Venmo to <strong>${escapeHtml(subNorm.venmoContact.trim())}</strong>`
-      : "",
-  ].filter(Boolean);
-  const paymentMethod = propertyTemplatePreview
-    ? "Payment shall be made via the PropLane portal or by a method agreed in writing with Landlord."
-    : manualPaymentMethods.length > 0
-      ? `Payment may be made via Stripe (portal), ${manualPaymentMethods.join(", ")}, or another method agreed in writing.`
-      : "Payment shall be made via the PropLane portal or by a method agreed in writing with Landlord.";
+  const paymentMethod = "Payment shall be made via the PropLane portal or by a method agreed in writing with Landlord.";
 
   const proratedSection = propertyTemplatePreview
     ? ""

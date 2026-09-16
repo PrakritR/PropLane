@@ -20,7 +20,6 @@ import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveVendorNextAvailableSlot } from "@/lib/vendor-availability-server";
 import { buildVendorBidDeclinedEmail } from "@/lib/vendor-visit-email";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
-import { generateWorkOrderPaymentReference } from "@/lib/payment-reference";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -534,6 +533,7 @@ export async function acceptWorkOrderBid(
       senderName: actor.fullName,
       facts: {
         reference: rowData.reference || "Work order",
+        propertyId: String(workOrder.assigned_property_id ?? workOrder.property_id ?? "") || undefined,
         title: workOrderTitle || "Work order",
         propertyLabel: propertyLabel || undefined,
         scheduledFor: record.proposed_time ?? undefined,
@@ -691,7 +691,6 @@ export async function markWorkOrderDoneByVendor(
     automationStatus: "vendor_marked_done",
     vendorMarkedDoneAt: now,
     vendorMarkedDoneNote: note || undefined,
-    paymentReference: rowData.paymentReference?.trim() || generateWorkOrderPaymentReference(workOrderId),
   };
 
   const { error } = await db
@@ -716,6 +715,7 @@ export async function markWorkOrderDoneByVendor(
     senderName: actor.fullName,
     facts: {
       reference: rowData.reference || "Work order",
+      propertyId: rowData.assignedPropertyId || rowData.propertyId || undefined,
       title: rowData.title || "Work order",
       propertyLabel: rowData.propertyName || undefined,
       vendorName: actor.fullName || rowData.vendorName || undefined,

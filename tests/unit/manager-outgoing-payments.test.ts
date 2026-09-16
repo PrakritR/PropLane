@@ -82,7 +82,7 @@ describe("buildManagerOutgoingPaymentRows", () => {
         vendorCostCents: 20000,
         automationStatus: "paid",
         paidAt: "2026-06-02T12:00:00.000Z",
-        vendorPaymentChannel: "zelle",
+        vendorPaymentChannel: "ach",
       },
     ];
 
@@ -105,8 +105,8 @@ describe("buildManagerOutgoingPaymentRows", () => {
     });
 
     const expenseRow = rows.find((row) => row.id === "expense-exp-wo");
-    expect(expenseRow?.paidViaChannel).toBe("zelle");
-    expect(expenseRow?.statusLabel).toBe("Paid · Zelle");
+    expect(expenseRow?.paidViaChannel).toBe("ach");
+    expect(expenseRow?.statusLabel).toBe("Paid · Bank (ACH)");
     expect(rows.some((row) => row.id === "work-order-paid-wo-paid")).toBe(false);
   });
 });

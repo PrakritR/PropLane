@@ -178,20 +178,43 @@ function viewerHasCalendarAccess(viewerUserId: string, propertyId: string): bool
 }
 
 /**
- * Pending tour requests: the manager it was booked with, plus any co-manager with
- * calendar access to that property.
+ * The client half of `listPropertyTourHostUserIds` (tour-host-enumeration.server.ts):
+ * the owner, or a co-manager holding `calendar` or `applications` at EDIT on
+ * the house. Kept to the same two grants so what a viewer can SEE below is
+ * exactly what `confirmTourInquiry` will let them CLAIM.
+ */
+function viewerMayHostPropertyTour(viewerUserId: string, propertyId: string): boolean {
+  const pid = propertyId.trim();
+  const listing = readAllExtraListings().find((p) => p.id === pid);
+  if (listing?.managerUserId?.trim() === viewerUserId) return true;
+  return (
+    collectLinkedPropertyIdsForModule(viewerUserId, "calendar", "edit").has(pid) ||
+    collectLinkedPropertyIdsForModule(viewerUserId, "applications", "edit").has(pid)
+  );
+}
+
+/**
+ * Pending tour requests: exactly the roster that may claim it.
  *
  * It used to be the booked manager alone (AXI-159), so a request on a house a
  * co-manager runs day to day was invisible to them — nobody could confirm it but
  * the owner, and the co-manager could not even see that a prospect was waiting.
+ * Then it widened to anyone with ANY calendar access, which overshot the other
+ * way: a calendar-view co-manager saw a request they got 403 on approving, and
+ * an applications-edit co-manager could claim one they never saw. The row's
+ * server-recorded `eligibleHostUserIds` (WS4) is the claimable set, so it is
+ * the visible set; a legacy row with none recorded falls back to the same
+ * grants the server roster is built from.
  */
 export function tourInquiryVisibleToViewer(row: PartnerInquiry, filter: ScheduledTourFilter): boolean {
   if (row.kind !== "tour" || row.status !== "pending") return false;
   if (!eventMatchesScheduledTourProperty(row.propertyId, filter)) return false;
   if (row.managerUserId === filter.viewerUserId) return true;
+  const eligible = (row.eligibleHostUserIds ?? []).map((id) => id.trim()).filter(Boolean);
+  if (eligible.length > 0) return eligible.includes(filter.viewerUserId.trim());
   const propertyId = row.propertyId?.trim();
   if (!propertyId) return false;
-  return viewerHasCalendarAccess(filter.viewerUserId, propertyId);
+  return viewerMayHostPropertyTour(filter.viewerUserId, propertyId);
 }
 
 /**

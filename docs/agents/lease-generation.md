@@ -1752,12 +1752,12 @@ No fee, amount or ledger behaviour changed. Coverage:
 
 ### Payment instructions read the NORMALIZED listing
 
-Zelle and Venmo are retired product-wide. `normalizeManagerListingSubmissionV1` now forces
-`zellePaymentsEnabled` / `venmoPaymentsEnabled` off in its OUTPUT (the stored contacts
-survive) — it spreads the raw submission, so without that a legacy listing row carried a
-stale `true` straight into a lease clause promising a channel the portal no longer
-accepts. `build-lease-html.ts` reads `subNorm`, never `ctx.listingSubmission`, for the
-payment-method sentence. Signed documents are untouched.
+Off-platform payment channels were removed product-wide (PLAN-0916).
+`normalizeManagerListingSubmissionV1` deletes `RETIRED_LISTING_PAYMENT_KEYS` from its
+OUTPUT — it spreads the raw submission, so without that a legacy listing row would carry a
+stale handle straight into a lease clause. The payment-method sentence is fixed copy:
+payment is made via the PropLane portal or a method agreed in writing. Signed documents
+are untouched.
 
 ### Deliberately deferred clauses
 

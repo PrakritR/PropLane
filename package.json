@@ -119,7 +119,8 @@
     "security:document-backfill": "tsx --conditions=react-server scripts/security/backfill-application-documents.ts",
     "security:backfill-applicant-identities": "tsx --conditions=react-server scripts/security/backfill-applicant-identities.ts",
     "qa:dom-sweep": "node scripts/qa-portal-dom-sweep.mjs",
-    "test:lease-preview": "playwright test --config tests/browser/lease-preview.config.ts"
+    "test:lease-preview": "playwright test --config tests/browser/lease-preview.config.ts",
+    "test:calendar-availability": "playwright test --config tests/browser/calendar-availability.config.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",

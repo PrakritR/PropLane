@@ -55,7 +55,7 @@ export function PortalStripeConnectPanel({
   dataAttrPrefix?: string;
   /** Called after Stripe redirects back with `?connect=done` (same-tab return). */
   onConnectDone?: () => void;
-  /** Opens the unified payment setup modal (Stripe + Zelle + Venmo). */
+  /** Opens the unified payment setup modal (Stripe). */
   onOpenPaymentSetup?: () => void;
   /**
    * When "vendor", emit the `payout_setup_started` / `payout_setup_completed`
@@ -265,7 +265,7 @@ export function PortalStripeConnectPanel({
         disabled={busy}
         onClick={() => openSetup()}
         data-attr={`${dataAttrPrefix}-link`}
-        title={blockingError ?? (needsFinish ? "Finish payment setup (bank, Zelle, Venmo)" : "Open payment setup")}
+        title={blockingError ?? (needsFinish ? "Finish payment setup (bank)" : "Open payment setup")}
       >
         {busy ? "Opening…" : label}
       </Button>

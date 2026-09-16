@@ -66,6 +66,14 @@ export type InboxAiDraft = {
   status: "pending_approval";
   generatedAt: string;
   model?: string;
+  /**
+   * A draft the workspace's draft-for-review setting queued (WS5): the
+   * manager must approve it by hand. The inbox's AI auto-send latch skips it —
+   * auto-sending would be the exact opposite of what the setting promises.
+   */
+  requiresReview?: boolean;
+  /** `automation:<domain>:<event>` for a queued automation draft; absent on an AI reply draft. */
+  origin?: string;
 };
 
 export type PersistedInboxThread = {
@@ -90,6 +98,20 @@ export type PersistedInboxThread = {
   messages?: InboxThreadMessage[];
   /** Manager-only pending AI reply draft (never present on resident-scope rows). */
   aiDraft?: InboxAiDraft;
+  /**
+   * Drafts waiting behind `aiDraft`, oldest first. A second automated draft
+   * for the same person never overwrites one still pending approval; it
+   * queues here and is promoted by {@link advanceInboxAiDraft} once the head
+   * is approved or discarded.
+   */
+  aiDraftQueue?: InboxAiDraft[];
+  /**
+   * `generatedAt` of every draft this browser approved or discarded on the
+   * thread. A shared (team) thread's draft slots are server-authoritative:
+   * the mailbox merge removes exactly these and keeps everything else, so a
+   * stale snapshot can never wipe a draft the viewer never saw.
+   */
+  resolvedAiDraftIds?: string[];
   /**
    * What the conversation is about, stamped by the send path (see
    * `deliverPortalInboxMessage`'s `eventCategory`). ABSENT on every row written
@@ -451,6 +473,18 @@ export function invalidatePersistedInboxCache(key: string): void {
   inboxSuccessfulServerSyncAtByKey.set(cacheKey, 0);
 }
 
+/**
+ * The manager<->manager Team thread (`team-comms.server.ts`) is shared by
+ * several accounts and appended server-side under a CAS; the wholesale
+ * `replace` a browser sends on every local change must never carry it, or a
+ * stale snapshot overwrites turns others posted. Explicit single-row upserts
+ * (approve / discard a draft, archive) still go, and the route merges only
+ * that mailbox state.
+ */
+function isSharedTeamThread(thread: Pick<PersistedInboxThread, "id" | "threadType">): boolean {
+  return thread.threadType === "team" || thread.id.startsWith("team-thread:");
+}
+
 async function postInboxRows(
   action: "replace" | "upsert",
   key: string,
@@ -467,6 +501,8 @@ async function postInboxRows(
   };
   // Demo sandbox is local-only: pretend the server write succeeded.
   if (isDemoModeActive()) return true;
+  const replaceRows = action === "replace" ? rows.filter((row) => !isSharedTeamThread(row)) : rows;
+  if (replaceRows.length === 0) return true;
   try {
     const res = await fetch("/api/portal-inbox-threads", {
       method: "POST",
@@ -474,7 +510,7 @@ async function postInboxRows(
       credentials: "include",
       body: JSON.stringify(
         action === "replace"
-          ? { action, rows: rows.map(serialize) }
+          ? { action, rows: replaceRows.map(serialize) }
           : { action, row: serialize(rows[0]!) },
       ),
     });
@@ -568,15 +604,18 @@ export function persistInbox(key: string, threads: PersistedInboxThread[]): void
       const deleted = await deleteInboxThreadIds(removedIds);
       if (!deleted) return;
     }
-    const storedRows = threads.map((thread) => {
-      const {
-        readSources: _readSources,
-        readSourcesComplete: _readSourcesComplete,
-        smsBindingKeys: _smsBindingKeys,
-        ...stored
-      } = thread;
-      return { ...stored, scope: key };
-    });
+    const storedRows = threads
+      .filter((thread) => !isSharedTeamThread(thread))
+      .map((thread) => {
+        const {
+          readSources: _readSources,
+          readSourcesComplete: _readSourcesComplete,
+          smsBindingKeys: _smsBindingKeys,
+          ...stored
+        } = thread;
+        return { ...stored, scope: key };
+      });
+    if (storedRows.length === 0) return;
     await fetch("/api/portal-inbox-threads", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -703,6 +742,28 @@ export function inboxThreadCounterpartyEmail(
   if (isProplaneSystemSenderEmail(from)) return PROPLANE_SYSTEM_COUNTERPARTY_KEY;
   if (from.includes("@")) return from;
   return email;
+}
+
+/**
+ * The thread once its pending draft is approved or discarded: the next queued
+ * draft (if any) becomes `aiDraft`, so an automated draft that arrived while
+ * an earlier one was still waiting is never lost.
+ */
+export function advanceInboxAiDraft<
+  T extends Pick<PersistedInboxThread, "aiDraft" | "aiDraftQueue" | "resolvedAiDraftIds">,
+>(thread: T): T {
+  const queue = Array.isArray(thread.aiDraftQueue) ? thread.aiDraftQueue.filter(Boolean) : [];
+  const [next, ...rest] = queue;
+  const resolvedId = thread.aiDraft?.generatedAt?.trim();
+  const resolved = resolvedId
+    ? [...new Set([...(thread.resolvedAiDraftIds ?? []), resolvedId])]
+    : thread.resolvedAiDraftIds;
+  return {
+    ...thread,
+    aiDraft: next,
+    aiDraftQueue: rest.length > 0 ? rest : undefined,
+    ...(resolved && resolved.length > 0 ? { resolvedAiDraftIds: resolved } : {}),
+  };
 }
 
 /**

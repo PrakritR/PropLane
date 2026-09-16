@@ -80,7 +80,7 @@ export function sanitizeNeighborhoodInput(value: string): string {
   return value.replace(/[^a-zA-Z\s\-'.]/g, "");
 }
 
-/** Zelle / Venmo contact — email, phone, or handle characters. */
+/** Payment contact — email, phone, or handle characters. */
 export function sanitizePaymentContactInput(value: string): string {
   return value.replace(/[^\w@.\-+]/g, "");
 }

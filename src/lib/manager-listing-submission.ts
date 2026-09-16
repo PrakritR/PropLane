@@ -818,43 +818,18 @@ export type ManagerListingSubmissionV1 = {
   sharedSpaceDefaults?: Partial<SharedSpaceDefaults>;
   /** One amenity per line or comma-separated */
   amenitiesText: string;
-  /** When true, applicants/residents see Zelle instructions using `zelleContact`. */
-  zellePaymentsEnabled?: boolean;
-  /** Phone or email for Zelle (shown to applicants; manager marks payments paid manually). */
-  zelleContact?: string;
-  /** When true, applicants/residents see Venmo instructions using `venmoContact`. */
-  venmoPaymentsEnabled?: boolean;
-  /** Venmo username, phone, or email (shown to applicants; manager marks payments paid manually). */
-  venmoContact?: string;
   /** When true, applicants/residents see a direct bank/ACH payment link using `achPaymentLink`. */
   achPaymentLinkEnabled?: boolean;
   /** External bank/ACH payment link (e.g. a bank bill-pay URL), shown to applicants/residents. */
   achPaymentLink?: string;
   /**
-   * Payment methods this property accepts from residents, manager-controlled (Zelle/Venmo/ACH/Credit
-   * card). Unset/empty = every method is accepted (see `acceptedPaymentMethodsForListing`). Read by the
+   * Payment methods this property accepts from residents, manager-controlled (ACH / credit card).
+   * Unset/empty = every method is accepted (see `acceptedPaymentMethodsForListing`). Read by the
    * resident's "Set payment method" selector to gate which choices are offered.
    */
-  acceptedPaymentMethods?: ("zelle" | "venmo" | "ach" | "card")[];
-  /**
-   * When manual payment methods are enabled for the listing, applicants can still use the default “portal / online” path
-   * for the application fee (manager marks received). Default true.
-   */
+  acceptedPaymentMethods?: ("ach" | "card")[];
+  /** Applicants pay the application fee online through PropLane. Default true. */
   applicationFeeStripeEnabled?: boolean;
-  /**
-   * When Zelle is enabled, offer Zelle as an application-fee payment path in the apply flow.
-   * Default true when Zelle is on; ignored when Zelle is off.
-   */
-  applicationFeeZelleEnabled?: boolean;
-  /**
-   * When Venmo is enabled, offer Venmo as an application-fee payment path in the apply flow.
-   * Default true when Venmo is on; ignored when Venmo is off.
-   */
-  applicationFeeVenmoEnabled?: boolean;
-  /** When true, offer a custom application-fee payment path using `applicationFeeOtherInstructions`. */
-  applicationFeeOtherEnabled?: boolean;
-  /** Instructions shown when applicant pays application fee via "Other". */
-  applicationFeeOtherInstructions?: string;
   /** When monthly rent and utilities are due each cycle. Default first of month. */
   rentDueDayMode?: "first_of_month" | "last_of_month";
   /**
@@ -2189,17 +2164,7 @@ export function normalizeManagerListingSubmissionV1(
     }));
   }
 
-  const zelleEnabled = false;
-  const venmoEnabled = false;
-  const otherChannelActive = Boolean(
-    sub.applicationFeeOtherEnabled &&
-      typeof sub.applicationFeeOtherInstructions === "string" &&
-      sub.applicationFeeOtherInstructions.trim(),
-  );
   const applicationFeeStripeEnabled = sub.axisPaymentsEnabled !== false;
-  const applicationFeeZelleEnabled = zelleEnabled;
-  const applicationFeeVenmoEnabled = venmoEnabled;
-  const applicationFeeOtherEnabled = otherChannelActive;
 
   const allowedLeaseTerms = resolveAllowedLeaseTerms(sub);
   const leaseTermsBody =
@@ -2402,19 +2367,7 @@ export function normalizeManagerListingSubmissionV1(
       (sub as { propertyApplicationTemplatesExplicit?: unknown }).propertyApplicationTemplatesExplicit === true
         ? true
         : undefined,
-    // Retired product-wide, and the normalized submission is what every reader
-    // (including the generated lease) is entitled to trust. The stored contacts
-    // survive so nothing is lost if the channels ever return; the flags do not,
-    // because `...sub` above would otherwise carry a legacy `true` straight into
-    // a lease clause promising a channel the portal no longer accepts.
-    zellePaymentsEnabled: zelleEnabled,
-    venmoPaymentsEnabled: venmoEnabled,
     applicationFeeStripeEnabled,
-    applicationFeeZelleEnabled,
-    applicationFeeVenmoEnabled,
-    applicationFeeOtherEnabled,
-    applicationFeeOtherInstructions:
-      typeof sub.applicationFeeOtherInstructions === "string" ? sub.applicationFeeOtherInstructions : "",
     applicationFeeWaiverCode: (() => {
       const raw =
         typeof sub.applicationFeeWaiverCode === "string" ? sub.applicationFeeWaiverCode.trim() : "";
@@ -2530,8 +2483,25 @@ export function normalizeManagerListingSubmissionV1(
   delete (next as Record<string, unknown>).sharedSpacesDescription;
   delete (next as Record<string, unknown>).paymentAtSigning;
   delete (next as Record<string, unknown>).utilitiesMonthly;
+  // Off-platform payment channels were removed (PLAN-0916). A stored row may
+  // still carry the handles; the normalized listing — what leases, the public
+  // page and the apply flow read — never does.
+  for (const retired of RETIRED_LISTING_PAYMENT_KEYS) {
+    delete (next as Record<string, unknown>)[retired];
+  }
   return ensureSubmissionListingFees(next as ManagerListingSubmissionV1);
 }
+
+const RETIRED_LISTING_PAYMENT_KEYS = [
+  "zellePaymentsEnabled",
+  "zelleContact",
+  "venmoPaymentsEnabled",
+  "venmoContact",
+  "applicationFeeZelleEnabled",
+  "applicationFeeVenmoEnabled",
+  "applicationFeeOtherEnabled",
+  "applicationFeeOtherInstructions",
+] as const;
 
 /**
  * Room floor area, or `undefined` when the manager has not said.
@@ -3204,17 +3174,9 @@ export function createDefaultListingSubmission(): ManagerListingSubmissionV1 {
     otherMonthlyFees: "",
     sharedSpaces: [],
     amenitiesText: "",
-    zellePaymentsEnabled: false,
-    zelleContact: "",
-    venmoPaymentsEnabled: false,
-    venmoContact: "",
     achPaymentLinkEnabled: false,
     achPaymentLink: "",
     applicationFeeStripeEnabled: true,
-    applicationFeeZelleEnabled: false,
-    applicationFeeVenmoEnabled: false,
-    applicationFeeOtherEnabled: false,
-    applicationFeeOtherInstructions: "",
     houseMoveInAvailableDate: "",
     houseMoveInInstructions: "",
     houseMoveInPhotoDataUrls: [],

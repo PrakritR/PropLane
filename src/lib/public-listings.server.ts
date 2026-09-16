@@ -143,12 +143,6 @@ const PUBLIC_SUBMISSION_KEYS = [
   "shortTermMonthToMonthSurcharge",
   // How the applicant may pay the application fee, and what it asks them.
   "axisPaymentsEnabled",
-  "zellePaymentsEnabled",
-  "zelleContact",
-  "venmoPaymentsEnabled",
-  "venmoContact",
-  "applicationFeeOtherEnabled",
-  "applicationFeeOtherInstructions",
   "applicationConfigMode",
   "customApplicationFields",
   "disabledStandardApplicationKeys",

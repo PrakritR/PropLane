@@ -14,6 +14,17 @@ export type GoogleCalendarConnection = {
   accessToken: string | null;
   accessTokenExpiresAt: string | null;
   calendarId: string | null;
+  /**
+   * Incremental-sync cursor for `events.list`. Present once a full sync has
+   * completed; cleared (never sent) after Google returns 410 so the next pull
+   * falls back to a fresh full sync rather than looping on an invalid token.
+   */
+  syncToken?: string | null;
+  /** Active push-notification channel (`events.watch`), if one is live. */
+  channelId?: string | null;
+  channelResourceId?: string | null;
+  /** Epoch ms the channel expires — Google caps `events.watch` at ~7 days. */
+  channelExpiryMs?: number | null;
 };
 
 export const DEFAULT_GOOGLE_CALENDAR_CONNECTION: GoogleCalendarConnection = {
@@ -24,6 +35,10 @@ export const DEFAULT_GOOGLE_CALENDAR_CONNECTION: GoogleCalendarConnection = {
   accessToken: null,
   accessTokenExpiresAt: null,
   calendarId: "primary",
+  syncToken: null,
+  channelId: null,
+  channelResourceId: null,
+  channelExpiryMs: null,
 };
 
 function googleCalendarProjectRef(): string | null {
@@ -83,6 +98,12 @@ export function normalizeGoogleCalendarConnection(raw: unknown): GoogleCalendarC
     accessToken: typeof r.accessToken === "string" ? r.accessToken : null,
     accessTokenExpiresAt: typeof r.accessTokenExpiresAt === "string" ? r.accessTokenExpiresAt : null,
     calendarId: typeof r.calendarId === "string" && r.calendarId.trim() ? r.calendarId.trim() : "primary",
+    syncToken: typeof r.syncToken === "string" && r.syncToken.trim() ? r.syncToken.trim() : null,
+    channelId: typeof r.channelId === "string" && r.channelId.trim() ? r.channelId.trim() : null,
+    channelResourceId:
+      typeof r.channelResourceId === "string" && r.channelResourceId.trim() ? r.channelResourceId.trim() : null,
+    channelExpiryMs:
+      typeof r.channelExpiryMs === "number" && Number.isFinite(r.channelExpiryMs) ? r.channelExpiryMs : null,
   };
 }
 

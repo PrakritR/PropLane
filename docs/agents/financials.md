@@ -103,7 +103,7 @@ Phase 3 excludes non-income accounts properly.
 Stripe charge in full or in part. `src/lib/deposit-return.ts` holds the whole
 decision and touches neither Stripe nor the database — it refuses anything that
 is not a paid, settled `security_deposit` with a Stripe charge id and remaining
-balance, so a cash/Zelle deposit or an unsettled ACH debit is turned away rather
+balance, so a cash/check deposit or an unsettled ACH debit is turned away rather
 than guessed at. The route re-reads ownership, the amount already returned, and
 the charge id server-side; the client supplies only the charge id and an optional
 amount.
