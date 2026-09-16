@@ -223,11 +223,12 @@ export function ListingWizardV2({
     async (
       raw: ManagerListingSubmissionV1,
       stepIndex: number,
-    ): Promise<{ ok: true } | { ok: false; message: string }> => {
+    ): Promise<{ ok: true } | { ok: false; message: string; reason: string }> => {
       if (!listingWizardHasUnsavedInput(raw, savedFingerprintRef.current)) return { ok: true };
       const prepared = await persistSubmission(raw);
       if (!prepared.ok) {
-        return { ok: false, message: prepared.message };
+        // A prepare failure is already human copy; it is its own reason.
+        return { ok: false, message: prepared.message, reason: prepared.message };
       }
       if (prepared.droppedMediaCount > 0) {
         setSubmission(prepared.submission);
@@ -237,7 +238,7 @@ export function ListingWizardV2({
         ? await publish(prepared.submission)
         : await saveDraft(prepared.submission, stepIndex);
       if (!result.ok) {
-        return { ok: false, message: result.message };
+        return { ok: false, message: result.message, reason: result.reason };
       }
       savedFingerprintRef.current = listingSubmissionFingerprint(prepared.submission);
       setDirty(listingWizardHasUnsavedInput(submissionRef.current, savedFingerprintRef.current));
@@ -326,7 +327,7 @@ export function ListingWizardV2({
       }
       // No toast, no "second ✕ closes anyway" rule — one dialog, the server's
       // reason verbatim, and the manager chooses.
-      setSaveFailedReason(result.message);
+      setSaveFailedReason(result.reason);
     },
     [editing, onClose, persist],
   );
@@ -347,7 +348,7 @@ export function ListingWizardV2({
       onClose();
       return;
     }
-    setSaveFailedReason(result.message);
+    setSaveFailedReason(result.reason);
   }, [editing, onClose, persist]);
 
   const handleLeaveWithoutSaving = useCallback(() => {
