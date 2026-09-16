@@ -457,7 +457,7 @@ function AmenityPick({
   );
 }
 
-function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+function StepBasics({ sub, patch, lead }: { sub: ManagerListingSubmissionV1; patch: Patch; lead?: ReactNode }) {
   const rentByRoom = sub.listingPlaceCategoryId !== "entire_home";
   const roomCount = sub.rooms?.length || sub.listingBedroomSlots || 1;
   const setRentModel = (id: "shared_home" | "entire_home") => patch({ listingPlaceCategoryId: id, rentalModelStamp: id });
@@ -498,6 +498,8 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
   return (
     <StepColumn>
       <StepHeading title="The home itself" />
+      {/* A caller's way in ahead of the first question — Create's "Start from a file" strip. */}
+      {lead}
 
       {/*
        * What it is and how it is let come FIRST: the type is the picture in the
@@ -2711,6 +2713,23 @@ function StepPricing({
  * component it was on the Advanced step, so nothing a manager already filled in
  * has moved anywhere they cannot reach.
  */
+function HouseKeepingPanel({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+  // The disclosure owns its own open state. It used to be rendered with
+  // `open={false}` and a no-op toggle, so Move-in, The building and Local
+  // compliance could never be reached from the editor.
+  const [open, setOpen] = useState(false);
+  return (
+    <AdvancedPanel
+      summary="Move-in · The building · Local compliance"
+      open={open}
+      onToggle={() => setOpen((prev) => !prev)}
+      dataAttr="listing-v2-house-keeping"
+    >
+      <HouseKeepingGroups sub={sub} patch={patch} />
+    </AdvancedPanel>
+  );
+}
+
 function HouseKeepingGroups({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   const [openGroup, setOpenGroup] = useState<string | null>(null);
   const toggleGroup = (id: string) => setOpenGroup((prev) => (prev === id ? null : id));
@@ -2911,6 +2930,7 @@ export function ListingEditorV2({
   saveState,
   leadingStep,
   headerCenter,
+  basicsLead,
 }: {
   submission: ManagerListingSubmissionV1;
   /** The listing's record id when it already has one — booked rows on the Rooms step need it. Null for a brand-new listing. */
@@ -2938,6 +2958,8 @@ export function ListingEditorV2({
   leadingStep?: ListingEditorLeadingStep;
   /** Header slot between the title and the save state (see ListingWorkspace). */
   headerCenter?: ReactNode;
+  /** Drawn on Basics under its heading, ahead of Property type — Create's "Start from a file" strip. */
+  basicsLead?: ReactNode;
 }) {
   const [step, setStep] = useState(0);
   useEffect(() => {
@@ -3095,21 +3117,14 @@ export function ListingEditorV2({
       case "basics":
         return (
           <>
-            <StepBasics sub={submission} patch={patch} />
+            <StepBasics sub={submission} patch={patch} lead={basicsLead} />
             <AddDetailsRow
               sub={submission}
               pathIds={pathIds}
               onOpen={(id) => goTo(stepIndexOf(id))}
             />
             <div className="mt-8 max-w-[860px]">
-              <AdvancedPanel
-                summary="Move-in · The building · Local compliance"
-                open={false}
-                onToggle={() => undefined}
-                dataAttr="listing-v2-house-keeping"
-              >
-                <HouseKeepingGroups sub={submission} patch={patch} />
-              </AdvancedPanel>
+              <HouseKeepingPanel sub={submission} patch={patch} />
             </div>
           </>
         );
@@ -3143,7 +3158,7 @@ export function ListingEditorV2({
         return <StepReview sub={submission} onJump={(id) => goTo(LISTING_V2_STEPS.findIndex((s) => s.id === id))} />;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepId, submission, defaults, isEdit]);
+  }, [stepId, submission, defaults, isEdit, basicsLead]);
 
   /**
    * The right-hand panel for this step.

@@ -1267,8 +1267,8 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
           occupiedByProperty={occupiedByProperty}
           addPropertyAction={
             <PortalPrimaryIconAction
-              label="Add property"
-              data-attr="dashboard-add-property"
+              label="Create"
+              data-attr="dashboard-create"
               onClick={() => router.push(`${propertyListHref(BASE, "drafts")}?wizard=v2`)}
             />
           }

@@ -73,7 +73,7 @@ export const PortalIconAction = forwardRef<
 export const PortalPrimaryIconAction = forwardRef<
   HTMLButtonElement,
   ButtonHTMLAttributes<HTMLButtonElement> & {
-    /** Accessible name and tooltip — "Add property", never a bare "+". */
+    /** Accessible name and tooltip — "Create", never a bare "+". */
     label: string;
     /** Defaults to a plus; a section whose primary is not "add" passes its own glyph. */
     icon?: LucideIcon;

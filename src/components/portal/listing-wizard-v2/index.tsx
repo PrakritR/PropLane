@@ -87,6 +87,8 @@ export function ListingWizardV2({
   propertyCount = 0,
   leadingStep,
   headerCenter,
+  basicsLead,
+  onDirtyChange,
   flushRef,
 }: {
   onClose: () => void;
@@ -116,6 +118,10 @@ export function ListingWizardV2({
   leadingStep?: ListingEditorLeadingStep;
   /** Header slot between the title and the save state — the import's property switcher. */
   headerCenter?: ReactNode;
+  /** Drawn on Basics ahead of Property type — Create's "Start from a file" strip. */
+  basicsLead?: ReactNode;
+  /** Whether the editor holds input that has not been saved yet — Create asks before a file replaces it. */
+  onDirtyChange?: (dirty: boolean) => void;
   /**
    * Lets the caller save whatever is unsaved before it swaps this listing for
    * another one (the import's switcher). Resolves true when nothing was lost.
@@ -167,6 +173,9 @@ export function ListingWizardV2({
   useEffect(() => {
     setDirty(listingWizardHasUnsavedInput(submission, savedFingerprintRef.current));
   }, [submission]);
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
   // A draft opened by id was written before this editor opened (a resumed
   // draft, an imported property), so with nothing unsaved it IS saved.
   const saveState = busy ? "Saving…" : dirty ? "Unsaved changes" : editing || initialDraftId ? "Saved" : "Not saved yet";
@@ -267,6 +276,7 @@ export function ListingWizardV2({
         saveState={saveState}
         leadingStep={leadingStep}
         headerCenter={headerCenter}
+        basicsLead={basicsLead}
         onPublish={async () => {
         const prepared = await persistSubmission(submission);
         if (!prepared.ok) {

@@ -1964,8 +1964,10 @@ export function ManagerHousePropertiesPanel({
         actions={
           onAddProperty
             ? [
+                // One way in: Create opens the editor, and importing a file is
+                // a strip at the top of its Basics step.
                 {
-                  label: "Add property",
+                  label: "Create",
                   onClick: onAddProperty,
                   disabled: addPropertyDisabled,
                   reason: addPropertyDisabled ? "Loading your plan…" : undefined,
