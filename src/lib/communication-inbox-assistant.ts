@@ -6,6 +6,7 @@ import {
 } from "@/lib/agent/resident-inbox-agent-ids";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import { managerAgentNoticeCollapseKey } from "@/lib/communication-manager-assistant-thread";
+import { parseUnifiedInboxKey, type UnifiedInboxListItem } from "@/lib/unified-inbox-merge";
 
 export { canonicalResidentAgentThreadId, parseResidentAgentThreadId };
 
@@ -27,6 +28,20 @@ export function isPropLaneAssistantInboxThread(thread: PersistedInboxThread): bo
  */
 export function isTeamInboxThread(thread: Pick<PersistedInboxThread, "id"> & { threadType?: string }): boolean {
   return thread.threadType === "team" || thread.id.startsWith("team-thread:");
+}
+
+/** True when this list row is the canonical PropLane Assistant thread (not a person the assistant spoke in). */
+export function isAssistantUnifiedInboxRow(
+  row: Pick<UnifiedInboxListItem, "key" | "memberKeys">,
+  emailThreads: PersistedInboxThread[],
+): boolean {
+  const members = [...new Set([row.key, ...(row.memberKeys ?? [])])].map(parseUnifiedInboxKey);
+  return members.some((member) => {
+    if (!member || member.channel !== "email") return false;
+    if (member.threadId.startsWith("agent_notice_") || member.threadId.startsWith("resident-agent-")) return true;
+    const thread = emailThreads.find((entry) => entry.id === member.threadId);
+    return Boolean(thread && assistantInboxCollapseKey(thread));
+  });
 }
 
 /** Group key for collapsing duplicate assistant threads in one inbox scope. */

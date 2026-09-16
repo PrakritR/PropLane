@@ -68,8 +68,9 @@ mounting its portal's inbox panel with `suppressListPane` for the thread side);
 admin alone keeps its flat table driven by an `"all"` tabId (all non-trash
 conversations) plus the archive toggle. Invariants:
 
-- **Manager Communication has Active | Archived tabs** under the work number
-  and work email boxes (`inbox-list-segments`). Unread stays in Filter (All
+- **Manager Communication has Active | Archived command tabs** under the work number
+  and work email boxes (`inbox-list-segments`) — same Tours chrome: label + count
+  badge + cobalt underline (`DestinationNav appearance="command"`). Unread stays in Filter (All
   conversations, Read, Unread) for the current tab — Filter does not list
   Archived. Resident and vendor still keep status in **Filter** (All
   conversations, Read, Unread, Archived) rather than a segment rail.
@@ -81,6 +82,15 @@ conversations) plus the archive toggle. Invariants:
   tabbed panels survive only for the /demo path and legacy route redirects — on
   those three portals every legacy `inbox` / `email` / `sms` path now folds into a
   segment rather than resolving a tab.
+- **Archived ⋯ is Restore + Delete** for email and SMS (SMS hard-delete is
+  `DELETE /api/manager/sms-conversations`). Active ⋯ stays Archive only. PropLane
+  Assistant cannot be archived or deleted. Archived has a **Delete all archived**
+  button (`unified-inbox-delete-all-archived`) that confirms, then deletes every
+  non-assistant conversation; it is hidden when only Assistant remains.
+- **An opening conversation shows `InboxThreadSkeleton`**, never "Select a
+  conversation" / "select a message", while the routed or clicked thread is still
+  resolving. Composer stays pinned (`shrink-0`, pane `scrollTop` — never
+  `scrollIntoView`) including on archived SMS threads.
 - **Initial Communication membership reveals only after every enabled source succeeds.**
   Manager readiness requires inbox threads, applications/contact-directory rows,
   and SMS when its UI is enabled. Resident readiness requires inbox threads and

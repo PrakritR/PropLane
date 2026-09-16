@@ -81,6 +81,7 @@ import {
   InboxScheduledCard,
   InboxScheduledThreadList,
   InboxThreadEmpty,
+  InboxThreadSkeleton,
   InboxThreadView,
   PORTAL_INBOX_LIST_TOOLBAR_CLASS,
   InboxTwoPane,
@@ -2551,6 +2552,8 @@ export const ManagerInbox = forwardRef<
     />
   ) : emptyThreadFallback && suppressListPane ? (
     emptyThreadFallback
+  ) : expandedId ? (
+    <InboxThreadSkeleton />
   ) : (
     <InboxThreadEmpty />
   );
