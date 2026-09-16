@@ -71,15 +71,16 @@ or `docs/agents/*`. Do not invent a second source of truth for the same concern.
 
 # Landing rule
 
-**Prakrit: keepers → `prakrit` (captain integrate) → `main`; agents working
-for Akhil after his explicit ship request: his keeper → `main`. QA on
+**Prakrit: prompt branch → `prakrit` (captain integrate) → `main`; agents working
+for Akhil after his explicit ship request: his prompt branch → `main`. QA on
 `staging` by default, subject only to the dated policy above. Live from
 `production`.**
-Commit and push your keeper (fast-forward only, never force). Open a PR only on request.
+An agent branch is created when the prompt starts and deleted when it merges.
+Commit and push that prompt branch only (fast-forward only, never force). Open a PR only on request.
 If a push is not a fast-forward, stop.
 
 **Agent handoff:** `npm run sandbox:open -- </route>` and put the Review URL in the reply.
-**Prakrit captain integration:** `npm run ship:to-prakrit -- --source <keeper>`.
+**Prakrit captain integration:** `npm run ship:to-prakrit -- --source <prompt-branch>`.
 Akhil's explicit release authority bypasses this integration rung only, never
 staging or fast-forward rules.
 Details: `docs/agents/sandbox-open-review.md`.
@@ -92,14 +93,14 @@ There is no long-lived `dev` branch.
 Prakrit's path:
 
 ```
-keepers  →  prakrit  →  main  →  staging  →  production
-(no deploy)  integrate  localhost  QA preview  live + TestFlight
-             (captain)  dev DB     staging DB  live production DB
+agent/<lane>/…  →  prakrit  →  main  →  staging  →  production
+(no deploy)       integrate  localhost  QA preview  live + TestFlight
+                  (captain)  dev DB     staging DB  live production DB
 ```
 
 | Branch | Role | Database | Vercel |
 | --- | --- | --- | --- |
-| keeper | messy work | local + **dev/test** (`emstjswhotsnyksqhqyf`) | no deploy |
+| `agent/<lane>/…` | one prompt's work | local + **dev/test** (`emstjswhotsnyksqhqyf`) | no deploy |
 | **`prakrit`** | captain integration | **dev/test** | no deploy; localhost :3000 |
 | **`main`** | consolidation | **dev/test** | no deploy; localhost |
 | **`staging`** | QA candidate (ff of `main`) | `xwszcafaontidfgznlxd` | Preview, git-branch-scoped env |

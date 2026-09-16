@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": ".cursor/hooks/proplane-prompt-branch.sh start",
+        "timeout": 60
+      }
+    ],
+    "sessionEnd": [
+      {
+        "command": ".cursor/hooks/proplane-prompt-branch.sh end",
+        "timeout": 60
+      }
+    ]
+  }
+}
