@@ -79,8 +79,11 @@ async function sweepRecordTable(
     notes: string | null;
     url: string;
     active: boolean;
-    /** Who is dispatched to the work; a vendor here is notified with the team. */
+    /** Who is dispatched to the work. */
     assignee?: WorkAssignee | null;
+    /** The vendor's PropLane account, when they have one. */
+    vendorUserId?: string | null;
+    emergency?: boolean;
   },
 ): Promise<number> {
   const { data, error } = await db
@@ -127,14 +130,20 @@ async function sweepRecordTable(
     const residentEmail = (row.resident_email ?? "").trim().toLowerCase();
     const hasResidentRecipient = residentEmail.includes("@");
 
-    // "Team includes vendors": the vendor dispatched to this work rides with the
-    // team audience, not the resident one. Resolved only when Team is on, so a
-    // rule that never fans out to the team never looks the vendor up.
+    // The vendor dispatched to this work is its own audience (`audience.vendor`).
+    // Before PLAN-0915 it rode with the team role, which delivers through the
+    // manager's Assistant and never reached the vendor. Resolved only when the
+    // rule wants vendors, so a rule that never fans out to them never looks one up.
     const vendorRecipients: ReminderRecipient[] = [];
-    if (settings.rules[kind].audience.team && parsed.assignee?.type === "vendor") {
+    if (settings.rules[kind].audience.vendor && parsed.assignee?.type === "vendor") {
       const vendorAddress = await assigneeEmail(db, parsed.assignee);
       if (vendorAddress) {
-        vendorRecipients.push({ email: vendorAddress, role: "team", name: parsed.assignee.name });
+        vendorRecipients.push({
+          email: vendorAddress,
+          role: "vendor",
+          name: parsed.assignee.name,
+          userId: parsed.vendorUserId ?? null,
+        });
       }
     }
 
@@ -163,6 +172,7 @@ async function sweepRecordTable(
           notes: parsed.notes,
           url: parsed.url,
           notificationCategory: "maintenance",
+          emergency: parsed.emergency === true,
         },
       },
       settings,
@@ -187,6 +197,8 @@ export async function sweepWorkOrderReminders(db: SupabaseClient, now: Date = ne
     url: `${origin}/portal/services`,
     active: str(row.row_data, "bucket") !== "completed" && str(row.row_data, "status") !== "Completed",
     assignee: normalizeAssignee(row.row_data.assignee),
+    vendorUserId: str(row.row_data, "vendorUserId"),
+    emergency: str(row.row_data, "priority") === "Emergency",
   }));
 }
 

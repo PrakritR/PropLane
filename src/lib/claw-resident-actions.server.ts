@@ -212,6 +212,44 @@ export async function runResidentSmsAction(args: {
   let threadTopic: ClawThreadTopic = args.threadTopic ?? "general";
   let wants = classification.wantsLabel;
 
+  // "Was this fixed?" answered by text (PLAN-0915). A bare YES / NO while a
+  // confirmation is open is that answer, not a new request; anything else
+  // falls through to ordinary intent handling.
+  const confirmVerdict = /^\s*(yes|y|yep|fixed|all good|resolved)\s*[.!]*$/i.test(text)
+    ? "fixed"
+    : /^\s*(no|n|nope|not fixed|still broken|still a problem)\s*[.!]*$/i.test(text)
+      ? "not_fixed"
+      : null;
+  if (confirmVerdict && residentEmail) {
+    const { resolveResidentConfirmationBySms } = await import("@/lib/work-order-resident-confirmation.server");
+    const answered = await resolveResidentConfirmationBySms(createSupabaseServiceRoleClient(), {
+      managerUserId: args.managerUserId,
+      residentEmail,
+      verdict: confirmVerdict,
+    }).catch(() => null);
+    if (answered) {
+      return {
+        classification: {
+          ...classification,
+          intent: "maintenance",
+          domain: "Services",
+          wantsLabel: answered.reopened ? "Says the service is not fixed" : "Confirmed the service is fixed",
+          managerPath: "/portal/services/work-orders",
+          // The reopen already reached the manager through the work-order bus.
+          skipManagerBrief: true,
+        },
+        residentReply: answered.reopened
+          ? `Sorry about that — "${answered.title}" is reopened and your property manager has been told.`
+          : `Thanks — "${answered.title}" is closed.`,
+        autoFiledNote: null,
+        threadTopic: "maintenance",
+        forwardSaid: text,
+        residentName,
+        propertyLabel,
+      };
+    }
+  }
+
   switch (classification.intent) {
     case "help":
     case "greeting": {

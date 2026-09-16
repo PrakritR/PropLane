@@ -21,6 +21,18 @@ import {
   sweepServiceOrderReminders,
   sweepWorkOrderReminders,
 } from "@/lib/reminders/subjects/records.server";
+import {
+  sweepInvoiceApproval,
+  sweepServiceRequestDecision,
+  sweepServiceRequestUnpaid,
+  sweepVendorDocumentExpiry,
+  sweepVendorInvoiceNudge,
+  sweepVendorOfferExpiry,
+  sweepWorkOrderEscalations,
+  sweepWorkOrderNoOnMyWay,
+} from "@/lib/reminders/subjects/services.server";
+import { expireVendorOffers } from "@/lib/work-order-offer-expiry.server";
+import { autoCloseResidentConfirmations } from "@/lib/work-order-resident-confirmation.server";
 import { sweepTourReminders } from "@/lib/reminders/subjects/tours.server";
 import { sweepInspectionReminders } from "@/lib/reminders/subjects/inspections.server";
 import { sweepBookingReminders } from "@/lib/reminders/subjects/bookings.server";
@@ -80,6 +92,15 @@ export async function GET(req: Request) {
       ["payment_manager", sweepPaymentManagerReminders],
       ["booking", sweepBookingReminders],
       ["inspection", sweepInspectionReminders],
+      // PLAN-0915 services: escalations and the vendor loop.
+      ["work_order_escalations", sweepWorkOrderEscalations],
+      ["work_order_no_on_my_way", sweepWorkOrderNoOnMyWay],
+      ["vendor_offer_expiry", sweepVendorOfferExpiry],
+      ["vendor_invoice_nudge", sweepVendorInvoiceNudge],
+      ["invoice_approval", sweepInvoiceApproval],
+      ["service_request_decision", sweepServiceRequestDecision],
+      ["service_request_unpaid", sweepServiceRequestUnpaid],
+      ["vendor_document_expiry", sweepVendorDocumentExpiry],
     ] as const) {
       try {
         swept += await sweep(db);
@@ -87,8 +108,22 @@ export async function GET(req: Request) {
         sweepErrors.push(`${name}: ${describeError(error)}`);
       }
     }
+    // Actions, not reminders: an offer past its deadline flips to expired and
+    // both sides hear; an unanswered "was this fixed?" closes itself. Same
+    // isolation as the sweeps — a failure is reported, never fatal.
+    const actions: Record<string, unknown> = {};
+    for (const [name, action] of [
+      ["expire_offers", expireVendorOffers],
+      ["auto_close_confirmations", autoCloseResidentConfirmations],
+    ] as const) {
+      try {
+        actions[name] = await action(db);
+      } catch (error) {
+        sweepErrors.push(`${name}: ${describeError(error)}`);
+      }
+    }
     const summary = await dispatchDueReminders(db, workerId);
-    return NextResponse.json({ ok: true, swept, ...(sweepErrors.length ? { sweepErrors } : {}), ...summary });
+    return NextResponse.json({ ok: true, swept, actions, ...(sweepErrors.length ? { sweepErrors } : {}), ...summary });
   } catch (error) {
     // A Supabase failure arrives as a plain PostgrestError object, not an
     // Error, so `instanceof Error` alone reports "dispatch failed" and throws

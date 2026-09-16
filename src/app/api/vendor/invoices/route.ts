@@ -113,6 +113,7 @@ export async function POST(req: Request) {
       await workOrderEvent(db, {
         eventId: `${prepared.workOrderId}:invoiced:${String(data.id)}`,
         event: "invoiced",
+        senderAudience: "vendor",
         managerUserId: prepared.target.managerUserId,
         workOrderId: prepared.workOrderId,
         senderUserId: userId,

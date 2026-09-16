@@ -4,6 +4,7 @@ import { resolveManagerOutboundFrom } from "@/lib/manager-outbound-identity.serv
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { InboxThreadMessageChannel } from "@/lib/portal-inbox-storage";
 import { userHoldsAdminRole } from "@/lib/auth/admin-role";
+import type { VendorNotificationTopic } from "@/lib/vendor-notification-settings";
 import { filterRecipientsBySenderScope } from "@/lib/inbox-recipient-scope";
 import {
   ensureSmsIncludesPortalLink,
@@ -558,6 +559,12 @@ export async function deliverPortalInboxMessage(
     suppressInbox?: boolean;
     /** Deterministic action-event message id. Replays append at most once. */
     messageId?: string;
+    /** Which vendor Settings row gates a vendor recipient's email/text. */
+    vendorTopic?: VendorNotificationTopic;
+    /** A vendor's own visit reminder; see `ResolveChannelsOptions.vendorVisitReminder`. */
+    vendorVisitReminder?: boolean;
+    /** Emergency: a vendor's quiet-hours bypass applies. */
+    urgent?: boolean;
     /**
      * Server-resolved existing work-number threads, keyed by recipient email.
      * When supplied, missing/ambiguous entries are reported as unavailable
@@ -677,7 +684,11 @@ export async function deliverPortalInboxMessage(
       if (recipient.userId) {
         channelByEmail.set(
           recipient.email,
-          await resolveChannels(db, recipient.userId, eventCategory, profileById.get(recipient.userId) ?? null),
+          await resolveChannels(db, recipient.userId, eventCategory, profileById.get(recipient.userId) ?? null, {
+            vendorTopic: opts.vendorTopic,
+            vendorVisitReminder: opts.vendorVisitReminder,
+            urgent: opts.urgent,
+          }),
         );
       } else {
         // Email-only recipient (no account row): no stored prefs and no verified

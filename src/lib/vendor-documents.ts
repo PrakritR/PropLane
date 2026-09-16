@@ -17,6 +17,8 @@ export type VendorDocumentRecord = {
   url: string;
   storagePath?: string;
   uploadedAt: string;
+  /** ISO date the document lapses (insurance, license, bond). Drives `vendor_document_expiry` reminders. */
+  expiresAt?: string;
 };
 
 export const VENDOR_DOCUMENT_KINDS: VendorDocumentKind[] = [
