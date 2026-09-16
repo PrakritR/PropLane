@@ -28,7 +28,7 @@ the proposal is a gated pending action the manager approves. Invariants:
 - **First approve wins.** Several managers can claim one pending request (see
   the host roster below), and `confirmTourInquiry` is a read-modify-write on
   shared JSON singletons, so it takes a row in `tour_inquiry_claims` (primary
-  key on the inquiry id, `20260916120000_tour_inquiry_claim_guard.sql`)
+  key on the inquiry id, `20260916120500_tour_inquiry_claim_guard.sql`)
   BEFORE it reads any state and releases it in `finally`. A concurrent second
   approve, or a request the planned set already holds as an active tour, is a
   409 "Another manager already took this tour", never a second booking. The

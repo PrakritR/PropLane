@@ -36,7 +36,7 @@ const MAX_EVENT_DURATION_MS = 480 * 60_000;
 
 /**
  * WS4(shared-avail): the DB-level guard behind `confirmTourInquiry` — see
- * `supabase/migrations/20260916120000_tour_inquiry_claim_guard.sql`.
+ * `supabase/migrations/20260916120500_tour_inquiry_claim_guard.sql`.
  *
  * `confirmTourInquiry` reads the pending-inquiry and planned-event singletons,
  * decides, then writes them back — a non-atomic read-modify-write. Two

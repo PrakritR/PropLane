@@ -71,7 +71,7 @@ describe.skipIf(!configuredPort)("tour_inquiry_claims PostgreSQL atomic guard", 
     await admin.query(`create database "${database}"`);
     created = true;
     db = await connect();
-    await db.query(await readFile("supabase/migrations/20260916120000_tour_inquiry_claim_guard.sql", "utf8"));
+    await db.query(await readFile("supabase/migrations/20260916120500_tour_inquiry_claim_guard.sql", "utf8"));
   });
 
   afterAll(async () => {
