@@ -7,7 +7,7 @@ import { tourFormatLabel } from "@/lib/tour-format";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
-import { ManagerAddScheduledTourModal } from "@/components/portal/pro-add-scheduled-tour-modal";
+import { AddResidentWizard } from "@/components/portal/resident-wizard";
 import { ManagerToursGroupedTable } from "@/components/portal/pro-tours-grouped-table";
 import { ManagerTourAvailabilityModal } from "@/components/portal/manager-tour-availability-modal";
 import { Button } from "@/components/ui/button";
@@ -318,6 +318,8 @@ function buildTourNotifyCarouselItems(
     };
   });
 }
+
+const EMPTY_LEASE_KEYS = { axisIds: new Set<string>(), emails: new Set<string>() };
 
 export function ManagerTours({
   bucket = "pending",
@@ -1715,19 +1717,23 @@ export function ManagerTours({
         }
         preselectedPropertyId={scopedPropertyId}
       />
-      <ManagerAddScheduledTourModal
-        open={addTourOpen}
-        onClose={() => setAddTourOpen(false)}
-        managerUserId={userId ?? ""}
-        propertyTick={propertyTick}
-        defaultPropertyId={scopedPropertyId}
-        onSaved={() => {
-          void refresh();
-          if (bucket !== "upcoming") {
-            navigate(listHrefForBucket("upcoming"));
-          }
-        }}
-      />
+      {addTourOpen ? (
+        <AddResidentWizard
+          mode="tour"
+          onClose={() => setAddTourOpen(false)}
+          managerUserId={userId ?? null}
+          propertyOptions={propertyOptions}
+          propertyTick={propertyTick}
+          executedLeaseKeys={EMPTY_LEASE_KEYS}
+          defaultPropertyId={scopedPropertyId}
+          onAdded={() => {
+            void refresh();
+            if (bucket !== "upcoming") {
+              navigate(listHrefForBucket("upcoming"));
+            }
+          }}
+        />
+      ) : null}
       <ManagerTourAvailabilityModal
         open={availabilityOpen}
         onClose={() => setAvailabilityOpen(false)}

@@ -24,6 +24,7 @@ export function ContactStep({
   onPickFile,
   onUndoFill,
   busy,
+  lockKind = false,
 }: {
   form: AddPersonForm;
   patch: (next: Partial<AddPersonForm>) => void;
@@ -31,6 +32,8 @@ export function ContactStep({
   onPickFile: (file: File) => void;
   onUndoFill: () => void;
   busy: boolean;
+  /** Tours door: the kind is fixed to prospect and the picker is not shown. */
+  lockKind?: boolean;
 }) {
   const prospect = form.kind === "prospect";
   const touched = (key: string) => {
@@ -41,7 +44,8 @@ export function ContactStep({
   };
   return (
     <StepColumn>
-      <StepHeading title={prospect ? "The prospect" : "The resident"} />
+      <StepHeading title={lockKind ? "The guest" : prospect ? "The prospect" : "The resident"} />
+      {lockKind ? null : (
       <WizardSection title="Who are you adding?" dataAttr="residents-wizard-kind">
         <WizardSelect
           label="Adding"
@@ -54,6 +58,7 @@ export function ContactStep({
           dataAttr="residents-wizard-kind-select"
         />
       </WizardSection>
+      )}
       {!prospect ? (
         <FileStartStrip
           state={strip}
