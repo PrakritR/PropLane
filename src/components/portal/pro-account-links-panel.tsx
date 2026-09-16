@@ -4,7 +4,8 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 
 import { usePublishTitleActions } from "@/components/portal/portal-title-actions-slot";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal } from "@/components/ui/modal";
@@ -25,6 +26,7 @@ import {
 } from "@/components/portal/portal-data-table";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { TeamMembersBlock, TeamPendingInvitesBlock, type TeamMemberRow } from "@/components/portal/pro-team-blocks";
+import type { PortalWorkspace } from "@/lib/workspaces/types";
 import { cn } from "@/lib/utils";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -74,6 +76,7 @@ import { maxAccountLinksForTier, managerPlanAllowsCoManagerInvites, normalizeMan
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import {
   assignedIdsInWorkspace,
+  grantBelongsToWorkspace,
   teamGrantVisibleInWorkspace,
 } from "@/lib/workspaces/team-scope";
 import {
@@ -557,20 +560,53 @@ function AddPropertyToCoManager({
   );
 }
 
+/**
+ * Settings → Workspaces renders the team inside each workspace card. The panel
+ * keeps owning the invites, the modals and every action; the caller only
+ * decides where each workspace's section goes.
+ */
+export type WorkspaceTeamApi = {
+  /** The "Managers & permissions" section for one owned workspace: header with Invite, member rows, pending invites. */
+  section: (workspace: PortalWorkspace) => ReactNode;
+};
+
 export function ProAccountLinksPanel({
   userId,
   linkId: linkIdProp,
   bare = false,
+  renderWorkspaces,
 }: {
   userId: string;
   linkId?: string;
   /** Inside Settings → Team: no page shell; the section header carries the title and the invite action sits in the tool row. */
   bare?: boolean;
+  /**
+   * Settings → Workspaces: instead of one list for the active workspace, hand
+   * the caller a section per workspace (see WorkspaceTeamApi). Members are
+   * grouped by the houses they were granted; the invite picker is scoped to the
+   * card whose Invite was pressed.
+   */
+  renderWorkspaces?: (team: WorkspaceTeamApi) => ReactNode;
 }) {
   const { email: managerEmail, ready: managerSessionReady } = useManagerUserId();
   const workspaces = useWorkspaces();
-  const workspacePropertyIds = workspaces?.active?.propertyIds ?? [];
+  const byWorkspace = typeof renderWorkspaces === "function";
+  const ownedWorkspaces = useMemo(() => (workspaces?.workspaces ?? []).filter((w) => w.owned), [workspaces?.workspaces]);
+  const activePropertyIds = workspaces?.active?.propertyIds;
+  // Per-card rendering needs every grant, so the visibility scope is the union of
+  // the owned workspaces' houses rather than the active workspace alone.
+  const workspacePropertyIds = useMemo(
+    () => (byWorkspace ? [...new Set(ownedWorkspaces.flatMap((w) => w.propertyIds))] : (activePropertyIds ?? [])),
+    [byWorkspace, ownedWorkspaces, activePropertyIds],
+  );
   const workspaceName = workspaces?.active?.name ?? "this workspace";
+  // The card whose Invite was pressed; its houses are what the invite picker offers.
+  const [inviteWorkspaceId, setInviteWorkspaceId] = useState<string | null>(null);
+  const inviteWorkspace = byWorkspace ? (ownedWorkspaces.find((w) => w.id === inviteWorkspaceId) ?? workspaces?.active ?? null) : null;
+  const pickerPropertyIds = useMemo(
+    () => (byWorkspace ? (inviteWorkspace?.propertyIds ?? []) : workspacePropertyIds),
+    [byWorkspace, inviteWorkspace, workspacePropertyIds],
+  );
   const [managerDisplayName, setManagerDisplayName] = useState("Your property manager");
   const { showToast } = useAppUi();
   const navigate = usePortalNavigate();
@@ -808,9 +844,19 @@ export function ProAccountLinksPanel({
   const propertyOptions = useMemo(() => {
     void localTick;
     return propertyChoices(userId).filter((option) =>
+      pickerPropertyIds.some((id) => samePropertyId(option.id, id)),
+    );
+  }, [userId, localTick, pickerPropertyIds]);
+
+  // Labels for every owned house, so a card's Properties column resolves even
+  // when the house is not in the invite picker's workspace.
+  const allOwnedPropertyOptions = useMemo(() => {
+    void localTick;
+    if (!byWorkspace) return [];
+    return propertyChoices(userId).filter((option) =>
       workspacePropertyIds.some((id) => samePropertyId(option.id, id)),
     );
-  }, [userId, localTick, workspacePropertyIds]);
+  }, [userId, localTick, byWorkspace, workspacePropertyIds]);
 
   // Properties this manager co-manages via an incoming account link (e.g. Brooklyn
   // when Ambika granted access). Shown under "You" so the panel matches Properties.
@@ -828,6 +874,7 @@ export function ProAccountLinksPanel({
 
   const teamPropertyLabelById = useMemo(() => {
     const map = new Map<string, string>();
+    for (const option of allOwnedPropertyOptions) map.set(option.id, option.label);
     for (const option of propertyOptions) map.set(option.id, option.label);
     for (const property of coManagedProperties) map.set(property.id, property.label);
     for (const inv of remoteInvites) {
@@ -838,7 +885,7 @@ export function ProAccountLinksPanel({
       }
     }
     return map;
-  }, [propertyOptions, coManagedProperties, remoteInvites]);
+  }, [allOwnedPropertyOptions, propertyOptions, coManagedProperties, remoteInvites]);
 
   const teamPropertyLabel = useCallback(
     (propertyId: string) =>
@@ -1125,7 +1172,8 @@ export function ProAccountLinksPanel({
     setInviteeAtCap(false);
   };
 
-  const openLinkModal = () => {
+  const openLinkModal = (workspaceId?: string) => {
+    setInviteWorkspaceId(workspaceId ?? null);
     if (!canSendTeamInvites) {
       showToast("You do not have Team permission to invite co-managers.");
       return;
@@ -1366,6 +1414,7 @@ export function ProAccountLinksPanel({
       );
     } finally {
       setLinkInviteBusy(false);
+      syncWorkspaceRollup();
     }
   };
 
@@ -1636,7 +1685,7 @@ export function ProAccountLinksPanel({
 
   const removeLink = async (id: string) => {
     if (useRemote && remoteLoaded) {
-      const ok = await patchInvite(id, { action: "revoke" }, "Link removed.");
+      const ok = await patchInvite(id, { action: "revoke" }, "Disconnected.");
       writeProRelationships(userId, readProRelationships(userId).filter((row) => row.id !== id));
       setInviteDrafts((d) => {
         const next = { ...d };
@@ -1651,8 +1700,14 @@ export function ProAccountLinksPanel({
     const all = readProRelationships(userId).filter((r) => r.id !== id);
     writeProRelationships(userId, all);
     refreshLocal();
-    showToast("Link removed.");
+    showToast("Disconnected.");
     if (routeLinkId === id) navigateToList();
+  };
+
+  // The plan card's team meter and each workspace's roll-up come from the
+  // workspaces payload, so a team change re-reads it once the link is saved.
+  const syncWorkspaceRollup = () => {
+    void workspaces?.refresh().catch(() => undefined);
   };
 
   const respondInvite = async (id: string, action: "accept" | "reject") => {
@@ -1661,6 +1716,7 @@ export function ProAccountLinksPanel({
       { action },
       action === "accept" ? "Invite accepted. Link is active." : "Invite declined.",
     );
+    if (ok) syncWorkspaceRollup();
     if (ok && routeLinkId === id) navigateToList();
   };
 
@@ -2122,20 +2178,21 @@ export function ProAccountLinksPanel({
       showToast(
         skipMessage
           ? count === 1
-            ? "Team link removed."
-            : `${count} team links removed.`
+            ? "Team member disconnected."
+            : `${count} team members disconnected.`
           : notifiedCount === 0
             ? count === 1
-              ? "Team link removed."
-              : `${count} team links removed.`
+              ? "Team member disconnected."
+              : `${count} team members disconnected.`
             : notifiedCount === count
               ? count === 1
-                ? "Team link removed and team member notified."
-                : `${count} team links removed and team members notified.`
-              : `${count} team links removed; ${notifiedCount} team member${notifiedCount === 1 ? "" : "s"} notified.`,
+                ? "Team member disconnected and notified."
+                : `${count} team members disconnected and notified.`
+              : `${count} team members disconnected; ${notifiedCount} notified.`,
       );
     } finally {
       setTeamRemoveBusy(false);
+      syncWorkspaceRollup();
     }
   };
 
@@ -2210,7 +2267,7 @@ export function ProAccountLinksPanel({
           onClick={() => openTeamRemovePreview([entry])}
           data-attr="co-manager-remove-link"
         >
-          {readOnly ? "Leave team link" : "Remove team link"}
+          {readOnly ? "Leave team" : "Disconnect"}
         </Button>
       );
     }
@@ -2222,7 +2279,7 @@ export function ProAccountLinksPanel({
         onClick={() => openTeamRemovePreview([entry])}
         data-attr="co-manager-remove-link"
       >
-        Remove team link
+        Disconnect
       </Button>
     );
   };
@@ -2658,7 +2715,7 @@ export function ProAccountLinksPanel({
       {teamRemovePreview && teamRemovePreview.length === 1 ? (
         <PortalNotificationPreviewModal
           open
-          title="Remove team link — notification preview"
+          title="Disconnect team member — notification preview"
           onClose={() => setTeamRemovePreview(null)}
           recipient={teamRemovePreview[0]!.recipient}
           subject={teamRemovePreview[0]!.subject}
@@ -2667,11 +2724,11 @@ export function ProAccountLinksPanel({
           emailAvailable={teamRemovePreview[0]!.emailAvailable}
           smsAvailable={false}
           defaultViaSms={false}
-          confirmLabel="Remove & send message"
-          confirmLabelWithoutMessage="Remove only"
+          confirmLabel="Disconnect & send message"
+          confirmLabelWithoutMessage="Disconnect only"
           skipMessageLabel="Don't message team member"
           confirmBusy={teamRemoveBusy}
-          confirmBusyLabel="Removing…"
+          confirmBusyLabel="Disconnecting…"
           cancelLabel="Cancel"
           onConfirm={(skipMessage, channels, messageDraft) =>
             void confirmTeamRemove(skipMessage, channels, messageDraft)
@@ -2681,14 +2738,14 @@ export function ProAccountLinksPanel({
       {teamRemovePreview && teamRemovePreview.length > 1 ? (
         <PortalBulkMessageCarouselModal
           open
-          title={`Remove team links — notification preview (${teamRemovePreview.length})`}
+          title={`Disconnect team members — notification preview (${teamRemovePreview.length})`}
           items={teamRemovePreview}
-          confirmLabel="Remove all & send"
-          confirmLabelSingle="Remove & send"
-          confirmLabelWithoutMessage="Remove without messaging"
+          confirmLabel="Disconnect all & send"
+          confirmLabelSingle="Disconnect & send"
+          confirmLabelWithoutMessage="Disconnect without messaging"
           skipMessageLabel="Don't message team members"
           confirmBusy={teamRemoveBusy}
-          confirmBusyLabel="Removing…"
+          confirmBusyLabel="Disconnecting…"
           onClose={() => setTeamRemovePreview(null)}
           onConfirm={(scope, { skipMessage, channels, drafts, singleId }) =>
             void confirmTeamRemove(skipMessage, channels, undefined, {
@@ -2758,8 +2815,7 @@ export function ProAccountLinksPanel({
         propertiesLabel: entry.preview || "No houses yet",
         joinedAt: entry.kind === "remote" ? entry.invite.respondedAt : null,
         onEdit: () => openTeamDetail(entry.id),
-        onPermissions: () => openTeamDetail(entry.id),
-        onRemove: () => openTeamRemovePreview([entry]),
+        onDisconnect: () => openTeamRemovePreview([entry]),
       })),
   ];
   const pendingInvites = [...visibleIncomingPending, ...visibleOutgoingPending];
@@ -2789,7 +2845,7 @@ export function ProAccountLinksPanel({
       type="button"
       data-attr="co-manager-invite-top"
       disabled={linkAccountBlocked}
-      onClick={openLinkModal}
+      onClick={() => openLinkModal()}
     >
       Invite
     </Button>
@@ -2800,7 +2856,96 @@ export function ProAccountLinksPanel({
       {inviteAction}
     </div>
   );
-  const publishedToTitle = usePublishTitleActions(titleControls, Boolean(bare) && !routeLinkId);
+  const publishedToTitle = usePublishTitleActions(titleControls, Boolean(bare) && !byWorkspace && !routeLinkId);
+
+  // Settings → Workspaces: one "Managers & permissions" section per owned card.
+  const workspaceTeamSection = (workspace: PortalWorkspace): ReactNode => {
+    const belongs = (assigned: string[]) => grantBelongsToWorkspace(assigned, workspace);
+    const memberEntries = teamEntries.filter((entry) =>
+      entry.kind === "local" ? belongs(entry.row.assignedPropertyIds) : entry.invite.status === "accepted" && belongs(entry.invite.assignedPropertyIds),
+    );
+    const previewFor = (assigned: string[]) => {
+      const here = assignedIdsInWorkspace(assigned, workspace.propertyIds);
+      return here.length === 0 ? "No houses yet" : teamPropertyPreview(here, teamPropertyLabel);
+    };
+    const rows: TeamMemberRow[] = [
+      {
+        id: "owner",
+        name: managerDisplayName === "Your property manager" ? (managerEmail ?? "You") : managerDisplayName,
+        detail: managerEmail ?? "You",
+        role: "owner",
+        propertiesLabel: `All houses in ${workspace.name}`,
+        joinedAt: null,
+      },
+      ...memberEntries.map((entry) => ({
+        id: entry.id,
+        name: entry.name || entry.axisId || "Team member",
+        detail: (entry.kind === "remote" ? entry.invite.linkedEmail?.trim() : "") || entry.axisId,
+        role: "co_manager" as const,
+        propertiesLabel: previewFor(entry.kind === "remote" ? entry.invite.assignedPropertyIds : entry.row.assignedPropertyIds),
+        joinedAt: entry.kind === "remote" ? entry.invite.respondedAt : null,
+        onEdit: () => openTeamDetail(entry.id),
+        onDisconnect: () => openTeamRemovePreview([entry]),
+      })),
+    ];
+    const pending = useRemote ? [...incomingPending, ...outgoingPending].filter((inv) => belongs(inv.assignedPropertyIds)) : [];
+    const loading = useRemote && !remoteLoaded && !loadError;
+    return (
+      <div data-attr="workspace-team" data-workspace-id={workspace.id}>
+        <div className="flex items-center justify-between gap-2 border-t border-border px-4 py-2">
+          <span className="inline-flex min-h-10 items-center gap-1.5 text-sm font-semibold text-primary">
+            <Users className="size-4" aria-hidden />
+            Managers &amp; permissions
+          </span>
+          <Button
+            type="button"
+            className="min-h-9 px-3.5 text-[13px]"
+            disabled={linkAccountBlocked}
+            onClick={() => openLinkModal(workspace.id)}
+            data-attr="workspace-team-invite"
+          >
+            Invite
+          </Button>
+        </div>
+        {loading ? (
+          <div className="space-y-2 border-t border-border/60 px-4 py-3" role="status" aria-label="Loading team">
+            <div className="h-3 w-1/3 rounded-lg bg-[var(--secondary)]" />
+            <div className="h-3 w-1/2 rounded-lg bg-[var(--secondary)]" />
+          </div>
+        ) : (
+          <>
+            <TeamMembersBlock embedded members={rows} />
+            <TeamPendingInvitesBlock
+              embedded
+              invites={pending}
+              propertiesLabel={(inv) => previewFor(inv.assignedPropertyIds)}
+              expiryLabel={teamInvitePendingExpiryLabel}
+              onCopyLink={(inv) => void copyInviteAcceptLink(inv.id, { openInvite: inv.openInvite })}
+              onRevoke={(inv) => void cancelInvite(inv.id)}
+              onAccept={(inv) => void respondInvite(inv.id, "accept")}
+              onDecline={(inv) => void respondInvite(inv.id, "reject")}
+              onOpen={(inv) => openTeamDetail(inv.id)}
+            />
+            {memberEntries.length === 0 && pending.length === 0 ? (
+              <p className="border-t border-border/60 px-4 py-2.5 text-sm text-muted" data-attr="workspace-team-empty">
+                Only you. Invite a manager to share these houses.
+              </p>
+            ) : null}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  if (byWorkspace && !routeLinkId) {
+    return (
+      <div className="min-w-0 space-y-4" data-attr="settings-team-managers">
+        {teamListAlerts}
+        {renderWorkspaces({ section: workspaceTeamSection })}
+        {teamModals}
+      </div>
+    );
+  }
 
   if (routeLinkId) {
     if (!routeEntry) {
@@ -2911,7 +3056,7 @@ export function ProAccountLinksPanel({
               disabled={teamRemoveBusy}
               onClick={() => bulkRemoveSelected()}
             >
-              Remove
+              Disconnect
             </Button>
           </>
         ) : null}>{teamBody}</PortalRecordListSurface>
@@ -2938,7 +3083,7 @@ export function ProAccountLinksPanel({
             disabled={teamRemoveBusy}
             onClick={() => bulkRemoveSelected()}
           >
-            Remove
+            Disconnect
           </Button>
         </>
       ) : null}>{teamBody}</PortalRecordListSurface>

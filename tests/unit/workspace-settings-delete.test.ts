@@ -21,9 +21,13 @@ describe("workspace settings delete", () => {
     expect(src).not.toContain("Move its properties to another workspace first.");
   });
 
-  it("opens Team on this pane, not a separate Settings tab", () => {
-    expect(src).toContain("id=\"workspace-team\"");
-    expect(src).toContain("href: false");
+  it("renders the team inside each workspace card, never as a separate Team section or tab", () => {
+    expect(src).toContain("renderWorkspaces");
+    expect(src).toContain("team.section(workspace)");
+    expect(src).not.toContain("id=\"workspace-team\"");
+    expect(src).not.toContain("#workspace-team");
+    expect(src).not.toContain("Team on this workspace");
+    expect(src).not.toContain("workspace-manage-team");
     expect(src).not.toContain("href: \"/portal/profile?tab=team\"");
     expect(src).not.toContain("href: \"/portal/profile?tab=vendors\"");
     expect(src).not.toContain("workspace-manage-vendors");

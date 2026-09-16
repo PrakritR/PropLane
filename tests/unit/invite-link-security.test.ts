@@ -149,9 +149,11 @@ describe("minting a link", () => {
     expect(PANEL).toContain("onCreateInviteLink={openInviteLinkModal}");
     expect(PANEL).toContain('inviteLinkDataAttr="co-manager-create-invite-link"');
     expect(PANEL).toContain("ManagerInviteLinkModal");
-    // ONE entry point opens the add dialog: Invite on the Team title row.
+    // ONE entry point per surface opens the add dialog: Invite on the Teams
+    // title row, and Invite on each workspace card (scoped to that card).
     // Email and shareable-link minting both live in that choice step.
-    expect(PANEL.match(/onClick=\{openLinkModal\}/g)).toHaveLength(1);
+    expect(PANEL.match(/onClick=\{\(\) => openLinkModal\(\)\}/g)).toHaveLength(1);
+    expect(PANEL.match(/onClick=\{\(\) => openLinkModal\(workspace\.id\)\}/g)).toHaveLength(1);
     expect(PANEL).not.toContain("onInvite={openLinkModal}");
     expect(PANEL).toContain('data-attr="co-manager-invite-top"');
     expect(PANEL).not.toContain('data-attr="team-invite-link-create"');
