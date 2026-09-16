@@ -27,6 +27,7 @@ import {
   managerHasPublishedSlot,
   managerMayHostPropertyTour,
 } from "@/lib/public-tour-booking-guard";
+import { listPropertyTourHostUserIds } from "@/lib/tour-host-enumeration.server";
 import { notifyManagerTourRequest, notifyTenantTourRequestReceived } from "@/lib/tour-notification-delivery.server";
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
 import { proposeTourConfirmation } from "@/lib/tour-proposal.server";
@@ -169,6 +170,65 @@ export async function hasManagerTourConflict(
 }
 
 /**
+ * WS4(shared-avail): the claimable host set for a pending tour request,
+ * RE-DERIVED rather than trusted from the client.
+ *
+ * `confirmTourInquiry` lets any id in `eligibleHostUserIds` claim the tour, so
+ * this has to be exactly the roster of managers who may actually host this
+ * property AND had this slot open — the same roster `listOpenTourSlots` uses
+ * to decide who gets shown "Approve & take it" in the first place. That
+ * reconciles see-vs-claim: a co-manager who sees the pending request on their
+ * calendar (because they can host this property) lands in this set too, and
+ * can actually take it.
+ *
+ * The browser's own candidate list (built from what the public grid showed,
+ * or a legacy SMS/agent caller with none at all) is only ever a HINT — never
+ * the sole source: every candidate, server-derived or client-supplied, is put
+ * through the same two questions (may they host, did they publish this slot),
+ * so a booking can never name a manager the property never granted.
+ */
+export async function resolveEligibleTourHostUserIds(
+  db: Db,
+  input: {
+    filedHost: string;
+    propertyId: string;
+    slotKey: string;
+    clientCandidateHostUserIds?: string[];
+  },
+): Promise<string[]> {
+  const filedHost = input.filedHost.trim();
+  const propertyId = input.propertyId.trim();
+  const slotKey = input.slotKey.trim();
+  const eligible = new Set<string>(filedHost ? [filedHost] : []);
+  if (!propertyId || !slotKey) return [...eligible];
+
+  const { data: propertyRow } = await db
+    .from("manager_property_records")
+    .select("manager_user_id")
+    .eq("id", propertyId)
+    .maybeSingle();
+  const ownerUserId = textValue((propertyRow as { manager_user_id?: unknown } | null)?.manager_user_id);
+  const rosterHostUserIds = ownerUserId
+    ? await listPropertyTourHostUserIds(db, { propertyId, ownerUserId })
+    : [];
+
+  const candidates = new Set(
+    [...rosterHostUserIds, ...(input.clientCandidateHostUserIds ?? [])]
+      .map((item) => item.trim())
+      .filter(Boolean),
+  );
+  for (const candidate of candidates) {
+    if (eligible.has(candidate)) continue;
+    const [mayHost, hasSlot] = await Promise.all([
+      managerMayHostPropertyTour(db, { managerUserId: candidate, propertyId }),
+      managerHasPublishedSlot(db, { managerUserId: candidate, slotKey, propertyId }),
+    ]);
+    if (mayHost && hasSlot) eligible.add(candidate);
+  }
+  return [...eligible];
+}
+
+/**
  * File a tour (or partner-meeting) inquiry.
  *
  * `incoming` is the caller-supplied row. Everything that decides ACCESS is
@@ -297,38 +357,18 @@ export async function createTourInquiry(
       }
     }
 
-    /**
-     * The claimable host set, RE-DERIVED rather than trusted.
-     *
-     * The browser sends every host the public grid showed for the slot, and
-     * `confirmTourInquiry` lets any of them claim the tour — so an unchecked
-     * list would let a booking name a manager the property never granted, and
-     * that manager could then take a tour on a house they have no part in.
-     * Each candidate is put through the same two questions as the filed host:
-     * may they host this property, and did they publish this slot.
-     */
     const filedHost = textValue(row.managerUserId) || textValue(requestedWindows[0]?.adminUserId);
     const propertyIdForHosts = textValue(row.propertyId);
     const slotKeyForHosts = textValue(requestedWindows[0]?.slotKey);
     const claimed = Array.isArray(row.eligibleHostUserIds)
       ? row.eligibleHostUserIds.filter((item): item is string => typeof item === "string")
       : [];
-    const eligible = new Set<string>(filedHost ? [filedHost] : []);
-    if (propertyIdForHosts && slotKeyForHosts) {
-      for (const candidate of new Set(claimed.map((item) => item.trim()).filter(Boolean))) {
-        if (eligible.has(candidate)) continue;
-        const [mayHost, hasSlot] = await Promise.all([
-          managerMayHostPropertyTour(db, { managerUserId: candidate, propertyId: propertyIdForHosts }),
-          managerHasPublishedSlot(db, {
-            managerUserId: candidate,
-            slotKey: slotKeyForHosts,
-            propertyId: propertyIdForHosts,
-          }),
-        ]);
-        if (mayHost && hasSlot) eligible.add(candidate);
-      }
-    }
-    row.eligibleHostUserIds = [...eligible];
+    row.eligibleHostUserIds = await resolveEligibleTourHostUserIds(db, {
+      filedHost,
+      propertyId: propertyIdForHosts,
+      slotKey: slotKeyForHosts,
+      clientCandidateHostUserIds: claimed,
+    });
   }
 
   const { data, error: readError } = await db
