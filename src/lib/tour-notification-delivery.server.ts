@@ -2,6 +2,7 @@
  * Server-side tour notification delivery (Resend email + Axis inbox records).
  */
 
+import { emitTourManagerEvent } from "@/lib/tour-events.server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { appendResidentPropertyManagerInboxMessage, appendManagerPropertyLeadInboxMessage } from "@/lib/property-manager-inbox-thread.server";
@@ -1055,6 +1056,18 @@ export async function notifyTenantTourConfirmed(
   opts?: { subject?: string; body?: string },
   channels?: TourNotificationChannels,
 ): Promise<TourNotificationResult> {
+  // The manager's own copy (PLAN-0915): with auto-confirm on, nobody in the
+  // office used to hear that a tour had been booked.
+  void emitTourManagerEvent(db, {
+    event: "confirmed",
+    managerUserId: window.managerUserId,
+    tourId: textField(inquiry as Record<string, unknown>, "id") || `${window.start}:${window.end}`,
+    guestName: textField(inquiry as Record<string, unknown>, "name") || "A guest",
+    guestEmail: textField(inquiry as Record<string, unknown>, "email") || undefined,
+    propertyTitle: textField(inquiry as Record<string, unknown>, "propertyTitle") || undefined,
+    propertyId: textField(inquiry as Record<string, unknown>, "propertyId") || undefined,
+    whenLabel: formatTourTimeRange(window.start, window.end),
+  }).catch(() => undefined);
   return traceSystemNotification({
     domain: "tour_lifecycle_sms",
     managerUserId: window.managerUserId,

@@ -6,11 +6,22 @@ import type { ServiceRequest } from "@/lib/service-requests-storage";
 import { residentHasSignedLease, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { emitActionEvent, type ActionEventAudience, type ActionEventRendered } from "@/lib/action-events.server";
 import { applyAutomatedMessageSetting, type AutomatedMessageSettings } from "@/lib/automated-messages-settings";
+import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { leaseDetailHref, residentDocumentsLeaseDetailHref } from "@/lib/portal-detail-routes";
 
 export const ACTION_EVENT_CATALOG = {
-  payment: ["charge_created", "payment_processing", "payment_received", "payment_failed", "payment_refunded"],
+  payment: [
+    "charge_created",
+    "payment_processing",
+    "payment_received",
+    "payment_failed",
+    "payment_refunded",
+    // PLAN-0915 phase 3
+    "partial_received",
+    "late_fee_applied",
+    "deposit_received",
+  ],
   lease: [
     "lease_created",
     "lease_sent",
@@ -49,7 +60,7 @@ export type LeaseActionEvent = (typeof ACTION_EVENT_CATALOG.lease)[number];
 export type ApplicationActionEvent = (typeof ACTION_EVENT_CATALOG.application)[number];
 export type ServiceRequestActionEvent = (typeof ACTION_EVENT_CATALOG.service_request)[number];
 
-type PaymentFacts = { title: string; amountLabel: string; propertyLabel?: string };
+type PaymentFacts = { title: string; amountLabel: string; propertyLabel?: string; balanceLabel?: string; dueDateLabel?: string };
 type LeaseFacts = {
   residentName: string;
   propertyLabel?: string;
@@ -59,7 +70,7 @@ type LeaseFacts = {
   /** For the date-change events: the new end / move-out date, formatted. */
   dateLabel?: string;
 };
-type ApplicationFacts = { applicantName: string; propertyLabel?: string };
+type ApplicationFacts = { applicantName: string; propertyLabel?: string; responsePromise?: string };
 type ServiceRequestFacts = { offerName: string; residentName: string; priceLabel?: string };
 
 export function renderPaymentActionEvent(
@@ -80,6 +91,16 @@ export function renderPaymentActionEvent(
   if (event === "payment_failed" && audience === "manager") text = `Payment failed for “${title}”${at}.`;
   if (event === "payment_refunded" && audience === "resident") text = `${amount} for “${title}” was refunded.`;
   if (event === "payment_refunded" && audience === "manager") text = `${amount} for “${title}”${at} was refunded.`;
+  const balance = facts.balanceLabel?.trim();
+  const due = facts.dueDateLabel?.trim();
+  if (event === "partial_received" && audience === "resident")
+    text = `A payment toward “${title}” was received.${balance ? ` ${balance} remains${due ? `, due ${due}` : ""}.` : ""}`;
+  if (event === "partial_received" && audience === "manager")
+    text = `A partial payment was received for “${title}”${at}.${balance ? ` ${balance} remains.` : ""}`;
+  if (event === "late_fee_applied" && audience === "resident") text = `A ${amount} late fee was added for “${title}”. It is in Payments.`;
+  if (event === "late_fee_applied" && audience === "manager") text = `A ${amount} late fee was applied${at} for “${title}”.`;
+  if (event === "deposit_received" && audience === "resident") text = `Your ${amount} security deposit was received and is held per your lease.`;
+  if (event === "deposit_received" && audience === "manager") text = `The ${amount} security deposit${at} was received.`;
   return text ? { subject: `${title} · Payment update`, text, smsText: text } : null;
 }
 
@@ -134,7 +155,7 @@ export function renderApplicationActionEvent(
   const at = facts.propertyLabel?.trim() ? ` for ${facts.propertyLabel.trim()}` : "";
   let text: string | null = null;
   if (event === "application_submitted" && audience === "resident")
-    text = `We received your application${at}. Your property manager will review it and you will hear back here.`;
+    text = `We received your application${at}.${facts.responsePromise?.trim() ? ` You will hear back ${facts.responsePromise.trim()}.` : " Your property manager will review it and you will hear back here."}`;
   if (event === "application_submitted" && audience === "manager")
     text = `${applicant} submitted an application${at}.`;
   if (event === "application_approved" && audience === "resident")
@@ -216,9 +237,13 @@ export async function emitApplicationTransition(
       ? input.actor
       : await managerSender(db, input.managerUserId);
   if (!actor.email) return;
+  const promiseDays = await loadManagerAutomationSettings(db, input.managerUserId)
+    .then((settings) => settings.applicationResponsePromiseDays)
+    .catch(() => 0);
   const facts: ApplicationFacts = {
     applicantName: input.application.name?.trim() || input.application.email?.trim() || "An applicant",
     propertyLabel: input.application.property?.trim() || undefined,
+    responsePromise: promiseDays > 0 ? `within ${promiseDays} ${promiseDays === 1 ? "day" : "days"}` : undefined,
   };
   const audiences: Array<{ audience: ActionEventAudience; userId?: string; email?: string }> = [
     {
@@ -247,6 +272,7 @@ export async function emitApplicationTransition(
     senderEmail: actor.email,
     senderName: actor.name,
     payload: { bucket: input.application.bucket ?? null },
+    templateContext: { applicantName: facts.applicantName, propertyTitle: facts.propertyLabel ?? "", responsePromise: facts.responsePromise ?? "" },
     recipients: audiences.flatMap((recipient) => {
       const rendered = renderApplicationActionEvent(event, recipient.audience, facts);
       return rendered ? [{ ...recipient, rendered }] : [];
@@ -358,11 +384,18 @@ async function managerSender(db: SupabaseClient, managerUserId: string) {
   };
 }
 
-export function paymentEventForTransition(previousStatus: string | null, nextStatus: string): PaymentActionEvent | null {
-  if (!previousStatus) return "charge_created";
+export function paymentEventForTransition(
+  previousStatus: string | null,
+  nextStatus: string,
+  charge?: { kind?: string; sourceChargeId?: string | null },
+): PaymentActionEvent | null {
+  // A late fee is created against an original charge; its birth is the fee
+  // being applied, not just "a charge was created".
+  if (!previousStatus) return charge?.sourceChargeId ? "late_fee_applied" : "charge_created";
   if (previousStatus === nextStatus) return null;
   if (nextStatus === "processing") return "payment_processing";
-  if (nextStatus === "paid") return "payment_received";
+  if (nextStatus === "partially_paid") return "partial_received";
+  if (nextStatus === "paid") return charge?.kind === "security_deposit" || charge?.kind === "holding_deposit" ? "deposit_received" : "payment_received";
   if (nextStatus === "failed") return "payment_failed";
   if (nextStatus === "refunded") return "payment_refunded";
   return null;
@@ -372,7 +405,7 @@ export async function emitHouseholdChargeTransition(
   db: SupabaseClient,
   input: { managerUserId: string; previousStatus: string | null; charge: HouseholdCharge; transitionId?: string },
 ): Promise<void> {
-  const event = paymentEventForTransition(input.previousStatus, input.charge.status);
+  const event = paymentEventForTransition(input.previousStatus, input.charge.status, { kind: input.charge.kind, sourceChargeId: input.charge.sourceChargeId });
   if (!event || !input.managerUserId) return;
   const sender = await managerSender(db, input.managerUserId);
   if (!sender.email) return;
@@ -380,6 +413,8 @@ export async function emitHouseholdChargeTransition(
     title: input.charge.title || "Charge",
     amountLabel: input.charge.amountLabel || input.charge.balanceLabel || "",
     propertyLabel: input.charge.propertyLabel || undefined,
+    balanceLabel: input.charge.balanceLabel || undefined,
+    dueDateLabel: input.charge.dueDateLabel || undefined,
   };
   const audiences: Array<{ audience: ActionEventAudience; userId?: string; email?: string }> = [
     { audience: "resident", userId: input.charge.residentUserId ?? undefined, email: input.charge.residentEmail || undefined },
@@ -396,6 +431,7 @@ export async function emitHouseholdChargeTransition(
     senderEmail: sender.email,
     senderName: sender.name,
     payload: { status: input.charge.status, kind: input.charge.kind, propertyId: input.charge.propertyId },
+    templateContext: { title: facts.title, amountLabel: facts.amountLabel, propertyTitle: facts.propertyLabel ?? "", balanceLabel: facts.balanceLabel ?? "", dueDateLabel: facts.dueDateLabel ?? "" },
     recipients: audiences.flatMap((recipient) => {
       const rendered = renderPaymentActionEvent(event, recipient.audience, facts);
       return rendered ? [{ ...recipient, rendered }] : [];

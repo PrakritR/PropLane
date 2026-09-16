@@ -1,3 +1,4 @@
+import { runInboundMessageAutomation } from "@/lib/inbound-message-automation.server";
 import { NextResponse, after } from "next/server";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { track } from "@/lib/analytics/posthog";
@@ -466,6 +467,18 @@ export async function POST(req: Request) {
     const queueResidentWorkflow = (managerUserId: string, residentName?: string) => {
       if (workflowQueued || !managerUserId || senderRole !== "resident") return;
       workflowQueued = true;
+      // Emergency flag and after-hours acknowledgement (PLAN-0915), same
+      // deferred, best-effort contract as the workflow filing below.
+      after(
+        runInboundMessageAutomation(db, {
+          managerUserId,
+          residentEmail: senderEmail,
+          residentUserId: user.id,
+          residentName: residentName ?? fromName,
+          text,
+          threadId: replyTarget?.threadId ?? null,
+        }).catch(() => undefined),
+      );
       after(
         fileWorkflowFromInboundMessage({
           managerUserId,

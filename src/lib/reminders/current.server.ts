@@ -2,6 +2,16 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ReminderQueueRow } from "@/lib/reminders/queue.server";
 import type { ReminderSubjectKind } from "@/lib/reminders/rules";
 
+/** Kinds whose currency lives in `subjects/leasing-current.server.ts`. */
+const LEASING_KINDS: ReadonlySet<ReminderSubjectKind> = new Set<ReminderSubjectKind>([
+  "tour_request_unanswered",
+  "tour_request_reoffer",
+  "tour_no_show_manager",
+  "application_decision_manager",
+  "application_no_lease_manager",
+  "message_unanswered",
+]);
+
 /** Kinds whose currency lives in `subjects/tenancy-current.server.ts`. */
 const TENANCY_KINDS: ReadonlySet<ReminderSubjectKind> = new Set<ReminderSubjectKind>([
   "move_in",
@@ -110,12 +120,17 @@ export async function reminderIsCurrent(db: SupabaseClient, row: ReminderQueueRo
     return leaseIsCurrent(db, row, expectedAnchor);
   }
 
-  if (row.kind === "payment_manager") {
+  if (row.kind === "payment_manager" || row.kind === "delinquency_manager") {
     return paymentManagerReminderIsCurrent(db, row, expectedAnchor);
   }
 
   if (row.kind === "outgoing_payment") {
     return outgoingPaymentIsCurrent(db, row, expectedAnchor);
+  }
+
+  if (LEASING_KINDS.has(row.kind)) {
+    const { leasingReminderIsCurrent } = await import("./subjects/leasing-current.server");
+    return leasingReminderIsCurrent(db, row, expectedAnchor);
   }
 
   if (TENANCY_KINDS.has(row.kind)) {

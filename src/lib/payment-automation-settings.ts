@@ -45,6 +45,8 @@ export type ManagerAutomationSettings = {
    * approval flows through the same preview/confirm gate as every other write.
    */
   proposeTourConfirmations: boolean;
+  /** What an applicant is promised on submit: "you will hear back within N days" (0 = no promise). PLAN-0915. */
+  applicationResponsePromiseDays: 0 | 1 | 2 | 3 | 5;
   /** Confirmed tour reminders sent before the tour start time. */
   tourReminderEnabled: boolean;
   /** @deprecated Legacy single value — use tourReminderMinutesBeforeList. Kept in sync with the list minimum. */
@@ -167,6 +169,7 @@ export const DEFAULT_MANAGER_AUTOMATION_SETTINGS: ManagerAutomationSettings = {
   lateFeeNoticeDaysAfterDue: 5,
   sameDayReminderEnabled: true,
   proposeTourConfirmations: false,
+  applicationResponsePromiseDays: 3,
   tourReminderEnabled: true,
   tourReminderMinutesBefore: DEFAULT_TOUR_REMINDER_MINUTES_BEFORE,
   tourReminderMinutesBeforeList: [DEFAULT_TOUR_REMINDER_MINUTES_BEFORE],
@@ -392,6 +395,9 @@ export function normalizeManagerAutomationSettings(raw: unknown): ManagerAutomat
     // Opt-in: OFF unless the manager explicitly saved `true`. Same idiom as
     // overdueDailyEnabled — no saved value must never auto-enable a proposal.
     proposeTourConfirmations: row.proposeTourConfirmations === true,
+    applicationResponsePromiseDays: ([0, 1, 2, 3, 5] as const).includes(row.applicationResponsePromiseDays as 0 | 1 | 2 | 3 | 5)
+      ? (row.applicationResponsePromiseDays as 0 | 1 | 2 | 3 | 5)
+      : base.applicationResponsePromiseDays,
     tourReminderEnabled: row.tourReminderEnabled !== false,
     ...(() => {
       const tourReminderMinutesBeforeList = normalizeTourReminderMinutesBeforeList(

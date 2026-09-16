@@ -86,18 +86,12 @@ export const AUTOMATED_MESSAGE_CATALOG: AutomatedMessageCatalogEntry[] = [
   { domain: "payment", event: "deposit_received", area: "payments", label: "Deposit received", audiences: ["resident", "manager"], placeholders: ["amountLabel", "propertyTitle"] },
   // ---- Applications ----
   { domain: "application", event: "application_submitted", area: "applications", label: "Submitted", audiences: ["resident"], placeholders: ["applicantName", "propertyTitle", "responsePromise"] },
-  { domain: "application", event: "fee_paid", area: "applications", label: "Application fee paid", audiences: ["resident", "manager"], placeholders: ["applicantName", "propertyTitle", "amountLabel"] },
-  { domain: "application", event: "documents_requested", area: "applications", label: "Documents requested", audiences: ["resident"], placeholders: ["applicantName", "propertyTitle", "documents", "url"] },
-  { domain: "application", event: "documents_received", area: "applications", label: "Documents received", audiences: ["manager"], placeholders: ["applicantName", "propertyTitle", "documents"] },
-  { domain: "application", event: "screening_complete", area: "applications", label: "Screening complete", audiences: ["resident", "manager"], placeholders: ["applicantName", "propertyTitle", "url"] },
-  { domain: "application", event: "cosigner_completed", area: "applications", label: "Cosigner submitted", audiences: ["manager"], placeholders: ["applicantName", "cosignerName", "propertyTitle"] },
   { domain: "application", event: "application_approved", area: "applications", label: "Approved", audiences: ["resident", "manager"], placeholders: ["applicantName", "propertyTitle"] },
   { domain: "application", event: "application_declined", area: "applications", label: "Declined", audiences: ["resident", "manager"], placeholders: ["applicantName", "propertyTitle"] },
   { domain: "application", event: "application_withdrawn", area: "applications", label: "Withdrawn", audiences: ["resident", "manager"], placeholders: ["applicantName", "propertyTitle"] },
   // ---- Tours ----
   { domain: "tour", event: "confirmed", area: "tours", label: "Tour confirmed", audiences: ["manager"], placeholders: ["guestName", "propertyTitle", "whenLabel"] },
   { domain: "tour", event: "cancelled_by_guest", area: "tours", label: "Cancelled by guest", audiences: ["manager"], placeholders: ["guestName", "propertyTitle", "whenLabel"] },
-  { domain: "tour", event: "no_show", area: "tours", label: "No-show", audiences: ["resident"], placeholders: ["guestName", "propertyTitle", "slotsUrl"] },
   // ---- Inspections (a report has two sides; the resident submits theirs, the manager may reopen it) ----
   { domain: "inspection", event: "submitted", area: "inspections", label: "Resident submitted their photos", audiences: ["manager"], placeholders: ["residentName", "propertyTitle", "kind", "url"] },
   { domain: "inspection", event: "reopened", area: "inspections", label: "Report reopened for the resident", audiences: ["resident"], placeholders: ["residentName", "propertyTitle", "kind", "url"] },

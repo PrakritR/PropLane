@@ -423,11 +423,35 @@ export function ApplicationsSettingsPanel({
         title="Reminders"
         action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
       >
+        <ManagerAutomationSelectRow
+          label="Response promise"
+          field="applicationResponsePromiseDays"
+          options={[
+            { value: "3", label: "Answer within 3 days" },
+            { value: "1", label: "Answer within 1 day" },
+            { value: "2", label: "Answer within 2 days" },
+            { value: "5", label: "Answer within 5 days" },
+            { value: "0", label: "No promise" },
+          ]}
+          parse={(value) => Number(value) as 0 | 1 | 2 | 3 | 5}
+          dataAttr="applications-response-promise"
+        />
+        <AutomationRuleRows
+          rows={[
+            { kind: "application_decision_manager" },
+            { kind: "application_no_lease_manager" },
+          ]}
+          disabled={loading || saving}
+        />
         <ApplicationRemindersSettingsBundle
           teamMembers={teamMembers}
           formRef={reminderFormRef}
           disabled={loading || saving}
         />
+      </PortalSettingsSection>
+
+      <PortalSettingsSection title="Messages sent automatically">
+        <AutomatedMessagesList area="applications" disabled={loading || saving} />
       </PortalSettingsSection>
     </div>
   );
@@ -1323,6 +1347,20 @@ export function TourSettingsPanel({
             )}
           </div>
         </PortalSettingsSection>
+
+        <PortalSettingsSection title="Requests and follow-ups">
+          <AutomationRuleRows
+            rows={[
+              { kind: "tour_request_unanswered" },
+              { kind: "tour_request_reoffer" },
+              { kind: "tour_no_show_manager" },
+            ]}
+          />
+        </PortalSettingsSection>
+
+        <PortalSettingsSection title="Messages sent automatically">
+          <AutomatedMessagesList area="tours" />
+        </PortalSettingsSection>
       </div>
 
       <TourInterestSettings />
@@ -1397,16 +1435,24 @@ export function PaymentsSettingsPanel({
   }
 
   return (
-    <PortalSettingsSection
-      title="Rent reminders"
-      action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
-    >
-      <IncomingPaymentRemindersSettingsBundle
-        teamMembers={teamMembers}
-        onSaved={onSaved}
-        formRef={formRef}
-      />
-    </PortalSettingsSection>
+    <PortalSettingsSections>
+      <PortalSettingsSection
+        title="Rent reminders"
+        action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+      >
+        <IncomingPaymentRemindersSettingsBundle
+          teamMembers={teamMembers}
+          onSaved={onSaved}
+          formRef={formRef}
+        />
+      </PortalSettingsSection>
+      <PortalSettingsSection title="Delinquency">
+        <AutomationRuleRows rows={[{ kind: "delinquency_manager" }]} />
+      </PortalSettingsSection>
+      <PortalSettingsSection title="Messages sent automatically">
+        <AutomatedMessagesList area="payments" />
+      </PortalSettingsSection>
+    </PortalSettingsSections>
   );
 }
 
@@ -1632,7 +1678,104 @@ export function CommunicationSettingsPanel({
         canSend={smsSetup?.canSend === true}
         className="mt-4 rounded-xl border border-border bg-accent/30 px-3 py-2.5"
       />
+      <div className="mt-6 space-y-3">
+        <p className="text-[15px] font-bold tracking-[-0.01em] text-foreground">Follow-ups</p>
+        <AutomationRuleRows rows={[{ kind: "message_unanswered" }]} />
+      </div>
+      <div className="mt-6 space-y-3">
+        <p className="text-[15px] font-bold tracking-[-0.01em] text-foreground">Messages sent automatically</p>
+        <AutomatedMessagesList area="communication" />
+      </div>
     </PortalSettingsSection>
+  );
+}
+
+/**
+ * One autosaving select bound to a single `ManagerAutomationSettings` field —
+ * the same PATCH every other automation preference uses (PLAN-0915).
+ */
+function ManagerAutomationSelectRow<K extends keyof ManagerAutomationSettings>({
+  label,
+  field,
+  options,
+  parse,
+  dataAttr,
+}: {
+  label: string;
+  field: K;
+  options: { value: string; label: string }[];
+  parse: (value: string) => ManagerAutomationSettings[K];
+  dataAttr: string;
+}) {
+  const { showToast } = useAppUi();
+  const demo = isDemoModeActive();
+  const reportSaveStatus = useReportSettingsSaveStatus();
+  const [value, setValue] = useState<ManagerAutomationSettings[K] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      if (demo) {
+        if (!cancelled) setValue(DEFAULT_MANAGER_AUTOMATION_SETTINGS[field]);
+        return;
+      }
+      try {
+        const res = await fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" });
+        const body = (await res.json().catch(() => ({}))) as { settings?: unknown };
+        if (!res.ok) throw new Error("Could not load settings.");
+        if (!cancelled) setValue(normalizeManagerAutomationSettings(body.settings)[field]);
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Could not load settings.");
+        if (!cancelled) setValue(DEFAULT_MANAGER_AUTOMATION_SETTINGS[field]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [demo, field, showToast]);
+
+  const change = async (raw: string) => {
+    const next = parse(raw);
+    const previous = value;
+    setValue(next);
+    if (demo) return;
+    reportSaveStatus({ type: "start" });
+    try {
+      const res = await fetch("/api/portal/automation-settings", {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: next }),
+        keepalive: true,
+      });
+      const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
+      if (!res.ok) throw new Error(body.error ?? "Could not save settings.");
+      setValue(normalizeManagerAutomationSettings(body.settings)[field]);
+      reportSaveStatus({ type: "success" });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Could not save settings.";
+      setValue(previous);
+      showToast(message);
+      reportSaveStatus({ type: "failure", reason: message });
+    }
+  };
+
+  return (
+    <PortalSettingsGroup>
+      <PortalSettingsRow label={label}>
+        <FieldSingleSelect
+          label={label}
+          hideLabel
+          variant="cell"
+          wrapperClassName="w-56"
+          options={options}
+          value={value === null ? options[0]!.value : String(value)}
+          onChange={(next) => void change(next)}
+          disabled={value === null}
+          dataAttr={dataAttr}
+        />
+      </PortalSettingsRow>
+    </PortalSettingsGroup>
   );
 }
 
