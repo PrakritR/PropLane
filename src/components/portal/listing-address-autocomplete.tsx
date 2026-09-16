@@ -42,8 +42,26 @@ export function ListingAddressAutocomplete({
    * actually edits the field.
    */
   const appliedValueRef = useRef<string | null>(null);
+  /**
+   * The last text the manager actually TYPED (the string `onChange` handed the
+   * parent). The search effect keys on `value`, and a value can change without
+   * anyone typing: the saved address arriving from the record on open, a
+   * prefill from "We found this home", a draft reload, an autosave writing the
+   * field back. Every one of those used to search the address and pop the list
+   * over City / State / ZIP with nothing clicked. Only a value that matches what
+   * was typed here is allowed to search.
+   */
+  const typedValueRef = useRef<string | null>(null);
 
   useEffect(() => {
+    // Not typed in this session (opened from the record, prefilled, reloaded):
+    // show the saved text and nothing else.
+    if (typedValueRef.current === null || value !== typedValueRef.current) {
+      setSuggestions([]);
+      setOpen(false);
+      setLoading(false);
+      return;
+    }
     const settled = appliedValueRef.current;
     if (settled !== null) {
       if (value.trim() === settled) return;
@@ -67,6 +85,9 @@ export function ListingAddressAutocomplete({
           // A late response must not reopen the list over an address that was
           // chosen while the request was in flight.
           if (appliedValueRef.current !== null) return;
+          // The manager left the box while the search was in flight — do not
+          // reopen a list over a field nobody is looking at.
+          if (!wrapRef.current?.contains(document.activeElement)) return;
           setSuggestions(Array.isArray(data.suggestions) ? data.suggestions : []);
           setOpen(true);
           setActiveIndex(-1);
@@ -97,6 +118,9 @@ export function ListingAddressAutocomplete({
     // The exact string the parent will write back (same helper, same input), so
     // the guard above matches whatever render order the parent settles in.
     appliedValueRef.current = sanitizeStreetAddressInput(suggestion.address || suggestion.label).trim();
+    // The pick is written by the parent, not typed; keep the typed guard in
+    // step so a later keystroke starts from the chosen text.
+    typedValueRef.current = sanitizeStreetAddressInput(suggestion.address || suggestion.label);
     setSuggestions([]);
     setOpen(false);
     setActiveIndex(-1);
@@ -115,7 +139,9 @@ export function ListingAddressAutocomplete({
         className={className}
         placeholder={placeholder}
         onChange={(e) => {
-          onChange(sanitizeStreetAddressInput(e.target.value));
+          const typed = sanitizeStreetAddressInput(e.target.value);
+          typedValueRef.current = typed;
+          onChange(typed);
           setOpen(true);
         }}
         onFocus={() => {
