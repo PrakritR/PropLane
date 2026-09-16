@@ -10,20 +10,25 @@ property workspace. Read this before touching `src/lib/property-import/`,
 ## Shape
 
 ```
-Properties → ＋ → Import properties            (pro-properties.tsx, ImportWorkspace)
+Properties ＋ / Dashboard ＋ / empty state → Create   (pro-properties.tsx, CreateWorkspace)
         │
-   Upload step (import-upload-step.tsx)  ──►  POST /api/portal/property-import/read  {file, hint?}
+   Basics opens with a "Start from a file" strip above Property type (ImportFileStrip)
+        │   a file picked over typed work asks first: Replace / Keep what I typed
+        ▼
+   ImportFileStrip / Import step (import-upload-step.tsx)  ──►  POST /api/portal/property-import/read  {file, hint?}
         │                                          read-file.server   → row-numbered cell grids (no interpretation)
         │                                          understand.server  → ONE complex-tier model call, tool-use schema
         │                                          ◄── PropertyImportUnderstanding (properties, rooms, rows cited, notes)
         │
-   Found list: one row per property, ⋯ Open / Merge into… / Not a property, hint + Re-read
-        │
    each property → submissionFromImportedProperty (to-submission.ts) → saveManagerPropertyDraftToServer
-        │            (the SAME draft path Add property uses; ✦ Imported marks via prefill.source = "file")
+        │            (the SAME draft path typing uses; ✦ Imported marks via prefill.source = "file";
+        │             the blank listing's own draft, if it autosaved, is deleted so Drafts holds no orphan)
         │
-   Basics → Rooms → Bathrooms → Shared spaces → Pricing → Review  (ListingWizardV2 with leadingStep + headerCenter)
-            header switcher "1 of 6 · 400 Pike St ▾" moves between drafts; switching flushes first (flushRef)
+   ONE property   → it replaces the blank listing in place: Basics, filled, with the Import step behind it on the rail
+   SEVERAL        → Import step = Found list: one row per property, ⋯ Open / Merge into… / Not a property, hint + Re-read
+        │
+   Basics → Rooms → Bathrooms → Shared spaces → Pricing → Review  (ListingWizardV2 with leadingStep + headerCenter + basicsLead)
+            header switcher "1 of 6 · 400 Pike St ▾" moves between drafts (several only); switching flushes first (flushRef)
 ```
 
 | Piece | File |
@@ -33,8 +38,8 @@ Properties → ＋ → Import properties            (pro-properties.tsx, ImportW
 | Whole-file model read, payload validation | `src/lib/property-import/understand.server.ts` |
 | Understood property → listing draft | `src/lib/property-import/to-submission.ts` |
 | Route | `src/app/api/portal/property-import/read/route.ts` |
-| Workspace, Upload step, switcher | `src/components/portal/listing-wizard-v2/import-workspace.tsx`, `import-upload-step.tsx`, `import-property-switcher.tsx` |
-| Editor hooks the import uses | `ListingEditorV2` `leadingStep` / `headerCenter`; `ListingWizardV2` `flushRef` |
+| Create workspace, strip + Import step, switcher | `src/components/portal/listing-wizard-v2/create-workspace.tsx`, `import-upload-step.tsx`, `import-property-switcher.tsx` |
+| Editor hooks the import uses | `ListingEditorV2` `leadingStep` / `headerCenter` / `basicsLead`; `ListingWizardV2` `flushRef` / `onDirtyChange` |
 | Live proof (dev only) | `scripts/testing/property-import-live-read.mts` |
 
 ## Invariants

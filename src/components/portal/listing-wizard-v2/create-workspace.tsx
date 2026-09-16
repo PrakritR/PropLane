@@ -1,14 +1,19 @@
 "use client";
 
 /**
- * Import properties — the Add property workspace with one extra step.
+ * Create — the one door into a new listing, with the file import inside it.
  *
- * The manager drops a spreadsheet on the Upload step; PropLane reads the
- * whole file and reports the properties it found; each becomes an ordinary
- * listing draft on the spot (the same save path Add property uses, so
- * ownership, the plan limit and autosave stay one code path). From there
- * Basics → Review are the Add property steps, opened one property at a time
- * with a switcher in the header. Switching saves whatever is unsaved first.
+ * It opens the listing editor straight at Basics. Above Property type sits a
+ * "Start from a file" strip: drop a spreadsheet, rent roll or PDF and PropLane
+ * reads the whole file on the server and reports the properties it found. Each
+ * becomes an ordinary listing draft on the spot (the same save path typing
+ * uses, so ownership, the plan limit and autosave stay one code path).
+ *
+ * One property in the file replaces the blank listing in place — the manager is
+ * already on Basics and stays there, now filled, with the file's marks on the
+ * fields it set. Several fan out: the rail gains an Import step ahead of Basics
+ * holding the Found list, and a switcher in the header moves between the
+ * drafts, one property open at a time. Switching saves whatever is unsaved.
  *
  * Nothing lives in a second store: the drafts ARE the import, so the Drafts
  * tab is the resume point and there is no banner to dismiss.
@@ -17,10 +22,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ListingWizardV2 } from "@/components/portal/listing-wizard-v2";
 import {
+  ImportFileStrip,
   ImportUploadSidePanel,
   ImportUploadStep,
+  stripStateFromRead,
   type ImportFoundEntry,
   type ImportReadState,
+  type ImportStripState,
 } from "@/components/portal/listing-wizard-v2/import-upload-step";
 import { ImportPropertySwitcher } from "@/components/portal/listing-wizard-v2/import-property-switcher";
 import { LISTING_V2_STEPS } from "@/components/portal/listing-wizard-v2/listing-editor";
@@ -37,7 +45,7 @@ import {
 } from "@/lib/property-import/types";
 import { track } from "@/lib/analytics/track-client";
 
-const UPLOAD_STEP_ID = "upload";
+const IMPORT_STEP_ID = "import";
 
 type Entry = ImportFoundEntry & {
   submission: ManagerListingSubmissionV1;
@@ -89,32 +97,45 @@ export function importSaveState(entries: ReadonlyArray<{ saving: boolean; draftI
   return `Saved · ${saved} draft${saved === 1 ? "" : "s"}`;
 }
 
-export function ImportWorkspace({
+export function CreateWorkspace({
   onClose,
+  onSaved,
   onDraftsChanged,
   onPublished,
   showToast,
   userId,
   skuTier,
   propertyCount = 0,
+  initialSubmission = null,
+  initialDraftId = null,
 }: {
   onClose: () => void;
+  /** The blank listing was saved (X or autosave) — before any file is involved. */
+  onSaved?: (sub: ManagerListingSubmissionV1, savedId?: string) => void;
   /** Drafts were written, changed or removed — the Properties list should re-read. */
   onDraftsChanged?: () => void;
-  /** A property from the file went live. */
+  /** A property went live. */
   onPublished?: (listingId: string) => void;
   showToast?: (message: string) => void;
   userId: string | null;
   skuTier: string | null | undefined;
   propertyCount?: number;
+  /** Resuming a draft the manager started earlier. */
+  initialSubmission?: ManagerListingSubmissionV1 | null;
+  initialDraftId?: string | null;
 }) {
   const [read, setRead] = useState<ImportReadState>({ kind: "empty" });
   const [entries, setEntries] = useState<Entry[]>([]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [phase, setPhase] = useState<"upload" | "edit">("upload");
+  /** blank: the editor on a listing typed by hand; import: the Found list; edit: one imported property open. */
+  const [phase, setPhase] = useState<"blank" | "import" | "edit">("blank");
   const [busy, setBusy] = useState(false);
+  /** A file picked while Basics already held typed work — waits for Replace / Keep. */
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
   const lastFileRef = useRef<File | null>(null);
   const flushRef = useRef<(() => Promise<boolean>) | null>(null);
+  const blankDirtyRef = useRef(false);
+  const blankDraftIdRef = useRef<string | null>(initialDraftId);
 
   const entriesRef = useRef(entries);
   useEffect(() => {
@@ -198,19 +219,60 @@ export function ImportWorkspace({
         setRead({ kind: "error", fileName: file.name, message: res.error });
         return;
       }
+      // Nothing in the file looked like a property: say so where the file was
+      // dropped, in PropLane's own words, and leave Basics as it was. Moving
+      // to an empty Found list would strand the manager on a step with nothing
+      // on it and Continue off.
+      if (res.understanding.properties.length === 0 && phase === "blank") {
+        const why = res.understanding.summary[0] ?? "No addresses, rents or units were found in it.";
+        setRead({ kind: "error", fileName: file.name, message: why });
+        return;
+      }
       // A re-read replaces the previous batch: drop drafts the old read made.
       const stale = entriesRef.current.filter((e) => e.draftId);
       if (stale.length > 0 && userId) {
         await Promise.all(stale.map((e) => deleteManagerPropertyDraft(e.draftId!, userId).catch(() => false)));
       }
+      // The listing typed by hand gives way to the file: its draft goes too, or
+      // the Drafts tab would show an orphan next to what the file produced.
+      const blankDraftId = blankDraftIdRef.current;
+      if (blankDraftId && userId) {
+        blankDraftIdRef.current = null;
+        await deleteManagerPropertyDraft(blankDraftId, userId).catch(() => false);
+      }
       setRead({ kind: "found", understanding: res.understanding });
       track("property_import_opened", { propertyCount: res.understanding.properties.length });
       await adoptUnderstanding(res.understanding.properties);
+      // One property fills this listing in place; several become the Found list.
+      const [only] = res.understanding.properties;
+      if (res.understanding.properties.length === 1 && only) {
+        setSelectedKey(only.key);
+        setPhase("edit");
+      } else {
+        setPhase("import");
+      }
     },
-    [adoptUnderstanding, read, showToast, userId],
+    [adoptUnderstanding, phase, read, showToast, userId],
   );
 
   const onPickFile = useCallback((file: File) => void runRead(file, null), [runRead]);
+  /** From Basics: a file picked over typed work waits for the manager's word. */
+  const onPickFileFromBasics = useCallback(
+    (file: File) => {
+      if (blankDirtyRef.current || blankDraftIdRef.current) {
+        setPendingFile(file);
+        return;
+      }
+      void runRead(file, null);
+    },
+    [runRead],
+  );
+  const confirmReplace = useCallback(() => {
+    const file = pendingFile;
+    setPendingFile(null);
+    if (file) void runRead(file, null);
+  }, [pendingFile, runRead]);
+  const keepTyped = useCallback(() => setPendingFile(null), []);
   const onReread = useCallback(
     (hint: string) => {
       const file = lastFileRef.current;
@@ -242,13 +304,13 @@ export function ImportWorkspace({
     [flushOpenEditor, phase, selectedKey, showToast],
   );
 
-  const backToUpload = useCallback(async () => {
+  const backToImport = useCallback(async () => {
     const ok = await flushOpenEditor();
     if (!ok) {
       showToast?.("Could not save this property yet. Try again.");
       return;
     }
-    setPhase("upload");
+    setPhase("import");
   }, [flushOpenEditor, showToast]);
 
   const removeEntry = useCallback(
@@ -303,16 +365,51 @@ export function ImportWorkspace({
     [entries],
   );
 
+  const importSummary = fileName ? `${fileName}${entries.length ? ` · ${entries.length} found` : ""}` : "Choose a file";
   const leadingStep = useMemo(
     () => ({
-      id: UPLOAD_STEP_ID,
-      label: "Upload",
-      summary: fileName ? `${fileName}${entries.length ? ` · ${entries.length} found` : ""}` : "Choose a file",
+      id: IMPORT_STEP_ID,
+      label: "Import",
+      summary: importSummary,
       attention: needLook,
-      onOpen: () => void backToUpload(),
+      onOpen: () => void backToImport(),
     }),
-    [backToUpload, entries.length, fileName, needLook],
+    [backToImport, importSummary, needLook],
   );
+
+  if (phase === "blank") {
+    const stripState: ImportStripState = pendingFile ? { kind: "confirm", fileName: pendingFile.name } : (stripStateFromRead(read) ?? { kind: "blank" });
+    return (
+      <ListingWizardV2
+        key="blank"
+        onClose={onClose}
+        onSaved={(sub, savedId) => {
+          if (savedId) blankDraftIdRef.current = savedId;
+          onSaved?.(sub, savedId);
+        }}
+        onPublished={onPublished}
+        initialSubmission={initialSubmission}
+        initialDraftId={initialDraftId}
+        showToast={showToast}
+        userId={userId}
+        skuTier={skuTier}
+        propertyCount={propertyCount}
+        onDirtyChange={(dirty) => {
+          blankDirtyRef.current = dirty;
+        }}
+        basicsLead={
+          <ImportFileStrip
+            state={stripState}
+            busy={busy}
+            onPickFile={onPickFileFromBasics}
+            onReread={onReread}
+            onConfirm={confirmReplace}
+            onCancel={keepTyped}
+          />
+        }
+      />
+    );
+  }
 
   if (phase === "edit" && selected) {
     return (
@@ -333,7 +430,7 @@ export function ImportWorkspace({
           }
           showToast?.(`Published. ${remaining.length} more from ${fileName ?? "your file"} still in Drafts.`);
           setSelectedKey(remaining[0]!.key);
-          setPhase("upload");
+          setPhase("import");
         }}
         initialSubmission={selected.submission}
         initialDraftId={selected.draftId}
@@ -343,17 +440,19 @@ export function ImportWorkspace({
         propertyCount={propertyCount}
         leadingStep={leadingStep}
         headerCenter={
-          <ImportPropertySwitcher entries={switcherEntries} selectedKey={selected.key} onSelect={(key) => void openEntry(key)} disabled={busy} />
+          entries.length > 1 ? (
+            <ImportPropertySwitcher entries={switcherEntries} selectedKey={selected.key} onSelect={(key) => void openEntry(key)} disabled={busy} />
+          ) : undefined
         }
         flushRef={flushRef}
       />
     );
   }
 
-  // The Upload step, drawn on the same shell the editor uses — same header,
+  // The Import step, drawn on the same shell the editor uses — same header,
   // rail, footer — so stepping into Basics changes nothing but the body.
   const railSteps = [
-    { id: UPLOAD_STEP_ID, label: "Upload", summary: leadingStep.summary, attention: needLook },
+    { id: IMPORT_STEP_ID, label: "Import", summary: importSummary, attention: needLook },
     ...LISTING_V2_STEPS.map((s) => ({ id: s.id, label: s.label, offPath: entries.length === 0 })),
   ];
   const canContinue = entries.length > 0 && !busy;
@@ -362,12 +461,12 @@ export function ImportWorkspace({
   return (
     <PortalAssistantConfigProvider endpoint="/api/agent/chat" managerName={null}>
       <ListingWorkspace
-        title="Import properties"
+        title="New listing"
         subtitle={fileName ?? undefined}
         saveState={importSaveState(entries)}
         onClose={onClose}
         headerCenter={
-          entries.length > 0 && selected ? (
+          entries.length > 1 && selected ? (
             <ImportPropertySwitcher entries={switcherEntries} selectedKey={selected.key} onSelect={(key) => void openEntry(key)} disabled={busy} />
           ) : null
         }

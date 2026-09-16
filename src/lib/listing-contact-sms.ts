@@ -1,5 +1,6 @@
 import type { MockProperty } from "@/data/types";
 import { listingCtaSmsPhone } from "@/lib/claw-leasing-links";
+import { listingCtaEmailAddress } from "@/lib/listing-cta-email";
 
 /**
  * Attach the resolved CTA number so a manager-side preview matches what the
@@ -21,4 +22,18 @@ export function withListingContactSmsPhone(
 export function isLiveListingIdForContactSms(listingId: string | null | undefined): boolean {
   const id = listingId?.trim() ?? "";
   return Boolean(id && !id.startsWith("preview-") && !id.startsWith("demo-"));
+}
+
+/**
+ * Same contract for the work email: `null` CLEARS any address stored on the
+ * property. The stored blob could name anybody; only the server-resolved
+ * work email is ever shown to a renter.
+ */
+export function withListingContactWorkEmail(
+  property: MockProperty,
+  contactWorkEmail: string | null | undefined,
+): MockProperty {
+  const email = listingCtaEmailAddress(contactWorkEmail) ?? undefined;
+  if (property.contactWorkEmail === email) return property;
+  return { ...property, contactWorkEmail: email };
 }

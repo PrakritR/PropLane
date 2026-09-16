@@ -6,18 +6,25 @@
  * A room is available by default. This block lists only the spans that close
  * it: the manager's own occupied dates (editable Start → End, End optional),
  * and — read-only, grey — whatever bookings already say: a resident's stay, a
- * Bookings block, an Airbnb import. "Set occupied dates" adds a row starting
- * today; ✕ removes one. Nothing here is a status switch: the dates ARE the
- * status, and the word beside the heading is a readout derived from them.
+ * Bookings block, an Airbnb import. The round + in the header adds a row
+ * starting today; once a row exists a dashed "+ Add occupied dates" footer
+ * under the list adds the next one, starting the day after the last End; ✕
+ * removes one. Nothing here is a status switch and nothing is printed about
+ * what renters see: the dates ARE the status. The calendar toggle shows the
+ * same spans as a month grid, read-only.
  *
- * Every change writes the room's `manualUnavailableRanges` together with the
- * derived `availability` label and `moveInAvailableDate`, so the public card,
- * the side panel and the SMS agent keep reading the fields they always read.
+ * Every change still writes the room's `manualUnavailableRanges` together with
+ * the derived `availability` label and `moveInAvailableDate`, so the public
+ * card, the side panel and the SMS agent keep reading the fields they always
+ * read — the label is just no longer shown here.
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { CalendarDays, Plus } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+import { RoomAvailabilityMonthCalendar, type RoomCalendarSpan } from "@/components/room-availability-month-calendar";
+import { localDateFromDateKey } from "@/lib/room-availability-calendar";
 import type { ManagerRoomSubmission, ManagerRoomUnavailableRange } from "@/lib/manager-listing-submission";
 import { fetchRoomDateBlocks } from "@/lib/channel-calendar/room-date-blocks";
 import { lastNightBeforeCheckout, roomBlockSummary } from "@/lib/channel-calendar/property-bookings";
@@ -31,6 +38,7 @@ import {
   manualRangesToSpans,
   newOccupiedRangeId,
   roomAvailabilityPatch,
+  shiftDateKey,
   spanEndsBeforeStart,
   todayDateKey,
   type OccupiedSpan,
@@ -120,9 +128,12 @@ export function OccupiedDates({
   };
 
   const add = () => {
+    if (rows.some((r) => !r.end)) return; // a row with no End already closes the room; set an End first
     const covering = readout.current;
-    if (covering && !covering.end) return; // already occupied with no end; set an End first
-    const start = covering?.end ? (readout.availableFrom || today) : today;
+    // Next range starts the day after the room is free again, or after the
+    // latest typed End when every row is in the future; today when nothing closes it.
+    const latestEnd = rows.reduce<string | null>((acc, r) => (r.end && (!acc || r.end > acc) ? r.end : acc), null);
+    const start = covering?.end ? (readout.availableFrom || today) : latestEnd ? shiftDateKey(latestEnd, 1) : today;
     write([...rows, { id: newOccupiedRangeId(), start, end: null }]);
   };
   const edit = (id: string, patch: Partial<Pick<ManagerRoomUnavailableRange, "start" | "end">>) =>
@@ -132,34 +143,51 @@ export function OccupiedDates({
   const readOnly: OccupiedSpan[] = [...booked, ...channel].sort((a, b) => a.start.localeCompare(b.start));
   const sortedRows = [...rows].sort((a, b) => a.start.localeCompare(b.start));
   const anyRows = sortedRows.length + readOnly.length > 0;
-  const blockedAdd = Boolean(readout.current && !readout.current.end);
+  const blockedAdd = rows.some((r) => !r.end);
+  const addTitle = blockedAdd ? "Set an End date on the open row first" : "Set occupied dates";
+
+  const [view, setView] = useState<"list" | "calendar">("list");
+  // Cheap enough to derive every render; the rows are a handful at most.
+  const calendarSpans: RoomCalendarSpan[] = [...manualRangesToSpans(sortedRows), ...readOnly]
+    .filter((s) => !spanEndsBeforeStart(s))
+    .map((s) => ({ start: localDateFromDateKey(s.start), end: localDateFromDateKey(s.end), tone: s.source === "manual" ? "occupied" : "booked" }));
 
   return (
     <div className="px-3.5 pb-3 pt-2" data-attr="listing-v2-room-availability">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <span className="text-[12.5px] font-bold text-foreground">
-          Availability
-          <span
-            className={`ml-2 inline-flex align-middle text-[12px] font-bold ${readout.occupiedNow ? "text-foreground/70" : "text-[var(--status-approved-fg)]"}`}
-            data-attr="listing-v2-room-availability-readout"
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-[12.5px] font-bold text-foreground">Availability</span>
+        <span className="inline-flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setView((v) => (v === "calendar" ? "list" : "calendar"))}
+            aria-pressed={view === "calendar"}
+            aria-label={view === "calendar" ? "Back to the list" : "View on calendar"}
+            title={view === "calendar" ? "Back to the list" : "View on calendar"}
+            data-attr="listing-v2-room-availability-view"
+            className={cn(
+              "inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-muted transition hover:border-primary/45 hover:text-foreground",
+              view === "calendar" && "border-primary/45 bg-accent/40 text-primary",
+            )}
           >
-            {readout.occupiedNow ? "Occupied" : "Available"}
-          </span>
+            <CalendarDays className="h-[17px] w-[17px]" aria-hidden />
+          </button>
+          <button
+            type="button"
+            onClick={add}
+            disabled={blockedAdd}
+            aria-label="Set occupied dates"
+            title={addTitle}
+            data-attr="listing-v2-room-set-occupied"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-primary transition hover:border-primary/45 hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            <Plus className="h-5 w-5" aria-hidden />
+          </button>
         </span>
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={add}
-          disabled={blockedAdd}
-          data-attr="listing-v2-room-set-occupied"
-          title={blockedAdd ? "Set an End date on the open row first" : undefined}
-          className="min-h-[36px] px-4 py-1.5 text-[13px]"
-        >
-          Set occupied dates
-        </Button>
       </div>
 
-      {anyRows ? (
+      {view === "calendar" ? (
+        <RoomAvailabilityMonthCalendar spans={calendarSpans} legend dataAttr="listing-v2-room-availability-calendar" />
+      ) : anyRows ? (
         <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border" data-attr="listing-v2-room-occupied-list">
           {readOnly.map((span) => (
             <li key={span.id} className="grid grid-cols-[1fr_auto] items-center gap-2 bg-foreground/[0.03] px-3 py-2 text-[13px] sm:grid-cols-[minmax(0,1.2fr)_1fr_auto_1fr_auto]">
@@ -204,12 +232,24 @@ export function OccupiedDates({
               </li>
             );
           })}
+          {sortedRows.length > 0 ? (
+            <li className="border-dashed">
+              <button
+                type="button"
+                onClick={add}
+                disabled={blockedAdd}
+                aria-label="Add occupied dates"
+                title={addTitle}
+                data-attr="listing-v2-room-occupied-add"
+                className="flex w-full items-center justify-center gap-2 px-3 py-2.5 text-[13px] font-semibold text-primary transition hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                <Plus className="h-4 w-4" aria-hidden />
+                Add occupied dates
+              </button>
+            </li>
+          ) : null}
         </ul>
       ) : null}
-
-      <p className="mt-2 text-[13px] text-foreground">
-        Renters see: <span className="font-bold" data-attr="listing-v2-room-availability-label">{readout.label}</span>
-      </p>
     </div>
   );
 }
