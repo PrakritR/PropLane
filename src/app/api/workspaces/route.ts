@@ -126,7 +126,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true });
   } catch (error) {
     const code = error && typeof error === "object" && "code" in error ? error.code : null;
-    if (code === "23514") return NextResponse.json({ error: "Workspace limit reached: 3 owned workspaces and 10 property records per workspace, including drafts." }, { status: 409 });
+    if (code === "23514") return NextResponse.json({ error: "That workspace is full: 10 property records per workspace, including drafts. Choose another workspace." }, { status: 409 });
     if (code === "23503") return NextResponse.json({ error: "Move the properties out before deleting this workspace." }, { status: 409 });
     if (error instanceof SyntaxError) return NextResponse.json({ error: "Invalid request." }, { status: 400 });
     return NextResponse.json({ error: "Could not update the workspace. Please retry." }, { status: 503 });
