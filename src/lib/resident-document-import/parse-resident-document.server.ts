@@ -6,6 +6,7 @@ import type { TraceActor } from "@/lib/observability/langfuse";
 import { normalizeManagerListingSubmissionV1, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { matchResidentFromApplications } from "@/lib/resident-document-import/match-resident";
 import { extractResidentDocumentWithAi } from "@/lib/resident-document-import/parse-ai.server";
+import { APPLICANT_DOCUMENT_FIELD_KEYS, APPLICANT_DOCUMENT_FIELD_LABELS } from "@/lib/resident-document-import/types";
 import {
   matchPropertyFromCatalog,
   matchRoomInProperty,
@@ -173,6 +174,14 @@ export async function parseResidentDocumentPdf(args: {
     mergeField(fieldMap, field("monthlyRent", "Monthly rent", ai.monthlyRent, "ai", conf("monthlyRent")));
     mergeField(fieldMap, field("securityDeposit", "Security deposit", ai.securityDeposit, "ai", conf("securityDeposit")));
     mergeField(fieldMap, field("monthlyUtilities", "Monthly utilities", ai.monthlyUtilities, "ai", conf("monthlyUtilities")));
+    // An application PDF also carries the applicant's answers; a lease never does.
+    if (args.kind === "application") {
+      for (const key of APPLICANT_DOCUMENT_FIELD_KEYS) {
+        const value = ai.applicant[key];
+        if (!value) continue;
+        mergeField(fieldMap, field(key, APPLICANT_DOCUMENT_FIELD_LABELS[key], value, "ai", conf(key)));
+      }
+    }
   } else if (process.env.NODE_ENV !== "test") {
     warnings.push("AI extraction was unavailable — review the pre-filled fields carefully.");
   }

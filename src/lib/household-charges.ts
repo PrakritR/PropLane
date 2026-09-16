@@ -159,6 +159,8 @@ export type HouseholdCharge = {
   status: "pending" | "processing" | "partially_paid" | "paid" | "cancelled" | "refunded" | "failed";
   paidAmountCents?: number;
   paidAt?: string;
+  /** How an off-platform payment was received (zelle, check, cash…) when the manager recorded it by hand. */
+  paidMethod?: string;
   /** Resident questions or issues about this charge, newest last. */
   residentChargeMessages?: ResidentChargeMessage[];
   /** Snapshot of whether Axis ACH was enabled on the listing when the charge was created or synced. */
@@ -4927,4 +4929,144 @@ export function pruneObsoleteManagerCharges(
     rows.filter((charge) => !(charge.managerUserId === scope && charge.kind === "application_fee" && charge.status === "paid")),
   );
   return true;
+}
+
+/* ─────────────────────────── imported tenancies (Add resident wizard) ─────────────────────────── */
+
+export type ImportedTenancyMonthMark = {
+  status: "paid" | "due" | "partial";
+  /** yyyy-mm-dd the money arrived; defaults to the charge's due date. */
+  paidOn?: string;
+  method?: string;
+  /** Partial only: what was received, in dollars. */
+  partialAmount?: number;
+};
+
+export type ImportedTenancyMarks = {
+  residentEmail: string;
+  propertyId: string;
+  applicationId: string;
+  /** Month key → mark. A month absent here is left exactly as generated. */
+  months: Record<string, ImportedTenancyMonthMark>;
+  oneTime?: { securityDeposit?: ImportedTenancyMonthMark; moveInFee?: ImportedTenancyMonthMark };
+};
+
+function monthKeyForCharge(charge: HouseholdCharge): string | null {
+  if (charge.rentMonth) return charge.rentMonth;
+  // Move-in charges carry no rentMonth; they belong to the lease-start month.
+  const label = charge.dueDateLabel?.trim();
+  if (label && /^\d{4}-\d{2}/.test(label)) return label.slice(0, 7);
+  return null;
+}
+
+function isMonthlyKind(kind: HouseholdChargeKind): boolean {
+  return (
+    kind === "rent" ||
+    kind === "first_month_rent" ||
+    kind === "prorated_rent" ||
+    kind === "prorated_last_month_rent" ||
+    kind === "utilities" ||
+    kind === "prorated_utilities" ||
+    kind === "prorated_last_month_utilities" ||
+    kind === "other_cost"
+  );
+}
+
+function applyMark(charge: HouseholdCharge, mark: ImportedTenancyMonthMark, nowIso: string): HouseholdCharge {
+  if (mark.status === "paid") {
+    const paidAt = mark.paidOn && /^\d{4}-\d{2}-\d{2}$/.test(mark.paidOn) ? new Date(`${mark.paidOn}T12:00:00`).toISOString() : nowIso;
+    return {
+      ...charge,
+      status: "paid",
+      paidAt,
+      paidMethod: mark.method?.trim() || charge.paidMethod,
+      balanceLabel: "$0.00",
+    };
+  }
+  if (mark.status === "partial" && mark.partialAmount && mark.partialAmount > 0) {
+    const total = parseMoneyAmount(charge.amountLabel);
+    const paidCents = Math.round(Math.min(mark.partialAmount, total) * 100);
+    const balance = Math.max(0, total - paidCents / 100);
+    return {
+      ...charge,
+      status: "partially_paid",
+      paidAmountCents: paidCents,
+      paidMethod: mark.method?.trim() || charge.paidMethod,
+      balanceLabel: `$${balance.toFixed(2)}`,
+    };
+  }
+  return charge;
+}
+
+/**
+ * Record what an imported tenancy already paid.
+ *
+ * Runs AFTER the approval generator and the recurring sweep have written the
+ * months between move-in and today, so the rows exist under their normal
+ * business keys and a later sync dedupes against them. A month marked paid is
+ * stamped paid + paidAt + method; the mirror's replace path then writes the
+ * ledger payment entry beside the charge (the financials write-through rule)
+ * and cancels its reminders. Months not mentioned stay as generated.
+ */
+export function markImportedTenancyCharges(marks: ImportedTenancyMarks): { updated: number } {
+  if (!isBrowser()) return { updated: 0 };
+  const emailLower = marks.residentEmail.trim().toLowerCase();
+  const nowIso = new Date().toISOString();
+  const rows = readAll();
+  let updated = 0;
+  const next = rows.map((charge) => {
+    if (charge.residentEmail.trim().toLowerCase() !== emailLower) return charge;
+    if (charge.propertyId !== marks.propertyId) return charge;
+    if (charge.status === "paid" || charge.status === "cancelled" || charge.status === "refunded") return charge;
+    let mark: ImportedTenancyMonthMark | undefined;
+    if (charge.kind === "security_deposit") mark = marks.oneTime?.securityDeposit;
+    else if (charge.kind === "move_in_fee") mark = marks.oneTime?.moveInFee;
+    else if (isMonthlyKind(charge.kind)) {
+      const key = monthKeyForCharge(charge);
+      if (key) mark = marks.months[key];
+    }
+    if (!mark || mark.status === "due") return charge;
+    const changed = applyMark(charge, mark, nowIso);
+    if (changed !== charge) updated += 1;
+    return changed;
+  });
+  if (updated > 0) writeAll(next);
+  return { updated };
+}
+
+/**
+ * "Billing starts on the next due date": the tenancy is real but nothing
+ * before next month is owed through PropLane. Drops the pending months the
+ * generator wrote before `firstBilledMonth` and moves the recurring profile's
+ * start so the sweep does not write them again.
+ */
+export function trimImportedTenancyBillingStart(input: {
+  residentEmail: string;
+  propertyId: string;
+  managerUserId: string | null;
+  firstBilledMonth: string;
+}): { removed: number } {
+  if (!isBrowser()) return { removed: 0 };
+  const emailLower = input.residentEmail.trim().toLowerCase();
+  const rows = readAll();
+  const stale = rows.filter((c) => {
+    if (c.residentEmail.trim().toLowerCase() !== emailLower || c.propertyId !== input.propertyId) return false;
+    if (c.status !== "pending") return false;
+    if (!isMonthlyKind(c.kind)) return false;
+    const key = monthKeyForCharge(c);
+    return key != null && key < input.firstBilledMonth;
+  });
+  if (stale.length) {
+    for (const c of stale) deleteChargeRowFromServer(c.id);
+    const staleIds = new Set(stale.map((c) => c.id));
+    writeAll(rows.filter((c) => !staleIds.has(c.id)));
+  }
+  const profiles = readRentProfiles();
+  const nextProfiles = profiles.map((p) =>
+    p.residentEmail.trim().toLowerCase() === emailLower && p.propertyId === input.propertyId && (!p.startMonth || p.startMonth < input.firstBilledMonth)
+      ? { ...p, startMonth: input.firstBilledMonth, updatedAt: new Date().toISOString() }
+      : p,
+  );
+  if (nextProfiles.some((p, i) => p !== profiles[i])) writeRentProfiles(nextProfiles);
+  return { removed: stale.length };
 }

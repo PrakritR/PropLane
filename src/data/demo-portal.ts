@@ -102,6 +102,19 @@ export type DemoApplicantRow = {
     signedLeaseUploadedAt?: string;
     /** Lease treated as executed off-platform; skips e-sign workflow. */
     externallySignedLease?: true;
+    /** Vehicles the household keeps on the property (Add resident wizard). */
+    vehicles?: number;
+    /** Where automatic messages to this resident go first. Absent = email. */
+    preferredContact?: "email" | "sms";
+    /** Files the manager attached at Add resident beyond ID / income: application PDF, other. Bytes live in the private application-documents bucket. */
+    documents?: Array<{ kind: string; storagePath: string; fileName: string; mimeType: string; sizeBytes: number; uploadedAt: string }>;
+    /** Set on a manager-added prospect (Residents › Potential) who has not applied yet. */
+    prospect?: {
+      wantedMoveIn?: string;
+      budget?: string;
+      /** The planned tour created alongside them, when there is one. */
+      tourId?: string;
+    };
   };
 };
 
