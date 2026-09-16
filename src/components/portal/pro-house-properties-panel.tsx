@@ -84,6 +84,7 @@ import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
+import { useListingContactWorkEmail } from "@/hooks/use-listing-contact-work-email";
 import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import {
   compareAdminPropertyRowsForDisplay,
@@ -159,7 +160,7 @@ import {
   normalizeManagerListingSubmissionV1,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
-import { withListingContactSmsPhone } from "@/lib/listing-contact-sms";
+import { withListingContactSmsPhone, withListingContactWorkEmail } from "@/lib/listing-contact-sms";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 
 function submissionForListedEdit(p: MockProperty): ManagerListingSubmissionV1 {
@@ -310,9 +311,20 @@ function ManagerPropertyInlineDetails({
     ownerManagerUserId: row?.managerUserId,
     viewerManagerUserId: managerUserId,
   });
+  // The preview shows BOTH of the manager's doors — the work number and the
+  // work email — resolved the way the public page resolves them, so a manager
+  // checking "how renters see this home" sees the same Text / Email buttons.
+  const contactWorkEmail = useListingContactWorkEmail({
+    listingId: row?.listingId,
+    ownerManagerUserId: row?.managerUserId,
+    viewerManagerUserId: managerUserId,
+  });
   const previewProperty = useMemo(
-    () => (mock ? withListingContactSmsPhone(mock, contactSmsPhone) : null),
-    [mock, contactSmsPhone],
+    () =>
+      mock
+        ? withListingContactWorkEmail(withListingContactSmsPhone(mock, contactSmsPhone), contactWorkEmail)
+        : null,
+    [mock, contactSmsPhone, contactWorkEmail],
   );
   const rich = useMemo(() => (previewProperty ? getListingRichContent(previewProperty) : null), [previewProperty]);
   const hasPreview = Boolean(previewProperty && rich);
@@ -1947,8 +1959,10 @@ export function ManagerHousePropertiesPanel({
         actions={
           onAddProperty
             ? [
+                // One way in: Create opens the editor, and importing a file is
+                // a strip at the top of its Basics step.
                 {
-                  label: "Add property",
+                  label: "Create",
                   onClick: onAddProperty,
                   disabled: addPropertyDisabled,
                   reason: addPropertyDisabled ? "Loading your plan…" : undefined,

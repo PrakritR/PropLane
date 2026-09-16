@@ -30,6 +30,7 @@ import {
   normalizeListingPaymentWaiverCode,
 } from "@/lib/payment-policy";
 import { isProcessingCoverageCodeShape } from "@/lib/processing-coverage-codes";
+import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { uploadListingImageFiles } from "@/lib/listing-media-client";
 import { ListingAddressAutocomplete } from "@/components/portal/listing-address-autocomplete";
 import { FieldMark, FoundOnlineCard } from "@/components/portal/listing-wizard-v2/found-online-card";
@@ -457,7 +458,17 @@ function AmenityPick({
   );
 }
 
-function StepBasics({ sub, patch, onHouseDefaults }: { sub: ManagerListingSubmissionV1; patch: Patch; onHouseDefaults: (next: ListingHouseDefaults) => void }) {
+function StepBasics({
+  sub,
+  patch,
+  lead,
+  onHouseDefaults,
+}: {
+  sub: ManagerListingSubmissionV1;
+  patch: Patch;
+  lead?: ReactNode;
+  onHouseDefaults: (next: ListingHouseDefaults) => void;
+}) {
   const rentByRoom = sub.listingPlaceCategoryId !== "entire_home";
   const roomCount = sub.rooms?.length || sub.listingBedroomSlots || 1;
   const setRentModel = (id: "shared_home" | "entire_home") => patch({ listingPlaceCategoryId: id, rentalModelStamp: id });
@@ -498,6 +509,8 @@ function StepBasics({ sub, patch, onHouseDefaults }: { sub: ManagerListingSubmis
   return (
     <StepColumn>
       <StepHeading title="The home itself" />
+      {/* A caller's way in ahead of the first question — Create's "Start from a file" strip. */}
+      {lead}
 
       {/*
        * What it is and how it is let come FIRST: the type is the picture in the
@@ -2701,6 +2714,23 @@ function StepPricing({
  * component it was on the Advanced step, so nothing a manager already filled in
  * has moved anywhere they cannot reach.
  */
+function HouseKeepingPanel({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+  // The disclosure owns its own open state. It used to be rendered with
+  // `open={false}` and a no-op toggle, so Move-in, The building and Local
+  // compliance could never be reached from the editor.
+  const [open, setOpen] = useState(false);
+  return (
+    <AdvancedPanel
+      summary="Move-in · The building · Local compliance"
+      open={open}
+      onToggle={() => setOpen((prev) => !prev)}
+      dataAttr="listing-v2-house-keeping"
+    >
+      <HouseKeepingGroups sub={sub} patch={patch} />
+    </AdvancedPanel>
+  );
+}
+
 function HouseKeepingGroups({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   const [openGroup, setOpenGroup] = useState<string | null>(null);
   const toggleGroup = (id: string) => setOpenGroup((prev) => (prev === id ? null : id));
@@ -2814,13 +2844,71 @@ const READINESS_STEP: Record<string, (typeof LISTING_V2_STEPS)[number]["id"]> = 
   processing: "pricing",
 };
 
+/**
+ * The two doors a renter has to the manager, as the listing will print them.
+ *
+ * Neither is a field on the listing: the work number and the work email are
+ * resolved from the OWNING manager's account, server-side, and the stored
+ * listing blob is never trusted for them (see `listing-contact-card.tsx`). So
+ * the editor cannot ask for a phone or an email here — it shows what the
+ * listing will carry, and points at Settings when a door is missing.
+ */
+export type ListingContactDoors = {
+  /** The work number, E.164, or null when the listing prints no Text button. */
+  phone: string | null;
+  /** The work email, or null when the listing prints no Email button. */
+  email: string | null;
+  /** Saves the draft and opens Settings → Messaging, where the doors are set up. */
+  onSetUp?: () => void;
+};
+
+function ReachYouCard({ contact }: { contact: ListingContactDoors }) {
+  const phoneLabel = contact.phone ? formatSmsPhoneLabel(contact.phone) : null;
+  const setUp = contact.onSetUp ? (
+    <button
+      type="button"
+      onClick={contact.onSetUp}
+      data-attr="listing-v2-contact-set-up"
+      className="shrink-0 rounded-full border border-border bg-card px-3 py-1 text-[12.5px] font-bold text-foreground hover:bg-accent/40"
+    >
+      Set up
+    </button>
+  ) : (
+    <span className="text-[13px] text-muted">Not set</span>
+  );
+  const value = (text: string | null) =>
+    text ? (
+      <span className="flex min-w-0 items-center gap-2 text-[13px] text-foreground">
+        <span className="truncate">{text}</span>
+        <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full border border-emerald-200 bg-emerald-50 text-[10px] font-extrabold text-emerald-700">
+          ✓
+        </span>
+      </span>
+    ) : (
+      setUp
+    );
+  return (
+    <div className="mt-8 max-w-[620px]" data-attr="listing-v2-reach-you">
+      <b className="text-[13px] font-bold text-foreground">How renters reach you</b>
+      <div className="mt-2 overflow-hidden rounded-2xl border border-border bg-card">
+        <FactRow label="Text" first>
+          {value(phoneLabel)}
+        </FactRow>
+        <FactRow label="Email">{value(contact.email)}</FactRow>
+      </div>
+    </div>
+  );
+}
+
 function StepReview({
   sub,
   onJump,
+  contact,
 }: {
   sub: ManagerListingSubmissionV1;
   /** Take the manager to the step that closes a gap, rather than describing it. */
   onJump: (stepId: (typeof LISTING_V2_STEPS)[number]["id"]) => void;
+  contact?: ListingContactDoors;
 }) {
   const checks = listingReadiness(sub);
   const done = checks.filter((c) => c.state === "done").length;
@@ -2874,6 +2962,7 @@ function StepReview({
           })}
         </ul>
       </div>
+      {contact ? <ReachYouCard contact={contact} /> : null}
     </StepColumn>
   );
 }
@@ -2893,6 +2982,8 @@ export function ListingEditorV2({
   saveState,
   leadingStep,
   headerCenter,
+  basicsLead,
+  contact,
 }: {
   submission: ManagerListingSubmissionV1;
   /** The listing's record id when it already has one — booked rows on the Rooms step need it. Null for a brand-new listing. */
@@ -2920,6 +3011,10 @@ export function ListingEditorV2({
   leadingStep?: ListingEditorLeadingStep;
   /** Header slot between the title and the save state (see ListingWorkspace). */
   headerCenter?: ReactNode;
+  /** Drawn on Basics under its heading, ahead of Property type — Create's "Start from a file" strip. */
+  basicsLead?: ReactNode;
+  /** What the Review step says about how renters reach the manager. */
+  contact?: ListingContactDoors;
 }) {
   const [step, setStep] = useState(0);
   useEffect(() => {
@@ -3077,21 +3172,14 @@ export function ListingEditorV2({
       case "basics":
         return (
           <>
-            <StepBasics sub={submission} patch={patch} onHouseDefaults={setDefaults} />
+            <StepBasics sub={submission} patch={patch} lead={basicsLead} onHouseDefaults={setDefaults} />
             <AddDetailsRow
               sub={submission}
               pathIds={pathIds}
               onOpen={(id) => goTo(stepIndexOf(id))}
             />
             <div className="mt-8 max-w-[860px]">
-              <AdvancedPanel
-                summary="Move-in · The building · Local compliance"
-                open={false}
-                onToggle={() => undefined}
-                dataAttr="listing-v2-house-keeping"
-              >
-                <HouseKeepingGroups sub={submission} patch={patch} />
-              </AdvancedPanel>
+              <HouseKeepingPanel sub={submission} patch={patch} />
             </div>
           </>
         );
@@ -3122,10 +3210,16 @@ export function ListingEditorV2({
           />
         );
       default:
-        return <StepReview sub={submission} onJump={(id) => goTo(LISTING_V2_STEPS.findIndex((s) => s.id === id))} />;
+        return (
+          <StepReview
+            sub={submission}
+            onJump={(id) => goTo(LISTING_V2_STEPS.findIndex((s) => s.id === id))}
+            contact={contact}
+          />
+        );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepId, submission, defaults, isEdit]);
+  }, [stepId, submission, defaults, isEdit, basicsLead]);
 
   /**
    * The right-hand panel for this step.
@@ -3199,7 +3293,12 @@ export function ListingEditorV2({
               Back
             </button>
           </div>
-          <span className="hidden text-[12.5px] text-muted sm:inline">
+          {/*
+           * The counter used to be desktop-only, so a phone showed Back and
+           * Continue with nothing between them — no idea how much was left.
+           * It fits between the two buttons at 375px, so it shows everywhere.
+           */}
+          <span className="min-w-0 flex-1 truncate text-center text-[12.5px] text-muted">
             {pathPosition != null ? `Step ${pathPosition + railOffset} of ${pathIds.length + railOffset}` : "Optional detail"}
           </span>
           {isEdit ? (

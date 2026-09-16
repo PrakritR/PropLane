@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
  */
 const SOURCE = readFileSync(join(process.cwd(), "src/components/portal/pro-properties.tsx"), "utf8");
 
-/** The plan / sign-in / limit guard both ＋ menu items (Add property, Import properties) share. */
+/** The plan / sign-in / limit guard the ＋ (Create) goes through before anything opens. */
 function tryOpenAddBody(): string {
   const start = SOURCE.indexOf("const canOpenAdd = (): boolean => {");
   expect(start).toBeGreaterThan(-1);
@@ -34,9 +34,10 @@ describe("ADD PROPERTY at the plan limit", () => {
     const limitBranch = body.slice(body.indexOf("if (atPropertyLimit)"));
     expect(limitBranch).toContain("return false;");
     expect(limitBranch.slice(0, limitBranch.indexOf("return false;"))).not.toContain("setWizardOpen(true)");
-    // Both menu items go through the guard before anything opens.
+    // Create goes through the guard before anything opens; the file import
+    // lives inside the editor it opens, so there is no second entry to guard.
     expect(SOURCE).toMatch(/const tryOpenAdd = \(\) => \{\s+if \(!canOpenAdd\(\)\) return;/);
-    expect(SOURCE).toMatch(/const tryOpenImport = \(\) => \{\s+if \(!canOpenAdd\(\)\) return;/);
+    expect(SOURCE).not.toContain("tryOpenImport");
   });
 
   it("does not steer to an external purchase inside the native app", () => {

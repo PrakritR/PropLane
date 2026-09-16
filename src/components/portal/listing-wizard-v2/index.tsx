@@ -21,10 +21,17 @@
  * reader are unchanged. Nothing here is a second source of truth for a listing.
  */
 
-import { useCallback, useEffect, useRef, useState, type MutableRefObject, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assistant-context";
+import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
+import { useListingContactWorkEmail } from "@/hooks/use-listing-contact-work-email";
+import { MANAGER_ASSISTANT_EMAIL_SETTINGS_HREF } from "@/lib/manager-assistant-email/manager-assistant-email-status";
 import type { AddPropertyResult } from "@/components/portal/listing-wizard-v2/add-property-flow";
-import { ListingEditorV2, type ListingEditorLeadingStep } from "@/components/portal/listing-wizard-v2/listing-editor";
+import {
+  ListingEditorV2,
+  type ListingContactDoors,
+  type ListingEditorLeadingStep,
+} from "@/components/portal/listing-wizard-v2/listing-editor";
 import { useListingPersistence } from "@/components/portal/listing-wizard-v2/use-listing-persistence";
 import { fillRoomsFollowingDefaults, houseDefaultsForSubmission } from "@/lib/listing-house-defaults";
 import {
@@ -88,6 +95,8 @@ export function ListingWizardV2({
   propertyCount = 0,
   leadingStep,
   headerCenter,
+  basicsLead,
+  onDirtyChange,
   flushRef,
 }: {
   onClose: () => void;
@@ -117,6 +126,10 @@ export function ListingWizardV2({
   leadingStep?: ListingEditorLeadingStep;
   /** Header slot between the title and the save state — the import's property switcher. */
   headerCenter?: ReactNode;
+  /** Drawn on Basics ahead of Property type — Create's "Start from a file" strip. */
+  basicsLead?: ReactNode;
+  /** Whether the editor holds input that has not been saved yet — Create asks before a file replaces it. */
+  onDirtyChange?: (dirty: boolean) => void;
   /**
    * Lets the caller save whatever is unsaved before it swaps this listing for
    * another one (the import's switcher). Resolves true when nothing was lost.
@@ -174,6 +187,9 @@ export function ListingWizardV2({
   useEffect(() => {
     setDirty(listingWizardHasUnsavedInput(submission, savedFingerprintRef.current));
   }, [submission]);
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
   // A draft opened by id was written before this editor opened (a resumed
   // draft, an imported property), so with nothing unsaved it IS saved.
   const saveState = busy ? "Saving…" : dirty ? "Unsaved changes" : editing || initialDraftId ? "Saved" : "Not saved yet";
@@ -238,6 +254,45 @@ export function ListingWizardV2({
     return () => window.clearTimeout(handle);
   }, [dirty, persist, submission]);
 
+  /**
+   * The doors the listing will print — resolved exactly as the public page and
+   * the manager's preview resolve them, so Review shows the renter's truth.
+   * A live listing reads the catalog; a draft reads this manager's own account.
+   */
+  const contactPhone = useListingContactSmsPhone({
+    listingId: editListingId,
+    ownerManagerUserId: editListingOwnerUserId,
+    viewerManagerUserId: userId,
+  });
+  const contactEmail = useListingContactWorkEmail({
+    listingId: editListingId,
+    ownerManagerUserId: editListingOwnerUserId,
+    viewerManagerUserId: userId,
+  });
+  const openContactSettings = useCallback(async () => {
+    // Settings is another page, so the draft is saved first — the same flush
+    // the X performs — and the manager comes back to it from Drafts. A plain
+    // navigation rather than the app router: the editor also mounts in tests
+    // and hosts with no router, and this is a rare, deliberate leave.
+    const ok = await persist(submissionRef.current, stepRef.current);
+    if (!ok) {
+      showToast?.("Could not save. Nothing was kept.");
+      return;
+    }
+    onClose();
+    window.location.assign(MANAGER_ASSISTANT_EMAIL_SETTINGS_HREF);
+  }, [onClose, persist, showToast]);
+  const contact = useMemo<ListingContactDoors>(
+    () => ({
+      phone: contactPhone,
+      email: contactEmail,
+      onSetUp: () => {
+        void openContactSettings();
+      },
+    }),
+    [contactPhone, contactEmail, openContactSettings],
+  );
+
   const handleClose = useCallback(
     async (stepIndex: number) => {
       stepRef.current = stepIndex;
@@ -274,6 +329,8 @@ export function ListingWizardV2({
         saveState={saveState}
         leadingStep={leadingStep}
         headerCenter={headerCenter}
+        basicsLead={basicsLead}
+        contact={contact}
         onPublish={async () => {
         const prepared = await persistSubmission(submission);
         if (!prepared.ok) {
