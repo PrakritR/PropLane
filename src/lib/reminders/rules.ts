@@ -16,6 +16,12 @@
  * unit is what lets the same control drive every subject.
  */
 
+import {
+  DEFAULT_AUTOMATION_SEND_MODE_SETTINGS,
+  normalizeAutomationSendModeSettings,
+  type AutomationSendModeSettings,
+} from "@/lib/automation-send-mode";
+
 /**
  * `booking` was deliberately ABSENT until PRP-333, on the reasoning that
  * bookings were a calendar VIEW over the planned events tours come from and so
@@ -162,6 +168,8 @@ export type QuietHours = {
 export type ReminderSettings = {
   rules: ReminderRules;
   quietHours: QuietHours;
+  /** WS5: auto-send vs draft-for-review for action-event automation. See `automation-send-mode.ts`. */
+  automationSendMode: AutomationSendModeSettings;
 };
 
 /** Floor: below five minutes a reminder cannot beat its own dispatch tick. */
@@ -658,6 +666,7 @@ export const DEFAULT_QUIET_HOURS: QuietHours = {
 export const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
   rules: DEFAULT_REMINDER_RULES,
   quietHours: DEFAULT_QUIET_HOURS,
+  automationSendMode: DEFAULT_AUTOMATION_SEND_MODE_SETTINGS,
 };
 
 function normalizeBoolean(raw: unknown, fallback: boolean): boolean {
@@ -759,7 +768,11 @@ export function normalizeReminderSettings(raw: unknown): ReminderSettings {
       inbox: true, email: false, sms: true,
     };
   }
-  return { rules: migrateLegacyReminderRules(rules), quietHours: normalizeQuietHours(row.quietHours) };
+  return {
+    rules: migrateLegacyReminderRules(rules),
+    quietHours: normalizeQuietHours(row.quietHours),
+    automationSendMode: normalizeAutomationSendModeSettings(row.automationSendMode),
+  };
 }
 
 /**
