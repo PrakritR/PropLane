@@ -8,6 +8,14 @@ RLS, tool layer, listing photos). This file is how to work **with him**.
 
 ## Process
 
+- Temporary Akhil-authorized staging-QA exception: from 2026-09-16T21:08:02Z
+  until 2026-09-23T21:08:02Z, staging QA is not required for his explicitly
+  authorized releases. Keep keeper → main → staging → production and all other
+  gates, including local/browser tests, independent review, migration backups,
+  preflight and deployment verification. This does not renew the expired
+  direct-main-to-production exception. After expiry, staging QA is mandatory
+  again. Human-readable scope: `../plans/staging-qa-exception-20260916.html`.
+
 - Do **not** file a Linear ticket, open Lavish, or run `workflow:plan` unless
   Akhil asks. Ticket → plan → approve is Prakrit's pipeline.
 - Do **not** invoke no-mistakes, including through a wrapper or at the end of
