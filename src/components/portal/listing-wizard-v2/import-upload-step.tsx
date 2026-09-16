@@ -45,6 +45,198 @@ function propertyDetailLine(p: PropertyImportProperty): string {
   return [where, model, count, rent != null ? `${usd(rent)}/mo` : null, rows].filter(Boolean).join(" · ");
 }
 
+/** What the "Start from a file" strip is showing. `confirm` is a file picked while Basics already holds typed work. */
+export type ImportStripState =
+  | { kind: "blank" }
+  | { kind: "reading"; fileName: string }
+  | { kind: "error"; fileName: string | null; message: string }
+  | { kind: "confirm"; fileName: string };
+
+const FORMAT_CHIPS = [".xlsx", ".csv", ".pdf rent roll", "AppFolio export", "Buildium export", `up to ${Math.round(PROPERTY_IMPORT_MAX_BYTES / 1024 / 1024)} MB`];
+
+/**
+ * The "Start from a file" strip — one dashed row that sits above Property type
+ * on a new listing's Basics, and is the whole of the Import step until a file
+ * has been read. Blank → reading → (found, drawn by ImportUploadStep) or the
+ * server's own reason it could not read the file, with the hint box.
+ */
+export function ImportFileStrip({
+  state,
+  busy,
+  onPickFile,
+  onReread,
+  onConfirm,
+  onCancel,
+}: {
+  state: ImportStripState;
+  busy: boolean;
+  onPickFile: (file: File) => void;
+  onReread: (hint: string) => void;
+  /** The manager chose to replace what they typed with the picked file. */
+  onConfirm?: () => void;
+  /** The manager kept what they typed; the picked file is dropped. */
+  onCancel?: () => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [hint, setHint] = useState("");
+
+  const pick = (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
+    onPickFile(file);
+    if (fileRef.current) fileRef.current.value = "";
+  };
+
+  const input = (
+    <input
+      ref={fileRef}
+      type="file"
+      accept={IMPORT_FILE_ACCEPT}
+      className="sr-only"
+      onChange={(e) => pick(e.target.files)}
+      data-attr="import-upload-file-input"
+      aria-label="Choose a spreadsheet or PDF"
+    />
+  );
+
+  const chooseButton = (label: string, dataAttr: string) => (
+    <button
+      type="button"
+      onClick={() => fileRef.current?.click()}
+      disabled={busy}
+      data-attr={dataAttr}
+      className="min-h-[40px] shrink-0 rounded-full border border-border bg-card px-5 text-[13.5px] font-bold text-foreground hover:bg-accent/40 disabled:opacity-50"
+    >
+      {label}
+    </button>
+  );
+
+  if (state.kind === "blank") {
+    return (
+      <label
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          pick(e.dataTransfer.files);
+        }}
+        data-attr="create-file-strip"
+        data-state="blank"
+        className={cn(
+          "mb-5 flex cursor-pointer flex-wrap items-center gap-3.5 rounded-2xl border-[1.5px] border-dashed px-4 py-3 transition sm:flex-nowrap",
+          dragOver ? "border-primary bg-primary/[0.06]" : "border-border bg-[var(--pl-surface-muted)] hover:border-primary/50",
+        )}
+      >
+        {input}
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-border bg-card text-[var(--pl-blue-deep)]">
+          <Upload className="h-[18px] w-[18px]" aria-hidden />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[14px] font-bold text-foreground">Start from a file</span>
+          <span className="mt-1 flex flex-wrap gap-1.5">
+            {FORMAT_CHIPS.map((chip) => (
+              <span key={chip} className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] font-bold text-muted">
+                {chip}
+              </span>
+            ))}
+          </span>
+        </span>
+        <span className="w-full sm:w-auto">{chooseButton("Choose file", "create-file-choose")}</span>
+      </label>
+    );
+  }
+
+  if (state.kind === "reading") {
+    return (
+      <div data-attr="create-file-strip" data-state="reading" className="mb-5 flex items-center gap-3.5 rounded-2xl border-[1.5px] border-primary bg-card px-4 py-3">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-border bg-card text-[var(--pl-blue-deep)]">
+          <Upload className="h-[18px] w-[18px]" aria-hidden />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[14px] font-bold text-foreground" role="status">
+            Reading {state.fileName}
+          </span>
+          <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-accent" aria-hidden>
+            <span className="block h-full w-1/3 animate-[import-read_1.6s_ease-in-out_infinite] rounded-full bg-primary" />
+          </span>
+          <style>{`@keyframes import-read { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }`}</style>
+        </span>
+      </div>
+    );
+  }
+
+  if (state.kind === "confirm") {
+    return (
+      <div data-attr="create-file-strip" data-state="confirm" role="alertdialog" aria-label="Replace what you typed" className="mb-5 flex flex-wrap items-center gap-3.5 rounded-2xl border-[1.5px] border-primary bg-primary/[0.06] px-4 py-3">
+        <span className="min-w-0 flex-1 text-[14px] font-bold text-foreground">Replace what you typed with {state.fileName}?</span>
+        <span className="flex gap-2">
+          <button type="button" onClick={onCancel} data-attr="create-file-keep" className="min-h-[40px] rounded-full border border-border bg-card px-5 text-[13.5px] font-bold text-foreground hover:bg-accent/40">
+            Keep what I typed
+          </button>
+          <button type="button" onClick={onConfirm} data-attr="create-file-replace" className="min-h-[40px] rounded-full bg-primary px-5 text-[13.5px] font-bold text-white">
+            Replace
+          </button>
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div data-attr="create-file-strip" data-state="error" className="mb-5 rounded-2xl border px-4 py-3 portal-banner-danger">
+      <div className="flex flex-wrap items-center gap-3.5">
+        <span className="min-w-0 flex-1">
+          <span className="block text-[14px] font-bold" role="alert" data-attr="import-upload-error">
+            {state.fileName ? `Couldn't read ${state.fileName}` : "Couldn't read that file"} — {state.message}
+          </span>
+        </span>
+        {input}
+        {chooseButton("Choose a different file", "import-upload-choose-again")}
+      </div>
+      {state.fileName ? (
+        <form
+          className="mt-3 flex flex-col gap-2 sm:flex-row"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!hint.trim() || busy) return;
+            onReread(hint.trim());
+          }}
+        >
+          <input
+            value={hint}
+            onChange={(e) => setHint(e.target.value)}
+            placeholder="Tell PropLane how the sheet is laid out — e.g. “each tab is one house; the tab name is the address”"
+            maxLength={600}
+            disabled={busy}
+            data-attr="import-upload-hint"
+            className="min-h-[40px] min-w-0 flex-1 rounded-xl border border-border bg-card px-3.5 text-[13.5px] text-foreground outline-none placeholder:text-muted focus:border-primary/60"
+          />
+          <button
+            type="submit"
+            disabled={busy || !hint.trim()}
+            data-attr="import-upload-reread"
+            className="min-h-[40px] shrink-0 rounded-full border border-border bg-card px-5 text-[13.5px] font-bold text-foreground hover:bg-accent/40 disabled:opacity-50"
+          >
+            Re-read
+          </button>
+        </form>
+      ) : null}
+    </div>
+  );
+}
+
+/** The strip's view of the read state — the Import step shows the strip until something is found. */
+export function stripStateFromRead(state: ImportReadState): ImportStripState | null {
+  if (state.kind === "empty") return { kind: "blank" };
+  if (state.kind === "reading") return { kind: "reading", fileName: state.fileName };
+  if (state.kind === "error") return { kind: "error", fileName: state.fileName, message: state.message };
+  return null;
+}
+
 export function ImportUploadStep({
   state,
   entries,
@@ -66,7 +258,6 @@ export function ImportUploadStep({
   busy: boolean;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [dragOver, setDragOver] = useState(false);
   const [hint, setHint] = useState("");
 
   const pick = (files: FileList | null) => {
@@ -117,82 +308,12 @@ export function ImportUploadStep({
     </form>
   );
 
-  if (state.kind === "empty" || state.kind === "reading" || state.kind === "error") {
+  if (state.kind !== "found") {
+    const strip = stripStateFromRead(state) ?? { kind: "blank" as const };
     return (
       <div data-attr="import-upload-step" data-state={state.kind}>
-        <StepHeading
-          title={state.kind === "reading" ? `Reading ${state.fileName}` : state.kind === "error" ? "Couldn't read this file" : "Upload your spreadsheet"}
-        />
-        {state.kind === "empty" ? (
-          <>
-            <label
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragOver(true);
-              }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setDragOver(false);
-                pick(e.dataTransfer.files);
-              }}
-              data-attr="import-upload-dropzone"
-              className={cn(
-                "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-[1.5px] border-dashed px-6 py-10 text-center transition",
-                dragOver ? "border-primary bg-primary/[0.06]" : "border-border bg-[var(--pl-surface-muted)] hover:border-primary/50",
-              )}
-            >
-              {input}
-              <Upload className="h-6 w-6 text-muted" aria-hidden />
-              <span className="text-[15px] font-bold text-foreground">Drop a file here, or choose one</span>
-              <span className="text-[12.5px] text-muted">.xlsx · .xls · .csv · .pdf — up to {Math.round(PROPERTY_IMPORT_MAX_BYTES / 1024 / 1024)} MB</span>
-            </label>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                data-attr="import-upload-choose"
-                className="min-h-[42px] rounded-full border border-border bg-card px-5 text-[13.5px] font-bold text-foreground hover:bg-accent/40"
-              >
-                Choose file
-              </button>
-            </div>
-          </>
-        ) : null}
-        {state.kind === "reading" ? (
-          <>
-            <div className="h-2 overflow-hidden rounded-full bg-accent" aria-hidden>
-              <div className="h-full w-1/3 animate-[import-read_1.6s_ease-in-out_infinite] rounded-full bg-primary" />
-            </div>
-            <style>{`@keyframes import-read { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }`}</style>
-            <p className="mt-3 text-[12.5px] font-semibold text-muted" role="status">
-              Reading…
-            </p>
-          </>
-        ) : null}
-        {state.kind === "error" ? (
-          <>
-            <div
-              role="alert"
-              data-attr="import-upload-error"
-              className="rounded-2xl border px-4 py-3 text-[13.5px] portal-banner-danger"
-            >
-              {state.message}
-            </div>
-            {state.fileName ? hintBox("Tell PropLane how the sheet is laid out — e.g. “each tab is one house; the tab name is the address”") : null}
-            <div className="mt-4 flex flex-wrap gap-2">
-              {input}
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                data-attr="import-upload-choose-again"
-                className="min-h-[42px] rounded-full border border-border bg-card px-5 text-[13.5px] font-bold text-foreground hover:bg-accent/40"
-              >
-                Choose a different file
-              </button>
-            </div>
-          </>
-        ) : null}
+        <StepHeading title={state.kind === "reading" ? `Reading ${state.fileName}` : state.kind === "error" ? "Couldn't read this file" : "Start from a file"} />
+        <ImportFileStrip state={strip} busy={busy} onPickFile={onPickFile} onReread={onReread} />
       </div>
     );
   }

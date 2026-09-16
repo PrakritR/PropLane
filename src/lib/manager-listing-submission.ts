@@ -678,9 +678,9 @@ export type ManagerListingSubmissionV1 = {
   /**
    * The shortest long-term lease this listing offers, in months.
    *
-   * Long-term is "more than a month", so the floor is 2. Absent reads as 2 —
-   * every listing saved before this field existed offered exactly that. The
-   * wizard stores it; the apply flow reads it when it offers term choices.
+   * Stored by listings saved while the Pricing step still asked for it; the
+   * wizard no longer shows or writes it, and nothing reads it. Kept so those
+   * rows still normalise unchanged.
    */
   longTermMinimumMonths?: number;
   /** Short-term application fee when it differs from {@link applicationFee}. */

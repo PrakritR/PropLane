@@ -393,6 +393,54 @@ export function applyHouseDefaultsToRooms(
   });
 }
 
+/** The three prices the Pricing step's Default room sets on the long-term tab. */
+export const LISTING_HOUSE_PRICE_FIELDS: readonly ListingHouseDefaultField[] = ["monthlyRent", "utilitiesEstimate", "securityDeposit"];
+
+/**
+ * Put ONE of a room's fields back on the Default card — the ↺ in a cell and
+ * the "Same as default room" tick. The room keeps its own COPY of the card's
+ * value, blank included: the record is what Review, the applicant's room
+ * list, the signed lease and the public page read, and none of them resolve
+ * the card. Blanking the field instead (what the Pricing step once did) drew
+ * "$1,050 · Same as default room" on screen while the record held $0.
+ */
+export function resetRoomFieldToDefault(
+  room: ManagerRoomSubmission,
+  field: ListingHouseDefaultField,
+  defaults: ListingHouseDefaults,
+): ManagerRoomSubmission {
+  const blank = emptyListingHouseDefaults();
+  const cleared = writeRoomDefaultField(room, field, blank);
+  return applyHouseDefaultsToRooms([cleared], defaults, { onlyFields: [field], roomIds: [room.id] })[0]!;
+}
+
+/**
+ * Fill every room still following the Default card on `fields` with the
+ * card's value — the one-time repair for a listing saved while the Pricing
+ * step blanked followers. Writes only where the card holds a value and the
+ * room does not; a room with its own number is left alone. Returns the same
+ * array when nothing changes, so a caller can patch only on a real change.
+ */
+export function fillRoomsFollowingDefaults(
+  rooms: readonly ManagerRoomSubmission[],
+  defaults: ListingHouseDefaults,
+  fields: readonly ListingHouseDefaultField[] = LISTING_HOUSE_PRICE_FIELDS,
+): readonly ManagerRoomSubmission[] {
+  let changed = false;
+  const out = rooms.map((room) => {
+    let next = room;
+    for (const field of fields) {
+      // Unset on the room while the card holds a value is exactly "following":
+      // the Pricing step already draws the card's number there.
+      if (isUnset(defaults[field]) || !isUnset(roomDefaultFieldValue(room, field))) continue;
+      next = writeRoomDefaultField(next, field, defaults);
+    }
+    if (next !== room) changed = true;
+    return next;
+  });
+  return changed ? out : rooms;
+}
+
 /**
  * Guess sensible defaults from rooms that already exist, so opening an older
  * listing in the new wizard does not show an empty band. Uses the most common

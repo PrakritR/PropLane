@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { NoImagePlaceholder } from "@/components/ui/no-image-placeholder";
 import { roomAvailabilityTextClasses } from "@/lib/room-availability-style";
 import { isListingFallbackBathroom, isListingPlaceholderSharedSpace } from "@/components/marketing/listing-key-facts";
@@ -31,17 +31,7 @@ import { listingApplyLabel, listingMessageLabel } from "@/lib/listing-prospect-c
 import { getRoomUnavailabilityWindows, LISTING_ROOM_CHOICE_SEP, type RoomUnavailabilityWindow } from "@/lib/rental-application/data";
 import { roomAvailabilityPillClasses, roomAvailabilityTone } from "@/lib/room-availability-style";
 import { formatRoomPriceAmount } from "@/lib/room-pricing";
-import {
-  addMonths,
-  buildMonthDayCells,
-  dateKey,
-  dayIsUnavailable,
-  monthAvailabilityTone,
-  monthToneLabel,
-  resolveAvailabilityMonthRange,
-  startOfLocalDay,
-  type MonthAvailabilityTone,
-} from "@/lib/room-availability-calendar";
+import { RoomAvailabilityMonthCalendar, type RoomCalendarSpan } from "@/components/room-availability-month-calendar";
 
 const LISTING_TABLE_HEAD =
   "text-[10px] font-semibold uppercase tracking-wide text-muted sm:text-[11px]";
@@ -102,117 +92,15 @@ function rangeSummaryLabel(w: RoomUnavailabilityWindow): string {
   return "Unavailable dates set";
 }
 
-function monthTonePillClasses(tone: MonthAvailabilityTone): string {
-  switch (tone) {
-    case "available":
-      return "portal-badge-success ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]";
-    case "unavailable":
-      return "portal-badge-danger ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]";
-    case "mixed":
-      return "portal-badge-pending ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]";
-  }
-}
-
-function availabilityDayClasses(unavailable: boolean, isPast: boolean, isToday: boolean): string {
-  const base = unavailable
-    ? "bg-rose-100 text-rose-950 ring-1 ring-inset ring-rose-300 [html[data-theme=dark]_&]:bg-rose-950/40 [html[data-theme=dark]_&]:text-rose-100 [html[data-theme=dark]_&]:ring-rose-700/60"
-    : "bg-emerald-100 text-emerald-950 ring-1 ring-inset ring-emerald-300 [html[data-theme=dark]_&]:portal-calendar-open-slot";
-  const past = isPast ? "opacity-45" : "";
-  const today = isToday ? "ring-2 ring-primary/50" : "";
-  return `${base} ${past} ${today}`;
-}
-
-function MonthAvailabilityCalendarGrid({
-  monthStart,
-  windows,
-  today,
-}: {
-  monthStart: Date;
-  windows: RoomUnavailabilityWindow[];
-  today: Date;
-}) {
-  const cells = buildMonthDayCells(monthStart);
-
-  return (
-    <>
-      <div className="grid grid-cols-7 gap-0.5 text-center text-[9px] font-semibold uppercase tracking-wide text-muted sm:text-[10px]">
-        {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((label) => (
-          <span key={label}>{label}</span>
-        ))}
-      </div>
-      <div className="mt-1 grid grid-cols-7 gap-0.5">
-        {cells.map((cell, idx) => {
-          if (!cell) return <span key={`empty-${idx}`} className="h-7 sm:h-8" />;
-          const unavailable = dayIsUnavailable(cell, windows);
-          const isToday = dateKey(cell) === dateKey(today);
-          const isPast = cell.getTime() < today.getTime();
-          return (
-            <span
-              key={dateKey(cell)}
-              className={`flex h-7 items-center justify-center rounded-md text-[11px] font-medium sm:h-8 sm:text-xs ${availabilityDayClasses(unavailable, isPast, isToday)}`}
-            >
-              {cell.getDate()}
-            </span>
-          );
-        })}
-      </div>
-    </>
-  );
-}
-
 function RoomAvailabilityTimelineCalendar({ windows }: { windows: RoomUnavailabilityWindow[] }) {
-  const today = startOfLocalDay(new Date());
-  const { startMonth, monthCount } = resolveAvailabilityMonthRange(windows);
-  const windowsKey = windows.map((w) => `${w.start?.toISOString() ?? ""}|${w.end?.toISOString() ?? ""}`).join(",");
-  const [monthOffset, setMonthOffset] = useState(0);
-  const [prevWindowsKey, setPrevWindowsKey] = useState(windowsKey);
-  if (windowsKey !== prevWindowsKey) {
-    setPrevWindowsKey(windowsKey);
-    setMonthOffset(0);
-  }
-
-  const clampedOffset = Math.min(Math.max(monthOffset, 0), Math.max(monthCount - 1, 0));
-  const monthStart = addMonths(startMonth, clampedOffset);
-  const tone = monthAvailabilityTone(monthStart, windows, today);
-
+  // Every window a renter sees is simply "not open" — one colour.
+  const spans: RoomCalendarSpan[] = windows.map((w) => ({ start: w.start, end: w.end, tone: "occupied" }));
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted">
         Green dates are open and red dates are unavailable. Use the arrows to browse upcoming months.
       </p>
-      <div className="rounded-xl border border-border bg-card p-3 sm:p-4">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <button
-            type="button"
-            aria-label="Previous month"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted transition hover:border-primary/45 hover:bg-accent/35 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
-            disabled={clampedOffset <= 0}
-            onClick={() => setMonthOffset((value) => Math.max(value - 1, 0))}
-          >
-            <ChevronLeft className="h-4 w-4" aria-hidden />
-          </button>
-          <div className="min-w-0 flex flex-1 flex-col items-center gap-1 text-center">
-            <p className="text-sm font-semibold text-foreground">
-              {monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
-            </p>
-            <span
-              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${monthTonePillClasses(tone)}`}
-            >
-              {monthToneLabel(tone)}
-            </span>
-          </div>
-          <button
-            type="button"
-            aria-label="Next month"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted transition hover:border-primary/45 hover:bg-accent/35 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45"
-            disabled={clampedOffset >= monthCount - 1}
-            onClick={() => setMonthOffset((value) => Math.min(value + 1, monthCount - 1))}
-          >
-            <ChevronRight className="h-4 w-4" aria-hidden />
-          </button>
-        </div>
-        <MonthAvailabilityCalendarGrid monthStart={monthStart} windows={windows} today={today} />
-      </div>
+      <RoomAvailabilityMonthCalendar spans={spans} />
     </div>
   );
 }

@@ -93,11 +93,14 @@ function shortDate(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-/** The parts of the attention line, each with a tone the row can colour. */
+/**
+ * The parts of the attention line, each with a tone the row can colour. Only
+ * what asks for an action is printed: open rooms still count toward the score
+ * (and the list's sort order) but are no longer a pill on the row.
+ */
 export function propertyAttentionParts(a: PropertyAttention): { text: string; tone: "warning" | "info" | "neutral" }[] {
   const parts: { text: string; tone: "warning" | "info" | "neutral" }[] = [];
   if (a.waiting > 0) parts.push({ text: `${a.waiting} ${a.waiting === 1 ? "application" : "applications"} waiting`, tone: "warning" });
-  if (a.open > 0) parts.push({ text: a.units > 1 ? `${a.open} of ${a.units} open` : "Open", tone: "info" });
   if (a.endingSoon) parts.push({ text: `Lease ends ${shortDate(a.endingSoon.date)}`, tone: "neutral" });
   return parts;
 }

@@ -4,8 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ManagerAddListingForm } from "@/components/portal/pro-add-listing-form";
-import { ListingWizardV2 } from "@/components/portal/listing-wizard-v2";
-import { ImportWorkspace } from "@/components/portal/listing-wizard-v2/import-workspace";
+import { CreateWorkspace } from "@/components/portal/listing-wizard-v2/create-workspace";
 import { ListingWizardOverlay } from "@/components/portal/listing-wizard-v2/wizard-overlay";
 import {
   ManagerHousePropertiesPanel,
@@ -15,12 +14,6 @@ import {
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Settings2, Share2 } from "lucide-react";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import {
@@ -61,12 +54,16 @@ import { loadManagerEffectivePlanTierClient } from "@/lib/manager-subscription-c
 import {
   ensureManagerFirstListingDraft,
   managerHasAnyListing,
+  managerNeedsFirstListingOnboarding,
+  markFirstListingWizardAutoOpened,
   markFirstListingWizardDismissed,
+  readFirstListingPortfolioSnapshot,
+  readFirstListingWizardAutoOpened,
   readFirstListingWizardDismissed,
   shouldAutoOpenFirstListingWizard,
-  managerNeedsFirstListingOnboarding,
-  readFirstListingPortfolioSnapshot,
   shouldSkipFirstListingOnboarding,
+  takePendingFirstListingAutoOpen,
+  writePendingFirstListingAutoOpen,
 } from "@/lib/manager-first-listing-onboarding";
 
 /**
@@ -128,6 +125,17 @@ export function ManagerProperties({
   }, []);
   /** Resume the seeded / first draft in the wizard (PRP-396). */
   const [resumeDraftId, setResumeDraftId] = useState<string | null>(null);
+  /** The draft the open editor last wrote — where closing it lands. */
+  const lastSavedDraftIdRef = useRef<string | null>(null);
+  // The page that routed here from an empty /all handed over "open the seeded
+  // draft" — take it exactly once, on the page that actually stays mounted.
+  useEffect(() => {
+    if (!userId) return;
+    const pending = takePendingFirstListingAutoOpen(userId);
+    if (!pending) return;
+    setResumeDraftId(pending);
+    setWizardOpen(true);
+  }, [userId]);
   /**
    * Closing the create-listing wizard is an ANSWER, remembered for good.
    *
@@ -270,17 +278,28 @@ export function ManagerProperties({
           // that already had a draft still needs to land on Drafts, and one
           // where seeding was declined must not be stranded on an empty Listed.
           const snap = readFirstListingPortfolioSnapshot(userId);
-          if (linksKnown && !managerHasAnyListing(snap) && activeStage !== "drafts") {
-            setActiveStage("drafts");
-          }
-          if (
-            seeded &&
+          const mustMoveToDrafts = linksKnown && !managerHasAnyListing(snap) && activeStage !== "drafts";
+          const autoOpen =
+            Boolean(seeded) &&
             shouldAutoOpenFirstListingWizard({
               snap,
               dismissed: readFirstListingWizardDismissed(userId),
               coManagerLinksKnown: linksKnown,
-            })
-          ) {
+              autoOpenedThisSession: readFirstListingWizardAutoOpened(userId),
+            });
+          if (autoOpen && seeded) {
+            // One shot per session — set BEFORE any navigation so the page that
+            // mounts on Drafts cannot decide to open it a second time.
+            markFirstListingWizardAutoOpened(userId);
+          }
+          if (mustMoveToDrafts) {
+            // Moving stage remounts this page (`[stage]` is a dynamic segment),
+            // so opening the wizard here would be undone by the router a frame
+            // later and re-done by the fresh page — the open / close / open
+            // flicker. Hand the intent to the page that will mount instead.
+            if (autoOpen && seeded) writePendingFirstListingAutoOpen(userId, seeded.draftId);
+            setActiveStage("drafts");
+          } else if (autoOpen && seeded) {
             setResumeDraftId(seeded.draftId);
             setWizardOpen(true);
           }
@@ -384,13 +403,6 @@ export function ManagerProperties({
     setResumeDraftId(null);
     setWizardOpen(true);
   };
-  /** Import properties — the same workspace, opened on its Upload step. */
-  const [importOpen, setImportOpen] = useState(false);
-  const tryOpenImport = () => {
-    if (!canOpenAdd()) return;
-    setImportOpen(true);
-  };
-
   useEffect(() => {
     if (!isDemoModeActive()) return;
     const onOpen = () => tryOpenAdd();
@@ -504,23 +516,17 @@ export function ManagerProperties({
               </>
             }
             primary={
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <PortalPrimaryIconAction
-                    label="Add property"
-                    disabled={!skuLoaded}
-                    data-attr="manager-properties-add-top"
-                  />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent>
-                  <DropdownMenuItem data-attr="manager-properties-add-top-property" onSelect={tryOpenAdd}>
-                    Add property
-                  </DropdownMenuItem>
-                  <DropdownMenuItem data-attr="manager-properties-import" onSelect={tryOpenImport}>
-                    Import properties
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              /*
+               * One door in. Create opens the listing editor; importing a file
+               * is a strip at the top of its Basics step, so there is no menu
+               * and no second workspace to choose between.
+               */
+              <PortalPrimaryIconAction
+                label="Create"
+                disabled={!skuLoaded}
+                data-attr="manager-properties-add-top"
+                onClick={tryOpenAdd}
+              />
             }
           />
           <ManagerPortalSettingsModal
@@ -544,53 +550,37 @@ export function ManagerProperties({
           {listPanel}
         </ManagerPortalPageShell>
       )}
-      {importOpen ? (
-        <ListingWizardOverlay>
-          <ImportWorkspace
-            onClose={() => {
-              setImportOpen(false);
-              void refreshPending();
-            }}
-            onDraftsChanged={() => {
-              void refreshPending();
-            }}
-            onPublished={(listingId) => {
-              setImportOpen(false);
-              showToast("Listing submitted and published.");
-              void refreshPending().then(() => {
-                const id = listingId?.trim();
-                if (!id) return;
-                router.push(propertyDetailHref(basePath, "listed", id, "preview"), { scroll: false });
-              });
-            }}
-            showToast={showToast}
-            userId={userId}
-            skuTier={skuTier}
-            propertyCount={propCount}
-          />
-        </ListingWizardOverlay>
-      ) : null}
       {wizardOpen && useV2Wizard === true ? (
         /*
          * The redesigned listing workspace — a step rail, the form, and a panel
          * that shows what the manager just changed. It writes the same
          * submission shape as the original form, so a draft saved in either
-         * opens in the other.
+         * opens in the other. A file dropped on its Basics step turns the same
+         * workspace into the import: one draft per property the file held.
          */
         <ListingWizardOverlay>
-          <ListingWizardV2
-            onClose={dismissFirstListingWizard}
-            onSaved={(_sub, savedId) => {
-              // "Save & exit" on a NEW property opens that property, exactly as
-              // Publish does — a manager who just made a home expects to land in
-              // it, not back on a list that may not even show it yet.
+          <CreateWorkspace
+            onClose={() => {
+              // Closing a NEW property opens that property, exactly as Publish
+              // does — a manager who just made a home expects to land in it,
+              // not back on a list that may not even show it yet.
+              dismissFirstListingWizard();
+              const id = lastSavedDraftIdRef.current?.trim();
+              lastSavedDraftIdRef.current = null;
               void refreshPending().then(() => {
-                const id = savedId?.trim();
                 if (!id) return;
-                setWizardOpen(false);
-                setResumeDraftId(null);
                 router.push(propertyDetailHref(basePath, "drafts", id, "preview"), { scroll: false });
               });
+            }}
+            onDraftsChanged={() => {
+              void refreshPending();
+            }}
+            onSaved={(_sub, savedId) => {
+              // The editor autosaves two seconds after every change. A save
+              // never closes it — that used to bounce a manager to the draft's
+              // preview four seconds into typing. The id is kept for the close.
+              if (savedId?.trim()) lastSavedDraftIdRef.current = savedId.trim();
+              void refreshPending();
             }}
             onPublished={(listingId) => {
               setWizardOpen(false);

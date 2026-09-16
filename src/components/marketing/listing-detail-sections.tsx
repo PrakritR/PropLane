@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Heart, Share2 } from "lucide-react";
+import { Heart, Mail, MessageSquareText, Share2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import {
   ListingDetailCollapsibleSection,
@@ -197,6 +197,19 @@ function PriceCard({
   );
 }
 
+/**
+ * The phone's action bar (captain, Sep 15): two rows, so nothing is ever cut
+ * off. The old single row squeezed the price and "9 rooms · 9 available"
+ * into whatever was left beside two pills and the assistant bubble — on a
+ * 393px phone that was 48px, and it rendered "$1,…" / "9 roo…".
+ *
+ * Row one is the price and the rooms line at full width, with the manager's
+ * two doors (the work number, the work email) as compact pills on the right
+ * when the listing has them — the same server-resolved fields the desktop
+ * card prints, never a personal phone or `profiles.email`. Row two is Apply
+ * and Schedule tour, half the width each. The row that shares its height with
+ * the assistant bubble keeps clear of it only when a bubble is on the page.
+ */
 function StickyBar({
   property,
   rich,
@@ -209,41 +222,52 @@ function StickyBar({
   newTab: boolean;
 }) {
   const from = listingFromPrice(rich);
-  const contact = listingContactRows(property);
-  // Two rows so nothing is squeezed: the price and the manager's doors on top,
-  // the two action pills below. The pill row keeps its right clearance for the
-  // assistant bubble, which sits bottom-right at the same height on a phone.
+  const doors = listingContactRows(property);
+  const doorClass =
+    "inline-flex min-h-[38px] min-w-0 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-[13px] font-semibold text-foreground shadow-sm transition hover:border-primary/45 hover:bg-accent/35";
+  // With both doors the number is the label worth reading; Email folds to its
+  // icon so the price keeps room. Alone, Email says so in words.
+  const emailIconOnly = Boolean(doors.phone && doors.email);
   return (
     <div
       className="sticky bottom-0 z-[40] -mx-4 mt-6 border-t border-border bg-card/95 px-4 pb-3 pt-2.5 backdrop-blur-md lg:hidden [html[data-native]_&]:pb-[max(0.75rem,env(safe-area-inset-bottom))]"
       data-attr="listing-sticky-bar"
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-lg font-bold tracking-tight text-foreground tabular-nums">{from}</p>
-          {roomsLine ? <p className="text-xs text-muted">{roomsLine}</p> : null}
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <div className="min-w-[7rem] flex-1">
+          {/* No tabular figures here: the brand face gives the comma a digit's
+              width under `tnum`, which reads as "$1 , 050" in a lone price. */}
+          <p className="truncate text-lg font-bold tracking-tight text-foreground">{from}</p>
+          {roomsLine ? <p className="truncate text-xs text-muted">{roomsLine}</p> : null}
         </div>
-        {contact.phone || contact.email ? (
-          <div className="flex shrink-0 flex-col items-end text-[13px] font-semibold text-primary" data-attr="listing-sticky-contact">
-            {contact.phone ? (
-              <a href={contact.phone.smsHref} className="py-0.5 tabular-nums" data-attr="listing-text-tour">
-                Text {contact.phone.label}
+        {doors.phone || doors.email ? (
+          <div className="flex min-w-0 shrink items-center gap-1.5" data-attr="listing-sticky-contact">
+            {doors.phone ? (
+              <a href={doors.phone.smsHref} className={doorClass} data-attr="listing-sticky-text" aria-label={`Text ${doors.phone.label}`}>
+                <MessageSquareText className="h-4 w-4 shrink-0 text-primary" aria-hidden />
+                <span className="truncate">{doors.phone.label}</span>
               </a>
             ) : null}
-            {contact.email ? (
-              <a href={contact.email.href} className="py-0.5" data-attr="listing-email-tour">
-                Email the manager
+            {doors.email ? (
+              <a
+                href={doors.email.href}
+                className={`${doorClass} ${emailIconOnly ? "w-[38px] shrink-0 justify-center !px-0" : ""}`}
+                data-attr="listing-sticky-email"
+                aria-label="Email the manager"
+              >
+                <Mail className="h-4 w-4 shrink-0 text-primary" aria-hidden />
+                {emailIconOnly ? null : <span className="truncate">Email</span>}
               </a>
             ) : null}
           </div>
         ) : null}
       </div>
-      <div className="mt-2.5 flex items-center gap-2 pr-[4rem]">
+      <div className="mt-2.5 grid grid-cols-2 gap-2 [body:has(.axis-assistant-fab)_&]:pr-[3.25rem]">
         <ProspectListingCta
           action="apply"
           propertyId={property.id}
           data-attr="listing-web-apply"
-          className={`${secondaryCtaClass} !min-h-[44px] flex-1 !py-2.5`}
+          className={`${secondaryCtaClass} !min-h-[44px] !py-2.5`}
           newTab={newTab}
         >
           Apply
@@ -252,7 +276,7 @@ function StickyBar({
           action="tour"
           propertyId={property.id}
           data-attr="listing-web-tour"
-          className={`${primaryCtaClass} !min-h-[44px] flex-1 !py-2.5`}
+          className={`${primaryCtaClass} !min-h-[44px] !py-2.5`}
           newTab={newTab}
         >
           Schedule tour
@@ -359,6 +383,9 @@ export function ListingDetailSections({
             )}
 
             <ListingKeyFacts facts={facts} className="mt-4" />
+
+            {/* Phone: the manager's doors sit under the title; desktop has them in the card. */}
+            <ListingContactCard property={property} className="mt-3 lg:hidden" />
 
             <div className="mt-6 grid min-w-0 gap-8 lg:mt-8 lg:grid-cols-[minmax(0,1fr)_minmax(280px,320px)] lg:gap-10">
               <div className="min-w-0">

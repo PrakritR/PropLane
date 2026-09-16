@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 //
-// Import properties: a file is read on the server, every property it found
-// becomes an ordinary listing draft on the spot, the Found list is the table
+// Create: the editor opens at Basics with a "Start from a file" strip. A file
+// is read on the server; one property fills the listing in place, several
+// become ordinary listing drafts on the spot with the Found list as the table
 // of contents, and "Not a property" / "Merge into…" keep the drafts honest.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
@@ -18,7 +19,7 @@ vi.mock("@/lib/demo-property-pipeline", () => ({ submitManagerPendingPropertyToS
 vi.mock("@/lib/analytics/track-client", () => ({ track: vi.fn() }));
 vi.mock("@/lib/manager-subscription-client", () => ({ loadManagerPaymentWaiverGrantedClient: vi.fn(async () => false) }));
 
-import { ImportWorkspace, mergeImportedProperties } from "@/components/portal/listing-wizard-v2/import-workspace";
+import { CreateWorkspace, mergeImportedProperties } from "@/components/portal/listing-wizard-v2/create-workspace";
 import type { PropertyImportProperty, PropertyImportUnderstanding } from "@/lib/property-import/types";
 
 const pike: PropertyImportProperty = {
@@ -94,7 +95,7 @@ afterEach(() => {
 
 function mount() {
   const onDraftsChanged = vi.fn();
-  render(<ImportWorkspace onClose={vi.fn()} onDraftsChanged={onDraftsChanged} userId="mgr-1" skuTier="pro" propertyCount={0} showToast={vi.fn()} />);
+  render(<CreateWorkspace onClose={vi.fn()} onDraftsChanged={onDraftsChanged} userId="mgr-1" skuTier="pro" propertyCount={0} showToast={vi.fn()} />);
   return { onDraftsChanged };
 }
 
@@ -105,16 +106,56 @@ async function uploadAndWait() {
   await waitFor(() => expect(saveDraft).toHaveBeenCalledTimes(2));
 }
 
-describe("ImportWorkspace", () => {
-  it("opens on Upload as step 1 of 7 with the listing steps on the rail and Continue off", () => {
+describe("CreateWorkspace", () => {
+  it("opens at Basics as step 1 with the Start-from-a-file strip above Property type and no Import step yet", () => {
     mount();
-    expect(screen.getByText("Upload your spreadsheet")).toBeInTheDocument();
+    expect(screen.getByText("The home itself")).toBeInTheDocument();
+    const strip = document.querySelector("[data-attr='create-file-strip']")!;
+    expect(strip.getAttribute("data-state")).toBe("blank");
+    expect(strip.textContent).toContain("Start from a file");
+    expect(strip.textContent).toContain(".xlsx");
+    // The strip comes before the first question.
+    expect(strip.compareDocumentPosition(document.querySelector("[data-attr='listing-v2-kind-house']")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const rail = screen.getByRole("navigation", { name: "Listing sections" });
-    expect(rail.textContent).toContain("Upload");
+    expect(rail.textContent).not.toContain("Import");
     expect(rail.textContent).toContain("Basics");
-    expect(rail.textContent).toContain("Review");
-    expect(screen.getByText("Step 1 of 7")).toBeInTheDocument();
-    expect(document.querySelector("[data-attr='import-upload-continue']")).toBeDisabled();
+    // No Import step yet: the footer counts the listing's own path only.
+    expect(screen.getByText(/^Step 1 of \d$/)).toBeInTheDocument();
+    expect(screen.getByText("New listing")).toBeInTheDocument();
+  });
+
+  it("a file with one property fills this listing in place, marked, with Import behind Basics on the rail and no switcher", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ok: true, understanding: { ...understanding, properties: [pike] } }), { status: 200 })));
+    mount();
+    await userEvent.upload(document.querySelector<HTMLInputElement>("[data-attr='import-upload-file-input']")!, file());
+    await waitFor(() => expect(saveDraft).toHaveBeenCalledTimes(1));
+    await screen.findByText("400 Pike Street", { selector: "b" });
+    expect(document.querySelector("[data-attr='listing-v2-rail-basics']")?.getAttribute("aria-current")).toBe("step");
+    expect(document.querySelector("[data-attr='listing-v2-rail-import']")).not.toBeNull();
+    expect(screen.getByRole("navigation", { name: "Listing sections" }).textContent).toContain("owner-messy.xlsx · 1 found");
+    expect(screen.getAllByText("Imported").length).toBeGreaterThan(0);
+    expect(document.querySelector("[data-attr='import-property-switcher']")).toBeNull();
+    // Basics is now the second step: Import counts in the footer.
+    expect(screen.getByText(/^Step 2 of \d$/)).toBeInTheDocument();
+  });
+
+  it("a file picked over typed work asks first; Keep drops the file, Replace reads it", async () => {
+    mount();
+    fireEvent.click(document.querySelector("[data-attr='listing-v2-kind-house']")!);
+    const input = () => document.querySelector<HTMLInputElement>("[data-attr='import-upload-file-input']")!;
+    await userEvent.upload(input(), file());
+    const strip = () => document.querySelector("[data-attr='create-file-strip']")!;
+    await waitFor(() => expect(strip().getAttribute("data-state")).toBe("confirm"));
+    expect(strip().textContent).toContain("Replace what you typed with owner-messy.xlsx?");
+    const readCalls = () => (fetch as ReturnType<typeof vi.fn>).mock.calls.filter((c) => String(c[0]).includes("/property-import/read"));
+    expect(readCalls()).toHaveLength(0);
+    fireEvent.click(document.querySelector("[data-attr='create-file-keep']")!);
+    await waitFor(() => expect(strip().getAttribute("data-state")).toBe("blank"));
+    await userEvent.upload(input(), file());
+    await waitFor(() => expect(strip().getAttribute("data-state")).toBe("confirm"));
+    fireEvent.click(document.querySelector("[data-attr='create-file-replace']")!);
+    await screen.findByText("Found 2 properties");
+    expect(readCalls()).toHaveLength(1);
   });
 
   it("reads the file on the server, saves one draft per property, and lists them with rows cited", async () => {
@@ -143,12 +184,12 @@ describe("ImportWorkspace", () => {
     expect(document.querySelector("[data-attr='import-property-switcher']")!.textContent).toContain("1 of 2");
   });
 
-  it("opens a property in the Add property editor with Upload behind it on the rail, and the switcher in the header", async () => {
+  it("opens a property in the editor with Import behind it on the rail, and the switcher in the header", async () => {
     mount();
     await uploadAndWait();
     fireEvent.click(document.querySelectorAll("[data-attr='import-found-open']")[1]!);
     await screen.findByText("Basics", { selector: "[data-attr='listing-v2-rail-basics'] *" });
-    expect(document.querySelector("[data-attr='listing-v2-rail-upload']")).not.toBeNull();
+    expect(document.querySelector("[data-attr='listing-v2-rail-import']")).not.toBeNull();
     expect(document.querySelector("[data-attr='import-property-switcher']")!.textContent).toContain("2 of 2");
     expect(document.querySelector("[data-attr='import-property-switcher']")!.textContent).toContain("918 Harvard Ave E");
     // The file's values are on the form, marked as imported.
@@ -185,7 +226,7 @@ describe("ImportWorkspace", () => {
       return null;
     });
     const showToast = vi.fn();
-    render(<ImportWorkspace onClose={vi.fn()} userId="mgr-1" skuTier="pro" propertyCount={10} showToast={showToast} />);
+    render(<CreateWorkspace onClose={vi.fn()} userId="mgr-1" skuTier="pro" propertyCount={10} showToast={showToast} />);
     await userEvent.upload(document.querySelector<HTMLInputElement>("[data-attr='import-upload-file-input']")!, file());
     await screen.findByText("Found 2 properties");
     await waitFor(() => expect(saveDraft).toHaveBeenCalledTimes(2));
@@ -195,13 +236,26 @@ describe("ImportWorkspace", () => {
     expect(showToast).toHaveBeenCalledWith(expect.stringContaining("2 of 2 could not be saved as a draft — This workspace has reached 10 property records, including drafts"));
   });
 
-  it("shows the server's refusal and offers the hint box", async () => {
+  it("shows the server's refusal in the strip, on Basics, and offers the hint box", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ok: false, error: "PropLane couldn't make sense of that file.", code: "unreadable" }), { status: 422 })));
     mount();
     await userEvent.upload(document.querySelector<HTMLInputElement>("[data-attr='import-upload-file-input']")!, file());
-    await screen.findByText("Couldn't read this file");
-    expect(screen.getByRole("alert").textContent).toContain("couldn't make sense");
+    await waitFor(() => expect(document.querySelector("[data-attr='create-file-strip']")?.getAttribute("data-state")).toBe("error"));
+    expect(screen.getByText("The home itself")).toBeInTheDocument();
+    expect(screen.getByRole("alert").textContent).toContain("Couldn't read owner-messy.xlsx — PropLane couldn't make sense");
     expect(document.querySelector("[data-attr='import-upload-hint']")).not.toBeNull();
+    expect(saveDraft).not.toHaveBeenCalled();
+  });
+});
+
+describe("CreateWorkspace · a file with nothing in it", () => {
+  it("stays on Basics and says why in the strip, with no draft written", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ok: true, understanding: { ...understanding, properties: [], summary: ["This file holds placeholder text only."] } }), { status: 200 })));
+    mount();
+    await userEvent.upload(document.querySelector<HTMLInputElement>("[data-attr='import-upload-file-input']")!, file());
+    await waitFor(() => expect(document.querySelector("[data-attr='create-file-strip']")?.getAttribute("data-state")).toBe("error"));
+    expect(screen.getByText("The home itself")).toBeInTheDocument();
+    expect(screen.getByRole("alert").textContent).toContain("This file holds placeholder text only.");
     expect(saveDraft).not.toHaveBeenCalled();
   });
 });
