@@ -1,9 +1,9 @@
 /**
- * `POST /api/portal/listing-prefill` and `POST /api/portal/listing-extract-ad`.
+ * `POST /api/portal/listing-prefill`.
  *
  * Pins the order the route promises: signed-in → cache (free) → quota →
- * providers; the fixture provider's stable answers; the Free plan's fourth
- * lookup refused; and that the extract route reads text only.
+ * provider; the fixture provider's stable answers; the Free plan's fourth
+ * lookup refused; and that no second search runs beside the records lookup.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -65,7 +65,6 @@ vi.mock("@/lib/supabase/service", () => ({
 }));
 
 import { POST as prefill } from "@/app/api/portal/listing-prefill/route";
-import { POST as extract } from "@/app/api/portal/listing-extract-ad/route";
 
 const USER = { id: "11111111-1111-1111-1111-111111111111" };
 
@@ -107,13 +106,14 @@ describe("POST /api/portal/listing-prefill", () => {
     expect(rows.usage.size).toBe(0);
   });
 
-  it("answers found with facts, a rent estimate and an earlier ad, and spends one lookup", async () => {
+  it("answers found with facts and a rent estimate, nothing else, and spends one lookup", async () => {
     const res = await prefill(req("/api/portal/listing-prefill", ADDRESS));
     const body = await res.json();
     expect(body.status).toBe("found");
     expect(body.facts.bedrooms).toBeGreaterThan(0);
     expect(body.rent.rentUsd).toBeGreaterThan(0);
-    expect(body.priorAd.site).toBe("Craigslist");
+    // Facts only: no earlier-ad pointer rides along any more.
+    expect(body).not.toHaveProperty("priorAd");
     expect(body.cached).toBe(false);
     expect(body.lookupsLeft).toBe(2);
     expect(body.source).toBe("fixture");
@@ -177,40 +177,5 @@ describe("POST /api/portal/listing-prefill", () => {
     const body = await res.json();
     expect(body.status).toBe("none");
     expect(body.facts).toBeNull();
-    expect(body.priorAd).toBeNull();
-  });
-});
-
-describe("POST /api/portal/listing-extract-ad", () => {
-  const TEXT = [
-    "Sunny 3BR Queen Anne house with a yard — $2,700/mo",
-    "Bright three-bedroom, two-bath house on a quiet street. Hardwood floors, in-unit laundry,",
-    "dishwasher, off-street parking, fenced yard. Cats and small dogs welcome with deposit. 1,450 sq ft.",
-  ].join("\n");
-
-  it("reads the pasted text without any network request when no model key is set", async () => {
-    const res = await extract(req("/api/portal/listing-extract-ad", { text: TEXT }));
-    const body = await res.json();
-    expect(res.status).toBe(200);
-    expect(body.source).toBe("heuristic");
-    expect(body.ad.headline).toBe("Sunny 3BR Queen Anne house with a yard");
-    expect(body.ad.description).toContain("Bright three-bedroom");
-    expect(body.ad.amenities).toEqual(expect.arrayContaining(["In-unit laundry", "Parking available", "Yard / patio"]));
-    expect(body.ad.petsAllowed).toBe(true);
-    expect(body.ad.listedRentUsd).toBe(2700);
-    expect(body.ad.bedrooms).toBe(3);
-    expect(body.ad.bathrooms).toBe(2);
-    expect(body.ad.squareFeet).toBe(1450);
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
-
-  it("refuses text that is too short or too long", async () => {
-    expect((await extract(req("/api/portal/listing-extract-ad", { text: "hi" }))).status).toBe(400);
-    expect((await extract(req("/api/portal/listing-extract-ad", { text: "x".repeat(8_001) }))).status).toBe(413);
-  });
-
-  it("rejects a signed-out caller", async () => {
-    getUser.mockResolvedValue({ data: { user: null } });
-    expect((await extract(req("/api/portal/listing-extract-ad", { text: TEXT }))).status).toBe(401);
   });
 });

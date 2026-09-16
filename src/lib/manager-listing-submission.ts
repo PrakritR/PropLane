@@ -2768,10 +2768,8 @@ function normalizePrefillRecord(raw: unknown): ListingPrefillRecordV1 | undefine
     rentEstimateUsd: positiveWholeNumber(r.rentEstimateUsd, 100_000),
     rentEstimateLowUsd: positiveWholeNumber(r.rentEstimateLowUsd, 100_000),
     rentEstimateHighUsd: positiveWholeNumber(r.rentEstimateHighUsd, 100_000),
-    listedRentUsd: positiveWholeNumber(r.listedRentUsd, 100_000),
-    listedRentAt: typeof r.listedRentAt === "string" ? r.listedRentAt : null,
+    rentPerRoomUsd: positiveWholeNumber(r.rentPerRoomUsd, 100_000),
     dismissedAddressKey: typeof r.dismissedAddressKey === "string" ? r.dismissedAddressKey : undefined,
-    adDismissed: r.adDismissed === true ? true : undefined,
   };
 }
 

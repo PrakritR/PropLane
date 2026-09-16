@@ -84,8 +84,11 @@ export async function POST(req: Request) {
       subject?: unknown;
       messageBody?: unknown;
       body?: unknown;
+      purge?: unknown;
     };
     const id = typeof body.id === "string" ? body.id.trim() : "";
+    // Decline keeps the request as a declined row (history); Delete drops it.
+    const purge = body.purge === true;
     const start = typeof body.start === "string" ? body.start.trim() : "";
     const end = typeof body.end === "string" ? body.end.trim() : "";
     const requestedManagerUserId = typeof body.managerUserId === "string" ? body.managerUserId.trim() : "";
@@ -125,7 +128,9 @@ export async function POST(req: Request) {
       return (
         eventRow.id === `${INQUIRY_EVENT_RECORD_TYPE}_${id}_0` ||
         payloadId === id ||
-        Boolean(start && end && sameInstant(eventRow.starts_at, start) && sameInstant(eventRow.ends_at, end))
+        // A decline also clears sibling requests for the same slot. A purge is
+        // one record and never reaches across to another prospect's request.
+        (!purge && Boolean(start && end && sameInstant(eventRow.starts_at, start) && sameInstant(eventRow.ends_at, end)))
       );
     });
 
@@ -173,17 +178,17 @@ export async function POST(req: Request) {
       }
     }
 
-    const nextInquiries = currentInquiries.map((row) => {
+    const nextInquiries = currentInquiries.flatMap((row) => {
       const rowId = textField(row, "id");
       const owned = inquiryOwnedByManager(row, managerUserId);
-      if (!owned) return row;
+      if (!owned) return [row];
       if (idsToRemove.has(rowId)) {
-        return { ...row, status: "declined" };
+        return purge ? [] : [{ ...row, status: "declined" }];
       }
-      if (start && end && sameTourSlot(row, managerUserId, start, end)) {
-        return { ...row, status: "declined" };
+      if (!purge && start && end && sameTourSlot(row, managerUserId, start, end)) {
+        return [{ ...row, status: "declined" }];
       }
-      return row;
+      return [row];
     });
 
     const { error: writeError } = await db.from("portal_schedule_records").upsert(

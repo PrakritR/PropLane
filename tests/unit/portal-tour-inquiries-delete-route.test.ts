@@ -107,6 +107,40 @@ describe("POST /api/portal-tour-inquiries/delete", () => {
     expect(own?.status).toBe("declined");
   });
 
+  it("drops the request outright on purge, leaving every other row alone", async () => {
+    // Delete from the Tours list is a different intent from Decline: the
+    // manager is clearing history, so the row goes rather than turning into a
+    // declined row that lingers in Past. Still only their own row, and never a
+    // sibling request for the same slot.
+    INQUIRY_PAYLOAD.push({
+      id: "inq-sibling",
+      kind: "tour",
+      managerUserId: "mgr-attacker",
+      email: "third@example.com",
+      proposedStart: "2099-08-06T17:00:00.000Z",
+      proposedEnd: "2099-08-06T17:30:00.000Z",
+      status: "pending",
+    });
+    const res = await deleteTourInquiry(
+      jsonRequest("http://localhost/api/portal-tour-inquiries/delete", {
+        method: "POST",
+        body: {
+          id: "inq-own",
+          purge: true,
+          notifyTenant: false,
+          start: "2099-08-06T17:00:00.000Z",
+          end: "2099-08-06T17:30:00.000Z",
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(notifyTenantTourRequestRemoved).not.toHaveBeenCalled();
+    const upserted = UPSERT_CALLS[0] as { row_data?: { payload?: Record<string, unknown>[] } };
+    const remaining = upserted.row_data?.payload ?? [];
+    expect(remaining.map((row) => row.id)).toEqual(["inq-victim", "inq-sibling"]);
+    expect(remaining.find((row) => row.id === "inq-sibling")?.status).toBe("pending");
+  });
+
   it("declines and reports a skipped inbox copy instead of failing the whole decline", async () => {
     // A guest on account-deletion hold has a frozen resident inbox. The
     // notification helper now reports that copy as skipped; the route must

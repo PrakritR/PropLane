@@ -340,7 +340,7 @@ export type ManagerPropertyFilterOption = { id: string; label: string };
  * never reach a user-facing dropdown.
  */
 function looksLikeRawPropertyId(value: string, id: string | null | undefined): boolean {
-  const v = value.trim();
+  const v = typeof value === "string" ? value.trim() : "";
   if (!v) return true;
   // A cached listing can arrive without an id (a malformed browser-store row);
   // that must not take the whole picker down.

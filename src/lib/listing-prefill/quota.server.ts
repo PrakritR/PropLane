@@ -12,7 +12,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ManagerSkuTier } from "@/lib/manager-access";
 import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
-import type { AddressFacts, PriorAdMatch, RentEstimate } from "./types";
+import type { AddressFacts, RentEstimate } from "./types";
 
 export const PREFILL_CACHE_DAYS = 30;
 /** Lookups a Free workspace gets each calendar month; Pro and Business are uncapped. */
@@ -21,7 +21,6 @@ export const FREE_PLAN_MONTHLY_LOOKUPS = 3;
 export type CachedPrefill = {
   facts: AddressFacts | null;
   rent: RentEstimate | null;
-  priorAd: PriorAdMatch | null;
   source: "rentcast" | "fixture";
 };
 
@@ -34,7 +33,7 @@ export async function readPrefillCache(db: SupabaseClient, addressKey: string, s
   const since = new Date(Date.now() - PREFILL_CACHE_DAYS * 86_400_000).toISOString();
   const { data, error } = await db
     .from("listing_prefill_cache")
-    .select("facts, rent, prior_ad, source, fetched_at")
+    .select("facts, rent, source, fetched_at")
     .eq("address_key", addressKey)
     .eq("source", source)
     .gte("fetched_at", since)
@@ -43,7 +42,6 @@ export async function readPrefillCache(db: SupabaseClient, addressKey: string, s
   return {
     facts: (data.facts as AddressFacts | null) ?? null,
     rent: (data.rent as RentEstimate | null) ?? null,
-    priorAd: (data.prior_ad as PriorAdMatch | null) ?? null,
     source: data.source === "fixture" ? "fixture" : "rentcast",
   };
 }
@@ -54,7 +52,6 @@ export async function writePrefillCache(db: SupabaseClient, addressKey: string, 
       address_key: addressKey,
       facts: value.facts,
       rent: value.rent,
-      prior_ad: value.priorAd,
       source: value.source,
       fetched_at: new Date().toISOString(),
     },
