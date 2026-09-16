@@ -279,3 +279,12 @@ It never books. A request is `status: "pending"` until a human confirms it.
   [`docs/agents/agent-capability-backlog.md`](agent-capability-backlog.md).
 
 Coverage: `tests/unit/tools/tours.test.ts`, `tests/unit/tools/calendar-tools.test.ts`.
+
+## Services and tasks availability
+
+Kind-scoped calendar availability lives at `axis_mgr_avail_slots_v2_<uid>_kind_<services|tasks>`
+(record type `manager_kind_availability`, `src/lib/manager-availability-kinds.ts`) — never read
+by the public tour route, unlike tours' own `manager_availability` / `manager_property_availability`
+keys. `src/lib/manager-schedule-suggest.ts` is the one time-suggestion engine for these kinds:
+painted availability books, a PropLane pick only proposes, and neither ever overrides anything
+already scheduled.

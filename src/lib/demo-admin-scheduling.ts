@@ -1,4 +1,5 @@
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { MANAGER_KIND_AVAILABILITY_RECORD_TYPE } from "@/lib/manager-availability-kinds";
 import { normalizeTourFormat, type TourFormat } from "@/lib/tour-format";
 import { emitAdminUi } from "@/lib/demo-admin-ui";
 import { logDemoOutboundEmail } from "@/lib/demo-outbound-mail";
@@ -163,6 +164,18 @@ function scheduleRecordScope(key: string): { managerUserId: string | null; prope
       managerUserId: propertyScoped[1] ?? null,
       propertyId: propertyScoped[2] ?? null,
       recordType: "manager_property_availability",
+    };
+  }
+  // Must come before the generic `axis_mgr_avail_slots_v2_` fallthrough below,
+  // which would otherwise swallow a kind key as portfolio `manager_availability`
+  // — the record type the public tour route reads. Services/tasks availability
+  // must never be offered to a prospect (see manager-availability-kinds.ts).
+  const kindScoped = key.match(/^axis_mgr_avail_slots_v2_(.+)_kind_(services|tasks)$/);
+  if (kindScoped) {
+    return {
+      managerUserId: kindScoped[1] ?? null,
+      propertyId: null,
+      recordType: MANAGER_KIND_AVAILABILITY_RECORD_TYPE,
     };
   }
   const shareScoped = key.match(/^axis_calendar_share_avail_(.+)_prop_(.+)$/);
