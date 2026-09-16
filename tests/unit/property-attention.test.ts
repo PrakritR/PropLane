@@ -80,8 +80,10 @@ describe("property attention", () => {
       [app({ id: "1", assignedPropertyId: "lst-1" }), app({ id: "2", bucket: "approved", assignedPropertyId: "lst-1", manualResidentDetails: { moveOutDate: "2026-10-03" } })],
       TODAY,
     );
-    expect(propertyAttentionParts(a).map((p) => p.text)).toEqual(["1 application waiting", "2 of 3 open", "Lease ends Oct 3"]);
-    expect(propertyAttentionParts(propertyAttention(row(1), [], TODAY)).map((p) => p.text)).toEqual(["Open"]);
+    expect(propertyAttentionParts(a).map((p) => p.text)).toEqual(["1 application waiting", "Lease ends Oct 3"]);
+    // Open rooms rank the row but are not printed on it.
+    expect(propertyAttention(row(1), [], TODAY).open).toBe(1);
+    expect(propertyAttentionParts(propertyAttention(row(1), [], TODAY))).toEqual([]);
   });
 
   it("totals across the list for the strip", () => {

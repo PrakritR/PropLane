@@ -2673,17 +2673,7 @@ function StepPricing({
         leaseTypesField={
           <>
             <LeaseTypesField sub={sub} patch={patch} />
-            {resolveAllowedLeaseTerms(sub).includes(LONG_TERM_LEASE_TERM) ? (
-              <>
-                <LongTermLengthsField sub={sub} patch={patch} />
-                <FactRow label="Long-term minimum">
-                  <span className="flex items-center gap-2">
-                    <CountStepper compact value={sub.longTermMinimumMonths ?? 2} min={1} max={12} label="minimum months" dataAttr="listing-v2-long-term-minimum" onChange={(n) => patch({ longTermMinimumMonths: n })} />
-                    <span className="text-[13px] font-semibold text-foreground/70">mo</span>
-                  </span>
-                </FactRow>
-              </>
-            ) : null}
+            {resolveAllowedLeaseTerms(sub).includes(LONG_TERM_LEASE_TERM) ? <LongTermLengthsField sub={sub} patch={patch} /> : null}
           </>
         }
         payments={<HousePaymentsGroup sub={sub} patch={patch} />}

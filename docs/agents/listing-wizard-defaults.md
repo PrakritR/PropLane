@@ -29,6 +29,11 @@ each card from its records (`houseDefaultsForSubmission`,
   not swept up by the first default.
 - Unticking "Same as default …" is the one whole-record freeze; Reset (per
   row, or ↺ under the name) copies the Default card back, blanks included.
+  The Pricing step's tick and ↺ do the same (`resetRoomFieldToDefault`) —
+  never blank the room, because Review, the applicant's room list and the
+  signed lease read the record, not the card. A listing opened with a blank
+  follower on rent, utilities or deposit is filled from the card once
+  (`fillRoomsFollowingDefaults`, in the wizard shell) and autosaved.
 - "Make all the same" overwrites every record and asks first when a record has
   its own photos or clip.
 - Pictures, clips and words are a record's own the moment it has any while the
@@ -100,9 +105,13 @@ A room is **available by default**. The Rooms step's Availability block
 (`listing-wizard-v2/occupied-dates.tsx`) lists only the spans that close it:
 the manager's own rows in `manualUnavailableRanges` (Start → End, End may be
 `null` for "no end date"), plus read-only rows for residents' stays, Bookings
-blocks and Airbnb imports. There is no Available/Occupied switch; the word
-beside the heading is a readout. `src/lib/room-availability-timeline.ts` is the
-one derivation of the renter-facing label, and every change writes the derived
+blocks and Airbnb imports. There is no Available/Occupied switch and nothing
+in the block prints what renters see: the round + in the header adds a row, a
+dashed footer under the rows adds the next one, and the calendar toggle shows
+the same spans on a month grid
+(`src/components/room-availability-month-calendar.tsx`, shared with the public
+listing page). `src/lib/room-availability-timeline.ts` is still the one
+derivation of the renter-facing label, and every change writes the derived
 `availability` and `moveInAvailableDate` alongside the ranges so old readers
 keep working. A room saved with only a future `moveInAvailableDate` reads as
 occupied until the day before. Airbnb rows are identified by their id prefix and
