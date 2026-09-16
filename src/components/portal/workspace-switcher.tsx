@@ -161,7 +161,8 @@ export function WorkspaceSwitcher({
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <Link href="/portal/profile?tab=workspaces#workspace-team" data-attr="workspace-switcher-invite">
+          {/* Invite lives on each workspace card; land on the active one. */}
+          <Link href={`/portal/profile?tab=workspaces${ctx.active ? `#workspace-${ctx.active.id}` : ""}`} data-attr="workspace-switcher-invite">
             <UserPlus className="size-4" aria-hidden />
             Invite a manager
           </Link>

@@ -13,7 +13,12 @@ vi.mock("@/lib/manager-portfolio-access", () => ({ resolvePropertyLabelForId: ()
 vi.mock("@/lib/analytics/track-client", () => ({ track: vi.fn() }));
 vi.mock("@/components/portal/modal-assistant-strip", () => ({ ModalAssistantStrip: () => null }));
 vi.mock("@/hooks/use-manager-user-id", () => ({ useManagerUserId: () => ({ userId: "owner" }) }));
-vi.mock("@/components/portal/pro-account-links-panel", () => ({ ProAccountLinksPanel: () => <div data-attr="workspace-team-panel">Team</div> }));
+// The team panel hands each card its own section; the stub renders one marker per workspace so the test can prove the team lives inside the cards.
+vi.mock("@/components/portal/pro-account-links-panel", () => ({
+  ProAccountLinksPanel: ({ renderWorkspaces }: { renderWorkspaces: (team: { section: (w: { id: string }) => React.ReactNode }) => React.ReactNode }) => (
+    <div data-attr="workspace-team-panel">{renderWorkspaces({ section: (w) => <div data-attr="workspace-team" data-workspace-id={w.id}>Managers &amp; permissions · {w.id}</div> })}</div>
+  ),
+}));
 import { WorkspaceSettings } from "@/components/portal/workspace-settings";
 const workspace = (id: string, propertyIds: string[] = [], isDefault = false) => ({ id, name: id, ownerUserId: "owner", propertyPermissions: {}, propertyIds, owned: true, isDefault, members: [] });
 function mount(workspaces = [workspace("Original", [], true), workspace("Second")]) {
@@ -97,4 +102,15 @@ it("creates one named workspace from a single Save", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() => expect(mocks.context.mutate).toHaveBeenCalledWith({ action: "create", id: undefined, name: "North homes" }));
   expect(mocks.context.mutate).toHaveBeenCalledTimes(1);
+});
+it("renders the team inside every owned card and never as a separate Team section", () => {
+  mount([workspace("Original", ["house-1"], true), workspace("Second"), { ...workspace("Shared"), owned: false }]);
+  const sections = Array.from(document.querySelectorAll('[data-attr="workspace-team"]'));
+  expect(sections.map((el) => el.getAttribute("data-workspace-id"))).toEqual(["Original", "Second"]);
+  for (const el of sections) expect(el.closest('[data-attr="workspace-card"]')).not.toBeNull();
+  expect(screen.queryByRole("heading", { name: "Team" })).toBeNull();
+  expect(screen.queryByText("Team on this workspace")).toBeNull();
+  expect(document.querySelector('[data-attr="workspace-manage-team"]')).toBeNull();
+  expect(document.querySelector('[data-attr="workspace-shared-access"]')).not.toBeNull();
+  evidence("05-team-inside-cards");
 });

@@ -1,11 +1,13 @@
 "use client";
 
 /**
- * Members and pending invites for Settings → Team.
+ * Members and pending invites, rendered inside each workspace card on
+ * Settings → Workspaces (under "Managers & permissions") and on the Teams page.
  *
- * Per-record actions live in a far-right ⋯ (Edit, Permissions, Remove), matching
- * Properties. The owner row has no menu. Invite sits on the section title, not
- * inside this block.
+ * Per-record actions live in a far-right ⋯ (Edit, Disconnect), matching
+ * Properties. Edit opens the member's page — houses and per-house permissions
+ * live there, so there is no separate Permissions item. The owner row has no
+ * menu. Invite sits on the section header, not inside this block.
  */
 
 import type { ReactNode } from "react";
@@ -32,8 +34,7 @@ export type TeamMemberRow = {
   /** ISO date the link became active; null for the owner. */
   joinedAt: string | null;
   onEdit?: () => void;
-  onPermissions?: () => void;
-  onRemove?: () => void;
+  onDisconnect?: () => void;
 };
 
 type TeamRowMenuItem = {
@@ -114,23 +115,27 @@ function BlockShell({
 
 const MEMBER_GRID = "md:grid md:grid-cols-[minmax(0,1.4fr)_110px_minmax(0,1fr)_120px_44px] md:items-center md:gap-x-3";
 
-export function TeamMembersBlock({ members }: { members: TeamMemberRow[] }) {
-  return (
-    <BlockShell title="Members" count={members.length} dataAttr="team-members-block">
-      <div className={cn("hidden px-4 pb-1.5 pt-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted/70", MEMBER_GRID)} aria-hidden>
-        <span>Member</span>
-        <span>Role</span>
-        <span>Properties</span>
-        <span>Joined</span>
-        <span />
-      </div>
+/**
+ * `embedded` drops the card shell: the workspace card already is the card, and
+ * its "Managers & permissions" header carries the title and Invite.
+ */
+export function TeamMembersBlock({ members, embedded = false }: { members: TeamMemberRow[]; embedded?: boolean }) {
+  const columns = (
+    <div className={cn("hidden px-4 pb-1.5 pt-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted/70", MEMBER_GRID)} aria-hidden>
+      <span>Member</span>
+      <span>Role</span>
+      <span>Properties</span>
+      <span>Joined</span>
+      <span />
+    </div>
+  );
+  const rows = (
       <ul>
         {members.map((m) => {
           const pill = ROLE_PILL[m.role];
           const items = ([
             m.onEdit ? { id: "edit", label: "Edit", onSelect: m.onEdit, dataAttr: "team-member-edit" } : null,
-            m.onPermissions ? { id: "permissions", label: "Permissions", onSelect: m.onPermissions, dataAttr: "team-member-permissions" } : null,
-            m.onRemove ? { id: "remove", label: "Remove", onSelect: m.onRemove, destructive: true, dataAttr: "team-member-remove" } : null,
+            m.onDisconnect ? { id: "disconnect", label: "Disconnect", onSelect: m.onDisconnect, destructive: true, dataAttr: "team-member-disconnect" } : null,
           ] as (TeamRowMenuItem | null)[]).filter((item): item is TeamRowMenuItem => item != null);
           return (
             <li key={m.id} className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/60 px-4 py-2.5", MEMBER_GRID)} data-attr="team-member-row">
@@ -153,6 +158,19 @@ export function TeamMembersBlock({ members }: { members: TeamMemberRow[] }) {
           );
         })}
       </ul>
+  );
+  if (embedded) {
+    return (
+      <div data-attr="team-members-block">
+        {columns}
+        {rows}
+      </div>
+    );
+  }
+  return (
+    <BlockShell title="Members" count={members.length} dataAttr="team-members-block">
+      {columns}
+      {rows}
     </BlockShell>
   );
 }
@@ -166,8 +184,11 @@ export function TeamPendingInvitesBlock({
   onDecline,
   onOpen,
   expiryLabel,
+  embedded = false,
 }: {
   invites: AccountLinkInviteDto[];
+  /** Inside a workspace card: plain rows under the members, no card shell. */
+  embedded?: boolean;
   propertiesLabel: (inv: AccountLinkInviteDto) => string;
   /** "Expires in 12 days" — the panel owns the wording. */
   expiryLabel: (expiresAt: string | null | undefined) => string;
@@ -178,8 +199,7 @@ export function TeamPendingInvitesBlock({
   onOpen: (inv: AccountLinkInviteDto) => void;
 }) {
   if (invites.length === 0) return null;
-  return (
-    <BlockShell title="Pending invites" count={invites.length} dataAttr="team-pending-block">
+  const rows = (
       <ul>
         {invites.map((inv) => {
           const outgoing = inv.direction === "outgoing";
@@ -209,6 +229,11 @@ export function TeamPendingInvitesBlock({
           );
         })}
       </ul>
+  );
+  if (embedded) return <div data-attr="team-pending-block">{rows}</div>;
+  return (
+    <BlockShell title="Pending invites" count={invites.length} dataAttr="team-pending-block">
+      {rows}
     </BlockShell>
   );
 }
