@@ -256,6 +256,18 @@ export function ListingWizardV2({
     [onClose, persist, showToast],
   );
 
+  // The Review step's Save button. Unlike closing, which gives up and leaves
+  // after two failed writes so ✕ never traps anyone, an explicit Save that
+  // fails stays open with the toast — the manager pressed it to keep the work.
+  const handleSave = useCallback(
+    async (stepIndex: number) => {
+      stepRef.current = stepIndex;
+      const ok = await persist(submissionRef.current, stepIndex);
+      if (ok) onClose();
+    },
+    [onClose, persist],
+  );
+
   return (
     <PortalAssistantConfigProvider endpoint="/api/agent/chat" managerName={null}>
       <ListingEditorV2
@@ -268,6 +280,9 @@ export function ListingWizardV2({
         }}
         onClose={(stepIndex) => {
           void handleClose(stepIndex);
+        }}
+        onSaveExit={(stepIndex) => {
+          void handleSave(stepIndex);
         }}
         busy={busy}
         isEdit={editing}
