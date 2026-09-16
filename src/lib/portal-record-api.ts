@@ -111,7 +111,9 @@ export function createJsonRecordRoute(config: RecordConfig) {
             .order(config.orderColumn ?? "updated_at", { ascending: false })
             .limit(500);
           if (config.scope) query = config.scope(query, ctx.user) as typeof query;
-          ({ data, error } = await query);
+          const result = await query;
+          data = result.data as unknown as Record<string, unknown>[] | null;
+          error = result.error ? { message: result.error.message } : null;
         }
         if (error) return NextResponse.json({ error: error.message }, { status: 500 });
         let records = (Array.isArray(data) ? data : []) as unknown as Record<string, unknown>[];
