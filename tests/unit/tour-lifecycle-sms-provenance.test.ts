@@ -145,7 +145,15 @@ function makeDb(options: {
           }
           return { data: null, error: null };
         },
-        delete: () => ({ in: async () => ({ error: null }) }),
+        delete: () => ({
+          in: async () => ({ error: null }),
+          // WS4(shared-avail): the atomic claim guard's release/stale-recovery
+          // path (`tour_inquiry_claims`) — always succeeds here.
+          eq: () => ({
+            then: (resolve: (value: { error: null }) => void) => resolve({ error: null }),
+            lt: async () => ({ error: null }),
+          }),
+        }),
       };
       const originalMaybeSingle = chain.maybeSingle;
       chain.maybeSingle = (async () => {

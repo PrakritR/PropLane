@@ -84,7 +84,16 @@ function makeDb() {
         }
         return { error: null };
       },
-      delete: () => ({ in: async () => ({ error: null }) }),
+      // WS4(shared-avail): the atomic claim guard's table — always succeeds so
+      // confirmTourInquiry's normal flow (which this file exercises) proceeds.
+      insert: async () => ({ data: null, error: null }),
+      delete: () => ({
+        in: async () => ({ error: null }),
+        eq: () => ({
+          then: (resolve: (value: { error: null }) => void) => resolve({ error: null }),
+          lt: async () => ({ error: null }),
+        }),
+      }),
     }),
   };
   return { db: db as never, written };

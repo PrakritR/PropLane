@@ -32,6 +32,61 @@ export const INQUIRY_EVENT_RECORD_TYPE = "partner_inquiry_request";
 
 const MAX_EVENT_DURATION_MS = 480 * 60_000;
 
+/**
+ * WS4(shared-avail): the DB-level guard behind `confirmTourInquiry` — see
+ * `supabase/migrations/20260916120000_tour_inquiry_claim_guard.sql`.
+ *
+ * `confirmTourInquiry` reads the pending-inquiry and planned-event singletons,
+ * decides, then writes them back — a non-atomic read-modify-write. Two
+ * co-managers approving the SAME pending request concurrently could both pass
+ * their (stale) double-book check and both upsert; the second write simply
+ * clobbers the first, so one manager's booking silently vanished even though
+ * both callers were told `ok: true`. A single INSERT against a primary key can
+ * only ever leave one row behind, so exactly one of two concurrent claims on
+ * the same `inquiry_id` wins — the loser's insert hits a unique violation
+ * (23505) and maps to a 409 here, before either caller touches the singletons.
+ */
+const TOUR_INQUIRY_CLAIM_STALE_MS = 2 * 60_000;
+
+type TourInquiryClaimResult = { ok: true } | { ok: false; status: 409 | 500; error: string };
+
+export async function acquireTourInquiryClaim(
+  db: Db,
+  inquiryId: string,
+  claimantUserId: string,
+): Promise<TourInquiryClaimResult> {
+  const insertClaim = () =>
+    db.from("tour_inquiry_claims").insert({ inquiry_id: inquiryId, claimed_by: claimantUserId });
+
+  const first = await insertClaim();
+  if (!first.error) return { ok: true };
+  if (first.error.code !== "23505") return { ok: false, status: 500, error: first.error.message };
+
+  // Stale-claim recovery: a confirm that crashed mid-flight (a serverless
+  // instance CAN be frozen right after this insert) would otherwise leave an
+  // orphaned row that locks this inquiry out of ever being confirmed again.
+  // Anything older than the TTL is treated as abandoned and cleared before the
+  // one retry — a live second confirm still loses, because ITS row is fresh.
+  const staleBefore = new Date(Date.now() - TOUR_INQUIRY_CLAIM_STALE_MS).toISOString();
+  await db.from("tour_inquiry_claims").delete().eq("inquiry_id", inquiryId).lt("claimed_at", staleBefore);
+
+  const second = await insertClaim();
+  if (second.error) {
+    return { ok: false, status: 409, error: "Another manager already took this tour." };
+  }
+  return { ok: true };
+}
+
+/**
+ * Always called before `confirmTourInquiry` returns, success or failure — a
+ * failed confirm (a validation error, a write failure) must stay retryable,
+ * and a successful one removes the inquiry from the pending set entirely, so
+ * nothing is lost by clearing the mutex either way.
+ */
+export async function releaseTourInquiryClaim(db: Db, inquiryId: string): Promise<void> {
+  await db.from("tour_inquiry_claims").delete().eq("inquiry_id", inquiryId);
+}
+
 function asObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
@@ -239,6 +294,16 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
     return { ok: false, status: 400, error: "Invalid tour assignee." };
   }
 
+  // WS4(shared-avail): from here on this function reads-then-writes the
+  // pending-inquiry and planned-event singletons, which is exactly the window
+  // two concurrent confirms of the SAME request could both slip through. The
+  // claim below serializes that window per `inquiryId`; everything after it
+  // runs inside `try`/`finally` so the claim is always released, whatever the
+  // outcome, and a legitimate retry is never permanently locked out.
+  const claim = await acquireTourInquiryClaim(db, id, opts.actorUserId);
+  if (!claim.ok) return { ok: false, status: claim.status, error: claim.error };
+
+  try {
   const windows = windowsFromInquiry(row);
   const selectedWindow =
     windows.find((window) => sameInstant(window.start, requestedStart) && sameInstant(window.end, requestedEnd)) ??
@@ -415,4 +480,7 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
   }).catch(() => undefined);
 
   return { ok: true, plannedEvent, message: formatRangeLabel(start, end), tenantNotification, calendarSync };
+  } finally {
+    await releaseTourInquiryClaim(db, id);
+  }
 }
