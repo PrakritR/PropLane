@@ -3989,6 +3989,20 @@ export function ManagerAddListingForm({
     persistDraftRef.current = persistListingDraft;
   }, [persistListingDraft]);
 
+  // The status pill ("Saved to Drafts" / "…photos not uploaded yet") is set by a
+  // background (tab-hidden) or step-advance save; once the manager edits again it
+  // would otherwise linger and claim a save that no longer covers the new input.
+  // Clear it back to idle on the next real change — the same reset the removed
+  // typing-timer effect used to do (PRP-201 pill honesty).
+  useEffect(() => {
+    const current: ManagerListingSubmissionV1 = { ...sub, serviceRequestOptions: serviceOffers };
+    if (!listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? "")) return;
+    if (listingSubmissionFingerprint(current) === lastPersistedFingerprintRef.current) return;
+    setAutosaveStatus((status) =>
+      status === "saved" || status === "saved-without-photos" ? "idle" : status,
+    );
+  }, [sub, serviceOffers]);
+
   // There is no typing-timer autosave any more: the listing is written on ✕
   // (and on step advance / Review Save). The timer was the source of the
   // repeating "could not save" toast — a refused save re-armed it and the next
