@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   buildMonthDayCells,
+  clipPaintRange,
   dayIsUnavailable,
+  mergePaintedOccupiedRanges,
   monthAvailabilityTone,
   monthToneLabel,
   resolveAvailabilityMonthRange,
+  resizeOccupiedDateRange,
 } from "@/lib/room-availability-calendar";
 
 describe("room-availability-calendar", () => {
@@ -49,3 +52,34 @@ describe("room-availability-calendar", () => {
     expect(monthToneLabel("mixed")).toBe("Mixed");
   });
 });
+
+describe("clipPaintRange / merge / resize", () => {
+  const booked = (keys: string[]) => (day: string) => keys.includes(day);
+
+  it("clips a paint before a booked day and refuses a booked origin", () => {
+    expect(clipPaintRange("2026-09-20", "2026-09-25", booked(["2026-09-23"]))).toEqual({
+      start: "2026-09-20",
+      end: "2026-09-22",
+    });
+    expect(clipPaintRange("2026-09-23", "2026-09-25", booked(["2026-09-23"]))).toBeNull();
+  });
+
+  it("merges overlapping and adjacent occupied rows", () => {
+    const merged = mergePaintedOccupiedRanges(
+      [{ id: "a", start: "2026-09-01", end: "2026-09-03" }],
+      "2026-09-04",
+      "2026-09-05",
+      "new",
+    );
+    expect(merged).toEqual([{ id: "a", start: "2026-09-01", end: "2026-09-05" }]);
+  });
+
+  it("resizes a span and refuses covering a booked day", () => {
+    const ranges = [{ id: "a", start: "2026-09-16", end: "2026-09-16" }];
+    expect(resizeOccupiedDateRange(ranges, "a", "end", "2026-09-18", booked([]))).toEqual([
+      { id: "a", start: "2026-09-16", end: "2026-09-18" },
+    ]);
+    expect(resizeOccupiedDateRange(ranges, "a", "end", "2026-09-18", booked(["2026-09-17"]))).toBeNull();
+  });
+});
+

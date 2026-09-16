@@ -10,8 +10,9 @@
  * starting today; once a row exists a dashed "+ Add occupied dates" footer
  * under the list adds the next one, starting the day after the last End; ✕
  * removes one. Nothing here is a status switch and nothing is printed about
- * what renters see: the dates ARE the status. The calendar toggle shows the
- * same spans as a month grid, read-only.
+ * what renters see: the dates ARE the status. Calendar is a labeled switch:
+ * on, the month grid stacks above the list so the from/until editors stay.
+ * Drag open days to occupy; drag the handles on a red span to resize.
  *
  * Every change still writes the room's `manualUnavailableRanges` together with
  * the derived `availability` label and `moveInAvailableDate`, so the public
@@ -20,11 +21,16 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { RoomAvailabilityMonthCalendar, type RoomCalendarSpan } from "@/components/room-availability-month-calendar";
-import { localDateFromDateKey } from "@/lib/room-availability-calendar";
+import {
+  clipPaintRange,
+  localDateFromDateKey,
+  mergePaintedOccupiedRanges,
+  resizeOccupiedDateRange,
+} from "@/lib/room-availability-calendar";
 import type { ManagerRoomSubmission, ManagerRoomUnavailableRange } from "@/lib/manager-listing-submission";
 import { fetchRoomDateBlocks } from "@/lib/channel-calendar/room-date-blocks";
 import { lastNightBeforeCheckout, roomBlockSummary } from "@/lib/channel-calendar/property-bookings";
@@ -39,6 +45,7 @@ import {
   newOccupiedRangeId,
   roomAvailabilityPatch,
   shiftDateKey,
+  spanCovers,
   spanEndsBeforeStart,
   todayDateKey,
   type OccupiedSpan,
@@ -51,11 +58,23 @@ const LEGACY_ID = "legacy-available-from";
  * approved applications) and Bookings blocks. Airbnb imports live on the room
  * itself and are picked out by id. Empty for a listing that has no id yet.
  */
-function useBookedSpans(propertyId: string | null | undefined, roomId: string): OccupiedSpan[] {
+function useBookedSpans(
+  propertyId: string | null | undefined,
+  roomId: string,
+): { booked: OccupiedSpan[]; loading: boolean; error: boolean } {
   const [blocks, setBlocks] = useState<OccupiedSpan[]>([]);
+  const [loading, setLoading] = useState(() => Boolean(propertyId));
+  const [error, setError] = useState(false);
   useEffect(() => {
-    if (!propertyId) return;
+    if (!propertyId) {
+      setBlocks([]);
+      setLoading(false);
+      setError(false);
+      return;
+    }
     let cancelled = false;
+    setLoading(true);
+    setError(false);
     fetchRoomDateBlocks()
       .then((rows) => {
         if (cancelled) return;
@@ -70,9 +89,13 @@ function useBookedSpans(propertyId: string | null | undefined, roomId: string): 
               label: b.residentName?.trim() ? `Held · ${roomBlockSummary(b)}` : `Blocked${b.reason.trim() ? ` · ${b.reason.trim()}` : ""}`,
             })),
         );
+        setLoading(false);
       })
       .catch(() => {
-        /* the manual rows never wait on this */
+        if (cancelled) return;
+        setBlocks([]);
+        setError(true);
+        setLoading(false);
       });
     return () => {
       cancelled = true;
@@ -96,7 +119,11 @@ function useBookedSpans(propertyId: string | null | undefined, roomId: string): 
     }
   }, [propertyId, roomId]);
 
-  return useMemo(() => [...residents, ...blocks], [residents, blocks]);
+  return {
+    booked: [...residents, ...blocks],
+    loading,
+    error,
+  };
 }
 
 export function OccupiedDates({
@@ -113,7 +140,7 @@ export function OccupiedDates({
   const stored = room.manualUnavailableRanges ?? [];
   const manual = stored.filter((r) => !isChannelImportedRangeId(r.id));
   const channel = manualRangesToSpans(stored.filter((r) => isChannelImportedRangeId(r.id)));
-  const booked = useBookedSpans(propertyId, room.id);
+  const { booked, loading: bookedLoading, error: bookedError } = useBookedSpans(propertyId, room.id);
 
   // A room saved with only a future "Available from" shows that as one occupied row until it is touched.
   const legacy = manual.length === 0 ? legacyMoveInDateAsSpan(room.moveInAvailableDate, today) : null;
@@ -146,48 +173,28 @@ export function OccupiedDates({
   const blockedAdd = rows.some((r) => !r.end);
   const addTitle = blockedAdd ? "Set an End date on the open row first" : "Set occupied dates";
 
-  const [view, setView] = useState<"list" | "calendar">("list");
-  // Cheap enough to derive every render; the rows are a handful at most.
+  const [showCalendar, setShowCalendar] = useState(false);
   const calendarSpans: RoomCalendarSpan[] = [...manualRangesToSpans(sortedRows), ...readOnly]
     .filter((s) => !spanEndsBeforeStart(s))
-    .map((s) => ({ start: localDateFromDateKey(s.start), end: localDateFromDateKey(s.end), tone: s.source === "manual" ? "occupied" : "booked" }));
+    .map((s) => ({
+      id: s.source === "manual" ? s.id : undefined,
+      start: localDateFromDateKey(s.start),
+      end: localDateFromDateKey(s.end),
+      tone: s.source === "manual" ? "occupied" : "booked",
+    }));
 
-  return (
-    <div className="px-3.5 pb-3 pt-2" data-attr="listing-v2-room-availability">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-[12.5px] font-bold text-foreground">Availability</span>
-        <span className="inline-flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => setView((v) => (v === "calendar" ? "list" : "calendar"))}
-            aria-pressed={view === "calendar"}
-            aria-label={view === "calendar" ? "Back to the list" : "View on calendar"}
-            title={view === "calendar" ? "Back to the list" : "View on calendar"}
-            data-attr="listing-v2-room-availability-view"
-            className={cn(
-              "inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-muted transition hover:border-primary/45 hover:text-foreground",
-              view === "calendar" && "border-primary/45 bg-accent/40 text-primary",
-            )}
-          >
-            <CalendarDays className="h-[17px] w-[17px]" aria-hidden />
-          </button>
-          <button
-            type="button"
-            onClick={add}
-            disabled={blockedAdd}
-            aria-label="Set occupied dates"
-            title={addTitle}
-            data-attr="listing-v2-room-set-occupied"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-primary transition hover:border-primary/45 hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-45"
-          >
-            <Plus className="h-5 w-5" aria-hidden />
-          </button>
-        </span>
-      </div>
+  const isBookedDay = (dayKey: string) => readOnly.some((s) => spanCovers(s, dayKey));
+  const paintRange = (start: string, end: string) => {
+    const clipped = clipPaintRange(start, end, isBookedDay);
+    if (!clipped) return;
+    write(mergePaintedOccupiedRanges(rows, clipped.start, clipped.end, newOccupiedRangeId()));
+  };
+  const resizeRange = (id: string, edge: "start" | "end", toDay: string) => {
+    const next = resizeOccupiedDateRange(rows, id, edge, toDay, isBookedDay);
+    if (next) write(next);
+  };
 
-      {view === "calendar" ? (
-        <RoomAvailabilityMonthCalendar spans={calendarSpans} legend dataAttr="listing-v2-room-availability-calendar" />
-      ) : anyRows ? (
+  const occupiedList = anyRows ? (
         <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border" data-attr="listing-v2-room-occupied-list">
           {readOnly.map((span) => (
             <li key={span.id} className="grid grid-cols-[1fr_auto] items-center gap-2 bg-foreground/[0.03] px-3 py-2 text-[13px] sm:grid-cols-[minmax(0,1.2fr)_1fr_auto_1fr_auto]">
@@ -249,7 +256,67 @@ export function OccupiedDates({
             </li>
           ) : null}
         </ul>
+  ) : null;
+
+  return (
+    <div className="px-3.5 pb-3 pt-2" data-attr="listing-v2-room-availability">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-[12.5px] font-bold text-foreground">Availability</span>
+        <span className="inline-flex items-center gap-1.5">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={showCalendar}
+            onClick={() => setShowCalendar((on) => !on)}
+            data-attr="listing-v2-room-availability-view"
+            className="inline-flex h-11 items-center gap-2 rounded-full px-1 text-[12.5px] font-bold text-foreground"
+          >
+            Calendar
+            <span
+              aria-hidden
+              className={cn("relative block h-[21px] w-[36px] rounded-full transition-colors", showCalendar ? "bg-primary" : "bg-border")}
+            >
+              <span
+                className={cn(
+                  "absolute top-[2.5px] size-4 rounded-full bg-white shadow-[0_1px_2px_rgba(8,9,11,0.3)] transition-all",
+                  showCalendar ? "left-[17.5px]" : "left-[2.5px]",
+                )}
+              />
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={add}
+            disabled={blockedAdd}
+            aria-label="Set occupied dates"
+            title={addTitle}
+            data-attr="listing-v2-room-set-occupied"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-primary transition hover:border-primary/45 hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            <Plus className="h-5 w-5" aria-hidden />
+          </button>
+        </span>
+      </div>
+
+      {bookedError ? (
+        <p className="mb-2 rounded-xl bg-red-50 px-3 py-2 text-[12.5px] font-semibold text-red-700" role="alert">
+          Couldn&apos;t load Bookings for this room.
+        </p>
       ) : null}
+
+      {showCalendar ? (
+        <div className="mb-3">
+          <RoomAvailabilityMonthCalendar
+            spans={calendarSpans}
+            legend
+            dataAttr="listing-v2-room-availability-calendar"
+            loading={bookedLoading}
+            interactive={{ onPaintRange: paintRange, onResizeOccupied: resizeRange }}
+          />
+        </div>
+      ) : null}
+
+      {occupiedList}
     </div>
   );
 }
