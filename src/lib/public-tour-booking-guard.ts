@@ -1,8 +1,7 @@
 import "server-only";
 
-import { asStringArray, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
 import { filterAdminUserIds } from "@/lib/auth/admin-role";
-import { hasCoManagerPermissionLevelForProperty } from "@/lib/co-manager-permissions";
+import { listPropertyTourHostUserIds } from "@/lib/tour-host-enumeration.server";
 import { resolveTourOfferingSlots } from "@/lib/tour-slot-math";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -57,46 +56,11 @@ export async function managerMayHostPropertyTour(
   if (!ownerUserId) return false;
   if (ownerUserId === managerUserId) return true;
 
-  return coManagerMayHostPropertyTour(db, { managerUserId, propertyId, ownerUserId });
-}
-
-/**
- * The co-manager half, split out so the ownership fast path costs one read.
- * Any failure to read the link table answers NO — a host is a person who takes
- * a stranger to a house, so an unreadable grant is not a grant.
- */
-async function coManagerMayHostPropertyTour(
-  db: SupabaseClient,
-  input: { managerUserId: string; propertyId: string; ownerUserId: string },
-): Promise<boolean> {
-  try {
-    const { data: links, error } = await db
-      .from("account_link_invites")
-      .select(
-        "invitee_user_id, assigned_property_ids, property_co_manager_permissions, co_manager_permissions",
-      )
-      .eq("status", "accepted")
-      .eq("inviter_user_id", input.ownerUserId)
-      .eq("invitee_user_id", input.managerUserId);
-
-    if (error) return false;
-
-    for (const row of links ?? []) {
-      if (!asStringArray(row.assigned_property_ids).includes(input.propertyId)) continue;
-      const permissions = readPropertyPermissionsFromRow(
-        row as Parameters<typeof readPropertyPermissionsFromRow>[0],
-      );
-      const mayAct =
-        hasCoManagerPermissionLevelForProperty(permissions, input.propertyId, "calendar", "edit") ||
-        hasCoManagerPermissionLevelForProperty(permissions, input.propertyId, "applications", "edit");
-      if (mayAct) return true;
-    }
-  } catch {
-    // The link table may not exist in every environment; absent grants are no grants.
-    return false;
-  }
-
-  return false;
+  // WS4(shared-avail): the co-manager half now reuses the same roster
+  // `listOpenTourSlots` and `createTourInquiry` enumerate, so a single-candidate
+  // check here can never drift from the full host list computed elsewhere.
+  const hostUserIds = await listPropertyTourHostUserIds(db, { propertyId, ownerUserId });
+  return hostUserIds.includes(managerUserId);
 }
 
 /** True when slotKey appears in the manager's published availability rows. */
