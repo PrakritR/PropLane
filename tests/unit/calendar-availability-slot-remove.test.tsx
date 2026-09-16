@@ -1,13 +1,12 @@
 // @vitest-environment jsdom
 /**
  * PRP-373 — pinned availability footer keeps an in-flow spacer so last slots clear the dock.
- * PRP-414 — each painted "Open" slot exposes a visible × to remove just that window.
- * PLAN-0914-1710 — a contiguous run of painted slots merges into one block with
- * exactly one × instead of one × per 30-minute cell; a gap between painted
- * slots stays two separate runs, each with its own ×.
+ * PLAN-0916-0041 — the floating per-run grid × (PRP-414 / PLAN-0914-1710) is
+ * removed; deleting a painted block now happens inside the click-through "Edit
+ * availability block" dialog (Delete block), which reuses the create form.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { PortalCalendarPanels } from "@/components/portal/portal-calendar-panels";
 import { toLocalDateStr, startOfWeekMonday } from "@/lib/demo-admin-scheduling";
 import { resolveDefaultTourAvailabilityConfig } from "@/lib/tour-slot-math";
@@ -84,46 +83,46 @@ function renderTourAvailability() {
   );
 }
 
-describe("tour availability slot remove (PRP-414)", () => {
-  it("shows a remove control on each painted Open slot", () => {
+function mondayDs(): string {
+  return toLocalDateStr(startOfWeekMonday(new Date()));
+}
+
+describe("availability delete moved into the edit dialog (PLAN-0916-0041)", () => {
+  it("no longer renders a floating × on a painted block", () => {
+    PAINTED_SLOTS = new Set([mondaySlotKey(20)]);
     const { container } = renderTourAvailability();
-    const removes = container.querySelectorAll('[data-attr="calendar-remove-availability-slot"]');
-    // Mobile day grid + desktop week grid both paint the same open slot.
-    expect(removes.length).toBeGreaterThanOrEqual(1);
+    // The misaligned per-run grid × (PRP-414 / PLAN-0914-1710) is gone; delete
+    // now lives inside the click-through "Edit availability block" dialog.
+    expect(container.querySelectorAll('[data-attr="calendar-remove-availability-slot"]').length).toBe(0);
   });
 
-  it("removes only that slot when × is clicked", async () => {
+  it("Delete block in the dialog removes that single slot", async () => {
+    PAINTED_SLOTS = new Set([mondaySlotKey(20)]); // 10:00
     const { container } = renderTourAvailability();
-    const remove = container.querySelector(
-      '[data-attr="calendar-remove-availability-slot"]',
+    const cell = container.querySelector(
+      `[aria-label="Open details for 10 am on ${mondayDs()}"]`,
     ) as HTMLButtonElement;
-    expect(remove).toBeTruthy();
-    fireEvent.click(remove);
+    expect(cell).toBeTruthy();
+    fireEvent.click(cell);
+    await waitFor(() => expect(document.querySelector(".modal-panel")).not.toBeNull());
+    fireEvent.click(screen.getAllByText("Delete block")[0]!);
     await waitFor(() => {
       expect(writeAvailability).toHaveBeenCalled();
     });
     const written = writeAvailability.mock.calls.at(-1)?.[0] as Set<string> | undefined;
     expect(written?.has(mondaySlotKey(20))).toBe(false);
   });
-});
 
-describe("merged open runs get exactly one × (PLAN-0914-1710)", () => {
-  it("shows exactly one remove button for a contiguous 3-slot run", () => {
+  it("Delete block removes every slot in a contiguous run", async () => {
     PAINTED_SLOTS = new Set([mondaySlotKey(20), mondaySlotKey(21), mondaySlotKey(22)]); // 10:00-11:30
     const { container } = renderTourAvailability();
-    // One run per grid (mobile day strip + desktop week grid render the same day).
-    const removes = container.querySelectorAll('[data-attr="calendar-remove-availability-slot"]');
-    expect(removes.length).toBe(2);
-  });
-
-  it("clicking the run's × removes every slot in the run", async () => {
-    PAINTED_SLOTS = new Set([mondaySlotKey(20), mondaySlotKey(21), mondaySlotKey(22)]);
-    const { container } = renderTourAvailability();
-    const remove = container.querySelector(
-      '[data-attr="calendar-remove-availability-slot"]',
+    const cell = container.querySelector(
+      `[aria-label="Open details for 10 am on ${mondayDs()}"]`,
     ) as HTMLButtonElement;
-    expect(remove).toBeTruthy();
-    fireEvent.click(remove);
+    expect(cell).toBeTruthy();
+    fireEvent.click(cell);
+    await waitFor(() => expect(document.querySelector(".modal-panel")).not.toBeNull());
+    fireEvent.click(screen.getAllByText("Delete block")[0]!);
     await waitFor(() => {
       expect(writeAvailability).toHaveBeenCalled();
     });
@@ -133,12 +132,20 @@ describe("merged open runs get exactly one × (PLAN-0914-1710)", () => {
     expect(written?.has(mondaySlotKey(22))).toBe(false);
   });
 
-  it("a gap between painted slots stays two separate runs, each with its own ×", () => {
-    PAINTED_SLOTS = new Set([mondaySlotKey(20), mondaySlotKey(22)]); // 10:00 and 11:00, 10:30 empty
+  it("Save changes in the dialog re-applies the block with edited hours", async () => {
+    PAINTED_SLOTS = new Set([mondaySlotKey(20)]); // 10:00-10:30
     const { container } = renderTourAvailability();
-    // Two runs per grid × two grids (mobile + desktop) = four buttons.
-    const removes = container.querySelectorAll('[data-attr="calendar-remove-availability-slot"]');
-    expect(removes.length).toBe(4);
+    const cell = container.querySelector(
+      `[aria-label="Open details for 10 am on ${mondayDs()}"]`,
+    ) as HTMLButtonElement;
+    expect(cell).toBeTruthy();
+    fireEvent.click(cell);
+    await waitFor(() => expect(document.querySelector(".modal-panel")).not.toBeNull());
+    // The dialog is the create form, prefilled — Save changes writes.
+    fireEvent.click(screen.getAllByText("Save changes")[0]!);
+    await waitFor(() => {
+      expect(writeAvailability).toHaveBeenCalled();
+    });
   });
 });
 

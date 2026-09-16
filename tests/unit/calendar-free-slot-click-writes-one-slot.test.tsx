@@ -174,11 +174,14 @@ describe("clicking a free slot on the manager calendar", () => {
     renderManagerCalendar();
 
     const cell = await slotCell(`Open details for 10 am on ${WEDNESDAY}`);
-    expect(cell.textContent).toContain("Open");
+    // The block now reads by its category ("Tours"), not the bare word "Open"
+    // (PLAN-0916-0041).
+    expect(cell.textContent).toContain("Tours");
     fireEvent.click(cell);
 
     await waitFor(() => expect(document.querySelector(".modal-panel")).not.toBeNull());
-    expect(screen.getByText("Open for Tours")).toBeTruthy();
+    // Clicking a painted block opens the prefilled edit dialog, not a write.
+    expect(screen.getByText("Edit availability block")).toBeTruthy();
     expect(writeAvailability).not.toHaveBeenCalled();
   });
 });

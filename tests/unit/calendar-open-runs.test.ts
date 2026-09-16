@@ -41,9 +41,15 @@ describe("calendar-open-runs", () => {
     expect(mergeOpenRuns({ tours: [] })).toEqual([]);
   });
 
-  it("labels tours-only as plain Open, and any other kind set with its names", () => {
-    expect(formatOpenRunKindsLabel(["tours"])).toBe("Open");
-    expect(formatOpenRunKindsLabel(["services"])).toBe("Open · Services");
-    expect(formatOpenRunKindsLabel(["tours", "services"])).toBe("Open · Tours, Services");
+  it("labels a block by its category, not the bare word Open (PLAN-0916-0041)", () => {
+    // "Open" read as "not configured" to managers; a block now names its kinds.
+    expect(formatOpenRunKindsLabel(["tours"])).toBe("Tours");
+    expect(formatOpenRunKindsLabel(["services"])).toBe("Services");
+    expect(formatOpenRunKindsLabel(["tours", "services"])).toBe("Tours · Services");
+    expect(formatOpenRunKindsLabel(["tours", "services", "tasks"])).toBe("Tours · Services · Tasks");
+  });
+
+  it("falls back to Open only when a run somehow has no kinds", () => {
+    expect(formatOpenRunKindsLabel([])).toBe("Open");
   });
 });
