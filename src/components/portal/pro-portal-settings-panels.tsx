@@ -95,7 +95,6 @@ import { TaskAutomationSettingsFields } from "@/components/portal/task-automatio
 import type { WorkAssignmentTeamMember } from "@/hooks/use-work-assignment-directory";
 import {
   DEFAULT_LIFECYCLE_AUTOMATION,
-  normalizeLifecycleAutomation,
   type LifecycleTaskAutomation,
 } from "@/lib/task-lifecycle-automation";
 import {
