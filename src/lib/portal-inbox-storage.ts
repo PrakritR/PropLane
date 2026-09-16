@@ -66,6 +66,14 @@ export type InboxAiDraft = {
   status: "pending_approval";
   generatedAt: string;
   model?: string;
+  /**
+   * A draft the workspace's draft-for-review setting queued (WS5): the
+   * manager must approve it by hand. The inbox's AI auto-send latch skips it —
+   * auto-sending would be the exact opposite of what the setting promises.
+   */
+  requiresReview?: boolean;
+  /** `automation:<domain>:<event>` for a queued automation draft; absent on an AI reply draft. */
+  origin?: string;
 };
 
 export type PersistedInboxThread = {
@@ -90,6 +98,13 @@ export type PersistedInboxThread = {
   messages?: InboxThreadMessage[];
   /** Manager-only pending AI reply draft (never present on resident-scope rows). */
   aiDraft?: InboxAiDraft;
+  /**
+   * Drafts waiting behind `aiDraft`, oldest first. A second automated draft
+   * for the same person never overwrites one still pending approval; it
+   * queues here and is promoted by {@link advanceInboxAiDraft} once the head
+   * is approved or discarded.
+   */
+  aiDraftQueue?: InboxAiDraft[];
   /**
    * What the conversation is about, stamped by the send path (see
    * `deliverPortalInboxMessage`'s `eventCategory`). ABSENT on every row written
@@ -703,6 +718,17 @@ export function inboxThreadCounterpartyEmail(
   if (isProplaneSystemSenderEmail(from)) return PROPLANE_SYSTEM_COUNTERPARTY_KEY;
   if (from.includes("@")) return from;
   return email;
+}
+
+/**
+ * The thread once its pending draft is approved or discarded: the next queued
+ * draft (if any) becomes `aiDraft`, so an automated draft that arrived while
+ * an earlier one was still waiting is never lost.
+ */
+export function advanceInboxAiDraft<T extends Pick<PersistedInboxThread, "aiDraft" | "aiDraftQueue">>(thread: T): T {
+  const queue = Array.isArray(thread.aiDraftQueue) ? thread.aiDraftQueue.filter(Boolean) : [];
+  const [next, ...rest] = queue;
+  return { ...thread, aiDraft: next, aiDraftQueue: rest.length > 0 ? rest : undefined };
 }
 
 /**

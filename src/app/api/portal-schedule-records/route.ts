@@ -7,16 +7,47 @@ import {
 } from "@/lib/portal-schedule-record-scope";
 import { reconcileManagerPlannedEventsWrite } from "@/lib/planned-events-write-scope";
 import { syncManagerAvailabilityToGoogleCalendar } from "@/lib/google-calendar/sync.server";
+import { summarizeAvailabilityChange } from "@/lib/availability-change-summary";
+import { resolvePropertyOwnerUserId } from "@/lib/property-owner.server";
+import { emitAvailabilityChangedEvent } from "@/lib/tour-events.server";
 
 export const runtime = "nodejs";
 
 /**
  * WS3: painted tour availability lands on the manager's Google Calendar as
- * free ("Open for tours") blocks. Both record types are manager-scoped
- * (see `isManagerScopedScheduleRecordType`), so `record.manager_user_id` is
- * always the authenticated manager by the time `afterWrite` runs.
+ * free ("Open for tours") blocks; WS5: the change is announced to the team
+ * that shares the property. Both record types are manager-scoped (see
+ * `isManagerScopedScheduleRecordType`), so `record.manager_user_id` is always
+ * the authenticated manager by the time `afterWrite` runs.
  */
 const AVAILABILITY_RECORD_TYPES = new Set(["manager_availability", "manager_property_availability"]);
+
+/**
+ * The team notice goes to the PROPERTY OWNER's team when the record is about
+ * one house (a co-manager's availability on the owner's house is the owner's
+ * team's news), else to the writer's own team. Idempotent on what changed,
+ * so a retried save never re-posts.
+ */
+async function announceAvailabilityChange(input: {
+  db: Parameters<typeof emitAvailabilityChangedEvent>[0];
+  managerUserId: string;
+  recordId: string;
+  propertyId: string | null;
+  rowData: unknown;
+  previousRowData: unknown;
+}): Promise<void> {
+  const change = summarizeAvailabilityChange(input.previousRowData, input.rowData);
+  if (!change) return;
+  const owner = (await resolvePropertyOwnerUserId(input.db, input.propertyId)) ?? input.managerUserId;
+  await emitAvailabilityChangedEvent(input.db, {
+    managerUserId: owner,
+    changedByUserId: input.managerUserId,
+    summary: change.summary,
+    entityId: input.recordId,
+    propertyId: input.propertyId,
+    changeKey: change.changeKey,
+  });
+}
 
 const route = createJsonRecordRoute({
   table: "portal_schedule_records",
@@ -95,12 +126,24 @@ const route = createJsonRecordRoute({
     const managerUserId = String(record.manager_user_id ?? "").trim();
     const recordId = String(record.id ?? "").trim();
     if (!managerUserId || !recordId) return;
+    const propertyId = String(record.property_id ?? "").trim() || null;
+    const previousRowData = existing?.row_data ?? null;
     const task = () =>
-      syncManagerAvailabilityToGoogleCalendar(db, managerUserId, {
-        recordId,
-        rowData: record.row_data,
-        previousRowData: existing?.row_data ?? null,
-      }).catch((e) => console.warn("[google-calendar] availability push failed", e));
+      Promise.all([
+        syncManagerAvailabilityToGoogleCalendar(db, managerUserId, {
+          recordId,
+          rowData: record.row_data,
+          previousRowData,
+        }).catch((e) => console.warn("[google-calendar] availability push failed", e)),
+        announceAvailabilityChange({
+          db,
+          managerUserId,
+          recordId,
+          propertyId,
+          rowData: record.row_data,
+          previousRowData,
+        }).catch((e) => console.warn("[team-comms] availability change notice failed", e)),
+      ]);
     try {
       after(task);
     } catch {

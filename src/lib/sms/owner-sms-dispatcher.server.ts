@@ -4,6 +4,7 @@ import { resolveOwnerSendNumberRow } from "@/lib/sms/manager-workspace-role.serv
 import { normalizeE164 } from "@/lib/phone-e164";
 import { readSmsSuppressionState } from "@/lib/sms-consent";
 import { ensureApplicationScopedSmsConsent } from "@/lib/sms/application-consent.server";
+import { TEAM_NOTICE_SMS_PURPOSE, ensureTeamNoticeScopedSmsConsent } from "@/lib/sms/team-notice-consent.server";
 import { validateTourSmsPurposeAtDispatch } from "@/lib/sms/tour-sms-eligibility.server";
 import {
   estimateSmsSegments,
@@ -171,7 +172,7 @@ async function loadSendPolicy(
   if (suppression.optedOut) return { allowed: false, reason: "recipient_opted_out" };
 
   if (input.sendClass !== "control") {
-    const consent = await ensureApplicationScopedSmsConsent(db, {
+    const consentScope = {
       managerUserId: ownerId,
       recipientPhone: recipient,
       recipientEmail: input.recipientEmail,
@@ -180,7 +181,14 @@ async function loadSendPolicy(
       sendClass: input.sendClass,
       conversationKey: input.conversationKey,
       messagingServiceSid: expectedServiceSid,
-    });
+    };
+    // A team notice goes to a manager, whose consent is their own verified
+    // work phone — an applicant's rental-application stamp can never vouch
+    // for a co-manager (see team-notice-consent.server.ts).
+    const consent =
+      input.purpose === TEAM_NOTICE_SMS_PURPOSE
+        ? await ensureTeamNoticeScopedSmsConsent(db, consentScope)
+        : await ensureApplicationScopedSmsConsent(db, consentScope);
     if (!consent.ok) return { allowed: false, reason: consent.error };
     if (!consent.granted) return { allowed: false, reason: "scoped_consent_missing" };
     // A lifecycle grant may have been queued while its source conversation was

@@ -9,7 +9,12 @@ import { loadAutomatedMessageSettings } from "@/lib/automated-messages-settings.
 import { applyAutomatedMessageSetting } from "@/lib/automated-messages-settings";
 import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
 import { managerNotificationCategoryForEvent } from "@/lib/manager-notification-preferences";
-import { postTeamThreadMessage, mirrorTeamThreadMessageToSms } from "@/lib/team-comms.server";
+import {
+  postTeamThreadMessage,
+  mirrorTeamThreadMessageToSms,
+  type TeamNoticeModule,
+} from "@/lib/team-comms.server";
+import { resolveAutomationSendModeForEvent } from "@/lib/automation-send-mode.server";
 
 export type ActionEventDomain =
   | "work_order"
@@ -24,11 +29,12 @@ export type ActionEventDomain =
   /** WS5: team-only, no resident/vendor/manager side. */
   | "availability";
 /**
- * `team` (WS5): one rendered copy posted once into the manager's Team thread
- * (`team-comms.server.ts`), never fanned out per co-manager the way the other
- * three audiences are. `recipient.userId` for a `team` recipient is the
- * OWNING manager's user id (see `team-comms.server.ts` module doc for the
- * per-owner, not per-workspace, scope this implies).
+ * `team` (WS5): one rendered copy posted once into the owning manager's Team
+ * thread for the event's house (`team-comms.server.ts`), never fanned out per
+ * co-manager the way the other three audiences are. `recipient.userId` for a
+ * `team` recipient is the OWNING manager's user id; the house comes from the
+ * event's `payload.propertyId`, and the Teams module that gates who hears it
+ * from the event's domain ({@link teamModuleForDomain}).
  */
 export type ActionEventAudience = "manager" | "resident" | "vendor" | "team";
 export type ActionEventRendered = { subject: string; text: string; smsText?: string };
@@ -38,15 +44,53 @@ export type ActionEventRecipient = {
   email?: string;
   rendered: ActionEventRendered;
   /**
-   * Resident/vendor only: route this recipient through manager-approval
-   * draft-for-review instead of immediate send (WS5 decision: "party-facing
-   * -> draft-for-review", per-workspace opt-in — see
-   * `src/lib/automation-send-mode.ts`). Absent/false on every existing call
-   * site, so this is purely additive — nothing auto-sends today changes
-   * behavior unless a call site explicitly opts in.
+   * Route this recipient through manager-approval draft-for-review instead
+   * of an immediate send. The bus sets this itself from the workspace's
+   * `automationSendMode` (`partyFacing` for resident/vendor, `team` for the
+   * team thread — see `automation-send-mode.server.ts`), so every domain is
+   * gated the same way; a call site may still force it on for one recipient.
    */
   draftForReview?: boolean;
 };
+
+/** Which Teams module a co-manager must hold on the house to hear a team notice for this domain. */
+export function teamModuleForDomain(domain: string): TeamNoticeModule {
+  switch (domain) {
+    case "payment":
+      return "payments";
+    case "lease":
+      return "leases";
+    case "application":
+      return "applications";
+    case "work_order":
+    case "service_request":
+      return "services";
+    case "tour":
+    case "availability":
+    case "task":
+      return "calendar";
+    case "inspection":
+      return "residents";
+    default:
+      return "inbox";
+  }
+}
+
+/**
+ * The team delivery's `recipient_key`: distinct from the owner's own
+ * `manager` delivery (whose key is the bare user id) so the two never share a
+ * 10-minute throttle window and the manager's copy is not digested early.
+ * The durable lease RPC (`persist_lease_with_action_event`) validates the
+ * same shape.
+ */
+export function teamRecipientKey(ownerUserId: string): string {
+  return `team:${ownerUserId.trim()}`;
+}
+
+function payloadPropertyId(payload: unknown): string | null {
+  const value = payload && typeof payload === "object" ? (payload as { propertyId?: unknown }).propertyId : null;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
 
 export type ActionDeliveryPolicy = { deferSms: boolean; digest: boolean; nextAttemptAt: string | null };
 
@@ -93,40 +137,60 @@ async function deliverProjection(
     eventType?: string;
     urgent?: boolean;
     draftForReview?: boolean;
+    /** The house the event is about (`payload.propertyId`) — routes the team thread and its SMS roster. */
+    propertyId?: string | null;
     finalizeGuard?: { status: "pending" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "deferred"; dueAt: string };
   },
 ): Promise<"delivered" | "submitted" | "deferred" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "stale"> {
   const text = input.digest
     ? `Several updates were recorded. Open PropLane for the latest status.`
     : input.rendered.text;
-  // Team (WS5): one copy, posted once into the manager's Team thread instead
-  // of fanned out per recipient. Never digested — a digest placeholder in a
-  // shared team channel would be meaningless without knowing whose events.
+  // Team (WS5): one copy, posted once into the owner's Team thread for the
+  // house instead of fanned out per recipient. Never digested — a digest
+  // placeholder in a shared team channel would be meaningless without knowing
+  // whose events. Under `automationSendMode.team === "draft"` the copy is
+  // queued on that thread for the owner's approval instead of posted.
   if (input.recipient.audience === "team" && input.recipient.userId) {
     const updatedAt = input.now.toISOString();
     const messageId = `action-event:${input.eventKey}:team:${input.recipient.userId}`;
+    const teamModule = teamModuleForDomain(input.domain ?? "");
     try {
-      const posted = await postTeamThreadMessage(db, {
-        ownerManagerUserId: input.recipient.userId,
-        actorUserId: input.senderUserId,
-        actorName: input.senderName?.trim() || "PropLane Portal",
-        subject: input.rendered.subject,
-        text: input.rendered.text,
-        smsText: input.rendered.smsText,
-        messageId,
-        urgent: input.urgent,
-      });
-      if (!posted.ok) throw new Error(posted.error);
-      // Best-effort SMS mirror (WS6) — never fail the team-thread post over a text failure.
-      await mirrorTeamThreadMessageToSms(db, {
-        ownerManagerUserId: input.recipient.userId,
-        actorUserId: input.senderUserId,
-        subject: input.rendered.subject,
-        text: input.rendered.smsText ?? input.rendered.text,
-        messageId,
-        urgent: input.urgent,
-        now: input.now,
-      }).catch(() => undefined);
+      if (input.draftForReview) {
+        const { queueTeamThreadDraftForReview } = await import("@/lib/action-event-draft-review.server");
+        const queued = await queueTeamThreadDraftForReview(db, {
+          ownerManagerUserId: input.recipient.userId,
+          propertyId: input.propertyId ?? null,
+          subject: input.rendered.subject,
+          text: input.rendered.text,
+          origin: `automation:${input.domain ?? "unknown"}:${input.eventType ?? "unknown"}`,
+        });
+        if (!queued.ok) throw new Error(queued.error);
+      } else {
+        const posted = await postTeamThreadMessage(db, {
+          ownerManagerUserId: input.recipient.userId,
+          propertyId: input.propertyId ?? null,
+          actorUserId: input.senderUserId,
+          actorName: input.senderName?.trim() || "PropLane Portal",
+          subject: input.rendered.subject,
+          text: input.rendered.text,
+          smsText: input.rendered.smsText,
+          messageId,
+          urgent: input.urgent,
+        });
+        if (!posted.ok) throw new Error(posted.error);
+        // Best-effort SMS mirror (WS6) — never fail the team-thread post over a text failure.
+        await mirrorTeamThreadMessageToSms(db, {
+          ownerManagerUserId: input.recipient.userId,
+          propertyId: input.propertyId ?? null,
+          module: teamModule,
+          actorUserId: input.senderUserId,
+          subject: input.rendered.subject,
+          text: input.rendered.smsText ?? input.rendered.text,
+          messageId,
+          urgent: input.urgent,
+          now: input.now,
+        }).catch(() => undefined);
+      }
       const { error } = await db.from("action_event_deliveries").update({
         status: "delivered", attempts: input.attempts + 1, last_error: null, next_attempt_at: null,
         delivered_at: updatedAt, sms_deferred_until: null, updated_at: updatedAt,
@@ -327,9 +391,14 @@ export async function emitActionEvent(
   const eventKey = input.eventId.trim();
   if (!eventKey) throw new Error("emitActionEvent requires an idempotency eventId");
   const now = input.now ?? new Date();
-  // The manager's per-event switch and template. Loaded once per event; a read
+  const propertyId = payloadPropertyId(input.payload);
+  // The manager's per-event switch and template, and the workspace's
+  // auto-send vs draft-for-review choice. Loaded once per event; a read
   // failure means "defaults", never "silence".
-  const automated = await loadAutomatedMessageSettings(db, input.managerUserId).catch(() => null);
+  const [automated, sendMode] = await Promise.all([
+    loadAutomatedMessageSettings(db, input.managerUserId).catch(() => null),
+    resolveAutomationSendModeForEvent(db, { managerUserId: input.managerUserId, propertyId }),
+  ]);
   const recipients = input.recipients.flatMap((recipient) => {
     const applied = applyAutomatedMessageSetting(automated, {
       domain: input.domain,
@@ -338,7 +407,16 @@ export async function emitActionEvent(
       rendered: recipient.rendered,
       context: input.templateContext,
     });
-    return applied ? [{ ...recipient, rendered: applied }] : [];
+    if (!applied) return [];
+    // Draft-for-review is decided HERE, for every domain, from the workspace
+    // setting — a party-facing copy under `partyFacing: "draft"` and a team
+    // copy under `team: "draft"` are queued for approval instead of sent.
+    const partyFacing = recipient.audience === "resident" || recipient.audience === "vendor";
+    const draftForReview =
+      recipient.draftForReview === true ||
+      (partyFacing && sendMode.partyFacing === "draft") ||
+      (recipient.audience === "team" && sendMode.team === "draft");
+    return [{ ...recipient, rendered: applied, draftForReview }];
   });
   const { data: inserted, error: insertError } = await db.from("action_events").upsert({
     event_key: eventKey,
@@ -367,7 +445,10 @@ export async function emitActionEvent(
   let deferred = 0;
   let failed = 0;
   for (const recipient of recipients) {
-    const recipientKey = recipient.userId?.trim() || recipient.email?.trim().toLowerCase() || "";
+    const recipientKey =
+      recipient.audience === "team" && recipient.userId?.trim()
+        ? teamRecipientKey(recipient.userId)
+        : recipient.userId?.trim() || recipient.email?.trim().toLowerCase() || "";
     if (!recipientKey || !recipient.rendered.subject.trim() || !recipient.rendered.text.trim()) continue;
     const since = new Date(now.getTime() - 10 * 60_000).toISOString();
     const { count } = await db.from("action_event_deliveries").select("id", { count: "exact", head: true }).eq("recipient_key", recipientKey).gte("created_at", since);
@@ -408,6 +489,7 @@ export async function emitActionEvent(
       eventType: input.event,
       urgent: input.urgent,
       draftForReview: recipient.draftForReview,
+      propertyId,
     });
     if (outcome === "delivered") delivered++;
     else if (outcome === "submitted") submitted++;
@@ -436,6 +518,7 @@ export async function retryDueActionEventDeliveries(
   let submitted = 0;
   let failed = 0;
   let attempted = 0;
+  const sendModeByEvent = new Map<string, Awaited<ReturnType<typeof resolveAutomationSendModeForEvent>>>();
   for (const row of data ?? []) {
     const priorNextAttemptAt = String(row.next_attempt_at ?? "");
     if (!priorNextAttemptAt) continue;
@@ -454,7 +537,7 @@ export async function retryDueActionEventDeliveries(
     if (!claim) continue;
     attempted++;
     const { data: event, error: eventError } = await db.from("action_events")
-      .select("event_key,category,sender_user_id,sender_email,sender_name,domain,event_type,payload")
+      .select("event_key,category,manager_user_id,sender_user_id,sender_email,sender_name,domain,event_type,payload")
       .eq("id", row.event_id)
       .maybeSingle();
     if (eventError || !event?.sender_user_id || !event.sender_email) {
@@ -462,6 +545,25 @@ export async function retryDueActionEventDeliveries(
     }
     const retainedSmsDue = row.sms_deferred_until ? String(row.sms_deferred_until) : null;
     const retryingQuietEmail = Boolean(retainedSmsDue && Date.parse(retainedSmsDue!) > claimTime.getTime());
+    const propertyId = payloadPropertyId(event.payload);
+    const audience = row.audience as ActionEventAudience;
+    // A delivery enqueued durably (the lease RPC) never passed through
+    // `emitActionEvent`'s send-mode gate, so its FIRST attempt asks here. A
+    // row that has already gone out (a channel retry) is never turned into a
+    // draft after the fact.
+    let draftForReview = Boolean(row.draft_for_review);
+    if (!draftForReview && row.status === "pending" && Number(row.attempts ?? 0) === 0) {
+      const partyFacing = audience === "resident" || audience === "vendor";
+      if (partyFacing || audience === "team") {
+        const key = `${event.event_key}`;
+        let mode = sendModeByEvent.get(key);
+        if (!mode) {
+          mode = await resolveAutomationSendModeForEvent(db, { managerUserId: String(event.manager_user_id ?? ""), propertyId });
+          sendModeByEvent.set(key, mode);
+        }
+        draftForReview = (partyFacing && mode.partyFacing === "draft") || (audience === "team" && mode.team === "draft");
+      }
+    }
     const outcome = await deliverProjection(db, {
       deliveryId: String(row.id),
       eventKey: String(event.event_key),
@@ -470,7 +572,7 @@ export async function retryDueActionEventDeliveries(
       senderEmail: String(event.sender_email),
       senderName: event.sender_name ? String(event.sender_name) : undefined,
       recipient: {
-        audience: row.audience as ActionEventAudience,
+        audience,
         userId: row.recipient_user_id ? String(row.recipient_user_id) : undefined,
         email: row.recipient_email ? String(row.recipient_email) : undefined,
       },
@@ -488,7 +590,8 @@ export async function retryDueActionEventDeliveries(
       domain: event.domain ? String(event.domain) : undefined,
       eventType: event.event_type ? String(event.event_type) : undefined,
       urgent: Boolean((event.payload as { emergency?: unknown } | null)?.emergency),
-      draftForReview: Boolean(row.draft_for_review),
+      draftForReview,
+      propertyId,
       finalizeGuard: { status: row.status as "pending" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "deferred", dueAt: claimUntil },
     });
     if (["failed", "email_failed", "sms_failed", "channels_failed"].includes(outcome)) failed++;

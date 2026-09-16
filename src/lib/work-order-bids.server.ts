@@ -534,6 +534,7 @@ export async function acceptWorkOrderBid(
       senderName: actor.fullName,
       facts: {
         reference: rowData.reference || "Work order",
+        propertyId: String(workOrder.assigned_property_id ?? workOrder.property_id ?? "") || undefined,
         title: workOrderTitle || "Work order",
         propertyLabel: propertyLabel || undefined,
         scheduledFor: record.proposed_time ?? undefined,
@@ -716,6 +717,7 @@ export async function markWorkOrderDoneByVendor(
     senderName: actor.fullName,
     facts: {
       reference: rowData.reference || "Work order",
+      propertyId: rowData.assignedPropertyId || rowData.propertyId || undefined,
       title: rowData.title || "Work order",
       propertyLabel: rowData.propertyName || undefined,
       vendorName: actor.fullName || rowData.vendorName || undefined,

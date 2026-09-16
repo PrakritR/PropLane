@@ -2281,12 +2281,26 @@ export function PortalCalendarPanels({
     // storage keys, and each call independently reads that kind's current set.
     for (const kind of affectedKinds) {
       mutateAvailability((current) => {
-        const next = new Set(current);
+        let next = new Set(current);
 
         if (editOrigin && originKinds.includes(kind)) {
-          for (let slot = editOrigin.startSlot; slot < editOrigin.endSlotExclusive; slot += 1) {
-            if (editOrigin.isDefault) next.add(defaultTourSlotExclusionKey(editOrigin.dateStr, slot));
-            else next.delete(dateSlotKey(editOrigin.dateStr, slot));
+          if (editOrigin.isDefault) {
+            // Editing one run of the implicit 9-5 band: the first explicit slot
+            // on a day switches that whole day off the default, so the rest of
+            // the band is written back explicitly FIRST (the same materialise
+            // step a single Add does) and only then is the origin run removed.
+            // Exclusion markers alone would have let the re-add below silently
+            // close every other default run left on that day.
+            next = new Set(
+              addExplicitTourSlotKeys([...next], editOrigin.dateStr, editOrigin.startSlot, resolvedDefaultTourAvailability),
+            );
+            for (let slot = editOrigin.startSlot; slot < editOrigin.endSlotExclusive; slot += 1) {
+              next.delete(dateSlotKey(editOrigin.dateStr, slot));
+            }
+          } else {
+            for (let slot = editOrigin.startSlot; slot < editOrigin.endSlotExclusive; slot += 1) {
+              next.delete(dateSlotKey(editOrigin.dateStr, slot));
+            }
           }
         }
 
@@ -2328,6 +2342,7 @@ export function PortalCalendarPanels({
     blockWeekdays,
     editKind,
     mutateAvailability,
+    resolvedDefaultTourAvailability,
     showAppliesTo,
     showToast,
     weekMonday,

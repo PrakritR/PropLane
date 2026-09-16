@@ -20,6 +20,16 @@ export function isPropLaneAssistantInboxThread(thread: PersistedInboxThread): bo
   return false;
 }
 
+/**
+ * The manager<->manager Team thread (WS5, `team-comms.server.ts`). Like the
+ * assistant threads it has no email/SMS counterparty: a reply is a PropLane
+ * post into the thread, which the send route turns into a team post plus its
+ * SMS mirror.
+ */
+export function isTeamInboxThread(thread: Pick<PersistedInboxThread, "id"> & { threadType?: string }): boolean {
+  return thread.threadType === "team" || thread.id.startsWith("team-thread:");
+}
+
 /** Group key for collapsing duplicate assistant threads in one inbox scope. */
 export function assistantInboxCollapseKey(thread: PersistedInboxThread): string | null {
   const extended = thread as PersistedInboxThread & { threadType?: string };

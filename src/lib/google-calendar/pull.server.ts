@@ -88,12 +88,15 @@ export async function pullGoogleCalendarMeetings(
   let upserted = 0;
   let deleted = 0;
   let skipped = 0;
+  let writeFailures = 0;
+  const seenEventIds = new Set<string>();
 
   for (const event of page.events) {
     const recordId = googleMeetingRecordId(uid, event.id);
     if (event.status === "cancelled") {
       const { error } = await db.from("portal_schedule_records").delete().eq("id", recordId);
-      if (!error) deleted += 1;
+      if (error) writeFailures += 1;
+      else deleted += 1;
       continue;
     }
     if (isProplaneOriginatedEvent(event.description)) {
@@ -106,6 +109,7 @@ export async function pullGoogleCalendarMeetings(
       continue;
     }
     if (!event.start || !event.end) continue;
+    seenEventIds.add(event.id);
     const { error } = await db.from("portal_schedule_records").upsert(
       {
         id: recordId,
@@ -129,11 +133,24 @@ export async function pullGoogleCalendarMeetings(
       },
       { onConflict: "id" },
     );
-    if (!error) upserted += 1;
+    if (error) writeFailures += 1;
+    else upserted += 1;
+  }
+
+  // A completed FULL sync is a snapshot of everything that still exists in
+  // the window, so any mirrored row for that window the snapshot did not
+  // return was deleted on Google while no token was tracking it (the 410 gap)
+  // — purge it, or a cancelled meeting keeps blocking tours forever. A
+  // truncated walk is only a prefix and must never be reconciled against.
+  if (page.fullSyncWindow && !page.truncated && writeFailures === 0) {
+    deleted += await purgeMirroredMeetingsAbsentFromSnapshot(db, uid, seenEventIds, page.fullSyncWindow);
   }
 
   const patch: Partial<GoogleCalendarConnection> = {};
-  if (page.nextSyncToken) patch.syncToken = page.nextSyncToken;
+  // The cursor only advances once every change Google reported has landed in
+  // the mirror; a transient Supabase failure otherwise drops those changes
+  // from every future incremental pull.
+  if (page.nextSyncToken && !page.truncated && writeFailures === 0) patch.syncToken = page.nextSyncToken;
 
   const needsChannel =
     !connection.channelId ||
@@ -163,5 +180,45 @@ export async function pullGoogleCalendarMeetings(
     await saveGoogleCalendarConnection(db, uid, patch).catch(() => undefined);
   }
 
-  return { ok: true, upserted, deleted, skippedProplaneOriginated: skipped };
+  return {
+    ok: writeFailures === 0,
+    upserted,
+    deleted,
+    skippedProplaneOriginated: skipped,
+    ...(writeFailures > 0 ? { reason: "mirror_write_failed" } : {}),
+  };
+}
+
+async function purgeMirroredMeetingsAbsentFromSnapshot(
+  db: SupabaseClient,
+  managerUserId: string,
+  seenEventIds: ReadonlySet<string>,
+  window: { timeMin: string; timeMax: string },
+): Promise<number> {
+  try {
+    const { data, error } = await db
+      .from("portal_schedule_records")
+      .select("id, row_data")
+      .eq("record_type", "google_meeting")
+      .eq("manager_user_id", managerUserId)
+      .lt("starts_at", window.timeMax)
+      .gt("ends_at", window.timeMin);
+    if (error || !Array.isArray(data)) return 0;
+    const stale = (data as { id: string; row_data: unknown }[]).filter((row) => {
+      const payload =
+        row.row_data && typeof row.row_data === "object" && !Array.isArray(row.row_data)
+          ? (row.row_data as Record<string, unknown>)
+          : null;
+      const googleEventId = typeof payload?.googleEventId === "string" ? payload.googleEventId : "";
+      return googleEventId !== "" && !seenEventIds.has(googleEventId);
+    });
+    if (stale.length === 0) return 0;
+    const { error: deleteError } = await db
+      .from("portal_schedule_records")
+      .delete()
+      .in("id", stale.map((row) => row.id));
+    return deleteError ? 0 : stale.length;
+  } catch {
+    return 0;
+  }
 }

@@ -7,90 +7,145 @@ import "server-only";
  * There is no manager<->manager messaging today (see
  * `docs/agents/communication-inbox.md`: "There is NO manager<->manager
  * thread today"). This module adds exactly one new kind of
- * `portal_inbox_thread_records` row per owning-manager account —
- * `thread_type: "team"` — that every team-audience action event posts into,
- * attributed "as <acting manager>". It reuses the existing table (additive:
- * `thread_type` is an unconstrained free-text column, see
+ * `portal_inbox_thread_records` row — `thread_type: "team"` — that every
+ * team-audience action event posts into, attributed "as <acting manager>". It
+ * reuses the existing table (additive: `thread_type` is an unconstrained
+ * free-text column, see
  * `supabase/migrations/20260428201000_portal_backend_records.sql`) rather
  * than inventing a parallel store, matching "Inbox is the record" (AGENTS.md
  * -> Multi-agent collaboration / communication-inbox.md).
  *
- * Scope decision: a team thread is per OWNING MANAGER ACCOUNT, not per
- * `portal_workspaces` row. `manager_automation_settings`, the automated
- * message catalogue, and every existing action-event emitter already key on
- * `managerUserId` (the account), not workspace id — action events carry no
- * workspace context today. Threading a `workspace_id` through every emitter
- * in this slice (application/lease/payment/tour/work-order) to support
- * multiple independent team threads per owner is out of scope; a Business
- * owner's several workspaces share one Team thread, the same way they share
- * one `manager_automation_settings` row. WS6's SMS mirror still resolves the
- * correct PER-WORKSPACE sending number (see `mirrorTeamThreadMessageToSms`
- * below) via `enqueueOwnerSms`'s own workspace resolution.
+ * Scope: one Team thread per OWNING MANAGER ACCOUNT **per house**
+ * (`team-thread:<owner>:<propertyId>`), plus one house-less thread per owner
+ * (`team-thread:<owner>`) for notices about nothing in particular. The house
+ * is the unit Communication already shares on: `conversationVisible`
+ * (`communication/conversation-visibility.server.ts`) shows another owner's
+ * conversation to a co-manager only when it is about a house they hold
+ * `inbox` on, and never shares a conversation about no house. Stamping the
+ * thread's `row_data.propertyId` is what lets the existing list, read and
+ * reply gates (`filterVisibleInboxThreadRecords`,
+ * `resolveInboxThreadReplyTarget`) admit the right co-managers with no second
+ * access model — a co-manager with an empty grant sees nothing, exactly as
+ * AGENTS.md § Co-manager access requires.
  *
- * Membership: the owner plus every co-manager with an ACCEPTED
- * `account_link_invites` row for that owner (`resolveTeamMemberIds`). This is
- * intentionally broader than any single module's notification permission
- * (`loadCoManagerNotificationRecipients`) — a Team thread is the whole team's
- * shared channel, not a permission-gated alert.
+ * Recipients are deny-by-default per PROPERTY + MODULE
+ * (`resolveTeamNoticeRecipientIds`): the owner, plus only the co-managers whose
+ * accepted `account_link_invites` row assigns them that house with the event's
+ * module (payments, applications, leases, services, calendar) at
+ * `notification`. No house means the owner alone. The SMS mirror texts exactly
+ * that set; the thread post lands on the house's thread, whose readers are the
+ * same house's `inbox` grantees. Nothing here is broader than a module alert.
  *
  * Authorization: `portal_inbox_thread_records` has RLS enabled with ZERO
- * policies for `anon`/`authenticated` (service-role only; see
- * `docs/agents/communication-inbox.md` "authorize then append" and the table's
- * own migration) — the same pattern as every other row in this table. Adding
- * client-reachable RLS policies here would be a NEW access model this table
- * has never had, so authorization stays in application code, exactly like
- * `resolveInboxThreadReplyTarget`/`commitInboxThreadReply` do for person
- * threads: `assertTeamThreadMember` below is the one gate every read/write
- * route into a team thread must call.
+ * policies for `anon`/`authenticated` (service-role only), so authorization
+ * stays in application code — `assertTeamThreadMember` is the gate a route
+ * calls before reading or posting into a team thread, and it answers from the
+ * same `inbox` grant on the same house the visibility resolver reads.
+ *
+ * Appends are a compare-and-set on the row's `updated_at` (with a bounded
+ * retry, including the insert-conflict path), so two team events landing in
+ * the same second — a payment and a tour claim, a durable lease retry racing a
+ * live emit — can never lose one another's message to a last-writer-wins
+ * upsert.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { asStringArray, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
+import {
+  hasCoManagerPermissionLevelForProperty,
+  type CoManagerPermissionId,
+} from "@/lib/co-manager-permissions";
+import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 import { MANAGER_INBOX_STORAGE_KEY } from "@/lib/portal-inbox-storage";
 import { formatPacificDateTime } from "@/lib/pacific-time";
-import { isWithinQuietHours } from "@/lib/sms/number-registration-policy";
 import { isPhoneOptedOut } from "@/lib/sms-consent";
 import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
 import { resolveActiveManagerSendNumber } from "@/lib/sms/manager-number-provisioning.server";
 
-/** One Team thread per owning manager account. Deterministic, so posting is idempotent-by-construction. */
-export function teamThreadId(ownerManagerUserId: string): string {
-  return `team-thread:${ownerManagerUserId.trim()}`;
+const TEAM_THREAD_PREFIX = "team-thread:";
+const TEAM_THREAD_APPEND_ATTEMPTS = 4;
+
+/** The Teams module that gates who hears a team notice, by the event's domain. */
+export type TeamNoticeModule = CoManagerPermissionId;
+
+/** One Team thread per owning manager account and house; house-less notices share the owner's plain thread. */
+export function teamThreadId(ownerManagerUserId: string, propertyId?: string | null): string {
+  const owner = ownerManagerUserId.trim();
+  const property = propertyId?.trim() ?? "";
+  return property ? `${TEAM_THREAD_PREFIX}${owner}:${property}` : `${TEAM_THREAD_PREFIX}${owner}`;
 }
 
 export function isTeamThreadId(id: string): boolean {
-  return id.startsWith("team-thread:");
+  return id.startsWith(TEAM_THREAD_PREFIX);
 }
 
-/** Owner + every co-manager with an accepted link to that owner. Order: owner first. */
-export async function resolveTeamMemberIds(db: SupabaseClient, ownerManagerUserId: string): Promise<string[]> {
-  const ownerId = ownerManagerUserId.trim();
+/** The owner (and house, when the thread is about one) a team-thread id names; `null` for any other id. */
+export function parseTeamThreadId(id: string): { ownerManagerUserId: string; propertyId: string | null } | null {
+  if (!isTeamThreadId(id)) return null;
+  const rest = id.slice(TEAM_THREAD_PREFIX.length);
+  const sep = rest.indexOf(":");
+  const owner = (sep < 0 ? rest : rest.slice(0, sep)).trim();
+  const property = sep < 0 ? "" : rest.slice(sep + 1).trim();
+  if (!owner) return null;
+  return { ownerManagerUserId: owner, propertyId: property || null };
+}
+
+/**
+ * Who a team notice about `propertyId` reaches under `module`: the owner, plus
+ * every accepted co-manager assigned that house with the module granted at
+ * `notification`. No house → the owner alone. Every read failure narrows to
+ * the owner — a widened roster is a widened surface for texting a manager
+ * about a house they were never granted.
+ */
+export async function resolveTeamNoticeRecipientIds(
+  db: SupabaseClient,
+  input: { ownerManagerUserId: string; propertyId?: string | null; module: TeamNoticeModule },
+): Promise<string[]> {
+  const ownerId = input.ownerManagerUserId.trim();
   if (!ownerId) return [];
-  const members = new Set<string>([ownerId]);
+  try {
+    return await resolvePropertyScopedManagerRecipientIds(
+      db as Parameters<typeof resolvePropertyScopedManagerRecipientIds>[0],
+      { ownerManagerUserId: ownerId, propertyId: input.propertyId ?? null, channel: input.module },
+    );
+  } catch {
+    return [ownerId];
+  }
+}
+
+/**
+ * May `userId` read (`level: "read"`) or post (`level: "edit"`) this team
+ * thread? The owner always; a co-manager only for a house thread, and only
+ * when their accepted link assigns them that house with Communication
+ * (`inbox`) at that level — the same rule `conversationVisible` lists by.
+ * A house-less thread is the owner's alone.
+ */
+export async function assertTeamThreadMember(
+  db: SupabaseClient,
+  input: { ownerManagerUserId: string; propertyId?: string | null; userId: string; level?: "read" | "edit" },
+): Promise<boolean> {
+  const ownerId = input.ownerManagerUserId.trim();
+  const userId = input.userId.trim();
+  if (!ownerId || !userId) return false;
+  if (userId === ownerId) return true;
+  const propertyId = input.propertyId?.trim() ?? "";
+  if (!propertyId) return false;
   try {
     const { data, error } = await db
       .from("account_link_invites")
-      .select("invitee_user_id")
+      .select("invitee_user_id, assigned_property_ids, property_co_manager_permissions, co_manager_permissions")
       .eq("status", "accepted")
-      .eq("inviter_user_id", ownerId);
-    if (!error) {
-      for (const row of data ?? []) {
-        const id = String((row as { invitee_user_id?: unknown }).invitee_user_id ?? "").trim();
-        if (id) members.add(id);
-      }
+      .eq("inviter_user_id", ownerId)
+      .eq("invitee_user_id", userId);
+    if (error) return false;
+    for (const row of data ?? []) {
+      if (!asStringArray((row as { assigned_property_ids?: unknown }).assigned_property_ids).includes(propertyId)) continue;
+      const perms = readPropertyPermissionsFromRow(row as Parameters<typeof readPropertyPermissionsFromRow>[0]);
+      if (hasCoManagerPermissionLevelForProperty(perms, propertyId, "inbox", input.level ?? "read")) return true;
     }
   } catch {
-    /* table may not exist in a minimal test harness — owner-only membership is still correct */
+    /* an unreadable grant table shares nothing */
   }
-  return [...members];
-}
-
-/** True when `userId` may read/post this owner's Team thread. */
-export async function assertTeamThreadMember(
-  db: SupabaseClient,
-  ownerManagerUserId: string,
-  userId: string,
-): Promise<boolean> {
-  const members = await resolveTeamMemberIds(db, ownerManagerUserId);
-  return members.includes(userId.trim());
+  return false;
 }
 
 type TeamThreadMessage = {
@@ -99,17 +154,39 @@ type TeamThreadMessage = {
   body: string;
   at: string;
   outbound?: boolean;
+  actorUserId?: string;
 };
 
+type TeamThreadRow = { id: string; row_data: Record<string, unknown> | null; updated_at: string | null };
+
+function teamThreadBase(input: {
+  ownerId: string;
+  propertyId: string | null;
+  propertyTitle?: string;
+}): Record<string, unknown> {
+  return {
+    id: teamThreadId(input.ownerId, input.propertyId),
+    scope: MANAGER_INBOX_STORAGE_KEY,
+    owner_user_id: input.ownerId,
+    participant_email: null,
+    thread_type: "team",
+  };
+}
+
 /**
- * Post one message into the owner's Team thread, attributed to the acting
- * manager. Idempotent on `messageId` (matches the action-event bus's
- * idempotent-per-eventKey contract — a retried delivery must not double-post).
+ * Post one message into the owner's Team thread for `propertyId` (or the
+ * house-less one), attributed to the acting manager. Idempotent on
+ * `messageId` (the action-event bus's idempotent-per-eventKey contract — a
+ * retried delivery must not double-post) and atomic per append (CAS on
+ * `updated_at`, retried; an insert that loses to a concurrent creator falls
+ * through to the same CAS append).
  */
 export async function postTeamThreadMessage(
   db: SupabaseClient,
   input: {
     ownerManagerUserId: string;
+    propertyId?: string | null;
+    propertyTitle?: string;
     actorUserId?: string;
     actorName: string;
     subject: string;
@@ -121,100 +198,110 @@ export async function postTeamThreadMessage(
 ): Promise<{ ok: true; posted: boolean } | { ok: false; error: string }> {
   const ownerId = input.ownerManagerUserId.trim();
   if (!ownerId) return { ok: false, error: "Team thread requires an owning manager." };
-  const threadId = teamThreadId(ownerId);
-  const when = formatPacificDateTime(new Date());
+  const propertyId = input.propertyId?.trim() || null;
+  const threadId = teamThreadId(ownerId, propertyId);
   const actorName = input.actorName.trim() || "PropLane";
   const preview = input.text.slice(0, 100).replace(/\n/g, " ");
+  const propertyTitle = input.propertyTitle?.trim() || "";
+  const base = teamThreadBase({ ownerId, propertyId, propertyTitle });
 
-  const { data: existing, error: readError } = await db
-    .from("portal_inbox_thread_records")
-    .select("id, row_data")
-    .eq("id", threadId)
-    .maybeSingle();
-  if (readError) return { ok: false, error: "Could not load the team thread." };
+  for (let attempt = 0; attempt < TEAM_THREAD_APPEND_ATTEMPTS; attempt += 1) {
+    const when = formatPacificDateTime(new Date());
+    const updatedAt = new Date().toISOString();
+    const { data: existing, error: readError } = await db
+      .from("portal_inbox_thread_records")
+      .select("id, row_data, updated_at")
+      .eq("id", threadId)
+      .maybeSingle();
+    if (readError) return { ok: false, error: "Could not load the team thread." };
 
-  if (!existing) {
-    const { error: insertError } = await db.from("portal_inbox_thread_records").insert({
-      id: threadId,
-      scope: MANAGER_INBOX_STORAGE_KEY,
-      owner_user_id: ownerId,
-      participant_email: null,
-      thread_type: "team",
-      row_data: {
-        id: threadId,
-        folder: "inbox",
-        from: actorName,
-        email: "",
-        subject: "Team",
-        preview,
-        body: input.text,
-        time: when,
-        rootAt: when,
-        rootOutbound: true,
-        unread: true,
-        scope: MANAGER_INBOX_STORAGE_KEY,
-        rootMessageId: input.messageId,
-        messages: [] as TeamThreadMessage[],
-      },
-    });
-    // No conflict: this call created the thread with this message as its root.
-    if (!insertError) return { ok: true, posted: true };
-    // Conflict (a concurrent poster created it first) falls through to append below.
-  } else {
-    const rowData = (existing.row_data ?? {}) as Record<string, unknown>;
+    if (!existing) {
+      const { error: insertError } = await db.from("portal_inbox_thread_records").insert({
+        ...base,
+        row_data: {
+          id: threadId,
+          folder: "inbox",
+          from: actorName,
+          email: "",
+          subject: propertyTitle ? `Team · ${propertyTitle}` : "Team",
+          preview,
+          body: input.text,
+          time: when,
+          rootAt: when,
+          rootOutbound: true,
+          rootActorUserId: input.actorUserId ?? ownerId,
+          unread: true,
+          scope: MANAGER_INBOX_STORAGE_KEY,
+          rootMessageId: input.messageId,
+          ...(propertyId ? { propertyId } : {}),
+          ...(propertyTitle ? { propertyTitle } : {}),
+          messages: [] as TeamThreadMessage[],
+        },
+        updated_at: updatedAt,
+      });
+      // No conflict: this call created the thread with this message as its root.
+      // A conflict means a concurrent poster created it first — re-read and append.
+      if (!insertError) return { ok: true, posted: true };
+      continue;
+    }
+
+    const row = existing as TeamThreadRow;
+    const rowData = (row.row_data ?? {}) as Record<string, unknown>;
     if (rowData.rootMessageId === input.messageId) return { ok: true, posted: false };
     const messages = Array.isArray(rowData.messages) ? [...(rowData.messages as TeamThreadMessage[])] : [];
     if (messages.some((m) => m?.id === input.messageId)) return { ok: true, posted: false };
-    messages.push({ id: input.messageId, from: actorName, body: input.text, at: when, outbound: true });
-    const { error: writeError } = await db.from("portal_inbox_thread_records").upsert(
-      {
-        id: threadId,
-        scope: MANAGER_INBOX_STORAGE_KEY,
-        owner_user_id: ownerId,
-        participant_email: null,
-        thread_type: "team",
-        row_data: { ...rowData, messages, preview, time: when, unread: true },
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "id" },
-    );
+    // A shell a queued draft created has no root turn yet: this message is it.
+    const rootless = !rowData.rootMessageId && !String(rowData.body ?? "").trim() && messages.length === 0;
+    if (!rootless) {
+      messages.push({
+        id: input.messageId,
+        from: actorName,
+        body: input.text,
+        at: when,
+        outbound: true,
+        actorUserId: input.actorUserId ?? ownerId,
+      });
+    }
+    const { data: written, error: writeError } = await db
+      .from("portal_inbox_thread_records")
+      .update({
+        row_data: {
+          ...rowData,
+          ...(propertyId ? { propertyId } : {}),
+          ...(propertyTitle && !rowData.propertyTitle ? { propertyTitle } : {}),
+          ...(rootless
+            ? {
+                from: actorName,
+                body: input.text,
+                rootAt: when,
+                rootOutbound: true,
+                rootActorUserId: input.actorUserId ?? ownerId,
+                rootMessageId: input.messageId,
+              }
+            : {}),
+          messages,
+          preview,
+          time: when,
+          unread: true,
+        },
+        updated_at: updatedAt,
+      })
+      .eq("id", threadId)
+      .eq("updated_at", row.updated_at)
+      .select("id")
+      .maybeSingle();
     if (writeError) return { ok: false, error: "Could not post to the team thread." };
-    return { ok: true, posted: true };
+    if (written) return { ok: true, posted: true };
+    // Lost the CAS to a concurrent append — loop re-reads and tries again.
   }
-
-  // Re-read after the insert conflict and append.
-  const { data: freshRow, error: rereadError } = await db
-    .from("portal_inbox_thread_records")
-    .select("id, row_data")
-    .eq("id", threadId)
-    .maybeSingle();
-  if (rereadError || !freshRow) return { ok: false, error: "Could not load the team thread." };
-  const rowData = (freshRow.row_data ?? {}) as Record<string, unknown>;
-  if (rowData.rootMessageId === input.messageId) return { ok: true, posted: false };
-  const messages = Array.isArray(rowData.messages) ? [...(rowData.messages as TeamThreadMessage[])] : [];
-  if (messages.some((m) => m?.id === input.messageId)) return { ok: true, posted: false };
-  messages.push({ id: input.messageId, from: actorName, body: input.text, at: when, outbound: true });
-  const { error: writeError } = await db.from("portal_inbox_thread_records").upsert(
-    {
-      id: threadId,
-      scope: MANAGER_INBOX_STORAGE_KEY,
-      owner_user_id: ownerId,
-      participant_email: null,
-      thread_type: "team",
-      row_data: { ...rowData, messages, preview, time: when, unread: true },
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "id" },
-  );
-  if (writeError) return { ok: false, error: "Could not post to the team thread." };
-  return { ok: true, posted: true };
+  return { ok: false, error: "Could not post to the team thread." };
 }
 
 // ---- WS6: SMS mirror ----
 
 export type TeamSmsMirrorOutcome = {
   memberUserId: string;
-  status: "sent" | "skipped" | "deferred" | "failed";
+  status: "sent" | "skipped" | "failed";
   reason?: string;
 };
 
@@ -240,20 +327,29 @@ async function memberPhoneEligibility(
 }
 
 /**
- * Text every OTHER team member (never the acting manager) the team notice
- * from the owner's registered workspace number, honouring quiet hours (a
- * non-urgent notice is skipped rather than queued — see the module doc for
- * the scope this leaves for a follow-up durable-retry slice), consent, and
- * the number's own registration/attachment state. Behind the same runtime
- * kill switches every other manager-funded SMS already sits behind
- * (`enqueueOwnerSms` -> `owner-sms-dispatcher.server.ts` fails closed when
- * `SMS_RUNTIME_ENABLED`/`SMS_OUTBOX_SCHEDULER_READY` are off, so nothing
- * sends in prod until A2P clears — see `docs/agents/sms-system.md`).
+ * Text every OTHER authorized recipient (never the acting manager) the team
+ * notice from the owner's registered workspace number. Recipients are the
+ * property + module roster (`resolveTeamNoticeRecipientIds`), so a
+ * co-manager hears about a payment only on a house they hold Payments on.
+ *
+ * Quiet hours, consent, and the number's registration/attachment state are
+ * all decided by `enqueueOwnerSms` (`owner-sms-dispatcher.server.ts`): a
+ * quiet-hours text is stored `deferred` with an `available_at` and sent when
+ * the window opens rather than dropped here; the `team_notice` purpose takes
+ * its scoped consent from the recipient's own verified work phone (see
+ * `sms/team-notice-consent.server.ts`); and the same runtime kill switches
+ * every other manager-funded SMS sits behind (`SMS_RUNTIME_ENABLED` /
+ * `SMS_OUTBOX_SCHEDULER_READY`) keep it from sending in prod until A2P clears
+ * — see `docs/agents/sms-system.md`.
  */
 export async function mirrorTeamThreadMessageToSms(
   db: SupabaseClient,
   input: {
     ownerManagerUserId: string;
+    /** The house this notice is about; absent = owner only. */
+    propertyId?: string | null;
+    /** The Teams module the notice belongs to — who may hear it. */
+    module: TeamNoticeModule;
     actorUserId?: string;
     /** Pass the workspace this notice is ABOUT when known (e.g. a property's workspace); omitted = the owner's default. */
     workspaceId?: string | null;
@@ -266,23 +362,18 @@ export async function mirrorTeamThreadMessageToSms(
 ): Promise<TeamSmsMirrorOutcome[]> {
   const ownerId = input.ownerManagerUserId.trim();
   if (!ownerId) return [];
-  const now = input.now ?? new Date();
 
   // A workspace number that cannot currently send means nothing to mirror —
   // fail closed once rather than once per member.
   const fromNumber = await resolveActiveManagerSendNumber(db, ownerId, input.workspaceId ?? null).catch(() => null);
   if (!fromNumber) return [];
 
-  if (!input.urgent && isWithinQuietHours(now)) {
-    const members = await resolveTeamMemberIds(db, ownerId);
-    return members
-      .filter((id) => id !== input.actorUserId)
-      .map((memberUserId) => ({ memberUserId, status: "deferred" as const, reason: "quiet_hours" }));
-  }
-
-  const members = (await resolveTeamMemberIds(db, ownerId)).filter((id) => id !== input.actorUserId);
+  const propertyId = input.propertyId?.trim() || null;
+  const recipients = (
+    await resolveTeamNoticeRecipientIds(db, { ownerManagerUserId: ownerId, propertyId, module: input.module })
+  ).filter((id) => id !== input.actorUserId);
   const outcomes: TeamSmsMirrorOutcome[] = [];
-  for (const memberUserId of members) {
+  for (const memberUserId of recipients) {
     const eligibility = await memberPhoneEligibility(db, memberUserId);
     if (!eligibility.eligible) {
       outcomes.push({ memberUserId, status: "skipped", reason: eligibility.reason });
@@ -298,6 +389,7 @@ export async function mirrorTeamThreadMessageToSms(
         sendClass: input.urgent ? "transactional" : "automated",
         purpose: "team_notice",
         counterpartyRole: "manager",
+        propertyId,
         dedupeKey: `team-notice:${input.messageId}:${memberUserId}`,
       },
       db,

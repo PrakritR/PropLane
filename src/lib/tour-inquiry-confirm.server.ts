@@ -22,6 +22,7 @@ import { notifyTenantTourConfirmed } from "@/lib/tour-notification-delivery.serv
 import type { TourNotificationChannels, TourNotificationResult } from "@/lib/tour-notification-delivery.server";
 import { isActivePlannedTourEvent } from "@/lib/tour-slot-math";
 import { emitTourClaimedEvent } from "@/lib/tour-events.server";
+import { resolvePropertyOwnerUserId } from "@/lib/property-owner.server";
 import { canAssign, normalizeAssignee, type WorkAssignee } from "@/lib/work-assignment";
 import { createPrepareForTourTask } from "@/lib/manager-default-tasks.server";
 
@@ -244,6 +245,18 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
   const id = opts.inquiryId.trim();
   if (!id) return { ok: false, status: 400, error: "id required" };
 
+  // WS4(shared-avail): the claim is taken BEFORE anything is read. Everything
+  // below is a read-modify-write of the pending-inquiry and planned-event
+  // singletons, and a snapshot taken outside the claim is exactly what let a
+  // second confirm (read while the first held the claim, claimed after it
+  // released) book the same request twice and write its stale inquiry list
+  // back over the first one's. The claim serializes the whole window per
+  // `inquiryId`; the `finally` always releases it, so a failed confirm stays
+  // retryable and a successful one has removed the request anyway.
+  const claim = await acquireTourInquiryClaim(db, id, opts.actorUserId);
+  if (!claim.ok) return { ok: false, status: claim.status, error: claim.error };
+
+  try {
   const { data: inquiryRecord, error: inquiryError } = await db
     .from("portal_schedule_records")
     .select("row_data")
@@ -251,9 +264,27 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
     .maybeSingle();
   if (inquiryError) return { ok: false, status: 500, error: inquiryError.message };
 
+  const { data: plannedRecord, error: plannedReadError } = await db
+    .from("portal_schedule_records")
+    .select("row_data")
+    .eq("id", PLANNED_RECORD_ID)
+    .maybeSingle();
+  if (plannedReadError) return { ok: false, status: 500, error: plannedReadError.message };
+  const plannedRows = rowsFromRecord(plannedRecord?.row_data);
+
+  // Read under the claim, so this is the row's CURRENT state: a request a
+  // previous confirm already turned into a booking is gone from the pending
+  // set and present in the planned set — that is a 409, not a 404, because
+  // the caller is racing a booking that happened, not chasing a typo.
   const inquiries = rowsFromRecord(inquiryRecord?.row_data);
   const row = inquiries.find((item) => textField(item, "id") === id);
   if (!row || textField(row, "kind") !== "tour" || textField(row, "status") !== "pending") {
+    const alreadyBooked = plannedRows.some(
+      (event) => textField(event, "sourceInquiryId") === id && isActivePlannedTourEvent(event),
+    );
+    if (alreadyBooked) {
+      return { ok: false, status: 409, error: "Another manager already took this tour." };
+    }
     return { ok: false, status: 404, error: "Tour request not found." };
   }
 
@@ -295,16 +326,6 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
     return { ok: false, status: 400, error: "Invalid tour assignee." };
   }
 
-  // WS4(shared-avail): from here on this function reads-then-writes the
-  // pending-inquiry and planned-event singletons, which is exactly the window
-  // two concurrent confirms of the SAME request could both slip through. The
-  // claim below serializes that window per `inquiryId`; everything after it
-  // runs inside `try`/`finally` so the claim is always released, whatever the
-  // outcome, and a legitimate retry is never permanently locked out.
-  const claim = await acquireTourInquiryClaim(db, id, opts.actorUserId);
-  if (!claim.ok) return { ok: false, status: claim.status, error: claim.error };
-
-  try {
   const windows = windowsFromInquiry(row);
   const selectedWindow =
     windows.find((window) => sameInstant(window.start, requestedStart) && sameInstant(window.end, requestedEnd)) ??
@@ -317,14 +338,6 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
   // Competing inquiries booked the original 30-min window, so slot clearing keys off windowEnd, not the custom end.
   const windowEnd = selectedWindow.end;
   const end = resolveConfirmedEnd(start, windowEnd, requestedEnd);
-
-  const { data: plannedRecord, error: plannedReadError } = await db
-    .from("portal_schedule_records")
-    .select("row_data")
-    .eq("id", PLANNED_RECORD_ID)
-    .maybeSingle();
-  if (plannedReadError) return { ok: false, status: 500, error: plannedReadError.message };
-  const plannedRows = rowsFromRecord(plannedRecord?.row_data);
 
   // Handing a tour to a peer ALWAYS re-checks their calendar: a request can sit
   // in Pending for days, and committing somebody else's afternoon on stale
@@ -431,10 +444,15 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
   }
 
   // Tell the rest of the team this tour is now taken (WS5 team audience).
-  // Best-effort: a comms failure must never fail the claim itself.
+  // The team that hears is the PROPERTY OWNER's — a co-manager claiming a
+  // tour on the owner's house is the owner's team's news, not a note in the
+  // claimer's own thread. Best-effort: a comms failure must never fail the
+  // claim itself.
   try {
+    const propertyId = textField(row, "propertyId");
+    const ownerUserId = (await resolvePropertyOwnerUserId(db, propertyId)) ?? filedManagerUserId ?? managerUserId;
     await emitTourClaimedEvent(db, {
-      managerUserId,
+      managerUserId: ownerUserId || managerUserId,
       tourId: String(plannedEvent.id),
       guestName: textField(row, "name"),
       propertyTitle: textField(row, "propertyTitle") || undefined,

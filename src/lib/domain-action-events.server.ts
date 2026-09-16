@@ -4,10 +4,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import type { ServiceRequest } from "@/lib/service-requests-storage";
 import { residentHasSignedLease, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
-import { emitActionEvent, type ActionEventAudience, type ActionEventRendered } from "@/lib/action-events.server";
+import { emitActionEvent, teamRecipientKey, type ActionEventAudience, type ActionEventRendered } from "@/lib/action-events.server";
 import { applyAutomatedMessageSetting, type AutomatedMessageSettings } from "@/lib/automated-messages-settings";
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
-import { loadReminderSettings } from "@/lib/reminders/settings.server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { leaseDetailHref, residentDocumentsLeaseDetailHref } from "@/lib/portal-detail-routes";
 
@@ -187,6 +186,8 @@ type ApplicationRowFacts = {
   name?: string | null;
   email?: string | null;
   property?: string | null;
+  propertyId?: string | null;
+  assignedPropertyId?: string | null;
   bucket?: string | null;
   withdrawnAt?: string | null;
   residentUserId?: string | null;
@@ -244,25 +245,22 @@ export async function emitApplicationTransition(
       ? input.actor
       : await managerSender(db, input.managerUserId);
   if (!actor.email) return;
-  const [promiseDays, sendMode] = await Promise.all([
-    loadManagerAutomationSettings(db, input.managerUserId)
-      .then((settings) => settings.applicationResponsePromiseDays)
-      .catch(() => 0),
-    loadReminderSettings(db, input.managerUserId)
-      .then((settings) => settings.automationSendMode.partyFacing)
-      .catch(() => "auto" as const),
-  ]);
+  const promiseDays = await loadManagerAutomationSettings(db, input.managerUserId)
+    .then((settings) => settings.applicationResponsePromiseDays)
+    .catch(() => 0);
   const facts: ApplicationFacts = {
     applicantName: input.application.name?.trim() || input.application.email?.trim() || "An applicant",
     propertyLabel: input.application.property?.trim() || undefined,
     responsePromise: promiseDays > 0 ? `within ${promiseDays} ${promiseDays === 1 ? "day" : "days"}` : undefined,
   };
-  const audiences: Array<{ audience: ActionEventAudience; userId?: string; email?: string; draftForReview?: boolean }> = [
+  // Auto-send vs draft-for-review is decided on the bus itself
+  // (`emitActionEvent` reads the workspace's `automationSendMode`), the same
+  // way for every domain — nothing is decided per emitter here.
+  const audiences: Array<{ audience: ActionEventAudience; userId?: string; email?: string }> = [
     {
       audience: "resident",
       userId: input.application.residentUserId ?? undefined,
       email: input.application.email?.trim() || undefined,
-      draftForReview: sendMode === "draft",
     },
   ];
   // The submit notice to the manager is owned elsewhere (see above); every other
@@ -290,7 +288,10 @@ export async function emitApplicationTransition(
     senderUserId: actor.userId,
     senderEmail: actor.email,
     senderName: actor.name,
-    payload: { bucket: input.application.bucket ?? null },
+    payload: {
+      bucket: input.application.bucket ?? null,
+      propertyId: input.application.assignedPropertyId?.trim() || input.application.propertyId?.trim() || null,
+    },
     templateContext: { applicantName: facts.applicantName, propertyTitle: facts.propertyLabel ?? "", responsePromise: facts.responsePromise ?? "" },
     recipients: audiences.flatMap((recipient) => {
       const rendered = renderApplicationActionEvent(event, recipient.audience, facts);
@@ -535,8 +536,8 @@ export function buildDurableLeaseTransitionEnvelope(input: {
     { audience: "resident" as const, userId: input.lease.residentUserId ?? undefined, email: input.lease.residentEmail || undefined },
     { audience: "manager" as const, userId: input.managerUserId, email: undefined },
     // WS5: team-audience only on lease_sent, and only the manager themself as
-    // recipientKey/recipientUserId — the atomic RPC validates that (see
-    // `20260916130000_team_comms_action_events.sql`).
+    // recipientUserId, keyed `team:<manager>` — the atomic RPC validates that
+    // (see `20260916140000_team_delivery_recipient_key.sql`).
     ...(event === "lease_sent" ? [{ audience: "team" as const, userId: input.managerUserId, email: undefined }] : []),
   ];
   const deliveries = recipients.flatMap((recipient) => {
@@ -550,7 +551,10 @@ export function buildDurableLeaseTransitionEnvelope(input: {
           context: { residentName: facts.residentName, propertyTitle: propertyLabel ?? "", url: "" },
         })
       : null;
-    const recipientKey = recipient.userId?.trim() || recipient.email?.trim().toLowerCase() || "";
+    const recipientKey =
+      recipient.audience === "team"
+        ? teamRecipientKey(input.managerUserId)
+        : recipient.userId?.trim() || recipient.email?.trim().toLowerCase() || "";
     if (!rendered || !recipientKey) return [];
     const directUrl = `${base}${recipient.audience === "resident" ? residentPath : managerPath}`;
     return [{

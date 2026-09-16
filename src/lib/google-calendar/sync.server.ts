@@ -274,29 +274,104 @@ export async function deletePlannedTourByGoogleCalendarEventId(
 
 /** Bounds the Google round trips one availability save can trigger. */
 const MAX_AVAILABILITY_WINDOWS_PER_PUSH = 60;
+/** A push that has held the record's lock this long crashed mid-flight; the next push takes over. */
+const AVAILABILITY_PUSH_LOCK_STALE_MS = 5 * 60_000;
+/** How many times one push re-reads the record after a save landed underneath it. */
+const AVAILABILITY_PUSH_MAX_PASSES = 4;
+const AVAILABILITY_PUSH_LOCK_ATTEMPTS = 3;
 
+export const AVAILABILITY_PUSH_STATE_RECORD_TYPE = "google_availability_push";
+
+/** Ids a pre-state-row push persisted on the schedule record itself; read once so they still get cleaned up. */
 function googleCalendarAvailabilityEventIds(rowData: unknown): string[] {
   if (!rowData || typeof rowData !== "object" || Array.isArray(rowData)) return [];
   const ids = (rowData as Record<string, unknown>).googleCalendarEventIds;
   return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string" && id.trim().length > 0) : [];
 }
 
-/** Writes the ids of the currently-pushed availability events back onto the same schedule record. */
-async function persistAvailabilityGoogleCalendarEventIds(
+/** `axis_gcal_avail_push_<recordId>` — the server-owned row that tracks what this record has on Google. */
+export function availabilityPushStateRecordId(recordId: string): string {
+  return `axis_gcal_avail_push_${recordId.trim()}`;
+}
+
+type AvailabilityPushState = {
+  eventIds: string[];
+  lockedAt: string | null;
+  /** Set by a push that found the lock held, so the holder runs one more pass before letting go. */
+  dirty: boolean;
+  sourceUpdatedAt: string | null;
+};
+
+function readAvailabilityPushState(rowData: unknown): AvailabilityPushState {
+  const row = rowData && typeof rowData === "object" && !Array.isArray(rowData) ? (rowData as Record<string, unknown>) : {};
+  const ids = Array.isArray(row.eventIds)
+    ? row.eventIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+    : [];
+  return {
+    eventIds: ids,
+    lockedAt: typeof row.lockedAt === "string" && row.lockedAt ? row.lockedAt : null,
+    dirty: row.dirty === true,
+    sourceUpdatedAt: typeof row.sourceUpdatedAt === "string" ? row.sourceUpdatedAt : null,
+  };
+}
+
+type PushStateRow = { row_data: unknown; updated_at: string | null } | null;
+
+async function loadAvailabilityPushStateRow(db: SupabaseClient, stateId: string): Promise<PushStateRow> {
+  const { data, error } = await db
+    .from("portal_schedule_records")
+    .select("row_data, updated_at")
+    .eq("id", stateId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as PushStateRow) ?? null;
+}
+
+/**
+ * Compare-and-set on the state row's `updated_at`: only the writer that saw
+ * the row last wins, so two pushes can never both believe they hold it.
+ */
+async function casWriteAvailabilityPushState(
+  db: SupabaseClient,
+  input: { stateId: string; managerUserId: string; expectedUpdatedAt: string | null; state: AvailabilityPushState },
+): Promise<string | null> {
+  const updatedAt = new Date().toISOString();
+  const row = {
+    id: input.stateId,
+    manager_user_id: input.managerUserId,
+    property_id: null,
+    record_type: AVAILABILITY_PUSH_STATE_RECORD_TYPE,
+    row_data: { ...input.state, recordType: AVAILABILITY_PUSH_STATE_RECORD_TYPE },
+    updated_at: updatedAt,
+  };
+  if (input.expectedUpdatedAt === null) {
+    const { error } = await db.from("portal_schedule_records").insert(row);
+    return error ? null : updatedAt;
+  }
+  const { data, error } = await db
+    .from("portal_schedule_records")
+    .update({ row_data: row.row_data, updated_at: updatedAt })
+    .eq("id", input.stateId)
+    .eq("updated_at", input.expectedUpdatedAt)
+    .select("id")
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? updatedAt : null;
+}
+
+async function loadAvailabilitySource(
   db: SupabaseClient,
   recordId: string,
-  eventIds: string[],
-): Promise<void> {
-  const id = recordId.trim();
-  if (!id) return;
-  const { data, error } = await db.from("portal_schedule_records").select("row_data").eq("id", id).maybeSingle();
-  if (error || !data?.row_data) return;
-  const rowData = data.row_data as Record<string, unknown>;
-  const { error: writeError } = await db
+): Promise<{ rowData: unknown; updatedAt: string | null } | null> {
+  const { data, error } = await db
     .from("portal_schedule_records")
-    .update({ row_data: { ...rowData, googleCalendarEventIds: eventIds }, updated_at: new Date().toISOString() })
-    .eq("id", id);
-  if (writeError) throw new Error(writeError.message);
+    .select("row_data, updated_at")
+    .eq("id", recordId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  const row = data as { row_data: unknown; updated_at: string | null };
+  return { rowData: row.row_data, updatedAt: row.updated_at ?? null };
 }
 
 /**
@@ -308,48 +383,143 @@ async function persistAvailabilityGoogleCalendarEventIds(
  * and so stay opaque (busy) — this function is the only caller that opts in
  * to `"transparent"`.
  *
- * Diff-free by design: every window this record previously pushed (tracked as
- * `row_data.googleCalendarEventIds` on the SAME schedule record) is deleted
+ * Diff-free by design: every window this record previously pushed is deleted
  * and the current merged set is recreated, rather than reconciled window by
  * window. A save here is a manager action, not a hot loop, so the extra
  * Google round trips are cheap, and delete-then-recreate can never leave a
  * stale half-pushed window behind the way a partial diff could.
+ *
+ * Serialized per record: the pushed ids live on a server-owned state row
+ * (`axis_gcal_avail_push_<recordId>`), never on the client-written
+ * `row_data` a later save would clobber, and a push must win that row's lock
+ * (CAS on `updated_at`) before it touches Google. A push that finds the lock
+ * held marks the state dirty and leaves; the holder re-reads the record after
+ * every pass and runs again until nothing changed underneath it, so rapid
+ * saves collapse into one push of the latest slot set and no event is ever
+ * created by one push and forgotten by the next. An id whose Google delete
+ * failed stays in the list so the next push retries it instead of leaving an
+ * orphaned "Open for tours" block behind.
  */
 export async function syncManagerAvailabilityToGoogleCalendar(
   db: SupabaseClient,
   managerUserId: string,
-  input: { recordId: string; rowData: unknown; previousRowData: unknown },
+  input: { recordId: string; rowData?: unknown; previousRowData?: unknown },
 ): Promise<void> {
   const managerId = managerUserId.trim();
-  if (!managerId) return;
+  const recordId = input.recordId.trim();
+  if (!managerId || !recordId) return;
   const connection = await loadGoogleCalendarConnection(db, managerId);
   if (!connection.connected || !connection.syncEnabled) return;
 
-  const staleIds = googleCalendarAvailabilityEventIds(input.previousRowData);
-  await Promise.all(staleIds.map((id) => deleteGoogleCalendarEvent(db, managerId, id).catch(() => undefined)));
+  const stateId = availabilityPushStateRecordId(recordId);
 
-  const slots = payloadSlots(input.rowData);
-  const windows = mergeTourAvailabilitySlotsIntoWindows(slots);
-  const boundedWindows = windows.slice(0, MAX_AVAILABILITY_WINDOWS_PER_PUSH);
-  if (boundedWindows.length < windows.length) {
-    console.warn(
-      `[google-calendar] availability push truncated to ${MAX_AVAILABILITY_WINDOWS_PER_PUSH} windows for manager ${managerId.slice(-6)} record ${input.recordId}`,
-    );
+  let held: { updatedAt: string; state: AvailabilityPushState } | null = null;
+  for (let attempt = 0; attempt < AVAILABILITY_PUSH_LOCK_ATTEMPTS && !held; attempt += 1) {
+    const stateRow = await loadAvailabilityPushStateRow(db, stateId);
+    const current = readAvailabilityPushState(stateRow?.row_data);
+    // Legacy: ids persisted on the record itself before the state row existed.
+    if (!stateRow) current.eventIds = googleCalendarAvailabilityEventIds(input.previousRowData);
+    const lockAgeMs = current.lockedAt ? Date.now() - Date.parse(current.lockedAt) : Number.POSITIVE_INFINITY;
+    const lockHeld = Number.isFinite(lockAgeMs) && lockAgeMs < AVAILABILITY_PUSH_LOCK_STALE_MS;
+    if (lockHeld) {
+      if (current.dirty) return;
+      const marked = await casWriteAvailabilityPushState(db, {
+        stateId,
+        managerUserId: managerId,
+        expectedUpdatedAt: stateRow?.updated_at ?? null,
+        state: { ...current, dirty: true },
+      });
+      if (marked) return;
+      continue;
+    }
+    const lockState: AvailabilityPushState = { ...current, lockedAt: new Date().toISOString(), dirty: false };
+    const acquiredAt = await casWriteAvailabilityPushState(db, {
+      stateId,
+      managerUserId: managerId,
+      expectedUpdatedAt: stateRow?.updated_at ?? null,
+      state: lockState,
+    });
+    if (acquiredAt) held = { updatedAt: acquiredAt, state: lockState };
   }
+  if (!held) return;
 
-  const newIds: string[] = [];
-  for (const window of boundedWindows) {
-    const id = await createGoogleCalendarEvent(db, managerId, {
-      title: "Open for tours",
-      description: [PROPLANE_GOOGLE_CALENDAR_MARKER, PROPLANE_AVAILABILITY_TYPE_MARKER].join("\n"),
-      start: window.start,
-      end: window.end,
-      transparency: "transparent",
+  let state = held.state;
+  let stateUpdatedAt = held.updatedAt;
+  try {
+    for (let pass = 0; pass < AVAILABILITY_PUSH_MAX_PASSES; pass += 1) {
+      const source = await loadAvailabilitySource(db, recordId);
+      const rowData = source ? source.rowData : pass === 0 ? input.rowData : null;
+      const sourceUpdatedAt = source?.updatedAt ?? null;
+
+      const retainedIds: string[] = [];
+      for (const id of state.eventIds) {
+        const deleted = await deleteGoogleCalendarEvent(db, managerId, id).then(() => true, () => false);
+        if (!deleted) retainedIds.push(id);
+      }
+
+      const windows = mergeTourAvailabilitySlotsIntoWindows(payloadSlots(rowData));
+      const boundedWindows = windows.slice(0, MAX_AVAILABILITY_WINDOWS_PER_PUSH);
+      if (boundedWindows.length < windows.length) {
+        console.warn(
+          `[google-calendar] availability push truncated to ${MAX_AVAILABILITY_WINDOWS_PER_PUSH} windows for manager ${managerId.slice(-6)} record ${recordId}`,
+        );
+      }
+      const newIds: string[] = [];
+      for (const window of boundedWindows) {
+        const id = await createGoogleCalendarEvent(db, managerId, {
+          title: "Open for tours",
+          description: [PROPLANE_GOOGLE_CALENDAR_MARKER, PROPLANE_AVAILABILITY_TYPE_MARKER].join("\n"),
+          start: window.start,
+          end: window.end,
+          transparency: "transparent",
+        }).catch(() => null);
+        if (id) newIds.push(id);
+      }
+
+      state = { eventIds: [...retainedIds, ...newIds], lockedAt: state.lockedAt, dirty: false, sourceUpdatedAt };
+      const written = await casWriteAvailabilityPushState(db, {
+        stateId,
+        managerUserId: managerId,
+        expectedUpdatedAt: stateUpdatedAt,
+        state,
+      });
+      if (!written) {
+        // A waiter marked the row dirty between our reads: re-read the flag
+        // through the row itself and keep the ids we just created either way.
+        const fresh = await loadAvailabilityPushStateRow(db, stateId);
+        const freshState = readAvailabilityPushState(fresh?.row_data);
+        stateUpdatedAt =
+          (await casWriteAvailabilityPushState(db, {
+            stateId,
+            managerUserId: managerId,
+            expectedUpdatedAt: fresh?.updated_at ?? null,
+            state: { ...state, dirty: false },
+          })) ?? stateUpdatedAt;
+        if (freshState.dirty) continue;
+      } else {
+        stateUpdatedAt = written;
+      }
+
+      const latest = await loadAvailabilitySource(db, recordId);
+      if ((latest?.updatedAt ?? null) === sourceUpdatedAt) break;
+    }
+  } finally {
+    const release = await casWriteAvailabilityPushState(db, {
+      stateId,
+      managerUserId: managerId,
+      expectedUpdatedAt: stateUpdatedAt,
+      state: { ...state, lockedAt: null, dirty: false },
     }).catch(() => null);
-    if (id) newIds.push(id);
+    if (!release) {
+      const fresh = await loadAvailabilityPushStateRow(db, stateId).catch(() => null);
+      await casWriteAvailabilityPushState(db, {
+        stateId,
+        managerUserId: managerId,
+        expectedUpdatedAt: fresh?.updated_at ?? null,
+        state: { ...state, lockedAt: null, dirty: false },
+      }).catch(() => undefined);
+    }
   }
-
-  await persistAvailabilityGoogleCalendarEventIds(db, input.recordId, newIds).catch(() => undefined);
 }
 
 export async function deleteProplaneGoogleCalendarEvent(

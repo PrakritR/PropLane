@@ -28,16 +28,22 @@ export async function loadPersistedGoogleMeetings(
 ): Promise<GoogleCalendarApiEvent[]> {
   const uid = managerUserId.trim();
   if (!uid) return [];
+  const timeMinMs = Date.parse(timeMinIso);
+  const timeMaxMs = Date.parse(timeMaxIso);
+  if (!Number.isFinite(timeMinMs) || !Number.isFinite(timeMaxMs) || timeMaxMs <= timeMinMs) return [];
   try {
+    // The window is pushed into the query: this runs on the PUBLIC no-store
+    // tour-availability route and on every calendar open, and nothing prunes
+    // past rows, so an unbounded read would grow egress without limit.
     const { data, error } = await db
       .from("portal_schedule_records")
       .select("row_data, starts_at, ends_at")
       .eq("record_type", "google_meeting")
-      .eq("manager_user_id", uid);
+      .eq("manager_user_id", uid)
+      .lt("starts_at", new Date(timeMaxMs).toISOString())
+      .gt("ends_at", new Date(timeMinMs).toISOString());
     if (error || !Array.isArray(data)) return [];
 
-    const timeMinMs = Date.parse(timeMinIso);
-    const timeMaxMs = Date.parse(timeMaxIso);
     const events: GoogleCalendarApiEvent[] = [];
 
     for (const row of data as { row_data: unknown; starts_at: string | null; ends_at: string | null }[]) {
@@ -54,10 +60,10 @@ export async function loadPersistedGoogleMeetings(
       const startMs = Date.parse(start);
       const endMs = Date.parse(end);
       if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) continue;
-      // Window overlap, matching the same exclusive-end convention `overlaps()`
-      // (tour-slot-math.ts) uses everywhere else on this surface.
-      if (Number.isFinite(timeMaxMs) && startMs >= timeMaxMs) continue;
-      if (Number.isFinite(timeMinMs) && endMs <= timeMinMs) continue;
+      // Re-checked against the payload's own instants (the column can lag a
+      // row whose payload was edited), matching the same exclusive-end
+      // convention `overlaps()` (tour-slot-math.ts) uses everywhere else.
+      if (startMs >= timeMaxMs || endMs <= timeMinMs) continue;
 
       events.push({
         id: googleEventId,

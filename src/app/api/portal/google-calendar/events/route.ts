@@ -68,39 +68,45 @@ export async function GET(req: Request) {
       void pullTask();
     }
 
-    const { events, truncated } = await listGoogleCalendarEventsPaged(ctx.db, ctx.userId, timeMin, timeMax);
     // `google_meeting` rows the pull already persisted for this window are
-    // merged in too, deduped by Google event id (live wins) — see
-    // `tour-availability.server.ts`'s busy path for the same pattern. This is
-    // what makes a persisted meeting show up here even when the live call was
-    // truncated, rate-limited, or simply has not re-run since the pull did.
-    const liveIds = new Set(events.map((event) => event.id));
+    // read INDEPENDENTLY of the live call and merged in, deduped by Google
+    // event id (live wins) — see `tour-availability.server.ts`'s busy path for
+    // the same pattern. This is what makes a persisted meeting show up here
+    // even when the live call is truncated, rate-limited, times out, or simply
+    // has not re-run since the pull did.
     const persisted = await loadPersistedGoogleMeetings(ctx.db, ctx.userId, timeMin, timeMax);
-    const merged = [...events, ...persisted.filter((event) => !liveIds.has(event.id))];
-    const meetings = googleCalendarEventsToMeetings(merged);
-    if (truncated) {
-      return NextResponse.json({
-        meetings,
-        truncated: true,
-        warning: "calendar_events_truncated",
-        hint: "This calendar has more events than PropLane can load for the dates shown, so some busy time may be missing. Check Google Calendar before publishing availability far out.",
+    try {
+      const { events, truncated } = await listGoogleCalendarEventsPaged(ctx.db, ctx.userId, timeMin, timeMax);
+      const liveIds = new Set(events.map((event) => event.id));
+      const merged = [...events, ...persisted.filter((event) => !liveIds.has(event.id))];
+      const meetings = googleCalendarEventsToMeetings(merged);
+      if (truncated) {
+        return NextResponse.json({
+          meetings,
+          truncated: true,
+          warning: "calendar_events_truncated",
+          hint: "This calendar has more events than PropLane can load for the dates shown, so some busy time may be missing. Check Google Calendar before publishing availability far out.",
+        });
+      }
+      return NextResponse.json({ meetings, truncated: false });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed";
+      debugGoogleCalendarLog("events/route.ts:GET", "events fetch failed", {
+        hypothesisId: "H2",
+        message,
       });
+      const classified = classifyGoogleCalendarEventsFetchError(message);
+      if (classified) {
+        return NextResponse.json({
+          meetings: googleCalendarEventsToMeetings(persisted),
+          warning: classified.warning,
+          hint: classified.hint,
+        });
+      }
+      throw e;
     }
-    return NextResponse.json({ meetings, truncated: false });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed";
-    debugGoogleCalendarLog("events/route.ts:GET", "events fetch failed", {
-      hypothesisId: "H2",
-      message,
-    });
-    const classified = classifyGoogleCalendarEventsFetchError(message);
-    if (classified) {
-      return NextResponse.json({
-        meetings: [],
-        warning: classified.warning,
-        hint: classified.hint,
-      });
-    }
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

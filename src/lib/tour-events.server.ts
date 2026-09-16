@@ -133,6 +133,11 @@ export async function emitTourClaimedEvent(
  * notice). `summary` is a short, already-formatted description of what
  * changed ("blocked Fri 2-5pm", "cleared Saturday"); this emitter does not
  * interpret calendar state itself.
+ *
+ * `changeKey` is the idempotency key for THIS change — the save path derives
+ * it from what actually changed (record + date + windows), so a retried save
+ * never re-notifies and two saves a second apart that changed different
+ * windows both do. Absent, the key falls back to the summary text.
  */
 export async function emitAvailabilityChangedEvent(
   db: SupabaseClient,
@@ -142,6 +147,8 @@ export async function emitAvailabilityChangedEvent(
     changedByName?: string;
     summary: string;
     entityId?: string;
+    propertyId?: string | null;
+    changeKey?: string;
   },
 ): Promise<void> {
   const { data: actor } = await db
@@ -155,17 +162,18 @@ export async function emitAvailabilityChangedEvent(
   const summary = input.summary.trim();
   if (!summary) return;
   const text = `${senderName ?? "A teammate"} ${summary}.`;
+  const entityId = input.entityId ?? input.changedByUserId;
   await emitActionEvent(db, {
-    eventId: `${input.entityId ?? input.changedByUserId}:availability_changed:${Date.now()}`,
+    eventId: `${entityId}:availability_changed:${input.changeKey?.trim() || summary}`,
     domain: "availability",
     event: "changed",
     managerUserId: input.managerUserId,
-    entityId: input.entityId ?? input.changedByUserId,
+    entityId,
     category: "messages",
     senderUserId: input.changedByUserId,
     senderEmail,
     senderName,
-    payload: {},
+    payload: { propertyId: input.propertyId ?? null },
     templateContext: { changedByName: senderName ?? "", summary },
     recipients: [{ audience: "team", userId: input.managerUserId, rendered: { subject: "Availability changed", text, smsText: text } }],
   });

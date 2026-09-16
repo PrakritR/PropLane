@@ -126,7 +126,13 @@ function inquiry(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function fullDb(input: { inquiries: Record<string, unknown>[]; claimRows: Map<string, ClaimRow> }) {
+function fullDb(input: {
+  inquiries: Record<string, unknown>[];
+  planned?: Record<string, unknown>[];
+  claimRows: Map<string, ClaimRow>;
+  /** Called on every singleton read — lets a test observe WHEN the read happens relative to the claim. */
+  onRead?: (id: string) => void;
+}) {
   let upsertCalls = 0;
   const db = {
     from(table: string) {
@@ -134,14 +140,18 @@ function fullDb(input: { inquiries: Record<string, unknown>[]; claimRows: Map<st
       return {
         select: () => ({
           eq: (_column: string, id: string) => ({
-            maybeSingle: async () => ({
-              data: {
-                row_data: {
-                  payload: id === INQUIRIES_RECORD_ID ? input.inquiries : id === PLANNED_RECORD_ID ? [] : [],
+            maybeSingle: async () => {
+              input.onRead?.(id);
+              return {
+                data: {
+                  row_data: {
+                    payload:
+                      id === INQUIRIES_RECORD_ID ? input.inquiries : id === PLANNED_RECORD_ID ? (input.planned ?? []) : [],
+                  },
                 },
-              },
-              error: null,
-            }),
+                error: null,
+              };
+            },
           }),
         }),
         upsert: async () => {
@@ -200,9 +210,47 @@ describe("confirmTourInquiry: claim guard integration", () => {
     });
 
     expect(result).toMatchObject({ ok: false, status: 403 });
-    // The 403 is thrown BEFORE the claim is even acquired (host eligibility is
-    // checked first), so there is nothing to release — the point is simply
-    // that no stray claim row is left behind either way.
+    // The claim is taken before the row is even read, so the 403 happens
+    // INSIDE the claimed section — and the `finally` still releases it, so no
+    // stray claim row is left behind.
     expect(claimRows.has("inq-claim-1")).toBe(false);
+  });
+
+  it("acquires the claim BEFORE reading the singletons, so no snapshot is ever taken outside it", async () => {
+    const claimRows = new Map<string, ClaimRow>();
+    const readsBeforeClaim: string[] = [];
+    const { db } = fullDb({
+      inquiries: [inquiry()],
+      claimRows,
+      onRead: (id) => {
+        if ((id === INQUIRIES_RECORD_ID || id === PLANNED_RECORD_ID) && !claimRows.has("inq-claim-1")) {
+          readsBeforeClaim.push(id);
+        }
+      },
+    });
+    const result = await confirmTourInquiry(db, { inquiryId: "inq-claim-1", actorUserId: OWNER, notifyTenant: false });
+    expect(result.ok).toBe(true);
+    expect(readsBeforeClaim).toEqual([]);
+  });
+
+  it("returns 409 (not 404) when the request was already booked by an earlier confirm", async () => {
+    const claimRows = new Map<string, ClaimRow>();
+    const { db, upsertCallCount } = fullDb({
+      // The earlier confirm removed it from the pending set and left a planned event behind.
+      inquiries: [],
+      planned: [{ id: "planned-1", kind: "tour", sourceInquiryId: "inq-claim-1", managerUserId: OWNER, start: START, end: END }],
+      claimRows,
+    });
+    const result = await confirmTourInquiry(db, { inquiryId: "inq-claim-1", actorUserId: CO_MANAGER, notifyTenant: false });
+    expect(result).toMatchObject({ ok: false, status: 409, error: "Another manager already took this tour." });
+    expect(upsertCallCount()).toBe(0);
+    expect(claimRows.has("inq-claim-1")).toBe(false);
+  });
+
+  it("still 404s a request that was never booked at all", async () => {
+    const claimRows = new Map<string, ClaimRow>();
+    const { db } = fullDb({ inquiries: [], claimRows });
+    const result = await confirmTourInquiry(db, { inquiryId: "inq-missing", actorUserId: OWNER, notifyTenant: false });
+    expect(result).toMatchObject({ ok: false, status: 404 });
   });
 });

@@ -32,10 +32,11 @@ type GoogleCalendarStatus = {
  * The publish steps are a ONE-TIME action for whoever owns the Google Cloud
  * project, not something a manager does per connect — they do not belong in
  * this panel at all; see the WS3 handoff notes for the exact console steps.
- * What a manager needs before clicking Connect is one honest line about the
- * unverified-app screen, shown below. The numbered Test-users recovery steps
- * stay, but only appear after a real `access_denied` — that is troubleshooting
- * for a failure that happened, not a wall shown before anything went wrong.
+ * Nothing is explained under the Connect control ahead of time (AGENTS.md
+ * § No small grey subtext): the unverified-app screen is Google's own flow to
+ * click through, and the numbered Test-users recovery steps appear only after
+ * a real `access_denied` — troubleshooting for a failure that happened, not a
+ * wall shown before anything went wrong.
  */
 export function GoogleCalendarConnectPanel({
   onConnectionChange,
@@ -192,21 +193,13 @@ export function GoogleCalendarConnectPanel({
               Google Calendar isn&apos;t set up on this server yet — ask an admin to finish the setup.
             </p>
           ) : (
-            <>
-              <p className="text-sm text-muted">
-                {status.configured
-                  ? "Connect your Google account to sync tours and block double-bookings."
-                  : status.googleAuthUser
-                    ? "You signed in with Google. Link calendar access below to finish."
-                    : "Sign in with Continue with Google to link your calendar automatically."}
-              </p>
-              {status.configured ? (
-                <p className="text-xs text-muted">
-                  The first time, Google shows an &quot;unverified app&quot; screen — choose Advanced → Go to
-                  PropLane (unsafe) to continue. This is expected until Google finishes verifying the app.
-                </p>
-              ) : null}
-            </>
+            <p className="text-sm text-muted">
+              {status.configured
+                ? "Connect your Google account to sync tours and block double-bookings."
+                : status.googleAuthUser
+                  ? "You signed in with Google. Link calendar access below to finish."
+                  : "Sign in with Continue with Google to link your calendar automatically."}
+            </p>
           )}
         </div>
         <div className="flex shrink-0 gap-2">

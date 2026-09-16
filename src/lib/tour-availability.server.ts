@@ -4,6 +4,7 @@ import {
   GOOGLE_CALENDAR_OPERATION_TIMEOUT_MS,
   isGoogleCalendarNotLinkedError,
   listGoogleCalendarEvents,
+  type GoogleCalendarApiEvent,
 } from "@/lib/google-calendar/api.server";
 import { googleEventBlocksTours } from "@/lib/google-calendar/busy";
 import { loadPersistedGoogleMeetings } from "@/lib/google-calendar/persisted-meetings.server";
@@ -18,6 +19,7 @@ import {
 } from "@/lib/manager-tour-settings";
 import {
   DEFAULT_TOUR_HORIZON_DAYS,
+  TOUR_HORIZON_MAX_DAYS,
   isActivePlannedTourEvent,
   payloadSlots,
   resolveTourOfferingSlots,
@@ -168,7 +170,7 @@ function withDeadline<T>(work: Promise<T>, budgetMs: number): Promise<T> {
 function googleBusyWindowEndMs(offeredSlots: readonly string[], now: number = Date.now()): number {
   const dayMs = 24 * 60 * 60 * 1000;
   const defaultEnd = now + DEFAULT_TOUR_HORIZON_DAYS * dayMs;
-  const maxEnd = defaultEnd + 365 * dayMs;
+  const maxEnd = now + TOUR_HORIZON_MAX_DAYS * dayMs;
   let furthest = defaultEnd;
   for (const slot of offeredSlots) {
     const startMs = slotStartMs(slot);
@@ -199,6 +201,14 @@ export async function googleBusyBlocks(
   const windowEndMs = Date.parse(timeMax);
   const cached = googleBusyCache.get(managerUserId);
   if (cached && cached.expiresAt > Date.now() && cached.windowEndMs >= windowEndMs) return cached.blocks;
+  // Persisted `google_meeting` rows (webhook/poll-pulled — see pull.server.ts)
+  // are read INDEPENDENTLY of the live pull: they are the fallback for exactly
+  // the moment the live read stalls, is truncated, or fails, so they must not
+  // sit behind it. Deduped by Google event id below so a meeting present in
+  // both never becomes two blocks — the live copy wins on any overlap.
+  const persisted = await loadPersistedGoogleMeetings(db, managerUserId, timeMin, timeMax);
+  const blocksFrom = (events: readonly GoogleCalendarApiEvent[]) =>
+    events.filter(googleEventBlocksTours).map((event) => ({ start: event.start, end: event.end }));
   try {
     // A whole-operation deadline on top of the per-hop ones: this route is
     // PUBLIC and uncached, so a slow Google must never stretch a prospect's
@@ -207,22 +217,14 @@ export async function googleBusyBlocks(
       listGoogleCalendarEvents(db, managerUserId, timeMin, timeMax),
       GOOGLE_BUSY_READ_BUDGET_MS,
     );
-    // Persisted `google_meeting` rows (webhook/poll-pulled — see
-    // pull.server.ts) are ADDED to the live pull rather than replacing it, so
-    // a manager whose live read got truncated or briefly failed still has the
-    // mirror to fall back on. Deduped by Google event id so a meeting present
-    // in both never becomes two blocks — the live copy wins on any overlap.
     const liveIds = new Set(events.map((event) => event.id));
-    const persisted = await loadPersistedGoogleMeetings(db, managerUserId, timeMin, timeMax);
-    const combined = [...events, ...persisted.filter((event) => !liveIds.has(event.id))];
-    const blocks = combined
-      .filter(googleEventBlocksTours)
-      .map((event) => ({ start: event.start, end: event.end }));
+    const blocks = blocksFrom([...events, ...persisted.filter((event) => !liveIds.has(event.id))]);
     cacheGoogleBusyBlocks(managerUserId, blocks, windowEndMs);
     return blocks;
   } catch (e) {
-    // A manager without a working calendar link simply contributes no busy
-    // time — never fail the whole availability read over one integration.
+    // A manager without a working calendar link contributes only whatever the
+    // persisted mirror still holds — never fail the whole availability read
+    // over one integration.
     //
     // But WHY it failed decides how long that empty answer is reused, and the
     // two cases pull opposite ways:
@@ -234,13 +236,14 @@ export async function googleBusyBlocks(
     //   more reads on a plan where egress is an explicit constraint. It gets
     //   the full success TTL.
     // - Anything else (stall, abort, 5xx, network) might clear on the next try,
-    //   and until it does the empty list is failing OPEN — so it gets the short
-    //   transient TTL.
+    //   and until it does the mirror-only answer is failing OPEN for anything
+    //   the mirror has not caught up on — so it gets the short transient TTL.
     const ttlMs = isGoogleCalendarNotLinkedError(e)
       ? GOOGLE_BUSY_TTL_MS
       : GOOGLE_BUSY_TRANSIENT_FAILURE_TTL_MS;
-    cacheGoogleBusyBlocks(managerUserId, [], windowEndMs, ttlMs);
-    return [];
+    const blocks = blocksFrom(persisted);
+    cacheGoogleBusyBlocks(managerUserId, blocks, windowEndMs, ttlMs);
+    return blocks;
   }
 }
 

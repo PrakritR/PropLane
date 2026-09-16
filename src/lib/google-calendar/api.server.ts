@@ -12,6 +12,7 @@ import { GOOGLE_CALENDAR_OAUTH_SCOPES } from "@/lib/google-calendar/scopes";
 import { isKnownProductionWebHost, resolveShareableAppOrigin } from "@/lib/app-url";
 import { sanitizeOAuthReturnPath } from "@/lib/auth/oauth-return-path";
 import { debugGoogleCalendarLog } from "@/lib/google-calendar/debug-log.server";
+import { TOUR_HORIZON_MAX_DAYS } from "@/lib/tour-slot-math";
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -644,6 +645,15 @@ export type GoogleCalendarSyncPage = {
    * round trips.
    */
   syncTokenInvalid: boolean;
+  /**
+   * The page walk hit {@link GOOGLE_CALENDAR_EVENT_PAGE_LIMIT} with more pages
+   * still behind it. `events` is then a prefix of the calendar, never the
+   * whole of it, and no `nextSyncToken` is ever minted for it — the caller
+   * must treat the result as "no cursor" and not reconcile against it.
+   */
+  truncated: boolean;
+  /** The `[timeMin, timeMax)` a FULL sync walked; absent on an incremental (token) pull. */
+  fullSyncWindow?: { timeMin: string; timeMax: string };
 };
 
 /**
@@ -655,6 +665,15 @@ export type GoogleCalendarSyncPage = {
  * earlier today in a timezone ahead of the server's.
  */
 const GOOGLE_CALENDAR_SYNC_FULL_WINDOW_PAST_DAYS = 1;
+
+/**
+ * How far ahead a FULL sync looks — the same ceiling the public busy read
+ * (`googleBusyWindowEndMs`) can ask Google for. `singleEvents=true` expands
+ * every recurring series into instances, so an unbounded walk over a busy
+ * calendar ran past the page limit on every poll-on-read, never minted a
+ * token, and re-upserted thousands of rows each time the calendar was opened.
+ */
+const GOOGLE_CALENDAR_SYNC_FULL_WINDOW_FUTURE_DAYS = TOUR_HORIZON_MAX_DAYS;
 
 /**
  * Incremental (or first full) pull of a manager's calendar for
@@ -675,9 +694,16 @@ export async function listGoogleCalendarEventsForSync(
   syncToken: string | null,
 ): Promise<GoogleCalendarSyncPage> {
   const { connection, accessToken } = await getGoogleCalendarAccessToken(db, managerUserId);
-  if (!connection.syncEnabled) return { events: [], syncTokenInvalid: false };
+  if (!connection.syncEnabled) return { events: [], syncTokenInvalid: false, truncated: false };
   const calendarId = encodeURIComponent(connection.calendarId ?? "primary");
   const token = syncToken?.trim() || null;
+  const dayMs = 24 * 60 * 60 * 1000;
+  const fullSyncWindow = token
+    ? undefined
+    : {
+        timeMin: new Date(Date.now() - GOOGLE_CALENDAR_SYNC_FULL_WINDOW_PAST_DAYS * dayMs).toISOString(),
+        timeMax: new Date(Date.now() + GOOGLE_CALENDAR_SYNC_FULL_WINDOW_FUTURE_DAYS * dayMs).toISOString(),
+      };
 
   const events: GoogleCalendarSyncEvent[] = [];
   let pageToken: string | undefined;
@@ -693,11 +719,9 @@ export async function listGoogleCalendarEventsForSync(
     });
     if (token) {
       params.set("syncToken", token);
-    } else {
-      params.set(
-        "timeMin",
-        new Date(Date.now() - GOOGLE_CALENDAR_SYNC_FULL_WINDOW_PAST_DAYS * 24 * 60 * 60 * 1000).toISOString(),
-      );
+    } else if (fullSyncWindow) {
+      params.set("timeMin", fullSyncWindow.timeMin);
+      params.set("timeMax", fullSyncWindow.timeMax);
     }
     if (pageToken) params.set("pageToken", pageToken);
 
@@ -706,7 +730,7 @@ export async function listGoogleCalendarEventsForSync(
       { headers: { Authorization: `Bearer ${accessToken}` }, signal: googleCalendarFetchSignal() },
     );
     if (res.status === 410) {
-      return { events: [], syncTokenInvalid: true };
+      return { events: [], syncTokenInvalid: true, truncated: false };
     }
     const data = (await res.json().catch(() => ({}))) as {
       items?: (GoogleCalendarListItem & { status?: string })[];
@@ -732,7 +756,14 @@ export async function listGoogleCalendarEventsForSync(
     if (!pageToken) break;
   }
 
-  return { events, nextSyncToken, syncTokenInvalid: false };
+  const truncated = Boolean(pageToken);
+  return {
+    events,
+    nextSyncToken: truncated ? undefined : nextSyncToken,
+    syncTokenInvalid: false,
+    truncated,
+    fullSyncWindow,
+  };
 }
 
 /** Result of standing up a push-notification channel (`events.watch`). */

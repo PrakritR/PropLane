@@ -52,6 +52,8 @@ export type WorkOrderEventAudience = "manager" | "resident" | "vendor" | "team";
 
 export type WorkOrderEventFacts = {
   reference: string;
+  /** The house the job is on — routes the WS5 team copy to that house's thread and its Services roster. */
+  propertyId?: string;
   title: string;
   propertyLabel?: string;
   scheduledFor?: string;
@@ -295,6 +297,7 @@ async function workOrderEventImpl(
     payload: {
       reference: input.facts.reference,
       emergency: input.facts.emergency === true,
+      propertyId: input.facts.propertyId?.trim() || null,
     },
     recipients: input.recipients.flatMap((recipient) => {
       const rendered = renderWorkOrderEvent(input.event, recipient.audience, input.facts);

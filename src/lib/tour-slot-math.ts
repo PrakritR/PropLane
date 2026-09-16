@@ -307,6 +307,13 @@ export const DEFAULT_TOUR_END_SLOT_EXCLUSIVE = 34;
  * weeks is ample for a booking page and costs a third of the egress.
  */
 export const DEFAULT_TOUR_HORIZON_DAYS = 21;
+/**
+ * The furthest instant any tour surface reads calendar-busy time for: the
+ * default horizon plus a year of published-availability slack. Shared by the
+ * public busy read (`googleBusyWindowEndMs`) and the Google full-sync window
+ * so the mirror never covers less than what a prospect can be offered.
+ */
+export const TOUR_HORIZON_MAX_DAYS = DEFAULT_TOUR_HORIZON_DAYS + 365;
 
 /** Stored availability keys that begin with this prefix exclude one default window. */
 export const DEFAULT_TOUR_SLOT_EXCLUSION_PREFIX = "!";

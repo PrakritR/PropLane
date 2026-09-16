@@ -2,13 +2,23 @@ import { describe, expect, it } from "vitest";
 
 import { loadPersistedGoogleMeetings } from "@/lib/google-calendar/persisted-meetings.server";
 
-/** A fake `portal_schedule_records` table scoped exactly like the real query: select → eq → eq. */
-function fakeDb(rows: Array<Record<string, unknown>>) {
+/** A fake `portal_schedule_records` table scoped exactly like the real query: select → eq → eq → lt → gt. */
+function fakeDb(rows: Array<Record<string, unknown>>, calls: Array<[string, string, string]> = []) {
   return {
     from: (_table: string) => ({
       select: (_cols: string) => ({
         eq: (_col1: string, _val1: string) => ({
-          eq: async (_col2: string, _val2: string) => ({ data: rows, error: null }),
+          eq: (_col2: string, _val2: string) => ({
+            lt: (col3: string, val3: string) => {
+              calls.push(["lt", col3, val3]);
+              return {
+                gt: async (col4: string, val4: string) => {
+                  calls.push(["gt", col4, val4]);
+                  return { data: rows, error: null };
+                },
+              };
+            },
+          }),
         }),
       }),
     }),
@@ -57,6 +67,7 @@ describe("loadPersistedGoogleMeetings", () => {
   });
 
   it("drops rows outside the requested window", async () => {
+    const calls: Array<[string, string, string]> = [];
     const db = fakeDb([
       {
         row_data: { googleEventId: "g-out", start: "2030-01-01T10:00:00.000Z", end: "2030-01-01T11:00:00.000Z" },
@@ -68,7 +79,7 @@ describe("loadPersistedGoogleMeetings", () => {
         starts_at: "2030-01-07T10:00:00.000Z",
         ends_at: "2030-01-07T11:00:00.000Z",
       },
-    ]);
+    ], calls);
 
     const events = await loadPersistedGoogleMeetings(
       db,
@@ -78,6 +89,11 @@ describe("loadPersistedGoogleMeetings", () => {
     );
 
     expect(events.map((e) => e.id)).toEqual(["g-in"]);
+    // The window is pushed into the query, not only applied in memory.
+    expect(calls).toEqual([
+      ["lt", "starts_at", "2030-01-08T00:00:00.000Z"],
+      ["gt", "ends_at", "2030-01-07T00:00:00.000Z"],
+    ]);
   });
 
   it("skips rows missing an id, start, or end rather than throwing", async () => {
@@ -99,7 +115,7 @@ describe("loadPersistedGoogleMeetings", () => {
       from: () => ({
         select: () => ({
           eq: () => ({
-            eq: async () => ({ data: null, error: { message: "boom" } }),
+            eq: () => ({ lt: () => ({ gt: async () => ({ data: null, error: { message: "boom" } }) }) }),
           }),
         }),
       }),

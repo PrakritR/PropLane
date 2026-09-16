@@ -27,7 +27,13 @@ let CONNECTION: {
   channelResourceId: string | null;
   channelExpiryMs: number | null;
 };
-type SyncPage = { events: SyncEvent[]; nextSyncToken?: string; syncTokenInvalid: boolean };
+type SyncPage = {
+  events: SyncEvent[];
+  nextSyncToken?: string;
+  syncTokenInvalid: boolean;
+  truncated?: boolean;
+  fullSyncWindow?: { timeMin: string; timeMax: string };
+};
 let SYNC_PAGE: SyncPage;
 /** When set, consumed one page per call (in order) instead of `SYNC_PAGE` — for tests with more than one call. */
 let SYNC_SEQUENCE: SyncPage[] = [];
@@ -65,7 +71,7 @@ vi.mock("@/lib/app-url", () => ({
 
 import { pullGoogleCalendarMeetings } from "@/lib/google-calendar/pull.server";
 
-function fakeDb() {
+function fakeDb(opts: { failUpserts?: boolean; mirrored?: Array<{ id: string; googleEventId: string }> } = {}) {
   const deletedIds: string[] = [];
   const upserted: Array<Record<string, unknown>> = [];
   const db = {
@@ -75,11 +81,29 @@ function fakeDb() {
           deletedIds.push(id);
           return { error: null };
         },
+        in: async (_col: string, ids: string[]) => {
+          deletedIds.push(...ids);
+          return { error: null };
+        },
       }),
       upsert: async (row: Record<string, unknown>) => {
+        if (opts.failUpserts) return { error: { message: "connection reset" } };
         upserted.push(row);
         return { error: null };
       },
+      // The reconcile read: select → eq → eq → lt → gt over the manager's mirrored rows in the window.
+      select: () => ({
+        eq: () => ({
+          eq: () => ({
+            lt: () => ({
+              gt: async () => ({
+                data: (opts.mirrored ?? []).map((row) => ({ id: row.id, row_data: { googleEventId: row.googleEventId } })),
+                error: null,
+              }),
+            }),
+          }),
+        }),
+      }),
     }),
   };
   return { db: db as never, deletedIds, upserted };
@@ -189,6 +213,57 @@ describe("pullGoogleCalendarMeetings", () => {
     expect(SYNC_CALLS).toEqual(["token-1", null]);
     expect(SAVE_PATCHES.some((p) => p.syncToken === null)).toBe(true);
     expect(SAVE_PATCHES.some((p) => p.syncToken === "fresh-token")).toBe(true);
+  });
+
+  it("does not advance the sync cursor when a mirror write failed, so the change is re-read next pull", async () => {
+    SYNC_PAGE = {
+      events: [
+        { id: "g-4", status: "confirmed", summary: "Standup", start: "2030-01-07T17:00:00.000Z", end: "2030-01-07T17:30:00.000Z" },
+      ],
+      nextSyncToken: "token-3",
+      syncTokenInvalid: false,
+    };
+    const { db } = fakeDb({ failUpserts: true });
+    const result = await pullGoogleCalendarMeetings(db, "mgr-1");
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe("mirror_write_failed");
+    expect(SAVE_PATCHES.some((p) => "syncToken" in p)).toBe(false);
+  });
+
+  it("treats a truncated walk as no cursor and never reconciles against it", async () => {
+    SYNC_PAGE = {
+      events: [],
+      syncTokenInvalid: false,
+      truncated: true,
+      fullSyncWindow: { timeMin: "2030-01-06T00:00:00.000Z", timeMax: "2031-01-06T00:00:00.000Z" },
+    } as SyncPage;
+    const { db, deletedIds } = fakeDb({ mirrored: [{ id: "axis_google_meeting_mgr-1_g-old", googleEventId: "g-old" }] });
+    await pullGoogleCalendarMeetings(db, "mgr-1");
+    expect(deletedIds).toEqual([]);
+    expect(SAVE_PATCHES.some((p) => "syncToken" in p)).toBe(false);
+  });
+
+  it("after a completed full sync, purges mirrored rows in the window the snapshot no longer returned", async () => {
+    CONNECTION.syncToken = null;
+    SYNC_PAGE = {
+      events: [
+        { id: "g-kept", status: "confirmed", summary: "Kept", start: "2030-01-07T17:00:00.000Z", end: "2030-01-07T17:30:00.000Z" },
+      ],
+      nextSyncToken: "token-after-full",
+      syncTokenInvalid: false,
+      truncated: false,
+      fullSyncWindow: { timeMin: "2030-01-06T00:00:00.000Z", timeMax: "2031-01-06T00:00:00.000Z" },
+    } as SyncPage;
+    const { db, deletedIds } = fakeDb({
+      mirrored: [
+        { id: "axis_google_meeting_mgr-1_g-kept", googleEventId: "g-kept" },
+        { id: "axis_google_meeting_mgr-1_g-gone", googleEventId: "g-gone" },
+      ],
+    });
+    const result = await pullGoogleCalendarMeetings(db, "mgr-1");
+    expect(deletedIds).toEqual(["axis_google_meeting_mgr-1_g-gone"]);
+    expect(result.deleted).toBe(1);
+    expect(SAVE_PATCHES.some((p) => p.syncToken === "token-after-full")).toBe(true);
   });
 
   it("renews the watch channel when none is on file", async () => {
