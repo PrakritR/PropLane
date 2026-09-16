@@ -7,7 +7,7 @@ import {
   type AutomationSendModeSettings,
 } from "@/lib/automation-send-mode";
 import { resolvePropertyOwnerUserId } from "@/lib/property-owner.server";
-import { loadReminderSettings } from "@/lib/reminders/settings.server";
+import { loadReminderSettingsForProperty } from "@/lib/reminders/settings.server";
 
 /**
  * The ONE place the bus asks "auto-send or draft-for-review?" for an event.
@@ -30,7 +30,11 @@ export async function resolveAutomationSendModeForEvent(
   if (!fallback) return DEFAULT_AUTOMATION_SEND_MODE_SETTINGS;
   const owner = (await resolvePropertyOwnerUserId(db, input.propertyId)) ?? fallback;
   try {
-    const settings = await loadReminderSettings(db, owner);
+    // The house's own reminder override wins when it has one (its
+    // `automationSendMode` rides in the `reminderRules` blob); otherwise the
+    // workspace value. A missing property resolves to the workspace rule.
+    const propertyId = input.propertyId?.trim() ? input.propertyId.trim() : null;
+    const settings = await loadReminderSettingsForProperty(db, owner, propertyId);
     return settings.automationSendMode;
   } catch {
     return DEFAULT_AUTOMATION_SEND_MODE_SETTINGS;
