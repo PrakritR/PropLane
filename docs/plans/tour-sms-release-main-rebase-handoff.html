@@ -26,6 +26,7 @@
       <li>Pre-rebase source: <code>0910023c736c29a16db976fcafa5aef2b73a19f3</code>, based on <code>b1fa8f1fc6a1ff80c98c70f6675f347b2842977f</code>.</li>
       <li>New upstream base: <code>2776cdb096c99a2e3058e2205bbec5824f2751b5</code>.</li>
       <li>Rebased implementation HEAD before this handoff commit: <code>1332cea5f4b9a4a9fb0d59d74c4a456be320f57f</code>.</li>
+      <li>Post-rebase correction snapshot: <code>ec6f5482e5f91c31e08ede5d35606b017178c804</code>.</li>
       <li>Recovery ref: <code>refs/backup/tour-sms-release-20260916-pre-main-2776cdb</code> points to the exact pre-rebase source.</li>
     </ul>
   </section>
@@ -53,6 +54,21 @@
       <li class="ok">The exact 13-file migration comparison against the backup ref exited 0.</li>
     </ul>
     <p class="pending">No broad suite, browser, localhost server, PostgreSQL harness, remote mutation, provider call, push, deployment, or production action was run in this bounded integration pass. Root owns broad validation, the fresh Astra review, release operations, and deployment verification.</p>
+  </section>
+
+  <section>
+    <h2>Post-rebase broad-unit corrections</h2>
+    <p>Root's first broad unit run against the initial rebase exposed seven upstream integration failures. They are resolved in <code>ec6f5482e5f91c31e08ede5d35606b017178c804</code> without weakening behavior:</p>
+    <ul>
+      <li>The manager inbox read gate now uses the same <code>matchMedia</code>-based desktop split decision as selection, rather than mixing that authority with raw <code>innerWidth</code>.</li>
+      <li>Native receipt failure tests intercept the actual <code>Storage</code> prototype boundary, retain the durable/volatile receipt assertions, and still require one bounded write attempt.</li>
+      <li>Inbox tests assert the upstream routed Active/Archived link contract, including destination and <code>aria-current</code>, rather than the retired tab role.</li>
+      <li>The manager assistant wiring test now requires both the existing task/custom-instruction prompt and upstream's manager workspace wrapper; resident and vendor routes remain unwrapped.</li>
+      <li>The tour inquiry claim fixture exposes the reviewed atomic <code>mutate_confirmed_tour_schedule</code> RPC, asserts one RPC call, and asserts zero legacy singleton upserts.</li>
+    </ul>
+    <p class="ok"><code>PATH=/Users/akhilvemuri/.nvm/versions/node/v22.23.0/bin:$PATH npx vitest run tests/unit/manager-unified-inbox-read-integration.test.tsx tests/unit/agent/portal-assistant-wiring.test.ts tests/unit/tour-inquiry-confirm-claim.test.ts tests/unit/inbox-initial-loading-readiness.test.tsx tests/unit/unified-conversation-inbox.test.tsx --maxWorkers=1</code>: exit 0, 82/82.</p>
+    <p class="ok">Focused ESLint for the six corrected files: exit 0, no errors and 16 existing/upstream warnings in <code>pro-unified-inbox.tsx</code>.</p>
+    <p class="pending">The initial broad run overlapped this correction and is not final-snapshot evidence. Root owns the final-snapshot broad rerun before review.</p>
   </section>
 
   <section>
