@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ManagerAddListingForm } from "@/components/portal/pro-add-listing-form";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { CreateWorkspace } from "@/components/portal/listing-wizard-v2/create-workspace";
 import { ListingWizardOverlay } from "@/components/portal/listing-wizard-v2/wizard-overlay";
 import {
@@ -35,6 +36,7 @@ import {
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { readAdminPropertyRows } from "@/lib/demo-admin-property-inventory";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
+import { resolveAddPropertyWorkspaceAction } from "@/lib/workspaces/add-property-gate";
 import {
   countManagerManagedPropertiesForUser,
   mirrorLocalPropertyPipelineToServer,
@@ -68,6 +70,37 @@ import {
 
 const propertiesSettingsEntry = getSettingsEntryPoint("properties");
 
+/**
+ * Adding a property from a co-managed workspace was refused by the records API
+ * (403 "Select an owned workspace before adding a property.") only AFTER the
+ * manager filled in the whole form — the cause of the repeating save toast in
+ * PLAN-0916-1119. The gate below switches to an owned workspace before the
+ * editor opens; a switch remounts this page (WorkspaceProvider keys its
+ * children on the active workspace id), so the intent to open Add is handed to
+ * the fresh mount through sessionStorage, the same pattern the first-listing
+ * auto-open uses across a stage-change remount.
+ */
+const PENDING_ADD_AFTER_SWITCH_KEY = "proplane:add-property-after-workspace-switch";
+function writePendingAddAfterSwitch(userId: string | null) {
+  try {
+    if (userId) window.sessionStorage.setItem(PENDING_ADD_AFTER_SWITCH_KEY, userId);
+  } catch {
+    /* private mode / storage blocked — the switch still happens, just no auto-open */
+  }
+}
+function takePendingAddAfterSwitch(userId: string | null): boolean {
+  try {
+    const pending = window.sessionStorage.getItem(PENDING_ADD_AFTER_SWITCH_KEY);
+    if (pending && pending === userId) {
+      window.sessionStorage.removeItem(PENDING_ADD_AFTER_SWITCH_KEY);
+      return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
 export function ManagerProperties({
   stage: stageProp = "listed",
   basePath = "/portal",
@@ -85,6 +118,7 @@ export function ManagerProperties({
 }) {
   const { showToast } = useAppUi();
   const router = useRouter();
+  const workspaces = useWorkspaces();
   const { userId, email } = useManagerUserId();
   const scopeUserId = resolveManagerScopeUserId(userId);
   const [skuLoaded, setSkuLoaded] = useState(false);
@@ -380,8 +414,40 @@ export function ManagerProperties({
     }
     return true;
   };
+  /**
+   * "Add property" can only save into a workspace the manager OWNS (the records
+   * API refuses a co-managed one). Resolve that BEFORE the editor opens rather
+   * than after the form is filled in. Returns true when the editor may open now.
+   */
+  const ensureOwnedWorkspaceForAdd = (): boolean => {
+    const action = resolveAddPropertyWorkspaceAction(workspaces);
+    switch (action.kind) {
+      case "open":
+        return true;
+      case "no-owned":
+        showToast("You need a workspace you own to add a property.");
+        return false;
+      case "switch":
+        // Silent switch to the one owned workspace, then re-open Add on the
+        // fresh mount the switch triggers.
+        writePendingAddAfterSwitch(userId);
+        void workspaces!.select(action.workspaceId, { href: false }).catch((e) => {
+          takePendingAddAfterSwitch(userId);
+          showToast(e instanceof Error ? e.message : "Could not switch workspace.");
+        });
+        return false;
+      case "ask-pick":
+        // Several owned workspaces: the manager chooses which. The switcher in
+        // the sidebar / top bar is the one picker — point them at it rather than
+        // opening an editor that cannot save here.
+        showToast("Pick a workspace you own to add a property.");
+        return false;
+    }
+  };
+
   const tryOpenAdd = () => {
     if (!canOpenAdd()) return;
+    if (!ensureOwnedWorkspaceForAdd()) return;
     // Prefer resuming the first-listing draft when that is the only work left.
     const snap = readFirstListingPortfolioSnapshot(scopeUserId);
     if (managerNeedsFirstListingOnboarding(snap) && !shouldSkipFirstListingOnboarding({ email })) {
@@ -395,6 +461,19 @@ export function ManagerProperties({
     setResumeDraftId(null);
     setWizardOpen(true);
   };
+  // After a workspace switch triggered by "Add property" from a co-managed
+  // workspace, the page remounts under the now-owned workspace; re-open Add here
+  // (once the plan tier is known so canOpenAdd can pass).
+  const pendingAddAfterSwitchRef = useRef(false);
+  useEffect(() => {
+    if (userId && takePendingAddAfterSwitch(userId)) pendingAddAfterSwitchRef.current = true;
+  }, [userId]);
+  useEffect(() => {
+    if (!pendingAddAfterSwitchRef.current || !skuLoaded) return;
+    pendingAddAfterSwitchRef.current = false;
+    tryOpenAdd();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skuLoaded]);
   useEffect(() => {
     if (!isDemoModeActive()) return;
     const onOpen = () => tryOpenAdd();
@@ -560,9 +639,9 @@ export function ManagerProperties({
               void refreshPending();
             }}
             onSaved={(_sub, savedId) => {
-              // The editor autosaves two seconds after every change. A save
-              // never closes it — that used to bounce a manager to the draft's
-              // preview four seconds into typing. The id is kept for the close.
+              // The editor saves on ✕ (and on Review Save / Publish), never on a
+              // typing timer. A save never closes it. The id is kept for when the
+              // close callback fires so it lands on the right draft.
               if (savedId?.trim()) lastSavedDraftIdRef.current = savedId.trim();
               void refreshPending();
             }}
