@@ -9,16 +9,24 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   DEFAULT_REMINDER_SETTINGS,
+  URGENT_REMINDER_KINDS,
   reminderDedupeKey,
   reminderSendTimes,
   type ReminderSettings,
   type ReminderSubjectKind,
 } from "@/lib/reminders/rules";
 
+/**
+ * `vendor` is the person dispatched to the work. It is its own role rather than
+ * a flavour of `team` because team copies deliver through the manager's
+ * Assistant surface, which a vendor never sees.
+ */
+export type ReminderRecipientRole = "manager" | "counterparty" | "team" | "vendor";
+
 export type ReminderRecipient = {
   email: string;
   phone?: string;
-  role: "manager" | "counterparty" | "team";
+  role: ReminderRecipientRole;
   userId?: string | null;
   /** Shown in the greeting. Falls back to a neutral phrase when unknown. */
   name?: string | null;
@@ -32,7 +40,7 @@ export type ReminderQueueRow = {
   leadMinutes: number;
   recipientEmail: string;
   recipientPhone?: string;
-  recipientRole: "manager" | "counterparty" | "team";
+  recipientRole: ReminderRecipientRole;
   sendAt: string;
   attempts: number;
   payload: Record<string, unknown>;
@@ -58,7 +66,7 @@ function rowFromDb(row: Record<string, unknown>): ReminderQueueRow {
     leadMinutes: Number(row.lead_minutes),
     recipientEmail: String(row.recipient_email ?? ""),
     recipientPhone: row.recipient_phone ? String(row.recipient_phone) : undefined,
-    recipientRole: String(row.recipient_role) as "manager" | "counterparty" | "team",
+    recipientRole: String(row.recipient_role) as ReminderRecipientRole,
     sendAt: String(row.send_at),
     attempts: Number(row.attempts ?? 0),
     payload:
@@ -87,13 +95,16 @@ export async function materializeReminders(
   const rule = settings.rules[input.kind];
   if (!rule) return 0;
 
-  const sends = reminderSendTimes(rule, input.anchorIso, settings.quietHours, now);
+  const sends = reminderSendTimes(rule, input.anchorIso, settings.quietHours, now, {
+    urgent: URGENT_REMINDER_KINDS.has(input.kind),
+  });
   if (sends.length === 0) return 0;
 
   const recipients = input.recipients.filter((recipient) => {
     if (!recipient.email.trim() && !(input.kind === "tour_interest" && /^\+[1-9]\d{7,14}$/.test(recipient.phone ?? ""))) return false;
     if (recipient.role === "manager") return rule.audience.manager;
     if (recipient.role === "counterparty") return rule.audience.counterparty;
+    if (recipient.role === "vendor") return rule.audience.vendor;
     if (recipient.role === "team") {
       if (!rule.audience.team) return false;
       const userId = recipient.userId?.trim();

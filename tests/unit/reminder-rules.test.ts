@@ -118,10 +118,10 @@ describe("settings normalize from whatever is stored", () => {
         },
       },
     });
-    expect(settings.rules.application.audience).toEqual({ manager: false, counterparty: true, team: false });
+    expect(settings.rules.application.audience).toEqual({ manager: false, counterparty: true, team: false, vendor: false });
     expect(settings.rules.application_manager.enabled).toBe(true);
     expect(settings.rules.application_manager.audience.manager).toBe(true);
-    expect(settings.rules.lease.audience).toEqual({ manager: false, counterparty: true, team: false });
+    expect(settings.rules.lease.audience).toEqual({ manager: false, counterparty: true, team: false, vendor: false });
     expect(settings.rules.lease_manager.enabled).toBe(true);
   });
 
@@ -345,5 +345,30 @@ describe("reminderDedupeKey", () => {
     expect(reminderDedupeKey({ ...base, recipient: "a@x.com" })).not.toBe(
       reminderDedupeKey({ ...base, leadMinutes: 1440, recipient: "a@x.com" }),
     );
+  });
+});
+
+describe("PLAN-0915: vendor audience and urgent kinds", () => {
+  it("normalises audience.vendor to false on kinds that have no vendor, and keeps it on service kinds", async () => {
+    const { normalizeReminderSettings, URGENT_REMINDER_KINDS, reminderSendTimes, DEFAULT_REMINDER_RULES } = await import("@/lib/reminders/rules");
+    const settings = normalizeReminderSettings({
+      rules: {
+        lease: { audience: { manager: false, counterparty: true, team: false, vendor: true } },
+        work_order: { audience: { manager: true, counterparty: true, team: false, vendor: false } },
+      },
+    });
+    expect(settings.rules.lease.audience.vendor).toBe(false);
+    expect(settings.rules.work_order.audience.vendor).toBe(false);
+    expect(normalizeReminderSettings(undefined).rules.work_order.audience.vendor).toBe(true);
+
+    // An emergency escalation ignores the quiet-hours push; a routine one waits.
+    expect(URGENT_REMINDER_KINDS.has("work_order_unassigned_emergency")).toBe(true);
+    const anchor = "2026-09-16T04:00:00.000Z"; // 21:00 PT
+    const now = new Date("2026-09-16T03:59:00.000Z");
+    const quiet = { enabled: true, startHour: 21, endHour: 8 };
+    const urgent = reminderSendTimes(DEFAULT_REMINDER_RULES.work_order_unassigned_emergency, anchor, quiet, now, { urgent: true });
+    const routine = reminderSendTimes(DEFAULT_REMINDER_RULES.work_order_unassigned, anchor, quiet, now);
+    expect(urgent[0]?.sendAt.toISOString()).toBe("2026-09-16T05:00:00.000Z");
+    expect(routine[0]?.sendAt.getTime()).toBeGreaterThan(Date.parse("2026-09-17T04:00:00.000Z"));
   });
 });

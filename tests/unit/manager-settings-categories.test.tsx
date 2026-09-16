@@ -171,8 +171,13 @@ describe("manager settings categories", () => {
     const prefs = renderSettings();
     expect(screen.getByText("Theme")).toBeTruthy();
     expect(screen.getByTestId("pane-assistant-display")).toBeTruthy();
-    expect(screen.getByTestId("pane-notifications")).toBeTruthy();
     prefs.unmount();
+
+    // Device notifications now have a category of their own under Account.
+    goto("?tab=notifications");
+    const notifications = renderSettings();
+    expect(screen.getByTestId("pane-notifications")).toBeTruthy();
+    notifications.unmount();
 
     // …and nothing else left Account with it.
     goto("?tab=account");

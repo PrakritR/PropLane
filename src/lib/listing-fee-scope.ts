@@ -419,7 +419,13 @@ export function paymentAtSigningKeysFor(
     const own = room?.paymentAtSigningByLeaseType?.[resolved];
     if (Array.isArray(own)) return [...own];
   }
-  return matrix[resolved] ? [...matrix[resolved]!] : [];
+  if (matrix[resolved]) return [...matrix[resolved]!];
+  // No column for this lease type — a listing saved before the matrix existed,
+  // or a term the listing never offered (a Custom lease). The flat list is
+  // what those ticks meant, and it is what the reads fell back to before the
+  // per-term resolver existed; an empty answer here zeroed every legacy
+  // lease's "Payment Due at Signing".
+  return (sub.paymentAtSigningIncludes ?? []).map(String);
 }
 
 /** Is `rowKey` collected at signing on a lease of `leaseTerm`? */

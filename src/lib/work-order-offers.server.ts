@@ -13,6 +13,12 @@ import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { WorkOrderActionFailure, WorkOrderActor } from "@/lib/work-order-bids.server";
 import { workOrderEvent } from "@/lib/work-order-events.server";
 import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
+import { loadServiceAutomationSettings } from "@/lib/service-automation-settings.server";
+import { offerExpiresAt } from "@/lib/service-automation-settings";
+
+function expiresLabel(at: Date): string {
+  return at.toLocaleString("en-US", { timeZone: "America/Los_Angeles", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -86,6 +92,9 @@ export async function sendWorkOrderVendorOffers(
   const vendors = await vendorDirectoryRowsById(db, vendorIds);
   const sent: string[] = [];
   const skipped: string[] = [];
+  // Offers expire on the manager's Services setting; a round sent now shares one deadline.
+  const serviceSettings = await loadServiceAutomationSettings(db, String(workOrder.manager_user_id)).catch(() => null);
+  const expiresAt = serviceSettings ? offerExpiresAt(serviceSettings, new Date()) : null;
 
   for (const vendorId of vendorIds) {
     const vendor = vendors.get(vendorId);
@@ -103,6 +112,7 @@ export async function sendWorkOrderVendorOffers(
         vendor_user_id: vendor.vendorUserId,
         manager_user_id: workOrder.manager_user_id,
         status: "sent",
+        expires_at: expiresAt ? expiresAt.toISOString() : null,
         updated_at: now,
       },
       { onConflict: "work_order_id,vendor_directory_id" },
@@ -120,6 +130,7 @@ export async function sendWorkOrderVendorOffers(
       ...rowData,
       biddingOpen: true,
       biddingOpenedAt: rowData.biddingOpenedAt ?? new Date().toISOString(),
+      offerExpiresAt: expiresAt ? expiresAt.toISOString() : undefined,
     };
     await db
       .from("portal_work_order_records")
@@ -146,6 +157,8 @@ export async function sendWorkOrderVendorOffers(
         propertyLabel: rowData.propertyName || undefined,
         scheduledFor: rowData.scheduled || undefined,
         offerCount: sent.length,
+        expiresLabel: expiresAt ? expiresLabel(expiresAt) : undefined,
+        emergency: rowData.priority === "Emergency",
       },
       recipients: [
         ...offeredVendors.map((vendor) => ({ audience: "vendor" as const, userId: vendor.vendorUserId ?? undefined, email: vendor.email || undefined })),
