@@ -43,6 +43,7 @@ import {
   useFlushSettingsAutosaveOnUnmount,
   useReportSettingsSaveStatus,
 } from "@/components/portal/settings-save-status-context";
+import { useSettingsPropertyScope } from "@/components/portal/settings-property-scope";
 
 export type ManagerReminderRuleSettingsHandle = {
   saveIfDirty: () => Promise<boolean>;
@@ -123,6 +124,16 @@ export function ManagerReminderRuleSettingsPanel({
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
   const reportSaveStatus = useReportSettingsSaveStatus();
+  // Per-property scope (PLAN-0916-1040). Outside an Operations pane the provider
+  // is absent and this is the no-op workspace scope, so a reminder editor in the
+  // per-tab gear modal keeps its original workspace-only behaviour.
+  const {
+    propertyId: scopePropertyId,
+    reportOverriddenPropertyIds,
+    reportLoading: reportScopeLoading,
+    resetSignal,
+  } = useSettingsPropertyScope();
+  const scopeKey = `reminder:${kind}`;
   const meta = reminderSubjectSettingsMeta(kind);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -137,6 +148,7 @@ export function ManagerReminderRuleSettingsPanel({
     let cancelled = false;
     void (async () => {
       setLoading(true);
+      reportScopeLoading(scopeKey, true);
       try {
         if (demo) {
           if (!cancelled) {
@@ -146,25 +158,35 @@ export function ManagerReminderRuleSettingsPanel({
           }
           return;
         }
-        const res = await fetch("/api/portal/reminder-settings", { credentials: "include", cache: "no-store" });
-        const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
+        // `?propertyId=` scopes the read to the chosen house; "" reads the workspace.
+        const query = scopePropertyId ? `?propertyId=${encodeURIComponent(scopePropertyId)}` : "";
+        const res = await fetch(`/api/portal/reminder-settings${query}`, { credentials: "include", cache: "no-store" });
+        const body = (await res.json().catch(() => ({}))) as {
+          settings?: unknown;
+          error?: string;
+          overriddenPropertyIds?: string[];
+        };
         if (!res.ok) throw new Error(body.error ?? "Could not load reminder settings.");
         const settings = normalizeReminderSettings(body.settings);
         const next = settings.rules[kind];
         if (!cancelled) {
           setRule(next);
           setSavedSnapshot(ruleSnapshot(next));
+          reportOverriddenPropertyIds(scopeKey, body.overriddenPropertyIds ?? []);
         }
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not load reminder settings.");
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          reportScopeLoading(scopeKey, false);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [demo, kind, showToast]);
+  }, [demo, kind, showToast, scopePropertyId, scopeKey, reportOverriddenPropertyIds, reportScopeLoading]);
 
   const isDirty = useMemo(() => ruleSnapshot(rule) !== savedSnapshot, [rule, savedSnapshot]);
   const disabled = disabledProp || loading || saving;
@@ -195,18 +217,25 @@ export function ManagerReminderRuleSettingsPanel({
           method: "PATCH",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ kind, rule }),
+          // A house PATCH edits that house's own override (created on first edit);
+          // "" edits the workspace and never touches a house override.
+          body: JSON.stringify({ kind, rule, ...(scopePropertyId ? { propertyId: scopePropertyId } : {}) }),
           // A hard page unload can abort an ordinary in-flight fetch before it lands — exactly
           // the write the `pagehide`/`visibilitychange` flush in `settings-module-page.tsx`
           // exists to send.
           keepalive: true,
         });
-        const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
+        const body = (await res.json().catch(() => ({}))) as {
+          settings?: unknown;
+          error?: string;
+          overriddenPropertyIds?: string[];
+        };
         if (!res.ok) throw new Error(body.error ?? "Could not save reminder settings.");
         const settings = normalizeReminderSettings(body.settings);
         const next = settings.rules[kind];
         setRule(next);
         setSavedSnapshot(ruleSnapshot(next));
+        reportOverriddenPropertyIds(scopeKey, body.overriddenPropertyIds ?? []);
         if (!options?.silent) showToast("Reminder settings saved.");
         reportSaveStatus({ type: "success" });
         return true;
@@ -221,12 +250,56 @@ export function ManagerReminderRuleSettingsPanel({
         setSaving(false);
       }
     },
-    [demo, isDirty, kind, reportSaveStatus, rule, showToast],
+    [demo, isDirty, kind, reportSaveStatus, rule, showToast, scopePropertyId, scopeKey, reportOverriddenPropertyIds],
   );
 
   const saveIfDirty = useCallback(async (): Promise<boolean> => save({ silent: true }), [save]);
 
   useImperativeHandle(formRef, () => ({ saveIfDirty }), [saveIfDirty]);
+
+  // "Reset to workspace default" (scope bar) bumps `resetSignal`. When a house is
+  // selected, drop its reminder override and reload the workspace value. Fire only
+  // when the signal actually advances past the value seen on mount — a boolean
+  // "skip first run" ref is NOT safe here because React StrictMode double-invokes
+  // the effect on mount (the ref survives the simulated remount), which would fire
+  // a reset on load and silently wipe the house's override.
+  const lastResetRef = useRef(resetSignal);
+  useEffect(() => {
+    if (resetSignal === lastResetRef.current) return;
+    lastResetRef.current = resetSignal;
+    if (!scopePropertyId || demo) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/portal/reminder-settings", {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ propertyId: scopePropertyId, reset: true }),
+        });
+        const body = (await res.json().catch(() => ({}))) as {
+          settings?: unknown;
+          error?: string;
+          overriddenPropertyIds?: string[];
+        };
+        if (!res.ok) throw new Error(body.error ?? "Could not reset reminder settings.");
+        const settings = normalizeReminderSettings(body.settings);
+        const next = settings.rules[kind];
+        if (!cancelled) {
+          setRule(next);
+          setSavedSnapshot(ruleSnapshot(next));
+          reportOverriddenPropertyIds(scopeKey, body.overriddenPropertyIds ?? []);
+        }
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Could not reset reminder settings.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Only re-run when a reset is requested.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetSignal]);
 
   /**
    * Per-control autosave: every row's `onChange` already updates `rule`

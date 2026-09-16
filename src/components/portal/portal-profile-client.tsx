@@ -58,7 +58,12 @@ import { ManagerMessagingSettingsPanel } from "@/components/portal/pro-messaging
 import { ManagerAssistantEmailSettingsPanel } from "@/components/portal/pro-assistant-email-settings-panel";
 import { CommunicationSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
 import { SettingsModulePage } from "@/components/portal/settings-module-page";
-import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
+import {
+  SettingsPropertyScopeBar,
+  SettingsPropertyScopeProvider,
+} from "@/components/portal/settings-property-scope";
+import { buildManagerPropertyFilterOptions, MANAGER_PORTFOLIO_REFRESH_EVENTS } from "@/lib/manager-portfolio-access";
+import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import { filterPropertyOptionsForActiveWorkspace } from "@/lib/workspaces/selection";
 import type { ManagerPortalSettingsTab } from "@/components/portal/pro-portal-settings-modal";
@@ -498,6 +503,48 @@ export function PortalProfileClient({
     [pathname, searchParams],
   );
 
+  // The property scope for Operations settings rides in the URL beside `?tab=`
+  // so a reload and the browser back button keep the chosen house. pushState is
+  // the same history mechanism `openGroup` uses (Next syncs it into
+  // useSearchParams). "" is the workspace default ("All properties").
+  const { userId: managerUserId, ready: managerReady } = useManagerUserId();
+  const workspaces = useWorkspaces();
+  const scopeProperty = searchParams.get("property") ?? "";
+  // The picker options come from the client property store, which hydrates
+  // asynchronously from /api/property-records; recompute when the pipeline syncs
+  // (the same tick pattern pro-bookings uses) or the options are empty on load.
+  const [propertyTick, setPropertyTick] = useState(0);
+  useEffect(() => {
+    if (!managerReady || !managerUserId || variant !== "manager") return;
+    void syncPropertyPipelineFromServer().then(() => setPropertyTick((n) => n + 1));
+  }, [managerReady, managerUserId, variant]);
+  useEffect(() => {
+    if (variant !== "manager") return;
+    const bump = () => setPropertyTick((n) => n + 1);
+    for (const eventName of MANAGER_PORTFOLIO_REFRESH_EVENTS) window.addEventListener(eventName, bump);
+    return () => {
+      for (const eventName of MANAGER_PORTFOLIO_REFRESH_EVENTS) window.removeEventListener(eventName, bump);
+    };
+  }, [variant]);
+  const scopeOptions = useMemo(
+    () =>
+      filterPropertyOptionsForActiveWorkspace(
+        buildManagerPropertyFilterOptions(resolveManagerScopeUserId(managerUserId)),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [managerUserId, workspaces?.active?.id, propertyTick],
+  );
+  const setScopeProperty = useCallback(
+    (id: string) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (id) params.set("property", id);
+      else params.delete("property");
+      const query = params.toString();
+      window.history.pushState(null, "", query ? `${pathname}?${query}` : pathname);
+    },
+    [pathname, searchParams],
+  );
+
   const openGroup = useCallback(
     (id: string) => {
       setBillingOverride(false);
@@ -666,9 +713,22 @@ export function PortalProfileClient({
               />
             </div>
           )}
-          <PortalSettingsSections className={activeGroup === null ? "max-lg:hidden" : undefined}>
-            {renderPane(paneGroup.id)}
-          </PortalSettingsSections>
+          {paneGroup.group === "Operations" ? (
+            <SettingsPropertyScopeProvider
+              propertyId={scopeProperty}
+              onPropertyIdChange={setScopeProperty}
+              options={scopeOptions}
+            >
+              <SettingsPropertyScopeBar />
+              <PortalSettingsSections className={activeGroup === null ? "max-lg:hidden" : undefined}>
+                {renderPane(paneGroup.id)}
+              </PortalSettingsSections>
+            </SettingsPropertyScopeProvider>
+          ) : (
+            <PortalSettingsSections className={activeGroup === null ? "max-lg:hidden" : undefined}>
+              {renderPane(paneGroup.id)}
+            </PortalSettingsSections>
+          )}
         </div>
       </div>
     </ManagerPortalPageShell>
