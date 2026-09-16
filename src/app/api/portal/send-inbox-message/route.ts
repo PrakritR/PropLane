@@ -34,6 +34,12 @@ import {
 } from "@/lib/agent/resident-inbox-agent.server";
 import { runManagerInboxAgentTurn } from "@/lib/agent/manager-inbox-agent.server";
 import {
+  assertTeamThreadMember,
+  mirrorTeamThreadMessageToSms,
+  parseTeamThreadId,
+  postTeamThreadMessage,
+} from "@/lib/team-comms.server";
+import {
   findThreadByResidentPhone,
   forwardResidentMessageToManagers,
   openClawResidentThread,
@@ -317,6 +323,57 @@ export async function POST(req: Request) {
           void turnTask();
         }
         return NextResponse.json({ ok: true, agentHandled: true });
+      }
+
+      // A manager<->manager Team thread (WS5): the reply is a post into the
+      // thread as this manager, mirrored to the house's SMS roster, and never
+      // a person send. `resolveInboxThreadReplyTarget` already admitted only
+      // the owner or a co-manager with Communication EDIT on the house;
+      // `assertTeamThreadMember` re-derives that from the thread id itself so
+      // a mis-tagged row can never widen it.
+      if (replyTarget.threadType === "team") {
+        const team = parseTeamThreadId(threadId);
+        const member =
+          team &&
+          (await assertTeamThreadMember(db, {
+            ownerManagerUserId: team.ownerManagerUserId,
+            propertyId: team.propertyId,
+            userId: user.id,
+            level: "edit",
+          }));
+        if (!team || !member) {
+          return NextResponse.json({ ok: false, error: "You cannot post to this team thread." }, { status: 403 });
+        }
+        const { data: actorProfile } = await db.from("profiles").select("full_name").eq("id", user.id).maybeSingle();
+        const actorName = String(actorProfile?.full_name ?? "").trim() || fromName;
+        const messageId = `team-reply:${sendId || crypto.randomUUID()}`;
+        const posted = await postTeamThreadMessage(db, {
+          ownerManagerUserId: team.ownerManagerUserId,
+          propertyId: team.propertyId,
+          actorUserId: user.id,
+          actorName,
+          subject,
+          text,
+          messageId,
+          consumeDraft: true,
+        });
+        if (!posted.ok) return NextResponse.json({ ok: false, error: posted.error }, { status: 500 });
+        const mirrorTask = () =>
+          mirrorTeamThreadMessageToSms(db, {
+            ownerManagerUserId: team.ownerManagerUserId,
+            propertyId: team.propertyId,
+            module: "inbox",
+            actorUserId: user.id,
+            subject,
+            text,
+            messageId,
+          }).catch((e) => console.error("team-thread SMS mirror failed", e));
+        try {
+          after(mirrorTask);
+        } catch {
+          void mirrorTask();
+        }
+        return NextResponse.json({ ok: true, teamHandled: true, posted: posted.posted });
       }
 
       if (replyTarget.threadType === "agent_notice" && replyTarget.ownerUserId === user.id) {

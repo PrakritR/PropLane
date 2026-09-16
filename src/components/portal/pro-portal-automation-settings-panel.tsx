@@ -33,6 +33,7 @@ import {
   type ReminderSettings,
   type ReminderSubjectKind,
 } from "@/lib/reminders/rules";
+import type { AutomationSendMode } from "@/lib/automation-send-mode";
 import { formatMinutes } from "@/lib/reminders/timings";
 import { ReminderSentHistory } from "@/components/portal/reminder-sent-history";
 import {
@@ -296,6 +297,43 @@ export function ManagerPortalAutomationSettingsPanel({
                 <span className="text-muted">({formatMinutes(60)} blocks, Pacific time)</span>
               </div>
             ) : null}
+          </PortalSettingsGroup>
+        </PortalSettingsSection>
+
+        <PortalSettingsSection title="Team & automated sends">
+          <PortalSettingsGroup>
+            <PortalSettingsRow label="Team notices send automatically">
+              <PortalSettingsToggle
+                checked={settings.automationSendMode.team === "auto"}
+                onChange={(checked) =>
+                  setSettings((c) => ({
+                    ...c,
+                    automationSendMode: {
+                      ...c.automationSendMode,
+                      team: (checked ? "auto" : "draft") satisfies AutomationSendMode,
+                    },
+                  }))
+                }
+                label="Team notices auto-send"
+                dataAttr="settings-toggle-team-auto-send"
+              />
+            </PortalSettingsRow>
+            <PortalSettingsRow label="Resident & vendor messages need my approval first">
+              <PortalSettingsToggle
+                checked={settings.automationSendMode.partyFacing === "draft"}
+                onChange={(checked) =>
+                  setSettings((c) => ({
+                    ...c,
+                    automationSendMode: {
+                      ...c.automationSendMode,
+                      partyFacing: (checked ? "draft" : "auto") satisfies AutomationSendMode,
+                    },
+                  }))
+                }
+                label="Resident and vendor messages draft for review"
+                dataAttr="settings-toggle-party-facing-draft"
+              />
+            </PortalSettingsRow>
           </PortalSettingsGroup>
         </PortalSettingsSection>
 

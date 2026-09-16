@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import type { ServiceRequest } from "@/lib/service-requests-storage";
 import { residentHasSignedLease, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
-import { emitActionEvent, type ActionEventAudience, type ActionEventRendered } from "@/lib/action-events.server";
+import { emitActionEvent, teamRecipientKey, type ActionEventAudience, type ActionEventRendered } from "@/lib/action-events.server";
 import { applyAutomatedMessageSetting, type AutomatedMessageSettings } from "@/lib/automated-messages-settings";
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
@@ -87,6 +87,7 @@ export function renderPaymentActionEvent(
   if (event === "payment_processing" && audience === "resident") text = `Your ${amount} payment for “${title}” is processing.`;
   if (event === "payment_received" && audience === "resident") text = `Your ${amount} payment for “${title}” was received.`;
   if (event === "payment_received" && audience === "manager") text = `${amount} was received for “${title}”${at}.`;
+  if (event === "payment_received" && audience === "team") text = `${amount} was received for “${title}”${at}.`;
   if (event === "payment_failed" && audience === "resident") text = `Your payment for “${title}” could not be completed. Review Payments for next steps.`;
   if (event === "payment_failed" && audience === "manager") text = `Payment failed for “${title}”${at}.`;
   if (event === "payment_refunded" && audience === "resident") text = `${amount} for “${title}” was refunded.`;
@@ -121,6 +122,7 @@ export function renderLeaseActionEvent(
       ? `Your renewal${at} is ready to review and sign. Your current lease keeps running until it is signed.`
       : `Your lease${at} is ready to review and sign.`;
   if (event === "lease_sent" && audience === "manager") text = `${resident} was sent the ${noun}${at}.`;
+  if (event === "lease_sent" && audience === "team") text = `I sent ${resident}'s ${noun}${at} for signature.`;
   if (event === "lease_signed_by_resident" && audience === "resident")
     text = `Thanks — your ${noun}${at} is signed. It now goes to your property manager to countersign, and you will hear from us when it is fully executed.`;
   if (event === "lease_signed_by_resident" && audience === "manager")
@@ -162,12 +164,16 @@ export function renderApplicationActionEvent(
     text = `Good news — your application${at} was approved. Your lease and payments are now open in PropLane.`;
   if (event === "application_approved" && audience === "manager")
     text = `You approved ${applicant}'s application${at}.`;
+  if (event === "application_approved" && audience === "team")
+    text = `I approved ${applicant}'s application${at}. Lease generation is next.`;
   if (event === "application_declined" && audience === "resident")
     // Deliberately gives no reason. Adverse-action reasoning is a regulated
     // disclosure the manager sends deliberately, never an automated line.
     text = `Your application${at} was not approved. Your property manager can tell you more.`;
   if (event === "application_declined" && audience === "manager")
     text = `You declined ${applicant}'s application${at}.`;
+  if (event === "application_declined" && audience === "team")
+    text = `I declined ${applicant}'s application${at}.`;
   if (event === "application_withdrawn" && audience === "manager")
     text = `${applicant} withdrew their application${at}.`;
   if (event === "application_withdrawn" && audience === "resident")
@@ -180,6 +186,8 @@ type ApplicationRowFacts = {
   name?: string | null;
   email?: string | null;
   property?: string | null;
+  propertyId?: string | null;
+  assignedPropertyId?: string | null;
   bucket?: string | null;
   withdrawnAt?: string | null;
   residentUserId?: string | null;
@@ -245,6 +253,9 @@ export async function emitApplicationTransition(
     propertyLabel: input.application.property?.trim() || undefined,
     responsePromise: promiseDays > 0 ? `within ${promiseDays} ${promiseDays === 1 ? "day" : "days"}` : undefined,
   };
+  // Auto-send vs draft-for-review is decided on the bus itself
+  // (`emitActionEvent` reads the workspace's `automationSendMode`), the same
+  // way for every domain — nothing is decided per emitter here.
   const audiences: Array<{ audience: ActionEventAudience; userId?: string; email?: string }> = [
     {
       audience: "resident",
@@ -256,6 +267,12 @@ export async function emitApplicationTransition(
   // transition is one this bus is the only sender of.
   if (event !== "application_submitted") {
     audiences.push({ audience: "manager", userId: input.managerUserId });
+  }
+  // WS5: the approval/decline is a team-visible moment ("lease generation is
+  // next" for an approval). Withdrawals and the initial submit stay off the
+  // team channel — nothing was decided yet.
+  if (event === "application_approved" || event === "application_declined") {
+    audiences.push({ audience: "team", userId: input.managerUserId });
   }
   const marker =
     event === "application_withdrawn"
@@ -271,7 +288,10 @@ export async function emitApplicationTransition(
     senderUserId: actor.userId,
     senderEmail: actor.email,
     senderName: actor.name,
-    payload: { bucket: input.application.bucket ?? null },
+    payload: {
+      bucket: input.application.bucket ?? null,
+      propertyId: input.application.assignedPropertyId?.trim() || input.application.propertyId?.trim() || null,
+    },
     templateContext: { applicantName: facts.applicantName, propertyTitle: facts.propertyLabel ?? "", responsePromise: facts.responsePromise ?? "" },
     recipients: audiences.flatMap((recipient) => {
       const rendered = renderApplicationActionEvent(event, recipient.audience, facts);
@@ -420,6 +440,12 @@ export async function emitHouseholdChargeTransition(
     { audience: "resident", userId: input.charge.residentUserId ?? undefined, email: input.charge.residentEmail || undefined },
     { audience: "manager", userId: input.managerUserId },
   ];
+  // WS5: a payment landing is worth the team knowing about; every other
+  // payment transition (created/processing/failed/refunded/…) stays off the
+  // team channel to keep it to moments, not a running ledger feed.
+  if (event === "payment_received") {
+    audiences.push({ audience: "team", userId: input.managerUserId });
+  }
   await emitActionEvent(db, {
     eventId: input.transitionId || `${input.charge.id}:${event}:${input.charge.paidAt || input.charge.createdAt || input.charge.status}`,
     domain: "payment",
@@ -509,6 +535,10 @@ export function buildDurableLeaseTransitionEnvelope(input: {
   const recipients = [
     { audience: "resident" as const, userId: input.lease.residentUserId ?? undefined, email: input.lease.residentEmail || undefined },
     { audience: "manager" as const, userId: input.managerUserId, email: undefined },
+    // WS5: team-audience only on lease_sent, and only the manager themself as
+    // recipientUserId, keyed `team:<manager>` — the atomic RPC validates that
+    // (see `20260916140000_team_delivery_recipient_key.sql`).
+    ...(event === "lease_sent" ? [{ audience: "team" as const, userId: input.managerUserId, email: undefined }] : []),
   ];
   const deliveries = recipients.flatMap((recipient) => {
     const defaultRendered = renderLeaseActionEvent(event, recipient.audience, facts);
@@ -521,9 +551,12 @@ export function buildDurableLeaseTransitionEnvelope(input: {
           context: { residentName: facts.residentName, propertyTitle: propertyLabel ?? "", url: "" },
         })
       : null;
-    const recipientKey = recipient.userId?.trim() || recipient.email?.trim().toLowerCase() || "";
+    const recipientKey =
+      recipient.audience === "team"
+        ? teamRecipientKey(input.managerUserId)
+        : recipient.userId?.trim() || recipient.email?.trim().toLowerCase() || "";
     if (!rendered || !recipientKey) return [];
-    const directUrl = `${base}${recipient.audience === "manager" ? managerPath : residentPath}`;
+    const directUrl = `${base}${recipient.audience === "resident" ? residentPath : managerPath}`;
     return [{
       audience: recipient.audience,
       recipientKey,
@@ -567,6 +600,9 @@ export async function emitLeaseTransition(
     { audience: "resident", userId: input.lease.residentUserId ?? undefined, email: input.lease.residentEmail || undefined },
     { audience: "manager", userId: input.managerUserId },
   ];
+  if (event === "lease_sent") {
+    audiences.push({ audience: "team", userId: input.managerUserId });
+  }
   // The eventId is the idempotency key, so each event needs a marker that moves
   // only when THAT event happens. Reusing `updatedAtIso` for a signature step
   // would mint a fresh key on every unrelated save and re-notify both parties.

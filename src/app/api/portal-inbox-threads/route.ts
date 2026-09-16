@@ -15,6 +15,7 @@ import {
   resolveInboxScopeUser,
 } from "@/lib/portal-inbox-thread-scope";
 import { ensureManagerAgentNoticeThread } from "@/lib/agent-notify.server";
+import { isTeamThreadId, updateTeamThreadMailboxState } from "@/lib/team-comms.server";
 import { ensureResidentAgentThread } from "@/lib/agent/resident-inbox-agent.server";
 import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
 import {
@@ -335,6 +336,10 @@ export async function POST(req: Request) {
           await updateSmsNoticeMailboxState(ctx.db, existing[0], normalized);
           continue;
         }
+        if ((existing[0] as { thread_type?: string | null }).thread_type === "team" || isTeamThreadId(id)) {
+          await updateTeamThreadMailboxState(ctx.db, { id }, normalized);
+          continue;
+        }
 
         const prior = existing[0] as {
           owner_user_id?: string | null;
@@ -344,6 +349,8 @@ export async function POST(req: Request) {
         record.owner_user_id = prior.owner_user_id ?? record.owner_user_id;
         record.participant_email = record.participant_email ?? prior.participant_email ?? null;
         record.scope = prior.scope ?? record.scope;
+      } else if (isTeamThreadId(id)) {
+        continue;
       } else if (ctx.user.role !== "admin") {
         record.owner_user_id = ctx.user.id;
       }

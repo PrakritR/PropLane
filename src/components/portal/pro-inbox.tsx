@@ -49,6 +49,7 @@ import {
   lastInboundChannelOf,
   inboxThreadSortMs,
   inboxMessageOutbound,
+  advanceInboxAiDraft,
   appendReplyToInboxThread,
   collapsePersonInboxThreads,
   inboxThreadManagerReplyPending,
@@ -116,7 +117,7 @@ import {
 import {
   resolveCommunicationInboxThread,
 } from "@/lib/communication-assistant-inbox-list";
-import { isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
+import { isPropLaneAssistantInboxThread, isTeamInboxThread } from "@/lib/communication-inbox-assistant";
 import { sendPropLaneAssistantInboxMessage } from "@/lib/assistant-inbox-reply";
 import { buildManagerInboxLiveContacts } from "@/lib/manager-inbox-contacts";
 import {
@@ -167,6 +168,8 @@ type InboxThread = {
   unread: boolean;
   messages?: InboxThreadMessage[];
   aiDraft?: InboxAiDraft;
+  aiDraftQueue?: InboxAiDraft[];
+  resolvedAiDraftIds?: string[];
 };
 
 function threadEligibleForAiDraft(thread: InboxThread): boolean {
@@ -761,7 +764,9 @@ export const ManagerInbox = forwardRef<
     ) => {
       const thread = localRef.current.find((t) => t.id === rowId);
       if (!thread) return;
-      const assistantThread = isPropLaneAssistantInboxThread(thread);
+      // A Team thread replies the way an assistant thread does: in-app only,
+      // no person counterparty — the send route posts it to the team.
+      const assistantThread = isPropLaneAssistantInboxThread(thread) || isTeamInboxThread(thread);
       const portalRecipient = assistantThread
         ? null
         : resolveManagerInboxPortalRecipient(thread, smsRecipients, smsOutboundEnabled);
@@ -809,7 +814,7 @@ export const ManagerInbox = forwardRef<
       setLocal((current) =>
         current.map((row) =>
           row.id === thread.id
-            ? { ...appendReplyToInboxThread(row, reply), aiDraft: undefined }
+            ? advanceInboxAiDraft(appendReplyToInboxThread(row, reply))
             : row,
         ),
       );
@@ -973,10 +978,7 @@ export const ManagerInbox = forwardRef<
           )
             ? currentThread
             : appendReplyToInboxThread(currentThread, reply);
-          const delivered = {
-            ...markThreadMessageDelivery(withReply, replyId, undefined),
-            aiDraft: undefined,
-          };
+          const delivered = advanceInboxAiDraft(markThreadMessageDelivery(withReply, replyId, undefined));
           const persisted = currentRows.map((row) =>
             row.id === thread.id ? delivered : row,
           );
@@ -1736,8 +1738,19 @@ export const ManagerInbox = forwardRef<
         // updater. `persistInbox` dispatches the shared inbox-change event, so
         // calling it while React is rendering this updater synchronously asks
         // every inbox observer to update during another component's render.
+        // A queued automation draft still waiting on this thread is kept
+        // behind the fresh reply draft, never silently replaced by it.
         const next = localRef.current.map((thread) =>
-          thread.id === threadId ? { ...thread, aiDraft: data.draft } : thread,
+          thread.id === threadId
+            ? {
+                ...thread,
+                aiDraft: data.draft,
+                aiDraftQueue:
+                  thread.aiDraft?.status === "pending_approval" && thread.aiDraft.text !== data.draft?.text
+                    ? [thread.aiDraft, ...(thread.aiDraftQueue ?? [])]
+                    : thread.aiDraftQueue,
+              }
+            : thread,
         );
         setLocal(next);
         // The existing `local` persistence effect runs after this update has
@@ -1792,7 +1805,7 @@ export const ManagerInbox = forwardRef<
 
   const discardActiveDraft = useCallback(async () => {
     if (!activeThread?.aiDraft) return;
-    const updated: InboxThread = { ...activeThread, aiDraft: undefined };
+    const updated: InboxThread = advanceInboxAiDraft(activeThread);
     const next = local.map((t) => (t.id === activeThread.id ? updated : t));
     setDiscardedDraftIds((prev) => new Set(prev).add(activeThread.id));
     persistInboxRef.current = false;
@@ -1878,6 +1891,9 @@ export const ManagerInbox = forwardRef<
   useEffect(() => {
     if (!aiAutoSend || !activeThread?.aiDraft?.text) return;
     if (activeThread.aiDraft.status !== "pending_approval") return;
+    // A draft the workspace queued FOR review is the one thing auto-send must
+    // never touch — the manager turned that on to see it first.
+    if (activeThread.aiDraft.requiresReview) return;
     if (approvingDraft || draftingIds.has(activeThread.id)) return;
     if (!hasInboxReplyChannelSelected({
       viaEmail: activeEmailAvailable && aiDraftViaEmail,
@@ -1895,6 +1911,7 @@ export const ManagerInbox = forwardRef<
     activeThread?.id,
     activeThread?.aiDraft?.text,
     activeThread?.aiDraft?.status,
+    activeThread?.aiDraft?.requiresReview,
     activeEmailAvailable,
     activeSmsAvailable,
     activeProplaneAvailable,

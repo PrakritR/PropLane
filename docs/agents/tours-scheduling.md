@@ -25,6 +25,17 @@ the proposal is a gated pending action the manager approves. Invariants:
   removal, `notifyTenantTourConfirmed`. Never duplicate booking logic; the tool
   path passes `guardDoubleBook: true` (refuse a slot a confirmed tour occupies),
   the manual route leaves it off to keep its override behavior.
+- **First approve wins.** Several managers can claim one pending request (see
+  the host roster below), and `confirmTourInquiry` is a read-modify-write on
+  shared JSON singletons, so it takes a row in `tour_inquiry_claims` (primary
+  key on the inquiry id, `20260916120500_tour_inquiry_claim_guard.sql`)
+  BEFORE it reads any state and releases it in `finally`. A concurrent second
+  approve, or a request the planned set already holds as an active tour, is a
+  409 "Another manager already took this tour", never a second booking. The
+  table is a short-lived mutex (stale rows older than two minutes are cleared
+  on retry; it is retained by the purge manifest). Coverage:
+  `tests/unit/tour-inquiry-confirm-claim.test.ts`,
+  `tests/integration/database/tour-inquiry-claim.test.ts`.
 - **Reuses the confirm gate.** The proposal is an `agent_pending_actions` row
   (`confirm_tour_inquiry` write tool in `agentRegistry`) with a 7-day expiry;
   approve/discard go through `runConfirmedPendingAction`/`denyPendingAction`
@@ -98,13 +109,32 @@ remove the last place two definitions of "open" can drift.
   Gating only the default branch is not enough — `manager_availability` rows are
   GLOBAL to the manager, so a draft/pending/review/unlisted listing would still
   hand its manager's real portfolio calendar to anyone holding its id.
+- **Hosts are the whole roster, not the owner alone.** `listPropertyTourHostUserIds`
+  (`src/lib/tour-host-enumeration.server.ts`) is the one enumeration: the
+  owner plus every accepted co-manager assigned the house with `calendar` or
+  `applications` at **edit**; an unreadable grant table narrows to the owner.
+  `listOpenTourSlots` unions every host's published availability (and default
+  grid), `managerMayHostPropertyTour` delegates its co-manager half to it,
+  `createTourInquiry` re-derives the row's `eligibleHostUserIds` from it
+  (`resolveEligibleTourHostUserIds` — the browser's candidate list is only a
+  hint, every candidate still has to host the house AND have published the
+  slot), and the client's `tourInquiryVisibleToViewer` reads that recorded
+  set. So what a co-manager can SEE pending is exactly what they can CLAIM.
+  Coverage: `tests/unit/tour-host-enumeration.test.ts`,
+  `tests/unit/tour-availability-co-manager-union.test.ts`,
+  `tests/unit/tour-inquiry-eligible-hosts.test.ts`.
 - **Already-booked** is pending inquiries AND confirmed planned tours; a
   reschedule drops the stale `slotKey` so the old window is not still blocked.
 - **Calendar-busy** is the manager's linked Google Calendar, cached per manager
   in-process because this route is public and uncached — and only reused for a
   window the cached read actually COVERS, since busy time is subtracted across
   the whole range of slots the response offers, not just the default horizon
-  (`googleBusyWindowEndMs`). What counts as busy is `googleEventBlocksTours`
+  (`googleBusyWindowEndMs`). The persisted `google_meeting` mirror (below) is
+  read INDEPENDENTLY of the live call and merged in, deduped by Google event
+  id with the live copy winning — so a stalled, truncated or failed live read
+  still blocks whatever the mirror holds instead of failing fully open
+  (`tests/unit/google-calendar-busy-persisted-meetings.test.ts`). What counts
+  as busy is `googleEventBlocksTours`
   (`google-calendar/busy.ts`) — declined never blocks, informational types
   (`birthday`, `workingLocation`) never block, Free ("transparent") does not,
   out-of-office/focus-time always do. The MANAGER calendar runs the SAME
@@ -211,22 +241,83 @@ that already happened offline, so there is nobody to propose to. The demo branch
   and must stay that way. PropLane-pushed tours and service visits keep their
   own rendering. Coverage: `tests/unit/google-calendar-meetings.test.ts`.
 - **Clicking a free slot publishes exactly that slotKey.** The compact grid's
-  single-cell Add goes through `addExplicitTourSlotKeys` → the same
-  `writeAvailabilityDateSetForStorageKeyToServer` path "Add availability" uses,
-  so the public grid and the manager grid read one store. The 9-5 band is
-  carried along on the first explicit paint of a day ONLY while the band is on
-  (`defaultConfig.enabled`, the same switch `resolveTourOfferingSlots` reads);
-  both manager calendars pass it off, and `defaultTourGridEnabled` defaults to
-  off for the public route too, so a click on an empty day used to publish
-  sixteen windows the manager never chose. Clicking an OPEN slot opens its
-  details (Delete slot); a busy cell opens the block. Coverage:
+  single-cell add (a faint hover-only `+`) goes through `addExplicitTourSlotKeys`
+  → the same `writeAvailabilityDateSetForStorageKeyToServer` path "Add
+  availability" uses, so the public grid and the manager grid read one store.
+  The 9-5 band is carried along on the first explicit paint of a day ONLY
+  while the band is on (`defaultConfig.enabled`, the same switch
+  `resolveTourOfferingSlots` reads); both manager calendars pass it off, and
+  `defaultTourGridEnabled` defaults to off for the public route too, so a
+  click on an empty day used to publish sixteen windows the manager never
+  chose. A busy cell opens the block. Coverage:
   `tests/unit/calendar-free-slot-click-writes-one-slot.test.tsx`,
   `tests/unit/calendar-single-slot-add.test.ts`.
+- **Clicking an OPEN block opens "Edit availability block"** — the same form
+  as "Create recurring availability block", prefilled from the run (this
+  occurrence only). *Save changes* strips the original run and re-applies the
+  form in one `mutateAvailability` pass per kind (an edited default-band run
+  materialises the rest of that day's band first); *Delete block* removes it.
+  That dialog is the only delete — there is no per-run × on the grid and no
+  half-hour picker, by decision (PLAN-0916-0041). Block labels read by
+  category (`formatOpenRunKindsLabel`: "Tours", "Tours · Services"; the
+  default band reads "Tours"), and a manager's day header reads
+  `N open [· N booked]`, never a bare event count over painted availability.
+  Coverage: `npm run test:calendar-availability`
+  (`tests/browser/calendar-availability/`),
+  `tests/unit/calendar-kind-availability.test.tsx`,
+  `tests/unit/calendar-open-runs.test.ts`.
 - **No drag-and-drop of busy blocks.** The only drag in the grid is the
   mouse-drag that paints a multi-slot availability selection
   (`startDragSelection` / `extendDragSelection` in `portal-calendar-panels.tsx`);
   nothing moves a meeting or a Google block, and the Google link never
   reschedules a personal event.
+
+## Google two-way sync (WS3)
+
+Everything the manager enters lands on Google — availability as free, tours
+and service visits as busy — and Google's own meetings land in PropLane.
+
+- **Pull → `google_meeting` rows.** `pullGoogleCalendarMeetings`
+  (`src/lib/google-calendar/pull.server.ts`) mirrors every non-PropLane
+  Google event into `portal_schedule_records` as record type `google_meeting`
+  (`axis_google_meeting_<manager>_<eventId>`, idempotent). It is incremental:
+  the connection carries a `syncToken`; a 410 clears it and the next pull is a
+  full resync that reconciles the mirror. The cursor advances only after the
+  rows persist. Those rows both render on the manager calendar and block
+  bookings (the busy path above), and are loaded even when the live Google
+  read fails. Coverage: `tests/unit/google-calendar-pull.test.ts`,
+  `tests/unit/google-calendar-persisted-meetings.test.ts`,
+  `tests/unit/google-calendar-events-route-mirror.test.ts`.
+- **Two triggers, one function.** `POST /api/portal/google-calendar/webhook`
+  receives `events.watch` push notifications; trust is ONLY the HMAC-signed
+  `X-Goog-Channel-Token` minted at watch time, and a token, channel or
+  resource id that does not match the manager's stored connection is a quiet
+  200 with no pull (never a 4xx Google would retry). The events route also
+  runs a poll-on-read pull in `after()`, so a host where push cannot be stood
+  up still converges. The watch channel (~7-day cap) is renewed lazily by the
+  pull when missing or within a day of expiry; disconnect stops it.
+- **Availability push.** `syncManagerAvailabilityToGoogleCalendar`
+  (`sync.server.ts`), run from `/api/portal-schedule-records`' `afterWrite`
+  hook on `manager_availability` / `manager_property_availability` saves,
+  pushes painted tour availability as **transparent** "Open for tours" events
+  marked `Type: availability` (`PROPLANE_AVAILABILITY_TYPE_MARKER`). It is
+  delete-then-recreate, serialized per record through a server-owned
+  `google_availability_push` state row (`axis_gcal_avail_push_<recordId>`,
+  CAS on `updated_at`; a push that finds the lock held marks it dirty and the
+  holder re-runs), and an id whose Google delete failed is retained for the
+  next push. The echo of those events is filtered out of the live feed
+  (`isGoogleCalendarAvailabilityEcho`) so a manager never sees their own open
+  cells twice. Coverage: `tests/unit/google-calendar-availability-push.test.ts`,
+  `tests/unit/portal-schedule-records-availability-save.test.ts`.
+- **The connect panel is a status card** (`google-calendar-connect-panel.tsx`):
+  connected shows the linked email, a "Live" badge and Disconnect; not
+  connected shows one "Connect Google Calendar" button. The Test-users
+  recovery steps appear only after a real `access_denied`. Publishing the
+  OAuth app (Google Cloud Console → APIs & Services → OAuth consent screen →
+  Publish app → Production, then submit `calendar.events` for verification so
+  managers connect without the Advanced step) is a **one-time captain action
+  on the Google Cloud project**, never a per-manager step, and is not shown in
+  the product.
 
 ## Filing a tour request: `createTourInquiry`
 

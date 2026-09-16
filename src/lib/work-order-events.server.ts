@@ -48,10 +48,12 @@ export type WorkOrderEventType =
   | "invoice_approved"
   | "invoice_disputed"
   | "paid";
-export type WorkOrderEventAudience = "manager" | "resident" | "vendor";
+export type WorkOrderEventAudience = "manager" | "resident" | "vendor" | "team";
 
 export type WorkOrderEventFacts = {
   reference: string;
+  /** The house the job is on — routes the WS5 team copy to that house's thread and its Services roster. */
+  propertyId?: string;
   title: string;
   propertyLabel?: string;
   scheduledFor?: string;
@@ -132,6 +134,7 @@ export function renderWorkOrderEvent(
     if (audience === "resident") text = `${ref}: ${vendor} is booked for ${when}.`;
     if (audience === "vendor") text = `${ref}: Your offer was accepted for “${title}”${at}. Visit: ${when}.${facts.accessInstructions ? ` Access: ${facts.accessInstructions}` : ""}${facts.residentContact ? ` Resident contact: ${facts.residentContact}` : ""}`;
     if (audience === "manager") text = `${ref}: ${vendor} accepted “${title}” for ${money(facts.amountCents)}.`;
+    if (audience === "team") text = `${ref}: ${vendor} was assigned to “${title}”${at}.`;
   } else if (event === "scheduled") {
     if (audience === "resident") text = `${ref}: ${vendor} is scheduled for ${when}. Please make the area accessible.`;
     if (audience === "vendor") text = `${ref}: Visit confirmed for ${when}${at}.`;
@@ -154,6 +157,7 @@ export function renderWorkOrderEvent(
     }
     if (audience === "vendor") text = `${ref}: “${title}” is marked done. Submit your invoice if one is still needed.`;
     if (audience === "manager") text = `${ref}: “${title}” is done and awaiting invoice or approval.`;
+    if (audience === "team") text = `${ref}: “${title}”${at} is marked done.`;
   } else if (event === "resident_confirmed") {
     if (audience === "resident") text = `${ref}: Thanks — “${title}” is closed.${facts.ratingUrl ? ` Rate the visit: ${facts.ratingUrl}` : ""}`;
     if (audience === "manager") text = `${ref}: ${facts.residentName?.trim() || "The resident"} confirmed “${title}” is fixed.`;
@@ -208,32 +212,56 @@ async function managerSender(db: SupabaseClient, managerUserId: string): Promise
   return { userId: managerUserId, email, name: String(data?.full_name ?? "").trim() || undefined };
 }
 
+type WorkOrderEventInput = {
+  eventId: string;
+  event: WorkOrderEventType;
+  managerUserId: string;
+  workOrderId: string;
+  senderUserId: string;
+  senderEmail: string;
+  senderName?: string;
+  facts: WorkOrderEventFacts;
+  recipients: WorkOrderEventRecipient[];
+  occurredAt?: string;
+  now?: Date;
+  /** Who is acting. Defaults to manager; a vendor or resident actor triggers the cross-party split above. */
+  senderAudience?: WorkOrderEventAudience;
+};
+
+/**
+ * Public entry point. Injects the WS5 team-audience recipient exactly ONCE,
+ * before the cross-party split below can recurse — `workOrderEventImpl`'s
+ * recursive self-calls go through the impl directly so a re-entry never
+ * re-injects and double-posts to the team thread.
+ */
 export async function workOrderEvent(
   db: SupabaseClient,
-  input: {
-    eventId: string;
-    event: WorkOrderEventType;
-    managerUserId: string;
-    workOrderId: string;
-    senderUserId: string;
-    senderEmail: string;
-    senderName?: string;
-    facts: WorkOrderEventFacts;
-    recipients: WorkOrderEventRecipient[];
-    occurredAt?: string;
-    now?: Date;
-    /** Who is acting. Defaults to manager; a vendor or resident actor triggers the cross-party split above. */
-    senderAudience?: WorkOrderEventAudience;
-  },
+  input: WorkOrderEventInput,
+): Promise<{ eventId: string; duplicate: boolean; delivered: number; deferred: number; failed: number }> {
+  // WS5: "assigned" (accepted) and "completed" are team-visible moments.
+  // Centralized here (rather than at each of the ~10 call sites) so no
+  // caller needs to resolve team membership itself.
+  const needsTeam =
+    (input.event === "accepted" || input.event === "completed") &&
+    !input.recipients.some((recipient) => recipient.audience === "team");
+  const recipients = needsTeam
+    ? [...input.recipients, { audience: "team" as const, userId: input.managerUserId }]
+    : input.recipients;
+  return workOrderEventImpl(db, { ...input, recipients });
+}
+
+async function workOrderEventImpl(
+  db: SupabaseClient,
+  input: WorkOrderEventInput,
 ): Promise<{ eventId: string; duplicate: boolean; delivered: number; deferred: number; failed: number }> {
   if (input.senderAudience && input.senderAudience !== "manager") {
     const crossParty = input.recipients.filter((recipient) => recipient.audience !== "manager" && recipient.audience !== input.senderAudience);
     if (crossParty.length > 0) {
       const own = input.recipients.filter((recipient) => !crossParty.includes(recipient));
       const manager = await managerSender(db, input.managerUserId);
-      const first = await workOrderEvent(db, { ...input, recipients: own, senderAudience: undefined });
+      const first = await workOrderEventImpl(db, { ...input, recipients: own, senderAudience: undefined });
       if (manager) {
-        await workOrderEvent(db, {
+        await workOrderEventImpl(db, {
           ...input,
           eventId: `${input.eventId}:as-manager`,
           senderUserId: manager.userId,
@@ -269,6 +297,7 @@ export async function workOrderEvent(
     payload: {
       reference: input.facts.reference,
       emergency: input.facts.emergency === true,
+      propertyId: input.facts.propertyId?.trim() || null,
     },
     recipients: input.recipients.flatMap((recipient) => {
       const rendered = renderWorkOrderEvent(input.event, recipient.audience, input.facts);

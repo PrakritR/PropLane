@@ -253,7 +253,12 @@ export async function approveAndPayWorkOrder(
       workOrderId: workOrder.id,
       senderUserId: actor.userId,
       senderEmail: actor.email,
-      facts: { reference: paid.reference || "Work order", title, propertyLabel: propertyLabel || undefined },
+      facts: {
+        reference: paid.reference || "Work order",
+        propertyId: paid.assignedPropertyId || paid.propertyId || undefined,
+        title,
+        propertyLabel: propertyLabel || undefined,
+      },
       recipients: [{ audience: "resident", email: residentEmail }],
     }).catch(() => undefined);
   }

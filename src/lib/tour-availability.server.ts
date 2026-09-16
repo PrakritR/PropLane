@@ -4,10 +4,13 @@ import {
   GOOGLE_CALENDAR_OPERATION_TIMEOUT_MS,
   isGoogleCalendarNotLinkedError,
   listGoogleCalendarEvents,
+  type GoogleCalendarApiEvent,
 } from "@/lib/google-calendar/api.server";
 import { googleEventBlocksTours } from "@/lib/google-calendar/busy";
+import { loadPersistedGoogleMeetings } from "@/lib/google-calendar/persisted-meetings.server";
 import { publicSchedulingHostLabel } from "@/lib/public-host-label";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { listPropertyTourHostUserIds } from "@/lib/tour-host-enumeration.server";
 import {
   DEFAULT_MANAGER_TOUR_SETTINGS,
   loadTourNoticeDaysByManager,
@@ -16,6 +19,7 @@ import {
 } from "@/lib/manager-tour-settings";
 import {
   DEFAULT_TOUR_HORIZON_DAYS,
+  TOUR_HORIZON_MAX_DAYS,
   isActivePlannedTourEvent,
   payloadSlots,
   resolveTourOfferingSlots,
@@ -166,7 +170,7 @@ function withDeadline<T>(work: Promise<T>, budgetMs: number): Promise<T> {
 function googleBusyWindowEndMs(offeredSlots: readonly string[], now: number = Date.now()): number {
   const dayMs = 24 * 60 * 60 * 1000;
   const defaultEnd = now + DEFAULT_TOUR_HORIZON_DAYS * dayMs;
-  const maxEnd = defaultEnd + 365 * dayMs;
+  const maxEnd = now + TOUR_HORIZON_MAX_DAYS * dayMs;
   let furthest = defaultEnd;
   for (const slot of offeredSlots) {
     const startMs = slotStartMs(slot);
@@ -197,6 +201,14 @@ export async function googleBusyBlocks(
   const windowEndMs = Date.parse(timeMax);
   const cached = googleBusyCache.get(managerUserId);
   if (cached && cached.expiresAt > Date.now() && cached.windowEndMs >= windowEndMs) return cached.blocks;
+  // Persisted `google_meeting` rows (webhook/poll-pulled — see pull.server.ts)
+  // are read INDEPENDENTLY of the live pull: they are the fallback for exactly
+  // the moment the live read stalls, is truncated, or fails, so they must not
+  // sit behind it. Deduped by Google event id below so a meeting present in
+  // both never becomes two blocks — the live copy wins on any overlap.
+  const persisted = await loadPersistedGoogleMeetings(db, managerUserId, timeMin, timeMax);
+  const blocksFrom = (events: readonly GoogleCalendarApiEvent[]) =>
+    events.filter(googleEventBlocksTours).map((event) => ({ start: event.start, end: event.end }));
   try {
     // A whole-operation deadline on top of the per-hop ones: this route is
     // PUBLIC and uncached, so a slow Google must never stretch a prospect's
@@ -205,14 +217,14 @@ export async function googleBusyBlocks(
       listGoogleCalendarEvents(db, managerUserId, timeMin, timeMax),
       GOOGLE_BUSY_READ_BUDGET_MS,
     );
-    const blocks = events
-      .filter(googleEventBlocksTours)
-      .map((event) => ({ start: event.start, end: event.end }));
+    const liveIds = new Set(events.map((event) => event.id));
+    const blocks = blocksFrom([...events, ...persisted.filter((event) => !liveIds.has(event.id))]);
     cacheGoogleBusyBlocks(managerUserId, blocks, windowEndMs);
     return blocks;
   } catch (e) {
-    // A manager without a working calendar link simply contributes no busy
-    // time — never fail the whole availability read over one integration.
+    // A manager without a working calendar link contributes only whatever the
+    // persisted mirror still holds — never fail the whole availability read
+    // over one integration.
     //
     // But WHY it failed decides how long that empty answer is reused, and the
     // two cases pull opposite ways:
@@ -224,13 +236,14 @@ export async function googleBusyBlocks(
     //   more reads on a plan where egress is an explicit constraint. It gets
     //   the full success TTL.
     // - Anything else (stall, abort, 5xx, network) might clear on the next try,
-    //   and until it does the empty list is failing OPEN — so it gets the short
-    //   transient TTL.
+    //   and until it does the mirror-only answer is failing OPEN for anything
+    //   the mirror has not caught up on — so it gets the short transient TTL.
     const ttlMs = isGoogleCalendarNotLinkedError(e)
       ? GOOGLE_BUSY_TTL_MS
       : GOOGLE_BUSY_TRANSIENT_FAILURE_TTL_MS;
-    cacheGoogleBusyBlocks(managerUserId, [], windowEndMs, ttlMs);
-    return [];
+    const blocks = blocksFrom(persisted);
+    cacheGoogleBusyBlocks(managerUserId, blocks, windowEndMs, ttlMs);
+    return blocks;
   }
 }
 
@@ -374,11 +387,6 @@ export async function listOpenTourSlots(
       return { ok: true, slotHosts: {}, resolution: "unavailable" };
     }
 
-    const managerIds = [
-      ...new Set(
-        matchingPropertyRecords.map(({ managerUserId }) => managerUserId),
-      ),
-    ];
     const propertyIdsByManager = new Map<string, Set<string>>();
     const requestedPropertyIds = new Set([propertyId, safeId].filter(Boolean));
     for (const { managerUserId, property } of matchingPropertyRecords) {
@@ -392,6 +400,36 @@ export async function listOpenTourSlots(
       }
       propertyIdsByManager.set(managerUserId, ids);
     }
+
+    /**
+     * WS4(shared-avail): union every co-manager who may host tours on this
+     * property into the offering, not just the owner. `listOpenTourSlots`
+     * used to derive hosts ONLY from `manager_property_records` ownership, so
+     * an accepted co-manager's own painted availability was never offered —
+     * even though `managerMayHostPropertyTour` already let them CLAIM a
+     * pending request once one existed. See `tour-host-enumeration.server.ts`.
+     */
+    const ownerHostLists = await Promise.all(
+      [...new Map(matchingPropertyRecords.map(({ managerUserId, property }) => [managerUserId, property]))].map(
+        async ([ownerUserId, property]) => {
+          const ownedPropertyId = textField(property, "id") || propertyId;
+          const hostIds = await listPropertyTourHostUserIds(db, { propertyId: ownedPropertyId, ownerUserId });
+          return { ownerUserId, hostIds };
+        },
+      ),
+    );
+    // Extend each co-host's property-id scope to match their owner's, so their
+    // OWN `manager_property_availability` rows (keyed by their own
+    // manager_user_id) are read by the same `propertyRowsForHouse` filter below.
+    for (const { ownerUserId, hostIds } of ownerHostLists) {
+      const ownerIds = propertyIdsByManager.get(ownerUserId) ?? new Set<string>();
+      for (const hostUserId of hostIds) {
+        if (hostUserId === ownerUserId) continue;
+        const existing = propertyIdsByManager.get(hostUserId) ?? new Set<string>();
+        propertyIdsByManager.set(hostUserId, new Set([...existing, ...ownerIds]));
+      }
+    }
+    const managerIds = [...new Set(ownerHostLists.flatMap(({ hostIds }) => hostIds))];
 
     // Scoped in TWO reads rather than one unfiltered scan. This route is
     // deliberately `no-store`, so an unscoped `manager_property_availability`
@@ -474,9 +512,11 @@ export async function listOpenTourSlots(
       }))
       .filter((offering) => offering.managerUserId);
 
-    const defaultGridManagerIds = [
-      ...new Set(matchingPropertyRecords.map(({ managerUserId }) => managerUserId)),
-    ].filter(Boolean);
+    // WS4(shared-avail): one offering per HOST (owner + every eligible
+    // co-manager), not one per property owner — this is what actually surfaces
+    // a co-manager's painted availability, or their own default 9-5 grid, on
+    // the public booking page.
+    const defaultGridManagerIds = managerIds.filter(Boolean);
     const { settingsByManager } = await loadTourSettingsByManager(db, defaultGridManagerIds);
     const publishedSlotsByManager = new Map<string, string[]>();
     for (const offering of publishedOfferings) {
