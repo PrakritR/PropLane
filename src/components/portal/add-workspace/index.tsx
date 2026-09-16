@@ -53,6 +53,7 @@ export function AddWorkspace({
   onFinish,
   saveState = "Not saved yet",
   dataAttrPrefix = "add-workspace",
+  finishCount,
 }: {
   title: string;
   subtitle?: string;
@@ -77,13 +78,15 @@ export function AddWorkspace({
   onFinish: () => void;
   saveState?: ReactNode;
   dataAttrPrefix?: string;
+  /** How many individual things remain — the rail card's number. Defaults to the count of incomplete steps. */
+  finishCount?: number;
 }) {
   const confirm = useConfirm();
   const railSteps = useMemo<StepRailItem[]>(
     () => steps.map((s) => ({ ...s, attention: s.incomplete ? 1 : 0 })),
     [steps],
   );
-  const openCount = useMemo(() => steps.filter((s) => s.incomplete && s.id !== "review").length, [steps]);
+  const openCount = useMemo(() => finishCount ?? steps.filter((s) => s.incomplete && s.id !== "review").length, [steps, finishCount]);
   const last = steps.length - 1;
   const isLast = current === last;
 

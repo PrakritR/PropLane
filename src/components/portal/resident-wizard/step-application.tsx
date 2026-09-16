@@ -10,7 +10,6 @@
  */
 
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input, Textarea } from "@/components/ui/input";
 import type { ManagerCustomApplicationField } from "@/lib/manager-listing-submission";
 import {
@@ -22,6 +21,7 @@ import {
   WizardRow,
   WizardSection,
   WizardStepper,
+  WizardSelect,
 } from "@/components/portal/add-workspace/parts";
 import type { ResidentWizardDerived } from "./derived";
 import type { AddPersonForm, ApplicationAnswers, ManagerApplicationTextKey } from "./state";
@@ -126,7 +126,7 @@ export function ApplicationStep({
               chip={<FieldMark kind={form.marks.pets} />}
               control={
                 <span className="w-[200px]">
-                  <FieldSingleSelect
+                  <WizardSelect
                     label="Pets"
                     hideLabel
                     value={PETS.some((p) => p.value === (a.pets ?? "")) ? (a.pets ?? "") : "Other"}
@@ -150,7 +150,7 @@ export function ApplicationStep({
       {on("employer") || on("monthlyIncome") ? (
         <WizardSection title="Employment & income" dataAttr="residents-wizard-app-employment">
           <div className="mb-3">
-            <FieldSingleSelect
+            <WizardSelect
               label="Employment status"
               value={employmentStatus}
               onChange={(next) => patch({ application: { ...a, notEmployed: next === "not" } })}
@@ -246,7 +246,7 @@ export function ApplicationStep({
           {on("ref1Name") ? (
             <WizardRow cols={3}>
               {text("ref1Name", "Name", "Reference 1")}
-              <FieldSingleSelect label="Relationship" value={a.ref1Relationship ?? ""} onChange={(next) => set("ref1Relationship", next)} options={RELATIONSHIPS} placeholder="Select…" dataAttr="residents-wizard-app-ref1Relationship" />
+              <WizardSelect label="Relationship" value={a.ref1Relationship ?? ""} onChange={(next) => set("ref1Relationship", next)} options={RELATIONSHIPS} placeholder="Select…" dataAttr="residents-wizard-app-ref1Relationship" />
               {text("ref1Phone", "Phone", "(206) 555-0123")}
             </WizardRow>
           ) : null}
@@ -254,7 +254,7 @@ export function ApplicationStep({
             <div className="mt-3">
               <WizardRow cols={3}>
                 {text("ref2Name", "Name", "Reference 2")}
-                <FieldSingleSelect label="Relationship" value={a.ref2Relationship ?? ""} onChange={(next) => set("ref2Relationship", next)} options={RELATIONSHIPS} placeholder="Select…" dataAttr="residents-wizard-app-ref2Relationship" />
+                <WizardSelect label="Relationship" value={a.ref2Relationship ?? ""} onChange={(next) => set("ref2Relationship", next)} options={RELATIONSHIPS} placeholder="Select…" dataAttr="residents-wizard-app-ref2Relationship" />
                 {text("ref2Phone", "Phone", "(206) 555-0123")}
               </WizardRow>
             </div>
@@ -280,7 +280,7 @@ export function ApplicationStep({
                   chip={<FieldMark kind={form.marks[key]} />}
                   control={
                     <span className="w-[140px]">
-                      <FieldSingleSelect label={label} hideLabel value={a[key] ?? "No"} onChange={(next) => set(key, next)} options={YES_NO} variant="cell" dataAttr={`residents-wizard-app-${key}`} />
+                      <WizardSelect label={label} hideLabel value={a[key] ?? "No"} onChange={(next) => set(key, next)} options={YES_NO} variant="cell" dataAttr={`residents-wizard-app-${key}`} />
                     </span>
                   }
                 />
@@ -319,7 +319,7 @@ function CustomQuestions({
         const value = form.customAnswers[q.key] ?? "";
         if (q.type === "select" || q.type === "multi_select") {
           return (
-            <FieldSingleSelect
+            <WizardSelect
               key={q.id}
               label={q.label}
               value={value}
@@ -332,7 +332,7 @@ function CustomQuestions({
         }
         if (q.type === "checkbox") {
           return (
-            <FieldSingleSelect
+            <WizardSelect
               key={q.id}
               label={q.label}
               value={value}

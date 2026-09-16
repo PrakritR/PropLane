@@ -15,12 +15,15 @@ import type { ApplicationPhotoAttachment, ApplicationPhotoSlot } from "@/lib/ren
 import {
   appendManagerApplicationRow,
   normalizeApplicationAxisId,
+  readManagerApplicationRows,
   replaceManagerApplicationRowInCache,
   syncManagerApplicationsFromServer,
   upsertApplicationRowToServerAwait,
+  writeManagerApplicationRows,
 } from "@/lib/manager-applications-storage";
 import {
   markImportedTenancyCharges,
+  mirrorHouseholdChargesToServerAwait,
   recordApprovedApplicationCharges,
   syncHouseholdChargesFromServer,
   trimImportedTenancyBillingStart,
@@ -77,6 +80,10 @@ function slotForDocument(doc: AttachedDocument): { slot: ApplicationPhotoSlot; f
   }
 }
 
+function dropRowFromCache(id: string) {
+  writeManagerApplicationRows(readManagerApplicationRows().filter((r) => r.id !== id), { serverConfirmed: true });
+}
+
 function combineLocalDateTime(date: string, time: string): string {
   const [y, m, d] = date.split("-").map(Number);
   const [hh, mm] = time.split(":").map(Number);
@@ -87,14 +94,20 @@ export async function commitResident(row: DemoApplicantRow, form: AddPersonForm,
   const failures: CommitOutcome["failures"] = {};
   const notes: string[] = [];
 
-  // 1. The row.
+  // 1. The row. A refused write (room full, property not yours…) leaves no
+  //    phantom in the local list — the wizard stays open with the reason.
   appendManagerApplicationRow(row, { skipServerMirror: true });
   const persisted = await upsertApplicationRowToServerAwait(row, { existingResidentOnboarding: { sendWelcomeEmail: false } });
   if (!persisted.ok) {
+    dropRowFromCache(row.id);
     return { ok: false, row, failures: { row: persisted.error ?? "Could not save the resident." }, notes };
   }
 
-  // 2. Charges from the tenancy (the same generator approval runs), then the lease filing.
+  // 2. Charges from the tenancy — the same generator approval runs — then the
+  //    manager's payment marks on top of them, then one awaited mirror so the
+  //    server holds the charges and the recurring profile BEFORE anything
+  //    re-syncs from it (a force sync racing a fire-and-forget mirror wiped
+  //    the profile). Then the lease filing.
   if (row.bucket === "approved") {
     recordApprovedApplicationCharges(row, ctx.userId, true, {
       leaseExecuted:
@@ -102,6 +115,46 @@ export async function commitResident(row: DemoApplicantRow, form: AddPersonForm,
         ctx.executedLeaseKeys.axisIds.has(normalizeApplicationAxisId(row.id)) ||
         Boolean(row.email?.trim() && ctx.executedLeaseKeys.emails.has(row.email.trim().toLowerCase())),
     });
+    if (row.email && form.propertyId) {
+      try {
+        if (form.billingStart === "next_due") {
+          const today = new Date();
+          const next = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+          const firstBilledMonth = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`;
+          trimImportedTenancyBillingStart({ residentEmail: row.email, propertyId: form.propertyId, managerUserId: ctx.userId, firstBilledMonth });
+        } else {
+          const rows = paymentSchedulePreview(form);
+          const months: ImportedTenancyMarks["months"] = {};
+          for (const r of rows) {
+            const mark = form.paymentMarks[r.monthKey] ?? { status: r.isCurrent ? "due" : "paid", paidOn: r.dueOn, method: "zelle" };
+            months[r.monthKey] = {
+              status: mark.status,
+              paidOn: mark.paidOn,
+              method: mark.method,
+              partialAmount: mark.partialAmount ? Number(mark.partialAmount.replace(/[^\d.]/g, "")) : undefined,
+            };
+          }
+          const oneTimePaidOn = form.oneTimePaidOn || form.moveInDate;
+          const marks: ImportedTenancyMarks = {
+            residentEmail: row.email,
+            propertyId: form.propertyId,
+            applicationId: row.id,
+            moveInMonth: form.moveInDate.slice(0, 7),
+            months,
+            oneTime: {
+              securityDeposit: { status: form.depositPaid ? "paid" : "due", paidOn: oneTimePaidOn, method: form.oneTimeMethod },
+              moveInFee: { status: form.moveInFeePaid ? "paid" : "due", paidOn: oneTimePaidOn, method: form.oneTimeMethod },
+            },
+          };
+          const result = markImportedTenancyCharges(marks);
+          if (result.updated) notes.push(`${result.updated} ${result.updated === 1 ? "payment" : "payments"} recorded`);
+        }
+      } catch (err) {
+        failures.charges = err instanceof Error ? err.message : "Payments could not be recorded.";
+      }
+    }
+    const mirrored = await mirrorHouseholdChargesToServerAwait();
+    if (!mirrored && !failures.charges) failures.charges = "The payment schedule could not be saved — open Payments to check it.";
   }
   syncLeasePipelineFromApplications(ctx.userId);
 
@@ -119,45 +172,6 @@ export async function commitResident(row: DemoApplicantRow, form: AddPersonForm,
     syncLeasePipelineFromServer(ctx.userId, { force: true }),
     syncHouseholdChargesFromServer(true),
   ]);
-
-  // 3. Payment marks onto the months the generator wrote.
-  if (row.bucket === "approved" && row.email && form.propertyId) {
-    try {
-      if (form.billingStart === "next_due") {
-        const today = new Date();
-        const next = new Date(today.getFullYear(), today.getMonth() + 1, 1);
-        const firstBilledMonth = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`;
-        trimImportedTenancyBillingStart({ residentEmail: row.email, propertyId: form.propertyId, managerUserId: ctx.userId, firstBilledMonth });
-      } else {
-        const rows = paymentSchedulePreview(form);
-        const months: ImportedTenancyMarks["months"] = {};
-        for (const r of rows) {
-          const mark = form.paymentMarks[r.monthKey] ?? { status: r.isCurrent ? "due" : "paid", paidOn: r.dueOn, method: "zelle" };
-          months[r.monthKey] = {
-            status: mark.status,
-            paidOn: mark.paidOn,
-            method: mark.method,
-            partialAmount: mark.partialAmount ? Number(mark.partialAmount.replace(/[^\d.]/g, "")) : undefined,
-          };
-        }
-        const oneTimePaidOn = form.oneTimePaidOn || form.moveInDate;
-        const marks: ImportedTenancyMarks = {
-          residentEmail: row.email,
-          propertyId: form.propertyId,
-          applicationId: row.id,
-          months,
-          oneTime: {
-            securityDeposit: { status: form.depositPaid ? "paid" : "due", paidOn: oneTimePaidOn, method: form.oneTimeMethod },
-            moveInFee: { status: form.moveInFeePaid ? "paid" : "due", paidOn: oneTimePaidOn, method: form.oneTimeMethod },
-          },
-        };
-        const result = markImportedTenancyCharges(marks);
-        if (result.updated) notes.push(`${result.updated} ${result.updated === 1 ? "payment" : "payments"} recorded`);
-      }
-    } catch (err) {
-      failures.charges = err instanceof Error ? err.message : "Payments could not be recorded.";
-    }
-  }
 
   // 4. Documents — after the row exists, since the photo route needs its id.
   const attachments = await uploadDocuments(row, form.documents, failures);
@@ -183,7 +197,10 @@ export async function commitProspect(row: DemoApplicantRow, form: AddPersonForm,
   const notes: string[] = [];
   appendManagerApplicationRow(row, { skipServerMirror: true });
   const persisted = await upsertApplicationRowToServerAwait(row);
-  if (!persisted.ok) return { ok: false, row, failures: { row: persisted.error ?? "Could not save the prospect." }, notes };
+  if (!persisted.ok) {
+    dropRowFromCache(row.id);
+    return { ok: false, row, failures: { row: persisted.error ?? "Could not save the prospect." }, notes };
+  }
   await syncManagerApplicationsFromServer({ force: true, managerUserId: ctx.userId });
 
   let tourId: string | null = null;

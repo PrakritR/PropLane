@@ -12,9 +12,10 @@
 
 import { useMemo } from "react";
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input } from "@/components/ui/input";
-import { WizardChip, WizardLine, WizardSection } from "@/components/portal/add-workspace/parts";
+import { WizardChip, WizardLine, WizardSection,
+  WizardSelect,
+} from "@/components/portal/add-workspace/parts";
 import type { ResidentWizardDerived } from "./derived";
 import { formatMoney, PAYMENT_METHOD_OPTIONS, paymentSchedulePreview, type AddPersonForm, type PaymentMark, type PaymentRowStatus } from "./state";
 
@@ -83,7 +84,7 @@ export function PaymentsStep({
           label="Billing starts"
           control={
             <span className="w-[220px]">
-              <FieldSingleSelect
+              <WizardSelect
                 label="Billing starts"
                 hideLabel
                 value={form.billingStart}
@@ -107,7 +108,7 @@ export function PaymentsStep({
               label={<>Security deposit · {formatMoney(deposit)}</>}
               control={
                 <span className="w-[140px]">
-                  <FieldSingleSelect label="Deposit" hideLabel value={form.depositPaid ? "paid" : "due"} onChange={(next) => patch({ depositPaid: next === "paid" })} options={[{ value: "paid", label: "Paid" }, { value: "due", label: "Due" }]} variant="cell" dataAttr="residents-wizard-deposit-status" />
+                  <WizardSelect label="Deposit" hideLabel value={form.depositPaid ? "paid" : "due"} onChange={(next) => patch({ depositPaid: next === "paid" })} options={[{ value: "paid", label: "Paid" }, { value: "due", label: "Due" }]} variant="cell" dataAttr="residents-wizard-deposit-status" />
                 </span>
               }
             />
@@ -117,7 +118,7 @@ export function PaymentsStep({
               label={<>Move-in fee · {formatMoney(moveInFee)}</>}
               control={
                 <span className="w-[140px]">
-                  <FieldSingleSelect label="Move-in fee" hideLabel value={form.moveInFeePaid ? "paid" : "due"} onChange={(next) => patch({ moveInFeePaid: next === "paid" })} options={[{ value: "paid", label: "Paid" }, { value: "due", label: "Due" }]} variant="cell" dataAttr="residents-wizard-move-in-fee-status" />
+                  <WizardSelect label="Move-in fee" hideLabel value={form.moveInFeePaid ? "paid" : "due"} onChange={(next) => patch({ moveInFeePaid: next === "paid" })} options={[{ value: "paid", label: "Paid" }, { value: "due", label: "Due" }]} variant="cell" dataAttr="residents-wizard-move-in-fee-status" />
                 </span>
               }
             />
@@ -128,7 +129,7 @@ export function PaymentsStep({
                 <span className="mb-1.5 block text-[12.5px] font-bold text-foreground">Paid on</span>
                 <Input type="date" className="portal-modal-date-input" value={form.oneTimePaidOn || form.moveInDate} onChange={(e) => patch({ oneTimePaidOn: e.target.value })} data-attr="residents-wizard-one-time-paid-on" />
               </label>
-              <FieldSingleSelect label="Method" value={form.oneTimeMethod} onChange={(next) => patch({ oneTimeMethod: next })} options={PAYMENT_METHOD_OPTIONS} dataAttr="residents-wizard-one-time-method" />
+              <WizardSelect label="Method" value={form.oneTimeMethod} onChange={(next) => patch({ oneTimeMethod: next })} options={PAYMENT_METHOD_OPTIONS} dataAttr="residents-wizard-one-time-method" />
             </div>
           ) : null}
         </WizardSection>
@@ -175,13 +176,13 @@ export function PaymentsStep({
                       </td>
                       <td className="py-2 pr-2 align-middle">
                         {mark.status !== "due" ? (
-                          <FieldSingleSelect label="Method" hideLabel value={mark.method} onChange={(next) => setMark(row.monthKey, { method: next }, row)} options={PAYMENT_METHOD_OPTIONS} variant="cell" dataAttr={`residents-wizard-payment-method-${row.monthKey}`} />
+                          <WizardSelect label="Method" hideLabel value={mark.method} onChange={(next) => setMark(row.monthKey, { method: next }, row)} options={PAYMENT_METHOD_OPTIONS} variant="cell" dataAttr={`residents-wizard-payment-method-${row.monthKey}`} />
                         ) : (
                           <span className="text-muted">—</span>
                         )}
                       </td>
                       <td className="py-2 align-middle">
-                        <FieldSingleSelect label="Status" hideLabel value={mark.status} onChange={(next) => setMark(row.monthKey, { status: next as PaymentRowStatus }, row)} options={STATUS_OPTIONS} variant="cell" dataAttr={`residents-wizard-payment-status-${row.monthKey}`} />
+                        <WizardSelect label="Status" hideLabel value={mark.status} onChange={(next) => setMark(row.monthKey, { status: next as PaymentRowStatus }, row)} options={STATUS_OPTIONS} variant="cell" dataAttr={`residents-wizard-payment-status-${row.monthKey}`} />
                         {mark.status === "partial" ? (
                           <span className="relative mt-1 block">
                             <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[12px] text-muted">$</span>

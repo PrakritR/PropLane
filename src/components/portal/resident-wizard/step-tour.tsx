@@ -1,12 +1,13 @@
 "use client";
 
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input, Textarea } from "@/components/ui/input";
 import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import type { WorkAssignee } from "@/lib/work-assignment";
-import { WizardChip, WizardField, WizardLine, WizardRow, WizardSection } from "@/components/portal/add-workspace/parts";
+import { WizardChip, WizardField, WizardLine, WizardRow, WizardSection,
+  WizardSelect,
+} from "@/components/portal/add-workspace/parts";
 import type { ResidentWizardDerived } from "./derived";
 import type { AddPersonForm } from "./state";
 
@@ -39,7 +40,7 @@ export function TourStep({
     <StepColumn>
       <StepHeading title="Tour" />
       <WizardSection title="Showing" dataAttr="residents-wizard-tour">
-        <FieldSingleSelect
+        <WizardSelect
           label="Format"
           value={form.tourFormat}
           onChange={(next) => patch({ tourFormat: next === "virtual" ? "virtual" : next === "none" ? "none" : "in_person" })}
@@ -59,7 +60,7 @@ export function TourStep({
               <WizardField label="Start time" required>
                 <Input type="time" value={form.tourStart} onChange={(e) => patch({ tourStart: e.target.value })} data-attr="residents-wizard-tour-start" />
               </WizardField>
-              <FieldSingleSelect label="Duration" value={form.tourDurationMinutes} onChange={(next) => patch({ tourDurationMinutes: next })} options={DURATIONS} dataAttr="residents-wizard-tour-duration" />
+              <WizardSelect label="Duration" value={form.tourDurationMinutes} onChange={(next) => patch({ tourDurationMinutes: next })} options={DURATIONS} dataAttr="residents-wizard-tour-duration" />
             </WizardRow>
             <div className="mt-3">
               <WorkAssignmentPicker kind="tour" value={assignee} teamMembers={teamMembers} vendors={vendors} label="Shown by" dataAttr="residents-wizard-tour-assignee" onChange={onAssignee} />
