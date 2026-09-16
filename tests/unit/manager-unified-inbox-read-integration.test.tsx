@@ -114,6 +114,7 @@ vi.mock("@/components/portal/portal-inbox-ui", () => ({
   InboxConversationListAddRow: () => null,
   InboxListSegmentTabs: () => null,
   InboxThreadEmpty: ({ title }: { title: string }) => <div>{title}</div>,
+  InboxThreadSkeleton: () => <div data-testid="inbox-thread-skeleton">Loading conversation…</div>,
   InboxTwoPane: ({ list, thread }: { list: React.ReactNode; thread: React.ReactNode }) => (
     <div data-testid="manager-two-pane"><div data-testid="manager-list">{list}</div><div data-testid="manager-thread">{thread}</div></div>
   ),

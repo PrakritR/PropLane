@@ -66,7 +66,7 @@ describe("InboxThreadView full-thread scroll", () => {
     scrollIntoView.mockClear();
 
     rerender(<InboxThreadView title="Sam Ortega" threadKey="thread-a" messages={msgs("a", 13)} />);
-    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "end" });
+    expect(scrollIntoView).not.toHaveBeenCalled();
     expect(scroller.scrollTop).toBe(2000);
   });
 

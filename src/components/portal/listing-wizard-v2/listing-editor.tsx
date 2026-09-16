@@ -213,14 +213,93 @@ export type ListingEditorLeadingStep = {
 export function listingV2PathStepIds(sub: ManagerListingSubmissionV1): ListingV2StepId[] {
   const byTheRoom = sub.listingPlaceCategoryId === "shared_home";
   const hasRooms = byTheRoom || (sub.rooms?.length ?? 0) > 0;
-  const hasBathrooms = (sub.bathrooms?.length ?? 0) > 0;
-  const hasSpaces = (sub.sharedSpaces?.length ?? 0) > 0;
+  const hasBathrooms = (sub.bathrooms ?? []).length > 0;
+  const hasSpaces = (sub.sharedSpaces ?? []).length > 0;
   return LISTING_V2_STEPS.map((step) => step.id).filter((id) => {
     if (id === "rooms") return hasRooms;
     if (id === "bathrooms") return hasBathrooms;
     if (id === "spaces") return hasSpaces;
     return true;
   });
+}
+
+export function listingV2StepIndex(id: ListingV2StepId | null | undefined): number {
+  if (!id) return 0;
+  const index = LISTING_V2_STEPS.findIndex((step) => step.id === id);
+  return index >= 0 ? index : 0;
+}
+
+/**
+ * What the left rail says for a listing — cover, finish count, per-step
+ * summaries and attention dots. Import and the editor both call this so the
+ * Found list cannot drift from Basics.
+ */
+export type ListingRailChrome = {
+  attention: Record<string, number>;
+  summaries: {
+    basics: string;
+    rooms: string;
+    bathrooms: string;
+    spaces: string;
+    pricing: string;
+    review: string;
+    open: number;
+  };
+  coverUrl: string | null;
+  photoCount: number;
+};
+
+export function listingRailChrome(submission: ManagerListingSubmissionV1): ListingRailChrome {
+  const rooms = submission.rooms ?? [];
+  const leaseTerms = listingLeaseTypeScopeOptions(submission);
+  const checks = listingReadiness(submission);
+  const unresolved = (id: string) => checks.find((c) => c.id === id && c.state !== "done");
+  const attention = {
+    basics: [unresolved("address"), unresolved("description")].filter(Boolean).length,
+    rooms: [unresolved("rooms"), unresolved("photos")].filter(Boolean).length,
+    bathrooms: (submission.bathrooms ?? []).length === 0 ? 1 : 0,
+    spaces: 0,
+    pricing: [unresolved("terms"), unresolved("deposit")].filter(Boolean).length,
+    review: 0,
+  } as Record<string, number>;
+  const open = checks.filter((c) => c.state !== "done").length;
+  const withPhotos = rooms.filter((r) => (r.photoDataUrls ?? []).length > 0).length;
+  const priced = rooms.map((r) => r.monthlyRent).filter((n) => n > 0);
+  const from = priced.length > 0 ? Math.min(...priced) : 0;
+  const typeLabel = LISTING_PROPERTY_TYPE_OPTIONS.find((o) => o.id === submission.listingPropertyTypeId)?.label;
+  const baths = (submission.bathrooms ?? []).length;
+  const spaces = (submission.sharedSpaces ?? []).length;
+  const plural = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
+  return {
+    attention,
+    summaries: {
+      basics:
+        [
+          submission.address.split(",")[0]!.trim(),
+          submission.listingPlaceCategoryId === "entire_home" ? "Whole place" : "By the room",
+          typeLabel,
+        ]
+          .filter(Boolean)
+          .join(" · ") || "Address and type",
+      rooms:
+        rooms.length === 0
+          ? "Add the first room"
+          : `${plural(rooms.length, "room")} · ${withPhotos === rooms.length ? "all with photos" : `${withPhotos} with photos`}`,
+      bathrooms: baths === 0 ? "None yet" : plural(baths, "bathroom"),
+      spaces: spaces === 0 ? "None listed" : plural(spaces, "shared space"),
+      pricing:
+        from > 0
+          ? `From $${Math.round(from).toLocaleString("en-US")} a month · ${plural(leaseTerms.length, "lease type")}`
+          : "Rent not set",
+      review: open === 0 ? "Ready to publish" : `${open} to finish`,
+      open,
+    },
+    coverUrl: (submission.housePhotoDataUrls ?? [])[0] ?? rooms.flatMap((r) => r.photoDataUrls ?? [])[0] ?? null,
+    photoCount:
+      (submission.housePhotoDataUrls ?? []).length +
+      rooms.reduce((n, r) => n + (r.photoDataUrls ?? []).length, 0) +
+      (submission.bathrooms ?? []).reduce((n, b) => n + (b.photoDataUrls ?? []).length, 0),
+  };
 }
 
 /** How a room reaches its bathroom. Mirrors ManagerBathroomRoomAccessKind. */
@@ -3021,6 +3100,7 @@ export function ListingEditorV2({
   headerCenter,
   basicsLead,
   contact,
+  initialStep,
 }: {
   submission: ManagerListingSubmissionV1;
   /** The listing's record id when it already has one — booked rows on the Rooms step need it. Null for a brand-new listing. */
@@ -3057,13 +3137,15 @@ export function ListingEditorV2({
   basicsLead?: ReactNode;
   /** What the Review step says about how renters reach the manager. */
   contact?: ListingContactDoors;
+  /** Open on this listing step — Import jumps to Rooms / Review without walking Basics. */
+  initialStep?: ListingV2StepId;
 }) {
   // Save and Publish share one `busy`; remember which was pressed so only that
   // button reads as in flight. The flag is read only while busy, so a stale
   // true after the write lands is harmless and the next press resets it.
   const [savePressed, setSavePressed] = useState(false);
 
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(() => listingV2StepIndex(initialStep));
   useEffect(() => {
     onStepChange?.(step);
   }, [step, onStepChange]);
@@ -3075,7 +3157,10 @@ export function ListingEditorV2({
    * earlier in the list — on an edit a manager may only ever open Pricing, and
    * telling them Rooms is "done" because it is step 2 would be a lie.
    */
-  const [visited, setVisited] = useState<Set<string>>(() => new Set([LISTING_V2_STEPS[0]!.id]));
+  const [visited, setVisited] = useState<Set<string>>(() => {
+    const start = LISTING_V2_STEPS[listingV2StepIndex(initialStep)]!.id;
+    return new Set([LISTING_V2_STEPS[0]!.id, start]);
+  });
   /** Which room and lease type the receipt is quoting. */
   const [quoteRoomId, setQuoteRoomId] = useState<string | null>(null);
   const [quoteTerm, setQuoteTerm] = useState<string | null>(null);
@@ -3127,65 +3212,9 @@ export function ListingEditorV2({
     [title, step, submission],
   );
 
-  /**
-   * What the rail flags for attention.
-   *
-   * Drawn from the same `listingReadiness` the Review step reports, so the rail
-   * and Review can never disagree about what is missing.
-   */
-  const attention = useMemo(() => {
-    const checks = listingReadiness(submission);
-    const unresolved = (id: string) => checks.find((c) => c.id === id && c.state !== "done");
-    return {
-      basics: [unresolved("address"), unresolved("description")].filter(Boolean).length,
-      rooms: [unresolved("rooms"), unresolved("photos")].filter(Boolean).length,
-      bathrooms: (submission.bathrooms ?? []).length === 0 ? 1 : 0,
-      spaces: 0,
-      pricing: [unresolved("terms"), unresolved("deposit")].filter(Boolean).length,
-      review: 0,
-    } as Record<string, number>;
-  }, [submission]);
-
-  /**
-   * One line per section, of what it currently says.
-   *
-   * The rail is the listing's table of contents: a manager who opened it to
-   * change the rent finds "From $1,160 a month" under Pricing before clicking
-   * anything, and a section that still reads "Not set yet" says so.
-   */
-  const summaries = useMemo(() => {
-    const open = listingReadiness(submission).filter((c) => c.state !== "done").length;
-    const withPhotos = rooms.filter((r) => (r.photoDataUrls ?? []).length > 0).length;
-    const priced = rooms.map((r) => r.monthlyRent).filter((n) => n > 0);
-    const from = priced.length > 0 ? Math.min(...priced) : 0;
-    const typeLabel = LISTING_PROPERTY_TYPE_OPTIONS.find((o) => o.id === submission.listingPropertyTypeId)?.label;
-    const baths = (submission.bathrooms ?? []).length;
-    const spaces = (submission.sharedSpaces ?? []).length;
-    const plural = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
-    return {
-      basics:
-        [
-          // The street alone — the city and state are the header's to say.
-          submission.address.split(",")[0]!.trim(),
-          submission.listingPlaceCategoryId === "entire_home" ? "Whole place" : "By the room",
-          typeLabel,
-        ]
-          .filter(Boolean)
-          .join(" · ") || "Address and type",
-      rooms:
-        rooms.length === 0
-          ? "Add the first room"
-          : `${plural(rooms.length, "room")} · ${withPhotos === rooms.length ? "all with photos" : `${withPhotos} with photos`}`,
-      bathrooms: baths === 0 ? "None yet" : plural(baths, "bathroom"),
-      spaces: spaces === 0 ? "None listed" : plural(spaces, "shared space"),
-      pricing:
-        from > 0
-          ? `From $${Math.round(from).toLocaleString("en-US")} a month · ${plural(leaseTerms.length, "lease type")}`
-          : "Rent not set",
-      review: open === 0 ? "Ready to publish" : `${open} to finish`,
-      open,
-    };
-  }, [submission, rooms, leaseTerms]);
+  const chrome = useMemo(() => listingRailChrome(submission), [submission]);
+  const attention = chrome.attention;
+  const summaries = chrome.summaries;
 
   const listingRailSteps = LISTING_V2_STEPS.map((s) => ({
     id: s.id,
@@ -3208,11 +3237,8 @@ export function ListingEditorV2({
     goTo(index - railOffset);
   };
 
-  const coverUrl = (submission.housePhotoDataUrls ?? [])[0] ?? rooms.flatMap((r) => r.photoDataUrls ?? [])[0] ?? null;
-  const photoCount =
-    (submission.housePhotoDataUrls ?? []).length +
-    rooms.reduce((n, r) => n + (r.photoDataUrls ?? []).length, 0) +
-    (submission.bathrooms ?? []).reduce((n, b) => n + (b.photoDataUrls ?? []).length, 0);
+  const coverUrl = chrome.coverUrl;
+  const photoCount = chrome.photoCount;
 
   const body = useMemo(() => {
     switch (stepId) {

@@ -7,10 +7,11 @@ import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-b
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import type { UnifiedInboxListItem } from "@/lib/unified-inbox-merge";
 
-const mocks = vi.hoisted(() => ({ archive: vi.fn(), restore: vi.fn(), remove: vi.fn(), sms: vi.fn(), confirm: vi.fn() }));
+const mocks = vi.hoisted(() => ({ archive: vi.fn(), restore: vi.fn(), remove: vi.fn(), sms: vi.fn(), smsDelete: vi.fn(), confirm: vi.fn() }));
 vi.mock("@/components/providers/app-ui-provider", () => ({ useConfirm: () => mocks.confirm }));
 vi.mock("@/lib/communication-inbox-thread-mutations", () => ({ archivePersistedInboxThreads: mocks.archive, restorePersistedInboxThreads: mocks.restore, deletePersistedInboxThreadsForever: mocks.remove }));
 vi.mock("@/lib/manager-sms-archive.client", () => ({ archiveManagerSmsConversation: mocks.sms, restoreManagerSmsConversation: vi.fn() }));
+vi.mock("@/lib/manager-sms-conversations-client", () => ({ deleteManagerSmsConversationClient: mocks.smsDelete }));
 const ASSISTANT_ID = "agent_notice_00000000-0000-4000-8000-000000000001";
 const threads = [
   ...["a", "b", "c"].map((id) => ({ id, folder: "inbox", from: id, email: `${id}@example.test`, subject: id, body: id, preview: id, time: "", unread: false } as PersistedInboxThread)),
@@ -29,9 +30,18 @@ const rows: UnifiedInboxListItem[] = [
   // list no longer returns — the shape behind "No actions available." on the
   // PropLane admin row.
   { key: "email:assistant-email-proof-1", threadId: "assistant-email-proof-1", channel: "email", name: "PropLane admin", preview: "", time: "", unread: false, sortMs: 5, memberKeys: ["email:assistant-email-proof-1", "email:gone-from-list"] },
+  { key: "sms:sms-row-1", threadId: "sms-row-1", channel: "sms", name: "Text neighbor", preview: "", time: "", unread: false, sortMs: 6 },
 ];
+const smsTargets = [{ conversationId: "sms-row-1", phone: "+15551234567", conversationKey: "sms-row-1" }];
 function Harness({ archived = false, manager = true }: { archived?: boolean; manager?: boolean }) {
-  const bulk = useUnifiedCommunicationBulk({ mergedRows: rows, listSegment: archived ? "archived" : "active", storageKey: "test-inbox", emailThreads: threads, onEmailThreadsChange: () => {} });
+  const bulk = useUnifiedCommunicationBulk({
+    mergedRows: rows,
+    listSegment: archived ? "archived" : "active",
+    storageKey: "test-inbox",
+    emailThreads: threads,
+    onEmailThreadsChange: () => {},
+    smsTargets,
+  });
   return <>{rows.map((row) => <CommunicationRowActions key={row.key} row={row} bulk={bulk} archived={archived} manager={manager} emailThreads={threads} />)}</>;
 }
 function open(name: string) { fireEvent.keyDown(screen.getByRole("button", { name: `Actions for ${name}` }), { key: "ArrowDown" }); }
@@ -51,6 +61,7 @@ function openPastDestructiveSettle(name: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   for (const fn of [mocks.archive, mocks.restore, mocks.remove]) fn.mockResolvedValue({ ok: true, next: threads });
+  mocks.smsDelete.mockResolvedValue({ ok: true });
   mocks.confirm.mockResolvedValue(true);
 });
 afterEach(cleanup);
@@ -123,4 +134,17 @@ it("never restores or deletes PropLane Assistant, and still deletes the admin mi
   open("PropLane admin");
   await screen.findByRole("menuitem", { name: "Restore" });
   expect(screen.getByRole("menuitem", { name: "Delete" })).toBeTruthy();
+});
+
+it("offers Restore and Delete on an archived SMS conversation", async () => {
+  render(<Harness archived />);
+  const restoreClock = openPastDestructiveSettle("Text neighbor");
+  await screen.findByRole("menuitem", { name: "Restore" });
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+  restoreClock();
+  await waitFor(() => expect(mocks.smsDelete).toHaveBeenCalledWith({
+    phone: "+15551234567",
+    conversationKey: "sms-row-1",
+  }));
+  expect(mocks.remove).not.toHaveBeenCalled();
 });

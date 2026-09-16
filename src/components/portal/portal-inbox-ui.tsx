@@ -1111,48 +1111,50 @@ export function InboxConversationRow({
 
 export type InboxListSegment = "active" | "unread" | "archived";
 
-/** Equal-width Active | Archived tabs under the manager identity boxes. */
+/** Active | Archived command tabs under the manager identity boxes (Tours Upcoming / Past chrome). */
 export function InboxListSegmentTabs({
   commBase,
   value,
   onChange,
+  counts,
 }: {
   commBase: string;
   value: InboxListSegment;
   onChange?: (segment: Extract<InboxListSegment, "active" | "archived">) => void;
+  counts?: { active?: number; archived?: number };
 }) {
   const selected = value === "archived" ? "archived" : "active";
-  const tabs: { id: Extract<InboxListSegment, "active" | "archived">; label: string }[] = [
-    { id: "active", label: "Active" },
-    { id: "archived", label: "Archived" },
-  ];
   return (
     <div
-      className="flex gap-0.5 rounded-xl bg-foreground/[0.04] p-0.5 max-md:gap-0.5"
-      role="tablist"
-      aria-label="Conversation folders"
       data-attr="inbox-list-segments"
+      onClick={(event) => {
+        const href = (event.target as HTMLElement).closest("a")?.getAttribute("href") ?? "";
+        if (href.endsWith("/archived")) onChange?.("archived");
+        else if (href.endsWith("/active")) onChange?.("active");
+      }}
     >
-      {tabs.map((tab) => {
-        const isSelected = selected === tab.id;
-        return (
-          <Link
-            key={tab.id}
-            href={`${commBase}/${tab.id}`}
-            role="tab"
-            aria-selected={isSelected}
-            data-attr={`inbox-list-segment-${tab.id}`}
-            onClick={() => onChange?.(tab.id)}
-            className={`flex-1 rounded-lg px-2 py-1.5 text-center text-xs font-semibold transition-colors max-md:px-1.5 max-md:py-1 max-md:text-[11px] ${
-              isSelected
-                ? "bg-card text-foreground shadow-sm"
-                : "text-muted hover:text-foreground"
-            }`}
-          >
-            {tab.label}
-          </Link>
-        );
-      })}
+      <DestinationNav
+        appearance="command"
+        ariaLabel="Conversation folders"
+        activeId={selected}
+        className="-mb-px w-full gap-1 border-0 bg-transparent p-0"
+        items={[
+          {
+            id: "active",
+            label: "Active",
+            href: `${commBase}/active`,
+            count: counts?.active,
+            dataAttr: "inbox-list-segment-active",
+          },
+          {
+            id: "archived",
+            label: "Archived",
+            href: `${commBase}/archived`,
+            count: counts?.archived,
+            dataAttr: "inbox-list-segment-archived",
+          },
+        ]}
+      />
     </div>
   );
 }
@@ -2703,6 +2705,28 @@ export function InboxThreadEmpty({
   );
 }
 
+/** Thread pane while a clicked conversation is still resolving. */
+export function InboxThreadSkeleton() {
+  return (
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden" aria-busy="true" role="status" data-attr="inbox-thread-skeleton">
+      <span className="sr-only">Loading conversation…</span>
+      <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-3 md:px-4">
+        <div className="h-11 w-11 shrink-0 animate-pulse rounded-full bg-accent/55 motion-reduce:animate-none" />
+        <div className="h-4 w-40 max-w-[50%] animate-pulse rounded bg-accent/55 motion-reduce:animate-none" />
+      </header>
+      <div className="flex min-h-0 flex-1 flex-col gap-3 bg-background/40 px-3 py-3">
+        <div className="h-10 w-[62%] animate-pulse rounded-2xl bg-accent/50 motion-reduce:animate-none" />
+        <div className="ml-auto h-10 w-[48%] animate-pulse rounded-2xl bg-accent/40 motion-reduce:animate-none" />
+        <div className="h-10 w-[70%] animate-pulse rounded-2xl bg-accent/50 motion-reduce:animate-none" />
+        <div className="ml-auto h-10 w-[40%] animate-pulse rounded-2xl bg-accent/40 motion-reduce:animate-none" />
+      </div>
+      <div className="shrink-0 border-t border-border px-3 py-2.5 opacity-45">
+        <div className="h-10 rounded-xl border border-border bg-background" />
+      </div>
+    </div>
+  );
+}
+
 /** Right pane: thread header, scrolling bubble history, and a composer slot. */
 export function InboxThreadView({
   title,
@@ -2812,7 +2836,7 @@ export function InboxThreadView({
           </div>
         ) : (
           <div
-            className={`flex w-full min-h-min flex-col md:gap-0 ${pageScroll ? "" : "flex-grow justify-end"}`}
+            className={`flex w-full min-h-min flex-col md:gap-0 ${pageScroll ? "" : "mt-auto"}`}
           >
             <InboxMessageTimeline
               messages={messages}
@@ -2825,7 +2849,7 @@ export function InboxThreadView({
         )}
       </div>
 
-      {composer}
+      {composer ? <div className="shrink-0">{composer}</div> : null}
     </div>
   );
 }
@@ -2887,13 +2911,16 @@ export function InboxTwoPane({
       // The mobile portal renders a fixed bottom nav that overlays the viewport;
       // reserve its height so the composer never hides behind it. It is
       // display:none on desktop, so this contributes 0 there.
-      const bottomNav = document.querySelector(".portal-native-bottom-nav");
+      const bottomNav =
+        document.querySelector(".portal-native-bottom-nav")
+        ?? document.querySelector(".portal-mobile-nav-bar");
       const navHeight = bottomNav ? bottomNav.getBoundingClientRect().height : 0;
+      const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
       const narrow = window.innerWidth < 768;
       const compact = mobileCompact && narrow;
       const flushThread = fillViewport && narrow;
       const edgePad = flushThread ? 0 : compact ? 8 : 16;
-      const avail = window.innerHeight - top - navHeight - edgePad;
+      const avail = viewportHeight - top - navHeight - edgePad;
       if (flushThread) {
         setMeasuredHeight(Math.max(240, avail));
         return;

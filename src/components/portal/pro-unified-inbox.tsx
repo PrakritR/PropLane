@@ -1,6 +1,7 @@
 "use client";
 
 import { PenSquare } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { CommunicationRowActions } from "@/components/portal/communication-row-actions";
@@ -34,6 +35,7 @@ import {
   InboxConversationRow,
   InboxListSegmentTabs,
   InboxThreadEmpty,
+  InboxThreadSkeleton,
   InboxTwoPane,
   PORTAL_INBOX_LIST_TOOLBAR_CLASS,
   type InboxListSegment,
@@ -44,7 +46,7 @@ import {
   inboxThreadUnreadCount,
 } from "@/lib/communication-row-meta";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
-import { isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
+import { isAssistantUnifiedInboxRow, isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
 import {
   assistantUnifiedListItemFromThread,
   buildManagerAssistantPlaceholderThread,
@@ -132,6 +134,30 @@ function smsConversationId(resident: ManagerSmsResidentConversation): string {
     resident.residentEmail ??
     resident.name
   );
+}
+
+function emailThreadMergeStub(t: PersistedInboxThread): UnifiedInboxListItem {
+  const smsBindingKeys = [...new Set(
+    [...(t.smsBindingKeys ?? []), t.smsConversationKey ?? ""]
+      .map((key) => key.trim())
+      .filter(Boolean),
+  )];
+  return {
+    key: unifiedInboxKey("email", t.id),
+    channel: "email",
+    threadId: t.id,
+    name: t.id,
+    preview: "",
+    time: "",
+    unread: false,
+    sortMs: 0,
+    memberKeys: (t.sourceThreadIds ?? [t.id]).map((id) => unifiedInboxKey("email", id)),
+    ...(smsBindingKeys.length > 0 ? { smsBindingKeys } : {}),
+    ...(smsBindingKeys.length === 1 ? { smsBindingKey: smsBindingKeys[0] } : {}),
+    personKey:
+      (smsBindingKeys.length === 1 ? unifiedInboxSmsBindingKey(smsBindingKeys[0]) : undefined) ??
+      (smsBindingKeys.length > 1 ? `email-explicit-binding:${t.id}` : unifiedInboxPersonKey(t.email)),
+  };
 }
 
 function loadSmsHiddenIds(): Set<string> {
@@ -759,6 +785,73 @@ export function ManagerUnifiedInbox({
     });
   }, [filterContacts, listSegment, occupiedResidentEmails, query, threadFilters]);
 
+  const listSegmentCounts = useMemo(() => {
+    const placeholders = !filterContacts
+      ? []
+      : buildResidentPlaceholderInboxItems({
+          contacts: filterContacts,
+          filters: threadFilters ?? { propertyIds: [], roles: [], contactIds: [] },
+          occupiedEmails: occupiedResidentEmails,
+          searchQuery: "",
+          listSegment: "active",
+        });
+    const pinAssistant = (rows: UnifiedInboxListItem[], segment: InboxListSegment) => {
+      if (!assistantThreadId || !viewerId) {
+        return pinPropLaneAssistantUnifiedItems(rows, assistantThreadId);
+      }
+      const live =
+        emailThreads.find((thread) => thread.id === assistantThreadId) ??
+        buildManagerAssistantPlaceholderThread(viewerId, assistantWorkspace);
+      return ensurePinnedManagerAssistantUnifiedItems(
+        rows,
+        assistantUnifiedListItemFromThread({ ...live, folder: "inbox" }, segment),
+      );
+    };
+    const active = pinAssistant(
+      mergeUnifiedInboxItems(
+        [
+          ...filteredEmail.filter((t) => t.folder !== "trash").map(emailThreadMergeStub),
+          ...allSmsItems.filter((row) => !row.archived).map((row) => row.item),
+          ...placeholders,
+        ],
+        listSort,
+      ),
+      "active",
+    );
+    const archived = pinAssistant(
+      mergeUnifiedInboxItems(
+        [
+          ...filteredEmail.filter((t) => t.folder === "trash").map(emailThreadMergeStub),
+          ...allSmsItems.filter((row) => row.archived).map((row) => row.item),
+        ],
+        listSort,
+      ),
+      "archived",
+    );
+    return { active: active.length, archived: archived.length };
+  }, [
+    allSmsItems,
+    assistantThreadId,
+    assistantWorkspace,
+    emailThreads,
+    filterContacts,
+    filteredEmail,
+    listSort,
+    occupiedResidentEmails,
+    threadFilters,
+    viewerId,
+  ]);
+
+  const smsTargets = useMemo(
+    () =>
+      smsResidents.map((resident) => ({
+        conversationId: smsConversationId(resident),
+        phone: resident.phone ?? "",
+        conversationKey: resident.conversationKey ?? null,
+      })),
+    [smsResidents],
+  );
+
   const mergedRows = useMemo(() => {
     const merged = mergeUnifiedInboxItems(
       [...emailListItems, ...smsListItems, ...placeholderListItems],
@@ -800,6 +893,11 @@ export function ManagerUnifiedInbox({
     emailThreads,
     onEmailThreadsChange: setEmailThreads,
     onSmsArchiveChange: () => setSmsArchivedIds(loadManagerSmsArchivedIds()),
+    smsTargets,
+    onSmsDeleted: () => {
+      invalidateManagerSmsConversationsClient(viewerId);
+      void loadSms({ force: true });
+    },
     showToast: appUi?.showToast,
     onSelectionCleared: () => {
       setSelectedKey(null);
@@ -899,7 +997,11 @@ export function ManagerUnifiedInbox({
     if (smsUiEnabled) void loadSms({ force: true });
   }, [loadSms, onRouteThreadChange, placeholderContact, smsUiEnabled, threadDetailHref, viewerAuthority, viewerId]);
 
-  const threadOpen = Boolean(selection);
+  const pendingThread = Boolean(routeThreadId || selectedKey) && !selectedRow;
+  const threadOpen = Boolean(selectedRow) || pendingThread;
+  const canDeleteAllArchived =
+    listSegment === "archived" &&
+    listRows.some((row) => !isAssistantUnifiedInboxRow(row, emailThreads));
 
   useEffect(() => {
     onThreadOpenChange?.(threadOpen);
@@ -971,6 +1073,7 @@ export function ManagerUnifiedInbox({
             commBase={commBase}
             value={listSegmentProp}
             onChange={onArchivedViewChange}
+            counts={listSegmentCounts}
           />
           <div className="flex min-w-0 items-center gap-1">
             <div className="relative min-w-0 flex-1">
@@ -989,6 +1092,16 @@ export function ManagerUnifiedInbox({
               </div>
             ) : null}
           </div>
+          {canDeleteAllArchived ? (
+            <Button
+              type="button"
+              variant="danger"
+              data-attr="unified-inbox-delete-all-archived"
+              onClick={() => void bulk.handleDeleteAllArchived()}
+            >
+              Delete all archived
+            </Button>
+          ) : null}
           {listRows.length > 0 ? (
             <p className="hidden px-1 text-[11px] text-muted sm:block">
               {listRows.length} conversation{listRows.length === 1 ? "" : "s"}
@@ -1164,7 +1277,9 @@ export function ManagerUnifiedInbox({
       },
     });
   }, [appUi, renderedViewerAuthority, selectedSmsResidents, viewerId]);
-  const threadPane = directChatEmail ? (
+  const threadPane = pendingThread ? (
+    <InboxThreadSkeleton />
+  ) : directChatEmail ? (
     <ResidentDirectChatPane
       residentEmail={directChatEmail}
       residentName={placeholderContact?.name ?? selectedRow?.name}

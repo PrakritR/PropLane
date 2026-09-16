@@ -29,8 +29,10 @@ import { MANAGER_ASSISTANT_EMAIL_SETTINGS_HREF } from "@/lib/manager-assistant-e
 import type { AddPropertyResult } from "@/components/portal/listing-wizard-v2/add-property-flow";
 import {
   ListingEditorV2,
+  listingV2StepIndex,
   type ListingContactDoors,
   type ListingEditorLeadingStep,
+  type ListingV2StepId,
 } from "@/components/portal/listing-wizard-v2/listing-editor";
 import { useListingPersistence } from "@/components/portal/listing-wizard-v2/use-listing-persistence";
 import { fillRoomsFollowingDefaults, houseDefaultsForSubmission } from "@/lib/listing-house-defaults";
@@ -98,6 +100,7 @@ export function ListingWizardV2({
   basicsLead,
   onDirtyChange,
   flushRef,
+  initialStep,
 }: {
   onClose: () => void;
   /** After a flush save (X or debounce). `savedId` is the record written. */
@@ -135,6 +138,8 @@ export function ListingWizardV2({
    * another one (the import's switcher). Resolves true when nothing was lost.
    */
   flushRef?: MutableRefObject<(() => Promise<boolean>) | null>;
+  /** Open the editor on this listing step (Import jumping to Rooms / Review). */
+  initialStep?: ListingV2StepId;
 }) {
   const { saveDraft, publish, busy } = useListingPersistence({
     userId,
@@ -181,7 +186,7 @@ export function ListingWizardV2({
         : submission,
     ),
   );
-  const stepRef = useRef(0);
+  const stepRef = useRef(listingV2StepIndex(initialStep));
   const closeTriesRef = useRef(0);
   const [dirty, setDirty] = useState(false);
   useEffect(() => {
@@ -346,6 +351,7 @@ export function ListingWizardV2({
         headerCenter={headerCenter}
         basicsLead={basicsLead}
         contact={contact}
+        initialStep={initialStep}
         onPublish={async () => {
         const prepared = await persistSubmission(submission);
         if (!prepared.ok) {

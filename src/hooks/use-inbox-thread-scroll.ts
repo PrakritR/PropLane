@@ -45,14 +45,11 @@ export function useInboxThreadScroll(threadKey: string | undefined, messageCount
 
     el.scrollTop = 0;
     jumpToBottom();
-    endRef.current?.scrollIntoView?.({ block: "end" });
 
     const raf = requestAnimationFrame(() => {
       jumpToBottom();
-      endRef.current?.scrollIntoView?.({ block: "end" });
       requestAnimationFrame(() => {
         jumpToBottom();
-        endRef.current?.scrollIntoView?.({ block: "end" });
       });
     });
     const timer = window.setTimeout(jumpToBottom, 120);
@@ -68,7 +65,6 @@ export function useInboxThreadScroll(threadKey: string | undefined, messageCount
     if (prevThreadKeyRef.current !== threadKey) return;
     if (!stickToBottomRef.current) return;
     jumpToBottom();
-    endRef.current?.scrollIntoView?.({ behavior: "smooth", block: "end" });
   }, [messageCount, threadKey, jumpToBottom]);
 
   // Scheduled cards, images, or late layout — keep the tail visible when pinned.
