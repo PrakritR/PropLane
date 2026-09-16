@@ -86,6 +86,10 @@ export function AddResidentWizard({
   const undoRef = useRef<AddPersonForm | null>(null);
 
   const patch = useCallback((next: Partial<AddPersonForm>) => setForm((prev) => ({ ...prev, ...next })), []);
+  // The commit reads the form through a ref so a callback captured on an
+  // earlier render can never write a stale copy of what the manager typed.
+  const formRef = useRef(form);
+  formRef.current = form;
   const derived = useResidentWizardDerived(form, propertyTick, patch);
   const stepIds: readonly string[] = form.kind === "prospect" ? PROSPECT_STEPS : RESIDENT_STEPS;
   const current = Math.min(stepIdx, stepIds.length - 1);
@@ -295,6 +299,7 @@ export function AddResidentWizard({
 
   const finish = async (row: DemoApplicantRow, skipMessage: boolean, channels?: { viaEmail: boolean; viaSms: boolean }, draft?: { subject: string; body: string; scheduleAt?: string }) => {
     if (busy) return;
+    const form = formRef.current;
     setBusy(true);
     try {
       const ctx = { userId: managerUserId, executedLeaseKeys, propertyLabelFor: (id: string) => propertyOptions.find((p) => p.id === id)?.label, assignee };

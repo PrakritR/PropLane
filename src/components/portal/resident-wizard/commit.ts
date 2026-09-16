@@ -192,16 +192,26 @@ export async function commitResident(row: DemoApplicantRow, form: AddPersonForm,
   return { ok: Object.keys(failures).length === 0, row, failures, notes };
 }
 
-export async function commitProspect(row: DemoApplicantRow, form: AddPersonForm, ctx: CommitContext): Promise<CommitOutcome> {
+export async function commitProspect(built: DemoApplicantRow, form: AddPersonForm, ctx: CommitContext): Promise<CommitOutcome> {
   const failures: CommitOutcome["failures"] = {};
   const notes: string[] = [];
-  appendManagerApplicationRow(row, { skipServerMirror: true });
-  const persisted = await upsertApplicationRowToServerAwait(row);
-  if (!persisted.ok) {
-    dropRowFromCache(row.id);
-    return { ok: false, row, failures: { row: persisted.error ?? "Could not save the prospect." }, notes };
+  // Same email already in Residents (a prospect who asked twice, an applicant
+  // who then booked a tour): link the tour to them instead of a second row.
+  const email = built.email?.trim().toLowerCase();
+  const existing = email ? readManagerApplicationRows().find((r) => r.email?.trim().toLowerCase() === email) : undefined;
+  let row = built;
+  if (existing) {
+    row = existing;
+    notes.push(`linked to ${existing.name}'s existing record`);
+  } else {
+    appendManagerApplicationRow(row, { skipServerMirror: true });
+    const persisted = await upsertApplicationRowToServerAwait(row);
+    if (!persisted.ok) {
+      dropRowFromCache(row.id);
+      return { ok: false, row, failures: { row: persisted.error ?? "Could not save the prospect." }, notes };
+    }
+    await syncManagerApplicationsFromServer({ force: true, managerUserId: ctx.userId });
   }
-  await syncManagerApplicationsFromServer({ force: true, managerUserId: ctx.userId });
 
   let tourId: string | null = null;
   if (form.tourFormat !== "none" && form.tourDate && form.tourStart && ctx.userId) {
@@ -209,7 +219,7 @@ export async function commitProspect(row: DemoApplicantRow, form: AddPersonForm,
     const durationMs = Math.max(15, Number(form.tourDurationMinutes) || 30) * 60 * 1000;
     const end = new Date(Date.parse(start) + durationMs).toISOString();
     const label = form.propertyId ? ctx.propertyLabelFor(form.propertyId) : undefined;
-    const roomLabel = row.manualResidentDetails?.roomNumber;
+    const roomLabel = row.manualResidentDetails?.roomNumber ?? built.manualResidentDetails?.roomNumber;
     if (!form.propertyId) {
       failures.tour = "Pick a property to put the tour on the calendar.";
     } else {
