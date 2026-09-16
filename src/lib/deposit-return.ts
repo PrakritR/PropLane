@@ -27,7 +27,7 @@ export type DepositReturnContext = {
   alreadyReturnedCents: number;
   /**
    * The Stripe charge the money arrived on. Without it there is nothing to refund against —
-   * a deposit paid by cash or Zelle has no Stripe record and must be settled outside PropLane.
+   * a deposit paid by cash or check has no Stripe record and must be settled outside PropLane.
    */
   stripeChargeId: string | null;
   /** Whether the original payment has cleared. An ACH debit can still bounce. */

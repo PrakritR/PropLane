@@ -103,11 +103,6 @@ describe("createApplicationFeeCheckout — destination + ownership", () => {
       appleOriginalTransactionId: null,
     });
     vi.mocked(loadManagerManualPaymentSettings).mockResolvedValue({
-      zellePaymentsEnabled: false,
-      zelleContact: "",
-      venmoPaymentsEnabled: false,
-      venmoContact: "",
-      receiptAutoMarkEnabled: true,
       serviceFeePayer: "resident",
     });
   });
@@ -172,8 +167,6 @@ describe("createApplicationFeeCheckout — destination + ownership", () => {
                     v: 1,
                     applicationFee: "$50",
                     axisPaymentsEnabled: false,
-                    zellePaymentsEnabled: true,
-                    zelleContact: "manager@example.com",
                     rooms: [],
                     bathrooms: [],
                   },
@@ -243,11 +236,6 @@ describe("resolveApplicationFeeItemization — plan-based service fee resolver",
       appleOriginalTransactionId: null,
     });
     vi.mocked(loadManagerManualPaymentSettings).mockResolvedValue({
-      zellePaymentsEnabled: false,
-      zelleContact: "",
-      venmoPaymentsEnabled: false,
-      venmoContact: "",
-      receiptAutoMarkEnabled: true,
       serviceFeePayer: "resident",
     });
 
@@ -266,11 +254,6 @@ describe("resolveApplicationFeeItemization — plan-based service fee resolver",
       appleOriginalTransactionId: null,
     });
     vi.mocked(loadManagerManualPaymentSettings).mockResolvedValue({
-      zellePaymentsEnabled: false,
-      zelleContact: "",
-      venmoPaymentsEnabled: false,
-      venmoContact: "",
-      receiptAutoMarkEnabled: true,
       serviceFeePayer: "manager",
     });
 
@@ -289,11 +272,6 @@ describe("resolveApplicationFeeItemization — plan-based service fee resolver",
       appleOriginalTransactionId: null,
     });
     vi.mocked(loadManagerManualPaymentSettings).mockResolvedValue({
-      zellePaymentsEnabled: false,
-      zelleContact: "",
-      venmoPaymentsEnabled: false,
-      venmoContact: "",
-      receiptAutoMarkEnabled: true,
       serviceFeePayer: "proplane",
       adminServiceFeeOverride: "proplane",
     });
@@ -313,22 +291,17 @@ describe("resolveApplicationFeeItemization — plan-based service fee resolver",
       appleOriginalTransactionId: null,
     });
     vi.mocked(loadManagerManualPaymentSettings).mockResolvedValue({
-      zellePaymentsEnabled: false,
-      zelleContact: "",
-      venmoPaymentsEnabled: false,
-      venmoContact: "",
-      receiptAutoMarkEnabled: true,
       serviceFeePayer: "resident",
     });
 
     const listing = { serviceFeePayer: "proplane", serviceFeeWaiverCode: "FREE100" } as never;
-    const covered = await resolveApplicationFeeItemization(db, "mgr_A", 5000, "card", listing);
+    const covered = await resolveApplicationFeeItemization(db, "mgr_A", 5000, listing);
     expect(covered.feePayer).toBe("proplane");
     expect(covered.serviceFeeCents).toBe(0);
     expect(covered.totalCents).toBe(5000);
 
     // The same choice with no code (or a typo) is not a grant: the applicant pays.
-    const uncovered = await resolveApplicationFeeItemization(db, "mgr_A", 5000, "card", {
+    const uncovered = await resolveApplicationFeeItemization(db, "mgr_A", 5000, {
       serviceFeePayer: "proplane",
       serviceFeeWaiverCode: "NOPE",
     } as never);
@@ -346,11 +319,6 @@ describe("resolveApplicationFeeItemization — plan-based service fee resolver",
       promoCode: "FREE100",
     } as never);
     vi.mocked(loadManagerManualPaymentSettings).mockResolvedValue({
-      zellePaymentsEnabled: false,
-      zelleContact: "",
-      venmoPaymentsEnabled: false,
-      venmoContact: "",
-      receiptAutoMarkEnabled: true,
       serviceFeePayer: "proplane",
     });
 

@@ -2299,6 +2299,7 @@ export const ManagerInbox = forwardRef<
     activeThread && showThreadHeaderActions ? (
     activeThread.folder === "trash" ? (
       <>
+        {!activeIsAssistantThread ? (
         <button
           type="button"
           className={INBOX_THREAD_ICON_BTN}
@@ -2309,6 +2310,8 @@ export const ManagerInbox = forwardRef<
         >
           <ArchiveRestore className="h-4 w-4" aria-hidden />
         </button>
+        ) : null}
+        {!activeIsAssistantThread ? (
         <button
           type="button"
           className={INBOX_THREAD_ICON_BTN_DANGER}
@@ -2319,12 +2322,14 @@ export const ManagerInbox = forwardRef<
         >
           <Trash2 className="h-4 w-4" aria-hidden />
         </button>
+        ) : null}
       </>
     ) : (
       <>
         {/* One row of matching circular controls: call, open, edit, archive, delete. */}
         {threadContactActions}
         {threadContactEditButton}
+        {!activeIsAssistantThread ? (
         <button
           type="button"
           className={INBOX_THREAD_ICON_BTN}
@@ -2335,6 +2340,8 @@ export const ManagerInbox = forwardRef<
         >
           <Archive className="h-4 w-4" aria-hidden />
         </button>
+        ) : null}
+        {!activeIsAssistantThread ? (
         <button
           type="button"
           className={INBOX_THREAD_ICON_BTN_DANGER}
@@ -2345,6 +2352,7 @@ export const ManagerInbox = forwardRef<
         >
           <Trash2 className="h-4 w-4" aria-hidden />
         </button>
+        ) : null}
       </>
     )
   ) : activeThread && embeddedInCommunication ? (

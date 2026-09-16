@@ -39,6 +39,10 @@ import {
 } from "@/lib/property-lease-template-html";
 import { sectionSourceFromHtml } from "@/lib/lease-section-text";
 import { smsAccessAllowsPropertyRecord, smsDataOwnerIds } from "@/lib/sms/manager-sms-access";
+import {
+  propertyInAgentWorkspace,
+  SWITCH_WORKSPACE_ASSISTANT_REPLY,
+} from "@/lib/agent/manager-workspace-scope";
 
 /**
  * Property records vary in shape by lifecycle status: `property_data` holds the
@@ -110,6 +114,7 @@ export const listPropertiesTool = defineTool({
       if (error) throw new Error(error.message);
       for (const rec of (data ?? []) as (RawPropertyRecord & { manager_user_id?: string | null })[]) {
         if (!smsAccessAllowsPropertyRecord(ctx, rec)) continue;
+        if (!propertyInAgentWorkspace(ctx.workspace, rec.id)) continue;
         byId.set(rec.id, rec);
       }
     }
@@ -134,6 +139,9 @@ async function loadOwnedPropertyRecord(ctx: AgentContext, propertyId: string): P
   const rec = (((data ?? []) as RawPropertyRecord[])[0] as RawPropertyRecord | undefined) ?? null;
   if (!rec) return null;
   if (!smsAccessAllowsPropertyRecord(ctx, rec)) return null;
+  if (!propertyInAgentWorkspace(ctx.workspace, rec.id)) {
+    throw new Error(SWITCH_WORKSPACE_ASSISTANT_REPLY);
+  }
   return rec;
 }
 
@@ -165,7 +173,7 @@ function summarizeRooms(sub: Record<string, unknown> | null) {
 export const getPropertyDetailsTool = defineTool({
   name: "get_property_details",
   description:
-    "Get one of the current landlord's properties in detail: title, address, zip, neighborhood, beds/baths, rent, lifecycle status, per-room name/rent/availability/move-in date, and which resident payment methods the listing accepts. Pass a property id from list_properties. Photos and payment contact details (Zelle/Venmo handles) are never returned.",
+    "Get one of the current landlord's properties in detail: title, address, zip, neighborhood, beds/baths, rent, lifecycle status, per-room name/rent/availability/move-in date, and which resident payment methods the listing accepts. Pass a property id from list_properties. Photos are never returned.",
   kind: "read",
   inputSchema: z
     .object({
@@ -193,7 +201,7 @@ export const getPropertyDetailsTool = defineTool({
         petFriendly: src?.petFriendly === true,
         rooms: summarizeRooms(sub),
         acceptedPaymentMethods: sub
-          ? acceptedPaymentMethodsForListing(sub as { acceptedPaymentMethods?: ("zelle" | "venmo" | "ach" | "card")[] })
+          ? acceptedPaymentMethodsForListing(sub as { acceptedPaymentMethods?: ("ach" | "card")[] })
           : null,
       },
     };

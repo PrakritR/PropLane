@@ -123,10 +123,8 @@ describe("notices separate routine communication from service required by law", 
 });
 
 /**
- * Zelle and Venmo were retired product-wide: normalization forces them off, the
- * portal accepts neither, and `acceptedPaymentMethodsForListing` filters both out.
- * The lease body read the RAW submission, so a listing row that still carried a
- * Zelle contact printed an instruction the product can no longer honour.
+ * Off-platform payment channels were removed product-wide (PLAN-0916). A legacy
+ * listing row may still carry the handles; the lease must never print them.
  */
 describe("payment instructions follow the normalized listing", () => {
   it("never promises a retired channel a legacy listing still stores", () => {

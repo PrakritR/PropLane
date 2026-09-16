@@ -215,7 +215,7 @@ export async function resolveAndValidateManagerConnectForPayments(
       ok: false,
       code: "NO_ACCOUNT",
       error:
-        "This property manager has not connected Stripe payouts yet. Use Zelle or Venmo if the listing offers it.",
+        "This property manager has not connected Stripe payouts yet. Contact them before paying.",
     };
   }
   const result = await validateManagerConnectForDestinationCharge(stripe, accountId);

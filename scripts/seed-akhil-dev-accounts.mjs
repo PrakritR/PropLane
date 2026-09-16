@@ -314,7 +314,6 @@ function buildApplication(p) {
     digitalSignature: p.name,
     applicationFeePayChannel: "stripe",
     applicationFeeAcknowledged: true,
-    applicationFeeZelleSentConfirmed: false,
   };
 }
 

@@ -2388,7 +2388,6 @@ function HouseStripePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissio
             patch({
               axisPaymentsEnabled: next,
               applicationFeeStripeEnabled: next,
-              applicationFeeOtherEnabled: false,
             })
           }
         />

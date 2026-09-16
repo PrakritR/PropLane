@@ -6,7 +6,6 @@ import {
   nativeOAuthSetupHint,
   nativeSupabaseRedirectUrls,
 } from "@/lib/auth/native-oauth-redirect-urls";
-import { gmailPaymentsOAuthRedirectUri } from "@/lib/gmail-payments/api.server";
 import { googleCalendarOAuthRedirectUri } from "@/lib/google-calendar/api.server";
 import { warmGoogleCalendarOAuthConfig } from "@/lib/google-calendar/settings";
 
@@ -58,9 +57,6 @@ export async function GET(req: NextRequest) {
     const googleCalendarCallbackUrls = [
       ...new Set(googleServiceCallbackOrigins.map((origin) => googleCalendarOAuthRedirectUri(origin))),
     ];
-    const gmailPaymentsCallbackUrls = [
-      ...new Set(googleServiceCallbackOrigins.map((origin) => gmailPaymentsOAuthRedirectUri(origin))),
-    ];
     return NextResponse.json({
       googleEnabled,
       supabaseUrl,
@@ -69,7 +65,6 @@ export async function GET(req: NextRequest) {
       httpsCallbackUrls: httpsCallbacks,
       nativeCallbackUrls: nativeCallbacks,
       googleCalendarCallbackUrls,
-      gmailPaymentsCallbackUrls,
       hint: googleEnabled
         ? null
         : `After enabling Google, allowlist every httpsCallbackUrls entry in Supabase URL configuration.`,
@@ -78,7 +73,7 @@ export async function GET(req: NextRequest) {
         ? `If Google shows redirect_uri_mismatch, add this exact URI in Google Cloud → Credentials → OAuth client → Authorized redirect URIs: ${googleRedirectUri}`
         : null,
       googleServiceRedirectHint:
-        "Calendar and Gmail payment connect use the googleCalendarCallbackUrls / gmailPaymentsCallbackUrls entries. " +
+        "Calendar connect uses the googleCalendarCallbackUrls entries. " +
         "Add each listed URI to the same Google OAuth client. Managers may start connect from any production domain; " +
         "callbacks use the canonical origin when multiple live domains share one deployment.",
     });

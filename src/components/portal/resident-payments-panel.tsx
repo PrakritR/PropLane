@@ -759,13 +759,10 @@ export function ResidentPaymentsPanel({
   }, [moveInGroups, selectedIds]);
 
   const payHeaderAction = useCallback(() => {
-    const pool = filterChargesForPayMethod(unpaidPayableCharges, paymentMethod);
+    const pool = filterChargesForPayMethod(unpaidPayableCharges);
     const ids =
       selectedIds.size > 0
-        ? filterChargesForPayMethod(
-            unpaidPayableCharges.filter((c) => selectedIds.has(c.id)),
-            paymentMethod,
-          ).map((c) => c.id)
+        ? filterChargesForPayMethod(unpaidPayableCharges.filter((c) => selectedIds.has(c.id))).map((c) => c.id)
         : pool.map((c) => c.id);
     if (ids.length === 0) {
       showToast(`No selected charges can be paid with ${residentPaymentMethodLabel(paymentMethod)}.`);
@@ -889,11 +886,8 @@ export function ResidentPaymentsPanel({
     const achPayable = row.status === "pending" && canPayHouseholdChargeWithAxisAch(row);
     const rowPayIds =
       selectedIds.has(row.id) && selectedIds.size > 1
-        ? filterChargesForPayMethod(
-            unpaidPayableCharges.filter((c) => selectedIds.has(c.id)),
-            paymentMethod,
-          ).map((c) => c.id)
-        : filterChargesForPayMethod([row], paymentMethod).map((c) => c.id);
+        ? filterChargesForPayMethod(unpaidPayableCharges.filter((c) => selectedIds.has(c.id))).map((c) => c.id)
+        : filterChargesForPayMethod([row]).map((c) => c.id);
     return (
       <>
         <p className="mb-3 text-sm text-muted">
@@ -954,7 +948,7 @@ export function ResidentPaymentsPanel({
 
   const renderExpandedActions = (row: HouseholdCharge) => {
     const payable = isPayableHouseholdCharge(row);
-    const rowPayIds = filterChargesForPayMethod([row], paymentMethod).map((c) => c.id);
+    const rowPayIds = filterChargesForPayMethod([row]).map((c) => c.id);
     return (
       <PortalTableDetailActions>
         {payable && rowPayIds.length > 0 ? (
@@ -1487,10 +1481,9 @@ export function ResidentPaymentsPanel({
 
   if (chargeIdProp && detailMoveInGroup) {
     const group = detailMoveInGroup;
-    const payableIds = filterChargesForPayMethod(
-      group.items.filter((c) => isPayableHouseholdCharge(c)),
-      paymentMethod,
-    ).map((c) => c.id);
+    const payableIds = filterChargesForPayMethod(group.items.filter((c) => isPayableHouseholdCharge(c))).map(
+      (c) => c.id,
+    );
     const payableCents = group.items
       .filter((c) => payableIds.includes(c.id))
       .reduce((sum, c) => sum + centsFromLabel(c.balanceLabel), 0);

@@ -1627,7 +1627,6 @@ try {
       digitalSignature: p.name,
       applicationFeePayChannel: "stripe",
       applicationFeeAcknowledged: true,
-      applicationFeeZelleSentConfirmed: false,
     };
     if (p.demoGroupId && p.groupRole) {
       application.applyingAsGroup = "yes";

@@ -5,50 +5,28 @@ import {
   normalizeManagerManualPaymentSettings,
 } from "@/lib/manager-manual-payment-settings";
 
-describe("manager manual payment settings", () => {
-  it("defaults to Stripe on with Zelle/Venmo retired", () => {
-    expect(normalizeManagerManualPaymentSettings(null)).toEqual({
-      ...DEFAULT_MANAGER_MANUAL_PAYMENT_SETTINGS,
-      receiptAutoMarkEnabled: true,
-    });
+describe("manager payment settings", () => {
+  it("defaults to PropLane payments on with the resident paying the service fee", () => {
+    expect(normalizeManagerManualPaymentSettings(null)).toEqual(DEFAULT_MANAGER_MANUAL_PAYMENT_SETTINGS);
+    expect(DEFAULT_MANAGER_MANUAL_PAYMENT_SETTINGS).toEqual({ axisPaymentsEnabled: true, serviceFeePayer: "resident" });
   });
 
-  it("always forces Zelle/Venmo off regardless of stored values", () => {
+  it("drops legacy off-platform handles a stored row may still carry (PLAN-0916)", () => {
     expect(
       normalizeManagerManualPaymentSettings({
         zellePaymentsEnabled: true,
         zelleContact: "pay@example.com",
         venmoPaymentsEnabled: true,
         venmoContact: "@payme",
+        receiptAutoMarkEnabled: true,
+        paymentInboxToken: "abc",
       }),
-    ).toEqual({
-      axisPaymentsEnabled: true,
-      zellePaymentsEnabled: false,
-      zelleContact: "",
-      venmoPaymentsEnabled: false,
-      venmoContact: "",
-      receiptAutoMarkEnabled: true,
-      serviceFeePayer: "resident",
-    });
+    ).toEqual({ axisPaymentsEnabled: true, serviceFeePayer: "resident" });
   });
 
-  it("sanitizes contacts and respects axisPaymentsEnabled", () => {
+  it("respects axisPaymentsEnabled and the service-fee choice", () => {
     expect(
-      normalizeManagerManualPaymentSettings({
-        axisPaymentsEnabled: false,
-        zellePaymentsEnabled: true,
-        zelleContact: "name@email.com",
-        venmoPaymentsEnabled: false,
-        venmoContact: "",
-      }),
-    ).toEqual({
-      axisPaymentsEnabled: false,
-      zellePaymentsEnabled: false,
-      zelleContact: "",
-      venmoPaymentsEnabled: false,
-      venmoContact: "",
-      receiptAutoMarkEnabled: true,
-      serviceFeePayer: "resident",
-    });
+      normalizeManagerManualPaymentSettings({ axisPaymentsEnabled: false, serviceFeePayer: "manager" }),
+    ).toEqual({ axisPaymentsEnabled: false, serviceFeePayer: "manager" });
   });
 });

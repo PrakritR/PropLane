@@ -1,6 +1,7 @@
 import type { AgentContext } from "../context";
 import { smsAccessAllowsRow, smsDataOwnerIds } from "@/lib/sms/manager-sms-access";
 import type { CoManagerPermissionId } from "@/lib/co-manager-permissions";
+import { rowAllowedInAgentWorkspace } from "@/lib/agent/manager-workspace-scope";
 
 const PAGE_SIZE = 1000;
 
@@ -16,7 +17,7 @@ const PAGE_SIZE = 1000;
  * (no access field) keep the original landlord-only query.
  */
 export async function loadAllManagerRows<T>(
-  ctx: Pick<AgentContext, "db" | "landlordId" | "managerSmsAccess">,
+  ctx: Pick<AgentContext, "db" | "landlordId" | "managerSmsAccess" | "workspace">,
   table: string,
   map: (rowData: unknown) => T,
   module?: CoManagerPermissionId,
@@ -44,6 +45,7 @@ export async function loadAllManagerRows<T>(
         ) {
           continue;
         }
+        if (!rowAllowedInAgentWorkspace(ctx, r.row_data)) continue;
         out.push(map(r.row_data));
       }
       if (rows.length < PAGE_SIZE) break;

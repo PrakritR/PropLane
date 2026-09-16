@@ -40,7 +40,8 @@ export type ApprovePayInput = {
   materialsCostCents?: number;
   materialsMemo?: string;
   workDoneSummary?: string;
-  paymentChannel?: "ach" | "zelle" | "venmo";
+  /** ACH through Stripe Connect is the only vendor payout rail (PLAN-0916). */
+  paymentChannel?: "ach";
   /**
    * The manager saw the double-pay warning naming the existing PropLane payout
    * and still wants to mark this paid. Without it, a work order that already has
@@ -127,9 +128,7 @@ export async function approveAndPayWorkOrder(
 
   const ownerManagerUserId = String(existing.manager_user_id ?? actor.userId);
 
-  const paymentChannel = input.paymentChannel === "zelle" || input.paymentChannel === "venmo" || input.paymentChannel === "ach"
-    ? input.paymentChannel
-    : "ach";
+  const paymentChannel = "ach" as const;
 
   const blocking = await findBlockingVendorPayout(db, workOrder.id);
   if (!blocking.ok) return { ok: false, status: 500, error: blocking.error };
@@ -190,21 +189,6 @@ export async function approveAndPayWorkOrder(
       ? acceptedBid.vendor_directory_id
       : existingRow.vendorId;
 
-  const { data: vendorDirectory } = acceptedVendorId
-    ? await db
-        .from("manager_vendor_records")
-        .select("row_data")
-        .eq("id", acceptedVendorId)
-        .eq("manager_user_id", ownerManagerUserId)
-        .maybeSingle()
-    : { data: null };
-  const vendorRow = (vendorDirectory?.row_data ?? null) as {
-    zelleContact?: string;
-    venmoContact?: string;
-    zellePaymentsEnabled?: boolean;
-    venmoPaymentsEnabled?: boolean;
-  } | null;
-
   const expenseEntryIds = await createExpensesFromWorkOrder(db, ownerManagerUserId, {
     workOrderId: workOrder.id,
     category: input.category,
@@ -230,13 +214,7 @@ export async function approveAndPayWorkOrder(
     },
     expenseEntryIds,
   );
-  const paid = markWorkOrderPaid(completed, new Date().toISOString(), {
-    channel: paymentChannel,
-    zelleContactSnapshot:
-      paymentChannel === "zelle" && vendorRow?.zellePaymentsEnabled ? vendorRow.zelleContact?.trim() : undefined,
-    venmoContactSnapshot:
-      paymentChannel === "venmo" && vendorRow?.venmoPaymentsEnabled ? vendorRow.venmoContact?.trim() : undefined,
-  });
+  const paid = markWorkOrderPaid(completed, new Date().toISOString(), { channel: paymentChannel });
 
   const { error } = await db.from("portal_work_order_records").upsert(
     {

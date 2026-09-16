@@ -18,7 +18,7 @@ export function PortalPaymentMethodPicker({
   if (visible.length === 0) {
     return (
       <p className="rounded-xl border border-border bg-accent/20 px-3 py-2 text-xs text-muted">
-        This vendor has not set up payment methods yet. Ask them to add Zelle, Venmo, or bank details in their vendor
+        This vendor has not set up payment methods yet. Ask them to link their bank in their vendor
         portal.
       </p>
     );

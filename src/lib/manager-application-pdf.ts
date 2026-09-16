@@ -107,14 +107,8 @@ function feeChannelLabel(channel: RentalWizardFormState["applicationFeePayChanne
   switch (channel) {
     case "ach":
       return "ACH";
-    case "zelle":
-      return "Zelle";
-    case "venmo":
-      return "Venmo";
     case "stripe":
       return "Card (Stripe)";
-    case "other":
-      return "Other";
     default:
       return "";
   }
@@ -593,13 +587,6 @@ export async function buildApplicationPdf(
     { label: "Attestation of truth", value: app.consentTruth ? "Acknowledged" : "" },
     { label: "Application fee acknowledged", value: app.applicationFeeAcknowledged ? "Yes" : "" },
     { label: "Application fee payment method", value: feeChannelLabel(app.applicationFeePayChannel) },
-    {
-      label: "Manual fee payment confirmed",
-      value:
-        app.applicationFeePayChannel === "zelle" || app.applicationFeePayChannel === "venmo"
-          ? yesNo(app.applicationFeeZelleSentConfirmed ? "yes" : "no")
-          : "",
-    },
     { label: "Digital signature", value: clean(app.digitalSignature) },
     { label: "Date signed", value: clean(app.dateSigned) },
   ]);

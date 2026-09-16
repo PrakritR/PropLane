@@ -213,7 +213,7 @@ const COMPARE: { group: string; rows: { label: string; cells: [Cell, Cell, Cell]
   {
     group: "Money",
     rows: [
-      { label: "Rent by card, bank or Zelle", cells: [YES, YES, YES] },
+      { label: "Rent by card or bank", cells: [YES, YES, YES] },
       { label: "Ledger & reports", cells: [YES, YES, YES] },
       { label: "Who pays processing fees", cells: ["Resident", "Resident or manager", "Resident or manager"] },
     ],

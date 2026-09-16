@@ -70,7 +70,6 @@ import {
 import { paymentReminderRecipientLabel } from "@/lib/payment-reminder-ui";
 import {
   buildCombinedPaymentReminderBody,
-  buildManualPaymentInstructionLines,
   buildPaymentReminderBody,
   sumPaymentBalanceLabels,
 } from "@/lib/manual-payment-instructions";
@@ -183,9 +182,6 @@ function isStayTotalRow(row: DemoManagerPaymentLedgerRow): boolean {
 }
 
 function ledgerRowPrimaryLabel(row: DemoManagerPaymentLedgerRow): string {
-  if (row.manualPaymentReportedAt && row.manualPaymentChannel) {
-    return `${row.chargeTitle} · ${row.manualPaymentChannel === "zelle" ? "Zelle" : "Venmo"} reported`;
-  }
   return row.chargeTitle;
 }
 
@@ -593,14 +589,6 @@ export function ManagerPaymentsLedgerPanel({
     const residentName = row.residentName || "Resident";
     const chargeTitle = row.chargeTitle || "outstanding charge";
     const subject = `Payment reminder: ${chargeTitle}`;
-    const manualLines = buildManualPaymentInstructionLines({
-      id: row.householdChargeId ?? row.id,
-      paymentReference: row.paymentReference,
-      zelleContactSnapshot: row.zelleContactSnapshot,
-      venmoContactSnapshot: row.venmoContactSnapshot,
-      balanceLabel: row.balanceDue,
-      amountLabel: row.lineAmount,
-    });
     const body = buildPaymentReminderBody({
       residentName,
       residentEmail: row.residentEmail?.trim(),
@@ -609,7 +597,6 @@ export function ManagerPaymentsLedgerPanel({
       dueDate: row.dueDate,
       propertyLabel: row.propertyName,
       managerName: "Your property manager",
-      manualPaymentLines: manualLines.length ? manualLines : undefined,
     });
     const chargeLabel = [chargeTitle, row.propertyName].filter(Boolean).join(" · ");
     return {

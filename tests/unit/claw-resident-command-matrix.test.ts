@@ -78,7 +78,6 @@ describe("leasing prospect command matrix", () => {
 
 const createWorkOrder = vi.fn();
 const createServiceRequest = vi.fn();
-const reportManualPayment = vi.fn();
 
 vi.mock("@/lib/claw-maintenance-work-order.server", () => ({
   createWorkOrderFromResidentSms: (...args: unknown[]) => createWorkOrder(...args),
@@ -88,10 +87,6 @@ vi.mock("@/lib/claw-maintenance-work-order.server", () => ({
 vi.mock("@/lib/claw-service-request-sms.server", () => ({
   createServiceRequestFromResidentSms: (...args: unknown[]) => createServiceRequest(...args),
   serviceRequestResidentAck: () => "Service request filed.",
-}));
-
-vi.mock("@/lib/resident-report-manual-payment.server", () => ({
-  reportManualPaymentForResident: (...args: unknown[]) => reportManualPayment(...args),
 }));
 
 vi.mock("@/lib/supabase/service", () => {
@@ -112,7 +107,6 @@ describe("runResidentSmsAction command handlers", () => {
     vi.clearAllMocks();
     createWorkOrder.mockResolvedValue({ created: false, error: "not_maintenance" });
     createServiceRequest.mockResolvedValue({ created: true, requestId: "SR-1", title: "Parking" });
-    reportManualPayment.mockResolvedValue({ ok: true, channel: "zelle", charges: [{ id: "c1" }] });
   });
 
   it("help returns human menu without manager brief noise", async () => {
@@ -157,16 +151,16 @@ describe("runResidentSmsAction command handlers", () => {
     expect(result.residentReply).toMatch(/detail|work order/i);
   });
 
-  it("i_paid reports offline payment", async () => {
+  it("i_paid points at PropLane payments instead of filing an off-platform payment (PLAN-0916)", async () => {
     const { runResidentSmsAction } = await import("@/lib/claw-resident-actions.server");
     const result = await runResidentSmsAction({
-      text: "I paid via zelle",
+      text: "I just paid",
       residentPhone: "+15105551234",
       managerUserId: "mgr-1",
       residentEmail: "r@example.com",
       residentUserId: "res-1",
     });
-    expect(reportManualPayment).toHaveBeenCalled();
-    expect(result.residentReply.toLowerCase()).toMatch(/noted|zelle/);
+    expect(result.residentReply).toContain("/resident/payments");
+    expect(result.residentReply.toLowerCase()).not.toMatch(/zelle|venmo/);
   });
 });

@@ -17,6 +17,12 @@ export function selectedWorkspaceId(): string | null {
   return selection?.activeWorkspaceId ?? null;
 }
 
+export function activeWorkspaceIdentity(): { id: string; isDefault: boolean } | null {
+  const active = activeWorkspace();
+  if (!active) return null;
+  return { id: active.id, isDefault: active.isDefault };
+}
+
 /**
  * True once the account holds more than one workspace. Only account-level
  * rows (no house at all) consult this: they live in the owned default

@@ -238,7 +238,7 @@ export const addVendorTool = defineWriteTool({
 
 /**
  * The ONLY row_data fields update_vendor may change. Tax data, payment
- * contacts (zelleContact / venmoContact / *PaymentsEnabled), vendorDocuments,
+ * settings (achPaymentsEnabled / acceptedPaymentMethods), vendorDocuments,
  * and sharedWithManagers are deliberately outside the allowlist and
  * unreachable from the agent.
  */

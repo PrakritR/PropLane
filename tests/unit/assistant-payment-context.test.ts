@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { SYSTEM_PROMPT } from "@/lib/agent/system-prompt";
 import { RESIDENT_SYSTEM_PROMPT } from "@/lib/agent/resident-system-prompt";
-import { GMAIL_PAYMENTS_ENABLED } from "@/lib/gmail-payments/enabled";
 
 /**
  * PRP-133: the assistant had no product knowledge of the payment system, so it
  * could not say how money reaches the manager, why an ACH charge sits in
  * "processing", or — the reported symptom — why Gmail was being asked for to
- * track payments. Gmail receipt matching has since been withdrawn (PRP-130), so
- * the honest answer is that it is neither needed nor used.
+ * track payments. Gmail receipt matching and off-platform (Zelle/Venmo) payments
+ * were removed outright (PLAN-0916), so the honest answer is that neither exists.
  */
 describe("PRP-133: assistant payment-system context", () => {
   it("teaches the manager assistant where the money lands and who bears the fee", () => {
@@ -26,19 +25,16 @@ describe("PRP-133: assistant payment-system context", () => {
     expect(RESIDENT_SYSTEM_PROMPT).toContain("3-5 business days");
   });
 
-  it("routes off-platform payments to mark_charge_paid rather than email scanning", () => {
+  it("routes a hand-taken payment to mark_charge_paid and never mentions retired channels", () => {
     expect(SYSTEM_PROMPT).toContain("mark_charge_paid");
-    expect(SYSTEM_PROMPT).toMatch(/Zelle, Venmo, cash, or check/);
+    expect(SYSTEM_PROMPT).toMatch(/cash or check/);
+    expect(SYSTEM_PROMPT).not.toMatch(/zelle|venmo/i);
+    expect(RESIDENT_SYSTEM_PROMPT).not.toMatch(/zelle|venmo/i);
   });
 
-  it("states plainly that PropLane does not read email, matching the shipped flag", () => {
-    // The prompt may only claim this while the feature really is off. If Gmail
-    // payment matching is ever re-enabled, this prompt text becomes a lie and
-    // must be rewritten with it.
-    expect(GMAIL_PAYMENTS_ENABLED).toBe(false);
-    expect(SYSTEM_PROMPT).toContain("currently switched OFF");
-    expect(SYSTEM_PROMPT).toContain("no email is read");
-    expect(SYSTEM_PROMPT).toContain("only Google connection offered today is Google Calendar");
-    expect(RESIDENT_SYSTEM_PROMPT).toContain("does not read anyone's email");
+  it("states plainly that PropLane does not read email", () => {
+    expect(SYSTEM_PROMPT).toContain("There is no Gmail or email-receipt tracking");
+    expect(SYSTEM_PROMPT).toContain("only Google connection offered is Google Calendar");
+    expect(RESIDENT_SYSTEM_PROMPT).toContain("Every rent payment goes through PropLane");
   });
 });

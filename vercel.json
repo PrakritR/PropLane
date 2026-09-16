@@ -18,10 +18,6 @@
       "schedule": "*/5 * * * *"
     },
     {
-      "path": "/api/cron/sync-manual-payments",
-      "schedule": "0 12 * * *"
-    },
-    {
       "path": "/api/cron/send-payment-reminders",
       "schedule": "0 9 * * *"
     },

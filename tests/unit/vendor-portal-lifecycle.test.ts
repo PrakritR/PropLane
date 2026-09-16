@@ -16,10 +16,6 @@ function vendorRow(overrides: Partial<ManagerVendorRow> = {}): ManagerVendorRow 
     email: "",
     notes: "",
     active: true,
-    zellePaymentsEnabled: true,
-    zelleContact: "ace@email.com",
-    venmoPaymentsEnabled: false,
-    venmoContact: "",
     achPaymentsEnabled: true,
     ...overrides,
   };
@@ -161,7 +157,7 @@ describe("vendor portal lifecycle", () => {
       },
       vendorRow(),
     );
-    expect(managerCanPayOutgoingRowWithMethod(enriched, "zelle")).toBe(true);
-    expect(managerCanPayOutgoingRowWithMethod({ ...enriched, bucket: "paid" }, "zelle")).toBe(false);
+    expect(managerCanPayOutgoingRowWithMethod(enriched, "ach")).toBe(true);
+    expect(managerCanPayOutgoingRowWithMethod({ ...enriched, bucket: "paid" }, "ach")).toBe(false);
   });
 });

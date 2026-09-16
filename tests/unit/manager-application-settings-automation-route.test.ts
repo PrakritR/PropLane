@@ -136,8 +136,6 @@ describe("PATCH automation", () => {
     expect(saveManagerApplicationSettings).toHaveBeenCalledWith({}, "mgr-1", {
       applicationFeeCents: 5000,
       applicationFeeChargePolicy: "first_only",
-      applicationFeeOtherEnabled: false,
-      applicationFeeOtherInstructions: "",
     });
   });
 

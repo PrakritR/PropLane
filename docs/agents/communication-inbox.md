@@ -51,7 +51,7 @@ destructive actions and column labels from the ROW's folder, not the active tab
 inheriting it for a live inbox row destroys real mail. Coverage:
 `tests/unit/manager-inbox-search.test.tsx`.
 
-### Communication is one unified, conversation-based inbox (no folder tabs) — ALL portals
+### Communication is one unified, conversation-based inbox — ALL portals
 
 Tour-request portal notices may carry `smsConversationKey` only after the server
 proves an existing prospect/applicant SMS conversation by exact owner, phone,
@@ -68,17 +68,13 @@ mounting its portal's inbox panel with `suppressListPane` for the thread side);
 admin alone keeps its flat table driven by an `"all"` tabId (all non-trash
 conversations) plus the archive toggle. Invariants:
 
-- **No folder tabs.** The list shows ALL live conversations (inbox + sent).
-  Manager / resident / vendor route on
-  `/communication/{active|unread|archived}[/{threadId}]` preserve deep links.
-  On all three portals, status lives in **Filter** (All conversations, Read,
-  Unread, Archived) rather than a segment rail; `archived` is the trashed view
-  and `unread` is the unread-only view. Manager Communication also exposes a
-  labeled **Archived** destination button on the conversation list
-  (`communication-archived-inbox-toggle`) — the same job as admin's
-  `admin-inbox-archived-toggle`, not a folder-tab rail.
-  Unread rows also show a per-row dot on `InboxConversationRow` that clears when
-  the thread is opened. Admin still routes
+- **Manager Communication has Active | Archived tabs** under the work number
+  and work email boxes (`inbox-list-segments`). Unread stays in Filter (All
+  conversations, Read, Unread) for the current tab — Filter does not list
+  Archived. Resident and vendor still keep status in **Filter** (All
+  conversations, Read, Unread, Archived) rather than a segment rail.
+  `/communication/{active|unread|archived}[/{threadId}]` deep links remain.
+  `unread` is Active + unread filter. Admin still routes
   `/communication/inbox/{tab}` and reaches archived through its
   `admin-inbox-archived-toggle` button. Trash/restore live in the open thread —
   never re-add a top-level Schedule/Trash tab. `INBOX_TAB_DEFS` and the standalone
@@ -216,8 +212,14 @@ conversations) plus the archive toggle. Invariants:
   SMS conversations, the houses picker, reply / send, mark-read, archive,
   delete and the assistant's inbox tools all ask `conversationVisible`. Three
   rules, in order: (1) a PropLane Assistant thread (`agent_notice`) belongs to
-  ONE account — the viewer sees their own in every workspace, never anyone
-  else's; (2) sharing is per house — a co-manager sees another owner's
+  ONE manager in ONE workspace — co-managers in the same workspace each have
+  their own chat, another workspace has a new chat, and the viewer never sees
+  anyone else's. Legacy `agent_notice_{userId}` is the default workspace's
+  chat; other workspaces use `agent_notice_{userId}__{workspaceId}`. The row
+  is pinned on Active, Unread, and Archived and cannot be archived away. If
+  they ask about a house that lives in another workspace, the assistant
+  replies exactly "Please switch to the other workspace for these questions."
+  (2) sharing is per house — a co-manager sees another owner's
   conversation only when it is about a house they hold Communication on at the
   level asked for (`read` lists, `edit` replies and sends, `delete` deletes),
   and a conversation about no house is never shared; (3) the active workspace

@@ -3,13 +3,11 @@ import { NextResponse } from "next/server";
 import {
   loadManagerManualPaymentSettings,
   managerManualPaymentSettingsPublic,
-  isValidZelleContact,
   normalizeManagerManualPaymentSettings,
   resolveSavedServiceFeeSelection,
   saveManagerManualPaymentSettings,
 } from "@/lib/manager-manual-payment-settings";
 import {
-  applyManagerManualPaymentsToListings,
   applyPropertyServiceFeePayersToListings,
   loadPropertyServiceFeePayers,
 } from "@/lib/manager-manual-payment-settings.server";
@@ -149,7 +147,6 @@ export async function PATCH(req: Request) {
     if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
     const body = (await req.json()) as Record<string, unknown>;
     const {
-      propertyIds,
       propertyServiceFeePayers,
       workspaceId,
       workspaceServiceFeePayer,
@@ -161,9 +158,6 @@ export async function PATCH(req: Request) {
     let settings = await loadManagerManualPaymentSettings(ctx.db, ctx.userId);
     if (hasSettingsPatch) {
       const normalized = normalizeManagerManualPaymentSettings({ ...settings, ...rest });
-      if (normalized.zellePaymentsEnabled && !isValidZelleContact(normalized.zelleContact)) {
-        return NextResponse.json({ error: "Enter a valid Zelle phone number or email address." }, { status: 400 });
-      }
       // Only look the grant up when the answer can change the save: a `proplane`
       // selection needs one, and everything else is stored as typed.
       const grant = rest.serviceFeePayer === "proplane" ? await accountWaiverGranted(ctx.db, ctx.userId, settings) : false;
@@ -224,15 +218,6 @@ export async function PATCH(req: Request) {
       workspaceSaved = true;
     }
 
-    const requestedPropertyIds = Array.isArray(propertyIds)
-      ? propertyIds.filter((id): id is string => typeof id === "string")
-      : undefined;
-    if (requestedPropertyIds?.length === 0) {
-      return NextResponse.json({ error: "Select at least one property." }, { status: 400 });
-    }
-    const propagation = requestedPropertyIds
-      ? await applyManagerManualPaymentsToListings(ctx.db, ctx.userId, settings, requestedPropertyIds)
-      : { listingsUpdated: 0, chargesUpdated: 0 };
     const feePayerPropagation =
       feePayerUpdates.length > 0
         ? await applyPropertyServiceFeePayersToListings(
@@ -247,8 +232,7 @@ export async function PATCH(req: Request) {
       ...(workspaceSaved
         ? { workspacePaymentSettings: await workspacePaymentSettingsPublic(ctx.db, ctx.userId) }
         : {}),
-      listingsUpdated: propagation.listingsUpdated + feePayerPropagation.listingsUpdated,
-      chargesUpdated: propagation.chargesUpdated,
+      listingsUpdated: feePayerPropagation.listingsUpdated,
       ...(feePayerUpdates.length > 0
         ? {
             propertyServiceFeePayers: await loadPropertyServiceFeePayers(

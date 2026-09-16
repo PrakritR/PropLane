@@ -174,11 +174,6 @@ export type DemoManagerPaymentLedgerRow = {
   notes: string;
   householdChargeId?: string;
   cancelledReminders?: Array<"7d" | "5d" | "3d" | "12h" | "overdue_daily">;
-  manualPaymentChannel?: "zelle" | "venmo";
-  manualPaymentReportedAt?: string;
-  paymentReference?: string;
-  zelleContactSnapshot?: string;
-  venmoContactSnapshot?: string;
   residentChargeMessages?: ResidentChargeMessage[];
 };
 
@@ -207,11 +202,9 @@ export type DemoManagerOutgoingPaymentRow = {
   fromAxisFee?: boolean;
   vendorId?: string;
   amountCents?: number;
-  vendorPaymentMethods?: ("zelle" | "venmo" | "ach")[];
-  zelleContactSnapshot?: string;
-  venmoContactSnapshot?: string;
+  vendorPaymentMethods?: "ach"[];
   achAvailable?: boolean;
-  paidViaChannel?: "zelle" | "venmo" | "ach";
+  paidViaChannel?: "ach";
   paidAtLabel?: string;
 };
 
@@ -293,13 +286,7 @@ export type DemoManagerWorkOrderRow = {
   vendorMarkedDoneNote?: string;
   paidAt?: string;
   /** How the manager paid the vendor (bookkeeping + payout routing). */
-  vendorPaymentChannel?: "zelle" | "venmo" | "ach";
-  vendorZelleContactSnapshot?: string;
-  vendorVenmoContactSnapshot?: string;
-  /** WO- memo code for Zelle/Venmo vendor payouts. */
-  paymentReference?: string;
-  /** Gmail message id when auto-marked from vendor Gmail sync. */
-  paidViaGmailMessageId?: string;
+  vendorPaymentChannel?: "ach";
   /** ISO timestamp of the resident's last manager reminder for this pending request. */
   residentReminderSentAt?: string;
   // ---- PLAN-0915 vendor loop stamps ----

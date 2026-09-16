@@ -81,7 +81,7 @@ Required events:
 2. Complete embedded Stripe onboarding (identity, business info, **bank account for payouts**).
 3. Wait for badge **Payouts ready** (transfers + payouts active).
 
-Until this is done there is no rail a resident can pay on — Zelle and Venmo are retired — so checkout is refused and the resident is told to ask the manager to finish payment setup.
+Until this is done there is no rail a resident can pay on, so checkout is refused and the resident is told to ask the manager to finish payment setup.
 
 ---
 

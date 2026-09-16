@@ -470,21 +470,15 @@ describe("delete_charge", () => {
 });
 
 describe("mark_charge_paid", () => {
-  it("preview surfaces the resident-reported manual payment and the reminder/ledger effect", async () => {
+  it("preview names the hand-taken payment method and the reminder/ledger effect", async () => {
     const { ctx } = makeCtx({
-      portal_household_charge_records: [
-        chargeRow(LANDLORD, {
-          id: "c_open",
-          manualPaymentChannel: "zelle",
-          manualPaymentReportedAt: "2026-07-10T12:00:00.000Z",
-        }),
-      ],
+      portal_household_charge_records: [chargeRow(LANDLORD, { id: "c_open" })],
     });
-    const res = await previewWrite(markChargePaidTool, ctx, { chargeId: "c_open", channel: "zelle" });
+    const res = await previewWrite(markChargePaidTool, ctx, { chargeId: "c_open", channel: "check" });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     const values = res.preview.fields.map((l) => l.value).join(" | ");
-    expect(values).toContain("Resident reported sending Zelle");
+    expect(values).toContain("check");
     expect(values).toContain("Future reminders cancelled; payment recorded in the ledger");
   });
 

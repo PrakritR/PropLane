@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineTool, defineWriteTool } from "../registry";
 import type { AgentContext } from "../context";
+import { propertyInAgentWorkspace, SWITCH_WORKSPACE_ASSISTANT_REPLY } from "@/lib/agent/manager-workspace-scope";
 import { writeAuditLog, updateAuditResult, auditDayBucket } from "../audit";
 import {
   applyListingPhotoPlacements,
@@ -38,7 +39,12 @@ async function loadOwnedPropertyRecord(ctx: AgentContext, propertyId: string): P
     .eq("manager_user_id", ctx.landlordId)
     .limit(1);
   if (error) throw new Error(error.message);
-  return (((data ?? []) as RawPropertyRecord[])[0] as RawPropertyRecord | undefined) ?? null;
+  const rec = (((data ?? []) as RawPropertyRecord[])[0] as RawPropertyRecord | undefined) ?? null;
+  if (!rec) return null;
+  if (!propertyInAgentWorkspace(ctx.workspace, rec.id)) {
+    throw new Error(SWITCH_WORKSPACE_ASSISTANT_REPLY);
+  }
+  return rec;
 }
 
 function listingSubmissionOf(rec: RawPropertyRecord): Record<string, unknown> | null {

@@ -1,23 +1,16 @@
 "use client";
 
 /**
- * "Your work number" — the card at the top of the manager's conversation list.
+ * Work number and work email at the top of the manager conversation list.
  *
- * The complement of {@link ManagerWorkNumberButton}, which is the SETUP cta in
- * the page header. That button self-hides once a number is assigned; this card
- * only appears once one is. So exactly one of the two is on screen at a time,
- * and neither can be deleted without losing a state: the button is the only
- * entry to provisioning (and the free-tier upsell behind it), the card is the
- * only place the manager can read the number their residents actually text.
- *
- * Both read the same status through `useManagerMessagingNumberStatus`, so they
- * can never disagree about whether a number exists. Work email rides the same
- * card when the workspace has an address.
+ * Both boxes are always on screen. A live value shows the number/address plus
+ * copy; an empty slot is the same box with "Set up work number" / "Set up work
+ * email". There is no Phone glyph and no toolbar setup CTA — this stack is
+ * the only entry to provisioning from Communication.
  */
 import { useEffect, useState } from "react";
-import { Copy, Check, Mail, Phone } from "lucide-react";
+import { Copy, Check, RefreshCw } from "lucide-react";
 import {
-  PORTAL_INBOX_CONTACT_CARD_GLYPH_CLASS,
   PortalInboxContactCard,
   type PortalInboxContactCardAction,
 } from "@/components/portal/portal-inbox-contact-card";
@@ -26,9 +19,11 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
   isManagerAssistantEmailStatus,
   managerWorkEmailInUse,
+  MANAGER_ASSISTANT_EMAIL_SETTINGS_HREF,
 } from "@/lib/manager-assistant-email/manager-assistant-email-status";
 import { copyTextToClipboard } from "@/lib/manager-property-links";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
+import { MANAGER_MESSAGING_SETTINGS_HREF } from "@/lib/sms/manager-messaging-number";
 import { WORKSPACE_SELECTION_EVENT } from "@/lib/workspaces/selection";
 
 /** One plain line about whether the number can actually send right now. */
@@ -42,8 +37,9 @@ export function workNumberReadinessCaption(args: {
   return args.carrierRegistered ? "Ready to send · carrier registered" : "Ready to send";
 }
 
-function useManagerWorkEmail(): string | null {
+function useManagerWorkEmail(): { email: string | null; ready: boolean } {
   const [email, setEmail] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,6 +47,7 @@ function useManagerWorkEmail(): string | null {
 
     const load = () => {
       const thisEpoch = ++epoch;
+      setReady(false);
       void fetch("/api/manager/assistant-email", { credentials: "include", cache: "no-store" })
         .then(async (res) => {
           if (!res.ok) return null;
@@ -61,10 +58,12 @@ function useManagerWorkEmail(): string | null {
         .then((next) => {
           if (cancelled || thisEpoch !== epoch) return;
           setEmail(next);
+          setReady(true);
         })
         .catch(() => {
           if (cancelled || thisEpoch !== epoch) return;
           setEmail(null);
+          setReady(true);
         });
     };
 
@@ -76,7 +75,7 @@ function useManagerWorkEmail(): string | null {
     };
   }, []);
 
-  return email;
+  return { email, ready };
 }
 
 function copyIdentityAction(args: {
@@ -104,9 +103,19 @@ function copyIdentityAction(args: {
   };
 }
 
+function IdentitySkeleton({ dataAttr }: { dataAttr: string }) {
+  return (
+    <div
+      className="h-[52px] animate-pulse rounded-2xl bg-muted"
+      data-attr={dataAttr}
+      aria-hidden
+    />
+  );
+}
+
 export function ManagerWorkNumberCard() {
-  const { status } = useManagerMessagingNumberStatus();
-  const workEmail = useManagerWorkEmail();
+  const { ready, resolved, statusError, status, retry } = useManagerMessagingNumberStatus();
+  const { email: workEmail, ready: emailReady } = useManagerWorkEmail();
   const [copiedPhone, setCopiedPhone] = useState(false);
   const [copiedEmail, setCopiedEmail] = useState(false);
 
@@ -124,122 +133,169 @@ export function ManagerWorkNumberCard() {
 
   if (isDemoModeActive()) return null;
 
-  // One work number per workspace. A co-manager leads with the owner's line —
-  // the number their replies actually go out from — never a line of their own.
   const coManager = status?.workspaceRole === "co_manager";
   const workspace = status?.workspaceNumber ?? null;
-  const phone = (coManager ? workspace?.phoneNumber?.trim() : status?.number?.phoneNumber?.trim()) || null;
+  const phone =
+    (coManager ? workspace?.phoneNumber?.trim() : status?.number?.phoneNumber?.trim()) || null;
+  const numberLabel = coManager ? "Workspace number" : "Your work number";
   const emailLabel = coManager ? "Workspace email" : "Your work email";
-  const emailSecondary = workEmail
-    ? {
-        leading: (
-          <span className={PORTAL_INBOX_CONTACT_CARD_GLYPH_CLASS}>
-            <Mail className="h-[18px] w-[18px]" strokeWidth={1.9} />
-          </span>
-        ),
-        value: workEmail,
-        label: emailLabel,
-        actions: [
-          copyIdentityAction({
-            key: "copy-email",
-            copied: copiedEmail,
-            idleLabel: "Copy email",
-            dataAttr: "manager-work-email-copy",
-            text: workEmail,
-            onCopied: () => setCopiedEmail(true),
-          }),
-        ],
-      }
-    : undefined;
+  const owner = workspace?.ownerName?.trim() || "your workspace owner";
 
-  if (coManager && workspace && !workspace.phoneNumber) {
-    // The owner has not set one up. Unlike an owner, the co-manager has no
-    // setup button to fall back to, so the card has to say whose job it is.
-    const owner = workspace.ownerName?.trim() || "your workspace owner";
+  const numberBox = (() => {
+    if (statusError) {
+      return (
+        <PortalInboxContactCard
+          padded={false}
+          tone="setup"
+          dataAttr="manager-work-number-card"
+          value="Messaging status unavailable"
+          label={numberLabel}
+          actions={[
+            {
+              key: "retry",
+              label: "Retry messaging status",
+              dataAttr: "messaging-status-retry",
+              icon: <RefreshCw className="h-4 w-4" strokeWidth={1.9} />,
+              onClick: retry,
+            },
+          ]}
+        />
+      );
+    }
+    if (!ready || !resolved || !status) {
+      return <IdentitySkeleton dataAttr="manager-work-number-loading" />;
+    }
+    if (phone) {
+      const formatted = formatSmsPhoneLabel(phone) || phone;
+      const sendReady = Boolean(status.canSend) && Boolean(status.sendingAvailable);
+      const caption = coManager
+        ? `${workspace?.ownerName?.trim() ? `${workspace.ownerName.trim()}'s workspace` : "Shared by your workspace"} · ${
+            sendReady ? "Ready to send" : "Finishing setup"
+          }`
+        : workNumberReadinessCaption({
+            canSend: Boolean(status.canSend),
+            sendingAvailable: Boolean(status.sendingAvailable),
+            carrierRegistered: status.number?.carrierRegistrationState === "registered",
+          });
+      return (
+        <PortalInboxContactCard
+          padded={false}
+          dataAttr="manager-work-number-card"
+          value={formatted}
+          label={numberLabel}
+          note={caption}
+          noteTone={sendReady ? "muted" : "warn"}
+          actions={[
+            copyIdentityAction({
+              key: "copy",
+              copied: copiedPhone,
+              idleLabel: "Copy number",
+              dataAttr: "manager-work-number-copy",
+              text: formatted,
+              onCopied: () => setCopiedPhone(true),
+            }),
+          ]}
+        />
+      );
+    }
+    if (coManager) {
+      return (
+        <PortalInboxContactCard
+          padded={false}
+          tone="setup"
+          dataAttr="manager-work-number-card"
+          value="No work number yet"
+          label={numberLabel}
+          note={`Ask ${owner} to set one up in Settings → Messaging`}
+          noteTone="warn"
+          actions={[]}
+        />
+      );
+    }
+    if (status.planTier === "free") {
+      return (
+        <PortalInboxContactCard
+          padded={false}
+          tone="setup"
+          disabled
+          dataAttr="messaging-upsell-locked"
+          value="Set up work number"
+          label={numberLabel}
+          note="Subscribe to Pro to unlock SMS"
+          noteTone="warn"
+          actions={[]}
+        />
+      );
+    }
     return (
       <PortalInboxContactCard
-        dataAttr="manager-work-number-card"
-        value="No work number yet"
-        label="Workspace number"
-        note={`Ask ${owner} to set one up in Settings → Messaging`}
-        noteTone="warn"
-        leading={
-          <span className={PORTAL_INBOX_CONTACT_CARD_GLYPH_CLASS}>
-            <Phone className="h-[18px] w-[18px]" strokeWidth={1.9} />
-          </span>
-        }
+        padded={false}
+        tone="setup"
+        href={MANAGER_MESSAGING_SETTINGS_HREF}
+        dataAttr="manager-work-number-setup"
+        value="Set up work number"
+        label={numberLabel}
         actions={[]}
-        secondary={emailSecondary}
       />
     );
-  }
+  })();
 
-  // No number is not an empty state here — the header's setup button is the
-  // surface for that. An address alone still belongs on this card.
-  if (!phone && !workEmail) return null;
-
-  if (!phone && workEmail) {
+  const emailBox = (() => {
+    if (!emailReady) {
+      return <IdentitySkeleton dataAttr="manager-work-email-loading" />;
+    }
+    if (workEmail) {
+      return (
+        <PortalInboxContactCard
+          padded={false}
+          dataAttr="manager-work-email-card"
+          value={workEmail}
+          label={emailLabel}
+          note="Ready to send"
+          actions={[
+            copyIdentityAction({
+              key: "copy-email",
+              copied: copiedEmail,
+              idleLabel: "Copy email",
+              dataAttr: "manager-work-email-copy",
+              text: workEmail,
+              onCopied: () => setCopiedEmail(true),
+            }),
+          ]}
+        />
+      );
+    }
+    if (coManager) {
+      return (
+        <PortalInboxContactCard
+          padded={false}
+          tone="setup"
+          dataAttr="manager-work-email-card"
+          value="No work email yet"
+          label={emailLabel}
+          note={`Ask ${owner} to set one up in Settings → Messaging`}
+          noteTone="warn"
+          actions={[]}
+        />
+      );
+    }
     return (
       <PortalInboxContactCard
-        dataAttr="manager-work-number-card"
-        value={workEmail}
+        padded={false}
+        tone="setup"
+        href={MANAGER_ASSISTANT_EMAIL_SETTINGS_HREF}
+        dataAttr="manager-work-email-setup"
+        value="Set up work email"
         label={emailLabel}
-        leading={
-          <span className={PORTAL_INBOX_CONTACT_CARD_GLYPH_CLASS}>
-            <Mail className="h-[18px] w-[18px]" strokeWidth={1.9} />
-          </span>
-        }
-        actions={[
-          copyIdentityAction({
-            key: "copy-email",
-            copied: copiedEmail,
-            idleLabel: "Copy email",
-            dataAttr: "manager-work-email-copy",
-            text: workEmail,
-            onCopied: () => setCopiedEmail(true),
-          }),
-        ]}
+        actions={[]}
       />
     );
-  }
-
-  if (!phone) return null;
-
-  const label = formatSmsPhoneLabel(phone) || phone;
-  const ready = Boolean(status?.canSend) && Boolean(status?.sendingAvailable);
-  const caption = coManager
-    ? `${workspace?.ownerName?.trim() ? `${workspace.ownerName.trim()}'s workspace` : "Shared by your workspace"} · ${
-        ready ? "Ready to send" : "Finishing setup"
-      }`
-    : workNumberReadinessCaption({
-        canSend: Boolean(status?.canSend),
-        sendingAvailable: Boolean(status?.sendingAvailable),
-        carrierRegistered: status?.number?.carrierRegistrationState === "registered",
-      });
+  })();
 
   return (
-    <PortalInboxContactCard
-      dataAttr="manager-work-number-card"
-      value={label}
-      label={coManager ? "Workspace number" : "Your work number"}
-      note={caption}
-      noteTone={ready ? "muted" : "warn"}
-      leading={
-        <span className={PORTAL_INBOX_CONTACT_CARD_GLYPH_CLASS}>
-          <Phone className="h-[18px] w-[18px]" strokeWidth={1.9} />
-        </span>
-      }
-      actions={[
-        copyIdentityAction({
-          key: "copy",
-          copied: copiedPhone,
-          idleLabel: "Copy number",
-          dataAttr: "manager-work-number-copy",
-          text: label,
-          onCopied: () => setCopiedPhone(true),
-        }),
-      ]}
-      secondary={emailSecondary}
-    />
+    <div className="shrink-0 space-y-2 px-3.5 pb-2 pt-3.5" data-attr="manager-work-identity">
+      {numberBox}
+      {emailBox}
+    </div>
   );
 }

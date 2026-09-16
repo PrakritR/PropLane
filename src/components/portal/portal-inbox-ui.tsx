@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { RecordActionContext } from "@/components/ui/record-action-context";
 import { RecordActionMenu } from "@/components/ui/record-action-menu";
 
@@ -1110,15 +1111,18 @@ export function InboxConversationRow({
 
 export type InboxListSegment = "active" | "unread" | "archived";
 
-/** Segment tabs above the conversation list (Active / Unread / Archived). */
+/** Equal-width Active | Archived tabs under the manager identity boxes. */
 export function InboxListSegmentTabs({
+  commBase,
   value,
   onChange,
 }: {
+  commBase: string;
   value: InboxListSegment;
-  onChange: (segment: InboxListSegment) => void;
+  onChange?: (segment: Extract<InboxListSegment, "active" | "archived">) => void;
 }) {
-  const tabs: { id: InboxListSegment; label: string }[] = [
+  const selected = value === "archived" ? "archived" : "active";
+  const tabs: { id: Extract<InboxListSegment, "active" | "archived">; label: string }[] = [
     { id: "active", label: "Active" },
     { id: "archived", label: "Archived" },
   ];
@@ -1130,24 +1134,23 @@ export function InboxListSegmentTabs({
       data-attr="inbox-list-segments"
     >
       {tabs.map((tab) => {
-        const selected = value === tab.id;
+        const isSelected = selected === tab.id;
         return (
-          <button
+          <Link
             key={tab.id}
-            type="button"
+            href={`${commBase}/${tab.id}`}
             role="tab"
-            aria-selected={selected}
-            onClick={() => {
-              if (tab.id !== value) onChange(tab.id);
-            }}
-            className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-semibold transition-colors max-md:px-1.5 max-md:py-1 max-md:text-[11px] ${
-              selected
+            aria-selected={isSelected}
+            data-attr={`inbox-list-segment-${tab.id}`}
+            onClick={() => onChange?.(tab.id)}
+            className={`flex-1 rounded-lg px-2 py-1.5 text-center text-xs font-semibold transition-colors max-md:px-1.5 max-md:py-1 max-md:text-[11px] ${
+              isSelected
                 ? "bg-card text-foreground shadow-sm"
                 : "text-muted hover:text-foreground"
             }`}
           >
             {tab.label}
-          </button>
+          </Link>
         );
       })}
     </div>

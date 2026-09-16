@@ -14,9 +14,11 @@
  * wrong, only how much room it took, so this keeps every part of it and spends
  * about a third of the height: number, what the number is, the same actions as
  * icon buttons with their words as accessible names, and the readiness note
- * folded onto the caption line instead of claiming a line of its own.
+ * folded onto the label line instead of claiming a line of its own.
  */
 import type { ReactNode } from "react";
+import Link from "next/link";
+import { cn } from "@/lib/utils";
 
 export type PortalInboxContactCardAction = {
   key: string;
@@ -120,10 +122,15 @@ export function PortalInboxContactCard({
   actions,
   secondary,
   dataAttr,
+  padded = true,
+  href,
+  tone = "identity",
+  disabled = false,
 }: {
   /**
    * 36px slot, rendered exactly as given. The caller owns it because a phone
    * glyph wants the tinted tile and an avatar is already its own circle.
+   * Omit it for a plain identity/setup box.
    */
   leading?: ReactNode;
   /** The number or name, and the line people actually read. */
@@ -145,34 +152,63 @@ export function PortalInboxContactCard({
     actions?: PortalInboxContactCardAction[];
   };
   dataAttr?: string;
+  /** When false, the caller owns outer spacing (stacked manager identity boxes). */
+  padded?: boolean;
+  /** Whole-card destination for an empty setup box. */
+  href?: string;
+  /** `setup` is the empty slot that will hold the live identity. */
+  tone?: "identity" | "setup";
+  disabled?: boolean;
 }) {
-  return (
-    <div className="shrink-0 px-3.5 pb-2.5 pt-3.5" data-attr={dataAttr}>
-      <div className="rounded-2xl border border-primary/25 bg-primary/[0.05]">
-        <div className="flex items-center gap-3 px-3 py-2.5">
+  const shell = (
+    <div
+      className={cn(
+        "rounded-2xl border",
+        tone === "setup"
+          ? "border-border bg-card"
+          : "border-primary/25 bg-primary/[0.05]",
+        disabled && "cursor-not-allowed opacity-60",
+      )}
+    >
+      <div className="flex items-center gap-3 px-3 py-2.5">
+        <ContactIdentityRow
+          leading={leading}
+          value={value}
+          label={label}
+          note={note}
+          noteTone={noteTone}
+          actions={href ? undefined : actions}
+        />
+      </div>
+      {secondary ? (
+        <div
+          className="flex items-center gap-3 border-t border-primary/15 px-3 py-2.5"
+          data-attr="portal-inbox-contact-card-secondary"
+        >
           <ContactIdentityRow
-            leading={leading}
-            value={value}
-            label={label}
-            note={note}
-            noteTone={noteTone}
-            actions={actions}
+            leading={secondary.leading}
+            value={secondary.value}
+            label={secondary.label}
+            actions={secondary.actions}
           />
         </div>
-        {secondary ? (
-          <div
-            className="flex items-center gap-3 border-t border-primary/15 px-3 py-2.5"
-            data-attr="portal-inbox-contact-card-secondary"
-          >
-            <ContactIdentityRow
-              leading={secondary.leading}
-              value={secondary.value}
-              label={secondary.label}
-              actions={secondary.actions}
-            />
-          </div>
-        ) : null}
-      </div>
+      ) : null}
+    </div>
+  );
+
+  return (
+    <div className={padded ? "shrink-0 px-3.5 pb-2.5 pt-3.5" : "min-w-0"} data-attr={href && !disabled ? undefined : dataAttr}>
+      {href && !disabled ? (
+        <Link
+          href={href}
+          data-attr={dataAttr}
+          className="block rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+        >
+          {shell}
+        </Link>
+      ) : (
+        shell
+      )}
     </div>
   );
 }

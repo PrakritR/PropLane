@@ -24,7 +24,6 @@ import {
   updateManagerWorkOrder,
 } from "@/lib/manager-work-orders-storage";
 import { parseMoneyAmount } from "@/lib/parse-money";
-import { generateWorkOrderPaymentReference } from "@/lib/payment-reference";
 import {
   existingVendorPayoutWarning,
   VENDOR_DOUBLE_PAY_CONFLICT_CODE,
@@ -67,12 +66,11 @@ export function ManagerOutgoingPaymentDetail({
   const payable = Boolean(row.workOrderId && row.bucket !== "paid");
   const methods = useMemo(() => availableManagerVendorPayMethods(vendor), [vendor]);
   const [paymentMethod, setPaymentMethod] = useState<ManagerVendorPayMethod>(
-    () => defaultManagerVendorPayMethod(vendor) ?? "zelle",
+    () => defaultManagerVendorPayMethod(vendor) ?? "ach",
   );
   const [payConfirmOpenInternal, setPayConfirmOpenInternal] = useState(false);
   const payConfirmOpen = payModalOpen ?? payConfirmOpenInternal;
   const setPayConfirmOpen = onPayModalOpenChange ?? setPayConfirmOpenInternal;
-  const [manualSentConfirmed, setManualSentConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   // Double-pay guard: a `pending` / `paid` vendor_payouts row already on this work
   // order. Pre-checked when the confirm step opens so the warning shows before the
@@ -105,9 +103,6 @@ export function ManagerOutgoingPaymentDetail({
   const needsDoublePayAck = Boolean(existingPayout) && !doublePayAcknowledged;
 
   const canPayWithSelected = managerCanPayOutgoingRowWithMethod(row, paymentMethod);
-  const paymentReference = workOrder
-    ? workOrder.paymentReference?.trim() || generateWorkOrderPaymentReference(workOrder.id)
-    : null;
 
   const submitPay = async () => {
     if (!workOrder) {
@@ -116,10 +111,6 @@ export function ManagerOutgoingPaymentDetail({
     }
     if (!canPayWithSelected) {
       showToast(`This vendor cannot be paid with ${managerVendorPayMethodLabel(paymentMethod)}.`);
-      return;
-    }
-    if (paymentMethod !== "ach" && !manualSentConfirmed) {
-      showToast("Confirm that you sent the payment.");
       return;
     }
     if (needsDoublePayAck) {
@@ -133,10 +124,8 @@ export function ManagerOutgoingPaymentDetail({
         automationStatus: "paid",
         paidAt: new Date().toISOString(),
         vendorPaymentChannel: paymentMethod,
-        vendorZelleContactSnapshot: vendor?.zelleContact?.trim() || undefined,
-        vendorVenmoContactSnapshot: vendor?.venmoContact?.trim() || undefined,
       }));
-      showToast(`Marked paid via ${managerVendorPayMethodLabel(paymentMethod)} (demo).`);
+      showToast("Approved and paid through PropLane (demo).");
       setPayConfirmOpen(false);
       onPaid?.();
       return;
@@ -172,11 +161,7 @@ export function ManagerOutgoingPaymentDetail({
       if (!res.ok) throw new Error(data.error ?? "Could not complete payment.");
       if (data.workOrder) updateManagerWorkOrder(workOrder.id, () => data.workOrder as DemoManagerWorkOrderRow);
       void syncManagerWorkOrdersFromServer();
-      showToast(
-        paymentMethod === "ach"
-          ? "Approved and paid through PropLane."
-          : `Marked paid · ${managerVendorPayMethodLabel(paymentMethod)}.`,
-      );
+      showToast("Approved and paid through PropLane.");
       setPayConfirmOpen(false);
       onPaid?.();
     } catch (e) {
@@ -200,40 +185,6 @@ export function ManagerOutgoingPaymentDetail({
           {row.paidAtLabel ? (
             <p className="mt-1 text-sm leading-relaxed">Marked paid {row.paidAtLabel}</p>
           ) : null}
-        </div>
-      ) : null}
-
-      {row.zelleContactSnapshot ? (
-        <div className="glass-card mb-4 rounded-lg px-3 py-2.5 text-[var(--status-confirmed-fg)]">
-          <p className="text-xs font-semibold">Pay with Zelle</p>
-          <p className="mt-1 text-sm leading-relaxed">
-            Send to <span className="font-mono font-medium">{row.zelleContactSnapshot}</span>.
-            {paymentReference ? (
-              <>
-                {" "}
-                Put <span className="font-mono font-medium">{paymentReference}</span> in the memo.
-              </>
-            ) : (
-              <> Include the service title in the memo.</>
-            )}
-          </p>
-        </div>
-      ) : null}
-
-      {row.venmoContactSnapshot ? (
-        <div className="glass-card mb-4 rounded-lg px-3 py-2.5 text-[var(--status-approved-fg)]">
-          <p className="text-xs font-semibold">Pay with Venmo</p>
-          <p className="mt-1 text-sm leading-relaxed">
-            Send to <span className="font-mono font-medium">{row.venmoContactSnapshot}</span>.
-            {paymentReference ? (
-              <>
-                {" "}
-                Put <span className="font-mono font-medium">{paymentReference}</span> in the note.
-              </>
-            ) : (
-              <> Include the property and service in the note.</>
-            )}
-          </p>
         </div>
       ) : null}
 
@@ -262,10 +213,7 @@ export function ManagerOutgoingPaymentDetail({
               className="rounded-full"
               data-attr="manager-outgoing-payment-pay"
               disabled={!canPayWithSelected || busy}
-              onClick={() => {
-                setManualSentConfirmed(false);
-                setPayConfirmOpen(true);
-              }}
+              onClick={() => setPayConfirmOpen(true)}
             >
               Pay {row.amountLabel}
             </Button>
@@ -273,7 +221,7 @@ export function ManagerOutgoingPaymentDetail({
         </div>
       ) : payable ? (
         <p className="mb-4 text-sm text-muted">
-          Ask the vendor to add Zelle, Venmo, or bank details under Vendor → Payments → Payment methods.
+          Ask the vendor to link their bank under Vendor → Payments → Payment methods.
         </p>
       ) : null}
 
@@ -324,10 +272,10 @@ export function ManagerOutgoingPaymentDetail({
               variant="primary"
               className={PORTAL_DETAIL_BTN}
               data-attr="manager-outgoing-payment-confirm-pay"
-              disabled={busy || needsDoublePayAck || (paymentMethod !== "ach" && !manualSentConfirmed)}
+              disabled={busy || needsDoublePayAck}
               onClick={() => submitPay()}
             >
-              {busy ? "Processing…" : paymentMethod === "ach" ? "Approve & pay" : "Mark as paid"}
+              {busy ? "Processing…" : "Approve & pay"}
             </Button>
           </ModalFooter>
         }
@@ -338,16 +286,6 @@ export function ManagerOutgoingPaymentDetail({
             <span className="font-semibold text-foreground">{row.payeeLabel}</span> via{" "}
             <span className="font-semibold text-foreground">{managerVendorPayMethodLabel(paymentMethod)}</span>.
           </p>
-          {paymentMethod === "zelle" && row.zelleContactSnapshot ? (
-            <p className="text-muted">
-              Send to <span className="font-mono text-foreground">{row.zelleContactSnapshot}</span>
-            </p>
-          ) : null}
-          {paymentMethod === "venmo" && row.venmoContactSnapshot ? (
-            <p className="text-muted">
-              Send to <span className="font-mono text-foreground">{row.venmoContactSnapshot}</span>
-            </p>
-          ) : null}
           {existingPayout ? (
             <div
               role="alert"
@@ -368,21 +306,9 @@ export function ManagerOutgoingPaymentDetail({
               </label>
             </div>
           ) : null}
-          {paymentMethod === "ach" ? (
-            <p className="text-muted">
-              PropLane will attempt an ACH payout to the vendor&apos;s linked bank account and log this expense.
-            </p>
-          ) : (
-            <label className="flex items-start gap-2 text-sm">
-              <input
-                type="checkbox"
-                className="mt-0.5 h-4 w-4 rounded border-border"
-                checked={manualSentConfirmed}
-                onChange={(e) => setManualSentConfirmed(e.target.checked)}
-              />
-              <span>I sent this payment outside PropLane.</span>
-            </label>
-          )}
+          <p className="text-muted">
+            PropLane will attempt an ACH payout to the vendor&apos;s linked bank account and log this expense.
+          </p>
         </div>
       </Modal>
     </>

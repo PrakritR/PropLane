@@ -95,8 +95,8 @@ Driven end to end in a real browser as the resident:
   already landed.
 - **Emails need `RESEND_API_KEY`.** Tour confirmation and reminder emails cannot be verified
   without it. Check it is set before reporting email as working, and say so plainly if it is not.
-- **Reminder delivery is scheduled, not instant.** See `docs/agents/manual-payment-detection.md`
-  for the cron cadence pattern; do not conclude "reminders are broken" from an immediate check.
+- **Reminder delivery is scheduled, not instant.** See `docs/agents/automated-communication.md`
+  for the cron cadence; do not conclude "reminders are broken" from an immediate check.
 - **Test both roles for portal gating.** A single-role account passes while multi-role accounts
   break (AGENTS.md, "`profiles.role` is legacy and singular").
 

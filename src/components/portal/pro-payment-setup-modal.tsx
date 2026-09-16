@@ -33,10 +33,9 @@ import {
 } from "@/lib/manager-subscription-client";
 import { stripeSetupStateFromStatus, type StripeSetupState } from "@/lib/stripe-setup-state";
 
-const DEMO_INBOX = "payments+demo-token@prop-lane.space";
 
 function draftFromSettings(settings: ManagerManualPaymentSettingsView | null): ManagerManualPaymentSettingsView {
-  return settings ?? { ...DEFAULT_MANAGER_MANUAL_PAYMENT_SETTINGS, paymentInboxAddress: DEMO_INBOX };
+  return settings ?? { ...DEFAULT_MANAGER_MANUAL_PAYMENT_SETTINGS };
 }
 
 export function ManagerPaymentSetupModal({
@@ -166,7 +165,7 @@ export function ManagerPaymentSetupModal({
 
   const loadSettings = useCallback(async () => {
     if (demo) {
-      setDraft(draftFromSettings({ ...DEFAULT_MANAGER_MANUAL_PAYMENT_SETTINGS, paymentInboxAddress: DEMO_INBOX }));
+      setDraft(draftFromSettings({ ...DEFAULT_MANAGER_MANUAL_PAYMENT_SETTINGS }));
       setPropertyFeePayers(
         Object.fromEntries(visibleProperties.map((property) => [property.id, null] as const)),
       );
@@ -314,7 +313,6 @@ export function ManagerPaymentSetupModal({
           ...draft,
           ...patch,
           axisPaymentsEnabled: true,
-          receiptAutoMarkEnabled: patch.receiptAutoMarkEnabled ?? draft.receiptAutoMarkEnabled !== false,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {

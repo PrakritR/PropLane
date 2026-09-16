@@ -48,7 +48,7 @@ const ROWS: SiteFeatureRow[] = [
   {
     eyebrow: "Rent",
     title: "Rent that collects itself",
-    body: "Card, bank or Zelle. Reminders and late fees draft first and send on your approval. Deposits stay liability; the ledger balances.",
+    body: "Card or bank, through PropLane. Reminders and late fees draft first and send on your approval. Deposits stay liability; the ledger balances.",
     mock: (
       <MockFrame title="Payments · Incoming">
         <div className="divide-y divide-border/60">

@@ -505,7 +505,7 @@ export function axisAchFeeDisplayLabel(): string {
 export function residentPaymentMethodsSummary(
   sub: Pick<
     ManagerListingSubmissionV1,
-    "zellePaymentsEnabled" | "venmoPaymentsEnabled" | "axisPaymentsEnabled" | "zelleContact" | "venmoContact"
+    "axisPaymentsEnabled"
   > | null | undefined,
 ): string[] {
   if (!sub) return ["Contact your property manager for payment instructions."];
@@ -515,7 +515,7 @@ export function residentPaymentMethodsSummary(
   return ["PropLane online payments — ask your manager to finish payment setup."];
 }
 
-/** Stripe checkout methods only — Zelle/Venmo are retired from the product. */
+/** Stripe checkout methods only. */
 export type ResidentAcceptedPaymentMethod = "ach" | "card";
 
 export const RESIDENT_ACCEPTED_PAYMENT_METHODS: ResidentAcceptedPaymentMethod[] = ["ach", "card"];

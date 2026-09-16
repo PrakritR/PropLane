@@ -35,11 +35,11 @@ describe("communication assistant inbox list", () => {
     expect(rows).toHaveLength(1);
   });
 
-  it("does not grow a second assistant row while the only one is archived", () => {
-    // Archiving PropLane Assistant moves it to trash; the pin must count that
-    // row as present or Active would sprout a fresh empty Assistant next to it.
+  it("restores an archived assistant so Active does not go empty", () => {
     const archived = { ...buildResidentAssistantPlaceholderThread(RESIDENT), folder: "trash" as const };
-    expect(ensureAssistantThreadInRows([archived], buildResidentAssistantPlaceholderThread(RESIDENT))).toHaveLength(1);
+    const next = ensureAssistantThreadInRows([archived], buildResidentAssistantPlaceholderThread(RESIDENT));
+    expect(next).toHaveLength(1);
+    expect(next[0]!.folder).toBe("inbox");
     expect(withPinnedPropLaneAssistantThreads([archived], "resident", RESIDENT, "active")).toHaveLength(1);
   });
 
@@ -72,6 +72,29 @@ describe("communication assistant inbox list", () => {
   it("skips placeholder injection on unread and archived segments", () => {
     expect(withPinnedPropLaneAssistantThreads([], "resident", RESIDENT, "unread")).toEqual([]);
     expect(withPinnedPropLaneAssistantThreads([], "resident", RESIDENT, "archived")).toEqual([]);
+  });
+
+  it("pins the manager assistant on every Communication section, keyed by workspace", () => {
+    const workspace = { id: "ws-brooklyn", isDefault: false };
+    const id = managerAgentNoticeThreadId(MANAGER, workspace);
+    for (const segment of ["active", "unread", "archived"] as const) {
+      const rows = withPinnedPropLaneAssistantThreads([], "manager", MANAGER, segment, workspace);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.id).toBe(id);
+      expect(rows[0]!.folder).toBe("inbox");
+    }
+  });
+
+  it("pins the manager assistant on the legacy id before a workspace identity loads", () => {
+    const rows = withPinnedPropLaneAssistantThreads([], "manager", MANAGER, "active");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.id).toBe(managerAgentNoticeThreadId(MANAGER));
+  });
+
+  it("keeps a default-workspace manager assistant on the legacy thread id", () => {
+    const workspace = { id: "ws-default", isDefault: true };
+    const rows = withPinnedPropLaneAssistantThreads([], "manager", MANAGER, "active", workspace);
+    expect(rows[0]!.id).toBe(managerAgentNoticeThreadId(MANAGER));
   });
 
   it("prefers the server-provided viewer id", () => {

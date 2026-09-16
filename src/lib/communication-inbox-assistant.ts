@@ -5,8 +5,7 @@ import {
   parseResidentAgentThreadId,
 } from "@/lib/agent/resident-inbox-agent-ids";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
-
-const AGENT_NOTICE_ID_RE = /^agent_notice_([0-9a-f-]{36})/i;
+import { managerAgentNoticeCollapseKey } from "@/lib/communication-manager-assistant-thread";
 
 export { canonicalResidentAgentThreadId, parseResidentAgentThreadId };
 
@@ -38,8 +37,7 @@ export function assistantInboxCollapseKey(thread: PersistedInboxThread): string 
     if (parsed) return `resident_agent:${parsed.residentUserId}`;
   }
   if (extended.threadType === "agent_notice" || thread.id.startsWith("agent_notice_")) {
-    const match = thread.id.match(AGENT_NOTICE_ID_RE);
-    if (match?.[1]) return `agent_notice:${match[1]}`;
+    return managerAgentNoticeCollapseKey(thread.id);
   }
   if (thread.from.trim() === RESIDENT_AGENT_FROM_NAME) {
     const parsed = parseResidentAgentThreadId(thread.id);

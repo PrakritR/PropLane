@@ -16,7 +16,7 @@ vi.mock("@/lib/reports/gl-posting", () => ({
 }));
 
 const ensureApplicationFeeChargeRow = vi.fn();
-vi.mock("@/lib/resident-check-manual-payment.server", () => ({
+vi.mock("@/lib/application-fee-charge-row.server", () => ({
   ensureApplicationFeeChargeRow: (...args: unknown[]) => ensureApplicationFeeChargeRow(...args),
 }));
 

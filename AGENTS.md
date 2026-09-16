@@ -340,7 +340,9 @@ branches on `"resident"` without consulting `profile_roles`.
 
 Authoritative copy: [`docs/agents/communication-inbox.md`](docs/agents/communication-inbox.md).
 
-- One conversation list. No folder tabs. Standalone inbox page shell is `/demo` only.
+- **One conversation list.** Standalone inbox page shell is `/demo` only.
+  Manager Communication has Active | Archived tabs under the work identity
+  boxes; resident and vendor keep status in Filter.
 - Scheduled sends render **inline** in the recipient thread (admin table is the exception).
 - A message enters the store **after** the send is authorized. Copy the resident panel, not the manager/vendor ones.
 - Stamp `time` with `formatInboxStamp` (Pacific). It is both label and sort key.

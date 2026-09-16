@@ -27,7 +27,7 @@ export function paymentSnapshotsFromListing(
   listing: ManagerListingSubmissionV1 | null,
 ): Pick<
   HouseholdCharge,
-  "axisPaymentsEnabledSnapshot" | "zelleContactSnapshot" | "venmoContactSnapshot" | "acceptedPaymentMethodsSnapshot"
+  "axisPaymentsEnabledSnapshot" | "acceptedPaymentMethodsSnapshot"
 > {
   if (!listing) {
     return {};
@@ -35,10 +35,6 @@ export function paymentSnapshotsFromListing(
   const sub = normalizeManagerListingSubmissionV1(listing);
   return {
     axisPaymentsEnabledSnapshot: axisPaymentsEnabledOnListing(sub),
-    zelleContactSnapshot:
-      sub.zellePaymentsEnabled && sub.zelleContact?.trim() ? sub.zelleContact.trim() : undefined,
-    venmoContactSnapshot:
-      sub.venmoPaymentsEnabled && sub.venmoContact?.trim() ? sub.venmoContact.trim() : undefined,
     acceptedPaymentMethodsSnapshot: acceptedPaymentMethodsForListing(sub),
   };
 }
@@ -52,8 +48,6 @@ export function enrichHouseholdChargePaymentFlags(
     ...charge,
     axisPaymentsEnabledSnapshot:
       charge.axisPaymentsEnabledSnapshot ?? snapshots.axisPaymentsEnabledSnapshot,
-    zelleContactSnapshot: charge.zelleContactSnapshot ?? snapshots.zelleContactSnapshot,
-    venmoContactSnapshot: charge.venmoContactSnapshot ?? snapshots.venmoContactSnapshot,
     acceptedPaymentMethodsSnapshot: snapshots.acceptedPaymentMethodsSnapshot ?? charge.acceptedPaymentMethodsSnapshot,
   };
 }

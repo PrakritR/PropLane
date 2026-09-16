@@ -51,11 +51,7 @@ vi.mock("@/lib/manager-access-server", () => ({
 
 vi.mock("@/lib/manager-manual-payment-settings", () => ({
   loadManagerManualPaymentSettings: vi.fn().mockResolvedValue({
-    zellePaymentsEnabled: false,
-    zelleContact: "",
-    venmoPaymentsEnabled: false,
-    venmoContact: "",
-    receiptAutoMarkEnabled: true,
+    axisPaymentsEnabled: true,
     serviceFeePayer: "resident",
   }),
 }));
@@ -67,8 +63,6 @@ vi.mock("@/lib/application-fee-waiver", () => ({
 vi.mock("@/lib/manager-application-settings", () => ({
   loadManagerApplicationSettings: vi.fn().mockResolvedValue({
     applicationFeeChargePolicy: "first_only",
-    applicationFeeOtherEnabled: false,
-    applicationFeeOtherInstructions: "",
   }),
 }));
 
@@ -141,7 +135,7 @@ describe("POST /api/public/application-fee-preview", () => {
     workspace.paymentSettings = { serviceFeePayer: "manager" };
     const { POST } = await import("@/app/api/public/application-fee-preview/route");
 
-    const res = await POST(post({ propertyId: "prop_1", managerUserId: "mgr_A", channel: "card" }));
+    const res = await POST(post({ propertyId: "prop_1", managerUserId: "mgr_A" }));
     const json = await res.json();
 
     expect(res.status).toBe(200);
@@ -154,14 +148,12 @@ describe("POST /api/public/application-fee-preview", () => {
     vi.mocked(resolveApplicationFeeProperty).mockResolvedValue(resolvedListing());
     const { POST } = await import("@/app/api/public/application-fee-preview/route");
 
-    // "manual" channel never carries a Stripe service fee, isolating the fee math.
-    const res = await POST(post({ propertyId: "prop_1", managerUserId: "mgr_A", channel: "manual" }));
+    const res = await POST(post({ propertyId: "prop_1", managerUserId: "mgr_A" }));
     const json = await res.json();
 
     expect(res.status).toBe(200);
     expect(json.applicationFeeCents).toBe(5000);
-    expect(json.serviceFeeCents).toBe(0);
-    expect(json.totalCents).toBe(5000);
+    expect(json.totalCents).toBe(5000 + json.serviceFeeCents);
     // The deposit is never part of the application preview.
     expect(json.holdingDepositCents).toBeUndefined();
   });

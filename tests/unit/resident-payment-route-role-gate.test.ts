@@ -25,12 +25,6 @@ vi.mock("@/lib/auth/portal-access", () => ({
   ACTIVE_PORTAL_COOKIE: "axis_active_portal",
   getPortalAccessContext: async () => ({ user: null, profile: null, roles: [], effectiveRole: null }),
 }));
-vi.mock("@/lib/resident-manual-payment.server", () => ({
-  reportResidentManualPayment: vi.fn(async () => ({ ok: true, charges: [] })),
-}));
-vi.mock("@/lib/resident-check-manual-payment.server", () => ({
-  checkResidentManualPayments: vi.fn(async () => ({ ok: true, paid: true, charges: [] })),
-}));
 vi.mock("@/lib/resident-work-order-reminder.server", () => ({
   deliverResidentWorkOrderReminder: vi.fn(async () => ({ ok: true, recipientCount: 2 })),
 }));
@@ -62,30 +56,12 @@ function jsonRequest(url: string, body: unknown) {
   return new Request(url, { method: "POST", body: JSON.stringify(body) });
 }
 
-async function reportManualPayment() {
-  const { POST } = await import("@/app/api/portal/resident-report-manual-payment/route");
-  return POST(jsonRequest("http://localhost/api/portal/resident-report-manual-payment", {
-    channel: "zelle",
-    chargeIds: ["charge-1"],
-  }));
-}
-
-async function checkManualPayment() {
-  const { POST } = await import("@/app/api/portal/resident-check-manual-payment/route");
-  return POST(jsonRequest("http://localhost/api/portal/resident-check-manual-payment", {
-    channel: "zelle",
-    chargeIds: ["charge-1"],
-  }));
-}
-
 async function sendWorkOrderReminder() {
   const { POST } = await import("@/app/api/portal/work-orders/send-reminder/route");
   return POST(jsonRequest("http://localhost/api/portal/work-orders/send-reminder", { workOrderId: "wo-1" }));
 }
 
 const ROUTES = [
-  { name: "resident-report-manual-payment", call: reportManualPayment, forbidden: "Residents only." },
-  { name: "resident-check-manual-payment", call: checkManualPayment, forbidden: "Residents only." },
   { name: "work-orders/send-reminder", call: sendWorkOrderReminder, forbidden: "Forbidden." },
 ];
 
