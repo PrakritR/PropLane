@@ -1,17 +1,24 @@
 "use client";
 
 import { useMemo, useRef, type ReactNode } from "react";
-import { Button } from "@/components/ui/button";
 import {
-  DropdownMenuItem,
-} from "@/components/ui/dropdown-menu";
+  BadgeCheck,
+  Bell,
+  CalendarClock,
+  Download,
+  FileSearch,
+  FilePlus,
+  Pencil,
+  PenLine,
+  RefreshCw,
+  Send,
+  Trash2,
+  Undo2,
+  Upload,
+  type LucideIcon,
+} from "lucide-react";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
-import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
-import {
-  PortalFooterFitActionRow,
-  type PortalFooterFitAction,
-} from "@/components/portal/portal-footer-fit-action-row";
-import { RESIDENT_DETAIL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { leaseCanBeMarkedSignedOffPlatform } from "@/lib/lease-execution-evidence";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import {
@@ -21,15 +28,14 @@ import {
   leaseUploadedImportFooterLabel,
   managerLeaseSignButtonLabel,
 } from "@/lib/lease-pipeline-storage";
-import { cn } from "@/lib/utils";
 
-const FOOTER_ACTION_BTN = "h-10 min-w-0 whitespace-nowrap px-2.5 text-xs sm:px-3";
-
-type LeaseFooterAction = PortalFooterFitAction;
+type LeaseIconAction = {
+  id: string;
+  node: ReactNode;
+};
 
 type LeasePrimaryHeaderActionsProps = {
   row: LeasePipelineRow;
-  btnClass?: string;
   downloadLabel?: string;
   deleteLabel?: string;
   onDownload: () => void;
@@ -71,16 +77,44 @@ type LeasePrimaryHeaderActionsProps = {
   /** Opens renew / extend move-out for a fully signed lease. */
   onRenewLease?: () => void;
   onExtendMoveOut?: () => void;
-  /** Render buttons only — parent supplies PortalSectionActionRow / footer shell. */
+  /** @deprecated Icons sit in the title row; kept so callers need not change. */
+  btnClass?: string;
+  /** @deprecated Icons sit in the title row; kept so callers need not change. */
   embedded?: boolean;
-  /** With embedded, use the same left-aligned fit row on all breakpoints (resident detail dock). */
+  /** @deprecated Icons sit in the title row; kept so callers need not change. */
   flatFooter?: boolean;
 };
 
-/** Download, sign, send — Appendix C3 aligned action row for lease detail surfaces. */
+function LeaseHeaderIcon({
+  icon,
+  label,
+  dataAttr,
+  onClick,
+  disabled,
+  tone,
+}: {
+  icon: LucideIcon;
+  label: string;
+  dataAttr?: string;
+  onClick?: () => void;
+  disabled?: boolean;
+  tone?: "default" | "primary" | "danger";
+}) {
+  return (
+    <PortalIconAction
+      icon={icon}
+      label={label}
+      tone={tone}
+      data-attr={dataAttr}
+      disabled={disabled}
+      onClick={onClick}
+    />
+  );
+}
+
+/** Download, share, send, edit, delete — icon-only in the lease record header. No ⋯. */
 export function LeasePrimaryHeaderActions({
   row,
-  btnClass = RESIDENT_DETAIL_HEADER_ACTION_BTN,
   downloadLabel = "Download",
   deleteLabel = "Delete",
   onDownload,
@@ -113,8 +147,6 @@ export function LeasePrimaryHeaderActions({
   deleteDataAttr = "lease-primary-delete",
   sendToResidentDataAttr = "lease-primary-send-resident",
   moveToManagerReviewDataAttr = "lease-primary-move-manager-review",
-  embedded = false,
-  flatFooter = false,
 }: LeasePrimaryHeaderActionsProps) {
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const hasDocument = Boolean(row.generatedHtml || row.managerUploadedPdf?.dataUrl);
@@ -128,11 +160,8 @@ export function LeasePrimaryHeaderActions({
   const showMoveToReview = row.status === "Resident Signature Pending" && Boolean(onMoveToManagerReview);
   const showGenerate = canEditDocument && Boolean(onGenerateLease);
   const canMarkSigned = leaseCanBeMarkedSignedOffPlatform(row);
-  // Upload is also offered while the lease is out for signature but unsigned:
-  // the caller withdraws the request and replaces the document in one step,
-  // so a paper-signed copy can be filed without a detour through "Move to
-  // review". Once any signature exists, `canMarkSigned` is false and so is this.
-  const showUpload = (canEditDocument || (canMarkSigned && row.status === "Resident Signature Pending")) && Boolean(onUploadPdf);
+  const showUpload =
+    (canEditDocument || (canMarkSigned && row.status === "Resident Signature Pending")) && Boolean(onUploadPdf);
   const showMarkSigned = canMarkSigned && Boolean(onMarkSigned);
   const showEditLease =
     canEditDocument &&
@@ -140,9 +169,6 @@ export function LeasePrimaryHeaderActions({
     !row.managerUploadedPdf?.dataUrl &&
     !row.templateDocumentUrl &&
     Boolean(onEditLease);
-  // Not gated on `canEditDocument`: once a lease is out for signature the
-  // manager can no longer replace the document, but they must still be able to
-  // read what PropLane extracted from it.
   const showRenewals =
     hasBothLeaseSignatures(row) && row.status === "Fully Signed" && Boolean(onRenewLease || onExtendMoveOut);
   const reviewImportLabel = leaseUploadedImportFooterLabel(row);
@@ -150,33 +176,19 @@ export function LeasePrimaryHeaderActions({
   const importNeedsReview = leaseNeedsUploadedLeaseReviewAction(row);
   const signLeaseLabel = managerLeaseSignButtonLabel();
 
-  const compactBtnClass = cn(btnClass, FOOTER_ACTION_BTN);
-  const deleteBtnClass = cn(
-    compactBtnClass,
-    "border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline",
-  );
-
-  const footerActions = useMemo(() => {
-    const actions: LeaseFooterAction[] = [];
+  const headerActions = useMemo(() => {
+    const actions: LeaseIconAction[] = [];
 
     if (hasDocument) {
       actions.push({
         id: "download",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={compactBtnClass}
-            data-attr={downloadDataAttr}
+        node: (
+          <LeaseHeaderIcon
+            icon={Download}
+            label={downloadLabel}
+            dataAttr={downloadDataAttr}
             onClick={onDownload}
-          >
-            {downloadLabel}
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem data-attr={downloadDataAttr} onClick={onDownload}>
-            {downloadLabel}
-          </DropdownMenuItem>
+          />
         ),
       });
     }
@@ -184,26 +196,14 @@ export function LeasePrimaryHeaderActions({
     if (showSendToResident) {
       actions.push({
         id: "send",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={compactBtnClass}
-            data-attr={sendToResidentDataAttr}
+        node: (
+          <LeaseHeaderIcon
+            icon={Send}
+            label={sendToResidentBusy ? "Sending…" : "Send"}
+            dataAttr={sendToResidentDataAttr}
             disabled={sendToResidentBusy || sendToResidentDisabled}
             onClick={onSendToResident}
-          >
-            {sendToResidentBusy ? "Sending…" : "Send"}
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem
-            data-attr={sendToResidentDataAttr}
-            disabled={sendToResidentBusy || sendToResidentDisabled}
-            onClick={onSendToResident}
-          >
-            {sendToResidentBusy ? "Sending…" : "Send"}
-          </DropdownMenuItem>
+          />
         ),
       });
     }
@@ -211,21 +211,12 @@ export function LeasePrimaryHeaderActions({
     if (hasDocument && shareRecordId) {
       actions.push({
         id: "share",
-        button: (
+        node: (
           <PortalRecordShareLinkButton
             kind="lease"
             recordId={shareRecordId}
-            className={compactBtnClass}
+            icon
             dataAttr="lease-share"
-            recordTitle={row.residentName?.trim() || row.unit?.trim() || row.propertyId}
-          />
-        ),
-        menuItem: (
-          <PortalRecordShareLinkButton
-            kind="lease"
-            recordId={shareRecordId}
-            menuItem
-            dataAttr="lease-share-menu"
             recordTitle={row.residentName?.trim() || row.unit?.trim() || row.propertyId}
           />
         ),
@@ -235,25 +226,14 @@ export function LeasePrimaryHeaderActions({
     if (onDelete && hasDocument) {
       actions.push({
         id: "delete",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={deleteBtnClass}
-            data-attr={deleteDataAttr}
+        node: (
+          <LeaseHeaderIcon
+            icon={Trash2}
+            label={deleteLabel}
+            dataAttr={deleteDataAttr}
+            tone="danger"
             onClick={onDelete}
-          >
-            {deleteLabel}
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem
-            className="text-rose-800 focus:text-rose-800"
-            data-attr={deleteDataAttr}
-            onClick={onDelete}
-          >
-            {deleteLabel}
-          </DropdownMenuItem>
+          />
         ),
       });
     }
@@ -261,21 +241,13 @@ export function LeasePrimaryHeaderActions({
     if (showMoveToReview) {
       actions.push({
         id: "move-review",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={compactBtnClass}
-            data-attr={moveToManagerReviewDataAttr}
+        node: (
+          <LeaseHeaderIcon
+            icon={Undo2}
+            label="Move to review"
+            dataAttr={moveToManagerReviewDataAttr}
             onClick={onMoveToManagerReview}
-          >
-            Move to review
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem data-attr={moveToManagerReviewDataAttr} onClick={onMoveToManagerReview}>
-            Move to review
-          </DropdownMenuItem>
+          />
         ),
       });
     }
@@ -283,47 +255,26 @@ export function LeasePrimaryHeaderActions({
     if (showSign) {
       actions.push({
         id: "sign",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={compactBtnClass}
-            data-attr={signManagerDataAttr}
+        node: (
+          <LeaseHeaderIcon
+            icon={PenLine}
+            label={signLeaseLabel}
+            dataAttr={signManagerDataAttr}
             onClick={onSignManager}
-          >
-            {signLeaseLabel}
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem data-attr={signManagerDataAttr} onClick={onSignManager}>
-            {signLeaseLabel}
-          </DropdownMenuItem>
+          />
         ),
       });
     } else if (showSigningReminder) {
       actions.push({
         id: "reminder",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={compactBtnClass}
-            data-attr={signingReminderDataAttr}
-            disabled={signingReminderBusy}
-            title="Send signing reminder"
-            onClick={onSigningReminder}
-          >
-            {signingReminderBusy ? "Sending…" : "Send reminder"}
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem
-            data-attr={signingReminderDataAttr}
+        node: (
+          <LeaseHeaderIcon
+            icon={Bell}
+            label={signingReminderBusy ? "Sending…" : "Send reminder"}
+            dataAttr={signingReminderDataAttr}
             disabled={signingReminderBusy}
             onClick={onSigningReminder}
-          >
-            {signingReminderBusy ? "Sending…" : "Send reminder"}
-          </DropdownMenuItem>
+          />
         ),
       });
     }
@@ -331,21 +282,13 @@ export function LeasePrimaryHeaderActions({
     if (showEditLease) {
       actions.push({
         id: "edit",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={compactBtnClass}
-            data-attr={editLeaseDataAttr}
+        node: (
+          <LeaseHeaderIcon
+            icon={Pencil}
+            label="Edit"
+            dataAttr={editLeaseDataAttr}
             onClick={onEditLease}
-          >
-            Edit
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem data-attr={editLeaseDataAttr} onClick={onEditLease}>
-            Edit
-          </DropdownMenuItem>
+          />
         ),
       });
     }
@@ -353,25 +296,19 @@ export function LeasePrimaryHeaderActions({
     if (showGenerate) {
       actions.push({
         id: "generate",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={compactBtnClass}
-            disabled={generateLeaseBusy || generateLeaseDisabled}
-            title={generateLeaseTitle}
-            onClick={onGenerateLease}
-          >
-            {generateLeaseBusy ? "Generating..." : "Generate lease"}
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem
+        node: (
+          <LeaseHeaderIcon
+            icon={FilePlus}
+            label={
+              generateLeaseBusy
+                ? "Generating…"
+                : generateLeaseDisabled && generateLeaseTitle
+                  ? generateLeaseTitle
+                  : "Generate lease"
+            }
             disabled={generateLeaseBusy || generateLeaseDisabled}
             onClick={onGenerateLease}
-          >
-            {generateLeaseBusy ? "Generating..." : "Generate lease"}
-          </DropdownMenuItem>
+          />
         ),
       });
     }
@@ -379,21 +316,14 @@ export function LeasePrimaryHeaderActions({
     if (showReviewImport && reviewImportLabel) {
       actions.push({
         id: "review-import",
-        button: (
-          <Button
-            type="button"
-            variant={importNeedsReview ? "primary" : "outline"}
-            className={compactBtnClass}
-            data-attr="lease-primary-review-import"
+        node: (
+          <LeaseHeaderIcon
+            icon={FileSearch}
+            label={reviewImportLabel}
+            dataAttr="lease-primary-review-import"
+            tone={importNeedsReview ? "primary" : "default"}
             onClick={onReviewImportedLease}
-          >
-            {reviewImportLabel}
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem data-attr="lease-primary-review-import" onClick={onReviewImportedLease}>
-            {reviewImportLabel}
-          </DropdownMenuItem>
+          />
         ),
       });
     }
@@ -401,21 +331,13 @@ export function LeasePrimaryHeaderActions({
     if (showUpload) {
       actions.push({
         id: "upload",
-        button: (
-          <label
-            className={cn("inline-flex cursor-pointer items-center", compactBtnClass, "hover:bg-accent/30")}
-            onClick={(event) => {
-              event.preventDefault();
-              uploadInputRef.current?.click();
-            }}
-          >
-            {uploadPdfBusy ? "Uploading..." : "Upload PDF"}
-          </label>
-        ),
-        menuItem: (
-          <DropdownMenuItem disabled={uploadPdfBusy} onSelect={() => uploadInputRef.current?.click()}>
-            {uploadPdfBusy ? "Uploading..." : "Upload PDF"}
-          </DropdownMenuItem>
+        node: (
+          <LeaseHeaderIcon
+            icon={Upload}
+            label={uploadPdfBusy ? "Uploading…" : "Upload PDF"}
+            disabled={uploadPdfBusy}
+            onClick={() => uploadInputRef.current?.click()}
+          />
         ),
       });
     }
@@ -423,21 +345,13 @@ export function LeasePrimaryHeaderActions({
     if (showMarkSigned) {
       actions.push({
         id: "mark-signed",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={compactBtnClass}
-            data-attr={markSignedDataAttr}
+        node: (
+          <LeaseHeaderIcon
+            icon={BadgeCheck}
+            label="Mark as signed"
+            dataAttr={markSignedDataAttr}
             onClick={onMarkSigned}
-          >
-            Mark as signed
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem data-attr={markSignedDataAttr} onClick={onMarkSigned}>
-            Mark as signed
-          </DropdownMenuItem>
+          />
         ),
       });
     }
@@ -445,15 +359,8 @@ export function LeasePrimaryHeaderActions({
     if (showRenewals && onRenewLease) {
       actions.push({
         id: "renew",
-        button: (
-          <Button type="button" variant="outline" className={compactBtnClass} data-attr="lease-renew" onClick={onRenewLease}>
-            Renew
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem data-attr="lease-renew" onClick={onRenewLease}>
-            Renew
-          </DropdownMenuItem>
+        node: (
+          <LeaseHeaderIcon icon={RefreshCw} label="Renew" dataAttr="lease-renew" onClick={onRenewLease} />
         ),
       });
     }
@@ -461,15 +368,13 @@ export function LeasePrimaryHeaderActions({
     if (showRenewals && onExtendMoveOut) {
       actions.push({
         id: "extend",
-        button: (
-          <Button type="button" variant="outline" className={compactBtnClass} data-attr="lease-extend" onClick={onExtendMoveOut}>
-            Extend move-out
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem data-attr="lease-extend" onClick={onExtendMoveOut}>
-            Extend move-out
-          </DropdownMenuItem>
+        node: (
+          <LeaseHeaderIcon
+            icon={CalendarClock}
+            label="Extend move-out"
+            dataAttr="lease-extend"
+            onClick={onExtendMoveOut}
+          />
         ),
       });
     }
@@ -477,25 +382,14 @@ export function LeasePrimaryHeaderActions({
     if (onDelete && !hasDocument) {
       actions.push({
         id: "delete",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={deleteBtnClass}
-            data-attr={deleteDataAttr}
+        node: (
+          <LeaseHeaderIcon
+            icon={Trash2}
+            label={deleteLabel}
+            dataAttr={deleteDataAttr}
+            tone="danger"
             onClick={onDelete}
-          >
-            {deleteLabel}
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem
-            className="text-rose-800 focus:text-rose-800"
-            data-attr={deleteDataAttr}
-            onClick={onDelete}
-          >
-            {deleteLabel}
-          </DropdownMenuItem>
+          />
         ),
       });
     }
@@ -513,8 +407,6 @@ export function LeasePrimaryHeaderActions({
     editLeaseDataAttr,
     onEditLease,
     onDelete,
-    compactBtnClass,
-    deleteBtnClass,
     downloadDataAttr,
     downloadLabel,
     onDownload,
@@ -523,6 +415,9 @@ export function LeasePrimaryHeaderActions({
     sendToResidentDisabled,
     onSendToResident,
     shareRecordId,
+    row.residentName,
+    row.unit,
+    row.propertyId,
     moveToManagerReviewDataAttr,
     onMoveToManagerReview,
     signManagerDataAttr,
@@ -546,8 +441,6 @@ export function LeasePrimaryHeaderActions({
     onRenewLease,
     onExtendMoveOut,
     onReviewImportedLease,
-    onRenewLease,
-    onExtendMoveOut,
     deleteDataAttr,
     deleteLabel,
   ]);
@@ -567,46 +460,15 @@ export function LeasePrimaryHeaderActions({
     />
   ) : null;
 
-  const desktopButtons = (
-    <>
-      {footerActions.map((action) => (
-        <div key={action.id}>{action.button}</div>
-      ))}
-    </>
-  );
-
-  const fitFooter = (
-    <div className="relative w-full min-w-0">
-      <PortalFooterFitActionRow actions={footerActions} moreLabel="More lease actions" />
-    </div>
-  );
-
-  if (embedded) {
-    if (flatFooter) {
-      return (
-        <>
-          <div className="relative min-w-0 w-full">
-            <PortalFooterFitActionRow actions={footerActions} moreLabel="More lease actions" />
-          </div>
-          {uploadInput}
-        </>
-      );
-    }
-    return (
-      <>
-        <div className="hidden w-full min-w-0 lg:contents">{desktopButtons}</div>
-        <div className="w-full min-w-0 lg:hidden">{fitFooter}</div>
-        {uploadInput}
-      </>
-    );
-  }
-
   return (
     <>
-      <div className="hidden lg:block">
-        <PortalSectionActionRow variant="header">{desktopButtons}</PortalSectionActionRow>
+      <div className="flex min-w-0 flex-nowrap items-center justify-end gap-1.5" data-attr="lease-header-icons">
+        {headerActions.map((action) => (
+          <div key={action.id} className="shrink-0">
+            {action.node}
+          </div>
+        ))}
       </div>
-      <div className="w-full min-w-0 lg:hidden">{fitFooter}</div>
       {uploadInput}
     </>
   );

@@ -5,7 +5,7 @@ import { Textarea } from "@/components/ui/input";
 import {
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
-import { HouseInfoEditor } from "@/components/portal/house-info-sections";
+import { HouseDetailsExpandable, HouseInfoEditor } from "@/components/portal/house-info-sections";
 import { HouseInfoSplitReview } from "@/components/portal/house-info-split-review";
 import { HousePrintablesCard } from "@/components/portal/house-printables-card";
 import { updateRequestChangeProperty } from "@/lib/demo-admin-property-inventory";
@@ -291,16 +291,17 @@ export function ManagerPropertyHouseDetailsPanel({
         {/* Legacy free text. Present only while it still holds something, so a
             migrated house is not left with two empty boxes at the bottom. */}
         {draft.generalHouseInfo || draft.houseRulesText ? (
-          <details
-            className="overflow-hidden rounded-2xl border border-border bg-card"
-            open={houseInfoIsEmpty(draft.houseInfo)}
-            data-attr="house-info-legacy"
+          <HouseDetailsExpandable
+            defaultOpen={houseInfoIsEmpty(draft.houseInfo)}
+            dataAttr="house-info-legacy"
+            title="Your earlier notes"
+            badge={
+              <span className="portal-badge-info rounded-full px-2 py-0.5 text-[10px] font-semibold">
+                Residents only
+              </span>
+            }
           >
-            <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3">
-              <span className="text-sm font-semibold text-foreground">Your earlier notes</span>
-              <span className="portal-badge-info rounded-full px-2 py-0.5 text-[10px] font-semibold">Residents only</span>
-            </summary>
-            <div className="space-y-3 border-t border-border px-4 pb-4 pt-3">
+            <div className="space-y-3">
               <p className="text-xs text-muted">
                 Still shown to residents. Move it into the sections above and this goes away.
               </p>
@@ -327,27 +328,29 @@ export function ManagerPropertyHouseDetailsPanel({
                 </div>
               ) : null}
             </div>
-          </details>
+          </HouseDetailsExpandable>
         ) : null}
 
-        <details className="overflow-hidden rounded-2xl border border-border bg-card" data-attr="house-info-manager-notes">
-          <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3">
-            <span className="text-sm font-semibold text-foreground">Manager notes</span>
-            <span className="portal-badge-notice rounded-full px-2 py-0.5 text-[10px] font-semibold">Manager only</span>
-          </summary>
-          <div className="border-t border-border px-4 pb-4 pt-3">
-            <p className="mb-3 text-xs text-muted">
-              Never shown to a resident, never on a listing. Your own reminders about this house.
-            </p>
-            <Textarea
-              rows={3}
-              aria-label="Manager notes"
-              value={draft.houseDescription}
-              placeholder="Owner prefers text over calls. Boiler replaced March 2026."
-              onChange={(e) => updateText("houseDescription", e.target.value)}
-            />
-          </div>
-        </details>
+        <HouseDetailsExpandable
+          dataAttr="house-info-manager-notes"
+          title="Manager notes"
+          badge={
+            <span className="portal-badge-notice rounded-full px-2 py-0.5 text-[10px] font-semibold">
+              Manager only
+            </span>
+          }
+        >
+          <p className="mb-3 text-xs text-muted">
+            Never shown to a resident, never on a listing. Your own reminders about this house.
+          </p>
+          <Textarea
+            rows={3}
+            aria-label="Manager notes"
+            value={draft.houseDescription}
+            placeholder="Owner prefers text over calls. Boiler replaced March 2026."
+            onChange={(e) => updateText("houseDescription", e.target.value)}
+          />
+        </HouseDetailsExpandable>
 
         {propertyId ? (
           <HousePrintablesCard propertyId={propertyId} rooms={sub.rooms ?? []} showToast={showToast} />

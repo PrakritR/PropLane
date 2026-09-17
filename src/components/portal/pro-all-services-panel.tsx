@@ -42,7 +42,7 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
-import { Settings2 } from "lucide-react";
+import { Settings } from "lucide-react";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
@@ -706,7 +706,7 @@ export function ManagerAllServicesPanel({
           <>
             {servicesFilterSheet}
             <PortalIconAction
-              icon={Settings2}
+              icon={Settings}
               label={servicesSettingsEntry.label}
               data-attr={servicesSettingsEntry.dataAttr}
               onClick={() => setServicesSettingsOpen(true)}

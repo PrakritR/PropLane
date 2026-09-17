@@ -19,7 +19,7 @@ import {
   MessageSquareText,
   MessagesSquare,
   ScrollText,
-  Settings2,
+  Settings,
   SlidersHorizontal,
   UserRound,
   Wallet,
@@ -58,6 +58,10 @@ import { ManagerMessagingSettingsPanel } from "@/components/portal/pro-messaging
 import { ManagerAssistantEmailSettingsPanel } from "@/components/portal/pro-assistant-email-settings-panel";
 import { CommunicationSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
 import { SettingsModulePage } from "@/components/portal/settings-module-page";
+import { ManagerPropertyApplicationFormEditor } from "@/components/portal/pro-edit-application-modal";
+import { ManagerPropertyLeaseFormEditor } from "@/components/portal/pro-edit-leases-modal";
+import { FormAutomationPaneSwitch } from "@/components/portal/property-form-automation-chrome";
+import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   SettingsPropertyScopeBar,
   SettingsPropertyScopeProvider,
@@ -184,7 +188,9 @@ function ManagerMessagingSettingsPane() {
 
 function HubSettingsModulePane({ tab }: { tab: ManagerPortalSettingsTab }) {
   const { userId } = useManagerUserId();
+  const { showToast } = useAppUi();
   const workspaces = useWorkspaces();
+  const [pane, setPane] = useState<"form" | "automation">("automation");
   const propertyOptions = useMemo(
     () =>
       filterPropertyOptionsForActiveWorkspace(
@@ -192,7 +198,36 @@ function HubSettingsModulePane({ tab }: { tab: ManagerPortalSettingsTab }) {
       ),
     [userId, workspaces?.active?.id],
   );
-  return <SettingsModulePage tab={tab} propertyOptions={propertyOptions} />;
+  const formAutomation = tab === "applications" || tab === "lease";
+
+  return (
+    <div data-attr={formAutomation ? "settings-hub-form-automation" : undefined}>
+      {formAutomation ? <FormAutomationPaneSwitch pane={pane} onChange={setPane} /> : null}
+      {formAutomation && pane === "form" ? (
+        tab === "applications" ? (
+          <ManagerPropertyApplicationFormEditor
+            active
+            propertyOptions={propertyOptions}
+            managerUserId={userId}
+            onSaved={() => undefined}
+            showToast={showToast}
+            onBulkActionsChange={() => undefined}
+          />
+        ) : (
+          <ManagerPropertyLeaseFormEditor
+            active
+            propertyOptions={propertyOptions}
+            managerUserId={userId}
+            onSaved={() => undefined}
+            showToast={showToast}
+            onBulkActionsChange={() => undefined}
+          />
+        )
+      ) : (
+        <SettingsModulePage tab={tab} propertyOptions={propertyOptions} />
+      )}
+    </div>
+  );
 }
 
 export function PortalProfileClient({
@@ -363,7 +398,7 @@ export function PortalProfileClient({
       },
     ];
     if (!demo && variant === "manager") {
-      list.push({ id: "workspaces", label: "Workspaces", description: "Plan limits, your workspaces, and who works in each.", icon: Settings2, group: "Account" });
+      list.push({ id: "workspaces", label: "Workspaces", description: "Plan limits, your workspaces, and who works in each.", icon: Settings, group: "Account" });
       list.push({
         id: "billing",
         label: "Billing & plan",
@@ -420,7 +455,7 @@ export function PortalProfileClient({
         id: "account",
         label: "Account",
         description: "Switch portals, sign out, or delete your account.",
-        icon: Settings2,
+        icon: Settings,
         group: "Account",
       },
     );

@@ -13,7 +13,7 @@ import { ManagerBookingsListView } from "@/components/portal/manager-bookings-li
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling } from "@/lib/portal-empty-copy";
-import { CalendarOff, Link2, Settings2 } from "lucide-react";
+import { CalendarOff, Link2, Settings } from "lucide-react";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -369,7 +369,7 @@ function useBookingsWorkspace({
             onClick={() => setBlockModal({ open: true, dayKey: null })}
           />
           <PortalIconAction
-            icon={Settings2}
+            icon={Settings}
             label={bookingsSettingsEntry.label}
             data-attr={bookingsSettingsEntry.dataAttr}
             disabled={linkDisabled}

@@ -1,7 +1,7 @@
 "use client";
 import { loadManagerSmsConversationsClient } from "@/lib/manager-sms-conversations-client";
 
-import { PenSquare, Settings2 } from "lucide-react";
+import { PenSquare, Settings } from "lucide-react";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
@@ -340,7 +340,7 @@ export function ManagerCommunication({
         (`settings-entry-points.ts`) so they cannot drift from each other.
       */}
       <PortalIconAction
-        icon={Settings2}
+        icon={Settings}
         label={communicationSettingsEntry.label}
         data-attr={communicationSettingsEntry.dataAttr}
         onClick={() => setCommunicationSettingsOpen(true)}

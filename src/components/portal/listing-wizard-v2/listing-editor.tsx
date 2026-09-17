@@ -23,6 +23,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Input, Textarea } from "@/components/ui/input";
+import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { OccupiedDates } from "@/components/portal/listing-wizard-v2/occupied-dates";
 import { cn } from "@/lib/utils";
 import {
@@ -1633,11 +1634,6 @@ const BATHROOM_TYPE_OPTIONS: readonly { value: BathroomType; label: string }[] =
   { value: "quarter", label: "Quarter bath" },
 ];
 
-const USES_OPTIONS = [
-  { value: "yes", label: "Uses it" },
-  { value: "no", label: "Doesn't use it" },
-] as const;
-
 const BATHROOM_HELP = {
   all: "Set once. Every bathroom ticked “Same as default bathroom” copies this. Change one field on a bathroom and only that field becomes its own; untick one and the whole card does.",
   type: "Full = tub and shower. Three-quarter = shower, no tub. Half = toilet and sink. Quarter = toilet only.",
@@ -1669,12 +1665,6 @@ function BathroomCardBody({
   const floors = floorLevelSelectOptions(storiesId, bath.location ?? "").map((l) => ({ value: l, label: l }));
   const assigned = bath.assignedRoomIds ?? [];
   const resetTag = (field: BathroomInheritField, what: string) => (isOwn(field) ? <CellResetTag onClick={() => onReset(field)} label={`Reset ${what} for ${who} to the Default bathroom`} /> : null);
-  const setUses = (roomId: string, uses: boolean) => {
-    const next = uses ? Array.from(new Set([...assigned, roomId])) : assigned.filter((id) => id !== roomId);
-    const kinds = { ...(bath.accessKindByRoomId ?? {}) };
-    if (!uses) delete kinds[roomId];
-    onChange({ assignedRoomIds: next, allResidents: false, accessKindByRoomId: kinds });
-  };
   return (
     <>
       <FactRow first label="Floor" own={isOwn("location")} onReset={() => onReset("location")} resetLabel={`Reset floor for ${who} to every bathroom`}>
@@ -1686,23 +1676,46 @@ function BathroomCardBody({
       <FactRow label="Finishes" own={isOwn("amenitiesText")} onReset={() => onReset("amenitiesText")} resetLabel={`Reset finishes for ${who} to every bathroom`}>
         <AmenityPick label={`Finishes for ${who}`} presets={BATHROOM_EXTRA_AMENITY_PRESETS} value={bath.amenitiesText ?? ""} inherited={!isOwn("amenitiesText")} onChange={(next) => onField("amenitiesText", next)} />
       </FactRow>
+      {wholePlace || rooms.length === 0 ? null : (
+        <FactRow label="Who uses it">
+          <CheckboxMultiSelect
+            hideLabel
+            label={`Who uses ${who}`}
+            dataAttr="listing-v2-bath-who-uses"
+            variant="cell"
+            className="min-w-[150px] max-w-[220px]"
+            options={rooms.map((room, i) => ({
+              value: room.id,
+              label: room.name.trim() || `Room ${i + 1}`,
+            }))}
+            selected={bath.allResidents ? rooms.map((room) => room.id) : assigned}
+            selectionTriggerLabel={
+              bath.allResidents
+                ? "Every room"
+                : assigned.length === 0
+                  ? "No rooms yet"
+                  : assigned
+                      .map((id) => {
+                        const index = rooms.findIndex((room) => room.id === id);
+                        const room = index >= 0 ? rooms[index] : null;
+                        return room?.name.trim() || (index >= 0 ? `Room ${index + 1}` : id);
+                      })
+                      .join(", ")
+            }
+            emptyLabel="No rooms yet"
+            onChange={(next) => {
+              const kinds = { ...(bath.accessKindByRoomId ?? {}) };
+              for (const id of Object.keys(kinds)) if (!next.includes(id)) delete kinds[id];
+              onChange({
+                assignedRoomIds: next,
+                allResidents: next.length > 0 && next.length === rooms.length,
+                accessKindByRoomId: kinds,
+              });
+            }}
+          />
+        </FactRow>
+      )}
       <MoreRows dataAttr="listing-v2-bath-more">
-        {wholePlace || rooms.length === 0 ? null : (
-          <>
-            <FactRow label="Who uses it">
-              <span />
-            </FactRow>
-            {rooms.map((room, i) => {
-              const roomLabel = room.name.trim() || `Room ${i + 1}`;
-              const uses = bath.allResidents || assigned.includes(room.id);
-              return (
-                <FactRow key={room.id} sub label={roomLabel}>
-                  <RowSelectCell ariaLabel={`${roomLabel} uses ${who}`} value={uses ? "yes" : "no"} options={USES_OPTIONS} inherited={!uses} onChange={(v) => setUses(room.id, v === "yes")} />
-                </FactRow>
-              );
-            })}
-          </>
-        )}
         <CardFields>
           <Field label="Description" labelAside={resetTag("detail", "description")}>
             <Textarea rows={2} value={bath.detail ?? ""} placeholder="What a renter should know about this bathroom" className={isOwn("detail") ? undefined : "border-dashed text-muted"} onChange={(e) => onChange({ detail: e.target.value })} />

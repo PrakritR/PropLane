@@ -3,7 +3,9 @@ import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-act
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { useCallback, useMemo, useRef, useState } from "react";
+import { Download, Flag, PenLine, RefreshCw, Send, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { LeaseAmendMoveOutModal } from "@/components/portal/lease-amend-move-out-modal";
 import { LeaseSigningModal } from "@/components/portal/lease-signing-modal";
@@ -290,87 +292,56 @@ export function ResidentLeasePanel({
       <ResidentDocumentsDetailFooter>
         {isPendingDetail && pipelineRow ? (
           <>
-            <Button
-              type="button"
-              variant="outline"
-              className={RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN}
+            <PortalIconAction
+              icon={Download}
+              label="Download"
               data-attr="resident-lease-download-pdf"
               onClick={onDownloadLeasePackage}
-            >
-              Download
-            </Button>
+            />
             {showSigningWorkflowActions && !residentAlreadySigned ? (
               <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN}
-                  onClick={() => uploadRef.current?.click()}
+                <PortalIconAction
+                  icon={Upload}
+                  label={uploadingPdf ? "Uploading…" : "Upload"}
                   disabled={uploadingPdf}
-                >
-                  {uploadingPdf ? "Uploading..." : "Upload"}
-                </Button>
+                  onClick={() => uploadRef.current?.click()}
+                />
                 {canReportLeaseIssue ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN}
+                  <PortalIconAction
+                    icon={Flag}
+                    label="Report issue"
                     data-attr="resident-lease-report-issue"
                     onClick={() => setShowReportIssueModal(true)}
-                  >
-                    Report issue
-                  </Button>
+                  />
                 ) : null}
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN}
-                  onClick={onSendToManager}
-                >
-                  Send to manager
-                </Button>
-                <Button
-                  type="button"
-                  variant="primary"
-                  className={RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN}
+                <PortalIconAction icon={Send} label="Send to manager" onClick={onSendToManager} />
+                <PortalIconAction
+                  icon={PenLine}
+                  label="Sign lease"
+                  tone="primary"
                   data-attr="resident-sign-lease"
                   onClick={() => onSignLease()}
-                >
-                  Sign lease
-                </Button>
+                />
               </>
             ) : null}
           </>
         ) : isSignedCurrentDetail && pipelineRow ? (
           <>
-            <Button
-              type="button"
-              variant="primary"
-              className={RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN}
-              onClick={() => setShowMoveOutModal(true)}
-            >
-              Renew
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className={RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN}
+            <PortalIconAction icon={RefreshCw} label="Renew" onClick={() => setShowMoveOutModal(true)} />
+            <PortalIconAction
+              icon={Download}
+              label="Download"
               data-attr="resident-lease-download-pdf"
               onClick={onDownloadLeasePackage}
-            >
-              Download
-            </Button>
+            />
           </>
         ) : downloadTarget ? (
-          <Button
-            type="button"
-            variant="outline"
-            className={RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN}
+          <PortalIconAction
+            icon={Download}
+            label={documentView.pdfSrc ? "Download lease" : "Download / print lease"}
             data-attr="resident-lease-download-pdf"
             onClick={() => runLeaseDownload(downloadTarget, showToast)}
-          >
-            {documentView.pdfSrc ? "Download lease" : "Download / print lease"}
-          </Button>
+          />
         ) : null}
       </ResidentDocumentsDetailFooter>
     ) : undefined;
@@ -634,6 +605,7 @@ export function ResidentLeasePanel({
         backHref={listHref}
         hideBackText
         bareHeader
+        iconTitleActions
         dataAttrBack="resident-lease-detail-back"
         pinScrollBody
         footer={leaseDetailFooter}

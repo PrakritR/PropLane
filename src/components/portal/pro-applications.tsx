@@ -6,7 +6,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { Badge } from "@/components/ui/badge";
 import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
@@ -17,16 +16,12 @@ import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
-import { Plus, Settings2, Share2 } from "lucide-react";
+import { Bell, Check, Download, Plus, Settings, Share2, Shield, Trash2, Undo2, X } from "lucide-react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { armFilterSheetOpenSuppressFromOverlayDismiss } from "@/components/ui/field-select-portal-interaction";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import {
-  PortalFooterFitActionRow,
-  type PortalFooterFitAction,
-} from "@/components/portal/portal-footer-fit-action-row";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
@@ -250,23 +245,33 @@ export function ApplicationPdfDownloadButton({
   row,
   label = "Download PDF",
   className = PORTAL_DETAIL_BTN,
+  icon = false,
 }: {
   row: DemoApplicantRow;
   label?: string;
   className?: string;
+  icon?: boolean;
 }) {
   const { showToast } = useAppUi();
-  const confirm = useConfirm();
   return (
-    <Button
-      type="button"
-      variant="outline"
-      className={className}
-      data-attr="application-pdf-download"
-      onClick={() => runApplicationPdfDownload(row, showToast)}
-    >
-      {label}
-    </Button>
+    icon ? (
+      <PortalIconAction
+        icon={Download}
+        label={label}
+        data-attr="application-pdf-download"
+        onClick={() => runApplicationPdfDownload(row, showToast)}
+      />
+    ) : (
+      <Button
+        type="button"
+        variant="outline"
+        className={className}
+        data-attr="application-pdf-download"
+        onClick={() => runApplicationPdfDownload(row, showToast)}
+      >
+        {label}
+      </Button>
+    )
   );
 }
 
@@ -1291,186 +1296,68 @@ export function ManagerApplications({
   };
 
   const renderApplicationRowActions = (row: DemoApplicantRow) => {
-    const isPending = row.bucket === "pending";
-    const actionBtnClass = RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN;
     const showCompletionReminder = showCompletionReminderForRow(row);
     const recordTitle = row.name?.trim() || row.application?.fullLegalName?.trim() || row.property?.trim();
-    const actions: PortalFooterFitAction[] = [];
 
-    if (showCompletionReminder) {
-      actions.push({
-        id: "reminder",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={actionBtnClass}
+    return (
+      <div
+        className="flex min-w-0 flex-nowrap items-center justify-end gap-1.5"
+        data-attr="application-header-icons"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+        role="presentation"
+      >
+        {showCompletionReminder ? (
+          <PortalIconAction
+            icon={Bell}
+            label={reminderPreviewBusyId === row.id ? "Loading…" : "Send reminder"}
             data-attr="application-send-reminder"
             disabled={reminderPreviewBusyId !== null || reminderBusyId !== null}
             onClick={() => openReminderPreview(row)}
-          >
-            {reminderPreviewBusyId === row.id ? "Loading…" : "Send reminder"}
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem
-            data-attr="application-send-reminder"
-            disabled={reminderPreviewBusyId !== null || reminderBusyId !== null}
-            onSelect={() => openReminderPreview(row)}
-          >
-            Send reminder
-          </DropdownMenuItem>
-        ),
-      });
-    }
-
-    actions.push({
-      id: "share",
-      button: (
+          />
+        ) : null}
         <PortalRecordShareLinkButton
           kind="application"
           recordId={row.id}
-          className={actionBtnClass}
+          icon
           dataAttr="application-share"
           recordTitle={recordTitle}
         />
-      ),
-      menuItem: (
-        <PortalRecordShareLinkButton
-          kind="application"
-          recordId={row.id}
-          menuItem
-          dataAttr="application-share"
-          recordTitle={recordTitle}
-        />
-      ),
-    });
-
-    if (isApprovableApplicationRow(row)) {
-      actions.push({
-        id: "approve",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={actionBtnClass}
+        {isApprovableApplicationRow(row) ? (
+          <PortalIconAction
+            icon={Check}
+            label="Approve"
             data-attr="application-approve"
             onClick={() => {
               setApproveError(null);
               setApprovePreviewRow(row);
             }}
-          >
-            Approve
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem
-            data-attr="application-approve"
-            onSelect={() => {
-              setApproveError(null);
-              setApprovePreviewRow(row);
-            }}
-          >
-            Approve
-          </DropdownMenuItem>
-        ),
-      });
-    }
-
-    if (row.bucket === "pending") {
-      actions.push({
-        id: "reject",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={actionBtnClass}
+          />
+        ) : null}
+        {row.bucket === "pending" ? (
+          <PortalIconAction
+            icon={X}
+            label="Reject"
             data-attr="application-reject"
             onClick={() => setRejectPreviewRows([row])}
-          >
-            Reject
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem data-attr="application-reject" onSelect={() => setRejectPreviewRows([row])}>
-            Reject
-          </DropdownMenuItem>
-        ),
-      });
-    }
-
-    actions.push({
-      id: "download",
-      button: (
-        <ApplicationPdfDownloadButton row={row} label="Download" className={actionBtnClass} />
-      ),
-      menuItem: (
-        <DropdownMenuItem
-          data-attr="application-pdf-download"
-          onSelect={() => runApplicationPdfDownload(row, showToast)}
-        >
-          Download
-        </DropdownMenuItem>
-      ),
-    });
-
-    if (applicationRowCanMoveToPending(row)) {
-      actions.push({
-        id: "move-pending",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={actionBtnClass}
+          />
+        ) : null}
+        <ApplicationPdfDownloadButton row={row} label="Download" icon />
+        {applicationRowCanMoveToPending(row) ? (
+          <PortalIconAction
+            icon={Undo2}
+            label="Move to pending"
             data-attr="application-move-pending"
             onClick={() => setRowBucket(row.id, "pending")}
-          >
-            Move to pending
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem
-            data-attr="application-move-pending"
-            onSelect={() => setRowBucket(row.id, "pending")}
-          >
-            Move to pending
-          </DropdownMenuItem>
-        ),
-      });
-    }
-
-    actions.push({
-      id: "delete",
-      button: (
-        <Button
-          type="button"
-          variant="outline"
-          className={`${actionBtnClass} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
+          />
+        ) : null}
+        <PortalIconAction
+          icon={Trash2}
+          label="Delete"
+          tone="danger"
           data-attr="application-delete"
           onClick={() => deleteApplication(row.id)}
-        >
-          Delete
-        </Button>
-      ),
-      menuItem: (
-        <DropdownMenuItem
-          className="text-rose-800 focus:text-rose-800"
-          data-attr="application-delete"
-          onSelect={() => deleteApplication(row.id)}
-        >
-          Delete
-        </DropdownMenuItem>
-      ),
-    });
-
-    return (
-      <div
-        className="relative w-full min-w-0 flex-1"
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
-        role="presentation"
-      >
-        <PortalFooterFitActionRow actions={actions} moreLabel="More application actions" />
+        />
       </div>
     );
   };
@@ -1492,66 +1379,32 @@ export function ManagerApplications({
         cosignerSubmissionId: cosigner.id,
       });
 
-    const actionBtnClass = RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN;
-    const actions: PortalFooterFitAction[] = [];
-
-    if (showsRunCheck) {
-      actions.push({
-        id: "run-background-check",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={actionBtnClass}
-            data-attr="run-background-check"
-            onClick={() => openCosignerScreening()}
-          >
-            Run background check
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem data-attr="run-background-check" onSelect={() => openCosignerScreening()}>
-            Run background check
-          </DropdownMenuItem>
-        ),
-      });
-    }
-
-    if (canDownloadScreening) {
-      actions.push({
-        id: "download-screening",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={actionBtnClass}
-            data-attr="screening-pdf-download"
-            onClick={() => downloadBackgroundCheckForApplication(screeningRow)}
-          >
-            Download
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem
-            data-attr="screening-pdf-download"
-            onSelect={() => downloadBackgroundCheckForApplication(screeningRow)}
-          >
-            Download background check
-          </DropdownMenuItem>
-        ),
-      });
-    }
-
-    if (actions.length === 0) return undefined;
+    if (!showsRunCheck && !canDownloadScreening) return undefined;
 
     return (
       <div
-        className="relative w-full min-w-0"
+        className="flex min-w-0 flex-nowrap items-center justify-end gap-1.5"
+        data-attr="cosigner-header-icons"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
         role="presentation"
       >
-        <PortalFooterFitActionRow actions={actions} moreLabel="More cosigner actions" />
+        {showsRunCheck ? (
+          <PortalIconAction
+            icon={Shield}
+            label="Run background check"
+            data-attr="run-background-check"
+            onClick={() => openCosignerScreening()}
+          />
+        ) : null}
+        {canDownloadScreening ? (
+          <PortalIconAction
+            icon={Download}
+            label="Download background check"
+            data-attr="screening-pdf-download"
+            onClick={() => downloadBackgroundCheckForApplication(screeningRow)}
+          />
+        ) : null}
       </div>
     );
   };
@@ -1673,7 +1526,7 @@ export function ManagerApplications({
   // stays one row of plain icons; Send application is the share glyph.
   const applicationsSettingsButton = (
     <PortalIconAction
-      icon={Settings2}
+      icon={Settings}
       label={applicationsSettingsEntry.label}
       data-attr={applicationsSettingsEntry.dataAttr}
       onClick={() => setApplicationSettingsOpen(true)}
@@ -1910,6 +1763,7 @@ export function ManagerApplications({
           }
           hideBackText
           bareHeader
+          iconTitleActions
           dataAttrBack="application-detail-back"
           pinScrollBody
           scrollBody={false}

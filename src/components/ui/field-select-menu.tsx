@@ -511,10 +511,9 @@ export function computeFieldSelectMenuRectForModalPanel(
   const bottomInset = fieldSelectHostBottomInsetPx(boundsEl);
   return computeFieldSelectMenuRect(button, contentPx, document.body, {
     minWidth: options?.minWidth,
-    // Always open down inside modals. A short footer gap scrolls the list;
-    // flipping up covers the field the manager just opened (availability times).
+    // Prefer down, but flip up when the footer leaves less than a five-row list.
+    // forceOpenDown crushed availability Start/End to a single 12:00 am row.
     preferOpenDown: true,
-    forceOpenDown: true,
     matchTriggerWidth: options?.matchTriggerWidth ?? true,
     topBoundPx: cardRect.top + topInset + gap,
     bottomBoundPx: cardRect.bottom - bottomInset - gap,

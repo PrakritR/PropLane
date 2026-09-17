@@ -34,11 +34,12 @@ afterEach(() => {
 describe("application and lease form editors live inside settings", () => {
   it("wires Form | Automation into the settings sheet and drops the chevron rows", () => {
     const modal = readFileSync(join(ROOT, "src/components/portal/pro-portal-settings-modal.tsx"), "utf8");
+    const chrome = readFileSync(join(ROOT, "src/components/portal/property-form-automation-chrome.tsx"), "utf8");
     const applications = readFileSync(join(ROOT, "src/components/portal/pro-applications.tsx"), "utf8");
     const leases = readFileSync(join(ROOT, "src/components/portal/pro-leases.tsx"), "utf8");
 
-    expect(modal).toContain('data-attr="manager-settings-pane-form"');
-    expect(modal).toContain('data-attr="manager-settings-pane-automation"');
+    expect(chrome).toContain('data-attr={`manager-settings-pane-${item.id}`}');
+    expect(modal).toContain("FormAutomationPaneSwitch");
     expect(modal).toContain("ManagerPropertyApplicationFormEditor");
     expect(modal).toContain("ManagerPropertyLeaseFormEditor");
     expect(modal).toContain("max-w-4xl");

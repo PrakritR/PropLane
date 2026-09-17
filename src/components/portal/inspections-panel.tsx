@@ -4,7 +4,7 @@ import { PortalIconAction } from "@/components/portal/portal-icon-action";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ClipboardCheck, Settings2 } from "lucide-react";
+import { ClipboardCheck, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { portalEmptyCopy, portalEmptySibling } from "@/lib/portal-empty-copy";
@@ -321,7 +321,7 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
       destinations={routeBase ? (["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, href: `${routeBase}/${id}`, dataAttr: `inspection-type-${id}` })) : undefined}
       destinationRow={!routeBase ? <ManagerPortalStatusPills activeId={kind} mobileSelect={false} onChange={id => changeKind(id as InspectionKind)} tabs={(["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, dataAttr: `inspection-type-${id}` }))} /> : undefined}
       actions={role === "manager" && !isDemoModeActive()
-        ? <PortalIconAction icon={Settings2} label={inspectionsSettingsEntry.label} data-attr={inspectionsSettingsEntry.dataAttr} onClick={() => setSettingsOpen(true)} />
+        ? <PortalIconAction icon={Settings} label={inspectionsSettingsEntry.label} data-attr={inspectionsSettingsEntry.dataAttr} onClick={() => setSettingsOpen(true)} />
         : undefined}
     />
     )}

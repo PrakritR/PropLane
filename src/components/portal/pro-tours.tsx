@@ -21,7 +21,7 @@ import {
 } from "@/components/portal/settings-entry-points";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { CalendarClock, CalendarPlus, MessageSquare, Settings2, Share2, Trash2, XCircle } from "lucide-react";
+import { CalendarClock, CalendarPlus, MessageSquare, Settings, Share2, Trash2, XCircle } from "lucide-react";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -1638,7 +1638,7 @@ export function ManagerTours({
               disabled={!authReady || scopedPropertyIds.length === 0}
             />
             <PortalIconAction
-              icon={Settings2}
+              icon={Settings}
               label={toursSettingsEntry.label}
               data-attr={toursSettingsEntry.dataAttr}
               onClick={() => setSettingsOpen(true)}

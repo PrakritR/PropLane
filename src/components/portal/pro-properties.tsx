@@ -15,7 +15,7 @@ import {
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { Settings2, Share2 } from "lucide-react";
+import { Settings, Share2 } from "lucide-react";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import {
   getSettingsEntryPoint,
@@ -565,7 +565,7 @@ export function ManagerProperties({
             actions={
               <>
                 <PortalIconAction
-                  icon={Settings2}
+                  icon={Settings}
                   label={propertiesSettingsEntry.label}
                   data-attr={propertiesSettingsEntry.dataAttr}
                   onClick={() => setListSettingsOpen(true)}

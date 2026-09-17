@@ -121,15 +121,19 @@ describe("bathrooms as cards", () => {
     expect(seen.at(-1)!.bathrooms!.find((b) => b.id === "b2")?.location).toBe(options[0]);
   });
 
-  it("who uses it is one row per room on the bathroom card, and a room's own Bathroom row is only the access kind", () => {
+  it("who uses it is a room dropdown on the bathroom card, and a room's own Bathroom row is only the access kind", async () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open("bathrooms", (s) => seen.push(s));
     openCard("Upstairs");
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-bath-more"]')!);
-    expect(screen.getByRole("button", { name: "Room A uses Upstairs" }).textContent).toContain("Doesn't use it");
-    pickFloor("Room A uses Upstairs", "yes");
+    const who = screen.getByRole("button", { name: "Who uses Upstairs" });
+    expect(who.textContent).toContain("No rooms yet");
+    fireEvent.click(who);
+    const roomA = screen.getByRole("option", { name: "Room A" });
+    fireEvent.pointerDown(roomA, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(roomA, { pointerId: 1, clientX: 10, clientY: 10 });
     expect(seen.at(-1)!.bathrooms!.find((b) => b.id === "b2")?.assignedRoomIds).toEqual(["r1"]);
-    pickFloor("Room A uses Upstairs", "no");
+    fireEvent.pointerDown(roomA, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(roomA, { pointerId: 1, clientX: 10, clientY: 10 });
     expect(seen.at(-1)!.bathrooms!.find((b) => b.id === "b2")?.assignedRoomIds).toEqual([]);
     // Rooms step: the room card offers only the access kind.
     fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-rooms"]')!);

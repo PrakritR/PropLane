@@ -499,16 +499,18 @@ export function CreateWorkspace({
           />
         }
         railHeader={
-          selected && chrome ? (
-            <>
-              <RailCover
-                photoUrl={chrome.coverUrl}
-                photoCount={chrome.photoCount}
-                onAddPhotos={() => void openEntry(selected.key, "basics")}
-              />
+          <>
+            <RailCover
+              photoUrl={chrome?.coverUrl ?? null}
+              photoCount={chrome?.photoCount ?? 0}
+              onAddPhotos={() => {
+                if (selected) void openEntry(selected.key, "basics");
+              }}
+            />
+            {selected && chrome ? (
               <RailNotice count={chrome.summaries.open} onOpen={() => void openEntry(selected.key, "review")} />
-            </>
-          ) : null
+            ) : null}
+          </>
         }
         railFooter={<RailStatus listed={false} />}
         sidePanel={sidePanel}

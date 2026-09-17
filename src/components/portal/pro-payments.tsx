@@ -16,7 +16,7 @@ import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import type { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { Settings2 } from "lucide-react";
+import { Settings } from "lucide-react";
 import type { DemoManagerOutgoingPaymentRow, DemoManagerPaymentLedgerRow } from "@/data/demo-portal";
 import { parseMoneyLabel } from "@/lib/portal-monthly-profit";
 import { ManagerPaymentsLedgerPanel } from "@/components/portal/pro-payments-ledger-panel";
@@ -644,7 +644,7 @@ export function ManagerPayments({
   const paymentsSettingsEntry = getPaymentsSettingsEntryPoint(direction);
   const paymentsSettingsMenu = (
     <PortalIconAction
-      icon={Settings2}
+      icon={Settings}
       label={paymentsSettingsEntry.label}
       data-attr={paymentsSettingsEntry.dataAttr}
       onClick={() => setPaymentSettingsOpen(true)}

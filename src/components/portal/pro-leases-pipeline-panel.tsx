@@ -1009,6 +1009,7 @@ export function ManagerLeasesPipelinePanel({
           backHref={listBasePath ? leaseListHref(listBasePath, tab) : undefined}
           hideBackText
           bareHeader
+          iconTitleActions
           dataAttrBack="lease-detail-back"
           pinScrollBody
           scrollBody={false}

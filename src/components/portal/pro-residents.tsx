@@ -4,7 +4,7 @@ import { managerApplicationsReadSucceeded } from "@/lib/manager-applications-sto
 import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
-import { Link2, Settings2 } from "lucide-react";
+import { Link2, Settings } from "lucide-react";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { InspectionsPanel } from "@/components/portal/inspections-panel";
@@ -3472,7 +3472,7 @@ export function ManagerResidents({
           <>
             {residentsFilterSheet}
             <PortalIconAction
-              icon={Settings2}
+              icon={Settings}
               label={residentsSettingsEntry.label}
               data-attr={residentsSettingsEntry.dataAttr}
               onClick={() => openResidentDetailSettings("resident")}

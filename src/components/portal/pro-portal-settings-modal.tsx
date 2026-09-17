@@ -22,9 +22,13 @@ import {
 import { getSettingsEntryPointForTab } from "@/components/portal/settings-entry-points";
 import { MANAGER_PORTAL_SETTINGS_TABS, managerSettingsHubTab } from "@/lib/portal-settings-section";
 import { PORTAL_TOOLBAR_PILL_BUTTON, PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE } from "@/components/portal/portal-metrics";
+import {
+  FormAutomationPaneSwitch,
+  type FormAutomationPane,
+} from "@/components/portal/property-form-automation-chrome";
 import { cn } from "@/lib/utils";
 
-type SettingsEditorPane = "form" | "automation";
+type SettingsEditorPane = FormAutomationPane;
 
 function isFormAutomationTab(tab: ManagerPortalSettingsTab): boolean {
   return tab === "applications" || tab === "lease";
@@ -56,6 +60,7 @@ export function ProPortalSettingsModal({
   paymentsMode = "incoming",
   editAction,
   onFormSaved,
+  initialPane = "form",
 }: {
   open: boolean;
   onClose: () => void;
@@ -91,6 +96,12 @@ export function ProPortalSettingsModal({
   propertyOptions?: { id: string; label: string }[];
   /** Pre-select a property when opening from a filtered section. */
   initialPropertyId?: string;
+  /**
+   * Applications / Lease sheets start on Form so the catalog is one click away.
+   * A property-page gear passes `"automation"` so handling, reminders, documents,
+   * ending, and move-in are the first thing on screen — not only the form list.
+   */
+  initialPane?: SettingsEditorPane;
 }) {
   const [tab, setTab] = useState<ManagerPortalSettingsTab>(initialTab);
   const [panelFooter, setPanelFooter] = useState<ManagerSettingsPanelFooter | null>(null);
@@ -102,12 +113,15 @@ export function ProPortalSettingsModal({
   useEffect(() => {
     if (open) {
       setTab(initialTab);
-      setEditorPane("form");
+      setEditorPane(isFormAutomationTab(initialTab) ? initialPane : "form");
       setFormBulkActions(null);
     }
-  }, [open, initialTab]);
+  }, [open, initialTab, initialPane]);
 
+  const prevTabRef = useRef(initialTab);
   useEffect(() => {
+    if (prevTabRef.current === tab) return;
+    prevTabRef.current = tab;
     if (isFormAutomationTab(tab)) setEditorPane("form");
   }, [tab]);
 
@@ -324,24 +338,7 @@ export function ProPortalSettingsModal({
       )}
 
       {isFormAutomationTab(tab) ? (
-        <div className="mb-4 flex flex-wrap gap-1.5">
-          <button
-            type="button"
-            className={editorPane === "form" ? PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE : PORTAL_TOOLBAR_PILL_BUTTON}
-            data-attr="manager-settings-pane-form"
-            onClick={() => void selectEditorPane("form")}
-          >
-            Form
-          </button>
-          <button
-            type="button"
-            className={editorPane === "automation" ? PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE : PORTAL_TOOLBAR_PILL_BUTTON}
-            data-attr="manager-settings-pane-automation"
-            onClick={() => void selectEditorPane("automation")}
-          >
-            Automation
-          </button>
-        </div>
+        <FormAutomationPaneSwitch pane={editorPane} onChange={(next) => void selectEditorPane(next)} />
       ) : null}
 
       {isFormAutomationTab(tab) && editorPane === "form" ? (

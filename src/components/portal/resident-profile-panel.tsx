@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Lock, MessageSquareText, Settings2, SlidersHorizontal, Smartphone, UserRound } from "lucide-react";
+import { Lock, MessageSquareText, Settings, SlidersHorizontal, Smartphone, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
@@ -339,7 +339,7 @@ export function ResidentProfilePanel({
         id: "account",
         label: "Account",
         description: "Switch portals, sign out, or delete your resident account.",
-        icon: Settings2,
+        icon: Settings,
       },
     ],
     [],

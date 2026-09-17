@@ -17,7 +17,7 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
-import { Settings2 } from "lucide-react";
+import { Settings } from "lucide-react";
 import type { ManagerLeaseTab } from "@/data/demo-portal";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -203,7 +203,7 @@ export function ManagerLeases({
     <>
       {leasesFilterSheet}
       <PortalIconAction
-        icon={Settings2}
+        icon={Settings}
         label={leasesSettingsEntry.label}
         data-attr={leasesSettingsEntry.dataAttr}
         onClick={() => setLeaseSettingsOpen(true)}

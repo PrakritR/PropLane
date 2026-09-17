@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Input, Select, Textarea } from "@/components/ui/input";
+import { PortalTableExpandChevron } from "@/components/portal/portal-data-table";
 import {
   HOUSE_INFO_SECTIONS,
   getHouseInfoValue,
@@ -14,6 +15,49 @@ import {
   type HouseInfoV1,
 } from "@/lib/house-info";
 
+/** Trailing `>` / `v` at the end of a house-details row (captain override). */
+export function HouseDetailsExpandable({
+  defaultOpen = false,
+  dataAttr,
+  title,
+  badge,
+  count,
+  onOpenChange,
+  children,
+}: {
+  defaultOpen?: boolean;
+  dataAttr?: string;
+  title: string;
+  badge?: ReactNode;
+  count?: { filled: number; total: number };
+  onOpenChange?: (open: boolean) => void;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <details
+      className="overflow-hidden rounded-2xl border border-border bg-card"
+      open={open}
+      data-attr={dataAttr}
+      onToggle={(event) => {
+        const next = event.currentTarget.open;
+        if (next === open) return;
+        setOpen(next);
+        onOpenChange?.(next);
+      }}
+    >
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 [&::-webkit-details-marker]:hidden">
+        <span className="text-sm font-semibold text-foreground">{title}</span>
+        {badge}
+        <span className="flex-1" />
+        {count ? <SectionCountPill filled={count.filled} total={count.total} /> : null}
+        <PortalTableExpandChevron expanded={open} />
+      </summary>
+      <div className="border-t border-border px-4 pb-4 pt-3">{children}</div>
+    </details>
+  );
+}
+
 /**
  * The one renderer for structured house details, in two modes: the manager
  * fills it in, the resident reads it. Keeping both here means a field added to
@@ -22,7 +66,7 @@ import {
 
 /* ─────────────────────────────  manager editor  ──────────────────────────── */
 
-function SectionCountPill({ filled, total }: { filled: number; total: number }) {
+export function SectionCountPill({ filled, total }: { filled: number; total: number }) {
   const full = filled === total && total > 0;
   return (
     <span
@@ -128,35 +172,33 @@ function EditorSection({
 }) {
   const count = houseInfoSectionCount(info, spec);
   return (
-    <details
-      className="overflow-hidden rounded-2xl border border-border bg-card"
-      open={defaultOpen}
-      data-attr={`house-info-section-${spec.id}`}
+    <HouseDetailsExpandable
+      defaultOpen={defaultOpen}
+      dataAttr={`house-info-section-${spec.id}`}
+      title={spec.label}
+      badge={
+        <span className="portal-badge-info rounded-full px-2 py-0.5 text-[10px] font-semibold">
+          Residents only
+        </span>
+      }
+      count={count}
     >
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3">
-        <span className="text-sm font-semibold text-foreground">{spec.label}</span>
-        <span className="portal-badge-info rounded-full px-2 py-0.5 text-[10px] font-semibold">Residents only</span>
-        <span className="flex-1" />
-        <SectionCountPill filled={count.filled} total={count.total} />
-      </summary>
-      <div className="border-t border-border px-4 pb-4 pt-3">
-        {spec.blurb ? <p className="mb-3 text-xs text-muted">{spec.blurb}</p> : null}
-        <div className="grid gap-3 sm:grid-cols-2">
-          {spec.fields.map((field) => (
-            <div key={field.key} className={field.kind === "textarea" ? "sm:col-span-2" : undefined}>
-              <label className="mb-1.5 block text-xs font-semibold text-muted">{field.label}</label>
-              <FieldControl
-                spec={spec}
-                field={field}
-                info={info}
-                onChange={(key, value) => onChange(spec.id, key, value)}
-              />
-              {field.hint ? <p className="mt-1 text-[11px] text-muted">{field.hint}</p> : null}
-            </div>
-          ))}
-        </div>
+      {spec.blurb ? <p className="mb-3 text-xs text-muted">{spec.blurb}</p> : null}
+      <div className="grid gap-3 sm:grid-cols-2">
+        {spec.fields.map((field) => (
+          <div key={field.key} className={field.kind === "textarea" ? "sm:col-span-2" : undefined}>
+            <label className="mb-1.5 block text-xs font-semibold text-muted">{field.label}</label>
+            <FieldControl
+              spec={spec}
+              field={field}
+              info={info}
+              onChange={(key, value) => onChange(spec.id, key, value)}
+            />
+            {field.hint ? <p className="mt-1 text-[11px] text-muted">{field.hint}</p> : null}
+          </div>
+        ))}
       </div>
-    </details>
+    </HouseDetailsExpandable>
   );
 }
 
@@ -203,26 +245,27 @@ export function HouseInfoEditor({
         </button>
       ) : null}
 
-      <details className="overflow-hidden rounded-2xl border border-border bg-card" data-attr="house-info-section-other">
-        <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3">
-          <span className="text-sm font-semibold text-foreground">Anything else</span>
-          <span className="portal-badge-info rounded-full px-2 py-0.5 text-[10px] font-semibold">Residents only</span>
-          <span className="flex-1" />
-          <SectionCountPill filled={info.other.trim() ? 1 : 0} total={1} />
-        </summary>
-        <div className="border-t border-border px-4 pb-4 pt-3">
-          <label className="mb-1.5 block text-xs font-semibold text-muted">
-            Anything else residents should know
-          </label>
-          <Textarea
-            rows={3}
-            aria-label="Anything else residents should know"
-            value={info.other}
-            placeholder="Free text. Whatever did not fit a section above."
-            onChange={(e) => onOtherChange(e.target.value)}
-          />
-        </div>
-      </details>
+      <HouseDetailsExpandable
+        dataAttr="house-info-section-other"
+        title="Anything else"
+        badge={
+          <span className="portal-badge-info rounded-full px-2 py-0.5 text-[10px] font-semibold">
+            Residents only
+          </span>
+        }
+        count={{ filled: info.other.trim() ? 1 : 0, total: 1 }}
+      >
+        <label className="mb-1.5 block text-xs font-semibold text-muted">
+          Anything else residents should know
+        </label>
+        <Textarea
+          rows={3}
+          aria-label="Anything else residents should know"
+          value={info.other}
+          placeholder="Free text. Whatever did not fit a section above."
+          onChange={(e) => onOtherChange(e.target.value)}
+        />
+      </HouseDetailsExpandable>
     </div>
   );
 }

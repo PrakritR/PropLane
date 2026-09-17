@@ -4,7 +4,7 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 
-import { BookOpen, Settings2 } from "lucide-react";
+import { BookOpen, Settings } from "lucide-react";
 import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
@@ -83,7 +83,7 @@ export function ManagerVendorsToolbar({
         data-attr="manager-vendor-catalog-open"
       />
       <PortalIconAction
-        icon={Settings2}
+        icon={Settings}
         label={vendorsSettingsEntry.label}
         onClick={onDefaults}
         data-attr={vendorsSettingsEntry.dataAttr}

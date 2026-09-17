@@ -15,7 +15,7 @@ import { ApplicationHouseholdCluster } from "@/components/portal/application-hou
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
-import { Settings2 } from "lucide-react";
+import { Settings } from "lucide-react";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import {
   getSettingsEntryPoint,
@@ -816,7 +816,7 @@ export function ManagerTaskList({
           <>
             {tasksFilterSheet}
             <PortalIconAction
-              icon={Settings2}
+              icon={Settings}
               label={tasksSettingsEntry.label}
               data-attr={tasksSettingsEntry.dataAttr}
               onClick={() => setSettingsOpen(true)}
