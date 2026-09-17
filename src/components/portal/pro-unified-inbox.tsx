@@ -1340,7 +1340,9 @@ export function ManagerUnifiedInbox({
         smsRecipients={smsResidents}
         onClearAssistant={
           selectedRow && isAssistantUnifiedInboxRow(selectedRow, emailThreads)
-            ? () => bulk.handleClearAssistant(selectedRow)
+            ? async () => {
+                await bulk.handleClearAssistant(selectedRow);
+              }
             : undefined
         }
         controlledExpandedId={selection.threadId}

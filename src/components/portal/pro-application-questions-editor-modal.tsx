@@ -565,7 +565,7 @@ export function ManagerApplicationQuestionsEditorModal({
       ? "Reset all standard questions"
       : "Restore PropLane defaults";
 
-  const renderSection = (sectionId: string) => {
+  const renderSection = (sectionId: RentalApplicationSectionId) => {
     const sectionQuestions = applicationFields.filter((f) => (f.section ?? "additional") === sectionId);
     const sectionDisabled = disabledFields.filter((f) => (f.section ?? "additional") === sectionId);
     return (
