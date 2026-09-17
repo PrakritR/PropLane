@@ -16,12 +16,15 @@ import {
 } from "@/lib/workspaces/selection";
 import {
   PortalSettingsGroup,
+  PortalSettingsLinkRow,
   PortalSettingsRow,
   PortalSettingsScopeTag,
   PortalSettingsSection,
   PortalSettingsSections,
   PortalSettingsToggle,
 } from "@/components/portal/portal-settings-ui";
+import { useRouter } from "next/navigation";
+import { propertyDetailHref } from "@/lib/portal-detail-routes";
 import {
   SettingsPropertyScopeEcho,
   useSettingsPropertyScope,
@@ -117,6 +120,30 @@ const TOUR_PREVIEW_CONTEXT = {
 
 const TOUR_PLACEHOLDERS =
   "Placeholders: {guestName}, {propertyTitle}, {tourTime}, {managerName}, {instructions}";
+
+function SettingsFormJumpRow({
+  detailTab,
+  propertyId,
+  propertyOptions,
+}: {
+  detailTab: "application" | "lease";
+  propertyId?: string;
+  propertyOptions: { id: string; label: string }[];
+}) {
+  const router = useRouter();
+  const scope = useSettingsPropertyScope();
+  const houseId = (scope.propertyId || propertyId || propertyOptions[0]?.id || "").trim();
+  if (!houseId) return null;
+  return (
+    <PortalSettingsGroup>
+      <PortalSettingsLinkRow
+        label="Form"
+        dataAttr={`settings-${detailTab}-form`}
+        onClick={() => router.push(propertyDetailHref("/portal", "all", houseId, detailTab))}
+      />
+    </PortalSettingsGroup>
+  );
+}
 
 function tourAutomationSnapshot(settings: ManagerAutomationSettings) {
   const minutesBeforeList = normalizeTourReminderMinutesBeforeList(
@@ -355,6 +382,7 @@ export function ApplicationsSettingsPanel({
   hidePropertyField = false,
   teamMembers = [],
   reminderFormRef,
+  showFormLink = false,
 }: {
   automation: ApplicationAutomationPreferences;
   loading: boolean;
@@ -375,6 +403,7 @@ export function ApplicationsSettingsPanel({
   hidePropertyField?: boolean;
   teamMembers?: WorkAssignmentTeamMember[];
   reminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
+  showFormLink?: boolean;
 }) {
   const multiSelect = Boolean(onPropertyIdsChange);
   const selectedIds = propertyIds ?? (propertyId ? [propertyId] : []);
@@ -387,6 +416,13 @@ export function ApplicationsSettingsPanel({
         title="Application handling"
         action={<PortalSettingsScopeTag>{propertyScopeTagLabel(selectedIds.length)}</PortalSettingsScopeTag>}
       >
+        {showFormLink ? (
+          <SettingsFormJumpRow
+            detailTab="application"
+            propertyId={selectedIds[0]}
+            propertyOptions={propertyOptions}
+          />
+        ) : null}
         <PortalSettingsGroup>
           {hidePropertyField ? null : (
             <PropertyScopeRow
@@ -707,6 +743,7 @@ export function LeaseSettingsPanel({
   hidePropertyField = false,
   teamMembers = [],
   reminderFormRef,
+  showFormLink = false,
 }: {
   automation: ApplicationAutomationPreferences;
   loading: boolean;
@@ -718,6 +755,7 @@ export function LeaseSettingsPanel({
   hidePropertyField?: boolean;
   teamMembers?: WorkAssignmentTeamMember[];
   reminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
+  showFormLink?: boolean;
 }) {
   const disabled = loading || saving;
   const LEASE_TOGGLE_ROWS = [
@@ -739,6 +777,13 @@ export function LeaseSettingsPanel({
         title="Lease documents"
         action={<PortalSettingsScopeTag>{propertyScopeTagLabel(propertyId ? 1 : 0)}</PortalSettingsScopeTag>}
       >
+        {showFormLink ? (
+          <SettingsFormJumpRow
+            detailTab="lease"
+            propertyId={propertyId}
+            propertyOptions={propertyOptions}
+          />
+        ) : null}
         <PortalSettingsGroup>
           {hidePropertyField ? null : (
             <PropertyScopeRow
@@ -1044,50 +1089,21 @@ export function ResidentSettingsPanel({
   paymentsFormRef?: React.Ref<PaymentAutomationSettingsHandle>;
   householdFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
 }) {
+  void propertyOptions;
+  void selectedPropertyId;
+  void onPropertyIdChange;
+  void area;
+  void onAreaChange;
+  void teamMembers;
   void paymentsFormRef;
-  const selected = propertyOptions.find((house) => house.id === selectedPropertyId);
-  const title = selected?.label ?? "Resident settings";
-
-  if (propertyOptions.length === 0) {
-    return (
-      <PortalSettingsSection title="Resident settings">
-        <PortalSettingsGroup>
-          <PortalSettingsRow label="No houses in this workspace yet" />
-        </PortalSettingsGroup>
-      </PortalSettingsSection>
-    );
-  }
+  void householdFormRef;
 
   return (
-    <div className="space-y-6">
-      <PortalSettingsSection title={title}>
-        <PortalSettingsGroup>
-          <PortalSettingsRow label="House">
-            <FieldSingleSelect
-              hideLabel
-              label="House"
-              value={selectedPropertyId}
-              options={propertyOptions.map((house) => ({ value: house.id, label: house.label }))}
-              onChange={onPropertyIdChange}
-              dataAttr="resident-settings-house"
-            />
-          </PortalSettingsRow>
-          <PortalSettingsRow label="Settings">
-            <FieldSingleSelect
-              hideLabel
-              label="Settings"
-              value={area}
-              options={RESIDENT_SETTINGS_AREAS.map((row) => ({ value: row.value, label: row.label }))}
-              onChange={(next) => {
-                if (next === "household") onAreaChange(next);
-              }}
-              dataAttr="resident-settings-area"
-            />
-          </PortalSettingsRow>
-        </PortalSettingsGroup>
+    <PortalSettingsSections>
+      <PortalSettingsSection title="Welcome" action={<SettingsPropertyScopeEcho />}>
+        <AutomationRuleRows rows={[{ kind: "resident_welcome", multi: true }]} />
       </PortalSettingsSection>
-      <LeaseRemindersSettingsBundle teamMembers={teamMembers} formRef={householdFormRef} />
-    </div>
+    </PortalSettingsSections>
   );
 }
 
@@ -1509,7 +1525,8 @@ export function TourSettingsPanel({
 
 export const PAYMENTS_SETTINGS_AREAS = [
   { value: "setup", label: "Payment setup" },
-  { value: "rent", label: "Rent reminders" },
+  { value: "incoming", label: "Incoming reminders" },
+  { value: "outgoing", label: "Outgoing reminders" },
   { value: "late-fees", label: "Late fees" },
 ] as const;
 
@@ -1541,9 +1558,10 @@ export function PaymentsSettingsPanel({
   initialPropertyId?: string;
 }) {
   const workspaces = useWorkspaces();
+  const scope = useSettingsPropertyScope();
   const remindersRef = useRef<PaymentAutomationSettingsHandle | null>(null);
   const lateFeeRef = useRef<PaymentListingLateFeeHandle | null>(null);
-  const [area, setArea] = useState<PaymentsSettingsArea>("setup");
+  const [area, setArea] = useState<PaymentsSettingsArea>(mode === "outgoing" ? "outgoing" : "setup");
   const [houseId, setHouseId] = useState("");
 
   useImperativeHandle(
@@ -1566,54 +1584,37 @@ export function PaymentsSettingsPanel({
   );
   const firstHouseId = houses[0]?.id ?? "";
   useEffect(() => {
-    const preferred = initialPropertyId?.trim() || firstHouseId;
+    const preferred = (scope.propertyId || initialPropertyId || "").trim();
     setHouseId((current) => {
+      if (preferred) return preferred;
       if (current && houses.some((house) => house.id === current)) return current;
-      return preferred;
+      return firstHouseId;
     });
-  }, [firstHouseId, houses, initialPropertyId]);
+  }, [firstHouseId, houses, initialPropertyId, scope.propertyId]);
 
   if (mode === "outgoing") {
     return (
-      <PortalSettingsSection
-        title="Outgoing payment reminders"
-        action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
-      >
-        <OutgoingPaymentRemindersSettingsBundle
-          teamMembers={teamMembers}
-          formRef={outgoingReminderFormRef}
-        />
-      </PortalSettingsSection>
+      <div className="space-y-6">
+        <PortalSettingsSection
+          title="Outgoing payment reminders"
+          action={<SettingsPropertyScopeEcho />}
+        >
+          <OutgoingPaymentRemindersSettingsBundle
+            teamMembers={teamMembers}
+            formRef={outgoingReminderFormRef}
+          />
+        </PortalSettingsSection>
+      </div>
     );
   }
 
-  const selectedHouse = houses.find((house) => house.id === houseId);
   const workspaceName = workspaces?.active?.name;
-  const showHouse = area === "late-fees";
-  const title = showHouse
-    ? (selectedHouse?.label ?? "Payment settings")
-    : (workspaceName ?? "Payment settings");
+  const title = workspaceName ?? "Payment setup";
 
   return (
     <div className="space-y-6">
-      <PortalSettingsSection title={title}>
+      <PortalSettingsSection title={title} action={<SettingsPropertyScopeEcho />}>
         <PortalSettingsGroup>
-          {showHouse ? (
-            <PortalSettingsRow label="House">
-              {houses.length === 0 ? (
-                <span className="text-sm text-muted">No houses yet</span>
-              ) : (
-                <FieldSingleSelect
-                  hideLabel
-                  label="House"
-                  value={houseId || houses[0]?.id || ""}
-                  options={houses.map((house) => ({ value: house.id, label: house.label }))}
-                  onChange={setHouseId}
-                  dataAttr="payments-settings-house"
-                />
-              )}
-            </PortalSettingsRow>
-          ) : null}
           <PortalSettingsRow label="Settings">
             <FieldSingleSelect
               hideLabel
@@ -1621,7 +1622,9 @@ export function PaymentsSettingsPanel({
               value={area}
               options={PAYMENTS_SETTINGS_AREAS.map((row) => ({ value: row.value, label: row.label }))}
               onChange={(next) => {
-                if (next === "setup" || next === "rent" || next === "late-fees") setArea(next);
+                if (next === "setup" || next === "incoming" || next === "outgoing" || next === "late-fees") {
+                  setArea(next);
+                }
               }}
               dataAttr="payments-settings-area"
             />
@@ -1633,7 +1636,7 @@ export function PaymentsSettingsPanel({
         <ManagerPaymentSetupPanel active propertyOptions={houses} />
       ) : null}
 
-      {area === "rent" ? (
+      {area === "incoming" ? (
         <>
           <IncomingPaymentRemindersSettingsBundle
             teamMembers={teamMembers}
@@ -1647,6 +1650,13 @@ export function PaymentsSettingsPanel({
             <AutomatedMessagesList area="payments" />
           </PortalSettingsSection>
         </>
+      ) : null}
+
+      {area === "outgoing" ? (
+        <OutgoingPaymentRemindersSettingsBundle
+          teamMembers={teamMembers}
+          formRef={outgoingReminderFormRef}
+        />
       ) : null}
 
       {area === "late-fees" ? (
@@ -1887,7 +1897,7 @@ export function CommunicationSettingsPanel({
       />
       <div className="mt-6 space-y-3">
         <p className="text-[15px] font-bold tracking-[-0.01em] text-foreground">Follow-ups</p>
-        <AutomationRuleRows rows={[{ kind: "message_unanswered" }, { kind: "resident_welcome", multi: true }]} />
+        <AutomationRuleRows rows={[{ kind: "message_unanswered" }]} />
       </div>
       <div className="mt-6 space-y-3">
         <p className="text-[15px] font-bold tracking-[-0.01em] text-foreground">Messages sent automatically</p>

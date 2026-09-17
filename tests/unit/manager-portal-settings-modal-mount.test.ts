@@ -19,7 +19,7 @@ const PAGE_SRC = readFileSync(
 
 describe("ManagerPortalSettingsModal mount gating", () => {
   it("mounts self-loading panels only while the module page is active", () => {
-    expect(PAGE_SRC).toMatch(/shouldMountTourSettings\(active, tab, propertyHubArea\)/);
+    expect(PAGE_SRC).toMatch(/shouldMountTourSettings\(active, tab\)/);
     expect(PAGE_SRC).toMatch(/\{active && tab === "payments" \?/);
     expect(PAGE_SRC).toMatch(/\{active && tab === "communication" \?/);
     expect(PAGE_SRC).toMatch(/\{active && tab === "automation" \?/);
@@ -28,11 +28,10 @@ describe("ManagerPortalSettingsModal mount gating", () => {
     expect(SRC).toMatch(/active=\{open\}/);
   });
 
-  it("keeps tour settings unmounted while inactive in both navigation shapes", () => {
-    expect(shouldMountTourSettings(false, "tours", "applications")).toBe(false);
-    expect(shouldMountTourSettings(false, "properties", "tours")).toBe(false);
-    expect(shouldMountTourSettings(true, "tours", "applications")).toBe(true);
-    expect(shouldMountTourSettings(true, "properties", "tours")).toBe(true);
+  it("keeps tour settings unmounted while inactive", () => {
+    expect(shouldMountTourSettings(false, "tours")).toBe(false);
+    expect(shouldMountTourSettings(true, "tours")).toBe(true);
+    expect(shouldMountTourSettings(true, "applications")).toBe(false);
   });
 
   it("pins Save in Modal footer so tall tab bodies scroll (PRP-334)", () => {

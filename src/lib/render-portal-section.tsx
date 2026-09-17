@@ -40,7 +40,8 @@ import { VendorSettingsPanel } from "@/components/portal/vendor-settings-panel";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalTierPaywall, ResidentTierPaywall } from "@/components/portal/portal-tier-paywall";
 import { PortalWorkspaceClient } from "@/components/portal/portal-workspace-client";
-import { managerSettingsHubTab, parseManagerSettingsAreaTab } from "@/lib/portal-settings-section";
+import { DEFAULT_MANAGER_SETTINGS_TAB, parseManagerSettingsAreaTab } from "@/lib/portal-settings-section";
+import { PortalSettingsSectionClient } from "@/components/portal/portal-settings-section-client";
 import {
   loadManagerAllServicesPanel,
   loadManagerTaskList,
@@ -435,8 +436,9 @@ export async function renderPortalSection(
   // dedicated top-level nav row for it, to avoid exactly that duplicate-"Settings" row.
   if ((kind === "manager" || kind === "pro") && section === "settings") {
     if (tabParts && tabParts.length > 1) notFound();
-    const tab = parseManagerSettingsAreaTab(tabParts?.[0] ?? null);
-    redirect(`${def.basePath}/profile?tab=${managerSettingsHubTab(tab)}`);
+    const raw = tabParts?.[0] ?? null;
+    const tab = raw ? parseManagerSettingsAreaTab(raw) : DEFAULT_MANAGER_SETTINGS_TAB;
+    return <PortalSettingsSectionClient tab={tab} basePath={def.basePath} />;
   }
 
   const meta = findSection(def, section);

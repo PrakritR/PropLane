@@ -25,12 +25,12 @@ describe("Application / Lease Bookings chrome", () => {
     expect(lease).toContain('settingsDataAttr="property-lease-settings-open"');
   });
 
-  it("Settings hub Applications and Leases keep Form | Automation plus the full automation sections", () => {
+  it("Settings hub Applications and Leases jump to the listing Form instead of embedding the editor", () => {
     const hub = src("src/components/portal/portal-profile-client.tsx");
-    expect(hub).toContain("FormAutomationPaneSwitch");
-    expect(hub).toContain("ManagerPropertyApplicationFormEditor");
-    expect(hub).toContain("ManagerPropertyLeaseFormEditor");
-    expect(hub).toContain('data-attr={formAutomation ? "settings-hub-form-automation"');
-    expect(hub).toContain('<SettingsModulePage tab={tab}');
+    expect(hub).not.toContain("FormAutomationPaneSwitch");
+    expect(hub).not.toContain("ManagerPropertyApplicationFormEditor");
+    expect(hub).not.toContain("ManagerPropertyLeaseFormEditor");
+    expect(hub).toContain("showFormLink");
+    expect(hub).toContain("<SettingsModulePage tab={tab}");
   });
 });

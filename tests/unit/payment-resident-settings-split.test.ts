@@ -9,20 +9,21 @@ function src(file: string) {
 }
 
 describe("Payment settings owns setup; Residents drop rent reminders", () => {
-  it("Payment settings chrome is Payment setup, Rent reminders, Late fees", () => {
+  it("Payment settings chrome is Payment setup, Incoming, Outgoing, Late fees", () => {
     const panels = src("pro-portal-settings-panels.tsx");
     expect(panels).toContain('value: "setup", label: "Payment setup"');
-    expect(panels).toContain('value: "rent", label: "Rent reminders"');
+    expect(panels).toContain('value: "incoming", label: "Incoming reminders"');
+    expect(panels).toContain('value: "outgoing", label: "Outgoing reminders"');
     expect(panels).toContain('value: "late-fees", label: "Late fees"');
+    expect(panels).not.toContain('value: "rent", label: "Rent reminders"');
     expect(panels).toContain("ManagerPaymentSetupPanel");
     expect(panels).toContain('dataAttr="payments-settings-area"');
   });
 
-  it("Resident settings only lists Household reminders", () => {
+  it("Resident settings is the welcome message, not rent reminders", () => {
     const panels = src("pro-portal-settings-panels.tsx");
-    expect(panels).toContain('value: "household", label: "Household reminders"');
+    expect(panels).toContain('kind: "resident_welcome"');
     expect(panels).not.toContain('value: "payments", label: "Payment reminders"');
-    expect(src("settings-module-page.tsx")).toContain('useState<ResidentSettingsArea>("household")');
   });
 
   it("Payments list no longer has a separate setup wrench", () => {

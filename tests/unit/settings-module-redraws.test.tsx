@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DEFAULT_MANAGER_AUTOMATION_SETTINGS } from "@/lib/payment-automation-settings";
 import { DEFAULT_LIFECYCLE_AUTOMATION } from "@/lib/task-lifecycle-automation";
@@ -142,7 +142,7 @@ describe("settings module redraws — scope tags", () => {
 
     render(<PaymentsSettingsPanel teamMembers={[]} />);
     expect(await screen.findByRole("button", { name: "Settings" })).toBeTruthy();
-    expect(screen.getByText("Payment setup")).toBeTruthy();
+    expect(screen.getAllByText("Payment setup").length).toBeGreaterThan(0);
     cleanup();
 
     render(<BookingsSettingsPanel teamMembers={[]} />);
@@ -161,7 +161,7 @@ describe("settings module redraws — scope tags", () => {
     expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
   });
 
-  it("Resident stays in Settings with a house dropdown, not outbound links", async () => {
+  it("Resident settings is the welcome message, scoped by the Property bar", async () => {
     stubFetch();
     render(
       <ResidentSettingsPanel
@@ -173,10 +173,10 @@ describe("settings module redraws — scope tags", () => {
         teamMembers={[]}
       />,
     );
-    expect(await screen.findByRole("heading", { name: "Ballard House" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "House" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
-    expect(screen.queryByText("All properties")).toBeNull();
+    expect(await screen.findByRole("heading", { name: "Welcome" })).toBeTruthy();
+    expect(screen.getByText("All properties")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Ballard House" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "House" })).toBeNull();
     expect(screen.queryByText("Informational")).toBeNull();
     expect(screen.queryByText(/no settings of its own/i)).toBeNull();
   });
@@ -263,7 +263,7 @@ describe("settings module redraws — every row is a label and its control, noth
     ).toBeNull();
   });
 
-  it("Resident keeps Household reminders in this tab", async () => {
+  it("Resident welcome is the only household section in this tab", async () => {
     stubFetch();
     render(
       <ResidentSettingsPanel
@@ -275,23 +275,21 @@ describe("settings module redraws — every row is a label and its control, noth
         teamMembers={[]}
       />,
     );
-    expect(await screen.findByRole("button", { name: "Settings" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    expect(screen.getByRole("option", { name: "Household reminders" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Welcome" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Household reminders" })).toBeNull();
     expect(screen.queryByRole("option", { name: "Payment reminders" })).toBeNull();
     expect(screen.queryByText(/Portfolio-wide payment reminder presets/)).toBeNull();
   });
 });
 
-describe("Property and Resident settings stay in the hub", () => {
-  it("does not link those panels out to listing or residents routes", () => {
+describe("Application and Lease settings jump to the listing Form", () => {
+  it("links those panels to the listing, not to the residents list", () => {
     const source = readFileSync(
       join(process.cwd(), "src/components/portal/pro-portal-settings-panels.tsx"),
       "utf8",
     );
-    expect(source).not.toContain("propertyDetailHref");
-    expect(source).toContain("property-settings-house");
-    expect(source).toContain("resident-settings-house");
+    expect(source).toContain("propertyDetailHref");
+    expect(source).toContain("SettingsFormJumpRow");
     expect(source).not.toContain('href="/portal/residents"');
     expect(source).not.toContain('href="/portal/profile?tab=payments"');
   });

@@ -449,6 +449,32 @@ export function ManagerFinancesOverview({
         amount: row.amount,
       }));
 
+    const activity: Array<{ id: string; day: string; title: string; detail: string; amount: number }> = [];
+    for (const charge of charges) {
+      if (LIABILITY_KINDS.has(charge.kind) || charge.status !== "paid") continue;
+      const paidDay = dateYmd(charge.paidAt ?? charge.createdAt);
+      if (!within(paidDay, bounds.from, bounds.to) || !paidDay) continue;
+      activity.push({
+        id: `in-${charge.id}`,
+        day: paidDay,
+        title: charge.title || "Income",
+        detail: charge.residentName || charge.propertyLabel,
+        amount: chargePaidAmount(charge),
+      });
+    }
+    for (const expense of periodExpenses) {
+      const day = dateYmd(expense.expenseDate);
+      if (!day) continue;
+      activity.push({
+        id: `out-${expense.id}`,
+        day,
+        title: expense.memo?.trim() || expense.categoryLabel,
+        detail: expense.propertyName ?? "",
+        amount: -(expense.amountCents / 100),
+      });
+    }
+    activity.sort((a, b) => b.day.localeCompare(a.day) || Math.abs(b.amount) - Math.abs(a.amount));
+
     return {
       bounds,
       current,
@@ -460,6 +486,7 @@ export function ManagerFinancesOverview({
       depositResidents,
       cashflow,
       upcoming,
+      activity: activity.slice(0, 12),
     };
   }, [nowMs, period, propertyId, propertyOptions, tick, userId]);
 
@@ -516,6 +543,32 @@ export function ManagerFinancesOverview({
           dataAttr="finances-kpi-deposits"
         />
       </div>
+
+      <Card title="Recent activity" action={{ label: "Income", href: `${basePath}/financials/income` }} dataAttr="finances-overview-activity">
+        {model.activity.length === 0 ? (
+          <p className="px-4 py-6 text-center text-[13px] text-muted">No money moved in this period.</p>
+        ) : (
+          <ul className="divide-y divide-border/70">
+            {model.activity.map((row) => (
+              <li key={row.id} className="flex items-center gap-3 px-4 py-2.5">
+                <span className="w-14 shrink-0 text-[12.5px] font-semibold tabular-nums text-foreground">{dayLabel(row.day)}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13.5px] font-medium text-foreground">{row.title}</span>
+                  {row.detail ? <span className="block truncate text-[12px] text-muted">{row.detail}</span> : null}
+                </span>
+                <span
+                  className={cn(
+                    "shrink-0 text-[13.5px] font-semibold tabular-nums",
+                    row.amount < 0 ? "text-[var(--status-overdue-fg)]" : "text-foreground",
+                  )}
+                >
+                  {row.amount < 0 ? `–${fmt(Math.abs(row.amount))}` : `+${fmt(row.amount)}`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
 
       <MonthlyProfitChart
         points={model.cashflow}

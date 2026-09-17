@@ -463,6 +463,21 @@ export function ManagerReminderRuleSettingsPanel({
                         />
                       </PortalSettingsRow>
                     ) : null}
+
+                    {meta.notifyCounterpartyLabel?.toLowerCase() === "assignee" ? null : (
+                    <PortalSettingsRow
+                      className="flex-wrap items-start gap-y-2.5"
+                      label="Assignee"
+                    >
+                      <PortalSettingsToggle
+                        checked={rule.audience.counterparty}
+                        onChange={(next) => patchRule({ audience: { ...rule.audience, counterparty: next } })}
+                        label="Notify Assignee"
+                        disabled={disabled}
+                        dataAttr={`reminder-rule-${kind}-notify-assignee`}
+                      />
+                    </PortalSettingsRow>
+                    )}
                   </>
                 )}
               </PortalSettingsGroup>

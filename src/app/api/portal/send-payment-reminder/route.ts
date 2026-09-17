@@ -10,6 +10,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { canSendResidentOutboundSms, sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
 import { deliverPortalMessageThreadSide } from "@/lib/portal-inbox-delivery";
+import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
 
 export const runtime = "nodejs";
 
@@ -198,7 +199,7 @@ export async function POST(req: Request) {
     let emailSent = false;
     const apiKey = process.env.RESEND_API_KEY?.trim();
     if (canEmailExternally && apiKey) {
-      const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
+      const from = await managerOutboundFromHeader(db, user.id);
       const html = `<p style="white-space:pre-wrap;font-family:sans-serif;font-size:15px;line-height:1.6;color:#1e293b">${escapeHtmlText(messageBody)}</p><hr style="margin:24px 0;border:none;border-top:1px solid #e2e8f0"><p style="font-family:sans-serif;font-size:12px;color:#94a3b8">Sent via PropLane portal by ${escapeHtmlText(managerName)}</p>`;
       try {
         const res = await fetch("https://api.resend.com/emails", {

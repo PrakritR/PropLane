@@ -14,6 +14,11 @@ import {
 } from "@/lib/record-share-message";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
 import { recordResidentProspectInboxMessage } from "@/lib/tour-notification-delivery.server";
+import {
+  fromHeaderAddress,
+  fromHeaderDisplayName,
+  managerOutboundFromHeader,
+} from "@/lib/manager-outbound-identity.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { normalizeE164 } from "@/lib/twilio";
@@ -100,7 +105,7 @@ export async function POST(req: Request) {
       if (!apiKey) {
         return NextResponse.json({ error: "Email delivery is not configured." }, { status: 503 });
       }
-      const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
+      const from = await managerOutboundFromHeader(db, user.id);
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -116,8 +121,8 @@ export async function POST(req: Request) {
         participantEmail: to,
         subject,
         body: text,
-        fromName: "PropLane",
-        fromEmail: "invites@axis.local",
+        fromName: fromHeaderDisplayName(from),
+        fromEmail: fromHeaderAddress(from),
       });
     }
 

@@ -15,8 +15,7 @@ describe("Operations settings gears carry a Property picker", () => {
     expect(inspections).not.toContain("Settings2");
   });
 
-  it("the settings modal wraps inspections, bookings, and tasks in the All properties picker", () => {
-    expect(modal).toContain('["inspections", "bookings", "tasks"]');
+  it("the settings modal always wraps the module page in the All properties picker", () => {
     expect(modal).toContain("SettingsPropertyScopeProvider");
     expect(modal).toContain("SettingsPropertyScopeBar");
   });

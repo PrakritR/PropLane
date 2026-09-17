@@ -6,7 +6,6 @@ const FILES = [
   "src/components/portal/pro-leases.tsx",
   "src/components/portal/pro-applications.tsx",
   "src/components/portal/pro-bookings.tsx",
-  "src/components/portal/pro-properties.tsx",
   "src/components/portal/pro-task-list.tsx",
 ];
 
@@ -17,5 +16,8 @@ describe("settings command icons are a gear", () => {
       expect(src, rel).not.toContain("Settings2");
       expect(src, rel).toContain("icon={Settings}");
     }
+    const properties = readFileSync(join(process.cwd(), "src/components/portal/pro-properties.tsx"), "utf8");
+    expect(properties).not.toContain("icon={Settings}");
+    expect(properties).not.toContain("Settings2");
   });
 });

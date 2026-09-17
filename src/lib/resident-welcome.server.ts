@@ -26,6 +26,7 @@ import {
 import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
 import { ensureResidentSetupTokenForApplication } from "@/lib/auth/resident-setup-token";
 import { resolveManagerReachabilityForResident } from "@/lib/manager-reachability-for-resident.server";
+import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
 
 // Domain is matched as dot-separated labels (no char class overlaps the "." delimiter)
 // so there is exactly one way to parse a match — avoids polynomial backtracking on
@@ -181,7 +182,7 @@ export async function deliverResidentWelcome(
       };
     }
 
-    const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
+    const from = await managerOutboundFromHeader(db, actor.userId);
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -350,7 +351,7 @@ export async function deliverExistingResidentWelcome(
       };
     }
 
-    const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
+    const from = await managerOutboundFromHeader(db, actor.userId);
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {

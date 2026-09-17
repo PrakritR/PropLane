@@ -41,3 +41,29 @@ export async function resolveManagerOutboundFrom(
     return null;
   }
 }
+
+/** Shared PropLane sender — auth mail and alerts *to* a manager, never manager-originated product mail. */
+export function sharedPortalFromAddress(): string {
+  return process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
+}
+
+/**
+ * From header for a manager writing to a resident, vendor, or prospect.
+ * Work email when the workspace has one; shared sender otherwise. SMS still
+ * leaves on the workspace work number through `enqueueOwnerSms`.
+ */
+export async function managerOutboundFromHeader(
+  db: SupabaseClient,
+  managerUserId: string | null | undefined,
+): Promise<string> {
+  return (await resolveManagerOutboundFrom(db, managerUserId)) ?? sharedPortalFromAddress();
+}
+
+export function fromHeaderDisplayName(from: string): string {
+  if (!from.includes("<")) return from.trim() || "PropLane";
+  return from.slice(0, from.indexOf("<")).trim() || "PropLane";
+}
+
+export function fromHeaderAddress(from: string): string {
+  return from.match(/<([^>]+)>/)?.[1]?.trim() || from.trim();
+}

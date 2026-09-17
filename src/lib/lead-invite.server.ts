@@ -23,6 +23,11 @@ import {
 } from "@/lib/manager-property-links";
 import { buildListingShareSummary } from "@/lib/listing-share-summary";
 import { getShareablePropertyForUser } from "@/lib/manager-property-share-access";
+import {
+  fromHeaderAddress,
+  fromHeaderDisplayName,
+  managerOutboundFromHeader,
+} from "@/lib/manager-outbound-identity.server";
 
 export type { LeadInviteKind };
 
@@ -149,7 +154,7 @@ export async function sendLeadInvite(
     };
   }
 
-  const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
+  const from = await managerOutboundFromHeader(db, actor.userId);
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -171,8 +176,8 @@ export async function sendLeadInvite(
     participantEmail: input.to,
     subject,
     body: text,
-    fromName: "PropLane",
-    fromEmail: "invites@axis.local",
+    fromName: fromHeaderDisplayName(from),
+    fromEmail: fromHeaderAddress(from),
   });
 
   track("lead_invite_sent", actor.userId, { kind: input.kind, property_id: input.propertyId });

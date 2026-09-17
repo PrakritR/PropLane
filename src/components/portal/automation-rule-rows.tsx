@@ -19,6 +19,7 @@ import { useSettingsPropertyScope } from "@/components/portal/settings-property-
 import {
   DEFAULT_REMINDER_RULES,
   REMINDER_SUBJECT_META,
+  VENDOR_AUDIENCE_KINDS,
   normalizeReminderSettings,
   type ReminderRule,
   type ReminderSubjectKind,
@@ -175,9 +176,28 @@ export function AutomationRuleRows({ rows, disabled: disabledProp }: { rows: Aut
           const directions = meta?.directions ?? ["after"];
           const options = timingOptions(directions);
           const timing = rule.timings?.[0] ?? "";
+          const timingCount = (rule.timings ?? []).filter(Boolean).length;
           const label = spec.label ?? REMINDER_SUBJECT_META[spec.kind].label;
+          const rowLabel = timingCount > 1 ? `${label} (${timingCount})` : label;
+          const counterpartLabel = meta?.notifyCounterpartyLabel ?? "Resident";
+          const whoOptions = [
+            { value: "manager", label: "You" },
+            { value: "team", label: "Team" },
+            { value: "assignee", label: "Assignee" },
+            ...(counterpartLabel.toLowerCase() === "assignee"
+              ? []
+              : [{ value: "counterparty", label: counterpartLabel }]),
+            ...(VENDOR_AUDIENCE_KINDS.has(spec.kind) ? [{ value: "vendor", label: "Vendor" }] : []),
+          ];
+          const whoValue = [
+            ...(rule.audience.manager ? ["manager"] : []),
+            ...(rule.audience.team ? ["team"] : []),
+            ...(rule.audience.counterparty ? ["assignee"] : []),
+            ...(rule.audience.counterparty && counterpartLabel.toLowerCase() !== "assignee" ? ["counterparty"] : []),
+            ...(rule.audience.vendor ? ["vendor"] : []),
+          ];
           return (
-            <PortalSettingsRow key={spec.kind} label={label} className="flex-wrap gap-y-2.5">
+            <PortalSettingsRow key={spec.kind} label={rowLabel} className="flex-wrap gap-y-2.5">
               <div className="flex flex-wrap items-center justify-end gap-2">
                 {spec.multi && rule.enabled ? (
                   <CheckboxMultiSelect
@@ -202,6 +222,30 @@ export function AutomationRuleRows({ rows, disabled: disabledProp }: { rows: Aut
                     onChange={(next) => patch(spec.kind, { timings: [next] })}
                     disabled={disabled}
                     dataAttr={`automation-rule-${spec.kind}-timing`}
+                  />
+                ) : null}
+                {rule.enabled ? (
+                  <CheckboxMultiSelect
+                    label="Who"
+                    hideLabel
+                    variant="cell"
+                    className="w-40"
+                    options={whoOptions}
+                    selected={whoValue}
+                    onChange={(next) =>
+                      patch(spec.kind, {
+                        audience: {
+                          ...rule.audience,
+                          manager: next.includes("manager"),
+                          team: next.includes("team"),
+                          counterparty: next.includes("assignee") || next.includes("counterparty"),
+                          vendor: next.includes("vendor"),
+                        },
+                      })
+                    }
+                    disabled={disabled}
+                    emptyLabel="Who"
+                    dataAttr={`automation-rule-${spec.kind}-who`}
                   />
                 ) : null}
                 {spec.template !== false && meta ? (

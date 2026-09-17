@@ -924,7 +924,7 @@ export function ManagerMessagingSettingsPanel({
             onChange={setAnnounceSendVia}
             smsAvailable={status?.canSend === true}
             disabled={announceBusy}
-            footerNote="We'll email and text every resident in your portfolio. Numbers without SMS consent still get the email and portal inbox copy."
+            footerNote=""
             dataAttr="messaging-announce-send-via"
           />
         </div>
