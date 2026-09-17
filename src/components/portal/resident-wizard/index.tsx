@@ -69,6 +69,8 @@ export function AddResidentWizard({
   initialKind = "resident",
   mode = "person",
   defaultPropertyId,
+  initialForm,
+  onSaveEdit,
 }: {
   onClose: () => void;
   /** The row landed (and whatever else the wizard created). */
@@ -84,11 +86,17 @@ export function AddResidentWizard({
    * "application" is the Application tab's door: Applicant · Home ·
    * Application · Documents · Review, landing as a pending in-progress draft.
    */
-  mode?: "person" | "tour" | "application";
+  mode?: "person" | "tour" | "application" | "edit";
   defaultPropertyId?: string;
+  initialForm?: AddPersonForm;
+  onSaveEdit?: (form: AddPersonForm) => Promise<void>;
 }) {
   const { showToast } = useAppUi();
-  const [form, setForm] = useState<AddPersonForm>(() => ({ ...emptyAddPersonForm(mode === "tour" ? "prospect" : initialKind), propertyId: defaultPropertyId ?? "" }));
+  const [form, setForm] = useState<AddPersonForm>(() =>
+    initialForm
+      ? { ...initialForm }
+      : { ...emptyAddPersonForm(mode === "tour" ? "prospect" : initialKind), propertyId: defaultPropertyId ?? "" },
+  );
   const [stepIdx, setStepIdx] = useState(0);
   const [strip, setStrip] = useState<FileStripState>({ kind: "blank" });
   const [busy, setBusy] = useState(false);
@@ -99,13 +107,18 @@ export function AddResidentWizard({
 
   const patch = useCallback((next: Partial<AddPersonForm>) => setForm((prev) => ({ ...prev, ...next })), []);
   const derived = useResidentWizardDerived(form, propertyTick, patch);
-  const stepIds: readonly string[] = mode === "application" ? APPLICATION_STEPS : form.kind === "prospect" ? PROSPECT_STEPS : RESIDENT_STEPS;
+  const stepIds: readonly string[] =
+    mode === "application"
+      ? APPLICATION_STEPS
+      : mode === "edit" || form.kind !== "prospect"
+        ? RESIDENT_STEPS
+        : PROSPECT_STEPS;
   const current = Math.min(stepIdx, stepIds.length - 1);
   const stepId = stepIds[current]!;
   const goTo = useCallback((id: string) => setStepIdx(Math.max(0, stepIds.indexOf(id))), [stepIds]);
   const propertyLabel = useMemo(() => propertyOptions.find((p) => p.id === form.propertyId)?.label ?? null, [propertyOptions, form.propertyId]);
   const todo = useMemo(() => {
-    const base = thingsToFinish(form, mode);
+    const base = thingsToFinish(form, mode === "edit" ? "person" : mode);
     if (mode === "tour" && !form.propertyId) base.push({ step: "home", label: "Property to show" });
     return base;
   }, [form, mode]);
@@ -431,65 +444,80 @@ export function AddResidentWizard({
     </button>
   );
 
+  const workspaceTitle =
+    mode === "edit"
+      ? "Edit resident"
+      : mode === "tour"
+        ? "Schedule tour"
+        : mode === "application"
+          ? "Add application"
+          : form.kind === "prospect"
+            ? "Add prospect"
+            : "Add resident";
+
   return (
-    <>
-      {/* The notification preview is a Modal below the workspace overlay's
-          z-index, so the workspace steps aside while it is open; the form
-          state stays put and comes back if the manager cancels. */}
-      {preview ? null : (
-      <AddWorkspace
-        title={mode === "tour" ? "Schedule tour" : mode === "application" ? "Add application" : form.kind === "prospect" ? "Add prospect" : "Add resident"}
-        subtitle={propertyLabel ?? undefined}
-        steps={steps}
-        current={current}
-        onJump={setStepIdx}
-        onClose={onClose}
-        dirty={addPersonFormIsDirty(form)}
-        discardTitle={mode === "tour" ? "Discard this tour?" : mode === "application" ? "Discard this application?" : form.kind === "prospect" ? "Discard this prospect?" : "Discard this resident?"}
-        assistantContext={mode === "tour" ? "Schedule tour" : mode === "application" ? "Add application" : form.kind === "prospect" ? "Add prospect" : "Add resident"}
-        assistantScopeKey={mode === "tour" ? "schedule-tour-wizard" : mode === "application" ? "add-application-wizard" : "add-resident-wizard"}
-        railHeader={railHeader}
-        sidePanel={<ResidentSidePanel form={form} derived={derived} propertyLabel={propertyLabel} mode={mode} />}
-        lastLabel={mode === "tour" ? "Schedule tour" : mode === "application" ? "Add application" : form.kind === "prospect" ? "Add prospect" : "Add resident"}
-        lastDisabled={todo.length > 0}
-        finishCount={todo.length}
-        busy={busy}
-        onFinish={onFinish}
-        dataAttrPrefix={mode === "tour" ? "tour-wizard" : mode === "application" ? "application-wizard" : "residents-wizard"}
-      >
-        {stepId === "contact" ? <ContactStep form={form} patch={patch} strip={strip} onPickFile={onPickStartFile} onUndoFill={onUndoFill} busy={busy} lockKind={mode !== "person"} mode={mode} /> : null}
-        {stepId === "home" ? <HomeStep form={form} patch={patch} derived={derived} propertyOptions={propertyOptions} /> : null}
-        {stepId === "application" ? <ApplicationStep form={form} patch={patch} derived={derived} propertyLabel={propertyLabel} /> : null}
-        {stepId === "lease" ? <LeaseStep form={form} patch={patch} derived={derived} onPickLeasePdf={onPickLeasePdf} busy={busy} /> : null}
-        {stepId === "payments" ? <PaymentsStep form={form} patch={patch} derived={derived} /> : null}
-        {stepId === "documents" ? <DocumentsStep form={form} patch={patch} onPickFile={onPickDocument} busy={busy} /> : null}
-        {stepId === "tour" && managerUserId ? <TourStep form={form} patch={patch} derived={derived} managerUserId={managerUserId} assignee={assignee} onAssignee={setAssignee} /> : null}
-        {stepId === "review" ? <ReviewStep form={form} patch={patch} derived={derived} propertyLabel={propertyLabel} goTo={goTo} mode={mode} /> : null}
-      </AddWorkspace>
-      )}
-      {preview ? (
-        <PortalNotificationPreviewModal
-          open
-          title={mode === "application" ? "Add application — review & sign email" : form.kind === "prospect" ? "Tour confirmation" : "Add resident — notification preview"}
-          onClose={() => !busy && setPreview(null)}
-          recipient={preview.row.email ?? ""}
-          recipientPhone={preview.row.manualResidentDetails?.phone?.trim() || ""}
-          subject={preview.subject}
-          body={preview.body}
-          showChannelPicker
-          emailAvailable={Boolean(preview.row.email?.includes("@"))}
-          smsAvailable={Boolean(preview.row.manualResidentDetails?.phone?.trim())}
-          defaultViaEmail={form.message.channels.includes("email")}
-          defaultViaSms={form.message.channels.includes("sms")}
-          confirmLabel={mode === "tour" ? "Schedule & send" : mode === "application" ? "Add & send the link" : form.kind === "prospect" ? "Add prospect & send" : "Add resident & send notice"}
-          confirmLabelWithoutMessage={mode === "tour" ? "Schedule only" : mode === "application" ? "Add application only" : form.kind === "prospect" ? "Add prospect only" : "Add resident only"}
-          editableBody={mode !== "application"}
-          editableSubject={mode !== "application"}
-          confirmBusy={busy}
-          showSkipMessage
-          onConfirm={(skipMessage, channels, draft) => void finish(preview.row, skipMessage, channels, draft)}
-        />
-      ) : null}
-    </>
+    <AddWorkspace
+      title={workspaceTitle}
+      subtitle={propertyLabel ?? undefined}
+      steps={steps}
+      current={current}
+      onJump={setStepIdx}
+      onClose={onClose}
+      dirty={addPersonFormIsDirty(form)}
+      discardTitle={mode === "edit" ? "Discard these edits?" : mode === "tour" ? "Discard this tour?" : mode === "application" ? "Discard this application?" : form.kind === "prospect" ? "Discard this prospect?" : "Discard this resident?"}
+      assistantContext={workspaceTitle}
+      assistantScopeKey={mode === "tour" ? "schedule-tour-wizard" : mode === "application" ? "add-application-wizard" : "add-resident-wizard"}
+      railHeader={railHeader}
+      sidePanel={<ResidentSidePanel form={form} derived={derived} propertyLabel={propertyLabel} mode={mode === "edit" ? "person" : mode} />}
+      lastLabel={mode === "edit" ? "Save resident" : workspaceTitle}
+      lastDisabled={mode === "edit" ? !form.name.trim() : todo.length > 0}
+      finishCount={mode === "edit" ? 0 : todo.length}
+      busy={busy}
+      onFinish={
+        mode === "edit"
+          ? () => {
+              if (!onSaveEdit) return;
+              setBusy(true);
+              void onSaveEdit(form).finally(() => setBusy(false));
+            }
+          : onFinish
+      }
+      dataAttrPrefix={mode === "tour" ? "tour-wizard" : mode === "application" ? "application-wizard" : "residents-wizard"}
+      overlay={
+        preview ? (
+          <PortalNotificationPreviewModal
+            open
+            stackClassName="fixed inset-0 z-[90] overflow-y-auto overscroll-contain"
+            title={mode === "application" ? "Add application — review & sign email" : form.kind === "prospect" ? "Tour confirmation" : "Add resident — notification preview"}
+            onClose={() => !busy && setPreview(null)}
+            recipient={preview.row.email ?? ""}
+            recipientPhone={preview.row.manualResidentDetails?.phone?.trim() || ""}
+            subject={preview.subject}
+            body={preview.body}
+            showChannelPicker
+            emailAvailable={Boolean(preview.row.email?.includes("@"))}
+            smsAvailable={Boolean(preview.row.manualResidentDetails?.phone?.trim())}
+            defaultViaEmail={form.message.channels.includes("email")}
+            defaultViaSms={form.message.channels.includes("sms")}
+            confirmLabel={mode === "tour" ? "Schedule & send" : mode === "application" ? "Add & send the link" : form.kind === "prospect" ? "Add prospect & send" : "Add resident & send notice"}
+            confirmLabelWithoutMessage={mode === "tour" ? "Schedule only" : mode === "application" ? "Add application only" : form.kind === "prospect" ? "Add prospect only" : "Add resident only"}
+            editableBody={mode !== "application"}
+            editableSubject={mode !== "application"}
+            confirmBusy={busy}
+            showSkipMessage
+            onConfirm={(skipMessage, channels, draft) => void finish(preview.row, skipMessage, channels, draft)}
+          />
+        ) : null
+      }
+    >
+      {stepId === "contact" ? <ContactStep form={form} patch={patch} strip={strip} onPickFile={onPickStartFile} onUndoFill={onUndoFill} busy={busy} lockKind={mode !== "person" && mode !== "edit"} mode={mode === "edit" ? "person" : mode} /> : null}
+      {stepId === "home" ? <HomeStep form={form} patch={patch} derived={derived} propertyOptions={propertyOptions} /> : null}
+      {stepId === "application" ? <ApplicationStep form={form} patch={patch} derived={derived} propertyLabel={propertyLabel} /> : null}
+      {stepId === "lease" ? <LeaseStep form={form} patch={patch} derived={derived} onPickLeasePdf={onPickLeasePdf} busy={busy} /> : null}
+      {stepId === "payments" ? <PaymentsStep form={form} patch={patch} derived={derived} /> : null}
+      {stepId === "documents" ? <DocumentsStep form={form} patch={patch} onPickFile={onPickDocument} busy={busy} /> : null}
+      {stepId === "tour" && managerUserId ? <TourStep form={form} patch={patch} derived={derived} managerUserId={managerUserId} assignee={assignee} onAssignee={setAssignee} /> : null}
+      {stepId === "review" ? <ReviewStep form={form} patch={patch} derived={derived} propertyLabel={propertyLabel} goTo={goTo} mode={mode === "edit" ? "person" : mode} /> : null}
+    </AddWorkspace>
   );
 }

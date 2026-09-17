@@ -4,7 +4,7 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 
-import { BookOpen, Settings } from "lucide-react";
+import { Mail, Pencil, Settings } from "lucide-react";
 import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
@@ -37,7 +37,6 @@ import {
   type ManagerVendorInvitePreview,
   type ManagerVendorRemovalPreview,
 } from "@/lib/manager-vendor-invite-client";
-import { ManagerVendorCatalogModal } from "@/components/portal/pro-vendor-catalog-modal";
 import { ManagerVendorDefaultsModal } from "@/components/portal/pro-vendor-defaults-modal";
 import { ManagerVendorFormModal } from "@/components/portal/pro-vendor-form-modal";
 import {
@@ -48,12 +47,25 @@ import {
 import { PortalBulkMessageCarouselModal, type BulkMessageCarouselItem } from "@/components/portal/portal-bulk-message-carousel-modal";
 import { ManagerVendorDetail } from "@/components/portal/pro-vendor-detail";
 import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
-import { vendorDetailHref, vendorListHref } from "@/lib/portal-detail-routes";
+import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
+import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
+import {
+  personRecordListActions,
+  personRecordNeedsYouItems,
+} from "@/lib/person-record-actions";
+import {
+  parseVendorDetailTab,
+  VENDOR_DETAIL_TAB_DESCRIPTIONS,
+  VENDOR_DETAIL_TAB_LABELS,
+  VENDOR_DETAIL_TABS,
+  VENDOR_RAIL_GROUPS,
+  vendorDetailHref,
+  vendorListHref,
+} from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalDataTableEmpty, PORTAL_DETAIL_BTN, PortalTableDetailActions } from "@/components/portal/portal-data-table";
-import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
 
@@ -65,30 +77,20 @@ export type ManagerVendorsPanelHandle = {
   openAddVendor: (trade?: string) => void;
 };
 
-/** Vendor catalog and Defaults as plain icons; "Add vendor" is the bar's
- *  filled primary beside them (the dashed ADD row under the list is gone). */
+/** Defaults as a plain icon; "Add vendor" is the bar's filled primary.
+ *  Catalog lives in the Add vendor workspace (Who can handle), not a second modal. */
 export function ManagerVendorsToolbar({
-  onCatalog,
   onDefaults,
 }: {
-  onCatalog: () => void;
   onDefaults: () => void;
 }) {
   return (
-    <>
-      <PortalIconAction
-        icon={BookOpen}
-        label="Vendor catalog"
-        onClick={onCatalog}
-        data-attr="manager-vendor-catalog-open"
-      />
-      <PortalIconAction
-        icon={Settings}
-        label={vendorsSettingsEntry.label}
-        onClick={onDefaults}
-        data-attr={vendorsSettingsEntry.dataAttr}
-      />
-    </>
+    <PortalIconAction
+      icon={Settings}
+      label={vendorsSettingsEntry.label}
+      onClick={onDefaults}
+      data-attr={vendorsSettingsEntry.dataAttr}
+    />
   );
 }
 
@@ -108,6 +110,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     embedded = false,
     bare = false,
     vendorId: vendorIdProp,
+    vendorTab: vendorTabProp,
     listBasePath,
   }: {
     /** When true, render inside Services tab shell (no duplicate page header). */
@@ -115,6 +118,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     /** Inside Settings → Vendors: no page shell at all. */
     bare?: boolean;
     vendorId?: string;
+    vendorTab?: string;
     listBasePath?: string;
   },
   ref: React.Ref<ManagerVendorsPanelHandle>,
@@ -128,7 +132,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   const workspacePropertyIds = workspaces?.active?.propertyIds ?? [];
   const [tick, setTick] = useState(0);
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection();
-  const [showCatalog, setShowCatalog] = useState(false);
   const [showDefaults, setShowDefaults] = useState(false);
   const [defaultsTrade, setDefaultsTrade] = useState<string | undefined>(undefined);
   const [invitePreview, setInvitePreview] = useState<ManagerVendorInvitePreview | null>(null);
@@ -169,10 +172,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   }, [routeVendorId, vendors]);
 
 
-  const openCatalogForm = useCallback(() => {
-    setShowCatalog(true);
-  }, []);
-
   const openDefaultsForm = useCallback((trade?: string) => {
     setDefaultsTrade(trade);
     setShowDefaults(true);
@@ -206,11 +205,11 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   useImperativeHandle(
     ref,
     () => ({
-      openCatalog: openCatalogForm,
+      openCatalog: openAddVendorForm,
       openDefaults: openDefaultsForm,
       openAddVendor: openAddVendorForm,
     }),
-    [openCatalogForm, openDefaultsForm, openAddVendorForm],
+    [openAddVendorForm, openDefaultsForm],
   );
 
   function deleteVendorQuiet(id: string): boolean {
@@ -402,13 +401,11 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           setAddTrade(undefined);
         }}
         showToast={showToast}
-        onBrowseCatalog={() => openCatalogForm()}
         onDeleted={() => {
           if (editingVendor && routeVendorId === editingVendor.id) navigateToList();
           setEditingVendor(null);
         }}
       />
-      <ManagerVendorCatalogModal open={showCatalog} onClose={() => setShowCatalog(false)} />
       <ManagerVendorDefaultsModal
         open={showDefaults}
         onClose={() => {
@@ -508,6 +505,13 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         </>
       );
     }
+    const vendorTab = parseVendorDetailTab(vendorTabProp);
+    const vendorNavItems = VENDOR_DETAIL_TABS.map((tab) => ({
+      id: tab,
+      label: VENDOR_DETAIL_TAB_LABELS[tab],
+      description: VENDOR_DETAIL_TAB_DESCRIPTIONS[tab],
+      href: vendorDetailHref(basePath, routeVendor.id, tab),
+    }));
     return (
       <>
         {modals}
@@ -521,13 +525,59 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           hideBackText
           bareHeader
           dataAttrBack="vendor-detail-back"
-          inlineActions
-          actions={renderVendorHeaderActions(routeVendor)}
+          iconTitleActions
+          pinScrollBody
         >
-          <ManagerVendorDetail
-            row={routeVendor}
-            managerUserId={userId}
-          />
+          <PortalRecordActions>
+            <PortalIconAction
+              icon={Pencil}
+              label="Edit"
+              data-attr="vendor-detail-edit"
+              onClick={() => {
+                setVendorFormMode("edit");
+                setEditingVendor(routeVendor);
+                setVendorFormOpen(true);
+              }}
+            />
+            <PortalIconAction
+              icon={Mail}
+              label={
+                personRecordListActions({
+                  kind: "vendor",
+                  hasPortalUser: Boolean(routeVendor.vendorUserId),
+                }).find((action) => action.id === "setup")?.label ?? "Send invite"
+              }
+              data-attr="vendor-detail-setup"
+              onClick={() => void openVendorInvitePreview(routeVendor)}
+            />
+          </PortalRecordActions>
+          <PortalRecordSectionChrome
+            items={vendorNavItems}
+            activeId={vendorTab}
+            groups={VENDOR_RAIL_GROUPS}
+            title={routeVendor.name}
+            subtitle={routeVendor.trade || undefined}
+            backHref={vendorListHref(basePath)}
+            backLabel="All vendors"
+            ariaLabel="Vendor sections"
+            currentLabel={VENDOR_DETAIL_TAB_LABELS[vendorTab]}
+            defaultDisclosureOpen={vendorTab === "overview"}
+          >
+            <ManagerVendorDetail
+              row={routeVendor}
+              managerUserId={userId}
+              tab={vendorTab}
+              extraNeedsYou={personRecordNeedsYouItems({
+                kind: "vendor",
+                hasPortalUser: Boolean(routeVendor.vendorUserId),
+              })}
+              onEdit={() => {
+                setVendorFormMode("edit");
+                setEditingVendor(routeVendor);
+                setVendorFormOpen(true);
+              }}
+            />
+          </PortalRecordSectionChrome>
         </PortalRecordDetailPage>
       </>
     );
@@ -637,10 +687,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   );
 
   const vendorToolbar = (
-    <ManagerVendorsToolbar
-      onCatalog={openCatalogForm}
-      onDefaults={() => openDefaultsForm()}
-    />
+    <ManagerVendorsToolbar onDefaults={() => openDefaultsForm()} />
   );
 
   const addVendorAction = (
@@ -664,7 +711,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
 
   return (
     <ManagerPortalPageShell
-      title="Teams"
+      title="Vendors"
       hideTitleOnMobileNav
       compactFilterRow
     >

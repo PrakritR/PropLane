@@ -564,10 +564,14 @@ export async function renderPortalSection(
     // Vendors: its own section. `/vendors` is the list, `/vendors/<id>` the detail page.
     if ((kind === "manager" || kind === "pro") && section === "vendors") {
       const vendorId = tabParts?.length ? decodeURIComponent(tabParts[0]!) : undefined;
-      if ((tabParts?.length ?? 0) > 1) notFound();
+      if ((tabParts?.length ?? 0) > 2) notFound();
+      if (vendorId && (tabParts?.length ?? 0) === 1) {
+        redirect(`${def.basePath}/vendors/${encodeURIComponent(vendorId)}/overview`);
+      }
+      const vendorTab = tabParts && tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
       const ManagerVendorsPanel = await loadManagerVendorsPanel();
       return subscriptionGated(
-        <ManagerVendorsPanel listBasePath={def.basePath} vendorId={vendorId} />,
+        <ManagerVendorsPanel listBasePath={def.basePath} vendorId={vendorId} vendorTab={vendorTab} />,
         kind,
         "vendors",
         managerOwnerSubscriptionTier,
@@ -617,9 +621,20 @@ export async function renderPortalSection(
     if (section === "inspections") {
       if (!tabParts?.length) redirect(`${def.basePath}/inspections/move-in`);
       const inspectionKind = tabParts[0];
-      if ((inspectionKind !== "move-in" && inspectionKind !== "move-out") || tabParts.length > 2) notFound();
+      if ((inspectionKind !== "move-in" && inspectionKind !== "move-out") || tabParts.length > 3) notFound();
       if (tabParts[1] && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tabParts[1])) notFound();
-      return subscriptionGated(<ManagerInspectionsPage kind={inspectionKind} reportId={tabParts[1]} basePath={def.basePath} />, kind, "inspections", managerOwnerSubscriptionTier);
+      const inspectionTab = tabParts[2];
+      return subscriptionGated(
+        <ManagerInspectionsPage
+          kind={inspectionKind}
+          reportId={tabParts[1]}
+          recordTab={inspectionTab}
+          basePath={def.basePath}
+        />,
+        kind,
+        "inspections",
+        managerOwnerSubscriptionTier,
+      );
     }
 
     if (section === "residents") {
@@ -841,7 +856,7 @@ export async function renderPortalSection(
 
     if (section === "tasks") {
       const taskTab = tabParts?.[0];
-      if (taskTab === "in-progress") {
+      if (taskTab === "in-progress" && (tabParts?.length ?? 0) <= 1) {
         redirect(`${def.basePath}/tasks`);
       }
       if (taskTab === "late") {
@@ -853,11 +868,17 @@ export async function renderPortalSection(
       if (taskTab && !(MANAGER_TASK_LIST_TABS as readonly string[]).includes(taskTab)) {
         redirect(`${def.basePath}/tasks`);
       }
-      if (tabParts && tabParts.length > 1) notFound();
+      if (tabParts && tabParts.length > 3) notFound();
+      const taskId =
+        tabParts && tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
+      const taskDetailTab =
+        tabParts && tabParts.length >= 3 ? decodeURIComponent(tabParts[2]!) : undefined;
       const ManagerTaskList = await loadManagerTaskList();
       return subscriptionGated(
         <ManagerTaskList
           tabId={parseManagerTaskListTab(taskTab)}
+          taskId={taskId}
+          taskTab={taskDetailTab}
           basePath={def.basePath}
         />,
         kind,
@@ -893,7 +914,7 @@ export async function renderPortalSection(
         redirect(`${def.basePath}/payments/${direction}/pending`);
       }
 
-      if (tabParts.length > 3) {
+      if (tabParts.length > 4) {
         redirect(`${def.basePath}/payments/${direction}/pending`);
       }
 
@@ -908,11 +929,14 @@ export async function renderPortalSection(
 
       const paymentId =
         tabParts.length >= 3 ? decodeURIComponent(tabParts[2]!) : undefined;
+      const paymentTab =
+        tabParts.length >= 4 ? decodeURIComponent(tabParts[3]!) : undefined;
 
       return subscriptionGated(
         <ManagerPayments
           direction={direction}
           bucket={bucket}
+          paymentTab={paymentTab}
           basePath={def.basePath}
           paymentId={paymentId}
         />,

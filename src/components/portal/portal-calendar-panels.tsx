@@ -13,8 +13,9 @@ import {
   type ReactNode,
   type SetStateAction,
 } from "react";
-import { Card } from "@/components/ui/card";
+import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/input";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import {
@@ -257,21 +258,18 @@ function RecurringBlockModalFormFields({
 
       <div className="space-y-1.5">
         <p className={BLOCK_MODAL_LABEL_CLASS}>Days of week</p>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="space-y-2">
           {WEEKDAY_OPTIONS.map((option) => {
             const active = blockWeekdays.includes(option.value);
             return (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => toggleBlockWeekday(option.value)}
-                className={cn(
-                  BLOCK_MODAL_DAY_BTN_BASE,
-                  active ? BLOCK_MODAL_DAY_BTN_ACTIVE : BLOCK_MODAL_DAY_BTN_INACTIVE,
-                )}
-              >
+              <label key={option.value} className="flex min-h-11 items-center gap-3 rounded-xl border border-border bg-card px-3 text-[13.5px]">
+                <input
+                  type="checkbox"
+                  checked={active}
+                  onChange={() => toggleBlockWeekday(option.value)}
+                />
                 {option.label}
-              </button>
+              </label>
             );
           })}
         </div>
@@ -854,6 +852,7 @@ export function PortalCalendarPanels({
   editableDefaultTourHours = false,
   onDefaultTourHoursChange,
   onDefaultTourGridEnabledChange,
+  weekActionsHost,
 }: {
   storageKey: string | null;
   availabilityStorageKeys?: string[];
@@ -878,6 +877,8 @@ export function PortalCalendarPanels({
   editableDefaultTourHours?: boolean;
   onDefaultTourHoursChange?: (startSlot: number, endSlotExclusive: number) => void;
   onDefaultTourGridEnabledChange?: (enabled: boolean) => void;
+  /** Command-bar host for copy / add / clear / house actions. */
+  weekActionsHost?: HTMLElement | null;
   otherProperties?: { id: string; name: string }[];
   onCopyWeekToHouses?: (propertyIds: string[], weekDateStrs: string[], scope: "week" | "entire") => void;
   scheduledTourFilter?: ScheduledTourFilter;
@@ -3023,7 +3024,7 @@ export function PortalCalendarPanels({
                 ) : null}
               </div>
               <div className="flex min-w-0 items-center justify-end">
-                {availabilityWeekActions}
+                {weekActionsHost ? createPortal(availabilityWeekActions, weekActionsHost) : availabilityWeekActions}
               </div>
             </div>
           </div>

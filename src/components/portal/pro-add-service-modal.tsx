@@ -12,7 +12,6 @@ import {
   ServiceIntakePhotoPicker,
   type ServiceIntakeFormState,
 } from "@/components/portal/service-intake-form-fields";
-import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { isCurrentResidentApplicationRow } from "@/lib/current-resident";
@@ -653,6 +652,7 @@ export function ManagerAddServiceModal({
       open={open}
       onClose={onClose}
       title="Add service"
+      panelClassName="max-w-xl p-5 sm:p-6"
       footer={
         <ModalFooter>
           <Button type="button" variant="primary" onClick={() => void submit()} disabled={busy}>
@@ -763,18 +763,6 @@ export function ManagerAddServiceModal({
               disabled={busy}
             />
           }
-        />
-
-        {/* Every kind can be assigned. `work-assignment.ts` decides who is offered:
-            vendors take maintenance, teammates take anything. */}
-        <WorkAssignmentPicker
-          kind={selectedIntakeKind === "repair" ? "maintenance" : "service"}
-          teamMembers={teamMembers}
-          vendors={vendors}
-          value={assignee}
-          onChange={setAssignee}
-          disabled={busy}
-          dataAttr="manager-add-service-assignee"
         />
 
         <ServiceTasksField tasks={tasks} onChange={setTasks} disabled={busy} dataAttr="manager-add-service-task" />

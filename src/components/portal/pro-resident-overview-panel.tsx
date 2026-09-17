@@ -172,12 +172,14 @@ export function ResidentOverviewPanel({
   leaseRows,
   services,
   links,
+  extraNeedsYou = [],
 }: {
   resident: ResidentOverviewResident;
   ledgerRows: DemoManagerPaymentLedgerRow[];
   leaseRows: LeasePipelineRow[];
   services: ResidentOverviewServiceItem[];
   links: ResidentOverviewLinks;
+  extraNeedsYou?: Array<{ id: string; title: string; detail: string; href?: string }>;
 }) {
   const overdue = ledgerBalance(ledgerRows, "overdue");
   const pending = ledgerBalance(ledgerRows, "pending");
@@ -205,7 +207,7 @@ export function ResidentOverviewPanel({
 
   const waitingServices = services.filter((item) => item.bucket === "pending");
 
-  const needsYou: Array<{ id: string; title: string; detail: string; href?: string }> = [];
+  const needsYou: Array<{ id: string; title: string; detail: string; href?: string }> = [...extraNeedsYou];
   if (overdueCount > 0) {
     needsYou.push({
       id: "overdue",

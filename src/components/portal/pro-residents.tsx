@@ -4,7 +4,7 @@ import { managerApplicationsReadSucceeded } from "@/lib/manager-applications-sto
 import { leasePipelineReadSucceeded } from "@/lib/lease-pipeline-storage";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
-import { Link2, Settings } from "lucide-react";
+import { Link2, Mail, Pencil, Settings } from "lucide-react";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { InspectionsPanel } from "@/components/portal/inspections-panel";
@@ -17,6 +17,10 @@ import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { PortalDetailDestinationNav } from "@/components/portal/portal-detail-destination-nav";
 import { PortalPropertyRail } from "@/components/portal/portal-property-rail";
+import {
+  PortalPropertySectionList,
+  PortalRecordSectionsDisclosure,
+} from "@/components/portal/portal-property-section-list";
 import {
   ResidentOverviewPanel,
   type ResidentOverviewServiceItem,
@@ -54,6 +58,7 @@ import { PortalSectionActionRow } from "@/components/portal/portal-section-actio
 import {
   RESIDENT_DETAIL_TAB_LABELS,
   RESIDENT_DETAIL_TAB_SHORT_LABELS,
+  RESIDENT_DETAIL_TAB_DESCRIPTIONS,
   RESIDENT_DIRECTORY_TABS,
   RESIDENT_DIRECTORY_TAB_LABELS,
   RESIDENT_DETAIL_TABS_BY_STAGE,
@@ -114,6 +119,7 @@ import { LeaseGenerateModal } from "@/components/portal/lease-generate-modal";
 import { LeaseSigningModal } from "@/components/portal/lease-signing-modal";
 import { ManagerPipelineLeaseEditModal } from "@/components/portal/pro-pipeline-lease-edit-modal";
 import { AddResidentWizard } from "@/components/portal/resident-wizard";
+import { emptyAddPersonForm, type AddPersonForm } from "@/components/portal/resident-wizard/state";
 import { mergeParsedFields } from "@/lib/resident-document-import/onboard-draft";
 import { mapParsedFieldsToAddResidentForm } from "@/lib/resident-document-import/apply-parsed-to-add-resident";
 import {
@@ -248,6 +254,7 @@ import {
   isInProgressApplicationRow,
   shouldOfferApplicationCompletionReminder,
 } from "@/lib/rental-application/in-progress-application";
+import { personRecordNeedsYouItems } from "@/lib/person-record-actions";
 import { buildApplicationGroups, groupForRow } from "@/lib/rental-application/application-groups";
 import {
   invalidatePersistedInboxCache,
@@ -529,6 +536,7 @@ export function ManagerResidents({
   const erSkipPricingFillRef = useRef(false);
   const [editResidentOpen, setEditResidentOpen] = useState(false);
   const [editResidentTargetId, setEditResidentTargetId] = useState<string | null>(null);
+  const [editResidentForm, setEditResidentForm] = useState<AddPersonForm | null>(null);
   const [erSaving, setErSaving] = useState(false);
   const [erName, setErName] = useState("");
   const [erEmail, setErEmail] = useState("");
@@ -2028,15 +2036,51 @@ export function ManagerResidents({
     setErNotes(row.manualResidentDetails?.notes || "");
     erSkipPricingFillRef.current = true;
     setEditResidentTargetId(targetId);
+    setEditResidentForm({
+      ...emptyAddPersonForm("resident"),
+      name: row.name || app?.fullLegalName?.trim() || "",
+      email: row.email?.trim() || app?.email?.trim() || "",
+      phone: row.manualResidentDetails?.phone?.trim() || app?.phone?.trim() || "",
+      propertyId: assignedPropId,
+      roomId: roomIdForForm,
+      bundleId: storedBundleId,
+      leaseTerm:
+        erCustomMode && erDisplayLeaseTerm === RESIDENT_LEASE_TERM_CUSTOM
+          ? storedLeaseTerm
+          : erDisplayLeaseTerm,
+      leaseTermCustomMode: erCustomMode,
+      moveInDate: row.manualResidentDetails?.moveInDate || app?.leaseStart || "",
+      moveOutDate: row.manualResidentDetails?.moveOutDate || app?.leaseEnd || "",
+      rent: savedRent || app?.managerRentOverride?.trim() || "",
+      utilities: savedUtils || app?.managerUtilitiesOverride?.trim() || "",
+      moveInFee: savedFee || app?.managerMoveInFeeOverride?.trim() || "",
+      securityDeposit: savedDeposit || app?.managerSecurityDepositOverride?.trim() || "",
+      notes: row.manualResidentDetails?.notes || "",
+    });
     setEditResidentOpen(true);
   }
 
-  function saveEditedResident() {
+  function saveEditedResident(from?: AddPersonForm) {
     const targetId = editResidentTargetId ?? selected?.id;
-    if (!targetId || erSaving) return;
-    if (!erName.trim()) {
+    if (!targetId || erSaving) return Promise.resolve();
+    const name = (from?.name ?? erName).trim();
+    const email = (from?.email ?? erEmail).trim();
+    const phone = (from?.phone ?? erPhone).trim();
+    const propertyId = (from?.propertyId ?? erPropertyId).trim();
+    const roomId = from?.roomId ?? erRoomId;
+    const bundleId = from?.bundleId ?? erBundleId;
+    const leaseTerm = from?.leaseTerm ?? erLeaseTerm;
+    const leaseTermCustomMode = from?.leaseTermCustomMode ?? erLeaseTermCustomMode;
+    const moveInDate = from?.moveInDate ?? erMoveInDate;
+    const moveOutDate = from?.moveOutDate ?? erMoveOutDate;
+    const rentRaw = from?.rent ?? erRent;
+    const utilitiesRaw = from?.utilities ?? erUtilities;
+    const moveInFeeRaw = from?.moveInFee ?? erMoveInFee;
+    const securityDepositRaw = from?.securityDeposit ?? erSecurityDeposit;
+    const notes = from?.notes ?? erNotes;
+    if (!name) {
       showToast("Enter the resident's name.");
-      return;
+      return Promise.resolve();
     }
     const rows = readManagerApplicationRows();
     const idx = rows.findIndex((r) => r.id === targetId);
@@ -2044,93 +2088,93 @@ export function ManagerResidents({
       showToast("Resident record not found.");
       return;
     }
-    const rent = erRent.trim() ? Number(erRent.replace(/[^\d.]/g, "")) : null;
-    const appLeaseFields = residentLeaseTermToApplicationFields(erLeaseTerm, erLeaseTermCustomMode, erPropertyId);
+    const rent = rentRaw.trim() ? Number(rentRaw.replace(/[^\d.]/g, "")) : null;
+    const appLeaseFields = residentLeaseTermToApplicationFields(leaseTerm, leaseTermCustomMode, propertyId);
     const erSavingShortTerm = appLeaseFields.rentalType === "short_term";
     const erSavingAirbnb = appLeaseFields.rentalType === "airbnb";
     if (erSavingAirbnb) {
-      if (!erMoveInDate.trim() || !erMoveOutDate.trim()) {
+      if (!moveInDate.trim() || !moveOutDate.trim()) {
         showToast("Airbnb stays require move-in and move-out dates.");
         return;
       }
-      if (erMoveOutDate <= erMoveInDate) {
+      if (moveOutDate <= moveInDate) {
         showToast("Move-out must be after move-in.");
         return;
       }
     }
     const utilities = erSavingShortTerm || erSavingAirbnb
       ? null
-      : erUtilities.trim()
-        ? Number(erUtilities.replace(/[^\d.]/g, ""))
+      : utilitiesRaw.trim()
+        ? Number(utilitiesRaw.replace(/[^\d.]/g, ""))
         : null;
-    const moveInFee = erMoveInFee.trim() ? Number(erMoveInFee.replace(/[^\d.]/g, "")) : null;
-    const secDeposit = erSecurityDeposit.trim() ? Number(erSecurityDeposit.replace(/[^\d.]/g, "")) : null;
-    const propId = erPropertyId.trim();
+    const moveInFee = moveInFeeRaw.trim() ? Number(moveInFeeRaw.replace(/[^\d.]/g, "")) : null;
+    const secDeposit = securityDepositRaw.trim() ? Number(securityDepositRaw.replace(/[^\d.]/g, "")) : null;
+    const propId = propertyId.trim();
     const propLabel = propId ? propertyOptions.find((p) => p.id === propId)?.label ?? rows[idx]!.property : rows[idx]!.property;
     const placement = resolveManualResidentAssignment({
       propertyId: propId,
-      roomId: erRoomId,
-      bundleId: erBundleId,
+      roomId: roomId,
+      bundleId: bundleId,
     });
     const selectedRoomLabel = placement.placementLabel?.trim() || "";
     const existing = rows[idx]!;
     const newRoomChoice = placement.assignedRoomChoice;
     const baseApplication =
       existing.application ??
-      (appLeaseFields.leaseTerm || propId || erEmail.trim() || erMoveInDate
+      (appLeaseFields.leaseTerm || propId || email.trim() || moveInDate
         ? ({
             propertyId: propId || undefined,
             roomChoice1: newRoomChoice,
             bundleId: placement.bundleId ?? "",
             leaseTerm: appLeaseFields.leaseTerm,
             rentalType: appLeaseFields.rentalType,
-            leaseStart: erMoveInDate || undefined,
-            leaseEnd: erMoveOutDate || undefined,
-            fullLegalName: erName.trim(),
-            email: erEmail.trim(),
-            phone: erPhone.trim() || undefined,
+            leaseStart: moveInDate || undefined,
+            leaseEnd: moveOutDate || undefined,
+            fullLegalName: name,
+            email: email.trim(),
+            phone: phone.trim() || undefined,
           } as DemoApplicantRow["application"])
         : undefined);
     let nextRow: DemoApplicantRow = {
       ...existing,
-      name: erName.trim(),
-      email: erEmail.trim() || existing.email,
+      name: name,
+      email: email.trim() || existing.email,
       property: propLabel,
       assignedPropertyId: propId || undefined,
       assignedRoomChoice: newRoomChoice,
       signedMonthlyRent: rent ?? undefined,
       manualResidentDetails: {
         ...(existing.manualResidentDetails ?? {}),
-        phone: erPhone.trim() || undefined,
-        moveInDate: erMoveInDate || undefined,
-        moveOutDate: erMoveOutDate || undefined,
+        phone: phone.trim() || undefined,
+        moveInDate: moveInDate || undefined,
+        moveOutDate: moveOutDate || undefined,
         monthlyUtilities: utilities ?? undefined,
         moveInFee: moveInFee ?? undefined,
         securityDeposit: secDeposit ?? undefined,
         roomNumber: selectedRoomLabel || undefined,
-        leaseTerm: erLeaseTerm.trim() || undefined,
-        notes: erNotes.trim() || undefined,
+        leaseTerm: leaseTerm.trim() || undefined,
+        notes: notes.trim() || undefined,
       },
       application: baseApplication
         ? {
             ...baseApplication,
-            fullLegalName: erName.trim() || baseApplication.fullLegalName,
-            email: erEmail.trim() || baseApplication.email,
-            phone: erPhone.trim() || baseApplication.phone,
+            fullLegalName: name || baseApplication.fullLegalName,
+            email: email.trim() || baseApplication.email,
+            phone: phone.trim() || baseApplication.phone,
             propertyId: propId || baseApplication.propertyId,
             roomChoice1: newRoomChoice ?? (placement.bundleId ? "" : baseApplication.roomChoice1),
             bundleId: placement.bundleId ?? "",
             leaseTerm: appLeaseFields.leaseTerm || baseApplication.leaseTerm,
             rentalType: appLeaseFields.leaseTerm ? appLeaseFields.rentalType : baseApplication.rentalType,
-            leaseStart: erMoveInDate || baseApplication.leaseStart,
-            leaseEnd: erMoveOutDate || baseApplication.leaseEnd,
-            managerRentOverride: erRent.trim() || baseApplication.managerRentOverride,
+            leaseStart: moveInDate || baseApplication.leaseStart,
+            leaseEnd: moveOutDate || baseApplication.leaseEnd,
+            managerRentOverride: rentRaw.trim() || baseApplication.managerRentOverride,
             managerUtilitiesOverride: erSavingShortTerm
               ? ""
-              : erUtilities.trim() || baseApplication.managerUtilitiesOverride,
-            managerMoveInFeeOverride: erMoveInFee.trim() || baseApplication.managerMoveInFeeOverride,
+              : utilitiesRaw.trim() || baseApplication.managerUtilitiesOverride,
+            managerMoveInFeeOverride: moveInFeeRaw.trim() || baseApplication.managerMoveInFeeOverride,
             managerSecurityDepositOverride:
-              erSecurityDeposit.trim() || baseApplication.managerSecurityDepositOverride,
+              securityDepositRaw.trim() || baseApplication.managerSecurityDepositOverride,
           }
         : undefined,
     };
@@ -2141,7 +2185,7 @@ export function ManagerResidents({
     const next = [...rows];
     next[idx] = nextRow;
     setErSaving(true);
-    void persistResidentProfileEdit({ rows: next, nextRow, managerUserId: userId ?? null })
+    return persistResidentProfileEdit({ rows: next, nextRow, managerUserId: userId ?? null })
       .then((result) => {
         if (!result.ok) {
           showToast(result.error ?? "Could not save resident.");
@@ -2149,6 +2193,7 @@ export function ManagerResidents({
         }
         setEditResidentOpen(false);
         setEditResidentTargetId(null);
+        setEditResidentForm(null);
         setHcTick((n) => n + 1);
         setLeaseTick((n) => n + 1);
         // Say what actually propagated. Charges and leases each decline for legitimate reasons
@@ -2753,6 +2798,7 @@ export function ManagerResidents({
             id: tab,
             label: RESIDENT_DETAIL_TAB_LABELS[tab],
             shortLabel: RESIDENT_DETAIL_TAB_SHORT_LABELS[tab],
+            description: RESIDENT_DETAIL_TAB_DESCRIPTIONS[tab],
             href:
               tab === "tours"
                 ? managerResidentTourListHref(portalBase, residentsTab, selected.id, tourBucketProp)
@@ -2820,16 +2866,17 @@ export function ManagerResidents({
                               <div
                                 className="border-b border-border/40 bg-background lg:hidden"
                                 data-portal-property-detail-chrome
-                              >
-                                <PortalDetailDestinationNav
-                                  denseEqualRow
-                                  items={residentDetailNavItems}
-                                  activeId={resolvedDetailTab}
-                                  ariaLabel="Resident profile sections"
-                                  appearance="command"
-                                />
-                              </div>
+                              />
                             </PortalPageChrome>
+                            <div className="px-0 pt-3 lg:hidden">
+                              <PortalRecordSectionsDisclosure
+                                currentLabel={RESIDENT_DETAIL_TAB_LABELS[resolvedDetailTab]}
+                                items={residentDetailNavItems}
+                                activeId={resolvedDetailTab}
+                                ariaLabel="Resident profile sections"
+                                defaultOpen={resolvedDetailTab === "overview"}
+                              />
+                            </div>
 
                             {resolvedDetailTab === "overview" ? (
                               <ResidentDetailTabPanel>
@@ -2855,6 +2902,17 @@ export function ManagerResidents({
                                   leaseRows={residentLeaseRows}
                                   services={residentOverviewServices}
                                   links={residentOverviewLinks}
+                                  extraNeedsYou={personRecordNeedsYouItems({
+                                    kind: "resident",
+                                    hasPortalUser: Boolean(selectedApplicationRow?.residentUserId),
+                                    applicationIncomplete: Boolean(
+                                      selectedApplicationRow &&
+                                        shouldOfferApplicationCompletionReminder(selectedApplicationRow),
+                                    ),
+                                    leaseUnsigned: residentLeaseRows.some(
+                                      (row) => row.bucket === "resident" || row.bucket === "manager",
+                                    ),
+                                  })}
                                 />
                               </ResidentDetailTabPanel>
                             ) : resolvedDetailTab === "inspections" ? (
@@ -3440,13 +3498,25 @@ export function ManagerResidents({
           hideBackText
           bareHeader
           dataAttrBack="resident-detail-back"
-          // Communication, tours, application review, and payments fill the
-          // viewport with pinned chrome + an internal scroll body; lease scrolls
-          // with the pinned page body via `flow` document preview.
+          iconTitleActions
           pinScrollBody
           scrollBody={!residentDetailInternalScroll}
           fillBody={residentDetailInternalScroll}
         >
+          <PortalRecordActions>
+            <PortalIconAction
+              icon={Pencil}
+              label="Edit"
+              data-attr="resident-detail-edit"
+              onClick={() => openEditResidentModal(selected.id)}
+            />
+            <PortalIconAction
+              icon={Mail}
+              label="Message to setup account"
+              data-attr="resident-detail-setup"
+              onClick={() => openResidentEmailSetup(selected)}
+            />
+          </PortalRecordActions>
           {residentDetailPanel}
         </PortalRecordDetailPage>
       ) : (
@@ -3714,245 +3784,29 @@ export function ManagerResidents({
         />
       ) : null}
 
-      <Modal
-        open={editResidentOpen}
-        title="Edit resident"
-        onClose={() => {
-          setEditResidentOpen(false);
-          setEditResidentTargetId(null);
-        }}
-        assistantContext="Edit resident"
-        scrollableContent
-        footer={
-          <ModalFooter className="w-full">
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-full border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline"
-              data-attr="edit-resident-delete"
-              disabled={erSaving || !editResidentTargetId}
-              onClick={() => void deleteEditedResident()}
-            >
-              Delete
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              className="ml-auto rounded-full"
-              disabled={erSaving}
-              onClick={saveEditedResident}
-            >
-              {erSaving ? "Saving…" : "Save resident"}
-            </Button>
-          </ModalFooter>
-        }
-      >
-        <div className="min-w-0 max-w-full space-y-3 overflow-x-hidden pb-1">
-          <p className="text-xs text-muted">Changes here update the resident record and application simultaneously.</p>
-          {erIsShortTermStay ? (
-            <p className="text-xs text-muted">Short-term stays use an all-in nightly rate — no separate utilities.</p>
-          ) : null}
-          <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
-            <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <span className="font-medium text-muted">Full name *</span>
-              <Input value={erName} onChange={(e) => setErName(e.target.value)} placeholder="Jane Smith" />
-            </label>
-            <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <span className="font-medium text-muted">Email</span>
-              <Input type="email" value={erEmail} onChange={(e) => setErEmail(e.target.value)} placeholder="resident@email.com" />
-            </label>
-            <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <span className="font-medium text-muted">Phone</span>
-              <PhoneNumberField value={erPhone} onChange={setErPhone} dataAttr="edit-resident-phone" />
-            </label>
-            <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <PortalFormSingleSelect
-                label="Property"
-                labelClassName="font-medium text-muted"
-                value={erPropertyId}
-                onChange={(next) => {
-                  setErPropertyId(next);
-                  setErRoomId("");
-                  setErBundleId("");
-                }}
-                options={propertyOptions.map((p) => ({ value: p.id, label: p.label }))}
-                placeholder="Select property…"
-                dataAttr="edit-resident-property"
-              />
-            </div>
-            <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <span className="font-medium text-muted">Lease term</span>
-              <Select
-                aria-label="Lease term"
-                value={erLeaseTermSelectValue}
-                onChange={(e) => {
-                  const selected = e.target.value;
-                  if (selected === RESIDENT_LEASE_TERM_CUSTOM) {
-                    setErLeaseTermCustomMode(true);
-                    if (erLeaseTermPresetValues.includes(erLeaseTerm)) {
-                      setErLeaseTerm("");
-                    }
-                    return;
-                  }
-                  setErLeaseTermCustomMode(false);
-                  setErLeaseTerm(selected);
-                }}
-              >
-                <option value="">Select…</option>
-                {erLeaseTermOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </Select>
-              {erLeaseTermSelectValue === RESIDENT_LEASE_TERM_CUSTOM ? (
-                <Input
-                  className="mt-2"
-                  value={erLeaseTerm}
-                  onChange={(e) => setErLeaseTerm(e.target.value)}
-                  placeholder="e.g. 9 months"
-                />
-              ) : null}
-            </label>
-            {erShowBundleSelect ? (
-              <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-                <span className="font-medium text-muted">Lease bundle</span>
-                <Select
-                  aria-label="Lease bundle"
-                  value={erBundleId}
-                  disabled={!erPropertyId || !erLeaseTerm}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    setErBundleId(next);
-                    if (next) setErRoomId("");
-                  }}
-                >
-                  <option value="">
-                    {erIsShortTermStay
-                      ? "None: standard short-term stay"
-                      : `None: ${erRentedByRoom ? "assign an individual room" : "standard lease"}`}
-                  </option>
-                  {erBundleOptions.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </Select>
-                <p className="mt-1 text-xs text-muted">
-                  {erRentedByRoom
-                    ? "Choose a bundle instead of a single room, or leave as none."
-                    : "Optional bundle pricing for this listing."}
-                </p>
-              </label>
-            ) : null}
-            {erShowRoomSelect ? (
-              <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-                <span className="font-medium text-muted">Room</span>
-                <Select
-                  aria-label="Room"
-                  value={erRoomId}
-                  onChange={(e) => {
-                    setErRoomId(e.target.value);
-                    setErBundleId("");
-                  }}
-                >
-                  <option value="">Select room…</option>
-                  {erRoomOptions.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
-                      {residentRoomRentSuffix(r, erIsShortTermStay)}
-                    </option>
-                  ))}
-                </Select>
-              </label>
-            ) : erShowRoomSetupNote ? (
-              <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-                <span className="font-medium text-muted">Room</span>
-                <p className="rounded-xl border border-dashed border-border bg-accent/30 px-3 py-2 text-xs text-muted">
-                  Add rooms to this property in listing setup to assign a resident room here.
-                </p>
-              </div>
-            ) : erShowWholeUnitPlacementNote ? (
-              <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-                <span className="font-medium text-muted">Placement</span>
-                <p className="rounded-xl border border-dashed border-border bg-accent/30 px-3 py-2 text-xs text-muted">
-                  {erEntireHome
-                    ? "This property is leased as one home — no room assignment."
-                    : "This property is leased as one unit — no room assignment."}
-                </p>
-              </div>
-            ) : null}
-            {!erIsAirbnbStay ? (
-            <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <span className="font-medium text-muted">{erIsShortTermStay ? "Rent / night ($)" : "Monthly rent ($)"}</span>
-              <Input
-                type="number"
-                min={0}
-                step={0.01}
-                value={erRent}
-                onChange={(e) => setErRent(e.target.value)}
-                placeholder={erIsShortTermStay ? "85.00" : "875.00"}
-              />
-              {erStayPreview ? <span className="text-xs text-muted">{erStayPreview}</span> : null}
-            </label>
-            ) : null}
-            {!erIsShortTermStay && !erIsAirbnbStay ? (
-              <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-                <span className="font-medium text-muted">Monthly utilities ($)</span>
-                <Input type="number" min={0} step={0.01} value={erUtilities} onChange={(e) => setErUtilities(e.target.value)} placeholder="175.00" />
-              </label>
-            ) : null}
-            {!erIsAirbnbStay ? (
-            <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <span className="font-medium text-muted">Move-in fee ($)</span>
-              <Input type="number" min={0} step={0.01} value={erMoveInFee} onChange={(e) => setErMoveInFee(e.target.value)} placeholder="200.00" />
-            </label>
-            ) : null}
-            {!erIsAirbnbStay ? (
-            <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <span className="font-medium text-muted">{erIsShortTermStay ? "Deposit ($)" : "Security deposit ($)"}</span>
-              <Input
-                type="number"
-                min={0}
-                step={0.01}
-                value={erSecurityDeposit}
-                onChange={(e) => setErSecurityDeposit(e.target.value)}
-                placeholder="875.00"
-              />
-            </label>
-            ) : null}
-            <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <span className="font-medium text-muted">Move-in date{erIsAirbnbStay ? " *" : ""}</span>
-              <Input
-                type="date"
-                className="portal-modal-date-input"
-                value={erMoveInDate}
-                onChange={(e) => setErMoveInDate(e.target.value)}
-              />
-            </label>
-            {!isEditMonthToMonthLease || erIsAirbnbStay ? (
-              <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-                <span className="font-medium text-muted">Move-out date{erIsAirbnbStay ? " *" : ""}</span>
-                <Input
-                  type="date"
-                  className="portal-modal-date-input"
-                  value={erMoveOutDate}
-                  onChange={(e) => setErMoveOutDate(e.target.value)}
-                />
-              </label>
-            ) : null}
-            <label className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
-              <span className="font-medium text-muted">Notes</span>
-              <Textarea
-                className="min-h-[72px]"
-                value={erNotes}
-                onChange={(e) => setErNotes(e.target.value)}
-                placeholder="Any additional details about this resident…"
-              />
-            </label>
-          </div>
-        </div>
-      </Modal>
+      {editResidentOpen && editResidentForm ? (
+        <AddResidentWizard
+          mode="edit"
+          initialForm={editResidentForm}
+          onClose={() => {
+            setEditResidentOpen(false);
+            setEditResidentTargetId(null);
+            setEditResidentForm(null);
+          }}
+          onAdded={() => {
+            setChargeBucket("pending");
+            setHcTick((n) => n + 1);
+            setLeaseTick((n) => n + 1);
+          }}
+          onSaveEdit={async (form) => {
+            await saveEditedResident(form);
+          }}
+          managerUserId={userId ?? null}
+          propertyOptions={propertyOptions}
+          propertyTick={propertyTick}
+          executedLeaseKeys={executedLeaseKeys}
+        />
+      ) : null}
 
       <Modal
         open={applicationEditOpen && Boolean(selectedApplicationRow?.application)}

@@ -10,11 +10,12 @@ describe("portal invite paths", () => {
   const VENDOR = read("src/components/portal/pro-vendor-form-modal.tsx");
 
   it("is three methods: link, message, PropLane code — never an email tab", () => {
-    expect(PATHS).toContain('id: "link"');
-    expect(PATHS).toContain('id: "message"');
-    expect(PATHS).toContain('id: "code"');
-    expect(PATHS).toContain("Invite via PropLane code");
+    expect(PATHS).toContain('value: "link"');
+    expect(PATHS).toContain('value: "message"');
+    expect(PATHS).toContain('value: "code"');
+    expect(PATHS).toContain("Invite by");
     expect(PATHS).not.toContain("Invite by email");
+    expect(PATHS).not.toContain('role="tablist"');
   });
 
   it("is the workspace invite chrome, then New message compose", () => {
@@ -29,7 +30,8 @@ describe("portal invite paths", () => {
     expect(VENDOR).toContain("PortalInvitePaths");
     expect(VENDOR).toContain('title="New message"');
     expect(VENDOR).toContain("formatInviteMessageBody");
-    expect(VENDOR).toContain('data-attr="vendor-form-continue"');
+    expect(VENDOR).toContain("<AddWorkspace");
+    expect(VENDOR).toContain("vendor-form-continue");
     expect(VENDOR).not.toContain("Invite by email");
     expect(VENDOR).not.toContain("Invitation message");
   });

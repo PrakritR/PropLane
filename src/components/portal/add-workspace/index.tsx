@@ -60,6 +60,7 @@ export function AddWorkspace({
   finishCount,
   dangerAction,
   footerNote,
+  overlay,
 }: {
   title: string;
   subtitle?: string;
@@ -100,6 +101,11 @@ export function AddWorkspace({
   /** Footer ghost on the left — Delete, not a second layout language. */
   dangerAction?: ReactNode;
   footerNote?: ReactNode;
+  /**
+   * Sits on top of the workspace without unmounting steps — message preview
+   * Back restores the last step with values still filled.
+   */
+  overlay?: ReactNode;
 }) {
   const confirm = useConfirm();
   const railSteps = useMemo<StepRailItem[]>(
@@ -139,6 +145,7 @@ export function AddWorkspace({
 
   return (
     <ListingWizardOverlay ariaLabel={title}>
+      <div className="relative h-full w-full">
       <ListingWorkspace
         title={title}
         subtitle={subtitle}
@@ -200,6 +207,15 @@ export function AddWorkspace({
         {children}
         <SideBelow>{sidePanel}</SideBelow>
       </ListingWorkspace>
+      {overlay ? (
+        <div
+          className="pointer-events-auto absolute inset-0 z-[20] flex items-stretch justify-center"
+          data-attr={`${dataAttrPrefix}-overlay`}
+        >
+          {overlay}
+        </div>
+      ) : null}
+      </div>
     </ListingWizardOverlay>
   );
 }

@@ -257,11 +257,13 @@ export function ManagerPayments({
   bucket = "pending",
   basePath = "/portal",
   paymentId,
+  paymentTab,
 }: {
   direction?: ManagerPaymentDirection;
   bucket?: ManagerPaymentBucket;
   basePath?: string;
   paymentId?: string;
+  paymentTab?: string;
 }) {
   const { showToast } = useAppUi();
   const { userId, ready: authReady } = useManagerUserId();
@@ -772,6 +774,7 @@ export function ManagerPayments({
         onScheduleChanged={() => void reloadSchedule()}
         onRowsChanged={() => setHcTick((n) => n + 1)}
         paymentId={paymentId}
+        paymentTab={paymentTab}
         listBasePath={basePath}
         direction={direction}
         onAddPayment={canCreatePayment ? () => setAddOpen(true) : undefined}
@@ -787,6 +790,7 @@ export function ManagerPayments({
         activeBucket={bucket}
         vendorById={vendorById}
         paymentId={paymentId}
+        paymentTab={paymentTab}
         listBasePath={basePath}
         groupMode={outgoingGroupMode}
         onAddPayment={() => setAddOutgoingOpen(true)}

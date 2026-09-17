@@ -41,6 +41,8 @@ describe("AddWorkspace editor shells (source)", () => {
       "src/components/portal/service-offering-edit-modal.tsx",
       "src/components/portal/promotion-new-modal.tsx",
       "src/components/portal/property-application-form-modal.tsx",
+      "src/components/portal/pro-vendor-form-modal.tsx",
+      "src/components/portal/pro-task-form-modal.tsx",
     ];
     for (const file of files) {
       const body = src(file);

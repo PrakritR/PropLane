@@ -391,8 +391,7 @@ export function ManagerAddPaymentModal({
         open={open && noticePreview === null}
         title="Add payment"
         onClose={handleClose}
-        dense
-        panelClassName="max-w-xl p-3 sm:p-4"
+        panelClassName="max-w-xl p-5 sm:p-6"
         footer={
           <ModalFooter>
             <Button

@@ -1,19 +1,18 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
 
 export type PortalInvitePath = "link" | "message" | "code";
 
-const TABS: { id: PortalInvitePath; label: string; attr: string }[] = [
-  { id: "link", label: "Link", attr: "invite-path-link" },
-  { id: "message", label: "Message", attr: "invite-path-message" },
-  { id: "code", label: "PropLane code", attr: "invite-path-code" },
+const OPTIONS: { value: PortalInvitePath; label: string }[] = [
+  { value: "link", label: "Link" },
+  { value: "message", label: "Message" },
+  { value: "code", label: "PropLane code" },
 ];
 
 /**
- * Invite methods — link, message, PropLane code. Email is a Send via channel
- * on the next page (New message), never a tab here.
+ * Invite by — Link / Message / PropLane code on a workspace Review step.
  */
 export function PortalInvitePaths({
   value,
@@ -25,37 +24,18 @@ export function PortalInvitePaths({
   disabled?: boolean;
 }) {
   return (
-    <div
-      className="grid grid-cols-3 gap-1 rounded-xl bg-accent/50 p-1"
-      role="tablist"
-      aria-label="Invite method"
-      data-attr="portal-invite-paths"
-    >
-      {TABS.map((tab) => {
-        const selected = value === tab.id;
-        return (
-          <Button
-            key={tab.id}
-            type="button"
-            variant="ghost"
-            role="tab"
-            aria-selected={selected}
-            aria-label={
-              tab.id === "link"
-                ? "Invite via link"
-                : tab.id === "message"
-                  ? "Invite via message"
-                  : "Invite via PropLane code"
-            }
-            className={cn("rounded-lg px-2 text-[13px]", selected && "bg-card text-primary shadow-sm")}
-            disabled={disabled}
-            data-attr={tab.attr}
-            onClick={() => onChange(tab.id)}
-          >
-            {tab.label}
-          </Button>
-        );
-      })}
+    <div data-attr="portal-invite-paths">
+      <FieldSingleSelect
+        label="Invite by"
+        labelClassName={MODAL_FIELD_LABEL_CLASS}
+        value={value}
+        onChange={(next) => {
+          if (next === "link" || next === "message" || next === "code") onChange(next);
+        }}
+        options={OPTIONS}
+        disabled={disabled}
+        dataAttr="invite-path"
+      />
     </div>
   );
 }

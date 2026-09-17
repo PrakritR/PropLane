@@ -13,14 +13,24 @@ vi.mock("@/lib/manager-vendors-storage", () => ({
   deleteManagerVendorRow: vi.fn(),
   makeVendorId: () => "vend-new-1",
   persistManagerVendorToServer: (...args: unknown[]) => persistManagerVendorToServer(...args),
+  readOwnManagerVendorRows: () => [],
   setManagerVendorPriority: vi.fn(),
   upsertManagerVendor: vi.fn(),
+}));
+
+vi.mock("@/lib/demo-property-pipeline", () => ({
+  readPendingManagerPropertiesForUser: () => [],
+  readScopedExtraListings: () => [],
 }));
 
 vi.mock("@/lib/manager-vendor-invite-client", () => ({
   deliverManagerDirectoryMessage: vi.fn(),
   deliverManagerVendorInvite: (...args: unknown[]) => deliverManagerVendorInvite(...args),
   fetchManagerVendorRemovalDraft: vi.fn(),
+}));
+
+vi.mock("@/lib/manager-portfolio-access", () => ({
+  buildManagerPropertyFilterOptions: () => [{ id: "house-1", label: "5257 Brooklyn" }],
 }));
 
 vi.mock("@/components/providers/app-ui-provider", () => ({
@@ -41,6 +51,11 @@ function show(onClose = vi.fn()) {
 function fill(email = "vendor@example.test") {
   fireEvent.change(screen.getByLabelText("Vendor name"), { target: { value: "Apex Plumbing" } });
   fireEvent.change(screen.getByLabelText("Email"), { target: { value: email } });
+}
+function continueToReview() {
+  fireEvent.click(screen.getByRole("button", { name: "Continue to Properties" }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue to Who can handle" }));
+  fireEvent.click(screen.getByRole("button", { name: "Continue to Review" }));
 }
 
 describe("three-path vendor invitation", () => {
@@ -74,35 +89,41 @@ describe("three-path vendor invitation", () => {
     };
     render(<ManagerVendorFormModal open mode="edit" vendor={vendor} onClose={vi.fn()} showToast={() => {}} />);
     fireEvent.change(screen.getByLabelText("Vendor name"), { target: { value: "Updated" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Properties" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Who can handle" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save vendor" }));
     await waitFor(() => expect(persistManagerVendorToServer).toHaveBeenCalledOnce());
     expect(persistManagerVendorToServer.mock.calls[0][0]).toMatchObject({ ...vendor, name: "Updated" });
   });
 
-  it("shows three invite methods and Continue", () => {
+  it("shows identity first and Invite by on Review", () => {
     show();
-    expect(screen.getByRole("tab", { name: "Invite via link" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Invite via message" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Invite via PropLane code" })).toBeInTheDocument();
     expect(screen.getByLabelText("Vendor name")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Continue" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue to Properties" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Invite by")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Invitation message")).not.toBeInTheDocument();
+    fill();
+    continueToReview();
+    expect(screen.getByLabelText("Invite by")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Invite vendor" })).toBeInTheDocument();
   });
 
   it("rejects missing name and malformed email before any write", async () => {
     show();
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Properties" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Vendor name is required");
     fill("invalid");
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Properties" }));
     expect(screen.getByRole("alert")).toHaveTextContent("valid email");
     expect(persistManagerVendorToServer).not.toHaveBeenCalled();
   });
 
-  it("mints a link on Continue and stays on the form so it can be copied", async () => {
+  it("mints a link on Invite vendor and stays on the form so it can be copied", async () => {
     const closed = show();
     fill();
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    continueToReview();
+    fireEvent.click(screen.getByRole("button", { name: "Invite vendor" }));
     await waitFor(() => expect(persistManagerVendorToServer).toHaveBeenCalledOnce());
     expect(await screen.findByDisplayValue("https://example.test/invite/tok")).toBeInTheDocument();
     expect(closed).not.toHaveBeenCalled();
@@ -113,9 +134,9 @@ describe("three-path vendor invitation", () => {
     persistManagerVendorToServer.mockResolvedValue(false);
     const closed = show();
     fill();
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    continueToReview();
+    fireEvent.click(screen.getByRole("button", { name: "Invite vendor" }));
     await screen.findByRole("alert");
-    expect(screen.getByLabelText("Vendor name")).toHaveValue("Apex Plumbing");
     expect(closed).not.toHaveBeenCalled();
   });
 });

@@ -219,6 +219,7 @@ export function PortalCalendar({
       ),
     [availabilityCopySourcePropertyId, managerProperties, activeCalendarPropertyFilters],
   );
+  const [weekActionsHost, setWeekActionsHost] = useState<HTMLDivElement | null>(null);
 
   const soleCalendarPropertyId = calendarEditingPropertyId;
 
@@ -610,6 +611,7 @@ export function PortalCalendar({
         {calendarSettingsButton}
         {calendarGoogleCalendarButton}
         {calendarShareTourButton}
+        <div ref={setWeekActionsHost} className="flex items-center" data-slot="calendar-week-actions-host" />
       </>
     ) : null;
 
@@ -735,6 +737,7 @@ export function PortalCalendar({
                 : calendarUnavailableMessage
             }
             compactAvailability
+            weekActionsHost={weekActionsHost}
             availabilityHeading={
               portal === "manager"
                 ? schedulingHub && availabilityView

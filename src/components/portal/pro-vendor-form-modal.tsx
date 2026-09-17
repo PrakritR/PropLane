@@ -1,11 +1,22 @@
 "use client";
 
 import { Copy } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
+import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
+import {
+  readPendingManagerPropertiesForUser,
+  readScopedExtraListings,
+} from "@/lib/demo-property-pipeline";
+import {
+  filterVendorsForIssue,
+  zipsForSelectedProperties,
+  type VendorIssueSearchHit,
+} from "@/lib/vendor-issue-search";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
-import { Modal, MODAL_FIELD_LABEL_CLASS, PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS, PORTAL_MODAL_FORM_GRID_CLASS } from "@/components/ui/modal";
+import { MODAL_FIELD_LABEL_CLASS, PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS, PORTAL_MODAL_FORM_GRID_CLASS } from "@/components/ui/modal";
 import { PortalInvitePaths, type PortalInvitePath } from "@/components/portal/portal-invite-paths";
 import { formatInviteMessageBody, formatInviteMessageSubject } from "@/lib/invite-message-body";
 import { mintInviteLinkClient } from "@/lib/invite-links/mint-invite-link-client";
@@ -28,6 +39,7 @@ import {
   deleteManagerVendorRow,
   makeVendorId,
   persistManagerVendorToServer,
+  readOwnManagerVendorRows,
   setManagerVendorPriority,
   upsertManagerVendor,
   type ManagerVendorRow,
@@ -38,35 +50,42 @@ import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
 export type ManagerVendorFormDraft = {
   name: string;
   trade: string;
+  trades: string[];
   phone: string;
   email: string;
   notes: string;
   active: boolean;
   sharedWithManagers: boolean;
   vendorPriority: "" | "primary" | "secondary";
+  propertyIds: string[];
 };
 
 export const EMPTY_MANAGER_VENDOR_FORM_DRAFT: ManagerVendorFormDraft = {
   name: "",
   trade: VENDOR_TRADE_OPTIONS[0]!,
+  trades: [VENDOR_TRADE_OPTIONS[0]!],
   phone: "",
   email: "",
   notes: "",
   active: true,
   sharedWithManagers: false,
   vendorPriority: "",
+  propertyIds: [],
 };
 
 function draftFromVendor(row: ManagerVendorRow): ManagerVendorFormDraft {
+  const trades = row.trades?.length ? row.trades : row.trade ? [row.trade] : [VENDOR_TRADE_OPTIONS[0]!];
   return {
     name: row.name,
-    trade: row.trade || VENDOR_TRADE_OPTIONS[0]!,
+    trade: row.trade || trades[0] || VENDOR_TRADE_OPTIONS[0]!,
+    trades,
     phone: row.phone,
     email: row.email,
     notes: row.notes,
     active: row.active !== false,
     sharedWithManagers: row.sharedWithManagers === true,
     vendorPriority: row.vendorPriority ?? "",
+    propertyIds: row.propertyIds ?? [],
   };
 }
 
@@ -366,7 +385,6 @@ export function ManagerVendorFormModal({
   onSaved,
   onDeleted,
   showToast,
-  onBrowseCatalog,
 }: {
   open: boolean;
   mode: "add" | "edit";
@@ -376,8 +394,6 @@ export function ManagerVendorFormModal({
   onSaved?: () => void;
   onDeleted?: () => void;
   showToast: (message: string) => void;
-  /** Opens vendor settings (catalog / defaults) without losing context. */
-  onBrowseCatalog?: () => void;
 }) {
   const { userId } = useManagerUserId();
   const [draft, setDraft] = useState<ManagerVendorFormDraft>(EMPTY_MANAGER_VENDOR_FORM_DRAFT);
@@ -394,6 +410,40 @@ export function ManagerVendorFormModal({
   useEffect(() => () => { requestGeneration.current += 1; }, []);
   const [removePreview, setRemovePreview] = useState<ManagerVendorRemovalPreview | null>(null);
   const [createdVendorId, setCreatedVendorId] = useState<string | null>(null);
+  const [stepIdx, setStepIdx] = useState(0);
+  const [issueQuery, setIssueQuery] = useState("");
+  const [onlineHits, setOnlineHits] = useState<VendorIssueSearchHit[]>([]);
+  const [checkedCatalogIds, setCheckedCatalogIds] = useState<string[]>([]);
+
+  const propertyOptions = useMemo(
+    () => buildManagerPropertyFilterOptions(userId).map((o) => ({ id: o.id, label: o.label })),
+    [userId],
+  );
+
+  const propertyZips = useMemo(() => {
+    const houses = [
+      ...readScopedExtraListings(userId).map((row) => ({ id: row.id, zip: row.zip })),
+      ...readPendingManagerPropertiesForUser(userId).map((row) => ({ id: row.id, zip: row.zip })),
+    ];
+    return zipsForSelectedProperties(houses, draft.propertyIds);
+  }, [userId, draft.propertyIds]);
+
+  const inPropLaneHits = useMemo(() => {
+    const roster = readOwnManagerVendorRows(userId).map((row) => ({
+      id: row.id,
+      name: row.name,
+      trade: row.trade,
+      phone: row.phone,
+      email: row.email,
+      notes: row.notes,
+    }));
+    const { roster: own, catalog } = filterVendorsForIssue({
+      issue: issueQuery,
+      propertyZips,
+      roster,
+    });
+    return [...own, ...catalog];
+  }, [issueQuery, propertyZips, userId]);
 
   useEffect(() => {
     requestGeneration.current += 1;
@@ -404,6 +454,7 @@ export function ManagerVendorFormModal({
       setDraft({
         ...EMPTY_MANAGER_VENDOR_FORM_DRAFT,
         trade: initialTrade?.trim() || VENDOR_TRADE_OPTIONS[0]!,
+        trades: [initialTrade?.trim() || VENDOR_TRADE_OPTIONS[0]!],
       });
     }
     setError(null);
@@ -416,6 +467,10 @@ export function ManagerVendorFormModal({
     setDraftAxisName(null);
     setRemovePreview(null);
     setCreatedVendorId(null);
+    setStepIdx(0);
+    setIssueQuery("");
+    setOnlineHits([]);
+    setCheckedCatalogIds([]);
   }, [open, mode, vendor, initialTrade, userId]);
 
   const patch = (next: Partial<ManagerVendorFormDraft>) => setDraft((prev) => ({ ...prev, ...next }));
@@ -439,13 +494,15 @@ export function ManagerVendorFormModal({
       id,
       managerUserId: existing?.managerUserId ?? userId,
       name,
-      trade: draft.trade.trim() || VENDOR_TRADE_OPTIONS[0]!,
+      trade: draft.trade.trim() || draft.trades[0] || VENDOR_TRADE_OPTIONS[0]!,
+      trades: draft.trades.length ? draft.trades : undefined,
       phone: draft.phone.trim(),
       email: draft.email.trim(),
       notes: draft.notes.trim(),
       active: draft.active,
       sharedWithManagers: draft.sharedWithManagers,
       vendorPriority: draft.vendorPriority || undefined,
+      propertyIds: draft.propertyIds.length ? draft.propertyIds : undefined,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
@@ -543,7 +600,7 @@ export function ManagerVendorFormModal({
         const minted = await mintInviteLinkClient({
           kind: "vendor",
           label: row.trade || row.name,
-          assignedPropertyIds: [],
+          assignedPropertyIds: draft.propertyIds,
         });
         if (!minted.ok) {
           if (current()) setError(minted.error);
@@ -661,21 +718,98 @@ export function ManagerVendorFormModal({
     void openRemovePreview();
   };
 
+  useEffect(() => {
+    if (!open || !issueQuery.trim()) {
+      setOnlineHits([]);
+      return;
+    }
+    const controller = new AbortController();
+    const params = new URLSearchParams({ q: issueQuery.trim() });
+    for (const zip of propertyZips) params.append("zip", zip);
+    void fetch(`/api/portal-vendors/online-search?${params}`, { credentials: "include", signal: controller.signal })
+      .then((res) => (res.ok ? res.json() : { rows: [] }))
+      .then((body: { rows?: Array<{ id: string; name: string; trade: string; phone: string; city: string }> }) => {
+        setOnlineHits(
+          (body.rows ?? []).map((row) => ({
+            source: "online" as const,
+            id: row.id,
+            name: row.name,
+            trade: row.trade,
+            phone: row.phone,
+            city: row.city,
+            zip: "",
+            alreadyOwned: false,
+          })),
+        );
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [issueQuery, open, propertyZips]);
+
+  const applyDirectoryHit = (hit: VendorIssueSearchHit) => {
+    if (hit.alreadyOwned) return;
+    const on = checkedCatalogIds.includes(hit.id);
+    setCheckedCatalogIds((prev) => (on ? prev.filter((id) => id !== hit.id) : [...prev, hit.id]));
+    if (!on) {
+      patch({
+        name: hit.name,
+        trade: hit.trade,
+        trades: [hit.trade],
+        phone: hit.phone,
+      });
+    }
+  };
+
   const title = mode === "edit" ? "Edit vendor" : "Invite vendor";
+  const steps: AddWorkspaceStep[] = [
+    { id: "vendor", label: "Vendor", incomplete: !draft.name.trim(), summary: draft.name.trim() || "Who they are" },
+    { id: "properties", label: "Properties", summary: draft.propertyIds.length ? `${draft.propertyIds.length} houses` : "Every property" },
+    { id: "trades", label: "Who can handle", incomplete: draft.trades.length === 0, summary: draft.trades.join(", ") || "No trades yet" },
+    { id: "review", label: "Review", incomplete: !draft.name.trim(), summary: mode === "edit" ? "Save changes" : "Invite by" },
+  ];
+  const current = Math.min(stepIdx, steps.length - 1);
+  const stepId = steps[current]!.id;
+  const onlineOnlyHits = onlineHits.filter((hit) => !inPropLaneHits.some((row) => row.id === hit.id));
+
+  if (!open) return null;
 
   return (
     <>
-      <Modal
-        open={open && removePreview === null && inviteSendPreview === null}
-        title={title}
-        assistantContext={mode === "add" ? "Invite vendor" : "Edit vendor"}
-        assistantStorageScopeKey={mode === "add" ? "Invite vendor" : "Edit vendor"}
-        onClose={() => { if (!submitRef.current) onClose(); }}
-        panelClassName={mode === "add" ? "max-w-2xl" : "max-w-lg"}
-        dense
-        footer={
-          <div className="flex w-full items-center justify-between gap-2">
-            {mode === "edit" && vendor ? (
+      {removePreview === null && inviteSendPreview === null ? (
+        <AddWorkspace
+          title={title}
+          steps={steps}
+          current={current}
+          onJump={setStepIdx}
+          onClose={() => { if (!submitRef.current) onClose(); }}
+          dirty={Boolean(draft.name.trim() || draft.email.trim() || draft.phone.trim())}
+          discardTitle={mode === "edit" ? "Discard these edits?" : "Discard this vendor?"}
+          assistantContext={title}
+          assistantScopeKey={mode === "add" ? "invite-vendor" : "edit-vendor"}
+          lastLabel={mode === "edit" ? "Save vendor" : "Invite vendor"}
+          lastDisabled={saving || !draft.name.trim()}
+          nextDisabled={false}
+          onBeforeNext={() => {
+            if (!draft.name.trim()) {
+              setError("Vendor name is required.");
+              return false;
+            }
+            if (draft.email && !vendorEmailLooksValid(draft.email)) {
+              setError("Enter a valid email address.");
+              return false;
+            }
+            setError(null);
+            return true;
+          }}
+          busy={saving}
+          onFinish={() => {
+            if (mode === "edit") void saveEdit();
+            else void continueVendorInvite();
+          }}
+          dataAttrPrefix="vendor-form"
+          finishDataAttr={mode === "edit" ? "vendor-form-save" : "vendor-form-continue"}
+          dangerAction={
+            mode === "edit" && vendor ? (
               <Button
                 type="button"
                 variant="outline"
@@ -685,63 +819,132 @@ export function ManagerVendorFormModal({
               >
                 Delete
               </Button>
-            ) : (
-              <span aria-hidden />
-            )}
-            {mode === "add" ? (
-              <Button type="button" variant="primary" className="rounded-full" disabled={saving} loading={saving}
-                onClick={() => void continueVendorInvite()} data-attr="vendor-form-continue">
-                Continue
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                variant="primary"
-                className="ml-auto rounded-full"
-                disabled={saving}
-                onClick={() => saveEdit()}
-                data-attr="vendor-form-save"
-              >
-                {saving ? "Saving…" : "Save"}
-              </Button>
-            )}
-          </div>
-        }
-      >
-        <div className="space-y-5">
-          {mode === "add" ? (
-            <>
-              {onBrowseCatalog ? (
-                <p className="text-xs text-muted">
-                  Prefer a curated vendor?{" "}
-                  <button
-                    type="button"
-                    className="font-semibold text-primary hover:underline"
-                    data-attr="vendor-form-browse-catalog"
-                    disabled={saving}
-                    onClick={() => {
-                      if (submitRef.current) return;
-                      onClose();
-                      onBrowseCatalog();
-                    }}
-                  >
-                    Browse PropLane catalog
-                  </button>
-                </p>
+            ) : undefined
+          }
+        >
+          {stepId === "vendor" ? (
+            <div className="space-y-4">
+              <label className="block space-y-1">
+                <span className="text-sm font-semibold">Vendor name</span>
+                <Input value={draft.name} onChange={(e) => patch({ name: e.target.value })} required autoFocus data-attr="vendor-essential-name" />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-sm font-semibold">Email</span>
+                <Input type="email" value={draft.email} onChange={(e) => patch({ email: e.target.value })} autoComplete="email" data-attr="vendor-essential-email" />
+              </label>
+              <div className="space-y-1">
+                <label htmlFor="vendor-invite-phone" className="text-sm font-semibold">Phone</label>
+                <PhoneNumberField id="vendor-invite-phone" value={draft.phone} onChange={(phone) => patch({ phone })} dataAttr="vendor-optional-phone" />
+              </div>
+              {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
+            </div>
+          ) : null}
+          {stepId === "properties" ? (
+            <fieldset className="space-y-2" data-attr="vendor-form-properties">
+              <legend className="text-sm font-semibold">Properties</legend>
+              <label className="flex min-h-11 items-center gap-3 rounded-xl border border-border bg-card px-3 text-[13.5px]">
+                <input
+                  type="checkbox"
+                  checked={draft.propertyIds.length === 0}
+                  onChange={() => patch({ propertyIds: [] })}
+                  data-attr="vendor-property-all"
+                />
+                Every property
+              </label>
+              {propertyOptions.map((option) => {
+                const on = draft.propertyIds.includes(option.id);
+                return (
+                  <label key={option.id} className="flex min-h-11 items-center gap-3 rounded-xl border border-border bg-card px-3 text-[13.5px]">
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={() => {
+                        const next = on ? draft.propertyIds.filter((id) => id !== option.id) : [...draft.propertyIds, option.id];
+                        patch({ propertyIds: next });
+                      }}
+                      data-attr={`vendor-property-${option.id}`}
+                    />
+                    {option.label}
+                  </label>
+                );
+              })}
+            </fieldset>
+          ) : null}
+          {stepId === "trades" ? (
+            <div className="space-y-4" data-attr="vendor-form-trades">
+              <fieldset className="space-y-2">
+                <legend className="text-sm font-semibold">Who can handle</legend>
+                {VENDOR_TRADE_OPTIONS.map((trade) => {
+                  const on = draft.trades.includes(trade);
+                  return (
+                    <label key={trade} className="flex min-h-11 items-center gap-3 rounded-xl border border-border bg-card px-3 text-[13.5px]">
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => {
+                          const trades = on ? draft.trades.filter((item) => item !== trade) : [...draft.trades, trade];
+                          patch({ trades, trade: trades[0] ?? trade });
+                        }}
+                        data-attr={`vendor-trade-${trade}`}
+                      />
+                      {trade}
+                    </label>
+                  );
+                })}
+              </fieldset>
+              <label className="block space-y-1">
+                <span className="text-sm font-semibold">Look up nearby</span>
+                <Input value={issueQuery} onChange={(e) => setIssueQuery(e.target.value)} placeholder="Trade, name, or city" data-attr="vendor-online-search" />
+              </label>
+              {inPropLaneHits.length ? (
+                <fieldset className="space-y-2" data-attr="vendor-in-proplane-hits">
+                  <legend className="text-sm font-semibold">In PropLane</legend>
+                  {inPropLaneHits.map((hit) => (
+                    <label key={hit.id} className="flex min-h-11 items-center gap-3 rounded-xl border border-border bg-card px-3 text-[13.5px]">
+                      <input
+                        type="checkbox"
+                        checked={hit.alreadyOwned || checkedCatalogIds.includes(hit.id)}
+                        disabled={hit.alreadyOwned}
+                        onChange={() => applyDirectoryHit(hit)}
+                        data-attr={`vendor-directory-${hit.id}`}
+                      />
+                      <span className="min-w-0">
+                        <span className="block font-medium">{hit.name}</span>
+                        <span className="block text-[12px] text-foreground">{[hit.trade, hit.phone, hit.city].filter(Boolean).join(" · ")}</span>
+                      </span>
+                    </label>
+                  ))}
+                </fieldset>
               ) : null}
-              <PortalInvitePaths value={invitePath} onChange={setInvitePath} disabled={saving} />
-              <form id="vendor-invite-form" className="space-y-4" data-field-select-placement="below" onSubmit={(event) => { event.preventDefault(); void continueVendorInvite(); }}>
-                <fieldset disabled={saving} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <label className="space-y-1"><span className="text-sm font-semibold">Vendor name</span><Input value={draft.name} onChange={(e) => patch({ name: e.target.value })} required autoFocus data-attr="vendor-essential-name" /></label>
-                  <label className="space-y-1"><span className="text-sm font-semibold">Trade</span><Select value={draft.trade} onChange={(e) => patch({ trade: e.target.value })} data-attr="vendor-essential-trade">{VENDOR_TRADE_OPTIONS.map((trade) => <option key={trade} value={trade}>{trade}</option>)}</Select></label>
-                  {invitePath === "message" || invitePath === "link" ? (
-                    <>
-                      <label className="space-y-1"><span className="text-sm font-semibold">Email</span><Input type="email" value={draft.email} onChange={(e) => patch({ email: e.target.value })} autoComplete="email" data-attr="vendor-essential-email" /></label>
-                      <div className="space-y-1"><label htmlFor="vendor-invite-phone" className="text-sm font-semibold">Phone</label><PhoneNumberField id="vendor-invite-phone" value={draft.phone} onChange={(phone) => patch({ phone })} dataAttr="vendor-optional-phone" /></div>
-                    </>
-                  ) : null}
+              {onlineOnlyHits.length ? (
+                <fieldset className="space-y-2" data-attr="vendor-online-hits">
+                  <legend className="text-sm font-semibold">Online</legend>
+                  {onlineOnlyHits.map((hit) => (
+                    <label key={hit.id} className="flex min-h-11 items-center gap-3 rounded-xl border border-border bg-card px-3 text-[13.5px]">
+                      <input
+                        type="checkbox"
+                        checked={checkedCatalogIds.includes(hit.id)}
+                        onChange={() => applyDirectoryHit(hit)}
+                        data-attr={`vendor-online-${hit.id}`}
+                      />
+                      <span className="min-w-0">
+                        <span className="block font-medium">{hit.name}</span>
+                        <span className="block text-[12px] text-foreground">{[hit.trade, hit.phone, hit.city].filter(Boolean).join(" · ")}</span>
+                      </span>
+                    </label>
+                  ))}
+                </fieldset>
+              ) : null}
+            </div>
+          ) : null}
+          {stepId === "review" ? (
+            <div className="space-y-4">
+              <p className="text-[13.5px]">{[draft.name, draft.trade, draft.email, draft.phone].filter(Boolean).join(" · ")}</p>
+              {mode === "add" ? (
+                <>
+                  <PortalInvitePaths value={invitePath} onChange={setInvitePath} disabled={saving} />
                   {invitePath === "code" ? (
-                    <label className="space-y-1 sm:col-span-2">
+                    <label className="block space-y-1">
                       <span className="text-sm font-semibold">{AXIS_ID_LABEL}</span>
                       {draftAxisId ? (
                         <div className="rounded-xl border border-primary/25 bg-primary/[0.05] px-4 py-3">
@@ -754,7 +957,7 @@ export function ManagerVendorFormModal({
                     </label>
                   ) : null}
                   {invitePath === "link" && mintedVendorUrl ? (
-                    <div className="flex items-center gap-2 sm:col-span-2">
+                    <div className="flex items-center gap-2">
                       <Input readOnly value={mintedVendorUrl} className="font-mono text-xs" data-attr="vendor-invite-url" />
                       <Button type="button" variant="outline" className="shrink-0" data-attr="vendor-invite-copy" onClick={() => { void navigator.clipboard.writeText(mintedVendorUrl).then(() => showToast("Invite link copied."), () => showToast("Could not copy.")); }}>
                         <Copy className="h-4 w-4" />
@@ -762,36 +965,15 @@ export function ManagerVendorFormModal({
                       </Button>
                     </div>
                   ) : null}
-                  <details className="sm:col-span-2"><summary className="cursor-pointer text-sm text-muted">Private notes</summary><Textarea aria-label="Private notes" value={draft.notes} onChange={(e) => patch({ notes: e.target.value })} rows={2} className="mt-2" data-attr="vendor-optional-notes" /></details>
-                </fieldset>
-              </form>
-            </>
-          ) : (
-            <>
-              {onBrowseCatalog ? (
-                <p className="text-xs text-muted">
-                  Prefer a curated vendor?{" "}
-                  <button
-                    type="button"
-                    className="font-semibold text-primary hover:underline"
-                    data-attr="vendor-form-browse-catalog"
-                    disabled={saving}
-                    onClick={() => {
-                      if (submitRef.current) return;
-                      onClose();
-                      onBrowseCatalog();
-                    }}
-                  >
-                    Browse PropLane catalog
-                  </button>
-                </p>
-              ) : null}
-              <ManagerVendorFormFields draft={draft} onPatch={patch} />
-            </>
-          )}
-          {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
-        </div>
-      </Modal>
+                </>
+              ) : (
+                <ManagerVendorFormFields draft={draft} onPatch={patch} />
+              )}
+              {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
+            </div>
+          ) : null}
+        </AddWorkspace>
+      ) : null}
 
       <PortalNotificationPreviewModal
         open={removePreview !== null}
