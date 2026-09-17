@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
+import Link from "next/link";
 import {
   BookingsDayDetailModal,
   type BookingsDayEntry,
@@ -378,6 +379,11 @@ export function ManagerBookingsHub({
   );
 
   const reload = useCallback(async () => {
+    if (fetchPropertyIds.length === 0) {
+      setAirbnbEntries([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const rows = await fetchManagerChannelBookings(fetchPropertyIds);
@@ -454,16 +460,9 @@ export function ManagerBookingsHub({
 
   const showListHub = !calendarOnly && hubMode === "list";
 
-  if (propertyIds.length === 0) {
-    return (
-      <p className="text-sm text-muted">
-        {emptyMessage ??
-          "No houses in your portfolio yet. List a property, then link rooms with Link Airbnb."}
-      </p>
-    );
-  }
+  const emptyPortfolio = propertyIds.length === 0;
 
-  if (loading) {
+  if (loading && !emptyPortfolio) {
     return (
       <div className="flex min-h-[12rem] flex-1 items-center justify-center rounded-2xl border border-border bg-card/60">
         <p className="text-sm text-muted">Loading bookings…</p>
@@ -512,7 +511,25 @@ export function ManagerBookingsHub({
         ) : (
           <div className={PORTAL_CALENDAR_FRAME}>
             <div className="flex min-h-0 flex-1 flex-col gap-3 p-3 sm:p-4">
-              <BookingsKpiStrip stats={stats} periodLabel={kpiPeriodLabel(view)} />
+              {emptyPortfolio ? (
+                <div
+                  className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2.5"
+                  data-attr="bookings-empty-houses-banner"
+                >
+                  <p className="text-sm font-semibold text-foreground">
+                    {emptyMessage ?? "No houses yet"}
+                  </p>
+                  <Link
+                    href="/portal/properties"
+                    className="inline-flex h-9 shrink-0 items-center rounded-full border border-border bg-card px-3 text-sm font-semibold"
+                    data-attr="bookings-empty-add-property"
+                  >
+                    Add property
+                  </Link>
+                </div>
+              ) : (
+                <BookingsKpiStrip stats={stats} periodLabel={kpiPeriodLabel(view)} />
+              )}
 
               <PortalSegmentedControl
                 options={CALENDAR_VIEW_OPTIONS}

@@ -7,7 +7,6 @@ import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/w
 import {
   CUSTOM_PROPERTY_KEY,
   PromotionForm,
-  PromotionPropertyPicker,
   type PromotionDraft,
 } from "@/components/portal/promotion-form";
 import {
@@ -271,6 +270,18 @@ export function PromotionNewModal({
             disabled={flyerBusy || textBusy || uploadBusy}
             dataAttr="promotion-new-kind"
           />
+          {!hidePropertyPicker ? (
+            <WizardSelect
+              label="Property"
+              value={draft.propertyKey}
+              onChange={onSelectProperty}
+              options={[
+                { value: CUSTOM_PROPERTY_KEY, label: "Custom" },
+                ...listings.map((listing) => ({ value: listing.id, label: listing.label })),
+              ]}
+              dataAttr="promotion-new-property"
+            />
+          ) : null}
         </StepColumn>
       ) : null}
       {stepId === "content" ? (
@@ -282,18 +293,10 @@ export function PromotionNewModal({
               setDraft={setDraft}
               listings={listings}
               onSelectProperty={onSelectProperty}
-              hidePropertyPicker={hidePropertyPicker}
+              hidePropertyPicker
             />
           ) : kind === "upload" ? (
             <div className="space-y-4">
-              {!hidePropertyPicker ? (
-                <PromotionPropertyPicker
-                  id="promotion-upload-property"
-                  value={draft.propertyKey}
-                  listings={listings}
-                  onSelect={onSelectProperty}
-                />
-              ) : null}
               <PromotionUploadComposer
                 fileName={uploadFileName}
                 error={uploadError}
@@ -313,9 +316,9 @@ export function PromotionNewModal({
               initialTone={textInitialTone}
               initialImages={textInitialImages}
               onDirtyChange={handleTextDirty}
-              propertyKey={hidePropertyPicker ? undefined : draft.propertyKey}
+              propertyKey={undefined}
               listings={listings}
-              onSelectProperty={hidePropertyPicker ? undefined : onSelectProperty}
+              onSelectProperty={undefined}
             />
           )}
         </StepColumn>

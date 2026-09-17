@@ -43,6 +43,10 @@ describe("AddWorkspace editor shells (source)", () => {
       "src/components/portal/property-application-form-modal.tsx",
       "src/components/portal/pro-vendor-form-modal.tsx",
       "src/components/portal/pro-task-form-modal.tsx",
+      "src/components/portal/pro-add-lease-modal.tsx",
+      "src/components/portal/pro-add-payment-modal.tsx",
+      "src/components/portal/pro-add-outgoing-payment-modal.tsx",
+      "src/components/portal/pro-add-service-modal.tsx",
     ];
     for (const file of files) {
       const body = src(file);
@@ -181,6 +185,7 @@ describe("Add promotion workspace chrome", () => {
     expect(document.querySelector('[data-attr="listing-v2-rail-preview"]')).not.toBeNull();
     expect(document.querySelector('[data-attr="promotion-new-next"]')).not.toBeNull();
     expect(document.querySelector('[data-attr="promotion-generate"]')).toBeNull();
+    expect(document.querySelector('[data-attr="promotion-new-property"]')).not.toBeNull();
   });
 
   it("suggestion + lands on Content with Kind already chosen", async () => {
