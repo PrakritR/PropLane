@@ -23,15 +23,13 @@ import {
 } from "@/lib/manager-applications-storage";
 import {
   applicationVisibleToPortalUser,
-  collectLinkedPropertyIdsForModule,
-  resolvePropertyLabelForId,
+  buildManagerPropertyFilterOptions,
 } from "@/lib/manager-portfolio-access";
 import {
   PROPERTY_PIPELINE_EVENT,
-  readExtraListingsForUser,
-  readPendingManagerPropertiesForUser,
   syncPropertyPipelineFromServer,
 } from "@/lib/demo-property-pipeline";
+import { WORKSPACE_SELECTION_EVENT } from "@/lib/workspaces/selection";
 import {
   normalizeManagerListingSubmissionV1,
   resolveServiceOfferPricing,
@@ -93,36 +91,12 @@ function displayPropertyLabel(raw: string): string {
 }
 
 function buildPropertyOptions(managerUserId: string | null): PropertyOption[] {
-  if (!managerUserId) return [];
-  const seen = new Map<string, PropertyOption>();
-  for (const property of readExtraListingsForUser(managerUserId)) {
-    const propertyId = property.id.trim();
-    if (!propertyId || seen.has(propertyId)) continue;
-    const propertyLabel = displayPropertyLabel(property.buildingName.trim() || property.title);
-    if (!propertyLabel) continue;
-    seen.set(propertyId, { propertyId, propertyLabel });
-  }
-  for (const property of readPendingManagerPropertiesForUser(managerUserId)) {
-    const propertyId = property.id.trim();
-    if (!propertyId || seen.has(propertyId)) continue;
-    const propertyLabel = displayPropertyLabel(property.buildingName.trim());
-    if (!propertyLabel) continue;
-    seen.set(propertyId, { propertyId, propertyLabel });
-  }
-  // A co-manager's linked listings live in the OWNER's bucket of the property
-  // pipeline store, never this viewer's, so the two loops above see none of them
-  // and the picker reads as an empty portfolio for a co-manager who can plainly
-  // see the same homes on the Properties tab (AXI-156).
-  for (const propertyId of collectLinkedPropertyIdsForModule(managerUserId, "services")) {
-    if (!propertyId || seen.has(propertyId)) continue;
-    const propertyLabel = displayPropertyLabel(resolvePropertyLabelForId(propertyId));
-    if (!propertyLabel) continue;
-    seen.set(propertyId, { propertyId, propertyLabel });
-  }
-
-  return [...seen.values()].sort((a, b) =>
-    a.propertyLabel.localeCompare(b.propertyLabel, undefined, { sensitivity: "base" }),
-  );
+  return buildManagerPropertyFilterOptions(managerUserId)
+    .map((option) => ({
+      propertyId: option.id,
+      propertyLabel: displayPropertyLabel(option.label),
+    }))
+    .filter((option) => option.propertyLabel);
 }
 
 function buildResidentOptions(managerUserId: string | null): ResidentOption[] {
@@ -247,9 +221,11 @@ export function ManagerAddServiceModal({
     const onApps = () => setTick((t) => t + 1);
     window.addEventListener(PROPERTY_PIPELINE_EVENT, onProps);
     window.addEventListener(MANAGER_APPLICATIONS_EVENT, onApps);
+    window.addEventListener(WORKSPACE_SELECTION_EVENT, onProps);
     return () => {
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, onProps);
       window.removeEventListener(MANAGER_APPLICATIONS_EVENT, onApps);
+      window.removeEventListener(WORKSPACE_SELECTION_EVENT, onProps);
     };
   }, [open]);
 

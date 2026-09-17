@@ -32,6 +32,22 @@ describe("Pack 1 add workspaces (source)", () => {
     expect(src("src/components/portal/pro-add-payment-modal.tsx")).toContain('title="Add charge"');
   });
 
+  it("Who uses the shared workspace helper; Generate / Upload are header icons, not body buttons", () => {
+    const lease = src("src/components/portal/pro-add-lease-modal.tsx");
+    expect(lease).toContain("buildManagerPropertyFilterOptions");
+    expect(lease).toContain("headerActions");
+    expect(lease).toContain('data-attr="add-lease-method-generate"');
+    expect(lease).toContain('data-attr="add-lease-method-upload"');
+    expect(lease).toContain("PortalIconAction");
+    expect(lease).not.toMatch(/<Button[\s\S]*?data-attr="add-lease-method-generate"/);
+    expect(lease).not.toMatch(/<Button[\s\S]*?data-attr="add-lease-method-upload"/);
+  });
+
+  it("charge and service pickers use the shared workspace helper", () => {
+    expect(src("src/components/portal/pro-add-payment-modal.tsx")).toContain("buildManagerPropertyFilterOptions");
+    expect(src("src/components/portal/pro-add-service-modal.tsx")).toContain("buildManagerPropertyFilterOptions");
+  });
+
   it("outgoing last step is Save and keeps the existing save selector", () => {
     const outgoing = src("src/components/portal/pro-add-outgoing-payment-modal.tsx");
     expect(outgoing).toContain('title="Add payment"');

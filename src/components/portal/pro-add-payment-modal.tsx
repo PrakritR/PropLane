@@ -23,16 +23,14 @@ import {
 } from "@/lib/manager-applications-storage";
 import {
   applicationVisibleToPortalUser,
-  collectLinkedPropertyIdsForModule,
-  resolvePropertyLabelForId,
+  buildManagerPropertyFilterOptions,
 } from "@/lib/manager-portfolio-access";
 import { getRoomChoiceLabel } from "@/lib/rental-application/data";
 import {
   PROPERTY_PIPELINE_EVENT,
-  readExtraListingsForUser,
-  readPendingManagerPropertiesForUser,
   syncPropertyPipelineFromServer,
 } from "@/lib/demo-property-pipeline";
+import { WORKSPACE_SELECTION_EVENT } from "@/lib/workspaces/selection";
 
 function dueLabelFromIso(iso: string): string {
   const d = new Date(`${iso}T12:00:00`);
@@ -57,43 +55,12 @@ type PropertyPaymentOption = {
 };
 
 function buildManagerPropertyOptions(managerUserId: string | null): PropertyPaymentOption[] {
-  if (!managerUserId) return [];
-  const seen = new Map<string, PropertyPaymentOption>();
-
-  for (const property of readExtraListingsForUser(managerUserId)) {
-    const propertyId = property.id.trim();
-    if (!propertyId || seen.has(propertyId)) continue;
-    const propertyLabel = displayPropertyLabel(property.buildingName.trim() || property.title);
-    if (!propertyLabel) continue;
-    seen.set(propertyId, { propertyId, propertyLabel });
-  }
-
-  for (const property of readPendingManagerPropertiesForUser(managerUserId)) {
-    const propertyId = property.id.trim();
-    if (!propertyId || seen.has(propertyId)) continue;
-    const propertyLabel = displayPropertyLabel(property.buildingName.trim());
-    if (!propertyLabel) continue;
-    seen.set(propertyId, { propertyId, propertyLabel });
-  }
-
-  // A co-manager's linked listings live in the OWNER's bucket of the property
-  // pipeline store, never this viewer's, so the two loops above see none of them
-  // and the picker reads "No properties in portfolio" for a co-manager who can
-  // plainly see the same homes on the Properties tab (AXI-156). Same third loop
-  // `manager-add-lease-modal` already had.
-  // EDIT level, not read: this picker is the create surface, and a co-manager who
-  // may only VIEW an owner's payments must not be offered the owner's property to
-  // bill against.
-  for (const propertyId of collectLinkedPropertyIdsForModule(managerUserId, "payments", "edit")) {
-    if (!propertyId || seen.has(propertyId)) continue;
-    const propertyLabel = displayPropertyLabel(resolvePropertyLabelForId(propertyId));
-    if (!propertyLabel) continue;
-    seen.set(propertyId, { propertyId, propertyLabel });
-  }
-
-  return [...seen.values()].sort((a, b) =>
-    a.propertyLabel.localeCompare(b.propertyLabel, undefined, { sensitivity: "base" }),
-  );
+  return buildManagerPropertyFilterOptions(managerUserId)
+    .map((option) => ({
+      propertyId: option.id,
+      propertyLabel: displayPropertyLabel(option.label),
+    }))
+    .filter((option) => option.propertyLabel);
 }
 
 type ResidentPaymentOption = {
@@ -200,9 +167,11 @@ export function ManagerAddPaymentModal({
     void syncPropertyPipelineFromServer({ force: true }).then(onProperties);
     window.addEventListener(MANAGER_APPLICATIONS_EVENT, onApplications);
     window.addEventListener(PROPERTY_PIPELINE_EVENT, onProperties);
+    window.addEventListener(WORKSPACE_SELECTION_EVENT, onProperties);
     return () => {
       window.removeEventListener(MANAGER_APPLICATIONS_EVENT, onApplications);
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, onProperties);
+      window.removeEventListener(WORKSPACE_SELECTION_EVENT, onProperties);
     };
   }, [open, managerUserId]);
 

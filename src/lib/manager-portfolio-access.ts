@@ -22,7 +22,12 @@ import { PROPERTY_PIPELINE_EVENT } from "@/lib/property-pipeline-events";
 import { MANAGER_APPLICATIONS_EVENT, readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { readProRelationships, syncProRelationshipsFromServer } from "@/lib/pro-relationships";
 import { readCachedAccountLinkInvites } from "@/lib/portal-data-store";
-import { workspaceContainsProperty } from "@/lib/workspaces/selection";
+import {
+  activeWorkspacePropertyOptions,
+  ownedWorkspacePropertyIds,
+  WORKSPACE_SELECTION_EVENT,
+  workspaceContainsProperty,
+} from "@/lib/workspaces/selection";
 import {
   coManagerModuleAllowed,
   hasCoManagerPermission,
@@ -48,6 +53,7 @@ export function ownedPropertyIdsForUser(userId: string): Set<string> {
   const owned = new Set<string>();
   for (const p of readExtraListingsForUser(userId)) owned.add(p.id);
   for (const r of readPendingManagerPropertiesForUser(userId)) owned.add(r.id);
+  for (const id of ownedWorkspacePropertyIds()) owned.add(id);
   return owned;
 }
 
@@ -460,6 +466,10 @@ export function buildManagerPropertyFilterOptions(userId: string | null): Manage
   if (!scopeUserId) return [];
   const labelById = new Map<string, string>();
 
+  for (const option of activeWorkspacePropertyOptions()) {
+    labelById.set(option.id, safePropertyOptionLabel([option.label], option.id));
+  }
+
   for (const p of readScopedExtraListings(scopeUserId)) {
     // A browser-store row with no id has nothing to filter by; skip it rather than crash.
     if (typeof p.id !== "string" || !p.id.trim()) continue;
@@ -601,6 +611,7 @@ export function teamInviteEligiblePropertyIds(userId: string): Set<string> {
 
 export const MANAGER_PORTFOLIO_REFRESH_EVENTS = [
   PROPERTY_PIPELINE_EVENT,
+  WORKSPACE_SELECTION_EVENT,
   "axis-pro-relationships",
   "storage",
   MANAGER_APPLICATIONS_EVENT,

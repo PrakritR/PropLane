@@ -61,6 +61,7 @@ export function AddWorkspace({
   dangerAction,
   footerNote,
   overlay,
+  headerActions,
 }: {
   title: string;
   subtitle?: string;
@@ -106,6 +107,8 @@ export function AddWorkspace({
    * Back restores the last step with values still filled.
    */
   overlay?: ReactNode;
+  /** Icons in the header before Ask PropLane — lease Generate / Upload PDF. */
+  headerActions?: ReactNode;
 }) {
   const confirm = useConfirm();
   const railSteps = useMemo<StepRailItem[]>(
@@ -151,7 +154,12 @@ export function AddWorkspace({
         subtitle={subtitle}
         saveState={saveState}
         onClose={close}
-        headerAside={<ModalAssistantStrip contextHint={assistantContext} storageScopeKey={assistantScopeKey} />}
+        headerAside={
+          <>
+            {headerActions}
+            <ModalAssistantStrip contextHint={assistantContext} storageScopeKey={assistantScopeKey} />
+          </>
+        }
         rail={<StepRail steps={railSteps} current={current} onJump={onJump} />}
         railHeader={
           <>

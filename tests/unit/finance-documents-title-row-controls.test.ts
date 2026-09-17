@@ -37,7 +37,7 @@ describe("Finance and Documents command layout", () => {
     expect(documents).toContain("openDocumentUpload");
   });
 
-  it("renders Finance through a flat left nav without search or header Add", () => {
+  it("renders Finance through a flat left nav without search, with header Add on Income and Expenses", () => {
     const finances = portalSource("pro-finances-panel.tsx");
     const bills = portalSource("pro-bills-panel.tsx");
     const bank = portalSource("pro-bank-reconciliation-panel.tsx");
@@ -47,7 +47,8 @@ describe("Finance and Documents command layout", () => {
     expect(finances).toContain('variant="command"');
     expect(finances).toContain("financesCommandActions");
     expect(finances).not.toContain("finances-search");
-    expect(finances).not.toContain('data-attr="finances-add-income"');
+    expect(finances).toContain('data-attr="finances-add-income-top"');
+    expect(finances).toContain('data-attr="finances-add-expense-top"');
     expect(finances).toContain('data-attr="bank-add-statement"');
     expect(finances).toContain("finances-list-add-income");
 
@@ -87,6 +88,7 @@ describe("Finance and Documents command layout", () => {
     expect(strip).not.toBe("");
     expect(strip).not.toContain("Add charge");
     expect(payments).toContain('data-attr="payments-add-top"');
+    expect(payments).not.toContain("canCreatePayment");
     expect(payments).not.toContain("payments-direction-incoming");
     expect(applications).toContain("titleInlineFilter={null}");
     expect(applications).toContain('variant="command"');

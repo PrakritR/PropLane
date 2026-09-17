@@ -18,6 +18,13 @@ page is broken" or "the seed has no properties" when the data is fine and the
 OWNER moved. When those surfaces disagree, diff the two sources before touching
 either.
 
+List tabs (Add lease, Bookings, Incoming, Finances, services) seed house pickers
+from the active workspace `propertyIds` + `propertyLabels` (`GET /api/workspaces`),
+then overlay the local pipeline. Properties is still the only reader of
+`GET /api/property-records`. An empty local pipeline must not hide houses the
+workspace already named. Header Add stays visible even when the workspace holds
+no houses; the server still refuses unauthorized writes.
+
 - **`POST /api/property-records` never MOVES an owned row from the request body
   — not even for an admin.** Every client posts `managerUserId` straight out of a
   browser-local pipeline bucket (`mirrorLocalPropertyPipelineToServer`,

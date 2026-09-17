@@ -2,17 +2,18 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { FileText, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import { PreviewPanel, WizardSelect } from "@/components/portal/add-workspace/parts";
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { LeaseGenerateModal } from "@/components/portal/lease-generate-modal";
 import { UploadedLeaseReviewModal } from "@/components/portal/uploaded-lease-review-modal";
 import {
   applicationVisibleToPortalUser,
-  collectLinkedPropertyIdsForModule,
-  resolvePropertyLabelForId,
+  buildManagerPropertyFilterOptions,
   syncManagerPortfolioFromServer,
 } from "@/lib/manager-portfolio-access";
 import {
@@ -32,11 +33,8 @@ import {
 import { retryUploadedLeaseParse, uploadAndParseLeasePdf } from "@/lib/uploaded-lease-parse.client";
 import { getRoomChoiceLabel } from "@/lib/rental-application/data";
 import type { UploadedLeaseFieldKey } from "@/lib/uploaded-lease-extraction";
-import {
-  PROPERTY_PIPELINE_EVENT,
-  readExtraListingsForUser,
-  readPendingManagerPropertiesForUser,
-} from "@/lib/demo-property-pipeline";
+import { PROPERTY_PIPELINE_EVENT } from "@/lib/demo-property-pipeline";
+import { WORKSPACE_SELECTION_EVENT } from "@/lib/workspaces/selection";
 import { PropertyResidentDocumentImportModal } from "@/components/portal/property-resident-document-import-modal";
 import type { ParsedResidentDocument } from "@/lib/resident-document-import/types";
 import {
@@ -63,35 +61,12 @@ type PropertyLeaseOption = {
 };
 
 function buildManagerPropertyOptions(managerUserId: string | null): PropertyLeaseOption[] {
-  if (!managerUserId) return [];
-  const seen = new Map<string, PropertyLeaseOption>();
-
-  for (const property of readExtraListingsForUser(managerUserId)) {
-    const propertyId = property.id.trim();
-    if (!propertyId || seen.has(propertyId)) continue;
-    const propertyLabel = displayPropertyLabel(property.buildingName.trim() || property.title);
-    if (!propertyLabel) continue;
-    seen.set(propertyId, { propertyId, propertyLabel });
-  }
-
-  for (const property of readPendingManagerPropertiesForUser(managerUserId)) {
-    const propertyId = property.id.trim();
-    if (!propertyId || seen.has(propertyId)) continue;
-    const propertyLabel = displayPropertyLabel(property.buildingName.trim());
-    if (!propertyLabel) continue;
-    seen.set(propertyId, { propertyId, propertyLabel });
-  }
-
-  for (const propertyId of collectLinkedPropertyIdsForModule(managerUserId, "leases")) {
-    if (!propertyId || seen.has(propertyId)) continue;
-    const propertyLabel = displayPropertyLabel(resolvePropertyLabelForId(propertyId));
-    if (!propertyLabel) continue;
-    seen.set(propertyId, { propertyId, propertyLabel });
-  }
-
-  return [...seen.values()].sort((a, b) =>
-    a.propertyLabel.localeCompare(b.propertyLabel, undefined, { sensitivity: "base" }),
-  );
+  return buildManagerPropertyFilterOptions(managerUserId)
+    .map((option) => ({
+      propertyId: option.id,
+      propertyLabel: displayPropertyLabel(option.label),
+    }))
+    .filter((option) => option.propertyLabel);
 }
 
 type ApprovedResidentOption = {
@@ -190,9 +165,11 @@ export function ManagerAddLeaseModal({
     void syncManagerPortfolioFromServer(managerUserId ?? "", { force: true }).then(onProperties);
     window.addEventListener(MANAGER_APPLICATIONS_EVENT, onApplications);
     window.addEventListener(PROPERTY_PIPELINE_EVENT, onProperties);
+    window.addEventListener(WORKSPACE_SELECTION_EVENT, onProperties);
     return () => {
       window.removeEventListener(MANAGER_APPLICATIONS_EVENT, onApplications);
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, onProperties);
+      window.removeEventListener(WORKSPACE_SELECTION_EVENT, onProperties);
     };
   }, [open, managerUserId]);
 
@@ -395,6 +372,26 @@ export function ManagerAddLeaseModal({
           discardTitle="Discard this lease?"
           assistantContext="Add a lease for a property and resident. Generate from PropLane or upload a signed PDF."
           assistantScopeKey="Add lease"
+          headerActions={
+            <>
+              <PortalIconAction
+                icon={FileText}
+                label="Generate"
+                active={method === "generate"}
+                disabled={isNewResident || busy}
+                data-attr="add-lease-method-generate"
+                onClick={() => setLeaseMethod("generate")}
+              />
+              <PortalIconAction
+                icon={Upload}
+                label="Upload PDF"
+                active={method === "upload"}
+                disabled={busy}
+                data-attr="add-lease-method-upload"
+                onClick={() => setLeaseMethod("upload")}
+              />
+            </>
+          }
           sidePanel={
             <PreviewPanel
               title="Lease"
@@ -477,25 +474,8 @@ export function ManagerAddLeaseModal({
           {stepId === "lease" ? (
             <StepColumn>
               <StepHeading title="Lease" />
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  variant={method === "generate" ? "primary" : "outline"}
-                  disabled={isNewResident || busy}
-                  data-attr="add-lease-method-generate"
-                  onClick={() => setLeaseMethod("generate")}
-                >
-                  Generate
-                </Button>
-                <Button
-                  type="button"
-                  variant={method === "upload" ? "primary" : "outline"}
-                  disabled={busy}
-                  data-attr="add-lease-method-upload"
-                  onClick={() => setLeaseMethod("upload")}
-                >
-                  Upload PDF
-                </Button>
+              <div className="rounded-2xl border border-border bg-card px-4 py-4 text-[16px] font-bold text-foreground">
+                {method === "upload" ? "Upload a signed PDF" : "Generate from PropLane"}
               </div>
             </StepColumn>
           ) : null}

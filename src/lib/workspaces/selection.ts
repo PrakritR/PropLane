@@ -82,6 +82,39 @@ export function activeWorkspacePropertyIds(): string[] | null {
   return active.propertyIds.map((id) => id.trim()).filter(Boolean);
 }
 
+export type WorkspacePropertyOption = { id: string; label: string };
+
+/**
+ * Houses the active workspace already named — ids and labels from
+ * `GET /api/workspaces`, so pickers do not wait on the local property pipeline.
+ */
+export function activeWorkspacePropertyOptions(): WorkspacePropertyOption[] {
+  const active = activeWorkspace();
+  if (!active) return [];
+  const labels = active.propertyLabels ?? {};
+  return active.propertyIds
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .map((id) => {
+      const label = String(labels[id] ?? "").trim();
+      return { id, label: label || id };
+    });
+}
+
+/** Houses on workspaces this account owns — never a co-managed workspace. */
+export function ownedWorkspacePropertyIds(): string[] {
+  if (!selection) return [];
+  const ids: string[] = [];
+  for (const workspace of selection.workspaces) {
+    if (!workspace.owned) continue;
+    for (const raw of workspace.propertyIds) {
+      const id = raw.trim();
+      if (id) ids.push(id);
+    }
+  }
+  return ids;
+}
+
 /**
  * Settings "Applies to" lists. `null` selection means not narrowing yet (tests
  * and first paint) — pass the options through. An empty array is a workspace

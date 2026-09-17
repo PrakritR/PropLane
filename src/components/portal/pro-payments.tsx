@@ -53,7 +53,7 @@ import {
   buildManagerPropertyFilterOptions,
   collectLinkedPropertyIdsForModule,
   hasLinkedPropertyModuleLevel,
-  ownedPropertyIdsForUser,
+  MANAGER_PORTFOLIO_REFRESH_EVENTS,
 } from "@/lib/manager-portfolio-access";
 import { ledgerRoomNumberForApplication } from "@/lib/rental-application/data";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
@@ -345,6 +345,18 @@ export function ManagerPayments({
   }, [authReady, userId]);
 
   useEffect(() => {
+    const on = () => setPropertyTick((n) => n + 1);
+    for (const eventName of MANAGER_PORTFOLIO_REFRESH_EVENTS) {
+      window.addEventListener(eventName, on);
+    }
+    return () => {
+      for (const eventName of MANAGER_PORTFOLIO_REFRESH_EVENTS) {
+        window.removeEventListener(eventName, on);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!authReady || !userId || isDemoModeActive()) return;
     let cancelled = false;
     void fetch("/api/portal/purge-orphaned-records", {
@@ -441,14 +453,8 @@ export function ManagerPayments({
 
   // Payment setup decides what residents owe, so the owner keeps final say over
   // it: a co-manager granted only VIEW on Payments keeps the list and loses the
-  // controls. The read-level set above is what may be SHOWN; these two decide
-  // what may be OFFERED, and the server enforces the same grant either way.
-  const canCreatePayment = useMemo(() => {
-    if (!userId) return true;
-    if (ownedPropertyIdsForUser(userId).size > 0) return true;
-    return collectLinkedPropertyIdsForModule(userId, "payments", "edit").size > 0;
-  }, [userId, propertyTick, applicationTick, ledgerDataVersion]);
-
+  // row edit/delete controls. Header Add stays visible; the server still refuses
+  // unauthorized writes.
   const canEditPaymentRow = useCallback(
     (propertyId: string | undefined) =>
       !userId || !propertyId ? true : hasLinkedPropertyModuleLevel(userId, propertyId, "payments", "edit"),
@@ -756,9 +762,7 @@ export function ManagerPayments({
           bucket === "overdue"
             ? []
             : direction === "incoming"
-              ? canCreatePayment
-                ? [{ label: "Add charge", onClick: () => setAddOpen(true), dataAttr: "payments-empty-add" }]
-                : []
+              ? [{ label: "Add charge", onClick: () => setAddOpen(true), dataAttr: "payments-empty-add" }]
               : [{ label: "Add payment", onClick: () => setAddOutgoingOpen(true), dataAttr: "payments-empty-add-outgoing" }],
       };
 
@@ -777,7 +781,7 @@ export function ManagerPayments({
         paymentTab={paymentTab}
         listBasePath={basePath}
         direction={direction}
-        onAddPayment={canCreatePayment ? () => setAddOpen(true) : undefined}
+        onAddPayment={() => setAddOpen(true)}
         emptyCard={paymentsEmptyCard}
         groupMode={groupMode}
         linkedPropertyIds={linkedPaymentPropertyIds}
@@ -867,9 +871,7 @@ export function ManagerPayments({
         actions={paymentsListActions}
         primary={
           direction === "incoming" ? (
-            canCreatePayment ? (
-              <PortalPrimaryIconAction label="Add charge" data-attr="payments-add-top" onClick={() => setAddOpen(true)} />
-            ) : undefined
+            <PortalPrimaryIconAction label="Add charge" data-attr="payments-add-top" onClick={() => setAddOpen(true)} />
           ) : (
             <PortalPrimaryIconAction label="Add payment" data-attr="payments-add-outgoing-top" onClick={() => setAddOutgoingOpen(true)} />
           )

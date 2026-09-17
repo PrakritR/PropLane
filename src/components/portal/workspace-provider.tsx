@@ -70,8 +70,19 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       const unknown = managerPropertyRowsForStage([2, 3, 5], scopeUserId)
         .map((row) => row.listingId?.trim() || row.adminRefId.trim())
         .filter((id) => id && !known.has(id) && !refreshedForRef.current.has(id));
-      if (unknown.length === 0) return;
+      const unlabeledKey = "__unlabeled__";
+      const unlabeled =
+        !refreshedForRef.current.has(unlabeledKey) &&
+        payloadRef.current.workspaces.some((workspace) =>
+          workspace.propertyIds.some((raw) => {
+            const id = raw.trim();
+            if (!id) return false;
+            return !String(workspace.propertyLabels?.[id] ?? "").trim();
+          }),
+        );
+      if (unknown.length === 0 && !unlabeled) return;
       for (const id of unknown) refreshedForRef.current.add(id);
+      if (unlabeled) refreshedForRef.current.add(unlabeledKey);
       inFlight = true;
       void refresh().finally(() => {
         inFlight = false;
