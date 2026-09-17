@@ -744,7 +744,14 @@ export function ManagerMessagingSettingsPanel({
                   variant="primary"
                   data-attr="messaging-open-billing"
                 >
-                  <Link href="/portal/profile?tab=billing">
+                  <Link
+                    href={
+                      !status.entitlement.eligible &&
+                      status.entitlement.reason === "trialing"
+                        ? "/portal/profile?tab=billing&activatePaid=1"
+                        : "/portal/profile?tab=billing"
+                    }
+                  >
                     {!status.entitlement.eligible &&
                     status.entitlement.reason === "trialing"
                       ? "Activate paid plan"
@@ -814,17 +821,6 @@ export function ManagerMessagingSettingsPanel({
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
               <p>{error}</p>
             </div>
-          ) : null}
-
-          {/* They said yes during setup but cannot act on it yet — usually a
-              plan that does not include messaging. Saying so is the whole point
-              of recording the intent; dropping it silently would leave them
-              waiting for a number nobody is getting. */}
-          {status.requestedAtSignup && !status.canRequest && !status.number?.phoneNumber ? (
-            <p className="text-xs text-muted" data-attr="messaging-number-signup-intent">
-              You asked for a PropLane number when you created this account. It is waiting on your plan — once messaging
-              is included, you can request it here.
-            </p>
           ) : null}
 
           {status.canRequest && !planMessage ? (

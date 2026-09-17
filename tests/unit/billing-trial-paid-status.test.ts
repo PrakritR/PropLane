@@ -10,6 +10,9 @@ describe("Billing names trial vs paid and work number stays paid-only", () => {
     expect(plan).toContain('data-attr="billing-plan-status"');
     expect(plan).toContain('data-attr="billing-activate-paid-plan"');
     expect(plan).toContain("Activate paid plan");
+    expect(plan).not.toContain("billing-plan-promo-code");
+    expect(plan).toContain('data-attr="plan-promo-code-input"');
+    expect(plan).toContain('activatePaid');
   });
 
   it("Work number locks free and trial behind an upgrade banner", () => {
@@ -21,6 +24,7 @@ describe("Billing names trial vs paid and work number stays paid-only", () => {
     expect(messaging).toContain("Free accounts cannot use a work number.");
     expect(messaging).toContain('data-attr="messaging-work-number-plan-lock"');
     expect(messaging).toContain("Activate paid plan");
+    expect(messaging).toContain("/portal/profile?tab=billing&activatePaid=1");
     expect(messaging).not.toContain('data-attr="messaging-number-status-refresh"');
     expect(messaging).not.toContain('data-attr="messaging-announce-residents-open"');
     expect(messaging).toContain("refreshEligibility: true");

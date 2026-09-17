@@ -2,11 +2,7 @@
 
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  PortalSettingsGroup,
-  PortalSettingsRow,
-  PortalSettingsSection,
-} from "@/components/portal/portal-settings-ui";
+import { PortalSettingsSection } from "@/components/portal/portal-settings-ui";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { EmbeddedCheckoutMount } from "@/components/stripe/embedded-checkout";
@@ -141,166 +137,137 @@ export function ManagerCommsBillingPanel() {
     void load();
   };
   const payment = summary?.purchases.find((p) => p.id === purchaseId);
+  const purchasesPaused = Boolean(
+    summary && (!summary.paygEnabled || summary.billingPaused),
+  );
+  const canBuy = Boolean(summary && isNative === false && !purchasesPaused);
+  const includedUsedCents = summary
+    ? summary.wallet.allowanceCents - summary.wallet.includedRemainingCents
+    : 0;
+  const resetLabel = summary
+    ? new Date(summary.periodEnd).toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+      })
+    : "";
 
   return (
-    <PortalSettingsSection
-      title="Communication credit"
-    >
+    <PortalSettingsSection title="Communication credit">
       {loading && !summary ? (
-        <p role="status" className="text-sm text-muted">
-          Loading communication balance…
-        </p>
+        <div
+          className="overflow-hidden rounded-2xl border border-border bg-card p-5"
+          role="status"
+        >
+          <div className="h-4 w-24 animate-pulse rounded bg-accent" />
+          <div className="mt-3 h-8 w-40 animate-pulse rounded bg-accent" />
+        </div>
       ) : null}
       {error ? (
-        <div role="alert" className="space-y-3">
-          <p className="text-sm text-danger">
-            {error} Sending and purchases require a verified balance.
-          </p>
+        <div
+          role="alert"
+          className="space-y-3 overflow-hidden rounded-2xl border border-border bg-card p-5"
+        >
+          <p className="text-sm text-danger">{error}</p>
           <Button variant="outline" onClick={() => load()}>
             Try again
           </Button>
         </div>
       ) : null}
       {summary && !error ? (
-        <>
-          <PortalSettingsGroup>
-            <PortalSettingsRow
-              className="flex-col items-start sm:flex-row sm:items-center [&>div]:max-w-full"
-              label="Available communication credit"
-            >
-              <div className="flex flex-wrap items-center gap-4">
-                <p
-                  className="text-3xl font-semibold tracking-tight tabular-nums"
-                  data-attr="comms-available-credit"
-                >
-                  {formatUsdFromCents(summary.wallet.remainingCents)}{" "}
-                  <span className="text-sm font-normal text-muted">
-                    remaining
-                  </span>
-                </p>
-                {isNative === false ? (
-                  <Button
-                    disabled={
-                      !summary.paygEnabled || summary.billingPaused || loading
-                    }
-                    data-attr="comms-buy-credit"
-                    onClick={() => {
-                      setBuyOpen(true);
-                      setCheckoutError(null);
-                    }}
-                  >
-                    Buy more usage
-                  </Button>
-                ) : (
-                  <p className="text-sm text-muted">
-                    Additional credit purchases are not available in this app
-                    yet.
-                  </p>
-                )}
-              </div>
-            </PortalSettingsRow>
-            <div className="grid min-w-0 gap-6 p-5 sm:grid-cols-2">
-              <div>
-                <p className="text-sm font-semibold">Included this month</p>
-                <progress
-                  className="my-3 h-2 w-full overflow-hidden rounded-full accent-primary"
-                  max={summary.wallet.allowanceCents}
-                  value={
-                    summary.wallet.allowanceCents -
-                    summary.wallet.includedRemainingCents
-                  }
-                  aria-label="Included communication credit used"
-                />
-                <p className="text-sm tabular-nums">
-                  {formatUsdFromCents(
-                    summary.wallet.allowanceCents -
-                      summary.wallet.includedRemainingCents,
-                  )}{" "}
-                  used of {formatUsdFromCents(summary.wallet.allowanceCents)}
-                </p>
-                <p className="mt-1 text-xs text-muted">
-                  Resets{" "}
-                  {new Date(summary.periodEnd).toLocaleString(undefined, {
-                    month: "short",
-                    day: "numeric",
-                    hour: "numeric",
-                    minute: "2-digit",
-                    timeZoneName: "short",
-                  })}{" "}
-                  (1st of the month, UTC).
-                </p>
-                {summary.wallet.allowanceCents !==
-                summary.wallet.nextAllowanceCents ? (
-                  <p className="mt-2 text-xs text-muted">
-                    Your existing allowance is preserved this month. Next month:{" "}
-                    {formatUsdFromCents(summary.wallet.nextAllowanceCents)}.
-                  </p>
-                ) : null}
-              </div>
-              <div>
-                <p className="text-sm font-semibold">Purchased credit</p>
-                <p className="my-3 text-2xl font-semibold tabular-nums">
-                  {formatUsdFromCents(summary.wallet.purchasedRemainingCents)}
-                </p>
-                <p className="text-xs text-muted">
-                  Carries forward. Used after included credit. No automatic
-                  recharge.
-                </p>
-              </div>
+        <div className="overflow-hidden rounded-2xl border border-border bg-card">
+          <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold">Remaining</p>
+              <p
+                className="mt-1 text-3xl font-semibold tracking-tight tabular-nums"
+                data-attr="comms-available-credit"
+              >
+                {formatUsdFromCents(summary.wallet.remainingCents)}
+              </p>
             </div>
-          </PortalSettingsGroup>
-          {summary.blockMessage ? (
-            <p
-              role="status"
-              className="rounded-xl border border-border bg-primary/5 p-3 text-sm"
-            >
-              {summary.blockMessage} Your number and message history remain
-              available.
-            </p>
-          ) : summary.wallet.includedRemainingCents <=
-            summary.wallet.allowanceCents * 0.2 ? (
-            <p className="text-sm text-muted">
-              You’ve used at least 80% of your included credit. Buy more to keep
-              communication available.
-            </p>
-          ) : null}
-          {!summary.paygEnabled ? (
-            <p className="text-sm text-muted">
-              Credit purchases are temporarily unavailable. Your existing
-              balance is unchanged.
-            </p>
+            {canBuy ? (
+              <Button
+                data-attr="comms-buy-credit"
+                disabled={loading}
+                onClick={() => {
+                  setBuyOpen(true);
+                  setCheckoutError(null);
+                }}
+              >
+                Buy credit
+              </Button>
+            ) : purchasesPaused ? (
+              <span className="rounded-full bg-accent px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-muted">
+                Purchases paused
+              </span>
+            ) : null}
+          </div>
+          <div className="grid min-w-0 border-t border-border sm:grid-cols-2">
+            <div className="p-5">
+              <p className="text-sm font-semibold">Included this month</p>
+              <progress
+                className="my-3 h-2 w-full overflow-hidden rounded-full accent-primary"
+                max={Math.max(summary.wallet.allowanceCents, 1)}
+                value={includedUsedCents}
+                aria-label="Included communication credit used"
+              />
+              <p className="text-sm tabular-nums">
+                {formatUsdFromCents(includedUsedCents)} of{" "}
+                {formatUsdFromCents(summary.wallet.allowanceCents)}
+              </p>
+            </div>
+            <div className="border-t border-border p-5 sm:border-l sm:border-t-0">
+              <p className="text-sm font-semibold">Purchased</p>
+              <p className="mt-3 text-2xl font-semibold tabular-nums">
+                {formatUsdFromCents(summary.wallet.purchasedRemainingCents)}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-4 border-t border-border px-5 py-3.5 text-sm">
+            <span className="font-medium">Resets</span>
+            <strong>{resetLabel}</strong>
+          </div>
+          {summary.wallet.allowanceCents !==
+          summary.wallet.nextAllowanceCents ? (
+            <div className="flex items-center justify-between gap-4 border-t border-border px-5 py-3.5 text-sm">
+              <span className="font-medium">Next month</span>
+              <strong>
+                {formatUsdFromCents(summary.wallet.nextAllowanceCents)}
+              </strong>
+            </div>
           ) : null}
           {purchaseId ? (
             <div
-              className="space-y-2 rounded-xl border border-border p-3"
+              className="space-y-2 border-t border-border px-5 py-3.5"
               role="status"
             >
               <p className="text-sm">
                 {payment?.status === "paid"
-                  ? payment.reversedCents > 0 ? `${formatUsdFromCents(payment.creditCents)} purchased; ${formatUsdFromCents(payment.reversedCents)} reversed. Your balance reflects the adjustment.` : `${formatUsdFromCents(payment.creditCents)} communication credit added.`
+                  ? payment.reversedCents > 0
+                    ? `${formatUsdFromCents(payment.creditCents)} purchased; ${formatUsdFromCents(payment.reversedCents)} reversed.`
+                    : `${formatUsdFromCents(payment.creditCents)} added.`
                   : payment?.status === "reversed"
-                    ? "This purchase was reversed. Your balance reflects the adjustment."
-                    : "Payment confirmation is pending or checkout was canceled. Credit is added only after payment is verified."}
+                    ? "This purchase was reversed."
+                    : "Payment confirmation is pending or checkout was canceled."}
               </p>
-              <Button
-                variant="outline"
-                onClick={() => load()}
-                disabled={loading}
-              >
+              <Button variant="outline" onClick={() => load()} disabled={loading}>
                 Refresh balance
               </Button>
             </div>
           ) : null}
-          <details className="text-sm">
-            <summary className="cursor-pointer font-semibold">
-              Usage rates and history
+          <details className="border-t border-border text-sm">
+            <summary className="cursor-pointer list-none px-5 py-3.5 font-medium [&::-webkit-details-marker]:hidden">
+              <span className="flex items-center justify-between gap-4">
+                Usage rates
+                <span aria-hidden>▸</span>
+              </span>
             </summary>
-            <div className="mt-3 space-y-2">
+            <div className="space-y-0 px-5 pb-4">
               {(Object.keys(summary.ratesCents) as CommsBillingMeter[]).map(
                 (meter) => (
                   <div
                     key={meter}
-                    className="flex flex-wrap justify-between gap-3 border-b border-border py-2"
+                    className="flex flex-wrap justify-between gap-3 border-t border-border py-2.5"
                   >
                     <span>{COMMS_BILLING_METER_LABELS[meter]}</span>
                     <span className="tabular-nums">
@@ -311,88 +278,90 @@ export function ManagerCommsBillingPanel() {
                   </div>
                 ),
               )}
-            </div>
-            <p className="my-3 text-xs text-muted">
-              Long or Unicode texts may use multiple billable segments. Voice
-              speech recognition and recording are additional meters. Email and
-              portal messages do not consume this credit.
-            </p>
-            {summary.meterTotals.length ? (
-              summary.meterTotals.map((row) => (
-                <p key={row.meter} className="flex justify-between gap-3 py-1">
-                  <span>
-                    {row.label} × {row.quantity}
-                  </span>
-                  <span>{formatUsdFromCents(row.totalCents)}</span>
+              {summary.meterTotals.length ? (
+                summary.meterTotals.map((row) => (
+                  <div
+                    key={row.meter}
+                    className="flex justify-between gap-3 border-t border-border py-2.5"
+                  >
+                    <span>
+                      {row.label} × {row.quantity}
+                    </span>
+                    <span>{formatUsdFromCents(row.totalCents)}</span>
+                  </div>
+                ))
+              ) : (
+                <p className="border-t border-border py-2.5 text-muted">
+                  No usage this month
                 </p>
-              ))
-            ) : (
-              <p className="text-muted">No usage recorded yet this month.</p>
-            )}
-            <p className="my-3 text-xs text-muted">
-              Usage includes reservations while delivery is pending and
-              unavoidable incoming usage that PropLane absorbs after your
-              balance is exhausted.
-            </p>
-            <h3 className="mt-5 font-semibold">Recent credit purchases</h3>
-            {summary.purchases.length ? (
-              summary.purchases.map((p) => (
-                <div
-                  key={p.id}
-                  className="flex flex-wrap justify-between gap-2 border-b border-border py-3"
-                >
-                  <span>
-                    {new Date(p.createdAt).toLocaleDateString()} ·{" "}
-                    {formatUsdFromCents(p.creditCents)}
-                  </span>
-                  <span>
-                    {p.status === "paid"
-                      ? "Paid"
-                      : p.status === "reversed"
-                        ? "Reversed"
-                        : "Awaiting payment"}
-                    {p.reversedCents > 0
-                      ? ` · ${formatUsdFromCents(p.reversedCents)} reversed`
-                      : ""}
-                  </span>
-                </div>
-              ))
-            ) : (
-              <p className="mt-2 text-muted">No credit purchases yet.</p>
-            )}
+              )}
+            </div>
           </details>
-          <PortalSettingsGroup>
-            <PortalSettingsRow
-              label="Budget alerts"
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <label className="sr-only" htmlFor="comms-budget">
-                  Monthly usage alert amount
-                </label>
-                <input
-                  id="comms-budget"
-                  inputMode="decimal"
-                  value={budget}
-                  onChange={(e) => setBudget(e.target.value)}
-                  placeholder="Optional amount"
-                  className="w-36 rounded-xl border border-border bg-background px-3 py-2"
-                />
-                <Button variant="outline" onClick={() => saveBudget()}>
-                  Save alerts
-                </Button>
-              </div>
-            </PortalSettingsRow>
-            {notice ? (
-              <p role="status" className="text-sm text-muted">
-                {notice}
-              </p>
-            ) : null}
-          </PortalSettingsGroup>
-        </>
+          <details className="border-t border-border text-sm">
+            <summary className="cursor-pointer list-none px-5 py-3.5 font-medium [&::-webkit-details-marker]:hidden">
+              <span className="flex items-center justify-between gap-4">
+                Purchases
+                <span aria-hidden>▸</span>
+              </span>
+            </summary>
+            <div className="px-5 pb-4">
+              {summary.purchases.length ? (
+                summary.purchases.map((p) => (
+                  <div
+                    key={p.id}
+                    className="flex flex-wrap justify-between gap-2 border-t border-border py-2.5"
+                  >
+                    <span>
+                      {new Date(p.createdAt).toLocaleDateString()} ·{" "}
+                      {formatUsdFromCents(p.creditCents)}
+                    </span>
+                    <span>
+                      {p.status === "paid"
+                        ? "Paid"
+                        : p.status === "reversed"
+                          ? "Reversed"
+                          : "Awaiting payment"}
+                      {p.reversedCents > 0
+                        ? ` · ${formatUsdFromCents(p.reversedCents)} reversed`
+                        : ""}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <p className="border-t border-border py-2.5 text-muted">
+                  No purchases
+                </p>
+              )}
+            </div>
+          </details>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-3.5">
+            <label className="text-sm font-medium" htmlFor="comms-budget">
+              Alert at
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                id="comms-budget"
+                inputMode="decimal"
+                value={budget}
+                onChange={(e) => setBudget(e.target.value)}
+                placeholder="$"
+                className="w-28 rounded-xl border border-border bg-background px-3 py-2"
+              />
+              <Button variant="outline" onClick={() => saveBudget()}>
+                Save
+              </Button>
+            </div>
+          </div>
+          {notice ? (
+            <p role="status" className="border-t border-border px-5 py-3 text-sm">
+              {notice}
+            </p>
+          ) : null}
+        </div>
       ) : null}
       <Modal
         open={buyOpen}
-        title="Buy more usage"
+        title="Buy credit"
         onClose={close}
         assistantStrip={false}
         scrollableContent
@@ -404,16 +373,16 @@ export function ManagerCommsBillingPanel() {
           />
         ) : (
           <div className="space-y-5">
-            <p className="text-sm text-muted">
-              Add credit for texts, calls and work-number AI without changing
-              your plan.
-            </p>
             <fieldset className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <legend className="sr-only">Credit amount</legend>
               {COMMS_CREDIT_PACKS_CENTS.map((amount) => (
                 <label
                   key={amount}
-                  className={`cursor-pointer rounded-xl border p-4 text-center ${pack === amount ? "border-primary bg-primary/5" : "border-border"}`}
+                  className={`cursor-pointer rounded-xl border p-4 text-center text-sm font-bold ${
+                    pack === amount
+                      ? "border-primary bg-primary/5 text-primary"
+                      : "border-border"
+                  }`}
                 >
                   <input
                     type="radio"
@@ -422,20 +391,16 @@ export function ManagerCommsBillingPanel() {
                     checked={pack === amount}
                     onChange={() => setPack(amount)}
                     disabled={checkoutLoading}
-                    className="mr-2 accent-primary"
+                    className="sr-only"
                   />
                   {formatUsdFromCents(amount)}
                 </label>
               ))}
             </fieldset>
-            <div className="flex justify-between border-y border-border py-4">
-              <span>Total / communication credit</span>
+            <div className="flex justify-between border-y border-border py-4 text-sm">
+              <span>Total</span>
               <strong>{formatUsdFromCents(pack)}</strong>
             </div>
-            <p className="text-xs leading-relaxed text-muted">
-              One-time purchase. No automatic recharge. Unused purchased credit
-              carries forward and is used after your monthly included credit.
-            </p>
             <Button
               onClick={() => checkout()}
               disabled={checkoutLoading}

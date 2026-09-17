@@ -565,6 +565,20 @@ describe("ManagerMessagingSettingsPanel", () => {
     expect(link.getAttribute("href")).toBe("/portal/profile?tab=billing");
   });
 
+  it("sends trial managers to billing checkout", async () => {
+    const trialPlan: ManagerMessagingNumberStatus = {
+      ...pausedStatus,
+      planTier: "pro",
+      entitlement: { eligible: false, reason: "trialing" },
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(trialPlan)));
+    render(<ManagerMessagingSettingsPanel />);
+
+    const link = await screen.findByRole("link", { name: "Activate paid plan" });
+    expect(link.getAttribute("href")).toBe("/portal/profile?tab=billing&activatePaid=1");
+    expect(screen.queryByRole("button", { name: "Request work number" })).toBeNull();
+  });
+
   it("never shows a paid manager the free-tier upsell while entitlement is unreconciled", async () => {
     // The reported bug: a Business account whose sms_manager_entitlements row
     // has not been written yet resolves to `plan_unreadable`. The upsell must
