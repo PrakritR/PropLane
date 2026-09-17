@@ -16,10 +16,11 @@ import { PortalSettingsScopeTag } from "@/components/portal/portal-settings-ui";
 /**
  * Per-property scope for Operations settings (PLAN-0916-1040).
  *
- * One picker at the top of the pane sets which house the sections below apply
+ * A sticky bar at the top of a pane (when the workspace has houses) and the
+ * compact picker in each section header both set which house the sections apply
  * to; "" is the workspace default ("All properties"). The panels read the scope
  * through {@link useSettingsPropertyScope} and add `?propertyId=` to their
- * fetches. The picker is always shown when the workspace has houses.
+ * fetches.
  *
  * The hook is safe to call OUTSIDE a provider — it returns the workspace scope
  * (`propertyId: ""`, no-op reporters) — so a panel without houses still reads
@@ -131,6 +132,51 @@ export function SettingsPropertyScopeProvider({
 
 const ALL_PROPERTIES = "__all__";
 
+function SettingsPropertyScopePicker({
+  compact,
+  dataAttr,
+  fullWidth,
+}: {
+  compact?: boolean;
+  dataAttr: string;
+  fullWidth?: boolean;
+}) {
+  const scope = useSettingsPropertyScope();
+  const pickerOptions = [
+    { value: ALL_PROPERTIES, label: "All properties" },
+    ...scope.options.map((o) => ({ value: o.id, label: o.label })),
+  ];
+  const selectAllFooter = (close: () => void) => (
+    <button
+      type="button"
+      data-attr="settings-property-scope-select-all"
+      className="w-full rounded-lg px-2 py-1.5 text-left text-[13px] font-semibold text-primary hover:bg-accent/60"
+      onClick={() => {
+        scope.setPropertyId("");
+        close();
+      }}
+    >
+      Select all
+    </button>
+  );
+
+  return (
+    <FieldSingleSelect
+      label="Property"
+      hideLabel
+      value={scope.propertyId || ALL_PROPERTIES}
+      onChange={(next) => scope.setPropertyId(next === ALL_PROPERTIES ? "" : next)}
+      options={pickerOptions}
+      disabled={scope.loading}
+      dataAttr={dataAttr}
+      variant="pill"
+      triggerClassName={`${FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS} max-w-[15rem]`}
+      wrapperClassName={fullWidth ? "w-full" : compact ? "max-w-[15rem]" : undefined}
+      menuFooter={selectAllFooter}
+    />
+  );
+}
+
 /**
  * The scope bar — one property picker pinned at the top of a settings pane.
  * Always visible when the workspace has houses. "" is All properties.
@@ -174,55 +220,16 @@ export function SettingsPropertyScopeBar() {
       <PortalSettingsScopeTag variant="muted">Uses workspace defaults</PortalSettingsScopeTag>
     );
 
-  const selectAllFooter = (close: () => void) => (
-    <button
-      type="button"
-      data-attr="settings-property-scope-select-all"
-      className="w-full rounded-lg px-2 py-1.5 text-left text-[13px] font-semibold text-primary hover:bg-accent/60"
-      onClick={() => {
-        scope.setPropertyId("");
-        close();
-      }}
-    >
-      Select all
-    </button>
-  );
-
-  const pickerOptions = [
-    { value: ALL_PROPERTIES, label: "All properties" },
-    ...options.map((o) => ({ value: o.id, label: o.label })),
-  ];
-
   return (
     <div className="sticky top-0 z-[3] mb-5 flex flex-col gap-2.5 rounded-2xl border border-border bg-card px-3.5 py-2.5 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-center gap-2.5">
         <span className="text-[13px] font-semibold text-foreground">Property</span>
         <span className="hidden sm:inline-flex">
-          <FieldSingleSelect
-            label="Property"
-            value={propertyId || ALL_PROPERTIES}
-            onChange={(next) => scope.setPropertyId(next === ALL_PROPERTIES ? "" : next)}
-            options={pickerOptions}
-            disabled={scope.loading}
-            dataAttr="settings-property-scope"
-            variant="pill"
-            triggerClassName={`${FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS} max-w-[15rem]`}
-            menuFooter={selectAllFooter}
-          />
+          <SettingsPropertyScopePicker dataAttr="settings-property-scope" />
         </span>
       </div>
       <span className="sm:hidden">
-        <FieldSingleSelect
-          label="Property"
-          hideLabel
-          value={propertyId || ALL_PROPERTIES}
-          onChange={(next) => scope.setPropertyId(next === ALL_PROPERTIES ? "" : next)}
-          options={pickerOptions}
-          disabled={scope.loading}
-          dataAttr="settings-property-scope-mobile"
-          wrapperClassName="w-full"
-          menuFooter={selectAllFooter}
-        />
+        <SettingsPropertyScopePicker dataAttr="settings-property-scope-mobile" fullWidth />
       </span>
       {right ? <div className="flex items-center">{right}</div> : null}
     </div>
@@ -230,16 +237,9 @@ export function SettingsPropertyScopeBar() {
 }
 
 /**
- * The section-header echo of the current scope — replaces the static
- * "All properties" tag on an Operations section so a header always names the
- * house whose settings it is showing.
+ * Section-header property picker — the same All properties / house / Select all
+ * menu as the top bar, in the slot that used to be a static "All properties" tag.
  */
 export function SettingsPropertyScopeEcho() {
-  const scope = useSettingsPropertyScope();
-  if (!scope.propertyId) return <PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>;
-  const label = scope.options.find((o) => o.id === scope.propertyId)?.label ?? "This property";
-  const inherited = !scope.overriddenPropertyIds.includes(scope.propertyId);
-  return (
-    <PortalSettingsScopeTag variant={inherited ? "muted" : "default"}>{label}</PortalSettingsScopeTag>
-  );
+  return <SettingsPropertyScopePicker compact dataAttr="settings-property-scope-echo" />;
 }

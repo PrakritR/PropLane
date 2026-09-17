@@ -190,9 +190,11 @@ describe("a section is never titled the same as the module that contains it", ()
    * repeats that name draws the word twice, one line apart -- which is exactly
    * what Bookings, Lease, Applications, Services, Inspections and Residents did.
    *
-   * Tours ("Tour booking" / "Tour reminders") and Tasks ("Task reminders" /
-   * "Lifecycle automation") were always right: a section is titled for what it
-   * contains, not for where it lives.
+   * Tours, Tasks, Bookings, and Communication now title sections for what they
+   * contain (Booking, Reminders, Automation) rather than repeating the rail.
+   * "Reminders" is also the automation-hub rail label; that noun is allowed on
+   * other modules because the page heading there is Bookings / Tours / Lease,
+   * not Reminders.
    */
   it("no panel's section title is just its rail label", () => {
     const source = readFileSync(
@@ -201,12 +203,41 @@ describe("a section is never titled the same as the module that contains it", ()
     );
     const sectionTitles = Array.from(source.matchAll(/title="([^"]+)"/g)).map((m) => m[1]!);
     const railLabels = MANAGER_PORTAL_SETTINGS_TABS.map((tab) => tab.label);
+    const contentNounsSharedAcrossModules = new Set(["Reminders"]);
 
-    const duplicated = sectionTitles.filter((title) => railLabels.includes(title));
+    const duplicated = sectionTitles.filter(
+      (title) => railLabels.includes(title) && !contentNounsSharedAcrossModules.has(title),
+    );
     expect(
       duplicated,
       `these section titles repeat the module name the host already shows: ${duplicated.join(", ")}`,
     ).toEqual([]);
+
+    const hub = readFileSync(
+      join(process.cwd(), "src/components/portal/pro-portal-automation-settings-panel.tsx"),
+      "utf8",
+    );
+    expect(hub).not.toMatch(/title="Reminders"/);
+  });
+  it("module sections do not repeat the tab name in the title", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/components/portal/pro-portal-settings-panels.tsx"),
+      "utf8",
+    );
+    expect(source).not.toContain('title="Inbox automation"');
+    expect(source).not.toContain('title="Booking reminders"');
+    expect(source).not.toContain('title="Application reminders"');
+    expect(source).not.toContain('title="Application handling"');
+    expect(source).not.toContain('title="Task reminders"');
+    expect(source).not.toContain('title="Inspection reminders"');
+    expect(source).not.toContain('title="Tour reminders"');
+    expect(source).not.toContain('title="Tour booking"');
+    expect(source).not.toContain('title="Visit reminders"');
+    expect(source).not.toContain('title="Signing reminders"');
+    expect(source).not.toContain('title="Outgoing payment reminders"');
+    expect(source).not.toContain('title="Lease ending"');
+    expect(source).not.toContain('title="Lease documents"');
+    expect(source).not.toContain("PortalSettingsScopeTag>All properties");
   });
 });
 
