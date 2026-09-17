@@ -1,16 +1,23 @@
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { WorkOrderBid } from "@/lib/work-order-bids";
 
-/** Vendor Services tabs — matches how jobs actually flow. */
-export type VendorWorkOrderTab = "quote" | "tour" | "scheduled" | "completed";
+/** Vendor Services tabs — same row as manager Tours (Pending / Upcoming / Past). */
+export type VendorWorkOrderTab = "pending" | "upcoming" | "past";
 
-export const VENDOR_WORK_ORDER_TAB_ORDER: VendorWorkOrderTab[] = ["quote", "tour", "scheduled", "completed"];
+export const VENDOR_WORK_ORDER_TAB_ORDER: VendorWorkOrderTab[] = ["pending", "upcoming", "past"];
 
 export const VENDOR_WORK_ORDER_TAB_LABELS: Record<VendorWorkOrderTab, string> = {
-  quote: "Quote",
-  tour: "Site visit",
-  scheduled: "Scheduled",
-  completed: "Completed",
+  pending: "Pending",
+  upcoming: "Upcoming",
+  past: "Past",
+};
+
+/** Old Quote / Site visit / Scheduled / Completed URLs. */
+export const VENDOR_WORK_ORDER_LEGACY_TABS: Record<string, VendorWorkOrderTab> = {
+  quote: "pending",
+  tour: "pending",
+  scheduled: "upcoming",
+  completed: "past",
 };
 
 /** Consultation booked; vendor still owes labor price + work date. */
@@ -24,33 +31,39 @@ export function isPricingPendingBid(bid: WorkOrderBid | undefined): boolean {
   );
 }
 
+export function parseVendorWorkOrderTab(raw: string | undefined | null): VendorWorkOrderTab {
+  if (raw && (VENDOR_WORK_ORDER_TAB_ORDER as readonly string[]).includes(raw)) {
+    return raw as VendorWorkOrderTab;
+  }
+  if (raw && VENDOR_WORK_ORDER_LEGACY_TABS[raw]) return VENDOR_WORK_ORDER_LEGACY_TABS[raw]!;
+  return "pending";
+}
+
 /**
  * Classify a vendor work order into the Services tab it belongs in.
  *
- * - **Quote** — manager opened bidding; vendor quotes now or books a site visit first.
- * - **Site visit** — consultation is on the calendar; vendor prices the job afterward.
- * - **Scheduled** — fixed price or accepted quote; confirmed visit / in progress.
- * - **Completed** — job done (paid or awaiting manager sign-off).
+ * - **Pending** — quote due or site visit booked and still unpriced.
+ * - **Upcoming** — accepted / scheduled work still on the calendar.
+ * - **Past** — completed (paid or awaiting manager sign-off).
  */
 export function vendorWorkOrderTab(
   row: DemoManagerWorkOrderRow,
   bid?: WorkOrderBid,
 ): VendorWorkOrderTab {
-  if (row.bucket === "completed") return "completed";
-  if (isPricingPendingBid(bid)) return "tour";
-  if (row.biddingOpen) return "quote";
-  return "scheduled";
+  if (row.bucket === "completed") return "past";
+  if (isPricingPendingBid(bid) || row.biddingOpen) return "pending";
+  return "upcoming";
 }
 
 export function vendorWorkOrderPhaseLabel(row: DemoManagerWorkOrderRow, bid?: WorkOrderBid): string | null {
   const tab = vendorWorkOrderTab(row, bid);
-  if (tab === "quote") {
+  if (tab === "pending") {
+    if (isPricingPendingBid(bid)) return "Price after visit";
     if (!bid) return "Needs quote";
     if (bid.quoteMode === "after_consultation" && !bid.consultationVisitAt) return "Book site visit";
     return "Awaiting manager";
   }
-  if (tab === "tour") return "Price after visit";
-  if (tab === "scheduled") {
+  if (tab === "upcoming") {
     if (row.automationStatus === "vendor_marked_done") return "Awaiting approval";
     if (row.automationStatus === "paid") return "Paid";
     if (bid?.status === "accepted") return "Accepted";

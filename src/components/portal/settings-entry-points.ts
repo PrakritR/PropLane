@@ -75,6 +75,9 @@ export const MANAGER_SETTINGS_ENTRY_POINTS = {
   // Every other section has a settings gear; Communication did not. This
   // entry is what that new gear (in `pro-communication.tsx`) opens.
   communication: entryPoint("communication", "Communication settings", "communication"),
+  vendorServices: entryPoint("vendor-services", "Service settings"),
+  vendorCalendar: entryPoint("vendor-calendar", "Calendar settings"),
+  vendorCommunication: entryPoint("vendor-communication", "Communication settings"),
   /**
    * The generic default for `ResidentDetailSubsectionChrome`'s Settings
    * action when a caller does not resolve a specific module (e.g. the

@@ -1,17 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { TabNav } from "@/components/ui/tabs";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { CreditCard, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { Select } from "@/components/ui/input";
 import {
-  ManagerPortalFilterRow,
   ManagerPortalPageShell,
   ManagerPortalStatusPills,
   MANAGER_TABLE_TH,
 } from "@/components/portal/portal-metrics";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { VendorPaymentsPanel, type VendorPaymentsPanelHandle } from "@/components/portal/vendor-payments-panel";
 import {
   PORTAL_DATA_TABLE,
   PORTAL_DATA_TABLE_SCROLL,
@@ -20,7 +23,6 @@ import {
   PORTAL_TABLE_HEAD_ROW,
   PORTAL_TABLE_TD,
   PORTAL_TABLE_TR,
-  PortalDataTableEmpty,
 } from "@/components/portal/portal-data-table";
 import { ReportFilterBar, type ReportFilterState } from "@/components/portal/reports/report-filter-bar";
 import { MANAGER_WORK_ORDERS_EVENT, readVendorWorkOrderRows, syncManagerWorkOrdersFromServer } from "@/lib/manager-work-orders-storage";
@@ -34,6 +36,7 @@ import {
 } from "@/lib/vendor-income";
 import { fetchVendorPayoutsResult, type VendorPayout } from "@/lib/vendor-payouts";
 import { useConfirm } from "@/components/providers/app-ui-provider";
+import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 import {
   formatInvoiceMoney,
   normalizeLineItems,
@@ -52,7 +55,42 @@ type VendorLinkedManagerOption = {
 const VENDOR_FINANCE_TABS = [
   { id: "income", label: "Income" },
   { id: "invoices", label: "Invoices" },
+  { id: "payouts", label: "Payouts" },
 ] as const;
+
+function VendorFinancesChrome({
+  tabId,
+  tabItems,
+  actions,
+  primary,
+  children,
+}: {
+  tabId: string;
+  tabItems: { id: string; label: string; href: string }[];
+  actions?: ReactNode;
+  primary?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <ManagerPortalPageShell title="Finances" hideTitleOnMobileNav compactFilterRow>
+      <PortalListControlStack
+        className="mb-2 max-lg:mb-1.5"
+        variant="command"
+        destinations={tabItems.map((tab) => ({
+          id: tab.id,
+          label: tab.label,
+          href: tab.href,
+          dataAttr: `vendor-finances-tab-${tab.id}`,
+        }))}
+        activeDestinationId={tabId}
+        destinationAriaLabel="Finance view"
+        actions={actions}
+        primary={primary}
+      />
+      {children}
+    </ManagerPortalPageShell>
+  );
+}
 
 function defaultFilters(): ReportFilterState {
   const now = new Date();
@@ -125,7 +163,8 @@ function VendorIncomeTable({
   const totals = useMemo(() => vendorIncomeTotals(rows), [rows]);
 
   if (rows.length === 0) {
-    return <PortalDataTableEmpty message="No income entries yet." icon="finance" />;
+    const empty = portalEmptyCopy("finances.income");
+    return <PortalListEmptyCard title={empty.title} section={empty.section} />;
   }
 
   const columns = [
@@ -653,49 +692,56 @@ function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label
   }
 
   return (
-    <ManagerPortalPageShell
-      title="Finances"
-      hideTitleOnMobileNav
-      titleAside={
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="outline"
-            data-attr="vendor-export-invoices-csv"
-            onClick={() => {
-              window.location.assign(vendorExportUrl("invoices", exportRange.from, exportRange.to));
-            }}
-          >
-            Export CSV
-          </Button>
-          <Button
-            variant="primary"
-            onClick={() => {
-              setEditingInvoice(null);
-              setModalOpen(true);
-            }}
-            data-attr="vendor-invoice-new"
-          >
-            Submit invoice
-          </Button>
-        </div>
+    <VendorFinancesChrome
+      tabId={tabId}
+      tabItems={tabItems}
+      actions={
+        <PortalIconAction
+          icon={Download}
+          label="Export CSV"
+          data-attr="vendor-export-invoices-csv"
+          onClick={() => {
+            window.location.assign(vendorExportUrl("invoices", exportRange.from, exportRange.to));
+          }}
+        />
       }
-      filterRow={
-        <ManagerPortalFilterRow>
-          <TabNav activeId={tabId} items={tabItems} />
-          <ManagerPortalStatusPills
-            tabs={INVOICE_STATUS_FILTERS.map((f) => ({ id: f.id, label: f.label, count: counts[f.id] ?? 0 }))}
-            activeId={statusFilter}
-            onChange={(id) => setStatusFilter(id as "all" | VendorInvoiceStatus)}
-          />
-        </ManagerPortalFilterRow>
+      primary={
+        <PortalPrimaryIconAction
+          label="Submit invoice"
+          data-attr="vendor-invoice-new"
+          onClick={() => {
+            setEditingInvoice(null);
+            setModalOpen(true);
+          }}
+        />
       }
     >
+      <ManagerPortalStatusPills
+        tabs={INVOICE_STATUS_FILTERS.map((f) => ({ id: f.id, label: f.label, count: counts[f.id] ?? 0 }))}
+        activeId={statusFilter}
+        onChange={(id) => setStatusFilter(id as "all" | VendorInvoiceStatus)}
+      />
       {loading ? (
-        <PortalDataTableEmpty message="Loading invoices…" icon="finance" />
+        <div className="h-40 animate-pulse rounded-2xl bg-muted" data-attr="vendor-invoices-loading" aria-hidden />
       ) : filtered.length === 0 ? (
-        <PortalDataTableEmpty
-          message={invoices.length === 0 ? "No invoices yet. Submit one to bill your manager." : "No invoices match this filter."}
-          icon="finance"
+        <PortalListEmptyCard
+          title={invoices.length === 0 ? portalEmptyCopy("finances.invoices").title : "No invoices match this filter"}
+          section={portalEmptyCopy("finances.invoices").section}
+          tone={invoices.length === 0 ? "default" : "muted"}
+          actions={
+            invoices.length === 0
+              ? [
+                  {
+                    label: "Submit invoice",
+                    onClick: () => {
+                      setEditingInvoice(null);
+                      setModalOpen(true);
+                    },
+                    dataAttr: "vendor-invoice-empty-add",
+                  },
+                ]
+              : []
+          }
         />
       ) : (
         <>
@@ -791,7 +837,7 @@ function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label
         linkedManagers={linkedManagers}
         editingInvoice={editingInvoice}
       />
-    </ManagerPortalPageShell>
+    </VendorFinancesChrome>
   );
 }
 
@@ -853,26 +899,46 @@ export function VendorFinancesPanel({
     }
   }
 
+  const payoutsRef = useRef<VendorPaymentsPanelHandle>(null);
+
   if (tabId === "invoices") {
     return <VendorInvoicesView tabItems={financeTabItems} tabId={tabId} />;
   }
 
-  if (tabId !== "income") {
+  if (tabId === "payouts") {
     return (
-      <ManagerPortalPageShell title="Finances" hideTitleOnMobileNav>
-        <PortalDataTableEmpty message="This finances view is not available." icon="finance" />
-      </ManagerPortalPageShell>
+      <VendorFinancesChrome
+        tabId={tabId}
+        tabItems={financeTabItems}
+        actions={
+          <PortalIconAction
+            icon={CreditCard}
+            label="Payment methods"
+            data-attr="vendor-payments-add"
+            onClick={() => payoutsRef.current?.openPaymentMethods()}
+          />
+        }
+      >
+        <VendorPaymentsPanel ref={payoutsRef} embedded />
+      </VendorFinancesChrome>
     );
   }
 
+  const incomeEmpty = portalEmptyCopy("finances.income");
+
   return (
-    <ManagerPortalPageShell
-      title="Finances"
-      hideTitleOnMobileNav
-      filterRow={
-        <ManagerPortalFilterRow>
-          <TabNav activeId={tabId} items={financeTabItems} />
-        </ManagerPortalFilterRow>
+    <VendorFinancesChrome
+      tabId={tabId}
+      tabItems={financeTabItems}
+      actions={
+        <PortalIconAction
+          icon={Download}
+          label="Export payouts CSV"
+          data-attr="vendor-export-payouts-csv"
+          onClick={() => {
+            window.location.assign(vendorExportUrl("payouts", filters.from, filters.to));
+          }}
+        />
       }
     >
       <div className="space-y-5">
@@ -887,20 +953,13 @@ export function VendorFinancesPanel({
           onRun={() => undefined}
           showRunButton={false}
         />
-        <div className="flex justify-end">
-          <Button
-            variant="outline"
-            data-attr="vendor-export-payouts-csv"
-            onClick={() => {
-              window.location.assign(vendorExportUrl("payouts", filters.from, filters.to));
-            }}
-          >
-            Export payouts CSV
-          </Button>
-        </div>
 
-        {filteredRows.length === 0 && allRows.length > 0 ? (
-          <PortalDataTableEmpty message="No income entries match these filters yet." icon="finance" />
+        {filteredRows.length === 0 ? (
+          <PortalListEmptyCard
+            title={allRows.length > 0 ? "No income matches these filters" : incomeEmpty.title}
+            section={incomeEmpty.section}
+            tone={allRows.length > 0 ? "muted" : "default"}
+          />
         ) : (
           <VendorIncomeTable
             rows={filteredRows}
@@ -910,6 +969,6 @@ export function VendorFinancesPanel({
           />
         )}
       </div>
-    </ManagerPortalPageShell>
+    </VendorFinancesChrome>
   );
 }

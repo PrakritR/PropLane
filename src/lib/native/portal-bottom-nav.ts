@@ -67,10 +67,8 @@ export const NATIVE_BOTTOM_NAV_VENDOR_ORDER = [
   "work-orders",
   "tasks",
   "calendar",
-  "bookings",
   "communication",
   "financials",
-  "payments",
   "documents",
 ] as const;
 
@@ -145,8 +143,8 @@ export const NATIVE_BOTTOM_NAV_RESIDENT_PRIMARY = residentBottomNavPrimarySectio
 
 export const NATIVE_BOTTOM_NAV_ADMIN_PRIMARY = ["dashboard", "properties", "axis-users", "events"] as const;
 
-// Services · Payments · Dashboard · Communication (+ More), per the portal redesign.
-export const NATIVE_BOTTOM_NAV_VENDOR_PRIMARY = ["work-orders", "payments", "dashboard", "communication"] as const;
+// Services · Calendar · Dashboard · Communication (+ More).
+export const NATIVE_BOTTOM_NAV_VENDOR_PRIMARY = ["work-orders", "calendar", "dashboard", "communication"] as const;
 
 /**
  * Every role gets the fixed native bottom bar. Settings stays in the profile
@@ -160,8 +158,8 @@ export function nativeBottomBarEnabledForKind(_kind?: PortalDefinition["kind"]):
  * Whether the fixed bar also gets a trailing "More" tab that opens the full
  * section sheet. Kinds whose curated primary set — plus the shared back
  * arrow (Dashboard) and profile menu (Settings) — already reaches every
- * section don't need one. Vendor now has 7 sections — Documents is reachable via
- * the More sheet alongside the 4 primary tabs + back + profile.
+ * section don't need one. Vendor Finances and Documents ride in More, next to
+ * the 4 primary tabs + back + profile.
  */
 export function nativeBottomNavShowMoreTab(
   kind?: PortalDefinition["kind"],

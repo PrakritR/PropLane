@@ -1,9 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Settings } from "lucide-react";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalCalendarPanels, MEETING_CONFIRMED_COLOR, type DemoMeeting } from "@/components/portal/portal-calendar-panels";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
 import { VendorFlexibleSettingsModal } from "@/components/portal/vendor-flexible-settings-modal";
 import { VendorWorkEventModal, type VendorWorkEventDraft } from "@/components/portal/vendor-work-event-modal";
 import { VENDOR_AVAILABILITY_CHANGED_EVENT } from "@/components/portal/vendor-settings-panel";
@@ -48,6 +52,7 @@ const VENDOR_WORK_COLOR =
   "bg-violet-500/25 text-violet-950 ring-violet-400/35 [html[data-theme=dark]_&]:bg-violet-500/20 [html[data-theme=dark]_&]:text-violet-100";
 const VENDOR_TASK_COLOR =
   "bg-sky-500/25 text-sky-950 ring-sky-400/35 [html[data-theme=dark]_&]:bg-sky-500/20 [html[data-theme=dark]_&]:text-sky-100";
+const calendarSettingsEntry = getSettingsEntryPoint("vendorCalendar");
 let demoAvailabilityRuleCounter = 0;
 
 function vendorWorkMeetingFromRule(rule: Extract<VendorAvailabilityRule, { kind: "event" }>): DemoMeeting {
@@ -391,7 +396,29 @@ export function VendorCalendarPanel() {
   }
 
   return (
-    <ManagerPortalPageShell title="Calendar" hideTitleOnMobileNav>
+    <ManagerPortalPageShell title="Calendar" hideTitleOnMobileNav compactFilterRow>
+      <PortalListControlStack
+        className="mb-2 max-lg:mb-1.5"
+        variant="command"
+        actions={
+          <PortalIconAction
+            icon={Settings}
+            label={calendarSettingsEntry.label}
+            data-attr={calendarSettingsEntry.dataAttr}
+            onClick={() => setFlexModalOpen(true)}
+          />
+        }
+        primary={
+          <PortalPrimaryIconAction
+            label="Add work"
+            data-attr="vendor-calendar-add-work"
+            onClick={() => {
+              const today = toLocalDateStr(new Date());
+              openWorkDraft(draftFromSlot(today, 18));
+            }}
+          />
+        }
+      />
       <PortalCalendarPanels
           storageKey={storageKey}
           readOnly={false}

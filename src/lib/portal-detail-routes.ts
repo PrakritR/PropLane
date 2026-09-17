@@ -478,6 +478,38 @@ export function parseVendorTaskListTab(raw: string | undefined | null): VendorTa
   return "in-progress";
 }
 
+export const VENDOR_WORK_ORDER_LIST_TABS = ["pending", "upcoming", "past"] as const;
+export type VendorWorkOrderListTabId = (typeof VENDOR_WORK_ORDER_LIST_TABS)[number];
+export const DEFAULT_VENDOR_WORK_ORDER_TAB: VendorWorkOrderListTabId = "pending";
+
+export const VENDOR_WORK_ORDER_LIST_TAB_LABELS: Record<VendorWorkOrderListTabId, string> = {
+  pending: "Pending",
+  upcoming: "Upcoming",
+  past: "Past",
+};
+
+export const VENDOR_WORK_ORDER_LEGACY_LIST_TABS: Record<string, VendorWorkOrderListTabId> = {
+  quote: "pending",
+  tour: "pending",
+  scheduled: "upcoming",
+  completed: "past",
+};
+
+export function parseVendorWorkOrderListTab(raw: string | undefined | null): VendorWorkOrderListTabId {
+  if (raw && (VENDOR_WORK_ORDER_LIST_TABS as readonly string[]).includes(raw)) {
+    return raw as VendorWorkOrderListTabId;
+  }
+  if (raw && VENDOR_WORK_ORDER_LEGACY_LIST_TABS[raw]) return VENDOR_WORK_ORDER_LEGACY_LIST_TABS[raw]!;
+  return DEFAULT_VENDOR_WORK_ORDER_TAB;
+}
+
+export function vendorWorkOrderListHref(
+  basePath: string,
+  tab: VendorWorkOrderListTabId = DEFAULT_VENDOR_WORK_ORDER_TAB,
+): string {
+  return `${basePath}/work-orders/${tab}`;
+}
+
 export function managerTaskListHref(
   basePath: string,
   tab: ManagerTaskListTabId = "in-progress",

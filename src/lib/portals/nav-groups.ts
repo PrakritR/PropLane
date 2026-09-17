@@ -75,11 +75,11 @@ const RESIDENT_GROUPS: NavGroupConfig[] = [
 ];
 
 const VENDOR_GROUPS: NavGroupConfig[] = [
-  { id: "home", label: null, sections: ["dashboard"] },
-  // Vendor tasks live inside Services (a tab there); the route stays but is not a row.
+  { id: "workspace", label: "Workspace", sections: ["dashboard"] },
+  // Vendor tasks live inside Services; the route stays but is not a row.
   { id: "work", label: "Work", sections: ["work-orders", "calendar"] },
   { id: "operations", label: "Operations", sections: ["communication"] },
-  { id: "finances", label: "Finances", sections: ["financials", "payments", "documents"] },
+  { id: "finances", label: "Finances", sections: ["financials", "documents"] },
 ];
 
 export const PORTAL_NAV_GROUPS: Record<PortalKind, NavGroupConfig[]> = {

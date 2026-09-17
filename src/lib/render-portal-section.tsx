@@ -31,10 +31,8 @@ import { ResidentProfileSection } from "@/components/portal/resident-profile-sec
 import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-panel";
 import { VendorDashboard } from "@/components/portal/vendor-dashboard";
 import { VendorWorkOrdersPanel } from "@/components/portal/vendor-work-orders-panel";
-import { VendorCalendarPanel } from "@/components/portal/vendor-calendar-panel";
 import { VendorTaskList } from "@/components/portal/vendor-task-list";
 import { VendorFinancesPanel } from "@/components/portal/vendor-finances-panel";
-import { VendorPaymentsPanel } from "@/components/portal/vendor-payments-panel";
 import { VendorDocumentsPanel } from "@/components/portal/vendor-documents-panel";
 import { VendorSettingsPanel } from "@/components/portal/vendor-settings-panel";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
@@ -338,6 +336,10 @@ export async function renderPortalSection(
   if (section === "task-list") {
     const { legacyTaskListSectionRedirectPath } = await import("@/lib/portal-detail-routes");
     redirect(legacyTaskListSectionRedirectPath(def.basePath, tabParts));
+  }
+
+  if (kind === "vendor" && section === "payments") {
+    redirect(`${def.basePath}/financials/payouts`);
   }
 
   const residentCtx = kind === "resident" ? await getEffectiveSessionForPortal("resident") : null;
@@ -1494,8 +1496,23 @@ export async function renderPortalSection(
   }
 
   if (kind === "vendor" && section === "work-orders") {
-    if (tabParts?.length) notFound();
-    return <VendorWorkOrdersPanel />;
+    const {
+      parseVendorWorkOrderListTab,
+      DEFAULT_VENDOR_WORK_ORDER_TAB,
+      VENDOR_WORK_ORDER_LIST_TABS,
+      VENDOR_WORK_ORDER_LEGACY_LIST_TABS,
+      vendorWorkOrderListHref,
+    } = await import("@/lib/portal-detail-routes");
+    if (!tabParts?.length) {
+      redirect(vendorWorkOrderListHref(def.basePath, DEFAULT_VENDOR_WORK_ORDER_TAB));
+    }
+    if (tabParts.length > 1) notFound();
+    const raw = tabParts[0]!;
+    if (VENDOR_WORK_ORDER_LEGACY_LIST_TABS[raw]) {
+      redirect(vendorWorkOrderListHref(def.basePath, VENDOR_WORK_ORDER_LEGACY_LIST_TABS[raw]!));
+    }
+    if (!(VENDOR_WORK_ORDER_LIST_TABS as readonly string[]).includes(raw)) notFound();
+    return <VendorWorkOrdersPanel tabId={parseVendorWorkOrderListTab(raw)} />;
   }
 
   if (kind === "vendor" && section === "tasks") {
@@ -1517,7 +1534,8 @@ export async function renderPortalSection(
 
   if (kind === "vendor" && section === "calendar") {
     if (tabParts?.length) notFound();
-    return <VendorCalendarPanel />;
+    const PortalCalendar = await loadPortalCalendar();
+    return <PortalCalendar portal="vendor" />;
   }
 
   if (kind === "vendor" && section === "communication") {
@@ -1585,11 +1603,6 @@ export async function renderPortalSection(
     const finTab = tabParts[0]!;
     if (!meta.tabs.some((tab) => tab.id === finTab)) notFound();
     return <VendorFinancesPanel tabId={finTab} basePath={def.basePath} />;
-  }
-
-  if (kind === "vendor" && section === "payments") {
-    if (tabParts?.length) notFound();
-    return <VendorPaymentsPanel />;
   }
 
   if (kind === "vendor" && section === "documents") {

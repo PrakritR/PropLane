@@ -177,10 +177,10 @@ describe("nativeBottomNavShowMoreTab", () => {
     expect(nativeBottomNavShowMoreTab(undefined)).toBe(false);
   });
 
-  it("vendor primary bar is Services · Payments · Dashboard · Communication, with settings in the profile menu", () => {
+  it("vendor primary bar is Services · Calendar · Dashboard · Communication, with settings in the profile menu", () => {
     // Dashboard is ON the bar now (redesign), so the bar plus the profile menu
-    // still reach five sections directly; Calendar and Documents ride in More.
-    expect([...NATIVE_BOTTOM_NAV_VENDOR_PRIMARY]).toEqual(["work-orders", "payments", "dashboard", "communication"]);
+    // still reach four sections directly; Finances and Documents ride in More.
+    expect([...NATIVE_BOTTOM_NAV_VENDOR_PRIMARY]).toEqual(["work-orders", "calendar", "dashboard", "communication"]);
     const coveredSections = new Set([...NATIVE_BOTTOM_NAV_VENDOR_PRIMARY, "profile"]);
     expect(coveredSections.size).toBe(5);
   });

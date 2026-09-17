@@ -72,28 +72,35 @@ import {
   buildCalendarCopyDestinationHouses,
   resolveCalendarCopySourcePropertyId,
 } from "@/lib/calendar-copy-availability";
+import { VendorCalendarPanel } from "@/components/portal/vendor-calendar-panel";
 
 const MANAGER_PORTAL_BASE = "/portal";
+
+export type PortalCalendarPortal = "manager" | "admin" | "vendor";
+
+type PortalCalendarProps = {
+  portal: PortalCalendarPortal;
+  initialUserId?: string | null;
+  initialEmail?: string | null;
+  calendarView?: CalendarViewTabId;
+  schedulingHub?: boolean;
+  toursHubTab?: import("@/lib/portal-detail-routes").ToursHubTabId;
+};
+
+export function PortalCalendar(props: PortalCalendarProps) {
+  if (props.portal === "vendor") return <VendorCalendarPanel />;
+  return <PortalCalendarManager {...props} portal={props.portal} />;
+}
 const NO_DEFAULT_TOUR_AVAILABILITY = resolveDefaultTourAvailabilityConfig({ enabled: false });
 
-export function PortalCalendar({
+function PortalCalendarManager({
   portal,
   initialUserId,
   initialEmail,
   calendarView: calendarViewProp,
   schedulingHub = false,
   toursHubTab: toursHubTabProp,
-}: {
-  portal: "manager" | "admin";
-  initialUserId?: string | null;
-  initialEmail?: string | null;
-  /** Routed view tab (manager portfolio calendar only). */
-  calendarView?: CalendarViewTabId;
-  /** Combined tours + service orders hub (`/portal/tours`). */
-  schedulingHub?: boolean;
-  /** Routed segment inside the tours hub. */
-  toursHubTab?: import("@/lib/portal-detail-routes").ToursHubTabId;
-}) {
+}: Omit<PortalCalendarProps, "portal"> & { portal: "manager" | "admin" }) {
   const { userId, email, ready: authReady } = useManagerUserId({
     userId: initialUserId,
     email: initialEmail,
