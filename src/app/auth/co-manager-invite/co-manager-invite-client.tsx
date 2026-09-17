@@ -7,7 +7,8 @@ import { AuthBrandHeader } from "@/components/auth/auth-mobile-primitives";
 import { AuthCard } from "@/components/auth/auth-card";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
 import { Button } from "@/components/ui/button";
-import { coManagerOpenInvitePath } from "@/lib/co-manager-invite-path";
+import { firstNameFromDisplay } from "@/lib/invite-links/invite-accept-copy";
+import { coManagerOpenInvitePath } from "@/lib/co-manager-invite-token";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
 type Preview = {
@@ -149,10 +150,10 @@ export function CoManagerInviteClient() {
         </>
       ) : (
         <>
-          <h1 className="text-xl font-semibold text-foreground">Join as a co-manager</h1>
-          <p className="mt-2 text-sm text-muted">
+          <h1 className="text-center text-xl font-semibold text-foreground">Invite to workspace</h1>
+          <p className="mt-2 text-center text-sm text-muted">
             <span className="font-semibold text-foreground">{preview.inviterDisplayName}</span> invited you to
-            co-manage on PropLane.
+            their workspace on PropLane.
           </p>
           {preview.propertyLabels.length > 0 ? (
             <div className="mt-4 rounded-2xl border border-border bg-accent/20 px-4 py-3">
@@ -179,6 +180,15 @@ export function CoManagerInviteClient() {
                 onClick={() => void join()}
               >
                 Join team
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="mt-3 w-full rounded-full py-2.5 text-[15px] font-semibold"
+                data-attr="co-manager-invite-message"
+                onClick={() => router.push("/portal/communication")}
+              >
+                Message {firstNameFromDisplay(preview.inviterDisplayName)}
               </Button>
             </>
           ) : (

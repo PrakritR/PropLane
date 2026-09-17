@@ -36,8 +36,8 @@ describe("Settings Team row actions", () => {
   it("publishes Invite to the Team title instead of a second Link control", () => {
     expect(panel).toContain('data-attr="co-manager-invite-top"');
     expect(panel).toContain("usePublishTitleActions");
-    expect(panel).toMatch(/\n\s*Invite\n\s*<\/Button>/);
-    expect(panel).not.toContain("PortalPrimaryIconAction");
+    expect(panel).toContain("UserPlus");
+    expect(panel).toContain('label="Invite"');
     expect(panel).not.toContain('data-attr="team-invite-link-create"');
   });
 });

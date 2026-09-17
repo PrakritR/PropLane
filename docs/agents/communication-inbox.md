@@ -3,6 +3,12 @@
 Moved out of the root `AGENTS.md` to keep it loadable; this is the
 authoritative copy. Read it before changing code in this area.
 
+## Sending a message — New message is the chrome
+
+Any portal send (invite, reminder, listing share, notice) uses the New message
+field order. Do not invent a second compose. Full rule:
+[`send-message-compose.md`](send-message-compose.md).
+
 ## SMS notices while the SMS panel is hidden
 
 `upsertManagerInboxNotice` stores one thread per mailbox owner and normalized

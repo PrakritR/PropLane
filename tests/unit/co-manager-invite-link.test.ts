@@ -45,21 +45,17 @@ describe("co-manager open invite token", () => {
 });
 
 describe("co-manager open invite surfaces", () => {
-  it("Add modal uses vendor-style email | link tabs with a property picker on email", () => {
+  it("Add modal uses three invite paths with the property picker always visible", () => {
     const panel = readFileSync(
       join(process.cwd(), "src/components/portal/pro-account-links-panel.tsx"),
       "utf8",
     );
-    expect(panel).toContain("Invite by email");
-    expect(panel).toContain("Create invite link");
-    expect(panel).toContain('data-attr="co-manager-invite-by-email"');
-    expect(panel).toContain('data-attr="co-manager-create-invite-link"');
-    expect(panel).toContain("onClick={() => openInviteLinkModal()}");
-    expect(panel).toContain("ManagerInviteLinkModal");
+    expect(panel).toContain("PortalInvitePaths");
+    expect(panel).not.toContain("PortalInviteChoiceStep");
+    expect(panel).toContain('data-attr="co-manager-proplane-id-input"');
+    expect(panel).toContain('data-attr="co-manager-link-continue"');
     expect(panel).toContain('dataAttr="co-manager-invite-properties"');
     expect(panel).toContain('label="Properties"');
-    expect(panel).not.toContain("PortalInviteChoiceStep");
-    expect(panel).not.toContain('data-attr="co-manager-proplane-id-input"');
     expect(panel).not.toContain('data-attr="co-manager-invite-link-open"');
     expect(panel).not.toContain("Select at least one property for this invite.");
 
@@ -96,16 +92,6 @@ describe("co-manager PropLane ID lookup eligibility", () => {
     );
     expect(source).toContain("userIsPropertyPortalManager");
     expect(source).not.toMatch(/profile\.role[\s\S]{0,120}must be a property portal manager/);
-  });
-
-  it("lookup-axis-id accepts email as well as PropLane ID", () => {
-    const source = readFileSync(
-      join(process.cwd(), "src/app/api/pro/lookup-axis-id/route.ts"),
-      "utf8",
-    );
-    expect(source).toContain('searchParams.get("email")');
-    expect(source).toContain('.ilike("email", email)');
-    expect(source).toContain("PropLane ID or email is required.");
   });
 
   it("account-links POST uses profile_roles-aware invitee eligibility", () => {

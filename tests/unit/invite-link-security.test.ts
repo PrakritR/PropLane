@@ -13,16 +13,17 @@ const MIGRATION = read("supabase/migrations/20260906090000_manager_invite_links.
 const REDEEM_ROUTE = read("src/app/api/pro/invite-links/redeem/route.ts");
 const PAGE = read("src/app/invite/[token]/invite-link-client.tsx");
 
-describe("the token is never stored", () => {
+describe("the plaintext token is never stored", () => {
   it("hashes on the way in and matches on the hash", () => {
     expect(SERVER).toContain('createHash("sha256")');
     expect(SERVER).toContain('.eq("token_hash", hashInviteLinkToken(token))');
   });
 
-  it("never selects a raw token column", () => {
-    // There is no such column; this fails loudly if one is ever added.
-    expect(SERVER).not.toMatch(/select\([^)]*\btoken\b(?!_hash)/);
+  it("never selects a plaintext token column", () => {
+    expect(SERVER).not.toContain('.select("token")');
+    expect(SERVER).not.toContain(".select('token'");
     expect(MIGRATION).not.toMatch(/^\s+token text/m);
+    expect(SERVER).toContain("token_ciphertext");
   });
 });
 
@@ -122,10 +123,11 @@ describe("minting a link", () => {
     expect(MODAL).not.toMatch(/out\[id\] = prev\[id\] \?\? \{\}/);
   });
 
-  it("offers both limits, and shows the token exactly once", () => {
+  it("offers both limits, and Copy reveals the same URL instead of reminting", () => {
     expect(MODAL).toContain("INVITE_LINK_EXPIRY_OPTIONS");
     expect(MODAL).toContain("INVITE_LINK_USE_OPTIONS");
-    expect(MODAL).toContain("only time it is shown");
+    expect(MODAL).toContain("revealInviteLinkClient");
+    expect(MODAL).not.toContain("only time it is shown");
   });
 
   it("can turn a link off after sharing it", () => {
@@ -135,8 +137,8 @@ describe("minting a link", () => {
 
   it("can copy an active link from the list after minting", () => {
     expect(MODAL).toContain('data-attr="invite-link-copy-existing"');
-    expect(MODAL).toContain("/api/pro/invite-links/");
-    expect(MODAL).toContain("/link");
+    expect(MODAL).toContain("revealInviteLinkClient");
+    expect(MODAL).toContain('data-attr="invite-link-rotate"');
   });
 
   it("gates team invites on Team permission in the managers panel", () => {
@@ -144,27 +146,21 @@ describe("minting a link", () => {
     expect(PANEL).toContain("canSendTeamInvites");
   });
 
-  it("opens the add dialog from the ADD row and routes invite links to the mint modal", () => {
+  it("opens the add dialog from Invite on the title and on each workspace card", () => {
     expect(PANEL).not.toContain('data-attr="co-manager-invite-link-open"');
-    expect(PANEL).toContain('data-attr="co-manager-create-invite-link"');
-    expect(PANEL).toContain("onClick={() => openInviteLinkModal()}");
-    expect(PANEL).toContain("ManagerInviteLinkModal");
-    expect(PANEL).toContain("Invite by email");
-    // ONE entry point per surface opens the add dialog: Invite on the Teams
-    // title row, and Invite on each workspace card (scoped to that card).
-    // Email and shareable-link minting both live in that invite sheet.
+    expect(PANEL).toContain("PortalInvitePaths");
     expect(PANEL.match(/onClick=\{\(\) => openLinkModal\(\)\}/g)).toHaveLength(1);
     expect(PANEL.match(/onClick=\{\(\) => openLinkModal\(workspace\.id\)\}/g)).toHaveLength(1);
     expect(PANEL).not.toContain("onInvite={openLinkModal}");
     expect(PANEL).toContain('data-attr="co-manager-invite-top"');
     expect(PANEL).not.toContain('data-attr="team-invite-link-create"');
-    expect(PANEL).not.toContain('data-attr="co-manager-link-continue"');
+    expect(PANEL).toContain('data-attr="co-manager-link-continue"');
     expect(PANEL).not.toContain("PortalInviteChoiceStep");
   });
 
-  it("uses the add dialog for PropLane ID and a dedicated modal for shareable links", () => {
-    expect(PANEL).toContain('open={linkModalOpen}');
-    expect(PANEL).toContain('open={inviteLinkModalOpen}');
+  it("uses one invite dialog for link, message, and PropLane code", () => {
+    expect(PANEL).toContain("open={linkModalOpen}");
+    expect(PANEL).not.toContain("open={inviteLinkModalOpen}");
     expect(PANEL).not.toContain('setLinkModalMode("axis")');
   });
 });

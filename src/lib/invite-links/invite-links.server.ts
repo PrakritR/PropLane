@@ -1,7 +1,8 @@
 import "server-only";
 
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { encryptSensitiveValue, decryptSensitiveValue } from "@/lib/security/data-encryption";
 import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-scope";
 import {
   actorCanManageInviteLink,
@@ -81,7 +82,44 @@ type DbRow = {
   expires_at: string | null;
   revoked_at: string | null;
   created_at: string;
+  workspace_id?: string | null;
+  workspace_name_snapshot?: string | null;
+  property_labels?: unknown;
+  token_ciphertext?: string | null;
 };
+
+const INVITE_TOKEN_ENCRYPT_FIELD = "token";
+
+function inviteTokenEncryptContext(ownerUserId: string, linkId: string) {
+  return {
+    purpose: "invite-link-token",
+    ownerId: ownerUserId,
+    recordId: linkId,
+    field: INVITE_TOKEN_ENCRYPT_FIELD,
+  };
+}
+
+function tryEncryptInviteToken(token: string, ownerUserId: string, linkId: string): string | null {
+  try {
+    return encryptSensitiveValue(token, inviteTokenEncryptContext(ownerUserId, linkId));
+  } catch {
+    return null;
+  }
+}
+
+function snapshotPropertyLabels(input: {
+  propertyIds: string[];
+  propertyLabelsById?: Record<string, string>;
+  fromRecords: Map<string, string>;
+}): string[] {
+  return input.propertyIds.map((id) => {
+    const fromRow = input.fromRecords.get(id)?.trim();
+    if (fromRow) return fromRow;
+    const fromClient = input.propertyLabelsById?.[id]?.trim();
+    if (fromClient) return fromClient;
+    return "A property";
+  });
+}
 
 /** Never carries the token or its hash — the row is metadata only. */
 function toInviteLinkRow(row: DbRow): InviteLinkRow {
@@ -131,6 +169,8 @@ export async function mintInviteLink(
     expiryOption?: string;
     usesOption?: string;
     now?: Date;
+    workspaceId?: string;
+    propertyLabelsById?: Record<string, string>;
   },
 ): Promise<MintInviteLinkResult> {
   const actorUserId = input.actorUserId.trim();
@@ -204,19 +244,60 @@ export async function mintInviteLink(
   // whose scope is whole properties.
   const roomId = kind === "resident" ? input.assignedRoomId?.trim() || null : null;
   const token = mintToken();
+  const linkId = randomUUID();
+  const tokenCiphertext = tryEncryptInviteToken(token, ownerUserId, linkId);
+
+  let workspaceId: string | null = null;
+  let workspaceNameSnapshot: string | null = null;
+  const requestedWorkspaceId = input.workspaceId?.trim() ?? "";
+  if (requestedWorkspaceId) {
+    const { data: workspace } = await db
+      .from("portal_workspaces")
+      .select("id, name, owner_user_id")
+      .eq("id", requestedWorkspaceId)
+      .maybeSingle();
+    if (!workspace || String(workspace.owner_user_id) !== ownerUserId) {
+      return { ok: false, status: 403, error: "That workspace is not yours to invite into." };
+    }
+    workspaceId = String(workspace.id);
+    workspaceNameSnapshot = String(workspace.name ?? "").trim() || null;
+  }
+
+  const fromRecords = new Map<string, string>();
+  if (propertyIds.length > 0) {
+    const { data: properties } = await db
+      .from("manager_property_records")
+      .select("id, row_data")
+      .in("id", propertyIds);
+    for (const row of properties ?? []) {
+      const data = (row as { id?: string; row_data?: { buildingName?: string; address?: string } }).row_data ?? {};
+      const label = data.buildingName?.trim() || data.address?.trim() || "";
+      if (label) fromRecords.set(String((row as { id: string }).id), label);
+    }
+  }
+  const propertyLabels = snapshotPropertyLabels({
+    propertyIds,
+    propertyLabelsById: input.propertyLabelsById,
+    fromRecords,
+  });
 
   const { data, error } = await db
     .from("manager_invite_links")
     .insert({
+      id: linkId,
       owner_user_id: ownerUserId,
       kind,
       token_hash: hashInviteLinkToken(token),
+      token_ciphertext: tokenCiphertext,
       label: input.label?.trim() || null,
       assigned_property_ids: propertyIds,
       assigned_room_id: roomId,
       property_permissions: permissions,
       max_uses: maxUsesForOption(input.usesOption),
       expires_at: expiryIsoForOption(input.expiryOption, input.now ?? new Date()),
+      workspace_id: workspaceId,
+      workspace_name_snapshot: workspaceNameSnapshot,
+      property_labels: propertyLabels,
     })
     .select(LINK_COLUMNS)
     .maybeSingle();
@@ -313,9 +394,14 @@ export async function rotateInviteLinkToken(
   }
 
   const token = mintToken();
+  const tokenCiphertext = tryEncryptInviteToken(token, link.ownerUserId, link.id);
   const { data, error } = await db
     .from("manager_invite_links")
-    .update({ token_hash: hashInviteLinkToken(token), updated_at: new Date().toISOString() })
+    .update({
+      token_hash: hashInviteLinkToken(token),
+      token_ciphertext: tokenCiphertext,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", link.id)
     .is("revoked_at", null)
     .select(LINK_COLUMNS)
@@ -324,6 +410,59 @@ export async function rotateInviteLinkToken(
     return { ok: false, status: 500, error: "Could not refresh the invite link." };
   }
   return { ok: true, link: toInviteLinkRow(data as DbRow), token };
+}
+
+const CANNOT_COPY_AGAIN =
+  "This link cannot be copied again. Rotate it for a new URL, or create a new link.";
+
+/**
+ * Return the same live URL. Copy must not remint. Links minted before
+ * ciphertext existed fail closed — the manager rotates or creates a new one.
+ */
+export async function revealInviteLinkToken(
+  db: SupabaseClient,
+  input: { actorUserId: string; linkId: string; now?: Date },
+): Promise<RotateInviteLinkResult> {
+  const { data } = await db
+    .from("manager_invite_links")
+    .select(`${LINK_COLUMNS}, owner_user_id, token_ciphertext`)
+    .eq("id", input.linkId.trim())
+    .maybeSingle();
+  if (!data) return { ok: false, status: 404, error: "That invite link no longer exists." };
+  const row = data as DbRow & { owner_user_id: string; token_ciphertext?: string | null };
+  const link = { ...toInviteLinkRow(row), ownerUserId: String(row.owner_user_id) };
+
+  const unusable = inviteLinkUnusableReason(
+    {
+      expiresAt: link.expiresAt,
+      revokedAt: link.revokedAt,
+      maxUses: link.maxUses,
+      usedCount: link.usedCount,
+    },
+    input.now ?? new Date(),
+  );
+  if (unusable) {
+    return { ok: false, status: 409, error: inviteLinkUnusableMessage(unusable) };
+  }
+
+  const allowed = await actorCanManageInviteLink(db, input.actorUserId, {
+    ownerUserId: link.ownerUserId,
+    assignedPropertyIds: link.assignedPropertyIds,
+  });
+  if (!allowed) {
+    return { ok: false, status: 403, error: "You do not have permission to copy this invite link." };
+  }
+
+  const ciphertext = row.token_ciphertext?.trim() ?? "";
+  if (!ciphertext) {
+    return { ok: false, status: 409, error: CANNOT_COPY_AGAIN };
+  }
+  try {
+    const token = decryptSensitiveValue(ciphertext, inviteTokenEncryptContext(link.ownerUserId, link.id));
+    return { ok: true, link, token };
+  } catch {
+    return { ok: false, status: 409, error: CANNOT_COPY_AGAIN };
+  }
 }
 
 /** Turning a link off is scoped to its owner — the id alone is not authority. */
@@ -355,6 +494,7 @@ export type InviteLinkPreview = {
   kind: InviteLinkKind;
   ownerUserId: string;
   ownerName: string;
+  workspaceName: string | null;
   propertyLabels: string[];
   unusableReason: InviteLinkUnusableReason | null;
 };
@@ -362,7 +502,7 @@ export type InviteLinkPreview = {
 async function loadLinkByToken(db: SupabaseClient, token: string) {
   const { data } = await db
     .from("manager_invite_links")
-    .select(`${LINK_COLUMNS}, owner_user_id`)
+    .select(`${LINK_COLUMNS}, owner_user_id, workspace_id, workspace_name_snapshot, property_labels`)
     .eq("token_hash", hashInviteLinkToken(token))
     .maybeSingle();
   return (data as (DbRow & { owner_user_id: string }) | null) ?? null;
@@ -403,18 +543,34 @@ export async function previewInviteLink(
   // Resident kind only: a co-manager link's label is a freeform note about the
   // person being invited ("Sarah — weekends"), not a property name.
   const linkLabel = kind === "resident" ? (link.label?.trim() ?? "") : "";
-  const labels = (properties ?? []).map((row) => {
-    const data = (row as { row_data?: { buildingName?: string; address?: string } }).row_data ?? {};
-    return data.buildingName?.trim() || data.address?.trim() || linkLabel || "A property";
-  });
+  const snapshot = Array.isArray(link.property_labels)
+    ? (link.property_labels as unknown[]).map((label) => String(label ?? "").trim()).filter(Boolean)
+    : [];
+  const labels = snapshot.length > 0
+    ? snapshot
+    : (properties ?? []).map((row) => {
+        const data = (row as { row_data?: { buildingName?: string; address?: string } }).row_data ?? {};
+        return data.buildingName?.trim() || data.address?.trim() || linkLabel || "A property";
+      });
   // No property row at all (a stale id, or a record never mirrored to the
   // server) still leaves a resident link able to name its building.
   if (labels.length === 0 && linkLabel) labels.push(linkLabel);
+
+  let workspaceName = String(link.workspace_name_snapshot ?? "").trim() || null;
+  if (!workspaceName && link.workspace_id) {
+    const { data: workspace } = await db
+      .from("portal_workspaces")
+      .select("name")
+      .eq("id", link.workspace_id)
+      .maybeSingle();
+    workspaceName = String(workspace?.name ?? "").trim() || null;
+  }
 
   return {
     kind,
     ownerUserId: String(link.owner_user_id),
     ownerName: String(owner?.full_name ?? "").trim() || "A property manager",
+    workspaceName,
     propertyLabels: labels,
     unusableReason: inviteLinkUnusableReason(
       {

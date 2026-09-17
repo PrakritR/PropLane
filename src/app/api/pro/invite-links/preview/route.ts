@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { previewInviteLink } from "@/lib/invite-links/invite-links.server";
 
@@ -18,10 +19,16 @@ export async function POST(req: Request) {
   if (!token) return NextResponse.json({ error: "Not found." }, { status: 404 });
   const preview = await previewInviteLink(createSupabaseServiceRoleClient(), token);
   if (!preview) return NextResponse.json({ error: "Not found." }, { status: 404 });
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   return NextResponse.json({
     kind: preview.kind,
     ownerName: preview.ownerName,
+    workspaceName: preview.workspaceName,
     propertyLabels: preview.propertyLabels,
     unusableReason: preview.unusableReason,
+    ...(user ? { ownerUserId: preview.ownerUserId } : {}),
   });
 }

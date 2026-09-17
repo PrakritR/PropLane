@@ -15,6 +15,7 @@ import {
   inviteLinkUnusableReason,
   type InviteLinkKind,
 } from "@/lib/invite-links/invite-link-model";
+import { revealInviteLinkClient } from "@/lib/invite-links/mint-invite-link-client";
 import {
   buildAllModulesGrant,
   describeCoManagerPermissions,
@@ -69,6 +70,7 @@ export function ManagerInviteLinkModal({
   const [mintedUrl, setMintedUrl] = useState<string | null>(null);
   const [links, setLinks] = useState<ExistingLink[]>([]);
   const [copyingLinkId, setCopyingLinkId] = useState<string | null>(null);
+  const [rotatingLinkId, setRotatingLinkId] = useState<string | null>(null);
 
   const loadLinks = useCallback(async () => {
     try {
@@ -112,6 +114,9 @@ export function ManagerInviteLinkModal({
           label: label.trim() || undefined,
           assignedPropertyIds: selectedPropIds,
           propertyPermissions: isVendor ? {} : permissions,
+          propertyLabelsById: Object.fromEntries(
+            selectedPropIds.map((id) => [id, propertyOptions.find((o) => o.value === id)?.label ?? ""]),
+          ),
           expiry,
           uses,
         }),
@@ -121,8 +126,7 @@ export function ManagerInviteLinkModal({
         showToast(body.error ?? "Could not create the invite link.");
         return;
       }
-      // Shown once. The server keeps only a hash, so leaving this screen without
-      // copying it means minting a new one.
+      // Shown after mint. Copy later decrypts the same URL; Rotate mints a new one.
       setMintedUrl(body.url);
       void loadLinks();
     } catch {
@@ -141,21 +145,20 @@ export function ManagerInviteLinkModal({
     }
   };
 
-  const copyExistingLink = async (id: string) => {
-    setCopyingLinkId(id);
+  const copyExistingLink = async (id: string, rotate = false) => {
+    if (rotate) setRotatingLinkId(id);
+    else setCopyingLinkId(id);
     try {
-      const res = await fetch(`/api/pro/invite-links/${encodeURIComponent(id)}/link`, {
-        method: "POST",
-        credentials: "include",
-      });
-      const body = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
-      if (!res.ok || !body.url) {
-        showToast(body.error ?? "Could not copy that invite link.");
+      const result = await revealInviteLinkClient(id, rotate);
+      if (!result.ok) {
+        showToast(result.error);
         return;
       }
-      await copy(body.url);
+      await copy(result.url);
+      if (rotate) void loadLinks();
     } finally {
       setCopyingLinkId(null);
+      setRotatingLinkId(null);
     }
   };
 
@@ -239,10 +242,6 @@ export function ManagerInviteLinkModal({
                 <span className="ml-1.5">Copy</span>
               </Button>
             </div>
-            <p className="mt-2 text-xs text-muted">
-              Copy it now — this is the only time it is shown. We store only a fingerprint of it, so
-              it cannot be looked up again.
-            </p>
           </div>
         ) : (
           <>
@@ -360,18 +359,31 @@ export function ManagerInviteLinkModal({
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       {!unusable ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="shrink-0"
-                          data-attr="invite-link-copy-existing"
-                          loading={copyingLinkId === link.id}
-                          disabled={copyingLinkId !== null && copyingLinkId !== link.id}
-                          onClick={() => void copyExistingLink(link.id)}
-                        >
-                          <Copy className="h-4 w-4" />
-                          <span className="ml-1.5">Copy new link</span>
-                        </Button>
+                        <>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="shrink-0"
+                            data-attr="invite-link-copy-existing"
+                            loading={copyingLinkId === link.id}
+                            disabled={(copyingLinkId !== null && copyingLinkId !== link.id) || rotatingLinkId !== null}
+                            onClick={() => void copyExistingLink(link.id)}
+                          >
+                            <Copy className="h-4 w-4" />
+                            <span className="ml-1.5">Copy</span>
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="shrink-0"
+                            data-attr="invite-link-rotate"
+                            loading={rotatingLinkId === link.id}
+                            disabled={(rotatingLinkId !== null && rotatingLinkId !== link.id) || copyingLinkId !== null}
+                            onClick={() => void copyExistingLink(link.id, true)}
+                          >
+                            Rotate
+                          </Button>
+                        </>
                       ) : null}
                       <Button
                         type="button"

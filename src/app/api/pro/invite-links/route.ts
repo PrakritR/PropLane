@@ -39,7 +39,16 @@ export async function POST(req: Request) {
     propertyPermissions?: unknown;
     expiry?: string;
     uses?: string;
+    workspaceId?: string;
+    propertyLabelsById?: unknown;
   };
+
+  const propertyLabelsById: Record<string, string> = {};
+  if (body.propertyLabelsById && typeof body.propertyLabelsById === "object" && !Array.isArray(body.propertyLabelsById)) {
+    for (const [id, label] of Object.entries(body.propertyLabelsById as Record<string, unknown>)) {
+      if (typeof label === "string" && label.trim()) propertyLabelsById[id] = label.trim();
+    }
+  }
 
   const result = await mintInviteLink(createSupabaseServiceRoleClient(), {
     actorUserId: userId,
@@ -52,11 +61,12 @@ export async function POST(req: Request) {
     propertyPermissions: body.propertyPermissions,
     expiryOption: body.expiry,
     usesOption: body.uses,
+    workspaceId: typeof body.workspaceId === "string" ? body.workspaceId : undefined,
+    propertyLabelsById,
   });
 
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
 
-  // The one and only time the raw token leaves the server.
   return NextResponse.json({
     link: result.link,
     url: inviteLinkUrl(resolveEmailLinkBaseUrl(), result.token),
