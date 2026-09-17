@@ -31,8 +31,8 @@ describe("settings account vs operations groups", () => {
     expect(groupFor("messaging")).toBe("Operations");
   });
 
-  it("puts Application, Property, and Lease modules on Portfolio", () => {
-    expect(groupFor("properties")).toBe("Portfolio");
+  it("puts Application, Lease, and Tour modules on Portfolio — Properties is not a settings pane", () => {
+    expect(groupFor("properties")).toBeNull();
     expect(groupFor("applications")).toBe("Portfolio");
     expect(groupFor("lease")).toBe("Portfolio");
     expect(groupFor("tours")).toBe("Portfolio");
@@ -63,6 +63,11 @@ describe("settings account vs operations groups", () => {
     expect(src).toContain('rawTab === "team"');
     expect(src).toContain('router.replace("/portal/profile?tab=workspaces")');
     expect(src).not.toContain('id: "team"');
+  });
+
+  it("aliases ?tab=properties onto Applications", () => {
+    expect(src).toContain('rawTab === "properties"');
+    expect(src).toContain('router.replace("/portal/profile?tab=applications")');
   });
 
   it("aliases ?tab=residents onto the Residents hub pane", () => {

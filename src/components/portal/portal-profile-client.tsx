@@ -6,7 +6,6 @@ import { useWorkspaces } from "@/components/portal/workspace-provider";
 import {
   Bell,
   BellRing,
-  Building2,
   Calendar,
   CalendarDays,
   CheckSquare,
@@ -58,10 +57,6 @@ import { ManagerMessagingSettingsPanel } from "@/components/portal/pro-messaging
 import { ManagerAssistantEmailSettingsPanel } from "@/components/portal/pro-assistant-email-settings-panel";
 import { CommunicationSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
 import { SettingsModulePage } from "@/components/portal/settings-module-page";
-import { ManagerPropertyApplicationFormEditor } from "@/components/portal/pro-edit-application-modal";
-import { ManagerPropertyLeaseFormEditor } from "@/components/portal/pro-edit-leases-modal";
-import { FormAutomationPaneSwitch } from "@/components/portal/property-form-automation-chrome";
-import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   SettingsPropertyScopeBar,
   SettingsPropertyScopeProvider,
@@ -108,18 +103,19 @@ function emptyToDash(v: unknown) {
  */
 const SETTINGS_TAB_PARAM = "tab";
 
-/**
- * Operations panes that carry the per-property scope bar (PLAN-0916-1040).
- *
- * These are the panes whose every section is per-property today: Inspections and
- * Bookings are reminder-only, and Tasks is reminders + lifecycle automation — all
- * of which resolve override → workspace → default. The remaining Operations panes
- * (Communication, Payments, Services, Reminders) mix per-property reminders with
- * workspace-wide automation-settings that fan out across many sub-components, so
- * making them fully per-property is a separate pass; until then they stay
- * workspace-wide rather than show a picker that only scopes some of the pane.
- */
-const SCOPED_OPERATIONS_PANES = new Set<SettingsGroupId>(["inspections", "bookings", "tasks"]);
+/** Every remaining settings module — Properties is no longer a settings pane. */
+const SCOPED_OPERATIONS_PANES = new Set<SettingsGroupId>([
+  "applications",
+  "lease",
+  "tours",
+  "resident",
+  "payments",
+  "tasks",
+  "reminders",
+  "bookings",
+  "inspections",
+  "services",
+]);
 
 /** The two fields on this screen a person may write. */
 type ProfileField = "fullName" | "phone";
@@ -148,7 +144,6 @@ type SettingsGroupId =
   | "services";
 
 const HUB_MODULE_TABS: Partial<Record<SettingsGroupId, ManagerPortalSettingsTab>> = {
-  properties: "properties",
   applications: "applications",
   lease: "lease",
   tours: "tours",
@@ -188,9 +183,7 @@ function ManagerMessagingSettingsPane() {
 
 function HubSettingsModulePane({ tab }: { tab: ManagerPortalSettingsTab }) {
   const { userId } = useManagerUserId();
-  const { showToast } = useAppUi();
   const workspaces = useWorkspaces();
-  const [pane, setPane] = useState<"form" | "automation">("automation");
   const propertyOptions = useMemo(
     () =>
       filterPropertyOptionsForActiveWorkspace(
@@ -198,36 +191,8 @@ function HubSettingsModulePane({ tab }: { tab: ManagerPortalSettingsTab }) {
       ),
     [userId, workspaces?.active?.id],
   );
-  const formAutomation = tab === "applications" || tab === "lease";
 
-  return (
-    <div data-attr={formAutomation ? "settings-hub-form-automation" : undefined}>
-      {formAutomation ? <FormAutomationPaneSwitch pane={pane} onChange={setPane} /> : null}
-      {formAutomation && pane === "form" ? (
-        tab === "applications" ? (
-          <ManagerPropertyApplicationFormEditor
-            active
-            propertyOptions={propertyOptions}
-            managerUserId={userId}
-            onSaved={() => undefined}
-            showToast={showToast}
-            onBulkActionsChange={() => undefined}
-          />
-        ) : (
-          <ManagerPropertyLeaseFormEditor
-            active
-            propertyOptions={propertyOptions}
-            managerUserId={userId}
-            onSaved={() => undefined}
-            showToast={showToast}
-            onBulkActionsChange={() => undefined}
-          />
-        )
-      ) : (
-        <SettingsModulePage tab={tab} propertyOptions={propertyOptions} />
-      )}
-    </div>
-  );
+  return <SettingsModulePage tab={tab} propertyOptions={propertyOptions} showFormLink />;
 }
 
 export function PortalProfileClient({
@@ -461,7 +426,6 @@ export function PortalProfileClient({
     );
     if (variant === "manager") {
       list.push(
-        { id: "properties", label: "Properties", description: "Houses in this workspace.", icon: Building2, group: "Portfolio" },
         { id: "applications", label: "Applications", description: "Application handling for this workspace.", icon: FileText, group: "Portfolio" },
         { id: "lease", label: "Leases", description: "Lease automation for this workspace.", icon: ScrollText, group: "Portfolio" },
         { id: "tours", label: "Tours", description: "Tour notice and reminders.", icon: Calendar, group: "Portfolio" },
@@ -509,6 +473,7 @@ export function PortalProfileClient({
 
   const rawTab = searchParams.get(SETTINGS_TAB_PARAM);
   useEffect(() => {
+    if (rawTab === "properties") router.replace("/portal/profile?tab=applications");
     if (rawTab === "vendors") router.replace("/portal/vendors");
     if (rawTab === "team") router.replace("/portal/profile?tab=workspaces");
     if (rawTab === "communication") router.replace("/portal/profile?tab=messaging");

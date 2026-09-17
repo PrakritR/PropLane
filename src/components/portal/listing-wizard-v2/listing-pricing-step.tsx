@@ -55,6 +55,7 @@ import {
   listingFeesForWizard,
   parseRemovedStandardListingFeeRows,
   patchListingFeeCadence,
+  presetListingFeeRow,
   type ListingFeeCadence,
   type ListingFeeRow,
   type RemovedStandardListingFeeRowId,
@@ -221,9 +222,33 @@ const helpRow = (title: string, text: string) => (
 const CADENCE_SHORT: Record<ListingFeeCadence, string> = { monthly: "/mo", weekly: "/wk", daily: "/day", nightly: "/night", "one-time": "once" };
 const MONTHLY_CADENCES: readonly ListingFeeCadence[] = ["monthly", "weekly", "daily", "one-time"];
 const STAY_CADENCES: readonly ListingFeeCadence[] = ["one-time", "daily", "weekly", "monthly"];
-/** Presets that never belong on a pricing card: the deposit has its own row, these two are charged when a lease ends. */
-const CARD_HIDDEN_PRESETS = new Set<string>(["security_deposit", "break_lease_fee", "holdover_daily", "short_term_nightly"]);
+/** Presets that never belong on Other fees: deposit and move-in have their own rows; these two are charged when a lease ends. */
+const CARD_HIDDEN_PRESETS = new Set<string>(["security_deposit", "move_in_fee", "break_lease_fee", "holdover_daily", "short_term_nightly"]);
 const isStayTerm = (term: string) => term === SHORT_TERM_LEASE_TERM || term === AIRBNB_LEASE_TERM;
+
+function MoveInFeeRow({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+  const amount = moneyValue(
+    listingFeesForWizard(sub).find((fee) => fee.presetId === "move_in_fee")?.amount ?? sub.moveInFee,
+  );
+  return (
+    <FactRow label="Move-in fee">
+      <MoneyInput
+        label="Move-in fee"
+        value={amount}
+        placeholder="150"
+        onChange={(value) => {
+          const nextAmount = sanitizeMoneyInput(value);
+          const fees = listingFeesForWizard(sub);
+          const next = fees.some((fee) => fee.presetId === "move_in_fee")
+            ? fees.map((fee) => (fee.presetId === "move_in_fee" ? { ...fee, amount: nextAmount } : fee))
+            : [...fees, presetListingFeeRow("move_in_fee", nextAmount)];
+          patch(applyListingFeesToSubmission(sub, next));
+        }}
+        dataAttr="listing-v2-price-move-in-fee"
+      />
+    </FactRow>
+  );
+}
 
 /** Fee rows a pricing card can show at all, in the order the catalogue keeps them. */
 function cardFeeRows(sub: ManagerListingSubmissionV1): ListingFeeRow[] {
@@ -478,6 +503,7 @@ function MonthlyCards({
                 />
               )}
             </FactRow>
+            <MoveInFeeRow sub={sub} patch={patch} />
             <FactRow label="Listed rent">
               {base ? (
                 <RowSelectCell ariaLabel="Listed rent for every room" value={defaults.pricingMode || "fixed"} options={PRICING_MODE_OPTIONS} onChange={(v) => onDefault("pricingMode", v)} />
@@ -674,6 +700,7 @@ function WholePlaceCard({ sub, patch, term }: { sub: ManagerListingSubmissionV1;
       <FactRow label="Deposit">
         <MoneyInput label="Deposit for the whole place" value={moneyValue(sub.securityDeposit)} placeholder="3,200" onChange={(v) => patch({ securityDeposit: sanitizeMoneyInput(v) })} />
       </FactRow>
+      <MoveInFeeRow sub={sub} patch={patch} />
       <FactRow label="Utilities are">
         <RowSelectCell
           ariaLabel="How utilities are handled"

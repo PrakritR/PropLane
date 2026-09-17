@@ -34,6 +34,9 @@ import {
   syncManagerVendorsFromServer,
 } from "@/lib/manager-vendors-storage";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
+import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
+import { normalizeAssignee, type WorkAssignee } from "@/lib/work-assignment";
 import { parseWorkOrderCategoryFromDescription } from "@/lib/reports/formal-documents/spec";
 import type { WorkOrderCategory } from "@/lib/reports/categories";
 import { syncManagerWorkOrdersFromServer } from "@/lib/manager-work-orders-storage";
@@ -148,6 +151,23 @@ function approvePayDefaults(row: DemoManagerWorkOrderRow) {
   };
 }
 
+function workOrderAssigneeFromRow(
+  row: DemoManagerWorkOrderRow,
+  managerUserId: string | null,
+  teamMembers: readonly { userId: string; name?: string | null }[],
+): WorkAssignee | null {
+  const stored = normalizeAssignee(row.assignee);
+  if (stored) return stored;
+  if (row.vendorId?.trim()) {
+    return { type: "vendor", id: row.vendorId.trim(), name: row.vendorName?.trim() || "Vendor" };
+  }
+  if (row.selfAssigned && managerUserId) {
+    const me = teamMembers.find((member) => member.userId === managerUserId);
+    return { type: "team", id: managerUserId, name: me?.name?.trim() || "You" };
+  }
+  return null;
+}
+
 export function ManagerWorkOrdersPanel({
   allRows,
   bucket,
@@ -173,6 +193,7 @@ export function ManagerWorkOrdersPanel({
   const { showToast } = useAppUi();
   const navigate = usePortalNavigate();
   const { userId: managerUserId, ready: authReady } = useManagerUserId();
+  const { teamMembers, vendors: assignmentVendors } = useWorkAssignmentDirectory({ managerUserId });
   const [billDraftById, setBillDraftById] = useState<Record<string, BillDraft>>({});
   const [visitAtById, setVisitAtById] = useState<Record<string, string>>({});
   const [hcTick, setHcTick] = useState(0);
@@ -700,52 +721,59 @@ export function ManagerWorkOrdersPanel({
     setDeleteRow(null);
   };
 
-  const assignVendor = (row: DemoManagerWorkOrderRow, choice: string) => {
-    if (choice === "self") {
-      updateManagerWorkOrder(row.id, (r) => ({
-        ...r,
-        vendorId: undefined,
-        vendorName: undefined,
-        vendorAssignedAt: undefined,
-        selfAssigned: true,
-      }));
-      showToast("You're handling this yourself. No vendor email will be sent.");
-      return;
-    }
-    if (!choice) {
-      updateManagerWorkOrder(row.id, (r) => ({
-        ...r,
+  const assignWork = (row: DemoManagerWorkOrderRow, next: WorkAssignee | null) => {
+    if (!next) {
+      updateManagerWorkOrder(row.id, (current) => ({
+        ...current,
         vendorId: undefined,
         vendorName: undefined,
         vendorAssignedAt: undefined,
         vendorPriceSetAt: undefined,
         selfAssigned: false,
+        assignee: undefined,
       }));
-      showToast("Vendor unassigned.");
+      showToast("Unassigned.");
       return;
     }
-    const vendor = activeVendors.find((v) => v.id === choice);
+    if (next.type === "team") {
+      updateManagerWorkOrder(row.id, (current) => ({
+        ...current,
+        vendorId: undefined,
+        vendorName: undefined,
+        vendorAssignedAt: undefined,
+        selfAssigned: true,
+        assignee: next,
+      }));
+      showToast(
+        next.id === managerUserId
+          ? "You're handling this yourself. No vendor email will be sent."
+          : `Assigned ${next.name}.`,
+      );
+      return;
+    }
+    const vendor = activeVendors.find((item) => item.id === next.id);
     if (!vendor) {
       showToast("Vendor not found.");
       return;
     }
     const assignedAt = new Date().toISOString();
-    updateManagerWorkOrder(row.id, (r) => ({
-      ...r,
+    updateManagerWorkOrder(row.id, (current) => ({
+      ...current,
       vendorId: vendor.id,
       vendorName: vendor.name,
       vendorAssignedAt: assignedAt,
       selfAssigned: false,
+      assignee: { type: "vendor", id: vendor.id, name: vendor.name },
     }));
     showToast(`Assigned ${vendor.name}.`);
-    // ponytail: client fire-and-forget; move into a server assign route if/when one exists
-    if (!isDemoModeActive() && row.residentEmail && choice !== row.vendorId) {
+    if (!isDemoModeActive() && row.residentEmail && next.id !== row.vendorId) {
       void notifyResidentOfWorkOrderUpdate("vendor_assigned", {
         ...row,
         vendorId: vendor.id,
         vendorName: vendor.name,
         vendorAssignedAt: assignedAt,
         selfAssigned: false,
+        assignee: { type: "vendor", id: vendor.id, name: vendor.name },
       }).then((notify) => {
         if (notify.ok) track("work_order_resident_notified", { stage: "vendor_assigned", work_order_id: row.id });
       });
@@ -965,11 +993,16 @@ export function ManagerWorkOrdersPanel({
                               {visitSourcePill(row)}
                             </p>
                           </div>
-                          <div>
-                            <p className="text-xs text-muted">Vendor</p>
-                            <p className="text-sm font-medium text-foreground">
-                              {row.selfAssigned ? "You (manager)" : row.vendorName?.trim() || "Unassigned"}
-                            </p>
+                          <div className="sm:col-span-2">
+                            <WorkAssignmentPicker
+                              kind="maintenance"
+                              value={workOrderAssigneeFromRow(row, managerUserId, teamMembers)}
+                              teamMembers={teamMembers}
+                              vendors={assignmentVendors}
+                              label="Assigned to"
+                              dataAttr="work-order-assignee"
+                              onChange={(next) => assignWork(row, next)}
+                            />
                           </div>
                         </div>
                         <p className="mt-4 text-sm leading-relaxed text-muted">{row.description}</p>

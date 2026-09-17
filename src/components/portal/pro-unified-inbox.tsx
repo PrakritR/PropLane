@@ -371,6 +371,7 @@ export function ManagerUnifiedInbox({
 
   useEffect(() => {
     if (!isClient || !initialListReady || !viewerId?.trim()) return;
+    if (listSegment === "archived") return;
     let staged: PersistedInboxThread[] | null = null;
     setEmailThreads((current) => {
       const placeholder = buildManagerAssistantPlaceholderThread(viewerId, assistantWorkspace);
@@ -818,15 +819,12 @@ export function ManagerUnifiedInbox({
       ),
       "active",
     );
-    const archived = pinAssistant(
-      mergeUnifiedInboxItems(
-        [
-          ...filteredEmail.filter((t) => t.folder === "trash").map(emailThreadMergeStub),
-          ...allSmsItems.filter((row) => row.archived).map((row) => row.item),
-        ],
-        listSort,
-      ),
-      "archived",
+    const archived = mergeUnifiedInboxItems(
+      [
+        ...filteredEmail.filter((t) => t.folder === "trash").map(emailThreadMergeStub),
+        ...allSmsItems.filter((row) => row.archived).map((row) => row.item),
+      ],
+      listSort,
     );
     return { active: active.length, archived: archived.length };
   }, [
@@ -857,6 +855,7 @@ export function ManagerUnifiedInbox({
       [...emailListItems, ...smsListItems, ...placeholderListItems],
       listSort,
     );
+    if (listSegment === "archived") return merged;
     if (!assistantThreadId || !viewerId) {
       return pinPropLaneAssistantUnifiedItems(merged, assistantThreadId);
     }

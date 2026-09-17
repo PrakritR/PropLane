@@ -1,6 +1,6 @@
 /**
- * `/portal/settings/<tab>` now folds into Main Settings. Redirects in
- * next.config.ts plus render-portal-section keep old bookmarks working.
+ * `/portal/settings/<tab>` is a live settings page. Hub bookmarks that used
+ * `?tab=properties` land on Applications.
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -13,23 +13,6 @@ import {
   parseManagerSettingsAreaTab,
 } from "@/lib/portal-settings-section";
 
-function sourceMatches(source: string, pathname: string): boolean {
-  if (source.endsWith("/:path*")) {
-    const prefix = source.slice(0, -"/:path*".length);
-    return pathname === prefix || pathname.startsWith(`${prefix}/`);
-  }
-  if (source.endsWith("/:path+")) {
-    const prefix = source.slice(0, -"/:path+".length);
-    return pathname !== prefix && pathname.startsWith(`${prefix}/`);
-  }
-  if (source.endsWith("/:tab")) {
-    const prefix = source.slice(0, -"/:tab".length);
-    if (pathname === prefix || !pathname.startsWith(`${prefix}/`)) return false;
-    return pathname.slice(prefix.length + 1).split("/").length === 1;
-  }
-  return source === pathname;
-}
-
 function readRedirectSources(): string[] {
   const src = readFileSync(resolve(__dirname, "../../next.config.ts"), "utf8");
   const start = src.indexOf("async redirects()");
@@ -38,20 +21,18 @@ function readRedirectSources(): string[] {
   return [...tail.matchAll(/source:\s*"([^"]+)"/g)].map((m) => m[1]!);
 }
 
-describe("next.config.ts folds /portal/settings into the hub", () => {
+describe("next.config.ts does not fold /portal/settings into the hub", () => {
   const sources = readRedirectSources();
 
   it("found at least the redirects() block's other entries", () => {
     expect(sources.length).toBeGreaterThan(10);
   });
 
-  it("redirects /portal/settings and /portal/settings/:tab into Main Settings", () => {
-    expect(sources).toContain("/portal/settings");
-    expect(sources).toContain("/portal/settings/:tab");
-    expect(sources).toContain("/portal/settings/automation");
-    expect(sources).toContain("/portal/settings/communication");
-    expect(sourceMatches("/portal/settings/:tab", "/portal/settings/tours")).toBe(true);
-    expect(sourceMatches("/portal/settings", "/portal/settings")).toBe(true);
+  it("leaves /portal/settings as a live page instead of redirecting into Main Settings", () => {
+    expect(sources).not.toContain("/portal/settings");
+    expect(sources).not.toContain("/portal/settings/:tab");
+    expect(sources).not.toContain("/portal/settings/automation");
+    expect(sources).not.toContain("/portal/settings/communication");
   });
 
   it("leaves the sibling /resident/settings and /admin/settings redirects alone", () => {
@@ -67,10 +48,11 @@ describe("parseManagerSettingsAreaTab", () => {
     expect(parseManagerSettingsAreaTab(id)).toBe(id);
   });
 
-  it("maps leases, reminders, and residents aliases", () => {
+  it("maps leases, reminders, residents, and retired properties aliases", () => {
     expect(parseManagerSettingsAreaTab("leases")).toBe("lease");
     expect(parseManagerSettingsAreaTab("reminders")).toBe("automation");
     expect(parseManagerSettingsAreaTab("residents")).toBe("resident");
+    expect(parseManagerSettingsAreaTab("properties")).toBe("applications");
   });
 
   it("returns null for an area this registry does not recognize", () => {
@@ -89,8 +71,8 @@ describe("managerSettingsHubTab", () => {
   it("folds communication into messaging and automation into reminders", () => {
     expect(managerSettingsHubTab("communication")).toBe("messaging");
     expect(managerSettingsHubTab("automation")).toBe("reminders");
-    expect(managerSettingsHubTab("properties")).toBe("properties");
-    expect(managerSettingsHubTab(null)).toBe("properties");
+    expect(managerSettingsHubTab("properties")).toBe("applications");
+    expect(managerSettingsHubTab(null)).toBe("applications");
   });
 });
 

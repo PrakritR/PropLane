@@ -74,15 +74,16 @@ describe("communication assistant inbox list", () => {
     expect(withPinnedPropLaneAssistantThreads([], "resident", RESIDENT, "archived")).toEqual([]);
   });
 
-  it("pins the manager assistant on every Communication section, keyed by workspace", () => {
+  it("pins the manager assistant on Active and Unread, keyed by workspace — not Archived", () => {
     const workspace = { id: "ws-brooklyn", isDefault: false };
     const id = managerAgentNoticeThreadId(MANAGER, workspace);
-    for (const segment of ["active", "unread", "archived"] as const) {
+    for (const segment of ["active", "unread"] as const) {
       const rows = withPinnedPropLaneAssistantThreads([], "manager", MANAGER, segment, workspace);
       expect(rows).toHaveLength(1);
       expect(rows[0]!.id).toBe(id);
       expect(rows[0]!.folder).toBe("inbox");
     }
+    expect(withPinnedPropLaneAssistantThreads([], "manager", MANAGER, "archived", workspace)).toEqual([]);
   });
 
   it("pins the manager assistant on the legacy id before a workspace identity loads", () => {

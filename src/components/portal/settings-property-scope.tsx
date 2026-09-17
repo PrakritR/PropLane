@@ -19,7 +19,7 @@ import { PortalSettingsScopeTag } from "@/components/portal/portal-settings-ui";
  * One picker at the top of the pane sets which house the sections below apply
  * to; "" is the workspace default ("All properties"). The panels read the scope
  * through {@link useSettingsPropertyScope} and add `?propertyId=` to their
- * fetches. The picker never appears when the workspace has a single property.
+ * fetches. The picker is always shown when the workspace has houses.
  *
  * The hook is safe to call OUTSIDE a provider — it returns the workspace scope
  * (`propertyId: ""`, no-op reporters) — so a panel without houses still reads
@@ -132,16 +132,15 @@ export function SettingsPropertyScopeProvider({
 const ALL_PROPERTIES = "__all__";
 
 /**
- * The scope bar — one property picker pinned at the top of an Operations pane.
- * Shows "N houses have their own" on the workspace view, "Uses workspace
- * defaults" on an un-customized house, and "Reset to workspace default" on a
- * customized house. Renders nothing when the workspace has one property.
+ * The scope bar — one property picker pinned at the top of a settings pane.
+ * Always visible when the workspace has houses. "" is All properties.
+ * "Select all" in the menu is the same pick as All properties.
  */
 export function SettingsPropertyScopeBar() {
   const scope = useSettingsPropertyScope();
   const { options, propertyId, overriddenPropertyIds } = scope;
 
-  if (options.length <= 1) return null;
+  if (options.length === 0) return null;
 
   const overridden = new Set(overriddenPropertyIds);
   const overriddenOptions = options.filter((o) => overridden.has(o.id));
@@ -175,24 +174,40 @@ export function SettingsPropertyScopeBar() {
       <PortalSettingsScopeTag variant="muted">Uses workspace defaults</PortalSettingsScopeTag>
     );
 
+  const selectAllFooter = (close: () => void) => (
+    <button
+      type="button"
+      data-attr="settings-property-scope-select-all"
+      className="w-full rounded-lg px-2 py-1.5 text-left text-[13px] font-semibold text-primary hover:bg-accent/60"
+      onClick={() => {
+        scope.setPropertyId("");
+        close();
+      }}
+    >
+      Select all
+    </button>
+  );
+
+  const pickerOptions = [
+    { value: ALL_PROPERTIES, label: "All properties" },
+    ...options.map((o) => ({ value: o.id, label: o.label })),
+  ];
+
   return (
     <div className="sticky top-0 z-[3] mb-5 flex flex-col gap-2.5 rounded-2xl border border-border bg-card px-3.5 py-2.5 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-center gap-2.5">
         <span className="text-[13px] font-semibold text-foreground">Property</span>
-        {/* Pill on desktop (matches Finances); a full-width field on a phone. */}
         <span className="hidden sm:inline-flex">
           <FieldSingleSelect
             label="Property"
             value={propertyId || ALL_PROPERTIES}
             onChange={(next) => scope.setPropertyId(next === ALL_PROPERTIES ? "" : next)}
-            options={[
-              { value: ALL_PROPERTIES, label: "All properties" },
-              ...options.map((o) => ({ value: o.id, label: o.label })),
-            ]}
+            options={pickerOptions}
             disabled={scope.loading}
             dataAttr="settings-property-scope"
             variant="pill"
             triggerClassName={`${FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS} max-w-[15rem]`}
+            menuFooter={selectAllFooter}
           />
         </span>
       </div>
@@ -202,13 +217,11 @@ export function SettingsPropertyScopeBar() {
           hideLabel
           value={propertyId || ALL_PROPERTIES}
           onChange={(next) => scope.setPropertyId(next === ALL_PROPERTIES ? "" : next)}
-          options={[
-            { value: ALL_PROPERTIES, label: "All properties" },
-            ...options.map((o) => ({ value: o.id, label: o.label })),
-          ]}
+          options={pickerOptions}
           disabled={scope.loading}
           dataAttr="settings-property-scope-mobile"
           wrapperClassName="w-full"
+          menuFooter={selectAllFooter}
         />
       </span>
       {right ? <div className="flex items-center">{right}</div> : null}
@@ -223,10 +236,6 @@ export function SettingsPropertyScopeBar() {
  */
 export function SettingsPropertyScopeEcho() {
   const scope = useSettingsPropertyScope();
-  if (scope.options.length <= 1) {
-    // A single-property workspace keeps the plain workspace tag.
-    return <PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>;
-  }
   if (!scope.propertyId) return <PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>;
   const label = scope.options.find((o) => o.id === scope.propertyId)?.label ?? "This property";
   const inherited = !scope.overriddenPropertyIds.includes(scope.propertyId);

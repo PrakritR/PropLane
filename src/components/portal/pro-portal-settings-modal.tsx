@@ -20,7 +20,7 @@ import {
   type SettingsModuleSaveStatus,
 } from "@/components/portal/settings-module-page";
 import { getSettingsEntryPointForTab } from "@/components/portal/settings-entry-points";
-import { MANAGER_PORTAL_SETTINGS_TABS, managerSettingsHubTab } from "@/lib/portal-settings-section";
+import { MANAGER_PORTAL_SETTINGS_TABS } from "@/lib/portal-settings-section";
 import { PORTAL_TOOLBAR_PILL_BUTTON, PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE } from "@/components/portal/portal-metrics";
 import {
   FormAutomationPaneSwitch,
@@ -51,9 +51,6 @@ export type ManagerPortalSettingsTab =
   | "bookings"
   | "inspections"
   | "automation";
-
-/** Operations gears that share the hub's Property picker (All properties or one house). */
-const OPERATIONS_SCOPE_TABS = new Set<ManagerPortalSettingsTab>(["inspections", "bookings", "tasks"]);
 
 export function ProPortalSettingsModal({
   open,
@@ -229,7 +226,7 @@ export function ProPortalSettingsModal({
     closeCalledRef.current = true;
     onClose();
     if (typeof window !== "undefined") {
-      window.location.assign(`/portal/profile?tab=${managerSettingsHubTab(tab)}`);
+      window.location.assign(`/portal/settings/${tab}`);
     }
   }, [flushPendingSaves, onClose, tab]);
 
@@ -372,7 +369,7 @@ export function ProPortalSettingsModal({
             onBulkActionsChange={handleFormBulkActions}
           />
         )
-      ) : OPERATIONS_SCOPE_TABS.has(tab) ? (
+      ) : (
         <SettingsPropertyScopeProvider
           propertyId={scopePropertyId}
           onPropertyIdChange={setScopePropertyId}
@@ -383,7 +380,7 @@ export function ProPortalSettingsModal({
             ref={pageRef}
             tab={tab}
             propertyOptions={propertyOptions}
-            initialPropertyId={initialPropertyId}
+            initialPropertyId={scopePropertyId || initialPropertyId}
             paymentsMode={paymentsMode}
             onCalendarSettingsSaved={onCalendarSettingsSaved}
             onFooterChange={setPanelFooter}
@@ -391,18 +388,6 @@ export function ProPortalSettingsModal({
             active={open}
           />
         </SettingsPropertyScopeProvider>
-      ) : (
-        <SettingsModulePage
-          ref={pageRef}
-          tab={tab}
-          propertyOptions={propertyOptions}
-          initialPropertyId={initialPropertyId}
-          paymentsMode={paymentsMode}
-          onCalendarSettingsSaved={onCalendarSettingsSaved}
-          onFooterChange={setPanelFooter}
-          onSaveStatusChange={handleSaveStatusChange}
-          active={open}
-        />
       )}
     </Modal>
   );

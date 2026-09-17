@@ -55,7 +55,7 @@ export const MANAGER_SETTINGS_ENTRY_POINTS = {
   inspections: entryPoint("inspections", "Inspection settings", "inspections"),
   payments: entryPoint("payments", "Payment settings", "payments"),
   leases: entryPoint("leases", "Lease settings", "lease"),
-  properties: entryPoint("properties", "Property settings", "properties"),
+  properties: entryPoint("properties", "Property settings"),
   applications: entryPoint("applications", "Application settings", "applications"),
   tours: entryPoint("tours", "Tour settings", "tours"),
   // No `ManagerPortalSettingsTab` fits this — background checks are a

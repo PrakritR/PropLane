@@ -154,12 +154,6 @@ const nextConfig: NextConfig = {
       { source: "/resident/announcements/:path*", destination: "/resident/dashboard", permanent: false },
       { source: "/resident/settings", destination: "/resident/profile", permanent: false },
       { source: "/resident/settings/:path*", destination: "/resident/profile", permanent: false },
-      // Module settings now live in Main Settings. Keep these so old gear
-      // "Open in Settings" URLs and bookmarks land on the hub.
-      { source: "/portal/settings", destination: "/portal/profile", permanent: false },
-      { source: "/portal/settings/automation", destination: "/portal/profile?tab=reminders", permanent: false },
-      { source: "/portal/settings/communication", destination: "/portal/profile?tab=messaging", permanent: false },
-      { source: "/portal/settings/:tab", destination: "/portal/profile?tab=:tab", permanent: false },
       { source: "/admin/settings", destination: "/admin/profile", permanent: false },
       { source: "/admin/settings/:path*", destination: "/admin/profile", permanent: false },
       { source: "/resident/support", destination: "/resident/dashboard", permanent: false },

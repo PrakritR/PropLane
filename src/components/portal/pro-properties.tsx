@@ -14,12 +14,7 @@ import {
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { Settings, Share2 } from "lucide-react";
-import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
-import {
-  getSettingsEntryPoint,
-  settingsDialogTitlePrefix,
-} from "@/components/portal/settings-entry-points";
+import { Share2 } from "lucide-react";
 import {
   ManagerPortalPageShell,
 } from "@/components/portal/portal-metrics";
@@ -66,8 +61,6 @@ import {
   takePendingFirstListingAutoOpen,
   writePendingFirstListingAutoOpen,
 } from "@/lib/manager-first-listing-onboarding";
-
-const propertiesSettingsEntry = getSettingsEntryPoint("properties");
 
 /**
  * Adding a property from a co-managed workspace was refused by the records API
@@ -164,7 +157,6 @@ export function ManagerProperties({
   const [portfolioTick, setPortfolioTick] = useState(0);
   const firstListingSeedAttemptedRef = useRef(false);
   const [shareListingOpen, setShareListingOpen] = useState(false);
-  const [listSettingsOpen, setListSettingsOpen] = useState(false);
   const [listSearch, setListSearch] = useState("");
   const [shareListingPropertyId, setShareListingPropertyId] = useState<string | undefined>();
   /** Several selected listings, for a bulk share from the Properties list (AXI-140). */
@@ -552,12 +544,6 @@ export function ManagerProperties({
             actions={
               <>
                 <PortalIconAction
-                  icon={Settings}
-                  label={propertiesSettingsEntry.label}
-                  data-attr={propertiesSettingsEntry.dataAttr}
-                  onClick={() => setListSettingsOpen(true)}
-                />
-                <PortalIconAction
                   icon={Share2}
                   label="Share listing link"
                   data-attr="manager-properties-share-open"
@@ -578,12 +564,6 @@ export function ManagerProperties({
                 onClick={tryOpenAdd}
               />
             }
-          />
-          <ManagerPortalSettingsModal
-            open={listSettingsOpen}
-            onClose={() => setListSettingsOpen(false)}
-            initialTab="properties"
-            scopedTitle={settingsDialogTitlePrefix(propertiesSettingsEntry)}
           />
           {atPropertyLimit && limitMax != null ? (
             <p className="mb-4 shrink-0 rounded-2xl border px-4 py-3 text-sm portal-banner-danger lg:mb-4">
