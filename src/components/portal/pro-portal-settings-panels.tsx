@@ -413,7 +413,7 @@ export function ApplicationsSettingsPanel({
   return (
     <div className="space-y-6">
       <PortalSettingsSection
-        title="Application handling"
+        title="Handling"
         action={<PortalSettingsScopeTag>{propertyScopeTagLabel(selectedIds.length)}</PortalSettingsScopeTag>}
       >
         {showFormLink ? (
@@ -476,8 +476,8 @@ export function ApplicationsSettingsPanel({
       </PortalSettingsSection>
 
       <PortalSettingsSection
-        title="Application reminders"
-        action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+        title="Reminders"
+        action={<SettingsPropertyScopeEcho />}
       >
         <ManagerAutomationSelectRow
           label="Response promise"
@@ -698,7 +698,7 @@ export function TaskSettingsPanel({
   return (
     <div className="space-y-6">
       <PortalSettingsSection
-        title="Task reminders"
+        title="Reminders"
         action={<SettingsPropertyScopeEcho />}
       >
         <ManagerReminderRuleSettingsPanel
@@ -774,7 +774,7 @@ export function LeaseSettingsPanel({
   return (
     <div className="space-y-6">
       <PortalSettingsSection
-        title="Lease documents"
+        title="Documents"
         action={<PortalSettingsScopeTag>{propertyScopeTagLabel(propertyId ? 1 : 0)}</PortalSettingsScopeTag>}
       >
         {showFormLink ? (
@@ -808,7 +808,7 @@ export function LeaseSettingsPanel({
         </PortalSettingsGroup>
       </PortalSettingsSection>
 
-      <PortalSettingsSection title="Lease ending" action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}>
+      <PortalSettingsSection title="Ending" action={<SettingsPropertyScopeEcho />}>
         <AutomationRuleRows
           rows={[
             { kind: "lease_ending_manager", multi: true },
@@ -843,8 +843,8 @@ export function LeaseSettingsPanel({
       </PortalSettingsSection>
 
       <PortalSettingsSection
-        title="Signing reminders"
-        action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+        title="Reminders"
+        action={<SettingsPropertyScopeEcho />}
       >
         <LeaseRemindersSettingsBundle
           teamMembers={teamMembers}
@@ -876,7 +876,7 @@ export function ServicesSettingsPanel({
 
   return (
     <PortalSettingsSections>
-      <PortalSettingsSection title="Requests" action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}>
+      <PortalSettingsSection title="Requests" action={<SettingsPropertyScopeEcho />}>
         <ServiceRequestAutomationRows />
         <AutomationRuleRows
           rows={[
@@ -899,7 +899,7 @@ export function ServicesSettingsPanel({
           ]}
         />
       </PortalSettingsSection>
-      <PortalSettingsSection title="Visit reminders">
+      <PortalSettingsSection title="Reminders" action={<SettingsPropertyScopeEcho />}>
         <AutoMessageAssigneeRow />
         <ServiceRemindersSettingsBundle
           teamMembers={teamMembers}
@@ -1018,7 +1018,7 @@ export function InspectionsSettingsPanel({
   return (
     <PortalSettingsSections>
       <PortalSettingsSection
-        title="Inspection reminders"
+        title="Reminders"
         action={<SettingsPropertyScopeEcho />}
       >
         <InspectionRemindersSettingsBundle
@@ -1047,7 +1047,7 @@ export function BookingsSettingsPanel({
 
   return (
     <PortalSettingsSection
-      title="Booking reminders"
+      title="Reminders"
       action={<SettingsPropertyScopeEcho />}
     >
       <ManagerReminderRuleSettingsPanel
@@ -1276,7 +1276,7 @@ export function TourSettingsPanel({
       automation.tourReminderDeliverViaEmail === false &&
       automation.tourReminderDeliverViaSms !== true
     ) {
-      const message = "Choose at least one channel under Tour reminders → Send via.";
+      const message = "Choose at least one channel under Reminders → Send via.";
       showToast(message);
       reportSaveStatus({ type: "failure", reason: message });
       return false;
@@ -1382,8 +1382,8 @@ export function TourSettingsPanel({
     <>
       <div className="space-y-6">
         <PortalSettingsSection
-          title="Tour booking"
-          action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+          title="Booking"
+          action={<SettingsPropertyScopeEcho />}
         >
           <PortalSettingsGroup>
             <PortalSettingsRow
@@ -1411,8 +1411,8 @@ export function TourSettingsPanel({
         </PortalSettingsSection>
 
         <PortalSettingsSection
-          title="Tour reminders"
-          action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+          title="Reminders"
+          action={<SettingsPropertyScopeEcho />}
         >
           <div className="space-y-4">
             <ReminderTypePicker
@@ -1596,7 +1596,7 @@ export function PaymentsSettingsPanel({
     return (
       <div className="space-y-6">
         <PortalSettingsSection
-          title="Outgoing payment reminders"
+          title="Reminders"
           action={<SettingsPropertyScopeEcho />}
         >
           <OutgoingPaymentRemindersSettingsBundle
@@ -1861,8 +1861,8 @@ export function CommunicationSettingsPanel({
 
   return (
     <PortalSettingsSection
-      title="Inbox automation"
-      action={<PortalSettingsScopeTag>All properties</PortalSettingsScopeTag>}
+      title="Automation"
+      action={<SettingsPropertyScopeEcho />}
     >
       <PortalSettingsGroup>
         <PortalSettingsRow label="Auto-send AI drafts">

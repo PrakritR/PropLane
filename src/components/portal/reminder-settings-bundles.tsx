@@ -96,8 +96,7 @@ export function ApplicationRemindersSettingsBundle({
   useImperativeHandle(formRef, () => bundle, [bundle]);
 
   return (
-    <div className="space-y-4 border-t border-border pt-4">
-      <p className="text-[13.5px] font-semibold text-foreground">Application reminders</p>
+    <div className="space-y-4">
       <ReminderTypePicker
         value={type}
         options={APPLICATION_REMINDER_TYPES}
@@ -161,8 +160,7 @@ export function LeaseRemindersSettingsBundle({
   useImperativeHandle(formRef, () => bundle, [bundle]);
 
   return (
-    <div className="space-y-4 border-t border-border pt-4">
-      <p className="text-[13.5px] font-semibold text-foreground">Lease reminders</p>
+    <div className="space-y-4">
       <ReminderTypePicker
         value={type}
         options={LEASE_REMINDER_TYPES}
@@ -232,7 +230,6 @@ export function OutgoingPaymentRemindersSettingsBundle({
 
   return (
     <div className="space-y-4">
-      <p className="text-[13.5px] font-semibold text-foreground">Outgoing payment reminders</p>
       <ReminderTypePicker
         value={type}
         options={OUTGOING_PAYMENT_REMINDER_TYPES}
