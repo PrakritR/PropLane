@@ -2,9 +2,11 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { isAssistantUnifiedInboxRow, isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
+import { resolveSmsDeletePhone } from "@/lib/communication-inbox-filters";
 import { deleteManagerSmsConversationClient } from "@/lib/manager-sms-conversations-client";
 import {
   archivePersistedInboxThreads,
+  clearPersistedInboxThread,
   deletePersistedInboxThreadsForever,
   restorePersistedInboxThreads,
 } from "@/lib/communication-inbox-thread-mutations";
@@ -38,6 +40,7 @@ export function useUnifiedCommunicationBulk({
   smsTargets = [],
   onSmsDeleted,
   showToast = () => {},
+  assistantPlaceholder,
 }: {
   mergedRows: UnifiedInboxListItem[];
   listSegment: InboxListSegment;
@@ -50,6 +53,8 @@ export function useUnifiedCommunicationBulk({
   smsTargets?: Array<{ conversationId: string; phone: string; conversationKey: string | null }>;
   onSmsDeleted?: () => void;
   showToast?: (message: string) => void;
+  /** Preview/from/subject restored after Clear PropLane Assistant. */
+  assistantPlaceholder?: Pick<PersistedInboxThread, "from" | "subject" | "preview">;
 }) {
   const toast = showToast;
   const selectableKeys = useMemo(() => mergedRows.map((row) => row.key), [mergedRows]);
@@ -169,6 +174,28 @@ export function useUnifiedCommunicationBulk({
 
   const confirm = useConfirm();
 
+  const assistantPlaceholderFields = useCallback((threadId: string) => {
+    const existing = emailThreads.find((thread) => thread.id === threadId);
+    return {
+      preview: assistantPlaceholder?.preview ?? existing?.preview ?? "",
+      subject: assistantPlaceholder?.subject ?? existing?.subject ?? "PropLane Assistant",
+      from: assistantPlaceholder?.from ?? existing?.from ?? "PropLane Assistant",
+    };
+  }, [assistantPlaceholder, emailThreads]);
+
+  const clearAssistantIds = useCallback(async (ids: string[]) => {
+    const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+    if (unique.length === 0) return true;
+    let nextRows = emailThreads;
+    for (const id of unique) {
+      const { ok, next } = await clearPersistedInboxThread(storageKey, id, assistantPlaceholderFields(id));
+      if (!ok) return false;
+      nextRows = next;
+    }
+    onEmailThreadsChange(nextRows);
+    return true;
+  }, [assistantPlaceholderFields, emailThreads, onEmailThreadsChange, storageKey]);
+
   const deleteRowsForever = useCallback(async (
     rows: SelectedRow[],
     confirmCount: number,
@@ -192,40 +219,60 @@ export function useUnifiedCommunicationBulk({
       return false;
     }
 
+    let emailDeleted = 0;
     if (emailIds.length > 0) {
       const { ok, next } = await deletePersistedInboxThreadsForever(storageKey, emailIds);
       if (!ok) {
         showToast(failToast);
         return false;
       }
+      emailDeleted = emailIds.length;
       onEmailThreadsChange(next);
     }
 
+    let smsDeleted = 0;
+    let smsFailed = 0;
     for (const id of smsIds) {
       const target = smsTargets.find((entry) => entry.conversationId === id);
-      const phone = target?.phone?.trim() ?? "";
+      const row = mergedRows.find((entry) => {
+        const key = `sms:${id}`;
+        return entry.threadId === id || entry.key === key || (entry.memberKeys ?? []).includes(key);
+      });
+      const phone = resolveSmsDeletePhone({
+        conversationId: id,
+        targetPhone: target?.phone,
+        rowName: row?.name,
+        rowSubtitle: row?.subtitle,
+      });
       const result = await deleteManagerSmsConversationClient({
         phone,
         conversationKey: target?.conversationKey ?? id,
       });
-      if (!result.ok) {
-        showToast(result.error ?? failToast);
-        onSmsDeleted?.();
-        return false;
+      if (!result.ok || result.partial) {
+        smsFailed += 1;
+        continue;
       }
-      if (result.partial) {
-        showToast(result.error ?? failToast);
-        onSmsDeleted?.();
-        return false;
-      }
+      smsDeleted += 1;
     }
     if (smsIds.length > 0) onSmsDeleted?.();
+    const deletedCount = emailDeleted + smsDeleted;
+    if (smsFailed > 0) {
+      showToast(
+        deletedCount > 0
+          ? `Deleted ${deletedCount}. Couldn't delete ${smsFailed} text conversation${smsFailed === 1 ? "" : "s"}.`
+          : failToast,
+      );
+      if (deletedCount === 0) return false;
+      clearAfterBulk();
+      return true;
+    }
     showToast("Deleted.");
     clearAfterBulk();
     return true;
   }, [
     clearAfterBulk,
     confirm,
+    mergedRows,
     onEmailThreadsChange,
     onSmsDeleted,
     showToast,
@@ -238,9 +285,39 @@ export function useUnifiedCommunicationBulk({
     await deleteRowsForever(selectedRows, conversationCount || selectedRows.length);
   }, [deleteRowsForever, selectedRows, selection.selectedIds.size]);
 
+  const handleClearAssistant = useCallback(async (
+    row: UnifiedInboxListItem,
+    opts?: { skipConfirm?: boolean },
+  ) => {
+    if (!isAssistantUnifiedInboxRow(row, emailThreads)) return false;
+    if (!opts?.skipConfirm && !(await confirm({
+      description: "Clear PropLane Assistant? This removes the messages. The conversation stays.",
+    }))) {
+      return false;
+    }
+    const ids = [...new Set([row.key, ...(row.memberKeys ?? [])])]
+      .map(parseUnifiedInboxKey)
+      .flatMap((member) => {
+        if (!member || member.channel !== "email") return [];
+        if (member.threadId.startsWith("agent_notice_") || member.threadId.startsWith("resident-agent-")) {
+          return [member.threadId];
+        }
+        const thread = emailThreads.find((entry) => entry.id === member.threadId);
+        return thread && isPropLaneAssistantInboxThread(thread) ? [member.threadId] : [];
+      });
+    const ok = await clearAssistantIds(ids);
+    if (!ok) {
+      showToast("Could not clear PropLane Assistant.");
+      return false;
+    }
+    if (!opts?.skipConfirm) showToast("Cleared.");
+    return true;
+  }, [clearAssistantIds, confirm, emailThreads, showToast]);
+
   const handleDeleteAllArchived = useCallback(async () => {
     if (listSegment !== "archived") return;
     const deletable = mergedRows.filter((row) => !isAssistantUnifiedInboxRow(row, emailThreads));
+    const assistantRows = mergedRows.filter((row) => isAssistantUnifiedInboxRow(row, emailThreads));
     if (deletable.length === 0) return;
     const rows: SelectedRow[] = deletable.flatMap((row) =>
       [...new Set([row.key, ...(row.memberKeys ?? [])])].flatMap((key) => {
@@ -249,10 +326,11 @@ export function useUnifiedCommunicationBulk({
       }),
     );
     const ok = await deleteRowsForever(rows, deletable.length, "archived-all");
-    if (!ok) {
-      /* confirm cancelled or a partial failure already toasted */
+    if (!ok) return;
+    for (const row of assistantRows) {
+      await handleClearAssistant(row, { skipConfirm: true });
     }
-  }, [deleteRowsForever, emailThreads, listSegment, mergedRows]);
+  }, [deleteRowsForever, emailThreads, handleClearAssistant, listSegment, mergedRows]);
 
   const openEdit = useCallback(() => {
     setEditError(null);
@@ -323,6 +401,7 @@ export function useUnifiedCommunicationBulk({
     handleArchive,
     handleRestore,
     handleDelete,
+    handleClearAssistant,
     handleDeleteAllArchived,
     archiveSmsConversation,
     parseRowKey: parseUnifiedInboxKey,

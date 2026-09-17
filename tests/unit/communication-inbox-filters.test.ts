@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { filterEmailInboxThreads, filterManagerCommunicationThreads, isPhoneLikeContact, isSmsLikeInboxThread } from "@/lib/communication-inbox-filters";
+import {
+  countVisibleUnreadCommunication,
+  filterEmailInboxThreads,
+  filterManagerCommunicationThreads,
+  isPhoneLikeContact,
+  isSmsLikeInboxThread,
+  resolveSmsDeletePhone,
+} from "@/lib/communication-inbox-filters";
 import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 import { threadPassesCommunicationFilters } from "@/lib/communication-thread-filters";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
@@ -64,5 +71,37 @@ describe("communication-inbox-filters", () => {
     expect(threadPassesCommunicationFilters({ ...args, counterpartyRole: "vendor" })).toBe(false);
     expect(threadPassesCommunicationFilters({ ...args, counterpartyRole: "applicant" })).toBe(true);
     expect(threadPassesCommunicationFilters({ ...args, counterpartyRole: "resident" })).toBe(true);
+  });
+
+  it("resolves an SMS delete phone from the row when the directory misses it", () => {
+    expect(resolveSmsDeletePhone({
+      conversationId: "sms-row-1",
+      targetPhone: "",
+      rowName: "+15551234567",
+    })).toBe("+15551234567");
+    expect(resolveSmsDeletePhone({
+      conversationId: "+15557654321",
+      targetPhone: "",
+    })).toBe("+15557654321");
+  });
+
+  it("drops leftover assistant notices from the visible unread count", () => {
+    const viewerId = "user-1";
+    const rows = [
+      thread({
+        id: "agent_notice_user-1",
+        from: "PropLane Assistant",
+        unread: false,
+        threadType: "agent_notice",
+      }),
+      thread({
+        id: "agent_notice_user-1__ghost",
+        from: "PropLane Assistant",
+        unread: true,
+        threadType: "agent_notice",
+      }),
+      thread({ id: "email-open", from: "Alex", email: "alex@example.test", unread: true }),
+    ];
+    expect(countVisibleUnreadCommunication(rows, { portal: "manager", viewerId })).toBe(1);
   });
 });

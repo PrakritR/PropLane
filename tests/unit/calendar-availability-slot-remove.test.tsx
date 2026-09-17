@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * PRP-373 — pinned availability footer keeps an in-flow spacer so last slots clear the dock.
+ * PLAN-0916-1034 — week actions are toolbar icons; the pinned footer dock is gone.
  * PLAN-0916-0041 — the floating per-run grid × (PRP-414 / PLAN-0914-1710) is
  * removed; deleting a painted block now happens inside the click-through "Edit
  * availability block" dialog (Delete block), which reuses the create form.
@@ -149,14 +149,18 @@ describe("availability delete moved into the edit dialog (PLAN-0916-0041)", () =
   });
 });
 
-describe("availability footer clearance (PRP-373)", () => {
-  it("keeps an in-flow spacer under the pinned action dock", () => {
+describe("availability week actions (PLAN-0916-1034)", () => {
+  it("puts Copy / Add / Clear / Houses on the week toolbar, not a pinned footer", () => {
     const { container } = renderTourAvailability();
-    const footer = container.querySelector('[data-slot="portal-page-footer-actions"][data-pinned]');
-    expect(footer).toBeTruthy();
-    // Spacer is the previous sibling of the fixed dock (PortalPageFooterActions without omitSpacer).
-    const spacer = footer?.previousElementSibling as HTMLElement | null;
-    expect(spacer).toBeTruthy();
-    expect(spacer?.hasAttribute("aria-hidden")).toBe(true);
+    expect(container.querySelector('[data-slot="portal-page-footer-actions"]')).toBeNull();
+    const toolbar = container.querySelector(".portal-calendar-toolbar");
+    expect(toolbar).toBeTruthy();
+    const actions = toolbar?.querySelector('[data-slot="calendar-week-actions"]');
+    expect(actions).toBeTruthy();
+    expect(actions?.querySelector('[data-attr="calendar-copy-previous-week"]')).toBeTruthy();
+    expect(actions?.querySelector('[data-attr="calendar-create-block"]')).toBeTruthy();
+    expect(actions?.querySelector('[data-attr="calendar-clear-week"]')).toBeTruthy();
+    expect(actions?.querySelector('[data-attr="calendar-copy-to-houses"]')).toBeTruthy();
+    expect(screen.getByLabelText("Copy previous week").closest("[data-slot='portal-icon-action']")).toBeTruthy();
   });
 });

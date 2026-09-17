@@ -6,6 +6,7 @@ import {
   changePersistedInboxThreadFolders,
   loadPersistedInbox,
   stagePersistedInboxRows,
+  upsertPersistedInboxRows,
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
 
@@ -133,5 +134,85 @@ export async function deletePersistedInboxThreadsForever(
   const ok = await deleteInboxThreadIds(clean);
   if (!ok) return { ok: false, next: prev };
   stagePersistedInboxRows(storageKey, next);
+  return { ok: true, next };
+}
+
+export type ClearedInboxThreadPlaceholder = {
+  preview?: string;
+  subject?: string;
+  from?: string;
+};
+
+function threadMatchesClearId(thread: PersistedInboxThread, threadId: string): boolean {
+  return thread.id === threadId || (thread.sourceThreadIds ?? []).includes(threadId);
+}
+
+function clearedInboxThread(
+  thread: PersistedInboxThread,
+  placeholder: ClearedInboxThreadPlaceholder,
+): PersistedInboxThread {
+  const next: PersistedInboxThread = {
+    ...thread,
+    messages: [],
+    body: "",
+    preview: placeholder.preview ?? "",
+    unread: false,
+    time: "",
+    subject: placeholder.subject ?? thread.subject,
+    from: placeholder.from ?? thread.from,
+  };
+  delete next.aiDraft;
+  delete next.aiDraftQueue;
+  return next;
+}
+
+/**
+ * Wipe messages on one conversation and keep the row. PropLane Assistant
+ * cannot be deleted — the server recreates it — so Clear upserts the same id
+ * empty with the placeholder preview.
+ */
+export async function clearPersistedInboxThread(
+  storageKey: string,
+  threadId: string,
+  placeholder: ClearedInboxThreadPlaceholder = {},
+): Promise<{ ok: boolean; next: PersistedInboxThread[] }> {
+  const id = threadId.trim();
+  if (!id) return { ok: true, next: loadPersistedInbox(storageKey, []) };
+
+  const prev = loadPersistedInbox(storageKey, []);
+  const changed: PersistedInboxThread[] = [];
+  let next = prev.map((thread) => {
+    if (!threadMatchesClearId(thread, id)) return thread;
+    const updated = clearedInboxThread(thread, placeholder);
+    changed.push(updated);
+    return updated;
+  });
+
+  if (changed.length === 0) {
+    const inserted = clearedInboxThread(
+      {
+        id,
+        folder: "inbox",
+        from: placeholder.from ?? "PropLane Assistant",
+        email: "",
+        subject: placeholder.subject ?? "PropLane Assistant",
+        preview: placeholder.preview ?? "",
+        body: "",
+        time: "",
+        unread: false,
+        messages: [],
+      },
+      placeholder,
+    );
+    changed.push(inserted);
+    next = [inserted, ...prev];
+  }
+
+  if (isDemoModeActive()) {
+    stagePersistedInboxRows(storageKey, next);
+    return { ok: true, next };
+  }
+  const ok = await upsertPersistedInboxRows(storageKey, changed, next);
+  if (!ok) return { ok: false, next: prev };
   return { ok: true, next };
 }

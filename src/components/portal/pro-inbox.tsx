@@ -2,7 +2,7 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { Archive, ArchiveRestore, Pencil, Phone, Trash2, UserRound } from "lucide-react";
+import { Archive, ArchiveRestore, Eraser, Pencil, Phone, Trash2, UserRound } from "lucide-react";
 import Link from "next/link";
 import { residentDetailHref } from "@/lib/portal-detail-routes";
 import { formatTourContactPhoneDisplay } from "@/lib/tour-contact-quality";
@@ -250,6 +250,8 @@ export const ManagerInbox = forwardRef<
     emptyThreadFallback?: React.ReactNode;
     /** Bumps when a parent modal schedules/cancels for the filtered resident. */
     scheduledRefreshKey?: number;
+    /** Clear PropLane Assistant messages and keep the row. */
+    onClearAssistant?: () => void | Promise<void>;
   }
 >(function ManagerInbox(
   {
@@ -270,6 +272,7 @@ export const ManagerInbox = forwardRef<
     filterResidentEmail,
     emptyThreadFallback,
     scheduledRefreshKey = 0,
+    onClearAssistant,
   },
   ref,
 ) {
@@ -2323,6 +2326,17 @@ export const ManagerInbox = forwardRef<
         >
           <Trash2 className="h-4 w-4" aria-hidden />
         </button>
+        ) : onClearAssistant ? (
+        <button
+          type="button"
+          className={INBOX_THREAD_ICON_BTN_DANGER}
+          aria-label="Clear PropLane Assistant"
+          title="Clear"
+          data-attr="inbox-thread-clear-assistant"
+          onClick={() => void onClearAssistant()}
+        >
+          <Eraser className="h-4 w-4" aria-hidden />
+        </button>
         ) : null}
       </>
     ) : (
@@ -2352,6 +2366,17 @@ export const ManagerInbox = forwardRef<
           onClick={() => deleteForever(activeThread.id)}
         >
           <Trash2 className="h-4 w-4" aria-hidden />
+        </button>
+        ) : onClearAssistant ? (
+        <button
+          type="button"
+          className={INBOX_THREAD_ICON_BTN_DANGER}
+          aria-label="Clear PropLane Assistant"
+          title="Clear"
+          data-attr="inbox-thread-clear-assistant"
+          onClick={() => void onClearAssistant()}
+        >
+          <Eraser className="h-4 w-4" aria-hidden />
         </button>
         ) : null}
       </>

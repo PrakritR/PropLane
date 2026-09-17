@@ -40,13 +40,17 @@ export function CommunicationRowActions({ row, bulk, archived, emailThreads, man
       <Button variant="danger" onClick={() => bulk.handleDelete()}>Delete</Button>
     </>
   ) : canArchive ? <Button variant="outline" onClick={() => bulk.handleArchive()}>Archive</Button> : null;
+  const canClearAssistant = assistantRow;
   const canEdit = manager && bulk.canEditContact;
   return (
     <RecordActionContext.Provider value={{
       scope: `${archived}:${row.key}`,
       clear: bulk.selection.clearSelection,
-      actions: permitted && (archiveOrRestore || canEdit) ? <>
+      actions: permitted && (archiveOrRestore || canEdit || canClearAssistant) ? <>
         {archiveOrRestore}
+        {canClearAssistant ? (
+          <Button variant="danger" onClick={() => void bulk.handleClearAssistant(row)}>Clear</Button>
+        ) : null}
         {canEdit ? <Button variant="outline" onClick={bulk.openEdit}>Edit</Button> : null}
       </> : null,
     }}>
