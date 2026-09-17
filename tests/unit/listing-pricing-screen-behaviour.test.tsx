@@ -353,6 +353,32 @@ describe("a lease type can have its own Default room", () => {
   };
   const sameAsLongTerm = () => document.querySelector(`[data-attr="listing-v2-same-as-long-term-${MTM}"]`) as HTMLInputElement;
 
+  it("Month-to-Month Default room is filled from long-term and editable, not a dimmed empty copy", () => {
+    render(<Editor />);
+    goToMonthToMonth();
+    expect(sameAsLongTerm().checked).toBe(true);
+    const card = document.querySelector('[data-attr="listing-v2-price-defaults-card"]')!;
+    expect(card.className).not.toContain("pointer-events-none");
+    expect(card.className).not.toContain("opacity-50");
+    const rent = screen.getByLabelText(`Rent for every room on ${MTM}`) as HTMLInputElement;
+    expect(rent.value).toBe("1100");
+    expect(rent.readOnly).toBe(false);
+    fireEvent.change(rent, { target: { value: "1050" } });
+    expect(sameAsLongTerm().checked).toBe(false);
+  });
+
+  it("Custom Default room is filled from long-term and editable", () => {
+    render(<Editor />);
+    const nav = screen.getByRole("navigation", { name: "Listing sections" });
+    fireEvent.click(Array.from(nav.querySelectorAll("button")).find((b) => /pricing/i.test(b.textContent ?? ""))!);
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-price-tab-Custom"]')!);
+    const rent = screen.getByLabelText("Rent for every room on Custom") as HTMLInputElement;
+    expect(rent.value).toBe("1100");
+    expect(rent.readOnly).toBe(false);
+    const card = document.querySelector('[data-attr="listing-v2-price-defaults-card"]')!;
+    expect(card.className).not.toContain("pointer-events-none");
+  });
+
   it("typing a Month-to-Month default rent puts it on every room and on the listing", () => {
     let latest: ManagerListingSubmissionV1 | null = null;
     render(<Editor onChange={(s) => (latest = s)} />);
@@ -360,9 +386,8 @@ describe("a lease type can have its own Default room", () => {
     expect(sameAsLongTerm().checked).toBe(true);
     fireEvent.click(sameAsLongTerm());
 
-    // The card is a real input now, empty, showing long-term's number as the placeholder.
     const rent = screen.getByLabelText(`Rent for every room on ${MTM}`) as HTMLInputElement;
-    expect(rent.value).toBe("");
+    expect(rent.value).toBe("1100");
     expect(rent.placeholder).toBe("1100");
     fireEvent.change(rent, { target: { value: "1050" } });
 
@@ -415,6 +440,6 @@ describe("a lease type can have its own Default room", () => {
     expect(sameAsLongTerm().checked).toBe(false);
     expect((screen.getByLabelText(`Rent for every room on ${MTM}`) as HTMLInputElement).value).toBe("1050");
     expect((screen.getByLabelText(`Deposit for every room on ${MTM}`) as HTMLInputElement).value).toBe("750");
-    expect((screen.getByLabelText(`Utilities for every room on ${MTM}`) as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText(`Utilities for every room on ${MTM}`) as HTMLInputElement).value).toBe("150");
   });
 });

@@ -41,4 +41,10 @@ describe("calendar views", () => {
     expect(dialog).toContain('badge={connected === true ? "ok" : connected === false ? "warn" : null}');
     expect(dialog).not.toContain(">\n        Google Calendar\n      </Button>");
   });
+
+  it("puts Properties-style command-bar search on Calendar", () => {
+    expect(src).toContain('placeholder: schedulingHub ? "Search tours" : "Search calendar"');
+    expect(src).toContain('dataAttr: schedulingHub ? "tours-hub-search" : "manager-calendar-search"');
+    expect(src).toContain("calendarMeetingMatchesQuery");
+  });
 });

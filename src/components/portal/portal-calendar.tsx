@@ -7,7 +7,7 @@ import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/por
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
-import { portalEmptyCopy, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
+import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { Share2 } from "lucide-react";
 import { ManagerPortalPageShell } from "./portal-metrics";
 import { PortalCalendarPanels } from "./portal-calendar-panels";
@@ -54,6 +54,7 @@ import {
 } from "@/lib/manager-work-orders-storage";
 import {
   buildScheduledTourMeetings,
+  calendarMeetingMatchesQuery,
   meetingsInWeek,
 } from "@/lib/manager-calendar-tour-meetings";
 import {
@@ -112,6 +113,7 @@ export function PortalCalendar({
   const toursHubTab: ToursHubTabId = toursHubTabProp ?? "tours";
   const [workOrderTick, setWorkOrderTick] = useState(0);
   const [calendarAnchorDate, setCalendarAnchorDate] = useState(() => new Date());
+  const [listSearch, setListSearch] = useState("");
 
   useEffect(() => {
     if (portal !== "manager") return;
@@ -437,12 +439,22 @@ export function PortalCalendar({
    * co-manager). Tasks: tasks with a due time only. Services shows none of them
    * (its events come in as service visits). All keeps everything.
    */
-  const scheduledMeetingFilter = useMemo<((meeting: DemoMeeting) => boolean) | undefined>(() => {
+  const scheduledMeetingViewFilter = useMemo<((meeting: DemoMeeting) => boolean) | undefined>(() => {
     if (schedulingHub || calendarView === "all") return undefined;
     if (calendarView === "tours") return (meeting) => meeting.kind !== "task";
     if (calendarView === "tasks") return (meeting) => meeting.kind === "task";
     return () => false;
   }, [schedulingHub, calendarView]);
+
+  const scheduledMeetingFilter = useMemo<((meeting: DemoMeeting) => boolean) | undefined>(() => {
+    const needle = listSearch.trim();
+    const viewFilter = scheduledMeetingViewFilter;
+    if (!needle && !viewFilter) return undefined;
+    return (meeting) => {
+      if (viewFilter && !viewFilter(meeting)) return false;
+      return calendarMeetingMatchesQuery(meeting, needle);
+    };
+  }, [listSearch, scheduledMeetingViewFilter]);
 
   // The Calendar section is the operations overview: it answers "is anyone going into this
   // property, or is anything scheduled to be done there". That means BOTH scheduled tours and
@@ -455,8 +467,44 @@ export function PortalCalendar({
   const mergedExternalMeetings = useMemo(() => {
     const base = showGoogleBusy ? [...googleExternalMeetings] : [];
     if (showServiceVisits) base.push(...serviceCalendarMeetings);
-    return base;
-  }, [showGoogleBusy, googleExternalMeetings, serviceCalendarMeetings, showServiceVisits]);
+    const needle = listSearch.trim();
+    if (!needle) return base;
+    return base.filter((meeting) => calendarMeetingMatchesQuery(meeting, needle));
+  }, [showGoogleBusy, googleExternalMeetings, serviceCalendarMeetings, showServiceVisits, listSearch]);
+
+  const calendarSearchNeedle = listSearch.trim();
+  const calendarSearchMatchCount = useMemo(() => {
+    if (!calendarSearchNeedle || portal !== "manager" || !userId) return 0;
+    void calendarRefreshSignal;
+    void workOrderTick;
+    const tourFilter = calendarScheduledTourFilter ?? {
+      viewerUserId: userId,
+      propertyId: null,
+      propertyIds: scopedCalendarPropertyIds,
+      peers: [],
+    };
+    const viewFilter = scheduledMeetingViewFilter;
+    const planned = meetingsInWeek(
+      buildScheduledTourMeetings(tourFilter, storageKey),
+      calendarAnchorDate,
+    ).filter((meeting) => {
+      if (viewFilter && !viewFilter(meeting)) return false;
+      return calendarMeetingMatchesQuery(meeting, calendarSearchNeedle);
+    });
+    return planned.length + meetingsInWeek(mergedExternalMeetings, calendarAnchorDate).length;
+  }, [
+    calendarSearchNeedle,
+    portal,
+    userId,
+    calendarRefreshSignal,
+    workOrderTick,
+    calendarScheduledTourFilter,
+    scopedCalendarPropertyIds,
+    storageKey,
+    calendarAnchorDate,
+    scheduledMeetingViewFilter,
+    mergedExternalMeetings,
+  ]);
 
   // Stage B (kind-scoped availability, PLAN-0914-1710): Services and Tasks now
   // edit their own kind directly through `availabilityKeysByKind` below, so no
@@ -610,12 +658,32 @@ export function PortalCalendar({
             }))}
             activeDestinationId={schedulingHub ? toursHubTab : calendarView}
             destinationAriaLabel={schedulingHub ? "Tours views" : "Calendar views"}
+            search={{
+              value: listSearch,
+              onChange: setListSearch,
+              placeholder: schedulingHub ? "Search tours" : "Search calendar",
+              dataAttr: schedulingHub ? "tours-hub-search" : "manager-calendar-search",
+            }}
             actions={calendarCommandActions}
           />
         ) : null}
         {portal === "manager" ? (
           <div className="portal-calendar-page-body mt-1 flex min-h-[min(72vh,52rem)] flex-1 flex-col bg-accent/30">
-            {!schedulingHub &&
+            {portal === "manager" && calendarSearchNeedle && calendarSearchMatchCount === 0 && !propertiesLoading ? (
+              <div className="pt-2">
+                <PortalListEmptyCard
+                  section="calendar"
+                  tone="muted"
+                  title={portalEmptyNoMatchTitle("events", listSearch)}
+                  clear={{
+                    label: "Clear search",
+                    onClick: () => setListSearch(""),
+                    dataAttr: "calendar-empty-clear-search",
+                  }}
+                  dataAttr="calendar-empty-search"
+                />
+              </div>
+            ) : !schedulingHub &&
             (servicesOnlyView || tasksOnlyView) &&
             calendarTabCounts[calendarView] === 0 &&
             !propertiesLoading &&

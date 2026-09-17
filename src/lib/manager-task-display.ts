@@ -342,6 +342,8 @@ export function selectManagerTaskListRows(args: {
   priorityFilter: string;
   sortId: ManagerTaskListSortId;
   propertyLabelForId: (propertyId?: string) => string;
+  /** Live command-bar query; empty keeps every row that already passed filters. */
+  searchQuery?: string;
 }): ManagerTaskListRow[] {
   const {
     tabId,
@@ -355,6 +357,7 @@ export function selectManagerTaskListRows(args: {
     priorityFilter,
     sortId,
     propertyLabelForId,
+    searchQuery = "",
   } = args;
   const taskSource =
     tabId === "completed" ? doneTasks : tabId === "overdue" ? overdueTasks : inProgressTasks;
@@ -378,5 +381,6 @@ export function selectManagerTaskListRows(args: {
       if (priorityFilter && (row.task.priority ?? "medium") !== priorityFilter) return false;
       return true;
     })
+    .filter((row) => taskListRowMatchesSearch(row, searchQuery))
     .sort((a, b) => compareManagerTaskListRows(a, b, sortId, propertyLabelForId));
 }

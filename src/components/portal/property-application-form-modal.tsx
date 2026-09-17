@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input, Select } from "@/components/ui/input";
-import { Modal, ModalFooter } from "@/components/ui/modal";
+import { Input } from "@/components/ui/input";
+import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
+import { PreviewPanel, WIZARD_LABEL_CLASS, WizardSelect } from "@/components/portal/add-workspace/parts";
+import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import {
   PROPERTY_LEASE_TYPE_OPTIONS,
   normalizeLeaseTemplateKind,
@@ -14,8 +15,6 @@ import {
   updatePropertyApplicationTemplate,
   type PropertyApplicationTemplate,
 } from "@/lib/property-application-templates";
-
-const fieldLabelClass = "mb-1.5 block text-xs font-semibold uppercase tracking-[0.12em] text-muted";
 
 function defaultApplicationLabel(kind: PropertyLeaseTemplateKind): string {
   const meta = PROPERTY_LEASE_TYPE_OPTIONS.find((o) => o.id === kind);
@@ -48,6 +47,7 @@ export function PropertyApplicationFormModal({
   const [label, setLabel] = useState("");
   const [kind, setKind] = useState<PropertyLeaseTemplateKind>("long-term");
   const [error, setError] = useState<string | null>(null);
+  const [stepIdx, setStepIdx] = useState(0);
 
   const typeMeta = useMemo(
     () => PROPERTY_LEASE_TYPE_OPTIONS.find((o) => o.id === kind),
@@ -64,6 +64,7 @@ export function PropertyApplicationFormModal({
       setKind("long-term");
     }
     setError(null);
+    setStepIdx(0);
   }, [open, mode, template]);
 
   const submit = () => {
@@ -92,76 +93,110 @@ export function PropertyApplicationFormModal({
     onClose();
   };
 
+  const workspaceTitle = mode === "edit" ? "Edit application" : "Add application";
+  const workspaceSteps: AddWorkspaceStep[] = [
+    { id: "name", label: "Name", incomplete: !label.trim(), summary: label.trim() || "Name this application" },
+    { id: "preview", label: "Preview", summary: typeMeta?.label ?? "Application" },
+  ];
+  const current = Math.min(stepIdx, workspaceSteps.length - 1);
+  const stepId = workspaceSteps[current]!.id;
+
+  if (!open) return null;
+
   return (
-    <Modal
-      open={open}
-      title={mode === "edit" ? "Edit application" : "Add application"}
+    <AddWorkspace
+      title={workspaceTitle}
+      steps={workspaceSteps}
+      current={current}
+      onJump={setStepIdx}
       onClose={onClose}
-      panelClassName="max-w-lg"
-      footer={
-        <ModalFooter className="w-full">
-          {mode === "edit" && canDelete && onDelete ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-full border-red-200 text-red-700 hover:bg-red-50"
-              data-attr="property-application-delete"
-              onClick={onDelete}
-            >
-              Delete
-            </Button>
-          ) : null}
-          <Button
+      dirty={Boolean(label.trim())}
+      discardTitle="Discard this application?"
+      assistantContext={workspaceTitle}
+      assistantScopeKey="property-application-workspace"
+      sidePanel={
+        <PreviewPanel
+          title="Application preview"
+          name={label.trim() || defaultApplicationLabel(kind)}
+          facts={[
+            { label: "Type", value: typeMeta?.label ?? "Application" },
+            { label: "Name", value: label.trim() || "Not set", warn: !label.trim() },
+          ]}
+          creates={[{ tone: "yes", text: mode === "add" ? "Adds this application on the property" : "Saves this application" }]}
+        />
+      }
+      lastLabel={mode === "edit" ? "Save" : "Add application"}
+      lastDisabled={!label.trim()}
+      onBeforeNext={() => {
+        if (stepId === "name" && !label.trim()) {
+          setError("Enter a name for this application.");
+          return false;
+        }
+        setError(null);
+        return true;
+      }}
+      onFinish={submit}
+      dataAttrPrefix="property-application"
+      finishDataAttr="property-application-save"
+      footerNote={error ? <span className="text-sm text-rose-600">{error}</span> : null}
+      dangerAction={
+        mode === "edit" && canDelete && onDelete ? (
+          <button
             type="button"
-            variant="primary"
-            className="ml-auto rounded-full"
-            onClick={submit}
-            data-attr="property-application-save"
+            className="min-h-[44px] rounded-full border border-red-200 bg-card px-6 text-[14px] font-bold text-red-700"
+            data-attr="property-application-delete"
+            onClick={onDelete}
           >
-            {mode === "edit" ? "Save" : "Add application"}
-          </Button>
-        </ModalFooter>
+            Delete
+          </button>
+        ) : null
       }
     >
-      <div className="space-y-4">
-        <div>
-          <label className={fieldLabelClass} htmlFor="property-application-kind">
-            Application type
-          </label>
-          <Select
-            id="property-application-kind"
-            aria-label="Application type"
+      {stepId === "name" ? (
+        <StepColumn>
+          <StepHeading title="Name" />
+          <WizardSelect
+            label="Application type"
             value={kind}
-            onChange={(e) => {
-              const nextKind = normalizeLeaseTemplateKind(e.target.value);
+            onChange={(next) => {
+              const nextKind = normalizeLeaseTemplateKind(next);
               setKind(nextKind);
               if (!label.trim() || label === defaultApplicationLabel(kind)) {
                 setLabel(defaultApplicationLabel(nextKind));
               }
             }}
+            options={PROPERTY_LEASE_TYPE_OPTIONS.map((opt) => ({ value: opt.id, label: opt.label }))}
             disabled={mode === "edit" && Boolean(template?.listingSeedKey)}
-          >
-            {PROPERTY_LEASE_TYPE_OPTIONS.map((opt) => (
-              <option key={opt.id} value={opt.id}>
-                {opt.label}
-              </option>
-            ))}
-          </Select>
-          {typeMeta ? <p className="mt-1.5 text-xs text-muted">{typeMeta.description}</p> : null}
-        </div>
-        <div>
-          <label className={fieldLabelClass} htmlFor="property-application-label">
+            dataAttr="property-application-kind"
+          />
+          <label className={WIZARD_LABEL_CLASS} htmlFor="property-application-label">
             Display name
           </label>
           <Input
             id="property-application-label"
             value={label}
-            onChange={(e) => setLabel(e.target.value)}
+            onChange={(e) => {
+              setError(null);
+              setLabel(e.target.value);
+            }}
             placeholder={defaultApplicationLabel(kind)}
           />
-        </div>
-        {error ? <p className="text-sm text-rose-600">{error}</p> : null}
-      </div>
-    </Modal>
+        </StepColumn>
+      ) : null}
+      {stepId === "preview" ? (
+        <StepColumn>
+          <StepHeading title="Preview" />
+          <PreviewPanel
+            title="Application preview"
+            name={label.trim() || defaultApplicationLabel(kind)}
+            facts={[
+              { label: "Type", value: typeMeta?.label ?? "Application" },
+              { label: "Name", value: label.trim() || "Not set", warn: !label.trim() },
+            ]}
+            creates={[{ tone: "yes", text: mode === "add" ? "Adds this application on the property" : "Saves this application" }]}
+          />
+        </StepColumn>
+      ) : null}
+    </AddWorkspace>
   );
 }

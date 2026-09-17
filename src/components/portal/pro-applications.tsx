@@ -1547,11 +1547,7 @@ export function ManagerApplications({
     />
   );
 
-  /**
-   * Add an application by hand — the "on behalf" flow that already existed
-   * (`ManagerApplicationOnBehalfModal`) but nothing opened. The header + and
-   * the list's dashed Add row both land here.
-   */
+  /** Add application — the same AddWorkspace rail as Add resident / Schedule tour. */
   const [addApplicationOpen, setAddApplicationOpen] = useState(false);
   const applicationsManualAddButton = (
     <PortalPrimaryIconAction

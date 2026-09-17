@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import {
   BookingsDayDetailModal,
   type BookingsDayEntry,
@@ -22,10 +21,8 @@ import {
 } from "@/lib/channel-calendar/property-bookings";
 import {
   bookingOccupancyStats,
-  bookingSourceBadgeTone,
   bookingSourceDotClass,
-  bookingSourceLabel,
-  bookingStatusTone,
+  filterBookingsBySearch,
   formatBookingStayRange,
   type BookingsHubMode,
 } from "@/lib/channel-calendar/bookings-ui";
@@ -272,22 +269,10 @@ function DayViewStayCard({ booking }: { booking: PropertyBookingEntry }) {
       className="rounded-xl border border-border bg-card/95 p-3 shadow-[var(--shadow-sm)]"
       data-attr="bookings-day-stay-card"
     >
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="font-semibold text-foreground">{name}</p>
-          <p className="mt-0.5 text-xs text-muted">
-            {[booking.propertyLabel, booking.roomLabel].filter(Boolean).join(" · ")}
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-wrap gap-1">
-          <Badge tone={bookingSourceBadgeTone(booking.source)}>
-            {bookingSourceLabel(booking.source)}
-          </Badge>
-          {booking.statusLabel ? (
-            <Badge tone={bookingStatusTone(booking)}>{booking.statusLabel}</Badge>
-          ) : null}
-        </div>
-      </div>
+      <p className="font-semibold text-foreground">{name}</p>
+      <p className="mt-0.5 text-xs text-muted">
+        {[booking.propertyLabel, booking.roomLabel].filter(Boolean).join(" · ")}
+      </p>
       <p className="mt-2 text-sm text-foreground">
         {formatBookingStayRange(booking.start, booking.end, booking.openEnded)}
       </p>
@@ -306,6 +291,7 @@ export function ManagerPortfolioBookingsCalendar({
   calendarOnly = false,
   onBlockDates,
   onRemoveBlock,
+  searchQuery = "",
 }: {
   propertyIds: string[];
   showToast: (message: string) => void;
@@ -317,6 +303,7 @@ export function ManagerPortfolioBookingsCalendar({
   calendarOnly?: boolean;
   onBlockDates?: (dayKey: string) => void;
   onRemoveBlock?: (blockId: string) => Promise<void>;
+  searchQuery?: string;
 }) {
   return (
     <ManagerBookingsHub
@@ -330,6 +317,7 @@ export function ManagerPortfolioBookingsCalendar({
       calendarOnly={calendarOnly}
       onBlockDates={onBlockDates}
       onRemoveBlock={onRemoveBlock}
+      searchQuery={searchQuery}
     />
   );
 }
@@ -345,6 +333,7 @@ export function ManagerBookingsHub({
   calendarOnly = false,
   onBlockDates,
   onRemoveBlock,
+  searchQuery = "",
 }: {
   propertyIds: string[];
   showToast: (message: string) => void;
@@ -359,6 +348,7 @@ export function ManagerBookingsHub({
   onBlockDates?: (dayKey: string) => void;
   /** Lift a block from the day detail. */
   onRemoveBlock?: (blockId: string) => Promise<void>;
+  searchQuery?: string;
 }) {
   const [airbnbEntries, setAirbnbEntries] = useState<PropertyBookingEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -405,8 +395,12 @@ export function ManagerBookingsHub({
   }, [reload, refreshSignal]);
 
   const entries = useMemo(
-    () => filterBookingEntriesByRoom([...airbnbEntries, ...(extraEntries ?? [])], roomFilterId),
-    [airbnbEntries, extraEntries, roomFilterId],
+    () =>
+      filterBookingsBySearch(
+        filterBookingEntriesByRoom([...airbnbEntries, ...(extraEntries ?? [])], roomFilterId),
+        searchQuery,
+      ),
+    [airbnbEntries, extraEntries, roomFilterId, searchQuery],
   );
 
   const stats = useMemo(

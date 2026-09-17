@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 //
-// The Communication nav badge must never disagree with the Communication list.
-//
-// While the SMS UI is hidden (`smsUiEnabled` false, the default) an inbound-SMS
-// notice FALLS THROUGH into the conversation list via `keepSmsLike`. This hook
-// is a client hook with no access to that server-resolved flag, so it must count
-// every unread inbox row — filtering SMS-like rows out here would leave an
-// inbound text visible in the list but missing from the sidebar badge.
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { renderHook, cleanup } from "@testing-library/react";
+// The Communication nav badge must match unread rows Active would show.
+// Hidden leftover assistant notices do not count. Same-tab inbox changes
+// recount the badge without a reload.
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, renderHook } from "@testing-library/react";
+
+const inboxState = vi.hoisted(() => ({
+  rows: [] as Array<Record<string, unknown>>,
+}));
 
 const EMAIL_UNREAD = {
   id: "thr-1000000001",
@@ -32,13 +32,41 @@ const SMS_NOTICE_UNREAD = {
 };
 const EMAIL_READ = { ...EMAIL_UNREAD, id: "thr-1000000003", unread: false };
 const SENT = { ...EMAIL_UNREAD, id: "thr-1000000004", folder: "sent" };
+const LIVE_ASSISTANT_READ = {
+  id: "agent_notice_user-1",
+  folder: "inbox",
+  from: "PropLane Assistant",
+  email: "",
+  subject: "PropLane Assistant",
+  body: "Seen",
+  preview: "Seen",
+  time: "",
+  unread: false,
+  threadType: "agent_notice",
+};
+const LEFTOVER_ASSISTANT_UNREAD = {
+  id: "agent_notice_user-1__ghost",
+  folder: "inbox",
+  from: "PropLane Assistant",
+  email: "",
+  subject: "PropLane Assistant",
+  body: "Old workspace",
+  preview: "Old workspace",
+  time: "",
+  unread: true,
+  threadType: "agent_notice",
+};
 
-const ROWS = [EMAIL_UNREAD, SMS_NOTICE_UNREAD, EMAIL_READ, SENT];
-
-vi.mock("@/lib/portal-inbox-storage", () => ({
-  MANAGER_INBOX_STORAGE_KEY: "manager-inbox",
-  RESIDENT_INBOX_STORAGE_KEY: "resident-inbox",
-  loadPersistedInbox: () => ROWS,
+vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/portal-inbox-storage")>();
+  return {
+    ...actual,
+    loadPersistedInbox: () => inboxState.rows,
+  };
+});
+vi.mock("@/lib/manager-sms-archive.client", () => ({
+  loadManagerSmsArchivedIds: () => new Set(),
+  MANAGER_SMS_ARCHIVE_CHANGED_EVENT: "manager-sms-archive-changed",
 }));
 vi.mock("@/components/portal/resident-inbox-panel", () => ({ RESIDENT_INBOX_THREAD_FALLBACK: [] }));
 vi.mock("@/hooks/use-manager-user-id", () => ({
@@ -73,19 +101,40 @@ vi.mock("@/lib/service-requests-storage", () => ({
 }));
 vi.mock("@/lib/portal-bug-feedback", () => ({ readBugFeedbackRows: () => [] }));
 
+import { PORTAL_INBOX_CHANGED_EVENT } from "@/lib/portal-inbox-storage";
 import { usePortalNavCounts } from "@/hooks/use-portal-nav-counts";
 
+beforeEach(() => {
+  inboxState.rows = [EMAIL_UNREAD, SMS_NOTICE_UNREAD, EMAIL_READ, SENT];
+});
 afterEach(cleanup);
 
 describe("Communication nav badge counts what the conversation list shows", () => {
   it("counts an unread inbound-SMS notice for the resident badge", () => {
     const { result } = renderHook(() => usePortalNavCounts("resident"));
-    // Both unread inbox rows — the email AND the SMS-like notice. Not 1.
-    expect(result.current.communication).toBe(2);
+    // Active unread is folder === inbox after collapse. The email/sent pair
+    // becomes one row; the SMS notice is the unread conversation Active shows.
+    expect(result.current.communication).toBe(1);
   });
 
   it("counts an unread inbound-SMS notice for the manager badge", () => {
     const { result } = renderHook(() => usePortalNavCounts("manager"));
-    expect(result.current.communication).toBe(2);
+    expect(result.current.communication).toBe(1);
+  });
+
+  it("does not count a leftover hidden assistant notice", () => {
+    inboxState.rows = [LIVE_ASSISTANT_READ, LEFTOVER_ASSISTANT_UNREAD];
+    const { result } = renderHook(() => usePortalNavCounts("manager"));
+    expect(result.current.communication).toBe(0);
+  });
+
+  it("recounts after a same-tab inbox change", () => {
+    const { result } = renderHook(() => usePortalNavCounts("manager"));
+    expect(result.current.communication).toBe(1);
+    inboxState.rows = [EMAIL_READ, LIVE_ASSISTANT_READ];
+    act(() => {
+      window.dispatchEvent(new CustomEvent(PORTAL_INBOX_CHANGED_EVENT, { detail: { key: "manager-inbox" } }));
+    });
+    expect(result.current.communication).toBe(0);
   });
 });

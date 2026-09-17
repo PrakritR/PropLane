@@ -256,9 +256,10 @@ export function ManagerTaskList({
   const [nowMs] = useState(() => Date.now());
   const [listFilter, setListFilter] = useState<ManagerTaskListFilterId>("all");
   const [sortId, setSortId] = useState<ManagerTaskListSortId>("due_soonest");
+  const [listSearch, setListSearch] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(tabId);
+  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(`${tabId}:${listSearch}`);
 
   const propertyOptions = useMemo(
     () => buildManagerPropertyFilterOptions(userId),
@@ -341,6 +342,7 @@ export function ManagerTaskList({
         priorityFilter,
         sortId,
         propertyLabelForId,
+        searchQuery: listSearch,
       }),
     [
     assignedServices,
@@ -348,6 +350,7 @@ export function ManagerTaskList({
     doneTasks,
     inProgressTasks,
     listFilter,
+    listSearch,
     matchesProperty,
     overdueTasks,
     priorityFilter,
@@ -811,6 +814,12 @@ export function ManagerTaskList({
         destinations={tabItems}
         activeDestinationId={tabId}
         destinationAriaLabel="Task status"
+        search={{
+          value: listSearch,
+          onChange: setListSearch,
+          placeholder: "Search tasks",
+          dataAttr: "manager-tasks-search",
+        }}
         activeFilterChips={activeFilterChips.length > 0 ? <PortalActiveFilterChips chips={activeFilterChips} /> : undefined}
         actions={
           <>
@@ -847,10 +856,22 @@ export function ManagerTaskList({
         {!loading && visibleRows.length === 0 ? (
           <PortalListEmptyCard
             section="tasks"
-            tone={activeFilterChips.length > 0 ? "muted" : "default"}
-            title={activeFilterChips.length > 0 ? portalEmptyNoMatchTitle("tasks") : portalEmptyCopy(`tasks.${tabId === "in-progress" ? "open" : tabId}` as PortalEmptyCopyKey).title}
+            tone={listSearch.trim() || activeFilterChips.length > 0 ? "muted" : "default"}
+            title={
+              listSearch.trim()
+                ? portalEmptyNoMatchTitle("tasks", listSearch)
+                : activeFilterChips.length > 0
+                  ? portalEmptyNoMatchTitle("tasks")
+                  : portalEmptyCopy(`tasks.${tabId === "in-progress" ? "open" : tabId}` as PortalEmptyCopyKey).title
+            }
             clear={
-              activeFilterChips.length > 0
+              listSearch.trim()
+                ? {
+                    label: "Clear search",
+                    onClick: () => setListSearch(""),
+                    dataAttr: "manager-task-empty-clear-search",
+                  }
+                : activeFilterChips.length > 0
                 ? {
                     label: "Clear filters",
                     onClick: () => {
@@ -863,7 +884,7 @@ export function ManagerTaskList({
                   }
                 : null
             }
-            sibling={activeFilterChips.length > 0 ? null : portalEmptySibling(tabItems, tabId)}
+            sibling={listSearch.trim() || activeFilterChips.length > 0 ? null : portalEmptySibling(tabItems, tabId)}
             // Overdue and Done are states a task falls into; a new one starts open.
             actions={tabId === "in-progress" ? [{ label: "Add task", onClick: openAddTask, dataAttr: "manager-task-list-add" }] : []}
             dataAttr="manager-task-empty"
@@ -935,6 +956,7 @@ export function ManagerTaskList({
         onClose={() => setSettingsOpen(false)}
         initialTab="tasks"
         scopedTitle={settingsDialogTitlePrefix(tasksSettingsEntry)}
+        propertyOptions={propertyOptions}
       />
     </ManagerPortalPageShell>
   );

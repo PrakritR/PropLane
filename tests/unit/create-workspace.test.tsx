@@ -124,6 +124,19 @@ describe("CreateWorkspace", () => {
     expect(screen.getByText("New listing")).toBeInTheDocument();
   });
 
+  it("opens Local compliance from Advanced on Basics", () => {
+    mount();
+    const bar = document.querySelector<HTMLButtonElement>("[data-attr='listing-v2-house-keeping']")!;
+    expect(bar).not.toBeNull();
+    expect(bar.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(bar);
+    const compliance = document.querySelector<HTMLButtonElement>("[data-attr='listing-v2-house-compliance']")!;
+    expect(compliance.textContent).toContain("Local compliance");
+    fireEvent.click(compliance);
+    expect(screen.getByText("Certificate of occupancy date")).toBeInTheDocument();
+    expect(screen.getByText("RRIO registration number")).toBeInTheDocument();
+  });
+
   it("a file with one property fills this listing in place, marked, with Import behind Basics on the rail and no switcher", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ok: true, understanding: { ...understanding, properties: [pike] } }), { status: 200 })));
     mount();

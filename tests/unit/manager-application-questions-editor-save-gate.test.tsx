@@ -37,10 +37,18 @@ function renderEditor() {
   return { onSaved, onClose };
 }
 
+async function waitWorkspace() {
+  await screen.findByRole("dialog");
+}
+
+function jumpRail(id: string) {
+  const btn = document.querySelector(`[data-attr="listing-v2-rail-${id}"]`) as HTMLElement | null;
+  expect(btn).not.toBeNull();
+  fireEvent.click(btn!);
+}
+
 function expandFirstQuestionSection() {
-  const toggle = document.querySelector('[data-attr^="application-section-toggle-"]') as HTMLElement | null;
-  expect(toggle).not.toBeNull();
-  fireEvent.click(toggle!);
+  jumpRail("household");
 }
 
 function removeFirstQuestion() {
@@ -48,6 +56,13 @@ function removeFirstQuestion() {
   const removeBtn = document.querySelector('[data-attr="application-question-remove"]') as HTMLElement | null;
   expect(removeBtn).not.toBeNull();
   fireEvent.click(removeBtn!);
+}
+
+function saveButton(): HTMLButtonElement {
+  jumpRail("preview");
+  const save = document.querySelector('[data-attr="application-questions-save"]') as HTMLButtonElement;
+  expect(save).not.toBeNull();
+  return save;
 }
 
 beforeEach(() => {
@@ -104,6 +119,7 @@ describe("property application template editor — delete footer", () => {
         onPersistSubmission={() => true}
       />,
     );
+    await screen.findByRole("dialog", { name: "Edit application" });
 
     const deleteBtn = document.querySelector('[data-attr="application-questions-delete"]') as HTMLButtonElement | null;
     expect(deleteBtn).not.toBeNull();
@@ -118,28 +134,27 @@ describe("property application template editor — delete footer", () => {
 });
 
 describe("bulk application editor — save gate (round 31)", () => {
-  it("does not persist on edit; Save is disabled until something changes", () => {
+  it("does not persist on edit; Save is disabled until something changes", async () => {
     renderEditor();
-    const save = document.querySelector('[data-attr="application-questions-save"]') as HTMLButtonElement;
-    expect(save.disabled).toBe(true);
+    await waitWorkspace();
+    expect(saveButton().disabled).toBe(true);
 
     removeFirstQuestion();
 
     // The edit changed nothing on disk.
     expect(persistBulk).not.toHaveBeenCalled();
-    expect((document.querySelector('[data-attr="application-questions-save"]') as HTMLButtonElement).disabled).toBe(
-      false,
-    );
+    expect(saveButton().disabled).toBe(false);
   });
 
   it("persists exactly once, across all properties, only when Save is confirmed", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     const { onSaved, onClose } = renderEditor();
+    await waitWorkspace();
 
     removeFirstQuestion();
     expect(persistBulk).not.toHaveBeenCalled();
 
-    fireEvent.click(document.querySelector('[data-attr="application-questions-save"]') as HTMLElement);
+    fireEvent.click(saveButton());
 
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("4 properties"));
     await waitFor(() => expect(persistBulk).toHaveBeenCalledTimes(1));
@@ -150,6 +165,7 @@ describe("bulk application editor — save gate (round 31)", () => {
   it("Cancel with pending changes prompts, discards, and never persists", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const { onSaved, onClose } = renderEditor();
+    await waitWorkspace();
 
     removeFirstQuestion();
 
@@ -165,8 +181,10 @@ describe("bulk application editor — save gate (round 31)", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
-  it("closing Add question only dismisses the child modal, not the application editor", () => {
+  it("closing Add question only dismisses the child modal, not the application editor", async () => {
     const { onClose } = renderEditor();
+    await waitWorkspace();
+    jumpRail("household");
 
     const addBtn = document.querySelector('[data-attr="application-questions-add"]') as HTMLElement | null;
     expect(addBtn).not.toBeNull();
@@ -179,6 +197,6 @@ describe("bulk application editor — save gate (round 31)", () => {
     fireEvent.click(closeButtons[closeButtons.length - 1]!);
 
     expect(onClose).not.toHaveBeenCalled();
-    expect(document.querySelector('[data-attr="application-questions-save"]')).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Edit application · 4 properties" })).toBeTruthy();
   });
 });

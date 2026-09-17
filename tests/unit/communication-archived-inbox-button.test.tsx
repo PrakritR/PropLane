@@ -87,7 +87,11 @@ describe("Communication archived chrome", () => {
   it("mounts Active | Archived tabs on the manager conversation list", () => {
     const source = readFileSync("src/components/portal/pro-unified-inbox.tsx", "utf8");
     expect(source).toContain("<InboxListSegmentTabs");
-    expect(source).toContain("Delete all archived");
+    expect(source).toContain("PortalIconAction");
+    expect(source).toContain("Trash2");
+    expect(source).toContain('label="Delete all archived"');
+    expect(source).toContain("unified-inbox-delete-all-archived");
+    expect(source).not.toMatch(/>\s*Delete all archived\s*</);
     expect(source).toContain("InboxThreadSkeleton");
     expect(source).not.toContain("<CommunicationArchivedInboxButton");
     expect(source).not.toContain("onTellResidents");

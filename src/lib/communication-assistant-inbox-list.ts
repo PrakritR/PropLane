@@ -10,6 +10,7 @@ import {
 import { isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
 import {
   managerAgentNoticeThreadId,
+  parseManagerAgentNoticeThreadId,
   type ManagerAssistantWorkspace,
 } from "@/lib/communication-manager-assistant-thread";
 import { portalSessionViewerId } from "@/lib/auth/portal-session-gate";
@@ -114,8 +115,15 @@ export function withPinnedPropLaneAssistantThreads(
   const placeholder = buildManagerAssistantPlaceholderThread(viewerId, workspace);
   const pinned = ensureAssistantThreadInRows(threads, placeholder);
   const liveId = placeholder.id;
-  const prefix = `agent_notice_${viewerId.trim()}`;
-  return pinned.filter((thread) => thread.id === liveId || !thread.id.startsWith(prefix));
+  const viewer = viewerId.trim().toLowerCase();
+  // Leftover chats from other workspaces stay stored (and may still be unread)
+  // but they are not this workspace's Assistant row — they must not keep the
+  // Communication sidebar badge after the live notice has been seen.
+  return pinned.filter((thread) => {
+    const parsed = parseManagerAgentNoticeThreadId(thread.id);
+    if (!parsed || parsed.userId.toLowerCase() !== viewer) return true;
+    return thread.id === liveId;
+  });
 }
 
 function previewLine(body: string, max = 80): string {

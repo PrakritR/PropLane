@@ -1,5 +1,7 @@
-import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
+import { withPinnedPropLaneAssistantThreads, type CommunicationAssistantPortal } from "@/lib/communication-assistant-inbox-list";
+import type { ManagerAssistantWorkspace } from "@/lib/communication-manager-assistant-thread";
 import { isPrimaryAdminEmail } from "@/lib/auth/primary-admin";
+import { collapsePersonInboxThreads, type PersistedInboxThread } from "@/lib/portal-inbox-storage";
 
 /** True when a contact label looks like a phone number rather than a person/email. */
 export function isPhoneLikeContact(value: string | null | undefined): boolean {
@@ -52,4 +54,52 @@ export function filterManagerCommunicationThreads<T extends Pick<PersistedInboxT
   threads: T[],
 ): T[] {
   return threads.filter((thread) => !isPrimaryAdminInboxThread(thread));
+}
+
+/** Phone the SMS delete route can send when the directory row is missing one. */
+export function resolveSmsDeletePhone(input: {
+  conversationId: string;
+  targetPhone?: string | null;
+  rowName?: string | null;
+  rowSubtitle?: string | null;
+}): string {
+  const candidates = [input.targetPhone, input.rowName, input.rowSubtitle, input.conversationId];
+  for (const value of candidates) {
+    const trimmed = String(value ?? "").trim();
+    if (isPhoneLikeContact(trimmed)) return trimmed;
+  }
+  const rawId = input.conversationId.trim();
+  const digits = rawId.replace(/\D/g, "");
+  if (digits.length >= 10) return rawId.startsWith("+") ? rawId : `+${digits}`;
+  return String(input.targetPhone ?? "").trim();
+}
+
+/**
+ * Unread conversations Active would show: collapse person rows, drop leftover
+ * workspace assistant notices, and ignore archived SMS bindings.
+ */
+export function countVisibleUnreadCommunication(
+  rows: PersistedInboxThread[],
+  opts: {
+    portal: CommunicationAssistantPortal;
+    viewerId: string | null | undefined;
+    workspace?: ManagerAssistantWorkspace | null;
+    archivedSmsIds?: ReadonlySet<string>;
+  },
+): number {
+  const pinned = withPinnedPropLaneAssistantThreads(
+    rows,
+    opts.portal,
+    opts.viewerId,
+    "active",
+    opts.workspace,
+  );
+  const collapsed = collapsePersonInboxThreads(pinned, { mergeFolders: true });
+  const archivedSms = opts.archivedSmsIds;
+  return collapsed.filter((thread) => {
+    if (thread.folder !== "inbox" || !thread.unread) return false;
+    const binding = thread.smsConversationKey?.trim();
+    if (binding && archivedSms?.has(binding)) return false;
+    return true;
+  }).length;
 }

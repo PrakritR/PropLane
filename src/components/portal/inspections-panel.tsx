@@ -2,7 +2,7 @@
 
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ClipboardCheck, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ import {
 } from "@/components/portal/settings-entry-points";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
+import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { downloadInspection, inspectionRequest, loadInspectionList, INSPECTIONS_CHANGED, type InspectionList } from "@/lib/inspections/client";
 import { inspectionRoomLabel, type InspectionDetail, type InspectionKind, type InspectionPhotoCounts, type InspectionResidency, type InspectionRole, type InspectionSummary } from "@/lib/inspections/model";
@@ -202,6 +203,10 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const propertyOptions = useMemo(
+    () => (role === "manager" ? buildManagerPropertyFilterOptions(userId) : []),
+    [role, userId],
+  );
   const working = useRef(false);
   const requestVersion = useRef(0);
   const live = useRef(true);
@@ -392,6 +397,6 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
       onSelectedChange={checked => setSelected(current => { const next = new Set(current); if (checked) next.add(row.key); else next.delete(row.key); return next; })}
       onOpen={() => openRow(row)}
       dataAttr="inspection-row" />)}</PortalRecordListSurface>}
-    {role === "manager" && <ProPortalSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} initialTab="inspections" scoped scopedTitle={settingsDialogTitlePrefix(inspectionsSettingsEntry)} />}
+    {role === "manager" && <ProPortalSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} initialTab="inspections" scoped scopedTitle={settingsDialogTitlePrefix(inspectionsSettingsEntry)} propertyOptions={propertyOptions} />}
   </div>;
 }

@@ -8,12 +8,17 @@ import {
 import type {
   ManagerBathroomSubmission,
   ManagerBundleRow,
-  ManagerCustomFeeRow,
   ManagerListingSubmissionV1,
   ManagerQuickFactRow,
   ManagerRoomSubmission,
   ManagerSharedSpaceSubmission,
 } from "@/lib/manager-listing-submission";
+import { isEntireHomeListing } from "@/lib/manager-listing-submission";
+import {
+  houseDefaultsForSubmission,
+  type ListingHouseDefaults,
+} from "@/lib/listing-house-defaults";
+import type { ListingFeeRow } from "@/lib/listing-fees";
 import { resolveListingCtaEmailsByManager } from "@/lib/listing-cta-email.server";
 import { filterSandboxFromPublicCatalog } from "@/lib/public-sandbox-listings";
 import { isProductionRuntime } from "@/lib/server-env";
@@ -244,7 +249,98 @@ const PUBLIC_CUSTOM_FEE_KEYS = [
   "label",
   "amount",
   "frequency",
-] as const satisfies readonly (keyof ManagerCustomFeeRow)[];
+  // Prospect charges: without `presetId` a Pricing security-deposit row becomes
+  // a generic house-wide "Security deposit" that overlay cannot replace, so a
+  // leftover $100 listing-level amount shows next to the room's Pricing deposit.
+  "presetId",
+  "cadence",
+  "roomIds",
+  "leaseTypes",
+  "shortTermAmount",
+] as const satisfies readonly (keyof ListingFeeRow)[];
+
+const PUBLIC_HOUSE_DEFAULT_PRICE_KEYS = [
+  "monthlyRent",
+  "securityDeposit",
+  "utilitiesEstimate",
+  "shortTermRent",
+  "shortTermDeposit",
+  "weeklyRentPrice",
+] as const satisfies readonly (keyof ListingHouseDefaults)[];
+
+function moneyText(raw: unknown): string {
+  return String(raw ?? "")
+    .replace(/^\$/, "")
+    .trim();
+}
+
+function uniqueMoney(values: readonly string[]): string[] {
+  return [...new Set(values.map(moneyText).filter(Boolean))];
+}
+
+/**
+ * Deposits a prospect should see come from the Pricing cards (Default room /
+ * room records), never a leftover listing-level scalar. A $100 `securityDeposit`
+ * next to rooms priced at $1,050 is the phantom house-wide line.
+ */
+function pricingDepositAmounts(
+  sub: ManagerListingSubmissionV1,
+  field: "securityDeposit" | "shortTermDeposit",
+): string[] {
+  const defaults = houseDefaultsForSubmission(sub);
+  const fromRooms = uniqueMoney((sub.rooms ?? []).map((room) => moneyText(room[field])));
+  if (fromRooms.length > 0) return fromRooms;
+  const fromDefault = moneyText(defaults[field]);
+  return fromDefault ? [fromDefault] : [];
+}
+
+function feeLooksLikeHouseWideDeposit(
+  fee: Pick<ListingFeeRow, "presetId" | "label" | "roomIds">,
+  kind: "security_deposit" | "short_term_deposit",
+): boolean {
+  if ((fee.roomIds ?? []).length > 0) return false;
+  if (fee.presetId === kind) return true;
+  const label = (fee.label ?? "").trim().toLowerCase();
+  return kind === "security_deposit"
+    ? label === "security deposit"
+    : label === "short-term deposit" || label === "short term deposit";
+}
+
+/** Align listing-level charge scalars and house-wide fee rows with Pricing. */
+function withPublicPricingCharges(sub: ManagerListingSubmissionV1): ManagerListingSubmissionV1 {
+  const entireHome = isEntireHomeListing(sub);
+  const longTerm = entireHome ? uniqueMoney([moneyText(sub.securityDeposit)]) : pricingDepositAmounts(sub, "securityDeposit");
+  const shortTerm = pricingDepositAmounts(sub, "shortTermDeposit");
+  const longTermHouseWide = longTerm.length === 1 ? longTerm[0]! : longTerm.length > 1 ? "" : moneyText(sub.securityDeposit);
+  const shortTermHouseWide =
+    shortTerm.length === 1 ? shortTerm[0]! : shortTerm.length > 1 ? "" : moneyText(sub.shortTermDeposit);
+
+  const fees = sub.customFees;
+  const nextFees =
+    fees === undefined
+      ? undefined
+      : fees.flatMap((fee) => {
+          const row = fee as ListingFeeRow;
+          if (feeLooksLikeHouseWideDeposit(row, "security_deposit")) {
+            if (!longTermHouseWide) return [];
+            if (moneyText(row.amount) === longTermHouseWide) return [fee];
+            return [{ ...fee, amount: longTermHouseWide }];
+          }
+          if (feeLooksLikeHouseWideDeposit(row, "short_term_deposit")) {
+            if (!shortTermHouseWide) return [];
+            if (moneyText(row.amount) === shortTermHouseWide) return [fee];
+            return [{ ...fee, amount: shortTermHouseWide }];
+          }
+          return [fee];
+        });
+
+  return {
+    ...sub,
+    securityDeposit: longTermHouseWide,
+    shortTermDeposit: shortTermHouseWide,
+    ...(nextFees === undefined ? {} : { customFees: nextFees }),
+  };
+}
 
 /** Copy only the named keys, and only when present, so absent stays absent. */
 function pick<T extends object, K extends keyof T>(row: T, keys: readonly K[]): Pick<T, K> {
@@ -263,27 +359,32 @@ function pickRows<T extends object, K extends keyof T>(rows: unknown, keys: read
 }
 
 function publicSubmission(sub: ManagerListingSubmissionV1): ManagerListingSubmissionV1 {
+  const charged = withPublicPricingCharges(sub);
+  const houseDefaults = charged.houseDefaults
+    ? pick(charged.houseDefaults as ListingHouseDefaults, PUBLIC_HOUSE_DEFAULT_PRICE_KEYS)
+    : undefined;
   return {
-    ...pick(sub, PUBLIC_SUBMISSION_KEYS),
-    rooms: pickRows<ManagerRoomSubmission, (typeof PUBLIC_ROOM_KEYS)[number]>(sub.rooms, PUBLIC_ROOM_KEYS),
+    ...pick(charged, PUBLIC_SUBMISSION_KEYS),
+    rooms: pickRows<ManagerRoomSubmission, (typeof PUBLIC_ROOM_KEYS)[number]>(charged.rooms, PUBLIC_ROOM_KEYS),
     bathrooms: pickRows<ManagerBathroomSubmission, (typeof PUBLIC_BATHROOM_KEYS)[number]>(
-      sub.bathrooms,
+      charged.bathrooms,
       PUBLIC_BATHROOM_KEYS,
     ),
     sharedSpaces: pickRows<ManagerSharedSpaceSubmission, (typeof PUBLIC_SHARED_SPACE_KEYS)[number]>(
-      sub.sharedSpaces,
+      charged.sharedSpaces,
       PUBLIC_SHARED_SPACE_KEYS,
     ),
-    bundles: pickRows<ManagerBundleRow, (typeof PUBLIC_BUNDLE_KEYS)[number]>(sub.bundles, PUBLIC_BUNDLE_KEYS),
+    bundles: pickRows<ManagerBundleRow, (typeof PUBLIC_BUNDLE_KEYS)[number]>(charged.bundles, PUBLIC_BUNDLE_KEYS),
     quickFacts: pickRows<ManagerQuickFactRow, (typeof PUBLIC_QUICK_FACT_KEYS)[number]>(
-      sub.quickFacts,
+      charged.quickFacts,
       PUBLIC_QUICK_FACT_KEYS,
     ),
-    ...(sub.customFees === undefined
+    ...(Object.keys(houseDefaults ?? {}).length > 0 ? { houseDefaults } : {}),
+    ...(charged.customFees === undefined
       ? {}
       : {
-          customFees: pickRows<ManagerCustomFeeRow, (typeof PUBLIC_CUSTOM_FEE_KEYS)[number]>(
-            sub.customFees,
+          customFees: pickRows<ListingFeeRow, (typeof PUBLIC_CUSTOM_FEE_KEYS)[number]>(
+            charged.customFees,
             PUBLIC_CUSTOM_FEE_KEYS,
           ),
         }),

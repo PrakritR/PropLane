@@ -71,6 +71,7 @@ import {
   syncPersistedInboxFromServer,
   upsertPersistedInboxRows,
   inboxThreadMessages,
+  lastInboundChannelOf,
   inboxMessageOutbound,
   appendReplyToInboxThread,
   formatInboxStamp,
@@ -78,6 +79,7 @@ import {
   inboxThreadCounterpartyEmail,
   type InboxThreadMessage,
 } from "@/lib/portal-inbox-storage";
+import { inboxEmailBubbleFields } from "@/lib/inbox-email-display";
 import { inboxThreadLastTurnDirection, inboxTurnDirection } from "@/lib/inbox-turn-direction";
 import {
   consumeResidentComposePrefill,
@@ -1213,11 +1215,12 @@ export const ResidentInboxPanel = forwardRef<
     const person = resolveCommunicationPersonThreadReplyChannels({
       emailAvailable: true,
       smsAvailable: activeSmsAvailable,
+      lastInboundChannel: activeThread ? lastInboundChannelOf(activeThread) : null,
     });
     setReplyViaProplane(person.viaProplane);
     setReplyViaEmail(person.viaEmail);
     setReplyViaSms(person.viaSms);
-  }, [activeIsAssistantThread, activeSmsAvailable, embeddedInCommunication, expandedId]);
+  }, [activeIsAssistantThread, activeSmsAvailable, activeThread, embeddedInCommunication, expandedId]);
 
   const autoMarkReadAttemptedRef = useRef<Set<string>>(new Set());
 
@@ -1249,18 +1252,29 @@ export const ResidentInboxPanel = forwardRef<
   const activeBubbles = useMemo((): InboxBubbleMessage[] => {
     if (!activeThread) return [];
     const pendingRoot = pendingSendingThreadIds.has(activeThread.id);
+    let lastShownSubject = "";
     return inboxThreadMessages(activeThread).map((m, i) => {
       const direction = inboxTurnDirection(activeThread, m, i, activeFolder);
       const delivery =
         m.delivery ?? (pendingRoot && i === 0 && direction === "outbound" ? ("sending" as const) : undefined);
+      const fields = inboxEmailBubbleFields(
+        {
+          body: m.body,
+          subject: m.subject ?? (i === 0 ? activeThread.subject : undefined),
+          channel: m.channel,
+        },
+        lastShownSubject,
+      );
+      lastShownSubject = fields.lastShownSubject;
       return {
         id: m.id,
         author: m.from,
-        body: m.body,
+        body: fields.body,
         at: m.at,
         direction,
         delivery,
-        channel: "email",
+        channel: m.channel,
+        ...(fields.subject ? { subject: fields.subject } : {}),
         attachments: m.attachments,
       } satisfies InboxBubbleMessage;
     });

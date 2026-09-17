@@ -306,8 +306,13 @@ function ModalPanelInner({
   const bodyFillsPanel = scrollableContent || pinActionsToBottom;
   /** Side-by-side chat needs the middle band to grow; footer modals fill the panel so actions sit on the bottom edge. */
   const assistantSideLayout = showAssistantStrip && assistantExpanded;
-  const middleGrows =
-    bodyFillsPanel && (assistantSideLayout || !scrollableContent || pinActionsToBottom);
+  /**
+   * Hug short forms; once the panel hits `max-h`, this band must shrink so the
+   * body can be the scrollport. `shrink-0` here clipped Title/Schedule on Add
+   * task: the panel overflow-hidden the overflow, and a nested child scroller
+   * with no height trapped the gesture.
+   */
+  const middleGrows = bodyFillsPanel;
   const bodyScrollFillsMiddle =
     bodyFillsPanel && scrollableContent && (assistantSideLayout || pinActionsToBottom);
   return (
@@ -371,7 +376,7 @@ function ModalPanelInner({
                     "min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]",
                     bodyScrollFillsMiddle
                       ? "max-h-[min(42vh,calc(min(92dvh,56rem)-12rem))] shrink-0 @2xl:flex @2xl:min-h-0 @2xl:max-h-none @2xl:flex-1 @2xl:shrink"
-                      : "shrink-0 max-h-[min(60vh,calc(min(92dvh,56rem)-11rem))]",
+                      : "min-h-0 flex-1",
                   )
                 : // `overflow-hidden` here clipped instead of scrolled. A modal with a
                 // footer has `scrollableContent` forced false on the assumption that

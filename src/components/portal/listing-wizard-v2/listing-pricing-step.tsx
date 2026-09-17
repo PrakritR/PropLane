@@ -445,8 +445,7 @@ function MonthlyCards({
               ) : (
                 <MoneyInput
                   label={`Rent for every room on ${term}`}
-                  value={termDef("monthlyRent")}
-                  inherited={!termDef("monthlyRent")}
+                  value={termDef("monthlyRent") || ltText("monthlyRent")}
                   placeholder={ltText("monthlyRent") || "1,100"}
                   onChange={(v) => onTermDefault(term, "monthlyRent", sanitizeMoneyInput(v))}
                   dataAttr="listing-v2-price-term-default-rent"
@@ -459,8 +458,7 @@ function MonthlyCards({
               ) : (
                 <MoneyInput
                   label={`Utilities for every room on ${term}`}
-                  value={termDef("utilitiesEstimate")}
-                  inherited={!termDef("utilitiesEstimate")}
+                  value={termDef("utilitiesEstimate") || ltText("utilitiesEstimate")}
                   placeholder={ltText("utilitiesEstimate") || "150"}
                   onChange={(v) => onTermDefault(term, "utilitiesEstimate", sanitizeMoneyInput(v))}
                   dataAttr="listing-v2-price-term-default-utilities"
@@ -473,8 +471,7 @@ function MonthlyCards({
               ) : (
                 <MoneyInput
                   label={`Deposit for every room on ${term}`}
-                  value={termDef("securityDeposit")}
-                  inherited={!termDef("securityDeposit")}
+                  value={termDef("securityDeposit") || ltText("securityDeposit")}
                   placeholder={ltText("securityDeposit") || "1,000"}
                   onChange={(v) => onTermDefault(term, "securityDeposit", sanitizeMoneyInput(v))}
                   dataAttr="listing-v2-price-term-default-deposit"
@@ -1053,14 +1050,14 @@ export function ListingPricingSections({
             <MonthlyCards
               sub={sub}
               patch={patch}
-              term={!isBase(activeLeaseTerm) && !ownTable(activeLeaseTerm) ? LONG_TERM_LEASE_TERM : activeLeaseTerm}
+              term={activeLeaseTerm}
               feeScopeTerm={activeLeaseTerm}
               defaults={defaults}
               termDefaults={termDefaults}
               onDefault={onDefault}
               onTermDefault={onTermDefault}
               onRoom={onRoom}
-              dimmed={!isBase(activeLeaseTerm) && !ownTable(activeLeaseTerm)}
+              dimmed={false}
             />
           )}
         </>

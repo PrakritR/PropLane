@@ -39,6 +39,7 @@ export function AddWorkspace({
   current,
   onJump,
   onClose,
+  onRequestClose,
   dirty = false,
   discardTitle = "Discard this?",
   discardBody = "Nothing has been saved yet. Close and lose what you typed?",
@@ -49,11 +50,16 @@ export function AddWorkspace({
   children,
   lastLabel,
   lastDisabled = false,
+  nextDisabled = false,
+  onBeforeNext,
   busy = false,
   onFinish,
   saveState = "Not saved yet",
   dataAttrPrefix = "add-workspace",
+  finishDataAttr,
   finishCount,
+  dangerAction,
+  footerNote,
 }: {
   title: string;
   subtitle?: string;
@@ -61,6 +67,11 @@ export function AddWorkspace({
   current: number;
   onJump: (index: number) => void;
   onClose: () => void;
+  /**
+   * Runs before the dirty/discard confirm. Return false to consume the close
+   * (a nested chooser is open) without discarding the workspace.
+   */
+  onRequestClose?: () => boolean;
   /** Anything typed — close asks before discarding. */
   dirty?: boolean;
   discardTitle?: string;
@@ -74,23 +85,36 @@ export function AddWorkspace({
   /** The footer's primary label on the last step — "Add resident", "Schedule tour". */
   lastLabel: string;
   lastDisabled?: boolean;
+  /** Continue on a non-last step — a missing required field stays on this step. */
+  nextDisabled?: boolean;
+  /** Return false to keep the manager on this step (and show the field error). */
+  onBeforeNext?: () => boolean;
   busy?: boolean;
   onFinish: () => void;
   saveState?: ReactNode;
   dataAttrPrefix?: string;
+  /** Override the last-step button's data-attr (legacy Save selectors). */
+  finishDataAttr?: string;
   /** How many individual things remain — the rail card's number. Defaults to the count of incomplete steps. */
   finishCount?: number;
+  /** Footer ghost on the left — Delete, not a second layout language. */
+  dangerAction?: ReactNode;
+  footerNote?: ReactNode;
 }) {
   const confirm = useConfirm();
   const railSteps = useMemo<StepRailItem[]>(
     () => steps.map((s) => ({ ...s, attention: s.incomplete ? 1 : 0 })),
     [steps],
   );
-  const openCount = useMemo(() => finishCount ?? steps.filter((s) => s.incomplete && s.id !== "review").length, [steps, finishCount]);
+  const openCount = useMemo(
+    () => finishCount ?? steps.filter((s) => s.incomplete && s.id !== "review" && s.id !== "preview").length,
+    [steps, finishCount],
+  );
   const last = steps.length - 1;
   const isLast = current === last;
 
   const close = useCallback(() => {
+    if (onRequestClose && !onRequestClose()) return;
     if (!dirty) {
       onClose();
       return;
@@ -105,10 +129,16 @@ export function AddWorkspace({
     }).then((ok) => {
       if (ok) onClose();
     });
-  }, [confirm, dataAttrPrefix, dirty, discardBody, discardTitle, onClose]);
+  }, [confirm, dataAttrPrefix, dirty, discardBody, discardTitle, onClose, onRequestClose]);
+
+  const goNext = () => {
+    if (nextDisabled) return;
+    if (onBeforeNext && !onBeforeNext()) return;
+    onJump(current + 1);
+  };
 
   return (
-    <ListingWizardOverlay>
+    <ListingWizardOverlay ariaLabel={title}>
       <ListingWorkspace
         title={title}
         subtitle={subtitle}
@@ -126,6 +156,7 @@ export function AddWorkspace({
         footer={
           <>
             <div className="flex items-center gap-2.5">
+              {dangerAction}
               <button
                 type="button"
                 disabled={current === 0}
@@ -136,7 +167,8 @@ export function AddWorkspace({
                 Back
               </button>
             </div>
-            <span className="min-w-0 flex-1 truncate text-center text-[12.5px] text-muted">
+            <span className="min-w-0 flex-1 text-center text-[12.5px] text-muted">
+              {footerNote ? <span className="mb-0.5 block">{footerNote}</span> : null}
               Step {current + 1} of {steps.length}
             </span>
             {isLast ? (
@@ -144,7 +176,7 @@ export function AddWorkspace({
                 type="button"
                 onClick={onFinish}
                 disabled={lastDisabled || busy}
-                data-attr={`${dataAttrPrefix}-finish`}
+                data-attr={finishDataAttr ?? `${dataAttrPrefix}-finish`}
                 className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
               >
                 {busy ? "Saving…" : lastLabel}
@@ -152,10 +184,11 @@ export function AddWorkspace({
             ) : (
               <button
                 type="button"
-                onClick={() => onJump(current + 1)}
+                onClick={goNext}
+                disabled={nextDisabled}
                 data-attr={`${dataAttrPrefix}-next`}
                 aria-label={`Continue to ${steps[current + 1]!.label}`}
-                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white"
+                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-45"
               >
                 <span className="sm:hidden">Continue</span>
                 <span className="hidden sm:inline">Continue to {steps[current + 1]!.label}</span>

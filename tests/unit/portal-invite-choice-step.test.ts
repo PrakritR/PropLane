@@ -19,14 +19,25 @@ describe("portal invite choice step", () => {
     expect(CHOICE).toContain("Create Invite Link");
   });
 
-  it("defaults manager invites to the PropLane ID path in the add dialog", () => {
-    expect(PANEL).toContain("PortalInviteChoiceStep");
-    expect(PANEL).toContain('secondaryTitle="Link with PropLane ID"');
-    expect(PANEL).toContain('data-attr="co-manager-proplane-id-input"');
-    expect(PANEL).toContain('data-attr="co-manager-link-continue"');
+  it("defaults manager invites to vendor-style email | link tabs", () => {
+    expect(PANEL).toContain("Invite by email");
+    expect(PANEL).toContain("Create invite link");
+    expect(PANEL).toContain('data-attr="co-manager-invite-by-email"');
+    expect(PANEL).toContain('data-attr="co-manager-create-invite-link"');
+    expect(PANEL).toContain("ManagerInviteLinkModal");
+    expect(PANEL).not.toContain("PortalInviteChoiceStep");
+    expect(PANEL).not.toContain('data-attr="co-manager-proplane-id-input"');
+    expect(PANEL).not.toContain('data-attr="co-manager-link-continue"');
     expect(PANEL).not.toContain('data-attr="co-manager-copy-open-invite"');
-    expect(PANEL).not.toContain('data-attr="co-manager-use-proplane-id"');
     expect(PANEL).not.toContain('useState<"link" | "axis">("link")');
+  });
+
+  it("opens New message compose after Send invite", () => {
+    expect(PANEL).toContain("PortalNotificationPreviewModal");
+    expect(PANEL).toContain('title="New message"');
+    expect(PANEL).toContain("dynamicSendLabel");
+    expect(PANEL).toContain('confirmLabel="Send email"');
+    expect(PANEL).toContain("hideSendViaFooterNote");
   });
 
   it("keeps vendor email and shareable links available without a continuation step", () => {

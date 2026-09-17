@@ -1,10 +1,10 @@
 "use client";
 
 import { useMemo, useState, type ComponentProps, type ReactNode } from "react";
-import { Badge } from "@/components/ui/badge";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
+import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
 import {
   BookingsDayDetailModal,
   type BookingsDayEntry,
@@ -13,8 +13,6 @@ import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import {
   bookingEntryKey,
-  bookingSourceLabel,
-  bookingStatusTone,
   formatBookingStayRange,
   type ManagerBookingListBucketId,
 } from "@/lib/channel-calendar/bookings-ui";
@@ -31,6 +29,8 @@ export function ManagerBookingsListView({
   selectedKeys,
   onToggleSelected,
   onOpenDay,
+  onEditBlock,
+  onDeleteBlock,
   bulkActions,
   emptyCard,
 }: {
@@ -40,6 +40,8 @@ export function ManagerBookingsListView({
   selectedKeys: ReadonlySet<string>;
   onToggleSelected: (key: string, selected: boolean) => void;
   onOpenDay?: (dayKey: string) => void;
+  onEditBlock?: (entry: PropertyBookingEntry) => void;
+  onDeleteBlock?: (entry: PropertyBookingEntry) => void;
   bulkActions?: ReactNode;
   /** The tab's empty card — the page owns the copy, tab counts and Link Airbnb. */
   emptyCard?: ComponentProps<typeof PortalRecordListSurface>["emptyCard"];
@@ -110,28 +112,24 @@ export function ManagerBookingsListView({
             ]
               .filter(Boolean)
               .join(" · ");
+            const isBlock = entry.source === "block" && Boolean(entry.blockId);
             return (
-              <PortalPersonRecordRow
+              <BookingsRowOverflow
                 key={key}
-                name={name}
-                subtitle={subtitle}
-                checked={selectedKeys.has(key)}
-                onSelectedChange={(selected) => onToggleSelected(key, selected)}
-                onOpen={() => openEntry(entry)}
-                dataAttr={`bookings-list-row-${key}`}
-                trailing={
-                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
-                    <Badge tone={entry.source === "airbnb" ? "pending" : "info"}>
-                      {bookingSourceLabel(entry.source)}
-                    </Badge>
-                    {entry.statusLabel ? (
-                      <Badge tone={bookingStatusTone(entry)}>{entry.statusLabel}</Badge>
-                    ) : entry.source === "airbnb" ? (
-                      <Badge tone="confirmed">Confirmed</Badge>
-                    ) : null}
-                  </div>
-                }
-              />
+                label={name}
+                onEdit={() => (isBlock && onEditBlock ? onEditBlock(entry) : openEntry(entry))}
+                onDelete={isBlock && onDeleteBlock ? () => onDeleteBlock(entry) : undefined}
+              >
+                <PortalPersonRecordRow
+                  name={name}
+                  subtitle={subtitle}
+                  checked={selectedKeys.has(key)}
+                  onSelectedChange={(selected) => onToggleSelected(key, selected)}
+                  onOpen={() => openEntry(entry)}
+                  omitActionView
+                  dataAttr={`bookings-list-row-${key}`}
+                />
+              </BookingsRowOverflow>
             );
           })
         )}

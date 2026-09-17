@@ -22,8 +22,9 @@ import { PortalSettingsScopeTag } from "@/components/portal/portal-settings-ui";
  * fetches. The picker never appears when the workspace has a single property.
  *
  * The hook is safe to call OUTSIDE a provider — it returns the workspace scope
- * (`propertyId: ""`, no-op reporters) — so a panel mounted by the per-tab gear
- * modal, which has no scope bar, behaves exactly as it did before.
+ * (`propertyId: ""`, no-op reporters) — so a panel without houses still reads
+ * as the workspace default. Gear sheets that pass `propertyOptions` wrap this
+ * provider the same way the Settings hub does.
  */
 export type SettingsPropertyOption = { id: string; label: string };
 

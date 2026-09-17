@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Badge } from "@/components/ui/badge";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
+import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { PortalSegmentedControl } from "@/components/portal/portal-metrics";
 import {
@@ -14,8 +14,6 @@ import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import {
   bookingEntryKey,
-  bookingSourceLabel,
-  bookingStatusTone,
   bookingsForListTab,
   formatBookingStayRange,
   type BookingsListTabId,
@@ -124,20 +122,10 @@ export function ManagerBookingsListPanel({
                 key={bookingEntryKey(entry)}
                 name={name}
                 subtitle={subtitle}
-                meta={entry.statusLabel}
                 onOpen={() => openEntry(entry)}
                 dataAttr={`bookings-list-row-${bookingEntryKey(entry)}`}
                 trailing={
-                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
-                    <Badge tone={entry.source === "airbnb" ? "pending" : "info"}>
-                      {bookingSourceLabel(entry.source)}
-                    </Badge>
-                    {entry.statusLabel ? (
-                      <Badge tone={bookingStatusTone(entry)}>{entry.statusLabel}</Badge>
-                    ) : entry.source === "airbnb" ? (
-                      <Badge tone="confirmed">Confirmed</Badge>
-                    ) : null}
-                  </div>
+                  <BookingsRowOverflow label={name} onEdit={() => openEntry(entry)} />
                 }
               />
             );

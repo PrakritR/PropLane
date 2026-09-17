@@ -1,7 +1,7 @@
 "use client";
 
-import { PenSquare } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { PenSquare, Trash2 } from "lucide-react";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { CommunicationRowActions } from "@/components/portal/communication-row-actions";
@@ -894,6 +894,9 @@ export function ManagerUnifiedInbox({
     onEmailThreadsChange: setEmailThreads,
     onSmsArchiveChange: () => setSmsArchivedIds(loadManagerSmsArchivedIds()),
     smsTargets,
+    assistantPlaceholder: viewerId
+      ? buildManagerAssistantPlaceholderThread(viewerId, assistantWorkspace)
+      : undefined,
     onSmsDeleted: () => {
       invalidateManagerSmsConversationsClient(viewerId);
       void loadSms({ force: true });
@@ -1086,22 +1089,21 @@ export function ManagerUnifiedInbox({
                 data-attr="unified-inbox-search"
               />
             </div>
-            {listActions ? (
+            {canDeleteAllArchived || listActions ? (
               <div className="flex shrink-0 items-center gap-0.5 [&_button]:shrink-0 [&_a]:shrink-0" data-attr="communication-list-actions">
+                {canDeleteAllArchived ? (
+                  <PortalIconAction
+                    icon={Trash2}
+                    label="Delete all archived"
+                    tone="danger"
+                    data-attr="unified-inbox-delete-all-archived"
+                    onClick={() => void bulk.handleDeleteAllArchived()}
+                  />
+                ) : null}
                 {listActions}
               </div>
             ) : null}
           </div>
-          {canDeleteAllArchived ? (
-            <Button
-              type="button"
-              variant="danger"
-              data-attr="unified-inbox-delete-all-archived"
-              onClick={() => void bulk.handleDeleteAllArchived()}
-            >
-              Delete all archived
-            </Button>
-          ) : null}
           {listRows.length > 0 ? (
             <p className="hidden px-1 text-[11px] text-muted sm:block">
               {listRows.length} conversation{listRows.length === 1 ? "" : "s"}
@@ -1308,14 +1310,18 @@ export function ManagerUnifiedInbox({
           : undefined
       }
       onDelete={
-        selectedRow && listSegment === "archived"
+        selectedRow && listSegment === "archived" && !isAssistantUnifiedInboxRow(selectedRow, emailThreads)
           ? async () => {
               bulk.selection.clearSelection();
               bulk.selection.toggleSelected(selectedRow.key);
               await bulk.handleDelete();
               closeActiveThread();
             }
-          : undefined
+          : selectedRow && isAssistantUnifiedInboxRow(selectedRow, emailThreads)
+            ? async () => {
+                await bulk.handleClearAssistant(selectedRow);
+              }
+            : undefined
       }
       onBack={closeActiveThread}
     />
@@ -1332,6 +1338,11 @@ export function ManagerUnifiedInbox({
         filterContacts={filterContacts}
         smsUiEnabled={smsUiEnabled}
         smsRecipients={smsResidents}
+        onClearAssistant={
+          selectedRow && isAssistantUnifiedInboxRow(selectedRow, emailThreads)
+            ? () => bulk.handleClearAssistant(selectedRow)
+            : undefined
+        }
         controlledExpandedId={selection.threadId}
         onControlledExpandedIdChange={(id) => {
           if (!id) {

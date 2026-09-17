@@ -27,6 +27,10 @@ import {
   type FormAutomationPane,
 } from "@/components/portal/property-form-automation-chrome";
 import { cn } from "@/lib/utils";
+import {
+  SettingsPropertyScopeBar,
+  SettingsPropertyScopeProvider,
+} from "@/components/portal/settings-property-scope";
 
 type SettingsEditorPane = FormAutomationPane;
 
@@ -47,6 +51,9 @@ export type ManagerPortalSettingsTab =
   | "bookings"
   | "inspections"
   | "automation";
+
+/** Operations gears that share the hub's Property picker (All properties or one house). */
+const OPERATIONS_SCOPE_TABS = new Set<ManagerPortalSettingsTab>(["inspections", "bookings", "tasks"]);
 
 export function ProPortalSettingsModal({
   open,
@@ -107,6 +114,7 @@ export function ProPortalSettingsModal({
   const [panelFooter, setPanelFooter] = useState<ManagerSettingsPanelFooter | null>(null);
   const [editorPane, setEditorPane] = useState<SettingsEditorPane>("form");
   const [formBulkActions, setFormBulkActions] = useState<ReactNode | null>(null);
+  const [scopePropertyId, setScopePropertyId] = useState(initialPropertyId ?? "");
   const { userId: managerUserId } = useManagerUserId();
   const { showToast } = useAppUi();
 
@@ -115,8 +123,9 @@ export function ProPortalSettingsModal({
       setTab(initialTab);
       setEditorPane(isFormAutomationTab(initialTab) ? initialPane : "form");
       setFormBulkActions(null);
+      setScopePropertyId(initialPropertyId ?? "");
     }
-  }, [open, initialTab, initialPane]);
+  }, [open, initialTab, initialPane, initialPropertyId]);
 
   const prevTabRef = useRef(initialTab);
   useEffect(() => {
@@ -363,6 +372,25 @@ export function ProPortalSettingsModal({
             onBulkActionsChange={handleFormBulkActions}
           />
         )
+      ) : OPERATIONS_SCOPE_TABS.has(tab) ? (
+        <SettingsPropertyScopeProvider
+          propertyId={scopePropertyId}
+          onPropertyIdChange={setScopePropertyId}
+          options={propertyOptions}
+        >
+          <SettingsPropertyScopeBar />
+          <SettingsModulePage
+            ref={pageRef}
+            tab={tab}
+            propertyOptions={propertyOptions}
+            initialPropertyId={initialPropertyId}
+            paymentsMode={paymentsMode}
+            onCalendarSettingsSaved={onCalendarSettingsSaved}
+            onFooterChange={setPanelFooter}
+            onSaveStatusChange={handleSaveStatusChange}
+            active={open}
+          />
+        </SettingsPropertyScopeProvider>
       ) : (
         <SettingsModulePage
           ref={pageRef}

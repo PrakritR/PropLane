@@ -12,7 +12,6 @@ import {
   PORTAL_MODAL_FORM_FULL_ROW_CLASS,
   PORTAL_MODAL_FORM_GRID_CLASS,
 } from "@/components/ui/modal";
-import { PORTAL_MODAL_BODY_SCROLL_CLASS } from "@/components/ui/modal-styles";
 import { SaveStatus, saveErrorReason } from "@/components/ui/save-status";
 import { useAutosaveDraft } from "@/hooks/use-autosave-draft";
 import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
@@ -597,7 +596,7 @@ export function ManagerTaskFormModal({
         ) : undefined
       }
     >
-      <div className="shrink-0 pb-4">
+      <div className="pb-4">
         <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-kind">
           Task type
         </label>
@@ -628,7 +627,6 @@ export function ManagerTaskFormModal({
           }}
         />
       ) : (
-      <div className={PORTAL_MODAL_BODY_SCROLL_CLASS}>
       <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
         {isTour ? (
           <>
@@ -1158,7 +1156,6 @@ export function ManagerTaskFormModal({
             ? " You can notify the guest or resident on the next screen."
             : null}
         </p>
-      </div>
       </div>
       )}
     </Modal>

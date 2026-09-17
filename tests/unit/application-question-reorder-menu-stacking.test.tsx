@@ -33,8 +33,12 @@ describe("reorder menu stacking inside the full-page workspace", () => {
     expect(menuZ).toHaveLength(2);
 
     const modalZ = highestArbitraryZ(modalSource);
+    const overlayZ = 80;
     expect(modalZ).toBeGreaterThan(0);
-    for (const z of menuZ) expect(z).toBeGreaterThan(modalZ);
+    for (const z of menuZ) {
+      expect(z).toBeGreaterThan(modalZ);
+      expect(z).toBeGreaterThan(overlayZ);
+    }
   });
 
   it("does not rely on the default z-50, which is below the workspace", () => {

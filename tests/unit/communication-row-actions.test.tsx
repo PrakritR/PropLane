@@ -7,9 +7,14 @@ import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-b
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import type { UnifiedInboxListItem } from "@/lib/unified-inbox-merge";
 
-const mocks = vi.hoisted(() => ({ archive: vi.fn(), restore: vi.fn(), remove: vi.fn(), sms: vi.fn(), smsDelete: vi.fn(), confirm: vi.fn() }));
+const mocks = vi.hoisted(() => ({ archive: vi.fn(), restore: vi.fn(), remove: vi.fn(), clear: vi.fn(), sms: vi.fn(), smsDelete: vi.fn(), confirm: vi.fn() }));
 vi.mock("@/components/providers/app-ui-provider", () => ({ useConfirm: () => mocks.confirm }));
-vi.mock("@/lib/communication-inbox-thread-mutations", () => ({ archivePersistedInboxThreads: mocks.archive, restorePersistedInboxThreads: mocks.restore, deletePersistedInboxThreadsForever: mocks.remove }));
+vi.mock("@/lib/communication-inbox-thread-mutations", () => ({
+  archivePersistedInboxThreads: mocks.archive,
+  restorePersistedInboxThreads: mocks.restore,
+  deletePersistedInboxThreadsForever: mocks.remove,
+  clearPersistedInboxThread: mocks.clear,
+}));
 vi.mock("@/lib/manager-sms-archive.client", () => ({ archiveManagerSmsConversation: mocks.sms, restoreManagerSmsConversation: vi.fn() }));
 vi.mock("@/lib/manager-sms-conversations-client", () => ({ deleteManagerSmsConversationClient: mocks.smsDelete }));
 const ASSISTANT_ID = "agent_notice_00000000-0000-4000-8000-000000000001";
@@ -60,7 +65,7 @@ function openPastDestructiveSettle(name: string) {
 }
 beforeEach(() => {
   vi.clearAllMocks();
-  for (const fn of [mocks.archive, mocks.restore, mocks.remove]) fn.mockResolvedValue({ ok: true, next: threads });
+  for (const fn of [mocks.archive, mocks.restore, mocks.remove, mocks.clear]) fn.mockResolvedValue({ ok: true, next: threads });
   mocks.smsDelete.mockResolvedValue({ ok: true });
   mocks.confirm.mockResolvedValue(true);
 });
@@ -106,10 +111,12 @@ it("deletes all ordinary email members after confirmation", async () => {
 
 it("does not offer Archive on PropLane Assistant, and still archives the PropLane admin conversation", async () => {
   render(<Harness />);
-  open("PropLane Assistant");
-  await screen.findByText("No actions available.");
+  const restoreClock = openPastDestructiveSettle("PropLane Assistant");
+  expect(await screen.findByRole("menuitem", { name: "Clear" })).toBeTruthy();
   expect(screen.queryByRole("menuitem", { name: "Archive" })).toBeNull();
+  expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
   fireEvent.keyDown(await screen.findByRole("menu"), { key: "Escape" });
+  restoreClock();
   await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
   open("PropLane admin"); fireEvent.click(await screen.findByRole("menuitem", { name: "Archive" }));
   await waitFor(() => expect(mocks.archive).toHaveBeenLastCalledWith("test-inbox", ["assistant-email-proof-1", "gone-from-list"]));
@@ -119,17 +126,25 @@ it("does not offer Archive on PropLane Assistant, and still archives the PropLan
 it("does not offer Archive on the assistant in a role portal either", async () => {
   render(<Harness manager={false} />);
   open("PropLane Assistant");
-  await screen.findByText("No actions available.");
+  expect(await screen.findByRole("menuitem", { name: "Clear" })).toBeTruthy();
   expect(screen.queryByRole("menuitem", { name: "Archive" })).toBeNull();
 });
 
-it("never restores or deletes PropLane Assistant, and still deletes the admin mirror", async () => {
+it("clears PropLane Assistant instead of deleting it, and still deletes the admin mirror", async () => {
   render(<Harness archived />);
-  open("PropLane Assistant");
-  await screen.findByText("No actions available.");
+  const restoreClock = openPastDestructiveSettle("PropLane Assistant");
   expect(screen.queryByRole("menuitem", { name: "Restore" })).toBeNull();
   expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
-  fireEvent.keyDown(await screen.findByRole("menu"), { key: "Escape" });
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Clear" }));
+  restoreClock();
+  await waitFor(() => expect(mocks.confirm).toHaveBeenCalledOnce());
+  await waitFor(() => expect(mocks.clear).toHaveBeenCalledWith(
+    "test-inbox",
+    ASSISTANT_ID,
+    expect.objectContaining({ from: "PropLane Assistant" }),
+  ));
+  expect(mocks.remove).not.toHaveBeenCalled();
+  fireEvent.keyDown(document, { key: "Escape" });
   await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
   open("PropLane admin");
   await screen.findByRole("menuitem", { name: "Restore" });

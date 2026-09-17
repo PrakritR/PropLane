@@ -37,6 +37,25 @@ export function meetingsInWeek(meetings: DemoMeeting[], anchorDate: Date): DemoM
   return meetings.filter((meeting) => weekDates.has(meeting.dateStr));
 }
 
+/** Command-bar search on Calendar — title, people, house, notes. Empty query keeps every meeting. */
+export function calendarMeetingMatchesQuery(meeting: DemoMeeting, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  return [
+    meeting.title,
+    meeting.name,
+    meeting.email,
+    meeting.phone,
+    meeting.notes,
+    meeting.propertyTitle,
+    meeting.roomLabel,
+    meeting.hostLabel,
+    meeting.statusLabel,
+    meeting.kind,
+    meeting.instructions,
+  ].some((value) => value?.toLowerCase().includes(needle));
+}
+
 /** Planned + pending tour meetings visible to the manager calendar filter. */
 export function buildScheduledTourMeetings(
   scheduledTourFilter: ScheduledTourFilter | undefined,

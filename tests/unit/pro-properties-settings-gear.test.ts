@@ -15,4 +15,11 @@ describe("Properties settings gear", () => {
     expect(src).toContain("propertiesSettingsEntry");
     expect(src).toContain("settingsDialogTitlePrefix(propertiesSettingsEntry)");
   });
+
+  it("opens Create through CreateWorkspace only — no leftover add-listing form", () => {
+    expect(src).toContain("CreateWorkspace");
+    expect(src).not.toContain("ManagerAddListingForm");
+    expect(src).not.toContain("wizard=v1");
+    expect(src).toContain('get("wizard") === "v2"');
+  });
 });

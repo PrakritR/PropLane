@@ -1,11 +1,10 @@
 // @vitest-environment jsdom
 //
 // The Review step's physical Save. Autosave and X already write on their own;
-// this is the visible commit a manager reaches for on the last step. On a live
-// listing it is "Save changes"; on a draft it is "Save draft" beside Publish.
-// A save that lands closes the editor. A save that fails keeps the editor open
-// with the work still in it — the button exists to keep work, so unlike X it
-// never gives up and leaves.
+// this is the visible commit a manager reaches for on the last step. Draft and
+// live both show Save beside Publish. A save that lands closes the editor. A
+// save that fails keeps the editor open with the work still in it — the button
+// exists to keep work, so unlike X it never gives up and leaves.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -70,36 +69,42 @@ describe("the Review step footer (editor shell)", () => {
     return { onSaveExit, onPublish };
   }
 
-  it("a draft has Save draft beside Publish; Save draft saves, it does not publish", () => {
+  it("a draft has Save beside Publish; Save saves, it does not publish", () => {
     const { onSaveExit, onPublish } = mount(false);
     goToReview();
     expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save.getAttribute("data-attr")).toBe("listing-v2-save-draft");
+    fireEvent.click(save);
     expect(onSaveExit).toHaveBeenCalledWith(REVIEW);
     expect(onPublish).not.toHaveBeenCalled();
   });
 
-  it("a live listing has Save changes and no Save draft", () => {
-    const { onSaveExit } = mount(true);
+  it("a live listing has Save beside Publish, labelled Save", () => {
+    const { onSaveExit, onPublish } = mount(true);
     goToReview();
-    expect(screen.queryByRole("button", { name: "Save draft" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save.getAttribute("data-attr")).toBe("listing-v2-save");
+    expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
+    fireEvent.click(save);
     expect(onSaveExit).toHaveBeenCalledWith(REVIEW);
+    expect(onPublish).not.toHaveBeenCalled();
   });
 
   it("earlier steps still carry Continue, never a Save", () => {
     mount(true);
     expect(screen.getByRole("button", { name: /^Continue to/ })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Save draft" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   });
 
-  it("while a write is in flight the Save is disabled and says so", () => {
+  it("while a write is in flight Save and Publish are disabled", () => {
     mount(true, true);
     goToReview();
-    const btn = screen.getByRole("button", { name: "Saving…" }) as HTMLButtonElement;
-    expect(btn.disabled).toBe(true);
-    expect(btn.getAttribute("data-attr")).toBe("listing-v2-save");
+    const save = screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
+    const publish = screen.getByRole("button", { name: "Publishing…" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    expect(publish.disabled).toBe(true);
+    expect(save.getAttribute("data-attr")).toBe("listing-v2-save");
   });
 });
 
@@ -124,7 +129,7 @@ describe("the Review step Save (whole wizard)", () => {
     const onClose = mountEdit();
     fireEvent.change(screen.getByDisplayValue("Ash Flats"), { target: { value: "Ash Flats 6" } });
     goToReview();
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(updateExtraListingFromSubmissionOnServer).toHaveBeenCalled());
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(saveManagerPropertyDraftToServer).not.toHaveBeenCalled();
@@ -133,7 +138,7 @@ describe("the Review step Save (whole wizard)", () => {
   it("with nothing unsaved it simply closes, writing nothing", async () => {
     const onClose = mountEdit();
     goToReview();
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(updateExtraListingFromSubmissionOnServer).not.toHaveBeenCalled();
   });
@@ -143,16 +148,16 @@ describe("the Review step Save (whole wizard)", () => {
     const onClose = mountEdit();
     fireEvent.change(screen.getByDisplayValue("Ash Flats"), { target: { value: "Ash Flats 6" } });
     goToReview();
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(showToast).toHaveBeenCalledTimes(1));
     // X gives up and closes on the SECOND failure; Save must not.
-    await waitFor(() => expect((screen.getByRole("button", { name: "Save changes" }) as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(showToast).toHaveBeenCalledTimes(2));
     expect(updateExtraListingFromSubmissionOnServer).toHaveBeenCalledTimes(2);
     await new Promise((r) => setTimeout(r, 50));
     expect(onClose).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Save changes" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: /attention|Ready to publish/ })).toBeTruthy();
   });
 });

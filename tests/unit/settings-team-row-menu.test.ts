@@ -6,9 +6,10 @@ const blocks = readFileSync(resolve("src/components/portal/pro-team-blocks.tsx")
 const panel = readFileSync(resolve("src/components/portal/pro-account-links-panel.tsx"), "utf8");
 
 describe("Settings Team row actions", () => {
-  it("puts Edit and Disconnect in a far-right ⋯ — Permissions opened the same page as Edit, and Remove is now Disconnect", () => {
-    expect(blocks).toContain('label: "Edit"');
+  it("puts Edit permissions and Disconnect in a far-right ⋯ — Permissions opened the same page as Edit, and Remove is now Disconnect", () => {
+    expect(blocks).toContain('label: "Edit permissions"');
     expect(blocks).toContain('label: "Disconnect"');
+    expect(blocks).toContain('dataAttr: "team-member-edit"');
     expect(blocks).toContain('dataAttr: "team-member-disconnect"');
     expect(blocks).not.toContain('label: "Permissions"');
     expect(blocks).not.toContain('label: "Remove"');

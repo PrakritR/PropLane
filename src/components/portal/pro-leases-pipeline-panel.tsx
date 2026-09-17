@@ -66,7 +66,7 @@ import {
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { retryUploadedLeaseParse, uploadAndParseLeasePdf } from "@/lib/uploaded-lease-parse.client";
-import { leaseCanBeMarkedSignedOffPlatform } from "@/lib/lease-execution-evidence";
+import { leaseAllowsSignedPdfUpload, leaseCanBeMarkedSignedOffPlatform } from "@/lib/lease-execution-evidence";
 import { markLeaseSignedOffPlatform } from "@/lib/lease-mark-signed.client";
 import { LeaseMarkSignedModal } from "@/components/portal/lease-mark-signed-modal";
 import { UploadedLeaseReviewModal } from "@/components/portal/uploaded-lease-review-modal";
@@ -87,10 +87,7 @@ function leaseRowAllowsGeneratedBodyEdit(row: LeasePipelineRow): boolean {
  * the request first (`handleLeaseFileUpload`). Never once a signature exists.
  */
 function leaseUploadAllowedForRow(row: LeasePipelineRow): boolean {
-  return (
-    leaseAllowsManagerDocumentEdits(row) ||
-    (row.status === "Resident Signature Pending" && leaseCanBeMarkedSignedOffPlatform(row))
-  );
+  return leaseAllowsSignedPdfUpload(row);
 }
 
 function leaseRowIsBulkSendable(
@@ -657,14 +654,19 @@ export function ManagerLeasesPipelinePanel({
       }
       if (!res.parse) {
         showToast("PDF saved. Resident sees this on their Lease tab.");
-        return;
+      } else {
+        showToast(
+          res.parse.status === "parsed"
+            ? `Lease imported into PropLane format (${res.parse.sections.length} sections). ${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}`
+            : `Lease PDF saved, but PropLane could not read its text. ${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}`,
+        );
       }
-      setImportReviewRowId(rowId);
-      showToast(
-        res.parse.status === "parsed"
-          ? `Lease imported into PropLane format (${res.parse.sections.length} sections). ${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}`
-          : `Lease PDF saved, but PropLane could not read its text. ${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}`,
-      );
+      const uploaded = rows.find((r) => r.id === rowId) ?? target;
+      if (uploaded && leaseCanBeMarkedSignedOffPlatform(uploaded)) {
+        setMarkSignedRowId(rowId);
+      } else if (res.parse) {
+        setImportReviewRowId(rowId);
+      }
     },
     [confirm, managerUserId, rows, showToast],
   );
@@ -946,7 +948,7 @@ export function ManagerLeasesPipelinePanel({
           onDone={() => void syncLeasePipelineFromServer(managerUserId, { force: true })}
           showDownload={hasLeaseDocument(editLeaseRow)}
           onDownload={() => onDownload(editLeaseRow)}
-          showUpload={leaseAllowsManagerDocumentEdits(editLeaseRow)}
+          showUpload={leaseAllowsSignedPdfUpload(editLeaseRow)}
           onUpload={() => {
             uploadTargetRowIdRef.current = editLeaseRow.id;
             uploadRef.current?.click();

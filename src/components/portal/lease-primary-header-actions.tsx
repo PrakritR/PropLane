@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
-import { leaseCanBeMarkedSignedOffPlatform } from "@/lib/lease-execution-evidence";
+import { leaseAllowsSignedPdfUpload, leaseCanBeMarkedSignedOffPlatform } from "@/lib/lease-execution-evidence";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import {
   hasBothLeaseSignatures,
@@ -160,8 +160,7 @@ export function LeasePrimaryHeaderActions({
   const showMoveToReview = row.status === "Resident Signature Pending" && Boolean(onMoveToManagerReview);
   const showGenerate = canEditDocument && Boolean(onGenerateLease);
   const canMarkSigned = leaseCanBeMarkedSignedOffPlatform(row);
-  const showUpload =
-    (canEditDocument || (canMarkSigned && row.status === "Resident Signature Pending")) && Boolean(onUploadPdf);
+  const showUpload = leaseAllowsSignedPdfUpload(row) && Boolean(onUploadPdf);
   const showMarkSigned = canMarkSigned && Boolean(onMarkSigned);
   const showEditLease =
     canEditDocument &&

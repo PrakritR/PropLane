@@ -14,7 +14,6 @@ import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/por
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalInviteChoiceStep } from "@/components/portal/portal-invite-choice-step";
 import { ManagerInviteLinkModal } from "@/components/portal/manager-invite-link-modal";
 import {
   ManagerPortalPageShell,
@@ -64,7 +63,6 @@ import {
   teamInviteEligiblePropertyIds,
 } from "@/lib/manager-portfolio-access";
 import {
-  AXIS_ID_LABEL,
   generateRelationshipId,
   proRelationshipRowsFromInvites,
   readProRelationships,
@@ -120,7 +118,6 @@ import {
   coManagerLinkRemovedSubject,
 } from "@/lib/co-manager-link-email";
 import { fetchAndCacheLandlordLegalName } from "@/lib/manager-landlord-profile";
-import { formatProplaneIdForDisplay } from "@/lib/manager-id";
 
 type TeamRemovePreviewItem = BulkMessageCarouselItem & {
   entry: TeamListEntry;
@@ -131,6 +128,8 @@ type LinkInvitePreview = {
   body: string;
   recipientName: string;
   recipientUserId: string;
+  recipientEmail: string;
+  recipientAxisId: string;
 };
 
 const TEAM_MEMBER_ROLE_LABEL = "Team";
@@ -658,6 +657,7 @@ export function ProAccountLinksPanel({
   const [transferPermissions, setTransferPermissions] = useState<CoManagerPermissions>(EMPTY_CO_MANAGER_PERMISSIONS);
   const [transferBusy, setTransferBusy] = useState(false);
   const [propertyPermissionsModal, setPropertyPermissionsModal] = useState<PropertyPermissionsModalState | null>(null);
+  const [permissionsMember, setPermissionsMember] = useState<TeamListEntry | null>(null);
 
   // Named function expression so the soft-retry below can re-invoke this exact
   // load directly. It must NOT hop through a ref: a ref captured this deep in the
@@ -894,6 +894,8 @@ export function ProAccountLinksPanel({
   );
 
   const [axisInput, setAxisInput] = useState("");
+  const [inviteName, setInviteName] = useState("");
+  const [inviteEmail, setInviteEmail] = useState("");
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [inviteLinkModalOpen, setInviteLinkModalOpen] = useState(false);
 
@@ -1107,16 +1109,24 @@ export function ProAccountLinksPanel({
     );
   };
 
-  const lookup = async (): Promise<boolean> => {
-    const raw = axisInput.trim();
+  const lookup = async (rawInput?: string): Promise<{
+    ok: boolean;
+    axisId?: string;
+    userId?: string;
+    displayName?: string;
+  }> => {
+    const raw = (rawInput !== undefined ? rawInput : inviteEmail.trim() || axisInput.trim()).trim();
     if (!raw) {
-      showToast(`Enter a ${AXIS_ID_LABEL}.`);
-      return false;
+      showToast("Enter an email address.");
+      return { ok: false };
     }
     setLookupBusy(true);
     setInviteeAtCap(false);
     try {
-      const res = await fetch(`/api/pro/lookup-axis-id?axisId=${encodeURIComponent(raw)}`, {
+      const query = raw.includes("@")
+        ? `email=${encodeURIComponent(raw)}`
+        : `axisId=${encodeURIComponent(raw)}`;
+      const res = await fetch(`/api/pro/lookup-axis-id?${query}`, {
         credentials: "include",
       });
       const body = (await res.json()) as {
@@ -1124,46 +1134,33 @@ export function ProAccountLinksPanel({
         error?: string;
         displayName?: string;
         userId?: string;
+        axisId?: string;
         role?: string;
       };
       if (!res.ok || !body.ok) {
-        showToast(body.error ?? "Lookup failed.");
-        setDraftAxisId(null);
-        return false;
+        return { ok: false };
       }
-      setDraftAxisId(raw);
-      setDraftName(body.displayName ?? raw);
+      setDraftAxisId(body.axisId ?? raw);
+      setDraftName(inviteName.trim() || body.displayName || raw);
       setDraftUserId(body.userId ?? null);
-      showToast("Account verified. Assign properties, then send invite.");
-      return true;
+      return {
+        ok: true,
+        axisId: body.axisId ?? raw,
+        userId: body.userId,
+        displayName: body.displayName,
+      };
     } catch {
-      showToast("Network error.");
-      return false;
+      return { ok: false };
     } finally {
       setLookupBusy(false);
     }
   };
 
-  // On a successful lookup, draftAxisId is set — the Link-account modal then
-  // advances from the Axis-ID step to the assign-properties step in place,
-  // instead of closing and dropping the user onto an inline page section.
-  const submitLinkAccount = async () => {
-    await lookup();
-  };
-
   /** Clear the whole in-progress link draft (used on cancel/close and after send). */
   const resetLinkDraft = () => {
     setAxisInput("");
-    setDraftAxisId(null);
-    setDraftName(null);
-    setDraftUserId(null);
-    setSelectedProps({});
-    setPropertyPermissionsDraft({});
-    setInviteeAtCap(false);
-  };
-
-  /** Return to the Axis-ID step, keeping the typed id so it can be re-verified. */
-  const backToLookup = () => {
+    setInviteName("");
+    setInviteEmail("");
     setDraftAxisId(null);
     setDraftName(null);
     setDraftUserId(null);
@@ -1250,7 +1247,7 @@ export function ProAccountLinksPanel({
     });
   };
 
-  const saveNewLink = () => {
+  const saveNewLink = async () => {
     if (!canSendTeamInvites) {
       showToast("You do not have Team permission to invite co-managers.");
       return;
@@ -1263,9 +1260,25 @@ export function ProAccountLinksPanel({
       showToast(`${tierShort ?? "Your plan"}: ${linkCap} link${linkCap === 1 ? "" : "s"} max.`);
       return;
     }
-    if (!draftAxisId || !draftUserId) {
-      showToast(`Verify a ${AXIS_ID_LABEL} first.`);
+    const email = inviteEmail.trim();
+    if (!email) {
+      showToast("Enter an email address.");
       return;
+    }
+    if (email.includes("@") && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      showToast("Enter a valid email address.");
+      return;
+    }
+    let axisId = draftAxisId;
+    let userId = draftUserId;
+    let displayName = inviteName.trim() || draftName || email;
+    if (!axisId) {
+      const looked = await lookup(email);
+      if (looked.ok) {
+        axisId = looked.axisId ?? null;
+        userId = looked.userId ?? null;
+        displayName = inviteName.trim() || looked.displayName || email;
+      }
     }
     const ids = Object.entries(selectedProps)
       .filter(([, v]) => v)
@@ -1274,8 +1287,10 @@ export function ProAccountLinksPanel({
     setLinkInvitePreview({
       subject: coManagerInviteSubject(managerDisplayName),
       body: buildCoManagerInviteBody({ inviterName: managerDisplayName, propertyLabels }),
-      recipientName: draftName ?? draftAxisId,
-      recipientUserId: draftUserId,
+      recipientName: displayName,
+      recipientUserId: userId ?? "",
+      recipientEmail: email.includes("@") ? email : "",
+      recipientAxisId: axisId ?? "",
     });
     setLinkModalOpen(false);
   };
@@ -1286,8 +1301,9 @@ export function ProAccountLinksPanel({
     messageDraft?: NotificationConfirmDraft,
   ) => {
     if (!linkInvitePreview || linkInviteBusy) return;
-    if (!draftAxisId || !draftUserId) {
-      showToast(`Verify a ${AXIS_ID_LABEL} first.`);
+    const addressed = Boolean(linkInvitePreview.recipientAxisId && linkInvitePreview.recipientUserId);
+    if (!addressed && !linkInvitePreview.recipientEmail) {
+      showToast("Enter an email address.");
       return;
     }
     const ids = Object.entries(selectedProps)
@@ -1299,6 +1315,7 @@ export function ProAccountLinksPanel({
 
     setLinkInviteBusy(true);
     let pendingInviteId: string | null = null;
+    let openInviteUrl = "";
     try {
       if (useRemote && remoteLoaded) {
         try {
@@ -1307,7 +1324,7 @@ export function ProAccountLinksPanel({
             credentials: "include",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              inviteeAxisId: draftAxisId,
+              inviteeAxisId: addressed ? linkInvitePreview.recipientAxisId : undefined,
               tabKind: "manager",
               assignedPropertyIds: ids,
               payoutPercentForManager: payout,
@@ -1319,6 +1336,7 @@ export function ProAccountLinksPanel({
             error?: string;
             migrationRequired?: boolean;
             invite?: { id?: string };
+            inviteUrl?: string;
           };
           if (!res.ok) {
             setInviteeAtCap(Boolean(data.error?.includes("Invitee needs to upgrade")));
@@ -1326,22 +1344,23 @@ export function ProAccountLinksPanel({
             return;
           }
           pendingInviteId = data.invite?.id?.trim() || null;
+          openInviteUrl = !addressed ? data.inviteUrl?.trim() || "" : "";
         } catch {
           showToast("Network error.");
           return;
         }
-      } else {
+      } else if (addressed) {
         const all = readProRelationships(userId);
-        const dupe = all.some((r) => r.linkedAxisId === draftAxisId);
+        const dupe = all.some((r) => r.linkedAxisId === linkInvitePreview.recipientAxisId);
         if (dupe) {
           showToast("You already have a link with this account.");
           return;
         }
         const row: ProRelationshipRecord = {
           id: generateRelationshipId(),
-          linkedAxisId: draftAxisId,
-          linkedDisplayName: draftName ?? undefined,
-          linkedUserId: draftUserId,
+          linkedAxisId: linkInvitePreview.recipientAxisId,
+          linkedDisplayName: linkInvitePreview.recipientName || undefined,
+          linkedUserId: linkInvitePreview.recipientUserId,
           linkDirection: "outgoing",
           perspective: "manager_tab",
           payoutPercentForManager: payout,
@@ -1352,6 +1371,9 @@ export function ProAccountLinksPanel({
         };
         writeProRelationships(userId, [...all, row]);
         refreshLocal();
+      } else {
+        showToast("Invite by email needs a live account connection.");
+        return;
       }
 
       if (!skipMessage) {
@@ -1362,18 +1384,27 @@ export function ProAccountLinksPanel({
               propertyLabels,
               inviteId: pendingInviteId,
             })
-          : linkInvitePreview.body;
+          : openInviteUrl
+            ? `${linkInvitePreview.body}\n\nJoin PropLane: ${openInviteUrl}`
+            : linkInvitePreview.body;
+        const draftWithLink =
+          messageDraft && openInviteUrl && !messageDraft.body.includes(openInviteUrl)
+            ? { ...messageDraft, body: `${messageDraft.body.trim()}\n\nJoin PropLane: ${openInviteUrl}` }
+            : messageDraft;
         const result = await deliverManagerDirectoryMessage(
           {
             name: linkInvitePreview.recipientName,
-            email: "",
+            email: linkInvitePreview.recipientEmail,
             subject: linkInvitePreview.subject,
             body: inviteBody,
           },
           false,
           channels,
-          messageDraft,
-          { toUserIds: [linkInvitePreview.recipientUserId], eventCategory: "account" },
+          draftWithLink,
+          {
+            toUserIds: linkInvitePreview.recipientUserId ? [linkInvitePreview.recipientUserId] : undefined,
+            eventCategory: "account",
+          },
         );
         if (!result.ok) {
           if (pendingInviteId) await cancelInvite(pendingInviteId);
@@ -2429,97 +2460,75 @@ export function ProAccountLinksPanel({
     <>
         <Modal
           open={linkModalOpen}
-          title={draftAxisId ? "Send invite" : "Add co-manager"}
-          assistantContext="Link account"
-          assistantStorageScopeKey="Link account"
+          title="Invite a manager"
+          assistantContext="Invite a manager"
+          assistantStorageScopeKey="Invite a manager"
           onClose={closeLinkModal}
           panelClassName="max-w-2xl"
           footer={
-            <div className="flex w-full items-center justify-between gap-2">
-              {draftAxisId ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-full"
-                  onClick={backToLookup}
-                  data-attr="co-manager-link-back"
-                >
-                  Back
-                </Button>
-              ) : (
-                <span aria-hidden />
-              )}
-              {draftAxisId ? (
-                <Button
-                  type="button"
-                  variant="primary"
-                  className="rounded-full"
-                  disabled={linkAccountBlocked}
-                  loading={linkInviteBusy}
-                  onClick={() => saveNewLink()}
-                  data-attr="co-manager-send-invite"
-                >
-                  {useRemote ? "Send invite" : "Save link (local)"}
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  variant="primary"
-                  className="rounded-full"
-                  loading={lookupBusy}
-                  disabled={lookupBusy || linkAccountBlocked}
-                  onClick={() => void submitLinkAccount()}
-                  data-attr="co-manager-link-continue"
-                >
-                  Continue
-                </Button>
-              )}
+            <div className="flex w-full items-center justify-end gap-2">
+              <Button
+                type="button"
+                variant="primary"
+                className="rounded-full"
+                disabled={linkAccountBlocked || lookupBusy}
+                loading={lookupBusy || linkInviteBusy}
+                onClick={() => void saveNewLink()}
+                data-attr="co-manager-send-invite"
+              >
+                {useRemote ? "Send invite" : "Save link (local)"}
+              </Button>
             </div>
           }
         >
           <div className="space-y-5">
-            {draftAxisId ? (
-              <div className="rounded-2xl border border-border bg-card p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted">Link with PropLane ID</p>
-                <div className="mt-3 rounded-xl border border-primary/25 bg-primary/[0.05] px-4 py-3">
-                  <p className="text-sm font-semibold text-foreground">{draftName}</p>
-                  <p className="mt-0.5 font-mono text-xs text-muted">
-                    {formatProplaneIdForDisplay(draftAxisId)}
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <PortalInviteChoiceStep
-                inviteTitle="Invite by link"
-                inviteDescription="Create a shareable link to invite your team member. It's the fastest and easiest way to link an account."
-                onCreateInviteLink={openInviteLinkModal}
-                inviteLinkDataAttr="co-manager-create-invite-link"
-                inviteDisabled={inviteLinkBlocked}
-                secondaryTitle="Link with PropLane ID"
-                secondaryDescription={`Enter the account's ${AXIS_ID_LABEL} to link directly.`}
-                secondaryIcon="id"
+            <div className="grid grid-cols-2 gap-1 rounded-xl bg-accent/50 p-1">
+              <Button
+                type="button"
+                variant="ghost"
+                className="rounded-lg bg-card text-primary shadow-sm"
+                aria-current="page"
+                data-attr="co-manager-invite-by-email"
               >
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void submitLinkAccount();
+                Invite by email
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="rounded-lg"
+                disabled={inviteLinkBlocked}
+                onClick={() => openInviteLinkModal()}
+                data-attr="co-manager-create-invite-link"
+              >
+                Create invite link
+              </Button>
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <label className="block">
+                <span className="text-xs font-semibold text-muted">Name</span>
+                <Input
+                  type="text"
+                  value={inviteName}
+                  onChange={(e) => setInviteName(e.target.value)}
+                  autoFocus
+                  className="mt-1"
+                  data-attr="co-manager-invite-name"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-semibold text-muted">Email</span>
+                <Input
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(e) => {
+                    setInviteEmail(e.target.value);
+                    setAxisInput(e.target.value);
                   }}
-                >
-                  <label className="block">
-                    <span className="text-xs font-semibold text-muted">{AXIS_ID_LABEL}</span>
-                    <Input
-                      type="text"
-                      value={axisInput}
-                      onChange={(e) => setAxisInput(e.target.value)}
-                      placeholder="e.g. PROPLANE-1A2B3C4D"
-                      autoFocus
-                      className="mt-1 font-mono"
-                      data-attr="co-manager-proplane-id-input"
-                    />
-                  </label>
-                </form>
-              </PortalInviteChoiceStep>
-            )}
+                  className="mt-1"
+                  data-attr="co-manager-invite-email"
+                />
+              </label>
+            </div>
 
             {inviteeAtCap ? (
               <p className="rounded-xl portal-banner-danger px-4 py-3 text-xs font-medium text-[var(--status-overdue-fg)]">
@@ -2527,44 +2536,38 @@ export function ProAccountLinksPanel({
               </p>
             ) : null}
 
-            {draftAxisId ? (
-              <>
-                {linkInvitePropertySelectOptions.length === 0 ? (
-                  <p className="text-sm text-muted">
-                    No properties available for team invites yet.
-                  </p>
-                ) : (
-                  <CheckboxMultiSelect
-                    label="Properties"
-                    labelClassName="text-xs font-semibold text-muted"
-                    options={linkInvitePropertySelectOptions}
-                    selected={selectedPropIds}
-                    onChange={handleLinkPropertySelectionChange}
-                    emptyLabel="Select properties…"
-                    searchPlaceholder="Search properties…"
-                    dataAttr="co-manager-invite-properties"
-                  />
-                )}
+            {linkInvitePropertySelectOptions.length === 0 ? (
+              <p className="text-sm text-muted">No properties available for team invites yet.</p>
+            ) : (
+              <CheckboxMultiSelect
+                label="Properties"
+                labelClassName="text-xs font-semibold text-muted"
+                options={linkInvitePropertySelectOptions}
+                selected={selectedPropIds}
+                onChange={handleLinkPropertySelectionChange}
+                emptyLabel="Select properties…"
+                searchPlaceholder="Search properties…"
+                dataAttr="co-manager-invite-properties"
+              />
+            )}
 
-                {selectedPropIds.length > 0 ? (
-                  <div className="space-y-4">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-muted">Per-property permissions</p>
-                    {selectedPropIds.map((pid) => (
-                      <div key={pid} className="rounded-xl border border-border bg-accent/25 p-4">
-                        <p className="text-sm font-semibold text-foreground">{teamPropertyLabel(pid)}</p>
-                        <div className="mt-3">
-                          <CoManagerPermissionsEditor
-                            value={normalizeCoManagerPermissions(propertyPermissionsDraft[pid])}
-                            onChange={(next) =>
-                              setPropertyPermissionsDraft((prev) => ({ ...prev, [pid]: next }))
-                            }
-                          />
-                        </div>
-                      </div>
-                    ))}
+            {selectedPropIds.length > 0 ? (
+              <div className="space-y-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted">Per-property permissions</p>
+                {selectedPropIds.map((pid) => (
+                  <div key={pid} className="rounded-xl border border-border bg-accent/25 p-4">
+                    <p className="text-sm font-semibold text-foreground">{teamPropertyLabel(pid)}</p>
+                    <div className="mt-3">
+                      <CoManagerPermissionsEditor
+                        value={normalizeCoManagerPermissions(propertyPermissionsDraft[pid])}
+                        onChange={(next) =>
+                          setPropertyPermissionsDraft((prev) => ({ ...prev, [pid]: next }))
+                        }
+                      />
+                    </div>
                   </div>
-                ) : null}
-              </>
+                ))}
+              </div>
             ) : null}
           </div>
         </Modal>
@@ -2611,6 +2614,16 @@ export function ProAccountLinksPanel({
               </div>
             </div>
           ) : null}
+        </Modal>
+
+        <Modal
+          open={permissionsMember !== null}
+          title={permissionsMember ? `Edit permissions · ${permissionsMember.name}` : "Edit permissions"}
+          onClose={() => setPermissionsMember(null)}
+          panelClassName="max-w-2xl"
+          dataAttr="team-member-permissions-modal"
+        >
+          {permissionsMember ? renderDetailBody(permissionsMember) : null}
         </Modal>
 
         <Modal
@@ -2692,17 +2705,19 @@ export function ProAccountLinksPanel({
 
       <PortalNotificationPreviewModal
         open={linkInvitePreview !== null}
-        title="Link account — notification preview"
+        title="New message"
         onClose={() => setLinkInvitePreview(null)}
-        recipient={linkInvitePreview?.recipientName ?? ""}
+        recipient={linkInvitePreview?.recipientEmail || linkInvitePreview?.recipientName || ""}
         subject={linkInvitePreview?.subject ?? ""}
         body={linkInvitePreview?.body ?? ""}
         showChannelPicker
         deliverViaKind="account"
-        emailAvailable={Boolean(linkInvitePreview?.recipientUserId)}
+        emailAvailable={Boolean(linkInvitePreview?.recipientEmail || linkInvitePreview?.recipientUserId)}
         smsAvailable
         defaultViaSms={false}
-        confirmLabel={useRemote ? "Send invite" : "Save link & send message"}
+        dynamicSendLabel
+        hideSendViaFooterNote
+        confirmLabel="Send email"
         confirmLabelWithoutMessage={useRemote ? "Send invite only" : "Save link only"}
         skipMessageLabel="Don't message team member"
         confirmBusy={linkInviteBusy}
@@ -2814,7 +2829,7 @@ export function ProAccountLinksPanel({
         role: "co_manager" as const,
         propertiesLabel: entry.preview || "No houses yet",
         joinedAt: entry.kind === "remote" ? entry.invite.respondedAt : null,
-        onEdit: () => openTeamDetail(entry.id),
+        onEdit: () => setPermissionsMember(entry),
         onDisconnect: () => openTeamRemovePreview([entry]),
       })),
   ];
@@ -2884,7 +2899,7 @@ export function ProAccountLinksPanel({
         role: "co_manager" as const,
         propertiesLabel: previewFor(entry.kind === "remote" ? entry.invite.assignedPropertyIds : entry.row.assignedPropertyIds),
         joinedAt: entry.kind === "remote" ? entry.invite.respondedAt : null,
-        onEdit: () => openTeamDetail(entry.id),
+        onEdit: () => setPermissionsMember(entry),
         onDisconnect: () => openTeamRemovePreview([entry]),
       })),
     ];

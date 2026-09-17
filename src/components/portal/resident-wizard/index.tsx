@@ -10,7 +10,7 @@
  * Plan: `.lavish/plans/PLAN-0916-1004-*`.
  */
 
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { FolderOpen } from "lucide-react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
@@ -101,9 +101,7 @@ export function AddResidentWizard({
   // The commit reads the form through a ref so a callback captured on an
   // earlier render can never write a stale copy of what the manager typed.
   const formRef = useRef(form);
-  useLayoutEffect(() => {
-    formRef.current = form;
-  }, [form]);
+  formRef.current = form;
   const derived = useResidentWizardDerived(form, propertyTick, patch);
   const stepIds: readonly string[] = mode === "application" ? APPLICATION_STEPS : form.kind === "prospect" ? PROSPECT_STEPS : RESIDENT_STEPS;
   const current = Math.min(stepIdx, stepIds.length - 1);

@@ -86,6 +86,20 @@ describe("Modal scroll container", () => {
       </Modal>,
     );
     expect(modalBody().className).toContain("overflow-y-auto");
+    expect(modalBody().className).toContain("flex-1");
+    expect(modalBody().className).toContain("min-h-0");
+    expect(modalBody().className).not.toContain("shrink-0");
+    expect(modalBody().className).not.toContain("max-h-[min(60vh");
+  });
+
+  it("scrollableContent={false} without a footer leaves overflow to children", () => {
+    mockMatchMedia(false);
+    render(
+      <Modal open title="Own scroll" onClose={() => {}} scrollableContent={false}>
+        <p>content</p>
+      </Modal>,
+    );
+    expect(modalBody().className).not.toContain("overflow-y-auto");
   });
 });
 

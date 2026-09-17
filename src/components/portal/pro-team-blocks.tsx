@@ -4,10 +4,10 @@
  * Members and pending invites, rendered inside each workspace card on
  * Settings → Workspaces (under "Managers & permissions") and on the Teams page.
  *
- * Per-record actions live in a far-right ⋯ (Edit, Disconnect), matching
- * Properties. Edit opens the member's page — houses and per-house permissions
- * live there, so there is no separate Permissions item. The owner row has no
- * menu. Invite sits on the section header, not inside this block.
+ * Per-record actions live in a far-right ⋯ (Edit permissions, Disconnect),
+ * matching Properties. Edit permissions opens a sheet on this page — not a
+ * member tab. The owner row has no menu. Invite sits on the section header,
+ * not inside this block.
  */
 
 import type { ReactNode } from "react";
@@ -134,7 +134,7 @@ export function TeamMembersBlock({ members, embedded = false }: { members: TeamM
         {members.map((m) => {
           const pill = ROLE_PILL[m.role];
           const items = ([
-            m.onEdit ? { id: "edit", label: "Edit", onSelect: m.onEdit, dataAttr: "team-member-edit" } : null,
+            m.onEdit ? { id: "edit", label: "Edit permissions", onSelect: m.onEdit, dataAttr: "team-member-edit" } : null,
             m.onDisconnect ? { id: "disconnect", label: "Disconnect", onSelect: m.onDisconnect, destructive: true, dataAttr: "team-member-disconnect" } : null,
           ] as (TeamRowMenuItem | null)[]).filter((item): item is TeamRowMenuItem => item != null);
           return (

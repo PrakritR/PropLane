@@ -43,6 +43,7 @@ import {
   type InboxThreadMessage,
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
+import { inboxEmailBubbleFields } from "@/lib/inbox-email-display";
 import { inboxTurnDirection, isConversationWithPropLaneAssistant } from "@/lib/inbox-turn-direction";
 import {
   InboxSendRefusal,
@@ -821,16 +822,27 @@ export const VendorInboxPanel = forwardRef<
     : "inbox";
   const activeBubbles = useMemo((): InboxBubbleMessage[] => {
     if (!activeThread) return [];
+    let lastShownSubject = "";
     return inboxThreadMessages(activeThread).map((m, i) => {
       const direction = inboxTurnDirection(activeThread, m, i, activeFolder);
+      const fields = inboxEmailBubbleFields(
+        {
+          body: m.body,
+          subject: m.subject ?? (i === 0 ? activeThread.subject : undefined),
+          channel: m.channel,
+        },
+        lastShownSubject,
+      );
+      lastShownSubject = fields.lastShownSubject;
       return {
         id: m.id,
         author: m.from,
-        body: m.body,
+        body: fields.body,
         at: m.at,
         direction,
         delivery: m.delivery,
-        channel: "email",
+        channel: m.channel,
+        ...(fields.subject ? { subject: fields.subject } : {}),
         attachments: m.attachments,
       } satisfies InboxBubbleMessage;
     });

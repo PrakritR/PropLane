@@ -97,6 +97,43 @@ describe("communication assistant inbox list", () => {
     expect(rows[0]!.id).toBe(managerAgentNoticeThreadId(MANAGER));
   });
 
+  it("hides leftover workspace assistant chats so they cannot badge Communication", () => {
+    const workspace = { id: "ws-brooklyn", isDefault: false };
+    const leftover: Parameters<typeof withPinnedPropLaneAssistantThreads>[0][number] = {
+      id: managerAgentNoticeThreadId(MANAGER),
+      folder: "inbox",
+      from: "PropLane Assistant",
+      email: "",
+      subject: "PropLane Assistant",
+      preview: "Old workspace",
+      body: "Old workspace",
+      time: "",
+      unread: true,
+      threadType: "agent_notice",
+    };
+    const liveId = managerAgentNoticeThreadId(MANAGER, workspace);
+    const live = { ...leftover, id: liveId, unread: false, body: "Seen", preview: "Seen" };
+    const rows = withPinnedPropLaneAssistantThreads([leftover, live], "manager", MANAGER, "active", workspace);
+    expect(rows.map((row) => row.id)).toEqual([liveId]);
+  });
+
+  it("does not treat a longer user id as this viewer's leftover assistant", () => {
+    const other = {
+      id: `agent_notice_${MANAGER}0`,
+      folder: "inbox" as const,
+      from: "PropLane Assistant",
+      email: "",
+      subject: "PropLane Assistant",
+      preview: "Other manager",
+      body: "Other manager",
+      time: "",
+      unread: true,
+      threadType: "agent_notice" as const,
+    };
+    const rows = withPinnedPropLaneAssistantThreads([other], "manager", MANAGER, "active");
+    expect(rows.map((row) => row.id)).toContain(other.id);
+  });
+
   it("prefers the server-provided viewer id", () => {
     expect(resolveCommunicationViewerId(RESIDENT, "other-id")).toBe(RESIDENT);
     expect(resolveCommunicationViewerId(null, MANAGER)).toBe(MANAGER);

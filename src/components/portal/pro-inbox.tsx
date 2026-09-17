@@ -2,7 +2,7 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { Archive, ArchiveRestore, Pencil, Phone, Trash2, UserRound } from "lucide-react";
+import { Archive, ArchiveRestore, Eraser, Pencil, Phone, Trash2, UserRound } from "lucide-react";
 import Link from "next/link";
 import { residentDetailHref } from "@/lib/portal-detail-routes";
 import { formatTourContactPhoneDisplay } from "@/lib/tour-contact-quality";
@@ -137,6 +137,7 @@ import {
 import { resolveManagerServiceResidentByEmail } from "@/lib/manager-service-resident-lookup";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { filterEmailInboxThreads, filterManagerCommunicationThreads } from "@/lib/communication-inbox-filters";
+import { emailReplySubjectFor, inboxEmailBubbleFields } from "@/lib/inbox-email-display";
 import { dispatchManagerSmsContactsChanged, type ManagerSmsResidentConversation } from "@/lib/manager-sms-messages";
 import {
   threadPassesCommunicationFilters,
@@ -192,11 +193,6 @@ function searchSkipsTrashNote(tabId: string) {
     : "Trash isn’t searched; clear the search, then open the Trash tab.";
 }
 
-/** "Re: Re: Propert" and "Propert" are the same topic for the bubble's subject line. */
-function subjectTopic(subject: string): string {
-  return subject.replace(/^(?:\s*(?:re|fwd?)\s*:\s*)+/i, "").trim().toLowerCase();
-}
-
 function previewLine(body: string, max = 100) {
   const t = body.trim().replace(/\s+/g, " ");
   if (t.length <= max) return t;
@@ -250,6 +246,8 @@ export const ManagerInbox = forwardRef<
     emptyThreadFallback?: React.ReactNode;
     /** Bumps when a parent modal schedules/cancels for the filtered resident. */
     scheduledRefreshKey?: number;
+    /** Clear PropLane Assistant messages and keep the row. */
+    onClearAssistant?: () => void | Promise<void>;
   }
 >(function ManagerInbox(
   {
@@ -270,6 +268,7 @@ export const ManagerInbox = forwardRef<
     filterResidentEmail,
     emptyThreadFallback,
     scheduledRefreshKey = 0,
+    onClearAssistant,
   },
   ref,
 ) {
@@ -790,9 +789,7 @@ export const ManagerInbox = forwardRef<
 
       const replyId = `reply-${Date.now().toString(36)}`;
       const attachmentMeta = attachmentMetaFromUrls(attachmentUrls);
-      const subject = thread.subject.startsWith("Re:")
-        ? thread.subject
-        : `Re: ${thread.subject}`;
+      const subject = emailReplySubjectFor(thread.subject);
       // The bubble wears the channel the reply is leaving on — email first when
       // several are on, since that is the one with a subject line to show.
       const replyChannel: InboxThreadMessage["channel"] = emailAllowed
@@ -1376,6 +1373,7 @@ export const ManagerInbox = forwardRef<
     const pendingRoot = pendingSendingThreadIds.has(activeThread.id);
     // An email turn shows its subject once: on the first email turn, and again
     // only when the subject changes ("Re: Propert" three times shows it once).
+    // Quoted Gmail/Outlook history is stripped so the bubble is the new text.
     let lastEmailSubject = "";
     return inboxThreadMessages(activeThread).map((m, i) => {
       // Root direction follows the folder (a Sent thread we authored). Appended
@@ -1385,13 +1383,19 @@ export const ManagerInbox = forwardRef<
       const direction = inboxTurnDirection(activeThread, m, i, activeFolder);
       const delivery =
         m.delivery ?? (pendingRoot && i === 0 && direction === "outbound" ? ("sending" as const) : undefined);
-      const subject = m.channel === "email" ? (m.subject ?? "").trim() : "";
-      const showSubject = Boolean(subject) && subjectTopic(subject) !== subjectTopic(lastEmailSubject);
-      if (subject) lastEmailSubject = subject;
+      const fields = inboxEmailBubbleFields(
+        {
+          body: m.body,
+          subject: m.subject ?? (i === 0 ? activeThread.subject : undefined),
+          channel: m.channel,
+        },
+        lastEmailSubject,
+      );
+      lastEmailSubject = fields.lastShownSubject;
       return {
         id: m.id,
         author: m.from,
-        body: m.body,
+        body: fields.body,
         at: m.at,
         direction,
         delivery,
@@ -1399,7 +1403,7 @@ export const ManagerInbox = forwardRef<
         // turns show no tag — a guessed "Email" is how an in-app reply that never
         // left PropLane used to look sent.
         channel: m.channel,
-        ...(showSubject ? { subject } : {}),
+        ...(fields.subject ? { subject: fields.subject } : {}),
         attachments: m.attachments,
       } satisfies InboxBubbleMessage;
     });
@@ -2323,6 +2327,17 @@ export const ManagerInbox = forwardRef<
         >
           <Trash2 className="h-4 w-4" aria-hidden />
         </button>
+        ) : onClearAssistant ? (
+        <button
+          type="button"
+          className={INBOX_THREAD_ICON_BTN_DANGER}
+          aria-label="Clear PropLane Assistant"
+          title="Clear"
+          data-attr="inbox-thread-clear-assistant"
+          onClick={() => void onClearAssistant()}
+        >
+          <Eraser className="h-4 w-4" aria-hidden />
+        </button>
         ) : null}
       </>
     ) : (
@@ -2352,6 +2367,17 @@ export const ManagerInbox = forwardRef<
           onClick={() => deleteForever(activeThread.id)}
         >
           <Trash2 className="h-4 w-4" aria-hidden />
+        </button>
+        ) : onClearAssistant ? (
+        <button
+          type="button"
+          className={INBOX_THREAD_ICON_BTN_DANGER}
+          aria-label="Clear PropLane Assistant"
+          title="Clear"
+          data-attr="inbox-thread-clear-assistant"
+          onClick={() => void onClearAssistant()}
+        >
+          <Eraser className="h-4 w-4" aria-hidden />
         </button>
         ) : null}
       </>

@@ -3337,39 +3337,11 @@ export function ListingEditorV2({
           <span className="min-w-0 flex-1 truncate text-center text-[12.5px] text-muted">
             {pathPosition != null ? `Step ${pathPosition + railOffset} of ${pathIds.length + railOffset}` : "Optional detail"}
           </span>
-          {isEdit ? (
-            nextStep == null ? (
-              // A live listing's Review step: the one place with a physical
-              // Save. ✕ still writes on close; this is the explicit "I'm done"
-              // that closes the editor once the write lands.
-              <button
-                type="button"
-                onClick={() => {
-                  setSavePressed(true);
-                  onSaveExit?.(step);
-                }}
-                disabled={busy}
-                data-attr="listing-v2-save"
-                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
-              >
-                {busy ? "Saving…" : "Save changes"}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => goTo(nextStep)}
-                data-attr="listing-v2-next"
-                aria-label={`Continue to ${LISTING_V2_STEPS[nextStep]!.label}`}
-                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white"
-              >
-                <span className="sm:hidden">Continue</span>
-                <span className="hidden sm:inline">Continue to {LISTING_V2_STEPS[nextStep]!.label}</span>
-              </button>
-            )
-          ) : step === last ? (
+          {nextStep == null ? (
             <div className="flex items-center gap-2">
-              {/* Keep it as a draft and leave; on a phone the text-only
-                  button lets Back + Save draft + Publish share one row. */}
+              {/* Review is Save + Publish — a draft stays a draft, a live
+                  listing writes in place. ✕ still writes on close; this Save
+                  is the explicit pair the Review step shows. */}
               <button
                 type="button"
                 onClick={() => {
@@ -3377,10 +3349,10 @@ export function ListingEditorV2({
                   onSaveExit?.(step);
                 }}
                 disabled={busy}
-                data-attr="listing-v2-save-draft"
+                data-attr={isEdit ? "listing-v2-save" : "listing-v2-save-draft"}
                 className="min-h-[44px] rounded-full px-3 text-[14px] font-bold text-primary disabled:opacity-60 sm:border sm:border-border sm:bg-card sm:px-6 sm:text-foreground"
               >
-                {busy && savePressed ? "Saving…" : "Save draft"}
+                {busy && savePressed ? "Saving…" : "Save"}
               </button>
               <button
                 type="button"
@@ -3398,13 +3370,13 @@ export function ListingEditorV2({
           ) : (
             <button
               type="button"
-              onClick={() => nextStep != null && goTo(nextStep)}
+              onClick={() => goTo(nextStep)}
               data-attr="listing-v2-next"
-              aria-label={`Continue to ${LISTING_V2_STEPS[nextStep ?? last]!.label}`}
+              aria-label={`Continue to ${LISTING_V2_STEPS[nextStep]!.label}`}
               className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white"
             >
               <span className="sm:hidden">Continue</span>
-              <span className="hidden sm:inline">Continue to {LISTING_V2_STEPS[nextStep ?? last]!.label}</span>
+              <span className="hidden sm:inline">Continue to {LISTING_V2_STEPS[nextStep]!.label}</span>
             </button>
           )}
         </>
