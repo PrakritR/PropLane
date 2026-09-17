@@ -46,6 +46,7 @@ export const PORTAL_EMPTY_COPY = {
   "services.done": T("Nothing done yet", "services"),
   "services.declined": T("Nothing declined", "services"),
   vendors: T("No vendors yet", "vendors"),
+  "vendors.catalog": T("No PropLane vendors", "vendors"),
   "tasks.open": T("No open tasks", "tasks"),
   "tasks.overdue": T("Nothing overdue", "tasks"),
   "tasks.completed": T("Nothing done yet", "tasks"),

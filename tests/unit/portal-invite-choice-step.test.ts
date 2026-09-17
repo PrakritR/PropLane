@@ -31,7 +31,7 @@ describe("portal invite choice step", () => {
 
   it("sends vendor invites through Continue into New message", () => {
     expect(VENDOR).toContain("PortalInvitePaths");
-    expect(VENDOR).toContain('data-attr="vendor-form-continue"');
+    expect(VENDOR).toContain("vendor-form-continue");
     expect(VENDOR).not.toContain("Invitation message");
     expect(VENDOR).toContain("formatInviteMessageBody");
   });

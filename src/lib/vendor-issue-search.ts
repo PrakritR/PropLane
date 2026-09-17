@@ -22,6 +22,10 @@ export type VendorIssueSearchHit = {
   city: string;
   zip: string;
   alreadyOwned: boolean;
+  email?: string;
+  description?: string;
+  hourlyCents?: number;
+  serviceCents?: number;
 };
 
 export type VendorIssueSearchRosterRow = {
@@ -113,6 +117,10 @@ export function filterVendorsForIssue(input: {
       city: row.city,
       zip: row.zip,
       alreadyOwned: false,
+      email: row.email,
+      description: row.description,
+      hourlyCents: row.hourlyCents,
+      serviceCents: row.serviceCents,
     });
   }
 

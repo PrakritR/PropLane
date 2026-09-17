@@ -1039,8 +1039,18 @@ export function paymentRecordDetailHref(
 // Vendors is its own section. These builders point at it directly rather than leaning on the
 // compatibility redirects from /teams/vendors and /services/vendors — a link that redirects on
 // every click costs a round trip and briefly shows the wrong section as active.
-export function vendorListHref(basePath: string): string {
-  return `${basePath}/vendors`;
+export function vendorListHref(basePath: string, tab: VendorDirectoryTab = "yours"): string {
+  return tab === "catalog" ? `${basePath}/vendors?tab=catalog` : `${basePath}/vendors`;
+}
+
+export type VendorDirectoryTab = "yours" | "catalog";
+
+export function parseVendorDirectoryTab(raw: string | null | undefined): VendorDirectoryTab {
+  return raw === "catalog" ? "catalog" : "yours";
+}
+
+export function vendorCatalogDetailHref(basePath: string, catalogId: string): string {
+  return `${basePath}/vendors?tab=catalog&catalog=${encodeURIComponent(catalogId)}`;
 }
 
 /** Routed detail tabs for a manager vendor — same chrome as a resident. */

@@ -42,12 +42,23 @@ export type ManagerVendorRow = {
   messaging?: VendorMessaging;
   /** Recurring questions on a cadence, with their reply log (`vendor-check-ins.ts`). */
   checkIns?: VendorCheckIn[];
+  /** PropLane catalog id when this roster row was copied from the marketplace. */
+  catalogId?: string;
+  /** Typical hourly + service $ per house × trade. */
+  typicalRates?: ManagerVendorTypicalRate[];
   /** Sent-invite bookkeeping for the Invited pill: when the portal invite last went out. */
   invitedAt?: string;
   /** Synthetic settings row only — default vendor id per trade category. */
   categoryDefaults?: Record<string, string>;
   createdAt?: string;
   updatedAt?: string;
+};
+
+export type ManagerVendorTypicalRate = {
+  propertyId: string;
+  trade: string;
+  hourlyCents: number;
+  serviceCents: number;
 };
 
 export const MANAGER_VENDORS_EVENT = "axis:manager-vendors";

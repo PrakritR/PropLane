@@ -43,7 +43,16 @@ import {
   setManagerVendorPriority,
   upsertManagerVendor,
   type ManagerVendorRow,
+  type ManagerVendorTypicalRate,
 } from "@/lib/manager-vendors-storage";
+import { type AxisCatalogVendor } from "@/lib/axis-vendor-catalog";
+import {
+  centsFromDollarsInput,
+  dollarsInputFromCents,
+  expandTypicalRateCells,
+  findRosterCatalogMatch,
+  normalizeTypicalRates,
+} from "@/lib/manager-vendor-typical-rates";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
 
 
@@ -58,6 +67,8 @@ export type ManagerVendorFormDraft = {
   sharedWithManagers: boolean;
   vendorPriority: "" | "primary" | "secondary";
   propertyIds: string[];
+  catalogId?: string;
+  typicalRates: ManagerVendorTypicalRate[];
 };
 
 export const EMPTY_MANAGER_VENDOR_FORM_DRAFT: ManagerVendorFormDraft = {
@@ -71,6 +82,8 @@ export const EMPTY_MANAGER_VENDOR_FORM_DRAFT: ManagerVendorFormDraft = {
   sharedWithManagers: false,
   vendorPriority: "",
   propertyIds: [],
+  catalogId: undefined,
+  typicalRates: [],
 };
 
 function draftFromVendor(row: ManagerVendorRow): ManagerVendorFormDraft {
@@ -86,12 +99,82 @@ function draftFromVendor(row: ManagerVendorRow): ManagerVendorFormDraft {
     sharedWithManagers: row.sharedWithManagers === true,
     vendorPriority: row.vendorPriority ?? "",
     propertyIds: row.propertyIds ?? [],
+    catalogId: row.catalogId,
+    typicalRates: normalizeTypicalRates(row.typicalRates),
   };
 }
 
 function vendorEmailLooksValid(email: string): boolean {
   const normalized = email.trim().toLowerCase();
   return Boolean(normalized && /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(normalized));
+}
+
+function TypicalPriceFields({
+  houses,
+  trades,
+  rates,
+  fallback,
+  onChange,
+}: {
+  houses: readonly { id: string; label: string }[];
+  trades: readonly string[];
+  rates: readonly ManagerVendorTypicalRate[];
+  fallback?: { hourlyCents: number; serviceCents: number };
+  onChange: (next: ManagerVendorTypicalRate[]) => void;
+}) {
+  const cells = expandTypicalRateCells({
+    propertyIds: houses.map((house) => house.id),
+    trades,
+    existing: rates,
+    fallback,
+  });
+  const patchCell = (propertyId: string, trade: string, key: "hourlyCents" | "serviceCents", raw: string) => {
+    const cents = centsFromDollarsInput(raw);
+    onChange(
+      cells.map((cell) =>
+        cell.propertyId === propertyId && cell.trade === trade ? { ...cell, [key]: cents } : cell,
+      ),
+    );
+  };
+  if (houses.length === 0 || trades.length === 0) {
+    return <p className="text-sm font-semibold">Pick a property and a trade first.</p>;
+  }
+  return (
+    <div className="space-y-5" data-attr="vendor-form-typical-rates">
+      {houses.map((house) => (
+        <fieldset key={house.id} className="space-y-3">
+          <legend className="text-sm font-semibold">{house.label}</legend>
+          {trades.map((trade) => {
+            const cell = cells.find((row) => row.propertyId === house.id && row.trade === trade);
+            if (!cell) return null;
+            return (
+              <div key={`${house.id}-${trade}`} className="grid gap-3 sm:grid-cols-2">
+                <p className="text-sm font-semibold sm:col-span-2">{trade}</p>
+                <label className="block space-y-1">
+                  <span className="text-sm font-semibold">Hourly</span>
+                  <Input
+                    inputMode="decimal"
+                    value={dollarsInputFromCents(cell.hourlyCents)}
+                    onChange={(e) => patchCell(house.id, trade, "hourlyCents", e.target.value)}
+                    data-attr={`vendor-rate-hourly-${house.id}-${trade}`}
+                  />
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-sm font-semibold">Typical service</span>
+                  <Input
+                    inputMode="decimal"
+                    value={dollarsInputFromCents(cell.serviceCents)}
+                    onChange={(e) => patchCell(house.id, trade, "serviceCents", e.target.value)}
+                    data-attr={`vendor-rate-service-${house.id}-${trade}`}
+                  />
+                </label>
+              </div>
+            );
+          })}
+        </fieldset>
+      ))}
+    </div>
+  );
 }
 
 export function ManagerVendorEssentialFields({
@@ -381,6 +464,9 @@ export function ManagerVendorFormModal({
   mode,
   vendor,
   initialTrade,
+  catalogVendor,
+  onBrowseCatalog,
+  onOpenExisting,
   onClose,
   onSaved,
   onDeleted,
@@ -390,6 +476,9 @@ export function ManagerVendorFormModal({
   mode: "add" | "edit";
   vendor?: ManagerVendorRow | null;
   initialTrade?: string;
+  catalogVendor?: AxisCatalogVendor | null;
+  onBrowseCatalog?: () => void;
+  onOpenExisting?: (vendorId: string) => void;
   onClose: () => void;
   onSaved?: () => void;
   onDeleted?: () => void;
@@ -451,10 +540,17 @@ export function ManagerVendorFormModal({
     if (mode === "edit" && vendor) {
       setDraft(draftFromVendor(vendor));
     } else {
+      const trade = catalogVendor?.trade.trim() || initialTrade?.trim() || VENDOR_TRADE_OPTIONS[0]!;
       setDraft({
         ...EMPTY_MANAGER_VENDOR_FORM_DRAFT,
-        trade: initialTrade?.trim() || VENDOR_TRADE_OPTIONS[0]!,
-        trades: [initialTrade?.trim() || VENDOR_TRADE_OPTIONS[0]!],
+        name: catalogVendor?.name ?? "",
+        trade,
+        trades: [trade],
+        phone: catalogVendor?.phone ?? "",
+        email: catalogVendor?.email ?? "",
+        notes: catalogVendor?.description ?? "",
+        catalogId: catalogVendor?.catalogId,
+        typicalRates: [],
       });
     }
     setError(null);
@@ -471,7 +567,7 @@ export function ManagerVendorFormModal({
     setIssueQuery("");
     setOnlineHits([]);
     setCheckedCatalogIds([]);
-  }, [open, mode, vendor, initialTrade, userId]);
+  }, [open, mode, vendor, initialTrade, catalogVendor, userId]);
 
   const patch = (next: Partial<ManagerVendorFormDraft>) => setDraft((prev) => ({ ...prev, ...next }));
 
@@ -503,6 +599,15 @@ export function ManagerVendorFormModal({
       sharedWithManagers: draft.sharedWithManagers,
       vendorPriority: draft.vendorPriority || undefined,
       propertyIds: draft.propertyIds.length ? draft.propertyIds : undefined,
+      catalogId: draft.catalogId || existing?.catalogId,
+      typicalRates: expandTypicalRateCells({
+        propertyIds: (draft.propertyIds.length ? draft.propertyIds : propertyOptions.map((row) => row.id)),
+        trades: draft.trades,
+        existing: draft.typicalRates,
+        fallback: catalogVendor
+          ? { hourlyCents: catalogVendor.hourlyCents, serviceCents: catalogVendor.serviceCents }
+          : undefined,
+      }),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
@@ -567,6 +672,19 @@ export function ManagerVendorFormModal({
     if (submitRef.current) return;
     const row = buildRow();
     if (!row) return;
+    const match = findRosterCatalogMatch(
+      readOwnManagerVendorRows(userId).filter((item) => item.id !== row.id),
+      {
+      catalogId: row.catalogId,
+      phone: row.phone,
+      name: row.name,
+      trade: row.trade,
+    });
+    if (match) {
+      showToast("That vendor is already on Your vendors.");
+      onOpenExisting?.(match.id);
+      return;
+    }
     if (invitePath === "message" && !row.phone.trim()) {
       setError("Enter a phone number to invite via message.");
       return;
@@ -756,20 +874,47 @@ export function ManagerVendorFormModal({
         trade: hit.trade,
         trades: [hit.trade],
         phone: hit.phone,
+        email: hit.email ?? draft.email,
+        catalogId: hit.source === "catalog" ? hit.id : draft.catalogId,
+        typicalRates: expandTypicalRateCells({
+          propertyIds: (draft.propertyIds.length ? draft.propertyIds : propertyOptions.map((row) => row.id)),
+          trades: [hit.trade],
+          existing: draft.typicalRates,
+          fallback:
+            hit.hourlyCents != null && hit.serviceCents != null
+              ? { hourlyCents: hit.hourlyCents, serviceCents: hit.serviceCents }
+              : undefined,
+        }),
       });
     }
   };
 
-  const title = mode === "edit" ? "Edit vendor" : "Invite vendor";
-  const steps: AddWorkspaceStep[] = [
-    { id: "vendor", label: "Vendor", incomplete: !draft.name.trim(), summary: draft.name.trim() || "Who they are" },
-    { id: "properties", label: "Properties", summary: draft.propertyIds.length ? `${draft.propertyIds.length} houses` : "Every property" },
-    { id: "trades", label: "Who can handle", incomplete: draft.trades.length === 0, summary: draft.trades.join(", ") || "No trades yet" },
-    { id: "review", label: "Review", incomplete: !draft.name.trim(), summary: mode === "edit" ? "Save changes" : "Invite by" },
-  ];
+  const title = mode === "edit" ? "Edit vendor" : "Add vendor";
+  const steps: AddWorkspaceStep[] =
+    mode === "edit"
+      ? [
+          { id: "vendor", label: "Vendor", incomplete: !draft.name.trim(), summary: draft.name.trim() || "Who they are" },
+          { id: "properties", label: "Properties", summary: draft.propertyIds.length ? `${draft.propertyIds.length} houses` : "Every property" },
+          { id: "trades", label: "Who can handle", incomplete: draft.trades.length === 0, summary: draft.trades.join(", ") || "No trades yet" },
+          { id: "rates", label: "Typical price", summary: draft.typicalRates.length ? "Per house" : "Set rates" },
+          { id: "review", label: "Review", incomplete: !draft.name.trim(), summary: "Save changes" },
+        ]
+      : [
+          { id: "properties", label: "Properties", summary: draft.propertyIds.length ? `${draft.propertyIds.length} houses` : "Every property" },
+          { id: "trades", label: "What they do", incomplete: draft.trades.length === 0, summary: draft.trades.join(", ") || "No trades yet" },
+          { id: "rates", label: "Typical price", summary: draft.typicalRates.length ? "Per house" : "Set rates" },
+          { id: "contact", label: "Contact", incomplete: !draft.name.trim(), summary: draft.name.trim() || "Name and phone last" },
+          { id: "review", label: "Review", incomplete: !draft.name.trim(), summary: "Invite by" },
+        ];
   const current = Math.min(stepIdx, steps.length - 1);
   const stepId = steps[current]!.id;
   const onlineOnlyHits = onlineHits.filter((hit) => !inPropLaneHits.some((row) => row.id === hit.id));
+  const rateHouses = draft.propertyIds.length
+    ? propertyOptions.filter((row) => draft.propertyIds.includes(row.id))
+    : propertyOptions;
+  const rateFallback = catalogVendor
+    ? { hourlyCents: catalogVendor.hourlyCents, serviceCents: catalogVendor.serviceCents }
+    : undefined;
 
   if (!open) return null;
 
@@ -790,13 +935,19 @@ export function ManagerVendorFormModal({
           lastDisabled={saving || !draft.name.trim()}
           nextDisabled={false}
           onBeforeNext={() => {
-            if (!draft.name.trim()) {
-              setError("Vendor name is required.");
+            if (stepId === "trades" && draft.trades.length === 0) {
+              setError("Pick what they do.");
               return false;
             }
-            if (draft.email && !vendorEmailLooksValid(draft.email)) {
-              setError("Enter a valid email address.");
-              return false;
+            if (stepId === "contact" || stepId === "vendor") {
+              if (!draft.name.trim()) {
+                setError("Vendor name is required.");
+                return false;
+              }
+              if (draft.email && !vendorEmailLooksValid(draft.email)) {
+                setError("Enter a valid email address.");
+                return false;
+              }
             }
             setError(null);
             return true;
@@ -873,7 +1024,7 @@ export function ManagerVendorFormModal({
           {stepId === "trades" ? (
             <div className="space-y-4" data-attr="vendor-form-trades">
               <fieldset className="space-y-2">
-                <legend className="text-sm font-semibold">Who can handle</legend>
+                <legend className="text-sm font-semibold">{mode === "add" ? "What they do" : "Who can handle"}</legend>
                 {VENDOR_TRADE_OPTIONS.map((trade) => {
                   const on = draft.trades.includes(trade);
                   return (
@@ -892,6 +1043,13 @@ export function ManagerVendorFormModal({
                   );
                 })}
               </fieldset>
+              {mode === "add" && onBrowseCatalog ? (
+                <Button type="button" variant="outline" onClick={onBrowseCatalog} data-attr="vendor-use-proplane">
+                  Use a PropLane vendor
+                </Button>
+              ) : null}
+              {mode === "edit" ? (
+                <>
               <label className="block space-y-1">
                 <span className="text-sm font-semibold">Look up nearby</span>
                 <Input value={issueQuery} onChange={(e) => setIssueQuery(e.target.value)} placeholder="Trade, name, or city" data-attr="vendor-online-search" />
@@ -935,6 +1093,35 @@ export function ManagerVendorFormModal({
                   ))}
                 </fieldset>
               ) : null}
+                </>
+              ) : null}
+              {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
+            </div>
+          ) : null}
+          {stepId === "rates" ? (
+            <TypicalPriceFields
+              houses={rateHouses}
+              trades={draft.trades}
+              rates={draft.typicalRates}
+              fallback={rateFallback}
+              onChange={(typicalRates) => patch({ typicalRates })}
+            />
+          ) : null}
+          {stepId === "contact" ? (
+            <div className="space-y-4">
+              <label className="block space-y-1">
+                <span className="text-sm font-semibold">Vendor name</span>
+                <Input value={draft.name} onChange={(e) => patch({ name: e.target.value })} required autoFocus data-attr="vendor-essential-name" />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-sm font-semibold">Email</span>
+                <Input type="email" value={draft.email} onChange={(e) => patch({ email: e.target.value })} autoComplete="email" data-attr="vendor-essential-email" />
+              </label>
+              <div className="space-y-1">
+                <label htmlFor="vendor-invite-phone" className="text-sm font-semibold">Phone</label>
+                <PhoneNumberField id="vendor-invite-phone" value={draft.phone} onChange={(phone) => patch({ phone })} dataAttr="vendor-optional-phone" />
+              </div>
+              {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
             </div>
           ) : null}
           {stepId === "review" ? (
