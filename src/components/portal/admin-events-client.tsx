@@ -19,6 +19,7 @@ import {
   ADMIN_AVAILABILITY_STORAGE_KEY,
   acceptPartnerInquiryFromServer,
   adminAvailabilityStorageKey,
+  deletePartnerInquiryFromServer,
   declinePartnerInquiry,
   readPartnerInquiries,
   readPlannedEvents,
@@ -26,6 +27,7 @@ import {
   type PartnerInquiry,
   type PlannedEvent,
 } from "@/lib/demo-admin-scheduling";
+import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 
 type MeetingsTab = "pending" | "upcoming" | "past";
@@ -61,6 +63,7 @@ function formatWindow(startIso: string, endIso: string): string {
  * hours is a periodic chore and answering a request is the daily one.
  */
 export function AdminEventsClient() {
+  const demo = isDemoModeActive();
   const { userId, email } = useManagerUserId();
   const { showToast } = useAppUi();
   // The open tab is the URL, like every other portal list tab.
@@ -142,8 +145,13 @@ export function AdminEventsClient() {
         if (accept) {
           const res = await acceptPartnerInquiryFromServer(row.id);
           if (!res.ok) failed += 1;
-        } else if (!declinePartnerInquiry(row.id)) {
-          failed += 1;
+        } else {
+          if (demo) {
+            if (!declinePartnerInquiry(row.id)) failed += 1;
+          } else {
+            const res = await deletePartnerInquiryFromServer(row.id, { notifyTenant: false });
+            if (!res.ok) failed += 1;
+          }
         }
       }
       await syncScheduleRecordsFromServer({ force: true });

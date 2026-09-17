@@ -20,11 +20,12 @@ import { formatPacificDateTime } from "@/lib/pacific-time";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { notifyTenantTourConfirmed } from "@/lib/tour-notification-delivery.server";
 import type { TourNotificationChannels, TourNotificationResult } from "@/lib/tour-notification-delivery.server";
-import { isActivePlannedTourEvent } from "@/lib/tour-slot-math";
+import { isActivePlannedTourEvent, slotKeyForInstant } from "@/lib/tour-slot-math";
 import { emitTourClaimedEvent } from "@/lib/tour-events.server";
 import { resolvePropertyOwnerUserId } from "@/lib/property-owner.server";
 import { canAssign, normalizeAssignee, type WorkAssignee } from "@/lib/work-assignment";
 import { createPrepareForTourTask } from "@/lib/manager-default-tasks.server";
+import { mutateConfirmedTourSchedule } from "@/lib/tour-schedule-persistence.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -371,7 +372,7 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
     tourFormat: normalizeTourFormat(row.tourFormat),
     adminUserId: managerUserId,
     adminLabel: selectedWindow.adminLabel ?? (textField(row, "adminLabel") || undefined),
-    slotKey: selectedWindow.slotKey ?? undefined,
+    slotKey: selectedWindow.slotKey ?? slotKeyForInstant(start) ?? undefined,
     attendeeName: textField(row, "name") || undefined,
     attendeeEmail: textField(row, "email") || undefined,
     attendeePhone: textField(row, "phone") || undefined,
@@ -387,60 +388,26 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
     assignee: assignee ?? undefined,
   };
 
-  const nextInquiries = inquiries.filter((candidate) => {
-    if (textField(candidate, "id") === id) return false;
-    if (groupId && textField(candidate, "tourGroupId") === groupId) return false;
-    return !sameTourSlot(candidate, managerUserId, start, windowEnd);
-  });
-
-  const { error: writeError } = await db.from("portal_schedule_records").upsert(
-    [
-      {
-        id: INQUIRIES_RECORD_ID,
-        manager_user_id: null,
-        property_id: null,
-        record_type: INQUIRIES_RECORD_ID,
-        row_data: {
-          id: INQUIRIES_RECORD_ID,
-          recordType: INQUIRIES_RECORD_ID,
-          managerUserId: null,
-          propertyId: null,
-          payload: nextInquiries,
-        },
-        updated_at: new Date().toISOString(),
-      },
-      {
-        id: PLANNED_RECORD_ID,
-        manager_user_id: null,
-        property_id: textField(row, "propertyId") || null,
-        record_type: PLANNED_RECORD_ID,
-        starts_at: start,
-        ends_at: end,
-        row_data: {
-          id: PLANNED_RECORD_ID,
-          recordType: PLANNED_RECORD_ID,
-          managerUserId: null,
-          propertyId: null,
-          payload: [...plannedRows, plannedEvent],
-        },
-        updated_at: new Date().toISOString(),
-      },
-    ],
-    { onConflict: "id" },
-  );
-  if (writeError) return { ok: false, status: 500, error: writeError.message };
-
-  const eventIds = inquiries
+  const removedInquiryIds = inquiries
     .filter((candidate) => {
       if (textField(candidate, "id") === id) return true;
       if (groupId && textField(candidate, "tourGroupId") === groupId) return true;
       return sameTourSlot(candidate, managerUserId, start, windowEnd);
     })
-    .map((candidate) => `${INQUIRY_EVENT_RECORD_TYPE}_${textField(candidate, "id")}_0`)
+    .map((candidate) => textField(candidate, "id"))
     .filter(Boolean);
-  if (eventIds.length > 0) {
-    const { error: deleteError } = await db.from("portal_schedule_records").delete().in("id", eventIds);
-    if (deleteError) return { ok: false, status: 500, error: deleteError.message };
+  const persisted = await mutateConfirmedTourSchedule(db, {
+    operation: "append",
+    event: plannedEvent,
+    removeInquiryIds: removedInquiryIds,
+    allowConflict: !opts.guardDoubleBook && !handingToSomeoneElse,
+  });
+  if (!persisted.ok) {
+    return {
+      ok: false,
+      status: persisted.reason === "conflict" ? 409 : 500,
+      error: persisted.reason === "conflict" ? "That time was already booked. Review this tour and pick another slot." : persisted.reason,
+    };
   }
 
   // Tell the rest of the team this tour is now taken (WS5 team audience).

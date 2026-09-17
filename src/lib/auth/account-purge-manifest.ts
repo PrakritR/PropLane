@@ -63,12 +63,44 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    table: "prospect_tour_bookings",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
+    table: "prospect_tour_google_calendar_cleanup",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
+    table: "prospect_tour_google_calendar_create_intents",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
+    table: "tour_slot_reservations",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
+    table: "prospect_tour_scheduling_state",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+    resident: { emails: ["contact_email"] },
+    vendor: { emails: ["contact_email"] },
+  },
+  {
     table: "prospect_sms_inline_actions",
     phase: 1,
     manager: { ids: ["manager_user_id"] },
   },
   {
     table: "prospect_sms_shadow_jobs",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
+    table: "prospect_sms_tour_reminders",
     phase: 1,
     manager: { ids: ["manager_user_id"] },
   },

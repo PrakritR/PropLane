@@ -98,10 +98,6 @@ export function AddResidentWizard({
   const undoRef = useRef<AddPersonForm | null>(null);
 
   const patch = useCallback((next: Partial<AddPersonForm>) => setForm((prev) => ({ ...prev, ...next })), []);
-  // The commit reads the form through a ref so a callback captured on an
-  // earlier render can never write a stale copy of what the manager typed.
-  const formRef = useRef(form);
-  formRef.current = form;
   const derived = useResidentWizardDerived(form, propertyTick, patch);
   const stepIds: readonly string[] = mode === "application" ? APPLICATION_STEPS : form.kind === "prospect" ? PROSPECT_STEPS : RESIDENT_STEPS;
   const current = Math.min(stepIdx, stepIds.length - 1);
@@ -330,9 +326,8 @@ export function AddResidentWizard({
     return form.kind === "prospect" ? buildProspectRow(form, ctx) : buildManualResidentRow(form, ctx, questions);
   }, [form, managerUserId, propertyOptions, derived.customQuestions, mode]);
 
-  const finish = async (row: DemoApplicantRow, skipMessage: boolean, channels?: { viaEmail: boolean; viaSms: boolean }, draft?: { subject: string; body: string; scheduleAt?: string }) => {
+  const finish = useCallback(async (row: DemoApplicantRow, skipMessage: boolean, channels?: { viaEmail: boolean; viaSms: boolean }, draft?: { subject: string; body: string; scheduleAt?: string }) => {
     if (busy) return;
-    const form = formRef.current;
     setBusy(true);
     try {
       const ctx = { userId: managerUserId, executedLeaseKeys, propertyLabelFor: (id: string) => propertyOptions.find((p) => p.id === id)?.label, assignee };
@@ -398,7 +393,7 @@ export function AddResidentWizard({
     } finally {
       setBusy(false);
     }
-  };
+  }, [assignee, busy, executedLeaseKeys, form, goTo, managerUserId, mode, onAdded, onClose, propertyOptions, showToast]);
 
   const onFinish = useCallback(() => {
     if (todo.length) {
@@ -420,8 +415,7 @@ export function AddResidentWizard({
       return;
     }
     setPreview({ row: built.row, subject, body });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [todo, buildRow, form.message, draftMessage, goTo, showToast]);
+  }, [todo, buildRow, form.message, draftMessage, finish, goTo, showToast]);
 
   const railHeader = (
     <button

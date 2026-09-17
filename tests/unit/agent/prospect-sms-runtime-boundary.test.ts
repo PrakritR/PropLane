@@ -231,12 +231,16 @@ describe("prospect SMS runtime incident boundary", () => {
     // A second inbound correction advances the durable revision while Claude is
     // still pending. The old generation cannot claim its inline action.
     activeRevision = 5;
-    resolvePending(tool("request_tour", { propertyId: "property-jain-home", slotKey: "2026-09-15T09:00", start: "2026-09-15T16:00:00.000Z", end: "2026-09-15T16:30:00.000Z", hostUserId: "manager-jain", name: "Jain", email: "jain@example.test", phone: "+15550001111" }));
+    resolvePending(tool("prepare_prospect_tour_confirmation", {
+      propertyId: "property-jain-home", propertyTitle: "Jain Home", slotKey: "2026-09-15:18",
+      start: "2026-09-15T16:00:00.000Z", end: "2026-09-15T16:30:00.000Z",
+      hostUserId: "manager-jain", name: "Jain", email: "jain@example.test",
+    }));
     const stale = await pending;
     expect(stale?.reply).toContain("stale request");
     expect(staleDb.rpc).toHaveBeenCalledWith("authorize_prospect_sms_inline_action", expect.objectContaining({ p_revision: 4 }));
-    // The request remains approval-first: the stale lease blocks the write
-    // before request_tour can create an inquiry or book anything.
+    // The stale lease blocks the current durable offer-preparation action
+    // before it can persist an offer or ask the prospect to confirm it.
     expect(mocks.createTourInquiry).not.toHaveBeenCalled();
     // A resulting candidate cannot prepare an outbox.
     mocks.sendWorkNumber.mockResolvedValue({ ok: false, error: "prospect_burst_stale" });

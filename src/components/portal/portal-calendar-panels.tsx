@@ -96,6 +96,7 @@ import {
 import { deleteProplaneGoogleTourFromServer } from "@/lib/google-calendar/delete-tour.client";
 import {
   cancelPlannedTourFromServer,
+  deletePlannedTourFromServer,
   tourGuestNotificationFailed,
   tourGuestNotificationSummary,
 } from "@/lib/tour-planned-change.client";
@@ -1775,6 +1776,22 @@ export function PortalCalendarPanels({
           showToast(e instanceof Error ? e.message : "Could not delete task.");
           return;
         }
+      } else if (meeting.kind === "tour") {
+        // A confirmed tour owns a durable slot reservation. Even when it has
+        // no guest email, delete it through the tour lifecycle RPC so the JSON
+        // row and reservation are retired atomically. The generic snapshot
+        // writer intentionally preserves tours and would otherwise return a
+        // misleading 200 while leaving both records active.
+        const result = await deletePlannedTourFromServer({
+          plannedEventId: meeting.sourceId,
+          notifyGuest: false,
+        });
+        if (!result.ok) {
+          showToast(result.error ?? "Could not delete this tour.");
+          return;
+        }
+        await syncScheduleRecordsFromServer({ force: true });
+        ok = true;
       } else {
         if (planned?.googleCalendarEventId?.trim()) {
           await deleteProplaneGoogleTourFromServer(planned.googleCalendarEventId);

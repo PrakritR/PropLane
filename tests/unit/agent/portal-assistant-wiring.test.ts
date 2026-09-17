@@ -54,17 +54,19 @@ describe("portal assistant endpoints", () => {
 
 describe("portal chat routes bind their own registry + persona", () => {
   it.each([
-    ["src/app/api/agent/chat/route.ts", "agentRegistry", "MANAGER_SYSTEM_PROMPT", '"manager"'],
-    ["src/app/api/agent/resident-chat/route.ts", "buildResidentRegistry(ctx)", "RESIDENT_SYSTEM_PROMPT", '"resident"'],
-    ["src/app/api/agent/vendor-chat/route.ts", "vendorAgentRegistry", "VENDOR_PORTAL_SYSTEM_PROMPT", '"vendor"'],
-  ])("%s", (file, registry, prompt, portal) => {
+    ["src/app/api/agent/chat/route.ts", "agentRegistry", "MANAGER_SYSTEM_PROMPT", '"manager"', true],
+    ["src/app/api/agent/resident-chat/route.ts", "buildResidentRegistry(ctx)", "RESIDENT_SYSTEM_PROMPT", '"resident"', false],
+    ["src/app/api/agent/vendor-chat/route.ts", "vendorAgentRegistry", "VENDOR_PORTAL_SYSTEM_PROMPT", '"vendor"', false],
+  ])("%s", (file, registry, prompt, portal, managerWorkspaceScoped) => {
     const source = read(file);
     expect(source).toContain(`registry: ${registry}`);
-    expect(source).toContain(
-      `withAssistantTaskContext(withAgentCustomInstructions(${prompt}, customInstructions), contextHint)`,
-    );
-    if (file === "src/app/api/agent/chat/route.ts") {
-      expect(source).toContain("withManagerWorkspacePrompt(");
+    const taskPrompt = `withAssistantTaskContext(withAgentCustomInstructions(${prompt}, customInstructions), contextHint)`;
+    expect(source).toContain(taskPrompt);
+    if (managerWorkspaceScoped) {
+      expect(source).toContain("const system = withManagerWorkspacePrompt(");
+      expect(source).toContain("ctx.workspace,");
+    } else {
+      expect(source).toContain(`const system = ${taskPrompt}`);
     }
     expect(source).toContain("resolvePromptMeta(");
     expect(source).toContain("system,");

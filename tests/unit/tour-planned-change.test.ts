@@ -33,6 +33,7 @@ vi.mock("@/lib/google-calendar/sync.server", () => ({
 
 import { GoogleCalendarNotLinkedError } from "@/lib/google-calendar/api.server";
 import { cancelPlannedTour, deletePlannedTour, reschedulePlannedTour } from "@/lib/tour-planned-change.server";
+import { slotKeyForInstant } from "@/lib/tour-slot-math";
 
 const MANAGER = "mgr-1";
 
@@ -267,10 +268,7 @@ describe("reschedulePlannedTour", () => {
     });
   });
 
-  it("drops the stale slotKey so the old window is not still blocked", async () => {
-    // The slotKey named the OLD half hour. Carrying it forward would leave the
-    // new window bookable and the old one blocked in the public grid — the
-    // exact double-booking shape this sweep closes.
+  it("replaces the stale slotKey with the new Pacific window", async () => {
     await reschedulePlannedTour(db(), {
       plannedEventId: "planned-1",
       actorUserId: MANAGER,
@@ -278,7 +276,7 @@ describe("reschedulePlannedTour", () => {
       end: NEW_END,
       notifyGuest: true,
     });
-    expect(WRITTEN_PAYLOAD![0]!.slotKey).toBeUndefined();
+    expect(WRITTEN_PAYLOAD![0]!.slotKey).toBe(slotKeyForInstant(NEW_START));
   });
 
   it("moves the Google Calendar entry instead of creating a second one", async () => {
@@ -320,6 +318,29 @@ describe("reschedulePlannedTour", () => {
     expect(result).toMatchObject({ ok: false, status: 409 });
     expect(WRITTEN_PAYLOAD).toBeNull();
     expect(notifyRescheduled).not.toHaveBeenCalled();
+  });
+
+  it("does not notify or sync when the atomic lifecycle CAS rejects a stale move", async () => {
+    const staleDb = {
+      ...db(),
+      rpc: vi.fn(async () => ({ data: { ok: false, reason: "stale_event" }, error: null })),
+    } as never;
+    const result = await reschedulePlannedTour(staleDb, {
+      plannedEventId: "planned-1",
+      actorUserId: MANAGER,
+      start: NEW_START,
+      end: NEW_END,
+      notifyGuest: true,
+    });
+    expect(result).toMatchObject({ ok: false, status: 409, error: "stale_event" });
+    expect(notifyRescheduled).not.toHaveBeenCalled();
+    expect(syncGoogle).not.toHaveBeenCalled();
+    expect(staleDb.rpc).toHaveBeenCalledWith("mutate_confirmed_tour_schedule", expect.objectContaining({
+      p_expected_start: TOUR.start,
+      p_expected_end: TOUR.end,
+      p_expected_generation: null,
+      p_expected_generation_known: true,
+    }));
   });
 
   it("rejects an end at or before the start", async () => {

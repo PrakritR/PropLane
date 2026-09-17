@@ -150,6 +150,31 @@ export function slotStartMs(slot: string): number | null {
   return zonedWallTimeMs(year, month, day, slotIndex * 30);
 }
 
+/** Convert an instant to the Pacific grid cell that contains it. Confirmed
+ * events persist this even for manager-created tours so the DB reservation
+ * fence and the public availability reader share one stable key. */
+export function slotKeyForInstant(iso: string): string | null {
+  const instant = Date.parse(iso);
+  if (!Number.isFinite(instant)) return null;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TOUR_CALENDAR_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(instant));
+  const field = (kind: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === kind)?.value ?? "";
+  const hour = Number(field("hour"));
+  const minute = Number(field("minute"));
+  const year = field("year");
+  const month = field("month");
+  const day = field("day");
+  if (!year || !month || !day || !Number.isInteger(hour) || !Number.isInteger(minute)) return null;
+  return `${year}-${month}-${day}:${Math.floor((hour * 60 + minute) / 30)}`;
+}
+
 /** One published slot is half an hour of the tour calendar. */
 export const TOUR_SLOT_DURATION_MS = 30 * 60 * 1000;
 

@@ -34,6 +34,8 @@ let PROPERTY_AVAILABILITY_SLOTS: string[] | null;
 let GLOBAL_AVAILABILITY_SLOTS: string[] | null;
 let PENDING_INQUIRIES: Record<string, unknown>[];
 let PLANNED_EVENTS: Record<string, unknown>[];
+let RESERVATIONS: Record<string, unknown>[];
+let RESERVATION_ERROR: string | null;
 let GOOGLE_BUSY: {
   id: string;
   summary: string;
@@ -167,6 +169,24 @@ function makeServiceClient() {
         };
         return builder;
       }
+      if (table === "tour_slot_reservations") {
+        let status = "";
+        return {
+          select: () => ({
+            eq: (_column: string, value: string) => {
+              status = value;
+              return {
+                in: async (_column: string, managerIds: string[]) => ({
+                  data: RESERVATIONS.filter((row) =>
+                    row.status === status && managerIds.includes(String(row.manager_user_id ?? "")),
+                  ),
+                  error: RESERVATION_ERROR ? { message: RESERVATION_ERROR } : null,
+                }),
+              };
+            },
+          }),
+        };
+      }
       return {};
     },
   };
@@ -228,6 +248,8 @@ describe("public tour availability subtracts what is already taken", () => {
     GLOBAL_AVAILABILITY_SLOTS = null;
     PENDING_INQUIRIES = [];
     PLANNED_EVENTS = [];
+    RESERVATIONS = [];
+    RESERVATION_ERROR = null;
     GOOGLE_BUSY = [];
     GOOGLE_THROWS = false;
     GOOGLE_THROWS_NOT_LINKED = false;
@@ -290,6 +312,45 @@ describe("public tour availability subtracts what is already taken", () => {
     const slots = await offeredSlots();
     expect(slots.has(TEN_AM)).toBe(false);
     expect(slots.has(`${DAY}:21`)).toBe(true);
+  });
+
+  it("removes an atomically reserved slot even when the planned-event read model is missing", async () => {
+    RESERVATIONS = [{
+      manager_user_id: MANAGER,
+      status: "active",
+      slot_key: TEN_AM,
+      starts_at: TEN_AM_START,
+      ends_at: TEN_AM_END,
+    }];
+    const slots = await offeredSlots();
+    expect(slots.has(TEN_AM)).toBe(false);
+    expect(slots.has(`${DAY}:21`)).toBe(true);
+  });
+
+  it("uses reservation time overlap when an active reservation has no slot key", async () => {
+    RESERVATIONS = [{
+      manager_user_id: MANAGER,
+      status: "active",
+      slot_key: null,
+      starts_at: TEN_AM_START,
+      ends_at: TEN_AM_END,
+    }];
+    expect((await offeredSlots()).has(TEN_AM)).toBe(false);
+  });
+
+  it("does not block for released or another host's reservation", async () => {
+    RESERVATIONS = [
+      { manager_user_id: MANAGER, status: "cancelled", slot_key: TEN_AM, starts_at: TEN_AM_START, ends_at: TEN_AM_END },
+      { manager_user_id: "another-manager", status: "active", slot_key: TEN_AM, starts_at: TEN_AM_START, ends_at: TEN_AM_END },
+    ];
+    expect((await offeredSlots()).has(TEN_AM)).toBe(true);
+  });
+
+  it("fails closed when the durable reservation authority is unreadable", async () => {
+    RESERVATION_ERROR = "reservation read failed";
+    const res = await getAvailability(availabilityRequest());
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toMatchObject({ error: "reservation read failed" });
   });
 
   it("never reads property availability unscoped", async () => {

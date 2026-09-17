@@ -34,6 +34,12 @@ import { formatTourRangeLabel } from "@/lib/tour-inquiry.server";
 import { slotStartMs, TOUR_CALENDAR_TIME_ZONE } from "@/lib/tour-slot-math";
 import { smsAccessAllowsPropertyRecord } from "@/lib/sms/manager-sms-access";
 import { normalizeE164 } from "@/lib/twilio";
+import { buildConversationKey } from "@/lib/sms-conversation-identity";
+import { confirmProspectSmsTourOffer, prepareProspectSmsTourOffer } from "@/lib/tour-schedule-persistence.server";
+import {
+  loadConfirmedProspectTourBooking,
+  recoverProspectTourBookingSideEffects,
+} from "@/lib/prospect-tour-booking-recovery.server";
 
 /** Slots are a grid; a page of them is plenty for a chat reply or a text. */
 const SLOT_LIMIT = 40;
@@ -43,12 +49,19 @@ const slotsInputSchema = z
     propertyId: z.string().min(1).describe("The listing/property id to check availability for."),
     buildingName: z.string().optional().describe("Optional building name, to resolve a property by house key."),
     address: z.string().optional().describe("Optional street address, to resolve a property by house key."),
+    fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Pacific start date, inclusive."),
+    toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Pacific end date, inclusive."),
+    localStartMinute: z.number().int().min(0).max(1439).optional().describe("Earliest Pacific local minute after midnight."),
+    localEndMinute: z.number().int().min(0).max(1439).optional().describe("Latest Pacific local minute after midnight."),
+    offset: z.number().int().min(0).max(10_000).optional().describe("Zero-based offset into the filtered Pacific slot list."),
+    publishedOnly: z.boolean().optional().describe("Use only explicitly published slots, never the default grid."),
   })
   .strict();
 
 type SlotsInput = z.infer<typeof slotsInputSchema>;
 
 type OfferedSlot = { slotKey: string; start: string; end: string; label: string; hostUserId: string; hostLabel: string };
+type OfferedSlotsResult = { slots: OfferedSlot[]; timeZone: string; resolution: "resolved" | "unavailable"; total: number; returned: number; complete: boolean; nextOffset: number | null; generatedAt: string; currentPacificDate: string; currentPacificWeekday: string; publishedOnly: boolean };
 
 /**
  * Turn the raw `slotHosts` map into the shape a model can quote back: one entry
@@ -59,13 +72,16 @@ type OfferedSlot = { slotKey: string; start: string; end: string; label: string;
 async function loadOfferedSlots(
   db: AgentContext["db"],
   input: SlotsInput,
-): Promise<{ slots: OfferedSlot[]; timeZone: string; resolution: "resolved" | "unavailable" }> {
+): Promise<OfferedSlotsResult> {
   const result = await listOpenTourSlots(db, {
     propertyId: input.propertyId,
     buildingName: input.buildingName ?? null,
     address: input.address ?? null,
+    publishedOnly: input.publishedOnly === true,
   });
   if (!result.ok) throw new Error(result.error);
+  if (input.fromDate && input.toDate && input.fromDate > input.toDate) throw new Error("Invalid Pacific date range.");
+  if (input.localStartMinute !== undefined && input.localEndMinute !== undefined && input.localStartMinute > input.localEndMinute) throw new Error("Invalid local time range.");
 
   const slots: OfferedSlot[] = [];
   for (const [slotKey, hosts] of Object.entries(result.slotHosts)) {
@@ -79,16 +95,35 @@ async function loadOfferedSlots(
       slotKey,
       start,
       end,
-      label: formatTourRangeLabel(start, end),
+      label: `${formatTourRangeLabel(start, end)} · ${slotKey.split(":")[0]} Pacific`,
       hostUserId: host.userId,
       hostLabel: host.label,
     });
   }
   slots.sort((a, b) => a.start.localeCompare(b.start));
+  const filtered = slots.filter((slot) => {
+    const [date, rawIndex] = slot.slotKey.split(":");
+    const minute = Number(rawIndex) * 30;
+    if (input.fromDate && date < input.fromDate) return false;
+    if (input.toDate && date > input.toDate) return false;
+    if (input.localStartMinute !== undefined && minute < input.localStartMinute) return false;
+    if (input.localEndMinute !== undefined && minute > input.localEndMinute) return false;
+    return true;
+  });
+  const pacificNow = new Intl.DateTimeFormat("en-US", { timeZone: TOUR_CALENDAR_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit", weekday: "long" }).formatToParts(new Date());
+  const part = (type: Intl.DateTimeFormatPartTypes) => pacificNow.find((item) => item.type === type)?.value ?? "";
   return {
-    slots: slots.slice(0, SLOT_LIMIT),
+    slots: filtered.slice(input.offset ?? 0, (input.offset ?? 0) + SLOT_LIMIT),
     timeZone: TOUR_CALENDAR_TIME_ZONE,
     resolution: result.resolution ?? "resolved",
+    total: filtered.length,
+    returned: Math.min(SLOT_LIMIT, Math.max(0, filtered.length - (input.offset ?? 0))),
+    complete: (input.offset ?? 0) + SLOT_LIMIT >= filtered.length,
+    nextOffset: (input.offset ?? 0) + SLOT_LIMIT < filtered.length ? (input.offset ?? 0) + SLOT_LIMIT : null,
+    generatedAt: new Date().toISOString(),
+    currentPacificDate: `${part("year")}-${part("month")}-${part("day")}`,
+    currentPacificWeekday: part("weekday"),
+    publishedOnly: input.publishedOnly === true,
   };
 }
 
@@ -96,17 +131,17 @@ const SLOTS_DESCRIPTION =
   "List the tour times currently open for a property, with the host for each. This is the ONLY source of bookable times — published availability minus calendar-busy minus already-booked, the same grid the public booking page shows. Always call this before offering, requesting, or booking a time, and quote the returned start/end verbatim; never work a time out yourself.";
 
 /** Manager-scoped read. Availability is public by nature, so no extra filter. */
-export const listOpenTourSlotsTool = defineTool<SlotsInput, { slots: OfferedSlot[]; timeZone: string; resolution: "resolved" | "unavailable" }>({
+export const listOpenTourSlotsTool = defineTool<SlotsInput, OfferedSlotsResult>({
   name: "list_open_tour_slots",
   description: SLOTS_DESCRIPTION,
   inputSchema: slotsInputSchema,
-  handler: (ctx, input) => loadOfferedSlots(ctx.db, input),
+  handler: (ctx, input) => loadOfferedSlots(ctx.db, { ...input, publishedOnly: ctx.leasingScope?.prospectBurst ? true : input.publishedOnly }),
 });
 
 /** The identical read, bound to the resident context type. */
 export const residentListOpenTourSlotsTool = defineTool<
   SlotsInput,
-  { slots: OfferedSlot[]; timeZone: string; resolution: "resolved" | "unavailable" },
+  OfferedSlotsResult,
   ResidentAgentContext
 >({
   name: "list_open_tour_slots",
@@ -289,6 +324,197 @@ export const leasingRequestTourTool = defineWriteTool<RequestTourInput, { reply:
     if (!created.ok) throw new Error(created.error);
     return {
       reply: `Tour requested for ${formatTourRangeLabel(input.start, input.end)}. ${input.name.trim()} will hear back once the manager confirms.`,
+    };
+  },
+});
+
+const confirmProspectSmsTourInputSchema = z.object({
+  propertyId: z.string().min(1),
+  propertyTitle: z.string().optional(),
+  roomLabel: z.string().optional(),
+  slotKey: z.string().min(1),
+  start: z.string().min(1),
+  end: z.string().min(1),
+  hostUserId: z.string().min(1),
+  name: z.string().min(1),
+  email: z.string().email().optional(),
+}).strict();
+
+function unambiguousOfferAffirmative(text: string): boolean {
+  const body = text.toLowerCase().replace(/[’]/g, "'").replace(/[.!?,]+/g, " ").replace(/\s+/g, " ").trim();
+  if (/\b(no|not|cannot|can't|dont|don't|do not|change|instead|different|other|wrong|cancel)\b/.test(body)) return false;
+  // This is intentionally an allowlist of standalone affirmations. A reply
+  // containing a weekday, date, or time is a new/possibly conflicting choice,
+  // even when it begins with "yes"; re-prepare that exact option instead of
+  // silently authorizing the previously persisted one.
+  return /^(?:yes(?: please)?|confirm(?:ed)?|book (?:it|that)(?: please)?|that works(?: for me)?|works for me|take it(?: please)?|sounds good|perfect)$/.test(body);
+}
+
+async function deriveAgreementSource(ctx: AgentContext, burst: NonNullable<NonNullable<AgentContext["leasingScope"]>["prospectBurst"]>): Promise<{ agreementSourceMessageId: string; claimedSourceIds: string[] } | null> {
+  if (burst.claimedSourceIds.length === 0) return null;
+  const claimedSourceIds = [...new Set(burst.claimedSourceIds.map((id) => id.trim()).filter(Boolean))];
+  // The queue owns this ordered snapshot. A duplicate or blank source id is a
+  // corrupted claim, not a reason to infer which inbound message authorized a
+  // booking.
+  if (claimedSourceIds.length !== burst.claimedSourceIds.length) return null;
+  const { data, error } = await ctx.db.from("prospect_sms_ingress")
+    .select("source_message_id,body,received_at")
+    .eq("burst_id", burst.burstId)
+    .in("source_message_id", claimedSourceIds)
+    .order("received_at", { ascending: true })
+    .order("source_message_id", { ascending: true });
+  if (error) throw new Error("Could not verify the current prospect reply.");
+  const rows = data ?? [];
+  const sourceIds = rows.map((row) => String((row as { source_message_id?: unknown }).source_message_id ?? ""));
+  if (rows.length !== claimedSourceIds.length || sourceIds.some((id) => !claimedSourceIds.includes(id))) return null;
+  // A correction, contact update, negation, or any other non-affirmative text
+  // makes a combined inbound burst ambiguous. Re-prepare instead of silently
+  // selecting an older offer. Multiple standalone affirmatives are harmless.
+  if (!rows.every((row) => unambiguousOfferAffirmative(String((row as { body?: unknown }).body ?? "")))) return null;
+  const agreementSourceMessageId = sourceIds.at(-1);
+  return agreementSourceMessageId ? { agreementSourceMessageId, claimedSourceIds } : null;
+}
+
+/** First persist one exact offer and send a deterministic confirmation question.
+ * A later affirmative may book only this stored offer; free-form time parsing
+ * is never authorization. */
+export const prepareProspectTourConfirmationTool = defineWriteTool<z.infer<typeof confirmProspectSmsTourInputSchema>, { reply: string }>({
+  name: "prepare_prospect_tour_confirmation",
+  description: "After the prospect selects one exact currently published slot, persist that exact offer and ask them to confirm it. Use this before confirm_prospect_sms_tour. Copy all slot fields from a fresh published-only availability result.",
+  inputSchema: confirmProspectSmsTourInputSchema,
+  allowedIdentityInputs: ["hostUserId"],
+  preview: async () => { throw new Error("Prospect SMS offer preparation runs only from the durable inbound worker."); },
+  handler: async (ctx, input) => {
+    const scope = ctx.leasingScope;
+    const burst = scope?.prospectBurst;
+    if (!scope || !burst) throw new Error("This offer is available only for a current prospect SMS reply.");
+    const [selectedDate, selectedIndex] = input.slotKey.split(":");
+    const selectedMinute = Number(selectedIndex) * 30;
+    if (!selectedDate || !Number.isFinite(selectedMinute)) throw new Error("That selected time is invalid.");
+    const slots = await loadOfferedSlots(ctx.db, {
+      propertyId: input.propertyId, publishedOnly: true, fromDate: selectedDate, toDate: selectedDate,
+      localStartMinute: selectedMinute, localEndMinute: selectedMinute,
+    });
+    const offered = slots.slots.find((slot) => slot.slotKey === input.slotKey && slot.start === input.start && slot.end === input.end && slot.hostUserId === input.hostUserId);
+    if (!offered || offered.hostUserId !== ctx.landlordId) throw new Error("That exact published offer is no longer available.");
+    const preparedOffer = {
+      propertyId: input.propertyId,
+      slotKey: offered.slotKey,
+      start: offered.start,
+      end: offered.end,
+      label: offered.label,
+      hostUserId: offered.hostUserId,
+      policy: "published_only",
+    };
+    const result = await prepareProspectSmsTourOffer(ctx.db, {
+      managerUserId: ctx.landlordId,
+      conversationKey: buildConversationKey({ ownerManagerUserId: ctx.landlordId, role: "prospect", counterpartyPhone: scope.prospectPhoneE164 }),
+      propertyId: input.propertyId,
+      trustedPhoneE164: scope.prospectPhoneE164,
+      contactName: input.name,
+      contactEmail: input.email,
+      offer: preparedOffer,
+      burstId: burst.burstId,
+      burstRevision: burst.revision,
+      workerId: burst.workerId,
+    });
+    if (!result.ok) throw new Error(result.reason);
+    const reply = `Please confirm ${offered.label} for ${input.propertyTitle?.trim() || "the tour"} by replying YES.`;
+    return { reply, terminalInlineReply: reply, preparedOffer };
+  },
+});
+
+/**
+ * Leasing-SMS-only confirmation. The phone and manager come solely from the
+ * inbound queue context. It is intentionally absent from the email and voice
+ * registries; a model cannot choose either identity.
+ */
+export const confirmProspectSmsTourTool = defineWriteTool<z.infer<typeof confirmProspectSmsTourInputSchema>, { reply: string }>({
+  name: "confirm_prospect_sms_tour",
+  description: "Only after prepare_prospect_tour_confirmation asked its exact question and the prospect later replied with an unambiguous affirmative, confirm that same persisted published offer. Copy its exact fields; never parse a different time or choose for them.",
+  inputSchema: confirmProspectSmsTourInputSchema,
+  allowedIdentityInputs: ["hostUserId"],
+  preview: async () => { throw new Error("Prospect SMS confirmations run only from the durable inbound worker."); },
+  handler: async (ctx, input) => {
+    const scope = ctx.leasingScope;
+    const burst = scope?.prospectBurst;
+    if (!scope || !burst) throw new Error("This confirmation is available only for a current prospect SMS reply.");
+    const existing = await loadConfirmedProspectTourBooking(ctx.db, {
+      managerUserId: ctx.landlordId,
+      burstId: burst.burstId,
+      burstRevision: burst.revision,
+    });
+    if (existing) {
+      const sideEffects = await recoverProspectTourBookingSideEffects(ctx.db, existing);
+      const label = typeof existing.offer_snapshot?.label === "string" ? existing.offer_snapshot.label : input.start;
+      const reply = `That tour is already confirmed for ${label}.`;
+      return {
+        reply,
+        terminalInlineReply: reply,
+        booking: { status: existing.status, plannedEventId: existing.planned_event_id, idempotent: true },
+        ...sideEffects,
+      };
+    }
+    const [selectedDate, selectedIndex] = input.slotKey.split(":");
+    const selectedMinute = Number(selectedIndex) * 30;
+    if (!selectedDate || !Number.isFinite(selectedMinute)) throw new Error("That selected time is invalid.");
+    // Narrow before pagination so a valid later slot is never hidden behind
+    // the conversational page cap during the final freshness check.
+    const slots = await loadOfferedSlots(ctx.db, {
+      propertyId: input.propertyId, publishedOnly: true, fromDate: selectedDate, toDate: selectedDate,
+      localStartMinute: selectedMinute, localEndMinute: selectedMinute,
+    });
+    const offered = slots.slots.find((slot) => slot.slotKey === input.slotKey && slot.start === input.start && slot.end === input.end && slot.hostUserId === input.hostUserId);
+    if (!offered) throw new Error("That exact published offer has expired. Refresh published availability before confirming.");
+    if (offered.hostUserId !== ctx.landlordId) throw new Error("That offer belongs to a different manager and cannot be confirmed from this number.");
+    const agreement = await deriveAgreementSource(ctx, burst);
+    if (!agreement) throw new Error("Please ask the prospect to affirm the exact confirmation question with YES before booking.");
+    const eventId = crypto.randomUUID();
+    const event: Record<string, unknown> = {
+      id: eventId, title: `Tour · ${input.name.trim()}`, kind: "tour", start: offered.start, end: offered.end,
+      slotKey: offered.slotKey, managerUserId: offered.hostUserId, adminUserId: offered.hostUserId,
+      propertyId: input.propertyId, propertyTitle: input.propertyTitle?.trim() || input.propertyId,
+      roomLabel: input.roomLabel?.trim() || undefined, attendeeName: input.name.trim(),
+      attendeeEmail: input.email?.trim() || undefined, attendeePhone: scope.prospectPhoneE164,
+      smsAutonomous: true,
+    };
+    const result = await confirmProspectSmsTourOffer(ctx.db, {
+      managerUserId: ctx.landlordId,
+      conversationKey: buildConversationKey({ ownerManagerUserId: ctx.landlordId, role: "prospect", counterpartyPhone: scope.prospectPhoneE164 }),
+      propertyId: input.propertyId, trustedPhoneE164: scope.prospectPhoneE164, contactName: input.name,
+      contactEmail: input.email, offer: { slotKey: offered.slotKey, start: offered.start, end: offered.end, label: offered.label, hostUserId: offered.hostUserId, policy: "published_only", burstId: burst.burstId, revision: burst.revision },
+      event, idempotencyKey: `prospect-tour:${burst.burstId}:${burst.revision}`,
+      burstId: burst.burstId, burstRevision: burst.revision,
+      agreementSourceMessageId: agreement.agreementSourceMessageId,
+      claimedSourceIds: agreement.claimedSourceIds,
+      workerId: burst.workerId,
+    });
+    if (!result.ok) throw new Error(result.reason === "conflict" ? "That time was just taken. I can check current options." : result.reason);
+    if (process.env.NODE_ENV === "test" && process.env.PROSPECT_TOUR_FAULT_AFTER_COMMIT === "1") {
+      throw new Error("Injected prospect tour worker crash after commit.");
+    }
+    const persistedBooking = await loadConfirmedProspectTourBooking(ctx.db, {
+      managerUserId: ctx.landlordId,
+      burstId: burst.burstId,
+      burstRevision: burst.revision,
+    });
+    if (!persistedBooking) throw new Error("Tour booked, but its recovery record could not be loaded.");
+    const { calendarSync, managerNotification } = await recoverProspectTourBookingSideEffects(ctx.db, persistedBooking);
+    const reply = result.idempotent ? `That tour is already confirmed for ${offered.label}.` : `Tour confirmed for ${offered.label}.`;
+    return {
+      reply,
+      terminalInlineReply: reply,
+      booking: {
+        status: result.status,
+        plannedEventId: result.plannedEventId,
+        slotKey: offered.slotKey,
+        start: offered.start,
+        end: offered.end,
+        timeZone: TOUR_CALENDAR_TIME_ZONE,
+        idempotent: result.idempotent,
+      },
+      calendarSync,
+      managerNotification,
     };
   },
 });

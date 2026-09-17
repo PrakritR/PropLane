@@ -5,6 +5,7 @@ import { emitAdminUi } from "@/lib/demo-admin-ui";
 import { logDemoOutboundEmail } from "@/lib/demo-outbound-mail";
 import { notePortalResponse, portalSessionEnded } from "@/lib/auth/portal-session-gate";
 import type { TourGuestNotification } from "@/lib/tour-planned-change.client";
+import { createCoalescedRefresher } from "@/lib/coalesced-refresh";
 
 const AVAIL_KEY = "axis_admin_avail_slots_v1";
 /** Per calendar date (local `YYYY-MM-DD`) + half-hour slot — supports future weeks. */
@@ -18,7 +19,54 @@ const memoryStore = new Map<string, unknown>();
 const SESSION_CACHE_PREFIX = "axis_sched_cache_v1:";
 const SCHEDULE_SYNC_META_KEY = `${SESSION_CACHE_PREFIX}__synced_at`;
 const SCHEDULE_SYNC_TTL_MS = 10_000;
-let scheduleSyncPromise: Promise<boolean> | null = null;
+const pendingJsonWrites = new Map<string, Promise<boolean>>();
+
+type PlannedScheduleClientState = {
+  /** A missing singleton is only writable after a successful GET observes it missing. */
+  observedKnown: boolean;
+  observedRows: PlannedEvent[];
+  /** Increments whenever the server-side baseline changes or a write settles. */
+  serverEpoch: number;
+  /** A failed planned write blocks automatic task reapply until an explicit retry. */
+  automaticReapplyBlocked: boolean;
+  localMutationVersion: number;
+};
+
+const plannedScheduleState: PlannedScheduleClientState = {
+  observedKnown: false,
+  observedRows: [],
+  serverEpoch: 0,
+  automaticReapplyBlocked: false,
+  localMutationVersion: 0,
+};
+
+function clonePlannedRows(rows: PlannedEvent[]): PlannedEvent[] {
+  return rows.map((row) => ({ ...row }));
+}
+
+function samePlannedRows(a: PlannedEvent[], b: PlannedEvent[]): boolean {
+  // Array order is an implementation detail of the merge. Compare the
+  // projected rows canonically so a reapply does not rewrite an unchanged
+  // task projection merely because another manager appended after it.
+  const stableJson = (value: unknown): string => {
+    if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+    if (value && typeof value === "object") {
+      return `{${Object.entries(value as Record<string, unknown>)
+        .filter(([, entry]) => entry !== undefined)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+        .join(",")}}`;
+    }
+    return JSON.stringify(value);
+  };
+  const canonical = (rows: PlannedEvent[]) =>
+    rows
+      .map(stableJson)
+      .sort();
+  return JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
+}
+
+const scheduleSyncRefresher = createCoalescedRefresher(fetchScheduleRecordsFromServer);
 
 /** A manager registered as available for tours at a property. */
 export type PropertyManagerEntry = { userId: string; label: string; propertyId?: string };
@@ -213,12 +261,100 @@ function scheduleRecordScope(key: string): { managerUserId: string | null; prope
   return { managerUserId: null, propertyId: null, recordType: key };
 }
 
-function writeJson(key: string, value: unknown) {
-  if (!isBrowser()) return;
+function writeJson(key: string, value: unknown): Promise<boolean> {
+  if (!isBrowser()) return Promise.resolve(false);
+  if (key === PLANNED_KEY) return enqueuePlannedJsonWrite(value);
   memoryStore.set(key, value);
   writeSessionJson(key, value);
   emitAdminUi();
-  void writeJsonToServer(key, value).catch(() => undefined);
+  const priorWrite = pendingJsonWrites.get(key);
+  const persist = () => writeJsonToServer(key, value);
+  // Preserve browser mutation order for every client-side record.
+  const write = priorWrite ? priorWrite.then(persist, persist) : persist();
+  pendingJsonWrites.set(key, write);
+  void write.finally(() => {
+    if (pendingJsonWrites.get(key) === write) pendingJsonWrites.delete(key);
+  }).catch(() => undefined);
+  return write;
+}
+
+function plannedRowsFromValue(value: unknown): PlannedEvent[] {
+  return Array.isArray(value) ? value.filter((row): row is PlannedEvent => Boolean(row && typeof row === "object")) : [];
+}
+
+function rollbackPlannedSnapshot() {
+  const rows = clonePlannedRows(plannedScheduleState.observedRows);
+  memoryStore.set(PLANNED_KEY, rows);
+  writeSessionJson(PLANNED_KEY, rows);
+  emitAdminUi();
+}
+
+function markPlannedWriteFailed() {
+  plannedScheduleState.automaticReapplyBlocked = true;
+  plannedScheduleState.serverEpoch += 1;
+  rollbackPlannedSnapshot();
+  // One bounded reconciliation establishes a fresh baseline. Its successful
+  // read never retries the failed write; an explicit user operation is needed.
+  void syncScheduleRecordsFromServer({ force: true });
+}
+
+async function enqueuePlannedJsonWrite(value: unknown): Promise<boolean> {
+  if (!isBrowser()) return false;
+  const next = plannedRowsFromValue(value);
+  const version = ++plannedScheduleState.localMutationVersion;
+  // This is an explicit operation, so it is allowed to clear the automatic
+  // reapply stop left by a prior conflict/unavailable response.
+  plannedScheduleState.automaticReapplyBlocked = false;
+  memoryStore.set(PLANNED_KEY, next);
+  writeSessionJson(PLANNED_KEY, next);
+  emitAdminUi();
+
+  const priorWrite = pendingJsonWrites.get(PLANNED_KEY);
+  const persist = async () => {
+    const expected = plannedScheduleState.observedKnown
+      ? { expectedPayloadKnown: true, expectedPayload: clonePlannedRows(plannedScheduleState.observedRows) }
+      : { expectedPayloadKnown: false };
+    let ok = false;
+    try {
+      ok = await writeJsonToServer(PLANNED_KEY, next, expected);
+    } catch {
+      // Treat a transport failure like an unavailable response: restore the
+      // observed projection and require an explicit retry.
+      markPlannedWriteFailed();
+      return false;
+    }
+    if (ok) {
+      plannedScheduleState.observedKnown = true;
+      plannedScheduleState.observedRows = clonePlannedRows(next);
+      plannedScheduleState.serverEpoch += 1;
+      if (plannedScheduleState.localMutationVersion === version) {
+        memoryStore.set(PLANNED_KEY, clonePlannedRows(next));
+        writeSessionJson(PLANNED_KEY, next);
+      }
+      return true;
+    }
+    markPlannedWriteFailed();
+    return false;
+  };
+  // A failed operation stops the queued follow-ups. They are optimistic
+  // mutations based on a baseline the server rejected and must be retried
+  // explicitly after reconciliation, never replayed automatically.
+  const write = priorWrite ? priorWrite.then((ok) => (ok ? persist() : false), () => false) : persist();
+  pendingJsonWrites.set(PLANNED_KEY, write);
+  void write.finally(() => {
+    if (pendingJsonWrites.get(PLANNED_KEY) === write) pendingJsonWrites.delete(PLANNED_KEY);
+  }).catch(() => undefined);
+  return write;
+}
+
+async function flushJsonWrite(key: string): Promise<boolean> {
+  const write = pendingJsonWrites.get(key);
+  if (!write) return true;
+  try {
+    return await write;
+  } finally {
+    if (pendingJsonWrites.get(key) === write) pendingJsonWrites.delete(key);
+  }
 }
 
 async function persistPublicPartnerInquiry(
@@ -250,9 +386,22 @@ async function persistPublicPartnerInquiry(
   return { ok: false, error };
 }
 
-async function writeJsonToServer(key: string, value: unknown): Promise<boolean> {
+async function writeJsonToServer(
+  key: string,
+  value: unknown,
+  options?: { expectedPayloadKnown?: boolean; expectedPayload?: unknown },
+): Promise<boolean> {
   if (!isBrowser()) return false;
   const scope = scheduleRecordScope(key);
+  const expectedSnapshot =
+    key === PLANNED_KEY
+      ? {
+          expectedPayloadKnown: options?.expectedPayloadKnown === true,
+          ...(options?.expectedPayloadKnown === true
+            ? { expectedPayload: options.expectedPayload }
+            : {}),
+        }
+      : {};
   const res = await fetch("/api/portal-schedule-records", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -267,6 +416,7 @@ async function writeJsonToServer(key: string, value: unknown): Promise<boolean> 
         adminLabel: typeof memoryStore.get(`${key}:adminLabel`) === "string" ? memoryStore.get(`${key}:adminLabel`) : undefined,
         payload: value,
       },
+      ...expectedSnapshot,
     }),
   });
   return res.ok;
@@ -283,6 +433,80 @@ async function deleteJsonRecordFromServer(id: string): Promise<boolean> {
   return res.ok;
 }
 
+async function fetchScheduleRecordsFromServer(): Promise<boolean> {
+  const readEpoch = plannedScheduleState.serverEpoch;
+  try {
+    const res = await fetch("/api/portal-schedule-records", {
+      cache: "no-store",
+      credentials: "include",
+    });
+    notePortalResponse(res.status);
+    if (!res.ok) return false;
+    const body = (await res.json()) as { rows?: unknown[] };
+    if (!Array.isArray(body.rows)) return false;
+    const standaloneInquiries: PartnerInquiry[] = [];
+    const sharedInquiries: PartnerInquiry[] = [];
+    let observedPlannedRows: PlannedEvent[] = [];
+    let plannedRowPresent = false;
+    for (const raw of body.rows) {
+      if (!raw || typeof raw !== "object") continue;
+      const row = raw as { id?: unknown; payload?: unknown; recordType?: unknown };
+      if (typeof row.id !== "string") continue;
+      const payload = Array.isArray(row.payload) || row.payload !== undefined ? row.payload : [];
+      if (row.id === PLANNED_KEY) {
+        plannedRowPresent = true;
+        observedPlannedRows = plannedRowsFromValue(payload);
+      }
+      if (row.id === INQ_KEY && Array.isArray(payload)) {
+        sharedInquiries.push(...payload.filter(
+          (item): item is PartnerInquiry => Boolean(item && typeof item === "object" && !Array.isArray(item)),
+        ));
+      }
+      if (row.recordType === "partner_inquiry_request" && row.payload && typeof row.payload === "object" && !Array.isArray(row.payload)) {
+        standaloneInquiries.push(row.payload as PartnerInquiry);
+      }
+      // Install the shared planned snapshot only after the epoch check below;
+      // an older GET must never overwrite a newer completed local operation.
+      if (row.id !== PLANNED_KEY && row.id !== INQ_KEY) {
+        memoryStore.set(row.id, payload);
+        writeSessionJson(row.id, payload);
+      }
+    }
+
+    // A successful response that omits the singleton is still a real observed
+    // empty baseline. This is what permits the first legitimate non-tour row.
+    if (readEpoch === plannedScheduleState.serverEpoch) {
+      plannedScheduleState.observedKnown = true;
+      plannedScheduleState.observedRows = clonePlannedRows(plannedRowPresent ? observedPlannedRows : []);
+      const pending = pendingJsonWrites.has(PLANNED_KEY);
+      if (!pending || plannedScheduleState.automaticReapplyBlocked) rollbackPlannedSnapshot();
+    }
+
+    // A successful GET is the authoritative visible inquiry snapshot. Replace
+    // the cache even when it is empty so accepted/deleted requests and rows
+    // hidden by a removed grant cannot survive from an earlier response.
+    const inquiriesById = new Map<string, PartnerInquiry>();
+    for (const row of [...sharedInquiries, ...standaloneInquiries]) {
+      if (typeof row.id === "string" && row.id.trim() && !inquiriesById.has(row.id)) {
+        inquiriesById.set(row.id, row);
+      }
+    }
+    const visibleInquiries = [...inquiriesById.values()];
+    memoryStore.set(INQ_KEY, visibleInquiries);
+    writeSessionJson(INQ_KEY, visibleInquiries);
+    writeScheduleSyncedAt(Date.now());
+    emitAdminUi();
+    if (readEpoch === plannedScheduleState.serverEpoch && !plannedScheduleState.automaticReapplyBlocked && !pendingJsonWrites.has(PLANNED_KEY)) {
+      // Reapply only after the observed snapshot is installed. This call is
+      // explicitly marked automatic so a blocked failed operation is not retried.
+      void import("@/lib/manager-tasks").then((mod) => mod.reapplyAllManagerTasksToCalendar({ automatic: true }));
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function syncScheduleRecordsFromServer(opts?: { force?: boolean }): Promise<boolean> {
   if (!isBrowser()) return false;
   if (isDemoModeActive()) return true;
@@ -290,62 +514,10 @@ export async function syncScheduleRecordsFromServer(opts?: { force?: boolean }):
   if (portalSessionEnded()) return false;
   const force = opts?.force === true;
   const lastSyncedAt = readScheduleSyncedAt();
-  if (!force && scheduleSyncPromise) {
-    try {
-      return await scheduleSyncPromise;
-    } catch {
-      return false;
-    }
-  }
   if (!force && lastSyncedAt > 0 && Date.now() - lastSyncedAt < SCHEDULE_SYNC_TTL_MS) {
     return true;
   }
-  try {
-    scheduleSyncPromise = (async () => {
-      try {
-        const res = await fetch("/api/portal-schedule-records", {
-          cache: "no-store",
-          credentials: "include",
-        });
-        notePortalResponse(res.status);
-        if (!res.ok) return false;
-        const body = (await res.json()) as { rows?: unknown[] };
-        if (!Array.isArray(body.rows)) return false;
-        const standaloneInquiries: PartnerInquiry[] = [];
-        for (const raw of body.rows) {
-          if (!raw || typeof raw !== "object") continue;
-          const row = raw as { id?: unknown; payload?: unknown; recordType?: unknown };
-          if (typeof row.id !== "string") continue;
-          if (row.recordType === "partner_inquiry_request" && row.payload && typeof row.payload === "object" && !Array.isArray(row.payload)) {
-            standaloneInquiries.push(row.payload as PartnerInquiry);
-          }
-          memoryStore.set(row.id, Array.isArray(row.payload) || row.payload !== undefined ? row.payload : []);
-          writeSessionJson(row.id, Array.isArray(row.payload) || row.payload !== undefined ? row.payload : []);
-        }
-        if (standaloneInquiries.length > 0) {
-          const existing = readJson<PartnerInquiry[]>(INQ_KEY, []);
-          const byId = new Map(existing.map((row) => [row.id, row]));
-          for (const row of standaloneInquiries) {
-            if (typeof row.id === "string" && !byId.has(row.id)) byId.set(row.id, row);
-          }
-          const merged = [...byId.values()];
-          memoryStore.set(INQ_KEY, merged);
-          writeSessionJson(INQ_KEY, merged);
-        }
-        writeScheduleSyncedAt(Date.now());
-        emitAdminUi();
-        void import("@/lib/manager-tasks").then((mod) => mod.reapplyAllManagerTasksToCalendar());
-        return true;
-      } catch {
-        return false;
-      }
-    })().catch(() => false);
-    return await scheduleSyncPromise;
-  } catch {
-    return false;
-  } finally {
-    scheduleSyncPromise = null;
-  }
+  return scheduleSyncRefresher.run(force);
 }
 
 export function slotKey(dayIndex: number, slotIndex: number) {
@@ -696,13 +868,23 @@ function readPlannedEventsRaw(): PlannedEvent[] {
 }
 
 /** Replace this manager's task blocks on the shared planned-events calendar. */
-export function replaceManagerTaskPlannedEvents(managerUserId: string, taskEvents: PlannedEvent[]): void {
-  if (!isBrowser()) return;
+export function replaceManagerTaskPlannedEvents(
+  managerUserId: string,
+  taskEvents: PlannedEvent[],
+  options?: { automatic?: boolean },
+): Promise<boolean> {
+  if (!isBrowser()) return Promise.resolve(false);
+  if (options?.automatic && plannedScheduleState.automaticReapplyBlocked) return Promise.resolve(false);
+  if (!options?.automatic) plannedScheduleState.automaticReapplyBlocked = false;
   const next = readPlannedEventsRaw().filter(
     (event) => !(event.kind === "task" && event.managerUserId === managerUserId),
   );
   next.push(...taskEvents);
-  writeJson(PLANNED_KEY, next);
+  const current = readPlannedEventsRaw();
+  // A cache hit is not an observed server baseline. Even a byte-for-byte
+  // no-op must make the first write after a cold start wait for a real GET.
+  if (plannedScheduleState.observedKnown && samePlannedRows(current, next)) return Promise.resolve(true);
+  return writeJson(PLANNED_KEY, next);
 }
 
 function appendPlannedEvent(ev: PlannedEvent) {
@@ -721,7 +903,7 @@ export function deletePlannedEvent(id: string): boolean {
 
 export async function deletePlannedEventFromServer(id: string): Promise<boolean> {
   if (!deletePlannedEvent(id)) return false;
-  return writeJsonToServer(PLANNED_KEY, readPlannedEvents());
+  return flushJsonWrite(PLANNED_KEY);
 }
 
 /** Manager-entered tour that skips the public inquiry flow. */
@@ -920,8 +1102,8 @@ export async function acceptPartnerInquiryFromServer(
   }
   if (!row || !acceptPartnerInquiry(id, opts)) return { ok: false, error: "Could not approve request." };
   const [inquiriesOk, plannedOk, eventRecordsOk] = await Promise.all([
-    writeJsonToServer(INQ_KEY, readPartnerInquiries()),
-    writeJsonToServer(PLANNED_KEY, readPlannedEvents()),
+    flushJsonWrite(INQ_KEY),
+    flushJsonWrite(PLANNED_KEY),
     deletePartnerInquiryEventRecords(row),
   ]);
   return inquiriesOk && plannedOk && eventRecordsOk ? { ok: true } : { ok: false, error: "Could not sync approval." };
@@ -1009,7 +1191,7 @@ export async function deletePartnerInquiryFromServer(
   }
   if (!deletePartnerInquiryLocally(row)) return { ok: false };
   const [inquiriesOk, eventRecordsOk] = await Promise.all([
-    writeJsonToServer(INQ_KEY, readPartnerInquiries()),
+    flushJsonWrite(INQ_KEY),
     deletePartnerInquiryEventRecords(row),
   ]);
   return { ok: inquiriesOk && eventRecordsOk };
@@ -1058,7 +1240,12 @@ function buildPartnerInquiry(payload: Omit<PartnerInquiry, "id" | "status" | "cr
 function insertPartnerInquiryLocally(row: PartnerInquiry) {
   const rows = readPartnerInquiries();
   rows.unshift(row);
-  writeJson(INQ_KEY, rows);
+  // Public booking has already been persisted by its dedicated route. Keep
+  // this optimistic mirror memory/session-local so it cannot issue a generic
+  // singleton snapshot write and erase another manager's inquiry.
+  memoryStore.set(INQ_KEY, rows);
+  writeSessionJson(INQ_KEY, rows);
+  emitAdminUi();
 }
 
 function normalizePartnerInquiryWindows(row: Pick<PartnerInquiry, "requestedWindows" | "proposedStart" | "proposedEnd" | "adminUserId" | "adminLabel">): PartnerInquiryWindow[] {

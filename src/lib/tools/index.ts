@@ -127,6 +127,8 @@ import {
   bookTourTool,
   cancelTourTool,
   leasingRequestTourTool,
+  prepareProspectTourConfirmationTool,
+  confirmProspectSmsTourTool,
   listOpenTourSlotsTool,
   rescheduleTourTool,
 } from "./domains/tours";
@@ -351,6 +353,13 @@ export const leasingSmsAgentRegistry = buildRegistry([
   leasingRequestTourTool,
 ]);
 
+/** Durable inbound SMS only. Email and voice deliberately use the base registry. */
+export const leasingSmsAutonomousTourRegistry = buildRegistry([
+  ...[...leasingSmsAgentRegistry.values()].filter((tool) => tool.name !== leasingRequestTourTool.name),
+  prepareProspectTourConfirmationTool,
+  confirmProspectSmsTourTool,
+]);
+
 /**
  * Write tools the prospect-facing leasing SMS agent may run inline.
  *
@@ -364,6 +373,11 @@ export const leasingSmsAgentRegistry = buildRegistry([
 export const LEASING_SMS_INLINE_WRITE_TOOLS: readonly string[] = [
   escalateLeasingToManagerTool.name,
   leasingRequestTourTool.name,
+];
+export const LEASING_SMS_AUTONOMOUS_TOUR_WRITE_TOOLS: readonly string[] = [
+  escalateLeasingToManagerTool.name,
+  prepareProspectTourConfirmationTool.name,
+  confirmProspectSmsTourTool.name,
 ];
 
 /**

@@ -27,7 +27,25 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 function asProperty(value: unknown, id: string): MockProperty | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const property = value as MockProperty;
-  return { ...property, id: property.id?.trim() || id };
+  // `property_data` predates the typed listing writer and can contain partial
+  // legacy/admin JSON. Public catalog callers assume these identity fields are
+  // real strings (sorting calls title.localeCompare, while grouping uses the
+  // building and address). Missing identity is not permission to invent public
+  // copy from a different field, so fail closed and omit the malformed row.
+  if (
+    typeof property.title !== "string" || !property.title.trim()
+    || typeof property.buildingName !== "string" || !property.buildingName.trim()
+    || typeof property.address !== "string" || !property.address.trim()
+  ) {
+    return null;
+  }
+  return {
+    ...property,
+    id: typeof property.id === "string" && property.id.trim() ? property.id.trim() : id,
+    title: property.title.trim(),
+    buildingName: property.buildingName.trim(),
+    address: property.address.trim(),
+  };
 }
 
 // ---------------------------------------------------------------------------

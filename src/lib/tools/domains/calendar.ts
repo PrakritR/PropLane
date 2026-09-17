@@ -9,6 +9,8 @@ import {
   type PlannedEvent,
 } from "@/lib/demo-admin-scheduling";
 import { managerScheduleRecordIdOwnedByUser } from "@/lib/portal-schedule-record-scope";
+import { mutateConfirmedTourSchedule } from "@/lib/tour-schedule-persistence.server";
+import { slotKeyForInstant } from "@/lib/tour-slot-math";
 import {
   INQUIRIES_RECORD_ID,
   PLANNED_RECORD_ID,
@@ -96,39 +98,6 @@ async function readSingletonRecord(
 
 function ownedSingletonItems(items: Record<string, unknown>[], landlordId: string): Record<string, unknown>[] {
   return items.filter((item) => str(item, "managerUserId") === landlordId);
-}
-
-/**
- * Rewrite the planned-events singleton payload. `nextPayload` must be the FULL
- * merged array (other managers' events preserved) — callers only ever append
- * to or filter one owned item out of the current array, never rebuild it.
- */
-async function writePlannedEventsPayload(
-  ctx: AgentContext,
-  currentRowData: Record<string, unknown> | null,
-  nextPayload: unknown[],
-  window?: { startsAt: string; endsAt: string },
-): Promise<{ error: string | null }> {
-  const { error } = await ctx.db.from("portal_schedule_records").upsert(
-    {
-      id: PLANNED_RECORD_ID,
-      manager_user_id: null,
-      property_id: null,
-      record_type: PLANNED_RECORD_ID,
-      ...(window ? { starts_at: window.startsAt, ends_at: window.endsAt } : {}),
-      row_data: {
-        ...(currentRowData ?? {}),
-        id: PLANNED_RECORD_ID,
-        recordType: PLANNED_RECORD_ID,
-        managerUserId: null,
-        propertyId: null,
-        payload: nextPayload,
-      },
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "id" },
-  );
-  return { error: error ? String(error.message ?? "write failed") : null };
 }
 
 export const listCalendarEventsTool = defineTool({
@@ -604,9 +573,7 @@ export const createCalendarEventTool = defineWriteTool({
       throw new Error("Could not record the action; no event was created.");
     }
 
-    // Read-merge-write the WHOLE singleton array: other managers' events are
-    // preserved untouched, we only append one owned event.
-    const { rowData, items } = await readSingletonRecord(ctx, PLANNED_RECORD_ID);
+    // The RPC serializes generic calendar appends with tour booking.
     const event: PlannedEvent = {
       id: crypto.randomUUID(),
       title: input.title.trim(),
@@ -624,12 +591,15 @@ export const createCalendarEventTool = defineWriteTool({
       // still be booked over it from the public page, which is exactly the
       // double-book this whole subsystem exists to prevent. Default stays off:
       // an ordinary meeting should not silently close a booking window.
-      ...(input.blocksTours === true ? { kind: "tour" as const } : {}),
+      ...(input.blocksTours === true
+        ? { kind: "tour" as const, slotKey: slotKeyForInstant(input.startsAtIso) ?? undefined }
+        : {}),
     };
-    const { error: writeError } = await writePlannedEventsPayload(ctx, rowData, [...items, event], {
-      startsAt: input.startsAtIso,
-      endsAt: input.endsAtIso,
+    const atomic = await mutateConfirmedTourSchedule(ctx.db, {
+      operation: input.blocksTours === true ? "append" : "append_event",
+      event,
     });
+    const writeError = atomic.ok ? null : atomic.reason;
     if (writeError) {
       await updateAuditResult(ctx, dedupeKey, { error: "write_failed" }, { clearDedupeKey: true });
       throw new Error(writeError);
@@ -686,7 +656,7 @@ export const cancelCalendarEventTool = defineWriteTool({
     const eventId = input.eventId.trim();
     // Re-resolve against the live singleton — never trust the stored input as
     // ownership proof.
-    const { rowData, items } = await readSingletonRecord(ctx, PLANNED_RECORD_ID);
+    const { items } = await readSingletonRecord(ctx, PLANNED_RECORD_ID);
     const event = findOwnedPlannedEvent(items, ctx.landlordId, eventId);
     if (!event) throw new Error("No matching calendar event for this landlord — it may already be cancelled.");
 
@@ -702,10 +672,8 @@ export const cancelCalendarEventTool = defineWriteTool({
       throw new Error("Could not record the action; the event was not cancelled.");
     }
 
-    // Filter out only the verified owned event; every other manager's events
-    // (and this landlord's other events) pass through untouched.
-    const nextPayload = items.filter((item) => str(item, "id") !== eventId);
-    const { error: writeError } = await writePlannedEventsPayload(ctx, rowData, nextPayload);
+    const atomic = await mutateConfirmedTourSchedule(ctx.db, { operation: "delete", event });
+    const writeError = atomic.ok ? null : atomic.reason;
     if (writeError) {
       await updateAuditResult(ctx, dedupeKey, { error: "write_failed" }, { clearDedupeKey: true });
       throw new Error(writeError);

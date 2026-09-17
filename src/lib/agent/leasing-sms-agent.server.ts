@@ -15,13 +15,18 @@ import { leasingSmsSystemPromptForWorkNumberOwner } from "@/lib/agent/leasing-sm
 import { PROMPT_IDS, resolvePromptMeta } from "@/lib/agent/prompt-metadata";
 import { traceAgentTurn, traceProspectShadowComparison, type TraceActor } from "@/lib/observability/langfuse";
 import { buildLeasingSmsAgentContext } from "@/lib/tools/context";
-import { leasingSmsAgentRegistry, LEASING_SMS_INLINE_WRITE_TOOLS } from "@/lib/tools";
+import { leasingSmsAgentRegistry, leasingSmsAutonomousTourRegistry, LEASING_SMS_AUTONOMOUS_TOUR_WRITE_TOOLS, LEASING_SMS_INLINE_WRITE_TOOLS } from "@/lib/tools";
 import { toAnthropicTools } from "@/lib/tools/registry";
 import { isProspectGptShadowEnabled, type ProspectShadowBurst } from "@/lib/agent/prospect-gpt-shadow";
 import { projectProspectShadowPrimaryEvidence, prospectRepetitionEvidence } from "@/lib/agent/prospect-shadow-comparison";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
 import { buildConversationKey } from "@/lib/sms-conversation-identity";
 import { normalizeE164 } from "@/lib/twilio";
+import {
+  loadProspectTourSchedulingContext,
+  persistProspectTourSchedulingContext,
+  schedulingContextPrompt,
+} from "@/lib/prospect-tour-scheduling-context.server";
 
 type Db = SupabaseClient;
 
@@ -377,6 +382,9 @@ export async function runLeasingSmsAgentTurn(
       crossCatalog: args.crossCatalog === true,
       channel,
       recentDeliveredReplies,
+      prospectBurst: args.prospectBurst
+        ? { burstId: args.prospectBurst.burstId, revision: args.prospectBurst.revision, workerId: args.prospectBurst.workerId, claimedSourceIds: args.prospectBurst.claimedSourceIds ?? [] }
+        : undefined,
     },
   });
 
@@ -392,6 +400,14 @@ export async function runLeasingSmsAgentTurn(
   const confirmedToolContext = args.prospectBurst
     ? await loadConfirmedToolContext(db, args.prospectBurst.burstId)
     : [];
+  const conversationKey = buildConversationKey({
+    ownerManagerUserId: session.landlord_id,
+    role: "prospect",
+    counterpartyPhone: prospectPhone,
+  });
+  const durableSchedulingContext = args.prospectBurst
+    ? await loadProspectTourSchedulingContext(db, { managerUserId: session.landlord_id, conversationKey })
+    : null;
   try {
     // `session.landlord_id` is the manager who owns the sending work number;
     // it is resolved before this function, never supplied by a prospect.
@@ -404,6 +420,10 @@ export async function runLeasingSmsAgentTurn(
       system += `\n\nConfirmed recent delivered SMS replies eligible for suppress_redundant_reply (copy only these ids):\n${recentDeliveredReplies.map((reply) => `- ${reply.messageId} at ${reply.submittedAt}: ${reply.text}`).join("\n")}`;
     }
     if (args.prospectBurst) {
+      const persistedSchedulingPrompt = schedulingContextPrompt(durableSchedulingContext);
+      if (persistedSchedulingPrompt) {
+        system += `\n\nDurable tour-scheduling context from prior submitted turns: ${persistedSchedulingPrompt}`;
+      }
       if (confirmedToolContext.length > 0) {
         system += `\n\nSuccessful tool facts from earlier submitted replies are authoritative conversation context. Reuse canonical listing/property/room ids for follow-up requests unless the prospect explicitly changes the property. Availability facts are timestamped and must be rechecked with list_open_tour_slots before quoting or requesting a time:\n${JSON.stringify(confirmedToolContext)}`;
       }
@@ -452,13 +472,13 @@ export async function runLeasingSmsAgentTurn(
         };
         const turn = await runAgentTurn({
           ctx,
-          registry: leasingSmsAgentRegistry,
+          registry: args.prospectBurst && channel === "sms" ? leasingSmsAutonomousTourRegistry : leasingSmsAgentRegistry,
           messages: history,
           observer: forwardingObserver,
           system,
           model: { model: TIER_MODELS.standard, tier: "standard" },
           readOnly: true,
-          allowWriteTools: LEASING_SMS_INLINE_WRITE_TOOLS,
+          allowWriteTools: args.prospectBurst && channel === "sms" ? LEASING_SMS_AUTONOMOUS_TOUR_WRITE_TOOLS : LEASING_SMS_INLINE_WRITE_TOOLS,
           suppressionTools: ["suppress_redundant_reply"],
           authorizeInlineWrite: args.prospectBurst
             ? async (call) => {
@@ -531,6 +551,24 @@ export async function runLeasingSmsAgentTurn(
   const reply = quietHandoff ? "" : result!.reply.trim().slice(0, maxReplyChars);
   if (!reply && !quietHandoff) return null;
   const toolTrace = result?.toolTrace ?? observedToolTrace;
+
+  if (args.prospectBurst) {
+    // This is deliberately separate from the 24-message transcript: canonical
+    // property/contact/constraint facts survive history truncation. A failed
+    // context write never blocks a valid prospect reply or booking boundary.
+    await persistProspectTourSchedulingContext(db, {
+      managerUserId: session.landlord_id,
+      conversationKey,
+      trustedPhoneE164: prospectPhone,
+      trustedInboundText: text,
+      burst: {
+        id: args.prospectBurst.burstId,
+        revision: args.prospectBurst.revision,
+        workerId: args.prospectBurst.workerId,
+      },
+      evidence: (result?.toolEvidence ?? []).filter((item) => item.tool !== "suppress_redundant_reply"),
+    }).catch((error) => console.error("prospect tour scheduling context persistence failed", error));
+  }
 
   // A queued candidate is not conversation history. Durable SMS history comes
   // from manager_sms_messages, which is appended only after provider accepts
@@ -652,6 +690,7 @@ export async function deliverLeasingSmsReply(args: {
   inboundMessageSid?: string | null;
   traceId?: string | null;
   prospectBurst?: { burstId: string; revision: number; workerId: string; candidateContext?: unknown; candidateShadowSnapshot?: unknown };
+  prospectTourBookingConfirmationId?: string | null;
 }): Promise<import("@/lib/proplane-sms-transport.server").PropLaneSmsResult> {
   return sendFromManagerWorkNumber({
     managerUserId: args.landlordId,
@@ -670,5 +709,6 @@ export async function deliverLeasingSmsReply(args: {
     actorUserId: args.landlordId,
     traceId: args.traceId,
     prospectBurst: args.prospectBurst,
+    prospectTourBookingConfirmationId: args.prospectTourBookingConfirmationId,
   });
 }

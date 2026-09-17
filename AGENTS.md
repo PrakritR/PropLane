@@ -65,6 +65,8 @@ or `docs/agents/*`. Do not invent a second source of truth for the same concern.
   agents never merge to protected branches. Agents working for Akhil may merge
   only his keeper → `main` → `staging` → `production`, and only after his
   explicit ship request under `docs/agents/AGENTS-akhil.md`.
+  Akhil's new exception through 2026-09-23T21:08:02Z waives staging QA only,
+  not the branch ladder or other gates: `docs/plans/staging-qa-exception-20260916.html`.
 - **Never fabricate a listing photo.** Empty `imageUrl` renders `NoImagePlaceholder`. Stock photos only on `/demo`.
 - **User-facing copy says "service", never "work order".** Schema names stay. `tests/unit/services-vocabulary.test.ts`.
 - **No agent's branch name belongs in this file.** Keeper names live in local instructions only.

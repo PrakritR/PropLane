@@ -386,26 +386,49 @@ function taskToPlannedEvent(task: ManagerTask, managerUserId: string): PlannedEv
   };
 }
 
-function syncLocalTasksToPlannedEvents(managerUserId: string, tasks: ManagerTask[]) {
-  if (!isBrowser()) return;
+function syncLocalTasksToPlannedEvents(
+  managerUserId: string,
+  tasks: ManagerTask[],
+  options?: { automatic?: boolean },
+): Promise<boolean> {
+  if (!isBrowser()) return Promise.resolve(false);
   const events = tasks
     .filter((task) => !task.completed)
     .map((task) => taskToPlannedEvent(task, managerUserId))
     .filter((event): event is PlannedEvent => Boolean(event));
-  replaceManagerTaskPlannedEvents(managerUserId, events);
+  return replaceManagerTaskPlannedEvents(managerUserId, events, options);
+}
+
+async function syncTasksOrThrow(managerUserId: string, tasks: ManagerTask[]): Promise<void> {
+  // Demo data is intentionally local-only. Keep its existing optimistic
+  // calendar behavior and do not turn an unavailable mirror into a failed
+  // demo task form submission.
+  if (isDemoModeActive()) {
+    void syncLocalTasksToPlannedEvents(managerUserId, tasks);
+    return;
+  }
+  const synced = await syncLocalTasksToPlannedEvents(managerUserId, tasks);
+  if (!synced) {
+    // The task row itself is already durable; notify the task surfaces before
+    // surfacing the calendar mirror failure so the saved row is not hidden.
+    notifyManagerTasksChanged();
+    throw new Error("Task saved, but the calendar could not be updated. Retry the calendar update.");
+  }
 }
 
 /** Re-merge this manager's task blocks after a server calendar sync overwrites planned events. */
-export function reapplyManagerTasksToCalendar(managerUserId: string): void {
-  syncLocalTasksToPlannedEvents(managerUserId, readLocalTasks(managerUserId));
+export function reapplyManagerTasksToCalendar(managerUserId: string): Promise<boolean> {
+  return syncLocalTasksToPlannedEvents(managerUserId, readLocalTasks(managerUserId));
 }
 
 /** Re-merge every cached manager task list after schedule sync. */
-export function reapplyAllManagerTasksToCalendar(): void {
-  if (!isBrowser()) return;
-  for (const [managerUserId, tasks] of localTasks) {
-    syncLocalTasksToPlannedEvents(managerUserId, tasks);
-  }
+export async function reapplyAllManagerTasksToCalendar(options?: { automatic?: boolean }): Promise<boolean> {
+  if (!isBrowser()) return false;
+  const writes = [...localTasks].map(([managerUserId, tasks]) =>
+    syncLocalTasksToPlannedEvents(managerUserId, tasks, options),
+  );
+  const results = await Promise.all(writes);
+  return results.every(Boolean);
 }
 
 export function notifyManagerTasksChanged() {
@@ -503,7 +526,7 @@ export async function createManagerTask(
   if (isDemoModeActive()) {
     const tasks = [...readLocalTasks(managerUserId), task];
     writeLocalTasks(managerUserId, tasks);
-    syncLocalTasksToPlannedEvents(managerUserId, tasks);
+    await syncTasksOrThrow(managerUserId, tasks);
     notifyManagerTasksChanged();
     return task;
   }
@@ -515,7 +538,7 @@ export async function createManagerTask(
   if (!saved) throw new Error("Could not create task.");
   const tasks = [...readLocalTasks(managerUserId).filter((row) => row.id !== saved.id), saved];
   writeLocalTasks(managerUserId, tasks);
-  syncLocalTasksToPlannedEvents(managerUserId, tasks);
+  await syncTasksOrThrow(managerUserId, tasks);
   notifyManagerTasksChanged();
   return saved;
 }
@@ -594,7 +617,7 @@ export async function updateManagerTask(
   if (isDemoModeActive()) {
     const tasks = readLocalTasks(managerUserId).map((row) => (row.id === taskId ? next : row));
     writeLocalTasks(managerUserId, tasks);
-    syncLocalTasksToPlannedEvents(managerUserId, tasks);
+    await syncTasksOrThrow(managerUserId, tasks);
     notifyManagerTasksChanged();
     return next;
   }
@@ -610,7 +633,7 @@ export async function updateManagerTask(
     ...(spawned && !readLocalTasks(managerUserId).some((row) => row.id === spawned.id) ? [spawned] : []),
   ];
   writeLocalTasks(managerUserId, tasks);
-  syncLocalTasksToPlannedEvents(managerUserId, tasks);
+  await syncTasksOrThrow(managerUserId, tasks);
   notifyManagerTasksChanged();
   return saved;
 }
@@ -656,7 +679,7 @@ export async function deleteManagerTask(managerUserId: string, taskId: string): 
   if (isDemoModeActive()) {
     const tasks = readLocalTasks(managerUserId).filter((row) => row.id !== taskId);
     writeLocalTasks(managerUserId, tasks);
-    syncLocalTasksToPlannedEvents(managerUserId, tasks);
+    await syncTasksOrThrow(managerUserId, tasks);
     notifyManagerTasksChanged();
     return;
   }
@@ -671,6 +694,6 @@ export async function deleteManagerTask(managerUserId: string, taskId: string): 
   if (!res.ok) throw new Error(data.error ?? "Could not delete task.");
   const tasks = readLocalTasks(managerUserId).filter((row) => row.id !== taskId);
   writeLocalTasks(managerUserId, tasks);
-  syncLocalTasksToPlannedEvents(managerUserId, tasks);
+  await syncTasksOrThrow(managerUserId, tasks);
   notifyManagerTasksChanged();
 }

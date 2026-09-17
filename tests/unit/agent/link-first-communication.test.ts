@@ -175,8 +175,9 @@ describe("link-first prompt contracts", () => {
     expect(p).toMatch(/Do not collect application details by text/);
     // Tours go to the tour page; texting a booking is the exception, not the default.
     expect(p).toMatch(/send the tourUrl and tell them to pick a time/);
-    expect(p).toMatch(/Do not list times, collect their name, email, or phone, or book by text/);
-    expect(p).toMatch(/only when the prospect says they cannot open links or explicitly asks you to book by text/);
+    expect(p).toMatch(/text scheduling only when the prospect says they cannot use the link or explicitly asks to finish by text/);
+    expect(p).toMatch(/offer two or three exact published choices/);
+    expect(p).toMatch(/Only a later standalone affirmative/);
     // The old text-first booking instruction is gone.
     expect(p).not.toMatch(/book it by text rather than sending them away/);
     // An unanswerable house question still gets the links, never a bare "couldn't find it".
