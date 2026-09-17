@@ -10,47 +10,45 @@ function read(rel: string): string {
 
 describe("portal invite choice step", () => {
   const CHOICE = read("src/components/portal/portal-invite-choice-step.tsx");
+  const PATHS = read("src/components/portal/portal-invite-paths.tsx");
   const PANEL = read("src/components/portal/pro-account-links-panel.tsx");
   const VENDOR = read("src/components/portal/pro-vendor-form-modal.tsx");
   const MODAL = read("src/components/portal/manager-invite-link-modal.tsx");
 
-  it("surfaces invite-by-link as the recommended primary path", () => {
+  it("keeps the legacy two-card chooser as an unused primitive", () => {
     expect(CHOICE).toContain("Recommended");
     expect(CHOICE).toContain("Create Invite Link");
   });
 
-  it("defaults manager invites to the PropLane ID path in the add dialog", () => {
-    expect(PANEL).toContain("PortalInviteChoiceStep");
-    expect(PANEL).toContain('secondaryTitle="Link with PropLane ID"');
+  it("defaults manager invites to three paths, with properties always on the first step", () => {
+    expect(PANEL).toContain("PortalInvitePaths");
+    expect(PANEL).not.toContain("PortalInviteChoiceStep");
     expect(PANEL).toContain('data-attr="co-manager-proplane-id-input"');
     expect(PANEL).toContain('data-attr="co-manager-link-continue"');
     expect(PANEL).not.toContain('data-attr="co-manager-copy-open-invite"');
     expect(PANEL).not.toContain('data-attr="co-manager-use-proplane-id"');
-    expect(PANEL).not.toContain('useState<"link" | "axis">("link")');
   });
 
-  it("keeps vendor email and shareable links available without a continuation step", () => {
-    expect(VENDOR).toContain("ManagerInviteLinkModal");
-    expect(VENDOR).toContain('kind="vendor"');
-    expect(VENDOR).toContain('data-attr="vendor-create-invite-link"');
-    expect(VENDOR).toContain("Invitation message");
-    expect(VENDOR).not.toContain('data-attr="vendor-form-continue"');
-    expect(VENDOR).not.toContain('data-attr="vendor-form-back"');
-    expect(VENDOR).toContain('"vendor-form-send-invite"');
-    expect(VENDOR).toContain('"vendor-form-add-only"');
+  it("sends vendor invites through Continue into New message", () => {
+    expect(VENDOR).toContain("PortalInvitePaths");
+    expect(VENDOR).toContain('data-attr="vendor-form-continue"');
+    expect(VENDOR).not.toContain("Invitation message");
+    expect(VENDOR).toContain("formatInviteMessageBody");
   });
 
   it("draws no invite-link card when the surface passes no link handler", () => {
     expect(CHOICE).toContain("if (!onCreateInviteLink)");
   });
 
-  // Co-manager and vendor share one modal; `kind` picks properties vs directory.
   it("mints co-manager or vendor links from the same modal", () => {
     expect(MODAL).toContain('kind?: "manager" | "vendor"');
     expect(MODAL).toContain("isVendor");
-    // Vendor links carry the chosen properties too (they become the directory
-    // row's assigned houses); only the module permissions stay manager-only.
     expect(MODAL).toContain("assignedPropertyIds: selectedPropIds");
     expect(MODAL).toContain("propertyPermissions: isVendor ? {} : permissions");
+  });
+
+  it("uses the shared three-path chrome for workspace and vendor", () => {
+    expect(PATHS).toContain('data-attr="portal-invite-paths"');
+    expect(VENDOR).toContain("PortalInvitePaths");
   });
 });

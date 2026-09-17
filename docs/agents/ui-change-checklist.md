@@ -19,6 +19,7 @@ re-reading solved work or "fixing" something fixed months ago.
 | 3 | `docs/design.md` | The visual system — colour, type, spacing, Blue Steel |
 | 4 | `docs/website-component-standard.md` | Marketing-site counterpart to `design.md` |
 | 5 | `AGENTS.md` → Portal UI system | `PortalRecordListSurface` — every list tab copies Properties |
+| 6 | `docs/agents/send-message-compose.md` | Any send copies New message; body is auto-formatted from every collected fact |
 
 ### Tier 2 — point-in-time, never a rule
 

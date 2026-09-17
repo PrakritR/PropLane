@@ -393,6 +393,7 @@ answer. Fail closed to `true`.
 | Inbound support email | `docs/agents/inbound-email-inbox.md` | Receive-only into admin inbox; fail closed on Vercel |
 | MCP / public API | `docs/agents/mcp-api.md` | API key is a credential, not standing authorization |
 | Communication | `docs/agents/communication-inbox.md` | One inbox; authorize then append; `formatInboxStamp`; never `inline` |
+| Send compose | `docs/agents/send-message-compose.md` | New message is the one send UI; body auto-formatted from every collected fact |
 | Plan entitlements | `docs/agents/plan-entitlements.md` | `resolveEffectiveManagerSkuTier` is the only plan a quota may read |
 | Property ownership | `docs/agents/property-ownership.md` | `POST /api/property-records` never moves an owned row from the body |
 | Property drafts | `docs/agents/property-drafts.md` | Draft is `status: "draft"` on the same record; closing the wizard saves |
