@@ -826,7 +826,7 @@ export function ShareLeadLinkModal({
         defaultViaEmail={viaEmail}
         defaultViaSms={viaSms}
         editableSubject={viaEmail}
-        footerNote="Sent via PropLane when email and SMS delivery are configured."
+        footerNote=""
         confirmLabel={kind === "listing" ? "Send listing" : kind === "apply" ? "Send application" : "Send tour link"}
         confirmBusy={sendBusy}
         confirmBusyLabel="Sending…"

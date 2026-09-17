@@ -1491,7 +1491,6 @@ export function ManagerWorkOrdersPanel({
                         Messages (SMS)
                       </label>
                     </div>
-                    <p className="text-xs text-muted">Always saved to PropLane inbox. SMS uses your work number.</p>
                   </>
                 ) : null}
               </div>

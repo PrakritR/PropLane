@@ -13,6 +13,7 @@ import {
   buildVendorInviteMailtoHref,
   vendorInviteSubject,
 } from "@/lib/vendor-invite-email";
+import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
 
 /**
  * 72 hours, not a week.
@@ -127,7 +128,7 @@ export async function sendVendorInvite(
     };
   }
 
-  const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
+  const from = await managerOutboundFromHeader(db, opts.managerUserId);
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },

@@ -18,6 +18,7 @@ import { isAdminUser } from "@/lib/auth/admin-preview";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { track } from "@/lib/analytics/posthog";
 import { isLegitimateEmail } from "@/lib/email-address";
+import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
 
 export const runtime = "nodejs";
 
@@ -156,7 +157,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "Email delivery is not configured.", mailtoHref }, { status: 503 });
     }
 
-    const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
+    const from = await managerOutboundFromHeader(svc, user.id);
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
