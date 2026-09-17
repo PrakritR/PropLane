@@ -63,6 +63,14 @@ describe("userHoldsAdminRole", () => {
     expect(await userHoldsAdminRole(db, "u3")).toBe(true);
   });
 
+  it("does not grant admin to Prakrit's Gmail via the primary-email fallback", async () => {
+    const db = makeDb({
+      profile_roles: [{ user_id: "prakrit", role: "manager" }],
+      profiles: [{ id: "prakrit", email: "prakritramachandran@gmail.com", role: "manager" }],
+    });
+    expect(await userHoldsAdminRole(db, "prakrit")).toBe(false);
+  });
+
   it("rejects non-admin accounts", async () => {
     const db = makeDb({
       profile_roles: [{ user_id: "u4", role: "manager" }],
