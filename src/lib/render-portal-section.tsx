@@ -31,7 +31,6 @@ import { ResidentProfileSection } from "@/components/portal/resident-profile-sec
 import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-panel";
 import { VendorDashboard } from "@/components/portal/vendor-dashboard";
 import { VendorWorkOrdersPanel } from "@/components/portal/vendor-work-orders-panel";
-import { VendorTaskList } from "@/components/portal/vendor-task-list";
 import { VendorFinancesPanel } from "@/components/portal/vendor-finances-panel";
 import { VendorDocumentsPanel } from "@/components/portal/vendor-documents-panel";
 import { VendorSettingsPanel } from "@/components/portal/vendor-settings-panel";
@@ -340,6 +339,10 @@ export async function renderPortalSection(
 
   if (kind === "vendor" && section === "payments") {
     redirect(`${def.basePath}/financials/payouts`);
+  }
+
+  if (kind === "vendor" && section === "tasks") {
+    redirect(`${def.basePath}/work-orders/pending`);
   }
 
   const residentCtx = kind === "resident" ? await getEffectiveSessionForPortal("resident") : null;
@@ -1515,27 +1518,21 @@ export async function renderPortalSection(
     return <VendorWorkOrdersPanel tabId={parseVendorWorkOrderListTab(raw)} />;
   }
 
-  if (kind === "vendor" && section === "tasks") {
-    const { VENDOR_TASK_LIST_TABS, parseVendorTaskListTab } = await import(
-      "@/lib/portal-detail-routes"
-    );
-    const taskTab = tabParts?.[0];
-    if (taskTab === "in-progress") {
-      redirect(`${def.basePath}/tasks`);
-    }
-    if (taskTab && !(VENDOR_TASK_LIST_TABS as readonly string[]).includes(taskTab)) {
-      redirect(`${def.basePath}/tasks`);
-    }
-    if (tabParts && tabParts.length > 1) notFound();
-    return (
-      <VendorTaskList tabId={parseVendorTaskListTab(taskTab)} basePath={def.basePath} />
-    );
-  }
-
   if (kind === "vendor" && section === "calendar") {
-    if (tabParts?.length) notFound();
+    const {
+      parseVendorCalendarViewTab,
+      VENDOR_CALENDAR_VIEW_TABS,
+      vendorCalendarViewHref,
+      DEFAULT_VENDOR_CALENDAR_VIEW,
+    } = await import("@/lib/portal-detail-routes");
+    if (tabParts && tabParts.length > 1) notFound();
+    const raw = tabParts?.[0];
+    if (raw === "tasks" || raw === "tours") {
+      redirect(vendorCalendarViewHref(def.basePath, DEFAULT_VENDOR_CALENDAR_VIEW));
+    }
+    if (raw && !(VENDOR_CALENDAR_VIEW_TABS as readonly string[]).includes(raw)) notFound();
     const PortalCalendar = await loadPortalCalendar();
-    return <PortalCalendar portal="vendor" />;
+    return <PortalCalendar portal="vendor" vendorCalendarView={parseVendorCalendarViewTab(raw)} />;
   }
 
   if (kind === "vendor" && section === "communication") {

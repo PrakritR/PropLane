@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
 import {
   PreviewPanel,
@@ -9,9 +9,7 @@ import {
   WizardSelect,
   WIZARD_LABEL_CLASS,
 } from "@/components/portal/add-workspace/parts";
-import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
-import { Modal } from "@/components/ui/modal";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { parseMoneyAmount } from "@/lib/household-charges";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -19,6 +17,8 @@ import { upsertWorkOrderBid } from "@/lib/work-order-bids-storage";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 
 export type VendorAddDoor = "quote" | "invoice" | "visit";
+
+type LinkedManagerOption = { managerUserId: string; label: string };
 
 function propertyLabel(row: DemoManagerWorkOrderRow): string {
   const unit = row.unit?.trim();
@@ -41,33 +41,6 @@ function fromDatetimeLocalValue(s: string): string | null {
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return null;
   return d.toISOString();
-}
-
-export function VendorAddChooser({
-  open,
-  onPick,
-  onClose,
-}: {
-  open: boolean;
-  onPick: (door: VendorAddDoor) => void;
-  onClose: () => void;
-}) {
-  if (!open) return null;
-  return (
-    <Modal open={open} onClose={onClose} title="Add" dataAttr="vendor-add-chooser">
-      <div className="grid gap-2 p-1">
-        <Button type="button" variant="outline" data-attr="vendor-add-quote" onClick={() => onPick("quote")}>
-          Add quote
-        </Button>
-        <Button type="button" variant="outline" data-attr="vendor-add-invoice" onClick={() => onPick("invoice")}>
-          Submit invoice
-        </Button>
-        <Button type="button" variant="outline" data-attr="vendor-add-visit" onClick={() => onPick("visit")}>
-          Log visit
-        </Button>
-      </div>
-    </Modal>
-  );
 }
 
 export function VendorQuoteWizard({
@@ -93,27 +66,68 @@ export function VendorQuoteWizard({
   const [note, setNote] = useState("");
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [busy, setBusy] = useState(false);
+  const [linkedManagers, setLinkedManagers] = useState<LinkedManagerOption[]>([]);
+  const [managerUserId, setManagerUserId] = useState("");
+  const [billError, setBillError] = useState<string | null>(null);
 
   const job = jobs.find((row) => row.id === jobId) ?? null;
+  const showManagerPicker = door === "invoice" && linkedManagers.length > 1;
+
+  useEffect(() => {
+    if (!open || door !== "invoice") return;
+    let cancelled = false;
+    void fetch("/api/vendor/invoices", { credentials: "include" })
+      .then(async (res) => {
+        if (!res.ok || cancelled) return;
+        const body = (await res.json()) as {
+          linkedManagers?: LinkedManagerOption[];
+          managers?: { managerUserId: string; name: string }[];
+        };
+        const next =
+          body.linkedManagers ??
+          (body.managers ?? []).map((manager) => ({
+            managerUserId: manager.managerUserId,
+            label: manager.name,
+          }));
+        if (!cancelled) setLinkedManagers(next);
+      })
+      .catch(() => {
+        if (!cancelled) setLinkedManagers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [door, open]);
+
+  useEffect(() => {
+    if (linkedManagers.length === 1) {
+      setManagerUserId(linkedManagers[0]!.managerUserId);
+      return;
+    }
+    const ownerId = job?.managerUserId?.trim();
+    if (ownerId && linkedManagers.some((manager) => manager.managerUserId === ownerId)) {
+      setManagerUserId(ownerId);
+    }
+  }, [job, linkedManagers]);
 
   const quoteSteps = useMemo((): AddWorkspaceStep[] => {
     if (door === "invoice") {
       return [
-        { id: "job", label: "Job", incomplete: !job },
+        { id: "job", label: "Service", incomplete: false },
         { id: "quote", label: "Invoice", incomplete: !labor.trim() },
         { id: "review", label: "Review" },
       ];
     }
     if (door === "visit") {
       return [
-        { id: "job", label: "Job", incomplete: !job },
+        { id: "job", label: "Service", incomplete: !job },
         { id: "house", label: "House", incomplete: !job },
         { id: "when", label: "When", incomplete: !when.trim() },
         { id: "review", label: "Review" },
       ];
     }
     return [
-      { id: "job", label: "Job", incomplete: !job },
+      { id: "job", label: "Service", incomplete: !job },
       { id: "house", label: "House", incomplete: !job },
       { id: "when", label: "When", incomplete: !when.trim() },
       { id: "quote", label: "Quote", incomplete: !labor.trim() },
@@ -122,7 +136,7 @@ export function VendorQuoteWizard({
   }, [door, job, labor, when]);
 
   const currentId = quoteSteps[step]?.id ?? "job";
-  const title = door === "invoice" ? "Submit invoice" : door === "visit" ? "Log visit" : "Add quote";
+  const title = door === "invoice" ? "Request payment" : door === "visit" ? "Log visit" : "Add quote";
 
   if (!open) return null;
 
@@ -134,24 +148,34 @@ export function VendorQuoteWizard({
     setMaterials("");
     setNote("");
     setInvoiceNumber("");
+    setManagerUserId("");
+    setBillError(null);
     onClose();
   };
 
   const finish = async () => {
-    if (!job) {
-      showToast("Pick a job.");
+    if (door !== "invoice" && !job) {
+      showToast("Pick a service.");
       return;
     }
     setBusy(true);
+    setBillError(null);
     try {
       if (door === "invoice") {
+        if (showManagerPicker && !managerUserId.trim()) {
+          setBillError("Choose which manager to bill.");
+          const invoiceStep = quoteSteps.findIndex((step) => step.id === "quote");
+          if (invoiceStep >= 0) setStep(invoiceStep);
+          setBusy(false);
+          return;
+        }
         const amountCents = Math.round(parseMoneyAmount(labor) * 100);
         if (!Number.isFinite(amountCents) || amountCents <= 0) {
           showToast("Enter a valid amount.");
           return;
         }
         if (demo) {
-          showToast("Invoice submitted.");
+          showToast("Payment requested.");
           onSubmitted?.();
           resetAndClose();
           return;
@@ -162,14 +186,15 @@ export function VendorQuoteWizard({
           credentials: "include",
           body: JSON.stringify({
             invoiceNumber: invoiceNumber.trim() || undefined,
-            workOrderId: job.id,
+            workOrderId: job?.id,
+            managerUserId: managerUserId.trim() || undefined,
             memo: note.trim() || undefined,
-            lineItems: [{ description: job.title, quantity: 1, unitAmountCents: amountCents }],
+            lineItems: [{ description: job?.title || "Service", quantity: 1, unitAmountCents: amountCents }],
           }),
         });
         const body = (await res.json()) as { error?: string };
         if (!res.ok) throw new Error(body.error ?? "Could not submit invoice.");
-        showToast("Invoice submitted.");
+        showToast("Payment requested.");
         onSubmitted?.();
         resetAndClose();
         return;
@@ -281,37 +306,42 @@ export function VendorQuoteWizard({
       dirty={Boolean(jobId || when || labor || materials || note)}
       discardTitle="Discard this?"
       discardBody="Nothing has been saved yet. Close and lose what you typed?"
-      assistantContext="Helping a vendor quote or log a job visit."
+      assistantContext="Helping a vendor quote or log a service visit."
       assistantScopeKey={`vendor-add-${door}`}
-      lastLabel={door === "invoice" ? "Submit invoice" : door === "visit" ? "Log visit" : "Submit quote"}
-      lastDisabled={!job}
-      nextDisabled={currentId === "job" && !job}
+      lastLabel={door === "invoice" ? "Request payment" : door === "visit" ? "Log visit" : "Submit quote"}
+      lastDisabled={door === "invoice" ? !labor.trim() : !job}
+      nextDisabled={door !== "invoice" && currentId === "job" && !job}
       busy={busy}
       onFinish={() => void finish()}
       dataAttrPrefix="vendor-quote-wizard"
+      finishDataAttr={door === "invoice" ? "vendor-invoice-submit" : undefined}
       sidePanel={
         <PreviewPanel
-          title="Job preview"
-          name={job?.title ?? "No job yet"}
-          sub={job ? propertyLabel(job) : "Pick a job to continue"}
+          title="Service preview"
+          name={job?.title ?? (door === "invoice" ? "No service yet" : "No service yet")}
+          sub={job ? propertyLabel(job) : door === "invoice" ? "No house" : "Pick a service"}
           facts={[
-            { label: "House", value: job ? propertyLabel(job) : "Not set", warn: !job },
-            { label: "When", value: when ? toDatetimeLocalValue(fromDatetimeLocalValue(when) ?? undefined) || when : "Not set", warn: door !== "invoice" && !when },
+            { label: "House", value: job ? propertyLabel(job) : "Not set", warn: door !== "invoice" && !job },
+            ...(door === "invoice"
+              ? []
+              : [{ label: "When", value: when ? toDatetimeLocalValue(fromDatetimeLocalValue(when) ?? undefined) || when : "Not set", warn: !when }]),
             { label: door === "invoice" ? "Invoice" : "Quote", value: labor.trim() ? `$${labor}` : "Not set", warn: door !== "visit" && !labor.trim() },
           ]}
           creates={[
-            { tone: job ? "yes" : "warn", text: door === "invoice" ? "An invoice for the manager" : door === "visit" ? "A site visit on the calendar" : "A quote the manager can accept" },
+            { tone: job || door === "invoice" ? "yes" : "warn", text: door === "invoice" ? "An invoice for the manager" : door === "visit" ? "A site visit on the calendar" : "A quote the manager can accept" },
           ]}
         />
       }
     >
       {currentId === "job" ? (
-        <WizardSection title="The job">
+        <WizardSection title="The service">
           {jobOptions.length === 0 ? (
-            <p className="text-sm font-semibold text-foreground">No jobs to quote yet.</p>
+            <p className="text-sm font-semibold text-foreground">
+              {door === "invoice" ? "No services yet." : "No services to quote yet."}
+            </p>
           ) : (
             <WizardSelect
-              label="Job"
+              label="Service"
               value={jobId}
               onChange={setJobId}
               options={jobOptions}
@@ -322,7 +352,7 @@ export function VendorQuoteWizard({
       ) : null}
       {currentId === "house" ? (
         <WizardSection title="House">
-          <p className="text-sm font-semibold text-foreground">{job ? propertyLabel(job) : "Pick a job first"}</p>
+          <p className="text-sm font-semibold text-foreground">{job ? propertyLabel(job) : "Pick a service first"}</p>
         </WizardSection>
       ) : null}
       {currentId === "when" ? (
@@ -352,6 +382,24 @@ export function VendorQuoteWizard({
                 onChange={(e) => setInvoiceNumber(e.target.value)}
                 data-attr="vendor-invoice-number"
               />
+              {showManagerPicker ? (
+                <div className="mt-3">
+                  <WizardSelect
+                    label="Bill to"
+                    value={managerUserId}
+                    onChange={(value) => {
+                      setManagerUserId(value);
+                      setBillError(null);
+                    }}
+                    options={linkedManagers.map((manager) => ({
+                      value: manager.managerUserId,
+                      label: manager.label,
+                    }))}
+                    dataAttr="vendor-invoice-manager"
+                  />
+                </div>
+              ) : null}
+              {billError ? <p className="mt-2 text-sm font-semibold text-danger">{billError}</p> : null}
             </>
           ) : null}
           <label className={`${WIZARD_LABEL_CLASS} ${door === "invoice" ? "mt-3" : ""}`} htmlFor="vendor-quote-labor">
@@ -392,12 +440,20 @@ export function VendorQuoteWizard({
       {currentId === "review" ? (
         <div>
           <ReviewCard
-            title="Job"
+            title="Service"
             status={job ? "complete" : "incomplete"}
             onEdit={() => setStep(0)}
             facts={[
-              { label: "Title", value: job?.title ?? "Not set" },
-              { label: "House", value: job ? propertyLabel(job) : "Not set" },
+              { label: "Title", value: job?.title ?? (door === "invoice" ? "None" : "Not set") },
+              { label: "House", value: job ? propertyLabel(job) : door === "invoice" ? "None" : "Not set" },
+              ...(door === "invoice" && showManagerPicker
+                ? [
+                    {
+                      label: "Bill to",
+                      value: linkedManagers.find((manager) => manager.managerUserId === managerUserId)?.label ?? "Not set",
+                    },
+                  ]
+                : []),
             ]}
           />
           {door !== "invoice" ? (
@@ -419,6 +475,7 @@ export function VendorQuoteWizard({
               ]}
             />
           ) : null}
+          {billError ? <p className="mt-2 text-sm font-semibold text-danger">{billError}</p> : null}
         </div>
       ) : null}
     </AddWorkspace>

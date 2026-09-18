@@ -26,7 +26,7 @@ import {
   readVendorWorkOrderRows,
   syncManagerWorkOrdersFromServer,
 } from "@/lib/manager-work-orders-storage";
-import { formatPacificDateTime } from "@/lib/pacific-time";
+import { vendorWorkOrderListHref } from "@/lib/portal-detail-routes";
 import { takePendingNotice } from "@/lib/pending-notice";
 import {
   loadPersistedInbox,
@@ -34,15 +34,6 @@ import {
   syncPersistedInboxFromServer,
   VENDOR_INBOX_STORAGE_KEY,
 } from "@/lib/portal-inbox-storage";
-import { vendorWorkOrderListHref } from "@/lib/portal-detail-routes";
-import { usePortalSession } from "@/hooks/use-portal-session";
-import { formatRangeLabel } from "@/lib/demo-admin-scheduling";
-import { compactTaskLocationLabel } from "@/lib/manager-task-display";
-import {
-  fetchVendorAssignedTasks,
-  VENDOR_TASKS_EVENT,
-  type VendorAssignedTask,
-} from "@/lib/vendor-tasks.client";
 
 const BASE = "/vendor";
 const CONTACT_NUDGE_DISMISSED_KEY = "axis_vendor_contact_nudge_dismissed";
@@ -56,30 +47,16 @@ function readContactNudgeDismissed(): boolean {
   }
 }
 
-function fmt(iso: string) {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "soon";
-  return formatPacificDateTime(d);
-}
-
 function propertyLabel(row: DemoManagerWorkOrderRow): string {
   const unit = row.unit?.trim();
   return unit && unit !== "—" ? `${row.propertyName} · ${unit}` : row.propertyName;
 }
 
-function taskScheduleLabel(task: VendorAssignedTask): string {
-  if (task.start && task.end) return formatRangeLabel(task.start, task.end);
-  if (task.start) return fmt(task.start);
-  return "No schedule";
-}
-
 /** Vendor Home — same tree as the manager dashboard with vendor numbers. */
 export function VendorDashboard({ displayName }: { displayName: string }) {
   const router = useRouter();
-  const { userId } = usePortalSession();
   const [tick, setTick] = useState(0);
   const [nowTick] = useState(() => Date.now());
-  const [assignedTasks, setAssignedTasks] = useState<VendorAssignedTask[]>([]);
   const bump = () => setTick((n) => n + 1);
   const [paymentsConnected, setPaymentsConnected] = useState(false);
   const [needsContact, setNeedsContact] = useState(false);
@@ -98,25 +75,14 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
     ]).then(bump);
     window.addEventListener(MANAGER_WORK_ORDERS_EVENT, bump);
     window.addEventListener(PORTAL_INBOX_CHANGED_EVENT, bump);
-    window.addEventListener(VENDOR_TASKS_EVENT, bump);
     window.addEventListener("storage", bump);
     return () => {
       window.removeEventListener(MANAGER_WORK_ORDERS_EVENT, bump);
       window.removeEventListener(PORTAL_INBOX_CHANGED_EVENT, bump);
-      window.removeEventListener(VENDOR_TASKS_EVENT, bump);
       window.removeEventListener("storage", bump);
     };
   }, []);
 
-  useEffect(() => {
-    if (!userId) {
-      setAssignedTasks([]);
-      return;
-    }
-    void fetchVendorAssignedTasks(userId)
-      .then(setAssignedTasks)
-      .catch(() => setAssignedTasks([]));
-  }, [userId, tick]);
 
   useEffect(() => {
     if (isDemoModeActive()) {
@@ -171,7 +137,6 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
   }, [tick]);
 
   const { openWorkOrders, upcomingVisits, quotesPending, pendingPayouts, inboxThreads } = data;
-  const openTasks = useMemo(() => assignedTasks.filter((task) => !task.completed), [assignedTasks]);
   const payoutItems = paymentsConnected ? pendingPayouts : [];
 
   const attentionRows: ManagerAttentionRow[] = [];
@@ -224,14 +189,6 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
       detail: propertyLabel(row),
       at: Date.parse(row.scheduledAtIso ?? "") || nowTick,
       href: `${BASE}/calendar`,
-    })),
-    ...openTasks.slice(0, 4).map((task) => ({
-      id: `task-${task.managerUserId}:${task.id}`,
-      kind: "Task",
-      title: task.title,
-      detail: compactTaskLocationLabel(task) ?? taskScheduleLabel(task),
-      at: task.start ? Date.parse(task.start) || nowTick + 86_400_000 : nowTick + 86_400_000,
-      href: `${BASE}/tasks`,
     })),
   ];
 

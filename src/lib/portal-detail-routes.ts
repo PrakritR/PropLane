@@ -360,6 +360,22 @@ export function calendarViewHref(basePath: string, tab: CalendarViewTabId | "boo
   return tab === DEFAULT_CALENDAR_VIEW ? `${basePath}/calendar` : `${basePath}/calendar/${tab}`;
 }
 
+/** Vendor calendar: All + Services. No Tours, no Tasks. */
+export const VENDOR_CALENDAR_VIEW_TABS = ["all", "services"] as const;
+export type VendorCalendarViewTabId = (typeof VENDOR_CALENDAR_VIEW_TABS)[number];
+export const DEFAULT_VENDOR_CALENDAR_VIEW: VendorCalendarViewTabId = "all";
+
+export function parseVendorCalendarViewTab(raw: string | undefined | null): VendorCalendarViewTabId {
+  if (raw && (VENDOR_CALENDAR_VIEW_TABS as readonly string[]).includes(raw)) {
+    return raw as VendorCalendarViewTabId;
+  }
+  return DEFAULT_VENDOR_CALENDAR_VIEW;
+}
+
+export function vendorCalendarViewHref(basePath: string, tab: VendorCalendarViewTabId): string {
+  return tab === DEFAULT_VENDOR_CALENDAR_VIEW ? `${basePath}/calendar` : `${basePath}/calendar/${tab}`;
+}
+
 export function bookingsHref(basePath: string): string {
   return managerBookingListHref(basePath, DEFAULT_MANAGER_BOOKING_BUCKET);
 }

@@ -853,6 +853,7 @@ export function PortalCalendarPanels({
   onDefaultTourHoursChange,
   onDefaultTourGridEnabledChange,
   weekActionsHost,
+  vendorViewer = false,
 }: {
   storageKey: string | null;
   availabilityStorageKeys?: string[];
@@ -879,6 +880,12 @@ export function PortalCalendarPanels({
   onDefaultTourGridEnabledChange?: (enabled: boolean) => void;
   /** Command-bar host for copy / add / clear / house actions. */
   weekActionsHost?: HTMLElement | null;
+  /**
+   * Vendor calendar: skip the manager assignment directory (403 on
+   * `/api/portal-vendors`) without turning on Flexible / Add work. Those
+   * still key off `vendorDayFlexibility`.
+   */
+  vendorViewer?: boolean;
   otherProperties?: { id: string; name: string }[];
   onCopyWeekToHouses?: (propertyIds: string[], weekDateStrs: string[], scope: "week" | "entire") => void;
   scheduledTourFilter?: ScheduledTourFilter;
@@ -974,10 +981,10 @@ export function PortalCalendarPanels({
   }, [onModalFooterChange]);
   // This calendar renders in the VENDOR portal too, where the assignment
   // directory (the manager's team + vendor list) is not the viewer's to read —
-  // /api/portal-vendors answers 403 by design. `vendorDayFlexibility` is the
-  // prop only the vendor calendar passes, and is already how `vendorMode` is
-  // derived further down.
-  const isVendorViewer = Boolean(vendorDayFlexibility);
+  // /api/portal-vendors answers 403 by design. `vendorViewer` is the flag the
+  // vendor calendar passes once Flexible / Add work are gone; `vendorDayFlexibility`
+  // still means the old vendor-only chrome.
+  const isVendorViewer = vendorViewer || Boolean(vendorDayFlexibility);
   const { teamMembers, vendors } = useWorkAssignmentDirectory({
     managerUserId: userId,
     enabled: !isVendorViewer,
@@ -2948,17 +2955,19 @@ export function PortalCalendarPanels({
             data-attr="calendar-clear-week"
             onClick={clearCurrentWeek}
           />
-          <PortalIconAction
-            icon={House}
-            label={copyToHousesDisabled ? "Add another house to copy availability" : "Copy to houses"}
-            data-attr="calendar-copy-to-houses"
-            disabled={copyToHousesDisabled}
-            onClick={() => {
-              setSelectedHouseIds(new Set());
-              setCopyToHousesScope("week");
-              setUpdateToHousesOpen(true);
-            }}
-          />
+          {isVendorViewer ? null : (
+            <PortalIconAction
+              icon={House}
+              label={copyToHousesDisabled ? "Add another house to copy availability" : "Copy to houses"}
+              data-attr="calendar-copy-to-houses"
+              disabled={copyToHousesDisabled}
+              onClick={() => {
+                setSelectedHouseIds(new Set());
+                setCopyToHousesScope("week");
+                setUpdateToHousesOpen(true);
+              }}
+            />
+          )}
         </div>
       ) : null;
     return (

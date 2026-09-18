@@ -65,7 +65,6 @@ export const NATIVE_BOTTOM_NAV_RESIDENT_ORDER = [
 export const NATIVE_BOTTOM_NAV_VENDOR_ORDER = [
   "dashboard",
   "work-orders",
-  "tasks",
   "calendar",
   "communication",
   "financials",

@@ -1,31 +1,30 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { TabNav } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import {
-  ManagerPortalFilterRow,
-  ManagerPortalPageShell,
-} from "@/components/portal/portal-metrics";
-import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { PortalPropertyRecordRow, PortalRowStatusChip } from "@/components/portal/portal-record-row";
 import {
   PORTAL_DETAIL_BTN,
   PORTAL_DETAIL_BTN_PRIMARY,
-  PortalDataTableEmpty,
   PortalTableDetailActions,
-  PortalTableInlineExpand,
 } from "@/components/portal/portal-data-table";
 import { DocumentInlineViewer, triggerDocumentDownload } from "@/components/portal/resident-other-documents";
 import { PortalSharedDocumentsTable } from "@/components/portal/portal-shared-documents-table";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { VendorUploadDocumentWorkspace } from "@/components/portal/vendor-upload-document-workspace";
 import { isDemoModeActive, subscribeDemoPath } from "@/lib/demo/demo-session";
 import { safeFormatDateTime } from "@/lib/pacific-time";
+import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 import {
-  VENDOR_DOCUMENT_HINTS,
   VENDOR_DOCUMENT_LABELS,
   VENDOR_DOCUMENT_SECTIONS,
   vendorDocumentStatusLabel,
-  vendorDocumentStatusTone,
   type VendorDocumentKind,
   type VendorDocumentRecord,
 } from "@/lib/vendor-documents";
@@ -56,7 +55,14 @@ type DocumentsPayload = {
   documents?: VendorDocumentRecord[];
 };
 
-/** Vendor Documents — compliance PDFs in manager-style tabs + table layout. */
+function statusChipTone(doc: VendorDocumentRecord | undefined): "ok" | "warn" | "neutral" {
+  const label = vendorDocumentStatusLabel(doc).toLowerCase();
+  if (label.includes("on file") || label.includes("uploaded")) return "ok";
+  if (label.includes("expir") || label.includes("missing")) return "warn";
+  return "neutral";
+}
+
+/** Vendor Documents — Mine / From managers command bar + upload workspace. */
 export function VendorDocumentsPanel({
   tabId,
   basePath = "/vendor",
@@ -64,7 +70,6 @@ export function VendorDocumentsPanel({
 }: {
   tabId: string;
   basePath?: string;
-  /** When true, skip live API reads/writes and use seeded demo documents. */
   demo?: boolean;
 }) {
   const { showToast } = useAppUi();
@@ -80,6 +85,8 @@ export function VendorDocumentsPanel({
   const [expandedKind, setExpandedKind] = useState<VendorDocumentKind | null>(null);
   const [unlinked, setUnlinked] = useState(false);
   const [accessDenied, setAccessDenied] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [listSearch, setListSearch] = useState("");
 
   const tabItems = useMemo(
     () => [
@@ -129,6 +136,7 @@ export function VendorDocumentsPanel({
   useEffect(() => {
     setExpandedKind(null);
     setPreviewKind(null);
+    setListSearch("");
   }, [tabId]);
 
   const documentsByKind = useMemo(() => {
@@ -137,25 +145,21 @@ export function VendorDocumentsPanel({
     return map;
   }, [documents]);
 
-  /**
-   * Every document a vendor keeps, in one list.
-   *
-   * Tax & income / Insurance / Business & licensing used to be three tabs, so a
-   * vendor had to know which one a file belonged in before uploading it — and
-   * a missing certificate was invisible from the other two. The category is a
-   * line on the row now. The document KIND is untouched: it is what the upload
-   * and remove routes key on, so nothing structural moved.
-   */
   const rows = useMemo(() => {
     if (tabId === "shared") return [];
+    const needle = listSearch.trim().toLowerCase();
     return VENDOR_DOCUMENT_SECTIONS.flatMap((section) =>
       section.kinds.map((kind) => ({
         kind,
         section: section.label,
         doc: documentsByKind.get(kind),
       })),
-    );
-  }, [tabId, documentsByKind]);
+    ).filter((row) => {
+      if (!needle) return true;
+      const haystack = `${VENDOR_DOCUMENT_LABELS[row.kind]} ${row.section} ${row.doc?.fileName ?? ""}`.toLowerCase();
+      return haystack.includes(needle);
+    });
+  }, [tabId, documentsByKind, listSearch]);
 
   const previewDoc = previewKind ? documentsByKind.get(previewKind) : undefined;
 
@@ -286,35 +290,46 @@ export function VendorDocumentsPanel({
   };
 
   return (
-    <ManagerPortalPageShell
-      title="Documents"
-      hideTitleOnMobileNav
-      filterRow={
-        <ManagerPortalFilterRow>
-          <TabNav items={tabItems} activeId={tabId} />
-        </ManagerPortalFilterRow>
-      }
-    >
+    <ManagerPortalPageShell title="Documents" hideTitleOnMobileNav compactFilterRow>
+      <PortalListControlStack
+        className="mb-2 max-lg:mb-1.5"
+        variant="command"
+        destinations={tabItems.map((tab) => ({
+          id: tab.id,
+          label: tab.label,
+          href: tab.href,
+          dataAttr: `vendor-documents-tab-${tab.id}`,
+        }))}
+        activeDestinationId={tabId}
+        destinationAriaLabel="Document views"
+        search={
+          tabId === "mine"
+            ? {
+                value: listSearch,
+                onChange: setListSearch,
+                placeholder: "Search documents",
+                dataAttr: "vendor-documents-search",
+              }
+            : undefined
+        }
+        primary={
+          tabId === "mine" ? (
+            <PortalPrimaryIconAction
+              label="Upload"
+              data-attr="vendor-documents-add"
+              onClick={() => setUploadOpen(true)}
+            />
+          ) : undefined
+        }
+      />
+
       {accessDenied ? (
-        <p
-          className="mb-4 rounded-xl border px-4 py-3 text-sm portal-banner-pending"
-          data-attr="vendor-documents-access-denied-banner"
-        >
-          Sign in with a vendor account to upload and manage compliance documents here.
-        </p>
-      ) : null}
-
-      {unlinked ? (
-        <p
-          className="mb-4 rounded-xl border px-4 py-3 text-sm portal-banner-pending"
-          data-attr="vendor-documents-unlinked-banner"
-        >
-          Waiting on a property manager to connect with you. Upload documents here so managers can review your
-          compliance files.
-        </p>
-      ) : null}
-
-      {tabId === "shared" ? (
+        <PortalListEmptyCard
+          title="Sign in as a vendor"
+          section="documents"
+          dataAttr="vendor-documents-access-denied-banner"
+        />
+      ) : tabId === "shared" ? (
         <PortalSharedDocumentsTable
           listUrl="/api/vendor/shared-documents"
           signedUrlBase="/api/vendor/shared-documents"
@@ -323,92 +338,96 @@ export function VendorDocumentsPanel({
           demo={demo}
         />
       ) : loading ? (
-        <p className="text-sm text-muted">Loading documents…</p>
-      ) : rows.length === 0 ? (
-        <PortalDataTableEmpty message="No documents yet." icon="document" />
+        <p className="text-sm font-semibold text-foreground">Loading documents…</p>
       ) : (
-        <>
-          {/*
-            One list at every width, in the house shape. This tab used to render
-            a mobile card list AND a desktop table over the same rows, so the two
-            drifted and neither matched the rest of the product. The row expands
-            in place because its actions are uploads, not a detail page.
-          */}
-          <div className={PORTAL_LIST_PAGE_BODY}>
-            {rows.map(({ kind, section, doc }) => {
-              const expanded = expandedKind === kind;
-              const statusLabel = vendorDocumentStatusLabel(doc);
-              return (
-                <div
-                  key={kind}
-                  className={`portal-property-row border-b border-border/50 px-3 py-3 transition-colors max-md:px-2.5 max-md:py-2.5 ${
-                    expanded
-                      ? "border-l-[3px] border-l-primary bg-primary/[0.06]"
-                      : "border-l-[3px] border-l-transparent hover:bg-foreground/[0.03]"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    className="flex w-full min-w-0 items-start gap-3 text-left"
-                    onClick={() => setExpandedKind((cur) => (cur === kind ? null : kind))}
-                    aria-expanded={expanded}
-                    data-attr="vendor-document-row"
-                  >
-                    <div className="flex min-w-0 flex-1 flex-col gap-1">
-                      <PortalTableInlineExpand
-                        expanded={expanded}
-                        className="text-sm font-semibold text-foreground"
-                      >
-                        <span className="truncate">{VENDOR_DOCUMENT_LABELS[kind]}</span>
-                      </PortalTableInlineExpand>
-                      <p className="text-xs leading-relaxed text-muted">
-                        {section} · {doc ? doc.fileName : "No file on file"}
-                      </p>
-                      {doc ? (
-                        <p className="text-xs text-muted">Uploaded {safeFormatDateTime(doc.uploadedAt)}</p>
-                      ) : null}
-                    </div>
-                    <span
-                      className={`mt-0.5 inline-flex shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${vendorDocumentStatusTone(doc)}`}
-                    >
-                      {statusLabel}
-                    </span>
-                  </button>
-                  {expanded ? (
-                    <div className="mt-3 border-t border-border pt-3">
-                      <p className="mb-3 text-xs text-muted">{VENDOR_DOCUMENT_HINTS[kind]}</p>
-                      {renderRowActions(kind, doc)}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-
-          {previewDoc && previewKind ? (
-            <DocumentInlineViewer
-              title={VENDOR_DOCUMENT_LABELS[previewKind]}
-              src={demo ? null : previewDoc.url}
-              onDownload={() => {
-                if (demo) {
-                  showToast("PDF preview is available on a live vendor account.");
-                  return;
+        <PortalRecordListSurface
+          isEmpty={rows.length === 0}
+          emptyCard={{
+            title: listSearch.trim() ? "No documents match this search" : portalEmptyCopy("documents.other").title,
+            section: portalEmptyCopy("documents.other").section,
+            tone: listSearch.trim() ? "muted" : "default",
+            actions: listSearch.trim()
+              ? []
+              : [{ label: "Upload", onClick: () => setUploadOpen(true), dataAttr: "vendor-documents-empty-add" }],
+            clear: listSearch.trim()
+              ? {
+                  label: "Clear search",
+                  onClick: () => setListSearch(""),
+                  dataAttr: "vendor-documents-empty-clear-search",
                 }
-                triggerDocumentDownload(previewDoc.url, previewDoc.fileName);
-              }}
-              downloadLabel="Download PDF"
-              downloadAttr={`vendor-documents-inline-download-${previewKind}`}
-            >
-              {demo ? (
-                <div className="flex h-64 items-center justify-center px-4 text-center text-sm text-muted">
-                  Sample PDFs are listed above in the demo. Sign in to a live vendor account to upload and preview real
-                  files.
-                </div>
-              ) : null}
-            </DocumentInlineViewer>
+              : undefined,
+          }}
+          add={{
+            ariaLabel: "Upload document",
+            onClick: () => setUploadOpen(true),
+            dataAttr: "vendor-documents-list-add",
+          }}
+          dataAttr="vendor-documents-list"
+        >
+          {unlinked ? (
+            <PortalListEmptyCard
+              title="Waiting on a manager"
+              section="documents"
+              tone="muted"
+              dataAttr="vendor-documents-unlinked-banner"
+            />
           ) : null}
-        </>
+          {rows.map(({ kind, section, doc }) => {
+            const expanded = expandedKind === kind;
+            return (
+              <div key={kind}>
+                <PortalPropertyRecordRow
+                  title={VENDOR_DOCUMENT_LABELS[kind]}
+                  address={doc?.fileName ?? section}
+                  leading={<FileText className="size-5 text-foreground" strokeWidth={1.8} aria-hidden />}
+                  facts={doc ? safeFormatDateTime(doc.uploadedAt) : undefined}
+                  chip={
+                    <PortalRowStatusChip tone={statusChipTone(doc)}>
+                      {vendorDocumentStatusLabel(doc)}
+                    </PortalRowStatusChip>
+                  }
+                  selected={expanded}
+                  onOpen={() => setExpandedKind((cur) => (cur === kind ? null : kind))}
+                  dataAttr="vendor-document-row"
+                />
+                {expanded ? <div className="mb-2 px-1">{renderRowActions(kind, doc)}</div> : null}
+              </div>
+            );
+          })}
+        </PortalRecordListSurface>
       )}
+
+      {previewDoc && previewKind ? (
+        <DocumentInlineViewer
+          title={VENDOR_DOCUMENT_LABELS[previewKind]}
+          src={demo ? null : previewDoc.url}
+          onDownload={() => {
+            if (demo) {
+              showToast("PDF preview is available on a live vendor account.");
+              return;
+            }
+            triggerDocumentDownload(previewDoc.url, previewDoc.fileName);
+          }}
+          downloadLabel="Download PDF"
+          downloadAttr={`vendor-documents-inline-download-${previewKind}`}
+        />
+      ) : null}
+
+      <VendorUploadDocumentWorkspace
+        open={uploadOpen}
+        demo={demo}
+        onClose={() => setUploadOpen(false)}
+        onUploaded={(next) => {
+          if (demo) {
+            setDocuments((cur) => {
+              const kinds = new Set(next.map((doc) => doc.kind));
+              return [...cur.filter((doc) => !kinds.has(doc.kind)), ...next];
+            });
+            return;
+          }
+          setDocuments(next);
+        }}
+      />
     </ManagerPortalPageShell>
   );
 }

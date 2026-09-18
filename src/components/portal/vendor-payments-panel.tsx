@@ -203,6 +203,7 @@ function VendorPaymentExpandedDetail({
 
 export type VendorPaymentsPanelHandle = {
   openPaymentMethods: () => void;
+  sendReminder: () => void;
 };
 
 /** Vendor Payments — payout history from completed work orders + Stripe Connect bank linking. */
@@ -222,8 +223,6 @@ export const VendorPaymentsPanel = forwardRef<VendorPaymentsPanelHandle, { embed
   const [unlinked, setUnlinked] = useState(false);
   const [vendorProfile, setVendorProfile] = useState<ManagerVendorRow | null>(null);
   const [paymentMethodsOpen, setPaymentMethodsOpen] = useState(false);
-
-  useImperativeHandle(ref, () => ({ openPaymentMethods: () => setPaymentMethodsOpen(true) }), []);
 
   const loadVendorProfile = useCallback(async () => {
     if (isDemoModeActive()) {
@@ -402,8 +401,11 @@ export const VendorPaymentsPanel = forwardRef<VendorPaymentsPanelHandle, { embed
 
   const runBulkNotify = useCallback(
     async (action: VendorPaymentNotifyAction) => {
-      const ids = [...selectedIds];
-      if (ids.length === 0) return;
+      const ids = selectedIds.size > 0 ? [...selectedIds] : rowsForBucket.map((row) => row.id);
+      if (ids.length === 0) {
+        showToast("Select a payment first.");
+        return;
+      }
       setBulkBusy(true);
       let ok = 0;
       for (const workOrderId of ids) {
@@ -422,7 +424,18 @@ export const VendorPaymentsPanel = forwardRef<VendorPaymentsPanelHandle, { embed
         showToast(ok === 1 ? "Reminder sent." : `Sent ${ok} reminders.`);
       }
     },
-    [demo, selectedIds, showToast],
+    [demo, rowsForBucket, selectedIds, showToast],
+  );
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      openPaymentMethods: () => setPaymentMethodsOpen(true),
+      sendReminder: () => {
+        void runBulkNotify("send_reminder");
+      },
+    }),
+    [runBulkNotify],
   );
 
   const renderExpandedActions = (tr: PortalPaymentTableRow) => {
@@ -482,12 +495,12 @@ export const VendorPaymentsPanel = forwardRef<VendorPaymentsPanelHandle, { embed
       </div>
 
       {unlinked ? (
-        <p
-          className="mb-4 rounded-xl border px-4 py-3 text-sm portal-banner-pending"
-          data-attr="vendor-payments-unlinked-banner"
-        >
-          Waiting on a property manager to connect with you. Completed work will appear here once you&apos;re linked.
-        </p>
+        <PortalListEmptyCard
+          title="Waiting on a manager"
+          section="financials"
+          tone="muted"
+          dataAttr="vendor-payments-unlinked-banner"
+        />
       ) : null}
 
       {showSelection && selectedIds.size > 0 ? (

@@ -68,4 +68,43 @@ describe("vendor portal matches manager chrome", () => {
     expect(read("src/lib/render-portal-section.tsx")).toContain("/financials/payouts");
     expect(vendorLinkPaths().payments).toBe("/vendor/financials/payouts");
   });
+
+  it("has no Tasks nav and redirects /vendor/tasks to services", () => {
+    expect(vendorPortal.sections.some((s) => s.section === "tasks")).toBe(false);
+    expect(vendorLinkPaths().tasks).toBe("/vendor/work-orders/pending");
+    const render = read("src/lib/render-portal-section.tsx");
+    expect(render).toContain('kind === "vendor" && section === "tasks"');
+    expect(render).toContain("/work-orders/pending");
+    expect(read("src/components/portal/vendor-dashboard.tsx")).not.toContain("/vendor/tasks");
+  });
+
+  it("vendor calendar paints manager availability and drops Flexible / Add work / Tasks", () => {
+    const calendar = read("src/components/portal/vendor-calendar-panel.tsx");
+    expect(calendar).toContain("vendorViewer");
+    expect(calendar).toContain("All");
+    expect(calendar).toContain("Services");
+    expect(calendar).not.toContain("vendorDayFlexibility");
+    expect(calendar).not.toContain("Add work");
+    expect(calendar).not.toContain("Mark day as flexible");
+    expect(calendar).not.toContain("fetchVendorAssignedTasks");
+    expect(read("src/lib/vendor-availability.ts")).toContain("convertFlexibleWeeklyRulesToWindows");
+  });
+
+  it("finances uses a filter sheet, request payment, and send reminder", () => {
+    const finances = read("src/components/portal/vendor-finances-panel.tsx");
+    expect(finances).toContain("PortalFilterSortSheet");
+    expect(finances).toContain("Request payment");
+    expect(finances).toContain("Send reminder");
+    expect(finances).not.toContain("ReportFilterBar");
+    expect(finances).toContain("VendorQuoteWizard");
+    expect(read("src/components/portal/vendor-quote-wizard.tsx")).not.toContain("VendorAddChooser");
+  });
+
+  it("documents uses the command bar and upload workspace", () => {
+    const docs = read("src/components/portal/vendor-documents-panel.tsx");
+    expect(docs).toContain("PortalListControlStack");
+    expect(docs).toContain("VendorUploadDocumentWorkspace");
+    expect(docs).not.toContain("VENDOR_DOCUMENT_HINTS");
+    expect(docs).not.toContain("TabNav");
+  });
 });

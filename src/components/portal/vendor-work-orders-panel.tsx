@@ -3,12 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ListChecks, Settings } from "lucide-react";
+import { Settings } from "lucide-react";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
 import { VendorSectionSettingsModal } from "@/components/portal/vendor-section-settings-modal";
-import { VendorAddChooser, VendorQuoteWizard, type VendorAddDoor } from "@/components/portal/vendor-quote-wizard";
+import { VendorQuoteWizard } from "@/components/portal/vendor-quote-wizard";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -118,8 +118,7 @@ export function VendorWorkOrdersPanel({ tabId = "pending" }: { tabId?: VendorWor
   const [payoutsSyncFailed, setPayoutsSyncFailed] = useState(false);
   const [decliningOfferId, setDecliningOfferId] = useState<string | null>(null);
   const [withdrawingBidId, setWithdrawingBidId] = useState<string | null>(null);
-  const [chooserOpen, setChooserOpen] = useState(false);
-  const [addDoor, setAddDoor] = useState<VendorAddDoor | null>(null);
+  const [quoteOpen, setQuoteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const loadBids = useCallback(async () => {
@@ -206,7 +205,7 @@ export function VendorWorkOrdersPanel({ tabId = "pending" }: { tabId?: VendorWor
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("add") !== "1") return;
-    setChooserOpen(true);
+    setQuoteOpen(true);
     router.replace(vendorWorkOrderListHref("/vendor", tabId));
   }, [router, tabId]);
 
@@ -215,11 +214,10 @@ export function VendorWorkOrdersPanel({ tabId = "pending" }: { tabId?: VendorWor
     [sorted, tabId, bidsByWorkOrderId],
   );
 
-  const wizardJobs = useMemo(() => {
-    if (addDoor === "invoice") return sorted.filter((row) => vendorWorkOrderTab(row, bidsByWorkOrderId[row.id]) !== "pending");
-    if (addDoor === "visit") return sorted.filter((row) => vendorWorkOrderTab(row, bidsByWorkOrderId[row.id]) !== "past");
-    return sorted.filter((row) => vendorWorkOrderTab(row, bidsByWorkOrderId[row.id]) === "pending");
-  }, [addDoor, sorted, bidsByWorkOrderId]);
+  const wizardJobs = useMemo(
+    () => sorted.filter((row) => vendorWorkOrderTab(row, bidsByWorkOrderId[row.id]) === "pending"),
+    [sorted, bidsByWorkOrderId],
+  );
 
   const openExpand = (row: DemoManagerWorkOrderRow) => {
     setExpandedId(row.id);
@@ -890,26 +888,18 @@ export function VendorWorkOrdersPanel({ tabId = "pending" }: { tabId?: VendorWor
         activeDestinationId={tabId}
         destinationAriaLabel="Service status"
         actions={
-          <>
-            <PortalIconAction
-              icon={ListChecks}
-              label="Tasks"
-              data-attr="vendor-services-tasks-tab"
-              onClick={() => router.push("/vendor/tasks")}
-            />
-            <PortalIconAction
-              icon={Settings}
-              label={servicesSettingsEntry.label}
-              data-attr={servicesSettingsEntry.dataAttr}
-              onClick={() => setSettingsOpen(true)}
-            />
-          </>
+          <PortalIconAction
+            icon={Settings}
+            label={servicesSettingsEntry.label}
+            data-attr={servicesSettingsEntry.dataAttr}
+            onClick={() => setSettingsOpen(true)}
+          />
         }
         primary={
           <PortalPrimaryIconAction
-            label="Add"
+            label="Add quote"
             data-attr="vendor-services-add"
-            onClick={() => setChooserOpen(true)}
+            onClick={() => setQuoteOpen(true)}
           />
         }
       />
@@ -924,7 +914,7 @@ export function VendorWorkOrdersPanel({ tabId = "pending" }: { tabId?: VendorWor
           title: emptyCopy.title,
           section: emptyCopy.section,
           sibling: portalEmptySibling(tabs, tabId),
-          actions: [{ label: "Add", onClick: () => setChooserOpen(true), dataAttr: "vendor-services-empty-add" }],
+          actions: [{ label: "Add quote", onClick: () => setQuoteOpen(true), dataAttr: "vendor-services-empty-add" }],
         }}
         onBulkClear={() => setSelectedIds(new Set())}
         bulkCount={selectedDoneable.length}
@@ -972,21 +962,13 @@ export function VendorWorkOrdersPanel({ tabId = "pending" }: { tabId?: VendorWor
           );
         })}
       </PortalRecordListSurface>
-      <VendorAddChooser
-        open={chooserOpen}
-        onClose={() => setChooserOpen(false)}
-        onPick={(door) => {
-          setChooserOpen(false);
-          setAddDoor(door);
-        }}
-      />
       <VendorQuoteWizard
-        open={Boolean(addDoor)}
-        door={addDoor ?? "quote"}
+        open={quoteOpen}
+        door="quote"
         jobs={wizardJobs}
-        onClose={() => setAddDoor(null)}
+        onClose={() => setQuoteOpen(false)}
         onSubmitted={() => {
-          setAddDoor(null);
+          setQuoteOpen(false);
           void loadBids();
         }}
       />

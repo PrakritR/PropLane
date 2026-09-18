@@ -72,7 +72,7 @@ export function vendorLinkPaths() {
     dashboard: "/vendor/dashboard",
     /** Assigned and offered jobs (the product calls them services). */
     jobs: "/vendor/work-orders",
-    tasks: "/vendor/tasks",
+    tasks: "/vendor/work-orders/pending",
     calendar: "/vendor/calendar",
     inbox: "/vendor/communication/active",
     income: "/vendor/financials/income",
@@ -113,7 +113,7 @@ export const getResidentLinksTool = defineTool<NoInput, LinksResult<ReturnType<t
 });
 
 const VENDOR_LINKS_DESCRIPTION =
-  "Canonical vendor portal links: jobs (services), tasks, calendar, inbox, income, invoices, payments, documents, profile (bank payouts, W-9, insurance), and sign in. Call this whenever the vendor wants to DO something (see a job, submit an invoice, check a payout, update availability, upload a document) and send the matching link with a one-line answer, instead of walking them through it by chat. Never type a URL from memory.";
+  "Canonical vendor portal links: jobs (services), calendar, inbox, income, invoices, payments, documents, profile (bank payouts, W-9, insurance), and sign in. Call this whenever the vendor wants to DO something (see a job, submit an invoice, check a payout, update availability, upload a document) and send the matching link with a one-line answer, instead of walking them through it by chat. Never type a URL from memory.";
 
 /** Vendor portal assistant: signed in on the app, so links stay in-app. */
 export const getVendorLinksTool = defineTool<NoInput, LinksResult<ReturnType<typeof vendorLinks>>, VendorAgentContext>({
