@@ -102,6 +102,8 @@ export function VendorUploadDocumentWorkspace({
       busy={busy}
       onFinish={() => void finish()}
       dataAttrPrefix="vendor-upload-document"
+      assistantContext="Upload a vendor compliance document."
+      assistantScopeKey="vendor-upload-document"
       sidePanel={
         <PreviewPanel
           title="Document"

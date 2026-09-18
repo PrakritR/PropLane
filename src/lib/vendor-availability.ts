@@ -453,7 +453,9 @@ export function deleteVendorAvailabilityRule(id: string) {
 export async function convertFlexibleWeeklyRulesToWindows(
   rules: VendorAvailabilityRule[],
 ): Promise<VendorAvailabilityRule[] | null> {
-  const flexible = rules.filter(isFlexibleWeeklyRule);
+  const flexible = rules.filter(
+    (rule): rule is Extract<VendorAvailabilityRule, { kind: "weekly" }> => isFlexibleWeeklyRule(rule),
+  );
   if (flexible.length === 0) return null;
   for (const rule of flexible) {
     const result = await saveVendorWeeklyRule({

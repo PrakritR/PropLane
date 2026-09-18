@@ -200,6 +200,11 @@ export function VendorQuoteWizard({
         return;
       }
 
+      if (!job) {
+        showToast("Pick a service.");
+        return;
+      }
+
       const proposedTimeIso = fromDatetimeLocalValue(when);
       if (!proposedTimeIso) {
         showToast("Choose a date and time.");
