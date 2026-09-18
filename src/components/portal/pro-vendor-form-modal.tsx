@@ -14,6 +14,7 @@ import {
   type VendorIssueSearchHit,
 } from "@/lib/vendor-issue-search";
 import { Button } from "@/components/ui/button";
+import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { MODAL_FIELD_LABEL_CLASS, PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS, PORTAL_MODAL_FORM_GRID_CLASS } from "@/components/ui/modal";
@@ -65,6 +66,7 @@ export type ManagerVendorFormDraft = {
   notes: string;
   active: boolean;
   sharedWithManagers: boolean;
+  shareOnProplane: boolean;
   vendorPriority: "" | "primary" | "secondary";
   propertyIds: string[];
   catalogId?: string;
@@ -80,6 +82,7 @@ export const EMPTY_MANAGER_VENDOR_FORM_DRAFT: ManagerVendorFormDraft = {
   notes: "",
   active: true,
   sharedWithManagers: false,
+  shareOnProplane: false,
   vendorPriority: "",
   propertyIds: [],
   catalogId: undefined,
@@ -97,6 +100,7 @@ function draftFromVendor(row: ManagerVendorRow): ManagerVendorFormDraft {
     notes: row.notes,
     active: row.active !== false,
     sharedWithManagers: row.sharedWithManagers === true,
+    shareOnProplane: row.shareOnProplane === true,
     vendorPriority: row.vendorPriority ?? "",
     propertyIds: row.propertyIds ?? [],
     catalogId: row.catalogId,
@@ -315,16 +319,6 @@ export function ManagerVendorOptionalFields({
             Standard — no priority
           </label>
         </fieldset>
-        <label className="flex cursor-pointer items-start gap-2.5">
-          <input
-            type="checkbox"
-            className="mt-0.5 h-4 w-4 rounded border-border text-primary"
-            checked={draft.sharedWithManagers}
-            onChange={(e) => onPatch({ sharedWithManagers: e.target.checked })}
-            data-attr="vendor-optional-share"
-          />
-          <span className="text-sm leading-6 text-foreground">Share on PropLane</span>
-        </label>
       </div>
     </div>
   );
@@ -445,15 +439,6 @@ export function ManagerVendorFormFields({
             Standard — no priority
           </label>
         </fieldset>
-        <label className="flex cursor-pointer items-start gap-2.5">
-          <input
-            type="checkbox"
-            className="mt-0.5 h-4 w-4 rounded border-border text-primary"
-            checked={draft.sharedWithManagers}
-            onChange={(e) => onPatch({ sharedWithManagers: e.target.checked })}
-          />
-          <span className="text-sm leading-6 text-foreground">Share on PropLane</span>
-        </label>
       </div>
     </div>
   );
@@ -597,6 +582,7 @@ export function ManagerVendorFormModal({
       notes: draft.notes.trim(),
       active: draft.active,
       sharedWithManagers: draft.sharedWithManagers,
+      shareOnProplane: draft.shareOnProplane,
       vendorPriority: draft.vendorPriority || undefined,
       propertyIds: draft.propertyIds.length ? draft.propertyIds : undefined,
       catalogId: draft.catalogId || existing?.catalogId,
@@ -726,7 +712,10 @@ export function ManagerVendorFormModal({
         }
         url = minted.url;
         setMintedVendorUrl(url);
-        if (invitePath === "link") return;
+        if (invitePath === "link") {
+          setStepIdx(0);
+          return;
+        }
       }
       const facts = {
         kind: "vendor" as const,
@@ -900,11 +889,16 @@ export function ManagerVendorFormModal({
           { id: "review", label: "Review", incomplete: !draft.name.trim(), summary: "Save changes" },
         ]
       : [
+          {
+            id: "invite",
+            label: "Invite by",
+            summary: invitePath === "link" ? "Link" : invitePath === "message" ? "Message" : "PropLane code",
+          },
+          { id: "contact", label: "Contact", incomplete: !draft.name.trim(), summary: draft.name.trim() || "Name and phone" },
           { id: "properties", label: "Properties", summary: draft.propertyIds.length ? `${draft.propertyIds.length} houses` : "Every property" },
           { id: "trades", label: "What they do", incomplete: draft.trades.length === 0, summary: draft.trades.join(", ") || "No trades yet" },
           { id: "rates", label: "Typical price", summary: draft.typicalRates.length ? "Per house" : "Set rates" },
-          { id: "contact", label: "Contact", incomplete: !draft.name.trim(), summary: draft.name.trim() || "Name and phone last" },
-          { id: "review", label: "Review", incomplete: !draft.name.trim(), summary: "Invite by" },
+          { id: "review", label: "Review", incomplete: !draft.name.trim(), summary: "Invite vendor" },
         ];
   const current = Math.min(stepIdx, steps.length - 1);
   const stepId = steps[current]!.id;
@@ -973,6 +967,34 @@ export function ManagerVendorFormModal({
             ) : undefined
           }
         >
+          {stepId === "invite" ? (
+            <div className="space-y-4" data-attr="vendor-form-invite-by">
+              <PortalInvitePaths value={invitePath} onChange={setInvitePath} disabled={saving} />
+              {invitePath === "code" ? (
+                <label className="block space-y-1">
+                  <span className="text-sm font-semibold">{AXIS_ID_LABEL}</span>
+                  {draftAxisId ? (
+                    <div className="rounded-xl border border-primary/25 bg-primary/[0.05] px-4 py-3">
+                      <p className="text-sm font-semibold text-foreground">{draftAxisName}</p>
+                      <p className="mt-0.5 font-mono text-xs text-muted">{formatProplaneIdForDisplay(draftAxisId)}</p>
+                    </div>
+                  ) : (
+                    <Input value={axisInput} onChange={(e) => setAxisInput(e.target.value)} className="font-mono" data-attr="vendor-proplane-id-input" />
+                  )}
+                </label>
+              ) : null}
+              {invitePath === "link" && mintedVendorUrl ? (
+                <div className="flex items-center gap-2">
+                  <Input readOnly value={mintedVendorUrl} className="font-mono text-xs" data-attr="vendor-invite-url" />
+                  <Button type="button" variant="outline" className="shrink-0" data-attr="vendor-invite-copy" onClick={() => { void navigator.clipboard.writeText(mintedVendorUrl).then(() => showToast("Invite link copied."), () => showToast("Could not copy.")); }}>
+                    <Copy className="h-4 w-4" />
+                    <span className="ml-1.5">Copy</span>
+                  </Button>
+                </div>
+              ) : null}
+              {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
+            </div>
+          ) : null}
           {stepId === "vendor" ? (
             <div className="space-y-4">
               <label className="block space-y-1">
@@ -991,35 +1013,31 @@ export function ManagerVendorFormModal({
             </div>
           ) : null}
           {stepId === "properties" ? (
-            <fieldset className="space-y-2" data-attr="vendor-form-properties">
-              <legend className="text-sm font-semibold">Properties</legend>
-              <label className="flex min-h-11 items-center gap-3 rounded-xl border border-border bg-card px-3 text-[13.5px]">
-                <input
-                  type="checkbox"
-                  checked={draft.propertyIds.length === 0}
-                  onChange={() => patch({ propertyIds: [] })}
-                  data-attr="vendor-property-all"
-                />
-                Every property
-              </label>
-              {propertyOptions.map((option) => {
-                const on = draft.propertyIds.includes(option.id);
-                return (
-                  <label key={option.id} className="flex min-h-11 items-center gap-3 rounded-xl border border-border bg-card px-3 text-[13.5px]">
-                    <input
-                      type="checkbox"
-                      checked={on}
-                      onChange={() => {
-                        const next = on ? draft.propertyIds.filter((id) => id !== option.id) : [...draft.propertyIds, option.id];
-                        patch({ propertyIds: next });
-                      }}
-                      data-attr={`vendor-property-${option.id}`}
-                    />
-                    {option.label}
-                  </label>
-                );
-              })}
-            </fieldset>
+            <CheckboxMultiSelect
+              label="Properties"
+              dataAttr="vendor-form-properties"
+              emptyLabel="Every property"
+              selectionTriggerLabel={draft.propertyIds.length === 0 ? "Every property" : undefined}
+              options={[
+                { value: "__all__", label: "Every property" },
+                ...propertyOptions.map((option) => ({ value: option.id, label: option.label })),
+              ]}
+              selected={draft.propertyIds.length === 0 ? ["__all__"] : draft.propertyIds}
+              onChange={(next) => {
+                const houses = next.filter((id) => id !== "__all__");
+                const pickedAll = next.includes("__all__");
+                const wasAll = draft.propertyIds.length === 0;
+                if (pickedAll && !wasAll) {
+                  patch({ propertyIds: [] });
+                  return;
+                }
+                if (pickedAll && wasAll && houses.length > 0) {
+                  patch({ propertyIds: houses });
+                  return;
+                }
+                patch({ propertyIds: houses });
+              }}
+            />
           ) : null}
           {stepId === "trades" ? (
             <div className="space-y-4" data-attr="vendor-form-trades">
@@ -1127,35 +1145,17 @@ export function ManagerVendorFormModal({
           {stepId === "review" ? (
             <div className="space-y-4">
               <p className="text-[13.5px]">{[draft.name, draft.trade, draft.email, draft.phone].filter(Boolean).join(" · ")}</p>
-              {mode === "add" ? (
-                <>
-                  <PortalInvitePaths value={invitePath} onChange={setInvitePath} disabled={saving} />
-                  {invitePath === "code" ? (
-                    <label className="block space-y-1">
-                      <span className="text-sm font-semibold">{AXIS_ID_LABEL}</span>
-                      {draftAxisId ? (
-                        <div className="rounded-xl border border-primary/25 bg-primary/[0.05] px-4 py-3">
-                          <p className="text-sm font-semibold text-foreground">{draftAxisName}</p>
-                          <p className="mt-0.5 font-mono text-xs text-muted">{formatProplaneIdForDisplay(draftAxisId)}</p>
-                        </div>
-                      ) : (
-                        <Input value={axisInput} onChange={(e) => setAxisInput(e.target.value)} className="font-mono" data-attr="vendor-proplane-id-input" />
-                      )}
-                    </label>
-                  ) : null}
-                  {invitePath === "link" && mintedVendorUrl ? (
-                    <div className="flex items-center gap-2">
-                      <Input readOnly value={mintedVendorUrl} className="font-mono text-xs" data-attr="vendor-invite-url" />
-                      <Button type="button" variant="outline" className="shrink-0" data-attr="vendor-invite-copy" onClick={() => { void navigator.clipboard.writeText(mintedVendorUrl).then(() => showToast("Invite link copied."), () => showToast("Could not copy.")); }}>
-                        <Copy className="h-4 w-4" />
-                        <span className="ml-1.5">Copy</span>
-                      </Button>
-                    </div>
-                  ) : null}
-                </>
-              ) : (
-                <ManagerVendorFormFields draft={draft} onPatch={patch} />
-              )}
+              <FieldSingleSelect
+                label="Share on PropLane"
+                dataAttr="vendor-share-on-proplane"
+                value={draft.shareOnProplane ? "on" : "off"}
+                onChange={(next) => patch({ shareOnProplane: next === "on" })}
+                options={[
+                  { value: "off", label: "Off — only on Your vendors" },
+                  { value: "on", label: "On — show on PropLane vendors" },
+                ]}
+              />
+              {mode === "edit" ? <ManagerVendorFormFields draft={draft} onPatch={patch} /> : null}
               {error ? <p role="alert" className="text-sm text-red-600">{error}</p> : null}
             </div>
           ) : null}

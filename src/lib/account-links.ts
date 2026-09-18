@@ -1,6 +1,7 @@
 /** Shared types for `/api/pro/account-links` (server + client). */
 
 import type { CoManagerPermissions, PropertyCoManagerPermissions } from "@/lib/co-manager-permissions";
+import type { WorkspaceCoManagerGrant } from "@/lib/workspace-co-manager-permissions";
 
 /** @deprecated Owner tab removed — only manager co-manager links are supported. */
 export type AccountLinkTabKind = "manager";
@@ -45,6 +46,10 @@ export type AccountLinkInviteDto = {
   expiresAt?: string | null;
   /** Per-property permission grants. */
   propertyCoManagerPermissions: PropertyCoManagerPermissions;
+  /** Workspace this invite sits under when houses are empty. */
+  workspaceId?: string | null;
+  /** Workspace grants — Add properties / Invite teammates. Empty = none. */
+  workspacePermissions?: WorkspaceCoManagerGrant;
   createdAt: string;
   respondedAt: string | null;
 };

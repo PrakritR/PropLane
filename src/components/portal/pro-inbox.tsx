@@ -136,7 +136,11 @@ import {
 } from "@/lib/inbox/inbound-message-workflow-suggestions";
 import { resolveManagerServiceResidentByEmail } from "@/lib/manager-service-resident-lookup";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
-import { filterEmailInboxThreads, filterManagerCommunicationThreads } from "@/lib/communication-inbox-filters";
+import {
+  filterEmailInboxThreads,
+  filterManagerCommunicationThreads,
+  threadMatchesVendorContact,
+} from "@/lib/communication-inbox-filters";
 import { emailReplySubjectFor, inboxEmailBubbleFields } from "@/lib/inbox-email-display";
 import { dispatchManagerSmsContactsChanged, type ManagerSmsResidentConversation } from "@/lib/manager-sms-messages";
 import {
@@ -242,6 +246,9 @@ export const ManagerInbox = forwardRef<
     pageScroll?: boolean;
     /** Scope threads to one resident email (Residents detail Communication tab). */
     filterResidentEmail?: string;
+    /** Scope threads to one vendor (Vendors detail Communication tab). */
+    filterVendorEmail?: string;
+    filterVendorPhone?: string;
     /** Rendered when suppressListPane is set and no thread matches filterResidentEmail. */
     emptyThreadFallback?: React.ReactNode;
     /** Bumps when a parent modal schedules/cancels for the filtered resident. */
@@ -266,6 +273,8 @@ export const ManagerInbox = forwardRef<
     pageScroll = false,
     smsRecipients = [],
     filterResidentEmail,
+    filterVendorEmail,
+    filterVendorPhone,
     emptyThreadFallback,
     scheduledRefreshKey = 0,
     onClearAssistant,
@@ -442,6 +451,9 @@ export const ManagerInbox = forwardRef<
   }, [local, inboxSynced]);
 
   const residentEmailNorm = filterResidentEmail?.trim().toLowerCase() ?? "";
+  const vendorEmailNorm = filterVendorEmail?.trim() ?? "";
+  const vendorPhoneNorm = filterVendorPhone?.trim() ?? "";
+  const embeddedVendorChat = Boolean(vendorEmailNorm || vendorPhoneNorm);
   const embeddedResidentChat = Boolean(residentEmailNorm);
 
   const emailThreads = useMemo(() => {
@@ -460,8 +472,22 @@ export const ManagerInbox = forwardRef<
     const residentScoped = residentEmailNorm
       ? scoped.filter((t) => t.email.trim().toLowerCase() === residentEmailNorm)
       : scoped;
-    return collapsePersonInboxThreads(residentScoped, { mergeFolders: embeddedInCommunication });
-  }, [embeddedInCommunication, local, threadFilters, filterContacts, residentEmailNorm]);
+    const vendorScoped = embeddedVendorChat
+      ? residentScoped.filter((t) =>
+          threadMatchesVendorContact(t, { email: vendorEmailNorm, phone: vendorPhoneNorm }),
+        )
+      : residentScoped;
+    return collapsePersonInboxThreads(vendorScoped, { mergeFolders: embeddedInCommunication });
+  }, [
+    embeddedInCommunication,
+    local,
+    threadFilters,
+    filterContacts,
+    residentEmailNorm,
+    embeddedVendorChat,
+    vendorEmailNorm,
+    vendorPhoneNorm,
+  ]);
 
   const counts = useMemo(() => countThreads(emailThreads, scheduleCount), [emailThreads, scheduleCount]);
   const tabs = useMemo(
@@ -475,15 +501,14 @@ export const ManagerInbox = forwardRef<
     if (embeddedInCommunication) onTabCountsChange?.(counts);
   }, [counts, embeddedInCommunication, onTabCountsChange]);
 
-  // Resident-scoped chat (Residents → detail → Communication) has no list pane to
-  // pick from, so this effect IS the selection: it opens the newest conversation
-  // that belongs to the active view. `tabId` is the archived toggle here —
+  // Resident- and vendor-scoped chat (detail → Communication) auto-select the
+  // newest conversation in the active view. `tabId` is the archived toggle here —
   // "trash" is the archived view and must select an ARCHIVED thread, every other
   // tab a live one; selecting across the two would show a live conversation under
-  // "Archived". The tab-change reset below must not run in this mode or it
+  // "Archived". The tab-change reset below must not run in these modes or it
   // clobbers this in the same commit — see the comment there.
   useEffect(() => {
-    if (!residentEmailNorm || controlledExpandedId !== undefined) return;
+    if ((!residentEmailNorm && !embeddedVendorChat) || controlledExpandedId !== undefined) return;
     const candidates = emailThreads.filter((t) =>
       tabId === "trash" ? t.folder === "trash" : t.folder !== "trash",
     );
@@ -493,7 +518,7 @@ export const ManagerInbox = forwardRef<
     }
     const best = [...candidates].sort((a, b) => threadTimestamp(b) - threadTimestamp(a))[0];
     if (best) setInternalExpandedId(best.id);
-  }, [residentEmailNorm, emailThreads, controlledExpandedId, tabId]);
+  }, [residentEmailNorm, embeddedVendorChat, emailThreads, controlledExpandedId, tabId]);
 
   function threadTimestamp(t: InboxThread): number {
     return inboxThreadSortMs(t.id, t.time);
@@ -528,7 +553,9 @@ export const ManagerInbox = forwardRef<
     }
 
     let filtered: InboxThread[];
-    if (tabId === "unopened")
+    if (embeddedVendorChat) {
+      filtered = emailThreads.filter((t) => (tabId === "trash" ? t.folder === "trash" : t.folder !== "trash"));
+    } else if (tabId === "unopened")
       filtered = emailThreads.filter((t) => t.folder === "inbox" && (t.unread || retainedIds.has(t.id)));
     else if (tabId === "opened") filtered = emailThreads.filter((t) => t.folder === "inbox" && !t.unread);
     else if (tabId === "sent") filtered = emailThreads.filter((t) => t.folder === "sent");
@@ -555,7 +582,7 @@ export const ManagerInbox = forwardRef<
     // is declared later so its `null` would win and nothing would ever open
     // (clicking "Archived (1)" landed on a blank pane). There is no list to strand
     // in that mode either — the pane is the whole surface.
-    if (controlledExpandedId === undefined && !embeddedResidentChat) setExpandedId(null);
+    if (controlledExpandedId === undefined && !embeddedResidentChat && !embeddedVendorChat) setExpandedId(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabId]);
 

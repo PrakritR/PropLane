@@ -18,6 +18,8 @@ export type ManagerVendorRow = {
   propertyIds?: string[];
   /** When true, other managers on Axis can use this vendor for work orders. */
   sharedWithManagers?: boolean;
+  /** When true, this roster vendor also appears on this account’s PropLane vendors tab. */
+  shareOnProplane?: boolean;
   /** Preferred vendor tier within the vendor's trade (one primary per trade on the account). */
   vendorPriority?: "primary" | "secondary";
   insuranceProvider?: string;

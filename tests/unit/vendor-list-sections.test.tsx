@@ -43,16 +43,19 @@ describe("vendor list sections", () => {
     expect(detailReturn).toBeGreaterThan(retry);
   });
 
-  it("puts property and trade before contact on add vendor", () => {
+  it("opens add vendor on Invite by, then contact, then houses", () => {
     const form = read("src/components/portal/pro-vendor-form-modal.tsx");
-    const addBlock = form.slice(form.indexOf("const steps: AddWorkspaceStep[]"), form.indexOf("const stepId = steps[current]"));
+    const addBlock = form.slice(form.indexOf('id: "invite"'), form.indexOf("const current = Math.min"));
+    expect(addBlock).toContain('id: "invite"');
+    expect(addBlock).toContain('id: "contact"');
     expect(addBlock).toContain('id: "properties"');
     expect(addBlock).toContain('id: "trades"');
     expect(addBlock).toContain('id: "rates"');
-    expect(addBlock).toContain('id: "contact"');
-    expect(addBlock.indexOf('id: "properties"')).toBeLessThan(addBlock.indexOf('id: "contact"'));
+    expect(addBlock.indexOf('id: "invite"')).toBeLessThan(addBlock.indexOf('id: "contact"'));
+    expect(addBlock.indexOf('id: "contact"')).toBeLessThan(addBlock.indexOf('id: "properties"'));
     expect(addBlock).toContain('label: "What they do"');
     expect(form).toContain("Use a PropLane vendor");
     expect(form).toContain("TypicalPriceFields");
+    expect(form).toContain("vendor-share-on-proplane");
   });
 });

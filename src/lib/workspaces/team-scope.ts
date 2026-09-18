@@ -34,9 +34,12 @@ export function teamGrantVisibleInWorkspace(
  */
 export function grantBelongsToWorkspace(
   assignedPropertyIds: string[],
-  workspace: { propertyIds: string[]; isDefault: boolean; owned: boolean },
+  workspace: { id?: string; propertyIds: string[]; isDefault: boolean; owned: boolean },
+  grantWorkspaceId?: string | null,
 ): boolean {
   if (!workspace.owned) return false;
+  const pinned = grantWorkspaceId?.trim() || "";
+  if (pinned) return Boolean(workspace.id && workspace.id === pinned);
   if (assignedPropertyIds.length === 0) return workspace.isDefault;
   return assignedIdsInWorkspace(assignedPropertyIds, workspace.propertyIds).length > 0;
 }

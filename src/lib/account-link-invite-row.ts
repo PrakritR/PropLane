@@ -1,6 +1,7 @@
 /** Shared invite serialization; route modules export only handlers/configuration. */
 import type { AccountLinkInviteDto } from "@/lib/account-links";
 import { normalizePropertyCoManagerPermissions, flatCoManagerPermissionsFromProperty, type PropertyCoManagerPermissions } from "@/lib/co-manager-permissions";
+import { normalizeWorkspacePermissions } from "@/lib/workspace-co-manager-permissions";
 
 export type InviteRow = {
   id: string;
@@ -21,6 +22,8 @@ export type InviteRow = {
   expires_at?: string | null;
   invite_token_hash?: string | null;
   invitee_plan_inherited?: boolean;
+  workspace_id?: string | null;
+  workspace_permissions?: unknown;
 };
 
 export function asStringArray(v: unknown): string[] {
@@ -81,6 +84,8 @@ export function serializeInvite(
     payoutPercentForManager: Number(row.payout_percent_for_manager),
     coManagerPermissions: flatCoManagerPermissionsFromProperty(propertyCoManagerPermissions),
     propertyCoManagerPermissions,
+    workspaceId: row.workspace_id ?? null,
+    workspacePermissions: normalizeWorkspacePermissions(row.workspace_permissions),
     createdAt: row.created_at,
     respondedAt: row.responded_at,
     expiresAt: row.expires_at ?? null,

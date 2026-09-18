@@ -74,6 +74,26 @@ export function resolveSmsDeletePhone(input: {
   return String(input.targetPhone ?? "").trim();
 }
 
+/** Match a vendor detail inbox to that vendor's email or phone. */
+export function threadMatchesVendorContact(
+  thread: Pick<PersistedInboxThread, "from" | "email">,
+  contact: { email?: string | null; phone?: string | null },
+): boolean {
+  const email = String(contact.email ?? "").trim().toLowerCase();
+  if (email) {
+    if (String(thread.email ?? "").trim().toLowerCase() === email) return true;
+    if (String(thread.from ?? "").trim().toLowerCase() === email) return true;
+  }
+  const digits = String(contact.phone ?? "").replace(/\D/g, "");
+  if (digits.length >= 10) {
+    const last10 = digits.slice(-10);
+    const emailDigits = String(thread.email ?? "").replace(/\D/g, "");
+    const fromDigits = String(thread.from ?? "").replace(/\D/g, "");
+    if (emailDigits.endsWith(last10) || fromDigits.endsWith(last10)) return true;
+  }
+  return false;
+}
+
 /**
  * Unread conversations Active would show: collapse person rows, drop leftover
  * workspace assistant notices, and ignore archived SMS bindings.

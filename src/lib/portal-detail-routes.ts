@@ -217,6 +217,18 @@ export function propertyDetailHref(
   return `${basePath}/properties/${stage}/${encodeURIComponent(propertyKey)}/${tab}`;
 }
 
+/** Add service / Add task → this house’s Services tab (listed vs drafts). */
+export function propertyServicesCatalogHref(
+  basePath: string,
+  propertyId: string,
+  saveTarget: { mode: "pending" | "listing" | "requestChange" } | null,
+): string | null {
+  const id = propertyId.trim();
+  if (!id || !saveTarget) return null;
+  const stage = saveTarget.mode === "pending" ? "drafts" : "listed";
+  return propertyDetailHref(basePath, stage, id, "requests");
+}
+
 /**
  * Manager property pipeline stages. `all` is the default: every home on one list,
  * with its state on the row — the three narrower stages are filters over it.

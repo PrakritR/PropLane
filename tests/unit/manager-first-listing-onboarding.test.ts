@@ -68,6 +68,7 @@ describe("manager-first-listing-onboarding (PRP-396)", () => {
     expect(shouldSkipFirstListingOnboarding({ demo: true })).toBe(true);
     expect(shouldSkipFirstListingOnboarding({ email: "manager@test.proplane.local" })).toBe(true);
     expect(shouldSkipFirstListingOnboarding({ email: "owner@prop-lane.space" })).toBe(false);
+    expect(shouldSkipFirstListingOnboarding({ incomingTeam: true })).toBe(true);
   });
 
   it("seeds once when the portfolio is empty AND the sync confirmed it", async () => {

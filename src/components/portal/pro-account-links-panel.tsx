@@ -123,6 +123,11 @@ import { formatProplaneIdForDisplay } from "@/lib/manager-id";
 import { formatInviteMessageBody, formatInviteMessageSubject } from "@/lib/invite-message-body";
 import { mintInviteLinkClient } from "@/lib/invite-links/mint-invite-link-client";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
+import {
+  DEFAULT_NEW_INVITE_WORKSPACE_GRANT,
+  normalizeWorkspacePermissions,
+  type WorkspaceCoManagerGrant,
+} from "@/lib/workspace-co-manager-permissions";
 
 type TeamRemovePreviewItem = BulkMessageCarouselItem & {
   entry: TeamListEntry;
@@ -160,7 +165,45 @@ type TeamListEntry = {
 type InviteDraft = {
   assignedPropertyIds: string[];
   propertyCoManagerPermissions: PropertyCoManagerPermissions;
+  workspaceDefaultPermissions: CoManagerPermissions;
+  workspacePermissions: WorkspaceCoManagerGrant;
 };
+
+function WorkspaceGrantFields({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: WorkspaceCoManagerGrant;
+  onChange: (next: WorkspaceCoManagerGrant) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <fieldset className="space-y-2" data-attr="team-workspace-grants">
+      <legend className="text-xs font-semibold text-foreground">Workspace</legend>
+      <label className="flex min-h-11 items-center gap-3 rounded-xl border border-border bg-card px-3 text-[13.5px]">
+        <input
+          type="checkbox"
+          checked={value.addProperties === true}
+          disabled={disabled}
+          onChange={(e) => onChange({ ...value, addProperties: e.target.checked ? true : undefined })}
+          data-attr="team-grant-add-properties"
+        />
+        Add properties
+      </label>
+      <label className="flex min-h-11 items-center gap-3 rounded-xl border border-border bg-card px-3 text-[13.5px]">
+        <input
+          type="checkbox"
+          checked={value.teams === true}
+          disabled={disabled}
+          onChange={(e) => onChange({ ...value, teams: e.target.checked ? true : undefined })}
+          data-attr="team-grant-invite-teammates"
+        />
+        Invite teammates
+      </label>
+    </fieldset>
+  );
+}
 
 /**
  * The properties this manager can assign to a co-manager.
@@ -506,21 +549,36 @@ function TeamMemberContactCard({ entry }: { entry: TeamListEntry }) {
 }
 
 function inviteDraftFromRemote(inv: AccountLinkInviteDto): InviteDraft {
+  const propertyCoManagerPermissions = normalizePropertyCoManagerPermissions(
+    inv.propertyCoManagerPermissions ?? inv.coManagerPermissions,
+    inv.assignedPropertyIds,
+  );
+  const workspaceDefaultPermissions = Object.keys(inv.coManagerPermissions ?? {}).length
+    ? normalizeCoManagerPermissions(inv.coManagerPermissions)
+    : Object.keys(flatCoManagerPermissionsFromProperty(propertyCoManagerPermissions)).length
+      ? flatCoManagerPermissionsFromProperty(propertyCoManagerPermissions)
+      : buildAllModulesGrant("read");
   return {
     assignedPropertyIds: [...inv.assignedPropertyIds],
-    propertyCoManagerPermissions: normalizePropertyCoManagerPermissions(
-      inv.propertyCoManagerPermissions ?? inv.coManagerPermissions,
-      inv.assignedPropertyIds,
-    ),
+    propertyCoManagerPermissions,
+    workspaceDefaultPermissions,
+    workspacePermissions: normalizeWorkspacePermissions(inv.workspacePermissions),
   };
 }
 
 function inviteDraftFromRelationship(row: ProRelationshipRecord): InviteDraft {
+  const propertyCoManagerPermissions = normalizePropertyCoManagerPermissions(
+    row.propertyCoManagerPermissions ?? row.coManagerPermissions,
+    row.assignedPropertyIds,
+  );
   return {
     assignedPropertyIds: [...row.assignedPropertyIds],
-    propertyCoManagerPermissions: normalizePropertyCoManagerPermissions(
-      row.propertyCoManagerPermissions ?? row.coManagerPermissions,
-      row.assignedPropertyIds,
+    propertyCoManagerPermissions,
+    workspaceDefaultPermissions: Object.keys(row.coManagerPermissions ?? {}).length
+      ? normalizeCoManagerPermissions(row.coManagerPermissions)
+      : flatCoManagerPermissionsFromProperty(propertyCoManagerPermissions),
+    workspacePermissions: normalizeWorkspacePermissions(
+      (row as { workspacePermissions?: unknown }).workspacePermissions,
     ),
   };
 }
@@ -926,6 +984,12 @@ export function ProAccountLinksPanel({
 
   const [selectedProps, setSelectedProps] = useState<Record<string, boolean>>({});
   const [propertyPermissionsDraft, setPropertyPermissionsDraft] = useState<PropertyCoManagerPermissions>({});
+  const [inviteDefaultPermissions, setInviteDefaultPermissions] = useState<CoManagerPermissions>(() =>
+    buildAllModulesGrant("read"),
+  );
+  const [inviteWorkspacePermissions, setInviteWorkspacePermissions] = useState<WorkspaceCoManagerGrant>(
+    DEFAULT_NEW_INVITE_WORKSPACE_GRANT,
+  );
   const [skuTier, setSkuTier] = useState<string | null>(null);
   const [invitePath, setInvitePath] = useState<PortalInvitePath>("link");
   const [inviteeName, setInviteeName] = useState("");
@@ -1264,7 +1328,7 @@ export function ProAccountLinksPanel({
     setPropertyPermissionsDraft((perms) => {
       const updated = { ...perms };
       for (const id of nextIds) {
-        if (!updated[id]) updated[id] = buildAllModulesGrant("read");
+        if (!updated[id]) updated[id] = inviteDefaultPermissions;
       }
       for (const id of Object.keys(updated)) {
         if (!nextSet.has(id)) delete updated[id];
@@ -1420,6 +1484,9 @@ export function ProAccountLinksPanel({
               assignedPropertyIds: ids,
               payoutPercentForManager: payout,
               propertyCoManagerPermissions,
+              coManagerPermissions: inviteDefaultPermissions,
+              workspaceId: inviteWorkspaceId,
+              workspacePermissions: inviteWorkspacePermissions,
               skipInviteNotification: true,
             }),
           });
@@ -1588,6 +1655,8 @@ export function ProAccountLinksPanel({
           void patchInvite(inviteId, {
             assignedPropertyIds: draft.assignedPropertyIds,
             propertyCoManagerPermissions: draft.propertyCoManagerPermissions,
+            coManagerPermissions: draft.workspaceDefaultPermissions,
+            workspacePermissions: draft.workspacePermissions,
           });
         }
       }, 300);
@@ -1626,14 +1695,20 @@ export function ProAccountLinksPanel({
         ...Object.fromEntries(
           nextAssigned
             .filter((id) => !draft.assignedPropertyIds.includes(id))
-            .map((id) => [id, buildAllModulesGrant("read")]),
+            .map((id) => [id, draft.workspaceDefaultPermissions]),
         ),
       },
       nextAssigned,
     );
     if (remote) {
       const inv = activeRemote.find((row) => row.id === linkId);
-      if (inv) scheduleInviteSave(inv.id, { assignedPropertyIds: nextAssigned, propertyCoManagerPermissions: nextPerms });
+      if (inv) {
+        scheduleInviteSave(inv.id, {
+          ...draft,
+          assignedPropertyIds: nextAssigned,
+          propertyCoManagerPermissions: nextPerms,
+        });
+      }
       return;
     }
     const all = readProRelationships(userId);
@@ -1671,6 +1746,8 @@ export function ProAccountLinksPanel({
         ...draft.propertyCoManagerPermissions,
         [propertyId]: normalized,
       },
+      workspaceDefaultPermissions: draft.workspaceDefaultPermissions,
+      workspacePermissions: draft.workspacePermissions,
     };
     if (useRemote && remoteLoaded) {
       scheduleInviteSave(inv.id, next, { propertyId, permissions: normalized });
@@ -1712,7 +1789,7 @@ export function ProAccountLinksPanel({
       );
       setInviteDrafts((d) => ({
         ...d,
-        [inv.id]: { assignedPropertyIds: nextAssigned, propertyCoManagerPermissions: nextPerms },
+        [inv.id]: { ...getInviteDraft(inv), assignedPropertyIds: nextAssigned, propertyCoManagerPermissions: nextPerms },
       }));
       const nextInvites = remoteInvites.map((row) =>
         row.id === inv.id
@@ -1721,7 +1798,7 @@ export function ProAccountLinksPanel({
       );
       seedAccountLinksCache(nextInvites);
       writeProRelationships(userId, proRelationshipRowsFromInvites(nextInvites.filter((i) => i.status === "accepted")));
-      scheduleInviteSave(inv.id, { assignedPropertyIds: nextAssigned, propertyCoManagerPermissions: nextPerms });
+      scheduleInviteSave(inv.id, { ...getInviteDraft(inv), assignedPropertyIds: nextAssigned, propertyCoManagerPermissions: nextPerms });
       showToast("Property removed from this team member.");
       return;
     }
@@ -1946,7 +2023,7 @@ export function ProAccountLinksPanel({
         );
         setInviteDrafts((d) => ({
           ...d,
-          [inv.id]: { assignedPropertyIds: nextAssigned, propertyCoManagerPermissions: nextPerms },
+          [inv.id]: { ...getInviteDraft(inv), assignedPropertyIds: nextAssigned, propertyCoManagerPermissions: nextPerms },
         }));
         const nextInvites = remoteInvites.map((row) =>
           row.id === inv.id
@@ -1955,7 +2032,7 @@ export function ProAccountLinksPanel({
         );
         seedAccountLinksCache(nextInvites);
         writeProRelationships(userId, proRelationshipRowsFromInvites(nextInvites.filter((i) => i.status === "accepted")));
-        scheduleInviteSave(inv.id, { assignedPropertyIds: nextAssigned, propertyCoManagerPermissions: nextPerms });
+        scheduleInviteSave(inv.id, { ...getInviteDraft(inv), assignedPropertyIds: nextAssigned, propertyCoManagerPermissions: nextPerms });
         showToast(
           removeSet.size === 1 ? "Property removed from this team member." : `${removeSet.size} properties removed.`,
         );
@@ -2456,15 +2533,42 @@ export function ProAccountLinksPanel({
           </p>
         )}
 
-        {draft.assignedPropertyIds.length === 0 ? (
-          <p className="text-sm text-muted">No properties in this link yet.</p>
-        ) : (
-          <div className="space-y-3">
-            {draft.assignedPropertyIds.map((pid) =>
-              renderPropertyPermissionsSection(pid, draft, inv, readOnly),
-            )}
-          </div>
-        )}
+        <CheckboxMultiSelect
+          label="Houses"
+          labelClassName="text-xs font-semibold text-foreground"
+          options={propertyOptions.map((option) => ({ value: option.id, label: option.label }))}
+          selected={draft.assignedPropertyIds}
+          onChange={(ids) => {
+            if (readOnly) return;
+            applyAssignedPropertyChange(inv.id, ids, draft, true);
+          }}
+          emptyLabel="Select houses…"
+          searchPlaceholder="Search houses…"
+          dataAttr="team-member-houses"
+        />
+        <CoManagerPermissionsEditor
+          value={draft.workspaceDefaultPermissions}
+          disabled={readOnly}
+          onChange={(next) => {
+            const nextPerms = normalizePropertyCoManagerPermissions(
+              Object.fromEntries(draft.assignedPropertyIds.map((id) => [id, next])),
+              draft.assignedPropertyIds,
+            );
+            const nextDraft: InviteDraft = {
+              ...draft,
+              workspaceDefaultPermissions: next,
+              propertyCoManagerPermissions: nextPerms,
+            };
+            scheduleInviteSave(inv.id, nextDraft);
+          }}
+        />
+        <WorkspaceGrantFields
+          value={draft.workspacePermissions}
+          disabled={readOnly}
+          onChange={(next) => {
+            scheduleInviteSave(inv.id, { ...draft, workspacePermissions: next });
+          }}
+        />
       </div>
     );
   };
@@ -2668,23 +2772,15 @@ export function ProAccountLinksPanel({
               />
             )}
 
-            {selectedPropIds.length > 0 ? (
-              <div className="space-y-4">
-                {selectedPropIds.map((pid) => (
-                  <div key={pid} className="rounded-xl border border-border bg-accent/25 p-4">
-                    <p className="text-sm font-semibold text-foreground">{teamPropertyLabel(pid)}</p>
-                    <div className="mt-3">
-                      <CoManagerPermissionsEditor
-                        value={normalizeCoManagerPermissions(propertyPermissionsDraft[pid])}
-                        onChange={(next) =>
-                          setPropertyPermissionsDraft((prev) => ({ ...prev, [pid]: next }))
-                        }
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : null}
+            <CoManagerPermissionsEditor
+              value={inviteDefaultPermissions}
+              onChange={(next) => {
+                setInviteDefaultPermissions(next);
+                const ids = selectedInvitePropertyIds();
+                setPropertyPermissionsDraft(Object.fromEntries(ids.map((id) => [id, next])));
+              }}
+            />
+            <WorkspaceGrantFields value={inviteWorkspacePermissions} onChange={setInviteWorkspacePermissions} />
           </div>
         </Modal>
 
@@ -2981,9 +3077,12 @@ export function ProAccountLinksPanel({
 
   // Settings → Workspaces: one "Managers & permissions" section per owned card.
   const workspaceTeamSection = (workspace: PortalWorkspace): ReactNode => {
-    const belongs = (assigned: string[]) => grantBelongsToWorkspace(assigned, workspace);
+    const belongs = (assigned: string[], grantWorkspaceId?: string | null) =>
+      grantBelongsToWorkspace(assigned, workspace, grantWorkspaceId);
     const memberEntries = teamEntries.filter((entry) =>
-      entry.kind === "local" ? belongs(entry.row.assignedPropertyIds) : entry.invite.status === "accepted" && belongs(entry.invite.assignedPropertyIds),
+      entry.kind === "local"
+        ? belongs(entry.row.assignedPropertyIds)
+        : entry.invite.status === "accepted" && belongs(entry.invite.assignedPropertyIds, entry.invite.workspaceId),
     );
     const previewFor = (assigned: string[]) => {
       const here = assignedIdsInWorkspace(assigned, workspace.propertyIds);
@@ -3009,7 +3108,9 @@ export function ProAccountLinksPanel({
         onDisconnect: () => openTeamRemovePreview([entry]),
       })),
     ];
-    const pending = useRemote ? [...incomingPending, ...outgoingPending].filter((inv) => belongs(inv.assignedPropertyIds)) : [];
+    const pending = useRemote
+      ? [...incomingPending, ...outgoingPending].filter((inv) => belongs(inv.assignedPropertyIds, inv.workspaceId))
+      : [];
     const loading = useRemote && !remoteLoaded && !loadError;
     return (
       <div data-attr="workspace-team" data-workspace-id={workspace.id}>

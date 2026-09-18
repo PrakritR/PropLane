@@ -185,14 +185,6 @@ export function VendorAvailabilityEditor() {
     return map;
   }, [rules]);
 
-  const blocks = useMemo(
-    () =>
-      rules
-        .filter((r): r is Extract<VendorAvailabilityRule, { kind: "block" }> => r.kind === "block")
-        .sort((a, b) => a.specificDate.localeCompare(b.specificDate)),
-    [rules],
-  );
-
   const opens = useMemo(
     () =>
       rules
@@ -271,19 +263,6 @@ export function VendorAvailabilityEditor() {
   const resetBlockForm = () => {
     setBlockEditingId(null);
     setBlockDraft({ date: todayDateInputValue(), allDay: true, start: "09:00", end: "17:00", note: "" });
-  };
-
-  const startEditBlock = (rule: Extract<VendorAvailabilityRule, { kind: "block" }>) => {
-    const allDay = rule.startMinute === 0 && rule.endMinute === 1440;
-    setBlockDraft({
-      date: rule.specificDate,
-      allDay,
-      start: allDay ? "09:00" : minuteOfDayToTimeInputValue(rule.startMinute),
-      end: allDay ? "17:00" : minuteOfDayToTimeInputValue(rule.endMinute),
-      note: rule.note ?? "",
-    });
-    setBlockEditingId(rule.id);
-    setBlockFormOpen(true);
   };
 
   const addBlock = async () => {
@@ -877,44 +856,7 @@ export function VendorAvailabilityEditor() {
           </div>
         ) : null}
 
-        <div className="mt-3 space-y-1.5">
-          {blocks.length === 0 ? (
-            <p className="text-xs text-muted">No blocked dates.</p>
-          ) : (
-            blocks.map((b) => (
-              <div
-                key={b.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-2.5 py-1.5 text-xs"
-              >
-                <button
-                  type="button"
-                  data-attr="vendor-availability-edit-block"
-                  className={`text-left ${AVAILABILITY_EDIT_BTN}`}
-                  onClick={() => startEditBlock(b)}
-                >
-                  <span className="font-medium text-foreground">
-                    {new Date(`${b.specificDate}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                  </span>{" "}
-                  ·{" "}
-                  {b.startMinute === 0 && b.endMinute === 1440
-                    ? "All day"
-                    : `${formatMinuteOfDayLabel(b.startMinute)}–${formatMinuteOfDayLabel(b.endMinute)}`}
-                  {b.note ? <span className="text-muted"> · {b.note}</span> : null}
-                </button>
-                <button
-                  type="button"
-                  data-attr="vendor-availability-remove-block"
-                  aria-label={`Remove blocked date ${b.specificDate}`}
-                  className={AVAILABILITY_REMOVE_BTN}
-                  disabled={busyId === b.id}
-                  onClick={() => void removeRule(b.id)}
-                >
-                  ✕
-                </button>
-              </div>
-            ))
-          )}
-        </div>
+        {/* Already-blocked dates stay off this form — they paint on the calendar. */}
       </PortalCollapsibleSection>
       {!loaded ? <p className="text-xs text-muted">Loading availability…</p> : null}
     </div>

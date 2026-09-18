@@ -48,7 +48,7 @@ type TeamRowMenuItem = {
 function TeamRowMenu({ label, items }: { label: string; items: TeamRowMenuItem[] }) {
   if (items.length === 0) return null;
   return (
-    <DropdownMenu>
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger
         type="button"
         aria-label={`Actions for ${label}`}
@@ -58,7 +58,7 @@ function TeamRowMenu({ label, items }: { label: string; items: TeamRowMenuItem[]
       >
         <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" glass aria-label={`Actions for ${label}`} data-attr="team-member-actions-menu">
+      <DropdownMenuContent align="end" glass={false} backdrop={false} aria-label={`Actions for ${label}`} data-attr="team-member-actions-menu">
         {items.map((item) => (
           <DropdownMenuItem
             key={item.id}
@@ -206,7 +206,7 @@ export function TeamPendingInvitesBlock({
           const name = inv.linkedDisplayName ?? (inv.openInvite ? "Anyone with the link" : inv.linkedAxisId) ?? "Invite";
           const items: TeamRowMenuItem[] = outgoing
             ? [
-                { id: "copy", label: "Copy link", onSelect: () => onCopyLink(inv), dataAttr: "team-pending-resend" },
+                { id: "edit", label: "Edit", onSelect: () => onOpen(inv), dataAttr: "team-pending-edit" },
                 { id: "revoke", label: "Revoke", onSelect: () => onRevoke(inv), destructive: true, dataAttr: "team-pending-revoke" },
               ]
             : [

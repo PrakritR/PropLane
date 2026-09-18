@@ -55,14 +55,12 @@ function fill(email = "vendor@example.test") {
 function next() {
   fireEvent.click(screen.getByRole("button", { name: /Continue to / }));
 }
-function continueAddToContact() {
-  next();
-  next();
-  next();
-}
 function continueToReview() {
-  continueAddToContact();
+  next();
   fill();
+  next();
+  next();
+  next();
   next();
 }
 
@@ -106,24 +104,37 @@ describe("three-path vendor invitation", () => {
     expect(persistManagerVendorToServer.mock.calls[0][0]).toMatchObject({ ...vendor, name: "Updated" });
   });
 
-  it("shows properties first and Invite by on Review", () => {
+  it("picks houses from a dropdown and can share on PropLane", () => {
     show();
-    expect(screen.getByRole("checkbox", { name: "Every property" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Continue to What they do/ })).toBeInTheDocument();
-    expect(screen.queryByLabelText("Vendor name")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Invite by")).not.toBeInTheDocument();
-    continueToReview();
+    next();
+    fill();
+    next();
+    expect(screen.getByLabelText("Properties")).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Every property" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Properties"));
+    expect(screen.getByRole("option", { name: "Every property" })).toBeInTheDocument();
+    next();
+    next();
+    next();
+    expect(screen.getByLabelText("Share on PropLane")).toBeInTheDocument();
+  });
+
+  it("opens on Invite by, then Contact", () => {
+    show();
     expect(screen.getByLabelText("Invite by")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Invite vendor" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Continue to Contact/ })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Vendor name")).not.toBeInTheDocument();
+    next();
+    expect(screen.getByLabelText("Vendor name")).toBeInTheDocument();
   });
 
   it("rejects missing name and malformed email before any write", async () => {
     show();
-    continueAddToContact();
-    fireEvent.click(screen.getByRole("button", { name: /Continue to Review/ }));
+    next();
+    fireEvent.click(screen.getByRole("button", { name: /Continue to Properties/ }));
     expect(screen.getByRole("alert")).toHaveTextContent("Vendor name is required");
     fill("invalid");
-    fireEvent.click(screen.getByRole("button", { name: "Continue to Review" }));
+    fireEvent.click(screen.getByRole("button", { name: /Continue to Properties/ }));
     expect(screen.getByRole("alert")).toHaveTextContent("valid email");
     expect(persistManagerVendorToServer).not.toHaveBeenCalled();
   });

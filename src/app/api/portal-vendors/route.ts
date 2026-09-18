@@ -32,6 +32,7 @@ function normalizeRow(row: ManagerVendorRow, managerUserId: string): ManagerVend
     notes: (row.notes ?? "").trim(),
     active: row.active !== false,
     sharedWithManagers: row.sharedWithManagers === true,
+    shareOnProplane: row.shareOnProplane === true,
     propertyIds: Array.isArray(row.propertyIds) ? row.propertyIds : undefined,
     updatedAt: new Date().toISOString(),
   };

@@ -37,7 +37,8 @@ import {
   PROPERTY_PIPELINE_EVENT,
 } from "@/lib/demo-property-pipeline";
 import { collectLinkedPropertyIds, syncManagerPortfolioFromServer } from "@/lib/manager-portfolio-access";
-import { accountLinksKnown, fetchAccountLinksCached } from "@/lib/portal-data-store";
+import { accountLinksKnown, fetchAccountLinksCached, readCachedAccountLinkInvites } from "@/lib/portal-data-store";
+import { hasIncomingAcceptedTeamLink } from "@/lib/workspace-co-manager-permissions";
 import { isServerSyncOriginatedEvent } from "@/lib/property-pipeline-events";
 import { buildManagerShareablePropertyOptions } from "@/lib/manager-property-links";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
@@ -256,7 +257,10 @@ export function ManagerProperties({
           portfolioSynced &&
           !propertyKeyProp &&
           !firstListingSeedAttemptedRef.current &&
-          !shouldSkipFirstListingOnboarding({ email })
+          !shouldSkipFirstListingOnboarding({
+            email,
+            incomingTeam: hasIncomingAcceptedTeamLink(readCachedAccountLinkInvites()),
+          })
         ) {
           firstListingSeedAttemptedRef.current = true;
           // Wait for a real answer about co-manager links before judging the
@@ -274,6 +278,7 @@ export function ManagerProperties({
             email,
             portfolioSynced,
             coManagerLinksKnown: linksKnown,
+            incomingTeam: hasIncomingAcceptedTeamLink(readCachedAccountLinkInvites()),
           });
           if (seeded) {
             setPropCount(countManagerManagedPropertiesForUser(scopeUserId));
@@ -403,6 +408,8 @@ export function ManagerProperties({
     switch (action.kind) {
       case "open":
         return true;
+      case "wait":
+        return false;
       case "no-owned":
         showToast("You need a workspace you own to add a property.");
         return false;
@@ -429,7 +436,13 @@ export function ManagerProperties({
     if (!ensureOwnedWorkspaceForAdd()) return;
     // Prefer resuming the first-listing draft when that is the only work left.
     const snap = readFirstListingPortfolioSnapshot(scopeUserId);
-    if (managerNeedsFirstListingOnboarding(snap) && !shouldSkipFirstListingOnboarding({ email })) {
+    if (
+      managerNeedsFirstListingOnboarding(snap) &&
+      !shouldSkipFirstListingOnboarding({
+        email,
+        incomingTeam: hasIncomingAcceptedTeamLink(readCachedAccountLinkInvites()),
+      })
+    ) {
       const draftId = readAdminPropertyRows(5, scopeUserId)[0]?.adminRefId?.trim() || null;
       if (draftId) {
         setResumeDraftId(draftId);

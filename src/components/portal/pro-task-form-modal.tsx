@@ -663,6 +663,7 @@ export function ManagerTaskFormModal({
             onClose();
             onSaved?.(composePrefill ?? null);
           }}
+          onLeaveForCatalog={onClose}
         />
       ) : (
       <div className={PORTAL_MODAL_FORM_GRID_CLASS}>

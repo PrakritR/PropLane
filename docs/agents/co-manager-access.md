@@ -26,6 +26,13 @@ the granular form is `{ read, edit, delete }` (`edit`/`delete` imply `read`).
 Model + level helpers live in `src/lib/co-manager-permissions.ts`
 (`hasCoManagerPermissionLevel[ForProperty]`).
 
+**Workspace grants sit beside the 13 modules.** `workspace_permissions`
+(`addProperties`, `teams`) is empty-object-means-no-access. Add properties
+lets a teammate create a listing into that workspace as the owner
+(`resolveCreateListingOwner`); the new house is appended to their assigned
+ids. Invite teammates is the existing `teams` edit path. Houses and all 13
+modules edit on one member sheet — no nested "Untitled property" modal.
+
 **Shareable invite links do not need a PropLane ID.** Workspace Invite (and
 vendor Invite) always offers three methods: **link**, **message**, and
 **PropLane code**. Email is a Send via channel on the next page (New message),

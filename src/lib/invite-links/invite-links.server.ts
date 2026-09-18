@@ -803,6 +803,8 @@ export async function redeemInviteLink(
         link.property_permissions,
         link.assigned_property_ids ?? [],
       ),
+      workspace_id: link.workspace_id ?? null,
+      workspace_permissions: { addProperties: true, teams: true },
     })
     .select("id")
     .maybeSingle();

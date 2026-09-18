@@ -9,8 +9,10 @@
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { ManagerInbox } from "@/components/portal/pro-inbox";
+import { ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
 import { Button } from "@/components/ui/button";
-import { Input, Select, Textarea } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import { MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal-styles";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { SaveStatus } from "@/components/ui/save-status";
@@ -42,18 +44,11 @@ import {
   type VendorCheckInOnNoOrSilent,
 } from "@/lib/vendor-check-ins";
 import {
-  estimateSmsSegments,
   normalizeVendorMessaging,
-  renderVendorMessage,
   resolveVendorChannel,
-  unknownVendorMessageTokens,
   VENDOR_CHANNELS,
-  VENDOR_MESSAGE_EVENT_META,
-  VENDOR_MESSAGE_EVENTS,
   vendorChannelLabel,
-  vendorTemplateFor,
   type VendorChannel,
-  type VendorMessageEvent,
   type VendorMessaging,
 } from "@/lib/vendor-messaging";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
@@ -248,6 +243,7 @@ export function ManagerVendorDetail({
   onSendCheckInNow?: (checkIn: VendorCheckIn) => Promise<void>;
 }) {
   const tab = tabProp ?? "overview";
+  const [inboxTab, setInboxTab] = useState<"all" | "trash">("all");
   const messaging = useManagerMessagingNumberStatus();
   const smsAvailable = Boolean(messaging.status?.sendingAvailable && messaging.status?.number);
 
@@ -405,13 +401,29 @@ export function ManagerVendorDetail({
       {tab === "profile" ? profileFacts : null}
 
       {tab === "communication" ? (
-        <VendorMessagesTab
-          draft={draft}
-          callName={callName}
-          reach={reach}
-          sampleJob={jobs[0] ?? null}
-          onChange={(messaging) => patch({ messaging })}
-        />
+        <div className="min-h-[520px] px-1 sm:px-2" data-attr="vendor-detail-inbox">
+          <div className="px-2 pb-2 sm:px-3">
+            <ManagerPortalStatusPills
+              tabs={[
+                { id: "all", label: "Active", count: 0 },
+                { id: "trash", label: "Archived", count: 0 },
+              ]}
+              activeId={inboxTab}
+              onChange={(id) => setInboxTab(id === "trash" ? "trash" : "all")}
+            />
+          </div>
+          <ManagerInbox
+            tabId={inboxTab}
+            embeddedInCommunication
+            filterVendorEmail={draft.email}
+            filterVendorPhone={draft.phone}
+            emptyThreadFallback={
+              <p className="px-4 py-10 text-center text-sm text-muted">
+                No messages with {callName} yet.
+              </p>
+            }
+          />
+        </div>
       ) : null}
 
       {tab === "check-ins" ? (
@@ -451,116 +463,6 @@ export function ManagerVendorDetail({
           )}
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function VendorMessagesTab({
-  draft,
-  callName,
-  reach,
-  sampleJob,
-  onChange,
-}: {
-  draft: VendorDraft;
-  callName: string;
-  reach: ReturnType<typeof resolveVendorChannel>;
-  sampleJob: DemoManagerWorkOrderRow | null;
-  onChange: (next: VendorMessaging) => void;
-}) {
-  const [previewEvent, setPreviewEvent] = useState<VendorMessageEvent>("visit_scheduled");
-  const ctx = useMemo(
-    () => ({
-      vendor: callName,
-      service: sampleJob?.title || "Kitchen faucet drip",
-      property: sampleJob?.propertyName || "The Pioneer",
-      unit: sampleJob?.unit || "Room 8B",
-      resident_first: (sampleJob?.residentName || "Liam Foster").split(" ")[0],
-      visit_time: "Mon, Sep 14 · 10:00 AM",
-      priority: sampleJob?.priority || "Medium",
-      notes: sampleJob?.description || "",
-      cost: sampleJob?.cost && sampleJob.cost !== "—" ? sampleJob.cost : "$140",
-    }),
-    [callName, sampleJob],
-  );
-  const preview = renderVendorMessage(vendorTemplateFor(draft.messaging, previewEvent).body, ctx);
-  const setTemplate = (event: VendorMessageEvent, next: { enabled?: boolean; body?: string }) => {
-    const current = draft.messaging.templates[event] ?? { enabled: true, body: "" };
-    onChange({ ...draft.messaging, templates: { ...draft.messaging.templates, [event]: { ...current, ...next } } });
-  };
-
-  return (
-    <div className="space-y-4 px-3 pb-4 sm:px-4">
-      <Field
-        label="Instructions for every message"
-        help="Read by the assistant when it drafts or answers on your behalf. Your own words — keep it to what matters."
-      >
-        <Textarea
-          rows={3}
-          value={draft.messaging.instructions}
-          onChange={(e) => onChange({ ...draft.messaging, instructions: e.target.value })}
-          placeholder="Always Spanish. Keep it short — reads on the road. Never before 7am or after 8pm. Ask for a reply of OK."
-          data-attr="vendor-messaging-instructions"
-        />
-      </Field>
-
-      <div>
-        <p className="mb-2 text-sm font-semibold text-foreground">What {callName} gets, step by step</p>
-        <div className="space-y-2">
-          {VENDOR_MESSAGE_EVENTS.map((event) => {
-            const meta = VENDOR_MESSAGE_EVENT_META[event];
-            const t = vendorTemplateFor(draft.messaging, event);
-            const own = draft.messaging.templates[event]?.body ?? "";
-            const unknown = unknownVendorMessageTokens(own);
-            return (
-              <div key={event} className={cn("rounded-xl border border-border p-3", !t.enabled && "opacity-70")} data-attr={`vendor-template-${event}`}>
-                <div className="flex items-center gap-2.5">
-                  <Toggle checked={t.enabled} onChange={(enabled) => setTemplate(event, { enabled })} label={`${meta.label} on`} />
-                  <button type="button" className="text-sm font-semibold text-foreground" onClick={() => setPreviewEvent(event)}>
-                    {meta.label}
-                  </button>
-                  <span className="text-xs text-muted">· {meta.when}</span>
-                </div>
-                <Textarea
-                  rows={2}
-                  className="mt-2"
-                  value={own}
-                  onChange={(e) => setTemplate(event, { body: e.target.value })}
-                  onFocus={() => setPreviewEvent(event)}
-                  placeholder={t.body}
-                  data-attr={`vendor-template-${event}-body`}
-                />
-                <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                  {meta.variables.map((v) => (
-                    <code key={v} className="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary">{`{${v}}`}</code>
-                  ))}
-                  {!own.trim() ? <span className="ml-1 text-[11px] text-muted">Blank = the built-in wording shown above.</span> : null}
-                  {unknown.length ? (
-                    <span className="ml-1 text-[11px] text-amber-700">
-                      {unknown.map((u) => `{${u}}`).join(", ")} is not a variable and will be sent as typed.
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <p className="mt-2 text-xs text-muted">
-          Access codes are never a variable — {callName} asks the assistant once assigned and the visit is booked.
-        </p>
-      </div>
-
-      <div className="flex items-start gap-3">
-        <p className="pt-2 text-xs text-muted">Preview →</p>
-        <div className="max-w-sm rounded-2xl rounded-bl-md bg-primary/10 px-3 py-2 text-sm text-foreground" data-attr="vendor-message-preview">
-          {preview}
-          <p className="mt-1 text-[11px] text-muted">
-            {VENDOR_MESSAGE_EVENT_META[previewEvent].label} · as {vendorChannelLabel(reach.channel).toLowerCase()}
-            {reach.channel === "sms" ? ` · ${estimateSmsSegments(preview)} segment${estimateSmsSegments(preview) === 1 ? "" : "s"}` : ""}
-            {reach.note ? ` · ${reach.note}` : ""}
-          </p>
-        </div>
-      </div>
     </div>
   );
 }

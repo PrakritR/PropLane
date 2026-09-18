@@ -3,9 +3,11 @@ import { asStringArray, readPropertyPermissionsFromRow, serializeInvite, type In
 import { looksLikeAccountLinksMissingTable } from "@/lib/account-links";
 import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-scope";
 import {
+  normalizeCoManagerPermissions,
   normalizePropertyCoManagerPermissions,
   prunePropertyCoManagerPermissions,
 } from "@/lib/co-manager-permissions";
+import { normalizeWorkspacePermissions } from "@/lib/workspace-co-manager-permissions";
 import { isCrossSandboxPortalPair, CROSS_SANDBOX_PORTAL_PAIR_ERROR } from "@/lib/portal-sandbox-accounts";
 import { scopedRelationshipDeletesForRevokedInvite } from "@/lib/pro-relationships";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -28,6 +30,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
       payoutPercentForManager?: number;
       coManagerPermissions?: unknown;
       propertyCoManagerPermissions?: unknown;
+      workspacePermissions?: unknown;
+      workspaceId?: string | null;
       propertyId?: string;
       permissions?: unknown;
     } | null;
@@ -69,6 +73,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
     const patchPerms =
       body?.coManagerPermissions !== undefined ||
       body?.propertyCoManagerPermissions !== undefined ||
+      body?.workspacePermissions !== undefined ||
+      body?.workspaceId !== undefined ||
       (body?.propertyId !== undefined && body?.permissions !== undefined);
 
     if (!actionNorm && !patchProps && !patchPay && !patchPerms) {
@@ -174,6 +180,18 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
         }
       }
       nextPropertyPerms = prunePropertyCoManagerPermissions(nextPropertyPerms, nextAssigned);
+      const nextWorkspacePermissions =
+        body?.workspacePermissions !== undefined
+          ? normalizeWorkspacePermissions(body.workspacePermissions)
+          : normalizeWorkspacePermissions(invite.workspace_permissions);
+      const nextWorkspaceId =
+        body?.workspaceId !== undefined
+          ? (typeof body.workspaceId === "string" ? body.workspaceId.trim() || null : null)
+          : invite.workspace_id ?? null;
+      const nextWorkspaceDefaults =
+        body?.coManagerPermissions !== undefined && body?.propertyId === undefined
+          ? normalizeCoManagerPermissions(body.coManagerPermissions)
+          : normalizeCoManagerPermissions(invite.co_manager_permissions);
 
       const { data: updated, error: upErr } = await svc
         .from("account_link_invites")
@@ -181,6 +199,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
           assigned_property_ids: nextAssigned,
           payout_percent_for_manager: nextPayout,
           property_co_manager_permissions: nextPropertyPerms,
+          co_manager_permissions: nextWorkspaceDefaults,
+          workspace_permissions: nextWorkspacePermissions,
+          workspace_id: nextWorkspaceId,
         })
         .eq("id", id)
         .eq("status", invite.status)

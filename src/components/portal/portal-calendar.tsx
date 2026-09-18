@@ -440,7 +440,9 @@ function PortalCalendarManager({
   );
 
   // Open tour slots (availability) draw where tours are booked from: All and Tours.
-  const availabilityView = schedulingHub ? toursHubTab === "tours" : calendarView === "all" || calendarView === "tours";
+  const availabilityView = schedulingHub
+    ? toursHubTab === "tours"
+    : calendarView === "all" || calendarView === "tours";
   const showServiceVisits = schedulingHub ? toursHubTab === "services" : calendarView === "all" || calendarView === "services";
   const servicesOnlyView = schedulingHub ? toursHubTab === "services" : calendarView === "services";
   const tasksOnlyView = !schedulingHub && calendarView === "tasks";
@@ -521,7 +523,9 @@ function PortalCalendarManager({
   // Calendar view forces the panel read-only anymore.
   const calendarPanelsReadOnly = false;
   const calendarStorageKey =
-    availabilityView && activeCalendarPropertyFilters.length === 1 ? storageKey : null;
+    availabilityView && (activeCalendarPropertyFilters.length === 1 || scopedCalendarPropertyIds.length === 1)
+      ? storageKey
+      : null;
   const calendarUnavailableMessage = servicesOnlyView
     ? "No scheduled service visits yet. Vendor visits and your own assigned work appear here once a visit time is set."
     : tasksOnlyView

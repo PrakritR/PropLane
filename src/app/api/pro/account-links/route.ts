@@ -23,6 +23,10 @@ import { mintOpenCoManagerInvite } from "@/lib/co-manager-open-invite.server";
 import { resolveRequestOrigin } from "@/lib/app-url";
 
 import { asStringArray, serializeInvite, type InviteRow } from "@/lib/account-link-invite-row";
+import {
+  DEFAULT_NEW_INVITE_WORKSPACE_GRANT,
+  normalizeWorkspacePermissions,
+} from "@/lib/workspace-co-manager-permissions";
 
 export const runtime = "nodejs";
 
@@ -84,6 +88,8 @@ export async function GET(): Promise<NextResponse<AccountLinksPayload | { error:
           "payout_percent_for_manager",
           "property_co_manager_permissions",
           "co_manager_permissions",
+          "workspace_id",
+          "workspace_permissions",
           "status",
           "created_at",
           "responded_at",
@@ -185,6 +191,8 @@ export async function POST(req: Request) {
       payoutPercentForManager?: number;
       coManagerPermissions?: unknown;
       propertyCoManagerPermissions?: unknown;
+      workspaceId?: string | null;
+      workspacePermissions?: unknown;
       /** When true, the client already delivered (or will deliver) the invite message. */
       skipInviteNotification?: boolean;
     } | null;
@@ -245,9 +253,15 @@ export async function POST(req: Request) {
       payoutPercentForManager = 15;
     }
 
-    const coManagerPermissions: CoManagerPermissions = flatCoManagerPermissionsFromProperty(
-      propertyCoManagerPermissions,
-    );
+    const workspaceId = typeof body?.workspaceId === "string" ? body.workspaceId.trim() || null : null;
+    const workspacePermissions = Object.keys(normalizeWorkspacePermissions(body?.workspacePermissions)).length
+      ? normalizeWorkspacePermissions(body?.workspacePermissions)
+      : DEFAULT_NEW_INVITE_WORKSPACE_GRANT;
+    const coManagerPermissions: CoManagerPermissions = Object.keys(
+      body?.coManagerPermissions && typeof body.coManagerPermissions === "object" ? body.coManagerPermissions : {},
+    ).length
+      ? (body!.coManagerPermissions as CoManagerPermissions)
+      : flatCoManagerPermissionsFromProperty(propertyCoManagerPermissions);
 
     // Security: the inviter may only delegate properties they actually own.
     const ownership = await findPropertyIdsNotOwnedByManager(svc, inviterUserId, assignedPropertyIds);
@@ -338,6 +352,8 @@ export async function POST(req: Request) {
         payoutPercentForManager,
         propertyCoManagerPermissions,
         coManagerPermissions,
+        workspaceId,
+        workspacePermissions,
         tabKind,
         requestOrigin: resolveRequestOrigin(req),
       });
@@ -534,6 +550,8 @@ export async function POST(req: Request) {
         payout_percent_for_manager: payoutPercentForManager,
         property_co_manager_permissions: propertyCoManagerPermissions,
         co_manager_permissions: coManagerPermissions,
+        workspace_id: workspaceId,
+        workspace_permissions: workspacePermissions,
         status: "pending",
       })
       .select(
@@ -550,6 +568,8 @@ export async function POST(req: Request) {
           "payout_percent_for_manager",
           "property_co_manager_permissions",
           "co_manager_permissions",
+          "workspace_id",
+          "workspace_permissions",
           "status",
           "created_at",
           "responded_at",

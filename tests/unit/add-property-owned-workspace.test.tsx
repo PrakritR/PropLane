@@ -17,9 +17,19 @@ describe("resolveAddPropertyWorkspaceAction", () => {
     expect(resolveAddPropertyWorkspaceAction(null)).toEqual({ kind: "open" });
   });
 
-  it("opens while workspaces are still loading — the server stays the authority", () => {
+  it("waits while workspaces are still loading — a stale cookie must not open the wizard", () => {
     expect(
       resolveAddPropertyWorkspaceAction({ loading: true, active: null, workspaces: [] }),
+    ).toEqual({ kind: "wait" });
+  });
+
+  it("opens a co-managed workspace when Add properties is granted", () => {
+    expect(
+      resolveAddPropertyWorkspaceAction({
+        loading: false,
+        active: { id: "shared", owned: false, canAddProperties: true },
+        workspaces: [{ id: "shared", owned: false, canAddProperties: true }],
+      }),
     ).toEqual({ kind: "open" });
   });
 

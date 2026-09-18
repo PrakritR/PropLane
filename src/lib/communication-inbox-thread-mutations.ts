@@ -16,6 +16,23 @@ function inferPreviousFolder(thread: PersistedInboxThread): "inbox" | "sent" {
   return "inbox";
 }
 
+function expandInboxMutationIds(prev: PersistedInboxThread[], ids: string[]): Set<string> {
+  const expanded = new Set(ids);
+  for (const thread of prev) {
+    const sources = thread.sourceThreadIds ?? [];
+    const hit = expanded.has(thread.id) || sources.some((id) => expanded.has(id));
+    if (!hit) continue;
+    expanded.add(thread.id);
+    for (const id of sources) expanded.add(id);
+  }
+  return expanded;
+}
+
+function threadMatchesMutationIds(thread: PersistedInboxThread, ids: Set<string>): boolean {
+  if (ids.has(thread.id)) return true;
+  return (thread.sourceThreadIds ?? []).some((id) => ids.has(id));
+}
+
 export async function archivePersistedInboxThreads(
   storageKey: string,
   ids: string[],
@@ -24,9 +41,10 @@ export async function archivePersistedInboxThreads(
   if (clean.length === 0) return { ok: true, next: loadPersistedInbox(storageKey, []) };
 
   const prev = loadPersistedInbox(storageKey, []);
+  const matchIds = expandInboxMutationIds(prev, clean);
   const changed: PersistedInboxThread[] = [];
   const next = prev.map((thread) => {
-    if (!clean.includes(thread.id)) return thread;
+    if (!threadMatchesMutationIds(thread, matchIds)) return thread;
     if (thread.folder === "trash" || (thread.folder !== "inbox" && thread.folder !== "sent")) {
       return thread;
     }
@@ -61,7 +79,7 @@ export async function archivePersistedInboxThreads(
       }
     }
   }
-  const ordinaryIds = clean.filter((id) => !noticeIds.has(id));
+  const ordinaryIds = [...matchIds].filter((id) => !noticeIds.has(id));
   if (ordinaryIds.length > 0 && !(await changePersistedInboxThreadFolders(storageKey, ordinaryIds, "archive"))) {
     return { ok: false, next: prev };
   }
@@ -77,9 +95,10 @@ export async function restorePersistedInboxThreads(
   if (clean.length === 0) return { ok: true, next: loadPersistedInbox(storageKey, []) };
 
   const prev = loadPersistedInbox(storageKey, []);
+  const matchIds = expandInboxMutationIds(prev, clean);
   const changed: PersistedInboxThread[] = [];
   const next = prev.map((thread) => {
-    if (!clean.includes(thread.id) || thread.folder !== "trash") return thread;
+    if (!threadMatchesMutationIds(thread, matchIds) || thread.folder !== "trash") return thread;
     const dest = inferPreviousFolder(thread);
     const updated: PersistedInboxThread = {
       ...thread,
@@ -112,7 +131,7 @@ export async function restorePersistedInboxThreads(
       }
     }
   }
-  const ordinaryIds = clean.filter((id) => !noticeIds.has(id));
+  const ordinaryIds = [...matchIds].filter((id) => !noticeIds.has(id));
   if (ordinaryIds.length > 0 && !(await changePersistedInboxThreadFolders(storageKey, ordinaryIds, "restore"))) {
     return { ok: false, next: prev };
   }

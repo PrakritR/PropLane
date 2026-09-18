@@ -257,22 +257,25 @@ function RecurringBlockModalFormFields({
       ) : null}
 
       <div className="space-y-1.5">
-        <p className={BLOCK_MODAL_LABEL_CLASS}>Days of week</p>
-        <div className="space-y-2">
-          {WEEKDAY_OPTIONS.map((option) => {
-            const active = blockWeekdays.includes(option.value);
-            return (
-              <label key={option.value} className="flex min-h-11 items-center gap-3 rounded-xl border border-border bg-card px-3 text-[13.5px]">
-                <input
-                  type="checkbox"
-                  checked={active}
-                  onChange={() => toggleBlockWeekday(option.value)}
-                />
-                {option.label}
-              </label>
-            );
-          })}
-        </div>
+        <CheckboxMultiSelect
+          label="Days of week"
+          labelClassName={BLOCK_MODAL_LABEL_CLASS}
+          options={WEEKDAY_OPTIONS.map((option) => ({ value: String(option.value), label: option.label }))}
+          selected={blockWeekdays.map(String)}
+          onChange={(next) => {
+            const values = next
+              .map((value) => Number.parseInt(value, 10))
+              .filter((value) => Number.isFinite(value));
+            for (const option of WEEKDAY_OPTIONS) {
+              const has = values.includes(option.value);
+              const already = blockWeekdays.includes(option.value);
+              if (has !== already) toggleBlockWeekday(option.value);
+            }
+          }}
+          emptyLabel="Select days…"
+          dataAttr="calendar-block-days"
+          className="w-full sm:w-64"
+        />
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -1292,6 +1295,15 @@ export function PortalCalendarPanels({
     [editKind, kindKeysMap, reloadAvailability, scheduleOwnerLabel],
   );
 
+  const mutateAvailabilityAllKinds = useCallback(
+    (mutate: (current: Set<string>) => Set<string>) => {
+      for (const kind of AVAILABILITY_KINDS) {
+        if ((kindKeysMap[kind]?.length ?? 0) > 0) mutateAvailability(mutate, kind);
+      }
+    },
+    [kindKeysMap, mutateAvailability],
+  );
+
   /**
    * One day's open runs — painted (per kind, via `mergeOpenRuns`) plus the
    * implicit 9-5 default merged into its own contiguous spans. Computed for
@@ -2123,7 +2135,7 @@ export function PortalCalendarPanels({
     const currentDates = activeBlockDates;
     const previousBlockDates = currentDates.map((date) => addDays(date, -7));
 
-    mutateAvailability((activeSlotsForKey) => {
+    mutateAvailabilityAllKinds((activeSlotsForKey) => {
       const next = new Set(activeSlotsForKey);
 
       for (const targetDate of currentDates) {
@@ -2145,7 +2157,7 @@ export function PortalCalendarPanels({
 
       return next;
     });
-  }, [activeBlockDates, mutateAvailability]);
+  }, [activeBlockDates, mutateAvailabilityAllKinds, slotRowIndices]);
 
   const toggleBlockWeekday = useCallback((weekday: number) => {
     setBlockWeekdays((current) =>
@@ -2324,7 +2336,7 @@ export function PortalCalendarPanels({
   ]);
 
   const clearCurrentWeek = useCallback(() => {
-    mutateAvailability((current) => {
+    mutateAvailabilityAllKinds((current) => {
       const next = new Set(current);
       for (const ds of activeBlockDateStrs) {
         for (const slot of slotRowIndices) {
@@ -2335,7 +2347,7 @@ export function PortalCalendarPanels({
       }
       return next;
     });
-  }, [activeBlockDateStrs, mutateAvailability, slotRowIndices]);
+  }, [activeBlockDateStrs, mutateAvailabilityAllKinds, slotRowIndices]);
 
   const blockSummary = useMemo(() => {
     const days = blockWeekdays.length > 0 ? weekdayLabelList(blockWeekdays) : "No days selected";

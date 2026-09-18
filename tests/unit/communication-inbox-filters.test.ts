@@ -6,6 +6,7 @@ import {
   isPhoneLikeContact,
   isSmsLikeInboxThread,
   resolveSmsDeletePhone,
+  threadMatchesVendorContact,
 } from "@/lib/communication-inbox-filters";
 import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 import { threadPassesCommunicationFilters } from "@/lib/communication-thread-filters";
@@ -136,5 +137,13 @@ describe("communication-inbox-filters", () => {
       }),
     ];
     expect(countVisibleUnreadCommunication(rows, { portal: "manager", viewerId: "user-1" })).toBe(1);
+  });
+
+  it("matches a vendor thread by email or last-10 phone digits", () => {
+    const emailRow = thread({ id: "v-email", from: "Ava Plumber", email: "ava@vendor.test" });
+    const phoneRow = thread({ id: "v-phone", from: "+1 (206) 555-0100", email: "" });
+    expect(threadMatchesVendorContact(emailRow, { email: "ava@vendor.test" })).toBe(true);
+    expect(threadMatchesVendorContact(phoneRow, { phone: "2065550100" })).toBe(true);
+    expect(threadMatchesVendorContact(emailRow, { email: "other@vendor.test" })).toBe(false);
   });
 });

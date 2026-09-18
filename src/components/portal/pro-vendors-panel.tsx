@@ -4,7 +4,7 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 
-import { Mail, Pencil, Settings } from "lucide-react";
+import { Mail, Pencil, Settings, UserRound, X } from "lucide-react";
 import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
@@ -54,7 +54,10 @@ import {
   personRecordListActions,
   personRecordNeedsYouItems,
 } from "@/lib/person-record-actions";
-import { AXIS_VENDOR_CATALOG, formatVendorCatalogUsd, type AxisCatalogVendor } from "@/lib/axis-vendor-catalog";
+import { type AxisCatalogVendor } from "@/lib/axis-vendor-catalog";
+import { listManagerCatalogVendors } from "@/lib/vendor-catalog-list";
+import { RecordActionContext } from "@/components/ui/record-action-context";
+import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
 import { findRosterCatalogMatch } from "@/lib/manager-vendor-typical-rates";
 import {
   parseVendorDetailTab,
@@ -646,7 +649,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     );
   }
 
-  const catalogRows = AXIS_VENDOR_CATALOG;
+  const catalogRows = listManagerCatalogVendors(vendors);
   const catalogDetail = catalogDetailId
     ? catalogRows.find((row) => row.catalogId === catalogDetailId) ?? null
     : null;
@@ -657,7 +660,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         catalogId={catalogDetailId}
         vendor={catalogDetail}
         alreadyOwned={Boolean(findRosterCatalogMatch(vendors, catalogDetail ?? { name: "", trade: "" }))}
-        onBack={() => navigate(vendorListHref(basePath, "catalog"))}
+        backHref={vendorListHref(basePath, "catalog")}
         onAdd={(row) => {
           const existing = findRosterCatalogMatch(vendors, row);
           if (existing) {
@@ -683,33 +686,50 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       <div className={PORTAL_LIST_PAGE_BODY}>
         {catalogRows.map((row) => {
           const existing = findRosterCatalogMatch(vendors, row);
+          const openProfile = () => navigate(vendorCatalogDetailHref(basePath, row.catalogId));
+          const addOrOpen = () => {
+            if (existing) {
+              navigate(vendorDetailHref(basePath, existing.id));
+              return;
+            }
+            openAddVendorForm(row.trade, row);
+          };
           return (
-            <PortalPersonRecordRow
+            <RecordActionContext.Provider
               key={row.catalogId}
-              name={row.name}
-              subtitle={`${row.trade} · ${row.city}`}
-              preview={`${formatVendorCatalogUsd(row.hourlyCents)} / hr · ${formatVendorCatalogUsd(row.serviceCents)} typical`}
-              onOpen={() => navigate(vendorCatalogDetailHref(basePath, row.catalogId))}
-              dataAttr="vendor-catalog-row"
-              trailing={
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="shrink-0"
-                  data-attr={existing ? "vendor-catalog-row-open" : "vendor-catalog-row-add"}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    if (existing) {
-                      navigate(vendorDetailHref(basePath, existing.id));
-                      return;
-                    }
-                    openAddVendorForm(row.trade, row);
-                  }}
-                >
-                  {existing ? "Open" : "Add"}
-                </Button>
-              }
-            />
+              value={{
+                scope: row.catalogId,
+                clear: () => {},
+                actions: (
+                  <>
+                    <Button type="button" data-attr="vendor-catalog-row-view" onClick={openProfile}>
+                      View profile
+                    </Button>
+                    <Button
+                      type="button"
+                      data-attr={existing ? "vendor-catalog-row-open" : "vendor-catalog-row-add"}
+                      onClick={addOrOpen}
+                    >
+                      {existing ? "Open" : "Add to your vendors"}
+                    </Button>
+                  </>
+                ),
+              }}
+            >
+              <PortalPropertyRecordRow
+                title={row.name}
+                address={row.description}
+                facts={<span>{[row.trade, row.city].filter(Boolean).join(" · ")}</span>}
+                leading={
+                  <div className="flex h-[4.125rem] w-[5.5rem] items-center justify-center rounded-[10px] bg-secondary text-muted max-md:h-[3.125rem] max-md:w-16">
+                    <UserRound className="size-6" strokeWidth={1.6} aria-hidden />
+                  </div>
+                }
+                onOpen={openProfile}
+                onSelectedChange={() => {}}
+                dataAttr="vendor-catalog-row"
+              />
+            </RecordActionContext.Provider>
           );
         })}
       </div>
@@ -718,17 +738,11 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         section="vendors"
         title={portalEmptyCopy("vendors").title}
         workspaceAware
-        sibling={
-          bare
-            ? undefined
-            : { label: `${catalogRows.length} PropLane vendors`, href: vendorListHref(basePath, "catalog"), dataAttr: "vendors-empty-catalog" }
-        }
         actions={
           bare
             ? [{ label: "Open Vendors", href: vendorListHref(basePath), dataAttr: "settings-vendors-empty-open", icon: null }]
             : [
                 { label: "Add vendor", onClick: () => openAddVendorForm(), dataAttr: "vendors-empty-add" },
-                { label: "PropLane vendors", onClick: () => navigate(vendorListHref(basePath, "catalog")), dataAttr: "vendors-empty-proplane", secondary: true, icon: null },
               ]
         }
         dataAttr="vendors-empty"
@@ -810,9 +824,14 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     });
   }
 
+  const showingCatalogDetail = directoryTab === "catalog" && Boolean(catalogDetailId);
+
   const body = (
     <>
       {modals}
+      {showingCatalogDetail ? (
+        listBody
+      ) : (
       <PortalRecordListSurface
         className="mt-0"
         onBulkClear={directoryTab === "yours" ? clearSelection : undefined}
@@ -826,24 +845,25 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         loadError={listError ? "Couldn’t load vendors" : undefined}
         onRetry={retryVendors}
         isEmpty={false}
-        add={
-          catalogDetailId
-            ? undefined
-            : {
-                ariaLabel: directoryTab === "catalog" ? "Add your own vendor" : "Add vendor",
-                onClick: () => openAddVendorForm(),
-                inline: true,
-                dataAttr: directoryTab === "catalog" ? "vendors-catalog-add-own" : "vendors-add-footer",
-              }
-        }
+        add={undefined}
         dataAttr={directoryTab === "catalog" ? "vendor-catalog-list" : "vendor-your-list"}
       >{listBody}</PortalRecordListSurface>
-
+      )}
     </>
   );
 
   const vendorToolbar = (
-    <ManagerVendorsToolbar onDefaults={() => openDefaultsForm()} />
+    <>
+      {directoryTab === "catalog" && !catalogDetailId ? (
+        <PortalIconAction
+          icon={X}
+          label="Close PropLane vendors"
+          onClick={() => navigate(vendorListHref(basePath, "yours"))}
+          data-attr="vendors-catalog-close"
+        />
+      ) : null}
+      <ManagerVendorsToolbar onDefaults={() => openDefaultsForm()} />
+    </>
   );
 
   const vendorDestinations = bare
