@@ -62,7 +62,8 @@ Reference: manager **Properties** tab.
 
 ## No subtext
 
-The captain's standing rule (PLAN-0914-1615): a screen is labels and controls.
+The captain's standing rule (PLAN-0914-1615 / PLAN-0918-1500): a screen is
+labels and controls. This is **site-wide**, not settings-only.
 
 - **Do not add** step subtitles, section descriptions, field hints, "optional"
   markers, explanatory sentences under a row or in a footer, or descriptions
@@ -80,6 +81,16 @@ The captain's standing rule (PLAN-0914-1615): a screen is labels and controls.
 - Guard: `tests/unit/no-subtext-listing-wizard.test.ts` reads the wizard
   source and fails on `hint=`, `subtitle=`, `description=`, `optional`, or a
   sentence of grey text.
+
+## Icon chrome
+
+Utility actions sit as icons in the **top right** of a title or card header.
+
+- Use `PortalIconAction` (Share, Copy, Filter, Settings, Download, Edit, Delete).
+- The word is `aria-label` + tooltip. Never a labeled Share / Copy pill.
+- Save (commits data) and a destructive confirm may stay words.
+- Settings: one property picker on the module title (Services + All properties).
+  Section headers (Requests, Booking, Documents) are titles only.
 
 ## Mobile
 

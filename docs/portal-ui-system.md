@@ -161,7 +161,7 @@ after any outline secondary actions.
 
 | Property | Value |
 |----------|-------|
-| **Label** | Verb + noun — `Add property`, `Add resident` (never icon-only on desktop) |
+| **Label** | Verb + noun — `Add property`, `Add resident` for the one create CTA. Utility chrome (Share, Copy, Filter, Settings) is `PortalIconAction` in the title row, never a second labeled pill. |
 | **Background** | Solid cobalt: `color-mix(in srgb, var(--btn-primary) 92%, #000)` (`#2f6bff` family) |
 | **Text** | White (`#ffffff`), 14px semibold |
 | **Shape** | `rounded-lg` (8px) — **not** the marketing/auth pill (`rounded-full`) |

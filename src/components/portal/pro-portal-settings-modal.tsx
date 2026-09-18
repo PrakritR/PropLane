@@ -375,7 +375,9 @@ export function ProPortalSettingsModal({
           onPropertyIdChange={setScopePropertyId}
           options={propertyOptions}
         >
-          <SettingsPropertyScopeBar />
+          <div className="mb-3 flex justify-end">
+            <SettingsPropertyScopeBar />
+          </div>
           <SettingsModulePage
             ref={pageRef}
             tab={tab}

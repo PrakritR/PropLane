@@ -122,12 +122,12 @@ describe("TourSettingsPanel redraw", () => {
     expect(screen.queryByText(/without asking you first/i)).toBeNull();
   });
 
-  it("tags both sections with what they apply to", async () => {
+  it("Booking and Reminders are titles only — no property tag on each section", async () => {
     stubFetch();
     render(<TourSettingsPanel />);
     await screen.findByText("Notice required");
-
-    const tags = screen.getAllByText("All properties");
-    expect(tags.length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByRole("heading", { name: "Booking" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Reminders" })).toBeTruthy();
+    expect(screen.queryByText("All properties")).toBeNull();
   });
 });

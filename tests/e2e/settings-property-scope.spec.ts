@@ -73,10 +73,11 @@ test.describe("Settings — per-property Operations scope", () => {
     await page.goto(`/portal/settings?tab=inspections&property=${houseId}`, { waitUntil: "domcontentloaded" });
     await page.waitForTimeout(2500);
     expect(new URL(page.url()).searchParams.get("property")).toBe(houseId);
+    await picker.first().click();
     const resetLink = page.locator('[data-attr="settings-property-scope-reset"]');
     await expect(resetLink).toBeVisible({ timeout: 10_000 });
 
-    // Reset from the scope bar restores the workspace values.
+    // Reset lives in the title-row picker menu.
     await resetLink.click();
     await page.waitForTimeout(1500);
     const houseReset = await call(page, `/api/portal/reminder-settings?propertyId=${houseId}`);

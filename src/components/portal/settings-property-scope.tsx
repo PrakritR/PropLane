@@ -11,16 +11,14 @@ import {
 } from "react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS } from "@/components/ui/field-select-styles";
-import { PortalSettingsScopeTag } from "@/components/portal/portal-settings-ui";
 
 /**
- * Per-property scope for Operations settings (PLAN-0916-1040).
+ * Per-property scope for Operations settings (PLAN-0918-1500).
  *
- * A sticky bar at the top of a pane (when the workspace has houses) and the
- * compact picker in each section header both set which house the sections apply
- * to; "" is the workspace default ("All properties"). The panels read the scope
- * through {@link useSettingsPropertyScope} and add `?propertyId=` to their
- * fetches.
+ * One picker lives in the module title row. "" is the workspace default
+ * ("All properties"). Panels read the scope through
+ * {@link useSettingsPropertyScope} and add `?propertyId=` to their fetches.
+ * Section headers are titles only — they do not repeat this control.
  *
  * The hook is safe to call OUTSIDE a provider — it returns the workspace scope
  * (`propertyId: ""`, no-op reporters) — so a panel without houses still reads
@@ -146,18 +144,36 @@ function SettingsPropertyScopePicker({
     { value: ALL_PROPERTIES, label: "All properties" },
     ...scope.options.map((o) => ({ value: o.id, label: o.label })),
   ];
+  const canReset =
+    scope.propertyId !== "" && scope.overriddenPropertyIds.includes(scope.propertyId);
   const selectAllFooter = (close: () => void) => (
-    <button
-      type="button"
-      data-attr="settings-property-scope-select-all"
-      className="w-full rounded-lg px-2 py-1.5 text-left text-[13px] font-semibold text-primary hover:bg-accent/60"
-      onClick={() => {
-        scope.setPropertyId("");
-        close();
-      }}
-    >
-      Select all
-    </button>
+    <div className="flex flex-col">
+      {canReset ? (
+        <button
+          type="button"
+          data-attr="settings-property-scope-reset"
+          className="w-full rounded-lg px-2 py-1.5 text-left text-[13px] font-semibold text-primary hover:bg-accent/60"
+          disabled={scope.loading}
+          onClick={() => {
+            scope.requestReset();
+            close();
+          }}
+        >
+          Reset to workspace default
+        </button>
+      ) : null}
+      <button
+        type="button"
+        data-attr="settings-property-scope-select-all"
+        className="w-full rounded-lg px-2 py-1.5 text-left text-[13px] font-semibold text-primary hover:bg-accent/60"
+        onClick={() => {
+          scope.setPropertyId("");
+          close();
+        }}
+      >
+        Select all
+      </button>
+    </div>
   );
 
   return (
@@ -178,68 +194,21 @@ function SettingsPropertyScopePicker({
 }
 
 /**
- * The scope bar — one property picker pinned at the top of a settings pane.
- * Always visible when the workspace has houses. "" is All properties.
- * "Select all" in the menu is the same pick as All properties.
+ * The one Settings property control — a compact pill for the module title row.
+ * Hidden when the workspace has no houses. "" is All properties.
  */
 export function SettingsPropertyScopeBar() {
   const scope = useSettingsPropertyScope();
-  const { options, propertyId, overriddenPropertyIds } = scope;
-
-  if (options.length === 0) return null;
-
-  const overridden = new Set(overriddenPropertyIds);
-  const overriddenOptions = options.filter((o) => overridden.has(o.id));
-  const right =
-    propertyId === "" ? (
-      overriddenOptions.length > 0 ? (
-        <span className="flex flex-wrap items-center gap-1.5">
-          <PortalSettingsScopeTag variant="muted">
-            {overriddenOptions.length === 1
-              ? "1 house has its own"
-              : `${overriddenOptions.length} houses have their own`}
-          </PortalSettingsScopeTag>
-          {overriddenOptions.map((o) => (
-            <PortalSettingsScopeTag key={o.id} variant="muted">
-              {o.label}
-            </PortalSettingsScopeTag>
-          ))}
-        </span>
-      ) : null
-    ) : overridden.has(propertyId) ? (
-      <button
-        type="button"
-        onClick={scope.requestReset}
-        disabled={scope.loading}
-        data-attr="settings-property-scope-reset"
-        className="text-[13px] font-semibold text-primary transition-colors hover:text-primary/80 disabled:opacity-50"
-      >
-        Reset to workspace default
-      </button>
-    ) : (
-      <PortalSettingsScopeTag variant="muted">Uses workspace defaults</PortalSettingsScopeTag>
-    );
-
-  return (
-    <div className="sticky top-0 z-[3] mb-5 flex flex-col gap-2.5 rounded-2xl border border-border bg-card px-3.5 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex items-center gap-2.5">
-        <span className="text-[13px] font-semibold text-foreground">Property</span>
-        <span className="hidden sm:inline-flex">
-          <SettingsPropertyScopePicker dataAttr="settings-property-scope" />
-        </span>
-      </div>
-      <span className="sm:hidden">
-        <SettingsPropertyScopePicker dataAttr="settings-property-scope-mobile" fullWidth />
-      </span>
-      {right ? <div className="flex items-center">{right}</div> : null}
-    </div>
-  );
+  if (scope.options.length === 0) return null;
+  return <SettingsPropertyScopePicker compact dataAttr="settings-property-scope" />;
 }
 
-/**
- * Section-header property picker — the same All properties / house / Select all
- * menu as the top bar, in the slot that used to be a static "All properties" tag.
- */
-export function SettingsPropertyScopeEcho() {
-  return <SettingsPropertyScopePicker compact dataAttr="settings-property-scope-echo" />;
+/** Module title on the left, the one property picker on the right. */
+export function SettingsPropertyScopeTitleRow({ title }: { title: string }) {
+  return (
+    <div className="mb-5 flex items-center justify-between gap-3 border-b border-border pb-3">
+      <h2 className="hidden text-xl font-semibold tracking-[-0.02em] text-foreground lg:block">{title}</h2>
+      <SettingsPropertyScopeBar />
+    </div>
+  );
 }

@@ -119,49 +119,58 @@ afterEach(() => {
   showToast.mockClear();
 });
 
-describe("settings module redraws — scope tags", () => {
-  it("Applications tags both its automation and its reminders sections", async () => {
+describe("settings module redraws — section titles have no property tag", () => {
+  it("Applications Handling and Reminders are titles only", async () => {
     stubFetch();
     render(<ControlledApplications />);
-    expect(await screen.findByText("1 property")).toBeTruthy();
-    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
+    expect(await screen.findByRole("heading", { name: "Handling" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Reminders" })).toBeTruthy();
+    expect(screen.queryByText("1 property")).toBeNull();
+    expect(screen.queryByText("No properties selected")).toBeNull();
+    expect(screen.queryByText("All properties")).toBeNull();
   });
 
-  it("Lease tags both its automation and its reminders sections", async () => {
+  it("Lease Documents and Ending are titles only", async () => {
     stubFetch();
     render(<ControlledLease />);
-    expect(await screen.findByText("1 property")).toBeTruthy();
-    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
+    expect(await screen.findByRole("heading", { name: "Documents" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Ending" })).toBeTruthy();
+    expect(screen.queryByText("1 property")).toBeNull();
+    expect(screen.queryByText("All properties")).toBeNull();
   });
 
-  it("Task, Payments, Bookings, Inspections, Services, Communication each tag their section", async () => {
+  it("Task, Payments, Bookings, Inspections, Services, Communication have no section picker", async () => {
     stubFetch();
     render(<TaskSettingsPanel teamMembers={[]} />);
-    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
+    expect(await screen.findByRole("heading", { name: "Reminders" })).toBeTruthy();
+    expect(screen.queryByText("All properties")).toBeNull();
     cleanup();
 
     render(<PaymentsSettingsPanel teamMembers={[]} />);
     expect(await screen.findByRole("button", { name: "Settings" })).toBeTruthy();
     expect(screen.getAllByText("Payment setup").length).toBeGreaterThan(0);
+    expect(screen.queryByText("All properties")).toBeNull();
     cleanup();
 
     render(<BookingsSettingsPanel teamMembers={[]} />);
-    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("All properties")).toBeNull();
     cleanup();
 
     render(<InspectionsSettingsPanel teamMembers={[]} />);
-    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("All properties")).toBeNull();
     cleanup();
 
     render(<ServicesSettingsPanel teamMembers={[]} />);
-    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
+    expect(await screen.findByRole("heading", { name: "Requests" })).toBeTruthy();
+    expect(screen.queryByText("All properties")).toBeNull();
     cleanup();
 
     render(<CommunicationSettingsPanel />);
-    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
+    expect(await screen.findByRole("heading", { name: "Automation" })).toBeTruthy();
+    expect(screen.queryByText("All properties")).toBeNull();
   });
 
-  it("Resident settings is the welcome message, scoped by the Property bar", async () => {
+  it("Resident settings is the welcome message, without a section property tag", async () => {
     stubFetch();
     render(
       <ResidentSettingsPanel
@@ -174,7 +183,7 @@ describe("settings module redraws — scope tags", () => {
       />,
     );
     expect(await screen.findByRole("heading", { name: "Welcome" })).toBeTruthy();
-    expect(screen.getByText("All properties")).toBeTruthy();
+    expect(screen.queryByText("All properties")).toBeNull();
     expect(screen.queryByRole("heading", { name: "Ballard House" })).toBeNull();
     expect(screen.queryByRole("button", { name: "House" })).toBeNull();
     expect(screen.queryByText("Informational")).toBeNull();

@@ -28,6 +28,17 @@ vi.mock("@/hooks/use-manager-user-id", () => ({ useManagerUserId: () => ({ userI
 vi.mock("@/hooks/use-work-assignment-directory", () => ({
   useWorkAssignmentDirectory: () => ({ teamMembers: [] }),
 }));
+vi.mock("@/components/portal/workspace-provider", () => ({
+  useWorkspaces: () => null,
+}));
+vi.mock("@/components/portal/settings-module-page", async () => {
+  const { forwardRef } = await import("react");
+  return {
+    SettingsModulePage: forwardRef(function SettingsModulePageStub() {
+      return <div data-testid="settings-module-stub" />;
+    }),
+  };
+});
 vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   // Spread the real module: this file only needs to override demo mode, and a hand-listed mock
   // silently breaks every time the module gains an export a component calls at import time.

@@ -268,14 +268,23 @@ Chevrons inline after the label. Header actions reach a phone **exactly once**
 
 Dashboard sections go in `MANAGER_DASHBOARD_SECTIONS` and gate on `visibility.<id>`.
 
-**No small grey subtext.** A heading, a row or a field carries a label and its
-control — never a sentence under it explaining it. Counts are steppers, picks
-are dropdowns (multi-select with an Other entry when several apply), never
-pills. Detail and the source guard: `docs/agents/ui-change-checklist.md`
-§ No subtext. The settings kit (`portal-settings-ui.tsx`) has no
-`description` / `meta` props by design; reminder timings, channels and
-type pickers are `CheckboxMultiSelect` / `FieldSingleSelect`, never chips.
+**Never generate subtext** anywhere on the site — portal, marketing, public
+pages, native. A heading, a row or a field carries a label and its control —
+never a sentence under it explaining it. Counts are steppers, picks are
+dropdowns (multi-select with an Other entry when several apply), never pills.
+Detail and the source guard: `docs/agents/ui-change-checklist.md` § No subtext.
+The settings kit (`portal-settings-ui.tsx`) has no `description` / `meta` props
+by design; reminder timings, channels and type pickers are
+`CheckboxMultiSelect` / `FieldSingleSelect`, never chips.
 Guard: `tests/unit/portal-settings-no-subtext.test.ts`.
+
+**Icon-heavy chrome.** Utility actions (Share, Copy, Filter, Settings, Download,
+Edit, Delete) are `PortalIconAction` in the top right of the title or card
+header. The word is the tooltip and `aria-label`, never a labeled pill. Do not
+invent a new labeled Share / Copy button. A data-commit (Save) or a destructive
+confirm may stay a word. One prominent create action may use
+`PortalPrimaryIconAction`. Settings property scope is one picker on the module
+title row — never a repeat on each section.
 
 # Brand assets (PropLane)
 

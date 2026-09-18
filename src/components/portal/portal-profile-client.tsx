@@ -58,8 +58,8 @@ import { ManagerAssistantEmailSettingsPanel } from "@/components/portal/pro-assi
 import { CommunicationSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
 import { SettingsModulePage } from "@/components/portal/settings-module-page";
 import {
-  SettingsPropertyScopeBar,
   SettingsPropertyScopeProvider,
+  SettingsPropertyScopeTitleRow,
 } from "@/components/portal/settings-property-scope";
 import { buildManagerPropertyFilterOptions, MANAGER_PORTFOLIO_REFRESH_EVENTS } from "@/lib/manager-portfolio-access";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
@@ -115,6 +115,7 @@ const SCOPED_OPERATIONS_PANES = new Set<SettingsGroupId>([
   "bookings",
   "inspections",
   "services",
+  "messaging",
 ]);
 
 /** The two fields on this screen a person may write. */
@@ -732,7 +733,7 @@ export function PortalProfileClient({
               onPropertyIdChange={setScopeProperty}
               options={scopeOptions}
             >
-              <SettingsPropertyScopeBar />
+              <SettingsPropertyScopeTitleRow title={paneGroup.label} />
               <PortalSettingsSections className={activeGroup === null ? "max-lg:hidden" : undefined}>
                 {renderPane(paneGroup.id)}
               </PortalSettingsSections>

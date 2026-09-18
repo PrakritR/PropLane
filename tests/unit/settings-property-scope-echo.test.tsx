@@ -3,7 +3,7 @@ import { useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import {
-  SettingsPropertyScopeEcho,
+  SettingsPropertyScopeBar,
   SettingsPropertyScopeProvider,
 } from "@/components/portal/settings-property-scope";
 
@@ -12,7 +12,7 @@ function tapOption(target: Element | Node) {
   fireEvent.pointerUp(target, { pointerId: 1, clientX: 10, clientY: 10 });
 }
 
-function EchoHarness({
+function BarHarness({
   initialId = "",
   options,
 }: {
@@ -26,13 +26,13 @@ function EchoHarness({
       onPropertyIdChange={setPropertyId}
       options={options}
     >
-      <SettingsPropertyScopeEcho />
+      <SettingsPropertyScopeBar />
       <p data-testid="scope-id">{propertyId || "all"}</p>
     </SettingsPropertyScopeProvider>
   );
 }
 
-describe("SettingsPropertyScopeEcho — section-header property dropdown", () => {
+describe("SettingsPropertyScopeBar — one title-row property dropdown", () => {
   afterEach(() => cleanup());
 
   const HOUSES = [
@@ -41,7 +41,7 @@ describe("SettingsPropertyScopeEcho — section-header property dropdown", () =>
   ];
 
   it("opens All properties and each house", () => {
-    render(<EchoHarness options={HOUSES} />);
+    render(<BarHarness options={HOUSES} />);
 
     const trigger = screen.getByRole("button", { name: "Property" });
     expect(trigger).toHaveTextContent("All properties");
@@ -58,17 +58,15 @@ describe("SettingsPropertyScopeEcho — section-header property dropdown", () =>
   });
 
   it("Select all restores All properties", () => {
-    render(<EchoHarness initialId="h2" options={HOUSES} />);
+    render(<BarHarness initialId="h2" options={HOUSES} />);
     fireEvent.click(screen.getByRole("button", { name: "Property" }));
     fireEvent.click(screen.getByRole("button", { name: "Select all" }));
     expect(screen.getByTestId("scope-id")).toHaveTextContent("all");
     expect(screen.getByRole("button", { name: "Property" })).toHaveTextContent("All properties");
   });
 
-  it("still offers All properties when the workspace has no houses yet", () => {
-    render(<EchoHarness options={[]} />);
-    fireEvent.click(screen.getByRole("button", { name: "Property" }));
-    expect(within(screen.getByRole("listbox")).getByText("All properties")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Select all" })).toBeTruthy();
+  it("hides when the workspace has no houses", () => {
+    render(<BarHarness options={[]} />);
+    expect(screen.queryByRole("button", { name: "Property" })).toBeNull();
   });
 });

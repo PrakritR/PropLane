@@ -39,7 +39,7 @@ function roomListing() {
 }
 
 describe("ManagerPropertyRoomMoveInPanel", () => {
-  it("opens a drill-in editor when a room row is clicked", () => {
+  it("puts Copy and Share as icons on The whole house", () => {
     render(
       <ManagerPropertyRoomMoveInPanel
         sub={roomListing()}
@@ -52,17 +52,13 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
     );
 
     expect(screen.getByText(/The whole house/i)).toBeTruthy();
-    expect(screen.queryByPlaceholderText(/Keys, parking/i)).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: /^Room B/i }));
-
-    expect(screen.getByDisplayValue("Lockbox on porch")).toBeTruthy();
-    expect(screen.getByPlaceholderText(/Keys, parking/i)).toBeTruthy();
-    expect(screen.queryByTestId("move-in-editor-save")).toBeNull();
-    expect(screen.getByRole("button", { name: /Back/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy to rooms" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Share" })).toBeTruthy();
+    expect(screen.getAllByPlaceholderText(/Keys, parking/i).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /^Copy to rooms$/i })?.textContent).not.toMatch(/Copy to rooms/);
   });
 
-  it("returns to the list when back is clicked from the editor", () => {
+  it("keeps Copy disabled until house details are saved", () => {
     render(
       <ManagerPropertyRoomMoveInPanel
         sub={roomListing()}
@@ -74,15 +70,14 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /^Room B/i }));
-    expect(screen.getByDisplayValue("Lockbox on porch")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: /Back/i }));
-    expect(screen.queryByDisplayValue("Lockbox on porch")).toBeNull();
-    expect(screen.queryByPlaceholderText(/Keys, parking/i)).toBeNull();
+    expect(screen.getByRole("button", { name: "Copy to rooms" })).toBeDisabled();
   });
 
-  it("shows edit and share for the room whose menu is open", async () => {
+  it("copies the resident House details link from the Share icon", async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    const showToast = vi.fn();
+
     render(
       <ManagerPropertyRoomMoveInPanel
         sub={roomListing()}
@@ -90,41 +85,17 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
         managerUserId="mgr-1"
         canEdit
         onUpdated={() => {}}
-        showToast={() => {}}
+        showToast={showToast}
       />,
     );
 
-    fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Room B" }), { key: "ArrowDown" });
-    await screen.findByRole("menuitem", { name: /^Edit$/i });
-    expect(screen.getByRole("menuitem", { name: /^Edit$/i })).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: /^Share$/i })).toBeTruthy();
-    expect(screen.queryByTestId("move-in-editor-save")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Share" }));
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalled());
+    expect(String(writeText.mock.calls[0]?.[0] ?? "")).toMatch(/\/resident\/move-in$/);
+    expect(showToast).toHaveBeenCalledWith("Resident House details link copied.");
   });
 
-  it("opens the house editor from the house row without inline fields on the list", () => {
-    render(
-      <ManagerPropertyRoomMoveInPanel
-        sub={roomListing()}
-        saveTarget={{ mode: "listing", saveId: "mgr-test" }}
-        managerUserId="mgr-1"
-        canEdit
-        onUpdated={() => {}}
-        showToast={() => {}}
-      />,
-    );
-
-    expect(screen.queryByPlaceholderText(/Keys, parking/i)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /^The whole house/i }));
-    expect(screen.getByPlaceholderText(/Keys, parking/i)).toBeTruthy();
-    expect(screen.queryByTestId("move-in-editor-save")).toBeNull();
-  });
-
-  /**
-   * A whole-home listing has no room rows, but the house itself is still a
-   * selectable row — Edit and Share live in the bulk bar, so without the tick box
-   * those actions were unreachable on an entire-home property.
-   */
-  it("offers whole-house actions on an entire-home listing", async () => {
+  it("offers Share without Copy on an entire-home listing", () => {
     const sub = createDefaultListingSubmission();
     sub.listingPlaceCategoryId = "entire_home";
 
@@ -139,20 +110,14 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
       />,
     );
 
-    expect(screen.queryByRole("checkbox")).toBeNull();
-    expect(screen.queryByRole("menuitem", { name: /^Share$/ })).toBeNull();
-    fireEvent.keyDown(screen.getByRole("button", { name: "Actions for the whole house" }), { key: "ArrowDown" });
-    expect(await screen.findByRole("menuitem", { name: /^Edit$/ })).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: /^Share$/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Share" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Copy to rooms" })).toBeNull();
   });
 
-  it("omits whole-house edit actions when the manager cannot edit", () => {
-    const sub = createDefaultListingSubmission();
-    sub.listingPlaceCategoryId = "entire_home";
-
+  it("omits house icons when the manager cannot edit", () => {
     render(
       <ManagerPropertyRoomMoveInPanel
-        sub={sub}
+        sub={roomListing()}
         saveTarget={{ mode: "listing", saveId: "mgr-test" }}
         managerUserId="mgr-1"
         canEdit={false}
@@ -161,7 +126,8 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
       />,
     );
 
-    expect(screen.queryByLabelText("Select the whole house")).toBeNull();
     expect(screen.getByText(/The whole house/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Copy to rooms" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Share" })).toBeNull();
   });
 });

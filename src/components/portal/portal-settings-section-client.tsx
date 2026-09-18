@@ -223,31 +223,33 @@ export function PortalSettingsSectionClient({
 
           <PortalSettingsSections className={showList ? "max-lg:hidden" : undefined}>
             {tab ? (
+              <SettingsPropertyScopeProvider
+                propertyId={scopePropertyId}
+                onPropertyIdChange={setScopePropertyId}
+                options={propertyOptions}
+              >
               <PortalSettingsSection
                 title={activeMeta?.label ?? "Settings"}
                 action={
-                  <SaveStatus
-                    status={{
-                      state: saveStatus.state,
-                      reason: saveStatus.reason,
-                      savedAt: saveStatus.savedAt,
-                      retry: () => {
-                        void pageRef.current?.flushPendingSaves();
-                      },
-                      flush: async () => {
-                        await pageRef.current?.flushPendingSaves();
-                      },
-                      dirty: saveStatus.state === "saving",
-                    }}
-                  />
+                  <>
+                    <SettingsPropertyScopeBar />
+                    <SaveStatus
+                      status={{
+                        state: saveStatus.state,
+                        reason: saveStatus.reason,
+                        savedAt: saveStatus.savedAt,
+                        retry: () => {
+                          void pageRef.current?.flushPendingSaves();
+                        },
+                        flush: async () => {
+                          await pageRef.current?.flushPendingSaves();
+                        },
+                        dirty: saveStatus.state === "saving",
+                      }}
+                    />
+                  </>
                 }
               >
-                <SettingsPropertyScopeProvider
-                  propertyId={scopePropertyId}
-                  onPropertyIdChange={setScopePropertyId}
-                  options={propertyOptions}
-                >
-                  <SettingsPropertyScopeBar />
                   <SettingsModulePage
                     ref={pageRef}
                     tab={tab}
@@ -257,13 +259,13 @@ export function PortalSettingsSectionClient({
                     onSaveStatusChange={setSaveStatus}
                     showFormLink
                   />
-                </SettingsPropertyScopeProvider>
                 {footer ? (
                   <div className="flex justify-end">
                     <SettingsPanelModalSaveButton {...footer} />
                   </div>
                 ) : null}
               </PortalSettingsSection>
+              </SettingsPropertyScopeProvider>
             ) : (
               <PortalSettingsSection
                 title="Settings module not found"

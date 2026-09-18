@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Copy, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
 import { HouseDetailsExpandable } from "@/components/portal/house-info-sections";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { MoveInMediaFields } from "@/components/portal/move-in-media-fields";
 import { PortalPropertyDetailSection } from "@/components/portal/portal-property-detail-section";
 import { updateRequestChangeProperty } from "@/lib/demo-admin-property-inventory";
@@ -229,6 +231,27 @@ export function ManagerPropertyRoomMoveInPanel({
           dataAttr="property-move-in-house"
           title="The whole house"
           count={moveInCount(houseInstructions, housePhotos, houseVideo)}
+          actions={
+            canEdit ? (
+              <>
+                {showRooms ? (
+                  <PortalIconAction
+                    icon={Copy}
+                    label="Copy to rooms"
+                    data-attr="property-move-in-copy"
+                    disabled={!houseHasSavedDetails || copyingToRooms}
+                    onClick={copyHouseToRooms}
+                  />
+                ) : null}
+                <PortalIconAction
+                  icon={Share2}
+                  label="Share"
+                  data-attr="property-move-in-share"
+                  onClick={() => void handleShareMoveIn()}
+                />
+              </>
+            ) : null
+          }
           onOpenChange={(open) => {
             if (!open && houseDirty && canEdit) saveHouse();
           }}
@@ -243,33 +266,10 @@ export function ManagerPropertyRoomMoveInPanel({
             onVideoChange={setHouseVideo}
             onError={showToast}
             actions={
-              canEdit ? (
-                <>
-                  {houseDirty ? (
-                    <Button type="button" variant="primary" onClick={() => saveHouse()}>
-                      Save
-                    </Button>
-                  ) : null}
-                  {showRooms ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      data-attr="property-move-in-copy"
-                      disabled={!houseHasSavedDetails || copyingToRooms}
-                      onClick={copyHouseToRooms}
-                    >
-                      Copy to rooms
-                    </Button>
-                  ) : null}
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    data-attr="property-move-in-share"
-                    onClick={() => void handleShareMoveIn()}
-                  >
-                    Share
-                  </Button>
-                </>
+              canEdit && houseDirty ? (
+                <Button type="button" variant="primary" onClick={() => saveHouse()}>
+                  Save
+                </Button>
               ) : null
             }
           />
