@@ -2,7 +2,15 @@ import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import { sendPortalConversationEmails } from "@/lib/portal-email-send.server";
 import { resolveManagerOutboundFrom } from "@/lib/manager-outbound-identity.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { InboxThreadMessageChannel } from "@/lib/portal-inbox-storage";
+import {
+  inboxIdentitiesCompatible,
+  inboxIdentityProvenance,
+  inboxThreadIdentityCompatibleWith,
+  normalizeInboxIdentityProvenance,
+  type InboxThreadIdentity,
+  type InboxThreadMessageChannel,
+  type PersistedInboxThread,
+} from "@/lib/portal-inbox-storage";
 import { userHoldsAdminRole } from "@/lib/auth/admin-role";
 import type { VendorNotificationTopic } from "@/lib/vendor-notification-settings";
 import { filterRecipientsBySenderScope } from "@/lib/inbox-recipient-scope";
@@ -32,6 +40,7 @@ import {
 } from "@/lib/notification-preferences";
 import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { createHash } from "node:crypto";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 const RESIDENT_INBOX_SCOPE = "axis_portal_inbox_resident_v1";
@@ -60,6 +69,52 @@ export type InboxEmailOutcome = {
   recipientEmail: string;
   status: "submitted" | "failed" | "skipped";
 };
+
+type DeliveryThreadIdentity = InboxThreadIdentity;
+type PortalMessageThreadMatchPolicy = "unscoped-only";
+
+/**
+ * Append identity evidence without treating the latest notification as truth.
+ * The old scalar projection stays authoritative whenever a new claim conflicts;
+ * the complete claim set remains in row_data for future collapse decisions.
+ */
+function mergeDeliveryThreadIdentity(
+  existingRowData: Record<string, unknown>,
+  incoming: DeliveryThreadIdentity | undefined,
+): Record<string, unknown> {
+  if (!incoming) return {};
+  const existing = existingRowData as PersistedInboxThread;
+  const priorClaims = inboxIdentityProvenance(existing);
+  const nextClaims = normalizeInboxIdentityProvenance([...priorClaims, incoming]);
+  const compatible = priorClaims.every((claim) => inboxIdentitiesCompatible(claim, incoming));
+  if (!compatible) return { identityProvenance: nextClaims };
+
+  const result: Record<string, unknown> = { identityProvenance: nextClaims };
+  for (const field of ["managerUserId", "propertyId", "propertyTitle", "counterpartyRole", "smsConversationKey"] as const) {
+    const oldValue = String(existing[field] ?? "").trim();
+    const incomingValue = String(incoming[field] ?? "").trim();
+    if (oldValue || incomingValue) result[field] = oldValue || incomingValue;
+  }
+  return result;
+}
+
+/** A stable escape hatch when a legacy fallback id belongs to another relationship. */
+function relationshipIsolatedFallbackId(
+  fallbackId: string,
+  messageId: string | undefined,
+  identity: DeliveryThreadIdentity | undefined,
+): string | null {
+  if (!identity || !Object.values(identity).some((value) => String(value ?? "").trim())) return null;
+  const relationship = [
+    fallbackId,
+    messageId ?? "",
+    identity.managerUserId ?? "",
+    identity.propertyId ?? "",
+    identity.counterpartyRole ?? "",
+    identity.smsConversationKey ?? "",
+  ].join("\0");
+  return `${fallbackId}:relationship-${createHash("sha256").update(relationship).digest("hex").slice(0, 16)}`;
+}
 
 export function scopeForRole(role: string | null | undefined): string {
   const normalized = String(role ?? "").trim().toLowerCase();
@@ -309,6 +364,8 @@ export type PortalMessageThreadSide = {
 export async function findExistingPortalMessageThread(
   db: SupabaseClient,
   side: PortalMessageThreadSide,
+  incomingIdentity?: DeliveryThreadIdentity,
+  matchPolicy?: PortalMessageThreadMatchPolicy,
 ): Promise<{
   id: string;
   rowData: Record<string, unknown>;
@@ -345,6 +402,15 @@ export async function findExistingPortalMessageThread(
     const rowData = (r.row_data ?? {}) as Record<string, unknown>;
     if (String(rowData.folder ?? "") !== side.folder) continue;
     if (String(rowData.email ?? "").trim().toLowerCase() !== otherParty) continue;
+    // A selected legacy source with no relationship provenance remains in its
+    // own unscoped partition. Unlike fresh compose, it must never let absence
+    // act as a wildcard that appends to a known property conversation.
+    if (matchPolicy === "unscoped-only" && inboxIdentityProvenance(rowData as PersistedInboxThread).length > 0) continue;
+    // Relationship identity is a storage partition, not a display preference.
+    // A later property must never land in an older same-email row simply because
+    // it sorts first. An unscoped historical row supplies no proof that it
+    // belongs to the incoming owner/property/role relationship.
+    if (!inboxThreadIdentityCompatibleWith(rowData as PersistedInboxThread, incomingIdentity)) continue;
     return {
       id: String(r.id),
       rowData,
@@ -419,9 +485,13 @@ export async function deliverPortalMessageThreadSide(
     channel?: InboxThreadMessageChannel;
     /** Per-turn email subject; the thread-level `subject` above still labels the list. */
     messageSubject?: string;
+    /** Server-resolved identity metadata used only for safe cross-channel folding. */
+    threadIdentity?: DeliveryThreadIdentity;
+    /** Restrict a selected unscoped legacy reply to unscoped history only. */
+    matchPolicy?: PortalMessageThreadMatchPolicy;
   },
 ): Promise<{ action: "append" | "create" | "skipped"; threadId: string }> {
-  const existing = await findExistingPortalMessageThread(db, args);
+  const existing = await findExistingPortalMessageThread(db, args, args.threadIdentity, args.matchPolicy);
   const nowIso = new Date().toISOString();
 
   if (existing) {
@@ -472,6 +542,7 @@ export async function deliverPortalMessageThreadSide(
           preview: args.preview,
           time: args.when,
           unread: args.unread,
+          ...mergeDeliveryThreadIdentity(existing.rowData, args.threadIdentity),
           // Advance with the latest message, like `subject`: a conversation is
           // about whatever it most recently became about.
           ...(args.category ? { category: args.category } : {}),
@@ -484,15 +555,14 @@ export async function deliverPortalMessageThreadSide(
     return { action: "append", threadId: existing.id };
   }
 
-  await db.from("portal_inbox_thread_records").upsert(
-    {
-      id: args.fallbackId,
+  const buildNewRow = (id: string) => ({
+      id,
       scope: args.scope,
       owner_user_id: args.ownerUserId,
       participant_email: args.participantEmail,
       thread_type: "portal_message",
       row_data: {
-        id: args.fallbackId,
+        id,
         folder: args.folder,
         from: args.fromName,
         email: args.otherPartyEmail,
@@ -511,6 +581,9 @@ export async function deliverPortalMessageThreadSide(
         unread: args.unread,
         scope: args.scope,
         ...(args.category ? { category: args.category } : {}),
+        ...(args.threadIdentity
+          ? { ...args.threadIdentity, identityProvenance: normalizeInboxIdentityProvenance([args.threadIdentity]) }
+          : {}),
         // The root message lives in `body`, not `messages[]` — remember its
         // deterministic id so a redelivered webhook can still dedupe it.
         ...(args.messageId ? { rootMessageId: args.messageId } : {}),
@@ -521,9 +594,26 @@ export async function deliverPortalMessageThreadSide(
         ...(args.messageSubject?.trim() ? { rootSubject: args.messageSubject.trim() } : {}),
       },
       updated_at: nowIso,
-    },
-    { onConflict: "id" },
-  );
+    });
+  // Creation must be insert-only. An old deterministic fallback id can already
+  // hold a different relationship; upsert would silently overwrite that history
+  // after the compatible lookup correctly declined to append to it.
+  const { error: insertError } = await db.from("portal_inbox_thread_records").insert(buildNewRow(args.fallbackId));
+  if (insertError) {
+    const retry = await findExistingPortalMessageThread(db, args, args.threadIdentity, args.matchPolicy);
+    if (retry) {
+      return deliverPortalMessageThreadSide(db, { ...args, fallbackId: retry.id });
+    }
+    const isolatedId = relationshipIsolatedFallbackId(args.fallbackId, args.messageId, args.threadIdentity);
+    if (isolatedId) {
+      const { error: isolatedInsertError } = await db.from("portal_inbox_thread_records").insert(buildNewRow(isolatedId));
+      if (!isolatedInsertError) {
+        await emitInboxMessageWebhook(args, isolatedId, args.unread);
+        return { action: "create", threadId: isolatedId };
+      }
+    }
+    throw new Error("Could not create a relationship-compatible inbox conversation.", { cause: insertError });
+  }
   await emitInboxMessageWebhook(args, args.fallbackId, args.unread);
   return { action: "create", threadId: args.fallbackId };
 }
@@ -560,6 +650,15 @@ export async function deliverPortalInboxMessage(
     suppressInbox?: boolean;
     /** Deterministic action-event message id. Replays append at most once. */
     messageId?: string;
+    /**
+     * Server-resolved relationship metadata shared by the sender and recipient
+     * portal copies. This is display/threading provenance, never authorization.
+     */
+    threadIdentity?: {
+      managerUserId?: string;
+      propertyId?: string;
+      propertyTitle?: string;
+    };
     /** Which vendor Settings row gates a vendor recipient's email/text. */
     vendorTopic?: VendorNotificationTopic;
     /** A vendor's own visit reminder; see `ResolveChannelsOptions.vendorVisitReminder`. */
@@ -744,6 +843,7 @@ export async function deliverPortalInboxMessage(
         unread: false,
         outbound: true,
         category: opts.eventCategory,
+        threadIdentity: opts.threadIdentity,
         messageId: opts.messageId ? `${opts.messageId}:sent:${recipientLower}` : undefined,
       });
 
@@ -765,6 +865,7 @@ export async function deliverPortalInboxMessage(
         unread: true,
         outbound: false,
         category: opts.eventCategory,
+        threadIdentity: opts.threadIdentity,
         messageId: opts.messageId ? `${opts.messageId}:inbox:${recipientLower}` : undefined,
       });
     }

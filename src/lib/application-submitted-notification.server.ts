@@ -15,6 +15,8 @@ import { deliverPortalMessageThreadSide } from "@/lib/portal-inbox-delivery";
 import { getBundleChoiceLabel, getPropertyById, getRoomChoiceLabel } from "@/lib/rental-application/data";
 import { isSubmittedPendingApplicationRow } from "@/lib/rental-application/in-progress-application";
 import { sendManagerNotificationSms } from "@/lib/manager-notification-routing.server";
+import { fetchManagerSmsConversations } from "@/lib/manager-sms-messages.server";
+import { resolveExistingSmsConversation } from "@/lib/sms/existing-conversation.server";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 
@@ -127,8 +129,37 @@ export async function notifyManagerApplicationSubmitted(
   const when = formatPacificDateTime(new Date());
   const preview = text.slice(0, 100).replace(/\n/g, " ");
   const messageId = `application-submitted-${row.id.trim()}`;
+  const applicantPhone = row.application?.phone?.trim() || "";
 
   for (const recipient of recipients) {
+    let smsConversationKey: string | undefined;
+    // A resolved native conversation owns its role forever. An application may
+    // change the directory label to Applicant, but it must not rewrite a
+    // prospect conversation's relationship provenance just to make the email
+    // notice fold with it.
+    let smsCounterpartyRole: string | undefined;
+    if (applicantPhone) {
+      try {
+        const sms = await fetchManagerSmsConversations(db, recipient.userId, {
+          scopeManagerIdsOverride: [recipient.userId],
+          visibility: "none",
+          provisionWorkNumber: false,
+        });
+        const resolution = resolveExistingSmsConversation(sms.residents, {
+          managerUserId: recipient.userId,
+          recipientPhone: applicantPhone,
+          workNumber: sms.workNumber,
+          allowedRoles: ["prospect", "applicant"],
+        });
+        if (resolution.kind === "matched") {
+          smsConversationKey = resolution.conversation.conversationKey;
+          smsCounterpartyRole = resolution.conversation.counterpartyRole;
+        }
+      } catch {
+        // Inbox/email notification is durable without an SMS binding. A failed
+        // lookup must never borrow another recipient's owner-scoped key.
+      }
+    }
     await deliverPortalMessageThreadSide(db, {
       scope: MANAGER_INBOX_SCOPE,
       folder: "inbox",
@@ -144,6 +175,14 @@ export async function notifyManagerApplicationSubmitted(
       unread: true,
       outbound: false,
       messageId,
+      threadIdentity: {
+        managerUserId: recipient.userId,
+        ...(propertyId ? { propertyId, propertyTitle: propertyLabel } : {}),
+        // Keep relationship provenance separate from the applicant's current
+        // directory status. A matched prospect key remains a prospect key.
+        counterpartyRole: smsCounterpartyRole ?? "applicant",
+        ...(smsConversationKey ? { smsConversationKey } : {}),
+      },
     });
   }
 

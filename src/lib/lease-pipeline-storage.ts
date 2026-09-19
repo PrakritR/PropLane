@@ -12,6 +12,7 @@ import {
   leaseContextFromApplication,
   leaseTemplateDocForContext,
   leaseTemplateVersionForContext,
+  type LeaseGenerationContext,
 } from "@/lib/generated-lease";
 import {
   LEASE_ESIGN_CONSENT_TEXT,
@@ -2733,7 +2734,7 @@ function leaseGenerationContextForRow(
   row: LeasePipelineRow,
   managerUserId?: string | null,
   templateId?: string | null,
-) {
+): LeaseGenerationContext | null {
   const app = applicationSnapshotForLeaseRow(row);
   if (!app || !Object.keys(app).length) return null;
   let ctx = leaseContextFromApplication(app as RentalWizardFormState);
@@ -2773,19 +2774,41 @@ function leaseGenerationContextForRow(
     };
   }
   const billed = applyLeaseBillingToContext(ctx, row, managerUserId ?? row.managerUserId);
-  // Close-save / unfinished listings often have no address. Add-resident still
-  // has to produce a document — default those to Washington rather than leaving
-  // a Draft stub. A real non-CA/WA state stays unsupported.
+  // Close-save / unfinished listings often have no location evidence. Add-resident
+  // still has to produce a document, so use the supported Washington default
+  // without inventing a partial property record. Any actual location evidence,
+  // including an out-of-scope state or ZIP, remains authoritative and unsupported.
   if (!isLeaseGenerationSupported(resolveLeaseJurisdiction(billed))) {
-    const hasState = Boolean(
-      billed.listingProperty?.state?.trim() ||
-      billed.leasedRoom?.state?.trim() ||
-      billed.submission?.state?.trim(),
+    const hasPropertyLocation = Boolean(
+      billed.propertyLocation?.address?.trim() ||
+        billed.propertyLocation?.city?.trim() ||
+        billed.propertyLocation?.state?.trim() ||
+        billed.propertyLocation?.neighborhood?.trim() ||
+        billed.propertyLocation?.zip?.trim() ||
+        billed.propertyLocation?.postalCode?.trim() ||
+        billed.listingProperty?.address.trim() ||
+        billed.listingProperty?.city?.trim() ||
+        billed.listingProperty?.state?.trim() ||
+        billed.listingProperty?.neighborhood.trim() ||
+        billed.listingProperty?.zip.trim() ||
+        billed.listingProperty?.postalCode?.trim() ||
+        billed.leasedRoom?.address.trim() ||
+        billed.leasedRoom?.city?.trim() ||
+        billed.leasedRoom?.state?.trim() ||
+        billed.leasedRoom?.neighborhood.trim() ||
+        billed.leasedRoom?.zip.trim() ||
+        billed.leasedRoom?.postalCode?.trim() ||
+        billed.submission?.address.trim() ||
+        billed.submission?.city.trim() ||
+        billed.submission?.state.trim() ||
+        billed.submission?.neighborhood.trim() ||
+        billed.submission?.zip.trim() ||
+        billed.submission?.postalCode?.trim(),
     );
-    if (!hasState) {
+    if (!hasPropertyLocation) {
       return {
         ...billed,
-        listingProperty: { ...(billed.listingProperty ?? {}), state: "WA" },
+        propertyLocation: { state: "WA" },
       };
     }
   }

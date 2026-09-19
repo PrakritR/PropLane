@@ -260,6 +260,11 @@ export const createServiceRequestTool = defineWriteTool({
       deliverToPortalInbox: true,
       deliverViaEmail: Boolean(process.env.RESEND_API_KEY?.trim()),
       deliverViaSms: false,
+      threadIdentity: {
+        managerUserId: routing.managerId,
+        ...(routing.propertyId ? { propertyId: routing.propertyId } : {}),
+        ...(routing.propertyLabel ? { propertyTitle: routing.propertyLabel } : {}),
+      },
     })
       .then((r) => r.ok)
       .catch(() => false);

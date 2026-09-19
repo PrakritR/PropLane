@@ -9,15 +9,16 @@ import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-b
 import { Button } from "@/components/ui/button";
 import { CommunicationInboxInitialState } from "@/components/portal/communication-inbox-initial-state";
 import { ResidentInboxPanel, type ResidentInboxPanelHandle } from "@/components/portal/resident-inbox-panel";
-import { RoleSmsPanel } from "@/components/portal/role-sms-panel";
 import { ResidentManagerNumberCard } from "@/components/portal/resident-manager-number-card";
 import {
   INBOX_LIST_SCROLL,
   InboxConversationRow,
+  InboxThreadView,
   InboxTwoPane,
   PORTAL_INBOX_LIST_TOOLBAR_CLASS,
   PortalInboxEmptyState,
   type InboxListSegment,
+  type InboxBubbleMessage,
 } from "@/components/portal/portal-inbox-ui";
 import { PortalCommunicationShell } from "@/components/portal/portal-communication-shell";
 import { PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
@@ -31,10 +32,12 @@ import {
 import {
   PORTAL_INBOX_CHANGED_EVENT,
   RESIDENT_INBOX_STORAGE_KEY,
+  inboxIdentitiesCompatible,
+  inboxIdentityProvenance,
   inboxThreadMessages,
   inboxThreadSortMs,
-  inboxMessageOutbound,
   loadPersistedInbox,
+  markPersistedInboxSourcesRead,
   syncPersistedInboxFromServerWithStatus,
   stagePersistedInboxRows,
 } from "@/lib/portal-inbox-storage";
@@ -67,14 +70,37 @@ import { RESIDENT_PORTAL_BASE_PATH } from "@/lib/portals/resident-sections";
 import {
   normalizeRoleSmsPayload,
   smsMessageBucket,
-  type ManagerSmsBucketId,
   type ManagerSmsMessageRow,
+  type RoleSmsManagerConversation,
 } from "@/lib/manager-sms-messages";
-import { formatPacificDate } from "@/lib/pacific-time";
+import { formatPacificDate, formatPacificDateTime } from "@/lib/pacific-time";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 
 const SMS_THREAD_ID = "text-messages";
 const SMS_OPENED_KEY = "axis_role_sms_opened_resident";
+const SMS_ARCHIVED_KEY_PREFIX = "axis_role_sms_archived_resident";
+
+type UnreadSelectionAdmission = {
+  viewerId: string | null;
+  listSegment: InboxListSegment;
+  readOnly: boolean;
+  includeArchived: boolean;
+  query: string;
+  memberKeys: Set<string>;
+};
+
+function unifiedMemberKeys(row: UnifiedInboxListItem): Set<string> {
+  return new Set([row.key, ...(row.memberKeys ?? [])]);
+}
+
+function hasExactUnifiedMemberContinuity(
+  row: UnifiedInboxListItem,
+  admittedMemberKeys: ReadonlySet<string>,
+): boolean {
+  const currentMemberKeys = unifiedMemberKeys(row);
+  return currentMemberKeys.size === admittedMemberKeys.size &&
+    [...currentMemberKeys].every((key) => admittedMemberKeys.has(key));
+}
 
 function loadOpenedIds(): Set<string> {
   if (typeof window === "undefined") return new Set();
@@ -87,6 +113,218 @@ function loadOpenedIds(): Set<string> {
   } catch {
     return new Set();
   }
+}
+
+function persistOpenedIds(ids: ReadonlySet<string>): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(SMS_OPENED_KEY, JSON.stringify([...ids]));
+}
+
+function residentSmsArchiveKey(viewerId: string | null): string {
+  return `${SMS_ARCHIVED_KEY_PREFIX}:${viewerId ?? "anon"}`;
+}
+
+function loadArchivedSmsIds(viewerId: string | null): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(residentSmsArchiveKey(viewerId)) ?? "[]") as unknown;
+    return new Set(Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string" && Boolean(id.trim())) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function ResidentSmsTimeline({
+  messages,
+  title,
+  onBack,
+  threadKey,
+}: {
+  messages: ManagerSmsMessageRow[];
+  title: string;
+  onBack: () => void;
+  threadKey: string;
+}) {
+  const bubbles = useMemo((): InboxBubbleMessage[] => [...messages]
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    .map((message) => ({
+      id: `sms:${message.id}`,
+      author: message.direction === "outbound" ? "Resident" : title,
+      body: message.body,
+      at: formatPacificDateTime(message.createdAt),
+      direction: message.direction,
+      channel: "sms" as const,
+    })), [messages, title]);
+
+  return (
+    <InboxThreadView
+      title={title}
+      avatarName={title}
+      subtitle="Text messages"
+      messages={bubbles}
+      showAuthors
+      onBack={onBack}
+      threadKey={threadKey}
+      emptyLabel="No text messages in this conversation."
+    />
+  );
+}
+
+function declaredSmsBindingKeys(thread: PersistedInboxThread): string[] {
+  return [...new Set([
+    ...(thread.smsBindingKeys ?? []),
+    thread.smsConversationKey ?? "",
+    ...inboxIdentityProvenance(thread).map((identity) => identity.smsConversationKey ?? ""),
+  ].map((key) => key.trim()).filter(Boolean))];
+}
+
+function conversationMatchesStoredManagerEvidence(
+  thread: PersistedInboxThread,
+  conversation: RoleSmsManagerConversation,
+): boolean {
+  const claims = inboxIdentityProvenance(thread);
+  if (claims.some((claim, index) => claims.slice(index + 1).some((other) => !inboxIdentitiesCompatible(claim, other)))) {
+    return false;
+  }
+  const managerId = thread.managerUserId?.trim();
+  const propertyId = thread.propertyId?.trim();
+  const email = thread.email.trim().toLowerCase();
+  return Boolean(
+    managerId && propertyId && email &&
+    conversation.managerUserId === managerId &&
+    conversation.propertyId?.trim() === propertyId &&
+    conversation.managerEmail.trim().toLowerCase() === email,
+  );
+}
+
+function hasConflictingStoredManagerEvidence(
+  thread: PersistedInboxThread,
+  conversation: RoleSmsManagerConversation,
+): boolean {
+  const claims = inboxIdentityProvenance(thread);
+  if (claims.some((claim, index) => claims.slice(index + 1).some((other) => !inboxIdentitiesCompatible(claim, other)))) {
+    return true;
+  }
+  const managerId = thread.managerUserId?.trim();
+  const propertyId = thread.propertyId?.trim();
+  const email = thread.email.trim().toLowerCase();
+  const candidateManagerId = conversation.managerUserId.trim();
+  const candidatePropertyId = conversation.propertyId?.trim() ?? "";
+  const candidateEmail = conversation.managerEmail.trim().toLowerCase();
+  const overlaps =
+    (managerId && managerId === candidateManagerId) ||
+    (propertyId && propertyId === candidatePropertyId) ||
+    (email && email === candidateEmail);
+  return Boolean(overlaps && (
+    (managerId && managerId !== candidateManagerId) ||
+    (propertyId && propertyId !== candidatePropertyId) ||
+    (email && email !== candidateEmail)
+  ));
+}
+
+function hasContradictoryStoredManagerEvidence(
+  thread: PersistedInboxThread,
+  conversation: RoleSmsManagerConversation,
+): boolean {
+  const candidateManagerId = conversation.managerUserId.trim();
+  const candidatePropertyId = conversation.propertyId?.trim() ?? "";
+  const candidateEmail = conversation.managerEmail.trim().toLowerCase();
+  const claims = inboxIdentityProvenance(thread);
+  return claims.some((claim) => {
+    const managerId = claim.managerUserId?.trim();
+    const propertyId = claim.propertyId?.trim();
+    return Boolean(
+      (managerId && managerId !== candidateManagerId) ||
+      (propertyId && propertyId !== candidatePropertyId),
+    );
+  }) || Boolean(thread.email.trim() && thread.email.trim().toLowerCase() !== candidateEmail);
+}
+
+function propagateProvenManagerEvidence(rows: PersistedInboxThread[]): PersistedInboxThread[] {
+  const groups = new Map<string, PersistedInboxThread[]>();
+  for (const row of rows) {
+    if (isPropLaneAssistantInboxThread(row)) continue;
+    const email = row.email.trim().toLowerCase();
+    if (!email.includes("@")) continue;
+    const group = groups.get(email) ?? [];
+    group.push(row);
+    groups.set(email, group);
+  }
+  const evidence = new Map<string, { managerUserId: string; propertyId: string; bindingKey?: string }>();
+  for (const [email, group] of groups) {
+    const claims = group.flatMap(inboxIdentityProvenance);
+    const managerIds = [...new Set(claims.map((claim) => claim.managerUserId?.trim() ?? "").filter(Boolean))];
+    const propertyIds = [...new Set(claims.map((claim) => claim.propertyId?.trim() ?? "").filter(Boolean))];
+    const bindingKeys = [...new Set(group.flatMap(declaredSmsBindingKeys))];
+    if (managerIds.length !== 1 || propertyIds.length !== 1 || bindingKeys.length > 1) continue;
+    evidence.set(email, {
+      managerUserId: managerIds[0]!,
+      propertyId: propertyIds[0]!,
+      ...(bindingKeys.length === 1 ? { bindingKey: bindingKeys[0] } : {}),
+    });
+  }
+  return rows.map((row) => {
+    if (isPropLaneAssistantInboxThread(row)) return row;
+    const proven = evidence.get(row.email.trim().toLowerCase());
+    if (!proven) return row;
+    // A same-email row with no manager/property evidence is still unknown.
+    // Do not let a different relationship lend it an identity merely because
+    // SMS is enabled (or because another historical row is richer).
+    const ownClaims = inboxIdentityProvenance(row);
+    const hasManagerEvidence = Boolean(
+      row.managerUserId?.trim() || ownClaims.some((claim) => claim.managerUserId?.trim()),
+    );
+    const hasPropertyEvidence = Boolean(
+      row.propertyId?.trim() || ownClaims.some((claim) => claim.propertyId?.trim()),
+    );
+    if (!hasManagerEvidence || !hasPropertyEvidence) return row;
+    const ownBindings = declaredSmsBindingKeys(row);
+    return {
+      ...row,
+      managerUserId: row.managerUserId?.trim() || proven.managerUserId,
+      propertyId: row.propertyId?.trim() || proven.propertyId,
+      ...(ownBindings.length === 0 && proven.bindingKey
+        ? { smsConversationKey: proven.bindingKey, smsBindingKeys: [proven.bindingKey] }
+        : {}),
+    };
+  });
+}
+
+function residentRelationshipPersonKey(
+  thread: PersistedInboxThread,
+  verifiedManager: RoleSmsManagerConversation | null,
+): string | undefined {
+  const claims = inboxIdentityProvenance(thread);
+  if (claims.some((claim, index) => claims.slice(index + 1).some((other) => !inboxIdentitiesCompatible(claim, other)))) {
+    return undefined;
+  }
+  const managerIds = [...new Set(claims.map((claim) => claim.managerUserId?.trim() ?? "").filter(Boolean))];
+  const propertyIds = [...new Set(claims.map((claim) => claim.propertyId?.trim() ?? "").filter(Boolean))];
+  const bindingKeys = declaredSmsBindingKeys(thread);
+  if (managerIds.length > 1 || propertyIds.length > 1 || bindingKeys.length > 1) return undefined;
+
+  const managerId = managerIds[0] ?? verifiedManager?.managerUserId.trim();
+  const propertyId = propertyIds[0] ?? verifiedManager?.propertyId?.trim();
+  const bindingKey = bindingKeys[0] ?? verifiedManager?.conversationKey.trim();
+  // Email alone is not a relationship identity. Unknown rows stay isolated so
+  // a later property or manager record cannot bridge them accidentally.
+  const email = thread.email.trim().toLowerCase();
+  return residentManagerRelationshipKey(email, managerId, propertyId, bindingKey);
+}
+
+function residentManagerRelationshipKey(
+  email: string | null | undefined,
+  managerId: string | null | undefined,
+  propertyId: string | null | undefined,
+  bindingKey: string | null | undefined,
+): string | undefined {
+  const normalizedEmail = email?.trim().toLowerCase() ?? "";
+  const normalizedManagerId = managerId?.trim() ?? "";
+  const normalizedPropertyId = propertyId?.trim() ?? "";
+  if (!normalizedEmail.includes("@") || !normalizedManagerId || !normalizedPropertyId) return undefined;
+  return [normalizedEmail, normalizedManagerId, normalizedPropertyId, bindingKey?.trim() || "unbound"]
+    .map((part) => encodeURIComponent(part))
+    .join(":");
 }
 
 function inboxUsesDesktopSplit(): boolean {
@@ -139,13 +377,30 @@ function ResidentUnifiedInbox({
   // Inbox rows hydrate from sessionStorage — never read them in useState initializers (SSR mismatch).
   const [emailThreads, setEmailThreads] = useState<PersistedInboxThread[]>([]);
   const [smsMessages, setSmsMessages] = useState<ManagerSmsMessageRow[]>([]);
+  const [smsConversations, setSmsConversations] = useState<RoleSmsManagerConversation[]>([]);
   const [smsOpened, setSmsOpened] = useState<Set<string>>(() => new Set());
+  const [smsArchived, setSmsArchived] = useState<Set<string>>(() => new Set());
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [unreadSelectionAdmission, setUnreadSelectionAdmission] = useState<UnreadSelectionAdmission | null>(null);
+  const resolvedRouteRef = useRef<{ threadId: string; viewerId: string | null } | null>(null);
   const [initialListState, setInitialListState] = useState<"loading" | "ready" | "error">("loading");
   const [initialListViewerId, setInitialListViewerId] = useState<string | null>(null);
   const initialLoadGeneration = useRef(0);
+  const readInFlightRef = useRef(new Map<string, object>());
+  const readSucceededRef = useRef(new Set<string>());
+  const readAttemptsRef = useRef(new Map<string, number>());
+  const selectedKeyRef = useRef<string | null>(selectedKey);
+  const viewerIdRef = useRef(viewerId);
   const initialListReady = initialListState === "ready" && initialListViewerId === viewerId;
   const assistantThreadId = viewerId ? propLaneAssistantThreadIdForPortal("resident", viewerId) : null;
+
+  useEffect(() => {
+    selectedKeyRef.current = selectedKey;
+  }, [selectedKey]);
+
+  useEffect(() => {
+    viewerIdRef.current = viewerId;
+  }, [viewerId]);
 
   useEffect(() => {
     const syncEmail = () => setEmailThreads(loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, []));
@@ -154,6 +409,15 @@ function ResidentUnifiedInbox({
     window.addEventListener(PORTAL_INBOX_CHANGED_EVENT, syncEmail as EventListener);
     return () => window.removeEventListener(PORTAL_INBOX_CHANGED_EVENT, syncEmail as EventListener);
   }, []);
+
+  useEffect(() => {
+    setSmsArchived(loadArchivedSmsIds(viewerId));
+    // Attempts and receipts belong to a viewer. Drop the old viewer's state
+    // so a delayed response cannot suppress a fresh viewer's acknowledgement.
+    readInFlightRef.current.clear();
+    readSucceededRef.current.clear();
+    readAttemptsRef.current.clear();
+  }, [viewerId]);
 
   useEffect(() => {
     if (!viewerId?.trim() || listSegment !== "active") return;
@@ -180,7 +444,10 @@ function ResidentUnifiedInbox({
     try {
       const res = await fetch("/api/resident/sms-conversations", { credentials: "include", cache: "no-store" });
       if (!res.ok) return false;
-      const body = (await res.json()) as { messages?: ManagerSmsMessageRow[] };
+      const body = (await res.json()) as {
+        messages?: ManagerSmsMessageRow[];
+        conversations?: RoleSmsManagerConversation[];
+      };
       if (!body || !Array.isArray(body.messages)) return false;
       if (
         viewerEpochRef.current !== requestViewerEpoch ||
@@ -188,12 +455,14 @@ function ResidentUnifiedInbox({
       ) {
         return false;
       }
-      setSmsMessages(normalizeRoleSmsPayload(body).messages);
+      const normalized = normalizeRoleSmsPayload(body);
+      setSmsMessages(normalized.messages);
+      setSmsConversations(normalized.conversations);
       return true;
     } catch {
       return false;
     }
-  }, [setSmsMessages, smsUiEnabled]);
+  }, [setSmsConversations, setSmsMessages, smsUiEnabled]);
 
   const loadInitialList = useCallback(async (): Promise<void> => {
     const requestGeneration = ++initialLoadGeneration.current;
@@ -244,42 +513,52 @@ function ResidentUnifiedInbox({
     return withPinnedPropLaneAssistantThreads(base, "resident", viewerId, listSegment);
   }, [emailThreads, listSegment, smsUiEnabled, viewerId]);
 
-  const emailItems = useMemo((): UnifiedInboxListItem[] => {
-    const q = query.trim().toLowerCase();
-    let rows = filteredEmail;
-    if (listSegment === "archived") {
-      rows = rows.filter((t) => t.folder === "trash");
-    } else if (listSegment === "unread") {
-      rows = rows.filter((t) => t.folder !== "trash" && t.folder === "inbox" && t.unread);
-    } else if (!includeArchived) {
-      rows = rows.filter((t) => t.folder !== "trash");
-    }
-    if (q) {
-      // Search refines the selected segment; it must not leak read rows back
-      // into Unread or active rows back into Archived.
-      rows = rows.filter((t) => {
-        const hay = [t.from, t.email, t.subject, t.body, t.preview].filter(Boolean).join(" ").toLowerCase();
-        return hay.includes(q);
-      });
-    }
+  const partitionedEmail = useMemo(() => {
+    if (listSegment === "archived") return filteredEmail.filter((thread) => thread.folder === "trash");
+    if (includeArchived) return filteredEmail;
+    return filteredEmail.filter((thread) => thread.folder !== "trash");
+  }, [filteredEmail, includeArchived, listSegment]);
 
-    const items = rows.map((t) => {
+  const emailItems = useMemo((): UnifiedInboxListItem[] => {
+    return propagateProvenManagerEvidence(partitionedEmail).map((t) => {
+      const assistant = isPropLaneAssistantInboxThread(t);
       const msgs = inboxThreadMessages(t);
       const lastMsg = msgs[msgs.length - 1];
       const sentSemantics = t.folder === "sent";
-      const lastIndex = Math.max(0, msgs.length - 1);
-      const lastOutbound = lastMsg
-        ? inboxMessageOutbound(lastMsg, lastIndex, t.folder, t)
-        : sentSemantics;
+      const explicitBindings = declaredSmsBindingKeys(t);
+      const boundConversation = !assistant && explicitBindings.length === 1
+        ? smsConversations.find((conversation) => conversation.conversationKey === explicitBindings[0]) ?? null
+        : null;
+      // A binding is server provenance. It selects only its own native thread;
+      // the stored row can still be corrupt, so contradictory manager evidence
+      // keeps the label and timeline isolated until the server repairs it.
+      const boundConflict = Boolean(
+        boundConversation && hasContradictoryStoredManagerEvidence(t, boundConversation),
+      );
+      const verifiedBoundConversation = boundConversation && !boundConflict ? boundConversation : null;
+      const exactMatches = assistant || explicitBindings.length > 0
+        ? []
+        : smsConversations.filter((conversation) => conversationMatchesStoredManagerEvidence(t, conversation));
+      const verifiedManager = verifiedBoundConversation ?? (exactMatches.length === 1 ? exactMatches[0] : null);
+      const conflictingEvidence = !assistant && explicitBindings.length === 0 && smsConversations.some(
+        (conversation) => hasConflictingStoredManagerEvidence(t, conversation),
+      );
+      const managerEmail = verifiedManager?.managerEmail.trim().toLowerCase() ?? "";
+      const relationshipKey = residentRelationshipPersonKey(t, verifiedManager);
+      const personKey = assistant
+        ? undefined
+        : boundConflict || explicitBindings.length > 1 || conflictingEvidence || !relationshipKey
+          ? `email-isolated:${t.id}`
+          : `resident-relationship:${relationshipKey}`;
       return {
         key: unifiedInboxKey("email", t.id),
         channel: "email" as const,
         threadId: t.id,
-        name: sentSemantics ? t.email || "Recipient" : t.from || t.email || "Sender",
-        subtitle: isPropLaneAssistantInboxThread(t)
+        name: verifiedManager?.managerName || (sentSemantics ? t.email || "Recipient" : t.from || t.email || "Sender"),
+        subtitle: assistant
           ? propLaneAssistantListSubtitle(t)
           : t.subject,
-        preview: isPropLaneAssistantInboxThread(t)
+        preview: assistant
           ? propLaneAssistantListPreview(t, listSegment)
           : communicationInboxListPreview(lastMsg?.body ?? t.preview ?? "", listSegment, 80),
         previewPrefix: inboxThreadLastTurnDirection(t) === "outbound" ? "You: " : undefined,
@@ -291,18 +570,62 @@ function ResidentUnifiedInbox({
         // Sort on the SAME field the row is labelled with — only `thread.time`
         // is normalized; `lastMsg.at` is whatever shape its writer built.
         sortMs: inboxThreadSortMs(t.id, t.time),
+        ...(personKey ? { personKey } : {}),
+        ...(managerEmail ? { personEmail: managerEmail } : {}),
+        ...(!assistant && explicitBindings.length > 0 ? {
+          smsBindingKeys: explicitBindings,
+          ...(explicitBindings.length === 1 ? { smsBindingKey: explicitBindings[0] } : {}),
+        } : verifiedManager ? {
+          smsBindingKey: verifiedManager.conversationKey,
+          smsBindingKeys: [verifiedManager.conversationKey],
+        } : {}),
+        memberKeys: (t.sourceThreadIds ?? [t.id]).map((id) => unifiedInboxKey("email", id)),
+        readSources: t.readSources,
+        readSourcesComplete: t.readSourcesComplete,
       };
     });
-    if (listSegment === "unread") return items.filter((item) => item.unread);
-    return items;
-  }, [filteredEmail, homeAddress, listSegment, query]);
+  }, [homeAddress, listSegment, partitionedEmail, smsConversations]);
 
   const smsItems = useMemo((): UnifiedInboxListItem[] => {
-    if (!smsUiEnabled || listSegment === "archived") return [];
-    const scoped = smsMessages;
-    if (scoped.length === 0) return [];
-    const q = query.trim().toLowerCase();
-    if (q && !scoped.some((m) => m.body.toLowerCase().includes(q)) && !"text messages".includes(q)) return [];
+    if (!smsUiEnabled) return [];
+    const verified = smsConversations.flatMap((conversation): UnifiedInboxListItem[] => {
+      const archived = smsArchived.has(conversation.conversationKey);
+      if (listSegment === "archived" ? !archived : archived) return [];
+      const scoped = conversation.messages;
+      if (scoped.length === 0) return [];
+      const last = [...scoped].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]!;
+      const unread = scoped.some((message) => message.direction === "inbound" && smsMessageBucket(message, smsOpened) === "unopened");
+      const relationshipKey = residentManagerRelationshipKey(
+        conversation.managerEmail,
+        conversation.managerUserId,
+        conversation.propertyId,
+        conversation.conversationKey,
+      );
+      return [{
+        key: unifiedInboxKey("sms", conversation.conversationKey),
+        channel: "sms",
+        threadId: conversation.conversationKey,
+        personKey: relationshipKey
+          ? `resident-relationship:${relationshipKey}`
+          : `sms-isolated:${conversation.conversationKey}`,
+        personEmail: conversation.managerEmail.trim().toLowerCase(),
+        smsBindingKey: conversation.conversationKey,
+        name: conversation.managerName,
+        subtitle: conversation.propertyTitle || "Property manager",
+        preview: communicationInboxListPreview(last.body, listSegment, 80),
+        previewPrefix: last.direction === "outbound" ? "You: " : undefined,
+        time: formatPacificDate(last.createdAt, { hour: "numeric", minute: "2-digit" }),
+        unread,
+        sortMs: Date.parse(last.createdAt) || 0,
+      }];
+    });
+    const verifiedMessageIds = new Set(
+      smsConversations.flatMap((conversation) => conversation.messages.map((message) => message.id)),
+    );
+    const unknownArchived = smsArchived.has(SMS_THREAD_ID);
+    const scoped = smsMessages.filter((message) => !verifiedMessageIds.has(message.id));
+    if (listSegment === "archived" ? !unknownArchived : unknownArchived) return verified;
+    if (scoped.length === 0) return verified;
     const last = [...scoped].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]!;
     const unread = scoped.some((m) => m.direction === "inbound" && smsMessageBucket(m, smsOpened) === "unopened");
     const item: UnifiedInboxListItem = {
@@ -317,14 +640,113 @@ function ResidentUnifiedInbox({
       unread,
       sortMs: Date.parse(last.createdAt) || 0,
     };
-    if (listSegment === "unread" && !unread) return [];
-    return [item];
-  }, [listSegment, query, smsMessages, smsOpened, smsUiEnabled]);
+    return [...verified, item];
+  }, [listSegment, smsArchived, smsConversations, smsMessages, smsOpened, smsUiEnabled]);
+
+  const searchMatchingMemberKeys = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return null;
+    const matches = new Set<string>();
+    for (const thread of partitionedEmail) {
+      const haystack = [
+        thread.from,
+        thread.email,
+        thread.subject,
+        thread.body,
+        thread.preview,
+        ...inboxThreadMessages(thread).map((message) => message.body),
+      ].filter(Boolean).join(" ").toLowerCase();
+      if (!haystack.includes(q)) continue;
+      for (const id of thread.sourceThreadIds ?? [thread.id]) {
+        matches.add(unifiedInboxKey("email", id));
+      }
+    }
+    for (const conversation of smsConversations) {
+      const archived = smsArchived.has(conversation.conversationKey);
+      if (listSegment === "archived" ? !archived : archived) continue;
+      const haystack = [
+        conversation.managerName,
+        conversation.managerEmail,
+        conversation.propertyTitle,
+        ...conversation.messages.map((message) => message.body),
+      ].filter(Boolean).join(" ").toLowerCase();
+      if (haystack.includes(q)) matches.add(unifiedInboxKey("sms", conversation.conversationKey));
+    }
+    const verifiedMessageIds = new Set(
+      smsConversations.flatMap((conversation) => conversation.messages.map((message) => message.id)),
+    );
+    const unknownArchived = smsArchived.has(SMS_THREAD_ID);
+    if (listSegment === "archived" ? unknownArchived : !unknownArchived) {
+      const unknownMatches = smsMessages
+        .filter((message) => !verifiedMessageIds.has(message.id))
+        .some((message) => message.body.toLowerCase().includes(q));
+      if (unknownMatches || "text messages".includes(q)) {
+        matches.add(unifiedInboxKey("sms", SMS_THREAD_ID));
+      }
+    }
+    return matches;
+  }, [listSegment, partitionedEmail, query, smsArchived, smsConversations, smsMessages]);
+
+  const presentationRows = useMemo(() => {
+    let rows = mergeUnifiedInboxItems([...emailItems, ...smsItems], "recent");
+    if (searchMatchingMemberKeys) {
+      rows = rows.filter((row) => (row.memberKeys ?? [row.key]).some((key) => searchMatchingMemberKeys.has(key)));
+    }
+    return pinPropLaneAssistantUnifiedItems(rows, assistantThreadId).filter((row) => !readOnly || !row.unread);
+  }, [assistantThreadId, emailItems, readOnly, searchMatchingMemberKeys, smsItems]);
+
+  const selectedPresentationRow = useMemo(
+    () => selectedKey
+      ? presentationRows.find((row) => unifiedMemberKeys(row).has(selectedKey)) ?? null
+      : null,
+    [presentationRows, selectedKey],
+  );
+
+  // Retention is an acknowledgement affordance, not a bypass for the Unread
+  // presentation. A changed viewer, filter, folder, or search starts a new
+  // presentation and can never inherit a prior selected row.
+  useEffect(() => {
+    setUnreadSelectionAdmission(null);
+  }, [includeArchived, listSegment, query, readOnly, viewerId]);
+
+  useEffect(() => {
+    if (!initialListReady || listSegment !== "unread" || !selectedPresentationRow?.unread) return;
+    setUnreadSelectionAdmission({
+      viewerId,
+      listSegment,
+      readOnly,
+      includeArchived,
+      query,
+      memberKeys: unifiedMemberKeys(selectedPresentationRow),
+    });
+  }, [includeArchived, initialListReady, listSegment, query, readOnly, selectedPresentationRow, viewerId]);
+
+  const unreadRetentionMemberKeys = useMemo((): ReadonlySet<string> | null => {
+    const admission = unreadSelectionAdmission;
+    if (
+      listSegment !== "unread" ||
+      !selectedPresentationRow ||
+      selectedPresentationRow.unread ||
+      !admission ||
+      admission.viewerId !== viewerId ||
+      admission.listSegment !== listSegment ||
+      admission.readOnly !== readOnly ||
+      admission.includeArchived !== includeArchived ||
+      admission.query !== query ||
+      !hasExactUnifiedMemberContinuity(selectedPresentationRow, admission.memberKeys)
+    ) return null;
+    return admission.memberKeys;
+  }, [includeArchived, listSegment, query, readOnly, selectedPresentationRow, unreadSelectionAdmission, viewerId]);
+
+  const retainJustReadUnreadSelection = unreadRetentionMemberKeys !== null;
 
   const merged = useMemo(() => {
-    const rows = mergeUnifiedInboxItems([...emailItems, ...smsItems], "recent");
-    return pinPropLaneAssistantUnifiedItems(rows, assistantThreadId).filter((row) => !readOnly || !row.unread);
-  }, [assistantThreadId, emailItems, smsItems, readOnly]);
+    if (listSegment !== "unread") return presentationRows;
+    return presentationRows.filter((row) =>
+      row.unread ||
+      (unreadRetentionMemberKeys !== null && hasExactUnifiedMemberContinuity(row, unreadRetentionMemberKeys)),
+    );
+  }, [listSegment, presentationRows, unreadRetentionMemberKeys]);
 
   const bulk = useUnifiedCommunicationBulk({
     mergedRows: merged,
@@ -333,6 +755,22 @@ function ResidentUnifiedInbox({
     emailThreads,
     assistantPlaceholder: viewerId ? buildResidentAssistantPlaceholderThread(viewerId) : undefined,
     onEmailThreadsChange: setEmailThreads,
+    archiveSmsConversation: async (conversationId) => {
+      setSmsArchived((current) => {
+        const next = new Set(current);
+        next.add(conversationId);
+        window.localStorage.setItem(residentSmsArchiveKey(viewerId), JSON.stringify([...next]));
+        return next;
+      });
+    },
+    restoreSmsConversation: async (conversationId) => {
+      setSmsArchived((current) => {
+        const next = new Set(current);
+        next.delete(conversationId);
+        window.localStorage.setItem(residentSmsArchiveKey(viewerId), JSON.stringify([...next]));
+        return next;
+      });
+    },
     onSelectionCleared: () => {
       setSelectedKey(null);
       onRouteThreadChange?.(undefined);
@@ -344,13 +782,125 @@ function ResidentUnifiedInbox({
     () => (initialListReady && selectedKey ? parseUnifiedInboxKey(selectedKey) : null),
     [initialListReady, selectedKey],
   );
+  const selectedRow = useMemo(
+    () => (selectedKey ? merged.find((row) => row.key === selectedKey) ?? null : null),
+    [merged, selectedKey],
+  );
+  const selectedMemberKeys = selectedRow?.memberKeys ?? (selectedRow ? [selectedRow.key] : []);
+  const selectedEmailThreadId = selectedMemberKeys
+    .map(parseUnifiedInboxKey)
+    .find((member): member is { channel: "email"; threadId: string } => member?.channel === "email")?.threadId ?? null;
+  const selectedEmailThreadIds = selectedMemberKeys
+    .map(parseUnifiedInboxKey)
+    .filter((member): member is { channel: "email"; threadId: string } => member?.channel === "email")
+    .map((member) => member.threadId);
+  const selectedSmsConversations = selectedMemberKeys
+    .map(parseUnifiedInboxKey)
+    .filter((member): member is { channel: "sms"; threadId: string } => member?.channel === "sms")
+    .map((member) => smsConversations.find((conversation) => conversation.conversationKey === member.threadId))
+    .filter((conversation): conversation is RoleSmsManagerConversation => Boolean(conversation));
+  const selectedSmsMessages = selection?.channel === "sms" && selection.threadId === SMS_THREAD_ID
+    ? smsMessages.filter((message) => !smsConversations.some((conversation) =>
+        conversation.messages.some((candidate) => candidate.id === message.id),
+      ))
+    : selectedSmsConversations.flatMap((conversation) => conversation.messages);
+  const routeRow = useMemo(() => {
+    if (!routeThreadId) return null;
+    return merged.find((row) => {
+      if (row.threadId === routeThreadId) return true;
+      return (row.memberKeys ?? [row.key]).some((key) => {
+        const member = parseUnifiedInboxKey(key);
+        if (!member) return false;
+        if (member.threadId === routeThreadId) return true;
+        if (member.channel !== "email") return false;
+        return emailThreads.some((thread) =>
+          thread.id === member.threadId && thread.sourceThreadIds?.includes(routeThreadId),
+        );
+      });
+    }) ?? null;
+  }, [emailThreads, merged, routeThreadId]);
+
+  useEffect(() => {
+    if (!routeThreadId) {
+      resolvedRouteRef.current = null;
+    } else if (routeRow) {
+      // Once a route was visible for this resident, an explicit presentation
+      // change that excludes it must clear the stale route instead of letting
+      // a later selection effect restore it.
+      resolvedRouteRef.current = { threadId: routeThreadId, viewerId };
+    } else if (resolvedRouteRef.current?.viewerId !== viewerId) {
+      resolvedRouteRef.current = null;
+    }
+  }, [routeRow, routeThreadId, viewerId]);
 
   useEffect(() => {
     if (!initialListReady) return;
     if (!routeThreadId) return;
-    const match = merged.find((r) => r.threadId === routeThreadId);
-    if (match) setSelectedKey(match.key);
-  }, [initialListReady, routeThreadId, merged]);
+    if (routeRow) setSelectedKey(routeRow.key);
+  }, [initialListReady, routeRow, routeThreadId]);
+
+  useEffect(() => {
+    const inboundIds = selectedSmsMessages
+      .filter((message) => message.direction === "inbound")
+      .map((message) => message.id);
+    if (inboundIds.length === 0 || inboundIds.every((id) => smsOpened.has(id))) return;
+    setSmsOpened((current) => {
+      const next = new Set(current);
+      inboundIds.forEach((id) => next.add(id));
+      persistOpenedIds(next);
+      return next;
+    });
+  }, [selectedSmsMessages, smsOpened]);
+
+  useEffect(() => {
+    if (!initialListReady || !selectedRow?.unread || selectedRow.readSourcesComplete !== true) return;
+    const sources = selectedRow.readSources ?? [];
+    if (sources.length === 0) return;
+    const observation = sources.map((source) => `${source.id}:${source.observation}`).sort().join("|");
+    const viewer = viewerIdRef.current?.trim();
+    const selection = selectedKeyRef.current;
+    if (!observation || !viewer || !selection) return;
+    const signature = `${viewer}:${selection}:${observation}`;
+    if (readSucceededRef.current.has(signature) || readInFlightRef.current.has(signature)) return;
+    const attempts = readAttemptsRef.current.get(signature) ?? 0;
+    if (attempts >= 2) return;
+    readAttemptsRef.current.set(signature, attempts + 1);
+    const requestToken = {};
+    readInFlightRef.current.set(signature, requestToken);
+    const requestViewer = viewer;
+    const requestSelection = selection;
+    const requestGeneration = initialLoadGeneration.current;
+    void markPersistedInboxSourcesRead(RESIDENT_INBOX_STORAGE_KEY, sources)
+      .then(async (results) => {
+        const current = viewerIdRef.current === requestViewer &&
+          selectedKeyRef.current === requestSelection &&
+          initialLoadGeneration.current === requestGeneration;
+        if (!results || results.some((result) => result.status === "failed")) return;
+        if (!current) return;
+        readSucceededRef.current.add(signature);
+        try {
+          const synced = await syncPersistedInboxFromServerWithStatus(RESIDENT_INBOX_STORAGE_KEY, { force: true });
+          if (
+            viewerIdRef.current === requestViewer &&
+            selectedKeyRef.current === requestSelection &&
+            initialLoadGeneration.current === requestGeneration &&
+            synced.ok && !synced.stale
+          ) setEmailThreads(synced.rows);
+        } catch {
+          // The acknowledgement succeeded. A refresh failure must not turn it
+          // into another POST or leave the row in an in-flight state.
+        }
+      })
+      .catch(() => {
+        // Failed transport releases the attempt for a bounded retry when the
+        // resident reopens or refreshes the unchanged observation.
+      })
+      .finally(() => {
+        if (readInFlightRef.current.get(signature) === requestToken) {
+          readInFlightRef.current.delete(signature);
+        }
+      });
+  }, [initialListReady, selectedRow]);
 
   useEffect(() => {
     onThreadOpenChange?.(Boolean(selection));
@@ -363,13 +913,30 @@ function ResidentUnifiedInbox({
   useEffect(() => {
     if (!initialListReady) return;
     if (merged.length === 0) {
-      if (!routeThreadId) setSelectedKey(null);
+      const routeWasResolved =
+        resolvedRouteRef.current?.threadId === routeThreadId &&
+        resolvedRouteRef.current?.viewerId === viewerId;
+      if (routeThreadId && routeWasResolved && !retainJustReadUnreadSelection) {
+        setSelectedKey(null);
+        onRouteThreadChange?.(undefined);
+        clearCommunicationThreadUrl(`${commBase}/${listSegment}`);
+      } else if (!routeThreadId && !retainJustReadUnreadSelection) {
+        setSelectedKey(null);
+      }
+      return;
+    }
+    const routeWasResolved =
+      resolvedRouteRef.current?.threadId === routeThreadId &&
+      resolvedRouteRef.current?.viewerId === viewerId;
+    if (routeThreadId && routeWasResolved && !routeRow && !retainJustReadUnreadSelection) {
+      setSelectedKey(null);
+      onRouteThreadChange?.(undefined);
+      clearCommunicationThreadUrl(`${commBase}/${listSegment}`);
       return;
     }
     setSelectedKey((cur) => {
       if (routeThreadId) {
-        const routed = merged.find((row) => row.threadId === routeThreadId);
-        if (routed) return routed.key;
+        if (routeRow) return routeRow.key;
         if (cur && merged.some((row) => row.key === cur)) return cur;
         return null;
       }
@@ -377,7 +944,7 @@ function ResidentUnifiedInbox({
       if (inboxUsesDesktopSplit()) return merged[0]!.key;
       return null;
     });
-  }, [initialListReady, merged, routeThreadId]);
+  }, [commBase, initialListReady, listSegment, merged, onRouteThreadChange, retainJustReadUnreadSelection, routeRow, routeThreadId, viewerId]);
 
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
@@ -425,7 +992,7 @@ function ResidentUnifiedInbox({
           merged.map((row) => (
             <InboxConversationRow
               key={row.key}
-              trailing={<CommunicationRowActions row={row} bulk={bulk} archived={listSegment === "archived"} emailThreads={emailThreads} />}
+              trailing={<CommunicationRowActions row={row} bulk={bulk} archived={listSegment === "archived"} emailThreads={emailThreads} allowSmsActions />}
               name={row.name}
               subtitle={row.subtitle}
               preview={row.preview}
@@ -451,12 +1018,21 @@ function ResidentUnifiedInbox({
     </div>
   );
 
-  const smsSelected = selection?.channel === "sms";
+  const smsSelected = selection?.channel === "sms" && !selectedEmailThreadId;
   const threadPane = (
     <>
       {smsSelected ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
-          <RoleSmsPanel apiPath="/api/resident/sms-conversations" storageScope="resident" tabId={"all" as ManagerSmsBucketId} />
+          <ResidentSmsTimeline
+            messages={selectedSmsMessages}
+            title={selectedRow?.name || "Text messages"}
+            threadKey={selectedRow?.key ?? SMS_THREAD_ID}
+            onBack={() => {
+              setSelectedKey(null);
+              onRouteThreadChange?.(undefined);
+              clearCommunicationThreadUrl(`${commBase}/${listSegment}`);
+            }}
+          />
         </div>
       ) : null}
       <div className={smsSelected ? "hidden" : "flex min-h-0 flex-1 flex-col"}>
@@ -467,7 +1043,11 @@ function ResidentUnifiedInbox({
           externalTitleActions
           suppressListPane
           smsUiEnabled={smsUiEnabled}
-          controlledExpandedId={selection?.channel === "email" ? selection.threadId : null}
+          controlledExpandedId={selectedEmailThreadId}
+          communicationEmailThreadIds={selectedEmailThreadIds}
+          communicationSmsMessages={selectedSmsMessages}
+          communicationThreadTitle={selectedSmsConversations[0]?.managerName}
+          disableAutoMarkRead
           onControlledExpandedIdChange={(id) => {
             if (!id) {
               setSelectedKey(null);
@@ -475,10 +1055,16 @@ function ResidentUnifiedInbox({
               clearCommunicationThreadUrl(`${commBase}/${listSegment}`);
               return;
             }
-            setSelectedKey(unifiedInboxKey("email", id));
-            onRouteThreadChange?.(id);
-            const href = `${commBase}/${listSegment}/${encodeURIComponent(id)}`;
-            if (routeThreadId !== id) {
+            const selected = merged.find((row) => (row.memberKeys ?? [row.key]).some((key) => {
+              const member = parseUnifiedInboxKey(key);
+              return member?.channel === "email" && member.threadId === id;
+            }));
+            const nextKey = selected?.key ?? unifiedInboxKey("email", id);
+            const nextThreadId = selected?.threadId ?? id;
+            setSelectedKey(nextKey);
+            onRouteThreadChange?.(nextThreadId);
+            const href = `${commBase}/${listSegment}/${encodeURIComponent(nextThreadId)}`;
+            if (routeThreadId !== nextThreadId) {
               selectCommunicationThreadUrl(href, { replaceExisting: Boolean(routeThreadId) });
             }
           }}

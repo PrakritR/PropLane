@@ -1,7 +1,23 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@/lib/auth/co-manager-module-scope", () => ({
+  linkedOwnerScopeForModule: vi.fn(async () => ({
+    propertyIdsByOwner: new Map([["owner-1", new Set(["house-a", "house-b"])]]),
+  })),
+}));
+vi.mock("@/lib/workspaces/server", () => ({
+  loadWorkspaces: vi.fn(async () => []),
+}));
+vi.mock("@/lib/manager-sms-messages.server", () => ({
+  loadWorkspaceHouseLabels: vi.fn(async () => new Map([
+    ["house-a", { label: "House A", ownerUserId: "owner-1", aliases: [] }],
+    ["house-b", { label: "House B", ownerUserId: "owner-1", aliases: [] }],
+  ])),
+}));
 import {
   conversationVisible,
   emailThreadHouses,
+  visibleInboxThreadRecord,
   type CommunicationScope,
 } from "@/lib/communication/conversation-visibility.server";
 
@@ -180,5 +196,28 @@ describe("emailThreadHouses — where an email thread's house comes from", () =>
       { id: "t1", owner_user_id: OWNER, participant_email: "ambika@example.test", row_data: {} },
     ], labels);
     expect(out.get("t1")).toEqual([]);
+  });
+});
+
+describe("visibleInboxThreadRecord — contradictory legacy identity fails closed for delegates", () => {
+  const conflicted = {
+    id: "legacy-conflicted",
+    owner_user_id: OWNER,
+    participant_email: "resident@example.test",
+    thread_type: "portal_message",
+    row_data: {
+      propertyId: "house-a",
+      identityProvenance: [
+        { managerUserId: OWNER, propertyId: "house-a" },
+        { managerUserId: OWNER, propertyId: "house-b" },
+      ],
+    },
+  };
+
+  it("denies delegated list, detail, and edit authorization while preserving owner history", async () => {
+    const db = {} as never;
+    await expect(visibleInboxThreadRecord(db, VIEWER, "read", conflicted)).resolves.toBeNull();
+    await expect(visibleInboxThreadRecord(db, VIEWER, "edit", conflicted)).resolves.toBeNull();
+    await expect(visibleInboxThreadRecord(db, OWNER, "read", conflicted)).resolves.toMatchObject({ id: "legacy-conflicted" });
   });
 });

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conversation identity correction 1 handoff</title>
+<style>
+  :root { color-scheme: light dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  body { max-width: 1020px; margin: 44px auto; padding: 0 24px 72px; line-height: 1.55; }
+  h1 { line-height: 1.15; } h2 { margin-top: 2rem; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 10px; border: 1px solid color-mix(in srgb, currentColor 22%, transparent); text-align: left; vertical-align: top; }
+  th { background: color-mix(in srgb, currentColor 8%, transparent); }
+  code { overflow-wrap: anywhere; }
+  .pending { color: #a15b00; font-weight: 650; }
+  .done { color: #16713b; font-weight: 650; }
+  .status { border-left: 5px solid #c98200; padding: 12px 16px; background: color-mix(in srgb, #c98200 9%, transparent); }
+</style>
+<body>
+<h1>Conversation identity correction cycle 1 handoff</h1>
+<p><strong>Date:</strong> September 18, 2026<br>
+<strong>Branch:</strong> <code>akhil/ship-conversation-identity</code><br>
+<strong>Worktree:</strong> <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code><br>
+<strong>Starting and current HEAD:</strong> <code>6a4c899070dc41d50b4675169eb2fce6de660bc2</code> with uncommitted source and tests.</p>
+
+<p class="status"><strong>Status:</strong> The eight static-review findings have source corrections and authored regression coverage. This handoff is ready for fresh Astra static review, but it is not staging-ready. One correction component file was attempted under the bounded Node settings: five tests passed and one newly expanded test failed only on ambiguous Testing Library selectors in three attempts. The selectors were corrected after the last attempt, but the file was not rerun because the coordinator requested handoff instead of further resource recovery. Targeted lint, typecheck, build, browser QA, graph refresh, and Review URL remain pending. The 8 GB laptop entered memory pressure level 2 and swap climbed to about 1.78 GB; no broad process was started.</p>
+
+<h2>R1-R8 resolution</h2>
+<table>
+<thead><tr><th>Finding</th><th>Resolution</th><th>Evidence state</th></tr></thead>
+<tbody>
+<tr><td>R1 - SMS-only row showed the whole mailbox</td><td><code>resident-communication.tsx</code> now renders a selected <code>ResidentSmsTimeline</code> from only that row's proven conversation messages. The unknown row receives only the flat messages not present in verified conversations. The whole-mailbox <code>RoleSmsPanel</code> is no longer mounted for a selected resident thread.</td><td class="pending">Behavioral tests authored; not run in this correction.</td></tr>
+<tr><td>R2 - client folding overrode bindings and conflicts</td><td>The resident row resolver preserves declared bindings, accepts only an exact singleton key, requires manager id + property id + manager email for unbound recovery, and gives conflicted/multiple bindings isolated person keys. Missing property is no longer a wildcard. Exact server-projected evidence may propagate across same-email source members only when every non-empty manager, property, and binding value agrees.</td><td class="pending">Adversarial and continuity cases authored; not run.</td></tr>
+<tr><td>R3 - assistant isolation lost in outer merge</td><td>Assistant rows receive no human person key, person email, bound-conversation lookup, or SMS binding metadata. The shared storage collapse already keeps assistant rows outside person buckets.</td><td class="pending">Static review complete; runtime case remains pending.</td></tr>
+<tr><td>R4 - read unknown hid unread verified managers</td><td>The unread fallback returns the verified rows when the unknown remainder is read or filtered out.</td><td class="pending">Regression test authored; not run.</td></tr>
+<tr><td>R5 - unknown SMS archive did nothing</td><td>Verified and unknown SMS rows now use viewer-scoped local archive keys. Active/Archived membership reads that state, and restore removes the exact selected conversation id. Viewer changes reload archive state and reset read-attempt state.</td><td class="pending">Source path inspected; browser/localStorage behavior not run.</td></tr>
+<tr><td>R6 - unsupported Next route export</td><td><code>enrichResidentManagerIdentities</code> moved to <code>src/lib/resident-inbox-manager-identity.server.ts</code>. The route imports it and exposes only supported route exports/configuration. Its unit test imports the library helper.</td><td class="done"><code>git diff --check</code> exit 0; build/type generation pending.</td></tr>
+<tr><td>R7 - hooks lint failure</td><td><code>loadResidentSms</code> includes <code>setSmsConversations</code> and <code>setSmsMessages</code> in its callback dependencies. A separate viewer effect resets source-read attempt state.</td><td class="pending">Targeted ESLint was not rerun due memory pressure.</td></tr>
+<tr><td>R8 - archived merge omitted member history</td><td>The outer row passes every selected email source id into the real <code>ResidentInboxPanel</code>. The panel resolves all authorized source rows, deduplicates real message ids, preserves each source's direction and subject, orders with <code>parseInboxStampMs</code>, interleaves selected SMS, and keeps one existing authorized email source as the reply target. Old source ids resolve through membership.</td><td class="pending">Direct real-panel test authored with two archived email bodies plus SMS; not run.</td></tr>
+</tbody>
+</table>
+
+<h2>Application continuity and writer audit</h2>
+<p>The manager SMS loader now associates authoritative application name/email/property data with exactly one owner-and-phone-matched prospect history. It keeps the prospect conversation key so submission and later needs-info, rejection, approval, or reconfirmed lifecycle turns append to the history the applicant started. Two application identities on one phone, two prospect histories, or an already-populated role split remain separate. Saved contacts are not rewritten.</p>
+<p>Application submission and lifecycle writers already carry exact owner-scoped SMS identity. Tour writers carry manager/property identity and content-sensitive idempotency ids. The generic portal delivery API now accepts server-resolved manager/property metadata and stamps it on both portal copies. Lease-ready, resident payment-question, and resident service-request writers supply their already-authorized manager/property context. Ordinary resident messaging can target several managers and may have no single property; it remains untagged instead of guessing. Vendor-only and unrelated notification writers were not expanded.</p>
+<p><code>collapsePersonInboxThreads</code> now carries manager/property metadata from an older verified source when the newest ordinary email omits it, but only when all non-empty source values agree. Conflicts clear the metadata, preventing a canonical newest row from silently changing identity.</p>
+
+<h2>Tour lifecycle evidence authored</h2>
+<p>A stateful in-memory thread test now appends request, confirmation, reschedule, cancellation, and reconfirmation through the real property-manager inbox append helper. It asserts one named history in chronological order and an exact retry that adds no duplicate. Missing-manager behavior remains fail-closed to the generic property-manager label; end-to-end notification delivery was not executed.</p>
+
+<h2>Authored test scope</h2>
+<ul>
+  <li><code>resident-conversation-inbox.test.tsx</code>: verified merge continuity, Manager B/unknown selected scoping, two-manager isolation.</li>
+  <li><code>resident-refused-send-not-delivered.test.tsx</code>: real panel renders two archived email sources plus selected SMS in order with channel tags; existing authorized reply rollback tests remain.</li>
+  <li><code>conversation-identity-correction.test.ts</code>: explicit binding selection, conflict isolation, unread-known fallback, complete read-source membership.</li>
+  <li><code>collapse-person-inbox-threads.test.ts</code>: canonical newest row inherits only unanimous verified manager/property evidence; conflicting evidence clears.</li>
+  <li><code>sms-conversation-identity.test.ts</code>: submitted applicant name/email upgrade, stable prospect key through approval, shared-phone ambiguity isolation.</li>
+  <li><code>property-manager-inbox-thread.test.ts</code>: stateful tour lifecycle and retry persistence.</li>
+  <li><code>portal-inbox-read-route-contract.test.ts</code> from the initial implementation already covers unauthorized ids, mixed-scope atomic refusal, stale observations, retry rereads, co-manager edit scope, and partial RPC failures.</li>
+</ul>
+
+<h2>Commands and exact outcomes</h2>
+<table><thead><tr><th>Command</th><th>Result</th></tr></thead><tbody>
+<tr><td><code>git diff --check</code></td><td class="done">Exit 0 after integrated source and test edits.</td></tr>
+<tr><td><code>sysctl -n kern.memorystatus_vm_pressure_level</code>, <code>sysctl vm.swapusage</code>, and task-process check</td><td>Final check: pressure <code>1</code>; swap <code>1758.00M</code> used. Earlier correction check reached pressure <code>2</code> with swap rising to about <code>1.78G</code>. No Vitest, Vite, tinypool, or esbuild child remained after the focused attempts.</td></tr>
+<tr><td><code>PATH=/Users/akhilvemuri/.nvm/versions/node/v22.23.0/bin:$PATH NODE_OPTIONS=--max-old-space-size=384 ./node_modules/.bin/vitest run tests/unit/resident-conversation-inbox.test.tsx --maxWorkers=1 --no-file-parallelism</code></td><td class="pending">Three attempts, each exit 1 with 5/6 tests passing. Failures were success-path test selector ambiguity: first <code>getByText("Manager A")</code>, then the Manager B row versus its actions button, then list "Text messages" versus the open thread subtitle. Each selector was narrowed. The final selector edit is authored but not rerun.</td></tr>
+<tr><td>Other correction-focused Vitest files</td><td class="pending">Not run. The original handoff's 50 passing tests predate these corrections and are not evidence for this diff.</td></tr>
+<tr><td>Targeted ESLint</td><td class="pending">Not run after the dependency fix.</td></tr>
+<tr><td>Typecheck, build, broad lint/tests</td><td class="pending">Not run under the explicit low-memory restriction.</td></tr>
+</tbody></table>
+
+<h2>Remaining acceptance and limits</h2>
+<ul>
+  <li class="pending">Fresh Astra must review the final diff, especially strict binding behavior, source-aware read effects, and generic delivery metadata.</li>
+  <li class="pending">Run correction files one at a time with Node 22.23.0, <code>NODE_OPTIONS=--max-old-space-size=384</code>, <code>--maxWorkers=1 --no-file-parallelism</code> only after pressure is 1 and swap is stable/decreasing enough to satisfy the coordinator.</li>
+  <li class="pending">Seeded desktop and 390 px browser QA remains required for named merged manager history, Manager B and unknown selection, assistant isolation with SMS on/off, archived restore, old deep links, read races, failed reply rollback, and scheduled cards.</li>
+  <li class="pending">No server/browser, broad compile, graph rebuild, sandbox Review URL, native/deep-link QA, staging, production, commit, push, PR, Linear update, external message, or no-mistakes action occurred.</li>
+  <li>Resident SMS archive state remains local to one browser and viewer, matching the existing resident SMS receipt model. Cross-device archive synchronization is outside this correction.</li>
+</ul>
+
+<h2>Fresh review prompt</h2>
+<pre>Fresh Astra review correction cycle 1 in /Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2 on branch akhil/ship-conversation-identity at HEAD 6a4c899070dc41d50b4675169eb2fce6de660bc2 with uncommitted changes. Read the original plan, handoff, review, correction-1 plan, and correction-1-handoff HTML. Review R1-R8, strict binding/conflict behavior, assistant isolation, verified metadata propagation through collapsed ordinary email, selected SMS/unknown scope, full archived membership rendering, viewer-switch/read races, applicant name/key continuity and shared-phone ambiguity, tour lifecycle persistence, and lease/payment/service identity stamping. One component file was attempted three times: 5/6 passed and the expanded scoping test stopped at success-path selector ambiguity each time; the final selector fix is not rerun. Treat all other newly authored tests as NOT RUN. Browser, lint, typecheck, build, graph, native and staging evidence remain pending. Report concrete findings with file/line references and do not claim staging readiness.</pre>
+</body>
+</html>

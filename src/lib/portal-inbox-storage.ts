@@ -124,6 +124,17 @@ export type PersistedInboxThread = {
   thread_type?: string | null;
   /** Resident assistant: which manager's tools this thread is bound to. */
   boundManagerUserId?: string;
+  /** Server-stamped property-manager relationship metadata. */
+  managerUserId?: string;
+  propertyId?: string;
+  propertyTitle?: string;
+  counterpartyRole?: string;
+  /**
+   * Every server-stamped relationship claim ever attached to this record.
+   * Scalar fields remain a convenient projection, but this durable evidence is
+   * what prevents a later delivery from rewriting an earlier relationship.
+   */
+  identityProvenance?: InboxThreadIdentity[];
   /** Server-verified SMS conversation identity for exact cross-channel folding. */
   smsConversationKey?: string;
   ownerUserId?: string;
@@ -152,6 +163,14 @@ export type PersistedInboxThread = {
    * first one; visibility was already decided with the same set.
    */
   houses?: { propertyId: string; label: string }[];
+};
+
+export type InboxThreadIdentity = {
+  managerUserId?: string;
+  propertyId?: string;
+  propertyTitle?: string;
+  counterpartyRole?: string;
+  smsConversationKey?: string;
 };
 
 export const MANAGER_INBOX_STORAGE_KEY = "axis_portal_inbox_manager_v1";
@@ -310,7 +329,171 @@ export function normalizePersistedInboxThread(thread: PersistedInboxThread): Per
     body: typeof thread.body === "string" ? thread.body : String(thread.body ?? ""),
     time: trimmedText(thread.time) || String(thread.time ?? ""),
     ...(smsBindingKeys.length > 0 ? { smsBindingKeys } : {}),
+    ...(thread.identityProvenance?.length
+      ? { identityProvenance: normalizeInboxIdentityProvenance(thread.identityProvenance) }
+      : {}),
   };
+}
+
+function normalizedInboxIdentity(identity: InboxThreadIdentity | null | undefined): InboxThreadIdentity {
+  const normalized: InboxThreadIdentity = {};
+  for (const field of ["managerUserId", "propertyId", "propertyTitle", "counterpartyRole", "smsConversationKey"] as const) {
+    const value = String(identity?.[field] ?? "").trim();
+    if (value) normalized[field] = value;
+  }
+  return normalized;
+}
+
+function inboxThreadIdentity(thread: PersistedInboxThread): InboxThreadIdentity {
+  return normalizedInboxIdentity({
+    managerUserId: thread.managerUserId,
+    propertyId: thread.propertyId,
+    propertyTitle: thread.propertyTitle,
+    counterpartyRole: thread.counterpartyRole,
+    smsConversationKey: thread.smsConversationKey,
+  });
+}
+
+function identitySignature(identity: InboxThreadIdentity): string {
+  return [identity.managerUserId, identity.propertyId, identity.propertyTitle, identity.counterpartyRole, identity.smsConversationKey]
+    .map((value) => value ?? "")
+    .join("\u0000");
+}
+
+export function normalizeInboxIdentityProvenance(identities: readonly InboxThreadIdentity[]): InboxThreadIdentity[] {
+  const seen = new Set<string>();
+  const normalized: InboxThreadIdentity[] = [];
+  for (const identity of identities) {
+    const next = normalizedInboxIdentity(identity);
+    if (Object.keys(next).length === 0) continue;
+    const signature = identitySignature(next);
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+    normalized.push(next);
+  }
+  return normalized;
+}
+
+export function inboxIdentityProvenance(thread: PersistedInboxThread): InboxThreadIdentity[] {
+  return normalizeInboxIdentityProvenance([
+    inboxThreadIdentity(thread),
+    ...(Array.isArray(thread.identityProvenance) ? thread.identityProvenance : []),
+  ]);
+}
+
+/** Non-empty disagreement is a conflict. Empty fields are unknown, never wildcards. */
+export function inboxIdentitiesCompatible(left: InboxThreadIdentity, right: InboxThreadIdentity): boolean {
+  for (const field of ["managerUserId", "propertyId", "smsConversationKey", "counterpartyRole"] as const) {
+    const a = String(left[field] ?? "").trim();
+    const b = String(right[field] ?? "").trim();
+    if (a && b && a !== b) return false;
+  }
+  return true;
+}
+
+/**
+ * A prior claim can justify joining a new relationship only when it positively
+ * records every relationship field the delivery asserts. Absence is not a
+ * compatible legacy wildcard: that would reclassify an old, unscoped history
+ * merely because a newer notification knows its property or role.
+ *
+ * The native conversation key is a channel binding rather than the property
+ * relationship itself. A previously proven email row may gain that binding,
+ * while two non-empty, different keys still conflict above.
+ */
+export function inboxIdentityProvesRelationship(
+  claim: InboxThreadIdentity,
+  relationship: InboxThreadIdentity,
+): boolean {
+  let hasRelationshipClaim = false;
+  for (const field of ["managerUserId", "propertyId", "counterpartyRole"] as const) {
+    const expected = String(relationship[field] ?? "").trim();
+    if (!expected) continue;
+    hasRelationshipClaim = true;
+    if (String(claim[field] ?? "").trim() !== expected) return false;
+  }
+  if (hasRelationshipClaim) return true;
+  // A binding without owner/property/role can still prove only itself. This
+  // keeps a key-only delivery from adopting an otherwise unknown old row.
+  const binding = String(relationship.smsConversationKey ?? "").trim();
+  return Boolean(binding) && String(claim.smsConversationKey ?? "").trim() === binding;
+}
+
+/**
+ * A persisted thread may be reused only when every prior server-stamped claim
+ * agrees with the incoming relationship and at least one claim positively
+ * proves it. Unknown historical rows are kept separate until durable evidence
+ * identifies their owner/property/role relationship.
+ */
+export function inboxThreadIdentityCompatibleWith(
+  thread: PersistedInboxThread,
+  incoming: InboxThreadIdentity | null | undefined,
+): boolean {
+  const normalized = normalizedInboxIdentity(incoming);
+  if (Object.keys(normalized).length === 0) return true;
+  const claims = inboxIdentityProvenance(thread);
+  return (
+    claims.some((claim) => inboxIdentityProvesRelationship(claim, normalized)) &&
+    claims.every((claim) => inboxIdentitiesCompatible(claim, normalized))
+  );
+}
+
+/**
+ * A single scalar property cannot safely authorize a row that contains
+ * contradictory relationship evidence. Owners retain their history, while
+ * delegated readers must fail closed until the evidence is repaired.
+ */
+export function inboxThreadIdentityConflicted(thread: PersistedInboxThread): boolean {
+  const claims = inboxIdentityProvenance(thread);
+  return claims.some((claim, index) => claims.slice(index + 1).some((other) => !inboxIdentitiesCompatible(claim, other)));
+}
+
+/**
+ * A display-folding key only exists for a proven, non-conflicting property
+ * relationship. Unknown rows must stay isolated: an absent property is not
+ * evidence that two same-email histories belong together.
+ */
+export function inboxThreadRelationshipKey(thread: PersistedInboxThread): string | null {
+  if (inboxThreadIdentityConflicted(thread)) return null;
+  const claims = inboxIdentityProvenance(thread);
+  const value = (field: keyof InboxThreadIdentity) => {
+    const values = [...new Set(claims.map((claim) => String(claim[field] ?? "").trim()).filter(Boolean))];
+    return values.length === 1 ? values[0]! : "";
+  };
+  const propertyId = value("propertyId");
+  if (!propertyId) return null;
+  return [value("managerUserId"), propertyId, value("counterpartyRole")].join("\0");
+}
+
+function threadIdentityCompatibleWithGroup(thread: PersistedInboxThread, group: PersistedInboxThread[]): boolean {
+  const claims = inboxIdentityProvenance(thread);
+  return group.every((member) => {
+    const otherClaims = inboxIdentityProvenance(member);
+    // Keep purely legacy history together. It remains unscoped, so it cannot
+    // contribute a property or role to a proven partition. Once either side
+    // has durable evidence, the unknown side stays independently selectable.
+    if (claims.length === 0 || otherClaims.length === 0) {
+      return claims.length === 0 && otherClaims.length === 0;
+    }
+    return (
+      claims.some((claim) => otherClaims.some((other) =>
+        inboxIdentityProvesRelationship(claim, other) &&
+        inboxIdentityProvesRelationship(other, claim),
+      )) &&
+      claims.every((claim) => otherClaims.every((other) => inboxIdentitiesCompatible(claim, other)))
+    );
+  });
+}
+
+/** Keep same-email records separate when their server identity evidence conflicts. */
+function partitionThreadsByIdentity(group: PersistedInboxThread[]): PersistedInboxThread[][] {
+  const partitions: PersistedInboxThread[][] = [];
+  for (const thread of group) {
+    const compatible = partitions.find((partition) => threadIdentityCompatibleWithGroup(thread, partition));
+    if (compatible) compatible.push(thread);
+    else partitions.push([thread]);
+  }
+  return partitions;
 }
 
 function inboxThreadsFromUnknown(rows: unknown): PersistedInboxThread[] {
@@ -1108,6 +1291,16 @@ function dedupeSentCopyRoots(ordered: InboxThreadMessage[]): void {
   }
 }
 
+function uniqueThreadIdentityValue(
+  group: PersistedInboxThread[],
+  field: "managerUserId" | "propertyId" | "propertyTitle",
+): string | undefined {
+  const values = [...new Set(group
+    .map((thread) => String(thread[field] ?? "").trim())
+    .filter(Boolean))];
+  return values.length === 1 ? values[0] : undefined;
+}
+
 /**
  * Collapse duplicate person-threads into one row for display. Payment reminders
  * and manual sends used to mint a fresh thread id per message; this merges their
@@ -1122,6 +1315,12 @@ export function collapsePersonInboxThreads(
   const groups = new Map<string, PersistedInboxThread[]>();
 
   for (const thread of threads) {
+    // Assistant identity is explicit and role-scoped. Even a malformed legacy
+    // row carrying an email must never enter a human person bucket.
+    if (assistantInboxCollapseKey(thread)) {
+      solo.push(thread);
+      continue;
+    }
     const counterparty = smsNoticeIdentity(thread) || inboxThreadCounterpartyEmail(thread);
     if ((!counterparty.includes("@") && !counterparty.startsWith("sms-notice:")) || (thread.folder === "trash" && !counterparty.startsWith("sms-notice:"))) {
       solo.push(thread);
@@ -1135,60 +1334,72 @@ export function collapsePersonInboxThreads(
 
   const merged: PersistedInboxThread[] = [...solo];
   for (const rawGroup of groups.values()) {
-    const group = dropSubsumedMembers(rawGroup);
-    if (group.length <= 1) {
-      merged.push(group[0]!);
-      continue;
+    for (const group of partitionThreadsByIdentity(dropSubsumedMembers(rawGroup))) {
+      if (group.length <= 1) {
+        merged.push(group[0]!);
+        continue;
+      }
+      const sorted = [...group].sort(
+        (a, b) => inboxThreadSortMs(a.id, a.time) - inboxThreadSortMs(b.id, b.time),
+      );
+      const canonical = sorted[sorted.length - 1]!;
+      const allMessages: InboxThreadMessage[] = [];
+      for (const th of sorted) {
+        allMessages.push(...inboxThreadMessages(th).map((message, index) => index === 0
+          ? { ...message, outbound: th.rootOutbound ?? (th.folder === "sent") }
+          : message));
+      }
+      const seenIds = new Set<string>();
+      const ordered = allMessages.filter((m) => {
+        if (seenIds.has(m.id)) return false;
+        seenIds.add(m.id);
+        return true;
+      });
+      ordered.sort((a, b) => inboxThreadSortMs(a.id, a.at) - inboxThreadSortMs(b.id, b.at));
+      dedupeSentCopyRoots(ordered);
+      const first = ordered[0];
+      if (!first) {
+        merged.push(canonical);
+        continue;
+      }
+      const last = ordered[ordered.length - 1]!;
+      const smsBindings = mergeInboxSmsBindingKeys(group);
+      const managerUserId = uniqueThreadIdentityValue(group, "managerUserId");
+      const propertyId = uniqueThreadIdentityValue(group, "propertyId");
+      const propertyTitle = uniqueThreadIdentityValue(group, "propertyTitle");
+      const canonicalRootId = `${canonical.id}-root`;
+      const messages = ordered.slice(1).map((m) =>
+        m.id === canonicalRootId ? { ...m, id: `merged:${m.id}` } : m,
+      );
+      merged.push({
+        ...canonical,
+        sourceThreadIds: [...new Set(group.flatMap((t) => t.sourceThreadIds ?? [t.id]))],
+        ...mergeInboxReadSourceState(group),
+        body: first.body,
+        attachments: first.attachments,
+        rootAt: first.at,
+        rootOutbound: first.outbound === true,
+        // The root's stamps travel with it: the merged row spreads `canonical`
+        // (usually the newest Sent copy), whose root is not this one.
+        rootChannel: first.channel,
+        rootSubject: first.subject,
+        from: first.from,
+        time: canonical.time,
+        preview: last.body.slice(0, 100).replace(/\n/g, " "),
+        messages,
+        unread: group.some((t) => t.unread),
+        // The newest canonical row can be a plain manual/email turn that lacks
+        // the relationship metadata an older server-authored turn proved. Carry
+        // only a value on which every non-empty member agrees; disagreement is
+        // intentionally cleared so the client cannot fold a conflicted history.
+        managerUserId,
+        propertyId,
+        propertyTitle,
+        ...(smsBindings.length === 1 ? { smsConversationKey: smsBindings[0] } : { smsConversationKey: undefined }),
+        ...(smsBindings.length > 0 ? { smsBindingKeys: smsBindings } : {}),
+        identityProvenance: normalizeInboxIdentityProvenance(group.flatMap(inboxIdentityProvenance)),
+      });
     }
-    const sorted = [...group].sort(
-      (a, b) => inboxThreadSortMs(a.id, a.time) - inboxThreadSortMs(b.id, b.time),
-    );
-    const canonical = sorted[sorted.length - 1]!;
-    const allMessages: InboxThreadMessage[] = [];
-    for (const th of sorted) {
-      allMessages.push(...inboxThreadMessages(th).map((message, index) => index === 0
-        ? { ...message, outbound: th.rootOutbound ?? (th.folder === "sent") }
-        : message));
-    }
-    const seenIds = new Set<string>();
-    const ordered = allMessages.filter((m) => {
-      if (seenIds.has(m.id)) return false;
-      seenIds.add(m.id);
-      return true;
-    });
-    ordered.sort((a, b) => inboxThreadSortMs(a.id, a.at) - inboxThreadSortMs(b.id, b.at));
-    dedupeSentCopyRoots(ordered);
-    const first = ordered[0];
-    if (!first) {
-      merged.push(canonical);
-      continue;
-    }
-    const last = ordered[ordered.length - 1]!;
-    const smsBindings = mergeInboxSmsBindingKeys(group);
-    const canonicalRootId = `${canonical.id}-root`;
-    const messages = ordered.slice(1).map((m) =>
-      m.id === canonicalRootId ? { ...m, id: `merged:${m.id}` } : m,
-    );
-    merged.push({
-      ...canonical,
-      sourceThreadIds: [...new Set(group.flatMap((t) => t.sourceThreadIds ?? [t.id]))],
-      ...mergeInboxReadSourceState(group),
-      body: first.body,
-      attachments: first.attachments,
-      rootAt: first.at,
-      rootOutbound: first.outbound === true,
-      // The root's stamps travel with it: the merged row spreads `canonical`
-      // (usually the newest Sent copy), whose root is not this one.
-      rootChannel: first.channel,
-      rootSubject: first.subject,
-      from: first.from,
-      time: canonical.time,
-      preview: last.body.slice(0, 100).replace(/\n/g, " "),
-      messages,
-      unread: group.some((t) => t.unread),
-      ...(smsBindings.length === 1 ? { smsConversationKey: smsBindings[0] } : { smsConversationKey: undefined }),
-      ...(smsBindings.length > 0 ? { smsBindingKeys: smsBindings } : {}),
-    });
   }
   return merged;
 }
@@ -1197,7 +1408,11 @@ export async function markPersistedInboxSourcesRead(
   key: string,
   sources: { id: string; observation: string }[],
 ): Promise<{ id: string; status: "read" | "alreadyRead" | "changed" | "archived" | "failed"; unread: boolean }[] | null> {
-  if (!canUse() || key !== MANAGER_INBOX_STORAGE_KEY || sources.length === 0) return null;
+  if (
+    !canUse() ||
+    (key !== MANAGER_INBOX_STORAGE_KEY && key !== RESIDENT_INBOX_STORAGE_KEY) ||
+    sources.length === 0
+  ) return null;
   const response = await fetch("/api/portal-inbox-threads", {
     method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ action: "markRead", scope: key, sources }),
@@ -1344,7 +1559,7 @@ function mergeInboxSmsBindingKeys(threads: PersistedInboxThread[]): string[] {
 
 function applyInboxCollapseForScope(key: string, rows: PersistedInboxThread[]): PersistedInboxThread[] {
   let result = rows;
-  if (key === MANAGER_INBOX_STORAGE_KEY) {
+  if (key === MANAGER_INBOX_STORAGE_KEY || key === RESIDENT_INBOX_STORAGE_KEY) {
     result = collapsePersonInboxThreads(result, { mergeFolders: true });
   }
   if (

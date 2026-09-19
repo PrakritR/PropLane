@@ -15,7 +15,7 @@ export type LeaseJurisdiction =
 /** State is a two-letter USPS abbreviation; city is a normalized registry key when present. */
 export type JurisdictionKey = { state: string; city?: string };
 
-type LeaseAddress = {
+export type LeaseAddress = {
   address?: string;
   city?: string;
   state?: string;
@@ -25,6 +25,11 @@ type LeaseAddress = {
 };
 
 export type LeaseJurisdictionInput = {
+  /**
+   * Structured location metadata when a lease has no complete property record
+   * yet. This is location evidence only; it never stands in for a property.
+   */
+  propertyLocation?: LeaseAddress | null;
   listingProperty?: LeaseAddress & { neighborhood?: string } | null;
   leasedRoom?: LeaseAddress & { neighborhood?: string } | null;
   submission?: LeaseAddress & { neighborhood?: string } | null;
@@ -37,6 +42,12 @@ const SF_RE = /\b(san\s*francisco|sf,\s*ca|,\s*sf\b)\b/i;
 
 function propertyHaystack(ctx: LeaseJurisdictionInput): string {
   return [
+    ctx.propertyLocation?.address,
+    ctx.propertyLocation?.city,
+    ctx.propertyLocation?.state,
+    ctx.propertyLocation?.zip,
+    ctx.propertyLocation?.postalCode,
+    ctx.propertyLocation?.neighborhood,
     ctx.submission?.address,
     ctx.submission?.city,
     ctx.submission?.state,
@@ -97,7 +108,12 @@ function addressHaystack(address: LeaseAddress | null | undefined): string {
 }
 
 function structuredPropertyJurisdiction(ctx: LeaseJurisdictionInput): JurisdictionKey | null {
-  const addresses: Array<LeaseAddress | null | undefined> = [ctx.listingProperty, ctx.leasedRoom, ctx.submission];
+  const addresses: Array<LeaseAddress | null | undefined> = [
+    ctx.propertyLocation,
+    ctx.listingProperty,
+    ctx.leasedRoom,
+    ctx.submission,
+  ];
   for (const address of addresses) {
     const state = normalizedState(address?.state);
     const city = normalizedCity(address?.city);
@@ -148,7 +164,7 @@ function explicitOutOfScopeState(ctx: LeaseJurisdictionInput): boolean {
   // current state, so the applicant's home state became the only structured state and decided
   // the property's jurisdiction. Anyone relocating to Seattle from out of state could not get
   // a lease at all. Where the applicant lives says nothing about where the property is.
-  const states = [ctx.listingProperty?.state, ctx.leasedRoom?.state, ctx.submission?.state];
+  const states = [ctx.propertyLocation?.state, ctx.listingProperty?.state, ctx.leasedRoom?.state, ctx.submission?.state];
   for (const raw of states) {
     const value = raw?.trim();
     if (!value) continue;

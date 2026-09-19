@@ -93,4 +93,167 @@ describe("notifyManagerApplicationSubmitted", () => {
       }),
     );
   });
+
+  it("binds each manager copy only to that recipient's exact prospect SMS conversation", async () => {
+    vi.resetModules();
+    vi.doMock("@/lib/co-manager-notification-recipients.server", () => ({
+      resolvePropertyLeadRecipientIds: vi.fn(async () => ["mgr-1", "co-1"]),
+      resolveManagerRecipientProfiles: vi.fn(async () => [
+        { userId: "mgr-1", email: "manager@test.com", phone: null },
+        { userId: "co-1", email: "co@test.com", phone: null },
+      ]),
+    }));
+    vi.doMock("@/lib/manager-sms-messages.server", () => ({
+      fetchManagerSmsConversations: vi.fn(async (_db: unknown, managerUserId: string) => ({
+        workNumber: managerUserId === "mgr-1" ? "+12065550001" : "+12065550002",
+        residents: managerUserId === "mgr-1" ? [{
+          residentUserId: null,
+          residentEmail: "narendracheruku18@gmail.com",
+          name: "SIVA NARENDRA CHERUKU",
+          phone: "+12065550100",
+          propertyLabel: "4709A 8th Ave NE",
+          counterpartyRole: "prospect",
+          conversationKey: "mgr-1:prospect:+12065550100",
+          ownerManagerUserId: "mgr-1",
+          messages: [{
+            id: "sms-1",
+            direction: "inbound",
+            body: "Can I tour?",
+            fromPhone: "+12065550100",
+            toPhone: "+12065550001",
+            messageSid: "SM1",
+            source: "work_number",
+            createdAt: "2026-09-18T16:00:00.000Z",
+          }],
+        }] : [],
+      })),
+    }));
+    const deliver = vi.fn(async () => ({ action: "create", threadId: "t1" }));
+    vi.doMock("@/lib/portal-inbox-delivery", () => ({ deliverPortalMessageThreadSide: deliver }));
+    const { notifyManagerApplicationSubmitted } = await import("@/lib/application-submitted-notification.server");
+
+    const result = await notifyManagerApplicationSubmitted({} as never, submittedRow());
+
+    expect(result.ok).toBe(true);
+    expect(deliver).toHaveBeenCalledTimes(2);
+    expect(deliver.mock.calls[0]?.[1]).toEqual(expect.objectContaining({
+      ownerUserId: "mgr-1",
+      threadIdentity: expect.objectContaining({
+        counterpartyRole: "prospect",
+        smsConversationKey: "mgr-1:prospect:+12065550100",
+      }),
+    }));
+    expect(deliver.mock.calls[1]?.[1]).toEqual(expect.objectContaining({
+      ownerUserId: "co-1",
+      threadIdentity: expect.not.objectContaining({ smsConversationKey: expect.anything() }),
+    }));
+  });
+
+  it.each([
+    ["different owner", "other-manager", "+12065550100", "+12065550001", "prospect"],
+    ["different phone", "mgr-1", "+12065550999", "+12065550001", "prospect"],
+    ["incompatible role", "mgr-1", "+12065550100", "+12065550001", "resident"],
+  ] as const)("leaves a %s SMS relationship unbound while still delivering the applicant email", async (_case, owner, phone, workNumber, role) => {
+    vi.resetModules();
+    vi.doMock("@/lib/co-manager-notification-recipients.server", () => ({
+      resolvePropertyLeadRecipientIds: vi.fn(async () => ["mgr-1"]),
+      resolveManagerRecipientProfiles: vi.fn(async () => [
+        { userId: "mgr-1", email: "manager@test.com", phone: null },
+      ]),
+    }));
+    vi.doMock("@/lib/manager-sms-messages.server", () => ({
+      fetchManagerSmsConversations: vi.fn(async () => ({
+        workNumber,
+        residents: [{
+          residentUserId: null,
+          residentEmail: "narendracheruku18@gmail.com",
+          name: "SIVA NARENDRA CHERUKU",
+          phone,
+          propertyLabel: "4709A 8th Ave NE",
+          counterpartyRole: role,
+          conversationKey: `${owner}:prospect:${phone}`,
+          ownerManagerUserId: owner,
+          messages: [{
+            id: "sms-mismatch",
+            direction: "inbound",
+            body: "Can I tour?",
+            fromPhone: phone,
+            toPhone: workNumber,
+            messageSid: "SM-mismatch",
+            source: "work_number",
+            createdAt: "2026-09-18T16:00:00.000Z",
+          }],
+        }],
+      })),
+    }));
+    const deliver = vi.fn(async () => ({ action: "create", threadId: "t1" }));
+    vi.doMock("@/lib/portal-inbox-delivery", () => ({ deliverPortalMessageThreadSide: deliver }));
+    const { notifyManagerApplicationSubmitted } = await import("@/lib/application-submitted-notification.server");
+
+    await notifyManagerApplicationSubmitted({} as never, submittedRow());
+
+    expect(deliver).toHaveBeenCalledOnce();
+    const delivery = deliver.mock.calls[0]?.[1] as { threadIdentity?: Record<string, unknown> };
+    expect(delivery).toEqual(expect.objectContaining({
+      otherPartyEmail: "narendracheruku18@gmail.com",
+      threadIdentity: expect.objectContaining({
+        managerUserId: "mgr-1",
+        propertyId: "prop-1",
+        counterpartyRole: "applicant",
+      }),
+    }));
+    // The applicant notification must not borrow a native conversation whose
+    // verified owner, phone, or role is incompatible with this recipient.
+    expect(delivery.threadIdentity).not.toHaveProperty("smsConversationKey");
+  });
+
+  it("retains the native prospect relationship while applicant status changes in the directory", async () => {
+    vi.resetModules();
+    vi.doMock("@/lib/co-manager-notification-recipients.server", () => ({
+      resolvePropertyLeadRecipientIds: vi.fn(async () => ["mgr-1"]),
+      resolveManagerRecipientProfiles: vi.fn(async () => [
+        { userId: "mgr-1", email: "manager@test.com", phone: null },
+      ]),
+    }));
+    vi.doMock("@/lib/manager-sms-messages.server", () => ({
+      fetchManagerSmsConversations: vi.fn(async () => ({
+        workNumber: "+12065550001",
+        residents: [{
+          residentUserId: null,
+          residentEmail: "narendracheruku18@gmail.com",
+          name: "SIVA NARENDRA CHERUKU",
+          phone: "+12065550100",
+          propertyLabel: "4709A 8th Ave NE",
+          counterpartyRole: "prospect",
+          conversationKey: "mgr-1:prospect:+12065550100",
+          ownerManagerUserId: "mgr-1",
+          messages: [{
+            id: "sms-prospect",
+            direction: "inbound",
+            body: "Can I tour?",
+            fromPhone: "+12065550100",
+            toPhone: "+12065550001",
+            messageSid: "SM-prospect",
+            source: "work_number",
+            createdAt: "2026-09-18T16:00:00.000Z",
+          }],
+        }],
+      })),
+    }));
+    const deliver = vi.fn(async () => ({ action: "append", threadId: "prospect-email" }));
+    vi.doMock("@/lib/portal-inbox-delivery", () => ({ deliverPortalMessageThreadSide: deliver }));
+    const { notifyManagerApplicationSubmitted } = await import("@/lib/application-submitted-notification.server");
+
+    await notifyManagerApplicationSubmitted({} as never, submittedRow());
+
+    expect(deliver.mock.calls[0]?.[1]).toEqual(expect.objectContaining({
+      threadIdentity: {
+        managerUserId: "mgr-1",
+        propertyId: "prop-1",
+        propertyTitle: "4709A 8th Ave NE",
+        counterpartyRole: "prospect",
+        smsConversationKey: "mgr-1:prospect:+12065550100",
+      },
+    }));
+  });
 });

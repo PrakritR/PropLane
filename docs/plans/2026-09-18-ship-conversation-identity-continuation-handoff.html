@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Conversation identity authorized continuation handoff</title>
+<style>
+body{max-width:980px;margin:40px auto;padding:0 24px 64px;font:16px/1.6 system-ui;color:#192738;background:#fafafa}h1,h2{line-height:1.25}code{overflow-wrap:anywhere}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccd2da;padding:10px;text-align:left;vertical-align:top}.pass{color:#176b34}.fail{color:#9d241f}.pending{color:#865a08}li{margin-bottom:8px}
+</style>
+<body>
+<h1>Authorized continuation handoff: R16-R19</h1>
+<p>Implementation-manager handoff, September 18, 2026. Akhil explicitly authorized continuation after the prior two-cycle stop. Worktree <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code>, branch <code>akhil/ship-conversation-identity</code>, committed HEAD <code>6a4c899070dc41d50b4675169eb2fce6de660bc2</code>. All task changes remain uncommitted. No release, production, commit, push, PR, Linear, external message, server, browser, graph, install, or no-mistakes action occurred.</p>
+
+<h2>Implemented corrections</h2>
+<table>
+<tr><th>Finding</th><th>Final source behavior</th><th>Evidence state</th></tr>
+<tr><td>R16 property-content permission leak</td><td><code>deliverPortalMessageThreadSide</code> selects only an existing row whose entire identity provenance is compatible with the incoming manager/property/role/SMS relationship. Creation is insert-only. If a legacy incompatible row already owns the deterministic fallback id, the writer derives a stable relationship-specific alternate id, preserves A unchanged, writes B separately, and finds B on retry. Conflicted legacy rows fail closed for non-owner list/detail/edit resolution through <code>visibleInboxThreadRecord</code>; owners retain their history. Manager email and SMS folding requires the binding and manager/property/role relationship to agree. A multi-property SMS thread remains isolated.</td><td><span class="pass">Focused delivery, relationship-key, and visibility files passed.</span></td></tr>
+<tr><td>R17 email-only resident grouping</td><td>Resident email grouping now derives its person key from email, manager id, property id, and the verified binding. SMS-off A/B histories stay separate; compatible same-property histories merge with their full source membership; unknown and conflicted rows remain isolated. Native SMS uses the same composite relationship key, so it can join the compatible email history without bridging another property.</td><td><span class="pending">The component file initially exposed a native-SMS key mismatch. The source was corrected after that run; the corrected file was not rerun because memory pressure rose to warning level.</span></td></tr>
+<tr><td>R18 failed read acknowledgement</td><td>The resident surface tracks in-flight, successful, and attempted observations separately. A rejection or failed result releases the in-flight latch; reopen/refresh may retry the same observation up to two total attempts. Success suppresses duplicates. Viewer, selection, and list-generation guards prevent stale async results from mutating a later view.</td><td><span class="pending">Authored component tests now route directly to the unread conversation and exercise failure/reopen/success, stale viewer, success dedupe, and bounded attempts. The corrected test file remains unrun due elevated pressure.</span></td></tr>
+<tr><td>R19 same-window same-copy reconfirmation</td><td><code>confirmTourInquiry</code> passes the persisted <code>plannedEvent.id</code> as the confirmation lifecycle generation. Inbox and SMS dedupe use that durable generation: retries of one confirmation keep one id, while a true later confirmation receives a new planned-event id even when the window and copy match. Source audit found one production <code>notifyTenantTourConfirmed</code> caller, shared by manual acceptance and tool confirmation.</td><td><span class="pending">Writer generation threading and canonical two-confirmation/cancel/retry tests are authored. The tour writer test file was not run after pressure rose. A full confirm, cancel, same-window reconfirm, delivery-retry fixture remains an explicit harness gap.</span></td></tr>
+</table>
+
+<h2>Continuation-owned files</h2>
+<ul>
+<li><code>src/lib/portal-inbox-storage.ts</code>, <code>src/lib/portal-inbox-delivery.ts</code>, <code>src/lib/communication/conversation-visibility.server.ts</code></li>
+<li><code>src/components/portal/pro-unified-inbox.tsx</code>, <code>src/components/portal/resident-communication.tsx</code></li>
+<li><code>src/lib/tour-inquiry-confirm.server.ts</code>, <code>src/lib/tour-notification-delivery.server.ts</code></li>
+<li><code>tests/unit/collapse-person-inbox-threads.test.ts</code>, <code>tests/unit/communication-visibility.test.ts</code>, <code>tests/unit/manager-unified-inbox-relationship-folding.test.ts</code>, <code>tests/unit/resident-conversation-inbox.test.tsx</code>, <code>tests/unit/property-manager-inbox-thread.test.ts</code>, <code>tests/unit/tour-proposal.test.ts</code></li>
+</ul>
+<p>The worktree also contains all earlier PRP-489/487/484 task changes and unrelated review documents. They were preserved. This continuation did not reset, stage, or rewrite git history.</p>
+
+<h2>Executed validation</h2>
+<p>Every Vitest command used Node 22.23.0, <code>NODE_OPTIONS=--max-old-space-size=384</code>, <code>--maxWorkers=1</code>, and <code>--no-file-parallelism</code>. Files ran serially and no task Vitest/Node worker remained afterward.</p>
+<table>
+<tr><th>Command</th><th>Exit/result</th></tr>
+<tr><td><code>vitest run tests/unit/collapse-person-inbox-threads.test.ts --maxWorkers=1 --no-file-parallelism</code></td><td class="pass">Exit 0, 16 passed.</td></tr>
+<tr><td><code>vitest run tests/unit/manager-unified-inbox-relationship-folding.test.ts --maxWorkers=1 --no-file-parallelism</code></td><td class="pass">Exit 0, 2 passed.</td></tr>
+<tr><td><code>vitest run tests/unit/communication-visibility.test.ts --maxWorkers=1 --no-file-parallelism</code></td><td class="pass">Exit 0, 15 passed.</td></tr>
+<tr><td><code>vitest run tests/unit/resident-conversation-inbox.test.tsx --maxWorkers=1 --no-file-parallelism</code></td><td class="fail">Exit 1, 9 passed and 6 failed. Three failures exposed a real mismatch between the new email composite key and the still-binding-only SMS key; the component now uses one composite key on both sides. Three acknowledgement tests had opened the pinned Assistant row; they now target the intended route and await a real close/reopen. These corrections are authored but unrun because system pressure then rose from normal to warning level.</td></tr>
+<tr><td><code>git diff --check</code> after the corrections</td><td class="pass">Exit 0.</td></tr>
+</table>
+<p>Resource sequence before tests: swap declined from 3215 MB to 2950 MB, then to 2870, 2854, and 2838 MB between the first three passing files. During the resident file the system later reported memory pressure level 2 and swap about 2948 MB. Validation stopped immediately. A process check found no remaining task Vitest, tinypool, or Node worker.</p>
+
+<h2>Authored but unrun or intentionally omitted</h2>
+<ul>
+<li>The corrected <code>resident-conversation-inbox.test.tsx</code>, <code>tour-proposal.test.ts</code>, and <code>property-manager-inbox-thread.test.ts</code> were not rerun under warning pressure.</li>
+<li>Error-only ESLint on continuation source files was not started after pressure rose.</li>
+<li>No whole-project typecheck, build, broad lint/test, browser/E2E, seed, localhost server, graph rebuild, native/deep-link QA, sandbox Review URL, staging, or production validation ran. These omissions follow the authorized resource constraint and are not acceptance evidence.</li>
+<li>The current test harness does not express the entire actual writer sequence confirm, cancel, same-window reconfirm, then notification retry without broader schedule-fixture work. The production caller and durable generation threading are source-proven; the full sequence remains for independent review/targeted follow-up.</li>
+</ul>
+
+<h2>Fresh Astra review prompt</h2>
+<pre>Independently review the full uncommitted tree in /Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2 on branch akhil/ship-conversation-identity at HEAD 6a4c899070dc41d50b4675169eb2fce6de660bc2. Read AGENTS.md, docs/agents/AGENTS-akhil.md, docs/agents/akhil-feature-cycle.md, co-manager-access.md, tours-scheduling.md, the original conversation identity plan, final-review.html, authorized-continuation.html, correction-2-handoff.html, and this continuation handoff. Review R16-R19 first and then retained acceptance R1-R15. Verify: all-provenance compatible row selection; deterministic fallback collision isolation and retry; direct list/detail/edit fail-closed behavior for conflicted rows; manager and resident composite property relationship folding including multi-property SMS; read acknowledgement failure/reopen/success and stale-viewer guards; persisted plannedEvent.id threading through the sole production confirmation caller and inbox/SMS dedupe. Treat the resident post-failure source corrections, tour proposal generation test, and full actual confirm-cancel-reconfirm-retry sequence as unvalidated. Do not infer staging acceptance from three passing focused files. Report findings with file/line evidence and do not mutate production or git history.</pre>
+</body>
+</html>

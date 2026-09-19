@@ -32,6 +32,7 @@ import {
   resolveJurisdiction,
   unsupportedJurisdictionMessage,
   type JurisdictionKey,
+  type LeaseJurisdictionInput,
 } from "@/lib/lease-jurisdiction";
 import type { JointLeaseMember } from "@/lib/bundle-group/types";
 import { buildPlacementLeaseHtml } from "@/lib/property-lease-placement-html";
@@ -79,7 +80,7 @@ function submissionFor(prop: MockProperty | undefined): ManagerListingSubmission
   return prop?.listingSubmission?.v === 1 ? prop.listingSubmission : undefined;
 }
 
-export type LeaseGenerationContext = {
+export type LeaseGenerationContext = LeaseJurisdictionInput & {
   application: Partial<RentalWizardFormState>;
   leasedRoom: MockProperty | undefined;
   listingProperty: MockProperty | undefined;

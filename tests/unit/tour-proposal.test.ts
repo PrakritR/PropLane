@@ -376,6 +376,10 @@ describe("proposeTourConfirmation → approve → book", () => {
 
     // The tenant was notified through the existing path.
     expect(notifyTenantTourConfirmed).toHaveBeenCalledTimes(1);
+    const confirmedEvent = plannedPayload.find((event) => event.kind === "tour" && event.sourceInquiryId === "inq_book")!;
+    // The actual confirm writer threads its persisted event id into delivery.
+    // A transport retry reuses this value; a later confirmation is a new event.
+    expect(notifyTenantTourConfirmed.mock.calls[0]![5]).toMatchObject({ lifecycleGeneration: confirmedEvent.id });
 
     // Replaying the same approval is a no-op.
     const replay = await runConfirmedPendingAction(managerCtx(db), proposal.actionId!);

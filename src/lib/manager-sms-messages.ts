@@ -200,14 +200,34 @@ export type ManagerSmsConversationsPayload = {
 export type ManagerSmsBucketId = "unopened" | "opened" | "schedule" | "sent" | "all";
 
 export type RoleSmsConversationPayload = {
+  /**
+   * Viewer-authorized manager conversations. The legacy flat `messages`
+   * stream remains complete for existing consumers; callers that render both
+   * must deduplicate by message id.
+   */
+  conversations: RoleSmsManagerConversation[];
   messages: ManagerSmsMessageRow[];
   smsConfigured: boolean;
+};
+
+export type RoleSmsManagerConversation = {
+  /** Exact durable work-number key, suitable for matching `smsConversationKey`. */
+  conversationKey: string;
+  managerUserId: string;
+  managerName: string;
+  managerEmail: string;
+  counterpartyRole: SmsCounterpartyRole;
+  /** Omitted unless one server-authorized application relation proves it. */
+  propertyId?: string;
+  propertyTitle?: string;
+  messages: ManagerSmsMessageRow[];
 };
 
 export function normalizeRoleSmsPayload(
   payload: Partial<RoleSmsConversationPayload> | null | undefined,
 ): RoleSmsConversationPayload {
   return {
+    conversations: Array.isArray(payload?.conversations) ? payload.conversations : [],
     messages: Array.isArray(payload?.messages) ? payload.messages : [],
     smsConfigured: Boolean(payload?.smsConfigured),
   };
@@ -231,27 +251,47 @@ export function normalizeManagerSmsConversationsPayload(
   payload: Partial<ManagerSmsConversationsPayload> | null | undefined,
 ): ManagerSmsConversationsPayload {
   const residents = Array.isArray(payload?.residents)
-    ? payload.residents.map((resident) => ({
-        residentUserId: resident?.residentUserId ?? null,
-        residentEmail: trimmedText(resident?.residentEmail) || null,
-        name:
-          trimmedText(resident?.name) ||
-          trimmedText(resident?.phone) ||
-          trimmedText(resident?.residentEmail) ||
-          "Resident",
-        directoryName: trimmedText(resident?.directoryName) || null,
-        savedContactName: trimmedText(resident?.savedContactName) || null,
-        phone: normalizeE164(resident?.phone) ?? (coercePhoneInput(resident?.phone) || null),
-        propertyLabel: trimmedText(resident?.propertyLabel) || null,
-        tenancyStatus: resident?.tenancyStatus === "applicant" ? ("applicant" as const) : ("resident" as const),
-        counterpartyRole: resident?.counterpartyRole,
-        conversationKey: resident?.conversationKey,
-        memberKeys: Array.isArray(resident?.memberKeys)
-          ? resident.memberKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0)
-          : undefined,
-        ownerManagerUserId: resident?.ownerManagerUserId ?? null,
-        messages: Array.isArray(resident?.messages) ? resident.messages : [],
-      }))
+    ? payload.residents.map((resident) => {
+        // A house is server-authorized relationship evidence. Preserve only a
+        // concrete server-returned property id; never manufacture one from a
+        // contact, email, or display label. Empty and multi-house evidence is
+        // deliberately left for the caller to treat as unverified.
+        const houses = Array.isArray(resident?.houses)
+          ? resident.houses.flatMap((house) => {
+              const propertyId = trimmedText(house?.propertyId);
+              if (!propertyId) return [];
+              return [
+                {
+                  propertyId,
+                  label: trimmedText(house?.label),
+                  source: house.source,
+                },
+              ];
+            })
+          : undefined;
+        return {
+          residentUserId: resident?.residentUserId ?? null,
+          residentEmail: trimmedText(resident?.residentEmail) || null,
+          name:
+            trimmedText(resident?.name) ||
+            trimmedText(resident?.phone) ||
+            trimmedText(resident?.residentEmail) ||
+            "Resident",
+          directoryName: trimmedText(resident?.directoryName) || null,
+          savedContactName: trimmedText(resident?.savedContactName) || null,
+          phone: normalizeE164(resident?.phone) ?? (coercePhoneInput(resident?.phone) || null),
+          propertyLabel: trimmedText(resident?.propertyLabel) || null,
+          tenancyStatus: resident?.tenancyStatus === "applicant" ? ("applicant" as const) : ("resident" as const),
+          counterpartyRole: resident?.counterpartyRole,
+          conversationKey: resident?.conversationKey,
+          memberKeys: Array.isArray(resident?.memberKeys)
+            ? resident.memberKeys.filter((k): k is string => typeof k === "string" && k.trim().length > 0)
+            : undefined,
+          ownerManagerUserId: resident?.ownerManagerUserId ?? null,
+          houses,
+          messages: Array.isArray(resident?.messages) ? resident.messages : [],
+        };
+      })
     : [];
   return {
     workNumber: normalizeE164(payload?.workNumber) ?? (coercePhoneInput(payload?.workNumber) || null),

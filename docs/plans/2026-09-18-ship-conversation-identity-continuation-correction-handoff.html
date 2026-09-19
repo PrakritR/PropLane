@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Conversation identity continuation correction handoff</title>
+<style>
+body{max-width:980px;margin:40px auto;padding:0 24px 64px;font:16px/1.6 system-ui;color:#192738;background:#fafafa}h1,h2,h3{line-height:1.25}code{overflow-wrap:anywhere}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccd2da;padding:10px;text-align:left;vertical-align:top}.ok{color:#17643b}.pending{color:#8a4b00}.box{padding:14px;border-left:5px solid #375a8c;background:#eef4fb}li{margin:.45rem 0}
+</style>
+<body>
+<h1>Conversation identity continuation correction handoff</h1>
+<p class="box"><strong>Source correction complete for independent review.</strong> R20-R22 were corrected in the existing uncommitted task tree. This is not release acceptance. Runtime validation remains deferred because the laptop did not have stable comfortable memory headroom.</p>
+
+<h2>Scope and state</h2>
+<table>
+<tr><th>Repository</th><td><code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code></td></tr>
+<tr><th>Branch</th><td><code>akhil/ship-conversation-identity</code></td></tr>
+<tr><th>Committed baseline/current HEAD</th><td><code>6a4c899070dc41d50b4675169eb2fce6de660bc2</code></td></tr>
+<tr><th>Plan</th><td><a href="2026-09-18-ship-conversation-identity-continuation-review.html">Continuation review and R20-R22 correction plan</a></td></tr>
+<tr><th>Execution</th><td>Sol-medium manager with successful Terra source and Luna test delegates after one usage-limit retry. No Astra substitute was needed.</td></tr>
+</table>
+
+<h2>Corrections</h2>
+<h3>R20 - immutable native role, separate lifecycle status</h3>
+<p><code>src/lib/application-submitted-notification.server.ts</code> now retains the exact matched native conversation's immutable <code>counterpartyRole</code>. A verified prospect key therefore remains a prospect relationship after application submission. Applicant/resident lifecycle status and display label continue to come from directory/application data. A fresh application with no verified native match is stamped as applicant. Exact owner, phone, work-number and allowed-role matching remain required.</p>
+
+<h3>R21 - one relationship decision for list, pane, reply and reads</h3>
+<p><code>src/components/portal/pro-unified-inbox.tsx</code> now supplies the selected pane only the SMS members that the unified list merge actually accepted. Declared bindings and same-email fallback no longer reintroduce a native history rejected for a different property, multiple property tags or conflicting stored provenance. The same selected membership therefore controls timeline content, reply targeting and native read receipts. Rejected SMS histories remain separately selectable list rows.</p>
+
+<h3>R22 - positive proof before adopting historical content</h3>
+<p><code>src/lib/portal-inbox-storage.ts</code> distinguishes compatible evidence from positive relationship proof. A known owner/property/role relationship cannot reuse or collapse with an unstamped historical row. Known A, known B and unknown U remain independent in every input order, and the collapsed response cannot copy A or B metadata onto U. Two wholly unknown legacy rows still retain their historical same-email collapse behavior. A legacy row with durable matching provenance may merge.</p>
+<p><code>src/lib/portal-inbox-delivery.ts</code> applies the same proof rule before persisted-row reuse. If a generic row owns the fallback id, a known delivery leaves it unchanged, creates the stable relationship-isolated row, and finds that row on retry.</p>
+
+<h2>Behavioral coverage authored</h2>
+<ul>
+<li><code>tests/unit/application-submitted-notification.test.ts</code>: exact prospect binding retains the prospect role and key; fresh applicant delivery remains applicant; owner, phone and role mismatches do not borrow a native key.</li>
+<li><code>tests/unit/manager-unified-inbox-identity.test.tsx</code>: mounts the actual manager inbox; incompatible property and conflicted-provenance selections exclude native bodies and read receipts; a compatible selection renders and acknowledges only its members; a submitted applicant display backed by a verified prospect relationship produces one email/SMS timeline.</li>
+<li><code>tests/unit/manager-unified-inbox-relationship-folding.test.ts</code>: U/A/B input-order permutations, unknown isolation, multi-property isolation and positively proven legacy merge.</li>
+<li><code>tests/unit/collapse-person-inbox-threads.test.ts</code>: real delivery into a store whose newest same-email row is unknown; U remains byte-for-byte unchanged, A is isolated, and exact retry is idempotent. Existing positive legacy coverage now carries durable provenance explicitly.</li>
+</ul>
+
+<h2>Evidence</h2>
+<table>
+<tr><th>Check</th><th>Result</th></tr>
+<tr><td><code>git diff --check</code></td><td class="ok">Exit 0 after integrated source and tests.</td></tr>
+<tr><td>Static source review</td><td class="ok">Confirmed R20 producer role propagation, R21 selected member-only path, R22 known/unknown partition symmetry, unknown delivery isolation and removal of an unused import.</td></tr>
+<tr><td>Focused tests, lint, typecheck, build</td><td class="pending">Not run. Source-only constraint remained active. Final snapshot: load <code>3.86 / 5.04 / 4.54</code>, swap <code>3673.81 MiB used / 1446.19 MiB free</code> of a 5 GiB allocation, disk <code>12 GiB</code> free. Earlier in this execution swap exceeded 5 GiB and was still volatile. Repository runtime pin is Node 22.</td></tr>
+</table>
+
+<h2>Pending validation and review</h2>
+<ul>
+<li>Run the four affected focused files serially under Node 22.23.0 with heap 384 MiB, one worker and no file parallelism only after memory and swap are stably comfortable. The new files have not executed once.</li>
+<li>The previously corrected resident component file, tour generation tests and canonical property-manager history tests remain unrun. The actual confirm, cancel, same-window reconfirm and notification replay lifecycle harness is still absent.</li>
+<li>Targeted lint, broader required checks, seeded desktop/mobile browser QA, native/deep-link validation and graph refresh remain pending.</li>
+<li>No test result from the prior continuation should be interpreted as current-tree evidence for files changed in this correction.</li>
+</ul>
+
+<h2>Review prompt</h2>
+<pre>Fresh Astra review of the full uncommitted tree in /Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2 on branch akhil/ship-conversation-identity at HEAD 6a4c899070dc41d50b4675169eb2fce6de660bc2. Read AGENTS.md, docs/agents/AGENTS-akhil.md, docs/agents/akhil-feature-cycle.md, docs/agents/communication-inbox.md, the original conversation identity plan, authorized continuation, continuation review, and this correction handoff. Review R20-R22 first: matched prospect submission must retain immutable prospect relationship role while applicant directory status/label changes; manager list membership, selected timeline, reply target and read receipts must share one accepted property relationship; unknown stored content must never acquire A/B identity during delivery or collapse, while all-unknown legacy histories and positively proven legacy rows retain intended behavior. Inspect the authored tests but treat them as unrun. Then assess retained R1-R19 and list all pending validation precisely. Do not mutate source, git history, production or external systems.</pre>
+</body>
+</html>

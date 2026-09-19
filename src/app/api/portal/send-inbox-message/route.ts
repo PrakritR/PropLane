@@ -18,6 +18,12 @@ import {
   resolveInboxThreadReplyTarget,
 } from "@/lib/portal-inbox-delivery";
 import {
+  inboxIdentitiesCompatible,
+  inboxIdentityProvenance,
+  type InboxThreadIdentity,
+  type PersistedInboxThread,
+} from "@/lib/portal-inbox-storage";
+import {
   deliverPortalMessageToAdminSharedInbox,
   isPrimaryAdminRecipientEmail,
   mapProfileRoleToAdminInboxSenderRole,
@@ -95,6 +101,55 @@ function scopeForRole(role: string | null | undefined): string {
   if (normalized === "manager" || normalized === "pro" || normalized === "admin") return MANAGER_INBOX_SCOPE;
   if (normalized === "vendor") return VENDOR_INBOX_SCOPE;
   return RESIDENT_INBOX_SCOPE;
+}
+
+/**
+ * A reply gets its relationship only from the server-loaded selected source.
+ * Client compose fields never repair or choose an identity for an old
+ * conversation. Conflicts fail closed; wholly unscoped legacy history stays
+ * in an explicitly unscoped partition.
+ */
+type SelectedReplyRelationship =
+  | { kind: "known"; identity: InboxThreadIdentity }
+  | { kind: "unscoped" }
+  | { kind: "unverified" };
+
+function selectedReplyThreadRelationship(rowData: Record<string, unknown>): SelectedReplyRelationship {
+  const claims = inboxIdentityProvenance(rowData as PersistedInboxThread);
+  if (claims.length === 0) return { kind: "unscoped" };
+  if (claims.some((claim, index) => claims.slice(index + 1).some((other) => !inboxIdentitiesCompatible(claim, other)))) {
+    return { kind: "unverified" };
+  }
+  const identity: InboxThreadIdentity = {};
+  for (const field of ["managerUserId", "propertyId", "propertyTitle", "counterpartyRole", "smsConversationKey"] as const) {
+    const values = [...new Set(claims.map((claim) => String(claim[field] ?? "").trim()).filter(Boolean))];
+    if (values.length === 1) identity[field] = values[0]!;
+  }
+  // The recipient copy cannot use the sender's native binding, and role or a
+  // display title alone occurs on many unrelated conversations. A property id
+  // is therefore the minimum durable partition proof for a person-thread reply.
+  return identity.propertyId ? { kind: "known", identity } : { kind: "unverified" };
+}
+
+/** Project a selected source's relationship from the recipient's point of view. */
+function counterpartReplyThreadIdentity(
+  identity: InboxThreadIdentity | undefined,
+  senderPortal: "manager" | "resident" | "vendor",
+): InboxThreadIdentity | undefined {
+  if (!identity) return undefined;
+  const {
+    // A manager-owned native key describes the resident/applicant side. The
+    // recipient has a different native membership contract and must not inherit
+    // that key merely because this email or PropLane turn crossed the pair.
+    smsConversationKey: _smsConversationKey,
+    counterpartyRole: _counterpartyRole,
+    ...relationship
+  } = identity;
+  return {
+    ...relationship,
+    // The counterpart row is with the authenticated sender on this portal.
+    counterpartyRole: senderPortal,
+  };
 }
 
 type BroadcastRecipient = { email: string; userId: string | null; role: "resident" | "manager" };
@@ -267,6 +322,13 @@ export async function POST(req: Request) {
     const replyTarget = threadId
       ? await resolveInboxThreadReplyTarget(db, { threadId, senderUserId: user.id, senderEmail })
       : null;
+    // A caller that supplied a source selected an existing conversation. If
+    // ownership or a delegated Communication grant cannot authorize it, fail
+    // closed instead of silently degrading into a fresh compose that writes
+    // new unscoped rows to an otherwise allowed recipient.
+    if (threadId && !replyTarget) {
+      return NextResponse.json({ ok: false, error: "You cannot reply to this conversation." }, { status: 403 });
+    }
     // Stamp the sender's own copy with the channel this send is leaving on, so
     // a reload shows the same tag the optimistic bubble did — and an in-app-only
     // send never reads as EMAIL. Email turns also keep their subject.
@@ -502,6 +564,42 @@ export async function POST(req: Request) {
       }
       recipients = allowed;
     }
+
+    // A selected source is both the authorization target and the relationship
+    // source. Do not let a valid thread id be reused to send to a different
+    // recipient, and do not accept relationship fields from the request body.
+    const replyCounterpartyEmail = String(replyTarget?.rowData.email ?? "").trim().toLowerCase();
+    if (
+      replyTarget?.threadType === "portal_message" &&
+      (
+        !replyCounterpartyEmail ||
+        recipients.length !== 1 ||
+        recipients[0]?.email !== replyCounterpartyEmail ||
+        broadcastCategories.length > 0
+      )
+    ) {
+      return NextResponse.json({ ok: false, error: "This conversation does not match the selected recipient." }, { status: 403 });
+    }
+    const selectedReplyRelationship = replyTarget?.threadType === "portal_message"
+      ? selectedReplyThreadRelationship(replyTarget.rowData)
+      : null;
+    // A selected person conversation with contradictory or only partial
+    // provenance cannot name a safe recipient-side relationship. Wholly
+    // unscoped history is handled separately below, where it may reuse only
+    // another wholly unscoped row.
+    if (selectedReplyRelationship?.kind === "unverified") {
+      return NextResponse.json(
+        { ok: false, error: "This conversation's relationship could not be verified." },
+        { status: 409 },
+      );
+    }
+    const replyThreadIdentity = selectedReplyRelationship?.kind === "known"
+      ? selectedReplyRelationship.identity
+      : undefined;
+    const counterpartThreadIdentity = counterpartReplyThreadIdentity(replyThreadIdentity, senderPortal);
+    const replyThreadMatchPolicy = selectedReplyRelationship?.kind === "unscoped"
+      ? "unscoped-only" as const
+      : undefined;
 
     // Every gate is now clear, so the reply may finally land in its thread. A
     // send refused above returns before this line and writes nothing.
@@ -760,23 +858,30 @@ export async function POST(req: Request) {
 
         // Sender's Sent record (owner-only, scoped to the sender's portal).
         // Repeated sends to the same person append to the ONE sent thread.
-        await deliverPortalMessageThreadSide(db, {
-          scope: senderScope,
-          folder: "sent",
-          ownerUserId: user.id,
-          participantEmail: null,
-          otherPartyEmail: recipientLower,
-          fallbackId: `msg_${user.id}_${ts}_${rand}`,
-          fromName,
-          subject,
-          body: text,
-          preview,
-          when,
-          unread: false,
-          outbound: true,
-          category: eventCategory ?? undefined,
-          attachments: inboxAttachmentsFromUrls(attachmentUrls),
-        });
+        // The selected manager-owned source already received the committed
+        // reply above. Creating a second Sent copy would duplicate that turn
+        // in the same owner history; still deliver the counterpart below.
+        if (!(replyTarget?.threadType === "portal_message" && replyTarget.ownerUserId === user.id)) {
+          await deliverPortalMessageThreadSide(db, {
+            scope: senderScope,
+            folder: "sent",
+            ownerUserId: user.id,
+            participantEmail: null,
+            otherPartyEmail: recipientLower,
+            fallbackId: `msg_${user.id}_${ts}_${rand}`,
+            fromName,
+            subject,
+            body: text,
+            preview,
+            when,
+            unread: false,
+            outbound: true,
+            category: eventCategory ?? undefined,
+            attachments: inboxAttachmentsFromUrls(attachmentUrls),
+            threadIdentity: replyThreadIdentity,
+            matchPolicy: replyThreadMatchPolicy,
+          });
+        }
 
         if (recipientLower === senderEmail) continue;
 
@@ -798,6 +903,8 @@ export async function POST(req: Request) {
           outbound: false,
           category: eventCategory ?? undefined,
           attachments: inboxAttachmentsFromUrls(attachmentUrls),
+          threadIdentity: counterpartThreadIdentity,
+          matchPolicy: replyThreadMatchPolicy,
         });
       }
 

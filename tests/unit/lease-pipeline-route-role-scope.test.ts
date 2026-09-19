@@ -52,6 +52,24 @@ const STRANGER_LEASE = {
 
 const ALL_LEASES = [OWN_LEASE, OWN_PORTFOLIO_LEASE, STRANGER_LEASE];
 const MANAGER_PIPELINE = [OWN_PORTFOLIO_LEASE];
+let EXTRA_LEASES: typeof ALL_LEASES = [];
+
+const MALFORMED_DOCUMENT_LEASE = {
+  id: "lease-malformed-document",
+  resident_user_id: USER_ID,
+  resident_email: RESIDENT_EMAIL,
+  manager_user_id: "some-other-manager",
+  row_data: {
+    id: "lease-malformed-document",
+    residentEmail: RESIDENT_EMAIL,
+    generatedHtml: { html: "this must not reach list projection" },
+    signedLeaseSnapshots: [
+      { id: "snapshot-malformed", generatedHtml: { html: "bad nested html" } },
+      { id: "snapshot-valid", generatedHtml: `<html>${"valid lease bytes ".repeat(500)}</html>` },
+    ],
+  },
+  updated_at: "2026-09-01T00:00:00Z",
+};
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({ auth: { getUser } }),
@@ -85,12 +103,12 @@ function makeDb() {
       let orFilter = "";
       const rowsFor = () => {
         if (table !== "portal_lease_pipeline_records") return [];
-        if (!orFilter) return ALL_LEASES;
+        if (!orFilter) return [...ALL_LEASES, ...EXTRA_LEASES];
         // Parse with the same helper the filter builder is paired with:
         // splitting on "," here modelled a PostgREST where a comma inside a
         // value ends a clause, which is the bug the quoted builder prevents.
         const clauses = parseOrFilterClauses(orFilter);
-        return ALL_LEASES.filter((lease) =>
+        return [...ALL_LEASES, ...EXTRA_LEASES].filter((lease) =>
           clauses.some(({ column, value }) => {
             if (column === "resident_user_id") return lease.resident_user_id === value;
             if (column === "resident_email") return lease.resident_email === value;
@@ -133,6 +151,7 @@ async function loadLeases(): Promise<{ status: number; ids: string[] }> {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  EXTRA_LEASES = [];
   isAdminUser.mockResolvedValue(false);
   fetchLeasesForManagerUser.mockResolvedValue(MANAGER_PIPELINE);
   getUser.mockResolvedValue({ data: { user: { id: USER_ID, email: RESIDENT_EMAIL } }, error: null });
@@ -225,4 +244,52 @@ describe("portal-lease-pipeline — unauthenticated", () => {
   it("still answers 401", async () => {
     expect((await loadLeases()).status).toBe(401);
   });
+});
+
+describe("portal-lease-pipeline — malformed persisted document metadata", () => {
+  it.each(["manager", "admin", "resident"] as const)(
+    "keeps the %s list path alive and omits malformed document bytes",
+    async (role) => {
+      EXTRA_LEASES = [MALFORMED_DOCUMENT_LEASE];
+      if (role === "manager") {
+        PROFILE = { email: "manager@example.com", role: "manager" };
+        PROFILE_ROLES = ["manager"];
+        PORTAL_ROLES = ["manager"];
+        EFFECTIVE_ROLE = "manager";
+        fetchLeasesForManagerUser.mockResolvedValue([MALFORMED_DOCUMENT_LEASE]);
+      } else if (role === "admin") {
+        PROFILE = { email: "admin@example.com", role: "admin" };
+        PROFILE_ROLES = [];
+        PORTAL_ROLES = ["admin"];
+        EFFECTIVE_ROLE = "admin";
+        isAdminUser.mockResolvedValue(true);
+      } else {
+        PROFILE = { email: RESIDENT_EMAIL, role: "resident" };
+        PROFILE_ROLES = ["resident"];
+        PORTAL_ROLES = ["resident"];
+        EFFECTIVE_ROLE = "resident";
+      }
+
+      const { GET } = await import("@/app/api/portal-lease-pipeline/route");
+      const response = await GET();
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        rows: Array<{ id: string; generatedHtml?: unknown; signedLeaseSnapshots?: Array<{ id: string; generatedHtml?: unknown }> }>;
+      };
+      const row = body.rows.find((candidate) => candidate.id === MALFORMED_DOCUMENT_LEASE.id);
+      expect(row).toBeDefined();
+      expect(row?.generatedHtml).toBeUndefined();
+      expect(row?.signedLeaseSnapshots).toHaveLength(2);
+      expect(row?.signedLeaseSnapshots?.[0]).toMatchObject({
+        id: "snapshot-malformed",
+        documentOmitted: false,
+      });
+      expect(row?.signedLeaseSnapshots?.[0]).not.toHaveProperty("generatedHtml");
+      expect(row?.signedLeaseSnapshots?.[1]).toMatchObject({
+        id: "snapshot-valid",
+        generatedHtml: "",
+        documentOmitted: true,
+      });
+    },
+  );
 });

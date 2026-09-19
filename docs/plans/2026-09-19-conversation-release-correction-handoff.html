@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Conversation release correction handoff</title>
+<style>
+  body { max-width: 940px; margin: 40px auto; padding: 0 24px 60px; font: 16px/1.6 system-ui; color: #182638; background: #fafafa; }
+  h1, h2 { line-height: 1.2; }
+  code { overflow-wrap: anywhere; }
+  .status { padding: 16px; border-left: 5px solid #176b3a; background: #eef9f1; }
+  li { margin: .45rem 0; }
+</style>
+<body>
+<h1>Conversation release correction handoff</h1>
+<p>September 19, 2026. Execution handoff for <code>docs/plans/2026-09-19-conversation-release-correction-plan.html</code>.</p>
+<p class="status"><strong>The three bounded source corrections and their focused regressions are implemented.</strong> This execution phase performed static review only. Root owns runtime validation, independent review, release gating, commits, pushes, CI, and deployment.</p>
+
+<h2>Repository state</h2>
+<ul>
+  <li>Worktree: <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code></li>
+  <li>Branch: <code>akhil/ship-conversation-identity</code></li>
+  <li>Starting and current committed HEAD: <code>f25ccada208092fbc96ad3f0fc6451b048b6d6fb</code></li>
+  <li>The full prior task remains uncommitted. No commit, push, promotion, database write, server, install, or graph rebuild occurred in this phase.</li>
+</ul>
+
+<h2>Corrections</h2>
+<ol>
+  <li><strong>S1 resident relay ownership.</strong> <code>fetchResidentSmsConversation</code> now treats verified phone as routing data only. It resolves bindings and threads first, filters the returned threads again in process by exact authenticated <code>counterparty_user_id</code>, and queries messages only for those authorized thread IDs. Binding, thread, and message lookup errors fail closed for the relay slice. Exact-owned relay turns remain in the authorized flat feed even when manager display metadata is missing; named grouping still requires a valid manager profile.</li>
+  <li><strong>S2 client provenance writes.</strong> Ordinary <code>POST /api/portal-inbox-threads</code> upserts remove client-supplied manager, property, counterparty-role, SMS-binding, and identity-provenance fields, including snake-case aliases. Existing rows restore their prior server-owned relationship values while ordinary mailbox and history fields remain editable. The shared record builder remains neutral so trusted inbound email, public contact, and admin server producers retain their server-stamped identity metadata.</li>
+  <li><strong>B35 resident Unread retention.</strong> A just-read selected row is retained only after it was admitted while unread in the same viewer, segment, read/all state, archive state, and search presentation. Retention requires the exact accepted member set, so a representative key may change but an email-only neighbor cannot inherit admission. Search, status, folder/segment, and viewer changes invalidate admission. A route already resolved in the prior presentation is cleared when excluded; a route that has never resolved may continue waiting.</li>
+</ol>
+
+<h2>Correction files</h2>
+<ul>
+  <li><code>src/lib/manager-sms-messages.server.ts</code></li>
+  <li><code>src/lib/portal-inbox-thread-upsert.ts</code></li>
+  <li><code>src/app/api/portal-inbox-threads/route.ts</code></li>
+  <li><code>src/components/portal/resident-communication.tsx</code></li>
+  <li><code>tests/unit/sms-conversation-identity.test.ts</code></li>
+  <li><code>tests/unit/portal-inbox-thread-upsert.test.ts</code></li>
+  <li><code>tests/unit/portal-inbox-threads-route-visibility.test.ts</code></li>
+  <li><code>tests/unit/resident-conversation-inbox.test.tsx</code></li>
+</ul>
+
+<h2>Regression coverage added</h2>
+<ul>
+  <li>Shared or recycled verified phone returns only the exact resident relay history in both flat and grouped payloads.</li>
+  <li>Null counterpart and binding, thread, or message lookup failures return no relay history.</li>
+  <li>Exact-owned relay history stays in the flat payload when manager profile enrichment is unavailable.</li>
+  <li>New ordinary client rows cannot stamp camel-case or snake-case relationship claims.</li>
+  <li>Edits cannot replace existing authoritative relationship claims, while unread, folder, preview, body, and message history edits remain available.</li>
+  <li>Trusted server use of <code>buildPortalInboxThreadUpsert</code> retains server-stamped relationship metadata.</li>
+  <li>An actually unread selected conversation survives a successful acknowledgement only inside the same Unread presentation and through an equivalent representative-key change.</li>
+  <li>Read to Unread, search, archived/list-segment, and viewer changes remove the excluded pane and clear a previously resolved route.</li>
+  <li>Existing acknowledgement retry, bounded-attempt, and stale-viewer cases remain beside the new retention cases.</li>
+</ul>
+
+<h2>Static evidence</h2>
+<p><code>git diff --check -- src/lib/manager-sms-messages.server.ts src/lib/portal-inbox-thread-upsert.ts src/app/api/portal-inbox-threads/route.ts src/components/portal/resident-communication.tsx tests/unit/sms-conversation-identity.test.ts tests/unit/portal-inbox-thread-upsert.test.ts tests/unit/portal-inbox-threads-route-visibility.test.ts tests/unit/resident-conversation-inbox.test.tsx</code> exited 0.</p>
+<p>Root reported an earlier focused ESLint run with React ref-access errors in the first B35 implementation. The final source removes render-time ref access: current viewer and selection refs update in effects for asynchronous stale-response checks, and Unread admission is render state.</p>
+
+<h2>Coordinator runtime evidence</h2>
+<p>The execution delegates did not run runtime validation. The coordinator separately reported these focused results on intermediate snapshots:</p>
+<ul>
+  <li>SMS conversation identity: 21 of 21 passed, exit 0, including the final S1 behavior.</li>
+  <li>Manager conversation identity: 21 of 21 passed, exit 0.</li>
+  <li>Reply route focus: 18 of 18 passed, exit 0.</li>
+  <li>Final correction source ESLint: exit 0 with 0 errors and 15 warnings.</li>
+  <li>Remaining changed-source ESLint: exit 0 with 0 errors and 25 warnings.</li>
+  <li>The new S2 route-level provenance case passed. Two older co-manager GET cases initially failed because their full-module mock omitted a transitive export; the fixture now partially imports the actual module and awaits rerun.</li>
+  <li>Resident Communication reached 16 of 18 after the source lint correction. The two remaining failures traced to a hard-coded local-store fixture replacing custom retry rows after a real inbox-changed event. The fixture now uses the same mutable rows as server sync; that final fixture correction awaits rerun.</li>
+</ul>
+
+<h2>Required runtime validation</h2>
+<p>The following final-snapshot validation remains required because the coordinator reserved runtime ownership and reported rising swap:</p>
+<ul>
+  <li><code>npx vitest run tests/unit/sms-conversation-identity.test.ts tests/unit/portal-inbox-thread-upsert.test.ts tests/unit/portal-inbox-threads-route-visibility.test.ts tests/unit/resident-conversation-inbox.test.tsx</code></li>
+  <li>Focused ESLint on the four source and four test files above.</li>
+  <li>Repository unit, lint, typecheck, build, integration, E2E, and release preflight gates.</li>
+  <li>Seeded resident browser and mobile-width exercise of read to Unread, successful read acknowledgement, search exclusion, archive exclusion, viewer isolation, retry, and deep-link behavior.</li>
+</ul>
+
+<h2>Review notes</h2>
+<ul>
+  <li>No schema or production data change is part of this correction.</li>
+  <li>The S2 sanitizer intentionally lives at the untrusted portal route boundary, not inside the shared server record builder.</li>
+  <li>The relay flat feed now depends on exact relay-thread ownership but not optional manager display metadata.</li>
+  <li>A fresh independent source and security review must inspect the final corrected diff before landing.</li>
+</ul>
+
+<h2>Next-session prompt</h2>
+<p>Review the final correction files against <code>docs/plans/2026-09-19-conversation-release-correction-plan.html</code> and this handoff. Verify S1 exact authorization occurs before the relay message query and both return shapes, S2 sanitization applies only to ordinary client upserts while preserving existing and trusted server identity, and B35 retention is bound to the same admitted presentation and exact member set. Run the focused regressions and focused lint first, then the repository release gates and seeded browser/mobile flows under the root validation slot. Do not report the release ready until the separate schema-drift release blocker is resolved.</p>
+</body>
+</html>

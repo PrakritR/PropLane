@@ -98,9 +98,12 @@ function check(error: { message: string } | null) {
   if (error) throw new Error(error.message);
 }
 
-function isRoomCapacityError(error: { message?: string } | null): boolean {
-  const message = error?.message ?? "";
-  return /room is blocked|No bed is available|statement timeout/i.test(message);
+function isRoomCapacityError(error: { message?: string } | null): error is { message: string } {
+  return Boolean(
+    error &&
+      typeof error.message === "string" &&
+      /room is blocked|No bed is available|statement timeout/i.test(error.message),
+  );
 }
 
 function namesOverlap(a: string, b: string): boolean {

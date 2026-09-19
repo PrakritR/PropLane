@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Conversation identity R25-R27 correction handoff</title>
+<style>
+body{max-width:980px;margin:40px auto;padding:0 24px 64px;font:16px/1.6 system-ui;color:#192738;background:#fafafa}h1,h2,h3{line-height:1.25}code{overflow-wrap:anywhere}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccd2da;padding:10px;text-align:left;vertical-align:top}.ok{color:#17643b}.pending{color:#8a4b00}.box{padding:14px;border-left:5px solid #375a8c;background:#eef4fb}li{margin:.45rem 0}pre{white-space:pre-wrap;background:#eef1f5;padding:14px;border-radius:8px}
+</style>
+<body>
+<h1>Conversation identity R25-R27 correction handoff</h1>
+<p class="box"><strong>The bounded source correction and focused behavioral fixtures are ready for fresh independent review.</strong> Selected replies cannot borrow a relationship from another recipient or property, wholly unscoped legacy replies remain in an explicit unknown-only partition, and a resolved routed thread closes when the current presentation excludes it. This is source-only evidence under resource pressure, not runtime acceptance.</p>
+
+<h2>Scope and state</h2>
+<table>
+<tr><th>Repository</th><td><code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code></td></tr>
+<tr><th>Branch</th><td><code>akhil/ship-conversation-identity</code></td></tr>
+<tr><th>Committed baseline and current HEAD</th><td><code>6a4c899070dc41d50b4675169eb2fce6de660bc2</code></td></tr>
+<tr><th>Correction input</th><td><a href="2026-09-18-ship-conversation-identity-reply-membership-review.html">R25-R27 independent review</a></td></tr>
+<tr><th>Execution</th><td>Fresh Sol-medium manager, Terra source delegate, Luna test delegate, followed by bounded manager integration review. No commit, push, PR, deployment, production change, migration, external send, server, browser, graph rebuild, or no-mistakes run.</td></tr>
+</table>
+
+<h2>R25 - selected unknown and conflicted histories</h2>
+<ul>
+<li>The route classifies the server-loaded selected person thread as <code>known</code>, <code>unscoped</code>, or <code>unverified</code>. Client fields never choose or repair that classification.</li>
+<li>A known thread supplies its proven property relationship to the exact recipient-side lookup. A conflicting or partially identified source returns 409 before either side is written.</li>
+<li>A wholly unscoped legacy source remains replyable. Its counterpart delivery uses the new <code>unscoped-only</code> match policy: known A/B candidates are skipped, an older zero-provenance U row may be appended, and otherwise a separate unscoped row is created.</li>
+<li>The same policy covers a delegated sender copy. Fresh compose keeps its previous lookup behavior and does not silently acquire the selected-reply restriction.</li>
+</ul>
+
+<h2>R26 - one selected source, one exact counterparty</h2>
+<ul>
+<li>A selected <code>portal_message</code> reply now requires exactly one allowed recipient whose normalized email equals the server-loaded source counterparty.</li>
+<li>Any selected reply carrying A plus B, or any broadcast category, returns 403 before <code>commitInboxThreadReply</code> and before portal delivery.</li>
+<li>The normal single-recipient known relationship still commits the selected sender source once and delivers only the side-correct counterpart identity.</li>
+</ul>
+
+<h2>R27 - routed selection follows presentation</h2>
+<ul>
+<li>The unified manager inbox separately records whether the current routed row has ever resolved in the authorized active/archive membership.</li>
+<li>An unresolved route remains pending for a later row. Once resolved, it is cleared when search, read status, or archive membership excludes it; the route callback and URL are cleared with the selection.</li>
+<li>The post-acknowledgement Unread exception remains only while the same selected row still matches its search and status context.</li>
+</ul>
+
+<h2>Harness corrections and authored coverage</h2>
+<table>
+<tr><th>File</th><th>Coverage</th></tr>
+<tr><td><code>tests/integration/portal/send-inbox-message.test.ts</code></td><td>The keyed in-memory query understands top-level and <code>row_data-&gt;&gt;</code> filters, resolves selected rows from actual filter state, mutates stored rows on writes, and supports insert-only creation. Known property A and newer property B use the same resident owner and email. Fixtures cover exact A success, unauthorized source refusal, A-to-B refusal, unknown-to-U success with B unchanged, safe unknown creation, conflicted refusal, A+B refusal, and selected broadcast refusal.</td></tr>
+<tr><td><code>tests/unit/manager-unified-inbox-identity.test.tsx</code></td><td>Email and native pane mocks expose the selected contract. Tests target named/keyed relationship rows instead of the pinned first row and use the current native prospect preview. Coverage includes compatible and rejected membership, PropLane and email selected-source payloads, one-channel search with full timeline, Unread acknowledgement retention, Active/Archived separation, native-only selection, resolved route exclusion by search/status/archive, unresolved route arrival, and post-ack search-context clearing.</td></tr>
+</table>
+
+<h2>Files changed in this correction</h2>
+<ul>
+<li><code>src/app/api/portal/send-inbox-message/route.ts</code></li>
+<li><code>src/lib/portal-inbox-delivery.ts</code></li>
+<li><code>src/components/portal/pro-unified-inbox.tsx</code></li>
+<li><code>tests/integration/portal/send-inbox-message.test.ts</code></li>
+<li><code>tests/unit/manager-unified-inbox-identity.test.tsx</code></li>
+</ul>
+
+<h2>Evidence and open acceptance work</h2>
+<table>
+<tr><th>Check</th><th>Result</th></tr>
+<tr><td><code>git diff --check</code></td><td class="ok">Exit 0 for tracked changes after integration. The new unit fixture was separately inspected for whitespace through a no-index diff check.</td></tr>
+<tr><td>Static integration review</td><td class="ok">Traced all selected-reply refusals before commit, known and unscoped lookup policies through retry lookup, sender-copy suppression, counterpart projection, route resolution memory, filter clearing, and the focused fake-query behavior.</td></tr>
+<tr><td>Focused tests</td><td class="pending">Not run. Resource checks during this correction observed swap as high as 6234 MiB and free disk near 9.9 GiB. A later coordinator snapshot improved but remained volatile. No current-tree runtime result exists.</td></tr>
+<tr><td>Lint, typecheck, build, browser, seeded data, server, and graph refresh</td><td class="pending">Not run under the source-only restriction. No localhost server was started. The worktree has no usable <code>.graphify/graph.json</code>.</td></tr>
+<tr><td>Release state</td><td class="pending">No commit, push, Review URL, staging QA, or release action was attempted.</td></tr>
+</table>
+
+<h2>Fresh Astra review prompt</h2>
+<pre>Fresh Astra review of the uncommitted R25-R27 correction in /Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2 on branch akhil/ship-conversation-identity at HEAD 6a4c899070dc41d50b4675169eb2fce6de660bc2. Read AGENTS.md, docs/agents/AGENTS-akhil.md, docs/agents/akhil-feature-cycle.md, docs/agents/communication-inbox.md, docs/plans/2026-09-18-ship-conversation-identity-reply-membership-review.html, and docs/plans/2026-09-18-ship-conversation-identity-reply-edge-handoff.html. Review only the five R25-R27 files in their full uncommitted context. Verify: known selected replies preserve exact relationship identity; wholly unscoped selected replies append/create only an unscoped counterpart and never known A/B; conflicts and partial provenance fail before any write; a selected reply accepts exactly one exact counterparty and refuses mixed/broadcast payloads before commit; fresh compose remains unchanged; resolved routed rows clear on search/status/archive exclusion; unresolved routes remain pending; post-ACK Unread retention stays within its original context; manager fixtures exercise real selection branches and the route fake honors query filters. Treat all behavioral tests as unrun and distinguish the code verdict from the runtime QA gap. Do not mutate source, git history, production, or external systems.</pre>
+</body>
+</html>

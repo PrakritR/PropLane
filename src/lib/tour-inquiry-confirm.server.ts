@@ -445,6 +445,11 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
       {
         subject: opts.notificationSubject,
         body: opts.notificationBody,
+        // `plannedEvent.id` was minted before the atomic schedule write and is
+        // now durable. It is the lifecycle operation identity for this
+        // confirmation - stable for notification delivery retries and distinct
+        // from a later reconfirmation of the same window.
+        lifecycleGeneration: String(plannedEvent.id),
       },
       opts.notificationChannels,
     );

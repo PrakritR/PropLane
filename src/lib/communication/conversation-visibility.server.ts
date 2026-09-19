@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { managerAgentNoticeVisibleInWorkspace } from "@/lib/communication-manager-assistant-thread";
+import { inboxThreadIdentityConflicted, type PersistedInboxThread } from "@/lib/portal-inbox-storage";
 
 /**
  * The ONE answer to "may this viewer see this conversation" in manager
@@ -305,9 +306,9 @@ async function loadPersonHousesByOwner(
         if (bucket === "pending" && clean(rd.stage).toLowerCase() === "in progress") continue;
         const explicit = clean(rd.propertyId);
         const label = clean(rd.property).toLowerCase();
-        const houseId = explicit || (label ? idByOwnerAndLabel.get(`${ownerId} ${label}`) ?? "" : "");
+        const houseId = explicit || (label ? idByOwnerAndLabel.get(`${ownerId}\0${label}`) ?? "" : "");
         if (!houseId) continue;
-        const key = `${ownerId} ${email}`;
+        const key = `${ownerId}\0${email}`;
         const set = out.get(key) ?? new Set<string>();
         set.add(houseId);
         out.set(key, set);
@@ -348,7 +349,7 @@ export async function emailThreadHouses(
     const rd = (record.row_data && typeof record.row_data === "object" ? record.row_data : {}) as Record<string, unknown>;
     const ownerId = clean(record.owner_user_id);
     const email = normalizeEmail(record.participant_email) || normalizeEmail(rd.email);
-    const houses = ownerId && email ? personHouses.get(`${ownerId} ${email}`) : undefined;
+    const houses = ownerId && email ? personHouses.get(`${ownerId}\0${email}`) : undefined;
     out.set(
       record.id,
       houses ? [...houses].map((id) => ({ propertyId: id, label: houseLabels.get(id)?.label ?? id })) : [],
@@ -381,6 +382,15 @@ export async function filterVisibleInboxThreadRecords<T extends StoredInboxThrea
   const housesById = await emailThreadHouses(db, records, houseLabels);
   const visible: (T & { houses: ConversationHouseRef[] })[] = [];
   for (const record of records) {
+    // A legacy row can carry content from contradictory property relationships
+    // while still projecting one scalar property. Never let an any-house grant
+    // select that whole row: the owner retains the history, but delegated
+    // workspace/co-manager reads, details and writes all fail closed.
+    if (
+      clean(record.owner_user_id) &&
+      clean(record.owner_user_id) !== scope.viewerId &&
+      inboxThreadIdentityConflicted((record.row_data && typeof record.row_data === "object" ? record.row_data : {}) as PersistedInboxThread)
+    ) continue;
     const houses = housesById.get(record.id) ?? [];
     if (
       conversationVisible(scope, {

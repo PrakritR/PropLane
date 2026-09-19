@@ -8,12 +8,14 @@ import { isAssistantUnifiedInboxRow } from "@/lib/communication-inbox-assistant"
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import { parseUnifiedInboxKey, type UnifiedInboxListItem } from "@/lib/unified-inbox-merge";
 
-export function CommunicationRowActions({ row, bulk, archived, emailThreads, manager = false }: {
+export function CommunicationRowActions({ row, bulk, archived, emailThreads, manager = false, allowSmsActions = manager, allowSmsDelete = manager }: {
   row: UnifiedInboxListItem;
   bulk: ReturnType<typeof useUnifiedCommunicationBulk>;
   archived: boolean;
   emailThreads: PersistedInboxThread[];
   manager?: boolean;
+  allowSmsActions?: boolean;
+  allowSmsDelete?: boolean;
 }) {
   const members = [...new Set([row.key, ...(row.memberKeys ?? [])])].map(parseUnifiedInboxKey);
   // Archive and restore are for ordinary conversations. PropLane Assistant
@@ -26,7 +28,7 @@ export function CommunicationRowActions({ row, bulk, archived, emailThreads, man
   // mutations only send the ids the list actually holds.
   const permitted = members.every((member) => {
     if (!member) return false;
-    return member.channel !== "sms" || manager;
+    return member.channel !== "sms" || allowSmsActions;
   });
   // Delete forever stays off the canonical Assistant thread: the server
   // re-creates it empty on the next list load, so "delete" would only erase
@@ -37,7 +39,9 @@ export function CommunicationRowActions({ row, bulk, archived, emailThreads, man
   const archiveOrRestore = archived && !assistantRow ? (
     <>
       <Button variant="outline" onClick={() => bulk.handleRestore()}>Restore</Button>
-      <Button variant="danger" onClick={() => bulk.handleDelete()}>Delete</Button>
+      {members.some((member) => member?.channel === "sms") && !allowSmsDelete
+        ? null
+        : <Button variant="danger" onClick={() => bulk.handleDelete()}>Delete</Button>}
     </>
   ) : canArchive ? <Button variant="outline" onClick={() => bulk.handleArchive()}>Archive</Button> : null;
   const canClearAssistant = assistantRow;

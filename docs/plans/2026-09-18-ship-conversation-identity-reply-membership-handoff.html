@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Conversation identity R23-R24 correction handoff</title>
+<style>
+body{max-width:980px;margin:40px auto;padding:0 24px 64px;font:16px/1.6 system-ui;color:#192738;background:#fafafa}h1,h2,h3{line-height:1.25}code{overflow-wrap:anywhere}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccd2da;padding:10px;text-align:left;vertical-align:top}.ok{color:#17643b}.pending{color:#8a4b00}.box{padding:14px;border-left:5px solid #375a8c;background:#eef4fb}li{margin:.45rem 0}
+</style>
+<body>
+<h1>Conversation identity R23-R24 correction handoff</h1>
+<p class="box"><strong>Bounded source and behavioral fixtures are ready for independent review.</strong> Manager PropLane/email replies now carry the exact selected, authorized relationship through both stored sides, and manager search/Unread presentation no longer truncates a verified email/native conversation. This is source-only evidence, not runtime or release acceptance.</p>
+
+<h2>Scope and state</h2>
+<table>
+<tr><th>Repository</th><td><code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code></td></tr>
+<tr><th>Branch</th><td><code>akhil/ship-conversation-identity</code></td></tr>
+<tr><th>Committed baseline/current HEAD</th><td><code>6a4c899070dc41d50b4675169eb2fce6de660bc2</code></td></tr>
+<tr><th>Correction input</th><td><a href="2026-09-18-ship-conversation-identity-r20-r22-review.html">R20-R22 independent review, findings R23 and R24</a></td></tr>
+<tr><th>Execution</th><td>Fresh Sol-medium manager, Terra source delegate, Luna test delegate, then manager integration corrections. No commit, push, PR, production change, migration, external send or no-mistakes run.</td></tr>
+</table>
+
+<h2>R23 - selected relationship survives manager replies</h2>
+<ul>
+<li><code>pro-resident-detail-inbox.tsx</code> selects the actual non-assistant email source from the pane's already verified snapshot and includes that id in PropLane and email sends. A true fresh compose or native-only contact still has no email source id.</li>
+<li><code>send-inbox-message/route.ts</code> resolves and authorizes the selected source before writing. A supplied source that cannot be resolved for the authenticated sender now returns 403 instead of degrading into an unscoped fresh compose.</li>
+<li>The route requires the server-loaded source counterparty to match an already authorized recipient. A forged A-source/B-recipient combination returns 403 before any turn is committed.</li>
+<li>Relationship metadata comes only from non-conflicting server-loaded provenance. The selected manager copy retains its resident/applicant role and manager-owned native binding. The resident counterpart copy retains the proven manager/property pair, stamps <code>counterpartyRole: manager</code>, and does not inherit the manager-side SMS key.</li>
+<li>The selected manager-owned source is committed once. Generic delivery skips a duplicate sender copy and appends or creates only the correctly partitioned counterpart history. Existing strict positive-proof lookup keeps newer property B untouched.</li>
+</ul>
+
+<h2>R24 - full membership before presentation filters</h2>
+<ul>
+<li><code>pro-unified-inbox.tsx</code> builds authorized active/archive email and SMS rows and merges verified relationship members before applying search, Unread and read-status presentation filters.</li>
+<li>A query that matches only email or only native content presents the complete merged row. Selected timeline, reply target and read acknowledgement continue to use its full accepted member set. Conflicted, multi-property and property-B histories remain isolated.</li>
+<li>After opening an Unread result, a successful read acknowledgement may remove the row from the filtered list but keeps the selected full timeline mounted while it still matches the search/status context. Normal search, segment, route and stale-selection changes still clear or replace it.</li>
+<li>Active and Archived memberships remain separate, and a native-only SMS conversation remains selectable.</li>
+</ul>
+
+<h2>Behavioral fixtures authored</h2>
+<table>
+<tr><th>File</th><th>Coverage</th></tr>
+<tr><td><code>tests/unit/manager-unified-inbox-identity.test.tsx</code></td><td>Fixes the missing <code>MANAGER_APPLICATIONS_EVENT</code> harness export and avoids the stale email-preview selector. Mounts the actual unified manager/direct pane path. Covers compatible and rejected membership, PropLane and email sends carrying selected A while newer B exists, email-only and SMS-only search matches retaining both histories, one-channel Unread acknowledgement retention, Active/Archived separation, native-only preservation, and exact accepted read membership.</td></tr>
+<tr><td><code>tests/integration/portal/send-inbox-message.test.ts</code></td><td>Covers selected A with requested B refusal and zero writes; unresolved/unauthorized selected source with zero writes; successful selected A delivery updating the manager A source once and resident A counterpart once; side-correct role/native identity; and newer resident B remaining byte-for-byte untouched. Existing fresh-compose coverage remains in the same suite.</td></tr>
+</table>
+
+<h2>Evidence</h2>
+<table>
+<tr><th>Check</th><th>Result</th></tr>
+<tr><td><code>git diff --check</code></td><td class="ok">Exit 0 after source and test integration.</td></tr>
+<tr><td>Static source-to-consumer review</td><td class="ok">Traced selected list member to pane source id, route authorization, deferred commit, sender dedupe, relationship-partitioned counterpart lookup, full merged membership, timeline selection and read acknowledgement.</td></tr>
+<tr><td>Focused tests</td><td class="pending">Not run for this correction. Coordinator reported pressure level 2 with swap about 3394 MiB, so the source-only restriction remained active. The earlier 32 focused passes predate R23/R24. The earlier manager suite exited before tests because of the now-fixed mock export; it is not current-tree evidence.</td></tr>
+<tr><td>Lint, typecheck, build, browser, server and graph refresh</td><td class="pending">Not run. No localhost server was started. The worktree has no usable graph file, and graph rebuild was prohibited for this bounded correction.</td></tr>
+</table>
+
+<h2>Changed files in this correction</h2>
+<ul>
+<li><code>src/components/portal/pro-resident-detail-inbox.tsx</code></li>
+<li><code>src/components/portal/pro-unified-inbox.tsx</code></li>
+<li><code>src/app/api/portal/send-inbox-message/route.ts</code></li>
+<li><code>tests/unit/manager-unified-inbox-identity.test.tsx</code></li>
+<li><code>tests/integration/portal/send-inbox-message.test.ts</code></li>
+</ul>
+
+<h2>Independent review prompt</h2>
+<pre>Fresh Astra review of the uncommitted R23/R24 correction in /Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2 on branch akhil/ship-conversation-identity at HEAD 6a4c899070dc41d50b4675169eb2fce6de660bc2. Read AGENTS.md, docs/agents/AGENTS-akhil.md, docs/agents/akhil-feature-cycle.md, docs/agents/communication-inbox.md, docs/plans/2026-09-18-ship-conversation-identity-r20-r22-review.html and this handoff. Review the five changed R23/R24 files in the full uncommitted context. Verify: selected manager A source is authorized server-side; forged/denied source and A-source/B-recipient write nothing; manager A is appended once; resident A receives manager/property identity with counterpartyRole manager and no borrowed manager-native key; B remains untouched; fresh compose and native-only behavior remain; complete verified channel membership is built before search/Unread presentation; opening Unread keeps the complete selected timeline after ACK; incompatible property/provenance and Active/Archived partitions remain isolated. Treat all new tests as unrun. Do not mutate source, git history, production or external systems.</pre>
+</body>
+</html>

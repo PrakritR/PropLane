@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Production build correction handoff</title>
+<style>
+  body { font: 16px/1.55 system-ui, sans-serif; max-width: 980px; margin: 40px auto; padding: 0 24px; color: #17202a; }
+  h1, h2 { line-height: 1.2; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  pre { padding: 14px; background: #f4f6f7; border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .ok { color: #176b3a; font-weight: 650; }
+  .pending { color: #8a5200; font-weight: 650; }
+</style>
+<h1>Production build correction handoff</h1>
+
+<p><strong>Goal:</strong> remove the eleven TypeScript failures observed in Vercel deployment <code>dpl_CnMAiMzo62m1pHdWGKTWLeg6Mah6</code> without changing importer behavior, stored document bytes, property identity, or supported and unsupported lease-jurisdiction behavior.</p>
+
+<p><strong>Plan:</strong> <code>docs/plans/2026-09-19-production-build-correction-plan.html</code><br>
+<strong>Repository:</strong> <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code><br>
+<strong>Branch:</strong> <code>akhil/ship-conversation-identity</code><br>
+<strong>Starting and current HEAD:</strong> <code>f25ccada208092fbc96ad3f0fc6451b048b6d6fb</code></p>
+
+<h2>Implemented correction</h2>
+<ul>
+  <li><code>scripts/import-ambika-seattle-occupancy-production.ts</code>: changed <code>isRoomCapacityError</code> into a real type predicate. A successful predicate now proves that the nullable error exists and has a string message before either guarded branch reads <code>error.message</code>. Capacity matching and importer flags are unchanged.</li>
+  <li><code>src/app/api/portal-lease-pipeline/route.ts</code>: added list-boundary normalization for persisted <code>generatedHtml</code>. Only strings and null survive; other values become absent. Signed snapshot objects receive the same recursive normalization before the existing omission projection runs. Malformed snapshot entries are excluded from the list payload. The detail GET path and stored rows are unchanged, so valid PDF/HTML bytes and signed-document hydration remain intact.</li>
+  <li><code>src/lib/lease-jurisdiction.ts</code>: added optional structured <code>propertyLocation</code> metadata to the existing jurisdiction input. The resolver treats it as location evidence only and never as a property identity.</li>
+  <li><code>src/lib/generated-lease.ts</code>: made <code>LeaseGenerationContext</code> explicitly include the canonical jurisdiction input shape.</li>
+  <li><code>src/lib/lease-pipeline-storage.ts</code>: gave <code>leaseGenerationContextForRow</code> the explicit return type <code>LeaseGenerationContext | null</code>. The unfinished-listing Washington default now uses <code>propertyLocation: { state: "WA" }</code> rather than constructing a partial <code>MockProperty</code>. The fallback runs only when every property location field used by jurisdiction resolution is empty. Real address, city, state, neighborhood, ZIP, or postal-code evidence stays authoritative, including explicit unsupported locations.</li>
+</ul>
+
+<h2>Diff scope</h2>
+<pre>scripts/import-ambika-seattle-occupancy-production.ts  +6 -3
+src/app/api/portal-lease-pipeline/route.ts             +28 -1
+src/lib/generated-lease.ts                             +2 -1
+src/lib/lease-jurisdiction.ts                          +19 -3
+src/lib/lease-pipeline-storage.ts                      +33 -10</pre>
+
+<p>No conversation or inbox source was changed by this correction. No migration, dependency, or fixture was changed.</p>
+
+<h2>Focused regression source</h2>
+<ul>
+  <li><code>tests/unit/lease-pipeline-route-role-scope.test.ts</code>: drives manager, admin, and resident list GET paths with malformed top-level and nested snapshot HTML. It asserts a 200 response, removal of malformed HTML, and continued omission metadata for valid nested document bytes.</li>
+  <li><code>tests/unit/lease-generation-enablement.test.ts</code>: asserts that a context with no property location receives only <code>propertyLocation: { state: "WA" }</code>, without an invented listing, room, ID, or address. It also drives state-, city-, and ZIP-based unsupported properties through the row-level generation path and asserts that the Washington fallback is not added and generation remains unsupported.</li>
+  <li><code>tests/unit/lease-jurisdiction-zip-fallback.test.ts</code>: asserts that explicit unsupported state, city, ZIP, and postal-code metadata remains unsupported at the jurisdiction boundary.</li>
+</ul>
+
+<h2>Review evidence</h2>
+<p>Terra implemented the bounded source correction. Luna then performed an independent read-only static review. Luna initially found that nested signed snapshots needed the same HTML normalization and that the fallback evidence check needed every city, state, and postal-code field consumed by the resolver. Those gaps were corrected. Luna's final re-review reported <span class="ok">no remaining static findings</span>.</p>
+
+<p><code>git diff --check -- scripts/import-ambika-seattle-occupancy-production.ts src/app/api/portal-lease-pipeline/route.ts src/lib/lease-jurisdiction.ts src/lib/generated-lease.ts src/lib/lease-pipeline-storage.ts</code> exited <code>0</code>.</p>
+
+<h2>Validation ownership and remaining gates</h2>
+<p class="pending">Runtime validation was deliberately not run in this execution.</p>
+<p>The root release owner retained the single heavy-validation slot because laptop memory pressure was fluctuating. Per the execution brief, this session did not run tests, lint, TypeScript, a Next build, a server, an importer, a graph rebuild, an install, or any database operation. It also did not commit, push, promote, or deploy.</p>
+
+<p>The root owner should run <code>tests/unit/lease-pipeline-route-role-scope.test.ts</code>, <code>tests/unit/lease-generation-enablement.test.ts</code>, and <code>tests/unit/lease-jurisdiction-zip-fallback.test.ts</code>, followed by the repository TypeScript check and production-equivalent build. The build result must confirm that all eleven errors in <code>/tmp/akhil-release-upstream-type-errors.txt</code> are gone. Required release, migration-reconciliation, preflight, staging, and deployment verification gates remain outside this handoff.</p>
+
+<h2>Acceptance status</h2>
+<ul>
+  <li class="ok">Nullable importer errors narrow before message access.</li>
+  <li class="ok">Malformed top-level or signed-snapshot generated HTML cannot enter typed list projection.</li>
+  <li class="ok">Valid list omission and detail hydration paths remain separate; stored and signed bytes are not rewritten.</li>
+  <li class="ok">Lease contexts remain fully typed and retain real property IDs and fields.</li>
+  <li class="ok">The unfinished listing default does not invent a property ID or address.</li>
+  <li class="ok">Any explicit property-location evidence prevents the Washington default, preserving unsupported-location behavior.</li>
+  <li class="pending">TypeScript, focused regressions, and production build await the root validation owner.</li>
+</ul>
+</html>

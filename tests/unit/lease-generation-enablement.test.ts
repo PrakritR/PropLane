@@ -1,7 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { snapshotJordanLee } from "@/data/manager-application-snapshots";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
-import { leaseGenerationSupportedForRow } from "@/lib/lease-pipeline-storage";
+import { leaseGenerationPreviewContextForRow, leaseGenerationSupportedForRow } from "@/lib/lease-pipeline-storage";
+import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import * as managerApplications from "@/lib/manager-applications-storage";
 import * as rentalData from "@/lib/rental-application/data";
 
@@ -74,5 +75,68 @@ describe("leaseGenerationSupportedForRow", () => {
     const result = leaseGenerationSupportedForRow(baseLeaseRow({ axisId: undefined, application: undefined }));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toContain("No application data");
+  });
+
+  it("uses location-only Washington fallback without inventing a property identity", () => {
+    vi.spyOn(managerApplications, "readManagerApplicationRows").mockReturnValue([]);
+    const context = leaseGenerationPreviewContextForRow(
+      baseLeaseRow({
+        axisId: undefined,
+        propertyId: undefined,
+        roomChoice: undefined,
+        application: { fullLegalName: "Resident Test", email: "resident@example.com" },
+      }),
+    );
+
+    expect(context).not.toBeNull();
+    expect(context?.propertyLocation).toEqual({ state: "WA" });
+    expect(context?.listingProperty).toBeUndefined();
+    expect(context?.leasedRoom).toBeUndefined();
+    expect(context?.propertyLocation).not.toHaveProperty("id");
+    expect(context?.propertyLocation).not.toHaveProperty("address");
+  });
+
+  it.each([
+    ["state", { state: "TX" }],
+    ["city", { city: "Austin" }],
+    ["ZIP", { zip: "73301" }],
+  ])("does not replace an explicit unsupported %s with the Washington fallback", (_label, location) => {
+    vi.spyOn(managerApplications, "readManagerApplicationRows").mockReturnValue([]);
+    vi.spyOn(rentalData, "getPropertyById").mockReturnValue({
+      id: "unsupported-property",
+      title: "Unsupported property",
+      tagline: "",
+      address: "",
+      zip: location.zip ?? "",
+      neighborhood: "",
+      beds: 1,
+      baths: 1,
+      rentLabel: "$1,000 / month",
+      available: "Now",
+      petFriendly: false,
+      buildingId: "unsupported-building",
+      buildingName: "Unsupported property",
+      unitLabel: "Room 1",
+      listingSubmission: {
+        ...createDefaultListingSubmission(),
+        state: location.state ?? "",
+        city: location.city ?? "",
+        zip: location.zip ?? "",
+      },
+    });
+    const row = baseLeaseRow({
+      propertyId: "unsupported-property",
+      roomChoice: undefined,
+      application: {
+        fullLegalName: "Resident Test",
+        email: "resident@example.com",
+        propertyId: "unsupported-property",
+      },
+    });
+
+    const context = leaseGenerationPreviewContextForRow(row);
+    expect(context).not.toBeNull();
+    expect(context?.propertyLocation).toBeUndefined();
+    expect(leaseGenerationSupportedForRow(row).ok).toBe(false);
   });
 });

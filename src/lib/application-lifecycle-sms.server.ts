@@ -13,6 +13,7 @@ import {
   type ExistingSmsConversation,
   type ExistingSmsConversationResolution,
 } from "@/lib/sms/existing-conversation.server";
+import { buildConversationKey } from "@/lib/sms-conversation-identity";
 
 export type ApplicationSmsEvent = "submitted" | "approved" | "rejected" | "needs_info";
 
@@ -133,7 +134,7 @@ export async function notifyApplicantApplicationSms(
   if (!phone) return { sent: false, error: "no_phone" };
 
   let existingThread: ExistingSmsConversation | null = null;
-  if (managerUserId && input.event === "approved") {
+  if (managerUserId) {
     try {
       const conversations = await fetchManagerSmsConversations(db, managerUserId, {
         scopeManagerIdsOverride: [managerUserId],
@@ -146,10 +147,11 @@ export async function notifyApplicantApplicationSms(
         applicantPhone: phone,
         workNumber: conversations.workNumber,
       });
-      if (resolution.kind !== "matched") {
+      if (resolution.kind === "matched") {
+        existingThread = resolution.conversation;
+      } else if (input.event === "approved" || resolution.kind === "ambiguous" || resolution.kind === "sender_unavailable") {
         return { sent: false, error: resolution.kind === "ambiguous" ? "conversation_ambiguous" : resolution.kind === "sender_unavailable" ? "conversation_sender_unavailable" : "conversation_not_found" };
       }
-      existingThread = resolution.conversation;
     } catch {
       return { sent: false, error: "conversation_lookup_failed" };
     }
@@ -176,7 +178,16 @@ export async function notifyApplicantApplicationSms(
           residentEmail: email || null,
           topic: "applications",
           counterpartyRole: existingThread?.counterpartyRole ?? "applicant",
-          conversationKey: existingThread?.conversationKey ?? null,
+          // Submission is the durable owner/work-number association used by
+          // the manager loader. A pre-existing, exactly resolved prospect key
+          // wins; otherwise the owner-scoped applicant key is stored with the
+          // outbox record and never recovered from a phone-only guess.
+          conversationKey: existingThread?.conversationKey ?? buildConversationKey({
+            ownerManagerUserId: managerUserId,
+            role: "applicant",
+            counterpartyUserId: userId,
+            counterpartyPhone: phone,
+          }),
         }
       : null,
     // Submitted often has no manager thread yet / prospect — skip inverted mirror.

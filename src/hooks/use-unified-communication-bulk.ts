@@ -41,6 +41,8 @@ export function useUnifiedCommunicationBulk({
   onSmsDeleted,
   showToast = () => {},
   assistantPlaceholder,
+  archiveSmsConversation: archiveSmsMember = archiveManagerSmsConversation,
+  restoreSmsConversation: restoreSmsMember = restoreManagerSmsConversation,
 }: {
   mergedRows: UnifiedInboxListItem[];
   listSegment: InboxListSegment;
@@ -55,6 +57,8 @@ export function useUnifiedCommunicationBulk({
   showToast?: (message: string) => void;
   /** Preview/from/subject restored after Clear PropLane Assistant. */
   assistantPlaceholder?: Pick<PersistedInboxThread, "from" | "subject" | "preview">;
+  archiveSmsConversation?: (conversationId: string) => Promise<void>;
+  restoreSmsConversation?: (conversationId: string) => Promise<void>;
 }) {
   const toast = showToast;
   const selectableKeys = useMemo(() => mergedRows.map((row) => row.key), [mergedRows]);
@@ -121,7 +125,7 @@ export function useUnifiedCommunicationBulk({
 
     if (smsIds.length > 0) {
       try {
-        for (const id of smsIds) await archiveManagerSmsConversation(id);
+        for (const id of smsIds) await archiveSmsMember(id);
         onSmsArchiveChange?.();
       } catch {
         showToast("Could not archive text conversations. Try again.");
@@ -133,6 +137,7 @@ export function useUnifiedCommunicationBulk({
     clearAfterBulk();
   }, [
     clearAfterBulk,
+    archiveSmsMember,
     onEmailThreadsChange,
     onSmsArchiveChange,
     selectedRows,
@@ -154,7 +159,7 @@ export function useUnifiedCommunicationBulk({
     }
 
     try {
-      for (const id of smsIds) await restoreManagerSmsConversation(id);
+      for (const id of smsIds) await restoreSmsMember(id);
     } catch {
       showToast("Could not restore text conversations. Try again.");
       return;
@@ -170,6 +175,7 @@ export function useUnifiedCommunicationBulk({
     selectedRows,
     showToast,
     storageKey,
+    restoreSmsMember,
   ]);
 
   const confirm = useConfirm();

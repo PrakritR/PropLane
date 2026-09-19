@@ -64,8 +64,9 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
     from: string;
     body: string;
     time: string;
-    messages?: { id: string; from: string; body: string; at: string }[];
-  }) => [{ id: `${t.id}-root`, from: t.from, body: t.body, at: t.time }, ...(t.messages ?? [])],
+    rootChannel?: "email" | "sms" | "proplane";
+    messages?: { id: string; from: string; body: string; at: string; channel?: "email" | "sms" | "proplane" }[];
+  }) => [{ id: `${t.id}-root`, from: t.from, body: t.body, at: t.time, channel: t.rootChannel }, ...(t.messages ?? [])],
   appendReplyToInboxThread: (
     thread: Record<string, unknown>,
     reply: { body: string; id: string; from: string; at: string },
@@ -337,5 +338,66 @@ describe("resident reply where one channel succeeds and the other fails", () => 
     await waitFor(() => expect(upsertPersistedInboxRows).toHaveBeenCalled());
     const bubbles = [...document.querySelectorAll(".portal-inbox-outbound-bubble")];
     expect(bubbles.some((b) => b.textContent?.includes("REJECTED SMS probe"))).toBe(true);
+  });
+});
+
+describe("resident merged communication history", () => {
+  it("renders every selected archived email source with the selected SMS history in chronological order", async () => {
+    residentRows = [
+      {
+        ...THREAD,
+        id: "archived-manager-old",
+        folder: "trash" as const,
+        subject: "Earlier topic",
+        body: "OLDER EMAIL BODY",
+        preview: "OLDER EMAIL BODY",
+        time: "Sep 16, 10:00 AM",
+        rootChannel: "email" as const,
+      },
+      {
+        ...THREAD,
+        id: "archived-manager-new",
+        folder: "trash" as const,
+        subject: "Later topic",
+        body: "NEWER EMAIL BODY",
+        preview: "NEWER EMAIL BODY",
+        time: "Sep 18, 10:00 AM",
+        rootChannel: "email" as const,
+      },
+    ];
+    stubFetch({ status: 200, body: { ok: true } });
+
+    render(
+      <ResidentInboxPanel
+        tabId="trash"
+        embeddedInCommunication
+        externalTitleActions
+        suppressListPane
+        smsUiEnabled
+        controlledExpandedId="archived-manager-new"
+        communicationEmailThreadIds={["archived-manager-new", "archived-manager-old"]}
+        communicationSmsMessages={[{
+          id: "manager-text",
+          direction: "inbound",
+          body: "SMS BETWEEN EMAILS",
+          fromPhone: "+12065550100",
+          toPhone: "+12065550999",
+          messageSid: "SMmerged",
+          source: "work_number",
+          createdAt: "2026-09-17T18:00:00.000Z",
+        }]}
+        communicationThreadTitle="Morgan Manager"
+        disableAutoMarkRead
+      />,
+    );
+
+    await screen.findByText("OLDER EMAIL BODY");
+    expect(screen.getByText("SMS BETWEEN EMAILS")).toBeTruthy();
+    expect(screen.getByText("NEWER EMAIL BODY")).toBeTruthy();
+    const bodies = [...document.querySelectorAll(".portal-inbox-inbound-bubble p")].map((node) => node.textContent);
+    expect(bodies.indexOf("OLDER EMAIL BODY")).toBeLessThan(bodies.indexOf("SMS BETWEEN EMAILS"));
+    expect(bodies.indexOf("SMS BETWEEN EMAILS")).toBeLessThan(bodies.indexOf("NEWER EMAIL BODY"));
+    expect(screen.getAllByText("Email").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("SMS").length).toBeGreaterThan(0);
   });
 });

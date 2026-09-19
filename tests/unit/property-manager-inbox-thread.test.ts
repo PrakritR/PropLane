@@ -8,6 +8,7 @@ import {
   propertyManagerSendMessageIds,
   propertyManagerThreadLabel,
 } from "@/lib/property-manager-inbox-thread.server";
+import { tourInboxMessageId } from "@/lib/tour-notification-delivery.server";
 
 type InboxRow = {
   id: string;
@@ -136,6 +137,49 @@ describe("canonical resident-manager thread writes", () => {
     const row = rows.get(propertyManagerConversationSideThreadId(input, "resident"))!;
     expect(row.row_data).toMatchObject({ from: "Jordan Lee", managerUserId: "manager-user" });
     expect(row.row_data.rootMessageId).toBe("tour:one:confirmed:window");
+  });
+
+  it("keeps same-window, same-copy reconfirmation after cancellation while dropping its exact retry", async () => {
+    const { db, rows } = globalPrimaryKeyDb();
+    const base = {
+      participantEmail: input.residentEmail,
+      managerUserId: input.managerUserId,
+      propertyId: input.propertyId,
+      propertyTitle: input.propertyTitle,
+      counterpartyEmail: input.managerEmail,
+      managerName: "Jordan Lee",
+      fromName: "Jordan Lee",
+    };
+    const lifecycle = [
+      { kind: "request", subject: "Tour requested", body: "We received your tour request.", generation: "request-a" },
+      { kind: "confirmed", subject: "Tour confirmed", body: "Your tour is confirmed.", generation: "planned-confirm-a" },
+      { kind: "canceled", subject: "Tour canceled", body: "Your tour was canceled.", generation: "planned-confirm-a" },
+      // A new planned-event id is persisted for a real confirmation after a
+      // cancellation. The window and copy intentionally stay identical.
+      { kind: "confirmed", subject: "Tour confirmed", body: "Your tour is confirmed.", generation: "planned-confirm-b" },
+    ] as const;
+
+    for (const event of lifecycle) {
+      await appendResidentPropertyManagerInboxMessage(db as never, {
+        ...base,
+        subject: event.subject,
+        body: event.body,
+        messageId: tourInboxMessageId(["tour-1", event.kind, event.generation], event.subject, event.body),
+      });
+    }
+    const retry = lifecycle.at(-1)!;
+    await appendResidentPropertyManagerInboxMessage(db as never, {
+      ...base,
+      subject: retry.subject,
+      body: retry.body,
+      messageId: tourInboxMessageId(["tour-1", retry.kind, retry.generation], retry.subject, retry.body),
+    });
+
+    expect(rows.size).toBe(1);
+    const row = [...rows.values()][0]!;
+    expect(row.row_data).toMatchObject({ from: "Jordan Lee", managerUserId: input.managerUserId });
+    expect([row.row_data.body, ...((row.row_data.messages ?? []) as Array<{ body: string }>).map((message) => message.body)])
+      .toEqual(lifecycle.map((event) => event.body));
   });
 
   it("preserves explicit manager-side direction and SMS identity metadata without creating an SMS row", async () => {

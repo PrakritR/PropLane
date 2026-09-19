@@ -3,6 +3,7 @@
  */
 
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { createHash } from "node:crypto";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { appendResidentPropertyManagerInboxMessage, appendManagerPropertyLeadInboxMessage } from "@/lib/property-manager-inbox-thread.server";
 import { sendManagerNotificationSms } from "@/lib/manager-notification-routing.server";
@@ -48,6 +49,19 @@ function textField(row: Record<string, unknown> | null | undefined, key: string)
 
 function asObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+/**
+ * A delivery retry has the same lifecycle/window/content tuple and therefore
+ * the same turn id. A manager-authored reconfirmation has different content,
+ * so it appends honestly instead of colliding with a previous turn.
+ */
+export function tourInboxMessageId(parts: readonly string[], subject: string, body: string): string {
+  const content = createHash("sha256")
+    .update(`${subject.trim()}\0${body.trim()}`)
+    .digest("hex")
+    .slice(0, 16);
+  return `tour:${parts.map((part) => part.trim() || "_").join(":")}:${content}`;
 }
 
 async function resolveTourManagerIdentity(db: Db, managerUserId: string): Promise<{ email: string; name: string } | null> {
@@ -280,6 +294,10 @@ export async function recordResidentProspectInboxMessage(
     managerUserId?: string;
     propertyId?: string;
     propertyTitle?: string;
+    /** Server-authoritative manager label when the property owner was resolved. */
+    managerName?: string;
+    /** Stable lifecycle id so a retried notification cannot append a second turn. */
+    messageId?: string;
   },
 ): Promise<void> {
   const managerUserId = input.managerUserId?.trim() ?? "";
@@ -297,6 +315,8 @@ export async function recordResidentProspectInboxMessage(
       residentName: input.residentName,
       counterpartyEmail: input.counterpartyEmail ?? input.fromEmail,
       fromName: input.fromName,
+      managerName: input.managerName,
+      messageId: input.messageId,
     });
     return;
   }
@@ -459,7 +479,12 @@ export async function notifyManagerTourRequest(
       body: text,
       counterpartyRole: "prospect",
       outbound: false,
-      messageId: `tour:${textField(inquiry as Record<string, unknown>, "id") || propertyId}:request:${tourStartIso}:${tourEndIso}`,
+      messageId: tourInboxMessageId([
+        textField(inquiry as Record<string, unknown>, "id") || propertyId,
+        "request",
+        tourStartIso,
+        tourEndIso,
+      ], subject, text),
       ...(smsConversationKey ? { smsConversationKey } : {}),
     });
   }
@@ -627,9 +652,14 @@ export async function notifyTenantTourRequestReceived(
 
   const subject = TOUR_REQUEST_TENANT_SUBJECT;
   const text = buildTourRequestTenantBody(ctx);
+  const managerUserId = textField(inquiry as Record<string, unknown>, "managerUserId");
+  // A tour request is about this property's manager. Preserve that verified
+  // identity on the resident-facing thread when the profile can prove it;
+  // otherwise the legacy generic notice remains isolated instead of guessing.
+  const manager = managerUserId ? await resolveTourManagerIdentity(db, managerUserId) : null;
   const email = await deliverEmail([guestEmail], subject, text, undefined, undefined, {
     db,
-    managerUserId: textField(inquiry as Record<string, unknown>, "managerUserId"),
+    managerUserId,
   });
 
   await recordGuestInboxCopy(db, textField(inquiry as Record<string, unknown>, "id") || null, {
@@ -637,9 +667,22 @@ export async function notifyTenantTourRequestReceived(
     subject,
     body: text,
     fromName: "PropLane Tours",
-    managerUserId: textField(inquiry as Record<string, unknown>, "managerUserId"),
-    propertyId,
-    propertyTitle: ctx.propertyTitle,
+    ...(propertyId
+      ? {
+          managerUserId,
+          propertyId,
+          propertyTitle: ctx.propertyTitle,
+          ...(manager
+            ? { counterpartyEmail: manager.email, managerName: manager.name, fromName: manager.name }
+            : {}),
+        }
+      : {}),
+    messageId: tourInboxMessageId([
+      textField(inquiry as Record<string, unknown>, "id") || propertyId,
+      "request-received",
+      tourStartIso,
+      tourEndIso,
+    ], subject, text),
   });
 
   const guestPhone = textField(inquiry as Record<string, unknown>, "phone") || null;
@@ -705,15 +748,29 @@ export async function notifyTenantTourRequestRemoved(
   const subject = opts?.subject?.trim() || TOUR_REQUEST_REMOVED_TENANT_SUBJECT;
   const text = opts?.body?.trim() || buildTourRequestRemovedTenantBody(ctx);
   const managerUserId = textField(row, "managerUserId");
+  const manager = managerUserId ? await resolveTourManagerIdentity(db, managerUserId) : null;
 
   const inbox = await recordGuestInboxCopy(db, textField(row, "id") || null, {
     participantEmail: guestEmail,
     subject,
     body: text,
     fromName: "PropLane Tours",
-    managerUserId: managerUserId || undefined,
-    propertyId: propertyId || undefined,
-    propertyTitle: ctx.propertyTitle,
+    ...(propertyId
+      ? {
+          managerUserId,
+          propertyId,
+          propertyTitle: ctx.propertyTitle,
+          ...(manager
+            ? { counterpartyEmail: manager.email, managerName: manager.name, fromName: manager.name }
+            : {}),
+        }
+      : {}),
+    messageId: tourInboxMessageId([
+      textField(row, "id") || propertyId,
+      "request-removed",
+      tourStartIso,
+      tourEndIso,
+    ], subject, text),
   });
 
   const email = await deliverEmail([guestEmail], subject, text, undefined, undefined, {
@@ -851,7 +908,11 @@ async function notifyTenantTourChanged(
     if (manager && propertyId) inboxSent = await appendResidentPropertyManagerInboxMessage(db, {
       participantEmail: guestEmail, managerUserId, propertyId, propertyTitle: ctx.propertyTitle || propertyId,
       subject, body: text, counterpartyEmail: manager.email, managerName: manager.name, fromName: manager.name,
-      messageId: `tour:${textField(row, "id") || propertyId}:${input.kind}:${input.rescheduleGeneration?.trim() || `${input.previousWindow?.start ?? ""}:${input.previousWindow?.end ?? ""}:${input.window.start}:${input.window.end}`}`,
+      messageId: tourInboxMessageId([
+        textField(row, "id") || propertyId,
+        input.kind,
+        input.rescheduleGeneration?.trim() || `${input.previousWindow?.start ?? ""}:${input.previousWindow?.end ?? ""}:${input.window.start}:${input.window.end}`,
+      ], subject, text),
     }).then(() => true).catch(() => false);
   }
   const email = wantsEmail
@@ -982,7 +1043,7 @@ async function deliverTenantTourConfirmed(
   inquiry: TourInquiryPayload,
   window: { start: string; end: string; managerUserId: string; adminLabel?: string },
   instructions?: string,
-  opts?: { subject?: string; body?: string },
+  opts?: { subject?: string; body?: string; lifecycleGeneration?: string },
   channels?: TourNotificationChannels,
 ): Promise<TourNotificationResult> {
   const guestEmail = textField(inquiry as Record<string, unknown>, "email");
@@ -1020,7 +1081,15 @@ async function deliverTenantTourConfirmed(
     if (manager && propertyId) inboxSent = await appendResidentPropertyManagerInboxMessage(db, {
       participantEmail: guestEmail, managerUserId: window.managerUserId, propertyId, propertyTitle: ctx.propertyTitle || propertyId,
       subject, body: text, counterpartyEmail: manager.email, managerName: manager.name, fromName: manager.name,
-      messageId: `tour:${textField(inquiry as Record<string, unknown>, "id") || propertyId}:confirmed:${window.start}:${window.end}`,
+      messageId: tourInboxMessageId([
+        textField(inquiry as Record<string, unknown>, "id") || propertyId,
+        "confirmed",
+        // A persisted planned-event id is the confirmation operation. It stays
+        // constant when delivery retries, but a genuinely new confirmation
+        // after cancellation has a distinct event id even when its window and
+        // copy happen to be identical.
+        opts?.lifecycleGeneration?.trim() || `${window.start}:${window.end}`,
+      ], subject, text),
     }).then(() => true).catch(() => false);
   }
   const email = wantsEmail
@@ -1047,7 +1116,7 @@ async function deliverTenantTourConfirmed(
     purpose: "tour_confirmed",
     inquiryId: textField(inquiry as Record<string, unknown>, "id") || null,
     allowConversationEvidence: inquiryAllowsConversationSmsEvidence(inquiry),
-    deliveryKey: `${textField(inquiry as Record<string, unknown>, "id") || "tour"}:${window.start}:${window.end}`,
+    deliveryKey: `${textField(inquiry as Record<string, unknown>, "id") || "tour"}:${opts?.lifecycleGeneration?.trim() || `${window.start}:${window.end}`}`,
     text: `PropLane: your tour of ${ctx.propertyTitle} is confirmed${
       ctx.tourStartIso ? ` for ${formatTourTimeRange(ctx.tourStartIso, ctx.tourEndIso)}` : ""
     }.${instructions ? ` ${instructions.trim()}` : ""} Reply here with any questions. Details: ${listingLink}. Reply STOP to opt out, HELP for help.`,
@@ -1070,7 +1139,7 @@ export async function notifyTenantTourConfirmed(
   inquiry: TourInquiryPayload,
   window: { start: string; end: string; managerUserId: string; adminLabel?: string },
   instructions?: string,
-  opts?: { subject?: string; body?: string },
+  opts?: { subject?: string; body?: string; lifecycleGeneration?: string },
   channels?: TourNotificationChannels,
 ): Promise<TourNotificationResult> {
   // The manager's own copy (PLAN-0915): with auto-confirm on, nobody in the

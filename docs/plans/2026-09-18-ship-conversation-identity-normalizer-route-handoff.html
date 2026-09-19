@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Conversation identity normalizer and route correction handoff</title>
+<style>
+body{max-width:980px;margin:40px auto;padding:0 24px 64px;font:16px/1.6 system-ui;color:#192738;background:#fafafa}h1,h2{line-height:1.25}code{overflow-wrap:anywhere}table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccd2da;padding:10px;text-align:left;vertical-align:top}.ok{color:#17643b}.blocked{color:#8a3600}.box{padding:14px;border-left:5px solid #375a8c;background:#eef4fb}li{margin:.45rem 0}pre{white-space:pre-wrap;background:#eef1f5;padding:14px;border-radius:8px}
+</style>
+<body>
+<h1>Conversation identity R28-R34 correction handoff</h1>
+<p class="box"><strong>The bounded normalizer, accepted-member route matching, Unread retention context, and focused harness defects are corrected for fresh review.</strong> Capped focused runs narrowed the remaining failures before the final R34 and resident constant corrections. Those final edits remain unrun because the mandatory pre-file gate returned to memory pressure level 2.</p>
+
+<h2>Scope and state</h2>
+<table>
+<tr><th>Repository</th><td><code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code></td></tr>
+<tr><th>Branch</th><td><code>akhil/ship-conversation-identity</code></td></tr>
+<tr><th>Baseline and current HEAD</th><td><code>6a4c899070dc41d50b4675169eb2fce6de660bc2</code></td></tr>
+<tr><th>Correction input</th><td><a href="2026-09-18-ship-conversation-identity-reply-edge-review.html">R28-R30 independent review</a></td></tr>
+<tr><th>Execution</th><td>Fresh Sol-medium manager with disjoint Terra source and Luna test delegates, followed by manager integration review. No commit, push, PR, deployment, production mutation, migration, browser, server, graph rebuild, or external send.</td></tr>
+</table>
+
+<h2>R28 - native normalization preserves relationship evidence</h2>
+<ul>
+<li><code>normalizeManagerSmsConversationsPayload</code> now preserves server-returned houses with non-empty trimmed property ids.</li>
+<li>It does not derive a house from an email, contact, phone, property label, or other display fallback.</li>
+<li>The relationship matcher requires exactly one valid normalized house entry. Missing houses, multiple distinct houses, and repeated multi-house entries remain isolated.</li>
+<li>The actual component fixture now selects the merged row by its newest native preview. Dedicated cases retain missing and multiple-house refusal coverage.</li>
+</ul>
+
+<h2>R29 - routed identity follows exact accepted membership</h2>
+<ul>
+<li>One <code>unifiedInboxRowHasThreadId</code> predicate checks the current representative and parsed <code>memberKeys</code>.</li>
+<li>The predicate drives authorized merged-row resolution, visible result resolution, route selection, and selected-route retention.</li>
+<li>The resolution latch records both route id and viewer authority, preventing retained component state from crossing viewer generations.</li>
+<li>Search, read-status, and archive exclusion still clear a previously resolved route. A route that has never resolved remains pending.</li>
+<li>Focused fixtures cover a deep link to a non-winning accepted email member and an email route that remains selected after a newer accepted native turn becomes representative.</li>
+</ul>
+
+<h2>R30 - focused harness repairs</h2>
+<ul>
+<li>Manager component tests select rows through visible rendered previews, including the newest native preview for merged conversations, rather than stale fixture ids.</li>
+<li>The two old fresh-compose route fixtures now expose <code>insert</code>, require two inserts, and require zero upserts. Existing-thread assertions continue to use upsert.</li>
+<li>The insert-only writer was not reverted or weakened.</li>
+</ul>
+
+<h2>R34 - Unread retention requires same-context admission</h2>
+<ul>
+<li>The previous inferred exception retained any selected read row after entering Unread. A confirmed read row selected in Read could therefore survive an explicit switch to Unread.</li>
+<li><code>unreadSelectionAdmissionRef</code> now records a selected unread row only after that row is admitted to the current Unread presentation.</li>
+<li>The admission records exact accepted member keys and survives a representative change within the same conversation.</li>
+<li>Folder, search, status, or viewer changes reset admission. Retention requires a later read transition in the same presentation context.</li>
+</ul>
+
+<h2>Resident acknowledgement fixture correction</h2>
+<ul>
+<li>The partial storage mock replaced <code>RESIDENT_INBOX_STORAGE_KEY</code> with <code>resident-inbox</code>, but the real imported acknowledgement function validates against its closed-over <code>axis_portal_inbox_resident_v1</code>. It returned before <code>fetch</code>, producing all three zero-call failures.</li>
+<li>The mock now uses the actual storage key. Its fake inbox-change event override was also removed so the component listener and real storage helpers share the same event constant.</li>
+<li>The acknowledgement source and the three behavior assertions were not weakened.</li>
+</ul>
+
+<h2>Files in this correction</h2>
+<ul>
+<li><code>src/lib/manager-sms-messages.ts</code></li>
+<li><code>src/components/portal/pro-unified-inbox.tsx</code></li>
+<li><code>tests/unit/manager-unified-inbox-identity.test.tsx</code></li>
+<li><code>tests/integration/portal/send-inbox-message.test.ts</code></li>
+<li><code>tests/unit/resident-conversation-inbox.test.tsx</code></li>
+</ul>
+
+<h2>Validation evidence</h2>
+<table>
+<tr><th>Check</th><th>Result</th></tr>
+<tr><td>Tracked-file <code>git diff --check</code> for the four paths</td><td class="ok">Exit 0.</td></tr>
+<tr><td>Untracked manager fixture whitespace check through <code>git diff --no-index --check</code></td><td class="ok">No whitespace errors. The command returns 1 because the complete untracked file differs from <code>/dev/null</code>.</td></tr>
+<tr><td>Pre-file resource gate</td><td class="blocked"><code>kern.memorystatus_vm_pressure_level: 2</code>; system free percentage 35%; swap used 3809.06 MiB of 5120 MiB, increased from 3601.06 MiB at session start; disk 12 GiB available.</td></tr>
+<tr><td><a href="2026-09-18-ship-conversation-identity-focused-validation.html">Capped focused runtime ledger</a></td><td>Manager 20/21, resident 12/15, send route 18/18, property-manager thread 22/22, and tour resident inbox 3/3. Node 22.23.0, 384 MiB heap, one file and one worker at a time. The manager and resident failures directly identified R34 and the mock-key mismatch.</td></tr>
+<tr><td>Final R34 and resident constant corrections</td><td class="blocked">Not rerun. The runtime results above explicitly predate these two final edits. Further runs stopped when memory pressure returned to level 2.</td></tr>
+<tr><td>Broad validation and product QA</td><td class="blocked">Not in this bounded pass. Remaining tour lifecycle coverage, lint, typecheck, build, seeded browser, desktop/mobile/native deep-link QA, and broad release gates remain pending.</td></tr>
+</table>
+
+<h2>Fresh Astra review prompt</h2>
+<pre>Fresh Astra review of the uncommitted R28-R34 correction in /Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2 on branch akhil/ship-conversation-identity at HEAD 6a4c899070dc41d50b4675169eb2fce6de660bc2. Read AGENTS.md, docs/agents/AGENTS-akhil.md, docs/agents/akhil-feature-cycle.md, docs/agents/communication-inbox.md, docs/plans/2026-09-18-ship-conversation-identity-normalizer-route-review.html, docs/plans/2026-09-18-ship-conversation-identity-focused-validation.html, and docs/plans/2026-09-18-ship-conversation-identity-normalizer-route-handoff.html. Review the final source and focused fixtures in full uncommitted context. Verify native normalization and exact accepted-member route matching; verify Unread retention requires prior admission of the same accepted conversation in the same folder/search/status/viewer context and still survives a winner change after read acknowledgement; verify Read to Unread clears; verify the resident partial mock uses actual closed-over storage/event constants without weakening acknowledgement retry, stale-viewer, or retry-bound assertions. Runtime results predate the final R34 and resident constant corrections because the resource gate reached pressure level 2. Do not mutate source, git history, production, or external systems.</pre>
+</body>
+</html>

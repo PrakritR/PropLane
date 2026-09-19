@@ -8,6 +8,8 @@ import type {
   ManagerSmsMessageRow,
   ManagerSmsMessageStorageTable,
   ManagerSmsResidentConversation,
+  RoleSmsConversationPayload,
+  RoleSmsManagerConversation,
 } from "@/lib/manager-sms-messages";
 import {
   buildConversationKey,
@@ -31,7 +33,13 @@ import { loadConversationHouses } from "@/lib/sms/conversation-houses.server";
 import { conversationVisible, resolveCommunicationScope } from "@/lib/communication/conversation-visibility.server";
 import { labelFromManagerPropertyRecordRow } from "@/lib/co-manager-property-label";
 
-export type { ManagerSmsConversationsPayload, ManagerSmsMessageRow, ManagerSmsResidentConversation };
+export type {
+  ManagerSmsConversationsPayload,
+  ManagerSmsMessageRow,
+  ManagerSmsResidentConversation,
+  RoleSmsConversationPayload,
+  RoleSmsManagerConversation,
+};
 
 function phoneKey(raw: string): string {
   return normalizeE164(raw) ?? raw.trim();
@@ -448,7 +456,10 @@ async function listResidentsForOwners(
       application?: { phone?: string; fullLegalName?: string };
     };
     const bucket = String(rd.bucket ?? "").trim();
-    if (bucket !== "approved" && bucket !== "pending") continue;
+    // Rejected applicants remain an applicant directory identity. They are not
+    // active residents, but dropping them makes a proven application thread
+    // lose its name/email on the next inbox load.
+    if (bucket !== "approved" && bucket !== "pending" && bucket !== "rejected") continue;
     if (bucket === "pending" && String(rd.stage ?? "").trim().toLowerCase() === "in progress") continue;
     const email = String(row.resident_email ?? "").trim().toLowerCase();
     if (!email.includes("@")) continue;
@@ -625,6 +636,118 @@ async function attachConversationHouses(
     }
     conversation.houses = list;
   }
+}
+
+/** Apply only a submission's already-proven owner/work-number/key association. */
+export function attachApplicantIdentityToProspectHistory(
+  conversations: ManagerSmsResidentConversation[],
+  provenIdentities: readonly { conversationKey: string; directoryConversationKey: string; residentUserId: string | null; residentEmail: string; name: string; propertyLabel: string | null; tenancyStatus: "resident" | "applicant" }[] = [],
+): ManagerSmsResidentConversation[] {
+  const byKey = new Map(provenIdentities.map((identity) => [identity.conversationKey, identity]));
+  const absorbedDirectoryKeys = new Set(provenIdentities.map((identity) => identity.directoryConversationKey));
+  // This helper is consumed by a loader that replaces its working list. Return
+  // an independently allocated list even when there is no eligible upgrade:
+  // otherwise clearing the destination also clears this aliased source.
+  return conversations.flatMap((conversation) => {
+    if (absorbedDirectoryKeys.has(conversation.conversationKey ?? "") && conversation.messages.length === 0) return [];
+    const identity = conversation.conversationKey ? byKey.get(conversation.conversationKey) : undefined;
+    if (!identity) return [conversation];
+    const directory = conversations.find((candidate) => candidate.conversationKey === identity.directoryConversationKey);
+    return [{
+      ...conversation,
+      residentUserId: identity.residentUserId,
+      residentEmail: identity.residentEmail,
+      name: identity.name,
+      directoryName: identity.name,
+      propertyLabel: identity.propertyLabel,
+      // Approval may promote the directory status, while pending/rejected
+      // applications remain applicants. The exact native key stays stable.
+      tenancyStatus: identity.tenancyStatus,
+      memberKeys: [...new Set([
+        ...(conversation.memberKeys ?? []),
+        ...(directory?.memberKeys ?? []),
+      ].filter(Boolean))],
+    }];
+  });
+}
+
+async function loadProvenApplicantIdentityByConversation(
+  db: SupabaseClient,
+  ownerIds: string[],
+  candidates: ManagerSmsResidentConversation[],
+): Promise<{ conversationKey: string; directoryConversationKey: string; residentUserId: string | null; residentEmail: string; name: string; propertyLabel: string | null; tenancyStatus: "resident" | "applicant" }[]> {
+  const owners = [...new Set(ownerIds.map((id) => id.trim()).filter(Boolean))];
+  if (owners.length === 0) return [];
+  let data: Record<string, unknown>[] | null = null;
+  try {
+    const result = await db
+      .from("sms_outbox")
+      .select("manager_user_id, recipient_email, recipient_phone, conversation_key, counterparty_role, provider_from_phone, purpose")
+      .in("manager_user_id", owners)
+      .eq("purpose", "application_submitted_notification");
+    if (result.error) return [];
+    data = (result.data ?? []) as Record<string, unknown>[];
+  } catch {
+    // This enrichment is additive. An unavailable provenance read must leave
+    // the original, unlabelled history intact rather than hiding the mailbox.
+    return [];
+  }
+
+  const candidatesByPair = new Map<string, ManagerSmsResidentConversation[]>();
+  const conversationByKey = new Map(candidates
+    .filter((candidate) => candidate.conversationKey)
+    .map((candidate) => [candidate.conversationKey!, candidate]));
+  for (const candidate of candidates) {
+    const owner = String(candidate.ownerManagerUserId ?? "").trim();
+    const phone = conversationPhoneRef(candidate.phone);
+    if (!owner || !phone || !candidate.residentEmail?.trim()) continue;
+    const key = `${owner}\0${phone}`;
+    const rows = candidatesByPair.get(key) ?? [];
+    rows.push(candidate);
+    candidatesByPair.set(key, rows);
+  }
+
+  const result = new Map<string, { conversationKey: string; directoryConversationKey: string; residentUserId: string | null; residentEmail: string; name: string; propertyLabel: string | null; tenancyStatus: "resident" | "applicant" }>();
+  const conflictedKeys = new Set<string>();
+  for (const row of data ?? []) {
+    const owner = String(row.manager_user_id ?? "").trim();
+    const phone = conversationPhoneRef(String(row.recipient_phone ?? ""));
+    const conversationKey = String(row.conversation_key ?? "").trim();
+    const email = String(row.recipient_email ?? "").trim().toLowerCase();
+    const role = coerceCounterpartyRole(row.counterparty_role);
+    const sender = conversationPhoneRef(String(row.provider_from_phone ?? ""));
+    const samePair = owner && phone ? candidatesByPair.get(`${owner}\0${phone}`) ?? [] : [];
+    // Every known identity on the shared phone participates in the decision.
+    // A singleton empty directory row is never enough to steal a populated
+    // prospect history from another applicant or a recycled resident number.
+    const exactConversation = conversationByKey.get(conversationKey);
+    const hasExactWorkNumberTurn = Boolean(sender && exactConversation?.messages.some((message) =>
+      message.direction === "inbound"
+        ? conversationPhoneRef(message.fromPhone) === phone && conversationPhoneRef(message.toPhone) === sender
+        : conversationPhoneRef(message.toPhone) === phone && conversationPhoneRef(message.fromPhone) === sender,
+    ));
+    if (samePair.length !== 1 || !conversationKey || !email || !hasExactWorkNumberTurn || (role !== "prospect" && role !== "applicant")) continue;
+    const candidate = samePair[0]!;
+    if (candidate.residentEmail?.trim().toLowerCase() !== email) continue;
+    const existing = result.get(conversationKey);
+    if (existing && existing.residentEmail !== email) {
+      conflictedKeys.add(conversationKey);
+      result.delete(conversationKey);
+      continue;
+    }
+    if (!conflictedKeys.has(conversationKey)) {
+      result.set(conversationKey, {
+        conversationKey,
+        directoryConversationKey: candidate.conversationKey ?? "",
+        residentUserId: candidate.residentUserId,
+        residentEmail: email,
+        name: candidate.directoryName?.trim() || candidate.name,
+        propertyLabel: candidate.propertyLabel,
+        tenancyStatus: candidate.tenancyStatus,
+      });
+    }
+  }
+  return [...result.values()];
 }
 
 export async function fetchManagerSmsConversations(
@@ -971,6 +1094,15 @@ export async function fetchManagerSmsConversations(
     });
   }
 
+  const applicantIdentityProvenance = await loadProvenApplicantIdentityByConversation(
+    db,
+    scopeManagerIds,
+    conversations,
+  );
+  const identifiedConversations = attachApplicantIdentityToProspectHistory(conversations, applicantIdentityProvenance);
+  conversations.length = 0;
+  conversations.push(...identifiedConversations);
+
   const contactMap = await loadManagerSmsContactMap(db, scopeManagerIds);
   const representedContactKeys = new Set<string>();
   for (const conversation of conversations) {
@@ -1055,20 +1187,21 @@ export async function fetchManagerSmsConversations(
   };
 }
 
-export type RoleSmsConversationPayload = {
-  messages: ManagerSmsMessageRow[];
-  smsConfigured: boolean;
-};
-
 /** Resident Communication → SMS: texts with linked manager(s). */
 export async function fetchResidentSmsConversation(
   db: SupabaseClient,
   residentUserId: string,
 ): Promise<RoleSmsConversationPayload> {
   const messages: ManagerSmsMessageRow[] = [];
+  const conversations = new Map<string, {
+    managerUserId: string;
+    counterpartyRole: SmsCounterpartyRole;
+    messages: ManagerSmsMessageRow[];
+  }>();
+  const invalidConversationKeys = new Set<string>();
   const { data: profile } = await db
     .from("profiles")
-    .select("phone, phone_verified_at")
+    .select("email, phone, phone_verified_at")
     .eq("id", residentUserId)
     .maybeSingle();
   // Relay threads are matched purely by phone number, so an unverified
@@ -1079,13 +1212,13 @@ export async function fetchResidentSmsConversation(
 
   const { data: stored } = await db
     .from("manager_sms_messages")
-    .select("id, resident_phone, body, from_phone, to_phone, message_sid, source, created_at, direction")
+    .select("id, manager_user_id, resident_user_id, resident_phone, body, from_phone, to_phone, message_sid, source, created_at, direction, counterparty_role, conversation_key")
     .eq("resident_user_id", residentUserId)
     .order("created_at", { ascending: true })
     .limit(500);
 
   for (const row of stored ?? []) {
-    messages.push({
+    const message: ManagerSmsMessageRow = {
       id: String(row.id),
       // Rows are stored from the manager's perspective (inbound = resident
       // texted the manager) — flip so the resident sees their own texts as
@@ -1098,44 +1231,223 @@ export async function fetchResidentSmsConversation(
       source: (row.source as ManagerSmsMessageRow["source"]) ?? "work_number",
       createdAt: String(row.created_at),
       storageTable: "manager_sms_messages",
+    };
+    // Preserve the flat legacy feed in full. New consumers use
+    // `conversations` and deduplicate these ids when they render both.
+    messages.push(message);
+    const conversationKey = String(row.conversation_key ?? "").trim();
+    const managerUserId = String(row.manager_user_id ?? "").trim();
+    const counterpartyRole = coerceCounterpartyRole(row.counterparty_role);
+    // The resident id, durable key, owner and role are all writer-controlled.
+    // A phone alone never earns an identity because shared numbers are valid.
+    if (
+      String(row.resident_user_id ?? "").trim() === residentUserId &&
+      conversationKey &&
+      managerUserId &&
+      counterpartyRole &&
+      !invalidConversationKeys.has(conversationKey)
+    ) {
+      const current = conversations.get(conversationKey);
+      if (!current) {
+        conversations.set(conversationKey, { managerUserId, counterpartyRole, messages: [message] });
+      } else if (current.managerUserId === managerUserId && current.counterpartyRole === counterpartyRole) {
+        current.messages.push(message);
+      } else {
+        // A malformed collision cannot safely be shown as either manager.
+        conversations.delete(conversationKey);
+        invalidConversationKeys.add(conversationKey);
+      }
+    }
+  }
+
+  const managerIds = [...new Set([...conversations.values()].map((conversation) => conversation.managerUserId))];
+  const { data: managers } = managerIds.length > 0
+    ? await db.from("profiles").select("id, email, full_name").in("id", managerIds)
+    : { data: [] as Array<{ id?: unknown; email?: unknown; full_name?: unknown }> };
+  const managerProfiles = new Map(
+    (managers ?? [])
+      .map((manager) => {
+        const id = String(manager.id ?? "").trim();
+        const email = String(manager.email ?? "").trim().toLowerCase();
+        return id && email.includes("@")
+          ? [id, { email, name: String(manager.full_name ?? "").trim() || email }] as const
+          : null;
+      })
+      .filter((manager): manager is readonly [string, { email: string; name: string }] => manager !== null),
+  );
+  const propertyByManager = new Map<string, { propertyId: string; propertyTitle?: string }>();
+  const residentEmail = String(profile?.email ?? "").trim().toLowerCase();
+  if (residentEmail.includes("@") && managerIds.length > 0) {
+    const { data: applications } = await db
+      .from("manager_application_records")
+      .select("manager_user_id, property_id, assigned_property_id, row_data")
+      .eq("resident_email", residentEmail)
+      .in("manager_user_id", managerIds);
+    const candidatesByManager = new Map<string, Map<string, string>>();
+    for (const application of applications ?? []) {
+      const managerUserId = String(application.manager_user_id ?? "").trim();
+      const rowData = (application.row_data ?? {}) as Record<string, unknown>;
+      const propertyId = String(application.assigned_property_id ?? application.property_id ?? rowData.assignedPropertyId ?? rowData.propertyId ?? "").trim();
+      if (!managerUserId || !propertyId) continue;
+      const propertyTitle = String(rowData.propertyTitle ?? rowData.property ?? "").trim();
+      const candidates = candidatesByManager.get(managerUserId) ?? new Map<string, string>();
+      candidates.set(propertyId, propertyTitle);
+      candidatesByManager.set(managerUserId, candidates);
+    }
+    for (const [managerUserId, candidates] of candidatesByManager) {
+      if (candidates.size !== 1) continue;
+      const [propertyId, propertyTitle] = candidates.entries().next().value as [string, string];
+      propertyByManager.set(managerUserId, { propertyId, ...(propertyTitle ? { propertyTitle } : {}) });
+    }
+  }
+  const provenConversations: RoleSmsManagerConversation[] = [];
+  for (const [conversationKey, conversation] of conversations) {
+    const manager = managerProfiles.get(conversation.managerUserId);
+    if (!manager) continue;
+    conversation.messages.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    provenConversations.push({
+      conversationKey,
+      managerUserId: conversation.managerUserId,
+      managerName: manager.name,
+      managerEmail: manager.email,
+      counterpartyRole: conversation.counterpartyRole,
+      ...(propertyByManager.get(conversation.managerUserId) ?? {}),
+      messages: conversation.messages,
     });
   }
 
   if (residentPhone) {
-    const { data: relayBindings } = await db
+    const { data: relayBindings, error: relayBindingsError } = await db
       .from("sms_relay_bindings")
       .select("thread_id")
       .eq("participant_phone", residentPhone)
       .eq("role", "resident")
       .eq("active", true)
       .limit(20);
-    const threadIds = (relayBindings ?? []).map((b) => String(b.thread_id));
-    if (threadIds.length > 0) {
-      const { data: relayMsgs } = await db
-        .from("sms_relay_messages")
-        .select("id, sender_role, body, created_at, twilio_sid")
-        .in("thread_id", threadIds)
-        .order("created_at", { ascending: true })
-        .limit(500);
-      for (const msg of relayMsgs ?? []) {
-        const role = String(msg.sender_role ?? "");
-        messages.push({
-          id: `relay_${String(msg.id)}`,
-          direction: role === "resident" ? "outbound" : "inbound",
-          body: String(msg.body ?? ""),
-          fromPhone: null,
-          toPhone: residentPhone,
-          messageSid: msg.twilio_sid ? String(msg.twilio_sid) : null,
-          source: "relay",
-          createdAt: String(msg.created_at),
-          storageTable: "sms_relay_messages",
-        });
+    // A verified phone is merely a delivery address. It can be shared or
+    // recycled, so admit relay history only after the durable counterparty
+    // identity agrees with the authenticated resident. Every failed lookup
+    // deliberately drops this relay slice rather than returning phone-matched
+    // flat messages.
+    const boundThreadIds = relayBindingsError
+      ? []
+      : (relayBindings ?? []).map((binding) => String(binding.thread_id ?? "").trim()).filter(Boolean);
+    if (boundThreadIds.length > 0) {
+      const { data: relayThreads, error: relayThreadsError } = await db
+        .from("sms_relay_threads")
+        .select("id, manager_user_id, counterparty_user_id")
+        .in("id", boundThreadIds)
+        .eq("counterparty_user_id", residentUserId);
+      const authorizedRelayThreads = relayThreadsError
+        ? []
+        : (relayThreads ?? []).filter(
+            (thread) => String(thread.counterparty_user_id ?? "").trim() === residentUserId,
+          );
+      const authorizedThreadIds = authorizedRelayThreads
+        .map((thread) => String(thread.id ?? "").trim())
+        .filter(Boolean);
+      if (authorizedThreadIds.length > 0) {
+        const { data: relayMsgs, error: relayMessagesError } = await db
+          .from("sms_relay_messages")
+          .select("id, thread_id, sender_role, body, created_at, twilio_sid")
+          .in("thread_id", authorizedThreadIds)
+          .order("created_at", { ascending: true })
+          .limit(500);
+        if (!relayMessagesError) {
+          const threadById = new Map(authorizedRelayThreads.map((thread) => [String(thread.id ?? "").trim(), thread]));
+          const relayManagerIds = [...new Set(authorizedRelayThreads
+            .map((thread) => String(thread.manager_user_id ?? "").trim())
+            .filter(Boolean))];
+          const { data: relayManagers } = relayManagerIds.length > 0
+            ? await db.from("profiles").select("id, email, full_name").in("id", relayManagerIds)
+            : { data: [] as Array<{ id?: unknown; email?: unknown; full_name?: unknown }> };
+          const relayManagerProfiles = new Map((relayManagers ?? []).map((manager) => {
+            const id = String(manager.id ?? "").trim();
+            const email = String(manager.email ?? "").trim().toLowerCase();
+            return id && email.includes("@")
+              ? [id, { email, name: String(manager.full_name ?? "").trim() || email }] as const
+              : null;
+          }).filter((manager): manager is readonly [string, { email: string; name: string }] => manager !== null));
+          const relayConversations = new Map<string, {
+            managerUserId: string;
+            managerName: string;
+            managerEmail: string;
+            messages: ManagerSmsMessageRow[];
+          }>();
+          for (const msg of relayMsgs ?? []) {
+            const role = String(msg.sender_role ?? "");
+            const thread = threadById.get(String((msg as { thread_id?: unknown }).thread_id ?? "").trim());
+            const managerUserId = String(thread?.manager_user_id ?? "").trim();
+            const counterpartyUserId = String(thread?.counterparty_user_id ?? "").trim();
+            // Defense in depth for a malformed query result. No relay turn can
+            // enter either payload without exact resident ownership.
+            if (!managerUserId || counterpartyUserId !== residentUserId) continue;
+            const message: ManagerSmsMessageRow = {
+              id: `relay_${String(msg.id)}`,
+              direction: role === "resident" ? "outbound" : "inbound",
+              body: String(msg.body ?? ""),
+              fromPhone: null,
+              toPhone: residentPhone,
+              messageSid: msg.twilio_sid ? String(msg.twilio_sid) : null,
+              source: "relay",
+              createdAt: String(msg.created_at),
+              storageTable: "sms_relay_messages",
+            };
+            messages.push(message);
+            const manager = relayManagerProfiles.get(managerUserId);
+            // A missing manager profile prevents a named conversation, but it
+            // does not revoke an exactly authorized resident's flat history.
+            if (!manager) continue;
+            const conversationKey = buildConversationKey({
+              ownerManagerUserId: managerUserId,
+              role: "resident",
+              counterpartyUserId: residentUserId,
+              counterpartyPhone: residentPhone,
+            });
+            const current = relayConversations.get(conversationKey);
+            if (current) current.messages.push(message);
+            else relayConversations.set(conversationKey, {
+              managerUserId,
+              managerName: manager.name,
+              managerEmail: manager.email,
+              messages: [message],
+            });
+          }
+          for (const [conversationKey, conversation] of relayConversations) {
+            conversation.messages.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+            provenConversations.push({
+              conversationKey,
+              managerUserId: conversation.managerUserId,
+              managerName: conversation.managerName,
+              managerEmail: conversation.managerEmail,
+              counterpartyRole: "resident",
+              messages: conversation.messages,
+            });
+          }
+        }
       }
     }
   }
 
   messages.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  const mergedConversations = new Map<string, RoleSmsManagerConversation>();
+  for (const conversation of provenConversations) {
+    const existing = mergedConversations.get(conversation.conversationKey);
+    if (!existing) {
+      mergedConversations.set(conversation.conversationKey, { ...conversation, messages: [...conversation.messages] });
+      continue;
+    }
+    // The durable key contains owner + role + person ref. If malformed source
+    // rows disagree despite that, do not collapse their messages by guesswork.
+    if (
+      existing.managerUserId !== conversation.managerUserId ||
+      existing.counterpartyRole !== conversation.counterpartyRole
+    ) continue;
+    existing.messages.push(...conversation.messages);
+    existing.messages.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }
   return {
+    conversations: [...mergedConversations.values()],
     messages,
     smsConfigured: Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN),
   };
@@ -1177,6 +1489,7 @@ export async function fetchVendorSmsConversation(
     }
   }
   return {
+    conversations: [],
     messages,
     smsConfigured: Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN),
   };

@@ -88,6 +88,40 @@ describe("application lifecycle SMS", () => {
     }) }));
   });
 
+  it("reuses an unambiguous prospect identity for submission but leaves a missing history eligible for its initial thread", async () => {
+    conversationsMock.mockResolvedValue({ workNumber: "+12065550100", residents: [{
+      ownerManagerUserId: "manager-1", phone: "+12065550142", conversationKey: "manager-1:prospect:+12065550142", counterpartyRole: "prospect", messages: [{ direction: "inbound", fromPhone: "+12065550142", toPhone: "+12065550100" }],
+    }] });
+    await notifyApplicantApplicationSms(db() as never, {
+      event: "submitted", applicantEmail: "applicant@example.com", applicantPhone: "+12065550142", managerUserId: "manager-1",
+    });
+    expect(sendMock).toHaveBeenLastCalledWith(expect.objectContaining({ openThread: expect.objectContaining({
+      conversationKey: "manager-1:prospect:+12065550142", counterpartyRole: "prospect",
+    }) }));
+
+    conversationsMock.mockResolvedValue({ workNumber: "+12065550100", residents: [] });
+    await expect(notifyApplicantApplicationSms(db() as never, {
+      event: "submitted", applicantEmail: "applicant@example.com", applicantPhone: "+12065550142", managerUserId: "manager-1",
+    })).resolves.toMatchObject({ accepted: true });
+    expect(sendMock).toHaveBeenLastCalledWith(expect.objectContaining({ openThread: expect.objectContaining({
+      conversationKey: "manager-1:applicant:+12065550142",
+      counterpartyRole: "applicant",
+      managerUserId: "manager-1",
+      residentEmail: "applicant@example.com",
+    }) }));
+  });
+
+  it("does not turn an ambiguous same-phone submission into a new applicant thread", async () => {
+    conversationsMock.mockResolvedValue({ workNumber: "+12065550100", residents: [
+      { ownerManagerUserId: "manager-1", phone: "+12065550142", conversationKey: "manager-1:prospect:+12065550142", counterpartyRole: "prospect", messages: [{ direction: "inbound", fromPhone: "+12065550142", toPhone: "+12065550100" }] },
+      { ownerManagerUserId: "manager-1", phone: "+12065550142", conversationKey: "manager-1:applicant:+12065550142", counterpartyRole: "applicant", messages: [{ direction: "inbound", fromPhone: "+12065550142", toPhone: "+12065550100" }] },
+    ] });
+    await expect(notifyApplicantApplicationSms(db() as never, {
+      event: "submitted", applicantEmail: "applicant@example.com", applicantPhone: "+12065550142", managerUserId: "manager-1",
+    })).resolves.toMatchObject({ error: "conversation_ambiguous" });
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
   it("uses a portal next step instead of claiming an unselected setup email", async () => {
     conversationsMock.mockResolvedValue({ workNumber: "+12065550100", residents: [{
       ownerManagerUserId: "manager-1", phone: "+12065550142", conversationKey: "manager-1:prospect:+12065550142", counterpartyRole: "prospect", messages: [{ direction: "inbound", fromPhone: "+12065550142", toPhone: "+12065550100" }],

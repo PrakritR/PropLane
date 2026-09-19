@@ -468,6 +468,11 @@ export const sendLeaseForSignatureTool = defineWriteTool({
         deliverToPortalInbox: true,
         deliverViaEmail: true,
         deliverViaSms: false,
+        threadIdentity: {
+          managerUserId: ctx.landlordId,
+          ...(row.propertyId ? { propertyId: row.propertyId } : {}),
+          ...(row.unit && row.unit !== "—" ? { propertyTitle: row.unit } : {}),
+        },
       });
       notified = delivery.ok;
     } catch {

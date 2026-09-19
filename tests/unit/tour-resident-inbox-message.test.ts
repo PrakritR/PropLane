@@ -1,7 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import { recordResidentProspectInboxMessage } from "@/lib/tour-notification-delivery.server";
+import { recordResidentProspectInboxMessage, tourInboxMessageId } from "@/lib/tour-notification-delivery.server";
 
 describe("recordResidentProspectInboxMessage", () => {
+  it("dedupes a delivery retry but gives changed reconfirm and cancel copy a new lifecycle turn", () => {
+    const parts = ["tour-1", "confirmed", "2026-09-18T18:00:00Z"];
+    const retry = tourInboxMessageId(parts, "Tour confirmed", "See you at 11.");
+    expect(tourInboxMessageId(parts, "Tour confirmed", "See you at 11.")).toBe(retry);
+    expect(tourInboxMessageId(parts, "Tour confirmed", "Please arrive ten minutes early.")).not.toBe(retry);
+    expect(tourInboxMessageId(["tour-1", "canceled", "2026-09-18T18:00:00Z"], "Tour canceled", "The tour was canceled.")).not.toBe(retry);
+  });
+
   it("writes a resident inbox thread keyed by participant email", async () => {
     const upsert = vi.fn().mockResolvedValue({ error: null });
     const db = {

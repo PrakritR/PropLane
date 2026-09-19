@@ -29,6 +29,7 @@ import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import {
   projectLeasePipelineListRow,
   restoreOmittedLeaseDocument,
+  type LeaseListDocumentRow,
 } from "@/lib/lease-pipeline-list-projection";
 import { syncLeaseLifecycleTasks } from "@/lib/manager-default-tasks.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -77,6 +78,32 @@ function normalizeRow(row: Record<string, unknown>, { sanitizeGeneratedHtml = fa
   const generatedHtml =
     sanitizeGeneratedHtml && typeof row.generatedHtml === "string" ? sanitizeLeaseDocumentHtml(row.generatedHtml) : row.generatedHtml;
   return { ...row, generatedHtml };
+}
+
+/**
+ * Lease records are persisted JSON, so list projection must narrow document HTML
+ * before its typed omission logic examines it. Unknown values are deliberately
+ * treated as absent: they cannot be document bytes, and must not crash a list
+ * response or flow back into the hydrated document path.
+ */
+function normalizeLeaseListRow(row: Record<string, unknown>): LeaseListDocumentRow & Record<string, unknown> {
+  const normalized = normalizeRow(row);
+  const generatedHtml = normalized.generatedHtml;
+  const signedLeaseSnapshots = Array.isArray(normalized.signedLeaseSnapshots)
+    ? normalized.signedLeaseSnapshots
+        .filter(
+          (snapshot): snapshot is Record<string, unknown> =>
+            Boolean(snapshot) && typeof snapshot === "object" && !Array.isArray(snapshot),
+        )
+        .map(normalizeLeaseListRow)
+    : normalized.signedLeaseSnapshots === null
+      ? null
+      : undefined;
+  return {
+    ...normalized,
+    generatedHtml: typeof generatedHtml === "string" || generatedHtml === null ? generatedHtml : undefined,
+    signedLeaseSnapshots,
+  };
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -341,7 +368,7 @@ export async function GET(req?: Request) {
       records = await fetchLeasesForManagerUser(ctx.db, ctx.user.id);
     }
 
-    const rows = records.map((record) => projectLeasePipelineListRow(normalizeRow(rowFromLeaseRecord(record))));
+    const rows = records.map((record) => projectLeasePipelineListRow(normalizeLeaseListRow(rowFromLeaseRecord(record))));
 
     return NextResponse.json({ rows });
   } catch (e) {

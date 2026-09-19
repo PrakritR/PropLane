@@ -267,6 +267,13 @@ export function ResidentDirectChatPane({
     void inboxTick;
     return emailThreadsForResident(email, emailThreadSnapshot);
   }, [email, emailThreadSnapshot, inboxTick]);
+  // A direct pane can contain several email records that the list proved belong
+  // to the same relationship. The selected snapshot is the authority for a
+  // reply target - never rediscover by email, which could choose a newer row
+  // for another property.
+  const emailReplyThreadId = emailThreads.find(
+    (thread) => !thread.threadType || thread.threadType === "portal_message",
+  )?.id ?? "";
   const lastInboundChannel = useMemo(
     () => lastInboundChannelFromThreads(emailThreads),
     [emailThreads],
@@ -578,7 +585,7 @@ export function ResidentDirectChatPane({
 
       if (replyViaProplane) {
         const result = await sendPropLaneAssistantInboxMessage({
-          threadId: "",
+          threadId: emailReplyThreadId,
           subject: "Message from your property manager",
           text: text || "(attachment)",
           fromName: "Property manager",
@@ -651,6 +658,7 @@ export function ResidentDirectChatPane({
           headers: { "Content-Type": "application/json" },
           credentials: "include",
           body: JSON.stringify({
+            threadId: emailReplyThreadId,
             fromName: "Property manager",
             toEmails: [email],
             subject: emailReplySubject,
@@ -702,6 +710,7 @@ export function ResidentDirectChatPane({
   }, [
     draft,
     email,
+    emailReplyThreadId,
     emailReplySubject,
     onSent,
     replyAttachments,

@@ -62,6 +62,15 @@ describe("what it must never override", () => {
       resolveLeaseJurisdiction(ctx({ address: "1 Market St, San Francisco, CA 94105", zip: "94105" })),
     ).toBe("san_francisco");
   });
+
+  it.each([
+    ["an explicit unsupported state", { state: "TX" }],
+    ["an unsupported city", { city: "Austin" }],
+    ["an unsupported ZIP", { zip: "73301" }],
+    ["an unsupported postal code", { postalCode: "73301" }],
+  ])("keeps %s unsupported instead of defaulting to Washington", (_label, propertyLocation) => {
+    expect(resolveLeaseJurisdiction({ propertyLocation })).toBe("unsupported");
+  });
 });
 
 describe("what it does not claim", () => {

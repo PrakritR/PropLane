@@ -111,6 +111,11 @@ export async function sendResidentChargeMessage(
     deliverToPortalInbox: true,
     senderRole: "resident",
     eventCategory: "payments",
+    threadIdentity: {
+      managerUserId,
+      ...(charge.propertyId ? { propertyId: charge.propertyId } : {}),
+      ...(charge.propertyLabel ? { propertyTitle: charge.propertyLabel } : {}),
+    },
   });
   if (!delivery.ok) {
     return { ok: false, status: 400, error: delivery.error };

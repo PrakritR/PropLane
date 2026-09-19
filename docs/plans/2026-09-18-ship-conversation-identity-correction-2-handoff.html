@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conversation identity correction 2 handoff</title>
+<style>
+  :root { color-scheme: light dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  body { max-width: 1050px; margin: 44px auto; padding: 0 24px 72px; line-height: 1.55; }
+  h1 { line-height: 1.15; } h2 { margin-top: 2rem; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 10px; border: 1px solid color-mix(in srgb, currentColor 22%, transparent); text-align: left; vertical-align: top; }
+  th { background: color-mix(in srgb, currentColor 8%, transparent); }
+  code { overflow-wrap: anywhere; }
+  .done { color: #16713b; font-weight: 650; }
+  .pending { color: #a15b00; font-weight: 650; }
+  .status { border-left: 5px solid #16713b; padding: 12px 16px; background: color-mix(in srgb, #16713b 9%, transparent); }
+</style>
+<body>
+<h1>Conversation identity correction cycle 2 handoff</h1>
+<p><strong>Date:</strong> September 18, 2026<br>
+<strong>Plan:</strong> <code>docs/plans/2026-09-18-ship-conversation-identity-plan.html</code><br>
+<strong>Correction:</strong> <code>docs/plans/2026-09-18-ship-conversation-identity-correction-2.html</code><br>
+<strong>Branch:</strong> <code>akhil/ship-conversation-identity</code><br>
+<strong>Worktree:</strong> <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code><br>
+<strong>Starting and current HEAD:</strong> <code>6a4c899070dc41d50b4675169eb2fce6de660bc2</code>, with the complete task remaining uncommitted.</p>
+
+<p class="status"><strong>Bounded correction status:</strong> R9-R15 have source corrections and focused behavioral evidence. All seven final focused test files passed on the final tree, totaling 77 tests. Error-only ESLint passed on each correction source file and <code>git diff --check</code> passed. This is ready for the final fresh Astra review. It is not a staging-readiness claim: broad checks, build, browser QA, graph refresh, seeded data, sandbox Review URL, native checks, and staging remain pending under the explicit resource limit.</p>
+
+<h2>R9-R15 resolution</h2>
+<table>
+<thead><tr><th>Finding</th><th>Resolution</th><th>Focused evidence</th></tr></thead>
+<tbody>
+<tr><td>R9 - manager loader erased normal histories</td><td>Applicant enrichment always returns an independent array. Replacing the loader's working list can no longer clear the same aliased value. The Supabase fixture now supports the real <code>.neq</code> and <code>.not</code> chain separately.</td><td class="done"><code>sms-conversation-identity.test.ts</code>: ordinary resident and ambiguous prospect histories remain with their original messages; 15/15 final pass.</td></tr>
+<tr><td>R10 - explicit binding accepted entirely contradictory metadata</td><td>The resident resolver uses a strict explicit-binding check. Every nonempty manager, property, and email field must agree with the bound native conversation. It also evaluates every durable provenance claim, not only the scalar projection. The older overlap predicate remains limited to unbound candidate discovery.</td><td class="done"><code>resident-conversation-inbox.test.tsx</code> isolates an email carrying manager/property A metadata plus an explicit B key from B's SMS; 9/9 final pass.</td></tr>
+<tr><td>R11 - collapse erased negative identity evidence</td><td>Stored threads now carry normalized <code>identityProvenance</code>. Same-email histories with incompatible manager/property/binding claims are partitioned instead of merged and cleared. A single row containing old and late conflicting claims remains isolated by the client resolver.</td><td class="done"><code>collapse-person-inbox-threads.test.ts</code> covers property A/property B sources, a singleton A binding, and a late binding after the first collapse; 15/15 final pass.</td></tr>
+<tr><td>R12 - delivery overwrote relationship provenance</td><td>The delivery writer appends the turn but keeps the old scalar relationship when a new claim conflicts. It appends both claims to durable provenance, preserves source ids, and allows later storage/client partitioning to fail closed.</td><td class="done">The real <code>deliverPortalMessageThreadSide</code> test proves both the new turn and original property/binding survive. The collapse/delivery file passed 15/15.</td></tr>
+<tr><td>R13 - applicant identity guessed from a shared phone</td><td>Name/email enrichment now requires a completed submitted-notification outbox row and agreement on owner, recipient phone/email, exact conversation key, provider work number, a real turn on that sender pair, eligible role, and one known directory identity for the phone. Populated competing residents/applicants participate in ambiguity. Saved contact labels remain separate and unchanged.</td><td class="done"><code>sms-conversation-identity.test.ts</code> covers no-op retention, a proven prospect upgrade, two eligible applications, role isolation, owner isolation, and wrong sender/owner resolution; 15/15 final pass.</td></tr>
+<tr><td>R14 - Unread/search removed the other channel</td><td>Email and SMS members are first resolved inside the active/archive partition, then merged. Unread and search filter the complete conversation row. Search records which underlying member matched, so a body present on one channel keeps every proven member. The selected Unread row stays mounted after its read receipt so the complete timeline remains visible.</td><td class="done"><code>resident-conversation-inbox.test.tsx</code> exercises SMS-only Unread and SMS-only search matches through the real resident component and verifies the email pane remains selected; 9/9 final pass.</td></tr>
+<tr><td>R15 - rejected applications lost recovered identity</td><td>Rejected application records remain directory identities with applicant status. Pending, needs-info, and rejected never become active residents; approved may become resident. The exact proven prospect/applicant conversation key persists across transitions.</td><td class="done"><code>sms-conversation-identity.test.ts</code> drives submitted, needs-info, rejected, and approved loader states with the same proven key/name/email. The lifecycle writer also passes 7/7.</td></tr>
+</tbody>
+</table>
+
+<h2>R1-R8 retained</h2>
+<p>The correction 1 implementation remains in the worktree: selected SMS histories are scoped, explicit bindings and unknown identities remain isolated, Assistant rows do not enter human buckets, known unread rows survive unknown fallback, resident SMS archive state is viewer-scoped, the Next route export is supported, hook dependencies are valid, and selected archived email sources render as one complete authorized timeline. Root validation before this correction recorded 6/6 resident conversation, 4/4 identity helper, 9/9 refused-send panel, 22/22 property-manager lifecycle, and 12/12 collapse tests passing. Cycle 2 reran the resident component and identity/collapse seams affected by this correction; it did not rerun every earlier file.</p>
+
+<h2>Executed validation</h2>
+<table>
+<thead><tr><th>Command scope</th><th>Final result</th></tr></thead>
+<tbody>
+<tr><td><code>vitest run tests/unit/sms-conversation-identity.test.ts --maxWorkers=1 --no-file-parallelism</code></td><td class="done">Exit 0, 15 passed. Earlier bounded attempts exited 1 with 3, then 2, then 1 fixture/expectation failures. Each failure was addressed before rerun.</td></tr>
+<tr><td><code>vitest run tests/unit/collapse-person-inbox-threads.test.ts --maxWorkers=1 --no-file-parallelism</code></td><td class="done">Exit 0, 15 passed. First attempt exited 1 because the new real-writer fixture used client-shape column names; corrected to stored row columns.</td></tr>
+<tr><td><code>vitest run tests/unit/resident-conversation-inbox.test.tsx --maxWorkers=1 --no-file-parallelism</code></td><td class="done">Exit 0, 9 passed. First attempt exited 1 because the selected SMS read receipt removed the open Unread row; the component now retains the selected row until navigation.</td></tr>
+<tr><td><code>vitest run tests/unit/application-lifecycle-sms.test.ts --maxWorkers=1 --no-file-parallelism</code></td><td class="done">Exit 0, 7 passed. First attempt exited 1 on the old null-key expectation; it now asserts the durable owner-scoped applicant key.</td></tr>
+<tr><td><code>vitest run tests/unit/application-submitted-notification.test.ts --maxWorkers=1 --no-file-parallelism</code></td><td class="done">Exit 0, 5 passed.</td></tr>
+<tr><td><code>vitest run tests/unit/conversation-identity-correction.test.ts --maxWorkers=1 --no-file-parallelism</code></td><td class="done">Exit 0, 4 passed.</td></tr>
+<tr><td><code>vitest run tests/unit/property-manager-inbox-thread.test.ts --maxWorkers=1 --no-file-parallelism</code></td><td class="done">Exit 0, 22 passed on the final tree, including the stateful request, confirmation, reschedule, cancellation, reconfirmation, and retry history.</td></tr>
+<tr><td>Error-only ESLint, one file per process, on <code>resident-communication.tsx</code>, <code>manager-sms-messages.server.ts</code>, <code>portal-inbox-storage.ts</code>, <code>portal-inbox-delivery.ts</code>, <code>application-lifecycle-sms.server.ts</code>, and <code>application-submitted-notification.server.ts</code></td><td class="done">All six exited 0 under Node 22.23.0 and a 384 MB heap cap.</td></tr>
+<tr><td><code>git diff --check</code></td><td class="done">Exit 0.</td></tr>
+</tbody>
+</table>
+
+<p>Every Vitest process used <code>PATH=/Users/akhilvemuri/.nvm/versions/node/v22.23.0/bin:$PATH</code>, <code>NODE_OPTIONS=--max-old-space-size=384</code>, <code>--maxWorkers=1</code>, and <code>--no-file-parallelism</code>. Files ran one at a time. Before validation, pressure was level 1 and swap was stable or decreasing from 1710 MB to 1702 MB. No task test process remained between files.</p>
+
+<h2>Authored evidence and limits</h2>
+<ul>
+  <li>The applicant name upgrade is deliberately delayed until the submitted outbox record has a real provider sender and that sender matches an exact stored turn. A pending provider submission stays unlabelled rather than guessing.</li>
+  <li>The focused tests use stateful Supabase fakes and real resolver, loader, writer, collapse, and component paths. They do not prove production database data or a seeded browser session.</li>
+  <li class="pending">Not run: whole-project typecheck, build, broad lint/tests, browser/E2E, real seed, localhost server, graph refresh, native/deep-link QA, sandbox Review URL, staging, or production.</li>
+  <li>No commit, push, PR, Linear action, external message, deployment, production mutation, additional worktree, install, or no-mistakes action occurred.</li>
+  <li>The existing PRP-488 investigation and backlog progress documents were preserved untouched.</li>
+</ul>
+
+<h2>Final review prompt</h2>
+<pre>Fresh Astra final review for correction cycle 2 in /Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2 on branch akhil/ship-conversation-identity at HEAD 6a4c899070dc41d50b4675169eb2fce6de660bc2 with uncommitted changes. Read AGENTS.md, docs/agents/AGENTS-akhil.md, docs/agents/akhil-feature-cycle.md, communication-inbox.md, sms-system.md, the original plan, both reviews, both correction plans, correction-1 handoff, root validation, and correction-2 handoff. Review R1-R15 and the full diff. Pay special attention to identityProvenance normalization and partitioning, late delivery claims, strict client consumption of every provenance claim, completed-outbox applicant proof, transition behavior through rejected/approved, full member retention after Unread/search, the stateful tour writer history, and existing authorization/read/source-id behavior. Focused correction results are 77 passing tests on the final tree plus six source-file error-only lint exits 0 and git diff --check exit 0. Broad compile, browser, graph, native, staging, and Review URL remain unexecuted. This is the final automated correction cycle: report any remaining findings to Akhil and do not start a third correction.</pre>
+</body>
+</html>

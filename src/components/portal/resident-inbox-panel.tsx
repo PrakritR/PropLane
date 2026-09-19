@@ -24,6 +24,7 @@ import { PortalListToolbar } from "@/components/portal/portal-list-toolbar";
 import { PORTAL_DETAIL_BTN } from "@/components/portal/portal-data-table";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { formatPacificDateTime } from "@/lib/pacific-time";
+import type { ManagerSmsMessageRow } from "@/lib/manager-sms-messages";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
 import { resolveCommunicationInboxThread } from "@/lib/communication-assistant-inbox-list";
@@ -75,6 +76,7 @@ import {
   inboxMessageOutbound,
   appendReplyToInboxThread,
   formatInboxStamp,
+  parseInboxStampMs,
   collapsePersonInboxThreads,
   inboxThreadCounterpartyEmail,
   type InboxThreadMessage,
@@ -164,6 +166,14 @@ export const ResidentInboxPanel = forwardRef<
     /** Let #portal-main-content scroll the thread (native-safe; matches manager embedded chat). */
     pageScroll?: boolean;
     smsUiEnabled?: boolean;
+    /** Exact email source rows selected by the outer merged communication row. */
+    communicationEmailThreadIds?: string[];
+    /** Exact server-verified SMS members folded into the selected manager thread. */
+    communicationSmsMessages?: ManagerSmsMessageRow[];
+    /** Verified manager label for a historical thread whose stored label was generic. */
+    communicationThreadTitle?: string;
+    /** The parent owns source-aware read acknowledgement for a merged row. */
+    disableAutoMarkRead?: boolean;
   }
 >(function ResidentInboxPanel(
   {
@@ -176,6 +186,10 @@ export const ResidentInboxPanel = forwardRef<
     onControlledExpandedIdChange,
     pageScroll = false,
     smsUiEnabled = false,
+    communicationEmailThreadIds = [],
+    communicationSmsMessages = [],
+    communicationThreadTitle,
+    disableAutoMarkRead = false,
   },
   ref,
 ) {
@@ -1225,11 +1239,12 @@ export const ResidentInboxPanel = forwardRef<
   const autoMarkReadAttemptedRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
+    if (disableAutoMarkRead) return;
     if (!activeThread || activeThread.folder !== "inbox" || !activeThread.unread) return;
     if (autoMarkReadAttemptedRef.current.has(activeThread.id)) return;
     autoMarkReadAttemptedRef.current.add(activeThread.id);
     markReadSilent(activeThread.id);
-  }, [activeThread?.id, activeThread?.folder, activeThread?.unread, markReadSilent]);
+  }, [activeThread?.id, activeThread?.folder, activeThread?.unread, disableAutoMarkRead, markReadSilent]);
 
   useEffect(() => {
     setReplyDraft("");
@@ -1243,42 +1258,78 @@ export const ResidentInboxPanel = forwardRef<
         ? activeThread.email || undefined
         : activeThread.from || activeThread.email || undefined
     : undefined;
-  const activeFolder = activeThread
-    ? activeThread.folder === "trash"
-      ? inferPreviousFolder(activeThread)
-      : activeThread.folder
-    : "inbox";
+  const communicationEmailThreads = useMemo(() => {
+    if (!activeThread) return [];
+    const selectedIds = [...new Set(communicationEmailThreadIds.map((id) => id.trim()).filter(Boolean))];
+    if (selectedIds.length === 0) return [activeThread];
+    const available = [...local, ...emailThreads];
+    const selected = selectedIds.flatMap((id) => {
+      const direct = available.find((thread) => thread.id === id);
+      if (direct) return [direct];
+      return activeThread.id === id || activeThread.sourceThreadIds?.includes(id) ? [activeThread] : [];
+    });
+    const deduped = [...new Map(selected.map((thread) => [thread.id, thread])).values()];
+    return deduped.length > 0 ? deduped : [activeThread];
+  }, [activeThread, communicationEmailThreadIds, emailThreads, local]);
 
   const activeBubbles = useMemo((): InboxBubbleMessage[] => {
     if (!activeThread) return [];
-    const pendingRoot = pendingSendingThreadIds.has(activeThread.id);
+    const seenMessageIds = new Set<string>();
+    const emailTurns = communicationEmailThreads.flatMap((thread) => {
+      const threadFolder = thread.folder === "trash" ? inferPreviousFolder(thread) : thread.folder;
+      const pendingRoot = pendingSendingThreadIds.has(thread.id);
+      return inboxThreadMessages(thread).flatMap((message, index) => {
+        if (seenMessageIds.has(message.id)) return [];
+        seenMessageIds.add(message.id);
+        const direction = inboxTurnDirection(thread, message, index, threadFolder);
+        const delivery = message.delivery ?? (pendingRoot && index === 0 && direction === "outbound" ? "sending" : undefined);
+        return [{
+          message: { ...message, subject: message.subject ?? (index === 0 ? thread.subject : undefined) },
+          direction,
+          delivery,
+        }];
+      });
+    }).sort((left, right) => (parseInboxStampMs(left.message.at) ?? 0) - (parseInboxStampMs(right.message.at) ?? 0));
     let lastShownSubject = "";
-    return inboxThreadMessages(activeThread).map((m, i) => {
-      const direction = inboxTurnDirection(activeThread, m, i, activeFolder);
-      const delivery =
-        m.delivery ?? (pendingRoot && i === 0 && direction === "outbound" ? ("sending" as const) : undefined);
+    const emailBubbles = emailTurns.map(({ message, direction, delivery }) => {
       const fields = inboxEmailBubbleFields(
         {
-          body: m.body,
-          subject: m.subject ?? (i === 0 ? activeThread.subject : undefined),
-          channel: m.channel,
+          body: message.body,
+          subject: message.subject,
+          channel: message.channel,
         },
         lastShownSubject,
       );
       lastShownSubject = fields.lastShownSubject;
       return {
-        id: m.id,
-        author: m.from,
+        id: message.id,
+        author: message.from,
         body: fields.body,
-        at: m.at,
+        at: message.at,
         direction,
         delivery,
-        channel: m.channel,
+        channel: message.channel,
         ...(fields.subject ? { subject: fields.subject } : {}),
-        attachments: m.attachments,
+        attachments: message.attachments,
       } satisfies InboxBubbleMessage;
     });
-  }, [activeThread, activeFolder, pendingSendingThreadIds]);
+    const smsBubbles = communicationSmsMessages.map((message) => {
+      const timestamp = Date.parse(message.createdAt);
+      return {
+        id: `sms:${message.id}`,
+        author: message.direction === "outbound"
+          ? "Resident"
+          : communicationThreadTitle || activeThread.from || "Property manager",
+        body: message.body,
+        at: Number.isNaN(timestamp) ? "" : formatInboxStamp(new Date(timestamp)),
+        direction: message.direction,
+        channel: "sms",
+      } satisfies InboxBubbleMessage;
+    });
+    return [...emailBubbles, ...smsBubbles].sort(
+      (left, right) => (parseInboxStampMs(left.at) ?? 0) - (parseInboxStampMs(right.at) ?? 0),
+    );
+  }, [activeThread, communicationEmailThreads, communicationSmsMessages, communicationThreadTitle, pendingSendingThreadIds]);
 
   // Scheduled messages the resident has queued to this conversation's manager —
   // shown inline as compact cards. Residents may cancel or send now, but not
@@ -1787,9 +1838,9 @@ export const ResidentInboxPanel = forwardRef<
             <InboxThreadView
               scrollMode={pageScroll ? "page" : "pane"}
               title={
-                activeIsSent
+                communicationThreadTitle || (activeIsSent
                   ? activeThread.email || "Unknown recipient"
-                  : activeThread.from || activeThread.email || "Unknown sender"
+                  : activeThread.from || activeThread.email || "Unknown sender")
               }
               avatarName={activeThreadAvatarName}
               subtitle={

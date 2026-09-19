@@ -73,6 +73,8 @@ import {
   MANAGER_INBOX_STORAGE_KEY,
   PORTAL_INBOX_CHANGED_EVENT,
   collapsePersonInboxThreads,
+  inboxThreadIdentityConflicted,
+  inboxThreadRelationshipKey,
   loadPersistedInbox,
   inboxThreadMessages,
   inboxThreadSortMs,
@@ -90,8 +92,6 @@ import {
   mergeUnifiedInboxItems,
   parseUnifiedInboxKey,
   unifiedInboxKey,
-  unifiedInboxPersonKey,
-  unifiedInboxSmsBindingKey,
   type CommunicationListSort,
   type UnifiedInboxListItem,
 } from "@/lib/unified-inbox-merge";
@@ -154,10 +154,49 @@ function emailThreadMergeStub(t: PersistedInboxThread): UnifiedInboxListItem {
     memberKeys: (t.sourceThreadIds ?? [t.id]).map((id) => unifiedInboxKey("email", id)),
     ...(smsBindingKeys.length > 0 ? { smsBindingKeys } : {}),
     ...(smsBindingKeys.length === 1 ? { smsBindingKey: smsBindingKeys[0] } : {}),
-    personKey:
-      (smsBindingKeys.length === 1 ? unifiedInboxSmsBindingKey(smsBindingKeys[0]) : undefined) ??
-      (smsBindingKeys.length > 1 ? `email-explicit-binding:${t.id}` : unifiedInboxPersonKey(t.email)),
+    personKey: managerUnifiedEmailPersonKey(t, smsBindingKeys),
   };
+}
+
+/** Only verified same-property email histories may fold in the manager inbox. */
+export function managerUnifiedEmailPersonKey(thread: PersistedInboxThread, smsBindingKeys: readonly string[]): string {
+  if (inboxThreadIdentityConflicted(thread) || smsBindingKeys.length > 1) return `email-isolated:${thread.id}`;
+  const relationship = inboxThreadRelationshipKey(thread);
+  if (smsBindingKeys.length === 1) {
+    return relationship
+      ? `sms-relationship:${smsBindingKeys[0]}:${relationship}`
+      : `email-isolated:${thread.id}`;
+  }
+  return relationship
+    ? `email-relationship:${thread.email.trim().toLowerCase()}:${relationship}`
+    : `email-isolated:${thread.id}`;
+}
+
+function managerSmsRelationshipKey(resident: ManagerSmsResidentConversation): string | null {
+  const houseIds = (resident.houses ?? []).map((house) => house.propertyId.trim()).filter(Boolean);
+  if (houseIds.length !== 1) return null;
+  return [resident.ownerManagerUserId?.trim() ?? "", houseIds[0], resident.counterpartyRole?.trim() ?? ""].join("\0");
+}
+
+/** Exact accepted-member match for deep links into a merged conversation. */
+function unifiedInboxRowHasThreadId(row: UnifiedInboxListItem, threadId: string): boolean {
+  if (row.threadId === threadId) return true;
+  return (row.memberKeys ?? [])
+    .map(parseUnifiedInboxKey)
+    .some((member) => member?.threadId === threadId);
+}
+
+/** A native binding joins an email row only when both sides prove one relationship. */
+export function managerUnifiedSmsPersonKey(
+  resident: ManagerSmsResidentConversation,
+  emailBindingRelationships: ReadonlySet<string>,
+): string {
+  const binding = resident.conversationKey?.trim() ?? "";
+  const relationship = managerSmsRelationshipKey(resident);
+  if (binding && relationship && emailBindingRelationships.has(`${binding}\0${relationship}`)) {
+    return `sms-relationship:${binding}:${relationship}`;
+  }
+  return `sms-isolated:${smsConversationId(resident)}`;
 }
 
 function loadSmsHiddenIds(): Set<string> {
@@ -289,6 +328,13 @@ export function ManagerUnifiedInbox({
   );
   const viewerEpochRef = useRef(0);
   const viewerAuthority = useMemo(() => ({ viewerId }), [viewerId]);
+  const unreadSelectionAdmissionRef = useRef<{
+    viewerAuthority: typeof viewerAuthority;
+    folder: typeof folder;
+    statusFilter: typeof statusFilter;
+    query: string;
+    memberKeys: ReadonlySet<string>;
+  } | null>(null);
   const currentViewerAuthorityRef = useRef(viewerAuthority);
   const currentViewerIdRef = useRef(viewerId);
   const previousViewerIdRef = useRef(viewerId);
@@ -583,22 +629,15 @@ export function ManagerUnifiedInbox({
   }, [assistantWorkspace, emailThreads, threadFilters, filterContacts, listSegment, smsUiEnabled, viewerId]);
 
   const emailListItems = useMemo((): UnifiedInboxListItem[] => {
-    const q = query.trim().toLowerCase();
     let rows = filteredEmail;
     if (listSegment === "archived") {
       rows = rows.filter((t) => t.folder === "trash");
     } else if (listSegment === "unread") {
-      rows = rows.filter((t) => t.folder !== "trash" && t.folder === "inbox" && t.unread);
+      // Unread is presented after cross-channel membership has been built, but
+      // it always belongs to the active partition rather than Archive.
+      rows = rows.filter((t) => t.folder !== "trash");
     } else if (!includeArchived) {
       rows = rows.filter((t) => t.folder !== "trash");
-    }
-    if (q) {
-      // Search refines the selected segment; it must not leak read rows back
-      // into Unread or active rows back into Archived.
-      rows = rows.filter((t) => {
-        const hay = [t.from, t.email, t.subject, t.body, t.preview].filter(Boolean).join(" ").toLowerCase();
-        return hay.includes(q);
-      });
     }
 
     return rows.map((t) => {
@@ -626,9 +665,7 @@ export function ManagerUnifiedInbox({
         ...(smsBindingKeys.length > 0 ? { smsBindingKeys } : {}),
         ...(smsBindingKeys.length === 1 ? { smsBindingKey: smsBindingKeys[0] } : {}),
         // Who this is with, so a text thread with the same person folds in.
-        personKey:
-          (smsBindingKeys.length === 1 ? unifiedInboxSmsBindingKey(smsBindingKeys[0]) : undefined) ??
-          (smsBindingKeys.length > 1 ? `email-explicit-binding:${t.id}` : unifiedInboxPersonKey(t.email)),
+        personKey: managerUnifiedEmailPersonKey(t, smsBindingKeys),
         personEmail: t.email?.trim() || undefined,
         name: displayName,
         subtitle: isPropLaneAssistantInboxThread(t)
@@ -658,13 +695,17 @@ export function ManagerUnifiedInbox({
         sortMs: inboxThreadSortMs(t.id, t.time),
       };
     });
-  }, [filteredEmail, query, listSegment, includeArchived]);
+  }, [filteredEmail, listSegment, includeArchived]);
 
-  const explicitlyBoundSmsKeys = useMemo(
-    () => new Set(filteredEmail.flatMap((thread) => [
-      ...(thread.smsBindingKeys ?? []),
-      thread.smsConversationKey ?? "",
-    ]).map((key) => key.trim()).filter(Boolean)),
+  const emailBindingRelationships = useMemo(
+    () => new Set(filteredEmail.flatMap((thread) => {
+      const relationship = inboxThreadRelationshipKey(thread);
+      if (!relationship || inboxThreadIdentityConflicted(thread)) return [];
+      return [...(thread.smsBindingKeys ?? []), thread.smsConversationKey ?? ""]
+        .map((binding) => binding.trim())
+        .filter(Boolean)
+        .map((binding) => `${binding}\0${relationship}`);
+    })),
     [filteredEmail],
   );
 
@@ -703,12 +744,9 @@ export function ManagerUnifiedInbox({
           key: unifiedInboxKey("sms", rowId),
           channel: "sms",
           threadId: rowId,
-          // Only a resolved address merges. An unknown number carries none, so
-          // it stays its own conversation rather than being guessed onto a
-          // resident.
-          personKey: explicitlyBoundSmsKeys.has(resident.conversationKey ?? "")
-            ? unifiedInboxSmsBindingKey(resident.conversationKey)
-            : unifiedInboxPersonKey(resident.residentEmail),
+          // A binding alone is insufficient on a workspace-wide work number.
+          // It must agree with the email row's manager/property/role evidence.
+          personKey: managerUnifiedSmsPersonKey(resident, emailBindingRelationships),
           personEmail: resident.residentEmail?.trim() || undefined,
           smsBindingKey: resident.conversationKey?.trim() || undefined,
           // Prefer person name / unit / email; fall back to a readable phone.
@@ -743,14 +781,12 @@ export function ManagerUnifiedInbox({
         return { item, lastOutbound, haystack, archived, unread };
       })
       .filter((x): x is { item: UnifiedInboxListItem; lastOutbound: boolean; haystack: string; archived: boolean; unread: boolean } => x !== null);
-  }, [explicitlyBoundSmsKeys, filterContacts, smsArchivedIds, smsHiddenIds, smsOpenedIds, smsResidents, threadFilters, smsUiEnabled]);
+  }, [emailBindingRelationships, filterContacts, smsArchivedIds, smsHiddenIds, smsOpenedIds, smsResidents, threadFilters, smsUiEnabled]);
 
   const smsListItems = useMemo((): UnifiedInboxListItem[] => {
-    const q = query.trim().toLowerCase();
-    const items = allSmsItems.filter(({ archived, unread, haystack }) => {
-      if (q && !haystack.includes(q)) return false;
+    const items = allSmsItems.filter(({ archived }) => {
       if (listSegment === "archived") return archived;
-      if (listSegment === "unread") return !archived && unread;
+      if (listSegment === "unread") return !archived;
       return includeArchived || !archived;
     });
     return items.map(({ item }) => item);
@@ -876,9 +912,32 @@ export function ManagerUnifiedInbox({
     viewerId,
   ]);
 
+  const rowMatchesSearch = useCallback((row: UnifiedInboxListItem) => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) return true;
+    const memberKeys = [row.key, ...(row.memberKeys ?? [])];
+    const matchesEmail = filteredEmail.some((thread) => {
+      const sourceKeys = (thread.sourceThreadIds ?? [thread.id]).map((id) => unifiedInboxKey("email", id));
+      if (!sourceKeys.some((key) => memberKeys.includes(key))) return false;
+      return [thread.from, thread.email, thread.subject, thread.body, thread.preview]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery);
+    });
+    return matchesEmail || allSmsItems.some(({ item, haystack }) =>
+      memberKeys.includes(item.key) && haystack.includes(normalizedQuery),
+    );
+  }, [allSmsItems, filteredEmail, query]);
+
   // SSR and the first client paint must agree — local inbox + contact rows load only after mount.
   const listRows = initialListReady
     ? mergedRows.filter((row) => {
+        // Membership is built from every authorized member in this active or
+        // archived partition above. Search and Unread only decide whether that
+        // complete conversation is shown; they must never trim its timeline.
+        if (!rowMatchesSearch(row)) return false;
+        if (listSegment === "unread" && !row.unread) return false;
         if (statusFilter === "read") return !row.unread;
         if (statusFilter === "unread") return row.unread;
         return true;
@@ -928,6 +987,19 @@ export function ManagerUnifiedInbox({
         : null,
     [initialListReady, mergedRows, selectedKey],
   );
+
+  // A route may be waiting for an arriving thread, but once its row is in the
+  // authorized partition we know whether the current presentation admits it.
+  // Keep that distinction separate from `selectedRow`, which intentionally
+  // resolves against the unfiltered membership for the complete timeline.
+  const resolvedRoutedRow = useMemo(
+    () =>
+      initialListReady && routeThreadId
+        ? (mergedRows.find((row) => unifiedInboxRowHasThreadId(row, routeThreadId)) ?? null)
+        : null,
+    [initialListReady, mergedRows, routeThreadId],
+  );
+  const resolvedRouteRef = useRef<{ threadId: string; viewerAuthority: typeof viewerAuthority } | null>(null);
 
   /**
    * A conversation that spans both channels renders as ONE thread — the direct
@@ -1018,8 +1090,21 @@ export function ManagerUnifiedInbox({
   }, [routeThreadId]);
 
   useEffect(() => {
+    if (!routeThreadId) {
+      resolvedRouteRef.current = null;
+    } else if (resolvedRoutedRow) {
+      // Remember resolution across an archive transition. The row may move out
+      // of this partition on the next render, which is different from a route
+      // that has not arrived yet.
+      resolvedRouteRef.current = { threadId: routeThreadId, viewerAuthority };
+    } else if (resolvedRouteRef.current?.viewerAuthority !== viewerAuthority) {
+      resolvedRouteRef.current = null;
+    }
+  }, [resolvedRoutedRow, routeThreadId, viewerAuthority]);
+
+  useEffect(() => {
     if (!initialListReady || !routeThreadId) return;
-    const match = listRows.find((r) => r.threadId === routeThreadId);
+    const match = listRows.find((row) => unifiedInboxRowHasThreadId(row, routeThreadId));
     if (match) {
       setSelectedKey(match.key);
       setMobileThreadOpen(true);
@@ -1037,34 +1122,134 @@ export function ManagerUnifiedInbox({
     }
   }, [listSegment, routeThreadId]);
 
+  // Retention is only for a conversation that was actually admitted to this
+  // Unread presentation before its read acknowledgement. Keep the complete
+  // accepted membership so a native refresh may choose a new representative.
+  useEffect(() => {
+    unreadSelectionAdmissionRef.current = null;
+  }, [folder, query, statusFilter, viewerAuthority]);
+
+  useEffect(() => {
+    if (!initialListReady || listSegment !== "unread" || !selectedKey || !selectedRow?.unread) return;
+    const admittedRow = listRows.find(
+      (row) => row.key === selectedKey || (row.memberKeys ?? []).includes(selectedKey),
+    );
+    if (!admittedRow) return;
+    unreadSelectionAdmissionRef.current = {
+      viewerAuthority,
+      folder,
+      statusFilter,
+      query,
+      memberKeys: new Set([admittedRow.key, ...(admittedRow.memberKeys ?? [])]),
+    };
+  }, [
+    folder,
+    initialListReady,
+    listRows,
+    listSegment,
+    query,
+    selectedKey,
+    selectedRow,
+    statusFilter,
+    viewerAuthority,
+  ]);
+
   useEffect(() => {
     if (!initialListReady) return;
+    // A successful read acknowledgement removes this row from an Unread
+    // result, but it must not replace the timeline the manager is reading.
+    // Keep only the just-read selected conversation, and only while it still
+    // matches the current search and status presentation.
+    const unreadSelectionAdmission = unreadSelectionAdmissionRef.current;
+    const retainJustReadUnreadSelection = Boolean(
+      listSegment === "unread" &&
+      selectedRow &&
+      !selectedRow.unread &&
+      unreadSelectionAdmission &&
+      unreadSelectionAdmission.viewerAuthority === viewerAuthority &&
+      unreadSelectionAdmission.folder === folder &&
+      unreadSelectionAdmission.statusFilter === statusFilter &&
+      unreadSelectionAdmission.query === query &&
+      [selectedRow.key, ...(selectedRow.memberKeys ?? [])].some(
+        (memberKey) => unreadSelectionAdmission.memberKeys.has(memberKey),
+      ) &&
+      rowMatchesSearch(selectedRow) &&
+      statusFilter !== "read",
+    );
     if (listRows.length === 0) {
       // A deep-linked / just-created thread may land before its SMS row is in
-      // the merged list. Keep the pending route alive until the row arrives.
-      if (!routeThreadId) {
+      // the merged list. Once it has resolved, however, an empty result means
+      // the current search/status/archive presentation excludes it.
+      const routeWasResolved =
+        resolvedRouteRef.current?.threadId === routeThreadId &&
+        resolvedRouteRef.current?.viewerAuthority === viewerAuthority;
+      if (routeThreadId && routeWasResolved && !retainJustReadUnreadSelection) {
+        setSelectedKey(null);
+        setMobileThreadOpen(false);
+        onRouteThreadChange?.(undefined);
+        clearCommunicationThreadUrl(threadListHref());
+      } else if (!routeThreadId && !retainJustReadUnreadSelection) {
         setSelectedKey(null);
         setMobileThreadOpen(false);
       }
       return;
     }
+    const routedRow = routeThreadId
+      ? listRows.find((row) => unifiedInboxRowHasThreadId(row, routeThreadId))
+      : null;
+    const routeWasResolved =
+      resolvedRouteRef.current?.threadId === routeThreadId &&
+      resolvedRouteRef.current?.viewerAuthority === viewerAuthority;
+    if (routeThreadId && routeWasResolved && !routedRow && !retainJustReadUnreadSelection) {
+      setSelectedKey(null);
+      setMobileThreadOpen(false);
+      onRouteThreadChange?.(undefined);
+      clearCommunicationThreadUrl(threadListHref());
+      return;
+    }
     setSelectedKey((cur) => {
       if (routeThreadId) {
-        const routed = listRows.find((r) => r.threadId === routeThreadId);
-        if (routed) return routed.key;
+        if (routedRow) return routedRow.key;
         // Do not fall through to the first desktop row while the routed thread
         // is still missing — that is the contact-create race.
         if (cur && listRows.some((r) => r.key === cur)) {
-          const current = parseUnifiedInboxKey(cur);
-          if (current?.threadId === routeThreadId) return cur;
+          const currentRow = listRows.find((row) => row.key === cur);
+          if (currentRow && unifiedInboxRowHasThreadId(currentRow, routeThreadId)) return cur;
+        }
+        if (retainJustReadUnreadSelection && cur && selectedRow) {
+          const selectedRouteMember = unifiedInboxRowHasThreadId(selectedRow, routeThreadId);
+          if (
+            selectedRouteMember &&
+            (selectedRow.key === cur || (selectedRow.memberKeys ?? []).includes(cur))
+          ) return cur;
         }
         return null;
       }
       if (cur && listRows.some((r) => r.key === cur)) return cur;
+      if (
+        retainJustReadUnreadSelection &&
+        cur &&
+        selectedRow &&
+        (selectedRow.key === cur || (selectedRow.memberKeys ?? []).includes(cur))
+      ) return cur;
       if (inboxUsesDesktopSplit()) return listRows[0]!.key;
       return null;
     });
-  }, [initialListReady, listRows, routeThreadId]);
+  }, [
+    initialListReady,
+    listRows,
+    listSegment,
+    folder,
+    onRouteThreadChange,
+    query,
+    resolvedRoutedRow,
+    routeThreadId,
+    rowMatchesSearch,
+    selectedRow,
+    statusFilter,
+    threadListHref,
+    viewerAuthority,
+  ]);
 
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
@@ -1204,14 +1389,12 @@ export function ManagerUnifiedInbox({
       .map(parseUnifiedInboxKey)
       .filter((key): key is NonNullable<ReturnType<typeof parseUnifiedInboxKey>> => key?.channel === "sms")
       .map((key) => key.threadId);
-    const declaredBindingIds = selectedRow.smsBindingKeys ?? [];
-    // A declared email binding is the entire native authority for this
-    // selection. Do not let a stale pre-collapse member key add an unrelated
-    // same-email conversation beside K1/K2.
-    const explicitIds = [...new Set((declaredBindingIds.length > 0
-      ? declaredBindingIds
-      : [...explicitlySelectedNativeIds, selectedRow.smsBindingKey ?? ""]
-    ).filter(Boolean))];
+    // The list merge has already checked every owner/property/role relationship.
+    // Its accepted SMS members are therefore the only native records this pane
+    // may render, reply through, or acknowledge. A declared email binding alone
+    // is provenance, not selection authority - it may have been rejected by the
+    // list because the current native key belongs to another property or role.
+    const explicitIds = [...new Set(explicitlySelectedNativeIds.filter(Boolean))];
     if (explicitIds.length > 0) {
       return smsResidents.filter((resident) => {
         const aliases = [smsConversationId(resident), resident.conversationKey, ...(resident.memberKeys ?? [])]
@@ -1219,9 +1402,9 @@ export function ManagerUnifiedInbox({
         return explicitIds.some((id) => aliases.includes(id) || aliases.includes(unifiedInboxKey("sms", id)));
       });
     }
-    const email = directChatEmail.trim().toLowerCase();
-    const matches = smsResidents.filter((resident) => resident.residentEmail?.trim().toLowerCase() === email);
-    return matches.length === 1 ? matches : [];
+    // Do not rediscover a native row by email here. That broad fallback would
+    // bypass the rejected relationship decision that kept the list rows apart.
+    return [];
   }, [directChatEmail, selectedRow, smsResidents]);
   const pendingReadSignaturesRef = useRef(new Map<string, symbol>());
   const renderedViewerAuthority = viewerAuthority;

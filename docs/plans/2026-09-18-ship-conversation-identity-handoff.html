@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conversation identity implementation handoff — September 18, 2026</title>
+<style>
+  :root { color-scheme: light dark; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  body { max-width: 980px; margin: 48px auto; padding: 0 24px 72px; line-height: 1.55; }
+  h1 { font-size: 2rem; line-height: 1.15; }
+  h2 { margin-top: 2rem; font-size: 1.3rem; }
+  h3 { margin-top: 1.35rem; font-size: 1.05rem; }
+  code { overflow-wrap: anywhere; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { border: 1px solid color-mix(in srgb, currentColor 22%, transparent); padding: 10px; text-align: left; vertical-align: top; }
+  th { background: color-mix(in srgb, currentColor 8%, transparent); }
+  .status { border-left: 5px solid #c98200; padding: 12px 16px; background: color-mix(in srgb, #c98200 9%, transparent); }
+  .pass { color: #16713b; font-weight: 650; }
+  .pending { color: #a15b00; font-weight: 650; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+</style>
+<body>
+<h1>Conversation identity implementation handoff</h1>
+<p><strong>Date:</strong> September 18, 2026<br>
+<strong>Keeper:</strong> <code>akhil/ship-conversation-identity</code><br>
+<strong>Worktree:</strong> <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code><br>
+<strong>Starting and current HEAD:</strong> <code>6a4c899070dc41d50b4675169eb2fce6de660bc2</code> (uncommitted working tree)<br>
+<strong>Scope:</strong> PRP-489 resident manager history, PRP-487 prospect/application continuity, and PRP-484 tour manager continuity.</p>
+
+<p class="status"><strong>Status:</strong> Source implementation and focused unit/component checks are ready for fresh Astra static review. This is not staging-ready evidence. Browser QA, broad compile/lint/build checks, graph rebuild, and a Review URL remain pending under the laptop resource constraint.</p>
+
+<h2>Source material and constraints</h2>
+<ul>
+  <li><a href="2026-09-18-ship-conversation-identity-plan.html">Implementation plan</a></li>
+  <li><a href="2026-09-18-ship-inbox-reproduction.html">Partial reproduction evidence</a>: authenticated browser reproduction did not finish; it records a real historical resident row with a proven manager id/property id but an empty email and generic label.</li>
+  <li><a href="2026-09-18-ship-resource-constraints.html">Resource constraints</a>: one focused test file at a time was later authorized with a 384 MB Node heap and one worker. No server, browser, broad check, install, cache build, or graph rebuild was authorized.</li>
+</ul>
+<p>The latest lightweight resource check before this handoff reported memory pressure level 1 and 1645.25 MB swap in use. No task-owned server, browser, Vitest worker, or Next process was left running. Other developers' long-lived MCP processes were not touched.</p>
+
+<h2>Implemented behavior</h2>
+<h3>Resident manager identity and unified history</h3>
+<ul>
+  <li>The resident inbox route repairs an empty historical manager email/name only after verifying the stored <code>managerUserId</code> and <code>propertyId</code> against the authoritative <code>manager_property_records</code> ownership row, then resolving that manager's profile. This recovery is independent of the SMS UI flag and does not overwrite conflicting stored email.</li>
+  <li>Persisted inbox rows now retain manager, property, role, and SMS conversation identity metadata. Person-thread collapse keeps assistant threads separate even if malformed data shares an email.</li>
+  <li>Resident SMS payloads now include verified, per-manager conversations while preserving the legacy flat message list for compatibility. Messages without a proven manager/property binding remain in an isolated generic SMS history.</li>
+  <li>The resident Communication surface binds email and SMS only through an exact verified manager/property conversation key, keeps two managers separate, deduplicates legacy flat SMS, preserves historical deep links, shows channel labels, and renders the exact selected SMS turns alongside email messages.</li>
+  <li>Resident archive state for SMS is local and viewer-scoped. Merged archive/restore operates on each source member. Destructive SMS deletion stays hidden because the existing manager delete route does not authorize residents.</li>
+  <li>Resident read acknowledgement now marks every selected email source row through the resident-authorized route. SMS inbound read state continues to use local opened-message state.</li>
+</ul>
+
+<h3>Prospect and application continuity</h3>
+<ul>
+  <li>Application lifecycle SMS resolution runs for submitted and subsequent events. A unique existing prospect/applicant conversation is reused; ambiguity and unavailable sender identity fail closed. Approval still requires an existing match.</li>
+  <li>Application-submitted manager notifications resolve the SMS conversation independently for each recipient using that manager's own conversations plus the exact applicant phone and work number. A co-manager cannot borrow the owner's conversation key.</li>
+  <li>Portal inbox delivery accepts narrow thread identity metadata and persists it on both create and append paths so later resident reconciliation has durable provenance.</li>
+</ul>
+
+<h3>Tour continuity</h3>
+<ul>
+  <li>Tour request and removal delivery preserves proven manager/property provenance even when profile lookup fails; a missing email stays isolated until server recovery instead of degrading to an untraceable generic row.</li>
+  <li>Tour messages use deterministic ids derived from lifecycle/window plus subject and body. Exact retries deduplicate, while changed reconfirmation or cancellation content appends as a new event.</li>
+</ul>
+
+<h2>Changed implementation files</h2>
+<ul class="mono">
+  <li>src/app/api/portal-inbox-threads/route.ts</li>
+  <li>src/components/portal/communication-row-actions.tsx</li>
+  <li>src/components/portal/resident-communication.tsx</li>
+  <li>src/components/portal/resident-inbox-panel.tsx</li>
+  <li>src/hooks/use-unified-communication-bulk.ts</li>
+  <li>src/lib/application-lifecycle-sms.server.ts</li>
+  <li>src/lib/application-submitted-notification.server.ts</li>
+  <li>src/lib/manager-sms-messages.server.ts</li>
+  <li>src/lib/manager-sms-messages.ts</li>
+  <li>src/lib/portal-inbox-delivery.ts</li>
+  <li>src/lib/portal-inbox-storage.ts</li>
+  <li>src/lib/tour-notification-delivery.server.ts</li>
+</ul>
+
+<h2>Changed test files</h2>
+<ul class="mono">
+  <li>tests/unit/application-lifecycle-sms.test.ts</li>
+  <li>tests/unit/application-submitted-notification.test.ts</li>
+  <li>tests/unit/resident-conversation-inbox.test.tsx</li>
+  <li>tests/unit/resident-inbox-manager-identity.test.ts (new)</li>
+  <li>tests/unit/sms-conversation-identity.test.ts</li>
+  <li>tests/unit/tour-resident-inbox-message.test.ts</li>
+</ul>
+<p>The component fixtures cover the historical empty-email manager row, old-route selection, assistant isolation, two-manager isolation, unknown SMS isolation, channel labels, and both email/SMS content. Route enrichment coverage exercises the authoritative owner lookup with no SMS fixture and conflicting-email isolation.</p>
+
+<h2>Validation evidence</h2>
+<p>Every Vitest invocation used Node 22.23.0, <code>NODE_OPTIONS=--max-old-space-size=384</code>, <code>--maxWorkers=1</code>, <code>--no-file-parallelism</code>, and no coverage. Files were run serially.</p>
+<table>
+  <thead><tr><th>Check</th><th>Result</th><th>Evidence</th></tr></thead>
+  <tbody>
+    <tr><td><code>tests/unit/resident-inbox-manager-identity.test.ts</code></td><td class="pass">PASS</td><td>1 file, 2 tests, exit 0, 4.17 s</td></tr>
+    <tr><td><code>tests/unit/resident-conversation-inbox.test.tsx</code></td><td class="pass">PASS after fix</td><td>First attempt failed before collection on a duplicate hook identifier. The injected callback alias was corrected; rerun passed 1 file, 6 tests, exit 0, 2.65 s.</td></tr>
+    <tr><td><code>tests/unit/sms-conversation-identity.test.ts</code></td><td class="pass">PASS</td><td>1 file, 10 tests, exit 0, 535 ms</td></tr>
+    <tr><td><code>tests/unit/application-lifecycle-sms.test.ts</code></td><td class="pass">PASS</td><td>1 file, 7 tests, exit 0, 262 ms</td></tr>
+    <tr><td><code>tests/unit/tour-resident-inbox-message.test.ts</code></td><td class="pass">PASS</td><td>1 file, 3 tests, exit 0, 798 ms</td></tr>
+    <tr><td><code>tests/unit/application-submitted-notification.test.ts</code></td><td class="pass">PASS</td><td>1 file, 5 tests, exit 0, 1.77 s; includes exact owner binding and co-manager non-borrowing.</td></tr>
+    <tr><td><code>tests/unit/portal-inbox-read-route-contract.test.ts</code></td><td class="pass">PASS</td><td>1 file, 17 tests, exit 0, 758 ms</td></tr>
+    <tr><td><code>git diff --check</code></td><td class="pass">PASS</td><td>Exit 0 after final source integration.</td></tr>
+  </tbody>
+</table>
+
+<h2>Pending validation</h2>
+<ul>
+  <li class="pending">Fresh Astra review of the final diff for correctness, authorization boundaries, compatibility, and acceptance coverage.</li>
+  <li class="pending">Repository typecheck, lint, build, and broader relevant test suite. These were intentionally not run under the active resource restriction.</li>
+  <li class="pending">Graphify hook rebuild and portable check after source edits.</li>
+  <li class="pending">Seeded browser QA at desktop and 390 px for resident Communication: one named row, combined ordered timeline, exact channel labels, unread/read behavior, archive/restore, old deep link, assistant separation, two-manager separation, unknown-history isolation, and SMS-off historical recovery.</li>
+  <li class="pending">Manager browser QA with a purpose-built prospect/application fixture proving submission, follow-up, and approval remain in one thread and a co-manager remains separate.</li>
+  <li class="pending">Tour request/reconfirm/remove browser lifecycle with external delivery explicitly suppressed, proving named manager continuity and exact-retry behavior.</li>
+  <li class="pending">Sandbox Review URL after active browser QA; no localhost process should remain afterward.</li>
+</ul>
+
+<h2>Review risks and limits</h2>
+<ul>
+  <li>The authenticated Communication screen was never loaded during the partial reproduction, so no browser claim is made. Historical database evidence alone is not end-to-end proof.</li>
+  <li>The resident outer component test mocks <code>ResidentInboxPanel</code>. It verifies the selected exact email/SMS payload and labels, while the actual combined bubble rendering still needs browser QA or a direct panel test.</li>
+  <li>The shared SMS payload retained its flat <code>messages</code> field and added <code>conversations</code> to reduce vendor/legacy compatibility risk, but broad compilation remains pending.</li>
+  <li>Resident SMS archive state is per browser and per viewer rather than server-synchronized. This matches the existing local SMS action model but should be confirmed as the desired cross-device behavior.</li>
+  <li>The route enrichment intentionally refuses name/email recovery without the exact stored manager/property relation. Unproven or conflicting history remains separate rather than guessing an identity.</li>
+</ul>
+
+<h2>Repository hygiene</h2>
+<p>No commits, pushes, PRs, staging promotion, production mutation, dependency install, seed, external message, or no-mistakes run occurred. The untracked <code>docs/plans/2026-09-18-prp-488-investigation.html</code> belongs to another workstream and is explicitly excluded from this implementation and any future commit for this feature.</p>
+
+<h2>Fresh-review prompt</h2>
+<pre>Review the uncommitted diff on branch akhil/ship-conversation-identity at HEAD 6a4c899070dc41d50b4675169eb2fce6de660bc2 against docs/plans/2026-09-18-ship-conversation-identity-plan.html and docs/plans/2026-09-18-ship-conversation-identity-handoff.html. Focus on server-verified manager identity recovery with SMS disabled, assistant and multi-manager isolation, unknown relay handling, shared payload compatibility, per-recipient application conversation binding, tour retry semantics, resident read/archive authorization, and null/empty/conflict edges. Treat focused tests as evidence only for the listed files. Browser, typecheck, lint, build, graph rebuild, and broad suites are still pending due resource constraints. Report concrete findings with file/line references and do not claim staging readiness.</pre>
+</body>
+</html>
