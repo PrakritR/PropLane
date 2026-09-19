@@ -5,6 +5,8 @@ import {
   leaseRowOpensManagerViewModal,
 } from "@/lib/lease-pipeline-storage";
 
+const GENERATED_LEASE_HTML = `<p>${"Lease document body. ".repeat(240)}</p>`;
+
 function row(overrides: Partial<LeasePipelineRow> = {}): LeasePipelineRow {
   return {
     id: "lease-1",
@@ -14,7 +16,10 @@ function row(overrides: Partial<LeasePipelineRow> = {}): LeasePipelineRow {
     unit: "Unit 1",
     status: "Manager Review",
     bucket: "manager",
-    generatedHtml: "<p>Lease</p>",
+    // Document presence deliberately distinguishes embedded bytes from the
+    // short metadata/list projection. Use a realistic payload here so these
+    // action tests exercise the document-present branch.
+    generatedHtml: GENERATED_LEASE_HTML,
     ...overrides,
   } as LeasePipelineRow;
 }

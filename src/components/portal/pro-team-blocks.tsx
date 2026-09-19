@@ -60,7 +60,11 @@ function TeamRowMenu({ label, items }: { label: string; items: TeamRowMenuItem[]
       >
         <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" glass={false} backdrop={false} aria-label={`Actions for ${label}`} data-attr="team-member-actions-menu">
+      <DropdownMenuContent
+        align="end"
+        aria-label={`Actions for ${label}`}
+        data-attr="team-member-actions-menu"
+      >
         {items.map((item) => (
           <DropdownMenuItem
             key={item.id}

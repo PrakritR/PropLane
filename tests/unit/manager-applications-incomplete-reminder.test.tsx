@@ -67,7 +67,7 @@ import { ManagerApplications } from "@/components/portal/pro-applications";
 afterEach(cleanup);
 
 describe("manager Applications — incomplete detail reminder", () => {
-  it("offers Send reminder and hides Approve on an in-progress draft", () => {
+  it("offers Send reminder and hides Approve on an in-progress draft", async () => {
     ROWS = [
       {
         id: "PROPLANE-E2E86A70",
@@ -82,10 +82,9 @@ describe("manager Applications — incomplete detail reminder", () => {
     ];
     render(<ManagerApplications bucket="incomplete" applicationId="PROPLANE-E2E86A70" />);
 
-    expect(screen.getAllByText("Send reminder").length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("button", { name: "Send reminder" }).length).toBeGreaterThan(0);
-    expect(screen.queryByText("Approve")).toBeNull();
-    expect(screen.getAllByText("Reject").length).toBeGreaterThan(0);
+    expect(await screen.findAllByRole("button", { name: "Send reminder" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+    expect(await screen.findAllByRole("button", { name: "Reject" })).toHaveLength(1);
     // The download control is no longer on the detail body: 3c23cfc2 set
     // `showDownload={false}` there and folded it into the footer's combined
     // download menu, which opens on click. This test is about Send reminder and
@@ -98,7 +97,7 @@ describe("manager Applications — incomplete detail reminder", () => {
     ).toBeTruthy();
   });
 
-  it("offers Send reminder when legacy stage is stored as Incomplete", () => {
+  it("offers Send reminder when legacy stage is stored as Incomplete", async () => {
     ROWS = [
       {
         id: "PROPLANE-LEGACY",
@@ -112,7 +111,7 @@ describe("manager Applications — incomplete detail reminder", () => {
       },
     ];
     render(<ManagerApplications bucket="incomplete" applicationId="PROPLANE-LEGACY" />);
-    expect(screen.getAllByText("Send reminder").length).toBeGreaterThan(0);
+    expect(await screen.findAllByRole("button", { name: "Send reminder" })).toHaveLength(1);
   });
 
   it("does not offer Send reminder on the Incomplete tab list", () => {

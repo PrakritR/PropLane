@@ -119,46 +119,54 @@ afterEach(() => {
   showToast.mockClear();
 });
 
-describe("settings module redraws — scope tags", () => {
-  it("Applications tags both its automation and its reminders sections", async () => {
+describe("settings module redraws — shared property scope ownership", () => {
+  it("Applications leaves scope ownership to the shared property bar", async () => {
     stubFetch();
     render(<ControlledApplications />);
-    expect(await screen.findByText("1 property")).toBeTruthy();
-    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
+    expect(await screen.findByText("Handling")).toBeTruthy();
+    expect(screen.queryByText("1 property")).toBeNull();
+    expect(screen.queryByText("All properties")).toBeNull();
   });
 
-  it("Lease tags both its automation and its reminders sections", async () => {
+  it("Lease leaves scope ownership to the shared property bar", async () => {
     stubFetch();
     render(<ControlledLease />);
-    expect(await screen.findByText("1 property")).toBeTruthy();
-    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
+    expect(await screen.findByText("Documents")).toBeTruthy();
+    expect(screen.queryByText("1 property")).toBeNull();
+    expect(screen.queryByText("All properties")).toBeNull();
   });
 
-  it("Task, Payments, Bookings, Inspections, Services, Communication each tag their section", async () => {
+  it("module section headers omit duplicate scope tags", async () => {
     stubFetch();
     render(<TaskSettingsPanel teamMembers={[]} />);
-    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
+    expect(await screen.findByText("Reminders")).toBeTruthy();
+    expect(screen.queryByText("All properties")).toBeNull();
     cleanup();
 
     render(<PaymentsSettingsPanel teamMembers={[]} />);
-    expect(await screen.findByRole("button", { name: "Settings" })).toBeTruthy();
+    expect(await screen.findByText("Payment setup")).toBeTruthy();
     expect(screen.getAllByText("Payment setup").length).toBeGreaterThan(0);
+    expect(screen.queryByText("All properties")).toBeNull();
     cleanup();
 
     render(<BookingsSettingsPanel teamMembers={[]} />);
-    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
+    expect(await screen.findByText("Booking")).toBeTruthy();
+    expect(screen.queryByText("All properties")).toBeNull();
     cleanup();
 
     render(<InspectionsSettingsPanel teamMembers={[]} />);
-    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
+    expect(await screen.findByText("Reminders")).toBeTruthy();
+    expect(screen.queryByText("All properties")).toBeNull();
     cleanup();
 
     render(<ServicesSettingsPanel teamMembers={[]} />);
-    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
+    expect(await screen.findByText("Reminders")).toBeTruthy();
+    expect(screen.queryByText("All properties")).toBeNull();
     cleanup();
 
     render(<CommunicationSettingsPanel />);
-    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
+    expect(await screen.findByText("Messages sent automatically")).toBeTruthy();
+    expect(screen.queryByText("All properties")).toBeNull();
   });
 
   it("Resident settings is the welcome message, scoped by the Property bar", async () => {
@@ -174,7 +182,7 @@ describe("settings module redraws — scope tags", () => {
       />,
     );
     expect(await screen.findByRole("heading", { name: "Welcome" })).toBeTruthy();
-    expect(screen.getByText("All properties")).toBeTruthy();
+    expect(screen.queryByText("All properties")).toBeNull();
     expect(screen.queryByRole("heading", { name: "Ballard House" })).toBeNull();
     expect(screen.queryByRole("button", { name: "House" })).toBeNull();
     expect(screen.queryByText("Informational")).toBeNull();

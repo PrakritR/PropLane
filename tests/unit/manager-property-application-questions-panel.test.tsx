@@ -32,11 +32,12 @@ describe("ManagerPropertyApplicationQuestionsPanel", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Edit application" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Application settings" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Form" }));
     expect(screen.queryByRole("checkbox")).toBeNull();
     expect(screen.getAllByRole("button", { name: /^Actions for/ }).length).toBeGreaterThan(0);
 
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Application settings" }));
     expect(screen.getByTestId("application-settings-modal")).toBeTruthy();
   });
 

@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ManagerPropertyRoomMoveInPanel } from "@/components/portal/pro-property-room-move-in-panel";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
@@ -13,8 +13,12 @@ vi.mock("@/lib/demo-admin-property-inventory", () => ({
   updateRequestChangeProperty: vi.fn(() => true),
 }));
 
+const originalClipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+
 afterEach(() => {
   cleanup();
+  if (originalClipboard) Object.defineProperty(navigator, "clipboard", originalClipboard);
+  else Reflect.deleteProperty(navigator, "clipboard");
 });
 
 function roomListing() {
@@ -39,8 +43,8 @@ function roomListing() {
 }
 
 describe("ManagerPropertyRoomMoveInPanel", () => {
-  it("opens a drill-in editor when a room row is clicked", () => {
-    render(
+  it("opens a room disclosure editor when its row is clicked", () => {
+    const { container } = render(
       <ManagerPropertyRoomMoveInPanel
         sub={roomListing()}
         saveTarget={{ mode: "listing", saveId: "mgr-test" }}
@@ -52,18 +56,20 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
     );
 
     expect(screen.getByText(/The whole house/i)).toBeTruthy();
-    expect(screen.queryByPlaceholderText(/Keys, parking/i)).toBeNull();
+    const roomDetails = container.querySelector(
+      '[data-attr="property-move-in-room-room-b"] details',
+    ) as HTMLDetailsElement;
+    expect(roomDetails.open).toBe(false);
 
-    fireEvent.click(screen.getByRole("button", { name: /^Room B/i }));
+    fireEvent.click(roomDetails.querySelector("summary")!);
 
+    expect(roomDetails.open).toBe(true);
     expect(screen.getByDisplayValue("Lockbox on porch")).toBeTruthy();
-    expect(screen.getByPlaceholderText(/Keys, parking/i)).toBeTruthy();
     expect(screen.queryByTestId("move-in-editor-save")).toBeNull();
-    expect(screen.getByRole("button", { name: /Back/i })).toBeTruthy();
   });
 
-  it("returns to the list when back is clicked from the editor", () => {
-    render(
+  it("collapses the room editor when its disclosure row is clicked again", () => {
+    const { container } = render(
       <ManagerPropertyRoomMoveInPanel
         sub={roomListing()}
         saveTarget={{ mode: "listing", saveId: "mgr-test" }}
@@ -74,16 +80,45 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /^Room B/i }));
+    const roomDetails = container.querySelector(
+      '[data-attr="property-move-in-room-room-b"] details',
+    ) as HTMLDetailsElement;
+    fireEvent.click(roomDetails.querySelector("summary")!);
+    expect(roomDetails.open).toBe(true);
     expect(screen.getByDisplayValue("Lockbox on porch")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: /Back/i }));
-    expect(screen.queryByDisplayValue("Lockbox on porch")).toBeNull();
-    expect(screen.queryByPlaceholderText(/Keys, parking/i)).toBeNull();
+    fireEvent.click(roomDetails.querySelector("summary")!);
+    expect(roomDetails.open).toBe(false);
   });
 
-  it("shows edit and share for the room whose menu is open", async () => {
+  it("keeps house sharing in the disclosure header while room rows stay disclosure controls", async () => {
+    const showToast = vi.fn();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
     render(
+      <ManagerPropertyRoomMoveInPanel
+        sub={roomListing()}
+        saveTarget={{ mode: "listing", saveId: "mgr-test" }}
+        managerUserId="mgr-1"
+        canEdit
+        onUpdated={() => {}}
+        showToast={showToast}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Share house details"));
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(expect.stringContaining("/resident/move-in")),
+    );
+    expect(showToast).toHaveBeenCalledWith("Resident House details link copied.");
+    expect(screen.getByText("Room B")).toBeTruthy();
+    expect(screen.queryByTestId("move-in-editor-save")).toBeNull();
+  });
+
+  it("toggles the whole-house disclosure independently from the room disclosures", () => {
+    const { container } = render(
       <ManagerPropertyRoomMoveInPanel
         sub={roomListing()}
         saveTarget={{ mode: "listing", saveId: "mgr-test" }}
@@ -94,37 +129,16 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
       />,
     );
 
-    fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Room B" }), { key: "ArrowDown" });
-    await screen.findByRole("menuitem", { name: /^Edit$/i });
-    expect(screen.getByRole("menuitem", { name: /^Edit$/i })).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: /^Share$/i })).toBeTruthy();
+    const houseDetails = container.querySelector(
+      '[data-attr="property-move-in-house"]',
+    ) as HTMLDetailsElement;
+    expect(houseDetails.open).toBe(true);
+    fireEvent.click(houseDetails.querySelector("summary")!);
+    expect(houseDetails.open).toBe(false);
     expect(screen.queryByTestId("move-in-editor-save")).toBeNull();
   });
 
-  it("opens the house editor from the house row without inline fields on the list", () => {
-    render(
-      <ManagerPropertyRoomMoveInPanel
-        sub={roomListing()}
-        saveTarget={{ mode: "listing", saveId: "mgr-test" }}
-        managerUserId="mgr-1"
-        canEdit
-        onUpdated={() => {}}
-        showToast={() => {}}
-      />,
-    );
-
-    expect(screen.queryByPlaceholderText(/Keys, parking/i)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /^The whole house/i }));
-    expect(screen.getByPlaceholderText(/Keys, parking/i)).toBeTruthy();
-    expect(screen.queryByTestId("move-in-editor-save")).toBeNull();
-  });
-
-  /**
-   * A whole-home listing has no room rows, but the house itself is still a
-   * selectable row — Edit and Share live in the bulk bar, so without the tick box
-   * those actions were unreachable on an entire-home property.
-   */
-  it("offers whole-house actions on an entire-home listing", async () => {
+  it("offers whole-house sharing on an entire-home listing", () => {
     const sub = createDefaultListingSubmission();
     sub.listingPlaceCategoryId = "entire_home";
 
@@ -140,10 +154,7 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
     );
 
     expect(screen.queryByRole("checkbox")).toBeNull();
-    expect(screen.queryByRole("menuitem", { name: /^Share$/ })).toBeNull();
-    fireEvent.keyDown(screen.getByRole("button", { name: "Actions for the whole house" }), { key: "ArrowDown" });
-    expect(await screen.findByRole("menuitem", { name: /^Edit$/ })).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: /^Share$/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Share house details" })).toBeTruthy();
   });
 
   it("omits whole-house edit actions when the manager cannot edit", () => {
@@ -163,5 +174,6 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
 
     expect(screen.queryByLabelText("Select the whole house")).toBeNull();
     expect(screen.getByText(/The whole house/i)).toBeTruthy();
+    expect(screen.queryByLabelText("Share house details")).toBeNull();
   });
 });

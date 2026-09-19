@@ -122,12 +122,14 @@ describe("TourSettingsPanel redraw", () => {
     expect(screen.queryByText(/without asking you first/i)).toBeNull();
   });
 
-  it("tags both sections with what they apply to", async () => {
+  it("leaves property scope to the shared bar instead of duplicating it in sections", async () => {
     stubFetch();
     render(<TourSettingsPanel />);
     await screen.findByText("Notice required");
 
-    const tags = screen.getAllByText("All properties");
-    expect(tags.length).toBeGreaterThanOrEqual(2);
+    // Scope is provided once by the shared settings property bar; section
+    // headers do not duplicate the picker/tag.
+    expect(screen.queryByText("All properties")).toBeNull();
+    expect(screen.getByText("Booking")).toBeTruthy();
   });
 });

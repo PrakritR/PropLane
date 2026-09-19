@@ -18,9 +18,13 @@ describe("leases list bulk bar mirrors detail footer actions", () => {
     expect(PANEL).toContain('data-attr="leases-bulk-sign"');
   });
 
-  it("exposes renewal actions on fully signed rows", () => {
-    expect(PANEL).toContain('data-attr="leases-bulk-renew"');
-    expect(PANEL).toContain('data-attr="leases-bulk-extend"');
+  it("exposes the consolidated new-terms flow on fully signed rows", () => {
+    // Renewal and extension now share the New terms modal opened from the
+    // primary action dock, while the modal still receives the renewal route.
+    expect(PANEL).toContain("LeasePrimaryHeaderActions");
+    expect(PANEL).toContain("onNewTerms={() => setAmendLeaseRow(row)}");
+    expect(PANEL).toContain("renew={{");
+    expect(PANEL).toContain("renewUrl: \"/api/manager/amend-lease\"");
   });
 
   it("exposes review-import when a row carries an uploaded parse", () => {

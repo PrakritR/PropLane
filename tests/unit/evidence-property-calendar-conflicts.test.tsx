@@ -8,7 +8,7 @@
 //
 // This renders the REAL availability modal against a stubbed
 // `/api/portal/google-calendar/events` and counts the blocked cells on the grid.
-import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -67,7 +67,7 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
 vi.mock("@/components/portal/share-lead-link-modal", () => ({ ShareLeadLinkModal: () => null }));
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => () => {} }));
 
-vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
   const url = String(input);
   if (url.includes("/api/portal/google-calendar/events")) {
     return new Response(JSON.stringify({ meetings: MEETINGS }), {
@@ -85,7 +85,14 @@ import { ManagerTourAvailabilityModal } from "@/components/portal/manager-tour-a
 
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR ?? "";
 const captured: { name: string; html: string }[] = [];
-afterEach(cleanup);
+beforeEach(() => {
+  fetchMock.mockClear();
+  vi.stubGlobal("fetch", fetchMock);
+});
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 afterAll(() => {
   if (!EVIDENCE_DIR || captured.length === 0) return;
   mkdirSync(EVIDENCE_DIR, { recursive: true });
@@ -98,15 +105,14 @@ afterAll(() => {
  * the panel renders the same slot twice (a mobile day column and the desktop
  * week grid) and a raw element count double-counts today's column.
  *
- * A busy cell is recognised by its hover text, not its visible label: since
- * PRP-397 the FIRST cell of a Google block reads the event's own title
- * ("Standup") and only the continuation cells still read "Blocked", so a
- * text match would count 7 of these 10 half hours.
+ * A busy cell is recognised by its hover text, not its visible label. The
+ * grid deliberately renders personal Google events as `Blocked · time` in
+ * every occupied cell, so the UI does not disclose private event titles.
  */
 function blockedSlots(root: HTMLElement): string[] {
   const slots = new Set<string>();
   for (const el of Array.from(root.querySelectorAll("button"))) {
-    if (!/· Blocked ·/.test(el.getAttribute("title") ?? "")) continue;
+    if (!/^Blocked ·/.test(el.getAttribute("title") ?? "")) continue;
     const label = el.getAttribute("aria-label") ?? "";
     const match = /Open details for (.+)$/.exec(label);
     if (match) slots.add(match[1]);
@@ -127,10 +133,10 @@ describe("F-CAL-6 — the per-property availability editor shows the same confli
       />,
     );
     const root = document.body;
-    const settled = await waitFor(() => expect(blockedSlots(root).length).toBeGreaterThan(0)).then(
-      () => true,
-      () => false,
-    );
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/api/portal/google-calendar/events"))).toBe(true);
+      expect(blockedSlots(root)).toHaveLength(10);
+    });
     captured.push({
       name: "f-cal-6-property-availability",
       html: root.innerHTML,
@@ -144,7 +150,6 @@ describe("F-CAL-6 — the per-property availability editor shows the same confli
         "\n",
     );
 
-    expect(settled).toBe(true);
     // Three Google meetings spanning 4 + 2 + 4 half-hour slots.
     expect(blocked).toHaveLength(10);
   });

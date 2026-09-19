@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inherited release unit failures - execution handoff</title>
+<style>
+  :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+  body { max-width: 1040px; margin: 40px auto; padding: 0 24px 64px; line-height: 1.55; }
+  h1, h2 { line-height: 1.2; }
+  code { font-family: ui-monospace, monospace; font-size: .92em; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 10px; border: 1px solid #8a8a8a66; text-align: left; vertical-align: top; }
+  .pending { color: #a45b00; font-weight: 700; }
+  .ok { color: #178047; font-weight: 700; }
+  li { margin: .4em 0; }
+</style>
+<body>
+  <h1>Inherited release unit failures - execution handoff</h1>
+  <p><strong>Plan:</strong> <code>docs/plans/2026-09-19-release-inherited-unit-plan.html</code><br>
+     <strong>Repository:</strong> <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code><br>
+     <strong>Branch:</strong> <code>akhil/ship-conversation-identity</code><br>
+     <strong>Execution base observed:</strong> <code>ebaf5a1637b0bb73bb40094e7d15f3f69590366d</code></p>
+
+  <h2>Outcome</h2>
+  <p class="ok">Static implementation is complete for all 36 inherited failures across the 21 reported test files.</p>
+  <p>The patch fixes one authorization defect, one production dropdown-style regression, and stale or incomplete unit fixtures and selectors. Assertions still enforce the documented security, privacy, document, scroll, navigation-count, stage-action, and settings-scope contracts. No timeout was increased, no test was skipped, and no expected 403 was weakened.</p>
+
+  <h2>Production corrections</h2>
+  <ul>
+    <li><code>src/lib/auth/workspace-add-property.server.ts</code> now refuses an unproven foreign owner on every non-admin create branch. With no selected workspace, a foreign <code>requestedOwnerId</code> returns 403 before quota or write work. With a selected workspace, the request may name only the caller or the server-verified workspace owner. Accepted <code>addProperties</code> grants still create as that workspace owner, including when a browser-local bucket incidentally names the caller.</li>
+    <li><code>src/components/portal/pro-team-blocks.tsx</code> no longer disables the shared dropdown glass and backdrop. Team member menus now use the same default liquid surface as other portal row menus; the application form builder remains the sole modal-overlay exception.</li>
+  </ul>
+
+  <h2>Failure coverage</h2>
+  <table>
+    <thead><tr><th>Group</th><th>Failures</th><th>Resolution</th></tr></thead>
+    <tbody>
+      <tr><td>Property creation authorization</td><td>2</td><td>Foreign-owner claims fail closed before quota/write paths. Direct coverage includes no workspace, owned workspace, contradictory shared workspace, self-create, and accepted shared-workspace create-as-owner.</td></tr>
+      <tr><td>Calendar and task wiring</td><td>3</td><td>Assertions follow the AddWorkspace task wizard, the complete service-meeting memo dependency list, and the current private Google busy-cell title while retaining the exact ten-slot conflict count.</td></tr>
+      <tr><td>Dropdown default</td><td>1</td><td>Removed the production opt-out; kept the original no-glass assertion intact.</td></tr>
+      <tr><td>Lease actions and documents</td><td>5</td><td>Assertions follow the consolidated New terms flow, partial preview mocks expose the current document helper, sandbox restrictions remain enforced, and view/edit fixtures carry realistic embedded document bytes.</td></tr>
+      <tr><td>Listing availability</td><td>1</td><td>The calendar assertion uses the semantic <code>data-tone="open"</code> state instead of obsolete visible text.</td></tr>
+      <tr><td>Application detail actions</td><td>4</td><td>Tests query the current icon action dock by accessible role and retain incomplete, withdrawn, approve, reject, and reminder stage rules.</td></tr>
+      <tr><td>Property panels</td><td>7</td><td>Tests use current settings labels and verify move-in disclosure open/close state, whole-house sharing behavior, and read-only action absence.</td></tr>
+      <tr><td>Navigation counts</td><td>4</td><td>Fixtures now carry real owner, channel, SMS notice, phone, and conversation-key metadata so the privacy-aware collapse/count pipeline is exercised.</td></tr>
+      <tr><td>Settings history</td><td>3</td><td>The suite isolates unrelated module effects while preserving real pushState, popstate, Back, Forward, and mounted desktop-content assertions.</td></tr>
+      <tr><td>Settings property scope</td><td>5</td><td>Assertions enforce one shared property scope bar by proving section panels do not duplicate All properties tags.</td></tr>
+      <tr><td>Communication readiness</td><td>1</td><td>Disabled SMS remains unfetched and a successful empty archived list now proves readiness through the current empty-state surface.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Changed test files</h2>
+  <ul>
+    <li><code>tests/unit/workspace-add-property-owner.test.ts</code></li>
+    <li><code>tests/unit/calendar-meeting-search.test.ts</code></li>
+    <li><code>tests/unit/calendar-shows-scheduled-work.test.ts</code></li>
+    <li><code>tests/unit/evidence-property-calendar-conflicts.test.tsx</code></li>
+    <li><code>tests/unit/inbox-initial-loading-readiness.test.tsx</code></li>
+    <li><code>tests/unit/lease-bulk-bar-actions.test.ts</code></li>
+    <li><code>tests/unit/lease-document-preview-scroll.test.tsx</code></li>
+    <li><code>tests/unit/lease-row-edit-view-actions.test.ts</code></li>
+    <li><code>tests/unit/listing-room-detail-rent.test.tsx</code></li>
+    <li><code>tests/unit/manager-applications-incomplete-reminder.test.tsx</code></li>
+    <li><code>tests/unit/manager-property-application-questions-panel.test.tsx</code></li>
+    <li><code>tests/unit/manager-property-lease-panel.test.tsx</code></li>
+    <li><code>tests/unit/manager-property-room-move-in-panel.test.tsx</code></li>
+    <li><code>tests/unit/portal-nav-application-count.test.tsx</code></li>
+    <li><code>tests/unit/portal-nav-communication-count.test.tsx</code></li>
+    <li><code>tests/unit/portal-settings-mobile-back.test.tsx</code></li>
+    <li><code>tests/unit/settings-module-redraws.test.tsx</code></li>
+    <li><code>tests/unit/tour-settings-redraw.test.tsx</code></li>
+    <li><code>tests/unit/withdrawn-approval-ui.test.tsx</code></li>
+  </ul>
+  <p>The two failing property route suites and the dropdown contract test need no test-file edit: the production corrections address their failures directly.</p>
+
+  <h2>Static review</h2>
+  <ul>
+    <li>Terra owned the authorization source and complex async harnesses. Luna owned mechanical fixture and selector updates. The Sol manager inspected both result sets and made integration corrections.</li>
+    <li><code>git diff --check</code> over this scoped patch returned exit code 0.</li>
+    <li>No unrelated conversation correction, modal lint, browser spec, schema reconciliation, deployment, database, graph, or git state was changed in this execution lane.</li>
+  </ul>
+
+  <h2>Validation still required</h2>
+  <p class="pending">Runtime validation is pending by explicit root ownership.</p>
+  <ol>
+    <li>Run the 22-file focused set: the 21 originally failing files plus <code>workspace-add-property-owner.test.ts</code>.</li>
+    <li>Confirm all 36 named failures are gone, with special attention to application icon actions, navigation SMS counts, Settings popstate behavior, and disclosure toggling under jsdom.</li>
+    <li>Run the repository-required broader unit, lint, and build gates only in the designated heavy-validation slot.</li>
+    <li>Refresh Graphify after the complete release patch is integrated, then obtain fresh Astra review.</li>
+  </ol>
+
+  <h2>Risk and release boundary</h2>
+  <p>The authorization change is fail-closed and can reject contradictory stale browser owner data. The accepted-workspace path explicitly preserves current create-as-owner behavior. The dropdown correction changes visual layering for team row menus to the repository default and should receive normal UI review. No deployment or production promotion was performed or delegated in this phase.</p>
+</body>
+</html>

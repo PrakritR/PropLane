@@ -19,13 +19,14 @@ import { cleanup, render } from "@testing-library/react";
 
 vi.mock("@/lib/lease-pipeline-storage", () => ({
   getLeaseDocumentHtml: () => "<html><body><p>Lease body</p></body></html>",
+  leaseRowCarriesDocumentBytes: (row: { generatedHtml?: string | null }) => Boolean(row.generatedHtml),
 }));
 
 import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview";
 
 afterEach(cleanup);
 
-const row = { id: "lease-1", application: {} } as never;
+const row = { id: "lease-1", application: {}, generatedHtml: "<p>Lease</p>" } as never;
 
 describe("lease document preview — flow mode", () => {
   it("keeps the document reachable when the height cannot be measured", () => {

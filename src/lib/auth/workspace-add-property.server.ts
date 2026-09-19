@@ -36,6 +36,12 @@ export async function resolveCreateListingOwner(
 
   const selected = input.workspaceId?.trim() || "";
   if (!selected) {
+    // A missing workspace proves nothing about a foreign owner. Keep the
+    // self-create path available, but do not let a browser-local pipeline
+    // bucket attribute a new property to an unrelated manager.
+    if (input.requestedOwnerId && input.requestedOwnerId !== caller) {
+      return { ok: false, status: 403, error: "Select an owned workspace before adding a property." };
+    }
     return { ok: true, ownerUserId: caller };
   }
 
@@ -52,6 +58,10 @@ export async function resolveCreateListingOwner(
   }
 
   const ownerUserId = String(workspace.data.owner_user_id ?? "").trim();
+  const requestedOwnerId = input.requestedOwnerId?.trim() || "";
+  if (requestedOwnerId && requestedOwnerId !== caller && requestedOwnerId !== ownerUserId) {
+    return { ok: false, status: 403, error: "Select an owned workspace before adding a property." };
+  }
   if (ownerUserId === caller) {
     return { ok: true, ownerUserId: caller, workspaceId: String(workspace.data.id) };
   }

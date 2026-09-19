@@ -23,6 +23,8 @@ const EMAIL_UNREAD = {
   body: "Move-in info",
   time: "Jul 20, 2026",
   unread: true,
+  ownerUserId: "user-1",
+  channel: "email",
 };
 const SMS_NOTICE_UNREAD = {
   id: "thr-1000000002",
@@ -33,6 +35,10 @@ const SMS_NOTICE_UNREAD = {
   body: "On my way",
   time: "Jul 21, 2026",
   unread: true,
+  ownerUserId: "user-1",
+  threadType: "sms_relay",
+  smsNoticePhone: "+12065550147",
+  smsConversationKey: "sms:user-1:+12065550147",
 };
 const EMAIL_READ = { ...EMAIL_UNREAD, id: "thr-1000000003", unread: false };
 const SENT = { ...EMAIL_UNREAD, id: "thr-1000000004", folder: "sent" };

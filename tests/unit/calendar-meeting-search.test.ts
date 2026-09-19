@@ -40,11 +40,12 @@ describe("calendarMeetingMatchesQuery", () => {
   });
 });
 
-describe("Add task modal scroll", () => {
-  it("lets the Modal body be the only scroller so Title and Schedule stay reachable", () => {
+describe("Add task wizard scroll", () => {
+  it("keeps the wizard mounted with the title and schedule steps reachable", () => {
     const src = readFileSync(join(process.cwd(), "src/components/portal/pro-task-form-modal.tsx"), "utf8");
+    expect(src).toContain("AddWorkspace");
     expect(src).not.toContain("PORTAL_MODAL_BODY_SCROLL_CLASS");
-    expect(src).toContain("<Modal");
-    expect(src).toContain('htmlFor="manager-task-title"');
+    expect(src).toContain('id="manager-task-title"');
+    expect(src).toContain('id="manager-task-schedule-date"');
   });
 });
