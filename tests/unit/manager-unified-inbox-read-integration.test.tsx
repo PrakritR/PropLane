@@ -15,6 +15,7 @@ const state = vi.hoisted(() => ({
   toast: vi.fn(),
   openedWrites: [] as string[],
   viewer: "manager-1",
+  paneInputs: [] as Array<{ smsResident?: { conversationKey?: string | null } | null; smsResidents?: Array<{ conversationKey?: string | null }> }>,
 }));
 
 vi.mock("@/hooks/use-is-client", () => ({ useIsClient: () => true }));
@@ -87,14 +88,20 @@ vi.mock("@/lib/inbox-attachments", () => ({
   revokeInboxAttachmentPreview: vi.fn(),
   uploadInboxAttachment: vi.fn(),
 }));
-vi.mock("@/lib/manager-inbox-reply-channels", () => ({
-  hasInboxReplyChannelSelected: () => true,
-  resolveCommunicationPersonThreadReplyChannels: () => ({
-    viaProplane: true,
-    viaEmail: false,
-    viaSms: false,
-  }),
-}));
+vi.mock("@/lib/manager-inbox-reply-channels", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/manager-inbox-reply-channels")>();
+  return { ...actual, resolveCommunicationPersonThreadReplyChannels: vi.fn(actual.resolveCommunicationPersonThreadReplyChannels) };
+});
+vi.mock("@/components/portal/pro-resident-detail-inbox", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/portal/pro-resident-detail-inbox")>();
+  return {
+    ...actual,
+    ResidentDirectChatPane: (props: React.ComponentProps<typeof actual.ResidentDirectChatPane>) => {
+      state.paneInputs.push(props);
+      return <actual.ResidentDirectChatPane {...props} />;
+    },
+  };
+});
 vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   loadPersistedInbox: () => state.rows,
@@ -161,6 +168,7 @@ vi.mock("@/components/portal/portal-inbox-ui", () => ({
 }));
 
 import { ManagerUnifiedInbox } from "@/components/portal/pro-unified-inbox";
+import { resolveCommunicationPersonThreadReplyChannels } from "@/lib/manager-inbox-reply-channels";
 import { loadManagerSmsConversationsClient } from "@/lib/manager-sms-conversations-client";
 
 const email = (id: string, body: string, key: string, observation: string) => ({
@@ -176,6 +184,17 @@ const email = (id: string, body: string, key: string, observation: string) => ({
   attachments: [{ url: `/files/${id}.pdf`, name: `${id}.pdf` }],
   readSources: [{ id, observation, unread: true }],
   readSourcesComplete: true,
+  // The server proves this relationship before it emits the cross-channel
+  // binding. The native fixture below carries the same owner/property/role.
+  managerUserId: "manager-1",
+  propertyId: "property-1",
+  counterpartyRole: "resident",
+  identityProvenance: [{
+    managerUserId: "manager-1",
+    propertyId: "property-1",
+    counterpartyRole: "resident",
+    smsConversationKey: key,
+  }],
   smsConversationKey: key,
   smsBindingKeys: [key],
 });
@@ -185,6 +204,9 @@ const sms = (key: string, body: string) => ({
   name: "Resident",
   phone: "+12065550142",
   conversationKey: key,
+  ownerManagerUserId: "manager-1",
+  counterpartyRole: "resident",
+  houses: [{ propertyId: "property-1", label: "Property 1", source: "manual" }],
   messages: [{
     id: `sms-${key.toLowerCase()}`,
     direction: "inbound" as const,
@@ -218,6 +240,7 @@ beforeEach(() => {
   ];
   state.sms = [sms("K1", "K1 NATIVE BODY"), sms("K2", "K2 NATIVE BODY"), sms("K3", "UNRELATED K3 BODY")];
   state.openedWrites = [];
+  state.paneInputs = [];
   state.viewer = "manager-1";
   state.post.mockImplementation(async (sources: Array<{ id: string }>) =>
     sources.map((source) => ({ id: source.id, status: "read", unread: false })),
@@ -225,6 +248,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Storage spies are installed by failure-path tests. Restore them here as a
+  // final boundary too, so an assertion failure cannot poison the next case.
+  vi.restoreAllMocks();
   cleanup();
   vi.unstubAllGlobals();
   window.localStorage.clear();
@@ -258,6 +284,64 @@ describe("ManagerUnifiedInbox observed-read wiring", () => {
     expect(JSON.parse(window.localStorage.getItem("axis_manager_sms_opened_v2:manager-1") ?? "[]")).not.toContain("sms-k3");
   });
 
+  it("does not let email A's K1 binding display or acknowledge native K1 for unbound email B", async () => {
+    state.rows = [
+      { ...email("email-a", "EMAIL A BODY", "K1", "obs-a"), email: "a@example.com" },
+      {
+        ...email("email-b", "EMAIL B BODY", "K2", "obs-b"),
+        email: "b@example.com",
+        smsConversationKey: undefined,
+        smsBindingKeys: undefined,
+        identityProvenance: [{
+          managerUserId: "manager-1",
+          propertyId: "property-1",
+          counterpartyRole: "resident",
+        }],
+      },
+    ];
+    state.sms = [{ ...sms("K1", "BORROWED K1 NATIVE BODY"), residentEmail: "b@example.com" }];
+
+    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
+    const list = await screen.findByTestId("manager-list");
+    await waitForSmsConversations();
+    fireEvent.click((await within(list).findByText("EMAIL B BODY")).closest("button")!);
+
+    const thread = await screen.findByTestId("resident-thread");
+    expect(within(thread).getByText("EMAIL B BODY")).toBeTruthy();
+    expect(within(thread).queryByText("BORROWED K1 NATIVE BODY")).toBeNull();
+    await waitFor(() => expect(state.post).toHaveBeenCalledTimes(1));
+    expect(state.post.mock.calls[0]?.[0]).toEqual([expect.objectContaining({ id: "email-b", observation: "obs-b" })]);
+    expect(state.paneInputs.at(-1)).toMatchObject({ smsResident: null, smsResidents: [] });
+    expect(resolveCommunicationPersonThreadReplyChannels).toHaveBeenLastCalledWith(expect.objectContaining({ smsAvailable: false }));
+    expect(JSON.parse(window.localStorage.getItem("axis_manager_sms_opened_v2:manager-1") ?? "[]"))
+      .not.toContain("sms-k1");
+  });
+
+  it.each([
+    ["array-only", undefined, ["K1", "K2"]],
+    ["scalar plus array", "K1", ["K2"]],
+  ] as const)("does not borrow archived %s ambiguous binding evidence for active unbound email B", async (_label, scalar, keys) => {
+    const relationship = { managerUserId: "manager-1", propertyId: "property-1", counterpartyRole: "resident" };
+    state.rows = [
+      { ...email("email-a", "ARCHIVED AMBIGUOUS A BODY", "K1", "obs-a"), folder: "trash", smsConversationKey: scalar, smsBindingKeys: [...keys], identityProvenance: [relationship] },
+      { ...email("email-b", "ACTIVE UNBOUND B BODY", "", "obs-b"), smsConversationKey: undefined, smsBindingKeys: undefined, identityProvenance: [relationship] },
+    ];
+    state.sms = [sms("K1", "BORROWED K1 NATIVE BODY")];
+    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" smsUiEnabled />);
+    const list = await screen.findByTestId("manager-list");
+    await waitForSmsConversations();
+    fireEvent.click((await within(list).findByText("ACTIVE UNBOUND B BODY")).closest("button")!);
+    const thread = await screen.findByTestId("resident-thread");
+    expect(within(thread).getByText("ACTIVE UNBOUND B BODY")).toBeTruthy();
+    expect(within(thread).queryByText("BORROWED K1 NATIVE BODY")).toBeNull();
+    expect(within(thread).queryByText("ARCHIVED AMBIGUOUS A BODY")).toBeNull();
+    await waitFor(() => expect(state.post).toHaveBeenCalledTimes(1));
+    expect(state.post.mock.calls[0]?.[0]).toEqual([expect.objectContaining({ id: "email-b", observation: "obs-b" })]);
+    expect(state.paneInputs.at(-1)).toMatchObject({ smsResident: null, smsResidents: [] });
+    expect(resolveCommunicationPersonThreadReplyChannels).toHaveBeenLastCalledWith(expect.objectContaining({ smsAvailable: false }));
+    expect(JSON.parse(window.localStorage.getItem("axis_manager_sms_opened_v2:manager-1") ?? "[]")).not.toContain("sms-k1");
+  });
+
   it("bounds persistent native storage failure, releases the held email attempt, and recovers on explicit reopen", async () => {
     const openedKey = "axis_manager_sms_opened_v2:manager-1";
     window.localStorage.setItem(openedKey, JSON.stringify(["unrelated-opened-id"]));
@@ -278,7 +362,7 @@ describe("ManagerUnifiedInbox observed-read wiring", () => {
     await waitForSmsConversations();
     fireEvent.click((await within(initialList).findByText("EMAIL B BODY")).closest("button")!);
     const thread = await screen.findByTestId("resident-thread");
-    expect(within(thread).getByText("K1 NATIVE BODY")).toBeTruthy();
+    expect(within(thread).getByText("K2 NATIVE BODY")).toBeTruthy();
     await waitFor(() => expect(state.post).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(localStorageSetItem).toHaveBeenCalledTimes(1));
     expect(state.toast).toHaveBeenCalledTimes(1);
@@ -292,7 +376,7 @@ describe("ManagerUnifiedInbox observed-read wiring", () => {
     expect(state.toast.mock.calls.length).toBeGreaterThanOrEqual(1);
     expect(state.toast.mock.calls.length).toBeLessThanOrEqual(2);
     expect(state.post).toHaveBeenCalledTimes(1);
-    expect(within(await screen.findByTestId("resident-thread")).getByText("K1 NATIVE BODY")).toBeTruthy();
+    expect(within(await screen.findByTestId("resident-thread")).getByText("K2 NATIVE BODY")).toBeTruthy();
 
     // A close/reopen is the explicit retry boundary. Once persistence recovers,
     // the unrelated receipt remains in the native store and the retry starts
@@ -306,7 +390,7 @@ describe("ManagerUnifiedInbox observed-read wiring", () => {
     fireEvent.click((await within(list).findByText("EMAIL B BODY")).closest("button")!);
     await waitFor(() => expect(state.post).toHaveBeenCalledTimes(2));
     expect(window.localStorage.getItem(openedKey)).toContain("unrelated-opened-id");
-    expect(window.localStorage.getItem(openedKey)).toContain("sms-k1");
+    expect(window.localStorage.getItem(openedKey)).toContain("sms-k2");
     expect(state.toast.mock.calls.length).toBeLessThanOrEqual(2);
   });
 
@@ -345,7 +429,7 @@ describe("ManagerUnifiedInbox observed-read wiring", () => {
       return storedGetItem.call(this, key);
     });
     fireEvent.click((await within(initialList).findByText("EMAIL B BODY")).closest("button")!);
-    expect(within(await screen.findByTestId("resident-thread")).getByText("K1 NATIVE BODY")).toBeTruthy();
+    expect(within(await screen.findByTestId("resident-thread")).getByText("K2 NATIVE BODY")).toBeTruthy();
     await waitFor(() => expect(state.post).toHaveBeenCalledTimes(1));
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
 
@@ -434,7 +518,7 @@ describe("ManagerUnifiedInbox observed-read wiring", () => {
     expect(localStorageSetItem).not.toHaveBeenCalled();
 
     fireEvent.click((await within(list).findByText("EMAIL B BODY")).closest("button")!);
-    expect(within(await screen.findByTestId("resident-thread")).getByText("K1 NATIVE BODY")).toBeTruthy();
+    expect(within(await screen.findByTestId("resident-thread")).getByText("K2 NATIVE BODY")).toBeTruthy();
     await waitFor(() => expect(state.post).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(localStorageSetItem).toHaveBeenCalledTimes(1));
     setItem.mockRestore();

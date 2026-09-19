@@ -59,6 +59,13 @@ function makeFakeDb(seedProfiles: StoredRow[]) {
         else rows().push({ ...row });
         return Promise.resolve({ error: null });
       },
+      insert(row: StoredRow) {
+        if (rows().some((existing) => existing.id === row.id)) {
+          return Promise.resolve({ error: { message: "duplicate key value violates unique constraint" } });
+        }
+        rows().push({ ...row });
+        return Promise.resolve({ error: null });
+      },
       then<T>(resolve: (v: { data: StoredRow[]; error: null }) => T) {
         return Promise.resolve({ data: rows().filter(match), error: null }).then(resolve);
       },

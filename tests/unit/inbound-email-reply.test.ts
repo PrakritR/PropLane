@@ -72,12 +72,23 @@ function fakeDb(profiles: Array<{ id: string; email: string; role: string }>) {
         threads.set(String(record.id), record);
         return { error: null };
       },
+      insert: async (record: StoredRow) => {
+        const id = String(record.id);
+        if (threads.has(id)) return { error: { message: "duplicate key value violates unique constraint" } };
+        threads.set(id, record);
+        return { error: null };
+      },
       update(patch: StoredRow) {
         const updateFilters: Array<[string, unknown]> = [];
         const run = async () => {
-          const id = String(updateFilters.find(([c]) => c === "id")?.[1] ?? "");
-          const existing = threads.get(id);
-          if (existing) threads.set(id, { ...existing, ...patch });
+          const existing = [...threads.values()].find((row) =>
+            updateFilters.every(([column, value]) => {
+              if (column === "row_data->>folder") return String((row.row_data as StoredRow | undefined)?.folder ?? "") === value;
+              if (column === "row_data->>email") return String((row.row_data as StoredRow | undefined)?.email ?? "") === value;
+              return row[column] === value;
+            }),
+          );
+          if (existing) threads.set(existing.id as string, { ...existing, ...patch });
           return { error: null };
         };
         const updateChain = {

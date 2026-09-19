@@ -14,15 +14,16 @@
  * opening a module push an entry, and does popping it (the in-app control OR a real
  * browser/native Back) land on the module list rather than leaving Settings.
  *
- * `resident` is the tab under test on purpose — `ResidentSettingsPanel` makes no network calls
- * and has no loading state, so this suite exercises the history/back contract without also
- * having to stub a module's fetch surface.
+ * `resident` is the tab under test on purpose. Its real Welcome module loads reminder settings,
+ * so the harness returns one bounded response and verifies that history changes do not reload it.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+
+const showToast = vi.hoisted(() => vi.fn());
 
 vi.mock("@/components/providers/app-ui-provider", () => ({
-  useAppUi: () => ({ showToast: vi.fn() }),
+  useAppUi: () => ({ showToast }),
 }));
 vi.mock("@/hooks/use-manager-user-id", () => ({ useManagerUserId: () => ({ userId: "mgr-1" }) }));
 vi.mock("@/hooks/use-work-assignment-directory", () => ({
@@ -37,8 +38,21 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
 
 import { PortalSettingsSectionClient } from "@/components/portal/portal-settings-section-client";
 
+const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+  if (String(input) !== "/api/portal/reminder-settings") throw new Error(`Unexpected settings request: ${String(input)}`);
+  return { ok: true, json: async () => ({ settings: {}, overriddenPropertyIds: [] }) };
+});
+
+beforeEach(() => {
+  window.history.replaceState(null, "", window.location.href);
+  vi.stubGlobal("fetch", fetchMock);
+});
+
 afterEach(() => {
   cleanup();
+  fetchMock.mockClear();
+  showToast.mockClear();
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -72,10 +86,16 @@ describe("PortalSettingsSectionClient — mobile list↔detail Back (Defect 3)",
   it("popping AGAIN from the list (no pushed entry left) is what leaves Settings — a forward navigation restores the detail view", async () => {
     render(<PortalSettingsSectionClient tab="resident" basePath="/portal" />);
 
+    await waitFor(() => expect(screen.getByRole("switch")).toHaveProperty("disabled", false));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const welcomeModule = screen.getByText("Welcome");
+    expect(welcomeModule).toBeTruthy();
+
     await act(async () => {
       window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
     });
     expect(document.querySelector('[data-attr="settings-open-resident"]')).toBeTruthy();
+    expect(screen.getByText("Welcome")).toBe(welcomeModule);
 
     // Forward: the browser re-enters the pushed "detail" entry.
     await act(async () => {
@@ -84,6 +104,9 @@ describe("PortalSettingsSectionClient — mobile list↔detail Back (Defect 3)",
 
     expect(document.querySelector('[data-attr="settings-back-to-root"]')).toBeTruthy();
     expect(document.querySelector('[data-attr="settings-open-resident"]')).toBeNull();
+    expect(screen.getByText("Welcome")).toBe(welcomeModule);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(showToast).not.toHaveBeenCalled();
   });
 
   it("the in-app 'Settings' back control hands off to a real history.back(), not only local state", () => {
@@ -100,6 +123,7 @@ describe("PortalSettingsSectionClient — mobile list↔detail Back (Defect 3)",
     // The desktop rail is always present; it does not react to the mobile list/detail toggle.
     expect(document.querySelector('[data-attr="settings-nav-resident"]')).toBeTruthy();
     expect(document.querySelector('[data-attr="settings-nav-tours"]')).toBeTruthy();
+    expect(screen.getByText("Welcome")).toBeTruthy();
 
     await act(async () => {
       window.dispatchEvent(new PopStateEvent("popstate", { state: null }));
@@ -107,5 +131,6 @@ describe("PortalSettingsSectionClient — mobile list↔detail Back (Defect 3)",
 
     // Desktop nav is unaffected by the mobile pop.
     expect(document.querySelector('[data-attr="settings-nav-resident"]')).toBeTruthy();
+    expect(screen.getByText("Welcome")).toBeTruthy();
   });
 });

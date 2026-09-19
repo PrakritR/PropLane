@@ -54,8 +54,16 @@ function smsRow(over: Partial<UnifiedInboxListItem> = {}): UnifiedInboxListItem 
 describe("unified inbox person merge", () => {
   it("retains one exact SMS binding when older and newer portal rows collapse", () => {
     const rows = collapsePersonInboxThreads([
-      { id: "tour", folder: "inbox", from: "Dana", email: "dana@example.com", subject: "Tour", preview: "Tour", body: "Tour", time: "Sep 1, 2:00 PM", unread: true, smsConversationKey: "mgr:prospect:+12065550100" },
-      { id: "later", folder: "inbox", from: "Dana", email: "dana@example.com", subject: "Later", preview: "Later", body: "Later", time: "Sep 1, 3:00 PM", unread: false },
+      {
+        id: "tour", folder: "inbox", from: "Dana", email: "dana@example.com", subject: "Tour", preview: "Tour", body: "Tour", time: "Sep 1, 2:00 PM", unread: true,
+        managerUserId: "manager-1", propertyId: "property-1", counterpartyRole: "prospect", smsConversationKey: "mgr:prospect:+12065550100",
+        identityProvenance: [{ managerUserId: "manager-1", propertyId: "property-1", counterpartyRole: "prospect", smsConversationKey: "mgr:prospect:+12065550100" }],
+      },
+      {
+        id: "later", folder: "inbox", from: "Dana", email: "dana@example.com", subject: "Later", preview: "Later", body: "Later", time: "Sep 1, 3:00 PM", unread: false,
+        managerUserId: "manager-1", propertyId: "property-1", counterpartyRole: "prospect",
+        identityProvenance: [{ managerUserId: "manager-1", propertyId: "property-1", counterpartyRole: "prospect" }],
+      },
     ], { mergeFolders: true });
     expect(rows).toHaveLength(1);
     expect(rows[0]?.smsConversationKey).toBe("mgr:prospect:+12065550100");

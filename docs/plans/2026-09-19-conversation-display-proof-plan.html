@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Conversation display proof correction plan</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { max-width: 960px; margin: 40px auto; padding: 0 24px; line-height: 1.6; }
+    h1, h2 { line-height: 1.2; }
+    code { overflow-wrap: anywhere; }
+    li { margin: 0.5rem 0; }
+  </style>
+</head>
+<body>
+  <h1>Conversation display proof correction plan</h1>
+  <p><strong>Goal:</strong> correct the reviewed manager Communication display-folding authorization defects while preserving the positive K1/K2 experience, exact native membership, and separate raw-storage partitions.</p>
+  <p><strong>Workspace:</strong> <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code></p>
+  <p><strong>Branch and supplied starting HEAD:</strong> <code>akhil/ship-conversation-identity</code> at <code>ebaf5a163</code>. Git inspection and mutation are prohibited in this phase.</p>
+
+  <h2>Reviewed defects</h2>
+  <ol>
+    <li>The accepted native-binding set carries binding plus relationship but omits the declaring counterparty email. A native row for email B can therefore borrow email A's K1 proof when owner, property, and role match.</li>
+    <li>The existing relationship helper requires a property but permits an absent owner or role. Distinct native keys can then fold through incomplete relationship evidence.</li>
+  </ol>
+
+  <h2>Implementation</h2>
+  <ol>
+    <li>In <code>src/components/portal/pro-unified-inbox.tsx</code>, derive a display relationship only when owner, property, and role are all present and nonconflicting.</li>
+    <li>Bind every accepted exact native key to the normalized declaring email and complete relationship. A native row receives the shared display key only when its normalized email, exact key, owner, property, and role match one coherent email-side proof.</li>
+    <li>Keep unknown, conflicted, incomplete, cross-email, cross-owner, cross-property, cross-role, and multi-house records isolated. Do not add an email-alias bridge from a native key or resident user id without separately reviewed authenticated identity proof.</li>
+    <li>Preserve the positive case: A/K1 and B/K2 with the same proven email, owner, property, and role fold into one visible conversation; both email and native histories render and acknowledge; unbound K3 remains excluded.</li>
+  </ol>
+
+  <h2>Executable coverage</h2>
+  <ul>
+    <li>Extend <code>tests/unit/manager-unified-inbox-relationship-folding.test.ts</code> for normalized matching email, the A-declares-K1/B-native-K1 counterexample, missing owner, missing role, distinct owner/property/role, multi-house isolation, and unrelated K3.</li>
+    <li>Extend <code>tests/unit/manager-unified-inbox-read-integration.test.tsx</code> with the cross-email counterexample and prove the rejected native body is absent, its receipt is not acknowledged, and it is unavailable to the opened conversation's reply path.</li>
+    <li>Do not change the raw-storage contract: K1 and K2 remain independent exact-binding partitions.</li>
+  </ul>
+
+  <h2>Constraints and validation</h2>
+  <p>No schema, unrelated UI, baseline fixes, database, graph, installation, Git mutation, server, or browser work is in scope. The root session is the sole validation owner. This correction phase runs no tests, lint, typecheck, or build and makes no runtime pass claim. A fresh Astra source review is required before root CI validation.</p>
+</body>
+</html>

@@ -7,6 +7,7 @@ import {
 } from "@/lib/portal-inbox-storage";
 import {
   managerUnifiedEmailPersonKey,
+  managerUnifiedEmailBindingEvidence,
   managerUnifiedSmsPersonKey,
 } from "@/components/portal/pro-unified-inbox";
 
@@ -46,12 +47,56 @@ function smsThread(propertyId: string): ManagerSmsResidentConversation {
 }
 
 describe("manager unified inbox relationship folding", () => {
+  it.each([
+    ["array-only ambiguity", undefined, ["K1", "K2"]],
+    ["scalar plus array ambiguity", "K1", ["K2"]],
+  ] as const)("does not donate native evidence from %s", (_label, scalar, keys) => {
+    const thread = { ...emailThread("property-a"), smsConversationKey: scalar, smsBindingKeys: [...keys] };
+    expect(managerUnifiedEmailBindingEvidence([thread]).size).toBe(0);
+    expect(managerUnifiedEmailPersonKey(thread)).toBe(`email-isolated:${thread.id}`);
+  });
+
+  it("accepts one normalized deduplicated binding and keeps independent K1/K2 display folding", () => {
+    const first = { ...emailThread("property-a"), email: " Resident@Example.COM ", smsConversationKey: " K1 ", smsBindingKeys: ["K1", " K1 ", ""] };
+    const second = { ...emailThread("property-a"), id: "second", smsConversationKey: "K2" };
+    const evidence = managerUnifiedEmailBindingEvidence([first, second]);
+    expect([...evidence]).toEqual([
+      "K1\0resident@example.com\0manager-a\0property-a\0resident",
+      "K2\0resident@example.com\0manager-a\0property-a\0resident",
+    ]);
+    const person = managerUnifiedEmailPersonKey(first);
+    expect(person).toBe(managerUnifiedEmailPersonKey(second));
+    for (const key of ["K1", "K2"]) {
+      expect(managerUnifiedSmsPersonKey({ ...smsThread("property-a"), conversationKey: key }, evidence)).toBe(person);
+    }
+    expect(managerUnifiedSmsPersonKey({ ...smsThread("property-a"), conversationKey: "K3" }, evidence)).toBe("sms-isolated:K3");
+  });
+
+  it("allows unbound email display identity without donating native evidence", () => {
+    const thread = { ...emailThread("property-a"), smsConversationKey: undefined };
+    expect(managerUnifiedEmailPersonKey(thread)).toMatch(/^person-relationship:/);
+    expect(managerUnifiedEmailBindingEvidence([thread]).size).toBe(0);
+  });
+
+  it.each([
+    ["missing owner", { managerUserId: undefined }],
+    ["missing property", { propertyId: undefined }],
+    ["missing role", { counterpartyRole: undefined }],
+    ["invalid email", { email: "unknown" }],
+    ["conflicting relationship", { identityProvenance: [{ managerUserId: "manager-b", propertyId: "property-a", counterpartyRole: "resident" as const }] }],
+    ["partial claims", { managerUserId: undefined, propertyId: undefined, counterpartyRole: undefined, identityProvenance: [{ managerUserId: "manager-a" }, { propertyId: "property-a", counterpartyRole: "resident" as const }] }],
+  ] satisfies Array<[string, Partial<PersistedInboxThread>]>)("does not donate native evidence with %s", (_label, changes) => {
+    const thread = { ...emailThread("property-a"), ...changes };
+    expect(managerUnifiedEmailBindingEvidence([thread]).size).toBe(0);
+    expect(managerUnifiedEmailPersonKey(thread)).toBe(`email-isolated:${thread.id}`);
+  });
+
   it("does not let a shared SMS binding fold email histories from different properties", () => {
-    const emailA = managerUnifiedEmailPersonKey(emailThread("property-a"), [binding]);
-    const emailB = managerUnifiedEmailPersonKey(emailThread("property-b"), [binding]);
+    const emailA = managerUnifiedEmailPersonKey(emailThread("property-a"));
+    const emailB = managerUnifiedEmailPersonKey(emailThread("property-b"));
     const relationships = new Set([
-      `${binding}\0manager-a\0property-a\0resident`,
-      `${binding}\0manager-a\0property-b\0resident`,
+      `${binding}\0resident@example.com\0manager-a\0property-a\0resident`,
+      `${binding}\0resident@example.com\0manager-a\0property-b\0resident`,
     ]);
 
     expect(managerUnifiedSmsPersonKey(smsThread("property-a"), relationships)).toBe(emailA);
@@ -67,8 +112,83 @@ describe("manager unified inbox relationship folding", () => {
 
     expect(managerUnifiedSmsPersonKey(
       ambiguous,
-      new Set([`${binding}\0manager-a\0property-a\0resident`]),
+      new Set([`${binding}\0resident@example.com\0manager-a\0property-a\0resident`]),
     )).toBe(`sms-isolated:${binding}`);
+  });
+
+  it("requires one normalized email, exact binding, and complete relationship for native display membership", () => {
+    const email = emailThread("property-a");
+    email.email = " Resident@Example.COM ";
+    const native = smsThread("property-a");
+    native.residentEmail = "RESIDENT@example.com";
+    const evidence = new Set([`${binding}\0resident@example.com\0manager-a\0property-a\0resident`]);
+
+    expect(managerUnifiedSmsPersonKey(native, evidence)).toBe(managerUnifiedEmailPersonKey(email));
+
+    native.residentEmail = "other@example.com";
+    expect(managerUnifiedSmsPersonKey(native, evidence)).toBe(`sms-isolated:${binding}`);
+  });
+
+  it.each([
+    ["owner", (thread: PersistedInboxThread) => { thread.managerUserId = undefined; }, (native: ManagerSmsResidentConversation) => { native.ownerManagerUserId = null; }],
+    ["role", (thread: PersistedInboxThread) => { thread.counterpartyRole = undefined; }, (native: ManagerSmsResidentConversation) => { native.counterpartyRole = undefined; }],
+  ] as const)("keeps %s-incomplete relationship evidence isolated", (_field, changeEmail, changeNative) => {
+    const email = emailThread("property-a");
+    const native = smsThread("property-a");
+    changeEmail(email);
+    changeNative(native);
+    const evidence = new Set([`${binding}\0resident@example.com\0manager-a\0property-a\0resident`]);
+
+    expect(managerUnifiedEmailPersonKey(email)).toBe(`email-isolated:${email.id}`);
+    expect(managerUnifiedSmsPersonKey(native, evidence)).toBe(`sms-isolated:${binding}`);
+  });
+
+  it.each([
+    ["owner", (thread: PersistedInboxThread) => { thread.managerUserId = undefined; }],
+    ["role", (thread: PersistedInboxThread) => { thread.counterpartyRole = undefined; }],
+  ] as const)("does not fold when only the email %s proof is incomplete", (_field, changeEmail) => {
+    const email = emailThread("property-a");
+    const native = smsThread("property-a");
+    changeEmail(email);
+    const evidence = new Set([`${binding}\0resident@example.com\0manager-a\0property-a\0resident`]);
+
+    expect(managerUnifiedEmailPersonKey(email)).toBe(`email-isolated:${email.id}`);
+    expect(managerUnifiedSmsPersonKey(native, evidence)).toBe(`person-relationship:resident@example.com:manager-a\0property-a\0resident`);
+  });
+
+  it.each([
+    ["owner", (native: ManagerSmsResidentConversation) => { native.ownerManagerUserId = null; }],
+    ["role", (native: ManagerSmsResidentConversation) => { native.counterpartyRole = undefined; }],
+  ] as const)("does not fold when only the native %s proof is incomplete", (_field, changeNative) => {
+    const email = emailThread("property-a");
+    const native = smsThread("property-a");
+    changeNative(native);
+    const evidence = new Set([`${binding}\0resident@example.com\0manager-a\0property-a\0resident`]);
+
+    expect(managerUnifiedEmailPersonKey(email)).toBe(`person-relationship:resident@example.com:manager-a\0property-a\0resident`);
+    expect(managerUnifiedSmsPersonKey(native, evidence)).toBe(`sms-isolated:${binding}`);
+  });
+
+  it.each([
+    ["owner", (native: ManagerSmsResidentConversation) => { native.ownerManagerUserId = "manager-b"; }],
+    ["property", (native: ManagerSmsResidentConversation) => { native.houses = [{ propertyId: "property-b", label: "Property B", source: "manual" }]; }],
+    ["role", (native: ManagerSmsResidentConversation) => { native.counterpartyRole = "applicant"; }],
+  ] as const)("keeps a native row with a different %s isolated", (_field, changeNative) => {
+    const native = smsThread("property-a");
+    changeNative(native);
+    expect(managerUnifiedSmsPersonKey(
+      native,
+      new Set([`${binding}\0resident@example.com\0manager-a\0property-a\0resident`]),
+    )).toBe(`sms-isolated:${binding}`);
+  });
+
+  it("keeps an unbound native key isolated", () => {
+    const native = smsThread("property-a");
+    native.conversationKey = "K3";
+    expect(managerUnifiedSmsPersonKey(
+      native,
+      new Set([`${binding}\0resident@example.com\0manager-a\0property-a\0resident`]),
+    )).toBe("sms-isolated:K3");
   });
 
   it.each([

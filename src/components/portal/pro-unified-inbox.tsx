@@ -73,6 +73,7 @@ import {
   MANAGER_INBOX_STORAGE_KEY,
   PORTAL_INBOX_CHANGED_EVENT,
   collapsePersonInboxThreads,
+  inboxIdentityProvenance,
   inboxThreadIdentityConflicted,
   inboxThreadRelationshipKey,
   loadPersistedInbox,
@@ -137,11 +138,7 @@ function smsConversationId(resident: ManagerSmsResidentConversation): string {
 }
 
 function emailThreadMergeStub(t: PersistedInboxThread): UnifiedInboxListItem {
-  const smsBindingKeys = [...new Set(
-    [...(t.smsBindingKeys ?? []), t.smsConversationKey ?? ""]
-      .map((key) => key.trim())
-      .filter(Boolean),
-  )];
+  const smsBindingKeys = managerEmailNativeBindingKeys(t);
   return {
     key: unifiedInboxKey("email", t.id),
     channel: "email",
@@ -154,28 +151,68 @@ function emailThreadMergeStub(t: PersistedInboxThread): UnifiedInboxListItem {
     memberKeys: (t.sourceThreadIds ?? [t.id]).map((id) => unifiedInboxKey("email", id)),
     ...(smsBindingKeys.length > 0 ? { smsBindingKeys } : {}),
     ...(smsBindingKeys.length === 1 ? { smsBindingKey: smsBindingKeys[0] } : {}),
-    personKey: managerUnifiedEmailPersonKey(t, smsBindingKeys),
+    personKey: managerUnifiedEmailPersonKey(t),
   };
 }
 
 /** Only verified same-property email histories may fold in the manager inbox. */
-export function managerUnifiedEmailPersonKey(thread: PersistedInboxThread, smsBindingKeys: readonly string[]): string {
-  if (inboxThreadIdentityConflicted(thread) || smsBindingKeys.length > 1) return `email-isolated:${thread.id}`;
+function managerDisplayRelationshipKey(thread: PersistedInboxThread): string | null {
   const relationship = inboxThreadRelationshipKey(thread);
-  if (smsBindingKeys.length === 1) {
-    return relationship
-      ? `sms-relationship:${smsBindingKeys[0]}:${relationship}`
-      : `email-isolated:${thread.id}`;
-  }
-  return relationship
-    ? `email-relationship:${thread.email.trim().toLowerCase()}:${relationship}`
+  if (!relationship) return null;
+  const [owner, property, role] = relationship.split("\0");
+  // `inboxThreadRelationshipKey` intentionally remains compatible with legacy
+  // storage. Display folding needs the stricter proof: every part of the
+  // owner/property/role tuple must be present and non-conflicting.
+  if (!owner?.trim() || !property?.trim() || !role?.trim()) return null;
+  // Do not synthesize a tuple from partial provenance claims. One durable
+  // claim must record the complete relationship that authorizes this display
+  // partition; other claims were already checked for conflicts above.
+  return inboxIdentityProvenance(thread).some((claim) =>
+    claim.managerUserId?.trim() === owner &&
+    claim.propertyId?.trim() === property &&
+    claim.counterpartyRole?.trim() === role,
+  ) ? relationship : null;
+}
+
+function managerEmailNativeBindingKeys(thread: PersistedInboxThread): string[] {
+  return [...new Set([...(thread.smsBindingKeys ?? []), thread.smsConversationKey ?? ""]
+    .map((key) => key.trim()).filter(Boolean))];
+}
+
+/** The same acceptance decision governs display identity and evidence donation. */
+function managerEmailDisplayProof(thread: PersistedInboxThread) {
+  const bindings = managerEmailNativeBindingKeys(thread);
+  if (inboxThreadIdentityConflicted(thread) || bindings.length > 1) return null;
+  const relationship = managerDisplayRelationshipKey(thread);
+  const email = thread.email.trim().toLowerCase();
+  return relationship && email.includes("@") ? { relationship, email, binding: bindings[0] } : null;
+}
+
+export function managerUnifiedEmailPersonKey(thread: PersistedInboxThread): string {
+  const proof = managerEmailDisplayProof(thread);
+  // Historical key rotations can share a display identity only after each
+  // independent raw record satisfies the same complete relationship proof.
+  return proof
+    ? `person-relationship:${proof.email}:${proof.relationship}`
     : `email-isolated:${thread.id}`;
 }
 
+export function managerUnifiedEmailBindingEvidence(threads: readonly PersistedInboxThread[]): Set<string> {
+  return new Set(threads.flatMap((thread) => {
+    const proof = managerEmailDisplayProof(thread);
+    // Unbound histories may receive a display identity, but cannot donate a
+    // native attachment. Ambiguous histories never reach this branch.
+    return proof?.binding ? [`${proof.binding}\0${proof.email}\0${proof.relationship}`] : [];
+  }));
+}
+
 function managerSmsRelationshipKey(resident: ManagerSmsResidentConversation): string | null {
-  const houseIds = (resident.houses ?? []).map((house) => house.propertyId.trim()).filter(Boolean);
+  const houseIds = [...new Set((resident.houses ?? []).map((house) => house.propertyId.trim()).filter(Boolean))];
   if (houseIds.length !== 1) return null;
-  return [resident.ownerManagerUserId?.trim() ?? "", houseIds[0], resident.counterpartyRole?.trim() ?? ""].join("\0");
+  const owner = resident.ownerManagerUserId?.trim() ?? "";
+  const role = resident.counterpartyRole?.trim() ?? "";
+  if (!owner || !role) return null;
+  return [owner, houseIds[0], role].join("\0");
 }
 
 /** Exact accepted-member match for deep links into a merged conversation. */
@@ -189,12 +226,13 @@ function unifiedInboxRowHasThreadId(row: UnifiedInboxListItem, threadId: string)
 /** A native binding joins an email row only when both sides prove one relationship. */
 export function managerUnifiedSmsPersonKey(
   resident: ManagerSmsResidentConversation,
-  emailBindingRelationships: ReadonlySet<string>,
+  emailBindingEvidence: ReadonlySet<string>,
 ): string {
   const binding = resident.conversationKey?.trim() ?? "";
   const relationship = managerSmsRelationshipKey(resident);
-  if (binding && relationship && emailBindingRelationships.has(`${binding}\0${relationship}`)) {
-    return `sms-relationship:${binding}:${relationship}`;
+  const email = resident.residentEmail?.trim().toLowerCase() ?? "";
+  if (binding && relationship && email.includes("@") && emailBindingEvidence.has(`${binding}\0${email}\0${relationship}`)) {
+    return `person-relationship:${email}:${relationship}`;
   }
   return `sms-isolated:${smsConversationId(resident)}`;
 }
@@ -643,11 +681,7 @@ export function ManagerUnifiedInbox({
     return rows.map((t) => {
       const msgs = inboxThreadMessages(t);
       const lastMsg = msgs[msgs.length - 1];
-      const smsBindingKeys = [...new Set(
-        [...(t.smsBindingKeys ?? []), t.smsConversationKey ?? ""]
-          .map((key) => key.trim())
-          .filter(Boolean),
-      )];
+      const smsBindingKeys = managerEmailNativeBindingKeys(t);
       const sentSemantics = t.folder === "sent";
       // Title the row by the person's name when they are in the directory
       // (PRP-315); the address stays available in the open thread.
@@ -665,7 +699,7 @@ export function ManagerUnifiedInbox({
         ...(smsBindingKeys.length > 0 ? { smsBindingKeys } : {}),
         ...(smsBindingKeys.length === 1 ? { smsBindingKey: smsBindingKeys[0] } : {}),
         // Who this is with, so a text thread with the same person folds in.
-        personKey: managerUnifiedEmailPersonKey(t, smsBindingKeys),
+        personKey: managerUnifiedEmailPersonKey(t),
         personEmail: t.email?.trim() || undefined,
         name: displayName,
         subtitle: isPropLaneAssistantInboxThread(t)
@@ -697,15 +731,8 @@ export function ManagerUnifiedInbox({
     });
   }, [filteredEmail, listSegment, includeArchived]);
 
-  const emailBindingRelationships = useMemo(
-    () => new Set(filteredEmail.flatMap((thread) => {
-      const relationship = inboxThreadRelationshipKey(thread);
-      if (!relationship || inboxThreadIdentityConflicted(thread)) return [];
-      return [...(thread.smsBindingKeys ?? []), thread.smsConversationKey ?? ""]
-        .map((binding) => binding.trim())
-        .filter(Boolean)
-        .map((binding) => `${binding}\0${relationship}`);
-    })),
+  const emailBindingEvidence = useMemo(
+    () => managerUnifiedEmailBindingEvidence(filteredEmail),
     [filteredEmail],
   );
 
@@ -746,7 +773,7 @@ export function ManagerUnifiedInbox({
           threadId: rowId,
           // A binding alone is insufficient on a workspace-wide work number.
           // It must agree with the email row's manager/property/role evidence.
-          personKey: managerUnifiedSmsPersonKey(resident, emailBindingRelationships),
+          personKey: managerUnifiedSmsPersonKey(resident, emailBindingEvidence),
           personEmail: resident.residentEmail?.trim() || undefined,
           smsBindingKey: resident.conversationKey?.trim() || undefined,
           // Prefer person name / unit / email; fall back to a readable phone.
@@ -781,7 +808,7 @@ export function ManagerUnifiedInbox({
         return { item, lastOutbound, haystack, archived, unread };
       })
       .filter((x): x is { item: UnifiedInboxListItem; lastOutbound: boolean; haystack: string; archived: boolean; unread: boolean } => x !== null);
-  }, [emailBindingRelationships, filterContacts, smsArchivedIds, smsHiddenIds, smsOpenedIds, smsResidents, threadFilters, smsUiEnabled]);
+  }, [emailBindingEvidence, filterContacts, smsArchivedIds, smsHiddenIds, smsOpenedIds, smsResidents, threadFilters, smsUiEnabled]);
 
   const smsListItems = useMemo((): UnifiedInboxListItem[] => {
     const items = allSmsItems.filter(({ archived }) => {

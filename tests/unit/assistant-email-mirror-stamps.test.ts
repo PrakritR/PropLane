@@ -46,6 +46,12 @@ function fakeDb() {
         threads.set(String(record.id), record);
         return { error: null };
       },
+      insert: async (record: StoredRow) => {
+        const id = String(record.id);
+        if (threads.has(id)) return { error: { message: "duplicate key value violates unique constraint" } };
+        threads.set(id, record);
+        return { error: null };
+      },
     };
     return chain;
   }

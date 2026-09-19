@@ -11,23 +11,42 @@ import { deliverPortalMessageThreadSide } from "@/lib/portal-inbox-delivery";
  * `/api/portal/send-inbox-message` (the app's own compose) are PARALLEL
  * implementations and both call this function.
  */
-function fakeDb(captured: { upserts: unknown[] }) {
-  const noRows = {
-    select: () => noRows,
-    eq: () => noRows,
-    order: () => noRows,
-    limit: () => noRows,
-    maybeSingle: async () => ({ data: null, error: null }),
-    then: (resolve: (v: unknown) => unknown) => resolve({ data: [], error: null }),
-  };
-  return {
-    from: () => ({
-      ...noRows,
-      upsert: async (record: unknown) => {
-        captured.upserts.push(record);
+function fakeDb(captured: { writes: unknown[] }) {
+  const rows = new Map<string, Record<string, unknown>>();
+  function table() {
+    const filters: Array<[string, unknown]> = [];
+    const matches = (row: Record<string, unknown>) => filters.every(([column, value]) => {
+      if (column === "row_data->>folder") return String((row.row_data as Record<string, unknown> | undefined)?.folder ?? "") === value;
+      if (column === "row_data->>email") return String((row.row_data as Record<string, unknown> | undefined)?.email ?? "") === value;
+      return row[column] === value;
+    });
+    const chain = {
+      select: () => chain,
+      eq(column: string, value: unknown) {
+        filters.push([column, value]);
+        return chain;
+      },
+      order: () => chain,
+      limit: async () => ({ data: [...rows.values()].filter(matches), error: null }),
+      maybeSingle: async () => ({ data: [...rows.values()].find(matches) ?? null, error: null }),
+      upsert: async (record: Record<string, unknown>) => {
+        const id = String(record.id);
+        rows.set(id, { ...(rows.get(id) ?? {}), ...record });
+        captured.writes.push(record);
         return { data: null, error: null };
       },
-    }),
+      insert: async (record: Record<string, unknown>) => {
+        const id = String(record.id);
+        if (rows.has(id)) return { data: null, error: { message: "duplicate key value violates unique constraint" } };
+        rows.set(id, record);
+        captured.writes.push(record);
+        return { data: null, error: null };
+      },
+    };
+    return chain;
+  }
+  return {
+    from: () => table(),
   } as never;
 }
 
@@ -49,10 +68,10 @@ const base = {
 
 describe("a new conversation records what it is about", () => {
   it("writes the category onto the thread row", async () => {
-    const captured = { upserts: [] as unknown[] };
+    const captured = { writes: [] as unknown[] };
     await deliverPortalMessageThreadSide(fakeDb(captured), { ...base, category: "maintenance" });
 
-    const row = captured.upserts.at(-1) as { row_data?: Record<string, unknown> };
+    const row = captured.writes.at(-1) as { row_data?: Record<string, unknown> };
     expect(row?.row_data?.category).toBe("maintenance");
   });
 
@@ -60,10 +79,10 @@ describe("a new conversation records what it is about", () => {
     // An absent category must stay absent rather than becoming a guess: the row
     // renders no chip, which is the honest state for every conversation written
     // before the send path began recording one.
-    const captured = { upserts: [] as unknown[] };
+    const captured = { writes: [] as unknown[] };
     await deliverPortalMessageThreadSide(fakeDb(captured), base);
 
-    const row = captured.upserts.at(-1) as { row_data?: Record<string, unknown> };
+    const row = captured.writes.at(-1) as { row_data?: Record<string, unknown> };
     expect(row?.row_data && "category" in row.row_data).toBe(false);
   });
 });

@@ -22,6 +22,14 @@ const source = (id: string, body: string, extras: Partial<PersistedInboxThread> 
   unread: true,
   readSources: [{ id, observation: `obs-${id}` }],
   readSourcesComplete: true,
+  managerUserId: "manager-1",
+  propertyId: "property-1",
+  counterpartyRole: "resident",
+  identityProvenance: [{
+    managerUserId: "manager-1",
+    propertyId: "property-1",
+    counterpartyRole: "resident",
+  }],
   ...extras,
 });
 
@@ -243,7 +251,7 @@ describe("portal inbox observed-read storage contract", () => {
     expect(collapseAssistantInboxThreads(rows)[0]?.readSources).toEqual([]);
   });
 
-  it("carries every explicit native binding through person collapse", () => {
+  it("keeps distinct explicit native bindings in separate storage partitions", () => {
     const rows = [
       source("email-a", "first email", {
         smsConversationKey: "K1",
@@ -255,10 +263,15 @@ describe("portal inbox observed-read storage contract", () => {
       }),
     ];
 
-    const [merged] = collapsePersonInboxThreads(rows, { mergeFolders: true });
+    const partitions = collapsePersonInboxThreads(rows, { mergeFolders: true });
 
-    expect(merged?.smsConversationKey).toBeUndefined();
-    expect(merged?.smsBindingKeys).toEqual(["K1", "K2"]);
+    // Display code can fold verified relationships, but persistence must keep
+    // the independent native bindings intact. A K1/K2 disagreement is never
+    // rewritten as a synthetic shared conversation key.
+    expect(partitions).toHaveLength(2);
+    expect(partitions.map((row) => row.smsConversationKey).sort()).toEqual(["K1", "K2"]);
+    expect(partitions.map((row) => row.smsBindingKeys).sort((a, b) => String(a).localeCompare(String(b))))
+      .toEqual([["K1"], ["K2"]]);
   });
 
   it("fails closed when successive collapse passes disagree about native bindings", () => {

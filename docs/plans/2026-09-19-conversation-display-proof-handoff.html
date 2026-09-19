@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Conversation display proof correction handoff</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { max-width: 960px; margin: 40px auto; padding: 0 24px; line-height: 1.6; }
+    h1, h2 { line-height: 1.2; }
+    code { overflow-wrap: anywhere; }
+    li { margin: 0.5rem 0; }
+    .pending { color: #9a5b00; }
+    @media (prefers-color-scheme: dark) { .pending { color: #ffd27a; } }
+  </style>
+</head>
+<body>
+  <h1>Conversation display proof correction handoff</h1>
+  <p><strong>Goal:</strong> close the P1 cross-email binding bridge and P2 incomplete owner/role proof identified in the conversation CI regression review.</p>
+  <p><strong>Plan:</strong> <code>docs/plans/2026-09-19-conversation-display-proof-plan.html</code></p>
+  <p><strong>Workspace:</strong> <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code></p>
+  <p><strong>Branch and supplied starting HEAD:</strong> <code>akhil/ship-conversation-identity</code> at <code>ebaf5a163</code>. Git commands were prohibited, so this phase did not re-read or change Git state.</p>
+
+  <h2>Implemented correction</h2>
+  <ul>
+    <li><code>src/components/portal/pro-unified-inbox.tsx</code> now derives a display relationship only when one nonconflicting provenance claim contains a complete nonempty manager owner, property, and counterparty role tuple.</li>
+    <li>Email-side accepted native evidence now contains normalized declaring email, exact native binding, owner, property, and role. Native acceptance requires the same coherent five-part proof.</li>
+    <li>The native relationship resolver rejects absent owner or role and deduplicates property ids before enforcing exactly one property.</li>
+    <li>No email alias bridge was added from <code>residentUserId</code>, a binding string, contact labels, or partial relationship evidence.</li>
+  </ul>
+
+  <h2>Coverage changed</h2>
+  <ul>
+    <li><code>tests/unit/manager-unified-inbox-relationship-folding.test.ts</code> covers normalized matching emails; cross-email rejection; missing owner or role on both sides together and on each side independently; distinct owner, property, or role; multi-house isolation; and unbound K3 isolation.</li>
+    <li><code>tests/unit/manager-unified-inbox-read-integration.test.tsx</code> preserves the positive A/K1 + B/K2 fold with both email histories, both native histories, both email observations, both native receipts, and K3 exclusion.</li>
+    <li>The integration suite adds the reviewed A/K1 versus unbound B/native-K1-email-B counterexample. Opening B does not render the borrowed native body and does not acknowledge its native receipt. The real pane receives the same accepted-native array for its timeline and native reply target, so the rejected record is absent from both paths without replacing the pane with a test mock.</li>
+    <li><code>tests/unit/portal-inbox-read-storage-contract.test.ts</code> was not changed; K1 and K2 remain separate raw-storage partitions with exact bindings.</li>
+  </ul>
+
+  <h2>Preserved behavior</h2>
+  <p>Two independently stored keys still fold for the same proven normalized email, owner, property, and role. Exact native binding remains mandatory. Unknown, incomplete, conflicted, cross-email, cross-owner, cross-property, cross-role, multi-house, and unbound native records remain isolated.</p>
+
+  <h2>Files changed in this correction phase</h2>
+  <ul>
+    <li><code>src/components/portal/pro-unified-inbox.tsx</code></li>
+    <li><code>tests/unit/manager-unified-inbox-relationship-folding.test.ts</code></li>
+    <li><code>tests/unit/manager-unified-inbox-read-integration.test.tsx</code></li>
+    <li><code>docs/plans/2026-09-19-conversation-display-proof-plan.html</code></li>
+    <li><code>docs/plans/2026-09-19-conversation-display-proof-handoff.html</code></li>
+  </ul>
+
+  <h2>Review and validation status</h2>
+  <p>GPT-5.6 Terra implemented the source and coverage changes. A fresh GPT-5.6 Luna source review found the proof shape sound and added the independent incomplete-side tests.</p>
+  <p class="pending"><strong>Pending by instruction:</strong> no tests, lint, typecheck, build, browser, server, installation, database, graph, or Git command ran in this phase. This handoff makes no runtime pass claim. The root session is the sole validation owner and should launch a fresh GPT-6 Astra review before CI validation.</p>
+</body>
+</html>
