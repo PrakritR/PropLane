@@ -60,9 +60,9 @@ test.describe("Public marketing — light theme only", () => {
 
   test("marketing home stays light even when dark is saved", async ({ page }) => {
     await page.goto("/");
-    // Anchor on the current hero (landing-demo-hero.tsx). The three block spans
-    // concatenate without whitespace in the accessible name, so match the start.
-    await expect(page.getByRole("heading", { name: /the ai does/i })).toBeVisible();
+    // SiteHero is the public landing hero; keep this semantic heading assertion
+    // independent of the dark-mode storage override.
+    await expect(page.getByRole("heading", { name: "Property management that runs itself.", exact: true })).toBeVisible();
     const theme = await page.evaluate(() => document.documentElement.getAttribute("data-theme"));
     expect(theme).toBe("light");
   });

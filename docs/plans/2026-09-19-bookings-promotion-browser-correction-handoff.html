@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Bookings and promotion browser correction handoff</title>
+<style>body{font:16px/1.6 system-ui;max-width:900px;margin:40px auto;padding:0 24px}code{overflow-wrap:anywhere}</style>
+<h1>Bookings and promotion browser correction handoff</h1>
+<p>Promotion E2E coverage in <code>tests/e2e/promotion-new-modal.spec.ts</code> now follows the Kind → Content → Preview workspace, uses the exact <code>promotion-new-kind</code> and text-format field selectors, drives the DOM Switch type confirmation Cancel/Switch controls, preserves flyer content checks, verifies text preview/copy and exactly one newly created asset, and removes only that created asset in a guarded cleanup.</p>
+<p>The channel-calendar spec requires a reviewer-owned unique property/room fixture before further edits. The attempted shared-property approach was stopped because it could overwrite or delete unrelated connections. No shared fixture is claimed safe.</p>
+<p>No runtime, browser, database, build, Node, or Git validation was run.</p>
+</html>
