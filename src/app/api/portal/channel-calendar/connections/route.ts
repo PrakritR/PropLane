@@ -5,7 +5,10 @@ import {
   listChannelCalendarConnections,
   upsertChannelCalendarConnection,
 } from "@/lib/channel-calendar/sync.server";
-import { isChannelCalendarInputError } from "@/lib/channel-calendar/airbnb-url";
+import {
+  isChannelCalendarInputError,
+  parseChannelCalendarProvider,
+} from "@/lib/channel-calendar/airbnb-url";
 import { managerHasCalendarAccessForProperty } from "@/lib/auth/manager-lease-scope";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -63,6 +66,7 @@ export async function POST(req: Request) {
     const body = (await req.json()) as {
       propertyId?: string;
       roomId?: string;
+      provider?: string | null;
       label?: string | null;
       importUrl?: string | null;
     };
@@ -71,6 +75,12 @@ export async function POST(req: Request) {
     const roomId = body.roomId?.trim() ?? "";
     if (!propertyId || !roomId) {
       return NextResponse.json({ error: "propertyId and roomId are required." }, { status: 400 });
+    }
+    const provider = body.provider == null || String(body.provider).trim() === ""
+      ? "airbnb"
+      : parseChannelCalendarProvider(body.provider);
+    if (!provider) {
+      return NextResponse.json({ error: "Unknown calendar channel." }, { status: 400 });
     }
     if (!(await managerHasCalendarAccessForProperty(ctx.db, ctx.userId, propertyId))) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
@@ -82,6 +92,7 @@ export async function POST(req: Request) {
         managerUserId: ctx.userId,
         propertyId,
         roomId,
+        provider,
         label: body.label ?? null,
         importUrl: body.importUrl ?? null,
       },

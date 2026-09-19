@@ -12,7 +12,7 @@ import { ManagerBookingsListView } from "@/components/portal/manager-bookings-li
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling } from "@/lib/portal-empty-copy";
-import { CalendarOff, Link2, Settings } from "lucide-react";
+import { CalendarOff, CalendarSync, Settings } from "lucide-react";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -410,8 +410,8 @@ function useBookingsWorkspace({
       }
       primary={
         <PortalPrimaryIconAction
-          label="Link Airbnb"
-          icon={Link2}
+          label="Link calendars"
+          icon={CalendarSync}
           disabled={linkDisabled}
           data-attr="portfolio-bookings-link-airbnb"
           onClick={() => setSheet({ open: true, pane: "airbnb", dayKey: null, editingBlock: null })}
@@ -483,11 +483,11 @@ function useBookingsWorkspace({
                   listBucket === "upcoming"
                     ? [
                         {
-                          label: "Link Airbnb",
-                          icon: Link2,
+                          label: "Link calendars",
+                          icon: CalendarSync,
                           onClick: () => setSheet({ open: true, pane: "airbnb", dayKey: null, editingBlock: null }),
                           disabled: linkDisabled,
-                          reason: linkDisabled ? "List a property first, then link its rooms to Airbnb." : undefined,
+                          reason: linkDisabled ? "List a property first, then link its rooms." : undefined,
                           dataAttr: "bookings-empty-link-airbnb",
                         },
                       ]

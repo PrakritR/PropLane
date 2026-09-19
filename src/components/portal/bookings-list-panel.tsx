@@ -28,7 +28,9 @@ const LIST_TABS: { id: BookingsListTabId; label: string }[] = [
 ];
 
 function guestName(entry: PropertyBookingEntry): string {
-  return entry.source === "airbnb" ? bookingGuestLabel(entry.summary) : entry.summary;
+  return entry.source === "airbnb" || entry.source === "booking_com"
+    ? bookingGuestLabel(entry.summary)
+    : entry.summary;
 }
 
 export function ManagerBookingsListPanel({

@@ -183,7 +183,7 @@ function DayBookingCell({
       {booked && preview ? (
         <div className="mt-1 min-h-0 flex-1 space-y-0.5 overflow-hidden">
           <p className="truncate text-[10px] font-semibold leading-tight">
-            {preview.source === "airbnb"
+            {preview.source === "airbnb" || preview.source === "booking_com"
               ? bookingGuestShortLabel(preview.summary, 14)
               : preview.summary}
           </p>
@@ -255,7 +255,9 @@ function YearMonthMiniGrid({
 
 function DayViewStayCard({ booking }: { booking: PropertyBookingEntry }) {
   const name =
-    booking.source === "airbnb" ? bookingGuestLabel(booking.summary) : booking.summary;
+    booking.source === "airbnb" || booking.source === "booking_com"
+      ? bookingGuestLabel(booking.summary)
+      : booking.summary;
   return (
     <li
       className="rounded-xl border border-border bg-card/95 p-3 shadow-[var(--shadow-sm)]"

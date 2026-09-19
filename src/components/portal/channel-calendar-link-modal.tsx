@@ -10,7 +10,12 @@ import {
   saveChannelCalendarConnection,
   syncChannelCalendarConnection,
 } from "@/lib/channel-calendar/client";
-import type { ManagerChannelBookingProperty } from "@/lib/channel-calendar/types";
+import {
+  CHANNEL_CALENDAR_PROVIDERS,
+  type ChannelCalendarProvider,
+  type ManagerChannelBookingProperty,
+} from "@/lib/channel-calendar/types";
+import { channelCalendarProviderLabel } from "@/lib/channel-calendar/airbnb-url";
 import {
   getRoomOptionsForProperty,
   parseRoomChoiceValue,
@@ -64,6 +69,7 @@ export function ChannelCalendarLinkFields({
   onFooterState?: (state: ChannelCalendarLinkFooterState) => void;
   actionsRef?: MutableRefObject<ChannelCalendarLinkActions | null>;
 }) {
+  const [provider, setProvider] = useState<ChannelCalendarProvider>("airbnb");
   const [propertyId, setPropertyId] = useState(initialPropertyId ?? "");
   const [roomChoice, setRoomChoice] = useState("");
   const [importUrl, setImportUrl] = useState("");
@@ -92,6 +98,7 @@ export function ChannelCalendarLinkFields({
 
   useEffect(() => {
     if (!active) return;
+    setProvider("airbnb");
     setPropertyId(initialPropertyId ?? propertyOptions[0]?.id ?? "");
     setRoomChoice("");
     setImportUrl("");
@@ -127,6 +134,7 @@ export function ChannelCalendarLinkFields({
         property.rooms.map((room) => ({
           propertyLabel: property.propertyLabel,
           roomLabel: room.roomLabel,
+          provider: room.provider,
           connectionId: room.connectionId,
           hasImportUrl: room.hasImportUrl,
           exportUrl: room.exportUrl,
@@ -152,12 +160,13 @@ export function ChannelCalendarLinkFields({
       const saved = await saveChannelCalendarConnection({
         propertyId,
         roomId: listingRoomId,
+        provider,
         label: roomLabel,
         importUrl: importUrl.trim(),
       });
       try {
         await syncChannelCalendarConnection(saved.id);
-        showToast("Airbnb calendar linked and synced.");
+        showToast(`${channelCalendarProviderLabel(provider)} calendar linked and synced.`);
       } catch {
         showToast("Calendar saved. Use Sync all to refresh bookings.");
       }
@@ -171,11 +180,11 @@ export function ChannelCalendarLinkFields({
     } finally {
       setBusy(false);
     }
-  }, [canSave, importUrl, onChanged, propertyId, reloadLinked, roomChoice, roomOptions, showToast]);
+  }, [canSave, importUrl, onChanged, propertyId, provider, reloadLinked, roomChoice, roomOptions, showToast]);
 
   const syncAll = useCallback(async () => {
     if (syncableConnections.length === 0) {
-      showToast("Link a room with an Airbnb import URL first.");
+      showToast("Link a room with an import URL first.");
       return;
     }
     setSyncing(true);
@@ -193,7 +202,7 @@ export function ChannelCalendarLinkFields({
       await reloadLinked();
       onChanged?.();
       if (failed === 0) {
-        showToast(`Synced ${ok} Airbnb calendar${ok === 1 ? "" : "s"}.`);
+        showToast(`Synced ${ok} calendar${ok === 1 ? "" : "s"}.`);
       } else {
         showToast(`Synced ${ok}; ${failed} failed.`);
       }
@@ -209,7 +218,7 @@ export function ChannelCalendarLinkFields({
       setConfirmingUnlinkId(null);
       await reloadLinked();
       onChanged?.();
-      showToast("Airbnb calendar unlinked.");
+      showToast("Calendar unlinked.");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not remove connection.");
     } finally {
@@ -233,10 +242,36 @@ export function ChannelCalendarLinkFields({
     actionsRef.current = { save: handleSave, syncAll };
   }, [actionsRef, handleSave, syncAll]);
 
+  const importPlaceholder =
+    provider === "booking_com"
+      ? "https://ical.booking.com/v1/export?t=…"
+      : "https://www.airbnb.com/calendar/ical/…";
+
   return (
     <div className="space-y-4">
       <label className="block">
-        <span className={FIELD_LABEL}>Property</span>
+        <span className={FIELD_LABEL}>Channel</span>
+        <Select
+          value={provider}
+          onChange={(e) => {
+            setProvider(e.target.value as ChannelCalendarProvider);
+            setImportUrl("");
+            if (saveError) setSaveError(null);
+          }}
+          disabled={busyAny}
+          aria-label="Channel"
+          data-attr="channel-calendar-link-provider"
+        >
+          {CHANNEL_CALENDAR_PROVIDERS.map((value) => (
+            <option key={value} value={value}>
+              {channelCalendarProviderLabel(value)}
+            </option>
+          ))}
+        </Select>
+      </label>
+
+      <label className="block">
+        <span className={FIELD_LABEL}>House</span>
         <Select
           value={propertyId}
           onChange={(e) => setPropertyId(e.target.value)}
@@ -272,10 +307,10 @@ export function ChannelCalendarLinkFields({
       </label>
 
       <label className="block">
-        <span className={FIELD_LABEL}>Airbnb import URL</span>
+        <span className={FIELD_LABEL}>{channelCalendarProviderLabel(provider)} import URL</span>
         <Input
           type="url"
-          placeholder="https://www.airbnb.com/calendar/ical/…"
+          placeholder={importPlaceholder}
           value={importUrl}
           onChange={(e) => {
             setImportUrl(e.target.value);
@@ -302,7 +337,7 @@ export function ChannelCalendarLinkFields({
               <li key={row.connectionId} className="space-y-1.5">
                 <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
                   <span>
-                    {row.propertyLabel} · {row.roomLabel}
+                    {row.propertyLabel} · {row.roomLabel} · {channelCalendarProviderLabel(row.provider)}
                   </span>
                   <span className="text-muted">
                     {formatSyncedAt(row.lastSyncedAt)}
@@ -407,7 +442,7 @@ export function ChannelCalendarLinkModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="Link Airbnb"
+      title="Link calendars"
       dataAttr="channel-calendar-link-modal"
       footer={
         <ModalFooter className="justify-start">

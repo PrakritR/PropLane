@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Bookings calendar sheet — Block dates and Link Airbnb in one dialog.
+ * Bookings calendar sheet — Add booking and Link calendars in one dialog.
  * A segmented control switches the pane; there are not two stacked modals.
  */
 
@@ -288,7 +288,7 @@ export function BookingsBlockDatesModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={pane === "airbnb" ? "Link Airbnb" : "Add booking"}
+      title={pane === "airbnb" ? "Link calendars" : "Add booking"}
       dataAttr="bookings-block-dates-modal"
       footer={footer}
     >
@@ -299,7 +299,7 @@ export function BookingsBlockDatesModal({
           onChange={(id) => setPane(id as BookingsSheetPane)}
           items={[
             { id: "block", label: "Add booking", dataAttr: "bookings-sheet-pane-block" },
-            { id: "airbnb", label: "Link Airbnb", dataAttr: "bookings-sheet-pane-airbnb" },
+            { id: "airbnb", label: "Link calendars", dataAttr: "bookings-sheet-pane-airbnb" },
           ]}
         />
 

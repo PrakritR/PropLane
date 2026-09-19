@@ -2,6 +2,7 @@
 
 import type {
   ChannelCalendarConnectionPublic,
+  ChannelCalendarProvider,
   ManagerChannelBookingProperty,
 } from "@/lib/channel-calendar/types";
 
@@ -26,6 +27,7 @@ export async function fetchChannelCalendarConnections(
 export async function saveChannelCalendarConnection(input: {
   propertyId: string;
   roomId: string;
+  provider: ChannelCalendarProvider;
   label?: string | null;
   importUrl?: string | null;
 }): Promise<ChannelCalendarConnectionPublic> {

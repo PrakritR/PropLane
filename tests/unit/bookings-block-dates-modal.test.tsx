@@ -129,7 +129,7 @@ describe("BookingsBlockDatesModal — resident", () => {
     expect(attr(view, "bookings-block-check-out")).not.toBeNull();
   });
 
-  it("is one sheet with Add booking and Link Airbnb panes, and no helper description", () => {
+  it("is one sheet with Add booking and Link calendars panes, and no helper description", () => {
     const { view } = open();
     const body = document.body.textContent ?? "";
     expect(attr(view, "bookings-sheet-pane-block")).not.toBeNull();
@@ -139,8 +139,14 @@ describe("BookingsBlockDatesModal — resident", () => {
     expect(body).not.toContain("Puts their name on the hold");
 
     fireEvent.click(attr(view, "bookings-sheet-pane-airbnb")!);
+    const linkBody = document.body.textContent ?? "";
     expect(attr(view, "channel-calendar-link-import-url")).not.toBeNull();
-    expect(document.body.textContent ?? "").not.toContain("Airbnb → Calendar → Availability");
+    const provider = attr(view, "channel-calendar-link-provider")!;
+    expect(provider).not.toBeNull();
+    expect(linkBody).toContain("Channel");
+    expect(linkBody).toContain("Airbnb import URL");
+    expect(linkBody).not.toContain("Airbnb → Calendar → Availability");
+    expect(optionLabels(provider)).toEqual(["Airbnb", "Booking.com"]);
   });
 
   it("lists existing holds with Edit and Delete, not a Blocked or View pill", () => {
