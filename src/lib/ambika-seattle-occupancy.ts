@@ -115,12 +115,12 @@ export const AMBIKA_SEATTLE_RESIDENTS: AmbikaSeattleResident[] = [
     house: "4709A",
     roomNumber: 1,
     name: "Grace Natalie Halverson",
-    email: "unkown-email(input)@gmail.com",
     phone: "(715) 419-2818",
     rentCents: 72_500,
     utilitiesCents: 15_000,
     start: SEP,
     end: "2026-12-31",
+    pdfFileName: "Lease Agreement Room1.pdf",
     onboard: true,
   },
   {
@@ -131,6 +131,7 @@ export const AMBIKA_SEATTLE_RESIDENTS: AmbikaSeattleResident[] = [
     email: "sohanvnaik@gmail.com",
     start: "2026-09-21",
     skipCharges: true,
+    pdfFileName: "Lease Sohan Room2.pdf",
     onboard: true,
   },
   {
@@ -143,6 +144,7 @@ export const AMBIKA_SEATTLE_RESIDENTS: AmbikaSeattleResident[] = [
     utilitiesCents: 15_000,
     start: SEP,
     monthToMonth: true,
+    pdfFileName: "Lease Aaron6.pdf",
     onboard: true,
   },
   {
@@ -264,6 +266,7 @@ export const AMBIKA_SEATTLE_RESIDENTS: AmbikaSeattleResident[] = [
     email: "akshaya.vk25@gmail.com",
     rentCents: 90_000,
     start: SEP,
+    pdfFileName: "Lease Akshaya Room3.pdf",
     onboard: true,
   },
   {
