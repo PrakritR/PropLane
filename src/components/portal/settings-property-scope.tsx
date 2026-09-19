@@ -11,16 +11,14 @@ import {
 } from "react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS } from "@/components/ui/field-select-styles";
-import { PortalSettingsScopeTag } from "@/components/portal/portal-settings-ui";
 
 /**
- * Per-property scope for Operations settings (PLAN-0916-1040).
+ * Per-property scope for Portfolio + Operations settings (PLAN-0918-1500).
  *
- * A sticky bar at the top of a pane (when the workspace has houses) and the
- * compact picker in each section header both set which house the sections apply
- * to; "" is the workspace default ("All properties"). The panels read the scope
+ * One compact picker lives in the module title row (Services, Tours, …).
+ * "" is the workspace default ("All properties"). Panels read the scope
  * through {@link useSettingsPropertyScope} and add `?propertyId=` to their
- * fetches.
+ * fetches. Section headers stay titles only — never a second picker.
  *
  * The hook is safe to call OUTSIDE a provider — it returns the workspace scope
  * (`propertyId: ""`, no-op reporters) — so a panel without houses still reads
@@ -135,11 +133,9 @@ const ALL_PROPERTIES = "__all__";
 function SettingsPropertyScopePicker({
   compact,
   dataAttr,
-  fullWidth,
 }: {
   compact?: boolean;
   dataAttr: string;
-  fullWidth?: boolean;
 }) {
   const scope = useSettingsPropertyScope();
   const pickerOptions = [
@@ -171,15 +167,15 @@ function SettingsPropertyScopePicker({
       dataAttr={dataAttr}
       variant="pill"
       triggerClassName={`${FIELD_SELECT_TRIGGER_TOOLBAR_PILL_CLASS} max-w-[15rem]`}
-      wrapperClassName={fullWidth ? "w-full" : compact ? "max-w-[15rem]" : undefined}
+      wrapperClassName={compact ? "max-w-[15rem]" : undefined}
       menuFooter={selectAllFooter}
     />
   );
 }
 
 /**
- * The scope bar — one property picker pinned at the top of a settings pane.
- * Always visible when the workspace has houses. "" is All properties.
+ * Compact title-row property control — one picker, no "Property" label, no card.
+ * Mount it in the module title row. "" is All properties.
  * "Select all" in the menu is the same pick as All properties.
  */
 export function SettingsPropertyScopeBar() {
@@ -189,24 +185,8 @@ export function SettingsPropertyScopeBar() {
   if (options.length === 0) return null;
 
   const overridden = new Set(overriddenPropertyIds);
-  const overriddenOptions = options.filter((o) => overridden.has(o.id));
-  const right =
-    propertyId === "" ? (
-      overriddenOptions.length > 0 ? (
-        <span className="flex flex-wrap items-center gap-1.5">
-          <PortalSettingsScopeTag variant="muted">
-            {overriddenOptions.length === 1
-              ? "1 house has its own"
-              : `${overriddenOptions.length} houses have their own`}
-          </PortalSettingsScopeTag>
-          {overriddenOptions.map((o) => (
-            <PortalSettingsScopeTag key={o.id} variant="muted">
-              {o.label}
-            </PortalSettingsScopeTag>
-          ))}
-        </span>
-      ) : null
-    ) : overridden.has(propertyId) ? (
+  const reset =
+    propertyId !== "" && overridden.has(propertyId) ? (
       <button
         type="button"
         onClick={scope.requestReset}
@@ -216,30 +196,12 @@ export function SettingsPropertyScopeBar() {
       >
         Reset to workspace default
       </button>
-    ) : (
-      <PortalSettingsScopeTag variant="muted">Uses workspace defaults</PortalSettingsScopeTag>
-    );
+    ) : null;
 
   return (
-    <div className="sticky top-0 z-[3] mb-5 flex flex-col gap-2.5 rounded-2xl border border-border bg-card px-3.5 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex items-center gap-2.5">
-        <span className="text-[13px] font-semibold text-foreground">Property</span>
-        <span className="hidden sm:inline-flex">
-          <SettingsPropertyScopePicker dataAttr="settings-property-scope" />
-        </span>
-      </div>
-      <span className="sm:hidden">
-        <SettingsPropertyScopePicker dataAttr="settings-property-scope-mobile" fullWidth />
-      </span>
-      {right ? <div className="flex items-center">{right}</div> : null}
+    <div className="flex items-center gap-2">
+      <SettingsPropertyScopePicker compact dataAttr="settings-property-scope" />
+      {reset}
     </div>
   );
-}
-
-/**
- * Section-header property picker — the same All properties / house / Select all
- * menu as the top bar, in the slot that used to be a static "All properties" tag.
- */
-export function SettingsPropertyScopeEcho() {
-  return <SettingsPropertyScopePicker compact dataAttr="settings-property-scope-echo" />;
 }

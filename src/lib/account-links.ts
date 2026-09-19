@@ -1,6 +1,7 @@
 /** Shared types for `/api/pro/account-links` (server + client). */
 
 import type { CoManagerPermissions, PropertyCoManagerPermissions } from "@/lib/co-manager-permissions";
+import type { CoManagerTeamRole } from "@/lib/co-manager-team-roles";
 import type { WorkspaceCoManagerGrant } from "@/lib/workspace-co-manager-permissions";
 
 /** @deprecated Owner tab removed — only manager co-manager links are supported. */
@@ -48,6 +49,11 @@ export type AccountLinkInviteDto = {
   propertyCoManagerPermissions: PropertyCoManagerPermissions;
   /** Workspace this invite sits under when houses are empty. */
   workspaceId?: string | null;
+  /**
+   * Product role stamp (Viewer / Leasing / …). Authorization still reads the
+   * permission map — a forged `full` with an empty map grants nothing.
+   */
+  teamRole?: CoManagerTeamRole;
   /** Workspace grants — Add properties / Invite teammates. Empty = none. */
   workspacePermissions?: WorkspaceCoManagerGrant;
   createdAt: string;

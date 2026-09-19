@@ -691,57 +691,70 @@ export function PortalProfileClient({
           ref={contentColRef}
           className="min-w-0 flex-1 lg:min-h-0 lg:max-w-3xl lg:overflow-y-auto lg:overscroll-contain"
         >
-          {activeGroup === null ? (
-            <div className="space-y-5 lg:hidden">
-              <PortalSettingsProfileHeader name={emptyToDash(fullName)} email={initialEmail} />
-              {(["Account", "Portfolio", "Operations"] as const).map((group) => {
-                const groupItems = groups.filter((item) => item.group === group);
-                if (groupItems.length === 0) return null;
-                return (
-                  <section key={group} className="space-y-2">
-                    <h2 className="px-1 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">{group}</h2>
-                    <PortalSettingsGroup>
-                      {groupItems.map((g) => (
-                        <PortalSettingsLinkRow
-                          key={g.id}
-                          icon={<g.icon className="h-4 w-4" />}
-                          label={g.label}
-                          onClick={() => openGroup(g.id)}
-                          dataAttr={`settings-open-${g.id}`}
-                        />
-                      ))}
-                    </PortalSettingsGroup>
-                  </section>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="mb-4 lg:hidden">
-              <PortalDetailHeader
-                title={activeGroup.label}
-                onBack={backToRoot}
-                backLabel="Settings"
-                bare
-                dataAttrBack="settings-back-to-root"
-              />
-            </div>
-          )}
-          {SCOPED_OPERATIONS_PANES.has(paneGroup.id) ? (
-            <SettingsPropertyScopeProvider
-              propertyId={scopeProperty}
-              onPropertyIdChange={setScopeProperty}
-              options={scopeOptions}
-            >
-              <SettingsPropertyScopeBar />
-              <PortalSettingsSections className={activeGroup === null ? "max-lg:hidden" : undefined}>
-                {renderPane(paneGroup.id)}
-              </PortalSettingsSections>
-            </SettingsPropertyScopeProvider>
-          ) : (
-            <PortalSettingsSections className={activeGroup === null ? "max-lg:hidden" : undefined}>
-              {renderPane(paneGroup.id)}
-            </PortalSettingsSections>
-          )}
+          {(() => {
+            const scoped = SCOPED_OPERATIONS_PANES.has(paneGroup.id);
+            const body = (
+              <>
+                {activeGroup === null ? (
+                  <div className="space-y-5 lg:hidden">
+                    <PortalSettingsProfileHeader name={emptyToDash(fullName)} email={initialEmail} />
+                    {(["Account", "Portfolio", "Operations"] as const).map((group) => {
+                      const groupItems = groups.filter((item) => item.group === group);
+                      if (groupItems.length === 0) return null;
+                      return (
+                        <section key={group} className="space-y-2">
+                          <h2 className="px-1 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">{group}</h2>
+                          <PortalSettingsGroup>
+                            {groupItems.map((g) => (
+                              <PortalSettingsLinkRow
+                                key={g.id}
+                                icon={<g.icon className="h-4 w-4" />}
+                                label={g.label}
+                                onClick={() => openGroup(g.id)}
+                                dataAttr={`settings-open-${g.id}`}
+                              />
+                            ))}
+                          </PortalSettingsGroup>
+                        </section>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="mb-4 lg:hidden">
+                    <PortalDetailHeader
+                      title={activeGroup.label}
+                      onBack={backToRoot}
+                      backLabel="Settings"
+                      bare
+                      inlineActions
+                      actions={scoped ? <SettingsPropertyScopeBar /> : undefined}
+                      dataAttrBack="settings-back-to-root"
+                    />
+                  </div>
+                )}
+                {scoped ? (
+                  <div className="mb-4 hidden items-center justify-between gap-3 lg:flex">
+                    <h2 className="text-[15px] font-bold tracking-[-0.01em] text-foreground">{paneGroup.label}</h2>
+                    <SettingsPropertyScopeBar />
+                  </div>
+                ) : null}
+                <PortalSettingsSections className={activeGroup === null ? "max-lg:hidden" : undefined}>
+                  {renderPane(paneGroup.id)}
+                </PortalSettingsSections>
+              </>
+            );
+            return scoped ? (
+              <SettingsPropertyScopeProvider
+                propertyId={scopeProperty}
+                onPropertyIdChange={setScopeProperty}
+                options={scopeOptions}
+              >
+                {body}
+              </SettingsPropertyScopeProvider>
+            ) : (
+              body
+            );
+          })()}
         </div>
       </div>
     </ManagerPortalPageShell>

@@ -7,6 +7,13 @@ import {
   normalizePropertyCoManagerPermissions,
   prunePropertyCoManagerPermissions,
 } from "@/lib/co-manager-permissions";
+import {
+  inferInviteTeamRole,
+  parseTeamRole,
+  stampTeamRoleOnProperties,
+  stampTeamRolePermissions,
+  type TeamRoleId,
+} from "@/lib/co-manager-team-roles";
 import { normalizeWorkspacePermissions } from "@/lib/workspace-co-manager-permissions";
 import { isCrossSandboxPortalPair, CROSS_SANDBOX_PORTAL_PAIR_ERROR } from "@/lib/portal-sandbox-accounts";
 import { scopedRelationshipDeletesForRevokedInvite } from "@/lib/pro-relationships";
@@ -32,6 +39,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
       propertyCoManagerPermissions?: unknown;
       workspacePermissions?: unknown;
       workspaceId?: string | null;
+      teamRole?: unknown;
       propertyId?: string;
       permissions?: unknown;
     } | null;
@@ -75,7 +83,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
       body?.propertyCoManagerPermissions !== undefined ||
       body?.workspacePermissions !== undefined ||
       body?.workspaceId !== undefined ||
-      (body?.propertyId !== undefined && body?.permissions !== undefined);
+      (body?.propertyId !== undefined && body?.permissions !== undefined) ||
+      body?.teamRole !== undefined;
 
     if (!actionNorm && !patchProps && !patchPay && !patchPerms) {
       return NextResponse.json({ error: "Provide action or fields to update." }, { status: 400 });
@@ -180,6 +189,24 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
         }
       }
       nextPropertyPerms = prunePropertyCoManagerPermissions(nextPropertyPerms, nextAssigned);
+      const parsedTeamRole = parseTeamRole(body?.teamRole);
+      if (!parsedTeamRole.ok) {
+        return NextResponse.json({ error: parsedTeamRole.error }, { status: 400 });
+      }
+      let nextTeamRole: TeamRoleId =
+        parsedTeamRole.role ?? inferInviteTeamRole(nextPropertyPerms);
+      if (parsedTeamRole.role && parsedTeamRole.role !== "custom") {
+        nextPropertyPerms = stampTeamRoleOnProperties(
+          parsedTeamRole.role,
+          nextAssigned,
+          nextPropertyPerms,
+        );
+        nextTeamRole = parsedTeamRole.role;
+      } else if (parsedTeamRole.role === "custom") {
+        nextTeamRole = "custom";
+      } else {
+        nextTeamRole = inferInviteTeamRole(nextPropertyPerms);
+      }
       const nextWorkspacePermissions =
         body?.workspacePermissions !== undefined
           ? normalizeWorkspacePermissions(body.workspacePermissions)
@@ -188,10 +215,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
         body?.workspaceId !== undefined
           ? (typeof body.workspaceId === "string" ? body.workspaceId.trim() || null : null)
           : invite.workspace_id ?? null;
+      const stampedWorkspace = stampTeamRolePermissions(nextTeamRole);
       const nextWorkspaceDefaults =
-        body?.coManagerPermissions !== undefined && body?.propertyId === undefined
+        stampedWorkspace ??
+        (body?.coManagerPermissions !== undefined && body?.propertyId === undefined
           ? normalizeCoManagerPermissions(body.coManagerPermissions)
-          : normalizeCoManagerPermissions(invite.co_manager_permissions);
+          : normalizeCoManagerPermissions(invite.co_manager_permissions));
 
       const { data: updated, error: upErr } = await svc
         .from("account_link_invites")
@@ -202,6 +231,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
           co_manager_permissions: nextWorkspaceDefaults,
           workspace_permissions: nextWorkspacePermissions,
           workspace_id: nextWorkspaceId,
+          team_role: nextTeamRole,
         })
         .eq("id", id)
         .eq("status", invite.status)

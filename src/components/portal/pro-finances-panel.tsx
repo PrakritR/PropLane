@@ -20,6 +20,7 @@ import {
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { ExpenseTaxStatusToggle } from "@/components/portal/expense-tax-status-toggle";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import {
   ManagerPortalPageShell,
@@ -1153,6 +1154,21 @@ export function ManagerFinancesPanel({
         activeDestinationId={activeFinanceDestinationId}
         destinationAriaLabel="Finance view"
         actions={financesCommandActions}
+        primary={
+          tabId === "income" ? (
+            <PortalPrimaryIconAction
+              label="Add income"
+              data-attr="finances-add-income-top"
+              onClick={openAddIncome}
+            />
+          ) : tabId === "expenses" ? (
+            <PortalPrimaryIconAction
+              label="Add expense"
+              data-attr="finances-add-expense-top"
+              onClick={openAddExpense}
+            />
+          ) : undefined
+        }
         activeFilterChips={
           activeFinanceFilterChips.length > 0 ? (
             <PortalActiveFilterChips chips={activeFinanceFilterChips} />

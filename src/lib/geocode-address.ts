@@ -40,8 +40,194 @@ export type NominatimSearchHit = {
   display_name?: string;
   lat?: string;
   lon?: string;
+  class?: string;
+  type?: string;
   address?: NominatimAddressParts;
 };
+
+const STREET_TYPE_ALIASES: Record<string, string> = {
+  st: "street",
+  street: "street",
+  ave: "avenue",
+  avenue: "avenue",
+  av: "avenue",
+  rd: "road",
+  road: "road",
+  blvd: "boulevard",
+  boulevard: "boulevard",
+  pkwy: "parkway",
+  parkway: "parkway",
+  dr: "drive",
+  drive: "drive",
+  ln: "lane",
+  lane: "lane",
+  ct: "court",
+  court: "court",
+  ter: "terrace",
+  terrace: "terrace",
+  pl: "place",
+  place: "place",
+  cir: "circle",
+  circle: "circle",
+  hwy: "highway",
+  highway: "highway",
+  way: "way",
+  trl: "trail",
+  trail: "trail",
+};
+
+const DIRECTION_ALIASES: Record<string, string> = {
+  n: "north",
+  north: "north",
+  s: "south",
+  south: "south",
+  e: "east",
+  east: "east",
+  w: "west",
+  west: "west",
+  ne: "northeast",
+  northeast: "northeast",
+  nw: "northwest",
+  northwest: "northwest",
+  se: "southeast",
+  southeast: "southeast",
+  sw: "southwest",
+  southwest: "southwest",
+};
+
+const STREET_TYPES = new Set(Object.values(STREET_TYPE_ALIASES));
+const DIRECTIONS = new Set(Object.values(DIRECTION_ALIASES));
+const DROP_TOKENS = new Set(["usa", "united", "states", "the", "of"]);
+const ADMIN_NOMINATIM_TYPES = new Set([
+  "city",
+  "county",
+  "state",
+  "administrative",
+  "town",
+  "village",
+  "municipality",
+  "province",
+  "region",
+  "suburb",
+]);
+
+function normalizeSuggestToken(token: string): string {
+  const lower = token.toLowerCase();
+  return STREET_TYPE_ALIASES[lower] ?? DIRECTION_ALIASES[lower] ?? lower;
+}
+
+function splitSuggestTokens(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/['’]/g, "")
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .map(normalizeSuggestToken)
+    .filter((token) => token.length > 0 && !DROP_TOKENS.has(token));
+}
+
+/** House numbers like 123 / 4709a — not ordinal street names (15th, 22nd). */
+function isHouseNumberToken(token: string): boolean {
+  return /^\d+[a-z]?$/.test(token) && !/(?:st|nd|rd|th)$/.test(token);
+}
+
+type SuggestQueryTokens = {
+  house: string | null;
+  road: string[];
+  hasDigits: boolean;
+};
+
+function parseSuggestQueryTokens(text: string): SuggestQueryTokens {
+  const tokens = splitSuggestTokens(text);
+  let house: string | null = null;
+  const road: string[] = [];
+  for (const token of tokens) {
+    if (house === null && isHouseNumberToken(token)) {
+      house = token;
+      continue;
+    }
+    if (STREET_TYPES.has(token) || DIRECTIONS.has(token)) continue;
+    road.push(token);
+  }
+  return { house, road, hasDigits: /\d/.test(text) };
+}
+
+function suggestionStreetText(suggestion: AddressSuggestion, hit: NominatimSearchHit): string {
+  const parts = hit.address ?? {};
+  const road = firstNonEmpty(parts.road, parts.pedestrian);
+  const house = parts.house_number?.trim() ?? "";
+  const structured = house && road ? `${house} ${road}` : firstNonEmpty(road, house);
+  return structured || suggestion.address;
+}
+
+function isAdminOnlyHit(hit: NominatimSearchHit, suggestion: AddressSuggestion): boolean {
+  const parts = hit.address ?? {};
+  const hasStreet = Boolean(
+    parts.road?.trim() || parts.pedestrian?.trim() || parts.house_number?.trim() || parts.building?.trim(),
+  );
+  const cls = (hit.class ?? "").toLowerCase();
+  const typ = (hit.type ?? "").toLowerCase();
+  if (hasStreet) return false;
+  if (cls === "place" || ADMIN_NOMINATIM_TYPES.has(typ)) return true;
+  const city = suggestion.city.trim().toLowerCase();
+  const addr = suggestion.address.trim().toLowerCase();
+  return !addr || addr === city;
+}
+
+function scoreAddressSuggestion(
+  query: SuggestQueryTokens,
+  suggestion: AddressSuggestion,
+  hit: NominatimSearchHit,
+): number | null {
+  if (query.hasDigits && isAdminOnlyHit(hit, suggestion)) return null;
+
+  const streetText = suggestionStreetText(suggestion, hit);
+  const street = parseSuggestQueryTokens(streetText);
+  const roadOverlap = query.road.filter((token) => street.road.includes(token));
+  const houseMatch = Boolean(query.house && street.house && query.house === street.house);
+
+  if (query.road.length > 0 && roadOverlap.length === 0) return null;
+  if (query.road.length === 0 && query.house && !houseMatch) return null;
+  if (query.road.length === 0 && !query.house && splitSuggestTokens(streetText).length === 0) return null;
+
+  let score = roadOverlap.length * 20;
+  if (houseMatch) score += 100;
+  if (houseMatch && roadOverlap.length > 0) score += 50;
+  return score;
+}
+
+/** Normalize the typed query for Nominatim — do not rewrite it into a Seattle street. */
+export function shapeNominatimSuggestQuery(raw: string): string {
+  return raw.trim().replace(/\s+/g, " ");
+}
+
+/**
+ * Filter and rank Nominatim hits: house-number + road overlap first; drop
+ * city/county/state rows when the query has digits; drop streets that share
+ * no tokens with what the applicant typed.
+ */
+export function rankNominatimAddressSuggestions(query: string, rows: unknown): AddressSuggestion[] {
+  if (!Array.isArray(rows)) return [];
+  const parsedQuery = parseSuggestQueryTokens(query);
+  const scored: { suggestion: AddressSuggestion; score: number }[] = [];
+  const seen = new Set<string>();
+
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const hit = row as NominatimSearchHit;
+    const parsed = parseNominatimAddressSuggestion(hit);
+    if (!parsed) continue;
+    const key = `${parsed.address}|${parsed.zip}|${parsed.neighborhood}`.toLowerCase();
+    if (seen.has(key)) continue;
+    const score = scoreAddressSuggestion(parsedQuery, parsed, hit);
+    if (score === null) continue;
+    seen.add(key);
+    scored.push({ suggestion: parsed, score });
+  }
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored.map((row) => row.suggestion);
+}
 
 /** Build a stable geocoding query from listing address fields. */
 export function listingGeocodeQuery(

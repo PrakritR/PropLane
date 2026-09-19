@@ -22,6 +22,7 @@ export function HouseDetailsExpandable({
   title,
   badge,
   count,
+  actions,
   onOpenChange,
   children,
 }: {
@@ -30,6 +31,8 @@ export function HouseDetailsExpandable({
   title: string;
   badge?: ReactNode;
   count?: { filled: number; total: number };
+  /** Right-aligned utilities before the count and chevron. Clicks do not toggle. */
+  actions?: ReactNode;
   onOpenChange?: (open: boolean) => void;
   children: ReactNode;
 }) {
@@ -50,6 +53,17 @@ export function HouseDetailsExpandable({
         <span className="text-sm font-semibold text-foreground">{title}</span>
         {badge}
         <span className="flex-1" />
+        {actions ? (
+          <span
+            className="flex shrink-0 items-center gap-0.5"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+          >
+            {actions}
+          </span>
+        ) : null}
         {count ? <SectionCountPill filled={count.filled} total={count.total} /> : null}
         <PortalTableExpandChevron expanded={open} />
       </summary>

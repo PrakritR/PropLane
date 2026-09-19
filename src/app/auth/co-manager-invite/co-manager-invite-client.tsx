@@ -14,6 +14,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 type Preview = {
   inviterDisplayName: string;
   propertyLabels: string[];
+  teamRoleLabel?: string | null;
   expiresAt?: string | null;
 };
 
@@ -155,6 +156,11 @@ export function CoManagerInviteClient() {
             <span className="font-semibold text-foreground">{preview.inviterDisplayName}</span> invited you to
             their workspace on PropLane.
           </p>
+          {preview.teamRoleLabel ? (
+            <p className="mt-2 text-center text-sm text-foreground" data-attr="co-manager-invite-role">
+              Role: {preview.teamRoleLabel}
+            </p>
+          ) : null}
           {preview.propertyLabels.length > 0 ? (
             <div className="mt-4 rounded-2xl border border-border bg-accent/20 px-4 py-3">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">Properties</p>

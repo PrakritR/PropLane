@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { inviteLinkUnusableMessage, type InviteLinkUnusableReason } from "@/lib/invite-links/invite-link-model";
 import { firstNameFromDisplay, inviteAcceptSubtitle, inviteAcceptTitle } from "@/lib/invite-links/invite-accept-copy";
+import { teamRoleListLabel } from "@/lib/co-manager-team-roles";
 
 type Preview = {
   kind: "manager" | "vendor" | "resident";
@@ -15,6 +16,7 @@ type Preview = {
   workspaceName?: string | null;
   ownerUserId?: string;
   propertyLabels: string[];
+  teamRole?: string | null;
   unusableReason: InviteLinkUnusableReason | null;
 };
 
@@ -197,6 +199,12 @@ export default function InviteLinkClient({ token }: { token: string }) {
           workspaceName: preview.workspaceName,
         })}
       />
+
+      {preview.kind === "manager" && preview.teamRole ? (
+        <p className="mt-3 text-center text-sm text-foreground" data-attr="invite-link-role">
+          Role: {teamRoleListLabel(preview.teamRole)}
+        </p>
+      ) : null}
 
       {preview.propertyLabels.length > 0 ? (
         <div className="mt-5 rounded-2xl border border-border bg-accent/20 p-4">

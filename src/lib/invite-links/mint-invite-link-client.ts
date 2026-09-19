@@ -7,6 +7,7 @@ export type MintInviteLinkClientInput = {
   propertyLabelsById?: Record<string, string>;
   expiry?: string;
   uses?: string;
+  teamRole?: string;
 };
 
 export type MintInviteLinkClientResult =
@@ -30,6 +31,7 @@ export async function mintInviteLinkClient(
         propertyLabelsById: input.propertyLabelsById,
         expiry: input.expiry,
         uses: input.uses,
+        teamRole: input.teamRole,
       }),
     });
     const body = (await res.json().catch(() => ({}))) as {

@@ -58,6 +58,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useIsClient } from "@/hooks/use-is-client";
 
+/** Unread mail and pending applications are calls to action; inventory stays muted. */
+export function portalNavCountTone(section: string): "muted" | "alert" {
+  return section === "communication" || section === "applications" ? "alert" : "muted";
+}
+
 function hrefForSection(def: PortalDefinition, section: string) {
   const meta = def.sections.find((s) => s.section === section);
   if (!meta) return def.basePath;
@@ -542,6 +547,7 @@ export function PortalSidebar({
               locked: isSectionLocked(item.section),
               lockedNavigable: isSectionLockNavigable(item.section),
               count: navCounts[item.section] ?? 0,
+              countTone: portalNavCountTone(item.section),
             }))
           : [
               {
@@ -551,6 +557,7 @@ export function PortalSidebar({
                 locked: isSectionLocked(item.section),
                 lockedNavigable: isSectionLockNavigable(item.section),
                 count: navCounts[item.section] ?? 0,
+                countTone: portalNavCountTone(item.section),
               },
             ],
       );
@@ -630,7 +637,7 @@ export function PortalSidebar({
                 active={active}
               />
               {/* Only unread mail badges a bottom tab; inventory counts belong to the sidebar. */}
-              {!locked && count > 0 && navCountTone(s.section) === "alert" ? (
+              {!locked && count > 0 && portalNavCountTone(s.section) === "alert" ? (
                 <span className="absolute -top-1 -right-1.5">
                   <PortalNavCountBadge count={count} tone="alert" />
                 </span>
@@ -678,7 +685,7 @@ export function PortalSidebar({
           </span>
         ) : null}
         {s.label}
-        {!locked ? <PortalNavCountBadge count={count} tone={navCountTone(s.section)} /> : null}
+        {!locked ? <PortalNavCountBadge count={count} tone={portalNavCountTone(s.section)} /> : null}
         {locked ? <NavLockIcon className="h-3 w-3 text-muted" /> : null}
       </Link>
     );
@@ -714,7 +721,7 @@ export function PortalSidebar({
             <span className="min-w-0 truncate">{item.label}</span>
           </span>
           <span className="flex shrink-0 items-center gap-1.5">
-            {!locked ? <PortalNavCountBadge count={count} tone={navCountTone(item.section)} /> : null}
+            {!locked ? <PortalNavCountBadge count={count} tone={portalNavCountTone(item.section)} /> : null}
             {locked ? <NavLockIcon className="h-3.5 w-3.5 text-muted" /> : null}
             {expanded ? (
               <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted/70" aria-hidden />
@@ -800,7 +807,7 @@ export function PortalSidebar({
           <span className="min-w-0 truncate">{s.label}</span>
         </span>
         <span className="flex shrink-0 items-center gap-1.5">
-          {!locked ? <PortalNavCountBadge count={count} tone={navCountTone(s.section)} /> : null}
+          {!locked ? <PortalNavCountBadge count={count} tone={portalNavCountTone(s.section)} /> : null}
           {locked ? <NavLockIcon className="h-3.5 w-3.5 text-muted" /> : null}
         </span>
       </>
@@ -911,8 +918,6 @@ export function PortalSidebar({
   const rawSubtitle = subtitle?.trim() || brand.subtitle;
   // Property portal: show the portal name instead of the billing tier.
   const headerSubtitle = rawSubtitle === "Pro" || rawSubtitle === "Business" ? "Property" : rawSubtitle;
-  /** Unread mail is the one count that is a call to action; the rest are inventory. */
-  const navCountTone = (section: string): "muted" | "alert" => (section === "communication" ? "alert" : "muted");
 
   const desktopAside = (
     <aside

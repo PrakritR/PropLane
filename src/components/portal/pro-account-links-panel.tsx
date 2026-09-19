@@ -7,7 +7,7 @@ import { usePublishTitleActions } from "@/components/portal/portal-title-actions
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Users, UserPlus, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
+import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal } from "@/components/ui/modal";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
@@ -42,11 +42,18 @@ import {
   normalizePropertyCoManagerPermissions,
   flatCoManagerPermissionsFromProperty,
   permissionsForProperty,
-  type CoManagerBulkPreset,
   type CoManagerPermissionId,
   type CoManagerPermissions,
   type PropertyCoManagerPermissions,
 } from "@/lib/co-manager-permissions";
+import {
+  inferInviteTeamRole,
+  inferTeamRoleFromPermissions,
+  stampTeamRolePermissions,
+  TEAM_ROLE_SELECT_OPTIONS,
+  teamRoleListLabel,
+  type TeamRoleId,
+} from "@/lib/co-manager-team-roles";
 import {
   PROPERTY_PIPELINE_EVENT,
   readPendingManagerPropertiesForUser,
@@ -167,6 +174,7 @@ type InviteDraft = {
   propertyCoManagerPermissions: PropertyCoManagerPermissions;
   workspaceDefaultPermissions: CoManagerPermissions;
   workspacePermissions: WorkspaceCoManagerGrant;
+  teamRole: TeamRoleId;
 };
 
 function WorkspaceGrantFields({
@@ -318,12 +326,6 @@ function levelsToGrant(levels: GrantLevels): CoManagerPermissions[CoManagerPermi
 // "All delete" grants delete (without edit) so it stays distinct from "All edit";
 // "All full access" is read+edit+delete (collapses to the legacy `true`). The
 // grant-map builder lives in the lib (buildAllModulesGrant) so it is unit-tested.
-const CO_MANAGER_PERMISSION_PRESETS: { label: string; preset: CoManagerBulkPreset }[] = [
-  { label: "All view", preset: "read" },
-  { label: "All edit", preset: "edit" },
-  { label: "All manage", preset: "full" },
-];
-
 const permissionToggleActive =
   "border-primary bg-primary/10 text-foreground shadow-sm";
 const permissionToggleInactive =
@@ -396,15 +398,25 @@ function CoManagerPermissionsEditor({
   onChange,
   disabled,
   variant = "readWrite",
+  role,
+  onRoleChange,
 }: {
   value: CoManagerPermissions;
   onChange: (next: CoManagerPermissions) => void;
   disabled?: boolean;
   /** Kept for callers; both variants now expose the same four levels. */
   variant?: "readWrite" | "full";
+  role?: TeamRoleId;
+  onRoleChange?: (next: TeamRoleId) => void;
 }) {
   void variant;
-  const presets = CO_MANAGER_PERMISSION_PRESETS;
+  const currentRole = role ?? inferTeamRoleFromPermissions(value);
+
+  const applyRole = (next: TeamRoleId) => {
+    onRoleChange?.(next);
+    const stamp = stampTeamRolePermissions(next);
+    if (stamp) onChange(stamp);
+  };
 
   const setLevels = (id: CoManagerPermissionId, levels: GrantLevels) => {
     const next = { ...value };
@@ -412,6 +424,7 @@ function CoManagerPermissionsEditor({
     if (grant === undefined) delete next[id];
     else next[id] = grant;
     onChange(next);
+    if (currentRole !== "custom") onRoleChange?.("custom");
   };
 
   const isEmpty = Object.keys(value).length === 0;
@@ -419,23 +432,22 @@ function CoManagerPermissionsEditor({
 
   return (
     <div className="space-y-3">
+      <FieldSingleSelect
+        label="Role"
+        options={TEAM_ROLE_SELECT_OPTIONS}
+        value={currentRole}
+        onChange={(next) => applyRole(next as TeamRoleId)}
+        disabled={disabled}
+        dataAttr="co-manager-role"
+      />
       <div className="flex flex-wrap items-center gap-1.5">
-        {presets.map((preset) => (
-          <button
-            key={preset.label}
-            type="button"
-            disabled={disabled}
-            onClick={() => onChange(buildAllModulesGrant(preset.preset))}
-            className="rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
-            data-attr={`co-manager-preset-${preset.label.toLowerCase().replace(/\s+/g, "-")}`}
-          >
-            {preset.label}
-          </button>
-        ))}
         <button
           type="button"
           disabled={disabled || isEmpty}
-          onClick={() => onChange({})}
+          onClick={() => {
+            onChange({});
+            onRoleChange?.("custom");
+          }}
           className="rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted transition-colors hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
           data-attr="co-manager-preset-none"
         >
@@ -449,7 +461,7 @@ function CoManagerPermissionsEditor({
       </div>
       {isEmpty ? (
         <p className="rounded-lg border border-dashed border-border bg-accent/20 px-3 py-2 text-xs text-muted">
-          No access. Choose View, Edit, or Manage for each module below, or start from a preset.
+          No access. Choose a role, or set View, Edit, or Manage for each module below.
         </p>
       ) : null}
       <div className="space-y-2">
@@ -563,6 +575,7 @@ function inviteDraftFromRemote(inv: AccountLinkInviteDto): InviteDraft {
     propertyCoManagerPermissions,
     workspaceDefaultPermissions,
     workspacePermissions: normalizeWorkspacePermissions(inv.workspacePermissions),
+    teamRole: inv.teamRole ?? inferInviteTeamRole(propertyCoManagerPermissions),
   };
 }
 
@@ -580,6 +593,7 @@ function inviteDraftFromRelationship(row: ProRelationshipRecord): InviteDraft {
     workspacePermissions: normalizeWorkspacePermissions(
       (row as { workspacePermissions?: unknown }).workspacePermissions,
     ),
+    teamRole: inferInviteTeamRole(propertyCoManagerPermissions),
   };
 }
 
@@ -987,6 +1001,7 @@ export function ProAccountLinksPanel({
   const [inviteDefaultPermissions, setInviteDefaultPermissions] = useState<CoManagerPermissions>(() =>
     buildAllModulesGrant("read"),
   );
+  const [inviteTeamRole, setInviteTeamRole] = useState<TeamRoleId>("viewer");
   const [inviteWorkspacePermissions, setInviteWorkspacePermissions] = useState<WorkspaceCoManagerGrant>(
     DEFAULT_NEW_INVITE_WORKSPACE_GRANT,
   );
@@ -1373,6 +1388,7 @@ export function ProAccountLinksPanel({
       assignedPropertyIds: ids,
       propertyPermissions: normalizePropertyCoManagerPermissions(propertyPermissionsDraft, ids),
       propertyLabelsById: Object.fromEntries(ids.map((id) => [id, teamPropertyLabel(id)])),
+      teamRole: inviteTeamRole,
     });
     if (!result.ok) {
       showToast(result.error);
@@ -1487,6 +1503,7 @@ export function ProAccountLinksPanel({
               coManagerPermissions: inviteDefaultPermissions,
               workspaceId: inviteWorkspaceId,
               workspacePermissions: inviteWorkspacePermissions,
+              teamRole: inviteTeamRole,
               skipInviteNotification: true,
             }),
           });
@@ -1657,6 +1674,7 @@ export function ProAccountLinksPanel({
             propertyCoManagerPermissions: draft.propertyCoManagerPermissions,
             coManagerPermissions: draft.workspaceDefaultPermissions,
             workspacePermissions: draft.workspacePermissions,
+            teamRole: draft.teamRole,
           });
         }
       }, 300);
@@ -1748,6 +1766,7 @@ export function ProAccountLinksPanel({
       },
       workspaceDefaultPermissions: draft.workspaceDefaultPermissions,
       workspacePermissions: draft.workspacePermissions,
+      teamRole: inferTeamRoleFromPermissions(normalized),
     };
     if (useRemote && remoteLoaded) {
       scheduleInviteSave(inv.id, next, { propertyId, permissions: normalized });
@@ -2549,6 +2568,22 @@ export function ProAccountLinksPanel({
         <CoManagerPermissionsEditor
           value={draft.workspaceDefaultPermissions}
           disabled={readOnly}
+          role={draft.teamRole}
+          onRoleChange={(teamRole) => {
+            const stamp = stampTeamRolePermissions(teamRole);
+            const nextPerms = stamp
+              ? normalizePropertyCoManagerPermissions(
+                  Object.fromEntries(draft.assignedPropertyIds.map((id) => [id, stamp])),
+                  draft.assignedPropertyIds,
+                )
+              : draft.propertyCoManagerPermissions;
+            scheduleInviteSave(inv.id, {
+              ...draft,
+              teamRole,
+              workspaceDefaultPermissions: stamp ?? draft.workspaceDefaultPermissions,
+              propertyCoManagerPermissions: nextPerms,
+            });
+          }}
           onChange={(next) => {
             const nextPerms = normalizePropertyCoManagerPermissions(
               Object.fromEntries(draft.assignedPropertyIds.map((id) => [id, next])),
@@ -2558,6 +2593,7 @@ export function ProAccountLinksPanel({
               ...draft,
               workspaceDefaultPermissions: next,
               propertyCoManagerPermissions: nextPerms,
+              teamRole: inferTeamRoleFromPermissions(next),
             };
             scheduleInviteSave(inv.id, nextDraft);
           }}
@@ -2774,8 +2810,19 @@ export function ProAccountLinksPanel({
 
             <CoManagerPermissionsEditor
               value={inviteDefaultPermissions}
+              role={inviteTeamRole}
+              onRoleChange={(next) => {
+                setInviteTeamRole(next);
+                const stamp = stampTeamRolePermissions(next);
+                if (stamp) {
+                  setInviteDefaultPermissions(stamp);
+                  const ids = selectedInvitePropertyIds();
+                  setPropertyPermissionsDraft(Object.fromEntries(ids.map((id) => [id, stamp])));
+                }
+              }}
               onChange={(next) => {
                 setInviteDefaultPermissions(next);
+                setInviteTeamRole(inferTeamRoleFromPermissions(next));
                 const ids = selectedInvitePropertyIds();
                 setPropertyPermissionsDraft(Object.fromEntries(ids.map((id) => [id, next])));
               }}
@@ -3030,6 +3077,7 @@ export function ProAccountLinksPanel({
         name: entry.name || entry.axisId || "Team member",
         detail: (entry.kind === "remote" ? entry.invite.linkedEmail?.trim() : "") || entry.axisId,
         role: "co_manager" as const,
+        roleLabel: entry.kind === "remote" ? teamRoleListLabel(entry.invite.teamRole) : "Co-manager",
         propertiesLabel: entry.preview || "No houses yet",
         joinedAt: entry.kind === "remote" ? entry.invite.respondedAt : null,
         onEdit: () => setPermissionsMember(entry),
@@ -3102,6 +3150,7 @@ export function ProAccountLinksPanel({
         name: entry.name || entry.axisId || "Team member",
         detail: (entry.kind === "remote" ? entry.invite.linkedEmail?.trim() : "") || entry.axisId,
         role: "co_manager" as const,
+        roleLabel: entry.kind === "remote" ? teamRoleListLabel(entry.invite.teamRole) : "Co-manager",
         propertiesLabel: previewFor(entry.kind === "remote" ? entry.invite.assignedPropertyIds : entry.row.assignedPropertyIds),
         joinedAt: entry.kind === "remote" ? entry.invite.respondedAt : null,
         onEdit: () => setPermissionsMember(entry),

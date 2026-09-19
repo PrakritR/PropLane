@@ -28,6 +28,7 @@ export async function POST(req: Request) {
     ownerName: preview.ownerName,
     workspaceName: preview.workspaceName,
     propertyLabels: preview.propertyLabels,
+    teamRole: preview.teamRole ?? null,
     unusableReason: preview.unusableReason,
     ...(user ? { ownerUserId: preview.ownerUserId } : {}),
   });

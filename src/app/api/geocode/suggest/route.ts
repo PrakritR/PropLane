@@ -1,24 +1,15 @@
 import { NextResponse } from "next/server";
-import { parseNominatimAddressSuggestions } from "@/lib/geocode-address";
+import { rankNominatimAddressSuggestions, shapeNominatimSuggestQuery } from "@/lib/geocode-address";
 import { boundedCacheSet, nominatimUserAgent, throttleNominatim } from "@/lib/nominatim.server";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-const suggestCache = new Map<string, { suggestions: ReturnType<typeof parseNominatimAddressSuggestions>; at: number }>();
+const suggestCache = new Map<string, { suggestions: ReturnType<typeof rankNominatimAddressSuggestions>; at: number }>();
 
 function cacheKey(query: string): string {
   return query.trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-/** Bias short street-only queries toward the Seattle metro (PropPlane's primary market). */
-function nominatimQuery(q: string): string {
-  const trimmed = q.trim();
-  if (!trimmed) return trimmed;
-  const hasRegion = /,\s*[A-Z]{2}\b/i.test(trimmed) || /\b(wa|washington|seattle)\b/i.test(trimmed);
-  const looksLikeStreet = /\d/.test(trimmed) && !hasRegion;
-  return looksLikeStreet ? `${trimmed}, Seattle, WA` : trimmed;
 }
 
 /** Address autocomplete for listing create (OpenStreetMap Nominatim). */
@@ -45,13 +36,14 @@ export async function GET(req: Request) {
     await throttleNominatim();
 
     const url = new URL("https://nominatim.openstreetmap.org/search");
-    const searchQ = nominatimQuery(q);
+    const searchQ = shapeNominatimSuggestQuery(q);
     url.searchParams.set("q", searchQ);
     url.searchParams.set("format", "json");
     url.searchParams.set("addressdetails", "1");
-    url.searchParams.set("limit", "6");
+    // Raise the fetch limit so ranking has rows to pick from.
+    url.searchParams.set("limit", "12");
     url.searchParams.set("countrycodes", "us");
-    // Prefer greater Seattle when the query is ambiguous.
+    // Seattle viewbox is a preference only — never rewrite the query into ", Seattle, WA".
     url.searchParams.set("viewbox", "-122.55,47.38,-122.15,47.78");
     url.searchParams.set("bounded", "0");
 
@@ -65,7 +57,7 @@ export async function GET(req: Request) {
     }
 
     const rows = (await res.json()) as unknown;
-    const suggestions = parseNominatimAddressSuggestions(rows);
+    const suggestions = rankNominatimAddressSuggestions(q, rows);
     boundedCacheSet(suggestCache, key, { suggestions, at: Date.now() });
 
     return NextResponse.json(

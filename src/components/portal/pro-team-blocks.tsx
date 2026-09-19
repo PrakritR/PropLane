@@ -29,6 +29,8 @@ export type TeamMemberRow = {
   /** Axis id or email — the second line under the name. */
   detail: string;
   role: "owner" | "co_manager";
+  /** Product role stamp on a co-manager (Viewer, Leasing, …). */
+  roleLabel?: string;
   /** "3 houses · Ash Flats 6, Birch Flats 7" */
   propertiesLabel: string;
   /** ISO date the link became active; null for the owner. */
@@ -133,6 +135,7 @@ export function TeamMembersBlock({ members, embedded = false }: { members: TeamM
       <ul>
         {members.map((m) => {
           const pill = ROLE_PILL[m.role];
+          const pillLabel = m.role === "co_manager" ? (m.roleLabel ?? pill.label) : pill.label;
           const items = ([
             m.onEdit ? { id: "edit", label: "Edit permissions", onSelect: m.onEdit, dataAttr: "team-member-edit" } : null,
             m.onDisconnect ? { id: "disconnect", label: "Disconnect", onSelect: m.onDisconnect, destructive: true, dataAttr: "team-member-disconnect" } : null,
@@ -147,7 +150,7 @@ export function TeamMembersBlock({ members, embedded = false }: { members: TeamM
                 </span>
               </span>
               <span>
-                <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold", pill.className)}>{pill.label}</span>
+                <span className={cn("inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold", pill.className)}>{pillLabel}</span>
               </span>
               <span className="min-w-0 truncate text-[13px] text-foreground max-md:basis-full max-md:text-[12px] max-md:text-muted">{m.propertiesLabel}</span>
               <span className="text-[12.5px] text-muted max-md:hidden">{shortDate(m.joinedAt)}</span>

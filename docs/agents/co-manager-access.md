@@ -26,6 +26,15 @@ the granular form is `{ read, edit, delete }` (`edit`/`delete` imply `read`).
 Model + level helpers live in `src/lib/co-manager-permissions.ts`
 (`hasCoManagerPermissionLevel[ForProperty]`).
 
+**Team role is a stamp + a label, never authorization.** Invite uses one Role
+dropdown (Viewer, Leasing, Property manager, Bookkeeper, Maintenance, Full
+access, Custom). A named role writes the permission map; Custom keeps the
+current map. Gates still read `property_co_manager_permissions`. A forged
+`teamRole: "full"` with an empty map grants nothing. Catalog:
+`src/lib/co-manager-team-roles.ts`. Column: `account_link_invites.team_role`
+(copied from `manager_invite_links.team_role` on redeem). Null on existing
+rows lists as Co-manager.
+
 **Workspace grants sit beside the 13 modules.** `workspace_permissions`
 (`addProperties`, `teams`) is empty-object-means-no-access. Add properties
 lets a teammate create a listing into that workspace as the owner

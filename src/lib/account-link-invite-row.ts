@@ -1,6 +1,11 @@
 /** Shared invite serialization; route modules export only handlers/configuration. */
 import type { AccountLinkInviteDto } from "@/lib/account-links";
 import { normalizePropertyCoManagerPermissions, flatCoManagerPermissionsFromProperty, type PropertyCoManagerPermissions } from "@/lib/co-manager-permissions";
+import {
+  inferInviteTeamRole,
+  parseTeamRole,
+  type CoManagerTeamRole,
+} from "@/lib/co-manager-team-roles";
 import { normalizeWorkspacePermissions } from "@/lib/workspace-co-manager-permissions";
 
 export type InviteRow = {
@@ -24,6 +29,7 @@ export type InviteRow = {
   invitee_plan_inherited?: boolean;
   workspace_id?: string | null;
   workspace_permissions?: unknown;
+  team_role?: string | null;
 };
 
 export function asStringArray(v: unknown): string[] {
@@ -85,9 +91,19 @@ export function serializeInvite(
     coManagerPermissions: flatCoManagerPermissionsFromProperty(propertyCoManagerPermissions),
     propertyCoManagerPermissions,
     workspaceId: row.workspace_id ?? null,
+    teamRole: resolveInviteTeamRole(row.team_role, propertyCoManagerPermissions),
     workspacePermissions: normalizeWorkspacePermissions(row.workspace_permissions),
     createdAt: row.created_at,
     respondedAt: row.responded_at,
     expiresAt: row.expires_at ?? null,
   };
+}
+
+export function resolveInviteTeamRole(
+  stored: unknown,
+  propertyPerms: PropertyCoManagerPermissions,
+): CoManagerTeamRole {
+  const parsed = parseTeamRole(stored);
+  if (parsed.ok && parsed.role) return parsed.role;
+  return inferInviteTeamRole(propertyPerms);
 }

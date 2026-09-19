@@ -922,14 +922,11 @@ export function ManagerPlan({
 
         {/* Compare plans */}
         <section aria-labelledby="plan-comparison-heading">
-          <div className="flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-end sm:justify-between">
+          <div className="flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 id="plan-comparison-heading" className="text-xl font-semibold tracking-[-0.02em] text-foreground sm:text-2xl">
-                Choose the plan that fits your portfolio
+                Choose your plan
               </h2>
-              <p className="mt-1.5 max-w-2xl text-sm leading-6 text-muted">
-                Start with the tools you need today and change plans as your portfolio grows.
-              </p>
             </div>
             <div className="surface-panel inline-flex shrink-0 items-center gap-1 rounded-full border border-border p-1 shadow-sm">
               <button

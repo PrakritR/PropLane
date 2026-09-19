@@ -230,7 +230,14 @@ export function ProPortalSettingsModal({
     }
   }, [flushPendingSaves, onClose, tab]);
 
+  const showPropertyPicker = !(isFormAutomationTab(tab) && editorPane === "form");
+
   return (
+    <SettingsPropertyScopeProvider
+      propertyId={scopePropertyId}
+      onPropertyIdChange={setScopePropertyId}
+      options={propertyOptions}
+    >
     <Modal
       open={open}
       onClose={closeAndSave}
@@ -250,20 +257,23 @@ export function ProPortalSettingsModal({
         isFormAutomationTab(tab) && editorPane === "form" ? "max-w-4xl" : "max-w-lg",
       )}
       status={
-        <SaveStatus
-          status={{
-            state: saveStatus.state,
-            reason: saveStatus.reason,
-            savedAt: saveStatus.savedAt,
-            retry: () => {
-              void flushPendingSaves();
-            },
-            flush: async () => {
-              await flushPendingSaves();
-            },
-            dirty: saveStatus.state === "saving",
-          }}
-        />
+        <span className="flex items-center gap-2">
+          {showPropertyPicker ? <SettingsPropertyScopeBar /> : null}
+          <SaveStatus
+            status={{
+              state: saveStatus.state,
+              reason: saveStatus.reason,
+              savedAt: saveStatus.savedAt,
+              retry: () => {
+                void flushPendingSaves();
+              },
+              flush: async () => {
+                await flushPendingSaves();
+              },
+              dirty: saveStatus.state === "saving",
+            }}
+          />
+        </span>
       }
       // A save in flight must not be raced by an outside click or Escape closing
       // the dialog out from under it — the flush already keeps the panel's edit
@@ -370,26 +380,20 @@ export function ProPortalSettingsModal({
           />
         )
       ) : (
-        <SettingsPropertyScopeProvider
-          propertyId={scopePropertyId}
-          onPropertyIdChange={setScopePropertyId}
-          options={propertyOptions}
-        >
-          <SettingsPropertyScopeBar />
-          <SettingsModulePage
-            ref={pageRef}
-            tab={tab}
-            propertyOptions={propertyOptions}
-            initialPropertyId={scopePropertyId || initialPropertyId}
-            paymentsMode={paymentsMode}
-            onCalendarSettingsSaved={onCalendarSettingsSaved}
-            onFooterChange={setPanelFooter}
-            onSaveStatusChange={handleSaveStatusChange}
-            active={open}
-          />
-        </SettingsPropertyScopeProvider>
+        <SettingsModulePage
+          ref={pageRef}
+          tab={tab}
+          propertyOptions={propertyOptions}
+          initialPropertyId={scopePropertyId || initialPropertyId}
+          paymentsMode={paymentsMode}
+          onCalendarSettingsSaved={onCalendarSettingsSaved}
+          onFooterChange={setPanelFooter}
+          onSaveStatusChange={handleSaveStatusChange}
+          active={open}
+        />
       )}
     </Modal>
+    </SettingsPropertyScopeProvider>
   );
 }
 

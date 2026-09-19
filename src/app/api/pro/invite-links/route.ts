@@ -41,6 +41,7 @@ export async function POST(req: Request) {
     uses?: string;
     workspaceId?: string;
     propertyLabelsById?: unknown;
+    teamRole?: unknown;
   };
 
   const propertyLabelsById: Record<string, string> = {};
@@ -63,6 +64,7 @@ export async function POST(req: Request) {
     usesOption: body.uses,
     workspaceId: typeof body.workspaceId === "string" ? body.workspaceId : undefined,
     propertyLabelsById,
+    teamRole: body.teamRole,
   });
 
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });

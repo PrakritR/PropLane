@@ -756,9 +756,7 @@ export function ManagerPayments({
           bucket === "overdue"
             ? []
             : direction === "incoming"
-              ? canCreatePayment
-                ? [{ label: "Add charge", onClick: () => setAddOpen(true), dataAttr: "payments-empty-add" }]
-                : []
+              ? [{ label: "Add charge", onClick: () => setAddOpen(true), dataAttr: "payments-empty-add" }]
               : [{ label: "Add payment", onClick: () => setAddOutgoingOpen(true), dataAttr: "payments-empty-add-outgoing" }],
       };
 
@@ -867,9 +865,7 @@ export function ManagerPayments({
         actions={paymentsListActions}
         primary={
           direction === "incoming" ? (
-            canCreatePayment ? (
-              <PortalPrimaryIconAction label="Add charge" data-attr="payments-add-top" onClick={() => setAddOpen(true)} />
-            ) : undefined
+            <PortalPrimaryIconAction label="Add charge" data-attr="payments-add-top" onClick={() => setAddOpen(true)} />
           ) : (
             <PortalPrimaryIconAction label="Add payment" data-attr="payments-add-outgoing-top" onClick={() => setAddOutgoingOpen(true)} />
           )

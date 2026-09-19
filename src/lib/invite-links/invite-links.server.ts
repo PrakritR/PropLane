@@ -25,6 +25,12 @@ import {
   normalizePropertyCoManagerPermissions,
   type PropertyCoManagerPermissions,
 } from "@/lib/co-manager-permissions";
+import { parseTeamRole, stampTeamRoleOnProperties, type TeamRoleId } from "@/lib/co-manager-team-roles";
+
+function storedTeamRole(raw: unknown): TeamRoleId | null {
+  const parsed = parseTeamRole(raw);
+  return parsed.ok ? parsed.role : null;
+}
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { primaryRoleWhenAddingVendor } from "@/lib/auth/profile-primary-role";
 
@@ -68,6 +74,7 @@ export type InviteLinkRow = {
   expiresAt: string | null;
   revokedAt: string | null;
   createdAt: string;
+  teamRole?: TeamRoleId | null;
 };
 
 type DbRow = {
@@ -86,6 +93,7 @@ type DbRow = {
   workspace_name_snapshot?: string | null;
   property_labels?: unknown;
   token_ciphertext?: string | null;
+  team_role?: string | null;
 };
 
 const INVITE_TOKEN_ENCRYPT_FIELD = "token";
@@ -138,11 +146,12 @@ function toInviteLinkRow(row: DbRow): InviteLinkRow {
     expiresAt: row.expires_at,
     revokedAt: row.revoked_at,
     createdAt: row.created_at,
+    teamRole: storedTeamRole(row.team_role),
   };
 }
 
 const LINK_COLUMNS =
-  "id, kind, label, assigned_property_ids, assigned_room_id, property_permissions, max_uses, used_count, expires_at, revoked_at, created_at";
+  "id, kind, label, assigned_property_ids, assigned_room_id, property_permissions, max_uses, used_count, expires_at, revoked_at, created_at, team_role";
 
 export type MintInviteLinkResult =
   | { ok: true; link: InviteLinkRow; token: string }
@@ -171,6 +180,7 @@ export async function mintInviteLink(
     now?: Date;
     workspaceId?: string;
     propertyLabelsById?: Record<string, string>;
+    teamRole?: unknown;
   },
 ): Promise<MintInviteLinkResult> {
   const actorUserId = input.actorUserId.trim();
@@ -239,6 +249,13 @@ export async function mintInviteLink(
       return { ok: false, status: cappedPermissions.status, error: cappedPermissions.error };
     }
     permissions = cappedPermissions.permissions;
+    const parsedRole = parseTeamRole(input.teamRole);
+    if (!parsedRole.ok) {
+      return { ok: false, status: 400, error: parsedRole.error };
+    }
+    if (parsedRole.role && parsedRole.role !== "custom") {
+      permissions = stampTeamRoleOnProperties(parsedRole.role, propertyIds, permissions);
+    }
   }
   // A room narrows a resident link; it is meaningless on a co-manager one,
   // whose scope is whole properties.
@@ -298,6 +315,7 @@ export async function mintInviteLink(
       workspace_id: workspaceId,
       workspace_name_snapshot: workspaceNameSnapshot,
       property_labels: propertyLabels,
+      team_role: kind === "manager" ? storedTeamRole(input.teamRole) : null,
     })
     .select(LINK_COLUMNS)
     .maybeSingle();
@@ -496,6 +514,7 @@ export type InviteLinkPreview = {
   ownerName: string;
   workspaceName: string | null;
   propertyLabels: string[];
+  teamRole?: TeamRoleId | null;
   unusableReason: InviteLinkUnusableReason | null;
 };
 
@@ -572,6 +591,7 @@ export async function previewInviteLink(
     ownerName: String(owner?.full_name ?? "").trim() || "A property manager",
     workspaceName,
     propertyLabels: labels,
+    teamRole: storedTeamRole(link.team_role),
     unusableReason: inviteLinkUnusableReason(
       {
         expiresAt: link.expires_at,
@@ -805,6 +825,7 @@ export async function redeemInviteLink(
       ),
       workspace_id: link.workspace_id ?? null,
       workspace_permissions: { addProperties: true, teams: true },
+      team_role: storedTeamRole(link.team_role),
     })
     .select("id")
     .maybeSingle();

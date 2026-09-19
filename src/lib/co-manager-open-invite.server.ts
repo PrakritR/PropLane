@@ -31,6 +31,7 @@ const OPEN_INVITE_SELECT = [
   "co_manager_permissions",
   "workspace_id",
   "workspace_permissions",
+  "team_role",
   "status",
   "created_at",
   "responded_at",
@@ -77,6 +78,7 @@ export async function mintOpenCoManagerInvite(params: {
   coManagerPermissions: CoManagerPermissions;
   workspaceId?: string | null;
   workspacePermissions?: WorkspaceCoManagerGrant;
+  teamRole?: string | null;
   tabKind: string;
   requestOrigin?: string;
   existingId?: string;
@@ -103,6 +105,7 @@ export async function mintOpenCoManagerInvite(params: {
     co_manager_permissions: params.coManagerPermissions,
     workspace_id: params.workspaceId ?? null,
     workspace_permissions: params.workspacePermissions ?? {},
+    team_role: params.teamRole ?? null,
     status: "pending",
     invite_token_hash: hash,
     invitee_plan_inherited: true,

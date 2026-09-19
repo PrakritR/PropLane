@@ -268,14 +268,21 @@ Chevrons inline after the label. Header actions reach a phone **exactly once**
 
 Dashboard sections go in `MANAGER_DASHBOARD_SECTIONS` and gate on `visibility.<id>`.
 
-**No small grey subtext.** A heading, a row or a field carries a label and its
-control — never a sentence under it explaining it. Counts are steppers, picks
-are dropdowns (multi-select with an Other entry when several apply), never
-pills. Detail and the source guard: `docs/agents/ui-change-checklist.md`
-§ No subtext. The settings kit (`portal-settings-ui.tsx`) has no
-`description` / `meta` props by design; reminder timings, channels and
-type pickers are `CheckboxMultiSelect` / `FieldSingleSelect`, never chips.
-Guard: `tests/unit/portal-settings-no-subtext.test.ts`.
+**Never generate subtext.** A heading, a row or a field carries a label and its
+control — never a muted sentence under it explaining it, anywhere in the
+product. Counts are steppers, picks are dropdowns (multi-select with an Other
+entry when several apply), never pills. Detail and the source guard:
+`docs/agents/ui-change-checklist.md` § No subtext. The settings kit
+(`portal-settings-ui.tsx`) has no `description` / `meta` props by design;
+reminder timings, channels and type pickers are `CheckboxMultiSelect` /
+`FieldSingleSelect`, never chips. Guard:
+`tests/unit/portal-settings-no-subtext.test.ts`.
+
+**Utility chrome is icon-heavy.** Share, Copy, Filter, Settings, Download, Edit,
+and Delete in a title or card header are `PortalIconAction` in the top right —
+never a labeled pill. The word is the tooltip and `aria-label` only. Labeled
+text is reserved for a data-commit (Save) or a destructive confirm. See
+`docs/agents/ui-change-checklist.md` § Icon chrome.
 
 # Brand assets (PropLane)
 

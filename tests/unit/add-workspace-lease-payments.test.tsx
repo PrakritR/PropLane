@@ -57,6 +57,23 @@ describe("Pack 1 add workspaces (source)", () => {
     expect(docs).toContain("<AddWorkspace");
   });
 
+  it("Who lists workspace houses and Generate / Upload are header icon actions", () => {
+    const lease = src("src/components/portal/pro-add-lease-modal.tsx");
+    const payment = src("src/components/portal/pro-add-payment-modal.tsx");
+    const add = src("src/components/portal/add-workspace/index.tsx");
+    expect(lease).toContain("buildManagerPropertyFilterOptions");
+    expect(lease).not.toMatch(/function buildManagerPropertyOptions/);
+    expect(payment).toContain("buildManagerPropertyFilterOptions");
+    expect(payment).not.toMatch(/function buildManagerPropertyOptions/);
+    expect(add).toContain("headerActions");
+    expect(lease).toContain("headerActions");
+    expect(lease).toContain('label="Generate"');
+    expect(lease).toContain('label="Upload"');
+    expect(lease).toContain("PortalIconAction");
+    expect(lease).not.toMatch(/<Button[\s\S]*?>\s*Generate\s*<\/Button>/);
+    expect(lease).not.toMatch(/<Button[\s\S]*?>\s*Upload PDF\s*<\/Button>/);
+  });
+
   it("promotion Kind step also picks the property so Content does not repeat it", () => {
     const promo = src("src/components/portal/promotion-new-modal.tsx");
     expect(promo).toContain('dataAttr="promotion-new-property"');

@@ -10,6 +10,14 @@ import { actorCanManageInviteLink, capTeamInvitePermissionsForDelegate, resolveT
 import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligibility.server";
 import { managerPlanAllowsCoManagerInvites } from "@/lib/co-manager-plan-access.server";
 import { normalizePropertyCoManagerPermissions, flatCoManagerPermissionsFromProperty, type CoManagerPermissions } from "@/lib/co-manager-permissions";
+import {
+  inferInviteTeamRole,
+  parseTeamRole,
+  permissionsMatchTeamRole,
+  stampTeamRoleOnProperties,
+  stampTeamRolePermissions,
+  type TeamRoleId,
+} from "@/lib/co-manager-team-roles";
 import { maxAccountLinksForTier } from "@/lib/manager-access";
 import { addonUnitsForCap, loadManagerPlanAddonQuantities } from "@/lib/plan-addons.server";
 import { ensureProfileProplaneId, getManagerPurchaseSku } from "@/lib/manager-access-server";
@@ -90,6 +98,7 @@ export async function GET(): Promise<NextResponse<AccountLinksPayload | { error:
           "co_manager_permissions",
           "workspace_id",
           "workspace_permissions",
+          "team_role",
           "status",
           "created_at",
           "responded_at",
@@ -193,6 +202,7 @@ export async function POST(req: Request) {
       propertyCoManagerPermissions?: unknown;
       workspaceId?: string | null;
       workspacePermissions?: unknown;
+      teamRole?: unknown;
       /** When true, the client already delivered (or will deliver) the invite message. */
       skipInviteNotification?: boolean;
     } | null;
@@ -210,6 +220,18 @@ export async function POST(req: Request) {
       body?.propertyCoManagerPermissions ?? body?.coManagerPermissions,
       assignedPropertyIds,
     );
+    const parsedTeamRole = parseTeamRole(body?.teamRole);
+    if (!parsedTeamRole.ok) {
+      return NextResponse.json({ error: parsedTeamRole.error }, { status: 400 });
+    }
+    let teamRole: TeamRoleId = parsedTeamRole.role ?? "custom";
+    if (teamRole !== "custom") {
+      propertyCoManagerPermissions = stampTeamRoleOnProperties(
+        teamRole,
+        assignedPropertyIds,
+        propertyCoManagerPermissions,
+      );
+    }
 
     const openInvite = !inviteeAxisId;
 
@@ -252,16 +274,25 @@ export async function POST(req: Request) {
       }
       payoutPercentForManager = 15;
     }
+    if (teamRole !== "custom") {
+      const flatAfterCap = flatCoManagerPermissionsFromProperty(propertyCoManagerPermissions);
+      if (!permissionsMatchTeamRole(flatAfterCap, teamRole)) {
+        teamRole = inferInviteTeamRole(propertyCoManagerPermissions);
+      }
+    }
 
     const workspaceId = typeof body?.workspaceId === "string" ? body.workspaceId.trim() || null : null;
     const workspacePermissions = Object.keys(normalizeWorkspacePermissions(body?.workspacePermissions)).length
       ? normalizeWorkspacePermissions(body?.workspacePermissions)
       : DEFAULT_NEW_INVITE_WORKSPACE_GRANT;
-    const coManagerPermissions: CoManagerPermissions = Object.keys(
-      body?.coManagerPermissions && typeof body.coManagerPermissions === "object" ? body.coManagerPermissions : {},
-    ).length
-      ? (body!.coManagerPermissions as CoManagerPermissions)
-      : flatCoManagerPermissionsFromProperty(propertyCoManagerPermissions);
+    const stampedFlat = stampTeamRolePermissions(teamRole);
+    const coManagerPermissions: CoManagerPermissions = stampedFlat
+      ? stampedFlat
+      : Object.keys(
+          body?.coManagerPermissions && typeof body.coManagerPermissions === "object" ? body.coManagerPermissions : {},
+        ).length
+        ? (body!.coManagerPermissions as CoManagerPermissions)
+        : flatCoManagerPermissionsFromProperty(propertyCoManagerPermissions);
 
     // Security: the inviter may only delegate properties they actually own.
     const ownership = await findPropertyIdsNotOwnedByManager(svc, inviterUserId, assignedPropertyIds);
@@ -354,6 +385,7 @@ export async function POST(req: Request) {
         coManagerPermissions,
         workspaceId,
         workspacePermissions,
+        teamRole,
         tabKind,
         requestOrigin: resolveRequestOrigin(req),
       });
@@ -552,6 +584,7 @@ export async function POST(req: Request) {
         co_manager_permissions: coManagerPermissions,
         workspace_id: workspaceId,
         workspace_permissions: workspacePermissions,
+        team_role: teamRole,
         status: "pending",
       })
       .select(
@@ -570,6 +603,7 @@ export async function POST(req: Request) {
           "co_manager_permissions",
           "workspace_id",
           "workspace_permissions",
+          "team_role",
           "status",
           "created_at",
           "responded_at",

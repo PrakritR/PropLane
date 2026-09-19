@@ -33,6 +33,7 @@ import {
 import { filterBookingEntriesByRoom, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { deleteRoomDateBlock, saveRoomDateBlock } from "@/lib/channel-calendar/room-date-blocks";
 import { buildManagerPropertyFilterOptions, MANAGER_PORTFOLIO_REFRESH_EVENTS } from "@/lib/manager-portfolio-access";
+import { WORKSPACE_SELECTION_EVENT, activeWorkspacePropertyIds } from "@/lib/workspaces/selection";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
@@ -578,10 +579,12 @@ export function ManagerBookings({
     for (const eventName of MANAGER_PORTFOLIO_REFRESH_EVENTS) {
       window.addEventListener(eventName, bump);
     }
+    window.addEventListener(WORKSPACE_SELECTION_EVENT, bump);
     return () => {
       for (const eventName of MANAGER_PORTFOLIO_REFRESH_EVENTS) {
         window.removeEventListener(eventName, bump);
       }
+      window.removeEventListener(WORKSPACE_SELECTION_EVENT, bump);
     };
   }, []);
 
@@ -590,7 +593,11 @@ export function ManagerBookings({
     [userId, propertyTick],
   );
 
-  const propertyIds = useMemo(() => propertyOptions.map((option) => option.id), [propertyOptions]);
+  const workspacePropertyIds = activeWorkspacePropertyIds();
+  const propertyIds = useMemo(() => {
+    if (workspacePropertyIds !== null) return workspacePropertyIds;
+    return propertyOptions.map((option) => option.id);
+  }, [workspacePropertyIds, propertyOptions]);
 
   const { controlStack, content, modals } = useBookingsWorkspace({
     bucket,
