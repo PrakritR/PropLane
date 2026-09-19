@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Property and payment browser fixture handoff</title>
+  <style>
+    :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+    body { max-width: 920px; margin: 0 auto; padding: 40px 24px 64px; line-height: 1.55; }
+    h1, h2 { line-height: 1.2; }
+    h1 { margin-bottom: 8px; }
+    h2 { margin-top: 32px; }
+    code { padding: 2px 5px; border-radius: 5px; background: color-mix(in srgb, CanvasText 9%, Canvas); }
+    li { margin: 8px 0; }
+    .status { display: inline-block; padding: 5px 9px; border: 1px solid #71866f; border-radius: 999px; }
+  </style>
+</head>
+<body>
+  <h1>Property and payment browser fixture handoff</h1>
+  <p><span class="status">Source implementation complete, runtime validation intentionally deferred</span></p>
+  <p>This slice replaces dependence on mutable seeded property and payment rows with exact, owned dev/test fixtures. It does not change application behavior, production data, shared seeded rows, or coverage skips.</p>
+
+  <h2>Implementation</h2>
+  <ul>
+    <li><code>tests/helpers/owned-portal-record-fixture.ts</code> gates all fixture access to <code>emstjswhotsnyksqhqyf.supabase.co</code> with a service key and verifies the seeded manager profile and manager role.</li>
+    <li>Each run establishes UUID property and charge identities plus a UUID marker before writes. It uses an isolated temporary owned workspace when the database workspace ceiling permits it; otherwise it selects an owned workspace with enough free property slots.</li>
+    <li>The active workspace is selected through the authenticated workspace API, so the Properties browser path reads the same scope a user selected.</li>
+    <li>Cleanup runs in <code>finally</code>. It first navigates the fixture page to <code>about:blank</code> so the active document cannot react to row deletion, then re-reads each row, verifies manager, workspace, property, and marker ownership, deletes only exact IDs, asserts returned deletion IDs, verifies a temporary workspace is empty, and removes only that exact workspace. A nested <code>finally</code> keeps cleanup mandatory even if document shutdown fails.</li>
+    <li>The mobile menu cases create eight deterministic rows and locate exact fixture-owned triggers by accessible name. Properties uses fixed page chrome, so each case resolves the trigger's nearest <code>.portal-list-page-scroll</code>, intersects that scroller's box with the viewport and mobile-navigation boundary, scrolls to an explicit top or bottom target, waits for layout to settle, and proves the available-space or navigation-boundary premise before clicking. The original below/above direction, adjacency, viewport, and bottom-navigation clearance assertions remain.</li>
+    <li>The portal reliability cases bind the action menu to the exact fixture property title at desktop and mobile widths while retaining hit-target, menu content, viewport, focus restoration, and Edit assertions.</li>
+    <li>The payment routing case creates a real pending charge for its owned property. It locates the row through the current shared <code>DataList</code> surface, clicks the exact unique charge title, requires the detail URL to contain the owned UUID, and retains the route shape, no-double-prefix, branding, Back, and Due date assertions.</li>
+  </ul>
+
+  <h2>Files</h2>
+  <ul>
+    <li><code>tests/helpers/owned-portal-record-fixture.ts</code></li>
+    <li><code>tests/e2e/anchored-mobile-menus.spec.ts</code></li>
+    <li><code>tests/e2e/portal-reliability.spec.ts</code></li>
+    <li><code>tests/e2e/payment-detail-routing.spec.ts</code></li>
+    <li><code>docs/qa/2026-09-19-property-payment-browser-fixture-handoff.html</code></li>
+  </ul>
+
+  <h2>Validation status and remaining risk</h2>
+  <p>Per the delegated task boundary, no Node process, test, browser, server, build, typecheck, database command, graph command, or Git command was run. Review was source-only against the current workspace, property, payment, DataList, and action-menu implementations.</p>
+  <ul>
+    <li>Runtime validation must confirm the seeded manager has valid credentials and that fixture setup and exact cleanup succeed against dev/test.</li>
+    <li>The mobile geometry cases still need their real 390 by 844 browser run to confirm the explicit scroll targets and collision behavior in the rendered portal.</li>
+    <li>The payment case needs a real browser run to confirm the pending charge hydrates into the current manager ledger before the 30 second assertion and opens the UUID detail route.</li>
+    <li>If the seeded manager already owns three workspaces and none has eight free property slots, setup fails closed with a specific capacity error instead of changing shared rows or weakening coverage.</li>
+  </ul>
+</body>
+</html>

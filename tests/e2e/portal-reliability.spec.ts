@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { signInAsManager } from "../helpers/auth";
+import { withOwnedPortalRecordFixture } from "../helpers/owned-portal-record-fixture";
 
 // Real authenticated dev/test rows. Network gates simulate slow and failed
 // source reads; they do not substitute demo data or send messages.
@@ -33,26 +34,28 @@ test.describe("Portal loading and record actions", () => {
 
   for (const width of [1280, 390]) {
     test(`Properties actions belong to each record at ${width}px`, async ({ page }) => {
-      await page.setViewportSize({ width, height: 900 });
-      await page.goto("/portal/properties/listed", { waitUntil: "domcontentloaded" });
-      const trigger = page.getByRole("button", { name: /^Actions for / }).first();
-      await expect(trigger).toBeVisible({ timeout: 45_000 });
-      await expect(page.locator('[data-attr="list-selection-toolbar"]')).toHaveCount(0);
-      const box = await trigger.boundingBox();
-      expect(box!.width).toBeGreaterThanOrEqual(44);
-      expect(box!.height).toBeGreaterThanOrEqual(44);
-      await trigger.click();
-      const menu = page.getByRole("menu");
-      await expect(menu.getByRole("menuitem", { name: "Edit", exact: true })).toBeVisible();
-      await expect(menu.getByRole("menuitem", { name: "Unlist", exact: true })).toBeVisible();
-      const menuBox = await menu.boundingBox();
-      expect(menuBox!.x).toBeGreaterThanOrEqual(0);
-      expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(width);
-      await page.keyboard.press("Escape");
-      await expect(trigger).toBeFocused();
-      await trigger.click();
-      await menu.getByRole("menuitem", { name: "Edit", exact: true }).click();
-      await expect(page.getByRole("button", { name: "Edit", exact: true })).toBeVisible();
+      await withOwnedPortalRecordFixture(page, { propertyCount: 1 }, async (fixture) => {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto("/portal/properties/listed", { waitUntil: "domcontentloaded" });
+        const trigger = page.getByRole("button", { name: `Actions for ${fixture.propertyTitles[0]}`, exact: true });
+        await expect(trigger).toBeVisible({ timeout: 45_000 });
+        await expect(page.locator('[data-attr="list-selection-toolbar"]')).toHaveCount(0);
+        const box = await trigger.boundingBox();
+        expect(box!.width).toBeGreaterThanOrEqual(44);
+        expect(box!.height).toBeGreaterThanOrEqual(44);
+        await trigger.click();
+        const menu = page.getByRole("menu");
+        await expect(menu.getByRole("menuitem", { name: "Edit", exact: true })).toBeVisible();
+        await expect(menu.getByRole("menuitem", { name: "Unlist", exact: true })).toBeVisible();
+        const menuBox = await menu.boundingBox();
+        expect(menuBox!.x).toBeGreaterThanOrEqual(0);
+        expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(width);
+        await page.keyboard.press("Escape");
+        await expect(trigger).toBeFocused();
+        await trigger.click();
+        await menu.getByRole("menuitem", { name: "Edit", exact: true }).click();
+        await expect(page.getByRole("button", { name: "Edit", exact: true })).toBeVisible();
+      });
     });
   }
 

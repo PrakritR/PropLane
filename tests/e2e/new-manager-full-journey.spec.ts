@@ -3,6 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { mockStripeAllRoutes } from "../helpers/auth";
 import { completeManagerSignupOnboarding, pickListingSelect } from "../helpers/manager-onboarding-e2e";
+import {
+  createOwnedManagerSignup,
+  submitOwnedManagerRegistration,
+} from "../helpers/owned-manager-signup-e2e";
 
 /**
  * End-to-end walkthrough: brand-new manager from pricing → account creation →
@@ -50,16 +54,14 @@ test.describe("New manager — full journey from scratch", () => {
     await mockStripeAllRoutes(page);
 
     const stamp = Date.now();
-    const email = `fresh-manager-${stamp}@test.proplane.local`;
-    const password = "FreshManager123!";
-    const fullName = "Fresh Journey Manager";
-    const phone = "2065550199";
+    const account = await createOwnedManagerSignup("fresh-manager");
 
-    fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
-    fs.writeFileSync(
-      path.join(EVIDENCE_DIR, "credentials.json"),
-      JSON.stringify({ email, password, fullName, createdAt: new Date().toISOString() }, null, 2),
-    );
+    try {
+      fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
+      fs.writeFileSync(
+        path.join(EVIDENCE_DIR, "account.json"),
+        JSON.stringify({ email: account.email, fullName: account.fullName, createdAt: new Date().toISOString() }, null, 2),
+      );
 
     // ── 1. Discover pricing and choose Pro ──────────────────────────────────
     await page.goto("/partner/pricing");
@@ -71,15 +73,18 @@ test.describe("New manager — full journey from scratch", () => {
     await shot(page, "02-create-account-form");
 
     // ── 2. Create account, then pick property manager portal ─────────────────
-    await page.getByPlaceholder("Full name").fill(fullName);
-    await page.getByPlaceholder("Email").fill(email);
-    await page.getByPlaceholder(/Password \(8\+/).fill(password);
-    const phoneInput = page.locator("#mgr-phone-input, #signup-phone").filter({ visible: true }).first();
-    if (await phoneInput.count()) await phoneInput.fill(phone);
+    await page.getByPlaceholder("Full name").fill(account.fullName);
+    await page.getByPlaceholder("Email").fill(account.email);
+    await page.getByPlaceholder(/Password \(8\+/).fill(account.password);
+    const phoneInput = page.getByPlaceholder("Phone number");
+    await expect(phoneInput).toBeRequired();
+    await phoneInput.fill(account.phone);
     await shot(page, "03-create-account-filled");
-    await page.getByRole("button", { name: /create account/i }).click();
+    const managerSubmit = page.locator('[data-attr="manager-trial-signup-submit"]');
+    await expect(managerSubmit).toHaveText("Create property account");
+    await submitOwnedManagerRegistration(page, managerSubmit, account);
 
-    await page.waitForURL(/\/auth\/(get-started|manager\/choose-plan)|\/portal/, { timeout: 90_000 });
+    await page.waitForURL(/\/auth\/(get-started|manager\/choose-plan|connect-google-services)|\/portal/, { timeout: 90_000 });
     if (page.url().includes("/auth/get-started")) {
       await shot(page, "03b-get-started-chooser");
     }
@@ -141,7 +146,14 @@ test.describe("New manager — full journey from scratch", () => {
     await expect(page.getByText(/no co-managers yet/i)).toBeVisible({ timeout: 15_000 });
     await shot(page, "10-team-empty-state");
 
-    console.log(`NEW MANAGER JOURNEY OK — ${email} / ${password}`);
-    console.log(`Evidence: ${EVIDENCE_DIR}`);
+      console.log(`NEW MANAGER JOURNEY OK — ${account.email}`);
+      console.log(`Evidence: ${EVIDENCE_DIR}`);
+    } finally {
+      try {
+        await page.close({ runBeforeUnload: false });
+      } finally {
+        await account.cleanup();
+      }
+    }
   });
 });

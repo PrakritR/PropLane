@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Signup browser correction - source handoff</title>
+  <style>body{max-width:860px;margin:40px auto;padding:0 20px;font:16px/1.55 system-ui;color:#172033}code{font:13px ui-monospace,monospace;background:#f1f4f8;padding:2px 4px;border-radius:3px}li{margin:8px 0}.note{padding:12px 15px;background:#fff7e6;border-left:4px solid #d99500}</style>
+</head>
+<body>
+  <h1>Signup browser correction - source handoff</h1>
+  <p>Source changes are limited to the three assigned browser specs and one signup fixture helper. No runtime, browser, server, database, build, test, graph, or Git command was run.</p>
+  <h2>Changes</h2>
+  <ul>
+    <li>The signed-in Start free journey follows the current public CTA, checks the stable manager submit control and its signed-in label, confirms the phone field is required, and preserves the new-session email identity proof.</li>
+    <li>The two new-manager journeys now use the stable <code>manager-trial-signup-submit</code> control, require the phone field, observe the real manager-registration response before onboarding, and retain the real onboarding path.</li>
+    <li>Each generated manager identity is created before submission under an exact dev/test host and service-key gate. A <code>finally</code> block invokes the product's complete account purge for only that exact generated Auth user, including partial registration failures.</li>
+    <li>The signup fixture now intercepts only the exact owned manager-registration body and forwards its headers, cookies, and body through a fixture-owned standalone Playwright API request context to the same origin. That retained operation survives browser-context closure, remains alive through cleanup, and is disposed only after cleanup has drained it. Callers close their page or context before cleanup, and cleanup drains the forwarded request before any identity lookup or purge. A forwarding operation that is missing or ends with a transport timeout/failure leaves the generated identity untouched and fails with that owned email instead of racing cleanup against server provisioning.</li>
+    <li>Evidence JSON and console output no longer include generated passwords. The application journey no longer deletes a row by resident email before starting.</li>
+  </ul>
+  <h2>Review risks</h2>
+  <div class="note">
+    The new helper calls the product account-purge cascade at runtime. The validation owner should run the assigned specs against only <code>emstjswhotsnyksqhqyf.supabase.co</code> with a service key and confirm both normal and failed-registration cleanup behavior. No runtime result is claimed here.
+  </div>
+</body>
+</html>

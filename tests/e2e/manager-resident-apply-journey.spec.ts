@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 import fs from "node:fs";
 import path from "node:path";
@@ -7,6 +7,11 @@ import {
   completeManagerSignupOnboarding,
   pickListingSelect,
 } from "../helpers/manager-onboarding-e2e";
+import {
+  createOwnedManagerSignup,
+  submitOwnedManagerRegistration,
+  type OwnedManagerSignup,
+} from "../helpers/owned-manager-signup-e2e";
 import { visibleLocator, walkGuestRentalApplication } from "../helpers/rental-wizard-e2e";
 import {
   mockFreeApplicationFee,
@@ -23,17 +28,17 @@ import {
  *     npx playwright test tests/e2e/manager-resident-apply-journey.spec.ts --headed
  */
 
-const hasSupabase = Boolean(
-  process.env.NEXT_PUBLIC_SUPABASE_URL &&
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY &&
-    process.env.SUPABASE_SERVICE_ROLE_KEY,
-);
-
 const EVIDENCE_DIR =
   process.env.MANAGER_RESIDENT_E2E_EVIDENCE ??
   path.resolve(__dirname, "../../.manager-resident-apply-journey");
 
 const DESKTOP = { width: 1440, height: 1000 };
+
+const hasSupabase = Boolean(
+  process.env.NEXT_PUBLIC_SUPABASE_URL &&
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY &&
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+);
 
 const db = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://localhost:54321",
@@ -46,11 +51,7 @@ function shot(page: Page, name: string) {
   return page.screenshot({ path: path.join(EVIDENCE_DIR, `${name}.png`), fullPage: true });
 }
 
-async function createFreshManager(page: Page, stamp: number) {
-  const email = `e2e-manager-${stamp}@test.proplane.local`;
-  const password = "E2eManager123!";
-  const fullName = "E2E Journey Manager";
-  const phone = "2065550199";
+async function createFreshManager(page: Page, account: OwnedManagerSignup) {
 
   await page.goto("/partner/pricing");
   await shot(page, "01-pricing");
@@ -59,32 +60,35 @@ async function createFreshManager(page: Page, stamp: number) {
     page.getByRole("button", { name: /choose pro|get started|free/i }).first().click(),
   ]);
 
-  await page.getByPlaceholder("Full name").fill(fullName);
-  await page.getByPlaceholder("Email").fill(email);
-  await page.getByPlaceholder(/Password \(8\+/).fill(password);
-  const phoneInput = page.locator("#mgr-phone-input, #signup-phone").filter({ visible: true }).first();
-  if (await phoneInput.count()) await phoneInput.fill(phone);
+  await page.getByPlaceholder("Full name").fill(account.fullName);
+  await page.getByPlaceholder("Email").fill(account.email);
+  await page.getByPlaceholder(/Password \(8\+/).fill(account.password);
+  const phoneInput = page.getByPlaceholder("Phone number");
+  await expect(phoneInput).toBeRequired();
+  await phoneInput.fill(account.phone);
   await shot(page, "02-create-account-filled");
-  await page.getByRole("button", { name: /create account/i }).click();
+  const managerSubmit = page.locator('[data-attr="manager-trial-signup-submit"]');
+  await expect(managerSubmit).toHaveText("Create property account");
+  await submitOwnedManagerRegistration(page, managerSubmit, account);
 
-  await page.waitForURL(/\/auth\/(get-started|manager\/choose-plan)|\/portal/, { timeout: 90_000 });
+  await page.waitForURL(/\/auth\/(get-started|manager\/choose-plan|connect-google-services)|\/portal/, { timeout: 90_000 });
   if (page.url().includes("/auth/manager/choose-plan")) {
     await shot(page, "02b-choose-plan");
   }
   await completeManagerSignupOnboarding(page);
 
   if (page.url().includes("/auth/sign-in")) {
-    await signIn(page, email, password, "/portal/dashboard");
+    await signIn(page, account.email, account.password, "/portal/dashboard");
     await establishActivePortal(page, "manager", "/portal/dashboard");
   }
   await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
   await expect(page.locator('[data-attr="manager-properties-create"]')).toBeVisible({ timeout: 60_000 });
   await shot(page, "03-manager-portal");
 
-  return { email, password, fullName, phone };
+  return account;
 }
 
-async function publishFirstListing(page: Page, stamp: number): Promise<string> {
+async function publishFirstListing(page: Page, stamp: number, managerEmail: string): Promise<string> {
   await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
   const createBtn = page.locator('[data-attr="manager-properties-create"]');
   await expect(createBtn).toBeEnabled({ timeout: 60_000 });
@@ -140,14 +144,12 @@ async function publishFirstListing(page: Page, stamp: number): Promise<string> {
   await page.goto("/portal/properties", { waitUntil: "domcontentloaded" });
   await expect(page.getByText(buildingName).first()).toBeVisible({ timeout: 30_000 });
 
-  const { data: users } = await db.auth.admin.listUsers();
-  const manager = users?.users?.find((u) => u.email?.includes(`e2e-manager-${stamp}`));
-  if (!manager?.id) throw new Error("Could not resolve new manager user id");
+  const managerId = await resolveManagerUserId(db, managerEmail);
 
   const { data: rows, error } = await db
     .from("manager_property_records")
     .select("id,status,row_data")
-    .eq("manager_user_id", manager.id)
+    .eq("manager_user_id", managerId)
     .eq("status", "live")
     .order("updated_at", { ascending: false })
     .limit(1);
@@ -165,42 +167,52 @@ test.describe("Manager signup → listing → resident apply", () => {
   test("new manager publishes a listing and receives a guest application", async ({ browser }) => {
     test.setTimeout(600_000);
     const stamp = Date.now();
+    const account = await createOwnedManagerSignup("e2e-manager");
     const guest = {
       name: "Jordan Applicant",
       email: `e2e-applicant-${stamp}@test.proplane.local`,
       phone: "2065550188",
     };
 
-    fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
+    let managerContext: BrowserContext | null = null;
+    let guestContext: BrowserContext | null = null;
+    try {
+      fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
 
-    await db.from("manager_application_records").delete().eq("resident_email", guest.email);
+      managerContext = await browser.newContext({ viewport: DESKTOP });
+      const managerPage = await managerContext.newPage();
+      await mockStripeAllRoutes(managerPage);
 
-    const managerContext = await browser.newContext({ viewport: DESKTOP });
-    const managerPage = await managerContext.newPage();
-    await mockStripeAllRoutes(managerPage);
+      const manager = await createFreshManager(managerPage, account);
+      await setManagerApplicationFeeFree(db, await resolveManagerUserId(db, manager.email));
+      const propertyId = await publishFirstListing(managerPage, stamp, manager.email);
+      fs.writeFileSync(
+        path.join(EVIDENCE_DIR, "run.json"),
+        JSON.stringify({ email: manager.email, fullName: manager.fullName, propertyId, guest, createdAt: new Date().toISOString() }, null, 2),
+      );
 
-    const manager = await createFreshManager(managerPage, stamp);
-    await setManagerApplicationFeeFree(db, await resolveManagerUserId(db, manager.email));
-    const propertyId = await publishFirstListing(managerPage, stamp);
-    fs.writeFileSync(
-      path.join(EVIDENCE_DIR, "run.json"),
-      JSON.stringify({ ...manager, propertyId, guest, createdAt: new Date().toISOString() }, null, 2),
-    );
+      guestContext = await browser.newContext({ viewport: DESKTOP });
+      const guestPage = await guestContext.newPage();
+      await mockStripeAllRoutes(guestPage);
+      await mockFreeApplicationFee(guestPage);
+      await walkGuestRentalApplication(guestPage, propertyId, guest);
+      await shot(guestPage, "07-application-submitted");
 
-    const guestContext = await browser.newContext({ viewport: DESKTOP });
-    const guestPage = await guestContext.newPage();
-    await mockStripeAllRoutes(guestPage);
-    await mockFreeApplicationFee(guestPage);
-    await walkGuestRentalApplication(guestPage, propertyId, guest);
-    await shot(guestPage, "07-application-submitted");
-
-    await managerPage.goto("/portal/properties", { waitUntil: "domcontentloaded" });
-    await managerPage.goto("/portal/applications");
-    await expect(managerPage.getByRole("heading").first()).toBeVisible({ timeout: 30_000 });
-    await expect(managerPage.getByText(guest.name).first()).toBeVisible({ timeout: 60_000 });
-    await shot(managerPage, "08-manager-sees-application");
-
-    await managerContext.close();
-    await guestContext.close();
+      await managerPage.goto("/portal/properties", { waitUntil: "domcontentloaded" });
+      await managerPage.goto("/portal/applications");
+      await expect(managerPage.getByRole("heading").first()).toBeVisible({ timeout: 30_000 });
+      await expect(managerPage.getByText(guest.name).first()).toBeVisible({ timeout: 60_000 });
+      await shot(managerPage, "08-manager-sees-application");
+    } finally {
+      try {
+        await guestContext?.close();
+      } finally {
+        try {
+          await managerContext?.close();
+        } finally {
+          await account.cleanup();
+        }
+      }
+    }
   });
 });

@@ -2,6 +2,11 @@ import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
 import { E2E_ACCOUNTS } from "../fixtures";
+import { completeManagerSignupOnboarding } from "../helpers/manager-onboarding-e2e";
+import {
+  createOwnedManagerSignup,
+  submitOwnedManagerRegistration,
+} from "../helpers/owned-manager-signup-e2e";
 
 /**
  * "Get started" must always open the manager create-account form — even when a
@@ -77,31 +82,32 @@ async function sessionEmailFromCookies(page: Page): Promise<string | null> {
  * "Create property account"`). Asserting one label for both states is what made
  * the signed-in cases fail.
  */
-function managerSubmitButton(page: Page, signedIn: boolean) {
-  return page.getByRole("button", {
-    name: signedIn ? /set up property manager/i : /create property account/i,
-  });
+function managerSubmitButton(page: Page) {
+  return page.locator('[data-attr="manager-trial-signup-submit"]').filter({ visible: true });
 }
 
 async function expectManagerCreateForm(page: Page, opts: { signedIn: boolean }) {
   await expect(page.getByPlaceholder("Full name")).toBeVisible();
   await expect(page.getByPlaceholder("Email")).toBeVisible();
   await expect(page.getByPlaceholder("Phone number")).toBeVisible();
+  await expect(page.getByPlaceholder("Phone number")).toBeRequired();
   await expect(page.getByPlaceholder(/Password \(8\+/)).toBeVisible();
   await expect(page.getByRole("button", { name: /continue with google/i })).toBeVisible();
-  await expect(managerSubmitButton(page, opts.signedIn)).toBeVisible();
+  await expect(managerSubmitButton(page)).toHaveText(
+    opts.signedIn ? "Set up property manager" : "Create property account",
+  );
 }
 
 test.describe('"Get started" while signed in', () => {
   test.skip(!hasSupabase, "Requires the dev/test Supabase project");
 
-  test("signed-in manager reaching Get started can still create another account", async ({ page }) => {
+  test("signed-in manager reaching Start free can still create another account", async ({ page }) => {
     await signIn(page, E2E_ACCOUNTS.manager.email, E2E_ACCOUNTS.manager.password);
 
     // Enter from the marketing home page exactly like an end user would.
     await page.goto("/");
-    const cta = page.getByRole("link", { name: /get started/i }).first();
-    // PRP-307: a plain "Get started" asks who you are instead of assuming a
+    const cta = page.getByRole("link", { name: /start free/i }).first();
+    // PRP-307: a plain "Start free" asks who you are instead of assuming a
     // manager, so the CTA points at the bare create surface and the role is
     // chosen on the next screen.
     await expect(cta).toHaveAttribute("href", "/auth/create-account");
@@ -126,7 +132,7 @@ test.describe('"Get started" while signed in', () => {
     console.log(`redirect chain (signed in): ${chain.join(" -> ")}`);
   });
 
-  test("signed-out Get started is unchanged: manager trial signup form, no notice", async ({ page }) => {
+  test("signed-out Start free is unchanged: manager trial signup form, no notice", async ({ page }) => {
     await page.goto("/auth/create-account?mode=create&role=manager");
     await page.waitForLoadState("networkidle").catch(() => {});
     await expectManagerCreateForm(page, { signedIn: false });
@@ -147,26 +153,33 @@ test.describe('"Get started" while signed in', () => {
   test("signed-in manager can create a SECOND account with a different email", async ({ page }) => {
     await signIn(page, E2E_ACCOUNTS.manager.email, E2E_ACCOUNTS.manager.password);
 
-    const newEmail = `get-started-e2e-${Date.now()}@test.proplane.local`;
-    await page.goto("/auth/create-account?mode=create&role=manager");
-    await expectManagerCreateForm(page, { signedIn: true });
+    const account = await createOwnedManagerSignup("get-started-e2e");
+    try {
+      await page.goto("/auth/create-account?mode=create&role=manager");
+      await expectManagerCreateForm(page, { signedIn: true });
 
-    await page.getByPlaceholder("Full name").fill("Second Account Manager");
-    await page.getByPlaceholder("Email").fill(newEmail);
-    await page.getByPlaceholder("Phone number").fill("2065550199");
-    await page.getByPlaceholder(/Password \(8\+/).fill("SecondAcct123!");
-    await page.screenshot({ path: shot("signed-in-filled-new-account"), fullPage: true });
+      await page.getByPlaceholder("Full name").fill(account.fullName);
+      await page.getByPlaceholder("Email").fill(account.email);
+      await page.getByPlaceholder("Phone number").fill(account.phone);
+      await page.getByPlaceholder(/Password \(8\+/).fill(account.password);
+      await page.screenshot({ path: shot("signed-in-filled-new-account"), fullPage: true });
 
-    await managerSubmitButton(page, true).click();
-    await page.waitForURL(/\/portal/, { timeout: 60_000 });
-    await page.waitForLoadState("networkidle").catch(() => {});
+      await submitOwnedManagerRegistration(page, managerSubmitButton(page), account);
+      await page.waitForURL(/\/auth\/(get-started|manager\/choose-plan|connect-google-services)|\/portal/, { timeout: 60_000 });
+      await completeManagerSignupOnboarding(page);
+      await page.waitForLoadState("networkidle").catch(() => {});
 
-    // The browser session is now the NEW account, not the one we signed in as.
-    const sessionEmail = await sessionEmailFromCookies(page);
-    expect(sessionEmail).toBe(newEmail);
-    // ...and the portal it opened belongs to the new (empty) account.
-    await expect(page.getByText(/welcome, second account manager/i)).toBeVisible();
-    console.log(`created + signed in as new account: ${sessionEmail} at ${page.url()}`);
-    await page.screenshot({ path: shot("new-account-portal"), fullPage: true });
+      // The browser session is now the NEW account, not the seeded manager.
+      const sessionEmail = await sessionEmailFromCookies(page);
+      expect(sessionEmail).toBe(account.email);
+      await expect(page).toHaveURL(/\/portal/);
+      await page.screenshot({ path: shot("new-account-portal"), fullPage: true });
+    } finally {
+      try {
+        await page.close({ runBeforeUnload: false });
+      } finally {
+        await account.cleanup();
+      }
+    }
   });
 });
