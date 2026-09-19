@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Inbox ownership correction 2 source handoff</title>
+<style>
+body{max-width:1080px;margin:40px auto;padding:0 24px;font:16px/1.58 system-ui;color:#17212b}h1,h2{line-height:1.2}code{background:#eef1f5;padding:2px 5px;overflow-wrap:anywhere}table{width:100%;border-collapse:collapse}th,td{border:1px solid #cbd3dc;padding:9px;text-align:left;vertical-align:top}.ok{background:#eef9f1;border-left:4px solid #238636;padding:14px}.pending{background:#fff5e6;border-left:4px solid #d97706;padding:14px}li{margin:7px 0}
+</style>
+<body>
+<h1>Inbox ownership correction 2</h1>
+<p>Final source execution handoff for <code>docs/plans/2026-09-19-inbox-ownership-correction1-review.html</code>. Worktree: <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code>. Supplied starting HEAD: <code>4c6666f4d</code>. This session performed no Node command, test, build, browser, server, install, graph command, database action, remote action, commit, push, checkout, merge, or other Git mutation.</p>
+
+<p class="ok"><strong>Source result:</strong> every identified asynchronous action family in the manager, resident, and vendor inbox panels now captures the initiating viewer generation before its first wait and checks it before later requests, cache writes, UI publication, rollback, refresh, navigation, toast, selection, and busy-state completion. Same-account thread work also checks the initiating conversation where the result can alter a composer. A-B-A invalidates the old token.</p>
+
+<h2>Exhaustive async-site audit</h2>
+<table>
+<tr><th>Family</th><th>Manager</th><th>Resident</th><th>Vendor</th><th>Final boundary</th></tr>
+<tr><td>Initial hydration and cache events</td><td>Retained status-aware readiness, viewer generation, current-cache publication.</td><td>Retained status-aware readiness, viewer generation, current-cache publication.</td><td>Retained status-aware readiness, viewer generation, current-cache publication.</td><td>No passive writer restored. Failed and malformed reads preserve usable current-viewer rows.</td></tr>
+<tr><td>Read / unread</td><td>Retained owned field rollback.</td><td>Retained owned field rollback.</td><td>Retained owned field rollback.</td><td>Rollback changes only <code>unread</code> when the optimistic value is still present.</td></tr>
+<tr><td>Archive / restore</td><td>Owned before staging and after upsert.</td><td>Owned before staging and after upsert.</td><td>Owned before staging and after upsert.</td><td>Failure reloads the authorized current cache and restores only <code>folder</code>, <code>previousFolder</code>, and <code>unread</code> when this operation still owns those values. New messages, metadata, and sibling rows survive.</td></tr>
+<tr><td>Permanent delete / empty archive</td><td>Owned across confirm and delete.</td><td>Owned across confirm and delete.</td><td>Owned across confirm and delete.</td><td>After the explicit ID delete succeeds, only those IDs are removed from the latest authorized cache. All <code>persistInboxAwait</code> captured-array replacement calls were removed from the panels.</td></tr>
+<tr><td>Bulk callbacks</td><td>Permanent-delete confirmation captures IDs and owner before waiting.</td><td>Delete and scheduled loops recheck before every item and before final selection/busy publication.</td><td>Permanent-delete confirmation captures IDs and owner before waiting.</td><td>No later item begins after ownership changes; stale completion cannot clear the new viewer's selection.</td></tr>
+<tr><td>Reply transport</td><td>Added the previously missing owner token around optimistic reply, PropLane, email, SMS, persistence, and refresh.</td><td>Added checks between PropLane, email, and SMS and after persistence.</td><td>Added checks between email and SMS and after persistence.</td><td>No next-channel request begins after viewer ownership changes. Successful earlier delivery remains truthful; stale local publication stops.</td></tr>
+<tr><td>Outer reply / approval</td><td>Schedule and ordinary reply preserve a new viewer/thread's draft, attachments, toast, and busy state. AI approval is owned.</td><td>Ordinary reply and AI approval are viewer- and thread-owned.</td><td>Ordinary and table reply callbacks are viewer- and thread-owned.</td><td>Finally blocks only complete the initiating owner. Viewer-transition reset supplies clean busy state for B.</td></tr>
+<tr><td>Compose and reload</td><td>Scheduled fanout is sequential with a guard before each request; send, optimistic cleanup, reload, navigation, and publication are owned. Reload helpers publish the current authorized cache.</td><td>Schedule/send, optimistic cleanup, hydration, navigation, modal reset, and failure paths are owned and publish the current cache.</td><td>Send, sync, modal completion, navigation, and failure paths are owned and publish the current cache.</td><td>Old compose completion cannot start B refresh or close/reset B state.</td></tr>
+<tr><td>AI draft lifecycle</td><td>Request, discard, approve, and auto-send use viewer ownership. Failed upsert reconciliation removes only the operation-added queued draft and restores only an unchanged operation draft, preserving newer queue entries and same-text metadata.</td><td>Request response/error/finally and approve completion use viewer plus thread identity; viewer changes reset AI state and latches.</td><td>Not applicable.</td><td>Old automation cannot operate another viewer or conversation's composer.</td></tr>
+<tr><td>Scheduled actions</td><td>Manual loader, cancel, send-now, edit, busy state, reload, and inbox refresh are viewer-owned.</td><td>Loader, toggle, inline and table send-now, cancel, bulk loops, busy state, toast, and reload are viewer-owned.</td><td>Not applicable.</td><td>Stale scheduled completion cannot publish into B.</td></tr>
+<tr><td>Attachments</td><td>Each upload resolve/reject is guarded.</td><td>Each upload resolve/reject is guarded.</td><td>Each upload resolve/reject is guarded.</td><td>A stale upload cannot update another viewer's attachment collection; outer send cannot clear B's attachments.</td></tr>
+<tr><td>Async identity and channel metadata</td><td>Work number/email effects re-run and clear on viewer change; scheduled loader uses an A-B-A-safe generation.</td><td>SMS configuration, eligible contacts, and scheduled rows use the panel owner token.</td><td>SMS configuration, eligible contacts, and vendor identity use the panel owner token and clear on viewer change.</td><td>Outbound eligibility and sender identity no longer carry A responses into B.</td></tr>
+<tr><td>Contact write</td><td>Manager contact save is viewer- and thread-owned across response, error, toast, modal, event, and busy completion.</td><td>Not applicable.</td><td>Not applicable.</td><td>Same-viewer thread switches reject the old completion.</td></tr>
+</table>
+
+<h2>Viewer-transition state</h2>
+<p>Each panel now resets viewer-owned compose/reply state on <code>currentViewerKey</code>. This includes pending-send IDs, reply busy state, attachments, AI state, scheduled data/busy state, eligible-contact or identity data, compose visibility, and manager SMS attempt/approval/contact-save bookkeeping as applicable. This prevents guarded stale <code>finally</code> blocks from leaving the new viewer permanently busy while avoiding any late A write.</p>
+
+<h2>Behavioral coverage added</h2>
+<ul>
+<li>The real-storage, real-panel role matrix now covers failed archive rollback for resident, manager, and vendor while a newer message and sibling row arrive. It asserts only folder fields roll back and newer cache data survives.</li>
+<li>The role matrix now defers permanent delete, switches to B, resolves A, and asserts B remains in DOM and storage with no additional stale storage operation.</li>
+<li>The hydration matrix now unmounts and remounts every role, resolves the prior mount late, and asserts the remounted current snapshot survives with zero ambient POSTs.</li>
+<li>The manager AI test can hold a real mocked upsert pending. It adds a newer queue entry and same-text metadata before failure, then asserts the correction does not restore an old whole queue or overwrite newer metadata.</li>
+<li>Existing explicit success, refusal, hydration, A-B-A, current-cache read rollback, search, and browser destructive-write observations remain intact.</li>
+</ul>
+
+<h2>Static evidence and validation handoff</h2>
+<p><code>git diff --check -- &lt;five changed source/test paths&gt;</code> exited 0. Source search found no remaining <code>persistInboxAwait</code>, <code>setLocal(prev)</code>, or captured whole-array rollback in the three target panels. The audit inventoried every <code>async</code>, <code>await</code>, promise continuation, cache write, and state-publishing completion in those files.</p>
+<p class="pending"><strong>Runtime remains root-owned and pending.</strong> Root must run the focused ownership, AI draft, reply integrity, refused-send, initial readiness, search, vendor conversation, and scheduled tests, then the required broader checks. Real seeded browser validation remains required for zero automatic destructive writes through completion, explicit archive/restore/delete/read/reply/compose, source-aware acknowledgement, navigation/deep links, unread filtering, scheduled actions, attachment completion, and mobile draft behavior.</p>
+
+<h2>Delegation and scope</h2>
+<p>A fresh Terra source-only delegate independently audited every action family and returned file-level findings. A Luna delegate could not be started because the shared collaboration thread limit was full; no model was silently substituted. The Sol implementation manager integrated the audit directly. Property metadata, portal-session keepalive/auth helper work, database work, and the separately approved property lane remained excluded.</p>
+</body>
+</html>
