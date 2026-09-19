@@ -15,14 +15,14 @@ type AuthenticatedFixtures = {
  */
 export const test = base.extend<AuthenticatedFixtures>({
   authRole: [null, { option: true }],
-  storageState: async ({}, use) => {
-    await use({ cookies: [], origins: [] });
+  storageState: async ({}, applyStorageState) => {
+    await applyStorageState({ cookies: [], origins: [] });
   },
-  page: async ({ page, authRole }, use) => {
+  page: async ({ page, authRole }, providePage) => {
     if (authRole === "admin") await signInAsAdmin(page);
     if (authRole === "manager") await signInAsManager(page);
     if (authRole === "resident") await signInAsResident(page);
-    await use(page);
+    await providePage(page);
   },
 });
 

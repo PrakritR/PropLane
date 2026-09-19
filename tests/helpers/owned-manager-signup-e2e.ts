@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import path from "node:path";
+import { promisify } from "node:util";
 import {
   expect,
   request as playwrightRequest,
@@ -9,11 +12,15 @@ import {
   type Route,
 } from "@playwright/test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { deletePortalAccountCompletely } from "@/lib/auth/delete-portal-account";
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
 
 const DEV_TEST_SUPABASE_HOST = "emstjswhotsnyksqhqyf.supabase.co";
 const MANAGER_REGISTER_PATH = "/api/auth/manager-register";
+const execFileAsync = promisify(execFile);
+const OWNED_SIGNUP_CLEANUP_SCRIPT = path.resolve(
+  process.cwd(),
+  "tests/helpers/purge-owned-manager-signup.ts",
+);
 
 type ExactDevTestTarget = { url: string; serviceKey: string };
 
@@ -106,6 +113,41 @@ async function exactAuthUserByEmail(db: SupabaseClient, email: string) {
   return data.user;
 }
 
+async function purgeExactOwnedSignup(userId: string, email: string): Promise<void> {
+  try {
+    await execFileAsync(
+      process.execPath,
+      [
+        "--max-old-space-size=512",
+        "--conditions=react-server",
+        "--import",
+        "tsx",
+        OWNED_SIGNUP_CLEANUP_SCRIPT,
+        "--user-id",
+        userId,
+        "--email",
+        email,
+      ],
+      {
+        cwd: process.cwd(),
+        env: { ...process.env, NODE_ENV: "test" },
+        timeout: 120_000,
+        maxBuffer: 1024 * 1024,
+      },
+    );
+  } catch (error) {
+    // Child stderr can contain provider or product internals. Keep the owned
+    // identity visible for reconciliation, but report only process metadata.
+    const failure = error && typeof error === "object" ? error as Record<string, unknown> : {};
+    const code = typeof failure.code === "number" || typeof failure.code === "string" ? failure.code : "unknown";
+    const signal = typeof failure.signal === "string" ? failure.signal : "none";
+    const killed = failure.killed === true ? "yes" : "no";
+    throw new Error(
+      `Owned manager signup cleanup failed for ${email} (code=${code}, signal=${signal}, killed=${killed}).`,
+    );
+  }
+}
+
 /**
  * Create a registration identity before the browser submits, then purge only
  * that exact Auth account through the application's full account-purge path.
@@ -165,7 +207,10 @@ export async function createOwnedManagerSignup(prefix: string): Promise<OwnedMan
           throw new Error("Manager signup cleanup refused because the exact Auth identity changed.");
         }
         ownedUserId = user.id;
-        await deletePortalAccountCompletely(db as never, user.id);
+        // The product purge graph imports Next's server-only marker. Keep that
+        // graph in a short-lived server-conditioned process so Playwright can
+        // collect this browser helper without weakening server-only globally.
+        await purgeExactOwnedSignup(user.id, email);
         const remaining = await exactAuthUserByEmail(db, email);
         if (remaining) throw new Error("Manager signup cleanup did not remove the exact generated Auth identity.");
       } finally {

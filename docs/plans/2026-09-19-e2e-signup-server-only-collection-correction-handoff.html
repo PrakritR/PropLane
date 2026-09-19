@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>E2E signup server-only collection correction</title>
+<style>body{max-width:900px;margin:40px auto;padding:0 24px;font:16px/1.55 system-ui;color:#182330}code{background:#eef1f6;padding:2px 4px}li{margin:7px 0}</style>
+<body>
+<h1>E2E signup server-only collection correction</h1>
+<p><strong>Source correction ready for root-owned validation.</strong> Full E2E collection previously loaded the product account-purge graph directly from <code>tests/helpers/owned-manager-signup-e2e.ts</code>. That graph reaches Next's <code>server-only</code> marker through the inbox scope and effective-session modules, so Playwright failed during collection before any signup case ran.</p>
+<h2>Correction</h2>
+<p>The browser helper no longer imports the product purge graph. Cleanup resolves the child entrypoint from Playwright's repository working directory and launches the pinned local <code>tsx</code> dependency in a short-lived Node child with the <code>react-server</code> condition. This avoids <code>import.meta</code>, which is incompatible with Playwright's CommonJS package transform. The condition applies only to that process; no global alias, test stub or server-only bypass was added. Execution is bounded to 120 seconds, a 512 MB old-space limit and a 1 MB output buffer, with no retry.</p>
+<p>The child accepts exactly <code>--user-id &lt;uuid&gt; --email &lt;generated-email&gt;</code>. It refuses every Supabase target except the exact dev/test host, requires a service key, validates both the Auth UUID and the generated lowercase <code>@test.proplane.local</code> email shape, and re-reads Auth to prove that UUID and email identify the same user before mutation. It then calls the existing <code>deletePortalAccountCompletely</code> product cascade. Success requires an explicit Auth <code>user_not_found</code> result for that same UUID; a network or provider error cannot masquerade as absence. The parent also resolves the exact email before launch and proves it is absent afterward.</p>
+<p>Child stderr and provider error messages stay captured and are not copied into test errors. Failures report only bounded process status plus the generated owned email so an unresolved test identity can be reconciled safely.</p>
+<p>The two Playwright fixture continuation callbacks in <code>tests/e2e/authenticated-test.ts</code> were renamed so ESLint does not interpret <code>use(...)</code> as a React Hook.</p>
+<h2>Required root validation</h2>
+<ul>
+<li>Run lint, including the authenticated fixture and both signup cleanup helpers.</li>
+<li>Run Playwright collection or the full E2E command that previously failed and confirm collection crosses all three signup specs.</li>
+<li>Exercise a real owned signup cleanup against the exact dev/test project and verify the full product cascade plus final Auth absence.</li>
+<li>Run the focused authenticated-fixture unit test. Its source contract now expects <code>applyStorageState</code>, while its existing runtime assertions continue to cover empty storage, one requested sign-in and failure propagation.</li>
+</ul>
+<p>No Node runtime, tests, lint, build, browser, database, Git, graph or installation command was run in this source-only correction. Worktree: <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code>.</p>
+</body>
+</html>

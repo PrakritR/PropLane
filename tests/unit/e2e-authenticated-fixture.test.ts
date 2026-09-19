@@ -71,7 +71,7 @@ function e2eSources(): string[] {
 describe("E2E authenticated fixture policy", () => {
   it("defaults to an empty context and dispatches only the requested role", () => {
     expect(FIXTURE).toContain('authRole: [null, { option: true }]');
-    expect(FIXTURE).toContain('await use({ cookies: [], origins: [] });');
+    expect(FIXTURE).toContain('await applyStorageState({ cookies: [], origins: [] });');
     expect(FIXTURE).toContain('if (authRole === "admin") await signInAsAdmin(page);');
     expect(FIXTURE).toContain('if (authRole === "manager") await signInAsManager(page);');
     expect(FIXTURE).toContain('if (authRole === "resident") await signInAsResident(page);');
