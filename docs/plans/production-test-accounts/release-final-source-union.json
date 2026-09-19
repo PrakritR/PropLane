@@ -1,8 +1,8 @@
 {
   "base": "f25ccada208092fbc96ad3f0fc6451b048b6d6fb",
   "branch": "akhil/test-workspace-release-20260919",
-  "sourceFileCount": 408,
-  "scope": "Complete current source/test/SQL/script/workflow union from the prior 397-file final union plus the reviewed assistant modal selector correction, trusted classified SMS-test deployment-origin binding, exact-draft listing-close E2E attribution, and trusted Pacific clock reuse on shared SMS turns. Review and evidence documents and logs are excluded.",
+  "sourceFileCount": 417,
+  "scope": "Complete current source/test/SQL/script/workflow union for the final keeper prepared after 7166e901ac34a777d7c4060c4feedd94dd6ec1fe. It includes application source frozen and compiled at 235bc7fc516a6589de068b0abd75948764f418b3, the reviewed co-manager SMS-test scope and classified resident-link correction, and the evidence-based focused E2E corrections including the approved-resident pre-lease stage contract. Review and evidence documents and logs are excluded.",
   "inputs": [
     "docs/plans/production-test-accounts/release-correction2-source-union.json",
     "docs/plans/production-test-accounts/release-resumed-correction-manifest.json",
@@ -17,7 +17,10 @@
     "docs/security/2026-09-19-test-workspace-final-396-security.html",
     "docs/security/2026-09-19-test-workspace-final-396-bugbot.html",
     "docs/security/2026-09-19-listing-close-save-test-review.html",
-    "docs/security/2026-09-19-sms-trusted-clock-review.html"
+    "docs/security/2026-09-19-sms-trusted-clock-review.html",
+    "docs/security/2026-09-19-sms-test-manager-scope-resident-links-review.html",
+    "docs/security/2026-09-19-e2e-current-ui-auth-overflow-review.html",
+    "docs/security/2026-09-19-resident-pre-lease-e2e-review.html"
   ],
   "files": [
     {
@@ -546,7 +549,7 @@
     },
     {
       "path": "src/lib/agent/sms-test-context.server.ts",
-      "sha256": "086f95a4e840d943a5cdc86daf3e4d9e7212a2701f5c73d3bca0550d7434c493"
+      "sha256": "0376708bb2fcbb62b485ed86bd4f6398ef678297dcaa0b189389870033d4e6ed"
     },
     {
       "path": "src/lib/agent/sms-test-runner.server.ts",
@@ -857,6 +860,10 @@
       "sha256": "0442ef5a5284facf8c4ce7d4dc445c2e917acfe71ebbde935f65674bdb120687"
     },
     {
+      "path": "src/lib/sms/manager-sms-access.server.ts",
+      "sha256": "3ce7412e5c2d28f85abe777eef5f82b90d70961e57480c62373993d19545a9b3"
+    },
+    {
       "path": "src/lib/sms/owner-sms-dispatcher.server.ts",
       "sha256": "fc70782bcc36e3d278b563e2b5902c2d57395b1e992764de63ef307c22c35d6a"
     },
@@ -967,6 +974,10 @@
     {
       "path": "src/lib/tools/domains/payments.ts",
       "sha256": "5c7b7f188ecdb4bc51f8dfb2c6f042a14c8514b97ed6f4911a882292a1dc8a94"
+    },
+    {
+      "path": "src/lib/tools/domains/portal-links.ts",
+      "sha256": "8a220b05fd2a8ff2904ea7479faf62d929b98cd25555bdfc95736a299d1f5c23"
     },
     {
       "path": "src/lib/tools/domains/resident/messaging.ts",
@@ -1101,6 +1112,26 @@
       "sha256": "074b75117d137b607756e813b97c0d82d50e5ebf6ea2d00a0432be2db47d75aa"
     },
     {
+      "path": "tests/e2e/public-partner.spec.ts",
+      "sha256": "b8e3d8543e094d3320afea38b89f6eb9a4adfe4302cc76470f3e262bb6b55c1f"
+    },
+    {
+      "path": "tests/e2e/resident-login-and-application.spec.ts",
+      "sha256": "0daaf647f9abbad327586301bc43203f15133ac13ee47861a90411ed00dcb8b5"
+    },
+    {
+      "path": "tests/e2e/resident-portal-ui-bug-hunt.spec.ts",
+      "sha256": "d9bae939aacacf0e702ef7bf64ef28a2e4a14ded8d87545bf5d17db4a1e3c738"
+    },
+    {
+      "path": "tests/e2e/resident-portal.spec.ts",
+      "sha256": "6f03bcea73919ce23a8c4d09ca1718a8b039ba95d0c305083c270c4cacc558fe"
+    },
+    {
+      "path": "tests/e2e/tour-scheduling.spec.ts",
+      "sha256": "5a7e0c7c83e8af599af7797d514f0842391ecd43a45e036f1425996c6e28a656"
+    },
+    {
       "path": "tests/integration/portal/agent-action-confirm.test.ts",
       "sha256": "4e344c7c10f5852d2ddf4bc47c4e0044550550906c489de14500553c0bf15481"
     },
@@ -1185,6 +1216,10 @@
       "sha256": "e7e5fb9fd6577f04dd9a6c2ba8c8ae4449743ed8b96321e7fef6f1fe73444c15"
     },
     {
+      "path": "tests/unit/agent/link-first-communication.test.ts",
+      "sha256": "e92461bce8795432c2f321f8ce1c6ea6e97c99e9794dcedab52e6f7a6784b42a"
+    },
+    {
       "path": "tests/unit/app-url.test.ts",
       "sha256": "6b13a4623c0fc484f9da37d54666cfe2bbc30295cc85e83e99d24ff9ea2e16e6"
     },
@@ -1223,10 +1258,6 @@
     {
       "path": "tests/unit/deposit-return-route.test.ts",
       "sha256": "57879f43deb3bc30f648aca1526cf498614800f92e05e96912e14a2a388a1d43"
-    },
-    {
-      "path": "tests/unit/dropdown-menu-callers-use-default.test.ts",
-      "sha256": "c7c9f330bbfa0e02131ff0b5f52af98d254c0f9691453113ee636b82c415dadb"
     },
     {
       "path": "tests/unit/evidence-property-calendar-conflicts.test.tsx",
@@ -1309,6 +1340,10 @@
       "sha256": "d2d71208adb83bd1787ad59edf407f47511ce8f0af64a4a254c153275baa5e48"
     },
     {
+      "path": "tests/unit/manager-co-manager-sms-regression.test.ts",
+      "sha256": "343f44db22918e81cc17ff6938f0704b3ef6b2cfe221a89b736b37a57d6b811d"
+    },
+    {
       "path": "tests/unit/manager-payment-methods.test.ts",
       "sha256": "83552f4ccb09fb1b5c211354b684d97ee331add4b2ba0e0d419087210da2b44a"
     },
@@ -1327,6 +1362,10 @@
     {
       "path": "tests/unit/manager-purchase-from-session.test.ts",
       "sha256": "7c268b6cabc871a5b05bd01258f689e67ca9a0407fd687e53b12cd44ddd01db5"
+    },
+    {
+      "path": "tests/unit/manager-sms-access.test.ts",
+      "sha256": "3fa720f9e11fd8fdfe636e410288e76be021810f11ffb95cbf4e5972a9b4470c"
     },
     {
       "path": "tests/unit/manager-stripe-subscription-sync.test.ts",
@@ -1426,7 +1465,7 @@
     },
     {
       "path": "tests/unit/sms-test-context.test.ts",
-      "sha256": "40d436632ea48794a09254fe79bd7ed3f60eb1254c15f760c97be7678d2ddfe1"
+      "sha256": "9c5ec8a96caa73ae7cfb995411799b8598cbb1c59dd945ea444e43b214cbf897"
     },
     {
       "path": "tests/unit/sms-test-external-effects.test.ts",
