@@ -10,8 +10,9 @@
  * 2. **Each room** — the lease types offered, then the **application fee**
  *    directly under them (one amount, or one per lease type behind a checkbox;
  *    a blank type follows the one amount), then one card per room with a tab
- *    per lease type. The top card is **Default room**: same rows, same inputs;
- *    rooms follow it until changed (grey and dashed = following, ink with a
+ *    per lease type. The top card is **Default room**: rent, utilities, deposit,
+ *    listed rent, and Other fees — no dedicated Move-in fee row. Rooms follow it
+ *    until changed (grey and dashed = following, ink with a
  *    dot = the room's own). Month-to-month and custom dates are "same as
  *    long-term" until the box is unticked. Short-term is rent per night, rent
  *    per week — the rate is all-in.
@@ -222,7 +223,7 @@ const helpRow = (title: string, text: string) => (
 const CADENCE_SHORT: Record<ListingFeeCadence, string> = { monthly: "/mo", weekly: "/wk", daily: "/day", nightly: "/night", "one-time": "once" };
 const MONTHLY_CADENCES: readonly ListingFeeCadence[] = ["monthly", "weekly", "daily", "one-time"];
 const STAY_CADENCES: readonly ListingFeeCadence[] = ["one-time", "daily", "weekly", "monthly"];
-/** Presets that never belong on Other fees: deposit and move-in have their own rows; these two are charged when a lease ends. */
+/** Presets that never belong on Other fees: deposit has its own row; move-in is not a Default room field; these two are charged when a lease ends. */
 const CARD_HIDDEN_PRESETS = new Set<string>(["security_deposit", "move_in_fee", "break_lease_fee", "holdover_daily", "short_term_nightly"]);
 const isStayTerm = (term: string) => term === SHORT_TERM_LEASE_TERM || term === AIRBNB_LEASE_TERM;
 
@@ -503,7 +504,6 @@ function MonthlyCards({
                 />
               )}
             </FactRow>
-            <MoveInFeeRow sub={sub} patch={patch} />
             <FactRow label="Listed rent">
               {base ? (
                 <RowSelectCell ariaLabel="Listed rent for every room" value={defaults.pricingMode || "fixed"} options={PRICING_MODE_OPTIONS} onChange={(v) => onDefault("pricingMode", v)} />

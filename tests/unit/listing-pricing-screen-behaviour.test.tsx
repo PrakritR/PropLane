@@ -9,7 +9,7 @@
 //   - a room that has its own numbers offers a way back to the house numbers
 import { afterEach, describe, expect, it, vi } from "vitest";
 import React, { useState } from "react";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
 vi.mock("@/lib/demo-admin-property-inventory", () => ({
   publishManagerPropertyDraftToServer: vi.fn(),
@@ -93,6 +93,15 @@ describe("Pricing puts payment setup first", () => {
     const roomPickers = screen.getAllByLabelText("Room to quote");
     expect(roomPickers.length).toBeGreaterThan(0);
     expect(roomPickers.every((el) => el.textContent?.includes("Every room"))).toBe(true);
+  });
+
+  it("does not put a Move-in fee row on the Default room card", () => {
+    openPricing();
+    const defaults = document.querySelector('[data-attr="listing-v2-price-defaults-card"]');
+    expect(defaults).toBeTruthy();
+    expect(within(defaults as HTMLElement).queryByLabelText("Move-in fee")).toBeNull();
+    expect(within(defaults as HTMLElement).queryByText("Move-in fee")).toBeNull();
+    expect(defaults!.querySelector('[data-attr="listing-v2-price-move-in-fee"]')).toBeNull();
   });
 
   it("asks for the application fee and waiver code exactly once, with no Manage codes link", () => {
