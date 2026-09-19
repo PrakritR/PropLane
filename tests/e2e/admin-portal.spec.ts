@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { signInAsAdmin } from "../helpers/auth";
 import { pathToUrlRegExp } from "../helpers/url-match";
+import { withOwnedAdminInbox } from "../helpers/admin-inbox-owned-fixture";
 
 const portalTestsEnabled = process.env.E2E_TESTS_ENABLED === "1";
 
@@ -18,7 +19,6 @@ const ADMIN_SECTIONS = [
 
 test.describe("Admin portal", () => {
   test.skip(!portalTestsEnabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
-
   test.beforeEach(async ({ page }) => {
     await signInAsAdmin(page);
   });
@@ -65,53 +65,29 @@ test.describe("Admin portal", () => {
     await expect(page.getByRole("heading").first()).toBeVisible({ timeout: 15_000 });
   });
 
-  test("unified inbox archives a message and Delete all trash empties it", async ({ page }) => {
-    // Keep the compose flow from delivering to real recipient inboxes/push devices.
-    await page.route("**/api/portal/send-inbox-message", (route) =>
-      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true }) }),
-    );
-    const evidenceDir = process.env.E2E_EVIDENCE_DIR;
-
-    // Communication is one unified conversation inbox: no Sent/Trash folder tabs.
-    // Trash is reached via the "Archived" toggle; "Delete all trash" lives beside
-    // it (see admin-communication.tsx / admin-inbox-client.tsx).
-    await page.setViewportSize({ width: 1280, height: 720 });
-    await page.goto("/admin/communication/inbox/unopened");
-    await expect(page.getByRole("heading", { name: "Inbox", exact: true, level: 1 })).toBeVisible({
-      timeout: 15_000,
+  test("unified inbox archives an owned fixture and Delete all trash removes only it", async ({ page }) => {
+    await withOwnedAdminInbox(page, async ({ targetId, targetTopic, readRows, assertControl }) => {
+      await page.setViewportSize({ width: 1280, height: 720 });
+      await page.goto("/admin/communication/inbox/unopened");
+      await expect(page.getByRole("heading", { name: "Inbox", exact: true, level: 1 })).toBeVisible();
+      const row = page.locator(`table tr[id="portal-inbox-thread-${targetId}"]`);
+      await expect(row).toBeVisible();
+      await row.getByRole("button", { name: `Actions for ${targetTopic}`, exact: true }).click();
+      await page.getByRole("menuitem", { name: "Move to trash", exact: true }).click();
+      await expect.poll(async () => (await readRows()).find(item => item.id === targetId)?.folder).toBe("trash");
+      await assertControl();
+      await page.locator('[data-attr="admin-inbox-archived-toggle"]').click();
+      await expect(row).toBeVisible();
+      const deleteAll = page.getByRole("button", { name: "Delete all trash", exact: true });
+      await expect(deleteAll).toBeVisible();
+      await deleteAll.click();
+      const confirm = page.getByRole("dialog").filter({ hasText: "Delete all 1 trash message?" });
+      await expect(confirm).toBeVisible();
+      await confirm.getByRole("button", { name: "Delete", exact: true }).click();
+      await expect.poll(async () => (await readRows()).some(item => item.id === targetId)).toBe(false);
+      await expect(deleteAll).toHaveCount(0);
+      await assertControl();
     });
-    await page.getByRole("button", { name: "New message" }).click();
-
-    const subject = `E2E trash check ${Date.now()}`;
-    // The recipient control is a custom listbox widget (FieldSingleSelect), not a
-    // native <select> — open it and pick the option, rather than selectOption().
-    await page.getByRole("button", { name: "Recipient type" }).click();
-    await page.getByRole("option", { name: "All managers" }).click();
-    await page.getByPlaceholder("Subject").fill(subject);
-    await page.getByPlaceholder(/write your message/i).fill("Automated trash-tab check.");
-    await page.getByRole("button", { name: "Send", exact: true }).click();
-
-    // The sent message shows in the flat conversation list; expand it and
-    // archive. The list dual-mounts (a lg:hidden mobile card list + a hidden
-    // lg:block desktop table), so target the desktop table ROW — getByText(...)
-    // .first() would resolve to the off-screen mobile copy at this viewport.
-    const row = page.locator("table tbody").getByRole("row").filter({ hasText: subject });
-    await expect(row).toBeVisible({ timeout: 15_000 });
-    await row.click();
-    await row.getByRole("button", { name: "Move to trash" }).click();
-
-    // Switch to the archived (trash) view; "Delete all trash" appears when trash
-    // is non-empty.
-    await page.locator('[data-attr="admin-inbox-archived-toggle"]').click();
-    const deleteAll = page.getByRole("button", { name: "Delete all trash" });
-    await expect(deleteAll.first()).toBeVisible({ timeout: 15_000 });
-    if (evidenceDir) await page.screenshot({ path: `${evidenceDir}/admin-trash-delete-button.png`, fullPage: true });
-
-    // emptyTrash() confirms via window.confirm before clearing.
-    page.once("dialog", (dialog) => void dialog.accept());
-    await deleteAll.first().click();
-    await expect(deleteAll).toHaveCount(0, { timeout: 15_000 });
-    if (evidenceDir) await page.screenshot({ path: `${evidenceDir}/admin-trash-emptied.png`, fullPage: true });
   });
 
   test("legacy inbox URL redirects to unified communication inbox", async ({ page }) => {

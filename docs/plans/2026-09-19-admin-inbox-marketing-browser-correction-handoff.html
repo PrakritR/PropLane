@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Admin inbox and marketing browser correction handoff</title>
+<style>body{font:16px/1.6 system-ui;max-width:900px;margin:40px auto;padding:0 24px}code{overflow-wrap:anywhere}</style>
+<h1>Admin inbox and marketing browser correction handoff</h1>
+<ul>
+  <li><code>tests/e2e/dark-mode.spec.ts</code> now asserts the current exact SiteHero heading, “Property management that runs itself.”, while retaining the light-theme assertion.</li>
+  <li><code>tests/e2e/admin-portal.spec.ts</code> no longer composes or sends a broadcast. It creates two marker-owned admin inbox rows through the real admin inbox API on a loopback host, filters fresh GET responses to those exact IDs, fences post-setup writes/deletes to the fixture IDs, archives one row through the UI, confirms Delete all trash through the DOM confirmation, verifies independent persistence and control-row preservation, and cleans both IDs in an afterEach fallback.</li>
+</ul>
+<p>No runtime, browser, database, Node, build, or Git validation was run.</p>
+</html>
