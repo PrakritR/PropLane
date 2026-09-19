@@ -2015,10 +2015,11 @@ export { leaseRowHasDocument, leaseRowCarriesDocumentBytes } from "@/lib/lease-p
 export async function ensureLeaseDocumentLoaded(
   rowId: string,
   managerUserId?: string | null,
+  hint?: LeasePipelineRow | null,
 ): Promise<LeasePipelineRow | null> {
-  const current = readLeasePipeline(managerUserId).find((row) => row.id === rowId) ?? null;
+  const current = readLeasePipeline(managerUserId).find((row) => row.id === rowId) ?? hint ?? null;
   if (current && leaseRowCarriesDocumentBytes(current)) return current;
-  if (!canUseStorage() || isDemoModeActive()) return current;
+  if (isDemoModeActive() || typeof fetch !== "function") return current;
   if (current?.managerUploadedPdf?.libraryDocumentId && !leaseRowCarriesDocumentBytes(current)) {
     try {
       const fromLibrary = await attachLibraryLeaseDocument(current);
@@ -2965,17 +2966,21 @@ export function regenerateEditableLeasesForResident(
 
 export async function downloadLeaseFromRow(row: LeasePipelineRow): Promise<PortalDownloadResult> {
   if (typeof window === "undefined") return "failed";
-  if (row.managerUploadedPdf?.dataUrl) {
+  const current =
+    leaseRowCarriesDocumentBytes(row) || !leaseRowHasDocument(row)
+      ? row
+      : ((await ensureLeaseDocumentLoaded(row.id, undefined, row)) ?? row);
+  if (current.managerUploadedPdf?.dataUrl) {
     return downloadDataUrl(
-      row.managerUploadedPdf.dataUrl,
-      row.managerUploadedPdf.fileName || `PropLane-Lease-${leaseDownloadBaseName(row)}.pdf`,
+      current.managerUploadedPdf.dataUrl,
+      current.managerUploadedPdf.fileName || `PropLane-Lease-${leaseDownloadBaseName(current)}.pdf`,
     );
   }
-  const html = getLeaseDocumentHtml(row);
+  const html = getLeaseDocumentHtml(current);
   if (html) {
     return downloadTextContent(
       html,
-      `PropLane-Lease-${leaseDownloadBaseName(row)}.html`,
+      `PropLane-Lease-${leaseDownloadBaseName(current)}.html`,
       "text/html;charset=utf-8",
       "Lease",
     );

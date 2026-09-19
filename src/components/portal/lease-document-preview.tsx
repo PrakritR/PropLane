@@ -139,12 +139,23 @@ export function LeaseDocumentPreview({
   flow = false,
 }: Props) {
   const [hydratedRow, setHydratedRow] = useState(row);
+  const [hydrateState, setHydrateState] = useState<"idle" | "loading" | "failed">("idle");
   useEffect(() => {
     setHydratedRow(row);
-    if (leaseRowCarriesDocumentBytes(row) || (!row.documentOmitted && !row.managerUploadedPdf?.omitted)) return;
+    if (leaseRowCarriesDocumentBytes(row) || (!row.documentOmitted && !row.managerUploadedPdf?.omitted)) {
+      setHydrateState("idle");
+      return;
+    }
     let cancelled = false;
-    void ensureLeaseDocumentLoaded(row.id).then((next) => {
-      if (!cancelled && next) setHydratedRow(next);
+    setHydrateState("loading");
+    void ensureLeaseDocumentLoaded(row.id, undefined, row).then((next) => {
+      if (cancelled) return;
+      if (next && leaseRowCarriesDocumentBytes(next)) {
+        setHydratedRow(next);
+        setHydrateState("idle");
+        return;
+      }
+      setHydrateState("failed");
     });
     return () => {
       cancelled = true;
@@ -155,9 +166,11 @@ export function LeaseDocumentPreview({
   const html = getLeaseDocumentHtml(hydratedRow);
   const defaultEmpty =
     emptyHint ??
-    (hydratedRow.documentOmitted || hydratedRow.managerUploadedPdf?.omitted
+    (hydrateState === "loading"
       ? "Loading lease document…"
-      : "No lease document yet. Click Generate lease (from application data) or upload a PDF to preview it here.");
+      : hydrateState === "failed"
+        ? "Could not load the lease document."
+        : "No lease document yet. Click Generate lease (from application data) or upload a PDF to preview it here.");
 
   const syntheticHtml = useMemo(() => {
     if (suppressApplicationDraft || pdfSrc || html || hydratedRow.leaseDocumentRemovedAt) return null;
