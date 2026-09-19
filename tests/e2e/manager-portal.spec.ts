@@ -1,11 +1,10 @@
-import { test, expect } from "@playwright/test";
-import path from "node:path";
+import { test, expect } from "./authenticated-test";
 import { mockStripeAllRoutes } from "../helpers/auth";
 import { gotoAppPath, pathToUrlRegExp } from "../helpers/url-match";
 
 const portalTestsEnabled = process.env.E2E_TESTS_ENABLED === "1";
 
-test.use({ storageState: path.join(__dirname, "../.auth/manager.json") });
+test.use({ authRole: "manager" });
 
 const PAID_MANAGER_NAV = [
   { label: "Dashboard", path: "/portal/dashboard" },
@@ -39,14 +38,7 @@ test.describe("Manager portal", () => {
   test("all manager sections load via direct navigation", async ({ page }) => {
     test.setTimeout(180_000);
     for (const { path, label } of PAID_MANAGER_NAV) {
-      try {
-        await gotoAppPath(page, path);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (!message.includes("Session expired")) throw error;
-        await page.goto("/portal/dashboard", { waitUntil: "domcontentloaded" });
-        await gotoAppPath(page, path);
-      }
+      await gotoAppPath(page, path);
       await expect(page, `${label} should land on ${path}`).toHaveURL(pathToUrlRegExp(path));
       await expect(
         page.getByRole("heading").first().or(page.locator("main")).first(),

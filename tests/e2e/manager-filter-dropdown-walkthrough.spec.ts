@@ -1,5 +1,4 @@
-import { test, expect, type Page, type Locator } from "@playwright/test";
-import path from "node:path";
+import { test, expect, type Page, type Locator } from "./authenticated-test";
 import { mockStripeAllRoutes } from "../helpers/auth";
 
 /**
@@ -53,7 +52,7 @@ async function exerciseFieldDropdown(page: Page, scope: Locator, fieldMatcher: R
 test.describe("Manager portal filter dropdowns", () => {
   test.skip(process.env.E2E_TESTS_ENABLED !== "1", "Set E2E_TESTS_ENABLED=1 after npm run test:seed");
 
-  test.use({ storageState: path.join(__dirname, "../.auth/manager.json") });
+  test.use({ authRole: "manager" });
 
   test.beforeEach(async ({ page }) => {
     await mockStripeAllRoutes(page);

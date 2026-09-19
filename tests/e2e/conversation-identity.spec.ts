@@ -1,10 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
-import path from "node:path";
 
 import { E2E_ACCOUNTS } from "../fixtures";
-import { establishActivePortal, signIn } from "../helpers/auth";
+import { establishActivePortal, signIn, signInAsManager } from "../helpers/auth";
 
 const enabled = process.env.E2E_TESTS_ENABLED === "1";
 const DEV_TEST_SUPABASE_HOST = "emstjswhotsnyksqhqyf.supabase.co";
@@ -648,9 +647,9 @@ test.describe("Conversation identity browser regression", () => {
     const context = await browser.newContext({
       viewport: { width: 1440, height: 1000 },
     });
-    const page = await context.newPage();
-    const writeFence = await installExternalWriteFence(page);
     try {
+      const page = await context.newPage();
+      const writeFence = await installExternalWriteFence(page);
       await signIn(page, fixture.resident.email, fixture.resident.password, "/resident/dashboard");
       await establishActivePortal(page, "resident", "/resident/dashboard");
       const rows = await openAndReadInbox(
@@ -712,19 +711,21 @@ test.describe("Conversation identity browser regression", () => {
 
   test("manager merges prospect, application, and email sources while isolating conflict and Assistant", async ({ browser }) => {
     if (!fixture) throw new Error("Conversation identity fixture was not created.");
+    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
     const context = await browser.newContext({
-      storageState: path.join(__dirname, "../.auth/manager.json"),
+      storageState: { cookies: [], origins: [] },
+      baseURL,
       viewport: { width: 1440, height: 1000 },
     });
-    const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
-    await context.addCookies([{
-      name: "proplane-workspace",
-      value: fixture.managerWorkspaceId,
-      url: baseURL,
-    }]);
-    const page = await context.newPage();
-    const writeFence = await installExternalWriteFence(page, true);
     try {
+      const page = await context.newPage();
+      const writeFence = await installExternalWriteFence(page, true);
+      await signInAsManager(page);
+      await context.addCookies([{
+        name: "proplane-workspace",
+        value: fixture.managerWorkspaceId,
+        url: baseURL,
+      }]);
       const rows = await openAndReadInbox(
         page,
         `/portal/communication/active/${encodeURIComponent(fixture.ids.managerApplication)}`,

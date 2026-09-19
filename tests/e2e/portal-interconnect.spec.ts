@@ -1,5 +1,4 @@
-import { test, expect } from "@playwright/test";
-import path from "node:path";
+import { test, expect } from "./authenticated-test";
 import { mockStripeAllRoutes } from "../helpers/auth";
 
 const portalTestsEnabled = process.env.E2E_TESTS_ENABLED === "1";
@@ -7,7 +6,7 @@ const portalTestsEnabled = process.env.E2E_TESTS_ENABLED === "1";
 test.describe("Cross-portal interconnect — manager", () => {
   test.skip(!portalTestsEnabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
 
-  test.use({ storageState: path.join(__dirname, "../.auth/manager.json") });
+  test.use({ authRole: "manager" });
 
   test("manager applications tab shows seeded application", async ({ page }) => {
     await mockStripeAllRoutes(page);
@@ -57,7 +56,7 @@ test.describe("Cross-portal interconnect — manager", () => {
 test.describe("Cross-portal interconnect — resident", () => {
   test.skip(!portalTestsEnabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
 
-  test.use({ storageState: path.join(__dirname, "../.auth/resident.json") });
+  test.use({ authRole: "resident" });
 
   test("resident inbox tab loads correctly", async ({ page }) => {
     await page.goto("/resident/communication/active");
@@ -77,7 +76,7 @@ test.describe("Cross-portal interconnect — resident", () => {
 test.describe("Cross-portal interconnect — admin", () => {
   test.skip(!portalTestsEnabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
 
-  test.use({ storageState: path.join(__dirname, "../.auth/admin.json") });
+  test.use({ authRole: "admin" });
 
   test("admin can view manager applications section", async ({ page }) => {
     await page.goto("/admin/axis-users");

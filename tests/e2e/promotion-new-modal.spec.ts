@@ -1,4 +1,4 @@
-import { test, expect, type Page, type Locator } from "@playwright/test";
+import { test, expect, type Page, type Locator } from "./authenticated-test";
 import fs from "node:fs";
 import path from "node:path";
 import { mockStripeAllRoutes } from "../helpers/auth";
@@ -49,7 +49,7 @@ async function openPromotionSection(page: Page) {
 test.describe("Promotion UX", () => {
   test.skip(process.env.E2E_TESTS_ENABLED !== "1", "Set E2E_TESTS_ENABLED=1 after npm run test:seed");
 
-  test.use({ storageState: path.join(__dirname, "../.auth/manager.json") });
+  test.use({ authRole: "manager" });
 
   test.beforeEach(async ({ page }) => {
     await mockStripeAllRoutes(page);

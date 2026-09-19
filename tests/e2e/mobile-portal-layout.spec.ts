@@ -1,5 +1,4 @@
-import { test, expect } from "@playwright/test";
-import path from "node:path";
+import { test, expect } from "./authenticated-test";
 import { mockStripeAllRoutes } from "../helpers/auth";
 import { pathToUrlRegExp } from "../helpers/url-match";
 import { MANAGER_PORTAL_SMOKE_PATHS } from "@/lib/portals/pro";
@@ -29,7 +28,7 @@ async function gotoTolerantly(page: import("@playwright/test").Page, path: strin
 test.describe("Mobile portal layout", () => {
   test.skip(!portalTestsEnabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
 
-  test.use({ storageState: path.join(__dirname, "../.auth/manager.json") });
+  test.use({ authRole: "manager" });
 
   test.beforeEach(async ({ page }) => {
     await mockStripeAllRoutes(page);
@@ -68,9 +67,9 @@ test.describe("Mobile portal layout", () => {
 });
 
 test.describe("Mobile resident portal layout", () => {
+  test.use({ authRole: "resident" });
   test.skip(!portalTestsEnabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
 
-  test.use({ storageState: path.join(__dirname, "../.auth/resident.json") });
 
   test.beforeEach(async ({ page }) => {
     await mockStripeAllRoutes(page);

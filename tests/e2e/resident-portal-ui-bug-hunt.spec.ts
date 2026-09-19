@@ -1,5 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
-import path from "node:path";
+import { test, expect, type Page } from "./authenticated-test";
 import { mockStripeCheckoutRoutes } from "../helpers/auth";
 import { pathToUrlRegExp } from "../helpers/url-match";
 import { RESIDENT_PORTAL_SMOKE_PATHS } from "@/lib/portals/resident-sections";
@@ -18,7 +17,7 @@ const DESKTOP = { width: 1280, height: 900 };
 const MOBILE = { width: 390, height: 844 };
 const NARROW = { width: 320, height: 800 };
 
-test.use({ storageState: path.join(__dirname, "../.auth/resident.json") });
+test.use({ authRole: "resident" });
 
 async function gotoTolerantly(page: Page, route: string) {
   try {

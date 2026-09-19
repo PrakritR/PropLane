@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>E2E auth session isolation implementation handoff</title>
+<style>body{font:15px/1.55 system-ui,sans-serif;max-width:950px;margin:40px auto;padding:0 24px;color:#17212b}code{overflow-wrap:anywhere}li{margin:7px 0}</style>
+<body><h1>E2E auth session isolation implementation handoff</h1>
+<p>Source-only implementation in the keeper. Supabase role sessions are now established once per test through a new optional-role fixture, with empty storage state by default. The serialized seeded-role state producer remains as smoke-only authentication and no longer writes role JSON files.</p>
+<ul>
+<li>Added <code>tests/e2e/authenticated-test.ts</code>. <code>authRole</code> defaults to <code>null</code>; manager, resident, and admin dispatch to the existing real sign-in helpers exactly once before the page is yielded.</li>
+<li>Migrated manager consumers: filter walkthrough, portal UI bug hunt, manager portal, mobile manager layout, promotion modal, portal interconnect manager, and UI consistency manager describes.</li>
+<li>Migrated resident consumers: resident portal, resident UI bug hunt, mobile resident layout, and portal interconnect resident.</li>
+<li>Migrated portal interconnect admin coverage.</li>
+<li>Removed the manager portal test’s existing “Session expired” reauthentication retry so runtime expiry remains a visible failure.</li>
+<li>Added <code>tests/unit/e2e-authenticated-fixture.test.ts</code> for null-role/empty-storage/role-dispatch policy, zero saved-role consumer inventory outside the manual conversation case, and smoke-only auth setup.</li>
+</ul>
+<p><code>conversation-identity.spec.ts</code> and <code>playwright.config.ts</code> were left to their assigned owners. Public, sign-out, wrong-password, and intentionally unauthenticated cases retain the null role. No tests, Node, browser, server, build, install, database, graph, or Git operation was run.</p>
+</body></html>

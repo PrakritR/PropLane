@@ -1,5 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
-import path from "node:path";
+import { test, expect, type Page } from "./authenticated-test";
 import { mockStripeAllRoutes } from "../helpers/auth";
 import { pathToUrlRegExp } from "../helpers/url-match";
 import { MANAGER_PORTAL_SMOKE_PATHS } from "@/lib/portals/pro";
@@ -25,7 +24,7 @@ const PROPERTIES_PATHS = [
   "/portal/properties/drafts",
 ] as const;
 
-test.use({ storageState: path.join(__dirname, "../.auth/manager.json") });
+test.use({ authRole: "manager" });
 
 async function gotoTolerantly(page: Page, route: string) {
   try {

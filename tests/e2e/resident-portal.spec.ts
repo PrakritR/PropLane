@@ -1,12 +1,11 @@
-import { test, expect } from "@playwright/test";
-import path from "node:path";
+import { test, expect } from "./authenticated-test";
 import { mockStripeCheckoutRoutes } from "../helpers/auth";
 import { gotoAppPath, pathToUrlRegExp } from "../helpers/url-match";
 import { RESIDENT_PORTAL_SMOKE_PATHS } from "../../src/lib/portals/resident-sections";
 
 const portalTestsEnabled = process.env.E2E_TESTS_ENABLED === "1";
 
-test.use({ storageState: path.join(__dirname, "../.auth/resident.json") });
+test.use({ authRole: "resident" });
 
 const RESIDENT_SECTIONS = [
   ...RESIDENT_PORTAL_SMOKE_PATHS,

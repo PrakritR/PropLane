@@ -1,5 +1,4 @@
-import { test, expect } from "@playwright/test";
-import path from "node:path";
+import { test, expect } from "./authenticated-test";
 
 const portalTestsEnabled = process.env.E2E_TESTS_ENABLED === "1";
 
@@ -14,7 +13,7 @@ test.describe("UI consistency — portal shell", () => {
 test.describe("UI consistency — authenticated portal shell", () => {
   test.skip(!portalTestsEnabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
 
-  test.use({ storageState: path.join(__dirname, "../.auth/manager.json") });
+  test.use({ authRole: "manager" });
 
   test("portal layout exposes skip link and main landmark", async ({ page }) => {
     await page.goto("/portal/dashboard");
@@ -43,7 +42,7 @@ test.describe("UI consistency — authenticated portal shell", () => {
 test.describe("UI consistency — dark mode portal routes", () => {
   test.skip(!portalTestsEnabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
 
-  test.use({ storageState: path.join(__dirname, "../.auth/manager.json") });
+  test.use({ authRole: "manager" });
 
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
