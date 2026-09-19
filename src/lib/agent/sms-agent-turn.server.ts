@@ -45,6 +45,7 @@ import {
 } from "@/lib/sms/agent-confirmation.server";
 import { recordCommsAgentTurnUsage } from "@/lib/comms-billing/agent-usage.server";
 import { formatSmsAgentTurnError } from "@/lib/agent/assistant-turn-error";
+import { assistantClockBlock } from "@/lib/agent/assistant-turn-context";
 import { captureSmsTestDelivery, currentSmsTestTransport } from "@/lib/sms/sms-test-transport.server";
 
 type Db = SupabaseClient;
@@ -54,6 +55,20 @@ const HISTORY_LIMIT = 24;
 const MAX_INBOUND_PER_HOUR = 30;
 /** Texts are read on a phone; keep replies inside a couple of segments. */
 const DEFAULT_MAX_REPLY_CHARS = 1200;
+
+export function smsAgentSystemPrompt(args: {
+  basePrompt: string;
+  additionalSystemContext?: string | null;
+  customInstructions?: string | null;
+  now?: Date | number;
+}): string {
+  const system = [
+    args.basePrompt,
+    assistantClockBlock(args.now),
+    args.additionalSystemContext?.trim(),
+  ].filter(Boolean).join("\n\n");
+  return withAgentCustomInstructions(system, args.customInstructions ?? null);
+}
 
 /** Writes that can create a provider delivery after the test request ends. */
 export const SMS_TEST_REFUSED_DURABLE_EFFECT_TOOLS = new Set([
@@ -542,10 +557,11 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
   let result;
   try {
     const customInstructions = await loadAgentCustomInstructions(db, ctx.userId);
-    const system = withAgentCustomInstructions(
-      [surface.basePrompt, args.additionalSystemContext?.trim()].filter(Boolean).join("\n\n"),
+    const system = smsAgentSystemPrompt({
+      basePrompt: surface.basePrompt,
+      additionalSystemContext: args.additionalSystemContext,
       customInstructions,
-    );
+    });
     result = await traceAgentTurn(
       args.traceActor,
       history as { role: string; content: string }[],

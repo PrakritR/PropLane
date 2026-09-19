@@ -19,7 +19,11 @@ vi.mock("@/lib/agent/pending-action-decision", () => ({
   decidePendingAction: mocks.decidePending,
 }));
 
-import { runSmsAgentTurn, type SmsAgentSurface } from "@/lib/agent/sms-agent-turn.server";
+import {
+  runSmsAgentTurn,
+  smsAgentSystemPrompt,
+  type SmsAgentSurface,
+} from "@/lib/agent/sms-agent-turn.server";
 import { createMemoryDb } from "./support/memory-supabase";
 
 const ACTOR = "11111111-1111-4111-8111-111111111111";
@@ -105,6 +109,22 @@ afterEach(() => {
 });
 
 describe("SMS test turn communication usage", () => {
+  it("binds every SMS surface to the trusted Pacific date before model context", () => {
+    const system = smsAgentSystemPrompt({
+      basePrompt: "manager SMS rules",
+      additionalSystemContext: "Resolved WO-1042 to opaque-id",
+      customInstructions: "Use concise replies.",
+      now: Date.UTC(2026, 8, 20, 6, 30),
+    });
+
+    expect(system).toContain("Internal clock (Pacific): today is 2026-09-19");
+    expect(system).toContain('Use this calendar date for "today", "yesterday", and relative dates.');
+    expect(system).toContain("Resolved WO-1042 to opaque-id");
+    expect(system).toContain("Use concise replies.");
+    expect(system.indexOf("manager SMS rules")).toBeLessThan(system.indexOf("Internal clock (Pacific)"));
+    expect(system.indexOf("Internal clock (Pacific)")).toBeLessThan(system.indexOf("Resolved WO-1042"));
+  });
+
   it("does not bill a deterministic test reply", async () => {
     const db = dbWithTables();
     const result = await runSmsAgentTurn(db as never, {

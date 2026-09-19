@@ -2,7 +2,7 @@
   "base": "f25ccada208092fbc96ad3f0fc6451b048b6d6fb",
   "branch": "akhil/test-workspace-release-20260919",
   "sourceFileCount": 408,
-  "scope": "Complete current source/test/SQL/script/workflow union from the prior 397-file final union plus the reviewed assistant modal selector correction, trusted classified SMS-test deployment-origin binding, and exact-draft listing-close E2E attribution. Review and evidence documents and logs are excluded.",
+  "scope": "Complete current source/test/SQL/script/workflow union from the prior 397-file final union plus the reviewed assistant modal selector correction, trusted classified SMS-test deployment-origin binding, exact-draft listing-close E2E attribution, and trusted Pacific clock reuse on shared SMS turns. Review and evidence documents and logs are excluded.",
   "inputs": [
     "docs/plans/production-test-accounts/release-correction2-source-union.json",
     "docs/plans/production-test-accounts/release-resumed-correction-manifest.json",
@@ -16,7 +16,8 @@
     "docs/security/2026-09-19-test-workspace-apply-transport-review.html",
     "docs/security/2026-09-19-test-workspace-final-396-security.html",
     "docs/security/2026-09-19-test-workspace-final-396-bugbot.html",
-    "docs/security/2026-09-19-listing-close-save-test-review.html"
+    "docs/security/2026-09-19-listing-close-save-test-review.html",
+    "docs/security/2026-09-19-sms-trusted-clock-review.html"
   ],
   "files": [
     {
@@ -541,7 +542,7 @@
     },
     {
       "path": "src/lib/agent/sms-agent-turn.server.ts",
-      "sha256": "a82ef8423153ea0c2ad3d487a0ec28f00f56d936120f71dab0dd7d2a2a837fb8"
+      "sha256": "e83e719a5e75c49383b2cfd31b8dd4e5e780fd86e01f2f9965758cdd1ee5174a"
     },
     {
       "path": "src/lib/agent/sms-test-context.server.ts",
@@ -1413,7 +1414,7 @@
     },
     {
       "path": "tests/unit/sms-test-billing.test.ts",
-      "sha256": "8544382d10138fd77387d0352b740a5d831af37c86725687e69703707e4c42c0"
+      "sha256": "81af2120db4f0a8671f4689b60da2ad8d66e3a24cf00fe5b46638ea0c094348e"
     },
     {
       "path": "tests/unit/sms-test-burst.test.ts",

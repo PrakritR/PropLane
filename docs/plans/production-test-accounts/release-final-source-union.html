@@ -9,7 +9,7 @@
 <tr><th>Branch / base</th><td><code>akhil/test-workspace-release-20260919</code> / <code>f25ccada208092fbc96ad3f0fc6451b048b6d6fb</code></td></tr>
 <tr><th>Latest pushed correction keeper</th><td><code>a62b867ba24b888df9a05309bd5747023b3cb78e</code>; build-only artifact CI is active.</td></tr>
 <tr><th>Manifest</th><td><code>docs/plans/production-test-accounts/release-final-source-union.json</code></td></tr>
-<tr><th>Manifest SHA-256</th><td><code>23cdc33ab9636cc53ff88b1ad045f1943c29328836a4a1401de9c6dbdbb21d0e</code></td></tr>
+<tr><th>Manifest SHA-256</th><td><code>4a7bdcd50719aa552282bcd4bd9a38d0d9dc47df664f1af9b5a8f5c267a495a2</code></td></tr>
 <tr><th>Files</th><td>408</td></tr>
 </table>
 <h2>Composition and coverage</h2>
@@ -19,6 +19,7 @@
 <ul>
 <li>The assistant SMS listing selector keeps its portaled menu within the active modal tree, while shared portal filters retain their existing body portal. The focused selector file passed 63/63 and fresh security and correctness reviews approved the exact four-file delta.</li>
 <li>The SMS-test route derives link origins only from trusted runtime configuration after authorization: local compiled QA is exactly <code>http://localhost:3010</code> under development, preview uses the configured deployment origin, and production remains canonical. The async override requires a durable private workspace; ordinary carrier SMS and unclassified contexts remain production-pinned. The combined route, runner, transport, resolver, tool and selector batch passed 134/134; a final tool-copy batch passed 41/41. Scoped lint had zero errors and two pre-existing warnings. Fresh security review approved the origin and selector scope. A final three-file prompt/tool wording correction aligns the model contract with the same carrier-versus-private-test boundary; focused tests passed 43/43; final scoped security and correctness reviews approved the exact runtime, prompt and test hashes.</li>
+<li>Shared manager and resident SMS turns now reuse the existing trusted Pacific clock block before resolved-record context and signed-in custom instructions. The deterministic clock/context batch passed 10/10, scoped lint passed, and fresh review approved the exact two-file correction. Runtime model QA remains required.</li>
 <li>The listing-editor close-save E2E now attributes writes to the marker-bearing draft and its exact minted id, so unrelated portfolio bootstrap mirrors do not fail the no-typing-timer assertion while alternate-id and id-only duplicate saves still fail. Scoped lint and whitespace checks passed; fresh review approved the exact test hash. Runtime execution remains root-owned.</li>
 <li>The server route collection regression passed 5/5. Fresh review approved the exact two-file correction.</li>
 <li>The four CI unit fixtures passed 86/86. They mock the real normal-classification result <code>{ captured: false }</code>; production classification remains fail closed. Fresh review approved the exact files.</li>
