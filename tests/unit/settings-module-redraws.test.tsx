@@ -149,7 +149,7 @@ describe("settings module redraws — shared property scope ownership", () => {
     cleanup();
 
     render(<BookingsSettingsPanel teamMembers={[]} />);
-    expect(await screen.findByText("Booking")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Reminders" })).toBeTruthy();
     expect(screen.queryByText("All properties")).toBeNull();
     cleanup();
 

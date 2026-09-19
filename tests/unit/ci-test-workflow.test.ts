@@ -15,12 +15,14 @@ type WorkflowStep = {
   uses?: string;
   run?: string;
   if?: string;
+  env?: Record<string, unknown>;
   with?: Record<string, unknown>;
 };
 type WorkflowJob = {
   "runs-on": string;
   "timeout-minutes"?: number;
   if?: string;
+  env?: Record<string, unknown>;
   needs?: string[];
   steps: WorkflowStep[];
 };
@@ -51,9 +53,15 @@ describe("Test workflow resource budget", () => {
     const parsed = parse(workflow) as { on: Record<string, unknown> };
     expect(parsed.on.push).toEqual({ branches: ["main", "staging"] });
     expect(parsed.on).toHaveProperty("pull_request");
-    expect(parsed.on.workflow_dispatch).toEqual({ inputs: { unit_only: {
-      description: "Run only the unit job", required: false, type: "boolean", default: false,
-    } } });
+    expect(parsed.on.workflow_dispatch).toEqual({ inputs: {
+      unit_only: {
+        description: "Run only the unit job", required: false, type: "boolean", default: false,
+      },
+      e2e_scope: {
+        description: "Scope the manual full E2E job", required: false, type: "choice",
+        options: ["full", "conversation"], default: "full",
+      },
+    } });
     // Exact parsed conditions prevent a similarly named push/PR input or a
     // comment from disabling validation. Every bypass requires dispatch AND
     // the boolean input; false/default keeps all existing checks active.
@@ -103,7 +111,50 @@ describe("Test workflow resource budget", () => {
     expect(full.if).toBe(
       "${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && !(github.event_name == 'workflow_dispatch' && inputs.unit_only) }}",
     );
-    expect(full.steps).toContainEqual(expect.objectContaining({ run: "npm run test:e2e" }));
+    expect(full.steps).toContainEqual(expect.objectContaining({
+      name: "Run full E2E suite",
+      if: "${{ !(github.event_name == 'workflow_dispatch' && inputs.e2e_scope == 'conversation') }}",
+      run: "npm run test:e2e",
+    }));
+    expect(full.steps).toContainEqual(expect.objectContaining({
+      name: "Run conversation identity E2E",
+      if: "${{ github.event_name == 'workflow_dispatch' && inputs.e2e_scope == 'conversation' }}",
+      run: "npm run test:e2e -- tests/e2e/conversation-identity.spec.ts",
+    }));
+  });
+
+  it("keeps the conversation scope as a fixed Playwright command", () => {
+    const full = jobConfig("e2e-full");
+    const conversation = full.steps.find((step) => step.name === "Run conversation identity E2E");
+    expect(conversation?.run).toBe("npm run test:e2e -- tests/e2e/conversation-identity.spec.ts");
+    expect(conversation?.run).not.toContain("${");
+    expect(conversation?.run).not.toContain("inputs.");
+    expect(conversation?.run).not.toContain("github.");
+  });
+
+  it("keeps the shared E2E auth and dev database environment on both scopes", () => {
+    const env = jobConfig("e2e-full").env;
+    expect(env).toEqual({
+      NEXT_PUBLIC_APP_URL: "http://localhost:3000",
+      PLAYWRIGHT_BASE_URL: "http://localhost:3000",
+      NEXT_PUBLIC_SUPABASE_URL: "${{ secrets.TEST_SUPABASE_URL }}",
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "${{ secrets.TEST_SUPABASE_ANON_KEY }}",
+      SUPABASE_SERVICE_ROLE_KEY: "${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}",
+      PROPLANE_PAYMENT_WAIVER_CODE: "FREE100",
+      AXIS_ADMIN_REGISTER_KEY: "${{ secrets.TEST_AXIS_ADMIN_REGISTER_KEY }}",
+      E2E_ADMIN_EMAIL: "${{ secrets.E2E_ADMIN_EMAIL }}",
+      E2E_ADMIN_PASSWORD: "${{ secrets.E2E_ADMIN_PASSWORD }}",
+      E2E_MANAGER_EMAIL: "${{ secrets.E2E_MANAGER_EMAIL }}",
+      E2E_MANAGER_PASSWORD: "${{ secrets.E2E_MANAGER_PASSWORD }}",
+      E2E_RESIDENT_EMAIL: "${{ secrets.E2E_RESIDENT_EMAIL }}",
+      E2E_RESIDENT_PASSWORD: "${{ secrets.E2E_RESIDENT_PASSWORD }}",
+      E2E_TESTS_ENABLED: "1",
+      CRON_SECRET: "${{ secrets.CRON_SECRET }}",
+    });
+    for (const name of ["Run full E2E suite", "Run conversation identity E2E"]) {
+      const step = jobConfig("e2e-full").steps.find((candidate) => candidate.name === name);
+      expect(step?.env).toBeUndefined();
+    }
   });
 
   it("sets retries exactly once, in the Playwright config", () => {

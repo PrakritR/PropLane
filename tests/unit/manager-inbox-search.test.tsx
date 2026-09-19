@@ -146,7 +146,8 @@ vi.mock("@/components/portal/pro-inbox-schedule-panel", () => ({
   ManagerInboxSchedulePanel: () => null,
 }));
 
-vi.mock("@/lib/manager-inbox-contacts", () => ({
+vi.mock("@/lib/manager-inbox-contacts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/manager-inbox-contacts")>()),
   buildManagerInboxLiveContacts: () => [],
 }));
 

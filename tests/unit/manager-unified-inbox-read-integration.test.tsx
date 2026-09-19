@@ -306,11 +306,14 @@ describe("ManagerUnifiedInbox observed-read wiring", () => {
     expect(within(thread).queryByText("UNRELATED K3 BODY")).toBeNull();
 
     await waitFor(() => expect(state.post).toHaveBeenCalledTimes(1));
-    expect(state.post.mock.calls[0]?.[0]).toEqual([
-      expect.objectContaining({ id: "email-a", observation: "obs-a" }),
-      expect.objectContaining({ id: "email-b", observation: "obs-b" }),
+    const capturedSources = (state.post.mock.calls[0]?.[0] ?? []) as { id: string; observation: string }[];
+    const observed = capturedSources
+      .map(({ id, observation }) => ({ id, observation }))
+      .sort((a, b) => a.id.localeCompare(b.id));
+    expect(observed).toEqual([
+      { id: "email-a", observation: "obs-a" },
+      { id: "email-b", observation: "obs-b" },
     ]);
-    expect(state.post.mock.calls[0]?.[0]).toHaveLength(2);
     expect(JSON.parse(window.localStorage.getItem("axis_manager_sms_opened_v2:manager-1") ?? "[]")).toEqual(
       expect.arrayContaining(["sms-k1", "sms-k2"]),
     );

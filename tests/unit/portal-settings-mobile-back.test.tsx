@@ -38,17 +38,40 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
 
 import { PortalSettingsSectionClient } from "@/components/portal/portal-settings-section-client";
 
-const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+const requestEvidence: { url: string; method: string; caller: string }[] = [];
+const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  requestEvidence.push({
+    url: String(input),
+    method: init?.method ?? "GET",
+    // Test-only caller locations, never request headers, cookies or body.
+    caller: new Error("Settings request caller").stack?.split("\n").slice(1, 12).join("\n") ?? "unavailable",
+  });
   if (String(input) !== "/api/portal/reminder-settings") throw new Error(`Unexpected settings request: ${String(input)}`);
   return { ok: true, json: async () => ({ settings: {}, overriddenPropertyIds: [] }) };
 });
 
+function expectReminderRequestCount(expected: number) {
+  const reminderRequests = fetchMock.mock.calls.filter(
+    ([input]) => String(input) === "/api/portal/reminder-settings",
+  );
+  expect(
+    reminderRequests,
+    `Reminder request evidence: ${JSON.stringify(requestEvidence, null, 2)}`,
+  ).toHaveLength(expected);
+  expect(requestEvidence.map(({ url, method }) => ({ url, method })), JSON.stringify(requestEvidence, null, 2))
+    .toEqual(Array.from({ length: expected }, () => ({ url: "/api/portal/reminder-settings", method: "GET" })));
+  expect(fetchMock.mock.calls, JSON.stringify(requestEvidence, null, 2)).toHaveLength(expected);
+}
+
 async function waitForReminderSettingsReady() {
   await waitFor(() => expect(screen.getByRole("switch")).toHaveProperty("disabled", false));
-  expect(fetchMock).toHaveBeenCalledTimes(1);
+  // One mounted resident settings consumer should issue one bounded request.
+  // Include exact call diagnostics if a second caller appears in evidence.
+  expectReminderRequestCount(1);
 }
 
 beforeEach(() => {
+  requestEvidence.length = 0;
   window.history.replaceState(null, "", window.location.href);
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -111,7 +134,7 @@ describe("PortalSettingsSectionClient — mobile list↔detail Back (Defect 3)",
     expect(document.querySelector('[data-attr="settings-back-to-root"]')).toBeTruthy();
     expect(document.querySelector('[data-attr="settings-open-resident"]')).toBeNull();
     expect(screen.getByText("Welcome")).toBe(welcomeModule);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expectReminderRequestCount(1);
     expect(showToast).not.toHaveBeenCalled();
   });
 

@@ -14,6 +14,12 @@ on:
         required: false
         type: boolean
         default: false
+      e2e_scope:
+        description: "Scope the manual full E2E job"
+        required: false
+        type: choice
+        options: [full, conversation]
+        default: full
   schedule:
     - cron: "0 6 * * *"
 
@@ -164,6 +170,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 50
     if: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && !(github.event_name == 'workflow_dispatch' && inputs.unit_only) }}
+    env:
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      PLAYWRIGHT_BASE_URL: http://localhost:3000
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+      PROPLANE_PAYMENT_WAIVER_CODE: FREE100
+      AXIS_ADMIN_REGISTER_KEY: ${{ secrets.TEST_AXIS_ADMIN_REGISTER_KEY }}
+      E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+      E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+      E2E_MANAGER_EMAIL: ${{ secrets.E2E_MANAGER_EMAIL }}
+      E2E_MANAGER_PASSWORD: ${{ secrets.E2E_MANAGER_PASSWORD }}
+      E2E_RESIDENT_EMAIL: ${{ secrets.E2E_RESIDENT_EMAIL }}
+      E2E_RESIDENT_PASSWORD: ${{ secrets.E2E_RESIDENT_PASSWORD }}
+      E2E_TESTS_ENABLED: "1"
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -172,23 +194,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
-        env:
-          NEXT_PUBLIC_APP_URL: http://localhost:3000
-          PLAYWRIGHT_BASE_URL: http://localhost:3000
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
-          PROPLANE_PAYMENT_WAIVER_CODE: FREE100
-          AXIS_ADMIN_REGISTER_KEY: ${{ secrets.TEST_AXIS_ADMIN_REGISTER_KEY }}
-          E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
-          E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
-          E2E_MANAGER_EMAIL: ${{ secrets.E2E_MANAGER_EMAIL }}
-          E2E_MANAGER_PASSWORD: ${{ secrets.E2E_MANAGER_PASSWORD }}
-          E2E_RESIDENT_EMAIL: ${{ secrets.E2E_RESIDENT_EMAIL }}
-          E2E_RESIDENT_PASSWORD: ${{ secrets.E2E_RESIDENT_PASSWORD }}
-          E2E_TESTS_ENABLED: "1"
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      - name: Run full E2E suite
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.e2e_scope == 'conversation') }}
+        run: npm run test:e2e
+      - name: Run conversation identity E2E
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.e2e_scope == 'conversation' }}
+        run: npm run test:e2e -- tests/e2e/conversation-identity.spec.ts
       # The whole point of this job is diagnosis, and traces/screenshots/videos
       # are written on the runner. Without this they are discarded with it and a
       # nightly failure leaves only reporter text.

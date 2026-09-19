@@ -240,13 +240,22 @@ export function functionGuardSql(fn) {
  if not exists(select 1 from pg_proc f where f.oid='public.persist_lease_with_action_event(jsonb,timestamptz,jsonb)'::regprocedure and pg_get_functiondef(f.oid)=${literal(fn.definition)} and pg_get_userbyid(f.proowner)=${literal(fn.owner)} and f.prosecdef and to_jsonb(f.proconfig) is not distinct from ${jsonLiteral(fn.config)} and to_jsonb(f.proacl) is not distinct from ${jsonLiteral(fn.acl)} and not exists(select 1 from aclexplode(coalesce(f.proacl,acldefault('f',f.proowner))) a where a.grantee=0 or a.grantee not in (f.proowner,(select oid from pg_roles where rolname='service_role')))) then raise exception 'function contract differs'; end if;
  end`, 'function_guard');
 }
+export function pgFunctionDefinitionDelimiter(body) {
+ // PostgreSQL 16 ruleutils.c checks the prefix before appending its final '$'.
+ // '$function_guard$' therefore requires '$functionx$', too.
+ let prefix='$function';
+ while (body.includes(prefix)) prefix += 'x';
+ return `${prefix}$`;
+}
 export function expectedFunctionAfter(fn) {
  const sql=sourceSql('team_delivery_recipient_key');
  const pieces=sql.split('$$');
  if (pieces.length!==3) throw fail('reviewed function delimiter');
  const expression=/\bAS\s+(\$[a-zA-Z0-9_]*\$)([\s\S]*?)\1/;
  if (!expression.test(fn.definition)) throw fail('captured function delimiter');
- return {...fn,definition:fn.definition.replace(expression,(_match,delimiter)=>`AS ${delimiter}${pieces[1]}${delimiter}`)};
+ const body=pieces[1];
+ const delimiter=pgFunctionDefinitionDelimiter(body);
+ return {...fn,definition:fn.definition.replace(expression,()=>`AS ${delimiter}${body}${delimiter}`)};
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
  try {

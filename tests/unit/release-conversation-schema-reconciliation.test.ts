@@ -3,7 +3,7 @@ import { mkdtempSync, symlinkSync, writeFileSync, chmodSync, rmSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { doBlock, functionGuardSql, historyNameRecoverySql, assertCapturedProgress, assertExactDryRun, assertFreshEvidenceMatches, assertReleaseReadiness, catalogGuardSql, evidenceFingerprint, expectedMigrationIdentities, expectedPostCatalog, extractPlannedMigrationIdentities, ledgerGuardSql, parseArgs, readPinned, releaseSequence, renameHistorySql, reconciliationSql, serializeHistoricalStatements, sha256, TARGETS } from "../../scripts/release-conversation-schema-reconciliation.mjs";
+import { doBlock, expectedFunctionAfter, pgFunctionDefinitionDelimiter, functionGuardSql, historyNameRecoverySql, assertCapturedProgress, assertExactDryRun, assertFreshEvidenceMatches, assertReleaseReadiness, catalogGuardSql, evidenceFingerprint, expectedMigrationIdentities, expectedPostCatalog, extractPlannedMigrationIdentities, ledgerGuardSql, parseArgs, readPinned, releaseSequence, renameHistorySql, reconciliationSql, serializeHistoricalStatements, sha256, TARGETS } from "../../scripts/release-conversation-schema-reconciliation.mjs";
 
 const catalog = { columns: [{ table: "portal_workspaces", name: "id", type: "uuid", not_null: true, default: null, comment: null }], constraints: [{ table: "portal_workspaces", name: "portal_workspaces_pkey", type: "p", definition: "PRIMARY KEY (id)", validated: true, deferrable: false, deferred: false }], indexes: [{ table: "portal_workspaces", name: "portal_workspaces_pkey", definition: "CREATE UNIQUE INDEX portal_workspaces_pkey ON public.portal_workspaces USING btree (id)", valid: true, ready: true, live: true }] };
 const ledger = [{ version: "20260916000000", name: "automated_communication_reminder_kinds", statements: ["select old;"], extra: "preserve me" }, { version: "20260916063005", name: "automated_communication_reminder_kinds", statements: ["create table x;", "comment on table x is 'x';"], extra: "preserve me" }, { version: "20260917010000", name: "invite_workspace", statements: null, checksum: "abc" }, { version: "20260918000000", name: "other", statements: ["select 1"] }];
@@ -60,6 +60,22 @@ describe("conversation release schema reconciliation", () => {
     expect(catalogGuardSql(collision)).toMatch(/^do \$catalog_guard_1\$/);
     const changed = ledger.map(row => row.version === "20260916063005" ? { ...row, statements: ["select '$rename_history$'"] } : row);
     expect(renameHistorySql(changed)).toMatch(/^do \$rename_history_1\$/);
+  });
+
+  it("recanonicalizes the corrected function body with a collision-free pg delimiter", () => {
+    const captured = {
+      definition: "CREATE OR REPLACE FUNCTION public.x()\n RETURNS void\n LANGUAGE plpgsql\nAS $functionx$ begin return '$function_guard$ original'; end $functionx$\n",
+      owner: "postgres", config: null, acl: null,
+    };
+    expect(expectedFunctionAfter(captured).definition).toMatch(/AS \$function\$[\s\S]*\$function\$/);
+    expect(expectedFunctionAfter(captured)).toMatchObject({ owner: captured.owner, config: captured.config, acl: captured.acl });
+    expect(expectedFunctionAfter(captured).definition.split("AS ")[0]).toBe(captured.definition.split("AS ")[0]);
+  });
+
+  it("matches PostgreSQL's function delimiter prefix collision rule", () => {
+    expect(pgFunctionDefinitionDelimiter("begin return 'plain'; end")).toBe("$function$");
+    expect(pgFunctionDefinitionDelimiter("begin return '$function_guard$ original'; end")).toBe("$functionx$");
+    expect(pgFunctionDefinitionDelimiter("begin return '$function$ $functionx_suffix'; end")).toBe("$functionxx$");
   });
 
   it("bounds sequential recorded-guard growth", () => {
@@ -129,7 +145,7 @@ describe("conversation release schema reconciliation", () => {
     expect(extractPlannedMigrationIdentities(output)).toEqual(expected);
     expect(assertExactDryRun(output, expected)).toBe(true);
     expect(() => assertExactDryRun(`${output}\n20260919999999_unreviewed.sql`, expected)).toThrow(/exact/);
-    expect(() => assertExactDryRun(output, expected, 1)).toThrow(/exact/); expect(() => assertExactDryRun(`${output}\n20260919999999_unreviewed.sql`, expected)).toThrow(/exact/); expect(() => assertExactDryRun(output.replace(expected[0], `${expected[0]}\n${expected[0]}`), expected)).toThrow(/exact/);
+    expect(() => assertExactDryRun(output, expected, 1)).toThrow(/exact/); expect(() => assertExactDryRun(`${output}\n20260919999999_unreviewed.sql`, expected)).toThrow(/exact/); expect(() => assertExactDryRun(`${output}\n${expected[0]}.sql`, expected)).toThrow(/exact/);
   });
 
   it("requires fresh semantic evidence in the explicit staging readiness gate", () => {

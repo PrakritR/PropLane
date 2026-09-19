@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Manual E2E scope workflow handoff</title>
+<style>body{font:15px/1.55 system-ui,sans-serif;max-width:850px;margin:40px auto;padding:0 24px;color:#17212b}code{overflow-wrap:anywhere}li{margin:8px 0}</style>
+<body>
+<h1>Manual E2E scope workflow handoff</h1>
+<p>Source-only implementation prepared in the keeper worktree for root integration. The workflow now exposes a manual <code>e2e_scope</code> choice with <code>full</code> as the default and <code>conversation</code> as the focused option. The existing E2E auth and dev/test database environment is inherited at the <code>e2e-full</code> job level by both commands.</p>
+<ul>
+<li><code>full</code> runs the existing fixed command <code>npm run test:e2e</code>.</li>
+<li><code>conversation</code> runs the fixed command <code>npm run test:e2e -- tests/e2e/conversation-identity.spec.ts</code>.</li>
+<li>Schedule runs retain the full suite. Push, pull request, unit-only, smoke, integration, lint, build, check, timeout, artifact, worker, and retry behavior remain unchanged.</li>
+<li>Step conditions are explicit GitHub expressions; no workflow input is interpolated into shell command text.</li>
+<li><code>tests/unit/ci-test-workflow.test.ts</code> asserts the exact input schema, step conditions, fixed commands, absence of shell interpolation, and preservation of the shared environment.</li>
+</ul>
+<p>Files: <code>.github/workflows/test.yml</code> and <code>tests/unit/ci-test-workflow.test.ts</code>. No tests, Node commands, browser, server, database, install, or Git mutation was run.</p>
+</body>
+</html>
