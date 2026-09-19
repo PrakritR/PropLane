@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import path from "node:path";
-import { mockStripeCheckoutRoutes } from "../helpers/auth";
+import { mockStripeCheckoutRoutes, signInAsResident } from "../helpers/auth";
 import { gotoAppPath, pathToUrlRegExp } from "../helpers/url-match";
 import { RESIDENT_PORTAL_SMOKE_PATHS } from "../../src/lib/portals/resident-sections";
 
@@ -18,7 +18,7 @@ test.describe("Resident portal", () => {
 
   test.beforeEach(async ({ page }) => {
     await mockStripeCheckoutRoutes(page);
-    await page.goto("/resident/dashboard", { waitUntil: "domcontentloaded" });
+    await signInAsResident(page);
   });
 
   test("dashboard loads", async ({ page }) => {
