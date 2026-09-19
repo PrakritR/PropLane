@@ -165,6 +165,7 @@ describe("co-manager links must be KNOWN before a draft is seeded", () => {
 describe("dashboard first-listing skip uses incoming team links", () => {
   it("passes incomingTeam from cached account-link invites", () => {
     const dashboard = readFileSync("src/components/portal/pro-dashboard.tsx", "utf8");
+    expect(dashboard).toContain("await fetchAccountLinksCached()");
     expect(dashboard).toContain("hasIncomingAcceptedTeamLink(readCachedAccountLinkInvites())");
     expect(dashboard).toContain("incomingTeam:");
   });

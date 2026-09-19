@@ -136,7 +136,7 @@ import {
   shouldSkipFirstListingOnboarding,
 } from "@/lib/manager-first-listing-onboarding";
 import { syncManagerPortfolioFromServer } from "@/lib/manager-portfolio-access";
-import { readCachedAccountLinkInvites } from "@/lib/portal-data-store";
+import { fetchAccountLinksCached, readCachedAccountLinkInvites } from "@/lib/portal-data-store";
 import { hasIncomingAcceptedTeamLink } from "@/lib/workspace-co-manager-permissions";
 import { propertyListHref } from "@/lib/portal-detail-routes";
 import { MANAGER_ATTENTION_MAX_ROWS, buildManagerAttentionRows } from "@/lib/manager-attention-queue";
@@ -650,19 +650,27 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
   // Properties → Drafts (seed + wizard live on that page). Banner stays as a
   // fallback when they navigate back.
   useEffect(() => {
-    if (
-      !authReady ||
-      !userId ||
-      shouldSkipFirstListingOnboarding({
-        email,
-        incomingTeam: hasIncomingAcceptedTeamLink(readCachedAccountLinkInvites()),
-      })
-    ) {
+    if (!authReady || !userId || shouldSkipFirstListingOnboarding({ email })) {
       setShowFirstListingBanner(false);
       return;
     }
     let cancelled = false;
     void (async () => {
+      try {
+        await fetchAccountLinksCached();
+      } catch {
+        /* empty cache stays empty until a later sync */
+      }
+      if (cancelled) return;
+      if (
+        shouldSkipFirstListingOnboarding({
+          email,
+          incomingTeam: hasIncomingAcceptedTeamLink(readCachedAccountLinkInvites()),
+        })
+      ) {
+        setShowFirstListingBanner(false);
+        return;
+      }
       let portfolioSynced = false;
       try {
         portfolioSynced = await syncManagerPortfolioFromServer(userId, { force: true });

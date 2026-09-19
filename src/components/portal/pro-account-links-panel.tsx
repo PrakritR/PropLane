@@ -1,5 +1,4 @@
 "use client";
-import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { usePublishTitleActions } from "@/components/portal/portal-title-actions-slot";
@@ -81,7 +80,6 @@ import {
   listOutgoingCoManagerLinks,
   listOutgoingCoManagersForProperty,
   resolveAssignedPropertyId,
-  type CoManagerPropertyLink,
 } from "@/lib/co-manager-property-links";
 import { syncManagerApplicationsFromServer } from "@/lib/manager-applications-storage";
 import {
@@ -1103,19 +1101,6 @@ export function ProAccountLinksPanel({
     return teamEntries.find((entry) => entry.id === routeLinkId) ?? null;
   }, [routeLinkId, teamEntries]);
 
-  const detailPropertySelectionKey = routeLinkId ? `${routeLinkId}-properties` : "team-detail-idle";
-  const {
-    selectedIds: selectedDetailPropertyIds,
-    toggleSelected: toggleDetailProperty,
-    clearSelection: clearDetailPropertySelection,
-  } = usePortalRowSelection(detailPropertySelectionKey);
-
-  const detailPropertiesEditable = useMemo(() => {
-    if (!routeEntry) return false;
-    if (routeEntry.kind === "local") return true;
-    return routeEntry.invite.direction === "outgoing";
-  }, [routeEntry]);
-
   const tierShort =
     skuTier === "free"
       ? "Free"
@@ -1917,105 +1902,6 @@ export function ProAccountLinksPanel({
     [outgoingCoManagerLinks],
   );
 
-  const removeCoManagerFromProperty = async (link: CoManagerPropertyLink, propertyId: string) => {
-    if (useRemote && remoteLoaded) {
-      const inv = activeRemote.find((row) => row.id === link.id);
-      if (!inv) return;
-      await removePropertyFromLink(inv, propertyId);
-      return;
-    }
-    removePropertyFromLocalRow(link.id, propertyId);
-  };
-
-  const bulkRemoveDetailProperties = async () => {
-    if (!routeEntry || selectedDetailPropertyIds.size === 0) return;
-    const removeSet = new Set(
-      [...selectedDetailPropertyIds]
-        .map((pid) => {
-          if (routeEntry.kind === "remote") {
-            return resolveAssignedPropertyId(pid, getInviteDraft(routeEntry.invite).assignedPropertyIds);
-          }
-          return resolveAssignedPropertyId(pid, routeEntry.row.assignedPropertyIds);
-        })
-        .filter((id): id is string => Boolean(id)),
-    );
-    if (removeSet.size === 0) {
-      clearDetailPropertySelection();
-      return;
-    }
-
-    if (routeEntry.kind === "remote") {
-      const inv = routeEntry.invite;
-      const draft = getInviteDraft(inv);
-      const nextAssigned = draft.assignedPropertyIds.filter((id) => !removeSet.has(id));
-      if (nextAssigned.length === 0) {
-        await removeLink(inv.id);
-        clearDetailPropertySelection();
-        return;
-      }
-      const nextPerms = normalizePropertyCoManagerPermissions(draft.propertyCoManagerPermissions, nextAssigned);
-      if (useRemote && remoteLoaded) {
-        setRemoteInvites((prev) =>
-          prev.map((row) =>
-            row.id === inv.id
-              ? { ...row, assignedPropertyIds: nextAssigned, propertyCoManagerPermissions: nextPerms }
-              : row,
-          ),
-        );
-        setInviteDrafts((d) => ({
-          ...d,
-          [inv.id]: { ...getInviteDraft(inv), assignedPropertyIds: nextAssigned, propertyCoManagerPermissions: nextPerms },
-        }));
-        const nextInvites = remoteInvites.map((row) =>
-          row.id === inv.id
-            ? { ...row, assignedPropertyIds: nextAssigned, propertyCoManagerPermissions: nextPerms }
-            : row,
-        );
-        seedAccountLinksCache(nextInvites);
-        writeProRelationships(userId, proRelationshipRowsFromInvites(nextInvites.filter((i) => i.status === "accepted")));
-        scheduleInviteSave(inv.id, { ...getInviteDraft(inv), assignedPropertyIds: nextAssigned, propertyCoManagerPermissions: nextPerms });
-        showToast(
-          removeSet.size === 1 ? "Property removed from this team member." : `${removeSet.size} properties removed.`,
-        );
-      } else {
-        const all = readProRelationships(userId);
-        const next = all.map((r) =>
-          r.id === inv.id
-            ? { ...r, assignedPropertyIds: nextAssigned, propertyCoManagerPermissions: nextPerms }
-            : r,
-        );
-        writeProRelationships(userId, next);
-        refreshLocal();
-        showToast(
-          removeSet.size === 1 ? "Property removed from this team member." : `${removeSet.size} properties removed.`,
-        );
-      }
-    } else {
-      const row = routeEntry.row;
-      const nextAssigned = row.assignedPropertyIds.filter((id) => !removeSet.has(id));
-      const all = readProRelationships(userId);
-      if (nextAssigned.length === 0) {
-        await removeLink(row.id);
-        clearDetailPropertySelection();
-        return;
-      }
-      const nextPerms = normalizePropertyCoManagerPermissions(row.propertyCoManagerPermissions ?? {}, nextAssigned);
-      writeProRelationships(
-        userId,
-        all.map((rel) =>
-          rel.id === row.id
-            ? { ...rel, assignedPropertyIds: nextAssigned, propertyCoManagerPermissions: nextPerms }
-            : rel,
-        ),
-      );
-      refreshLocal();
-      showToast(
-        removeSet.size === 1 ? "Property removed from this team member." : `${removeSet.size} properties removed.`,
-      );
-    }
-    clearDetailPropertySelection();
-  };
-
   const submitTransfer = async () => {
     if (!transferPropertyId || !transferCoManagerUserId) return;
     setTransferBusy(true);
@@ -2195,7 +2081,6 @@ export function ProAccountLinksPanel({
       setTeamRemovePreview(null);
       if (scope === "all") {
         clearSelection();
-        clearDetailPropertySelection();
       } else if (opts?.singleId) {
         toggleSelected(opts.singleId);
       }
@@ -2309,21 +2194,28 @@ export function ProAccountLinksPanel({
     );
   };
 
-  const openPermissionsForSelectedDetailProperty = () => {
-    if (!routeEntry) return;
-    setPermissionsMember(routeEntry);
-  };
-
-  const openMakeOwnerForSelectedDetailProperty = () => {
-    if (!routeEntry || selectedDetailPropertyIds.size !== 1) return;
-    const propertyId = [...selectedDetailPropertyIds][0]!;
-    if (routeEntry.kind === "remote") {
-      const inv = routeEntry.invite;
-      openTransferForCoManager(propertyId, inv.linkedAxisId, inv.linkedUserId);
-      return;
-    }
-    const row = routeEntry.row;
-    openTransferForCoManager(propertyId, row.linkedAxisId, row.linkedUserId ?? "");
+  const renderMakeOwner = (
+    propertyIds: string[],
+    axisId: string,
+    linkedUserId?: string,
+  ) => {
+    const propertyId = propertyIds[0];
+    if (!propertyId) return null;
+    const label =
+      propertyIds.length === 1
+        ? "Make owner"
+        : `Make owner of ${teamPropertyLabel(propertyId)}`;
+    return (
+      <Button
+        type="button"
+        variant="outline"
+        className="h-8 rounded-full px-4 text-xs"
+        onClick={() => void openTransferForCoManager(propertyId, axisId, linkedUserId)}
+        data-attr="co-manager-make-owner"
+      >
+        {label}
+      </Button>
+    );
   };
 
   const renderInviteDetail = (inv: AccountLinkInviteDto, entry: TeamListEntry) => {
@@ -2384,6 +2276,7 @@ export function ProAccountLinksPanel({
             scheduleInviteSave(inv.id, { ...draft, workspacePermissions: next });
           }}
         />
+        {!readOnly ? renderMakeOwner(draft.assignedPropertyIds, inv.linkedAxisId, inv.linkedUserId) : null}
       </div>
     );
   };
@@ -2443,6 +2336,7 @@ export function ProAccountLinksPanel({
           refreshLocal();
         }}
       />
+      {renderMakeOwner(draft.assignedPropertyIds, r.linkedAxisId, r.linkedUserId)}
     </div>
     );
   };
@@ -3015,41 +2909,7 @@ export function ProAccountLinksPanel({
           actions={renderDetailHeaderActions(routeEntry)}
           footer={renderDetailFooter(routeEntry)}
         >
-          <PortalRecordListSurface className="mt-0" onBulkClear={detailPropertiesEditable ? clearDetailPropertySelection : undefined} bulkCount={selectedDetailPropertyIds.size} bulkActions={detailPropertiesEditable && selectedDetailPropertyIds.size > 0 ? (
-          <>
-            {selectedDetailPropertyIds.size === 1 ? (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={PORTAL_BULK_BAR_BTN}
-                  data-attr="team-detail-bulk-make-owner"
-                  onClick={() => openMakeOwnerForSelectedDetailProperty()}
-                >
-                  Make owner
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={PORTAL_BULK_BAR_BTN}
-                  data-attr="team-detail-bulk-edit-permissions"
-                  onClick={() => openPermissionsForSelectedDetailProperty()}
-                >
-                  Edit permissions
-                </Button>
-              </>
-            ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
-              data-attr="team-detail-bulk-remove-access"
-              onClick={() => void bulkRemoveDetailProperties()}
-            >
-              Remove access
-            </Button>
-          </>
-        ) : null}>{renderDetailBody(routeEntry)}</PortalRecordListSurface>
+          <PortalRecordListSurface className="mt-0">{renderDetailBody(routeEntry)}</PortalRecordListSurface>
         </PortalRecordDetailPage>
 
       </>

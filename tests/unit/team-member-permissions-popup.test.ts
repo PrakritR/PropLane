@@ -34,6 +34,12 @@ describe("Edit permissions is a popup", () => {
     expect(panel).not.toContain("No properties in this link yet.");
     expect(panel).toContain('dataAttr="team-member-houses"');
   });
+
+  it("keeps Make owner on the member sheet instead of a dead property bulk bar", () => {
+    expect(panel).toContain('data-attr="co-manager-make-owner"');
+    expect(panel).not.toContain("team-detail-bulk-make-owner");
+    expect(panel).not.toContain("selectedDetailPropertyIds");
+  });
 });
 
 describe("Applications keep Super plan chrome and open the resident wizard", () => {
