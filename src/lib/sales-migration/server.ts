@@ -142,7 +142,13 @@ async function importCharge(db: SupabaseClient, owner: string, property: Propert
   return id;
 }
 
-export async function executeSalesMigration(db: SupabaseClient, owner: string, raw: unknown, confirmedDigest: string): Promise<MigrationResult> {
+export async function executeSalesMigration(
+  db: SupabaseClient,
+  owner: string,
+  raw: unknown,
+  confirmedDigest: string,
+  opts?: { sendWelcomeEmail?: boolean },
+): Promise<MigrationResult> {
   const preview = await previewSalesMigration(db, owner, raw);
   if (confirmedDigest !== preview.digest) throw new Error("Plan or property changed. Preview again before execution");
   const { plan } = preview;
@@ -181,7 +187,10 @@ export async function executeSalesMigration(db: SupabaseClient, owner: string, r
           const { data: linked, error: linkError } = await db.from("manager_application_records").update({ row_data: sealApplicantRow(row, appId, owner), updated_at: new Date().toISOString() }).eq("id", appId).eq("manager_user_id", owner).eq("updated_at", current!.updated_at).select("id");
           check(linkError);
           if (!linked?.length) throw new Error("Resident changed during account linking; retry after review");
-          const onboarding = await runExistingResidentOnboarding(db, { userId: owner, email: "" }, row, { sendWelcomeEmail: false, preserveExistingLease: true });
+          const onboarding = await runExistingResidentOnboarding(db, { userId: owner, email: "" }, row, {
+            sendWelcomeEmail: opts?.sendWelcomeEmail === true,
+            preserveExistingLease: true,
+          });
           if (!onboarding.ok) throw new Error(onboarding.error);
           return appId;
         }, result);

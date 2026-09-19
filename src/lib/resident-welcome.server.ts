@@ -33,12 +33,18 @@ import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.serve
 // attacker-controlled input.
 export const RESIDENT_WELCOME_EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
-function skipExternalWelcomeEmail(to: string, senderEmail: string): boolean {
+/** Import / harness inboxes must never receive Resend. SMS to a sheet phone still may. */
+export function isPlaceholderResidentEmail(email: string): boolean {
+  const to = email.trim().toLowerCase();
   return (
     to.endsWith("@axis.local") ||
     to.endsWith("@test.proplane.local") ||
-    (Boolean(senderEmail) && to === senderEmail)
+    to.endsWith("@import.proplane.local")
   );
+}
+
+function skipExternalWelcomeEmail(to: string, senderEmail: string): boolean {
+  return isPlaceholderResidentEmail(to) || (Boolean(senderEmail) && to === senderEmail);
 }
 
 async function postResendEmail(input: {
@@ -106,9 +112,11 @@ export function buildResidentWelcomeSmsBody(input: {
   axisId: string;
   senderName: string;
   propertyLabel?: string;
+  setupUrl?: string;
 }): string {
   const residentName = input.residentName?.trim() ?? "";
-  return `Your PropLane resident portal is ready${residentName ? `, ${residentName}` : ""}. Pay rent and manage your home online. PropLane ID: ${formatProplaneIdForDisplay(input.axisId)}. — ${input.senderName} Reply STOP to opt out.`;
+  const setup = input.setupUrl?.trim() ? ` Set up your account: ${input.setupUrl.trim()}` : "";
+  return `Your PropLane resident portal is ready${residentName ? `, ${residentName}` : ""}. Pay rent and manage your home online.${setup} PropLane ID: ${formatProplaneIdForDisplay(input.axisId)}. — ${input.senderName} Reply STOP to opt out.`;
 }
 
 function normalizeEmail(value: unknown): string {
@@ -165,7 +173,7 @@ export type ResidentWelcomeActor = {
 };
 
 export type DeliverResidentWelcomeResult =
-  | { ok: true; id: string | null; skipped: boolean }
+  | { ok: true; id: string | null; skipped: boolean; smsSent?: boolean }
   | { ok: false; status: 502 | 503; error: string; mailtoHref: string };
 
 /**
@@ -476,18 +484,25 @@ export async function deliverExistingResidentWelcome(
     /* non-critical */
   }
 
+  let smsSent = false;
   try {
     const { data: managerProfile } = await db.from("profiles").select("sms_from_number, full_name").eq("id", actor.userId).maybeSingle();
-    if (viaSms && !skipExternalEmail) {
+    if (viaSms) {
       const { data: residentProfile } = await db.from("profiles").select("phone").eq("email", to).maybeSingle();
       const residentPhone = input.residentPhone?.trim() || String(residentProfile?.phone ?? "").trim();
       if (residentPhone) {
         const senderName = String(managerProfile?.full_name ?? actor.email ?? "Your property manager").trim() || "Your property manager";
-        const smsBody = `Your PropLane resident portal is ready${residentName ? `, ${residentName}` : ""}. Pay rent and manage your home online. PropLane ID: ${formatProplaneIdForDisplay(axisId)}. — ${senderName}`;
+        const smsBody = buildResidentWelcomeSmsBody({
+          residentName,
+          axisId,
+          senderName,
+          setupUrl: isPlaceholderResidentEmail(to) ? signupUrl : undefined,
+        });
         await enqueueOwnerSms({ managerUserId: actor.userId, actorUserId: actor.userId, recipientPhone: residentPhone, recipientEmail: to, body: smsBody, sendClass: "transactional", purpose: "resident_welcome", counterpartyRole: "resident", dedupeKey: `welcome:${actor.userId}:${axisId}:${payloadId}` }, db);
+        smsSent = true;
       }
     }
   } catch { /* non-critical */ }
 
-  return { ok: true, id: payloadId, skipped: skipExternalEmail };
+  return { ok: true, id: payloadId, skipped: skipExternalEmail, smsSent };
 }

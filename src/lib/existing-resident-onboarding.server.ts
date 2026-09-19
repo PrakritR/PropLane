@@ -171,7 +171,7 @@ export async function runExistingResidentOnboarding(
         channels: opts?.channels,
       });
       if (welcome.ok) {
-        welcomeEmailSent = !welcome.skipped;
+        welcomeEmailSent = !welcome.skipped || welcome.smsSent === true;
         nextRow = {
           ...row,
           manualResidentDetails: {
