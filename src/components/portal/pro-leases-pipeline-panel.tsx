@@ -97,7 +97,7 @@ function leaseRowIsBulkSendable(
   // result for truthiness, so both spellings of absent are accepted.
   sendBlockedReason: (row: LeasePipelineRow) => string | null | undefined,
 ): boolean {
-  const hasDocument = Boolean(row.generatedHtml || row.managerUploadedPdf?.dataUrl);
+  const hasDocument = leasePipelineRowHasDocument(row);
   return (
     (row.status === "Manager Review" || row.status === "Draft") &&
     hasDocument &&
@@ -290,7 +290,7 @@ export function ManagerLeasesPipelinePanel({
       if (!residentEmail || !residentAccountEmails.has(residentEmail)) {
         return "Resident must create their PropLane resident account before you can send the lease.";
       }
-      if (!row.generatedHtml && !row.managerUploadedPdf?.dataUrl) {
+      if (!leasePipelineRowHasDocument(row)) {
         return "Generate or upload a lease document first.";
       }
       return leaseSendGateBlocker(row);
@@ -485,7 +485,7 @@ export function ManagerLeasesPipelinePanel({
       showToast("Resident must create their PropLane resident account before you can send the lease.");
       return;
     }
-    if (!row.generatedHtml && !row.managerUploadedPdf?.dataUrl) {
+    if (!leasePipelineRowHasDocument(row)) {
       showToast("Generate or upload a lease document first.");
       return;
     }

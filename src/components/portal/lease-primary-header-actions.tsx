@@ -19,13 +19,14 @@ import {
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
 import { leaseAllowsSignedPdfUpload, leaseCanBeMarkedSignedOffPlatform } from "@/lib/lease-execution-evidence";
-import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import {
   hasBothLeaseSignatures,
-  leaseNeedsUploadedLeaseReviewAction,
   leaseAwaitingManagerCountersign,
+  leaseNeedsUploadedLeaseReviewAction,
+  leaseRowHasDocument,
   leaseUploadedImportFooterLabel,
   managerLeaseSignButtonLabel,
+  type LeasePipelineRow,
 } from "@/lib/lease-pipeline-storage";
 
 type LeaseIconAction = {
@@ -152,7 +153,7 @@ export function LeasePrimaryHeaderActions({
   moveToManagerReviewDataAttr = "lease-primary-move-manager-review",
 }: LeasePrimaryHeaderActionsProps) {
   const uploadInputRef = useRef<HTMLInputElement>(null);
-  const hasDocument = Boolean(row.generatedHtml || row.managerUploadedPdf?.dataUrl);
+  const hasDocument = leaseRowHasDocument(row);
 
   const showSendToResident =
     hasDocument &&

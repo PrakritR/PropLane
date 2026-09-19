@@ -6,15 +6,11 @@ import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview";
 import { LeasePacketInlineEditor } from "@/components/portal/lease-packet-inline-editor";
 import { ManagerApplicationReadonlyReview } from "@/components/portal/pro-application-readonly-review";
-import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import { leaseRowHasDocument, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 
 type LeaseReviewTabId = "manager-review" | "lease-review" | "application-info";
-
-function leaseRowHasDocument(row: LeasePipelineRow): boolean {
-  return Boolean(row.generatedHtml || row.managerUploadedPdf?.dataUrl);
-}
 
 export function LeasePipelineReviewPanel({
   row,

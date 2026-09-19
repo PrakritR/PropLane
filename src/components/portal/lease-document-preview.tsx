@@ -2,7 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { UploadedLeasePdfPreview } from "@/components/portal/uploaded-lease-pdf-preview";
-import { getLeaseDocumentHtml, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import {
+  ensureLeaseDocumentLoaded,
+  getLeaseDocumentHtml,
+  leaseRowCarriesDocumentBytes,
+  type LeasePipelineRow,
+} from "@/lib/lease-pipeline-storage";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 import { buildAiGeneratedLeaseHtml, leaseContextFromApplication } from "@/lib/generated-lease";
 
@@ -133,16 +138,31 @@ export function LeaseDocumentPreview({
   stretch = false,
   flow = false,
 }: Props) {
-  const pdfSrc = row.managerUploadedPdf?.dataUrl ?? null;
-  const html = getLeaseDocumentHtml(row);
+  const [hydratedRow, setHydratedRow] = useState(row);
+  useEffect(() => {
+    setHydratedRow(row);
+    if (leaseRowCarriesDocumentBytes(row) || (!row.documentOmitted && !row.managerUploadedPdf?.omitted)) return;
+    let cancelled = false;
+    void ensureLeaseDocumentLoaded(row.id).then((next) => {
+      if (!cancelled && next) setHydratedRow(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [row.id, row.documentOmitted, row.updatedAtIso, row.managerUploadedPdf?.omitted, row.managerUploadedPdf?.dataUrl]);
+
+  const pdfSrc = hydratedRow.managerUploadedPdf?.dataUrl ?? null;
+  const html = getLeaseDocumentHtml(hydratedRow);
   const defaultEmpty =
     emptyHint ??
-    "No lease document yet. Click Generate lease (from application data) or upload a PDF to preview it here.";
+    (hydratedRow.documentOmitted || hydratedRow.managerUploadedPdf?.omitted
+      ? "Loading lease document…"
+      : "No lease document yet. Click Generate lease (from application data) or upload a PDF to preview it here.");
 
   const syntheticHtml = useMemo(() => {
-    if (suppressApplicationDraft || pdfSrc || html || row.leaseDocumentRemovedAt) return null;
-    return draftHtmlFromApplication(row.application ?? undefined);
-  }, [pdfSrc, html, row.application, row.leaseDocumentRemovedAt, suppressApplicationDraft]);
+    if (suppressApplicationDraft || pdfSrc || html || hydratedRow.leaseDocumentRemovedAt) return null;
+    return draftHtmlFromApplication(hydratedRow.application ?? undefined);
+  }, [pdfSrc, html, hydratedRow.application, hydratedRow.leaseDocumentRemovedAt, suppressApplicationDraft]);
 
   const showSynthetic = Boolean(syntheticHtml);
   const previewHtml = html ?? syntheticHtml;
@@ -177,13 +197,13 @@ export function LeaseDocumentPreview({
       ) : null}
       {pdfSrc ? (
         <div className={flexibleHeight ? "relative flex min-h-0 flex-1 flex-col" : undefined}>
-          {row.externallySignedLease && row.managerUploadedPdf?.dataUrl ? (
+          {hydratedRow.externallySignedLease && hydratedRow.managerUploadedPdf?.dataUrl ? (
             // No certificate page exists for a lease executed outside PropLane:
             // the upload IS the executed document, byte for byte.
             <p className="shrink-0 border-b px-3 py-2 text-xs portal-banner-success">
               Signed off-platform — this PDF is the executed lease exactly as filed.
             </p>
-          ) : (row.residentSignature || row.managerSignature) && row.managerUploadedPdf?.dataUrl ? (
+          ) : (hydratedRow.residentSignature || hydratedRow.managerSignature) && hydratedRow.managerUploadedPdf?.dataUrl ? (
             <p className="shrink-0 border-b px-3 py-2 text-xs portal-banner-success">
               Signature certificate page appended to this PDF.
             </p>
@@ -191,7 +211,7 @@ export function LeaseDocumentPreview({
           <UploadedLeasePdfPreview
             dataUrl={pdfSrc}
             title="Lease PDF preview"
-            fileName={row.managerUploadedPdf?.fileName}
+            fileName={hydratedRow.managerUploadedPdf?.fileName}
             embeddedInFlex={flexibleHeight}
             documentFlow={flow}
             className={flexibleHeight ? "flex min-h-0 flex-1 flex-col" : undefined}

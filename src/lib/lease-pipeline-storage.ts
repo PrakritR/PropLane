@@ -51,6 +51,12 @@ import { submissionWithLeaseTemplateById } from "@/lib/property-lease-template-s
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 import { clearUploadedOwnLease } from "@/lib/resident-lease-upload";
 import { applicationVisibleToPortalUser, leaseVisibleToPortalUser } from "@/lib/manager-portfolio-access";
+import {
+  leaseRowCarriesDocumentBytes,
+  leaseRowHasDocument,
+  mergeOmittedLeaseDocuments,
+  projectLeasePipelineListRow,
+} from "@/lib/lease-pipeline-list-projection";
 import { manualResidentSignedLeasePdf } from "@/lib/existing-resident-onboarding";
 import {
   confirmedUploadedLeaseReview,
@@ -753,7 +759,16 @@ export type LeasePipelineRow = {
   generatedAtIso?: string | null;
   /** Manager-authored, typed section overrides. The generated HTML stays the source document. */
   managerSectionEdits?: Record<string, LeaseSectionEdit> | null;
-  managerUploadedPdf?: { dataUrl: string; fileName: string; uploadedAt: string; originalDataUrl?: string } | null;
+  managerUploadedPdf?: {
+    dataUrl: string;
+    fileName: string;
+    uploadedAt: string;
+    originalDataUrl?: string;
+    omitted?: boolean;
+    libraryDocumentId?: string | null;
+  } | null;
+  /** List GET omitted PDF/HTML bytes; detail `?id=` still has them. */
+  documentOmitted?: boolean;
   /**
    * PropLane's structured reading of `managerUploadedPdf`, and the manager's
    * review of it. Purely ADDITIVE and derived — it never replaces the upload,
@@ -1133,6 +1148,12 @@ export function normalizeLeasePipelineRow(raw: unknown): LeasePipelineRow {
     // a renew from an approval stub.
     pendingRenewal: normalizePendingRenewal(r.pendingRenewal),
     signedLeaseSnapshots: normalizeSignedLeaseSnapshots(r.signedLeaseSnapshots),
+    documentOmitted:
+      (r.documentOmitted === true || r.managerUploadedPdf?.omitted === true) &&
+      !leaseRowCarriesDocumentBytes({
+        generatedHtml: typeof r.generatedHtml === "string" ? r.generatedHtml : null,
+        managerUploadedPdf: r.managerUploadedPdf ?? null,
+      }),
   };
 }
 
@@ -1268,7 +1289,10 @@ function hydrateLeasePipelineFromSession(scopeUserId?: string | null) {
 function persistLeasePipelineToSession(rows: LeasePipelineRow[], scopeUserId?: string | null) {
   if (!canUseStorage()) return;
   try {
-    window.sessionStorage.setItem(leasePipelineSessionKey(scopeUserId ?? activeLeasePipelineScopeUserId), JSON.stringify(rows));
+    window.sessionStorage.setItem(
+      leasePipelineSessionKey(scopeUserId ?? activeLeasePipelineScopeUserId),
+      JSON.stringify(rows.map((row) => projectLeasePipelineListRow(row))),
+    );
   } catch {
     /* ignore */
   }
@@ -1986,6 +2010,82 @@ function mergeLeasePipelineRows(local: LeasePipelineRow[], remote: LeasePipeline
   return [...byId.values()];
 }
 
+export { leaseRowHasDocument, leaseRowCarriesDocumentBytes } from "@/lib/lease-pipeline-list-projection";
+
+export async function ensureLeaseDocumentLoaded(
+  rowId: string,
+  managerUserId?: string | null,
+): Promise<LeasePipelineRow | null> {
+  const current = readLeasePipeline(managerUserId).find((row) => row.id === rowId) ?? null;
+  if (current && leaseRowCarriesDocumentBytes(current)) return current;
+  if (!canUseStorage() || isDemoModeActive()) return current;
+  if (current?.managerUploadedPdf?.libraryDocumentId && !leaseRowCarriesDocumentBytes(current)) {
+    try {
+      const fromLibrary = await attachLibraryLeaseDocument(current);
+      if (leaseRowCarriesDocumentBytes(fromLibrary)) {
+        memoryRows = readLeasePipeline(managerUserId).map((row) => (row.id === rowId ? fromLibrary : row));
+        persistLeasePipelineToSession(memoryRows, managerUserId);
+        emit();
+        return fromLibrary;
+      }
+    } catch {
+      /* fall through to the lease-row detail GET */
+    }
+  }
+  try {
+    const res = await fetch(`/api/portal-lease-pipeline?id=${encodeURIComponent(rowId)}`, {
+      credentials: "include",
+      cache: "no-store",
+    });
+    notePortalResponse(res.status);
+    if (!res.ok) return current;
+    const body = (await res.json()) as { rows?: unknown[] };
+    const raw = Array.isArray(body.rows) ? body.rows[0] : null;
+    if (!raw || typeof raw !== "object") return current;
+    const full = normalizeLeasePipelineRow(raw);
+    const withLibrary = await attachLibraryLeaseDocument(full);
+    memoryRows = readLeasePipeline(managerUserId).map((row) => (row.id === rowId ? { ...row, ...withLibrary, documentOmitted: false } : row));
+    if (!memoryRows.some((row) => row.id === rowId)) memoryRows = [...memoryRows, withLibrary];
+    persistLeasePipelineToSession(memoryRows, managerUserId);
+    emit();
+    return withLibrary;
+  } catch {
+    return current;
+  }
+}
+
+async function attachLibraryLeaseDocument(row: LeasePipelineRow): Promise<LeasePipelineRow> {
+  if (leaseRowCarriesDocumentBytes(row)) return row;
+  const libraryId = row.managerUploadedPdf?.libraryDocumentId?.trim();
+  if (!libraryId) return row;
+  const res = await fetch(`/api/manager-documents/${encodeURIComponent(libraryId)}/signed-url`, {
+    credentials: "include",
+    cache: "no-store",
+  });
+  if (!res.ok) return row;
+  const body = (await res.json()) as { url?: string; mimeType?: string };
+  if (!body.url) return row;
+  const fileRes = await fetch(body.url);
+  if (!fileRes.ok) return row;
+  const buffer = await fileRes.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (const value of bytes) binary += String.fromCharCode(value);
+  const mime = body.mimeType?.trim() || "application/pdf";
+  const dataUrl = `data:${mime};base64,${btoa(binary)}`;
+  return {
+    ...row,
+    documentOmitted: false,
+    managerUploadedPdf: {
+      dataUrl,
+      fileName: row.managerUploadedPdf?.fileName || "Uploaded lease.pdf",
+      uploadedAt: row.managerUploadedPdf?.uploadedAt || new Date().toISOString(),
+      originalDataUrl: dataUrl,
+      libraryDocumentId: libraryId,
+    },
+  };
+}
+
 export function leasePipelineReadSucceeded(managerUserId?: string | null) {
   const scope = managerUserId ?? portalSessionViewerId() ?? activeLeasePipelineScopeUserId;
   return isDemoModeActive() || (leaseReadSucceeded && activeLeasePipelineScopeUserId === scope);
@@ -2039,7 +2139,10 @@ export async function syncLeasePipelineFromServer(managerUserId?: string | null,
       // stored body every later write preserves.
       const merged = preserveSignedLeaseDocuments(
         localSnapshot,
-        dedupeLeasePipelineRows(mergeLeasePipelineRows(localSnapshot, fetched)),
+        mergeOmittedLeaseDocuments(
+          localSnapshot,
+          dedupeLeasePipelineRows(mergeLeasePipelineRows(localSnapshot, fetched)),
+        ),
       );
       memoryRows = merged;
       persistLeasePipelineToSession(merged, managerUserId);
@@ -2118,9 +2221,9 @@ export function leaseAllowsManagerGeneratedBodyEdits(row: LeasePipelineRow): boo
 }
 
 export function leasePipelineRowHasDocument(
-  row: Pick<LeasePipelineRow, "generatedHtml" | "managerUploadedPdf">,
+  row: Pick<LeasePipelineRow, "generatedHtml" | "managerUploadedPdf" | "documentOmitted" | "leaseDocumentRemovedAt">,
 ): boolean {
-  return Boolean(row.generatedHtml || row.managerUploadedPdf?.dataUrl);
+  return leaseRowHasDocument(row);
 }
 
 /** Manager can change the lease packet in the edit modal (manager review / draft). */
