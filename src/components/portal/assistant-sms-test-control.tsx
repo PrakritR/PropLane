@@ -69,6 +69,7 @@ export function AssistantSmsTestControl() {
             }))}
             dataAttr="assistant-sms-test-listing"
             labelClassName="sr-only"
+            keepMenuWithinModalTree
           />
         </div>
       ) : null}

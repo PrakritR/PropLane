@@ -47,6 +47,7 @@ function prospectContext() {
       actorUserId: ACTOR,
       actorName: "Alex",
       targets: [],
+      workspaceId: "33333333-3333-4333-8333-333333333333",
     },
     mode: "prospect" as const,
     stage: "prospect" as const,
@@ -100,7 +101,11 @@ beforeEach(() => {
 describe("runSmsTestTurn prospect lane", () => {
   it("uses the durable claimed revision, authenticated actor, autonomous registry path, and captured effects", async () => {
     const context = prospectContext();
-    const result = await runSmsTestTurn({ context, message: " Can I tour tomorrow? " });
+    const result = await runSmsTestTurn({
+      context,
+      message: " Can I tour tomorrow? ",
+      appOrigin: "http://localhost:3010",
+    });
 
     expect(mocks.assertEnvironment).toHaveBeenCalledOnce();
     expect(mocks.recordAndClaim).toHaveBeenCalledWith({ db: true }, {
@@ -153,6 +158,7 @@ describe("runSmsTestTurn prospect lane", () => {
     await expect(runSmsTestTurn({
       context: prospectContext(),
       message: "tour",
+      appOrigin: "http://localhost:3010",
     })).rejects.toThrow("could not be claimed");
     expect(mocks.runLeasing).not.toHaveBeenCalled();
 
@@ -167,6 +173,7 @@ describe("runSmsTestTurn prospect lane", () => {
     await expect(runSmsTestTurn({
       context: prospectContext(),
       message: "tour",
+      appOrigin: "http://localhost:3010",
     })).rejects.toThrow("could not be committed");
   });
 
@@ -174,10 +181,12 @@ describe("runSmsTestTurn prospect lane", () => {
     await expect(runSmsTestTurn({
       context: { ...prospectContext(), target: null },
       message: "tour",
+      appOrigin: "http://localhost:3010",
     })).rejects.toThrow("session is invalid");
     await expect(runSmsTestTurn({
       context: prospectContext(),
       message: "   ",
+      appOrigin: "http://localhost:3010",
     })).rejects.toThrow("message is required");
     expect(mocks.recordAndClaim).not.toHaveBeenCalled();
   });

@@ -109,6 +109,7 @@ export async function runSmsTestTurn(args: {
   context: SmsTestResolvedContext;
   message: string;
   sessionId?: string | null;
+  appOrigin: string;
 }): Promise<SmsTestTurnResult> {
   assertSmsTestEnvironment();
   const message = args.message.trim().slice(0, 2_000);
@@ -152,6 +153,7 @@ export async function runSmsTestTurn(args: {
     managerUserId: args.context.managerUserId,
     sessionId: session.id,
     workspaceId: args.context.capability.workspaceId,
+    appOrigin: args.appOrigin,
   };
 
   if (args.context.mode === "manager") {

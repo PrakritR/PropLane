@@ -32,6 +32,7 @@ import {
   FilterCollapsibleSection,
   FilterFieldsAccordion,
   FilterSingleSelectList,
+  PortalFormSingleSelect,
   filterMultiSelectSummary,
   portalFilterPanelSizeClass,
 } from "@/components/portal/filter-field-lists";
@@ -68,6 +69,31 @@ function scrollFilterListboxGesture(target: Element | Node) {
   fireEvent.pointerDown(target, { pointerId: 1, clientX: 10, clientY: 10 });
   fireEvent.pointerUp(target, { pointerId: 1, clientX: 10, clientY: 60 });
 }
+
+describe("modal-contained form select", () => {
+  it("keeps the assistant listing menu in the modal tree so its options receive pointer input", async () => {
+    const onChange = vi.fn();
+    const view = render(
+      <div data-testid="modal-tree">
+        <div data-slot="modal-radix-dialog">
+          <PortalFormSingleSelect
+            label="Listing to test"
+            value=""
+            onChange={onChange}
+            options={[{ value: "listing-a", label: "QA private listing A" }]}
+            keepMenuWithinModalTree
+          />
+        </div>
+      </div>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Listing to test:/ }));
+    const option = await screen.findByText("QA private listing A");
+    expect(view.getByTestId("modal-tree")).toContainElement(option);
+    tapFilterListboxOption(option);
+    expect(onChange).toHaveBeenCalledWith("listing-a");
+  });
+});
 
 function openMobileFilterDropdownHarness({ optionCount = 8 }: { optionCount?: number } = {}) {
   const options = makeOptions(optionCount);

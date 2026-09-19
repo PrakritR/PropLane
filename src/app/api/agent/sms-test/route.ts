@@ -13,6 +13,7 @@ import {
 } from "@/lib/agent/sms-test-context.server";
 import { runSmsTestTurn, type SmsTestTurnResult } from "@/lib/agent/sms-test-runner.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveSmsTestAppOrigin } from "@/lib/app-url";
 
 export const runtime = "nodejs";
 
@@ -126,7 +127,12 @@ export async function POST(request: Request) {
     const sessionId = typeof body.sessionId === "string" && body.sessionId.trim()
       ? body.sessionId.trim()
       : null;
-    const result = await runSmsTestTurn({ context, message: lastUserText(messages), sessionId });
+    const result = await runSmsTestTurn({
+      context,
+      message: lastUserText(messages),
+      sessionId,
+      appOrigin: resolveSmsTestAppOrigin(),
+    });
     const smsTest: SmsTestWirePayload = {
       mode: result.mode,
       stage: result.stage,

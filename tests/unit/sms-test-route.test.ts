@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   resolveContext: vi.fn(),
@@ -30,6 +30,7 @@ import { DELETE, GET, POST } from "@/app/api/agent/sms-test/route";
 
 const ACTOR = "11111111-1111-4111-8111-111111111111";
 const MANAGER = "22222222-2222-4222-8222-222222222222";
+const WORKSPACE = "33333333-3333-4333-8333-333333333333";
 
 const context = {
   capability: {
@@ -38,6 +39,7 @@ const context = {
     actorUserId: ACTOR,
     actorName: "Alex",
     targets: [],
+    workspaceId: WORKSPACE,
   },
   mode: "prospect",
   stage: "prospect",
@@ -61,6 +63,8 @@ function request(body: Record<string, unknown>, query = "portal=resident&targetL
 }
 
 beforeEach(() => {
+  vi.stubEnv("VERCEL_ENV", "development");
+  vi.stubEnv("NEXT_PUBLIC_APP_URL", "http://localhost:3010");
   vi.clearAllMocks();
   mocks.resolveContext.mockResolvedValue(context);
   mocks.rateLimit.mockResolvedValue(null);
@@ -75,6 +79,10 @@ beforeEach(() => {
     stage: "prospect",
     target: context.target,
   });
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("SMS test route authorization and session scope", () => {
@@ -97,6 +105,7 @@ describe("SMS test route authorization and session scope", () => {
       context,
       message: "What times are open?",
       sessionId: "session-1",
+      appOrigin: "http://localhost:3010",
     });
     expect(await response.json()).toMatchObject({
       reply: "Available tomorrow.",
@@ -209,6 +218,7 @@ describe("SMS test route authorization and session scope", () => {
       sessionKind: `leasing_sms_test:${MANAGER}:listing-1`,
       managerUserId: MANAGER,
       smsTestMode: "prospect",
+      workspaceId: WORKSPACE,
     };
     expect(mocks.history).toHaveBeenCalledWith(expect.any(Request), expectedActor, "resident", expectedScope);
     expect(mocks.historyDelete).toHaveBeenCalledWith(expect.any(Request), expectedActor, "resident", expectedScope);

@@ -1,8 +1,8 @@
 {
   "base": "f25ccada208092fbc96ad3f0fc6451b048b6d6fb",
   "branch": "akhil/test-workspace-release-20260919",
-  "sourceFileCount": 397,
-  "scope": "Complete current source/test/SQL/script/workflow union from the prior 333-file final union plus reviewed CI corrections, encrypted local-QA artifact transport, combined migration rehearsal, baseline and feature migration transport, keeper-only build-artifact dispatch, current-turn SMS evidence and attachment-mode lifecycle corrections, and all current changed source-like paths. Review and evidence documents and logs are excluded.",
+  "sourceFileCount": 407,
+  "scope": "Complete current source/test/SQL/script/workflow union from the prior 397-file final union plus the reviewed assistant modal selector correction and trusted classified SMS-test deployment-origin binding. Review and evidence documents and logs are excluded.",
   "inputs": [
     "docs/plans/production-test-accounts/release-correction2-source-union.json",
     "docs/plans/production-test-accounts/release-resumed-correction-manifest.json",
@@ -13,7 +13,9 @@
     "docs/security/2026-09-19-encrypted-qa-ci-fresh-review.html",
     "docs/security/2026-09-19-test-workspace-server-boundary-review.html",
     "docs/security/2026-09-19-test-workspace-combined-rehearsal-review.html",
-    "docs/security/2026-09-19-test-workspace-apply-transport-review.html"
+    "docs/security/2026-09-19-test-workspace-apply-transport-review.html",
+    "docs/security/2026-09-19-test-workspace-final-396-security.html",
+    "docs/security/2026-09-19-test-workspace-final-396-bugbot.html"
   ],
   "files": [
     {
@@ -78,7 +80,7 @@
     },
     {
       "path": "src/app/api/agent/sms-test/route.ts",
-      "sha256": "e2356a6fb5c7276b66117fa43b3094bc60ea20db48994f7617766f3648852a27"
+      "sha256": "a60daf42b7194269eda0cf6e5aa597eec34d972eaf0ccc1012e94776f96fb809"
     },
     {
       "path": "src/app/api/cron/send-lease-signing-reminders/route.ts",
@@ -442,7 +444,7 @@
     },
     {
       "path": "src/components/portal/assistant-sms-test-control.tsx",
-      "sha256": "df65a28c1549d7793d1fd597cdcecb7043710591090871245f834d81aedf7532"
+      "sha256": "afc6020d96d1112c1043111e75488097174831960e9e017e03d406a5e5a3b034"
     },
     {
       "path": "src/components/portal/axis-assistant.tsx",
@@ -451,6 +453,10 @@
     {
       "path": "src/components/portal/channel-calendar-link-modal.tsx",
       "sha256": "b9bf04b696f8898b5a749e1c2acf18112c7a0d80c4186f5225f5e68294104b54"
+    },
+    {
+      "path": "src/components/portal/filter-field-lists.tsx",
+      "sha256": "ab5cd85dc653278ad5dec4bf4796bb7c0d59b59c6b41a38f985a84c70e1f04ee"
     },
     {
       "path": "src/components/portal/portal-sign-out-button.tsx",
@@ -489,6 +495,10 @@
       "sha256": "1bce3b23f735406e05e12fdc95f1100f4fe1b9604abd09dabc2e0a5cead1dda2"
     },
     {
+      "path": "src/components/ui/field-select-menu.tsx",
+      "sha256": "a1c54653e30a974a0d0e1e05368203cbbb2212f349b32dbdc0b28bc5e8ebfe47"
+    },
+    {
       "path": "src/lib/action-events.server.ts",
       "sha256": "3ff44eb1cbab1581b6e0af096750ae37f2fc9d1885d0353fd97a98110522df09"
     },
@@ -513,6 +523,10 @@
       "sha256": "5d65914f8ce8cc73d2d9c9a650291ed9490460bc11f920e44afaa9c914f6ffaa"
     },
     {
+      "path": "src/lib/agent/leasing-sms-system-prompt.ts",
+      "sha256": "9ffcc8e04a54faf2c348392ced642bb2a8e7585137a12db78604aa6fad30fc2b"
+    },
+    {
       "path": "src/lib/agent/manager-email-agent.server.ts",
       "sha256": "4fd129388fd9fa916e256d484ce2704c7b17901fa8d00bdb5334c517564f669e"
     },
@@ -534,7 +548,11 @@
     },
     {
       "path": "src/lib/agent/sms-test-runner.server.ts",
-      "sha256": "721e64cdd5453b74e8843e389550420bf6567cca775a4f6f0eb1db2ed346ff92"
+      "sha256": "fc906f1d96d4818b8d5a163c926785e5a74e386d904a949502d46b7005703b95"
+    },
+    {
+      "path": "src/lib/app-url.ts",
+      "sha256": "cd2dfc924efa4ccc90ef7df7ff8c71153479fa9edb1c3e6ed6326b466c854894"
     },
     {
       "path": "src/lib/application-submitted-notification.server.ts",
@@ -858,7 +876,7 @@
     },
     {
       "path": "src/lib/sms/sms-test-transport.server.ts",
-      "sha256": "034b07e473aab85cd3846bd5b31653fe9495cf7c18cac78c06152def9fd07726"
+      "sha256": "b9b8e9716bb757e26eb2118195435de26c63ea4d65e2dfbc243b1c96392d09fe"
     },
     {
       "path": "src/lib/sms/weekly-rent-reminder.server.ts",
@@ -935,6 +953,10 @@
     {
       "path": "src/lib/tools/domains/leases.ts",
       "sha256": "c23855bc957309731f86af789ee1765e686262a24b3a702c4b3afc5edbe2df1e"
+    },
+    {
+      "path": "src/lib/tools/domains/leasing-sms.ts",
+      "sha256": "3d5bba557da021efce72b3877ca4750eff4ca3961097af10ea966cb6f4006f96"
     },
     {
       "path": "src/lib/tools/domains/messaging.ts",
@@ -1141,6 +1163,10 @@
       "sha256": "f29821424fa495407a6f100240289d76ecc182624be75e4bf07bfec6f9c9d1c7"
     },
     {
+      "path": "tests/unit/agent-link-origins.test.ts",
+      "sha256": "eaf298c6d500e5b0f5444e4c239378f55540563c8d0f029d7e71ee5ccae0b768"
+    },
+    {
       "path": "tests/unit/agent-payments-gating.test.ts",
       "sha256": "8ef1e4b49db74e5a2a84234438df86e734c00a12dd65e49171b29f205867b0d4"
     },
@@ -1151,6 +1177,10 @@
     {
       "path": "tests/unit/agent/chat-history.test.ts",
       "sha256": "e7e5fb9fd6577f04dd9a6c2ba8c8ae4449743ed8b96321e7fef6f1fe73444c15"
+    },
+    {
+      "path": "tests/unit/app-url.test.ts",
+      "sha256": "6b13a4623c0fc484f9da37d54666cfe2bbc30295cc85e83e99d24ff9ea2e16e6"
     },
     {
       "path": "tests/unit/assistant-chat-composer-attachment-mode.test.tsx",
@@ -1173,6 +1203,10 @@
       "sha256": "7a82d69bba0aef22e1032574744e85b62e8b2b4529b4e85cdef4cc688a6d9103"
     },
     {
+      "path": "tests/unit/ci-test-workflow.test.ts",
+      "sha256": "fcd60227aa98d69a9325e18cfca32920dad2108923ef8e9ca8efa2823ed0e14c"
+    },
+    {
       "path": "tests/unit/comms-credit-purchase.test.ts",
       "sha256": "6b7236110669ba546bf942221dd82fd54f34be28bb8c88b3e62cb46192a37d08"
     },
@@ -1191,6 +1225,10 @@
     {
       "path": "tests/unit/evidence-property-calendar-conflicts.test.tsx",
       "sha256": "5f0f5354c3d4e0098a318f6efd3e105f3a6ef1a41a4c488202c4fb0b56f301cb"
+    },
+    {
+      "path": "tests/unit/filter-field-lists.test.tsx",
+      "sha256": "ab0b0525d5ce5beaa5baec493f62ef1f4f26a80a2ad4aa92d193b532e2347d23"
     },
     {
       "path": "tests/unit/google-calendar-conditional-tour-write.test.ts",
@@ -1239,6 +1277,10 @@
     {
       "path": "tests/unit/lease-pipeline-list-projection.test.ts",
       "sha256": "9ac2125e4225af5b768a441cade6c8a5c49634847644b1c9a66da2d6e8e83ea1"
+    },
+    {
+      "path": "tests/unit/leasing-sms-agent.test.ts",
+      "sha256": "6004660dcf894a6fce413eb4930f078a1673b3e204e9a8a01e4360f6cdcfa4d2"
     },
     {
       "path": "tests/unit/leasing-sms-test-session.test.ts",
@@ -1402,11 +1444,11 @@
     },
     {
       "path": "tests/unit/sms-test-route.test.ts",
-      "sha256": "44d61ee01b3a18eea8717352aacb4f1662f65a61ab9fda5820a7e0df9afd3eb3"
+      "sha256": "a997faf944c10d0d4901fb7ada7f21793af95a63222e45484f9c5b1459e5c8a2"
     },
     {
       "path": "tests/unit/sms-test-runner.test.ts",
-      "sha256": "86c384956ffc245dde1061ec3463b284a7318d5b9e7528a866548d8fcba35579"
+      "sha256": "879a6f0f8b82d5424e139e7faf2e41bb6a303b6289cff975392226fdac13d05c"
     },
     {
       "path": "tests/unit/sms-test-session-isolation.test.ts",

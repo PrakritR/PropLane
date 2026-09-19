@@ -15,6 +15,7 @@ export type SmsTestTransportContext = {
   managerUserId: string;
   sessionId?: string | null;
   workspaceId?: string | null;
+  appOrigin?: string | null;
   effects: SmsTestCapturedEffect[];
 };
 
