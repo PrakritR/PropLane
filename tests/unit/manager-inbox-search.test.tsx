@@ -15,7 +15,15 @@
 //  3. Rows must be labelled from their own folder, not the active tab, or a
 //     sent thread surfaced from Unopened is shown as if its recipient sent it.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+
+const inboxPersistence = vi.hoisted(() => ({ persist: vi.fn() }));
+
+type ReadOwnerRow = {
+  id: string;
+  unread: boolean;
+  readSources?: Array<{ id: string; observation: string; unread?: boolean }>;
+};
 
 const THREADS = [
   {
@@ -28,6 +36,8 @@ const THREADS = [
     body: "There is water coming through the ceiling",
     time: "Jul 20, 2026",
     unread: true,
+    readSources: [{ id: "email-a", observation: "obs-a", unread: true }],
+    readSourcesComplete: true,
   },
   {
     id: "thr-1000000002",
@@ -61,8 +71,12 @@ const THREADS = [
     body: "Can I get a second spot",
     time: "Jul 18, 2026",
     unread: false,
+    readSources: [{ id: "email-b", observation: "obs-b", unread: true }],
+    readSourcesComplete: true,
   },
 ];
+
+let inboxRows = THREADS;
 
 vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -79,9 +93,9 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   VENDOR_INBOX_STORAGE_KEY: "vendor-inbox",
   MANAGER_INBOX_STORAGE_KEY: "manager-inbox",
   PORTAL_INBOX_CHANGED_EVENT: "portal-inbox-changed",
-  loadPersistedInbox: () => THREADS,
-  syncPersistedInboxFromServer: () => Promise.resolve(THREADS),
-  persistInbox: () => {},
+  loadPersistedInbox: () => inboxRows,
+  syncPersistedInboxFromServer: () => Promise.resolve(inboxRows),
+  persistInbox: (key: string, rows: unknown[]) => inboxPersistence.persist(key, rows),
   persistInboxAwait: () => Promise.resolve(),
   invalidatePersistedInboxCache: () => {},
   inboxMutationInFlight: () => false,
@@ -149,6 +163,9 @@ import { ManagerInbox } from "@/components/portal/pro-inbox";
 afterEach(() => {
   cleanup();
   showToast.mockClear();
+  inboxPersistence.persist.mockClear();
+  inboxRows = THREADS;
+  window.localStorage.clear();
 });
 
 function searchBox() {
@@ -156,6 +173,59 @@ function searchBox() {
 }
 
 describe("manager inbox search", () => {
+  it("marks only the controlled email owner read and preserves every source observation", async () => {
+    const openedKey = "axis_manager_sms_opened_v2:mgr-1";
+    window.localStorage.setItem(openedKey, JSON.stringify(["unrelated-native-receipt"]));
+    inboxRows = THREADS.map((row) =>
+      row.id === "thr-1000000004" ? { ...row, unread: true } : row,
+    );
+
+    const view = render(
+      <ManagerInbox
+        tabId="unopened"
+        embeddedInCommunication
+        externalTitleActions
+        suppressCompose
+        suppressListPane
+        controlledExpandedId=""
+        smsRecipients={[]}
+      />,
+    );
+
+    // Let the owner finish its initial server sync with no conversation open.
+    // B must still be unread in that settled baseline.
+    await waitFor(() => {
+      const latest = inboxPersistence.persist.mock.calls.at(-1)?.[1] as ReadOwnerRow[] | undefined;
+      expect(latest?.find((row) => row.id === "thr-1000000004")?.unread).toBe(true);
+    });
+
+    view.rerender(
+      <ManagerInbox
+        tabId="unopened"
+        embeddedInCommunication
+        externalTitleActions
+        suppressCompose
+        suppressListPane
+        controlledExpandedId="thr-1000000004"
+        smsRecipients={[]}
+      />,
+    );
+
+    await waitFor(() => {
+      const latest = inboxPersistence.persist.mock.calls.at(-1)?.[1] as ReadOwnerRow[] | undefined;
+      expect(latest?.find((row) => row.id === "thr-1000000004")?.unread).toBe(false);
+    });
+
+    const persisted = inboxPersistence.persist.mock.calls.at(-1)?.[1] as ReadOwnerRow[];
+    const emailA = persisted.find((row) => row.id === "thr-1000000001")!;
+    const emailB = persisted.find((row) => row.id === "thr-1000000004")!;
+    expect(emailA.unread).toBe(true);
+    expect(emailB.unread).toBe(false);
+    expect(emailA.readSources).toEqual([{ id: "email-a", observation: "obs-a", unread: true }]);
+    expect(emailB.readSources).toEqual([{ id: "email-b", observation: "obs-b", unread: true }]);
+    expect(window.localStorage.getItem(openedKey)).toBe(JSON.stringify(["unrelated-native-receipt"]));
+  });
+
   it("renders the search box when Communication owns the shell", () => {
     render(<ManagerInbox tabId="unopened" embeddedInCommunication externalTitleActions suppressCompose commBase="/portal/communication" />);
     expect(searchBox()).toBeTruthy();

@@ -59,7 +59,10 @@ function safeCount(read: () => number): number {
 }
 
 /** Pending / unread counts for sidebar nav badges (0 = hide badge). */
-export function usePortalNavCounts(kind: PortalKind): Partial<Record<string, number>> {
+export function usePortalNavCounts(
+  kind: PortalKind,
+  opts: { smsUiEnabled?: boolean } = {},
+): Partial<Record<string, number>> {
   const { userId, ready } = useManagerUserId();
   const [tick, setTick] = useState(0);
   const bump = useCallback(() => setTick((n) => n + 1), []);
@@ -141,6 +144,7 @@ export function usePortalNavCounts(kind: PortalKind): Partial<Record<string, num
           viewerId: userId,
           workspace: activeWorkspaceIdentity(),
           archivedSmsIds: loadManagerSmsArchivedIds(),
+          smsUiEnabled: opts.smsUiEnabled,
         }),
       );
       // The same numbers the list tabs render — Properties' plan meter, Tours'
@@ -184,12 +188,12 @@ export function usePortalNavCounts(kind: PortalKind): Partial<Record<string, num
       const inbox = safeCount(() =>
         countVisibleUnreadCommunication(
           loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK),
-          { portal: "resident", viewerId: userId },
+          { portal: "resident", viewerId: userId, smsUiEnabled: opts.smsUiEnabled },
         ),
       );
       return { communication: inbox };
     }
 
     return {};
-  }, [kind, ready, tick, userId]);
+  }, [kind, opts.smsUiEnabled, ready, tick, userId]);
 }

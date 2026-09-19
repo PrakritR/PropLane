@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Remaining runtime corrections execution handoff</title>
+<style>
+  body { max-width: 980px; margin: 40px auto; padding: 0 24px; color: #172033; font: 16px/1.55 system-ui, sans-serif; }
+  h1, h2 { line-height: 1.2; }
+  code { padding: 0.1em 0.3em; background: #eef2f7; border-radius: 4px; }
+  li { margin: 0.45em 0; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 10px; border: 1px solid #cbd5e1; text-align: left; vertical-align: top; }
+</style>
+<body>
+  <h1>Remaining runtime corrections execution handoff</h1>
+  <p><strong>Goal:</strong> correct the 20 failures in seven unit test files without weakening conversation identity, observed-read, or reply authorization behavior.</p>
+  <p><strong>Plan:</strong> <code>docs/plans/2026-09-19-remaining-runtime-corrections.html</code></p>
+  <p><strong>Repository:</strong> <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code></p>
+  <p><strong>Starting commit:</strong> <code>4d0a00dea77fb3ef5c640fb769557c1a5ec63292</code>. The root agent later reported that separate schema and workflow work was committed as <code>215ca95ce</code>; the application correction remains this manager's uncommitted scope. The root agent owns Git, so this execution phase performed no Git commands or mutations and did not independently re-resolve the current commit.</p>
+
+  <h2>Decisions and source changes</h2>
+  <ol>
+    <li><strong>Native identity remains fail closed.</strong> <code>managerSmsRelationshipKey</code> now checks the original non-empty house claim array length. Two claims with the same property ID remain ambiguous instead of being reduced to one by a <code>Set</code>.</li>
+    <li><strong>Communication badges follow the same SMS feature flag as the list.</strong> <code>countVisibleUnreadCommunication</code> keeps SMS-like notice rows when the SMS pane is hidden and filters them when the pane is enabled, before person collapse. The server-resolved flag now travels from the manager and resident layouts through the shared sidebar into the count hook. This keeps desktop, mobile web, and the native WebView on the same shared navigation path.</li>
+    <li><strong>No product calendar lifecycle change.</strong> The callback regression test now reuses stable property arrays and a stable toast callback. Its rerender therefore changes only the footer callback, then the URL edit supplies the real footer state change.</li>
+    <li><strong>No Settings fetch allowance was raised.</strong> Every mobile Back test now waits for the real Welcome switch to become enabled and asserts exactly one reminder request before cleanup. This settles each prior mount before the mock is cleared and preserves the one-request, no Back or Forward refetch contract.</li>
+    <li><strong>Settings redraw uses the semantic contract.</strong> The Payment setup assertion selects the heading and still verifies that no duplicate <code>All properties</code> scope label is present.</li>
+  </ol>
+
+  <h2>Correction cycle 1</h2>
+  <p>The fresh review at <code>docs/plans/2026-09-19-remaining-runtime-fresh-review.html</code> found one P1 issue: the embedded email pane received the complete workspace SMS directory. Although the unified list correctly rejected native K1 for unbound email B, the real <code>ManagerInbox</code> could match that rejected row again by email and expose an SMS reply target.</p>
+  <p>The email branch now passes only <code>selectedSmsResidents</code>, the native records already admitted into the selected unified row. The selector no longer depends on an email address, so accepted phone-addressed native members remain available. The boundary harness captures the exact recipients passed into <code>ManagerInbox</code> and exercises the production <code>resolveManagerInboxSmsTarget</code> and <code>resolveManagerInboxPortalRecipient</code> functions:</p>
+  <ul>
+    <li>unbound B receives an empty native recipient set, resolves no SMS target, and retains only its own <code>b@example.com</code> portal email recipient;</li>
+    <li>the archived ambiguous variants explicitly give ambiguous donor A, active B, and rejected K1 the same <code>b@example.com</code> address and still produce the same fail-closed result;</li>
+    <li>accepted K1/K2 members remain in the direct pane, and a phone-only relay can still resolve accepted K1 plus its <code>resident-k1</code> PropLane recipient.</li>
+  </ul>
+  <p>The real <code>ManagerInbox</code> owner path now has a controlled-selection regression in <code>manager-inbox-search.test.tsx</code>. It first mounts with an explicit empty selection and waits for the initial server sync to persist the unread baseline, then rerenders with B selected to model the user's open action. Its final persisted snapshot proves B alone becomes read, A remains unread, both original observation tokens remain unchanged, and the unrelated native receipt store is untouched. The production auto-read dependency remains ID-only; this correction does not introduce a new arrival or visibility lifecycle.</p>
+
+  <h2>Seven failing files</h2>
+  <table>
+    <thead><tr><th>Failure file</th><th>Disposition</th></tr></thead>
+    <tbody>
+      <tr><td><code>tests/unit/manager-unified-inbox-identity.test.tsx</code></td><td>Existing missing, distinct-multiple, and duplicate-multiple house cases are unchanged. The source fix restores the duplicate case's intended isolation.</td></tr>
+      <tr><td><code>tests/unit/manager-unified-inbox-read-integration.test.tsx</code></td><td>Verified merged rows are opened by the stable native preview. Unbound email rows render through an observable email-pane harness with exact <code>controlledExpandedId</code> and the actual restricted recipient props. The tests prove the separate native row remains visible, while its body is absent from the selected email pane; the direct-chat pane does not mount; the real SMS and portal resolvers cannot borrow K1; the unified read controller and direct-chat reply resolver are not called; and no borrowed native receipt is stored. The positive merged case retains exact <code>obs-a</code> and <code>obs-b</code> member assertions and phone-only fallback coverage.</td></tr>
+      <tr><td><code>tests/unit/portal-nav-application-count.test.tsx</code></td><td>Fixture and expected count remain unchanged. The shared badge source correction restores the independent Communication count.</td></tr>
+      <tr><td><code>tests/unit/portal-nav-communication-count.test.tsx</code></td><td>Fixture and expected count remain unchanged. Hidden-pane inbound SMS notices now count as visible conversations.</td></tr>
+      <tr><td><code>tests/unit/channel-calendar-link-footer-state.test.tsx</code></td><td>Uses stable props so callback replacement is isolated and the next URL edit reaches the latest callback.</td></tr>
+      <tr><td><code>tests/unit/portal-settings-mobile-back.test.tsx</code></td><td>Each case awaits the real Welcome module's completed reminder load before cleanup; the Forward case still requires one total request and no toast.</td></tr>
+      <tr><td><code>tests/unit/settings-module-redraws.test.tsx</code></td><td>Uses the unique Payment setup heading instead of an ambiguous text match.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Changed files</h2>
+  <ul>
+    <li><code>src/components/portal/pro-unified-inbox.tsx</code></li>
+    <li><code>src/lib/communication-inbox-filters.ts</code></li>
+    <li><code>src/hooks/use-portal-nav-counts.ts</code></li>
+    <li><code>src/components/portal/portal-sidebar.tsx</code></li>
+    <li><code>src/app/portal/layout.tsx</code></li>
+    <li><code>src/app/resident/layout.tsx</code></li>
+    <li><code>tests/unit/manager-unified-inbox-read-integration.test.tsx</code></li>
+    <li><code>tests/unit/manager-inbox-search.test.tsx</code></li>
+    <li><code>tests/unit/communication-inbox-filters.test.ts</code></li>
+    <li><code>tests/unit/channel-calendar-link-footer-state.test.tsx</code></li>
+    <li><code>tests/unit/portal-settings-mobile-back.test.tsx</code></li>
+    <li><code>tests/unit/settings-module-redraws.test.tsx</code></li>
+  </ul>
+  <p><code>tests/unit/manager-unified-inbox-identity.test.tsx</code>, <code>tests/unit/portal-nav-application-count.test.tsx</code>, and <code>tests/unit/portal-nav-communication-count.test.tsx</code> were inspected and intentionally not weakened.</p>
+
+  <h2>Review and validation status</h2>
+  <p>This phase was source only because the laptop was under severe memory and disk pressure. It ran no tests, Node commands, typecheck, lint, build, browser, server, install, graph, database, or Git commands. It makes no runtime validation claim.</p>
+  <p>The implementation manager read the communication contract, portal UI checklist, web/native parity contract, installed Next server/client and environment guides, and the frontend design guideline. There are no new routes, navigation registries, analytics, API shapes, database changes, or native-only surfaces.</p>
+  <p>A fresh Astra reviewer should inspect the complete source scope above, with special attention to:</p>
+  <ul>
+    <li>the corrected email-pane boundary: exact email selection is represented by <code>controlledExpandedId</code>, recipient props contain accepted native members only, and actual SMS/portal resolution remains fail closed for an unbound email;</li>
+    <li>manager and resident flag consistency when SMS UI is both off and on, including archived SMS bindings and person collapse;</li>
+    <li>whether waiting for the enabled Welcome switch fully settles the prior Settings effect before cleanup;</li>
+    <li>the original duplicate native house array length check, including duplicate IDs.</li>
+  </ul>
+
+  <h2>Next-session prompt</h2>
+  <p>Fresh-review <code>docs/plans/2026-09-19-remaining-runtime-corrections.html</code> against this handoff and the complete working-tree source scope. Do not run local validation. Review correctness, identity isolation, exact observed-read and reply boundaries, SMS flag parity, Settings async settling, and maintainability. Record findings with file and line references in a self-contained HTML review. Root retains all runtime, Git, graph, database, browser, and release ownership.</p>
+</body>
+</html>

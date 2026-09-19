@@ -29,6 +29,7 @@ import { resolveResidentPortalNavStage } from "@/lib/resident-portal-nav";
 import { getResidentPortalDefinition } from "@/lib/portals/resident";
 import { getAssistantDockCollapsed } from "@/lib/assistant-dock-state";
 import { getSidebarCollapsed } from "@/lib/portal-sidebar-state";
+import { isSmsCommUiEnabled } from "@/lib/sms-comm-ui-flag.server";
 
 function isResidentApplicationsApplyPath(pathname: string): boolean {
   return pathname === "/resident/applications/apply";
@@ -80,6 +81,7 @@ export default async function ResidentLayout({ children }: { children: React.Rea
           subtitle="Resident"
           initialCollapsed={sidebarCollapsed}
           residentNavStage={residentNavStage}
+          smsUiEnabled={isSmsCommUiEnabled()}
         />
         <div className="relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <PortalTopBar

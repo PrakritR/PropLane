@@ -16,6 +16,10 @@ vi.mock("@/lib/rental-application/data", () => ({
 
 import { ChannelCalendarLinkFields } from "@/components/portal/channel-calendar-link-modal";
 
+const PROPERTY_IDS = ["house-1"];
+const PROPERTY_OPTIONS = [{ id: "house-1", label: "House 1" }];
+const showToast = () => {};
+
 afterEach(cleanup);
 
 describe("ChannelCalendarLinkFields footer state", () => {
@@ -25,10 +29,10 @@ describe("ChannelCalendarLinkFields footer state", () => {
     const view = render(
       <ChannelCalendarLinkFields
         active
-        propertyIds={["house-1"]}
-        propertyOptions={[{ id: "house-1", label: "House 1" }]}
+        propertyIds={PROPERTY_IDS}
+        propertyOptions={PROPERTY_OPTIONS}
         initialPropertyId="house-1"
-        showToast={() => {}}
+        showToast={showToast}
         onFooterState={first}
       />,
     );
@@ -38,10 +42,10 @@ describe("ChannelCalendarLinkFields footer state", () => {
     view.rerender(
       <ChannelCalendarLinkFields
         active
-        propertyIds={["house-1"]}
-        propertyOptions={[{ id: "house-1", label: "House 1" }]}
+        propertyIds={PROPERTY_IDS}
+        propertyOptions={PROPERTY_OPTIONS}
         initialPropertyId="house-1"
-        showToast={() => {}}
+        showToast={showToast}
         onFooterState={second}
       />,
     );

@@ -144,8 +144,7 @@ describe("settings module redraws — shared property scope ownership", () => {
     cleanup();
 
     render(<PaymentsSettingsPanel teamMembers={[]} />);
-    expect(await screen.findByText("Payment setup")).toBeTruthy();
-    expect(screen.getAllByText("Payment setup").length).toBeGreaterThan(0);
+    expect(await screen.findByRole("heading", { name: "Payment setup" })).toBeTruthy();
     expect(screen.queryByText("All properties")).toBeNull();
     cleanup();
 

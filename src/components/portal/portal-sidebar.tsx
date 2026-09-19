@@ -263,6 +263,7 @@ export function PortalSidebar({
   subtitle,
   initialCollapsed = false,
   residentNavStage,
+  smsUiEnabled = false,
 }: {
   definition: PortalDefinition;
   subscriptionTier?: "free" | "paid" | null;
@@ -271,6 +272,8 @@ export function PortalSidebar({
   initialCollapsed?: boolean;
   /** Resident lifecycle stage — drives bottom bar tabs and section locks. */
   residentNavStage?: ResidentPortalNavStage;
+  /** Server-resolved so hidden SMS notices stay in the email-backed badge only while the SMS pane is off. */
+  smsUiEnabled?: boolean;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -287,7 +290,7 @@ export function PortalSidebar({
     definition,
     session.userId,
   );
-  const navCounts = usePortalNavCounts(definition.kind);
+  const navCounts = usePortalNavCounts(definition.kind, { smsUiEnabled });
   const [collapsed, setCollapsed] = useState(initialCollapsed);
   const [expandableNavOpen, setExpandableNavOpen] = useState<Record<string, boolean>>({});
 

@@ -139,12 +139,25 @@ describe("communication-inbox-filters", () => {
     expect(countVisibleUnreadCommunication(rows, { portal: "manager", viewerId: "user-1" })).toBe(1);
   });
 
-  it("does not count leftover SMS-like unread rows on the Communication badge", () => {
+  it("does not count SMS-like unread rows separately when the SMS pane is enabled", () => {
     const rows = [
       thread({ id: "sms-ghost", from: "+15105550100", unread: true }),
       thread({ id: "email-open", from: "Alex", email: "alex@example.test", unread: true }),
     ];
-    expect(countVisibleUnreadCommunication(rows, { portal: "manager", viewerId: "user-1" })).toBe(1);
+    expect(countVisibleUnreadCommunication(rows, {
+      portal: "manager",
+      viewerId: "user-1",
+      smsUiEnabled: true,
+    })).toBe(1);
+  });
+
+  it("counts SMS-like unread rows that fall through while the SMS pane is hidden", () => {
+    const rows = [thread({ id: "sms-visible", from: "+15105550100", unread: true })];
+    expect(countVisibleUnreadCommunication(rows, {
+      portal: "manager",
+      viewerId: "user-1",
+      smsUiEnabled: false,
+    })).toBe(1);
   });
 
   it("matches a vendor thread by email or last-10 phone digits", () => {

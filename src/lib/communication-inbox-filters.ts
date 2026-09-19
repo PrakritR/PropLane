@@ -95,7 +95,8 @@ export function threadMatchesVendorContact(
 }
 
 /**
- * Unread conversations Active would show: collapse person rows, drop leftover
+ * Unread conversations Active would show: route SMS-like notices by the same
+ * server-resolved UI flag as the list, collapse person rows, drop leftover
  * workspace assistant notices, and ignore archived SMS bindings.
  */
 export function countVisibleUnreadCommunication(
@@ -105,10 +106,13 @@ export function countVisibleUnreadCommunication(
     viewerId: string | null | undefined;
     workspace?: ManagerAssistantWorkspace | null;
     archivedSmsIds?: ReadonlySet<string>;
+    smsUiEnabled?: boolean;
   },
 ): number {
   const pinned = withPinnedPropLaneAssistantThreads(
-    filterManagerCommunicationThreads(rows),
+    filterEmailInboxThreads(filterManagerCommunicationThreads(rows), {
+      keepSmsLike: !opts.smsUiEnabled,
+    }),
     opts.portal,
     opts.viewerId,
     "active",
@@ -118,7 +122,6 @@ export function countVisibleUnreadCommunication(
   const archivedSms = opts.archivedSmsIds;
   return collapsed.filter((thread) => {
     if (thread.folder !== "inbox" || !thread.unread) return false;
-    if (isSmsLikeInboxThread(thread)) return false;
     const binding = thread.smsConversationKey?.trim();
     if (binding && archivedSms?.has(binding)) return false;
     return true;

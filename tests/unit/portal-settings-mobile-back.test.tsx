@@ -43,6 +43,11 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
   return { ok: true, json: async () => ({ settings: {}, overriddenPropertyIds: [] }) };
 });
 
+async function waitForReminderSettingsReady() {
+  await waitFor(() => expect(screen.getByRole("switch")).toHaveProperty("disabled", false));
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+}
+
 beforeEach(() => {
   window.history.replaceState(null, "", window.location.href);
   vi.stubGlobal("fetch", fetchMock);
@@ -57,16 +62,18 @@ afterEach(() => {
 });
 
 describe("PortalSettingsSectionClient — mobile list↔detail Back (Defect 3)", () => {
-  it("pushes a history entry naming the opened module", () => {
+  it("pushes a history entry naming the opened module", async () => {
     const pushSpy = vi.spyOn(window.history, "pushState");
 
     render(<PortalSettingsSectionClient tab="resident" basePath="/portal" />);
 
     expect(pushSpy).toHaveBeenCalledWith({ settingsDetailTab: "resident" }, "", expect.any(String));
+    await waitForReminderSettingsReady();
   });
 
   it("popping that entry — the real browser/native Back gesture — shows the module list, not nothing", async () => {
     render(<PortalSettingsSectionClient tab="resident" basePath="/portal" />);
+    await waitForReminderSettingsReady();
 
     // The detail view is what a phone shows by default: its own back header is present, the
     // list overlay is not.
@@ -86,8 +93,7 @@ describe("PortalSettingsSectionClient — mobile list↔detail Back (Defect 3)",
   it("popping AGAIN from the list (no pushed entry left) is what leaves Settings — a forward navigation restores the detail view", async () => {
     render(<PortalSettingsSectionClient tab="resident" basePath="/portal" />);
 
-    await waitFor(() => expect(screen.getByRole("switch")).toHaveProperty("disabled", false));
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await waitForReminderSettingsReady();
     const welcomeModule = screen.getByText("Welcome");
     expect(welcomeModule).toBeTruthy();
 
@@ -109,10 +115,11 @@ describe("PortalSettingsSectionClient — mobile list↔detail Back (Defect 3)",
     expect(showToast).not.toHaveBeenCalled();
   });
 
-  it("the in-app 'Settings' back control hands off to a real history.back(), not only local state", () => {
+  it("the in-app 'Settings' back control hands off to a real history.back(), not only local state", async () => {
     const backSpy = vi.spyOn(window.history, "back").mockImplementation(() => {});
 
     render(<PortalSettingsSectionClient tab="resident" basePath="/portal" />);
+    await waitForReminderSettingsReady();
     fireEvent.click(document.querySelector('[data-attr="settings-back-to-root"]')!);
 
     expect(backSpy).toHaveBeenCalledTimes(1);
@@ -120,6 +127,7 @@ describe("PortalSettingsSectionClient — mobile list↔detail Back (Defect 3)",
 
   it("does not regress desktop — the module content stays mounted regardless of list/detail state", async () => {
     render(<PortalSettingsSectionClient tab="resident" basePath="/portal" />);
+    await waitForReminderSettingsReady();
     // The desktop rail is always present; it does not react to the mobile list/detail toggle.
     expect(document.querySelector('[data-attr="settings-nav-resident"]')).toBeTruthy();
     expect(document.querySelector('[data-attr="settings-nav-tours"]')).toBeTruthy();

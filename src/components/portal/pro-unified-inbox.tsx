@@ -207,7 +207,12 @@ export function managerUnifiedEmailBindingEvidence(threads: readonly PersistedIn
 }
 
 function managerSmsRelationshipKey(resident: ManagerSmsResidentConversation): string | null {
-  const houseIds = [...new Set((resident.houses ?? []).map((house) => house.propertyId.trim()).filter(Boolean))];
+  // A native conversation must carry exactly one original house claim. A Set
+  // would turn duplicate evidence into one claim and let an ambiguous record
+  // join an email conversation that it cannot safely identify.
+  const houseIds = (resident.houses ?? [])
+    .map((house) => house.propertyId.trim())
+    .filter(Boolean);
   if (houseIds.length !== 1) return null;
   const owner = resident.ownerManagerUserId?.trim() ?? "";
   const role = resident.counterpartyRole?.trim() ?? "";
@@ -1410,7 +1415,7 @@ export function ManagerUnifiedInbox({
     );
   }, [emailThreads, selectedRow]);
   const selectedSmsResidents = useMemo(() => {
-    if (!selectedRow || !directChatEmail) return [];
+    if (!selectedRow) return [];
     const selectedKeys = [selectedRow.key, ...(selectedRow.memberKeys ?? [])];
     const explicitlySelectedNativeIds = selectedKeys
       .map(parseUnifiedInboxKey)
@@ -1432,7 +1437,7 @@ export function ManagerUnifiedInbox({
     // Do not rediscover a native row by email here. That broad fallback would
     // bypass the rejected relationship decision that kept the list rows apart.
     return [];
-  }, [directChatEmail, selectedRow, smsResidents]);
+  }, [selectedRow, smsResidents]);
   const pendingReadSignaturesRef = useRef(new Map<string, symbol>());
   const renderedViewerAuthority = viewerAuthority;
   const markSelectedRead = useCallback((sources: { id: string; observation: string; unread?: boolean }[]) => {
@@ -1546,7 +1551,10 @@ export function ManagerUnifiedInbox({
         threadFilters={threadFilters}
         filterContacts={filterContacts}
         smsUiEnabled={smsUiEnabled}
-        smsRecipients={smsResidents}
+        // The email pane may resolve SMS and portal reply targets from this
+        // directory. Give it only native members already admitted by the
+        // unified identity merge, never the workspace-wide SMS directory.
+        smsRecipients={selectedSmsResidents}
         onClearAssistant={
           selectedRow && isAssistantUnifiedInboxRow(selectedRow, emailThreads)
             ? async () => {
