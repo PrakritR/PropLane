@@ -77,7 +77,7 @@ test.describe("New manager — full journey from scratch", () => {
     await page.getByPlaceholder("Email").fill(account.email);
     await page.getByPlaceholder(/Password \(8\+/).fill(account.password);
     const phoneInput = page.getByPlaceholder("Phone number");
-    await expect(phoneInput).toBeRequired();
+    await expect(phoneInput).toHaveJSProperty("required", true);
     await phoneInput.fill(account.phone);
     await shot(page, "03-create-account-filled");
     const managerSubmit = page.locator('[data-attr="manager-trial-signup-submit"]');

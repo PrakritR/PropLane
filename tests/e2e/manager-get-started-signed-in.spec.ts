@@ -90,7 +90,7 @@ async function expectManagerCreateForm(page: Page, opts: { signedIn: boolean }) 
   await expect(page.getByPlaceholder("Full name")).toBeVisible();
   await expect(page.getByPlaceholder("Email")).toBeVisible();
   await expect(page.getByPlaceholder("Phone number")).toBeVisible();
-  await expect(page.getByPlaceholder("Phone number")).toBeRequired();
+  await expect(page.getByPlaceholder("Phone number")).toHaveJSProperty("required", true);
   await expect(page.getByPlaceholder(/Password \(8\+/)).toBeVisible();
   await expect(page.getByRole("button", { name: /continue with google/i })).toBeVisible();
   await expect(managerSubmitButton(page)).toHaveText(
