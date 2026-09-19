@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
-// The shared month grid: open days green, the manager's occupied dates red,
-// booked spans grey (and grey wins where both cover a day), today ringed, and
+// The shared month grid: available days green, booked and occupied days red
+// (booked still wins the data-tone where both cover a day), today ringed, and
 // the prev arrow disabled on the first month.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -35,7 +35,13 @@ describe("RoomAvailabilityMonthCalendar", () => {
     expect(today?.getAttribute("data-tone")).toBe("occupied");
     expect(today?.className).toContain("ring-primary");
     expect((screen.getByRole("button", { name: "Previous month" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByLabelText("Calendar key")).toBeTruthy();
+    const legend = screen.getByLabelText("Calendar key");
+    expect(legend.textContent).toContain("Available");
+    expect(legend.textContent).toContain("Booked");
+    expect(legend.textContent).not.toContain("Open");
+    expect(legend.textContent).not.toContain("Occupied");
+    expect(legend.textContent).not.toContain("Airbnb");
+    expect(today?.className).toContain("bg-rose-100");
     fireEvent.click(screen.getByRole("button", { name: "Next month" }));
     expect((screen.getByRole("button", { name: "Previous month" }) as HTMLButtonElement).disabled).toBe(false);
   });

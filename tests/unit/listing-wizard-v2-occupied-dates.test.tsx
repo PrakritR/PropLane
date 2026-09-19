@@ -31,17 +31,17 @@ describe("OccupiedDates", () => {
     expect(screen.queryByText("Available")).toBeNull();
     expect(screen.queryByText(/Renters see/)).toBeNull();
     expect(screen.queryByText("Available now")).toBeNull();
-    const add = screen.getByRole("button", { name: "Set occupied dates" }) as HTMLButtonElement;
+    const add = screen.getByRole("button", { name: "Set booked dates" }) as HTMLButtonElement;
     expect(add.disabled).toBe(false);
-    expect(screen.queryByRole("button", { name: "Add occupied dates" })).toBeNull();
-    expect(screen.queryByLabelText("Occupied from")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add booked dates" })).toBeNull();
+    expect(screen.queryByLabelText("Booked from")).toBeNull();
     expect(container.textContent).not.toContain("Occupied");
   });
 
   it("adds an open-ended row from today and writes Unavailable (occupied)", () => {
     const onRoom = vi.fn();
     render(<OccupiedDates room={room()} propertyId={null} onRoom={onRoom} />);
-    fireEvent.click(screen.getByRole("button", { name: "Set occupied dates" }));
+    fireEvent.click(screen.getByRole("button", { name: "Set booked dates" }));
     expect(onRoom).toHaveBeenCalledTimes(1);
     const patch = onRoom.mock.calls[0]![0] as Partial<ManagerRoomSubmission>;
     expect(patch.manualUnavailableRanges).toHaveLength(1);
@@ -54,10 +54,10 @@ describe("OccupiedDates", () => {
     const onRoom = vi.fn();
     const r = room({ manualUnavailableRanges: [{ id: "u1", start: "2026-09-01", end: "2026-10-31" }] });
     render(<OccupiedDates room={r} propertyId={null} onRoom={onRoom} />);
-    expect((screen.getByLabelText("Occupied from") as HTMLInputElement).value).toBe("2026-09-01");
-    expect((screen.getByLabelText("Occupied until") as HTMLInputElement).value).toBe("2026-10-31");
+    expect((screen.getByLabelText("Booked from") as HTMLInputElement).value).toBe("2026-09-01");
+    expect((screen.getByLabelText("Booked until") as HTMLInputElement).value).toBe("2026-10-31");
 
-    fireEvent.change(screen.getByLabelText("Occupied until"), { target: { value: "2026-08-01" } });
+    fireEvent.change(screen.getByLabelText("Booked until"), { target: { value: "2026-08-01" } });
     const edited = onRoom.mock.calls[0]![0] as Partial<ManagerRoomSubmission>;
     expect(edited.manualUnavailableRanges![0]!.end).toBe("2026-08-01");
 
@@ -65,7 +65,7 @@ describe("OccupiedDates", () => {
     render(<OccupiedDates room={room({ manualUnavailableRanges: [{ id: "u1", start: "2026-09-01", end: "2026-08-01" }] })} propertyId={null} onRoom={onRoom} />);
     expect(screen.getByText("End is before Start")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove these occupied dates" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove these booked dates" }));
     const removed = onRoom.mock.calls[onRoom.mock.calls.length - 1]![0] as Partial<ManagerRoomSubmission>;
     expect(removed.manualUnavailableRanges).toEqual([]);
     expect(removed.availability).toBe("Available now");
@@ -75,7 +75,7 @@ describe("OccupiedDates", () => {
     const onRoom = vi.fn();
     render(<OccupiedDates room={room({ manualUnavailableRanges: [{ id: "u1", start: "2099-01-01", end: "2099-01-31" }] })} propertyId={null} onRoom={onRoom} />);
     expect(screen.queryByText(/Renters see/)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Add occupied dates" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add booked dates" }));
     const patch = onRoom.mock.calls[0]![0] as Partial<ManagerRoomSubmission>;
     expect(patch.manualUnavailableRanges).toHaveLength(2);
     expect(patch.manualUnavailableRanges![1]).toMatchObject({ start: "2099-02-01", end: null });
@@ -83,11 +83,11 @@ describe("OccupiedDates", () => {
 
   it("disables both adds while a row has no End", () => {
     render(<OccupiedDates room={room({ manualUnavailableRanges: [{ id: "u1", start: "2026-09-01", end: null }] })} propertyId={null} onRoom={() => {}} />);
-    expect((screen.getByRole("button", { name: "Set occupied dates" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Add occupied dates" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Set booked dates" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Add booked dates" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("flips on a labeled Calendar switch and keeps Occupied from/until on screen", () => {
+  it("flips on a labeled Calendar switch and keeps Booked from/until on screen", () => {
     const today = new Date();
     const key = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     const { container } = render(<OccupiedDates room={room({ manualUnavailableRanges: [{ id: "u1", start: key(today), end: key(today) }] })} propertyId={null} onRoom={() => {}} />);
@@ -97,10 +97,10 @@ describe("OccupiedDates", () => {
     expect(toggle.getAttribute("aria-checked")).toBe("true");
     const cell = container.querySelector(`[data-day="${key(today)}"]`);
     expect(cell?.getAttribute("data-tone")).toBe("occupied");
-    expect(screen.getByLabelText("Occupied from")).toBeTruthy();
+    expect(screen.getByLabelText("Booked from")).toBeTruthy();
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-checked")).toBe("false");
-    expect(screen.getByLabelText("Occupied from")).toBeTruthy();
+    expect(screen.getByLabelText("Booked from")).toBeTruthy();
   });
 
   it("paints occupied dates when the calendar drag commits an open range", () => {
@@ -124,9 +124,9 @@ describe("OccupiedDates", () => {
     future.setDate(future.getDate() + 40);
     const key = `${future.getFullYear()}-${String(future.getMonth() + 1).padStart(2, "0")}-${String(future.getDate()).padStart(2, "0")}`;
     render(<OccupiedDates room={room({ moveInAvailableDate: key })} propertyId={null} onRoom={onRoom} />);
-    expect(screen.getByText("Occupied")).toBeTruthy(); // the row's pill, not a readout
-    expect(screen.getByLabelText("Occupied from")).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Occupied until"), { target: { value: key } });
+    expect(screen.getByText("Booked")).toBeTruthy(); // the row's pill, not a readout
+    expect(screen.getByLabelText("Booked from")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Booked until"), { target: { value: key } });
     const patch = onRoom.mock.calls[0]![0] as Partial<ManagerRoomSubmission>;
     expect(patch.manualUnavailableRanges).toHaveLength(1);
     expect(patch.manualUnavailableRanges![0]!.id).not.toBe("legacy-available-from");
@@ -136,6 +136,6 @@ describe("OccupiedDates", () => {
     const r = room({ manualUnavailableRanges: [{ id: "channel-import-c1-x", start: "2026-10-01", end: "2026-10-05" }] });
     render(<OccupiedDates room={r} propertyId={null} onRoom={() => {}} />);
     expect(screen.getByText("Airbnb")).toBeTruthy();
-    expect(screen.queryByLabelText("Occupied from")).toBeNull();
+    expect(screen.queryByLabelText("Booked from")).toBeNull();
   });
 });

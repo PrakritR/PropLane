@@ -239,7 +239,7 @@ export function BookingsBlockDatesModal({
       });
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not block those dates.");
+      setError(e instanceof Error ? e.message : "Couldn’t save booking. House and move-in are required.");
     } finally {
       setBusy(false);
     }
@@ -279,7 +279,7 @@ export function BookingsBlockDatesModal({
           data-attr="bookings-block-dates-save"
           onClick={() => save()}
         >
-          {busy ? "Blocking…" : "Block dates"}
+          {busy ? "Saving…" : "Add booking"}
         </Button>
       </ModalFooter>
     );
@@ -288,7 +288,7 @@ export function BookingsBlockDatesModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={pane === "airbnb" ? "Link Airbnb" : "Block dates"}
+      title={pane === "airbnb" ? "Link Airbnb" : "Add booking"}
       dataAttr="bookings-block-dates-modal"
       footer={footer}
     >
@@ -298,14 +298,14 @@ export function BookingsBlockDatesModal({
           activeId={pane}
           onChange={(id) => setPane(id as BookingsSheetPane)}
           items={[
-            { id: "block", label: "Block dates", dataAttr: "bookings-sheet-pane-block" },
+            { id: "block", label: "Add booking", dataAttr: "bookings-sheet-pane-block" },
             { id: "airbnb", label: "Link Airbnb", dataAttr: "bookings-sheet-pane-airbnb" },
           ]}
         />
 
         <div hidden={pane !== "block"} className="space-y-4">
           <label className="block">
-            <span className={FIELD_LABEL}>Property</span>
+            <span className={FIELD_LABEL}>House</span>
             <Select
               value={propertyId}
               onChange={(e) => {
@@ -458,7 +458,7 @@ export function BookingsBlockDatesModal({
 
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
-              <span className={FIELD_LABEL}>Check-in</span>
+              <span className={FIELD_LABEL}>Move in</span>
               <Input
                 type="date"
                 value={checkIn}
@@ -468,7 +468,7 @@ export function BookingsBlockDatesModal({
               />
             </label>
             <label className="block">
-              <span className={FIELD_LABEL}>Check-out</span>
+              <span className={FIELD_LABEL}>Move out</span>
               <Input
                 type="date"
                 value={checkOut}
@@ -482,7 +482,7 @@ export function BookingsBlockDatesModal({
           </div>
           {checkIn && checkOut && !rangeValid ? (
             <p className="text-xs text-[var(--status-overdue-fg)]" role="alert">
-              Check-out must be after check-in.
+              Move out must be after move in.
             </p>
           ) : null}
 

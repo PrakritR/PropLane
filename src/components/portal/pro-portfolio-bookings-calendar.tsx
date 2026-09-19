@@ -132,23 +132,14 @@ function dominantSourceForDay(
 function dayCellClassName(
   booked: boolean,
   isToday: boolean,
-  source: PropertyBookingEntry["source"] | null,
+  _source: PropertyBookingEntry["source"] | null,
 ): string {
   const base =
     "flex min-h-0 flex-1 flex-col items-stretch rounded-lg border p-1.5 text-left text-xs transition hover:shadow-[var(--shadow-sm)]";
   if (!booked) {
     return `${base} border-border/80 bg-card/90 text-foreground hover:border-primary/25 hover:bg-accent/25`;
   }
-  if (source === "proplane") {
-    return `${base} border-[color-mix(in_srgb,var(--status-approved-fg)_35%,transparent)] bg-[var(--status-approved-bg)] text-[var(--status-approved-fg)]`;
-  }
-  if (source === "hold") {
-    return `${base} border-[color-mix(in_srgb,var(--status-confirmed-fg)_35%,transparent)] bg-[var(--status-confirmed-bg)] text-[var(--status-confirmed-fg)]`;
-  }
-  if (source === "block") {
-    return `${base} border-border bg-[var(--secondary)] text-muted [background-image:repeating-linear-gradient(135deg,transparent_0_6px,color-mix(in_srgb,var(--border)_70%,transparent)_6px_7px)]`;
-  }
-  return `${base} border-[color-mix(in_srgb,var(--status-pending-fg)_35%,transparent)] bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)]`;
+  return `${base} border-rose-300 bg-rose-100 text-rose-950 hover:border-rose-400`;
 }
 
 function DayBookingCell({
@@ -669,25 +660,14 @@ export function ManagerBookingsHub({
                 </div>
               ) : null}
 
-              <div className="flex shrink-0 flex-wrap items-center gap-3 border-t border-border/60 pt-2 text-[10px] text-muted">
+              <div className="flex shrink-0 flex-wrap items-center gap-3 border-t border-border/60 pt-2 text-[10px] text-muted" aria-label="Calendar key">
                 <span className="inline-flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-primary" aria-hidden />
-                  PropLane stay
+                  <span className="h-2 w-2 rounded-sm bg-emerald-100 ring-1 ring-inset ring-emerald-300" aria-hidden />
+                  Available
                 </span>
                 <span className="inline-flex items-center gap-1.5">
-                  <span
-                    className="h-2 w-2 rounded-full bg-[var(--status-pending-fg)]"
-                    aria-hidden
-                  />
-                  Airbnb
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-[var(--status-confirmed-fg)]" aria-hidden />
-                  Approved · lease pending
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-muted" aria-hidden />
-                  Blocked
+                  <span className="h-2 w-2 rounded-sm bg-rose-100 ring-1 ring-inset ring-rose-300" aria-hidden />
+                  Booked
                 </span>
               </div>
             </div>

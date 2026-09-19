@@ -34,7 +34,7 @@ export function BookingsDayDetailModal({
       footer={
         onBlockDates ? (
           <Button type="button" variant="outline" onClick={onBlockDates} data-attr="bookings-day-block-dates">
-            Block dates
+            Add booking
           </Button>
         ) : undefined
       }

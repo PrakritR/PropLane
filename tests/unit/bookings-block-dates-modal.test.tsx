@@ -114,7 +114,22 @@ describe("BookingsBlockDatesModal — resident", () => {
     expect(attr(view, "bookings-block-resident")!.textContent).toContain("No one — just close the room");
   });
 
-  it("is one sheet with Block dates and Link Airbnb panes, and no helper description", () => {
+  it("labels the form House, Move in, and Move out under Add booking", () => {
+    const { view } = open();
+    const body = document.body.textContent ?? "";
+    expect(body).toContain("Add booking");
+    expect(body).toContain("House");
+    expect(body).toContain("Move in");
+    expect(body).toContain("Move out");
+    expect(body).toContain("Resident");
+    expect(body).not.toContain("Check-in");
+    expect(body).not.toContain("Check-out");
+    expect(attr(view, "bookings-block-property")).not.toBeNull();
+    expect(attr(view, "bookings-block-check-in")).not.toBeNull();
+    expect(attr(view, "bookings-block-check-out")).not.toBeNull();
+  });
+
+  it("is one sheet with Add booking and Link Airbnb panes, and no helper description", () => {
     const { view } = open();
     const body = document.body.textContent ?? "";
     expect(attr(view, "bookings-sheet-pane-block")).not.toBeNull();

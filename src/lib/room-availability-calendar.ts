@@ -109,7 +109,7 @@ export function monthAvailabilityTone(
 export function monthToneLabel(tone: MonthAvailabilityTone): string {
   switch (tone) {
     case "available":
-      return "Open";
+      return "Available";
     case "unavailable":
       return "Unavailable";
     case "mixed":

@@ -5,7 +5,7 @@
  *
  * Shared by the public listing page (every span red, read-only) and the listing
  * editor's Rooms step (the manager's own occupied dates red, residents' stays,
- * Bookings blocks and Airbnb imports grey). Open days are green, past days fade,
+ * Bookings blocks and Airbnb imports). Available days are green, past days fade,
  * today is ringed. The month range runs from the current month to twelve months
  * out or to the last span, whichever is later, and the prev arrow is disabled on
  * the first month.
@@ -61,8 +61,6 @@ function monthTonePillClasses(tone: MonthAvailabilityTone): string {
 const DAY_OPEN = "bg-emerald-100 text-emerald-950 ring-1 ring-inset ring-emerald-300 [html[data-theme=dark]_&]:portal-calendar-open-slot";
 const DAY_OCCUPIED =
   "bg-rose-100 text-rose-950 ring-1 ring-inset ring-rose-300 [html[data-theme=dark]_&]:bg-rose-950/40 [html[data-theme=dark]_&]:text-rose-100 [html[data-theme=dark]_&]:ring-rose-700/60";
-const DAY_BOOKED =
-  "bg-slate-200 text-slate-800 ring-1 ring-inset ring-slate-300 [html[data-theme=dark]_&]:bg-slate-800/60 [html[data-theme=dark]_&]:text-slate-100 [html[data-theme=dark]_&]:ring-slate-600/60";
 const DAY_SELECTED = "bg-primary/15 text-primary ring-2 ring-inset ring-primary";
 
 const HOLD_MS = 200;
@@ -78,7 +76,7 @@ export function roomCalendarDayTone(day: Date, spans: readonly RoomCalendarSpan[
 }
 
 function dayClasses(tone: RoomCalendarSpanTone | "open" | "selected", isPast: boolean, isToday: boolean): string {
-  const base = tone === "booked" ? DAY_BOOKED : tone === "occupied" ? DAY_OCCUPIED : tone === "selected" ? DAY_SELECTED : DAY_OPEN;
+  const base = tone === "booked" || tone === "occupied" ? DAY_OCCUPIED : tone === "selected" ? DAY_SELECTED : DAY_OPEN;
   return `${base} ${isPast ? "opacity-45" : ""} ${isToday && tone !== "selected" ? "ring-2 ring-primary/50" : ""}`;
 }
 
@@ -119,7 +117,7 @@ function MonthGrid({
   const cells = buildMonthDayCells(monthStart);
   const [selStart, selEnd] = drag ? orderedDateKeys(drag.origin, drag.end) : [null, null];
   const chipAnchor = drag ? (drag.origin <= drag.end ? drag.end : drag.origin) : null;
-  const chipLabel = drag ? `Occupied · ${formatDateKeyShort(selStart!)}–${formatDateKeyShort(selEnd!)}` : null;
+  const chipLabel = drag ? `Booked · ${formatDateKeyShort(selStart!)}–${formatDateKeyShort(selEnd!)}` : null;
 
   return (
     <>
@@ -402,9 +400,8 @@ export function RoomAvailabilityMonthCalendar({
       />
       {legend ? (
         <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px] font-medium text-muted" aria-label="Calendar key">
-          <li className="inline-flex items-center gap-1.5"><span aria-hidden className={`inline-block h-2.5 w-2.5 rounded-sm ${DAY_OPEN}`} />Open</li>
-          <li className="inline-flex items-center gap-1.5"><span aria-hidden className={`inline-block h-2.5 w-2.5 rounded-sm ${DAY_OCCUPIED}`} />Occupied</li>
-          <li className="inline-flex items-center gap-1.5"><span aria-hidden className={`inline-block h-2.5 w-2.5 rounded-sm ${DAY_BOOKED}`} />Booked · resident, block, Airbnb</li>
+          <li className="inline-flex items-center gap-1.5"><span aria-hidden className={`inline-block h-2.5 w-2.5 rounded-sm ${DAY_OPEN}`} />Available</li>
+          <li className="inline-flex items-center gap-1.5"><span aria-hidden className={`inline-block h-2.5 w-2.5 rounded-sm ${DAY_OCCUPIED}`} />Booked</li>
         </ul>
       ) : null}
     </div>

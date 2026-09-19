@@ -394,7 +394,7 @@ function useBookingsWorkspace({
           {roomFilterSheet}
           <PortalIconAction
             icon={CalendarOff}
-            label="Block dates"
+            label="Add booking"
             data-attr="bookings-block-dates-open"
             disabled={linkDisabled}
             onClick={() => setSheet({ open: true, pane: "block", dayKey: null, editingBlock: null })}

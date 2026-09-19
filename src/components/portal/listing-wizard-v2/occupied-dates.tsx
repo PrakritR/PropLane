@@ -198,7 +198,7 @@ export function OccupiedDates({
         <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border" data-attr="listing-v2-room-occupied-list">
           {readOnly.map((span) => (
             <li key={span.id} className="grid grid-cols-[1fr_auto] items-center gap-2 bg-foreground/[0.03] px-3 py-2 text-[13px] sm:grid-cols-[minmax(0,1.2fr)_1fr_auto_1fr_auto]">
-              <span className="truncate font-semibold text-foreground/80">{span.label ?? "Occupied"}</span>
+              <span className="truncate font-semibold text-foreground/80">{span.label ?? "Booked"}</span>
               <span className="text-muted sm:justify-self-start">{formatDateKeyShort(span.start)}</span>
               <span aria-hidden className="hidden text-muted sm:inline">→</span>
               <span className="hidden text-muted sm:inline">{span.end ? formatDateKeyShort(span.end) : "No end date"}</span>
@@ -209,10 +209,10 @@ export function OccupiedDates({
             const bad = spanEndsBeforeStart(r);
             return (
               <li key={r.id} className="grid grid-cols-[1fr_1fr_auto] items-center gap-2 px-3 py-2 sm:grid-cols-[minmax(0,1.2fr)_1fr_auto_1fr_auto]" data-attr="listing-v2-room-occupied-row">
-                <span className="col-span-3 inline-flex w-fit items-center rounded-full bg-foreground/[0.08] px-2.5 py-0.5 text-[11.5px] font-bold text-foreground sm:col-span-1">Occupied</span>
+                <span className="col-span-3 inline-flex w-fit items-center rounded-full bg-foreground/[0.08] px-2.5 py-0.5 text-[11.5px] font-bold text-foreground sm:col-span-1">Booked</span>
                 <Input
                   type="date"
-                  aria-label="Occupied from"
+                  aria-label="Booked from"
                   value={r.start}
                   onChange={(e) => edit(r.id, { start: e.target.value })}
                   className="min-h-[38px] rounded-xl px-3 py-1.5 sm:text-[13.5px]"
@@ -220,7 +220,7 @@ export function OccupiedDates({
                 <span aria-hidden className="hidden text-muted sm:inline">→</span>
                 <Input
                   type="date"
-                  aria-label="Occupied until"
+                  aria-label="Booked until"
                   value={r.end ?? ""}
                   aria-invalid={bad || undefined}
                   onChange={(e) => edit(r.id, { end: e.target.value ? e.target.value : null })}
@@ -229,7 +229,7 @@ export function OccupiedDates({
                 <button
                   type="button"
                   onClick={() => remove(r.id)}
-                  aria-label="Remove these occupied dates"
+                  aria-label="Remove these booked dates"
                   data-attr="listing-v2-room-occupied-remove"
                   className="justify-self-end text-[16px] leading-none text-muted hover:text-red-600"
                 >
@@ -245,13 +245,13 @@ export function OccupiedDates({
                 type="button"
                 onClick={add}
                 disabled={blockedAdd}
-                aria-label="Add occupied dates"
+                aria-label="Add booked dates"
                 title={addTitle}
                 data-attr="listing-v2-room-occupied-add"
                 className="flex w-full items-center justify-center gap-2 px-3 py-2.5 text-[13px] font-semibold text-primary transition hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-45"
               >
                 <Plus className="h-4 w-4" aria-hidden />
-                Add occupied dates
+                Add booked dates
               </button>
             </li>
           ) : null}
@@ -288,7 +288,7 @@ export function OccupiedDates({
             type="button"
             onClick={add}
             disabled={blockedAdd}
-            aria-label="Set occupied dates"
+            aria-label="Set booked dates"
             title={addTitle}
             data-attr="listing-v2-room-set-occupied"
             className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-primary transition hover:border-primary/45 hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-45"
