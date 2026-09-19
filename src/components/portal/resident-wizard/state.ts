@@ -43,6 +43,16 @@ export function alsoCreates(form: { alsoCreate: readonly AlsoCreateId[] }, id: A
   return form.alsoCreate.includes(id);
 }
 
+/** Also create Payments is off by default — commit must not invent a ledger. */
+export function commitCreatesPayments(form: { kind: AddPersonKind; alsoCreate: readonly AlsoCreateId[] }): boolean {
+  return form.kind !== "prospect" && alsoCreates(form, "payments");
+}
+
+/** Also create Lease is the default extra — draft/signed filing only when it stays on. */
+export function commitCreatesLease(form: { kind: AddPersonKind; alsoCreate: readonly AlsoCreateId[] }): boolean {
+  return form.kind !== "prospect" && alsoCreates(form, "lease");
+}
+
 /** Empty selection snaps back to Lease — a current resident always has a default extra. */
 export function normalizeAlsoCreate(next: readonly string[], kind: AddPersonKind = "resident"): AlsoCreateId[] {
   if (kind === "prospect") return [];
@@ -225,7 +235,7 @@ export function emptyAddPersonForm(kind: AddPersonKind = "resident"): AddPersonF
     otherFeeLabel: "",
     otherFeeAmount: "",
     rentDueDay: "1",
-    leaseDocument: "signed",
+    leaseDocument: "later",
     leaseFile: null,
     leaseDataUrl: "",
     leaseFileName: "",

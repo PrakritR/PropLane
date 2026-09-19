@@ -40,6 +40,15 @@ describe("add-workspace close stack", () => {
     expect(workspaceSource).toContain("onJump(last)");
   });
 
+  it("desktop Add workspace body can scroll — the main column is min-height 0", () => {
+    const primitives = readFileSync(
+      resolve(process.cwd(), "src/components/portal/listing-wizard-v2/wizard-primitives.tsx"),
+      "utf8",
+    );
+    expect(primitives).toContain("lg:grid-rows-[minmax(0,1fr)]");
+    expect(primitives).toMatch(/<main className="min-h-0 min-w-0 overflow-y-auto/);
+  });
+
   it("Continue skips off-path extras", () => {
     const steps = [
       { id: "contact" },

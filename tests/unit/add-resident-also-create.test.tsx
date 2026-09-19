@@ -1,16 +1,41 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { ContactStep } from "@/components/portal/resident-wizard/step-contact";
+import { ReviewStep } from "@/components/portal/resident-wizard/step-review";
+import type { ResidentWizardDerived } from "@/components/portal/resident-wizard/derived";
 import {
   addPersonFormIsDirty,
   alsoCreates,
+  commitCreatesLease,
+  commitCreatesPayments,
   currentResidentStepOffPath,
   defaultAlsoCreate,
   emptyAddPersonForm,
   normalizeAlsoCreate,
   thingsToFinish,
 } from "@/components/portal/resident-wizard/state";
+
+const derivedStub: ResidentWizardDerived = {
+  roomOptions: [],
+  bundleOptions: [],
+  leaseTermOptions: [],
+  leaseTermPresetValues: [],
+  rentedByRoom: false,
+  entireHome: true,
+  showBundleSelect: false,
+  showRoomSelect: false,
+  rentalType: "standard",
+  isShortTerm: false,
+  isAirbnb: false,
+  isMonthToMonth: false,
+  applicationConfig: null,
+  customQuestions: [],
+  fieldEnabled: () => true,
+  listingSays: null,
+};
 
 afterEach(() => {
   cleanup();
@@ -54,6 +79,26 @@ describe("Also create — current resident", () => {
     expect(thingsToFinish(noLease).some((t) => t.step === "lease")).toBe(false);
   });
 
+  it("does not write charges unless Also create includes Payments", () => {
+    const leaseOnly = emptyAddPersonForm("resident");
+    expect(commitCreatesLease(leaseOnly)).toBe(true);
+    expect(commitCreatesPayments(leaseOnly)).toBe(false);
+    expect(commitCreatesPayments({ ...leaseOnly, alsoCreate: normalizeAlsoCreate(["lease", "payments"]) })).toBe(true);
+    expect(commitCreatesLease(emptyAddPersonForm("prospect"))).toBe(false);
+    expect(commitCreatesPayments(emptyAddPersonForm("prospect"))).toBe(false);
+    const commitSource = readFileSync(resolve(process.cwd(), "src/components/portal/resident-wizard/commit.ts"), "utf8");
+    expect(commitSource).toContain("commitCreatesPayments(form)");
+    expect(commitSource).toContain("commitCreatesLease(form)");
+    expect(commitSource).not.toContain("syncLeasePipelineFromApplications");
+    expect(commitSource).toContain("generateLeaseHtmlForRow");
+    expect(commitSource).toContain("sendLeaseToResident");
+    expect(commitSource).toContain("persist: false");
+    expect(commitSource).toContain("sendWelcomeEmail");
+    const storageSource = readFileSync(resolve(process.cwd(), "src/lib/manager-applications-storage.ts"), "utf8");
+    expect(storageSource).toContain("skipLeaseSeed");
+    expect(storageSource).toContain("serverConfirmed: true, skipLeaseSeed: true");
+  });
+
   it("shows Also create on a current resident and not on a prospect, without the old hint sentence", () => {
     const { rerender } = render(
       <ContactStep
@@ -80,5 +125,34 @@ describe("Also create — current resident", () => {
       />,
     );
     expect(screen.queryByText("Also create")).toBeNull();
+  });
+
+  it("Review does not preview a payment schedule when Payments is off", () => {
+    const form = {
+      ...emptyAddPersonForm("resident"),
+      name: "Casey Addtest",
+      email: "casey.addtest.0918@test.proplane.local",
+      leaseTerm: "long_term",
+      moveInDate: "2026-10-01",
+      rent: "1200",
+    };
+    render(
+      <ReviewStep form={form} patch={() => {}} derived={derivedStub} propertyLabel={null} goTo={() => {}} />,
+    );
+    const payments = document.querySelector('[data-attr="residents-wizard-review-payments"]');
+    expect(payments?.textContent).toContain("Off this add");
+    expect(payments?.textContent).not.toContain("$1,200.00/mo from 2026-10-01");
+    const application = document.querySelector('[data-attr="residents-wizard-review-application"]');
+    expect(application?.textContent).toContain("Off this add");
+    const documents = document.querySelector('[data-attr="residents-wizard-review-documents"]');
+    expect(documents?.textContent).toContain("Off this add");
+    const lease = document.querySelector('[data-attr="residents-wizard-review-lease"]');
+    expect(lease?.textContent).toContain("Generate later");
+  });
+
+  it("Add resident property picker uses the shared portfolio helper", () => {
+    const src = readFileSync(resolve(process.cwd(), "src/components/portal/pro-residents.tsx"), "utf8");
+    expect(src).toMatch(/const propertyOptions = useMemo\(\(\) => \{[\s\S]*buildManagerPropertyFilterOptions\(userId\)/);
+    expect(src).not.toContain("readExtraListingsForUser(userId)");
   });
 });

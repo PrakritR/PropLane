@@ -6,7 +6,7 @@
  * application questions. One hook so the steps and the side panel agree.
  */
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { getBundleOptionsForProperty, getPropertyById, isEntireHomeProperty, isPropertyRentedByRoom } from "@/lib/rental-application/data";
 import { normalizeCustomApplicationFields, normalizeManagerListingSubmissionV1, type ManagerCustomApplicationField } from "@/lib/manager-listing-submission";
 import {
@@ -115,12 +115,26 @@ export function useResidentWizardDerived(
   );
   const fieldEnabled = useMemo(() => (formKey: string) => isWizardFormFieldEnabled(applicationConfig, formKey), [applicationConfig]);
 
-  // Pricing defaults follow the placement — the same effect the old modal ran.
+  // Pricing defaults follow the placement. A listing-catalog tick must not
+  // wipe rent the manager already typed; only a new room/term/bundle does.
+  const lastPricingPlacementRef = useRef("");
   useEffect(() => {
     if (!propertyId.trim() || !leaseTerm.trim()) return;
     const pricing = resolveManualResidentPlacementValues({ propertyId, roomId, bundleId, leaseTerm, leaseTermCustomMode });
     if (!pricing) return;
-    patch({ rent: pricing.rent, utilities: pricing.utilities, moveInFee: pricing.moveInFee, securityDeposit: pricing.securityDeposit });
+    const placementKey = `${propertyId}\0${roomId}\0${bundleId}\0${leaseTerm}\0${String(leaseTermCustomMode)}`;
+    const placementChanged = lastPricingPlacementRef.current !== placementKey;
+    lastPricingPlacementRef.current = placementKey;
+    if (placementChanged) {
+      patch({ rent: pricing.rent, utilities: pricing.utilities, moveInFee: pricing.moveInFee, securityDeposit: pricing.securityDeposit });
+      return;
+    }
+    const next: Partial<AddPersonForm> = {};
+    if (!form.rent.trim()) next.rent = pricing.rent;
+    if (!form.utilities.trim()) next.utilities = pricing.utilities;
+    if (!form.moveInFee.trim()) next.moveInFee = pricing.moveInFee;
+    if (!form.securityDeposit.trim()) next.securityDeposit = pricing.securityDeposit;
+    if (Object.keys(next).length) patch(next);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [propertyId, roomId, bundleId, leaseTerm, leaseTermCustomMode, propertyTick]);
 

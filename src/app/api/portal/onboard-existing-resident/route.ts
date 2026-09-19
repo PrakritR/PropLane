@@ -59,7 +59,7 @@ export async function POST(req: Request) {
         managerName: String(requestor?.full_name ?? ""),
       },
       row,
-      { sendWelcomeEmail },
+      { sendWelcomeEmail, skipLeaseWrite: true },
     );
 
     if (!result.ok) {

@@ -351,7 +351,14 @@ export function AddResidentWizard({
     try {
       const ctx = { userId: managerUserId, executedLeaseKeys, propertyLabelFor: (id: string) => propertyOptions.find((p) => p.id === id)?.label, assignee };
       const outcome =
-        mode === "application" ? await commitApplicationDraft(row, form, ctx) : form.kind === "prospect" ? await commitProspect(row, form, ctx) : await commitResident(row, form, ctx);
+        mode === "application"
+          ? await commitApplicationDraft(row, form, ctx)
+          : form.kind === "prospect"
+            ? await commitProspect(row, form, ctx)
+            : await commitResident(row, form, ctx, {
+                sendWelcomeEmail: !skipMessage,
+                sendLease: !skipMessage,
+              });
       if (outcome.failures.row) {
         showToast(outcome.failures.row);
         setPreview(null);
@@ -383,17 +390,25 @@ export function AddResidentWizard({
         }
         if (!viaEmail && !viaSms) showToast("Application added.");
       } else if (!skipMessage && row.email) {
-        const sent = await sendClosingMessage({
-          toEmail: row.email,
-          viaEmail: channels?.viaEmail !== false,
-          viaSms: channels?.viaSms === true,
-          subject: draft?.subject?.trim() || form.message.subject || "",
-          body: draft?.body?.trim() || form.message.body || "",
-          scheduleAt: draft?.scheduleAt,
-          recipientName: row.name,
-        });
-        if (!sent.ok) problems.push(sent.message);
-        else showToast(`${who} added. ${sent.message}`);
+        const viaSms = channels?.viaSms === true;
+        const viaEmail = channels?.viaEmail !== false && !outcome.welcomeEmailSent;
+        if (viaEmail || viaSms) {
+          const sent = await sendClosingMessage({
+            toEmail: row.email,
+            viaEmail,
+            viaSms,
+            subject: draft?.subject?.trim() || form.message.subject || "",
+            body: draft?.body?.trim() || form.message.body || "",
+            scheduleAt: draft?.scheduleAt,
+            recipientName: row.name,
+          });
+          if (!sent.ok) problems.push(sent.message);
+          else showToast(`${who} added. ${sent.message}`);
+        } else if (outcome.welcomeEmailSent) {
+          showToast(`${who} added. Portal setup emailed to ${row.email}.`);
+        } else {
+          showToast(`${who} added.`);
+        }
       } else {
         showToast(`${who} ${mode === "tour" ? "scheduled" : "added"}.${outcome.notes.length ? ` ${outcome.notes.join(" · ")}.` : ""}`);
       }

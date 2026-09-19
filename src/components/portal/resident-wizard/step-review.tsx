@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { MessageStep, ReviewCard, WizardChip, WizardLine, WizardSection, type MessageDraft } from "@/components/portal/add-workspace/parts";
 import type { ResidentWizardDerived } from "./derived";
-import { formatMoney, monthKeyLabel, paymentSchedulePreview, thingsToFinish, type AddPersonForm } from "./state";
+import { alsoCreates, formatMoney, monthKeyLabel, paymentSchedulePreview, thingsToFinish, type AddPersonForm } from "./state";
 
 function moneyOr0(raw: string): number {
   const n = Number(raw.replace(/[^\d.]/g, ""));
@@ -39,6 +39,11 @@ export function ReviewStep({
   const emailAvailable = form.email.includes("@");
   const smsAvailable = Boolean(form.phone.trim());
   const onMessage = (next: MessageDraft) => patch({ message: next });
+  const wantApp = alsoCreates(form, "application");
+  const wantLease = alsoCreates(form, "lease");
+  const wantPayments = alsoCreates(form, "payments");
+  const wantDocs = alsoCreates(form, "documents");
+  const offThisAdd = [{ label: "Also create", value: "Off this add" }];
 
   return (
     <StepColumn>
@@ -122,43 +127,55 @@ export function ReviewStep({
             status="optional"
             onEdit={() => goTo("application")}
             dataAttr="residents-wizard-review-application"
-            facts={[
-              { label: "About", value: [a.dateOfBirth ? `DOB ${a.dateOfBirth}` : null, `${Math.max(1, Number(a.occupancyCount) || 1)} ${Number(a.occupancyCount) === 1 || !a.occupancyCount ? "person" : "people"}`, a.pets ? a.pets : "no pets"].filter(Boolean).join(" · ") },
-              { label: "Employment", value: a.notEmployed ? "Not currently employed" : a.employer ? `${a.employer}${a.monthlyIncome ? ` · $${a.monthlyIncome}/mo` : ""}` : "Not entered" },
-              { label: "Current address", value: a.currentStreet ? `${a.currentStreet}${a.currentCity ? `, ${a.currentCity}` : ""}` : "Not entered" },
-              { label: "References · disclosures", value: `${a.ref1Name || "—"} · ${a.evictionHistory || "No"} · ${a.bankruptcyHistory || "No"} · ${a.criminalHistory || "No"}` },
-            ]}
+            facts={
+              wantApp
+                ? [
+                    { label: "About", value: [a.dateOfBirth ? `DOB ${a.dateOfBirth}` : null, `${Math.max(1, Number(a.occupancyCount) || 1)} ${Number(a.occupancyCount) === 1 || !a.occupancyCount ? "person" : "people"}`, a.pets ? a.pets : "no pets"].filter(Boolean).join(" · ") },
+                    { label: "Employment", value: a.notEmployed ? "Not currently employed" : a.employer ? `${a.employer}${a.monthlyIncome ? ` · $${a.monthlyIncome}/mo` : ""}` : "Not entered" },
+                    { label: "Current address", value: a.currentStreet ? `${a.currentStreet}${a.currentCity ? `, ${a.currentCity}` : ""}` : "Not entered" },
+                    { label: "References · disclosures", value: `${a.ref1Name || "—"} · ${a.evictionHistory || "No"} · ${a.bankruptcyHistory || "No"} · ${a.criminalHistory || "No"}` },
+                  ]
+                : offThisAdd
+            }
           />
           <ReviewCard
             title="Lease"
-            status={missing("lease") ? "incomplete" : "complete"}
+            status={!wantLease ? "optional" : missing("lease") ? "incomplete" : "complete"}
             onEdit={() => goTo("lease")}
             dataAttr="residents-wizard-review-lease"
-            facts={[
-              { label: "Term", value: form.leaseTerm && form.moveInDate ? `${form.leaseTerm} · ${form.moveInDate}${form.moveOutDate ? ` → ${form.moveOutDate}` : ""}` : "Term and move-in required", missing: !form.leaseTerm || !form.moveInDate },
-              { label: "Monthly", value: derived.isAirbnb ? "Calendar-only" : `${formatMoney(moneyOr0(form.rent))} rent${moneyOr0(form.utilities) ? ` + ${formatMoney(moneyOr0(form.utilities))} utilities` : ""}`, missing: !derived.isAirbnb && !form.rent.trim() },
-              { label: "One-time", value: [moneyOr0(form.securityDeposit) ? `${formatMoney(moneyOr0(form.securityDeposit))} deposit` : null, moneyOr0(form.moveInFee) ? `${formatMoney(moneyOr0(form.moveInFee))} move-in fee` : null].filter(Boolean).join(" · ") || "—" },
-              { label: "Document", value: form.leaseDocument === "later" ? "Generate later" : `${form.leaseDocument === "signed" ? "Already signed" : "Draft for review"} · ${form.leaseFileName || "upload required"}`, missing: form.leaseDocument !== "later" && !form.leaseFileName },
-            ]}
+            facts={
+              wantLease
+                ? [
+                    { label: "Term", value: form.leaseTerm && form.moveInDate ? `${form.leaseTerm} · ${form.moveInDate}${form.moveOutDate ? ` → ${form.moveOutDate}` : ""}` : "Term and move-in required", missing: !form.leaseTerm || !form.moveInDate },
+                    { label: "Monthly", value: derived.isAirbnb ? "Calendar-only" : `${formatMoney(moneyOr0(form.rent))} rent${moneyOr0(form.utilities) ? ` + ${formatMoney(moneyOr0(form.utilities))} utilities` : ""}`, missing: !derived.isAirbnb && !form.rent.trim() },
+                    { label: "One-time", value: [moneyOr0(form.securityDeposit) ? `${formatMoney(moneyOr0(form.securityDeposit))} deposit` : null, moneyOr0(form.moveInFee) ? `${formatMoney(moneyOr0(form.moveInFee))} move-in fee` : null].filter(Boolean).join(" · ") || "—" },
+                    { label: "Document", value: form.leaseDocument === "later" ? "Generate later" : `${form.leaseDocument === "signed" ? "Already signed" : "Draft for review"} · ${form.leaseFileName || "upload required"}`, missing: form.leaseDocument !== "later" && !form.leaseFileName },
+                  ]
+                : offThisAdd
+            }
           />
           <ReviewCard
             title="Payments"
-            status="complete"
+            status={wantPayments ? "complete" : "optional"}
             onEdit={() => goTo("payments")}
             dataAttr="residents-wizard-review-payments"
-            facts={[
-              { label: "Recurring", value: derived.isAirbnb ? "Nothing billed" : `${formatMoney(moneyOr0(form.rent) + moneyOr0(form.utilities) + moneyOr0(form.otherFeeAmount))}/mo ${form.billingStart === "next_due" ? "from the next due date" : form.moveInDate ? `from ${form.moveInDate}` : ""}` },
-              { label: "Recorded", value: rows.length ? `${paid.map((r) => monthKeyLabel(r.monthKey).split(" ")[0]).join(" · ") || "none"} paid (${formatMoney(paidTotal)})${due.length ? ` · ${due.map((r) => monthKeyLabel(r.monthKey).split(" ")[0]).join(" · ")} due` : ""}` : "—" },
-              { label: "One-time", value: [moneyOr0(form.securityDeposit) ? `Deposit ${form.depositPaid ? "paid" : "due"}` : null, moneyOr0(form.moveInFee) ? `move-in fee ${form.moveInFeePaid ? "paid" : "due"}` : null].filter(Boolean).join(" · ") || "—" },
-              { label: "Balance today", value: due.length ? `${formatMoney(due.reduce((s, r) => s + r.total, 0))} due` : "paid up" },
-            ]}
+            facts={
+              wantPayments
+                ? [
+                    { label: "Recurring", value: derived.isAirbnb ? "Nothing billed" : `${formatMoney(moneyOr0(form.rent) + moneyOr0(form.utilities) + moneyOr0(form.otherFeeAmount))}/mo ${form.billingStart === "next_due" ? "from the next due date" : form.moveInDate ? `from ${form.moveInDate}` : ""}` },
+                    { label: "Recorded", value: rows.length ? `${paid.map((r) => monthKeyLabel(r.monthKey).split(" ")[0]).join(" · ") || "none"} paid (${formatMoney(paidTotal)})${due.length ? ` · ${due.map((r) => monthKeyLabel(r.monthKey).split(" ")[0]).join(" · ")} due` : ""}` : "—" },
+                    { label: "One-time", value: [moneyOr0(form.securityDeposit) ? `Deposit ${form.depositPaid ? "paid" : "due"}` : null, moneyOr0(form.moveInFee) ? `move-in fee ${form.moveInFeePaid ? "paid" : "due"}` : null].filter(Boolean).join(" · ") || "—" },
+                    { label: "Balance today", value: due.length ? `${formatMoney(due.reduce((s, r) => s + r.total, 0))} due` : "paid up" },
+                  ]
+                : offThisAdd
+            }
           />
           <ReviewCard
             title="Documents"
             status="optional"
             onEdit={() => goTo("documents")}
             dataAttr="residents-wizard-review-documents"
-            facts={[{ label: "Attached", value: form.documents.length ? form.documents.map((d) => d.file.name).join(" · ") : "None" }]}
+            facts={wantDocs ? [{ label: "Attached", value: form.documents.length ? form.documents.map((d) => d.file.name).join(" · ") : "None" }] : offThisAdd}
           />
         </>
       )}

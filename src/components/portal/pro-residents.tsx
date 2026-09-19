@@ -185,12 +185,7 @@ import {
 } from "@/lib/resident-manual-lease-terms";
 import { buildLeaseReadyForResidentMessage } from "@/lib/resident-portal-login-copy";
 
-import {
-  buildMockPropertyFromDraft,
-  readExtraListingsForUser,
-  readPendingManagerPropertiesForUser,
-  syncPropertyPipelineFromServer,
-} from "@/lib/demo-property-pipeline";
+import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import {
   appendLeaseThreadMessage,
@@ -826,17 +821,12 @@ export function ManagerResidents({
 
   const propertyOptions = useMemo(() => {
     void propertyTick;
-    const labelById = new Map<string, string>();
-    if (userId) {
-      for (const p of readExtraListingsForUser(userId)) {
-        labelById.set(p.id, (p.buildingName || p.title?.replace(/\s*·\s*\d+\s*rooms?\s*$/i, "") || p.address || p.id).trim());
-      }
-      for (const p of readPendingManagerPropertiesForUser(userId)) {
-        const built = buildMockPropertyFromDraft(p, p.id);
-        const label = [built.buildingName, built.address].filter(Boolean).join(" · ").trim() || built.title;
-        labelById.set(p.id, label);
-      }
-    }
+    // Same catalog as Leases / Payments — workspace membership is authoritative
+    // when the local extra-listings cache is empty, so Add resident can still
+    // place someone in a house that already shows on Properties.
+    const labelById = new Map(
+      buildManagerPropertyFilterOptions(userId).map((option) => [option.id, option.label]),
+    );
     for (const r of residents) {
       if (r.propertyId && !labelById.has(r.propertyId)) {
         labelById.set(r.propertyId, r.propertyLabel || r.propertyId);
@@ -1549,6 +1539,8 @@ export function ManagerResidents({
       const viaEmail = opts?.channels?.viaEmail !== false;
       const viaSms = opts?.channels?.viaSms === true;
 
+      const customized = Boolean(opts?.draft?.body?.trim() && opts.draft.body.trim() !== defaultBody.trim());
+
       if (opts?.draft?.scheduleAt) {
         const response = await fetch("/api/portal/scheduled-inbox-messages", {
           method: "POST",
@@ -1571,6 +1563,56 @@ export function ManagerResidents({
           return;
         }
         toast("Account setup message scheduled.");
+        return;
+      }
+
+      if (res.manuallyAdded && viaEmail && !customized) {
+        const response = await fetch("/api/portal/onboard-existing-resident", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ applicationId: res.axisId, sendWelcomeEmail: true }),
+        });
+        const data = (await response.json()) as { ok?: boolean; error?: string; mailtoHref?: string; welcomeEmailSent?: boolean };
+        if (response.ok && data.ok) {
+          if (viaSms) {
+            const sms = await fetch("/api/portal/send-inbox-message", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({
+                fromName: managerEmail ?? "Property Manager",
+                toEmails: [res.email],
+                subject,
+                text: body,
+                deliverToPortalInbox: false,
+                deliverViaEmail: false,
+                deliverViaSms: true,
+              }),
+            });
+            const smsData = (await sms.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+            if (!sms.ok || !smsData.ok) {
+              toast(smsData.error ?? "Portal setup emailed. The text could not be sent.");
+              return;
+            }
+            toast("Portal setup emailed and texted.");
+            return;
+          }
+          showToast("Portal setup email sent.");
+          return;
+        }
+        if (typeof data.mailtoHref === "string") {
+          const { openMailtoHref } = await import("@/lib/resident-welcome-email");
+          openMailtoHref(data.mailtoHref);
+          const err = (data.error ?? "").toLowerCase();
+          showToast(
+            err.includes("not configured") || err.includes("resend_api_key")
+              ? "Email provider not configured. Opened a draft in your mail app."
+              : `Could not send automatically. Opened a draft in your mail app.`,
+          );
+          return;
+        }
+        toast(data.error ?? "Could not send account setup email.");
         return;
       }
 

@@ -39,7 +39,7 @@ export function buildExistingResidentWelcomeEmailBody(params: {
     "• Documents — access your lease and other files your manager shares with you.",
     "• Move-in details — parking, access, and house information when your listing includes them.",
     "",
-    "Your lease is already on file with your property manager — you do not need to complete an application or e-sign a lease in PropLane.",
+    "Your manager will send your lease in PropLane. After you create your account, open Leases to review and sign, or Payments to pay rent.",
     "",
     `Your PropLane ID: ${id}`,
     "",
@@ -93,7 +93,7 @@ export function buildExistingResidentWelcomeEmailHtml(params: {
 <p style="margin:0 0 12px 0">${greeting}</p>
 <p style="margin:0 0 12px 0">${propertyLine}</p>
 <p style="margin:0 0 12px 0">Use PropLane to <strong>pay rent and charges</strong>, submit <strong>maintenance requests</strong>, and view <strong>documents</strong> your manager shares with you.</p>
-<p style="margin:0 0 12px 0">Your lease is already on file — no application or e-sign step is required in the portal.</p>
+<p style="margin:0 0 12px 0">Your manager will send your lease in PropLane. After you create your account, open <strong>Leases</strong> to review and sign, or <strong>Payments</strong> to pay rent.</p>
 <p style="margin:0 0 8px 0"><strong>Your PropLane ID:</strong> ${id}</p>
 ${reachBlock}
 ${ctaButton}

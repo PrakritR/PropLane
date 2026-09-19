@@ -162,13 +162,19 @@ describe("buildProspectRow", () => {
 });
 
 describe("thingsToFinish", () => {
-  it("lists the four required things on an empty resident form", () => {
+  it("lists contact, home and lease fields on an empty resident form — not a PDF", () => {
     const labels = thingsToFinish(emptyAddPersonForm("resident")).map((t) => t.label);
-    expect(labels).toEqual(["Resident's name", "Resident's email", "Property", "Lease term", "Move-in date", "Monthly rent", "The signed lease PDF"]);
+    expect(labels).toEqual(["Resident's name", "Resident's email", "Property", "Lease term", "Move-in date", "Monthly rent"]);
+    expect(emptyAddPersonForm("resident").leaseDocument).toBe("later");
   });
 
-  it("is empty once the resident form is filled and a signed PDF attached", () => {
-    expect(thingsToFinish(filled({ leaseDataUrl: "data:application/pdf;base64,AAAA" }))).toEqual([]);
+  it("is empty once the resident form is filled", () => {
+    expect(thingsToFinish(filled())).toEqual([]);
+  });
+
+  it("asks for the signed PDF only when the manager said the lease is already signed", () => {
+    expect(thingsToFinish(filled({ leaseDocument: "signed" })).map((t) => t.label)).toEqual(["The signed lease PDF"]);
+    expect(thingsToFinish(filled({ leaseDocument: "signed", leaseDataUrl: "data:application/pdf;base64,AAAA" }))).toEqual([]);
   });
 
   it("does not ask for a PDF when the lease will be generated later", () => {

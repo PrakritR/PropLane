@@ -82,6 +82,7 @@ import {
   type BundleGroupRowInput,
 } from "@/lib/bundle-group/bundle-group-application";
 import { applyLeaseBillingToContext } from "@/lib/lease-billing-snapshot";
+import { isLeaseGenerationSupported, resolveLeaseJurisdiction } from "@/lib/lease-jurisdiction";
 import { notePortalResponse, onPortalSessionViewerChange, portalSessionEnded, portalSessionViewerId } from "@/lib/auth/portal-session-gate";
 import { buildJointLeaseMembers, buildJointLeasePipelineRow, jointLeaseRowIncludesMember } from "@/lib/bundle-group/joint-lease";
 import type { JointLeaseMember, LeaseKind } from "@/lib/bundle-group/types";
@@ -1433,7 +1434,7 @@ function readRaw(scopeUserId?: string | null): LeasePipelineRow[] | null {
 function write(
   unguardedRows: LeasePipelineRow[],
   scopeUserId?: string | null,
-  opts?: { approvalSeedSync?: boolean },
+  opts?: { approvalSeedSync?: boolean; persist?: boolean },
 ) {
   if (!canUseStorage()) return;
   ensureLeasePipelineScope(scopeUserId);
@@ -1459,6 +1460,9 @@ function write(
   // Demo sandbox is local-only: keep the in-memory/session write but never
   // mirror to the server.
   if (isDemoModeActive()) return;
+  // Add-resident generates locally then persists once. A fire-and-forget POST
+  // here would race that await and 409 "The lease changed in another session".
+  if (opts?.persist === false) return;
   // Approval only materializes its new lease draft from application data. It
   // must not replay unrelated executed rows as part of a replace-all batch:
   // those bodies are immutable and a legacy serialized representation must
@@ -1589,7 +1593,7 @@ function persistLeaseDeleteToServer(ids: string[]) {
   }).catch(() => undefined);
 }
 
-async function persistLeaseRowToServerAwait(
+export async function persistLeaseRowToServerAwait(
   row: LeasePipelineRow,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!canUseStorage()) {
@@ -2475,7 +2479,12 @@ export function deleteLeasePipelineRowsForResident(
   return removedRows.length;
 }
 
-export function updateLeasePipelineRow(id: string, patch: Partial<LeasePipelineRow>, managerUserId?: string | null): boolean {
+export function updateLeasePipelineRow(
+  id: string,
+  patch: Partial<LeasePipelineRow>,
+  managerUserId?: string | null,
+  opts?: { persist?: boolean },
+): boolean {
   const rows = readLeasePipeline(managerUserId);
   const idx = rows.findIndex((r) => r.id === id);
   if (idx === -1) return false;
@@ -2495,7 +2504,7 @@ export function updateLeasePipelineRow(id: string, patch: Partial<LeasePipelineR
   const rawIdx = findRawLeaseRowIndex(id, managerUserId);
   if (rawIdx === -1) return false;
   raw[rawIdx] = nextRow;
-  write(raw, managerUserId);
+  write(raw, managerUserId, opts?.persist === false ? { persist: false } : undefined);
   return true;
 }
 
@@ -2659,7 +2668,24 @@ function leaseGenerationContextForRow(
       ),
     };
   }
-  return applyLeaseBillingToContext(ctx, row, managerUserId ?? row.managerUserId);
+  const billed = applyLeaseBillingToContext(ctx, row, managerUserId ?? row.managerUserId);
+  // Close-save / unfinished listings often have no address. Add-resident still
+  // has to produce a document — default those to Washington rather than leaving
+  // a Draft stub. A real non-CA/WA state stays unsupported.
+  if (!isLeaseGenerationSupported(resolveLeaseJurisdiction(billed))) {
+    const hasState = Boolean(
+      billed.listingProperty?.state?.trim() ||
+      billed.leasedRoom?.state?.trim() ||
+      billed.submission?.state?.trim(),
+    );
+    if (!hasState) {
+      return {
+        ...billed,
+        listingProperty: { ...(billed.listingProperty ?? {}), state: "WA" },
+      };
+    }
+  }
+  return billed;
 }
 
 /** Build generation context for preview UI (template picker). */
@@ -2759,7 +2785,7 @@ async function prepareManagerTemplatePdfForSignature(
 export function generateLeaseHtmlForRow(
   rowId: string,
   managerUserId?: string | null,
-  options?: { discardManagerEdits?: boolean; templateId?: string | null },
+  options?: { discardManagerEdits?: boolean; templateId?: string | null; persist?: boolean },
 ): { ok: true; version: number } | { ok: false; error: string } {
   void options?.discardManagerEdits;
   const resolved = resolveManagerLeaseGenerationRow(rowId, managerUserId);
@@ -2803,6 +2829,7 @@ export function generateLeaseHtmlForRow(
       leaseGenerationTemplateId: templateId,
     },
     managerUserId,
+    options?.persist === false ? { persist: false } : undefined,
   );
   return ok ? { ok: true, version } : { ok: false, error: "Could not save generated lease." };
 }

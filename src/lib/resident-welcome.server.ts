@@ -33,6 +33,58 @@ import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.serve
 // attacker-controlled input.
 export const RESIDENT_WELCOME_EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
+function skipExternalWelcomeEmail(to: string, senderEmail: string): boolean {
+  return (
+    to.endsWith("@axis.local") ||
+    to.endsWith("@test.proplane.local") ||
+    (Boolean(senderEmail) && to === senderEmail)
+  );
+}
+
+async function postResendEmail(input: {
+  apiKey: string;
+  from: string;
+  to: string;
+  subject: string;
+  text: string;
+  html: string;
+  mailtoHref: string;
+}): Promise<{ ok: true; id: string | null } | { ok: false; status: 502; error: string; mailtoHref: string }> {
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${input.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: input.from,
+        to: [input.to],
+        subject: input.subject,
+        text: input.text,
+        html: input.html,
+      }),
+    });
+    const payload = (await res.json().catch(() => ({}))) as { message?: string; id?: string; name?: string };
+    if (!res.ok) {
+      return {
+        ok: false,
+        status: 502,
+        error: payload.message ?? res.statusText ?? "Resend request failed.",
+        mailtoHref: input.mailtoHref,
+      };
+    }
+    return { ok: true, id: payload.id ?? null };
+  } catch (err) {
+    return {
+      ok: false,
+      status: 502,
+      error: err instanceof Error ? err.message : "Resend request failed.",
+      mailtoHref: input.mailtoHref,
+    };
+  }
+}
+
 /** Roles allowed to send the welcome email (matches the original route gate). */
 export function canSendResidentWelcome(role: string | null | undefined): boolean {
   return role === "admin" || role === "manager" || role === "owner" || role === "pro";
@@ -133,7 +185,7 @@ export async function deliverResidentWelcome(
   const axisId = input.axisId.trim();
 
   const senderEmail = normalizeEmail(actor.email);
-  const skipExternalEmail = to.endsWith("@axis.local") || (Boolean(senderEmail) && to === senderEmail);
+  const skipExternalEmail = skipExternalWelcomeEmail(to, senderEmail);
 
   // Mint (or refresh) a setup token on the application so the approval email links
   // to a working /auth/resident-setup?token=&axis_id= handoff — the same machinery
@@ -183,31 +235,17 @@ export async function deliverResidentWelcome(
     }
 
     const from = await managerOutboundFromHeader(db, actor.userId);
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from,
-        to: [to],
-        subject: RESIDENT_WELCOME_EMAIL_SUBJECT,
-        text,
-        html,
-      }),
+    const sent = await postResendEmail({
+      apiKey,
+      from,
+      to,
+      subject: RESIDENT_WELCOME_EMAIL_SUBJECT,
+      text,
+      html,
+      mailtoHref,
     });
-
-    const payload = (await res.json().catch(() => ({}))) as { message?: string; id?: string; name?: string };
-    if (!res.ok) {
-      return {
-        ok: false,
-        status: 502,
-        error: payload.message ?? res.statusText ?? "Resend request failed.",
-        mailtoHref,
-      };
-    }
-    payloadId = payload.id ?? null;
+    if (!sent.ok) return sent;
+    payloadId = sent.id;
   }
 
   // Deliver to portal inboxes: manager's Sent + resident's Unopened
@@ -297,7 +335,7 @@ export async function deliverResidentWelcome(
 export async function deliverExistingResidentWelcome(
   db: SupabaseClient,
   actor: ResidentWelcomeActor,
-  input: { to: string; residentName?: string; axisId: string; propertyLabel?: string },
+  input: { to: string; residentName?: string; axisId: string; propertyLabel?: string; residentPhone?: string },
 ): Promise<DeliverResidentWelcomeResult> {
   const to = normalizeEmail(input.to);
   const residentName = input.residentName?.trim() ?? "";
@@ -305,7 +343,7 @@ export async function deliverExistingResidentWelcome(
   const propertyLabel = input.propertyLabel?.trim() ?? "";
 
   const senderEmail = normalizeEmail(actor.email);
-  const skipExternalEmail = to.endsWith("@axis.local") || (Boolean(senderEmail) && to === senderEmail);
+  const skipExternalEmail = skipExternalWelcomeEmail(to, senderEmail);
 
   const ensured = await ensureResidentSetupTokenForApplication(db, axisId, {
     managerUserId: actor.userId,
@@ -352,31 +390,17 @@ export async function deliverExistingResidentWelcome(
     }
 
     const from = await managerOutboundFromHeader(db, actor.userId);
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from,
-        to: [to],
-        subject: EXISTING_RESIDENT_WELCOME_EMAIL_SUBJECT,
-        text,
-        html,
-      }),
+    const sent = await postResendEmail({
+      apiKey,
+      from,
+      to,
+      subject: EXISTING_RESIDENT_WELCOME_EMAIL_SUBJECT,
+      text,
+      html,
+      mailtoHref,
     });
-
-    const payload = (await res.json().catch(() => ({}))) as { message?: string; id?: string; name?: string };
-    if (!res.ok) {
-      return {
-        ok: false,
-        status: 502,
-        error: payload.message ?? res.statusText ?? "Resend request failed.",
-        mailtoHref,
-      };
-    }
-    payloadId = payload.id ?? null;
+    if (!sent.ok) return sent;
+    payloadId = sent.id;
   }
 
   try {
@@ -446,7 +470,7 @@ export async function deliverExistingResidentWelcome(
     const { data: managerProfile } = await db.from("profiles").select("sms_from_number, full_name").eq("id", actor.userId).maybeSingle();
     if (!skipExternalEmail) {
       const { data: residentProfile } = await db.from("profiles").select("phone").eq("email", to).maybeSingle();
-      const residentPhone = String(residentProfile?.phone ?? "").trim();
+      const residentPhone = input.residentPhone?.trim() || String(residentProfile?.phone ?? "").trim();
       if (residentPhone) {
         const senderName = String(managerProfile?.full_name ?? actor.email ?? "Your property manager").trim() || "Your property manager";
         const smsBody = `Your PropLane resident portal is ready${residentName ? `, ${residentName}` : ""}. Pay rent and manage your home online. PropLane ID: ${formatProplaneIdForDisplay(axisId)}. — ${senderName}`;

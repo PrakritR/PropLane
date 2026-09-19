@@ -173,20 +173,20 @@ export function ListingWorkspace({
        * the grid split its spare height between the two and the rail grew a
        * band of empty grey under the chips.
        */}
-      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] lg:grid-cols-[252px_minmax(0,1fr)] lg:grid-rows-1 xl:grid-cols-[252px_minmax(0,1fr)_340px]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] lg:grid-cols-[252px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)] xl:grid-cols-[252px_minmax(0,1fr)_340px]">
         <nav
           aria-label="Listing sections"
-          className="flex shrink-0 flex-col overflow-x-auto border-b border-border/60 bg-[var(--pl-surface-muted)] p-2 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-3 [html[data-theme=dark]_&]:bg-black/20"
+          className="flex min-h-0 shrink-0 flex-col overflow-x-auto border-b border-border/60 bg-[var(--pl-surface-muted)] p-2 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-3 [html[data-theme=dark]_&]:bg-black/20"
         >
           {railHeader ? <div className="hidden lg:block">{railHeader}</div> : null}
           {rail}
           {railFooter ? <div className="mt-auto hidden pt-4 lg:block">{railFooter}</div> : null}
         </nav>
-        <main className="min-w-0 overflow-y-auto px-5 py-6 lg:px-8">{children}</main>
+        <main className="min-h-0 min-w-0 overflow-y-auto px-5 py-6 lg:px-8">{children}</main>
         {sidePanel ? (
           <aside
             aria-label="Live panel"
-            className="hidden overflow-y-auto border-l border-border/60 bg-[var(--pl-surface-muted)] p-4 xl:block [html[data-theme=dark]_&]:bg-black/20"
+            className="hidden min-h-0 overflow-y-auto border-l border-border/60 bg-[var(--pl-surface-muted)] p-4 xl:block [html[data-theme=dark]_&]:bg-black/20"
           >
             {sidePanel}
           </aside>

@@ -102,7 +102,7 @@ export function ResidentSidePanel({
       ? "A lease marked signed off-platform — resident only activates their account"
       : form.leaseDocument === "draft"
         ? "A draft lease filed for your review — resident signs it in PropLane before it is active"
-        : "No lease yet — stays pending until you generate and send one";
+        : "A PropLane lease generated on add — sent for signature when you send the notice";
   const creates: CreatesItem[] = [
     { tone: "yes", text: "An approved application, manually added — no application fee" },
     wantLease

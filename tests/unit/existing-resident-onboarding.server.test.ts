@@ -144,6 +144,67 @@ describe("runExistingResidentOnboarding", () => {
     expect(db._upsert).not.toHaveBeenCalled();
   });
 
+  it("skipLeaseWrite sends welcome without replacing an existing lease", async () => {
+    const db = mockDb({ id: "lease_app_PROPLANE-TEST01", manager_user_id: "mgr-1" });
+    const row: DemoApplicantRow = {
+      id: "PROPLANE-TEST01",
+      name: "Jane Smith",
+      email: "jane.onboard@test.proplane.local",
+      property: "Ballard House",
+      stage: "Active",
+      bucket: "approved",
+      detail: "",
+      manuallyAdded: true,
+      manualResidentDetails: { phone: "+12065550199" },
+    };
+
+    const result = await runExistingResidentOnboarding(
+      db as never,
+      { userId: "mgr-1", email: "manager@test.proplane.local", managerName: "Alex Manager" },
+      row,
+      { sendWelcomeEmail: true, skipLeaseWrite: true },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.welcomeEmailSent).toBe(true);
+    expect(db._upsert).not.toHaveBeenCalled();
+    expect(deliverExistingResidentWelcome).toHaveBeenCalled();
+    const welcomeArgs = deliverExistingResidentWelcome.mock.calls[0]?.[2] as { residentPhone?: string };
+    expect(welcomeArgs?.residentPhone).toBe("+12065550199");
+  });
+
+  it("keeps the resident and lease when the welcome notice fails", async () => {
+    deliverExistingResidentWelcome.mockResolvedValue({
+      ok: false,
+      status: 502,
+      error: "fetch failed",
+      mailtoHref: "mailto:jane.onboard@test.proplane.local",
+    });
+    const db = mockDb();
+    const result = await runExistingResidentOnboarding(
+      db as never,
+      { userId: "mgr-1", email: "manager@test.proplane.local", managerName: "Alex Manager" },
+      {
+        id: "PROPLANE-TEST03",
+        name: "Jane Smith",
+        email: "jane.onboard@test.proplane.local",
+        property: "Ballard House",
+        stage: "Active",
+        bucket: "approved",
+        detail: "",
+        manuallyAdded: true,
+      },
+      { sendWelcomeEmail: true },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.leaseId).toBe("lease_app_PROPLANE-TEST03");
+    expect(result.welcomeEmailSent).toBe(false);
+    expect(db._upsert).toHaveBeenCalled();
+  });
+
   it("rejects non-manual residents", async () => {
     const db = mockDb();
     const result = await runExistingResidentOnboarding(

@@ -41,7 +41,7 @@ export function HomeStep({
             value={form.propertyId}
             onChange={(next) => patch({ propertyId: next, roomId: "", bundleId: "", marks: withoutMark(form.marks, "propertyId") })}
             options={propertyOptions.map((p) => ({ value: p.id, label: p.label }))}
-            placeholder="Select property…"
+            placeholder={propertyOptions.length ? "Select property…" : "No properties yet"}
             dataAttr="residents-wizard-property"
           />
           {derived.showRoomSelect ? (
