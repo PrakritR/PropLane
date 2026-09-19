@@ -389,6 +389,27 @@ function accessToLevels(access: ModuleAccessLevel, notification: boolean | undef
  * property never grants a module by itself. The grant written is the same
  * `{ read, edit, delete, notification }` shape every server gate reads.
  */
+function CoManagerRoleSelect({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: TeamRoleId;
+  onChange: (next: TeamRoleId) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <FieldSingleSelect
+      label="Role"
+      options={TEAM_ROLE_SELECT_OPTIONS}
+      value={value}
+      onChange={(next) => onChange(next as TeamRoleId)}
+      disabled={disabled}
+      dataAttr="co-manager-role"
+    />
+  );
+}
+
 function CoManagerPermissionsEditor({
   value,
   onChange,
@@ -396,6 +417,7 @@ function CoManagerPermissionsEditor({
   variant = "readWrite",
   role,
   onRoleChange,
+  hideRole = false,
 }: {
   value: CoManagerPermissions;
   onChange: (next: CoManagerPermissions) => void;
@@ -404,6 +426,8 @@ function CoManagerPermissionsEditor({
   variant?: "readWrite" | "full";
   role?: TeamRoleId;
   onRoleChange?: (next: TeamRoleId) => void;
+  /** Invite sheet puts Role above Properties. */
+  hideRole?: boolean;
 }) {
   void variant;
   const currentRole = role ?? inferTeamRoleFromPermissions(value);
@@ -428,14 +452,9 @@ function CoManagerPermissionsEditor({
 
   return (
     <div className="space-y-3">
-      <FieldSingleSelect
-        label="Role"
-        options={TEAM_ROLE_SELECT_OPTIONS}
-        value={currentRole}
-        onChange={(next) => applyRole(next as TeamRoleId)}
-        disabled={disabled}
-        dataAttr="co-manager-role"
-      />
+      {hideRole ? null : (
+        <CoManagerRoleSelect value={currentRole} onChange={applyRole} disabled={disabled} />
+      )}
       <div className="flex flex-wrap items-center gap-1.5">
         <button
           type="button"
@@ -2541,6 +2560,19 @@ export function ProAccountLinksPanel({
               </p>
             ) : null}
 
+            <CoManagerRoleSelect
+              value={inviteTeamRole}
+              onChange={(next) => {
+                setInviteTeamRole(next);
+                const stamp = stampTeamRolePermissions(next);
+                if (stamp) {
+                  setInviteDefaultPermissions(stamp);
+                  const ids = selectedInvitePropertyIds();
+                  setPropertyPermissionsDraft(Object.fromEntries(ids.map((id) => [id, stamp])));
+                }
+              }}
+            />
+
             {linkInvitePropertySelectOptions.length === 0 ? (
               <p className="text-sm text-muted">No houses in this workspace yet.</p>
             ) : (
@@ -2557,6 +2589,7 @@ export function ProAccountLinksPanel({
             )}
 
             <CoManagerPermissionsEditor
+              hideRole
               value={inviteDefaultPermissions}
               role={inviteTeamRole}
               onRoleChange={(next) => {

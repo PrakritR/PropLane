@@ -76,6 +76,28 @@ export function bookingVisualSource(entry: Pick<PropertyBookingEntry, "source" |
   return entry.source === "block" && entry.residentName?.trim() ? "hold" : entry.source;
 }
 
+/** Calendar Airbnb import — stored as a room-date block with this reason, drawn as `source: "airbnb"`. */
+export const IMPORTED_AIRBNB_REASON = "Airbnb";
+
+export function isImportedAirbnbBlock(block: Pick<RoomDateBlock, "reason">): boolean {
+  return block.reason.trim().toLowerCase() === IMPORTED_AIRBNB_REASON.toLowerCase();
+}
+
+/**
+ * Airbnb stays filed from a manager calendar (not an iCal connection).
+ * No resident row — Bookings only. Does not change Booking.com labeling.
+ */
+export function importedAirbnbStayEntries(
+  blocks: readonly RoomDateBlock[],
+  opts: { propertyLabelForId: (propertyId: string) => string; roomLabelForId: (propertyId: string, roomId: string) => string },
+): PropertyBookingEntry[] {
+  return roomBlockEntries(blocks.filter(isImportedAirbnbBlock), opts).map((entry) => ({
+    ...entry,
+    source: "airbnb" as const,
+    statusLabel: undefined,
+  }));
+}
+
 /** Exclusive check-out → inclusive last night, so a block joins the same day math as a stay. */
 export function lastNightBeforeCheckout(checkOut: string): string {
   const [y, m, d] = checkOut.split("-").map(Number);

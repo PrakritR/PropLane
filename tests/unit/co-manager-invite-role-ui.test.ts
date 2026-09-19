@@ -15,6 +15,10 @@ describe("invite Role dropdown", () => {
     expect(panel).not.toContain('label: "All edit"');
     expect(panel).not.toContain('label: "All manage"');
     expect(panel).toContain("teamRole: inviteTeamRole");
+    const roleIdx = panel.indexOf("<CoManagerRoleSelect");
+    const propertiesIdx = panel.indexOf('dataAttr="co-manager-invite-properties"');
+    expect(roleIdx).toBeGreaterThan(-1);
+    expect(propertiesIdx).toBeGreaterThan(roleIdx);
   });
 
   it("shows the stamped role on team rows and the accept screen", () => {
