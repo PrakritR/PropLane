@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   getPublicListings: vi.fn(),
   serviceDb: vi.fn(),
   resolveAgentContext: vi.fn(),
+  resolveManagerSmsAccess: vi.fn(),
   managerTier: vi.fn(),
   isProductionRuntime: vi.fn(),
 }));
@@ -22,6 +23,9 @@ vi.mock("@/lib/supabase/service", () => ({
 }));
 vi.mock("@/lib/tools/context", () => ({
   resolveAgentContext: mocks.resolveAgentContext,
+}));
+vi.mock("@/lib/sms/manager-sms-access.server", () => ({
+  resolveManagerSmsAccess: mocks.resolveManagerSmsAccess,
 }));
 vi.mock("@/lib/manager-access-server", () => ({
   getManagerSubscriptionTierByManagerId: mocks.managerTier,
@@ -77,6 +81,13 @@ beforeEach(() => {
     { id: "listing-b", managerUserId: OTHER_OWNER, title: "Pine Home", address: "2 Pine St" },
   ]);
   mocks.managerTier.mockResolvedValue("pro");
+  mocks.resolveManagerSmsAccess.mockResolvedValue({
+    mode: "owner",
+    workNumberOwnerId: ACTOR,
+    actorUserId: ACTOR,
+    dataOwnerIds: [ACTOR],
+    assignedPropertyIds: [],
+  });
 });
 
 afterEach(() => {
@@ -143,6 +154,63 @@ describe("resolveSmsTestApplicationStage", () => {
 });
 
 describe("resolveSmsTestContext", () => {
+  it("removes portal workspace narrowing and installs workspace-bound combined co-manager scope", async () => {
+    const db = applicationDb([]);
+    const combined = {
+      mode: "combined",
+      workNumberOwnerId: ACTOR,
+      actorUserId: ACTOR,
+      dataOwnerIds: [ACTOR, OWNER],
+      assignedPropertyIds: ["listing-a"],
+      permissionsByOwner: { [OWNER]: { "listing-a": { applications: { read: true } } } },
+    };
+    mocks.serviceDb.mockReturnValue(db);
+    mocks.getPortalAccessContext.mockResolvedValue({
+      user: { id: ACTOR, email: "manager@example.com" },
+      profile: { email: "manager@example.com", full_name: "Co-manager" },
+      roles: ["manager"],
+    });
+    mocks.resolveAgentContext.mockResolvedValue({
+      userId: ACTOR,
+      landlordId: ACTOR,
+      email: "manager@example.com",
+      roles: ["manager"],
+      isAdmin: false,
+      db,
+      testWorkspaceId: "workspace-a",
+      workspace: { id: "portal-workspace", name: "Mine", isDefault: true, narrowing: true, propertyIds: [] },
+      managerSmsAccess: combined,
+    });
+    mocks.resolveManagerSmsAccess.mockResolvedValue(combined);
+
+    const context = await resolveSmsTestContext({ portal: "manager" });
+
+    expect(mocks.resolveManagerSmsAccess).toHaveBeenCalledWith(db, {
+      actorUserId: ACTOR,
+      workNumberOwnerId: ACTOR,
+      testWorkspaceId: "workspace-a",
+    });
+    expect(context?.managerContext).toMatchObject({ managerSmsAccess: combined, testWorkspaceId: "workspace-a" });
+    expect(context?.managerContext?.workspace).toBeUndefined();
+  });
+
+  it("refuses a linked-owner scope that disappears under the active test workspace", async () => {
+    const db = applicationDb([]);
+    mocks.getPortalAccessContext.mockResolvedValue({
+      user: { id: ACTOR, email: "manager@example.com" }, profile: {}, roles: ["manager"],
+    });
+    mocks.resolveAgentContext.mockResolvedValue({
+      userId: ACTOR, landlordId: ACTOR, email: "manager@example.com", roles: ["manager"], isAdmin: false,
+      db, testWorkspaceId: "workspace-a",
+      managerSmsAccess: { mode: "combined", dataOwnerIds: [ACTOR, OTHER_OWNER], assignedPropertyIds: ["listing-b"] },
+    });
+    mocks.resolveManagerSmsAccess.mockResolvedValue({
+      mode: "owner", workNumberOwnerId: ACTOR, actorUserId: ACTOR, dataOwnerIds: [ACTOR], assignedPropertyIds: [],
+    });
+
+    await expect(resolveSmsTestContext({ portal: "manager" })).resolves.toBeNull();
+  });
+
   it("fails closed before authentication when the feature is disabled", async () => {
     vi.stubEnv("PROPLANE_TEST_WORKSPACES_ENABLED", "false");
 

@@ -10,6 +10,7 @@ import { isSubmittedPendingApplicationRow } from "@/lib/rental-application/in-pr
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAgentContext, type AgentContext } from "@/lib/tools/context";
+import { resolveManagerSmsAccess } from "@/lib/sms/manager-sms-access.server";
 import type { ResidentAgentContext } from "@/lib/tools/resident-context";
 import {
   requireActiveTestWorkspaceActor,
@@ -192,15 +193,38 @@ export async function resolveSmsTestContext(args: {
   if (args.portal === "manager") {
     const managerContext = await resolveAgentContext();
     if (!managerContext || managerContext.userId !== capability.actorUserId) return null;
+    if (managerContext.testWorkspaceId !== capability.workspaceId) return null;
+    const managerSmsAccess = await resolveManagerSmsAccess(managerContext.db, {
+      actorUserId: capability.actorUserId,
+      // The in-app test models the actor's own manager surface: owned records
+      // remain available and accepted co-managed houses join the read scope.
+      workNumberOwnerId: capability.actorUserId,
+      testWorkspaceId: capability.workspaceId,
+    });
+    if (!managerSmsAccess) return null;
+    if (managerContext.managerSmsAccess?.mode === "combined" && managerSmsAccess.mode === "owner") {
+      // A linked-owner scope existed before workspace filtering, but none of
+      // it belongs to this private workspace. Do not disguise that mismatch as
+      // a successful owner-only test turn.
+      return null;
+    }
+    // Portal workspace selection is a UI narrowing rule. Reusing it for the
+    // SMS-test surface hid otherwise granted co-managed houses. The durable
+    // test workspace and owner/property/module grants remain the boundaries.
+    const smsManagerContext: AgentContext = {
+      ...managerContext,
+      workspace: undefined,
+      managerSmsAccess,
+    };
     return {
       capability,
       mode: "manager",
       stage: "approved",
-      managerUserId: managerContext.userId,
-      sessionKind: sessionKind("manager", managerContext.userId),
+      managerUserId: smsManagerContext.userId,
+      sessionKind: sessionKind("manager", smsManagerContext.userId),
       target: null,
-      actorEmail: managerContext.email,
-      managerContext,
+      actorEmail: smsManagerContext.email,
+      managerContext: smsManagerContext,
     };
   }
 
