@@ -21,11 +21,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const showToast = vi.hoisted(() => vi.fn());
+const managerFixture = vi.hoisted(() => ({ sequence: 0 }));
 
 vi.mock("@/components/providers/app-ui-provider", () => ({
   useAppUi: () => ({ showToast }),
 }));
-vi.mock("@/hooks/use-manager-user-id", () => ({ useManagerUserId: () => ({ userId: "mgr-1" }) }));
+vi.mock("@/hooks/use-manager-user-id", () => ({ useManagerUserId: () => ({ userId: `mgr-${managerFixture.sequence}` }) }));
 vi.mock("@/hooks/use-work-assignment-directory", () => ({
   useWorkAssignmentDirectory: () => ({ teamMembers: [] }),
 }));
@@ -46,31 +47,45 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
     // Test-only caller locations, never request headers, cookies or body.
     caller: new Error("Settings request caller").stack?.split("\n").slice(1, 12).join("\n") ?? "unavailable",
   });
+  if (String(input) === "/api/portal-pro-relationships") {
+    return { ok: true, json: async () => ({ rows: [] }) };
+  }
   if (String(input) !== "/api/portal/reminder-settings") throw new Error(`Unexpected settings request: ${String(input)}`);
   return { ok: true, json: async () => ({ settings: {}, overriddenPropertyIds: [] }) };
 });
 
-function expectReminderRequestCount(expected: number) {
+function expectSettingsRequestCounts(expected: { relationships: number; reminders: number }) {
   const reminderRequests = fetchMock.mock.calls.filter(
     ([input]) => String(input) === "/api/portal/reminder-settings",
+  );
+  const relationshipRequests = fetchMock.mock.calls.filter(
+    ([input]) => String(input) === "/api/portal-pro-relationships",
   );
   expect(
     reminderRequests,
     `Reminder request evidence: ${JSON.stringify(requestEvidence, null, 2)}`,
-  ).toHaveLength(expected);
-  expect(requestEvidence.map(({ url, method }) => ({ url, method })), JSON.stringify(requestEvidence, null, 2))
-    .toEqual(Array.from({ length: expected }, () => ({ url: "/api/portal/reminder-settings", method: "GET" })));
-  expect(fetchMock.mock.calls, JSON.stringify(requestEvidence, null, 2)).toHaveLength(expected);
+  ).toHaveLength(expected.reminders);
+  expect(relationshipRequests).toHaveLength(expected.relationships);
+  expect(
+    requestEvidence.map(({ url, method }) => ({ url, method })).sort((a, b) => a.url.localeCompare(b.url)),
+    JSON.stringify(requestEvidence, null, 2),
+  ).toEqual([
+      ...Array.from({ length: expected.relationships }, () => ({ url: "/api/portal-pro-relationships", method: "GET" })),
+      ...Array.from({ length: expected.reminders }, () => ({ url: "/api/portal/reminder-settings", method: "GET" })),
+    ].sort((a, b) => a.url.localeCompare(b.url)));
+  expect(fetchMock.mock.calls, JSON.stringify(requestEvidence, null, 2))
+    .toHaveLength(expected.relationships + expected.reminders);
 }
 
 async function waitForReminderSettingsReady() {
   await waitFor(() => expect(screen.getByRole("switch")).toHaveProperty("disabled", false));
   // One mounted resident settings consumer should issue one bounded request.
   // Include exact call diagnostics if a second caller appears in evidence.
-  expectReminderRequestCount(1);
+  expectSettingsRequestCounts({ relationships: 1, reminders: 1 });
 }
 
 beforeEach(() => {
+  managerFixture.sequence += 1;
   requestEvidence.length = 0;
   window.history.replaceState(null, "", window.location.href);
   vi.stubGlobal("fetch", fetchMock);
@@ -134,7 +149,7 @@ describe("PortalSettingsSectionClient — mobile list↔detail Back (Defect 3)",
     expect(document.querySelector('[data-attr="settings-back-to-root"]')).toBeTruthy();
     expect(document.querySelector('[data-attr="settings-open-resident"]')).toBeNull();
     expect(screen.getByText("Welcome")).toBe(welcomeModule);
-    expectReminderRequestCount(1);
+    expectSettingsRequestCounts({ relationships: 1, reminders: 1 });
     expect(showToast).not.toHaveBeenCalled();
   });
 

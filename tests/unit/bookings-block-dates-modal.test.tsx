@@ -74,10 +74,17 @@ describe("BookingsBlockDatesModal — resident", () => {
   });
 
   it("saves with no one by default, and with the picked resident's name and email", async () => {
-    const { view, onSave } = open();
+    let resolveFirstSave!: () => void;
+    const firstSave = new Promise<void>((resolve) => { resolveFirstSave = resolve; });
+    const onSave = vi.fn()
+      .mockImplementationOnce(() => firstSave)
+      .mockImplementation(() => Promise.resolve());
+    const { view } = open(onSave);
     fireEvent.click(attr(view, "bookings-block-dates-save")!);
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave.mock.calls[0]![0]).toMatchObject({ residentName: "", residentEmail: "" });
+    resolveFirstSave();
+    await waitFor(() => expect(attr(view, "bookings-block-dates-save")).toBeEnabled());
 
     const select = attr(view, "bookings-block-resident")!;
     expect(optionLabels(select)).toEqual([

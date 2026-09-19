@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Final settings and booking test correction handoff</title>
+<style>body{font:16px/1.6 system-ui;max-width:900px;margin:40px auto;padding:0 24px}code{overflow-wrap:anywhere}</style>
+<h1>Final settings and booking test correction handoff</h1>
+<ul>
+  <li><code>tests/unit/portal-settings-mobile-back.test.tsx</code> now returns the real empty relationship payload shape (<code>{ rows: [] }</code>) for <code>/api/portal-pro-relationships</code>, preserves the reminder payload, rejects unexpected endpoints, and asserts exact per-endpoint GET counts. Each test uses a distinct fixture user id so relationship cache state cannot bleed between tests. Back and Forward still require exactly one request for each endpoint.</li>
+  <li><code>tests/unit/bookings-block-dates-modal.test.tsx</code> now holds the first save promise open, resolves it explicitly, waits for the save button to become enabled, then opens the resident selector and verifies the second payload. No sleeps or retry loops were added.</li>
+</ul>
+<p>No product code, runtime, browser, database, build, or Git operations were performed. Root owns validation.</p>
+</html>
