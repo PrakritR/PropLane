@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/demo/demo-session", () => ({
@@ -158,5 +159,14 @@ describe("co-manager links must be KNOWN before a draft is seeded", () => {
 
   it("treats an omitted flag as known, so existing callers are unchanged", () => {
     expect(shouldAutoOpenFirstListingWizard({ snap: EMPTY, dismissed: false })).toBe(true);
+  });
+});
+
+describe("dashboard first-listing skip uses incoming team links", () => {
+  it("passes incomingTeam from cached account-link invites", () => {
+    const dashboard = readFileSync("src/components/portal/pro-dashboard.tsx", "utf8");
+    expect(dashboard).toContain("await fetchAccountLinksCached()");
+    expect(dashboard).toContain("hasIncomingAcceptedTeamLink(readCachedAccountLinkInvites())");
+    expect(dashboard).toContain("incomingTeam:");
   });
 });

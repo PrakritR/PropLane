@@ -19,6 +19,27 @@ describe("Edit permissions is a popup", () => {
     expect(panel).toContain('dataAttr="team-member-permissions-modal"');
     expect(panel).toContain("`Edit permissions · ${permissionsMember.name}`");
   });
+
+  it("pending invite Edit opens the member sheet, not a member page", () => {
+    expect(panel).toContain("openMemberSheet(inv.id)");
+    expect(panel).not.toContain("onOpen={(inv) => openTeamDetail(inv.id)}");
+    expect(blocks).toContain('label: "Edit"');
+    expect(blocks).toContain('dataAttr: "team-pending-edit"');
+    expect(blocks).toContain('label: "Revoke"');
+    expect(blocks).not.toContain('label: "Copy link"');
+  });
+
+  it("does not open a nested Untitled property permissions modal", () => {
+    expect(panel).not.toContain("Edit permissions · ${propertyPermissionsModal.propertyLabel}");
+    expect(panel).not.toContain("No properties in this link yet.");
+    expect(panel).toContain('dataAttr="team-member-houses"');
+  });
+
+  it("keeps Make owner on the member sheet instead of a dead property bulk bar", () => {
+    expect(panel).toContain('data-attr="co-manager-make-owner"');
+    expect(panel).not.toContain("team-detail-bulk-make-owner");
+    expect(panel).not.toContain("selectedDetailPropertyIds");
+  });
 });
 
 describe("Applications keep Super plan chrome and open the resident wizard", () => {

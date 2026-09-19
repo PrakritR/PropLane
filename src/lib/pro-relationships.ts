@@ -7,6 +7,7 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { createCoalescedRefresher, type CoalescedRefresher } from "@/lib/coalesced-refresh";
 import { PRO_RELATIONSHIPS_EVENT, serverSyncOriginatedEvent } from "@/lib/property-pipeline-events";
 import type { CoManagerPermissions, PropertyCoManagerPermissions } from "@/lib/co-manager-permissions";
+import type { WorkspaceCoManagerGrant } from "@/lib/workspace-co-manager-permissions";
 import {
   coManagerPermissionsFromLegacy,
   flatCoManagerPermissionsFromProperty,
@@ -35,6 +36,8 @@ export type ProRelationshipRecord = {
   coManagerPermissions?: CoManagerPermissions;
   /** Per-property permission grants. */
   propertyCoManagerPermissions?: PropertyCoManagerPermissions;
+  /** Workspace grants — Add properties / Invite teammates. Empty = none. */
+  workspacePermissions?: WorkspaceCoManagerGrant;
   /** @deprecated Use coManagerPermissions.editListings */
   canEditListing?: boolean;
   createdAt: string;

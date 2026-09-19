@@ -139,6 +139,14 @@ describe("communication-inbox-filters", () => {
     expect(countVisibleUnreadCommunication(rows, { portal: "manager", viewerId: "user-1" })).toBe(1);
   });
 
+  it("does not count leftover SMS-like unread rows on the Communication badge", () => {
+    const rows = [
+      thread({ id: "sms-ghost", from: "+15105550100", unread: true }),
+      thread({ id: "email-open", from: "Alex", email: "alex@example.test", unread: true }),
+    ];
+    expect(countVisibleUnreadCommunication(rows, { portal: "manager", viewerId: "user-1" })).toBe(1);
+  });
+
   it("matches a vendor thread by email or last-10 phone digits", () => {
     const emailRow = thread({ id: "v-email", from: "Ava Plumber", email: "ava@vendor.test" });
     const phoneRow = thread({ id: "v-phone", from: "+1 (206) 555-0100", email: "" });
