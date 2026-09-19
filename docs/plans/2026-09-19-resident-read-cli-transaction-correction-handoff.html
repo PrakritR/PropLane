@@ -11,7 +11,7 @@
   .hold { padding: 14px 16px; background: #fff5d6; border-left: 4px solid #c48700; }
 </style>
 <h1>Resident read CLI transaction correction</h1>
-<p class="hold"><strong>Source complete; runtime proof pending.</strong> Do not apply a release migration from the earlier failed artifacts. The new CI matrix must pass, then fresh target evidence, manifests, dry run, recovery review and independent apply review must be created.</p>
+<p class="hold"><strong>Source corrected; runtime proof pending.</strong> Do not apply a release migration from the earlier failed artifacts. The new CI matrix must pass, then fresh target evidence, manifests, dry run, recovery review and independent apply review must be created.</p>
 
 <h2>Goal and evidence</h2>
 <p>The starting source audit is <code>docs/plans/2026-09-19-resident-read-cli-transaction-source-audit.html</code>. Supabase CLI 2.117.0 uses one extended-protocol batch for all migration statements and its parameterized history INSERT. That batch is atomic, but PostgreSQL does not treat it as an explicit transaction block. The observed dev failure was PostgreSQL 25P01 at the first top-level <code>LOCK TABLE</code>, before guarded DDL. Root separately confirmed that dev, staging and production all report PostgreSQL 17.6 (<code>server_version_num=170006</code>).</p>
@@ -37,6 +37,11 @@
 </ul>
 <p>The hermetic matrix job is included in the required <code>check</code> aggregator. Workflow contract tests pin the versions, official digests, command, lack of secrets and gate membership.</p>
 
+<h2>First remote attempt and disposable TLS correction</h2>
+<p>Both PostgreSQL matrix legs in GitHub Actions run <code>35457735972</code> verified and downloaded the official CLI successfully, then failed before any migration SQL with <code>The server does not support SSL connections</code>. The PostgreSQL 16 leg was job <code>105935910013</code>. That run provides no transaction, lock, rollback or history proof.</p>
+<p>The pinned CLI source supports the standard <code>sslmode</code> database-URL parameter: its parsed connection input carries <code>sslmode</code>, and the SQL-PG adapter maps <code>sslmode=disable</code> to a plaintext connection. The harness now adds <code>?sslmode=disable</code> only in <code>databaseUrl(name)</code>, after the existing strict check has accepted an otherwise parameter-free <code>postgresql://...@127.0.0.1/.../postgres</code> admin URL. The original admin URL remains unchanged. Only derived URLs for the disposable CI databases receive the setting, which <code>psql</code> also supports.</p>
+<p>The production reconciliation and resident release runners are unchanged. They still use their authenticated linked-project connection path and retain the CLI's TLS behavior. No non-loopback or caller-supplied URL can reach the disposable override.</p>
+
 <h2>Changed source</h2>
 <ul>
   <li><code>scripts/release-conversation-schema-reconciliation.mjs</code></li>
@@ -49,7 +54,7 @@
 </ul>
 
 <h2>Validation ownership</h2>
-<p>This source-only execution did not run Node, tests, builds, browsers, servers, databases, Git or graph commands, and did not download or extract the Linux CLI locally. Root owns commit, push and the remote runtime. Starting HEAD supplied to this lane was <code>0e1692697</code>; current branch and HEAD remain root-owned.</p>
+<p>This source-only execution did not run Node, tests, builds, browsers, servers, databases, Git or graph commands, and did not download or extract the Linux CLI locally. Root owns commit, push and the remote runtime. The first root-owned remote attempt stopped at TLS negotiation before SQL; it is recorded above and is not a passing proof. Starting HEAD supplied to this lane was <code>0e1692697</code>; current branch and HEAD remain root-owned.</p>
 <p>The exact runtime command inside each matrix leg is:</p>
 <pre>node scripts/test-release-cli-transaction.mjs "$RELEASE_TRANSACTION_SUPABASE_CLI" "$RELEASE_TRANSACTION_PG_URL" "$EXPECTED_SERVER_VERSION_NUM"</pre>
 <p>Dispatch the existing Test workflow at the committed keeper ref with normal validation enabled. Accept the correction only when both <code>Release CLI transaction (PostgreSQL 16.10)</code> and <code>Release CLI transaction (PostgreSQL 17.6)</code> finish with exit code 0 and the required <code>check</code> aggregate is green.</p>

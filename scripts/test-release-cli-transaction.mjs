@@ -35,7 +35,10 @@ function psql(databaseUrl, sql) {
 function databaseUrl(name) {
   const url = new URL(parsedAdminUrl);
   url.pathname = `/${name}`;
-  url.search = '';
+  // The official disposable postgres images do not enable TLS. This override
+  // is created only after the strict loopback admin-URL check above and is
+  // passed only to the CI rehearsal's derived databases.
+  url.searchParams.set('sslmode', 'disable');
   url.hash = '';
   return url.toString();
 }
