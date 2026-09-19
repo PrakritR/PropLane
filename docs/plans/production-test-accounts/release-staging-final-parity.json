@@ -1,0 +1,13 @@
+{
+  "target": "staging",
+  "project": "xwszcafaontidfgznlxd",
+  "readOnly": true,
+  "tlsVerified": true,
+  "status": "passed",
+  "localCount": 248,
+  "appliedCount": 250,
+  "missing": [],
+  "problems": [],
+  "extraCount": 2,
+  "attestations": []
+}

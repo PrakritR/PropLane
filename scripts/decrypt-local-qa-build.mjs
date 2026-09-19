@@ -1,7 +1,7 @@
 /** Verify and decrypt a local QA artifact into a private archive file. This never extracts files. */
 import { createDecipheriv, createHash, timingSafeEqual } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readFile, rm } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, rm, symlink, unlink } from "node:fs/promises";
 import path from "node:path";
 import { Writable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -136,6 +136,54 @@ export async function decryptArtifact({ artifactDir, sha, encryptionKey, output 
     return output;
   } catch (error) {
     if (createdOutput) await rm(output, { force: true });
+    throw error;
+  }
+}
+
+/** Recreate only authenticated Next.js external aliases after the caller safely extracts the archive. */
+export async function restoreRuntimeAliases({ root, privateManifest }) {
+  if (typeof root !== "string" || !path.isAbsolute(root) || !privateManifest ||
+      !Array.isArray(privateManifest.runtimeAliases) || privateManifest.runtimeAliases.length > 2) {
+    throw new Error("Invalid QA runtime alias manifest.");
+  }
+  const nextDirectory = path.join(root, ".next");
+  if (!(await lstat(nextDirectory)).isDirectory()) throw new Error("Invalid extracted Next.js directory.");
+  const aliasDirectory = path.join(nextDirectory, "node_modules");
+  await mkdir(aliasDirectory, { mode: 0o700 }).catch((error) => {
+    if (error?.code !== "EEXIST") throw error;
+  });
+  if (!(await lstat(aliasDirectory)).isDirectory()) throw new Error("Invalid Next.js runtime alias directory.");
+  const lock = JSON.parse(await readFile(path.join(root, "package-lock.json"), "utf8"));
+  const created = [];
+  const seen = new Set();
+  try {
+    for (const alias of privateManifest.runtimeAliases) {
+      const keys = alias && typeof alias === "object" ? Object.keys(alias).sort().join("\0") : "";
+      const match = typeof alias?.path === "string"
+        ? /^\.next\/node_modules\/(pg|sharp)-[a-f0-9]{16}$/.exec(alias.path)
+        : null;
+      const packageName = match?.[1];
+      if (keys !== "package\0path\0target\0version" || !packageName || alias.package !== packageName ||
+          alias.target !== `../../node_modules/${packageName}` || typeof alias.version !== "string" ||
+          alias.version.length > 100 || seen.has(packageName)) {
+        throw new Error("Invalid QA runtime alias manifest.");
+      }
+      seen.add(packageName);
+      const destination = path.join(root, ...alias.path.split("/"));
+      if (path.dirname(destination) !== aliasDirectory) throw new Error("Invalid QA runtime alias path.");
+      const packageDirectory = path.join(root, "node_modules", packageName);
+      const packageStat = await lstat(packageDirectory);
+      const packageJson = JSON.parse(await readFile(path.join(packageDirectory, "package.json"), "utf8"));
+      if (!packageStat.isDirectory() || packageJson.name !== packageName ||
+          packageJson.version !== alias.version || lock.packages?.[`node_modules/${packageName}`]?.version !== alias.version) {
+        throw new Error("QA runtime dependency does not match the authenticated manifest.");
+      }
+      await symlink(alias.target, destination, "dir");
+      created.push(destination);
+    }
+    return privateManifest.runtimeAliases.length;
+  } catch (error) {
+    for (const destination of created.reverse()) await unlink(destination).catch(() => undefined);
     throw error;
   }
 }

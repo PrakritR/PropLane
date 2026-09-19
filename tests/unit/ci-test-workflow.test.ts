@@ -24,8 +24,15 @@ type WorkflowJob = {
   needs?: string[];
   steps: WorkflowStep[];
 };
-const jobs = (parse(workflow) as { jobs: Record<string, WorkflowJob> }).jobs;
+type WorkflowDocument = {
+  on: { workflow_dispatch: { inputs: Record<string, { type: string; required: boolean; default: boolean }> } };
+  jobs: Record<string, WorkflowJob>;
+};
+const workflowDocument = parse(workflow) as WorkflowDocument;
+const jobs = workflowDocument.jobs;
 const UPLOAD_ARTIFACT = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02";
+const BUILD_ONLY = "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && inputs.build_only == true";
+const NOT_BUILD_ONLY = `\${{ !(${BUILD_ONLY}) }}`;
 
 // Parse active YAML: comments cannot satisfy a gate, and all upload requirements
 // must belong to the same executable step in the same job.
@@ -61,7 +68,7 @@ describe("Test workflow resource budget", () => {
   it("keeps the full suite on schedule/manual dispatch only", () => {
     const full = jobConfig("e2e-full");
     expect(full.if).toBe(
-      "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
+      `github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !(github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && inputs.build_only == true))`,
     );
     expect(full.steps).toContainEqual(expect.objectContaining({ run: "npm run test:e2e" }));
   });
@@ -116,7 +123,7 @@ describe("Test workflow resource budget", () => {
     const check = jobConfig("check");
 
     expect(check.needs).toEqual(["unit", "lint", "build"]);
-    expect(check.if).toBe("always()");
+    expect(check.if).toBe(`\${{ always() && !(${BUILD_ONLY}) }}`);
     expect(check.steps.some((step) => step.run?.includes('if [ "$result" != "success" ]'))).toBe(true);
     // `e2e` is skipped on pull requests, and `integration` needs live Supabase
     // credentials a fork PR never receives — depending on either would make the
@@ -144,8 +151,23 @@ describe("Test workflow resource budget", () => {
     for (const [name, runner] of Object.entries(runners)) {
       const job = jobConfig(name);
       expect(job["runs-on"]).toBe(runner);
-      expect(job.if ?? "", `${name} must not be event-gated`).not.toContain("github.event_name");
+      if (name === "build") expect(job.if).toBeUndefined();
+      else expect(job.if).toBe(NOT_BUILD_ONLY);
     }
+  });
+
+  it("allows build-only dispatch only on the exact keeper without changing default gates", () => {
+    expect(workflowDocument.on.workflow_dispatch.inputs.build_only).toEqual({
+      description: "Run only the build and encrypted local QA artifact job on the exact release keeper",
+      required: false,
+      type: "boolean",
+      default: false,
+    });
+    for (const name of ["unit", "integration", "lint"]) expect(jobConfig(name).if).toBe(NOT_BUILD_ONLY);
+    expect(jobConfig("check").if).toBe(`\${{ always() && !(${BUILD_ONLY}) }}`);
+    expect(jobConfig("e2e-full").if).toContain(`!(${BUILD_ONLY.replace("github.event_name == 'workflow_dispatch' && ", "")})`);
+    expect(jobConfig("build").if).toBeUndefined();
+    expect(workflow).not.toContain("inputs.build_only != false");
   });
 
   it("keeps the unit harness provisioned with PostgreSQL 16 and OpenSSL before its unconditional command", () => {

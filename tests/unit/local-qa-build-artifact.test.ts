@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, symlink, stat } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, readdir, readlink, rm, symlink, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { execFileSync } from "node:child_process";
 import { parse } from "yaml";
-import { assertArtifactContext, configuredSecrets, encryptionKeyBytes, KEEPER_REF, packageBuild, secretScanner } from "../../scripts/package-local-qa-build.mjs";
-import { decryptArtifact } from "../../scripts/decrypt-local-qa-build.mjs";
+import { artifactRefusalCode, assertArtifactContext, configuredSecrets, encryptionKeyBytes, KEEPER_REF, packageBuild, secretScanner } from "../../scripts/package-local-qa-build.mjs";
+import { decryptArtifact, restoreRuntimeAliases } from "../../scripts/decrypt-local-qa-build.mjs";
 
 const SHA = "a".repeat(40);
 const SECRET = Buffer.from("server-secret-fixture-only");
@@ -45,6 +45,12 @@ describe("encrypted local QA build transport", () => {
     expect(() => configuredSecrets("")).toThrow();
     expect(() => encryptionKeyBytes("AB".repeat(32))).toThrow();
     expect(() => encryptionKeyBytes("ab".repeat(31))).toThrow();
+    try {
+      encryptionKeyBytes("invalid");
+    } catch (error) {
+      expect(artifactRefusalCode(error)).toBe("KEY_CONFIG");
+    }
+    expect(artifactRefusalCode(new Error("private path or secret"))).toBe("UNEXPECTED");
   });
 
   it("rejects secret bytes split across stream boundaries", async () => {
@@ -74,6 +80,56 @@ describe("encrypted local QA build transport", () => {
     const privateManifest = JSON.parse(execFileSync("tar", ["-xOf", decrypted, "qa-manifest.json"], { encoding: "utf8" }));
     expect(privateManifest).toMatchObject({ githubSha: SHA, fileBytes: expect.any(Number), fileCount: 3, runtime: { port: 3010, database: "dev/test" } });
     expect(JSON.parse(await readFile(path.join(input.output, "manifest.json"), "utf8"))).toEqual(envelope);
+  });
+
+  it("records exact Next.js runtime aliases without archiving links and recreates them after authentication", async () => {
+    const input = await fixture();
+    const version = "8.22.0";
+    await mkdir(path.join(input.root, ".next/node_modules"));
+    await mkdir(path.join(input.root, "node_modules/pg"), { recursive: true });
+    await writeFile(path.join(input.root, "node_modules/pg/package.json"), JSON.stringify({ name: "pg", version }));
+    await writeFile(path.join(input.root, "package-lock.json"), JSON.stringify({ packages: { "node_modules/pg": { version } } }));
+    const aliasName = "pg-0123456789abcdef";
+    await symlink("../../node_modules/pg", path.join(input.root, ".next/node_modules", aliasName), "dir");
+    await packageBuild({ ...input, encryptionKey: KEY });
+
+    const decrypted = path.join(input.root, "private", "next-build.tar.gz");
+    await decryptArtifact({ artifactDir: input.output, sha: SHA, encryptionKey: KEY, output: decrypted });
+    const entries = execFileSync("tar", ["-tzf", decrypted], { encoding: "utf8" }).trim().split("\n");
+    expect(entries).not.toContain(`.next/node_modules/${aliasName}`);
+    const privateManifest = JSON.parse(execFileSync("tar", ["-xOf", decrypted, "qa-manifest.json"], { encoding: "utf8" }));
+    expect(privateManifest.runtimeAliases).toEqual([{ path: `.next/node_modules/${aliasName}`, target: "../../node_modules/pg", package: "pg", version }]);
+
+    const restored = path.join(input.root, "restored");
+    await mkdir(path.join(restored, ".next"), { recursive: true });
+    await mkdir(path.join(restored, "node_modules/pg"), { recursive: true });
+    await writeFile(path.join(restored, "node_modules/pg/package.json"), JSON.stringify({ name: "pg", version }));
+    await writeFile(path.join(restored, "package-lock.json"), JSON.stringify({ packages: { "node_modules/pg": { version } } }));
+    await expect(restoreRuntimeAliases({ root: restored, privateManifest })).resolves.toBe(1);
+    expect(await readlink(path.join(restored, ".next/node_modules", aliasName))).toBe("../../node_modules/pg");
+  });
+
+  it("rejects unknown or retargeted Next.js runtime aliases", async () => {
+    for (const [name, target] of [["other-0123456789abcdef", "../../node_modules/other"], ["pg-0123456789abcdef", "../../node_modules/sharp"]]) {
+      const input = await fixture();
+      await mkdir(path.join(input.root, ".next/node_modules"));
+      await symlink(target, path.join(input.root, ".next/node_modules", name), "dir");
+      await expect(packageBuild({ ...input, encryptionKey: KEY })).rejects.toThrow("runtime alias");
+      await expect(stat(input.output)).rejects.toThrow();
+    }
+  });
+
+  it("rejects duplicate aliases for one runtime package before publishing", async () => {
+    const input = await fixture();
+    const version = "8.22.0";
+    await mkdir(path.join(input.root, ".next/node_modules"));
+    await mkdir(path.join(input.root, "node_modules/pg"), { recursive: true });
+    await writeFile(path.join(input.root, "node_modules/pg/package.json"), JSON.stringify({ name: "pg", version }));
+    await writeFile(path.join(input.root, "package-lock.json"), JSON.stringify({ packages: { "node_modules/pg": { version } } }));
+    await symlink("../../node_modules/pg", path.join(input.root, ".next/node_modules/pg-0123456789abcdef"), "dir");
+    await symlink("../../node_modules/pg", path.join(input.root, ".next/node_modules/pg-fedcba9876543210"), "dir");
+    await expect(packageBuild({ ...input, encryptionKey: KEY })).rejects.toThrow("Duplicate Next.js runtime alias");
+    await expect(stat(input.output)).rejects.toThrow();
   });
 
   it("rejects leaked secrets without publishing output", async () => {
@@ -127,7 +183,12 @@ describe("encrypted local QA build transport", () => {
     const input = await fixture();
     if (kind === "symlink") await symlink("page.js", path.join(input.root, ".next/server/link"));
     else await writeFile(path.join(input.root, ".next/server", kind === "env" ? ".env.local" : "bad\nname"), "bad");
-    await expect(packageBuild({ ...input, encryptionKey: KEY })).rejects.toThrow();
+    try {
+      await packageBuild({ ...input, encryptionKey: KEY });
+      throw new Error("expected packaging refusal");
+    } catch (error) {
+      expect(artifactRefusalCode(error)).toBe("INVENTORY");
+    }
     await expect(stat(input.output)).rejects.toThrow();
   });
 

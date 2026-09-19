@@ -1,27 +1,23 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PropLane test workspace release status</title><style>body{max-width:900px;margin:36px auto;padding:0 24px;font:16px/1.55 system-ui;color:#192532}li{margin:.6rem 0}code{overflow-wrap:anywhere}.status{background:#fff0e9;padding:16px}a{color:#145f9b}</style></head><body>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PropLane test workspace release status</title><style>body{max-width:900px;margin:36px auto;padding:0 24px;font:16px/1.55 system-ui;color:#192532}li{margin:.6rem 0}code{overflow-wrap:anywhere}.status{background:#eef5ff;padding:16px}.open{background:#fff6e8;padding:16px}a{color:#145f9b}</style></head><body>
 <h1>PropLane test workspace release status</h1>
-<p class="status"><strong>Not ready for production. Not deployed.</strong> Implementation is preserved locally, but final independent review found five security/provider findings and one chat-history regression. Two automated correction cycles are complete. No third cycle was started.</p>
-<p>Akhil has explicitly authorized release once complete. That authorization persists; another ship confirmation is unnecessary. Keeper, main, staging QA, and production gates still apply.</p>
-<h2>Remaining source blockers</h2><ol>
-<li>Guest checkout can choose the identity used for test-workspace classification; the generic authenticated checkout route can provision before classification.</li>
-<li>An unmatched credit dispute can call Stripe before resolving the stored owner.</li>
-<li>A revoked test user can still download an existing lease-template PDF through GET.</li>
-<li>Active private calendar and resident-property reads can use ordinary data scope instead of their private workspace.</li>
-<li>Normal hosted and some guest/legacy checkout completion cannot satisfy the new webhook ownership gate.</li>
-<li>Starting a new chat while archive hydration is pending can retain stale loading/in-flight state and prevent history reloading.</li>
-</ol>
-<p>Precise source references and corrective requirements are in the <a href="../../security/2026-09-19-test-workspace-correction2-final-security.html">final security review</a> and <a href="../../security/2026-09-19-test-workspace-correction2-final-bugbot.html">final client review</a>. Source review is not runtime proof.</p>
-<h2>Validation and resource status</h2>
-<p>Latest root resource check: 3.7 GiB disk available, 99% filesystem capacity used, 34% system memory free. Heavy validation remains deferred to respect Akhil's laptop constraints. No task server or browser is left running. No other task's files or processes were deleted or stopped.</p>
-<p>Correction2's changed code has not been tested, linted, compiled, built, or exercised in a seeded browser. Earlier correction1 results (27 files, 218 tests passed) do not validate changed correction2 bytes. Baseline CI failures also remain unresolved. Calendar sequential-conflict and two-workspace lifecycle proof, route/provider matrices, seeded browser QA, and staging QA remain required.</p>
-<h2>Database and release state</h2>
-<p>The first eight task migrations have been applied to DEV only. The ninth direct-access migration is source-reviewed and unapplied. Read-only DEV catalog audits do not replace effective RLS/storage/session tests. No production or staging schema/data mutation, deployment, commit, push, or PR occurred in this release work.</p>
-<p>Before any eventual production schema change: resolve the exact target, preserve a backup, use a reviewed atomic fail-closed apply path, and verify postconditions. The personal production operator identity is still unresolved and must not be guessed. Production also triggers the iOS release workflow.</p>
-<h2>Preserved candidate</h2>
-<p>Worktree: <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/7/AXIS-2</code><br>Branch: <code>akhil/test-workspace-release-20260919</code><br>Base/HEAD: <code>f25ccada208092fbc96ad3f0fc6451b048b6d6fb</code>.</p>
-<p>The frozen source union contains 299 files; the final correction delta contains 60. See <a href="release-correction2-execution.html">execution handoff</a>, <a href="release-correction2-manifest.json">delta manifest</a>, and <a href="release-correction2-source-union.json">source union</a>. The original historical checkout remains separate; never copy entire historical files over this current-base candidate.</p>
-<h2>Why automation stopped</h2>
-<p>The <a href="/Users/akhilvemuri/.codex/skills/akhil-feature-cycle/SKILL.md">Akhil feature-cycle skill</a> explicitly says: <q>Stop after two correction cycles if findings remain and report them to Akhil.</q> Both correction cycles have been consumed. This is a process limit, separate from the concrete defects and missing validation that prevent shipping.</p>
-<p>On an explicitly resumed correction effort, begin from these final findings and the existing candidate, preserve immutable DEV migration bytes, coordinate one validation owner, and wait for adequate resource headroom before runtime work. Do not treat production authorization as a waiver of any release gate.</p>
+<p class="status"><strong>Release work is active under Akhil's explicit authorization.</strong> The resumed correction closed the earlier five security findings, payment follow-ups, client lifecycle findings and inherited CI failures. Historical correction reports remain evidence of earlier snapshots; they are no longer the current release status.</p>
+<p>The durable chronological record is <a href="release-resumed-validation.html">resumed release validation</a>. The current machine-readable review inventory is the <a href="release-final-source-union.json">397-file final source union</a>, with the human handoff in <a href="release-final-source-union.html">final source union</a>.</p>
+
+<h2>Current evidence</h2>
+<ul>
+<li>Keeper <code>a6b67cdf8</code> passed lint, integration, all 1,755 unit files / 12,225 cases, and the actual Next build. Its build job failed only when encrypted local-QA packaging rejected Next-generated runtime aliases.</li>
+<li>The packager now validates the exact generated <code>pg</code> and <code>sharp</code> aliases, records them only inside the encrypted manifest, and restores them after authenticated extraction. Focused artifact/workflow tests passed 30/30; an actual bounded package/decrypt of the existing full <code>.next</code> tree produced a 76 MB ciphertext and cleaned up successfully. Fresh scoped review approved the alias correction.</li>
+<li>The latest client correction clears earlier SMS effect evidence before each accepted send and synchronously invalidates browser attachment preparation when SMS text-only mode activates. Focused tests passed 23/23 and scoped lint passed. Fresh scoped bug review approved both fixes.</li>
+<li>Staging prerequisites and all ten feature migrations were applied through the reviewed TLS transport after backups, actual-schema rehearsal and read-only preflight. Fresh verification and verified-TLS parity passed; historical ledger rows were preserved.</li>
+<li>Production has received read-only audit and preflight only. Its schema, data and application deployment remain unchanged.</li>
+</ul>
+
+<h2>Remaining release gates</h2>
+<p class="open"><strong>The feature is not live yet.</strong> Commit and push the final scoped correction, run the keeper-only build/artifact job, decrypt and validate the compiled artifact, provision synthetic staging-only fixtures, deploy and complete real staging browser QA. Then finish the reviewed production apply and the required fast-forward <code>keeper → main → staging → production</code> ladder with deployment and iOS verification. The production operator identity still must come from the user and must not be guessed.</p>
+<p>The current Vercel project reports Node 24.x while the repository pins Node 22.23.0; staging build logs must establish the effective runtime before promotion. No task-owned localhost server or browser should remain running outside active QA.</p>
+
+<h2>Candidate identity</h2>
+<p>Worktree: <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/7/AXIS-2</code><br>Branch: <code>akhil/test-workspace-release-20260919</code><br>Fixed base: <code>f25ccada208092fbc96ad3f0fc6451b048b6d6fb</code>.</p>
+<p>Current focused reviews: <a href="../../security/2026-09-19-test-workspace-final-396-security.html">security review</a>, <a href="../../security/2026-09-19-test-workspace-final-396-bugbot.html">bug review</a>, and <a href="../../security/2026-09-19-test-workspace-apply-transport-review.html">migration transport review</a>.</p>
 </body></html>

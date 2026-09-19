@@ -56,6 +56,36 @@ describe("assistant internal context and typed send", () => {
     });
   });
 
+  it("clears prior SMS delivery evidence when the next turn fails", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        reply: "Application received.",
+        sessionId: "sms-session",
+        smsTest: {
+          mode: "resident",
+          stage: "submitted",
+          targetListingId: "listing-a",
+          sessionId: "sms-session",
+          effects: [{ kind: "email", status: "captured", summary: "Captured email" }],
+        },
+      }), { headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: "Test delivery failed." }), {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useAssistantConversation("/api/agent/sms-test", { storageScope: "sms-test" }));
+
+    await act(async () => { await result.current.send("I submitted my application"); });
+    expect(result.current.lastSmsTestTurn?.sessionId).toBe("sms-session");
+
+    await act(async () => { await result.current.send("Try the same test again"); });
+
+    expect(result.current.error).toBe("Test delivery failed.");
+    expect(result.current.lastSmsTestTurn).toBeNull();
+  });
+
   it("keeps task context outside visible and persisted messages, retaining authored context-like text", async () => {
     const { result, fetchMock } = setup();
     const authored = "[Context: this is my own text]\nPlease draft a reply";

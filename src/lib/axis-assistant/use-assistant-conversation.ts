@@ -471,6 +471,10 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
       setAttachments([]);
       setLoading(true);
       setLastTools([]);
+      // Delivery evidence belongs to exactly one completed SMS test turn. Clear
+      // it before the next request so a failed turn cannot display the prior
+      // turn's captured effects as though they were current.
+      setLastSmsTestTurn(null);
       let streamingAssistant = false;
       try {
         const res = await fetch(endpoint, {

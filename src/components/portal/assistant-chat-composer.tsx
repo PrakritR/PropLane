@@ -1,7 +1,7 @@
 "use client";
 
 import { Paperclip, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import {
   CHAT_ATTACHMENT_ACCEPT,
@@ -49,8 +49,16 @@ export function AssistantChatComposer({
 }: AssistantChatComposerProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
+  const allowAttachmentsRef = useRef(allowAttachments);
+  const attachmentPreparationGeneration = useRef(0);
   const [dragOver, setDragOver] = useState(false);
   const canSend = !loading && (input.trim().length > 0 || (allowAttachments && attachments.length > 0));
+
+  useLayoutEffect(() => {
+    if (allowAttachmentsRef.current === allowAttachments) return;
+    allowAttachmentsRef.current = allowAttachments;
+    attachmentPreparationGeneration.current += 1;
+  }, [allowAttachments]);
 
   useEffect(() => {
     if (allowAttachments || attachments.length === 0) return;
@@ -60,7 +68,16 @@ export function AssistantChatComposer({
 
   async function onPickFiles(files: FileList | null) {
     if (!allowAttachments || !files?.length) return;
+    const preparationGeneration = attachmentPreparationGeneration.current;
     const { prepared, error } = await prepareChatAttachmentsFromFiles(files, attachments.length);
+    if (
+      !allowAttachmentsRef.current ||
+      preparationGeneration !== attachmentPreparationGeneration.current
+    ) {
+      prepared.forEach((attachment) => revokeAttachmentPreview(attachment));
+      if (fileRef.current) fileRef.current.value = "";
+      return;
+    }
     if (prepared.length) onAttachmentsChange([...attachments, ...prepared]);
     if (error) onAttachmentError?.(error);
     if (fileRef.current) fileRef.current.value = "";
