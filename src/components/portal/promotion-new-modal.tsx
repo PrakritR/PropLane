@@ -125,6 +125,8 @@ export function PromotionNewModal({
   const flyerBaseRef = useRef<PromotionDraft>(draft);
   const flyerBasePropertyRef = useRef<string>(draft.propertyKey);
   const textDirtyRef = useRef(false);
+  const [flyerBase, setFlyerBase] = useState<PromotionDraft>(draft);
+  const [textDirty, setTextDirty] = useState(false);
   const textComposerRef = useRef<PromotionTextComposerHandle>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadFileName, setUploadFileName] = useState<string | null>(null);
@@ -137,6 +139,8 @@ export function PromotionNewModal({
     flyerBaseRef.current = draft;
     flyerBasePropertyRef.current = draft.propertyKey;
     textDirtyRef.current = false;
+    setFlyerBase(draft);
+    setTextDirty(false);
     setUploadFile(null);
     setUploadFileName(null);
     setUploadError(null);
@@ -152,10 +156,12 @@ export function PromotionNewModal({
     if (!open || draft.propertyKey === flyerBasePropertyRef.current) return;
     flyerBaseRef.current = draft;
     flyerBasePropertyRef.current = draft.propertyKey;
+    setFlyerBase(draft);
   }, [open, draft]);
 
   const handleTextDirty = useCallback((dirty: boolean) => {
     textDirtyRef.current = dirty;
+    setTextDirty(dirty);
   }, []);
 
   const confirm = useConfirm();
@@ -184,6 +190,7 @@ export function PromotionNewModal({
     // (seed + property autofill); the text composer unmounts when kind changes.
     if (kind === "flyer") setDraft(flyerBaseRef.current);
     textDirtyRef.current = false;
+    setTextDirty(false);
     setUploadFile(null);
     setUploadFileName(null);
     setUploadError(null);
@@ -220,9 +227,9 @@ export function PromotionNewModal({
   };
   const leavingDirty =
     kind === "flyer"
-      ? flyerContentChanged(draft, flyerBaseRef.current)
+      ? flyerContentChanged(draft, flyerBase)
       : kind === "text"
-        ? textDirtyRef.current
+        ? textDirty
         : Boolean(uploadFile);
 
   if (!open) return null;

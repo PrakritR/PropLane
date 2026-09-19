@@ -227,7 +227,12 @@ export function ChannelCalendarLinkFields({
   };
 
   const onFooterStateRef = useRef(onFooterState);
-  onFooterStateRef.current = onFooterState;
+  // Keep the callback current without making a parent callback replacement a
+  // footer-state notification. This effect runs before the notification effect.
+  useEffect(() => {
+    onFooterStateRef.current = onFooterState;
+  }, [onFooterState]);
+
   useEffect(() => {
     onFooterStateRef.current?.({
       canSave,

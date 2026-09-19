@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Release lint correction handoff</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { max-width: 900px; margin: 40px auto; padding: 0 24px 48px; line-height: 1.6; }
+    code { padding: 0.1rem 0.3rem; border-radius: 0.25rem; background: color-mix(in srgb, CanvasText 8%, Canvas); }
+    li + li { margin-top: 0.45rem; }
+    .status { display: inline-block; padding: 0.25rem 0.65rem; border-radius: 999px; background: #dcfce7; color: #14532d; font-weight: 700; }
+    @media (prefers-color-scheme: dark) { .status { background: #14532d; color: #dcfce7; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Release lint correction handoff</h1>
+    <p><span class="status">Implementation and focused tests complete</span></p>
+    <p>This correction follows <code>docs/plans/2026-09-19-release-lint-correction-plan.html</code> in the treehouse checkout <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code>. The execution phase started from branch <code>akhil/ship-conversation-identity</code> at <code>736a5a240</code>. Git state was deliberately not queried or changed during this phase.</p>
+
+    <h2>Implemented behavior</h2>
+    <ul>
+      <li><code>src/components/portal/channel-calendar-link-modal.tsx</code> now synchronizes <code>onFooterStateRef</code> in an effect declared before the notification effect. Replacing the callback does not itself emit a notification, while the next footer-state change reaches the latest callback.</li>
+      <li><code>src/components/portal/promotion-new-modal.tsx</code> now uses render state for the flyer baseline and text dirty flag while retaining synchronized refs for event handlers. Open initialization, property reseeding, text changes, confirmed switches, abandoned flyer reset, upload reset, and busy guards retain their existing behavior.</li>
+      <li>No lint rule was disabled and the unsaved-change warning remains active.</li>
+    </ul>
+
+    <h2>Focused regression coverage</h2>
+    <ul>
+      <li><code>tests/unit/channel-calendar-link-footer-state.test.tsx</code> covers callback replacement without a notification and delivery to the latest callback on the next state change.</li>
+      <li><code>tests/unit/promotion-new-modal-switch-warning.test.tsx</code> covers flyer and text dirty state for close warnings, switch confirmation, confirmed flyer baseline reset, clean property reseeding, close/reopen reset, and blocked switching while busy.</li>
+    </ul>
+
+    <h2>Independent review</h2>
+    <p>A fresh Luna pass reviewed the Terra component changes and reported no findings. The review checked the calendar effects, promotion baseline synchronization, dirty state, reset path, switch confirmation, and busy guard.</p>
+
+    <h2>Validation ownership</h2>
+    <p>No local test, lint, typecheck, build, browser, server, install, database, graph, or git command was run in this phase. The root release session owns remote CI and broader validation because laptop pressure was elevated. The existing CI evidence that motivated this correction is <code>/tmp/akhil-release-ci-lint.log</code>.</p>
+
+    <h2>Files changed</h2>
+    <ul>
+      <li><code>src/components/portal/channel-calendar-link-modal.tsx</code></li>
+      <li><code>src/components/portal/promotion-new-modal.tsx</code></li>
+      <li><code>tests/unit/channel-calendar-link-footer-state.test.tsx</code></li>
+      <li><code>tests/unit/promotion-new-modal-switch-warning.test.tsx</code></li>
+      <li><code>docs/plans/2026-09-19-release-lint-correction-handoff.html</code></li>
+    </ul>
+
+    <h2>Remaining step</h2>
+    <p>The root release owner should include these files in the next candidate and use remote CI to confirm that the three <code>react-hooks/refs</code> errors are gone and the focused tests pass.</p>
+  </main>
+</body>
+</html>

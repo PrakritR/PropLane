@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Conversation browser validation handoff</title>
+<style>body{max-width:900px;margin:40px auto;padding:0 24px;font:16px/1.55 system-ui;color:#172033}code{background:#eef1f5;padding:.1rem .3rem;border-radius:4px}li{margin:.35rem 0}</style>
+<h1>Conversation browser validation handoff</h1>
+<p><strong>Status:</strong> bounded Playwright source is implemented. No test, browser, build, server, database request, Git, or graph command was run in this implementation session, so this document makes no runtime pass claim.</p>
+
+<h2>Baseline and scope</h2>
+<p>Application baseline: <code>715e95ebf</code> on <code>akhil/ship-conversation-identity</code>. The source follows <code>docs/plans/2026-09-19-conversation-browser-validation-plan.html</code>.</p>
+<p>The only deliverables are <code>tests/e2e/conversation-identity.spec.ts</code> and this handoff. Application and runtime source were not changed.</p>
+
+<h2>Fixture and mutation safety</h2>
+<ul>
+  <li>When enabled, every fixture mutation requires the exact Supabase host <code>emstjswhotsnyksqhqyf.supabase.co</code>. Missing credentials or seeded prerequisites fail closed.</li>
+  <li>Before any write, setup verifies the existing seeded manager auth account, profile, manager role, default workspace, default-workspace Assistant row, and a property owned in that workspace. The manager browser cookie is pinned to the verified workspace.</li>
+  <li>The suite creates one unique temporary resident auth account with an in-memory password, resident profile and role, and a directly inserted pending Submitted application on that existing property. It invokes no lifecycle or notification route. The pending application does not enter approved-placement occupancy logic.</li>
+  <li>Collision checks cover the generated auth/profile identity, application/Axis ID, and all six inbox IDs before writes. Inbox fixtures use <code>insert</code>, never upsert.</li>
+  <li>Six uniquely prefixed inbox rows cover two resident sources, three manager sources, and one same-address conflicting-role source. Each carries <code>managerUserId</code>, <code>propertyId</code>, <code>counterpartyRole</code>, and <code>identityProvenance</code>. The deterministic temporary resident Assistant ID is tracked before navigation.</li>
+  <li>Cleanup deletes every exact inbox ID with its original <code>owner_user_id</code>, then the exact application, role, profile, and auth user in dependency order. Cleanup errors fail the suite. Partial setup retains ownership state for an <code>afterAll</code> retry.</li>
+  <li>The resident test allows and verifies only its real two-source mark-read POST. The manager browser path is read only: every non-GET <code>/api/portal-inbox-threads</code> request is aborted, including scope-less or malformed persistence that could replace or delete pre-existing manager rows.</li>
+  <li>Automatic AI draft requests are aborted with <code>inbox-draft-reply</code> route matching. Send, manager SMS, <code>scheduled-messages</code>, and <code>scheduled-inbox-messages</code> requests are separately fenced and asserted absent. Aborts reject requests; they do not return mocked successes or fabricated API data.</li>
+</ul>
+
+<h2>Observable coverage</h2>
+<ul>
+  <li>Resident API data folds ordinary manager email and historical tour rows into one verified-manager conversation with both exact source IDs and complete read observations.</li>
+  <li>Resident UI shows both bodies, keeps PropLane Assistant separate, resolves deep links from either source, verifies exact two-source read acknowledgement, and removes the merged row from Unread.</li>
+  <li>Manager API data folds prospect, application, and direct-email sources for the temporary resident while keeping the same email with a conflicting trusted role separate. Assistant remains separate.</li>
+  <li>Manager UI shows the three accepted bodies, excludes the conflicting body from the selected timeline, and shows exactly the accepted relationship plus conflict when searching the unique run prefix.</li>
+  <li>Both portals exercise no-results search and clear recovery. At 375 by 812, source deep links expose Back to conversations, the real composer, and the verified person; text is entered and retained without Send.</li>
+</ul>
+
+<h2>Selectors and routes</h2>
+<ul>
+  <li>Lists: <code>[data-communication-inbox-list] .portal-inbox-row button</code></li>
+  <li>Conversation bodies: <code>[data-inbox-bubble-kind]</code></li>
+  <li>Selected person: <code>.portal-inbox-thread-header</code></li>
+  <li>Manager search and empty state: <code>[data-attr="unified-inbox-search"]</code>, <code>[data-attr="unified-inbox-empty"]</code>, and <code>[data-attr="unified-inbox-empty-clear-search"]</code></li>
+  <li>Resident search: <code>[data-attr="resident-inbox-search"]</code>; resident no-match and no-unread states use their exact visible copy.</li>
+  <li>Resident composer: <code>textarea[data-attr="resident-inbox-reply"]</code>; manager composer: <code>textarea[data-attr="inbox-reply"]</code></li>
+  <li>Routes: <code>/resident/communication/{unread|active}/{sourceId}</code> and <code>/portal/communication/active/{sourceId}</code></li>
+</ul>
+
+<h2>Static review record</h2>
+<ul>
+  <li>Terra implementation phase produced the initial bounded fixture approach. Its first draft was rejected rather than integrated because it lacked the required isolation and cleanup guarantees.</li>
+  <li>Luna safety review found missing tour identity evidence, an application state that could trigger occupancy effects, and missing inbox collision checks. The final source uses the verified manager email on the tour row, a pending Submitted application, and a six-ID collision preflight.</li>
+  <li>Fresh Astra review verified the corrected selectors, fixture cleanup, occupancy behavior, and merge membership. It then required the manager workspace/Assistant preflight, manager cookie pinning, fail-closed manager persistence fence, complete route matching, and accurate handoff. After those corrections, a fresh Astra high-reasoning final static review approved the source for remote execution with no blocking findings.</li>
+</ul>
+
+<h2>Pending execution</h2>
+<p>Remote validation should run this one spec with seeded dev/test accounts, bounded workers, and exact dev/test Supabase credentials. Runtime remains pending.</p>
+</html>

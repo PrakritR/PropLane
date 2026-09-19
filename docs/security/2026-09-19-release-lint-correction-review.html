@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Release lint correction review</title><style>body{max-width:920px;margin:40px auto;padding:0 24px;font:16px/1.6 system-ui;color:#20252b;background:#fff}code{background:#eef1f4;padding:2px 4px}h2{margin-top:30px}.finding{border-left:4px solid #b45309;padding-left:18px}</style></head>
+<body><main>
+<h1>Release lint correction: independent review</h1>
+<p><strong>No outstanding actionable findings in the bounded correction. Both review findings were corrected and statically re-reviewed; runtime validation remains pending.</strong> Reviewed on September 19, 2026, against the provided candidate context <code>736a5a240</code> on <code>akhil/ship-conversation-identity</code>. This is static source review, not runtime validation or release approval.</p>
+<h2>Scope and method</h2>
+<p>Read repository and Akhil instructions, the release lint correction plan and handoff, and the two scoped components and two new regression test files. No git, graph, test, lint, build, browser, server, installation, or database operation was performed. The review evaluated the current scoped files and the documented change description; no independent git diff was obtained because git operations were excluded. Root owns runtime validation.</p>
+<section class="finding"><h2>Resolved P1: required mock export</h2>
+<p>The original promotion test module mock omitted PreviewPanel, which the component renders on every open render. Root added a PreviewPanel mock export. The corrected source was re-read and resolves the missing-export finding. No runtime result is claimed.</p></section>
+<section class="finding"><h2>Resolved P2: behavioral assertions</h2>
+<p>Root updated the WizardSelect mock to expose its selected value with aria-pressed. Static follow-up verified that the busy case now asserts Flyer remains selected, rejected text switching asserts Text remains selected with dirty true, and accepted flyer switching waits for Text selection then verifies the abandoned title and dirty state are reset. These assertions address the identified false-positive paths.</p></section>
+<h2>Coverage limits</h2>
+<p>The AddWorkspace mock directly invokes onClose, and no test presses Close. These tests verify the dirty prop passed to the workspace, not actual close confirmation. Actual close behavior needs the real workspace or separately established coverage. Upload reset remains source-inspected only.</p>
+<h2>Source assessment</h2>
+<p>No concrete correctness finding in the bounded component correction. Calendar callback synchronization runs before the footer notification effect; callback identity alone is absent from notification dependencies, while state changes observe the latest committed callback. The new test meaningfully exercises callback replacement followed by a canSave change.</p>
+<p>Promotion close dirtiness now reads state rather than refs. Initial seed, opening reset, property-key reseed, text dirty notifications, and confirmed switch resets update the corresponding state and event-handler refs together. The requestSwitch busy guard and rejection return remain intact. Flyer abandonment still resets the draft to the captured baseline; upload reset behavior remains in the opening and switch paths. Same-property edits remain dirty, while a changed property key establishes a new baseline.</p>
+<h2>Pending evidence</h2>
+<p>With the mock and assertion corrections statically verified, root must run the focused tests and lint through its chosen validation environment. No successful exit codes, browser outcomes, or proof that the three react-hooks/refs errors are eliminated are claimed by this review. Upload reset is source-inspected only; the upload composer is mocked to null and has no behavioral coverage in these new tests.</p>
+</main></body></html>
