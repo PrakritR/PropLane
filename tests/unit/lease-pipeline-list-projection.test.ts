@@ -21,6 +21,21 @@ const stored = {
 };
 
 describe("lease pipeline list projection", () => {
+  it("recognizes short generated HTML as a stored lease document", () => {
+    const shortGeneratedLease = {
+      id: "lease-short-html",
+      generatedHtml: "<p>Short but complete lease</p>",
+      managerUploadedPdf: null,
+    };
+
+    expect(leaseRowCarriesDocumentBytes(shortGeneratedLease)).toBe(true);
+    expect(leaseRowHasDocument(shortGeneratedLease)).toBe(true);
+    expect(projectLeasePipelineListRow(shortGeneratedLease)).toMatchObject({
+      generatedHtml: "",
+      documentOmitted: true,
+    });
+  });
+
   it("strips embedded PDF and HTML bytes from the list row", () => {
     const listed = projectLeasePipelineListRow(stored);
     expect(listed.documentOmitted).toBe(true);

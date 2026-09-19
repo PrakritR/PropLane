@@ -1,0 +1,123 @@
+{
+  "missing": [
+    {
+      "version": "20260916140000",
+      "name": "team_delivery_recipient_key"
+    },
+    {
+      "version": "20260917010000",
+      "name": "invite_workspace"
+    },
+    {
+      "version": "20260917120000",
+      "name": "authenticated_sms_test_identity"
+    },
+    {
+      "version": "20260917193000",
+      "name": "authenticated_sms_test_tour_context"
+    },
+    {
+      "version": "20260917201500",
+      "name": "sms_test_pending_action_and_delivery_provenance"
+    },
+    {
+      "version": "20260918130000",
+      "name": "sms_test_tour_wrapper_failed_replace_guard"
+    },
+    {
+      "version": "20260918131500",
+      "name": "test_workspaces"
+    },
+    {
+      "version": "20260918133000",
+      "name": "remove_raw_live_listing_read_policy"
+    },
+    {
+      "version": "20260918153000",
+      "name": "workspace_permissions"
+    },
+    {
+      "version": "20260918180000",
+      "name": "account_link_team_role"
+    },
+    {
+      "version": "20260919010000",
+      "name": "booking_com_calendar_provider"
+    },
+    {
+      "version": "20260919113000",
+      "name": "reconcile_sms_test_google_cleanup_claim_fence"
+    },
+    {
+      "version": "20260919120000",
+      "name": "harden_test_workspace_schedule_slice"
+    },
+    {
+      "version": "20260919123000",
+      "name": "revoke_classified_test_workspace_direct_access"
+    },
+    {
+      "version": "20260919124500",
+      "name": "harden_late_test_workspace_direct_access"
+    }
+  ],
+  "extra": [
+    {
+      "name": "sms_contact_email_and_manager_sms_sessions_and_work_order_events",
+      "version": "20260906214158"
+    },
+    {
+      "name": "action_event_bus_and_co_manager_explicit_grant_and_invite_expiry",
+      "version": "20260906214225"
+    },
+    {
+      "name": "reminder_kinds_and_comms_billing_and_voice_sessions",
+      "version": "20260906214241"
+    },
+    {
+      "name": "comms_invoicing_action_event_domains_and_open_invite_token",
+      "version": "20260906214259"
+    },
+    {
+      "name": "shared_room_capacity_helpers",
+      "version": "20260906214429"
+    },
+    {
+      "name": "shared_room_capacity_triggers",
+      "version": "20260906214510"
+    },
+    {
+      "name": "sales_provenance_utility_allocations_statement_match",
+      "version": "20260906214533"
+    },
+    {
+      "name": "inspection_reminder_kinds_final",
+      "version": "20260906214710"
+    },
+    {
+      "name": "outbound_mail_channel_column_repair",
+      "version": "20260907013446"
+    },
+    {
+      "name": "portal_inbox_attachments_bucket_repair",
+      "version": "20260907013451"
+    },
+    {
+      "name": "production_recovery_schema",
+      "version": "20260911010000"
+    },
+    {
+      "name": "comms_billing_rollout",
+      "version": "20260911161000"
+    }
+  ],
+  "problems": [
+    {
+      "source": "database",
+      "kind": "duplicate-name",
+      "index": 234,
+      "version": "20260916063005",
+      "name": "automated_communication_reminder_kinds"
+    }
+  ]
+}

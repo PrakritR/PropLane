@@ -59,6 +59,31 @@ describe("list_calendar_events", () => {
     };
     expect(july.events.map((e) => e.id)).toEqual(["e1"]);
   });
+
+  it("reads planned events and owned rows only from the authenticated private namespace", async () => {
+    const privateCtx = makeManagerRowsCtx({
+      portal_schedule_records: [
+        { ...ev("manager_a", "private-owned", "2026-07-03T10:00:00Z", { title: "Private row" }), test_workspace_id: "workspace-a" } as unknown as FakeRecord,
+        { ...ev("manager_a", "other-private-owned", "2026-07-04T10:00:00Z", { title: "Other workspace" }), test_workspace_id: "workspace-b" } as unknown as FakeRecord,
+        { id: "axis_admin_planned_events_v1", row_data: { payload: [{ id: "customer-event", managerUserId: "manager_a", start: "2026-07-05T10:00:00Z" }] } } as FakeRecord,
+      ],
+      test_workspace_schedule_records: [
+        {
+          workspace_id: "workspace-a",
+          record_key: "planned_events",
+          row_data: { payload: [{ id: "private-event", managerUserId: "manager_a", start: "2026-07-06T10:00:00Z", title: "Private event" }] },
+        } as unknown as FakeRecord,
+        {
+          workspace_id: "workspace-a",
+          record_key: "partner_inquiries",
+          row_data: { payload: [] },
+        } as unknown as FakeRecord,
+      ],
+    }, { testWorkspaceId: "workspace-a" });
+
+    const result = await listCalendarEventsTool.handler(privateCtx, {}) as { events: Array<{ id: string }> };
+    expect(result.events.map((event) => event.id).sort()).toEqual(["private-event", "private-owned"]);
+  });
 });
 
 describe("list_scheduled_messages", () => {

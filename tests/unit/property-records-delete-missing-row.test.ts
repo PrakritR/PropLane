@@ -60,6 +60,9 @@ vi.mock("@/lib/analytics/posthog", () => ({ track: () => {} }));
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({ auth: { getUser } }),
 }));
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveAuthenticatedBusinessAccess: async () => ({ kind: "normal" }),
+}));
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: () => ({
     from: (table: string) => ({

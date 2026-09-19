@@ -3,6 +3,7 @@ import { isProductionRuntime } from "@/lib/server-env";
 import { canSendResidentOutboundSms, sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { residentPortalUrl } from "@/lib/claw-resident-links";
+import { hasSmsTestProvenance } from "@/lib/sms/sms-test-provenance";
 
 export const runtime = "nodejs";
 
@@ -54,6 +55,7 @@ export async function GET(req: Request) {
   for (const row of leases ?? []) {
     const managerUserId = String(row.manager_user_id ?? "").trim();
     const lease = (row.row_data ?? {}) as Record<string, unknown>;
+    if (hasSmsTestProvenance(lease)) continue;
     const status = String(lease.status ?? "");
     if (!managerUserId || !needsResidentSignature(status)) continue;
     considered += 1;

@@ -1,5 +1,5 @@
 import { onPortalSessionViewerChange, portalSessionViewerId } from "@/lib/auth/portal-session-gate";
-import { workspaceContainsProperty } from "@/lib/workspaces/selection";
+import { selectedWorkspaceId, WORKSPACE_SELECTION_EVENT, workspaceContainsProperty } from "@/lib/workspaces/selection";
 import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import { MANAGER_PROPERTY_LIMIT_ERROR_CODE } from "@/lib/manager-access";
 import type { MockProperty } from "@/data/types";
@@ -65,12 +65,17 @@ const pendingPipelineLinkedIds = new Map<string, Set<string>>();
 let lastPipelineSnapshotSig: string | null = null;
 
 if (typeof window !== "undefined") {
-  let previousViewer = portalSessionViewerId();
-  onPortalSessionViewerChange((viewer) => {
-    // Initial session hydration may confirm an explicitly scoped request that
-    // is already running. Later actor changes invalidate even A → B → A.
-    if (previousViewer !== null && !isDemoModeActive()) resetPropertyPipelineClientCache();
-    previousViewer = viewer;
+  onPortalSessionViewerChange(() => {
+    // Initial anonymous-to-authenticated hydration is also a domain boundary.
+    if (isDemoModeActive()) resetPublicListingCatalog();
+    else resetPropertyPipelineClientCache();
+  });
+  let previousWorkspace = selectedWorkspaceId();
+  window.addEventListener(WORKSPACE_SELECTION_EVENT, () => {
+    const workspaceId = selectedWorkspaceId();
+    if (workspaceId === previousWorkspace) return;
+    previousWorkspace = workspaceId;
+    resetPublicListingCatalog();
   });
 }
 
@@ -405,6 +410,7 @@ export function resetPropertyPipelineClientCache(): void {
   memoryStore.delete(EXTRAS_BY_USER_KEY);
   memoryStore.delete("axis_admin_property_buckets_v1");
   lastPipelineSnapshotSig = null;
+  resetPublicListingCatalog();
   writePropertyPipelineSyncedAt(0);
   try {
     for (const key of Object.keys(window.sessionStorage)) {
@@ -602,39 +608,123 @@ export async function mirrorLocalPropertyPipelineToServer(
   if (refusal) opts?.onError?.(refusal);
 }
 
-// In-flight guards: collapse concurrent duplicate calls into one request.
-// No TTL needed — the routes are CDN-cached (see their Cache-Control).
-let publicListingsInFlight: Promise<MockProperty[]> | null = null;
+// Coalesce by browser actor, selected portal workspace and monotonic lifetime.
+// These are presentation caches, never an authorization decision for the server.
+const publicListingsInFlight = new Map<string, Promise<MockProperty[]>>();
 const publicLeadInFlight = new Map<string, Promise<MockProperty | null>>();
+let publicCatalogGeneration = 0;
+type CatalogRequestIdentity = { viewerId: string; workspaceId: string | null; generation: number; key: string };
+type CatalogScope =
+  | { kind: "unresolved" | "normal" | "denied" }
+  | { kind: "private"; workspaceId: string; listings: MockProperty[] };
+let catalogScope: CatalogScope = { kind: portalSessionViewerId() ? "unresolved" : "normal" };
+const PROPERTY_CATALOG_SCOPE_EVENT = "proplane-property-catalog-scope";
+
+function publicCatalogRequestIdentity(): CatalogRequestIdentity {
+  const viewerId = portalSessionViewerId() ?? "anonymous";
+  const workspaceId = selectedWorkspaceId();
+  return {
+    viewerId,
+    workspaceId,
+    generation: publicCatalogGeneration,
+    key: JSON.stringify([viewerId, workspaceId, publicCatalogGeneration]),
+  };
+}
+
+/** Synchronous display lifetime. React consumers must not retain data across it. */
+export function propertyCatalogScopeKey(): string {
+  return publicCatalogRequestIdentity().key;
+}
+
+export function subscribePropertyCatalogScope(listener: () => void): () => void {
+  if (!isBrowser()) return () => {};
+  window.addEventListener(PROPERTY_CATALOG_SCOPE_EVENT, listener);
+  return () => window.removeEventListener(PROPERTY_CATALOG_SCOPE_EVENT, listener);
+}
+
+function isCurrentPublicCatalogRequest(identity: CatalogRequestIdentity): boolean {
+  return identity.key === propertyCatalogScopeKey();
+}
+
+function resetPublicListingCatalog(): void {
+  publicCatalogGeneration += 1;
+  catalogScope = { kind: portalSessionViewerId() ? "unresolved" : "normal" };
+  publicListingsInFlight.clear();
+  publicLeadInFlight.clear();
+  residentPropertyInFlight.clear();
+  if (isBrowser()) window.dispatchEvent(new Event(PROPERTY_CATALOG_SCOPE_EVENT));
+}
+
+export function clearPrivateTestWorkspaceListings(): void {
+  resetPublicListingCatalog();
+}
+
+function cachePrivateTestWorkspaceListings(
+  identity: CatalogRequestIdentity,
+  workspaceId: string,
+  listings: MockProperty[],
+  replace: boolean,
+): void {
+  if (!isCurrentPublicCatalogRequest(identity)) return;
+  const previous = catalogScope.kind === "private" && catalogScope.workspaceId === workspaceId
+    ? catalogScope.listings
+    : [];
+  const byId = new Map((replace ? [] : previous).map((listing) => [listing.id, listing]));
+  for (const listing of listings) byId.set(listing.id, listing);
+  catalogScope = { kind: "private", workspaceId, listings: [...byId.values()] };
+}
 
 export async function loadPublicExtraListingsFromServer(): Promise<MockProperty[]> {
-  if (publicListingsInFlight) return publicListingsInFlight;
-  publicListingsInFlight = fetchPublicExtraListings();
+  const identity = publicCatalogRequestIdentity();
+  const inFlight = publicListingsInFlight.get(identity.key);
+  if (inFlight) {
+    const result = await inFlight;
+    return isCurrentPublicCatalogRequest(identity) ? result : [];
+  }
+  const request = fetchPublicExtraListings(identity);
+  publicListingsInFlight.set(identity.key, request);
   try {
-    return await publicListingsInFlight;
+    const result = await request;
+    return isCurrentPublicCatalogRequest(identity) ? result : [];
   } finally {
-    publicListingsInFlight = null;
+    if (publicListingsInFlight.get(identity.key) === request) publicListingsInFlight.delete(identity.key);
   }
 }
 
-async function fetchPublicExtraListings(): Promise<MockProperty[]> {
+async function fetchPublicExtraListings(identity: CatalogRequestIdentity): Promise<MockProperty[]> {
   try {
-    // No cache override: response is CDN-cacheable (see route Cache-Control).
+    // The route chooses public CDN caching or private no-store after classification.
     const res = await fetch("/api/property-records/public");
     const contentType = res.headers.get("content-type") ?? "";
-    if (!res.ok || !contentType.includes("application/json")) {
+    const body = contentType.includes("application/json")
+      ? await res.json() as { listings?: MockProperty[]; testWorkspaceId?: string; testWorkspaceAccess?: "denied" }
+      : {};
+    if (!isCurrentPublicCatalogRequest(identity)) return [];
+    if (!res.ok) {
+      if (body.testWorkspaceAccess === "denied" || res.status === 401 || res.status === 403) {
+        catalogScope = { kind: "denied" };
+      }
       return readExtraListingsPublic();
     }
-    const body = (await res.json()) as { listings?: MockProperty[] };
-    const listings = (body.listings ?? []).map((listing) =>
+    // A successful JSON catalog is the normal/private classification contract.
+    // A malformed success must not turn an unresolved identity into normal mode.
+    if (!Array.isArray(body.listings)) return readExtraListingsPublic();
+    const listings = body.listings.map((listing) =>
       listing.adminPublishLive === true ? listing : { ...listing, adminPublishLive: true as const },
     );
-    cachePublicExtraListings(listings, { silent: true });
+    if (body.testWorkspaceId) cachePrivateTestWorkspaceListings(identity, body.testWorkspaceId, listings, true);
+    else {
+      // Durable classification cannot downgrade inside the same lifetime.
+      if (catalogScope.kind === "private" || catalogScope.kind === "denied") return [];
+      catalogScope = { kind: "normal" };
+      cachePublicExtraListings(listings, { silent: true });
+    }
     if (isBrowser()) {
       window.dispatchEvent(new Event(PROPERTY_PIPELINE_EVENT));
     }
     return listings;
   } catch {
+    if (!isCurrentPublicCatalogRequest(identity)) return [];
     return readExtraListingsPublic();
   }
 }
@@ -643,23 +733,38 @@ async function fetchPublicExtraListings(): Promise<MockProperty[]> {
 export async function loadPublicPropertyLeadFromServer(propertyId: string): Promise<MockProperty | null> {
   const id = propertyId.trim();
   if (!id || !isBrowser()) return null;
-  const inFlight = publicLeadInFlight.get(id);
-  if (inFlight) return inFlight;
-  const promise = fetchPublicPropertyLead(id);
-  publicLeadInFlight.set(id, promise);
+  const identity = publicCatalogRequestIdentity();
+  const requestKey = `${identity.key}:${id}`;
+  const inFlight = publicLeadInFlight.get(requestKey);
+  if (inFlight) {
+    const result = await inFlight;
+    return isCurrentPublicCatalogRequest(identity) ? result : null;
+  }
+  const promise = fetchPublicPropertyLead(id, identity);
+  publicLeadInFlight.set(requestKey, promise);
   try {
-    return await promise;
+    const result = await promise;
+    return isCurrentPublicCatalogRequest(identity) ? result : null;
   } finally {
-    publicLeadInFlight.delete(id);
+    if (publicLeadInFlight.get(requestKey) === promise) publicLeadInFlight.delete(requestKey);
   }
 }
 
-async function fetchPublicPropertyLead(id: string): Promise<MockProperty | null> {
+async function fetchPublicPropertyLead(
+  id: string,
+  identity: CatalogRequestIdentity,
+): Promise<MockProperty | null> {
   try {
     const res = await fetch(`/api/public/property-lead?propertyId=${encodeURIComponent(id)}`);
-    const body = (await res.json()) as { property?: MockProperty };
-    if (!res.ok || !body.property) return null;
-    cachePublicExtraListings([body.property], { silent: true });
+    const body = (await res.json()) as { property?: MockProperty; testWorkspaceId?: string };
+    if (!isCurrentPublicCatalogRequest(identity) || !res.ok || !body.property) return null;
+    if (body.testWorkspaceId) cachePrivateTestWorkspaceListings(identity, body.testWorkspaceId, [body.property], false);
+    else {
+      if (catalogScope.kind === "private" || catalogScope.kind === "denied") return null;
+      // This successful, classified server projection confirms a normal lead.
+      catalogScope = { kind: "normal" };
+      cachePublicExtraListings([body.property], { silent: true });
+    }
     window.dispatchEvent(new Event(PROPERTY_PIPELINE_EVENT));
     return body.property;
   } catch {
@@ -667,28 +772,27 @@ async function fetchPublicPropertyLead(id: string): Promise<MockProperty | null>
   }
 }
 
-let residentPropertyInFlight: Promise<{
+export type ResidentPropertyHydration = {
   property: MockProperty;
   serviceRequestOptions: ManagerListingServiceOption[];
   managerUserId: string;
   propertyId: string;
-} | null> | null = null;
+};
+const residentPropertyInFlight = new Map<string, Promise<ResidentPropertyHydration | null>>();
 
 /**
- * Hydrates the signed-in resident's own property (any publish status) so
- * resident-portal views (e.g. offered service request types) see it even
- * though the resident never calls the manager/admin-scoped `/api/property-records`
- * sync or the live-only public catalog.
+ * Hydrate the resident's own property, including unpublished service offers.
+ * This authenticated payload never belongs in the public extras cache.
  */
-export async function loadResidentPropertyFromServer(): Promise<{
-  property: MockProperty;
-  serviceRequestOptions: ManagerListingServiceOption[];
-  managerUserId: string;
-  propertyId: string;
-} | null> {
-  if (!isBrowser()) return null;
-  if (residentPropertyInFlight) return residentPropertyInFlight;
-  residentPropertyInFlight = (async () => {
+export async function loadResidentPropertyFromServer(): Promise<ResidentPropertyHydration | null> {
+  if (!isBrowser() || !portalSessionViewerId()) return null;
+  const identity = publicCatalogRequestIdentity();
+  const inFlight = residentPropertyInFlight.get(identity.key);
+  if (inFlight) {
+    const result = await inFlight;
+    return isCurrentPublicCatalogRequest(identity) ? result : null;
+  }
+  const request = (async (): Promise<ResidentPropertyHydration | null> => {
     try {
       const res = await fetch("/api/portal/resident-property", { credentials: "include", cache: "no-store" });
       const body = (await res.json()) as {
@@ -697,29 +801,23 @@ export async function loadResidentPropertyFromServer(): Promise<{
         managerUserId?: string;
         propertyId?: string;
       };
-      if (!res.ok || !body.property) return null;
-      cachePublicExtraListings([body.property], { silent: true });
-      window.dispatchEvent(new Event(PROPERTY_PIPELINE_EVENT));
-      const propertyId =
-        String(body.propertyId ?? "").trim() ||
-        String(body.property.id ?? "").trim();
-      const managerUserId =
-        String(body.managerUserId ?? "").trim() ||
-        String(body.property.managerUserId ?? "").trim();
+      if (!isCurrentPublicCatalogRequest(identity) || !res.ok || !body.property) return null;
       return {
         property: body.property,
         serviceRequestOptions: Array.isArray(body.serviceRequestOptions) ? body.serviceRequestOptions : [],
-        managerUserId,
-        propertyId,
+        managerUserId: String(body.managerUserId ?? "").trim() || String(body.property.managerUserId ?? "").trim(),
+        propertyId: String(body.propertyId ?? "").trim() || String(body.property.id ?? "").trim(),
       };
     } catch {
       return null;
     }
   })();
+  residentPropertyInFlight.set(identity.key, request);
   try {
-    return await residentPropertyInFlight;
+    const result = await request;
+    return isCurrentPublicCatalogRequest(identity) ? result : null;
   } finally {
-    residentPropertyInFlight = null;
+    if (residentPropertyInFlight.get(identity.key) === request) residentPropertyInFlight.delete(identity.key);
   }
 }
 
@@ -769,6 +867,10 @@ export function isRentCatalogPublished(p: Pick<MockProperty, "adminPublishLive">
 
 /** Public Rent with Axis catalog: extras that are approved for live search (demo localStorage). */
 export function readExtraListingsPublic(): MockProperty[] {
+  if (!isDemoModeActive()) {
+    if (catalogScope.kind === "unresolved" || catalogScope.kind === "denied") return [];
+    if (catalogScope.kind === "private") return catalogScope.listings.filter(isRentCatalogPublished);
+  }
   const byPropertyKey = new Map<string, MockProperty>();
   for (const property of readAllExtraListings().filter(isRentCatalogPublished)) {
     const key = `${property.buildingName}::${property.address}`.trim().toLowerCase();

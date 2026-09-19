@@ -4,6 +4,7 @@ import { buildConversationKey } from "@/lib/sms-conversation-identity";
 import { recordScopedSmsConsent } from "@/lib/sms-consent";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
+import { postResendEmail } from "@/lib/resend-delivery.server";
 
 async function deliverEmail(
   to: string[],
@@ -17,10 +18,11 @@ async function deliverEmail(
   if (!apiKey) return;
   const db = createSupabaseServiceRoleClient();
   const from = await managerOutboundFromHeader(db, managerUserId);
-  await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from, to: recipients, subject, text }),
+  await postResendEmail({
+    apiKey,
+    actorUserId: managerUserId,
+    payload: { from, to: recipients, subject, text },
+    effectSummary: "Prospect handoff email captured for the test workspace.",
   }).catch(() => undefined);
 }
 

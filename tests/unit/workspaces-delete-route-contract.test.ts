@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   userIsManager: vi.fn(),
   loadWorkspaces: vi.fn(),
   loadWorkspacePlan: vi.fn(),
+  businessAccess: vi.fn(),
   rpc: vi.fn(),
   ownedRows: new Map<string, { id: string }>(),
 }));
@@ -26,6 +27,9 @@ vi.mock("@/lib/auth/co-manager-invite-eligibility.server", () => ({
 vi.mock("@/lib/workspaces/server", () => ({
   loadWorkspaces: mocks.loadWorkspaces,
   loadWorkspacePlan: mocks.loadWorkspacePlan,
+}));
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveAuthenticatedBusinessAccess: mocks.businessAccess,
 }));
 
 import { POST } from "@/app/api/workspaces/route";
@@ -65,6 +69,7 @@ function setup() {
   mocks.serverClient.mockResolvedValue({ auth: { getUser: vi.fn(async () => ({ data: { user: { id: OWNER } } })) } });
   mocks.serviceClient.mockReturnValue(db);
   mocks.userIsManager.mockResolvedValue(true);
+  mocks.businessAccess.mockResolvedValue({ kind: "normal" });
   mocks.ownedRows.clear();
   mocks.ownedRows.set(DEFAULT, { id: DEFAULT });
   mocks.ownedRows.set(SECOND, { id: SECOND });

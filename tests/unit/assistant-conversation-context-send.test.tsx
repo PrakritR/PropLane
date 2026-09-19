@@ -33,6 +33,29 @@ function setup(kind = "send_message", confirmStatus = 200) {
 afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.unstubAllGlobals(); });
 
 describe("assistant internal context and typed send", () => {
+  it("stores SMS stage and captured-effect metadata from an ordinary successful turn", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      reply: "Application received.",
+      sessionId: "sms-session",
+      smsTest: {
+        mode: "resident",
+        stage: "submitted",
+        targetListingId: "listing-a",
+        sessionId: "sms-session",
+        effects: [{ kind: "email", status: "captured", summary: "Captured email" }],
+      },
+    }), { headers: { "Content-Type": "application/json" } })));
+    const { result } = renderHook(() => useAssistantConversation("/api/agent/sms-test", { storageScope: "sms-test" }));
+
+    await act(async () => { await result.current.send("I submitted my application"); });
+
+    expect(result.current.lastSmsTestTurn).toMatchObject({
+      stage: "submitted",
+      targetListingId: "listing-a",
+      effects: [{ kind: "email", status: "captured" }],
+    });
+  });
+
   it("keeps task context outside visible and persisted messages, retaining authored context-like text", async () => {
     const { result, fetchMock } = setup();
     const authored = "[Context: this is my own text]\nPlease draft a reply";

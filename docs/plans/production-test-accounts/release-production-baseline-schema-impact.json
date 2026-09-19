@@ -1,0 +1,10 @@
+{
+  "project": "qahnczmilgptcedaqype",
+  "read_only": "on",
+  "would_gain_add_properties": 0,
+  "existing_permission_column": true,
+  "existing_team_role_columns": 2,
+  "pending_accepted_team_invites": 2,
+  "existing_workspace_invite_column": false,
+  "current_calendar_provider_constraint": "CHECK ((provider = ANY (ARRAY['airbnb'::text, 'booking_com'::text])))"
+}

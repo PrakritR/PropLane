@@ -86,8 +86,8 @@ export async function sendWeeklyRentReminders(
   // One rent charge per resident (dedupe by residentKey), grouped by manager.
   const byManager = new Map<string, Map<string, HouseholdCharge>>();
   for (const row of rows ?? []) {
-    const charge = (row as { row_data: HouseholdCharge | null }).row_data;
-    if (!charge?.id || !RENT_KINDS.has(charge.kind)) continue;
+    const charge = (row as { row_data: (HouseholdCharge & { smsTestSessionId?: string }) | null }).row_data;
+    if (!charge?.id || charge.smsTestSessionId || !RENT_KINDS.has(charge.kind)) continue;
     const managerId = String((row as { manager_user_id: string | null }).manager_user_id ?? charge.managerUserId ?? "").trim();
     if (!managerId) continue;
     const residents = byManager.get(managerId) ?? new Map<string, HouseholdCharge>();

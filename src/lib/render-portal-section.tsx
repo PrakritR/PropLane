@@ -12,6 +12,7 @@ import { AdminCreateManagerClient } from "@/components/portal/admin-create-manag
 import { AdminCreateResidentClient } from "@/components/portal/admin-create-resident-client";
 import { AdminAxisUsersClient } from "@/components/portal/admin-axis-users-client";
 import { AdminBillingClient } from "@/components/portal/admin-billing-client";
+import { AdminTestWorkspacesClient } from "@/components/portal/admin-test-workspaces-client";
 import { AdminPropertiesClient } from "@/components/portal/admin-properties-client";
 import { AdminEventsClient } from "@/components/portal/admin-events-client";
 import { AdminProfileSection } from "@/components/portal/admin-profile-section";
@@ -74,6 +75,10 @@ import { legacyManagerPortalSectionPath, parseApplicationDetailTab, parseResiden
 import type { PortalKind } from "@/lib/portal-types";
 import { notFound, redirect } from "next/navigation";
 import { DEFERRED_SECTIONS } from "@/lib/portals/nav-locks";
+import {
+  isTestWorkspaceFeatureEnabled,
+  requireTrustedTestWorkspaceOperator,
+} from "@/lib/test-workspaces/index.server";
 
 const LEGACY_FINANCIALS_TAB_MAP: Record<string, string> = {
   "rent-roll": "income",
@@ -499,6 +504,13 @@ export async function renderPortalSection(
   if (kind === "admin" && section === "billing") {
     if (tabParts?.length) notFound();
     return <AdminBillingClient />;
+  }
+
+  if (kind === "admin" && section === "test-accounts") {
+    if (tabParts?.length) notFound();
+    if (!isTestWorkspaceFeatureEnabled()) notFound();
+    await requireTrustedTestWorkspaceOperator().catch(() => notFound());
+    return <AdminTestWorkspacesClient />;
   }
 
   if (kind === "admin" && section === "leases") {

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 import { workOrderEvent } from "@/lib/work-order-events.server";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
@@ -23,6 +24,9 @@ export async function POST(req: Request) {
       data: { user },
     } = await auth.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
+      return NextResponse.json({ error: "Work order access is unavailable for this account." }, { status: 403 });
+    }
     const admin = await isAdminUser(user.id);
     const body = (await req.json().catch(() => ({}))) as {
       workOrderId?: string;

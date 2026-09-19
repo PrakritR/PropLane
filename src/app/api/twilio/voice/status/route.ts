@@ -69,7 +69,7 @@ export async function POST(req: Request) {
     callerPhone: fromPhone,
     callerKind: resolved.route.kind as VoiceCallerKind,
     callSid,
-    sendEmail: sendVoiceSummaryEmail,
+    sendEmail: (email) => sendVoiceSummaryEmail({ ...email, managerUserId: resolved.managerId }),
   });
 
   return NextResponse.json({ ok: true, delivery });

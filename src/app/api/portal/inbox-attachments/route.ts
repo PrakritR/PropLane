@@ -15,6 +15,7 @@ import { isAdminUser } from "@/lib/auth/admin-preview";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -41,6 +42,9 @@ export async function GET(req: Request) {
     }
 
     const db = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
+      return NextResponse.json({ error: "Not found." }, { status: 404 });
+    }
     const userEmail = String(user.email ?? "").trim().toLowerCase();
     const admin = await isAdminUser(user.id);
     if (
@@ -128,6 +132,9 @@ export async function POST(req: Request) {
     // a message bubble can show it. Ownership checks still read `path[0]`.
     const path = `${inboxAttachmentStoragePrefix(user.id)}${Date.now()}-${randomUUID()}/${sanitizeInboxAttachmentFileName(body.fileName, ext)}`;
     const db = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
+      return NextResponse.json({ error: "Attachment access is unavailable for this account." }, { status: 403 });
+    }
     const { error } = await db.storage.from(INBOX_ATTACHMENTS_BUCKET).upload(path, bytes, {
       contentType: mime,
       cacheControl: "31536000",

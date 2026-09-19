@@ -9,6 +9,7 @@
 import { getEffectiveSessionForPortal } from "@/lib/auth/effective-session";
 import { orFilterForIdentity } from "@/lib/supabase/or-filter";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { isTestWorkspaceActorAllowed } from "@/lib/test-workspaces/index.server";
 import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
 import { loadResidentPortalAccessState } from "@/lib/resident-portal-access";
 import { getManagerSubscriptionTierByManagerId } from "@/lib/manager-access-server";
@@ -76,6 +77,7 @@ export async function resolveResidentAgentContext(): Promise<ResidentAgentContex
   if (!user) return null;
 
   const db = createSupabaseServiceRoleClient();
+  if (!(await isTestWorkspaceActorAllowed(user.id, db))) return null;
   const { data: roleRows } = await db.from("profile_roles").select("role").eq("user_id", user.id);
   const roleList = (roleRows ?? []).map((r) => String(r.role).toLowerCase());
   const legacyRole = String(profile?.role ?? "").toLowerCase();

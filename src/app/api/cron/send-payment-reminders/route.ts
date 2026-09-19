@@ -105,7 +105,12 @@ export async function GET(req: Request) {
       charge: record.row_data as HouseholdCharge | null,
     }))
     .filter((row): row is { recordId: string; managerUserId: string | null; charge: HouseholdCharge } =>
-      Boolean(row.charge?.id && row.charge.residentEmail && isUnpaidHouseholdCharge(row.charge)),
+      Boolean(
+        row.charge?.id &&
+        row.charge.residentEmail &&
+        !(row.charge as HouseholdCharge & { smsTestSessionId?: string }).smsTestSessionId &&
+        isUnpaidHouseholdCharge(row.charge)
+      ),
     );
 
   const chargesByManager = new Map<string, HouseholdCharge[]>();

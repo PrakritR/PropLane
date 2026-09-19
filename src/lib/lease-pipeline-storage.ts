@@ -88,7 +88,11 @@ import {
   type BundleGroupRowInput,
 } from "@/lib/bundle-group/bundle-group-application";
 import { applyLeaseBillingToContext } from "@/lib/lease-billing-snapshot";
-import { isLeaseGenerationSupported, resolveLeaseJurisdiction } from "@/lib/lease-jurisdiction";
+import {
+  isLeaseGenerationSupported,
+  resolveLeaseJurisdiction,
+  type LeaseJurisdictionInput,
+} from "@/lib/lease-jurisdiction";
 import { notePortalResponse, onPortalSessionViewerChange, portalSessionEnded, portalSessionViewerId } from "@/lib/auth/portal-session-gate";
 import { buildJointLeaseMembers, buildJointLeasePipelineRow, jointLeaseRowIncludesMember } from "@/lib/bundle-group/joint-lease";
 import type { JointLeaseMember, LeaseKind } from "@/lib/bundle-group/types";
@@ -2773,19 +2777,20 @@ function leaseGenerationContextForRow(
     };
   }
   const billed = applyLeaseBillingToContext(ctx, row, managerUserId ?? row.managerUserId);
+  const jurisdictionInput: LeaseJurisdictionInput = billed;
   // Close-save / unfinished listings often have no address. Add-resident still
   // has to produce a document — default those to Washington rather than leaving
   // a Draft stub. A real non-CA/WA state stays unsupported.
-  if (!isLeaseGenerationSupported(resolveLeaseJurisdiction(billed))) {
+  if (!isLeaseGenerationSupported(resolveLeaseJurisdiction(jurisdictionInput))) {
     const hasState = Boolean(
-      billed.listingProperty?.state?.trim() ||
-      billed.leasedRoom?.state?.trim() ||
-      billed.submission?.state?.trim(),
+      jurisdictionInput.listingProperty?.state?.trim() ||
+      jurisdictionInput.leasedRoom?.state?.trim() ||
+      jurisdictionInput.submission?.state?.trim(),
     );
-    if (!hasState) {
+    if (!hasState && billed.submission) {
       return {
         ...billed,
-        listingProperty: { ...(billed.listingProperty ?? {}), state: "WA" },
+        submission: { ...billed.submission, state: "WA" },
       };
     }
   }

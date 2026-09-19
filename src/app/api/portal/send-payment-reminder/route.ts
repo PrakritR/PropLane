@@ -11,6 +11,8 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { canSendResidentOutboundSms, sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
 import { deliverPortalMessageThreadSide } from "@/lib/portal-inbox-delivery";
 import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
+import { postResendEmail } from "@/lib/resend-delivery.server";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -71,6 +73,9 @@ export async function POST(req: Request) {
     };
 
     const db = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
+      return NextResponse.json({ ok: false, error: "Payment access is unavailable for this account." }, { status: 403 });
+    }
     const [{ data: requestor }, admin] = await Promise.all([
       db.from("profiles").select("role, full_name, email, sms_from_number").eq("id", user.id).maybeSingle(),
       isAdminUser(user.id),
@@ -202,10 +207,12 @@ export async function POST(req: Request) {
       const from = await managerOutboundFromHeader(db, user.id);
       const html = `<p style="white-space:pre-wrap;font-family:sans-serif;font-size:15px;line-height:1.6;color:#1e293b">${escapeHtmlText(messageBody)}</p><hr style="margin:24px 0;border:none;border-top:1px solid #e2e8f0"><p style="font-family:sans-serif;font-size:12px;color:#94a3b8">Sent via PropLane portal by ${escapeHtmlText(managerName)}</p>`;
       try {
-        const res = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ from, to: [inboxEmail], subject, text: messageBody, html }),
+        const res = await postResendEmail({
+          apiKey,
+          actorUserId: ownerManagerUserId || user.id,
+          payload: { from, to: [inboxEmail], subject, text: messageBody, html },
+          effectSummary: "Payment reminder email captured for the test workspace.",
+          metadata: { chargeId },
           signal: AbortSignal.timeout(15_000),
         });
         emailSent = res.ok;

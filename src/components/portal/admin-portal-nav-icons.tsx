@@ -38,6 +38,7 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   residents: Users,
   inspections: ClipboardCheck,
   "axis-users": Users,
+  "test-accounts": ShieldCheck,
   leases: ScrollText,
   lease: ScrollText,
   calendar: Calendar,

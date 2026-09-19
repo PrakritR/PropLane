@@ -18,6 +18,7 @@ import {
   resolveManagerRecipientProfiles,
   resolvePropertyLeadRecipientIds,
 } from "@/lib/co-manager-notification-recipients.server";
+import { postResendEmail } from "@/lib/resend-delivery.server";
 import {
   TOUR_CANCELED_TENANT_SUBJECT,
   TOUR_CONFIRMED_TENANT_SUBJECT,
@@ -117,17 +118,18 @@ async function deliverEmail(
   const from = identity
     ? await managerOutboundFromHeader(identity.db, identity.managerUserId)
     : sharedPortalFromAddress();
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
+  const res = await postResendEmail({
+    apiKey,
+    payload: {
       from,
       to: recipients,
       subject,
       text,
       ...(html ? { html } : {}),
       ...(replyTo ? { reply_to: replyTo } : {}),
-    }),
+    },
+    effectSummary: `Tour notification email to ${recipients.length} recipient${recipients.length === 1 ? "" : "s"} was captured for SMS test mode.`,
+    metadata: { recipients: recipients.length },
   });
   const payload = (await res.json().catch(() => ({}))) as { message?: string };
   if (!res.ok) return { sent: false, skipped: false, error: payload.message ?? "Email send failed." };

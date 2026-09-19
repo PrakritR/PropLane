@@ -16,6 +16,7 @@ import { deliverPaymentReminder, reminderHtmlFromText } from "@/lib/payment-remi
 import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -27,6 +28,7 @@ async function requireManager() {
   if (!user?.id) return null;
 
   const db = createSupabaseServiceRoleClient();
+  if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") return null;
   const [{ data: profile }, { data: roles }] = await Promise.all([
     db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
     db.from("profile_roles").select("role").eq("user_id", user.id),

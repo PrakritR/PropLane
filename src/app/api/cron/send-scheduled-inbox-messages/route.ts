@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isProductionRuntime } from "@/lib/server-env";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
-import { loadDueScheduledInboxMessages, isResidentOriginatedScheduledMessage, updateScheduledInboxMessage } from "@/lib/scheduled-inbox-messages";
+import { loadDueScheduledInboxMessages, isResidentOriginatedScheduledMessage, updateScheduledInboxMessage } from "@/lib/scheduled-inbox-messages.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";

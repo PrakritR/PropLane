@@ -433,14 +433,18 @@ export function publicListingProjection(property: MockProperty): MockProperty {
  * housing-search tool (server-side, no HTTP round-trip). Keep both callers on
  * this function so "what the search sees" never drifts from "what the AI sees".
  */
-export async function getPublicListings(): Promise<MockProperty[]> {
+export async function getPublicListings(opts?: { testWorkspaceId?: string | null }): Promise<MockProperty[]> {
   const db = createSupabaseServiceRoleClient();
-  const { data, error } = await db
+  let query = db
     .from("manager_property_records")
     .select("id, manager_user_id, property_data")
     .eq("status", "live")
     .order("updated_at", { ascending: false })
     .limit(500);
+  query = opts?.testWorkspaceId
+    ? query.eq("test_workspace_id", opts.testWorkspaceId)
+    : query.is("test_workspace_id", null);
+  const { data, error } = await query;
 
   if (error) throw new Error(error.message);
 
@@ -510,7 +514,10 @@ export async function getPublicListings(): Promise<MockProperty[]> {
   const listings = [...byKey.values()].sort((a, b) => a.title.localeCompare(b.title));
   // Project LAST, after every filter has had the full row to judge on, so a
   // future field added above this line cannot escape the allowlist.
-  return filterSandboxFromPublicCatalog(listings, { production, managerEmailByUserId }).map(
+  const visibleListings = opts?.testWorkspaceId
+    ? listings
+    : filterSandboxFromPublicCatalog(listings, { production, managerEmailByUserId });
+  return visibleListings.map(
     publicListingProjection,
   );
 }

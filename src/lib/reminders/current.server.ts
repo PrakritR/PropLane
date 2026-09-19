@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ReminderQueueRow } from "@/lib/reminders/queue.server";
 import type { ReminderSubjectKind } from "@/lib/reminders/rules";
+import { hasSmsTestProvenance } from "@/lib/sms/sms-test-provenance";
 
 /** Kinds whose currency lives in `subjects/leasing-current.server.ts`. */
 const LEASING_KINDS: ReadonlySet<ReminderSubjectKind> = new Set<ReminderSubjectKind>([
@@ -80,6 +81,7 @@ export async function reminderIsCurrent(db: SupabaseClient, row: ReminderQueueRo
     ) as Record<string, unknown> | undefined;
     return Boolean(
       event &&
+        !hasSmsTestProvenance(event) &&
         !String(event.canceledAt ?? "").trim() &&
         String(event.managerUserId ?? "").trim() === row.managerUserId &&
         reminderAnchorMatches(expectedAnchor, event.start),
@@ -103,6 +105,7 @@ export async function reminderIsCurrent(db: SupabaseClient, row: ReminderQueueRo
     ) as Record<string, unknown> | undefined;
     return Boolean(
       task &&
+        !hasSmsTestProvenance(task) &&
         task.completed !== true &&
         reminderAnchorMatches(expectedAnchor, task.start ?? task.dueDate),
     );
@@ -133,7 +136,7 @@ export async function reminderIsCurrent(db: SupabaseClient, row: ReminderQueueRo
     if (error) throw error;
     const tasks = (data?.row_data as { tasks?: unknown } | null)?.tasks;
     const task = (Array.isArray(tasks) ? tasks : []).find((candidate) => candidate && typeof candidate === "object" && String((candidate as Record<string, unknown>).id ?? "") === row.subjectId) as Record<string, unknown> | undefined;
-    return Boolean(task && task.completed !== true && reminderAnchorMatches(expectedAnchor, task.start ?? task.dueDate));
+    return Boolean(task && !hasSmsTestProvenance(task) && task.completed !== true && reminderAnchorMatches(expectedAnchor, task.start ?? task.dueDate));
   }
   if (row.kind === "document_signature") {
     const { data, error } = await db.from("manager_documents").select("manager_user_id, signature_status, signature_requested_at, deleted_at").eq("id", row.subjectId).maybeSingle();
@@ -168,6 +171,7 @@ export async function reminderIsCurrent(db: SupabaseClient, row: ReminderQueueRo
   if (error) throw error;
   if (!data || String(data.manager_user_id ?? "") !== row.managerUserId) return false;
   const subject = (data.row_data ?? {}) as Record<string, unknown>;
+  if (hasSmsTestProvenance(subject)) return false;
   if (row.kind === "work_order") {
     if (subject.bucket === "completed" || subject.status === "Completed") return false;
     return reminderAnchorMatches(expectedAnchor, subject.scheduledAtIso);
@@ -188,6 +192,7 @@ async function applicationIsCurrent(
     .maybeSingle();
   if (error) throw error;
   if (!data || String(data.manager_user_id ?? "") !== row.managerUserId) return false;
+  if (hasSmsTestProvenance(data.row_data)) return false;
   const appRow = {
     ...(data.row_data as Record<string, unknown>),
     id: data.id,
@@ -220,7 +225,7 @@ async function postTourReminderIsCurrent(
       typeof candidate === "object" &&
       String((candidate as Record<string, unknown>).id ?? "") === row.subjectId,
   ) as Record<string, unknown> | undefined;
-  if (!event || String(event.canceledAt ?? "").trim()) return false;
+  if (!event || hasSmsTestProvenance(event) || String(event.canceledAt ?? "").trim()) return false;
   if (String(event.managerUserId ?? "").trim() !== row.managerUserId) return false;
   const endIso = String(event.end ?? event.start ?? "");
   const endMs = Date.parse(endIso);
@@ -240,6 +245,7 @@ async function leaseIsCurrent(
     .maybeSingle();
   if (error) throw error;
   if (!data || String(data.manager_user_id ?? "") !== row.managerUserId) return false;
+  if (hasSmsTestProvenance(data.row_data)) return false;
   const { normalizeLeasePipelineRow } = await import("@/lib/lease-pipeline-storage");
   const lease = normalizeLeasePipelineRow(data.row_data);
   if (lease.status === "Fully Signed" || lease.status === "Voided") return false;
@@ -269,11 +275,12 @@ async function outgoingPaymentIsCurrent(
 ): Promise<boolean> {
   const { data, error } = await db
     .from("manager_bills")
-    .select("manager_user_id, due_date, status")
+    .select("manager_user_id, due_date, status, sms_test_session_id")
     .eq("id", row.subjectId)
     .maybeSingle();
   if (error) throw error;
   if (!data || String(data.manager_user_id ?? "") !== row.managerUserId) return false;
+  if (data.sms_test_session_id) return false;
   const status = String(data.status ?? "");
   if (status === "paid" || status === "void") return false;
   const dueDate = data.due_date ? String(data.due_date).slice(0, 10) : "";
@@ -295,6 +302,7 @@ async function paymentManagerReminderIsCurrent(
   if (error) throw error;
   if (!data || String(data.manager_user_id ?? "") !== row.managerUserId) return false;
   const charge = (data.row_data ?? {}) as Record<string, unknown>;
+  if (hasSmsTestProvenance(charge)) return false;
   const status = String(charge.status ?? "").toLowerCase();
   if (status === "paid" || status === "void" || status === "canceled") return false;
   const dueIso = String(charge.dueDateIso ?? charge.dueDate ?? "");

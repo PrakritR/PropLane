@@ -9,6 +9,7 @@ import {
 } from "@/lib/stripe/subscription-checkout-session";
 import { getStripe } from "@/lib/stripe";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveTestWorkspaceClassification } from "@/lib/test-workspaces/index.server";
 
 export type ManagerCheckoutInput = {
   tier: ManagerSubscriptionTier;
@@ -29,9 +30,58 @@ export type ManagerCheckoutResult =
   | { ok: true; embedded: false; url: string; sessionId: string }
   | { ok: false; status: number; error: string; code?: string };
 
+type ReservedManagerPurchase = {
+  stripe_checkout_session_id: string;
+  email: string;
+  manager_id: string;
+  full_name: string | null;
+  user_id?: string;
+};
+
+async function reserveManagerCheckoutSession(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  reservation: ReservedManagerPurchase,
+): Promise<void> {
+  const { error } = await db.from("manager_purchases").upsert(reservation, {
+    onConflict: "manager_id",
+  });
+  if (error) throw new Error("Could not reserve manager checkout ownership.");
+}
+
 export async function createManagerCheckoutSession(input: ManagerCheckoutInput): Promise<ManagerCheckoutResult> {
   const { tier, billing, req } = input;
   const useEmbedded = input.embedded !== false;
+
+  const db = createSupabaseServiceRoleClient();
+  const suppliedUserId = typeof input.userId === "string" ? input.userId.trim() : "";
+  const email = typeof input.email === "string" ? input.email.trim().toLowerCase() : "";
+  let emailOwnerUserId = "";
+  // An email-backed account is a durable checkout owner. Resolve it before an
+  // authenticated caller's id so a request body can never hide a classified
+  // account by pairing its email with a different UUID.
+  if (email) {
+    const { data, error } = await db
+      .from("manager_purchases")
+      .select("user_id")
+      .eq("email", email)
+      .not("user_id", "is", null)
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error("Could not verify manager checkout ownership.");
+    emailOwnerUserId = String((data as { user_id?: string | null } | null)?.user_id ?? "").trim();
+  }
+  if (!emailOwnerUserId && email) {
+    const { data, error } = await db.from("profiles").select("id").eq("email", email).limit(1).maybeSingle();
+    if (error) throw new Error("Could not verify manager checkout ownership.");
+    emailOwnerUserId = String((data as { id?: string | null } | null)?.id ?? "").trim();
+  }
+  if (emailOwnerUserId && suppliedUserId && emailOwnerUserId !== suppliedUserId) {
+    return { ok: false, status: 403, error: "This action is unavailable." };
+  }
+  const verifiedUserId = emailOwnerUserId || suppliedUserId;
+  if (verifiedUserId && (await resolveTestWorkspaceClassification(verifiedUserId, db)).kind !== "normal") {
+    return { ok: false, status: 403, error: "This action is unavailable." };
+  }
 
   const price = await resolveStripePriceIdForManagerTier(tier, billing);
   if (!price) {
@@ -44,10 +94,13 @@ export async function createManagerCheckoutSession(input: ManagerCheckoutInput):
   }
 
   const appUrl = resolveAppOrigin(req);
-  const email = typeof input.email === "string" ? input.email.trim() : "";
+  const normalizedEmail = typeof input.email === "string" ? input.email.trim() : "";
   const fullName = typeof input.fullName === "string" ? input.fullName.trim() : "";
   const phone = typeof input.phone === "string" ? input.phone.trim() : "";
-  const userId = typeof input.userId === "string" ? input.userId.trim() : "";
+  const userId = suppliedUserId;
+  if (!normalizedEmail) {
+    return { ok: false, status: 400, error: "Email is required to start manager checkout." };
+  }
   const promoRaw = typeof input.promo === "string" ? normalizeProMonthlyPromoInput(input.promo) : "";
   const promoUpper = promoRaw.toUpperCase();
 
@@ -62,12 +115,13 @@ export async function createManagerCheckoutSession(input: ManagerCheckoutInput):
 
   const stripe = getStripe();
 
+  const managerId = input.managerId?.trim() || generateManagerId();
   const metadata: Record<string, string> = {
     tier,
     billing,
-    manager_id: input.managerId?.trim() || generateManagerId(),
+    manager_id: managerId,
   };
-  if (email) metadata.email = email;
+  if (normalizedEmail) metadata.email = normalizedEmail;
   if (fullName) metadata.full_name = fullName;
   if (phone) metadata.phone = phone;
   if (userId) metadata.userId = userId;
@@ -82,7 +136,7 @@ export async function createManagerCheckoutSession(input: ManagerCheckoutInput):
   const sessionBase = buildManagerSubscriptionCheckoutBase({
     priceId: price,
     metadata,
-    ...(email ? { customerEmail: email } : {}),
+    ...(normalizedEmail ? { customerEmail: normalizedEmail } : {}),
     ...(autoFirstMonthFree && promoCodeId ? { discounts: [{ promotion_code: promoCodeId }] } : {}),
     allowPromotionCodes,
     trialPeriodDays: MANAGER_SUBSCRIPTION_TRIAL_DAYS,
@@ -90,6 +144,14 @@ export async function createManagerCheckoutSession(input: ManagerCheckoutInput):
 
   const returnTarget = userId ? "manager-oauth-finish" : "manager-id";
   const finishPath = `/auth/${returnTarget}?session_id={CHECKOUT_SESSION_ID}`;
+  const reserve = (sessionId: string) =>
+    reserveManagerCheckoutSession(db, {
+      stripe_checkout_session_id: sessionId,
+      email: normalizedEmail,
+      manager_id: managerId,
+      full_name: fullName || null,
+      ...(userId ? { user_id: userId } : {}),
+    });
 
   if (useEmbedded) {
     const session = await stripe.checkout.sessions.create({
@@ -103,28 +165,9 @@ export async function createManagerCheckoutSession(input: ManagerCheckoutInput):
       return { ok: false, status: 500, error: "Stripe did not return a client secret for embedded checkout." };
     }
 
-    // Pre-save a pending manager_purchases row so manager-checkout-preview can find the session
-    // from the DB fallback even if Stripe API retrieval fails (key mismatch, webhook delay, etc.).
-    // Deliberately do NOT persist `tier`/`billing` here: for a paid plan those are what flip
-    // `isManagerOnboardingComplete` to true (paid_at defaults to now()), which would grant portal
-    // access before the payment method is added. They are written from the Stripe session metadata
-    // only once payment actually completes (recordPaidManagerCheckoutSession), so a reserved-but-
-    // unpaid paid signup stays incomplete until then.
-    try {
-      const db = createSupabaseServiceRoleClient();
-      await db.from("manager_purchases").upsert(
-        {
-          stripe_checkout_session_id: session.id,
-          email: email || null,
-          manager_id: metadata.manager_id,
-          full_name: fullName || null,
-          ...(userId ? { user_id: userId } : {}),
-        },
-        { onConflict: "manager_id" },
-      );
-    } catch {
-      // Non-fatal: checkout can still proceed; webhook will write the row when payment completes.
-    }
+    // Persist the durable session-to-owner mapping before exposing the client
+    // secret. Tier and billing remain absent until the signed completion event.
+    await reserve(session.id);
 
     return { ok: true, embedded: true, clientSecret, sessionId: session.id };
   }
@@ -139,6 +182,11 @@ export async function createManagerCheckoutSession(input: ManagerCheckoutInput):
   if (!session.url) {
     return { ok: false, status: 500, error: "Stripe did not return a checkout URL." };
   }
+
+  // Hosted Checkout reaches the same completion webhook as embedded Checkout.
+  // It must therefore reserve the exact same durable owner mapping before the
+  // browser receives a URL that can collect payment.
+  await reserve(session.id);
 
   return { ok: true, embedded: false, url: session.url, sessionId: session.id };
 }

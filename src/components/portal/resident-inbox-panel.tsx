@@ -378,8 +378,8 @@ export const ResidentInboxPanel = forwardRef<
 
   const emailThreads = useMemo(() => {
     if (!embeddedInCommunication) return local;
-    return filterEmailInboxThreads(local);
-  }, [embeddedInCommunication, local]);
+    return filterEmailInboxThreads(local, { keepSmsLike: !smsUiEnabled });
+  }, [embeddedInCommunication, local, smsUiEnabled]);
 
   const emailCounts = useMemo(() => countThreads(emailThreads), [emailThreads]);
 

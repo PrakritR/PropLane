@@ -13,7 +13,7 @@ import {
   loadScheduledInboxMessagesForResident,
   updateScheduledInboxMessageForResident,
   type ScheduledInboxMessageRecord,
-} from "@/lib/scheduled-inbox-messages";
+} from "@/lib/scheduled-inbox-messages.server";
 import { contentHash, linkedManagerContacts, type LinkedManagerContact } from "./load-resident-rows";
 
 const PAGE_SIZE = 1000;

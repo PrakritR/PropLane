@@ -1,4 +1,3 @@
-import { readCommsTurnResult, completeCommsTurn, INTERRUPTED_COMMS_REPLY } from "@/lib/comms-billing/turn-result.server";
 /**
  * The SMS agent turn: one inbound text becomes one outbound reply, with a
  * portal's tool catalog behind it and the write gate intact.
@@ -38,13 +37,15 @@ import { traceAgentTurn, type TraceActor } from "@/lib/observability/langfuse";
 import { track } from "@/lib/analytics/posthog";
 import {
   classifySmsConfirmationReply,
+  denyOpenSmsProposal,
   renderPreviewForSms,
   resolveOpenSmsProposal,
   supersedeOpenSmsProposals,
   SMS_PENDING_ACTION_TTL_MS,
 } from "@/lib/sms/agent-confirmation.server";
-import { reserveCommsCredit } from "@/lib/comms-billing/wallet.server";
+import { recordCommsAgentTurnUsage } from "@/lib/comms-billing/agent-usage.server";
 import { formatSmsAgentTurnError } from "@/lib/agent/assistant-turn-error";
+import { captureSmsTestDelivery, currentSmsTestTransport } from "@/lib/sms/sms-test-transport.server";
 
 type Db = SupabaseClient;
 
@@ -53,6 +54,31 @@ const HISTORY_LIMIT = 24;
 const MAX_INBOUND_PER_HOUR = 30;
 /** Texts are read on a phone; keep replies inside a couple of segments. */
 const DEFAULT_MAX_REPLY_CHARS = 1200;
+
+/** Writes that can create a provider delivery after the test request ends. */
+export const SMS_TEST_REFUSED_DURABLE_EFFECT_TOOLS = new Set([
+  "update_automation_settings",
+  "restore_scheduled_reminder",
+  "reschedule_reminder",
+  "order_background_check",
+  "start_rent_payment",
+]);
+
+async function billSmsAgentTurn(
+  db: Db,
+  landlordId: string,
+  sessionId: string,
+  assistantMessageId: string | null,
+  skip = false,
+): Promise<void> {
+  if (!assistantMessageId || skip) return;
+  await recordCommsAgentTurnUsage(db, {
+    managerUserId: landlordId,
+    idempotencyKey: `ai_sms:${sessionId}:${assistantMessageId}`,
+    channel: "sms",
+    metadata: { sessionId, assistantMessageId },
+  });
+}
 
 export type SmsAgentSessionRow = {
   id: string;
@@ -78,6 +104,7 @@ export type SmsAgentTurn = {
   traceId?: string | null;
   /** Set when this turn ended by texting a write proposal awaiting YES/NO. */
   awaitingConfirmation?: boolean;
+  toolTrace?: { tool: string; ok: boolean }[];
 };
 
 /** Static, per-surface configuration. One object per texting surface. */
@@ -184,6 +211,63 @@ export async function findOrCreateSmsAgentSession(
   return (created as SmsAgentSessionRow | null) ?? null;
 }
 
+/** Create or resume an authenticated SMS test session without a phone identity. */
+export async function findOrCreateSmsAgentTestSession(
+  db: Db,
+  args: {
+    kind: string;
+    managerUserId: string;
+    actorUserId: string;
+    mode: "manager" | "resident";
+    portal: AgentPortal;
+    sessionId?: string | null;
+    targetListingId?: string | null;
+  },
+): Promise<SmsAgentSessionRow | null> {
+  const managerUserId = args.managerUserId.trim();
+  const actorUserId = args.actorUserId.trim();
+  const kind = args.kind.trim();
+  const targetListingId = args.targetListingId?.trim() || null;
+  const prefix = args.mode === "manager" ? "manager_sms_test:" : "resident_sms_test:";
+  const expectedKind = `${prefix}${managerUserId}${targetListingId ? `:${targetListingId}` : ""}`;
+  if (!managerUserId || !actorUserId || kind !== expectedKind) return null;
+  if ((args.mode === "manager" && targetListingId) || (args.mode === "resident" && !targetListingId)) return null;
+
+  const sessionId = args.sessionId?.trim() || null;
+  if (sessionId) {
+    let query = db.from("agent_sessions").select(SESSION_COLUMNS)
+      .eq("id", sessionId)
+      .eq("kind", kind)
+      .eq("landlord_id", managerUserId)
+      .eq("user_id", actorUserId)
+      .eq("test_actor_user_id", actorUserId)
+      .eq("sms_test_manager_user_id", managerUserId)
+      .eq("sms_test_mode", args.mode)
+      .eq("status", "active")
+      .is("vendor_phone_e164", null);
+    query = targetListingId
+      ? query.eq("sms_test_target_listing_id", targetListingId)
+      : query.is("sms_test_target_listing_id", null);
+    const { data, error } = await query.maybeSingle();
+    return error ? null : (data as SmsAgentSessionRow | null);
+  }
+
+  const { data: created, error } = await db.from("agent_sessions").insert({
+    landlord_id: managerUserId,
+    user_id: actorUserId,
+    kind,
+    vendor_phone_e164: null,
+    status: "active",
+    test_actor_user_id: actorUserId,
+    sms_test_manager_user_id: managerUserId,
+    sms_test_mode: args.mode,
+    sms_test_target_listing_id: targetListingId,
+    portal: args.portal,
+  }).select(SESSION_COLUMNS).maybeSingle();
+  if (error) return null;
+  return (created as SmsAgentSessionRow | null) ?? null;
+}
+
 async function recordAssistantReply(
   db: Db,
   session: SmsAgentSessionRow,
@@ -221,6 +305,7 @@ async function handleConfirmationReply<Ctx extends SmsAgentActor>(
     surface: SmsAgentSurface;
     traceMetadata: Record<string, unknown>;
     maxReplyChars: number;
+    skipBilling?: boolean;
   },
 ): Promise<SmsAgentTurn | null> {
   const { ctx, session, surface } = args;
@@ -258,8 +343,27 @@ async function handleConfirmationReply<Ctx extends SmsAgentActor>(
       ? "No problem, I have cancelled that. Anything else?"
       : "I could not cancel that just now. Please try again.";
     const assistantMessageId = await recordAssistantReply(db, session, reply);
-
+    await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId, args.skipBilling);
     return { reply, sessionId: session.id, assistantMessageId, pendingActionId: open.actionId };
+  }
+
+  if (currentSmsTestTransport() && SMS_TEST_REFUSED_DURABLE_EFFECT_TOOLS.has(open.toolName)) {
+    captureSmsTestDelivery({
+      kind: open.toolName === "create_calendar_event" ? "calendar" : "reminder",
+      summary: `${open.toolName} was refused because it could contact a live provider or create a future live delivery.`,
+      status: "refused",
+      metadata: { tool: open.toolName },
+    });
+    await denyOpenSmsProposal(db, { userId: ctx.userId, actionId: open.actionId });
+    const reply = "That action is unavailable in SMS test mode because it could contact a live provider or create a future live delivery. Nothing was changed.";
+    const assistantMessageId = await recordAssistantReply(db, session, reply, [{ tool: open.toolName, ok: false }]);
+    return {
+      reply,
+      sessionId: session.id,
+      assistantMessageId,
+      pendingActionId: open.actionId,
+      toolTrace: [{ tool: open.toolName, ok: false }],
+    };
   }
 
   // One executor for every surface: it re-checks the portal, re-validates the
@@ -278,7 +382,7 @@ async function handleConfirmationReply<Ctx extends SmsAgentActor>(
     ? [executed.reply, executed.checkoutUrl].filter(Boolean).join("\n\n").slice(0, args.maxReplyChars)
     : executed.error;
   const assistantMessageId = await recordAssistantReply(db, session, reply);
-
+  await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId, args.skipBilling);
   return { reply, sessionId: session.id, assistantMessageId, pendingActionId: open.actionId };
 }
 
@@ -297,7 +401,7 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     registry: ToolRegistry<Ctx>;
     /** `agent_sessions.landlord_id` — the manager whose work number was texted. */
     sessionLandlordId: string;
-    phoneE164: string;
+    phoneE164?: string | null;
     inboundText: string;
     inboundMessageSid?: string | null;
     /** Optional deterministic response for a scoped lookup miss/ambiguity. */
@@ -308,6 +412,14 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     /** Langfuse metadata for confirm/deny decisions; the session id is merged in. */
     traceMetadata: Record<string, unknown>;
     renderActionPreview?: (preview: ActionPreview) => string;
+    testActor?: {
+      userId: string;
+      managerUserId: string;
+      mode: "manager" | "resident";
+      sessionKind: string;
+      sessionId?: string | null;
+      targetListingId?: string | null;
+    };
   },
 ): Promise<SmsAgentTurn | null> {
   if (!process.env.ANTHROPIC_API_KEY?.trim() && !args.precomputedReply?.trim()) return null;
@@ -319,14 +431,34 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
   const messageChannel = surface.messageChannel ?? "sms";
   const renderPreview = args.renderActionPreview ?? renderPreviewForSms;
 
-  const session = await findOrCreateSmsAgentSession(db, {
-    kind: surface.sessionKind,
-    landlordId: args.sessionLandlordId,
-    actorUserId: ctx.userId,
-    phoneE164: args.phoneE164,
-  });
+  const session = args.testActor
+    ? await findOrCreateSmsAgentTestSession(db, {
+        kind: args.testActor.sessionKind,
+        managerUserId: args.testActor.managerUserId,
+        actorUserId: args.testActor.userId,
+        mode: args.testActor.mode,
+        portal: surface.portal,
+        sessionId: args.testActor.sessionId,
+        targetListingId: args.testActor.targetListingId,
+      })
+    : await findOrCreateSmsAgentSession(db, {
+        kind: surface.sessionKind,
+        landlordId: args.sessionLandlordId,
+        actorUserId: ctx.userId,
+        phoneE164: args.phoneE164 ?? "",
+      });
   if (!session) return null;
-  const traceMetadata = { ...args.traceMetadata, sessionId: session.id };
+  const testTransport = currentSmsTestTransport();
+  const traceMetadata = {
+    ...args.traceMetadata,
+    sessionId: session.id,
+    ...(args.testActor ? {
+      smsTest: true,
+      testActorUserId: args.testActor.userId,
+      testWorkspace: true,
+      testWorkspaceId: testTransport?.workspaceId ?? null,
+    } : {}),
+  };
 
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   const { count } = await db
@@ -362,14 +494,16 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     console.error(`${surface.sessionKind} inbound message persistence failed`, session.id, inboundInsertError.message);
     return null;
   }
+  // Lightweight in-memory DB fixtures do not synthesize database defaults.
+  // Real rows always return their UUID; authenticated test turns may use a
+  // request-local identifier after a successful insert so confirmation logic
+  // remains testable without weakening carrier-session persistence.
+  if (!inboundMessageId && args.testActor) {
+    inboundMessageId = `sms-test-inbound:${session.id}:${Date.now()}`;
+  }
   track(surface.analytics.messageIn, ctx.userId, { channel: messageChannel });
 
   if (!inboundMessageId) return null;
-  const creditKey = `ai_turn:${messageChannel}:${session.id}:${inboundMessageId}`;
-  const credit = await reserveCommsCredit(db, { managerUserId: args.sessionLandlordId,
-    meter: "ai_agent_turn", idempotencyKey: creditKey, metadata: { sessionId: session.id, channel: messageChannel } });
-  if (!credit.allowed) return null;
-  if (credit.duplicate) return readCommsTurnResult<SmsAgentTurn>(db, args.sessionLandlordId, creditKey, { reply: INTERRUPTED_COMMS_REPLY, sessionId: session.id, inboundMessageId, assistantMessageId: null, traceId: null });
   const execute = async (): Promise<SmsAgentTurn | null> => {
   const confirmation = await handleConfirmationReply(db, {
     ctx,
@@ -379,6 +513,7 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     surface,
     traceMetadata,
     maxReplyChars,
+    skipBilling: Boolean(args.testActor),
   });
   if (confirmation) return { ...confirmation, inboundMessageId };
 
@@ -386,8 +521,8 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
   if (precomputedReply) {
     const assistantMessageId = await recordAssistantReply(db, session, precomputedReply, [], null);
     track(surface.analytics.messageOut, ctx.userId, { channel: messageChannel, tools: 0 });
-
-    return { reply: precomputedReply, sessionId: session.id, inboundMessageId, assistantMessageId };
+    await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId, Boolean(args.testActor));
+    return { reply: precomputedReply, sessionId: session.id, inboundMessageId, assistantMessageId, toolTrace: [] };
   }
 
   const { data: historyRows } = await db
@@ -443,6 +578,7 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     const reply = formatSmsAgentTurnError(e).slice(0, maxReplyChars);
     const assistantMessageId = await recordAssistantReply(db, session, reply, [], traceId);
     track(surface.analytics.messageOut, ctx.userId, { channel: messageChannel, tools: 0 });
+    await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId, Boolean(args.testActor));
     return { reply, sessionId: session.id, inboundMessageId, assistantMessageId, traceId };
   }
 
@@ -485,6 +621,7 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
       channel: messageChannel,
       tool: result.pendingAction.toolName,
     });
+    await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId, Boolean(args.testActor));
 
     return {
       reply,
@@ -494,6 +631,7 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
       pendingActionId: actionId,
       traceId,
       awaitingConfirmation: true,
+      toolTrace: result.toolTrace,
     };
   }
 
@@ -504,8 +642,8 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     channel: messageChannel,
     tools: result.toolTrace.length,
   });
-
-  return { reply, sessionId: session.id, inboundMessageId, assistantMessageId, traceId };
+  await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId, Boolean(args.testActor));
+  return { reply, sessionId: session.id, inboundMessageId, assistantMessageId, traceId, toolTrace: result.toolTrace };
   };
-  return completeCommsTurn(db, args.sessionLandlordId, creditKey, await execute());
+  return execute();
 }

@@ -457,7 +457,9 @@ export const ManagerInbox = forwardRef<
   const embeddedResidentChat = Boolean(residentEmailNorm);
 
   const emailThreads = useMemo(() => {
-    let base = embeddedInCommunication ? filterEmailInboxThreads(local) : local;
+    let base = embeddedInCommunication
+      ? filterEmailInboxThreads(local, { keepSmsLike: !smsUiEnabled })
+      : local;
     base = filterManagerCommunicationThreads(base);
     const scoped =
       !threadFilters || !filterContacts
@@ -480,6 +482,7 @@ export const ManagerInbox = forwardRef<
     return collapsePersonInboxThreads(vendorScoped, { mergeFolders: embeddedInCommunication });
   }, [
     embeddedInCommunication,
+    smsUiEnabled,
     local,
     threadFilters,
     filterContacts,

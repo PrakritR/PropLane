@@ -18,7 +18,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 
 vi.mock("@/lib/lease-pipeline-storage", () => ({
+  ensureLeaseDocumentLoaded: vi.fn(),
   getLeaseDocumentHtml: () => "<html><body><p>Lease body</p></body></html>",
+  leaseRowCarriesDocumentBytes: () => true,
 }));
 
 import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview";

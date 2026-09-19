@@ -57,6 +57,13 @@ export type ActionPreview = {
   warnings?: string[];
 };
 export type PendingAction = { id: string; preview: ActionPreview };
+export type SmsTestTurnMetadata = {
+  mode: "manager" | "prospect" | "resident";
+  stage: "prospect" | "submitted" | "approved";
+  targetListingId?: string | null;
+  sessionId?: string | null;
+  effects: Array<{ kind: string; status: "captured" | "refused"; summary: string }>;
+};
 
 type AssistantTransportData = {
   reply?: string;
@@ -67,6 +74,7 @@ type AssistantTransportData = {
   traceId?: string;
   archiveSaved?: boolean;
   attachmentContext?: string;
+  smsTest?: SmsTestTurnMetadata;
 };
 
 /** Parse the SSE transport while retaining JSON compatibility for older routes. */
@@ -167,6 +175,7 @@ export type AssistantConversationOptions = {
 export function useAssistantConversation(endpoint: string, options: AssistantConversationOptions = {}) {
   const storageScope = options.storageScope?.trim() || undefined;
   const archiveKey = options.archiveKey ?? "";
+  const conversationIdentity = `${endpoint}\u0000${archiveKey}`;
   const multiThread = !storageScope;
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<PendingChatAttachment[]>([]);
@@ -183,10 +192,12 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
   const [historySearch, setHistorySearch] = useState("");
   const [nextHistoryCursor, setNextHistoryCursor] = useState<string | null>(null);
   const [lastTools, setLastTools] = useState<ToolTraceEntry[]>([]);
+  const [lastSmsTestTurn, setLastSmsTestTurn] = useState<SmsTestTurnMetadata | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [loading, setLoading] = useState(false);
   const requestInFlight = useRef(false);
   const conversationGeneration = useRef(0);
+  const conversationIdentityRef = useRef(conversationIdentity);
   const disposed = useRef(false);
   const taskPendingIds = useRef(new Set<string>());
 
@@ -232,6 +243,8 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
       replaceThreads = false,
     ): Promise<AssistantChatThreadSummary[]> => {
       if (!multiThread) return [];
+      const requestedIdentity = conversationIdentity;
+      const requestedGeneration = conversationGeneration.current;
       setHistoryLoading(true);
       setHistoryError(null);
       try {
@@ -241,6 +254,10 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
         if (normalizedSearch) url.searchParams.set("search", normalizedSearch);
         const res = await fetch(url.pathname + url.search, { credentials: "include", cache: "no-store" });
         const data = (await res.json()) as HistoryListResponse;
+        if (
+          conversationIdentityRef.current !== requestedIdentity ||
+          conversationGeneration.current !== requestedGeneration
+        ) return [];
         if (!res.ok || data.error) throw new Error(data.error ?? "Could not load conversations.");
         const incoming = data.threads ?? [];
         setThreads((current) => {
@@ -252,27 +269,41 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
         setNextHistoryCursor(data.nextCursor ?? null);
         return incoming;
       } catch (cause) {
-        setHistoryError(cause instanceof Error ? cause.message : "Could not load conversations.");
+        if (
+          conversationIdentityRef.current === requestedIdentity &&
+          conversationGeneration.current === requestedGeneration
+        ) {
+          setHistoryError(cause instanceof Error ? cause.message : "Could not load conversations.");
+        }
         return [];
       } finally {
-        setHistoryLoading(false);
+        if (
+          conversationIdentityRef.current === requestedIdentity &&
+          conversationGeneration.current === requestedGeneration
+        ) setHistoryLoading(false);
       }
     },
-    [endpoint, multiThread],
+    [conversationIdentity, endpoint, multiThread],
   );
 
   const fetchTranscript = useCallback(
     async (threadId: string): Promise<TranscriptResponse["conversation"] | null> => {
+      const requestedIdentity = conversationIdentity;
+      const requestedGeneration = conversationGeneration.current;
       const url = new URL(endpoint, window.location.origin);
       url.searchParams.set("sessionId", threadId);
       const res = await fetch(url.pathname + url.search, { credentials: "include", cache: "no-store" });
       const data = (await res.json()) as TranscriptResponse;
+      if (
+        conversationIdentityRef.current !== requestedIdentity ||
+        conversationGeneration.current !== requestedGeneration
+      ) return null;
       if (!res.ok || data.error || !data.conversation) {
         throw new Error(data.error ?? "Could not load that conversation.");
       }
       return data.conversation;
     },
-    [endpoint],
+    [conversationIdentity, endpoint],
   );
 
   // The portal layout mounts this provider even when the assistant stays
@@ -281,36 +312,51 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
   // a Supabase request without any assistant interaction.
   const archiveHydrated = useRef(false);
   const archiveLoadInFlight = useRef<Promise<void> | null>(null);
-  const archiveKeyRef = useRef(archiveKey);
+  const archiveKeyRef = useRef(conversationIdentity);
   const hydrateArchive = useCallback(async () => {
     if (!multiThread || archiveHydrated.current) return;
     if (archiveLoadInFlight.current) return archiveLoadInFlight.current;
+    const requestedIdentity = conversationIdentity;
+    const requestedGeneration = conversationGeneration.current;
+    const isCurrentLoad = () =>
+      conversationIdentityRef.current === requestedIdentity &&
+      conversationGeneration.current === requestedGeneration;
     const load = (async () => {
       const initialThreads = await fetchThreadList();
+      if (!isCurrentLoad()) return;
       archiveHydrated.current = true;
       if (hasInteractedWithConversation.current || initialThreads.length === 0) return;
       try {
         const conversation = await fetchTranscript(initialThreads[0]!.id);
-        if (hasInteractedWithConversation.current || !conversation) return;
+        if (!isCurrentLoad() || hasInteractedWithConversation.current || !conversation) return;
         setActiveThreadId(conversation.id);
         setMessages(visibleConversationMessages(conversation.messages));
         setPendingAction(conversation.pendingAction ?? null);
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : "Could not restore your latest conversation.");
+        if (isCurrentLoad()) {
+          setError(cause instanceof Error ? cause.message : "Could not restore your latest conversation.");
+        }
       }
     })();
     archiveLoadInFlight.current = load;
     try {
       await load;
     } finally {
-      archiveLoadInFlight.current = null;
+      // A generation change must not let this stale request clear a newer
+      // hydration, but this request still owns its own ref after it settles.
+      if (archiveLoadInFlight.current === load) archiveLoadInFlight.current = null;
     }
-  }, [fetchThreadList, fetchTranscript, multiThread]);
+  }, [conversationIdentity, fetchThreadList, fetchTranscript, multiThread]);
 
   useEffect(() => {
-    if (archiveKeyRef.current === archiveKey) return;
-    archiveKeyRef.current = archiveKey;
-    if (!multiThread) return;
+    if (archiveKeyRef.current === conversationIdentity) return;
+    archiveKeyRef.current = conversationIdentity;
+    conversationIdentityRef.current = conversationIdentity;
+    conversationGeneration.current += 1;
+    requestInFlight.current = false;
+    setLoading(false);
+    attachments.forEach(revokeAttachmentPreview);
+    setAttachments([]);
     const shouldRehydrate = archiveHydrated.current;
     archiveHydrated.current = false;
     archiveLoadInFlight.current = null;
@@ -320,12 +366,17 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
     setThreads([]);
     setPendingAction(null);
     setLastTools([]);
+    setLastSmsTestTurn(null);
     setError(null);
     setInput("");
     setHistoryOpen(false);
     setHistorySearch("");
-    if (shouldRehydrate) void hydrateArchive();
-  }, [archiveKey, hydrateArchive, multiThread]);
+    setHistoryLoading(false);
+    setHistoryError(null);
+    setNextHistoryCursor(null);
+    if (historySearchTimer.current) clearTimeout(historySearchTimer.current);
+    if (multiThread && shouldRehydrate) void hydrateArchive();
+  }, [attachments, conversationIdentity, hydrateArchive, multiThread]);
 
   useEffect(() => {
     if (!multiThread) saveAssistantChatMessages(endpoint, visibleConversationMessages(messages), storageScope);
@@ -353,7 +404,7 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(decision === "confirm" ? { confirmActionId: pendingAction.id } : { denyActionId: pendingAction.id }),
         });
-        const data = (await res.json()) as { reply?: string; toolTrace?: ToolTraceEntry[]; error?: string };
+        const data = (await res.json()) as AssistantTransportData;
         if (disposed.current || generation !== conversationGeneration.current) return;
         if (!res.ok || data.error) {
           setError(data.error ?? "Could not complete that action.");
@@ -365,6 +416,7 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
           taskPendingIds.current.delete(pendingAction.id);
           setMessages((current) => [...current, { role: "assistant", content: data.reply ?? "Done." }]);
           setLastTools(data.toolTrace ?? []);
+          setLastSmsTestTurn(data.smsTest ?? null);
           setPendingAction(null);
           if (decision === "confirm" && confirmedKind === "apply_listing_photos" && listingIdForRefresh) {
             notifyListingAssistantUpdated({ propertyId: listingIdForRefresh, tool: "apply_listing_photos" });
@@ -474,6 +526,7 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
             if (multiThread) setThreads((current) => upsertThread(current, data.sessionId!, completed));
           }
           setLastTools(data.toolTrace ?? []);
+          setLastSmsTestTurn(data.smsTest ?? null);
           setPendingAction(data.pendingAction ?? null);
           if (!multiThread && data.pendingAction) taskPendingIds.current.add(data.pendingAction.id);
           if (multiThread && data.archiveSaved === false) {
@@ -501,6 +554,11 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
     conversationGeneration.current += 1;
     requestInFlight.current = false;
     setLoading(false);
+    archiveHydrated.current = false;
+    archiveLoadInFlight.current = null;
+    setHistoryLoading(false);
+    setHistoryError(null);
+    setNextHistoryCursor(null);
     if (!multiThread) {
       for (const actionId of taskPendingIds.current) void denyDisposedTaskAction(actionId);
       taskPendingIds.current.clear();
@@ -511,6 +569,7 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
     setMessages([]);
     if (!multiThread) clearAssistantChatMessages(endpoint, storageScope);
     setLastTools([]);
+    setLastSmsTestTurn(null);
     setPendingAction(null);
     setError(null);
     setInput("");
@@ -576,21 +635,25 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
   const selectThread = useCallback(
     async (threadId: string) => {
       if (!multiThread || loading || threadId === activeThreadId) return;
+      const generation = conversationGeneration.current;
       hasInteractedWithConversation.current = true;
       setHistoryLoading(true);
       setHistoryError(null);
       try {
         const conversation = await fetchTranscript(threadId);
-        if (!conversation) return;
+        if (generation !== conversationGeneration.current || !conversation) return;
         setActiveThreadId(conversation.id);
         setMessages(visibleConversationMessages(conversation.messages));
         setPendingAction(conversation.pendingAction ?? null);
         setLastTools([]);
+        setLastSmsTestTurn(null);
         setError(null);
       } catch (cause) {
-        setHistoryError(cause instanceof Error ? cause.message : "Could not load that conversation.");
+        if (generation === conversationGeneration.current) {
+          setHistoryError(cause instanceof Error ? cause.message : "Could not load that conversation.");
+        }
       } finally {
-        setHistoryLoading(false);
+        if (generation === conversationGeneration.current) setHistoryLoading(false);
       }
     },
     [activeThreadId, fetchTranscript, loading, multiThread],
@@ -599,6 +662,7 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
   const deleteThread = useCallback(
     async (threadId: string): Promise<boolean> => {
       if (!multiThread || loading) return false;
+      const generation = conversationGeneration.current;
       setHistoryLoading(true);
       setHistoryError(null);
       try {
@@ -606,6 +670,7 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
         url.searchParams.set("sessionId", threadId);
         const res = await fetch(url.pathname + url.search, { method: "DELETE", credentials: "include" });
         const data = (await res.json()) as DeleteSessionResponse;
+        if (generation !== conversationGeneration.current) return false;
         if (!res.ok || !data.deleted || data.error) {
           throw new Error(data.error ?? "Could not delete that conversation.");
         }
@@ -617,14 +682,17 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
           setAttachments([]);
           setPendingAction(null);
           setLastTools([]);
+          setLastSmsTestTurn(null);
           setError(null);
         }
         return true;
       } catch (cause) {
-        setHistoryError(cause instanceof Error ? cause.message : "Could not delete that conversation.");
+        if (generation === conversationGeneration.current) {
+          setHistoryError(cause instanceof Error ? cause.message : "Could not delete that conversation.");
+        }
         return false;
       } finally {
-        setHistoryLoading(false);
+        if (generation === conversationGeneration.current) setHistoryLoading(false);
       }
     },
     [activeThreadId, attachments, endpoint, loading, multiThread],
@@ -650,6 +718,7 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
     hasMoreHistory: Boolean(nextHistoryCursor),
     multiThread,
     lastTools,
+    lastSmsTestTurn,
     pendingAction,
     loading,
     error,

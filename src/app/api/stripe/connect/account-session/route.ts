@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
 import { ensureManagerConnectAccountId } from "@/lib/stripe-connect-account";
 import { ensureConnectAccountTransfersRequested } from "@/lib/stripe-connect";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export async function POST() {
   try {
@@ -14,9 +15,11 @@ export async function POST() {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
+    const db = createSupabaseServiceRoleClient();
+
     try {
       const stripe = getStripe();
-      const accountId = await ensureManagerConnectAccountId(stripe, supabase, {
+      const accountId = await ensureManagerConnectAccountId(stripe, db, {
         userId: user.id,
         email: user.email ?? undefined,
       });

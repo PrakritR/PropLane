@@ -16,11 +16,16 @@ vi.mock("@/lib/rate-limit", () => ({ rateLimit: mocks.limit }));
 vi.mock("@/lib/stripe", () => ({
   getStripe: () => ({ checkout: { sessions: { create: mocks.checkout } } }),
 }));
+vi.mock("@/lib/test-workspaces/effects.server", () => ({
+  assertTestWorkspaceProviderEffectAllowed: vi.fn(async () => undefined),
+  captureTestWorkspaceEffectForUser: vi.fn(async () => ({ captured: false })),
+}));
 import { POST } from "@/app/api/manager/comms-billing/checkout/route";
 import {
   CommsCreditValidationError,
   fulfillCommsCreditPurchase,
   reverseCommsCreditForCharge,
+  reverseCommsCreditForPaymentIntent,
   createCommsCreditCheckout,
 } from "@/lib/comms-billing/credit-purchase.server";
 import { COMMS_CREDIT_PURPOSE } from "@/lib/comms-billing/credit-packs";
@@ -47,6 +52,14 @@ const session = () =>
       credit_cents: "500",
     },
   }) as Stripe.Checkout.Session;
+const withStoredOwner = <T extends object>(db: T) => {
+  const chain = {
+    select: () => chain,
+    eq: () => chain,
+    maybeSingle: async () => ({ data: { manager_user_id: "owner" }, error: null }),
+  };
+  return { ...db, from: () => chain };
+};
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("COMMS_PAYG_BILLING_ENABLED", "1");
@@ -133,7 +146,7 @@ describe("verified credit fulfillment", () => {
     expect(db.rpc).not.toHaveBeenCalled();
   });
   it("hands exact verified identity and amount to atomic fulfillment", async () => {
-    const db = { rpc: vi.fn(async () => ({ data: true, error: null })) };
+    const db = withStoredOwner({ rpc: vi.fn(async () => ({ data: true, error: null })) });
     expect(
       await fulfillCommsCreditPurchase(db as never, session(), "evt"),
     ).toBe(true);
@@ -153,9 +166,9 @@ describe("verified credit fulfillment", () => {
     { code: "22P02", message: "invalid input syntax for type uuid", why: "metadata not a uuid" },
     { code: "P0001", message: "Credit purchase mismatch", why: "stored purchase disagrees" },
   ])("treats the function's own refusal as terminal ($why: $code)", async (change) => {
-    const db = {
+    const db = withStoredOwner({
       rpc: vi.fn(async () => ({ data: null, error: { code: change.code, message: change.message } })),
-    };
+    });
     await expect(
       fulfillCommsCreditPurchase(db as never, session(), "evt"),
     ).rejects.toBeInstanceOf(CommsCreditValidationError);
@@ -165,9 +178,9 @@ describe("verified credit fulfillment", () => {
     { code: "40001", message: "could not serialize access" },
     { code: "P0001", message: "Communication account not found" },
   ])("keeps a transient failure retryable: %j", async (change) => {
-    const db = {
+    const db = withStoredOwner({
       rpc: vi.fn(async () => ({ data: null, error: change })),
-    };
+    });
     const failure = await fulfillCommsCreditPurchase(db as never, session(), "evt").catch((e: unknown) => e);
     expect(failure).toBeInstanceOf(Error);
     expect(failure).not.toBeInstanceOf(CommsCreditValidationError);
@@ -189,5 +202,71 @@ describe("verified credit fulfillment", () => {
         "evt",
       ),
     ).rejects.toThrow("pending");
+  });
+
+  it("retries an unmatched dispute without inspecting Stripe until fulfillment binds its owner", async () => {
+    const chain = {
+      select: () => chain,
+      eq: () => chain,
+      maybeSingle: async () => ({ data: null, error: null }),
+    };
+    const loadCharge = vi.fn();
+
+    await expect(
+      reverseCommsCreditForPaymentIntent(
+        { from: () => chain } as never,
+        "pi_unrelated",
+        "evt_dispute",
+        { dispute: true, loadCharge },
+      ),
+    ).rejects.toThrow("ownership is pending");
+
+    expect(loadCharge).not.toHaveBeenCalled();
+  });
+
+  it("reconciles an out-of-order lost dispute after fulfillment binds the payment intent", async () => {
+    let paymentIntentBound = false;
+    let matchColumn = "";
+    const query = {
+      select: vi.fn(),
+      eq: vi.fn((column: string) => {
+        matchColumn = column;
+        return query;
+      }),
+      maybeSingle: vi.fn(async () => {
+        if (matchColumn === "id") return { data: { manager_user_id: "owner" }, error: null };
+        return {
+          data: paymentIntentBound
+            ? { id, credit_cents: 500, manager_user_id: "owner" }
+            : null,
+          error: null,
+        };
+      }),
+    };
+    query.select.mockReturnValue(query);
+    const rpc = vi.fn(async (name: string) => {
+      if (name === "fulfill_comms_credit_purchase") paymentIntentBound = true;
+      return { data: true, error: null };
+    });
+    const db = { from: vi.fn(() => query), rpc };
+    const loadCharge = vi.fn();
+
+    await expect(reverseCommsCreditForPaymentIntent(db as never, "pi_test", "evt_dispute", {
+      dispute: true,
+      loadCharge,
+    })).rejects.toThrow("ownership is pending");
+    await expect(fulfillCommsCreditPurchase(db as never, session(), "evt_checkout")).resolves.toBe(true);
+    await expect(reverseCommsCreditForPaymentIntent(db as never, "pi_test", "evt_dispute", {
+      dispute: true,
+      loadCharge,
+    })).resolves.toBe(true);
+
+    expect(loadCharge).not.toHaveBeenCalled();
+    expect(rpc).toHaveBeenLastCalledWith("reverse_comms_credit_purchase", {
+      p_payment_intent: "pi_test",
+      p_reversed: 500,
+      p_event: "evt_dispute",
+      p_reason: "dispute",
+    });
   });
 });

@@ -1,0 +1,15 @@
+{
+  "project": "emstjswhotsnyksqhqyf",
+  "status": 406,
+  "code": "PGRST106",
+  "message": "Invalid schema: proplane_invalid_schema_audit",
+  "hint": "Only the following schemas are exposed: public, graphql_public",
+  "credentialRole": "anon",
+  "operation": "GET profiles limit=0 with intentionally invalid schema; no business rows",
+  "localKeysMatchProjectApi": true,
+  "authSettingsStatus": 200,
+  "openApiRoot": {
+    "status": 401,
+    "hint": "Only the service_role API key can be used for this endpoint."
+  }
+}

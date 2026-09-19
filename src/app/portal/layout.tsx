@@ -28,21 +28,28 @@ import { buildProPortalDefinition } from "@/lib/portals/pro-nav";
 import { getAssistantDockCollapsed } from "@/lib/assistant-dock-state";
 import { getSidebarCollapsed } from "@/lib/portal-sidebar-state";
 import { WorkspaceProvider } from "@/components/portal/workspace-provider";
+import { TestAccountBanner } from "@/components/portal/test-account-banner";
+import { TestAccountUnavailable } from "@/components/portal/test-account-unavailable";
+import { isTestWorkspaceFeatureEnabled, resolveTestWorkspaceClassification } from "@/lib/test-workspaces/index.server";
 
 export default async function PropertyPortalLayout({ children }: { children: React.ReactNode }) {
   // A production admin (founder/ops) identity must not cross into the property
   // portal even by typing the URL — hiding the switch is not access control.
   await assertPropertyPortalAccess();
 
-  const [nav, { profile }, sidebarCollapsed, assistantDockCollapsed] = await Promise.all([
+  const [nav, { profile, user }, sidebarCollapsed, assistantDockCollapsed] = await Promise.all([
     buildProPortalDefinition(),
     getServerSessionProfile(),
     getSidebarCollapsed(),
     getAssistantDockCollapsed(),
   ]);
+  const testWorkspace = user ? await resolveTestWorkspaceClassification(user.id) : { kind: "normal" as const };
+  if (testWorkspace.kind === "classified" && (testWorkspace.state !== "active" || !isTestWorkspaceFeatureEnabled())) {
+    return <TestAccountUnavailable state={testWorkspace.state} />;
+  }
 
   return (
-    <AxisAssistant managerName={profile?.full_name ?? null} dockable>
+    <AxisAssistant managerName={profile?.full_name ?? null} smsTestPortal="manager" dockable>
       <div className={PORTAL_SHELL_ROOT_CLASS}>
         <WorkspaceProvider>
         <SurfaceThemeDefault theme="light" />
@@ -69,6 +76,7 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
               name={profile?.full_name ?? null}
               email={profile?.email ?? null}
             />
+            {testWorkspace.kind === "classified" ? <TestAccountBanner state={testWorkspace.state} /> : null}
             {/* `showPlanBanner` has been computed for this all along; nothing
                 rendered it, so a lapsed trial took residents, leases, inbox and
                 co-managers away without a word (AXI-129). */}

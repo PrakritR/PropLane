@@ -20,6 +20,7 @@ import { scopedRelationshipDeletesForRevokedInvite } from "@/lib/pro-relationshi
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { bestEffortFailed } from "@/lib/observability/best-effort";
+import { assertTestWorkspacePrincipalCompatibility } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -72,6 +73,15 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
 
     const invite = row as InviteRow | null;
     if (!invite?.id) {
+      return NextResponse.json({ error: "Invite not found." }, { status: 404 });
+    }
+    try {
+      await assertTestWorkspacePrincipalCompatibility({
+        actorUserId: user.id,
+        relatedUserIds: [invite.inviter_user_id, invite.invitee_user_id],
+        db: svc,
+      });
+    } catch {
       return NextResponse.json({ error: "Invite not found." }, { status: 404 });
     }
 

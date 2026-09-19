@@ -11,6 +11,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createHash, randomUUID } from "node:crypto";
 import { formatInboxStamp } from "@/lib/portal-inbox-storage";
 import { smsNoticePhone } from "@/lib/sms-inbox-identity";
+import { postResendEmail } from "@/lib/resend-delivery.server";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 
@@ -76,6 +77,7 @@ export async function upsertManagerInboxNotice(
 }
 
 export async function sendManagerNoticeEmail(args: {
+  managerUserId: string;
   toEmail: string | null | undefined;
   subject: string;
   text: string;
@@ -83,14 +85,15 @@ export async function sendManagerNoticeEmail(args: {
   const managerEmail = String(args.toEmail ?? "").trim().toLowerCase();
   const resendKey = process.env.RESEND_API_KEY?.trim();
   if (!resendKey || !managerEmail.includes("@") || managerEmail.endsWith("@axis.local")) return;
-  await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
+  await postResendEmail({
+    apiKey: resendKey,
+    actorUserId: args.managerUserId,
+    effectSummary: "Manager SMS notice email captured for the test workspace.",
+    payload: {
       from: process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>",
       to: [managerEmail],
       subject: args.subject,
       text: args.text,
-    }),
+    },
   }).catch(() => undefined);
 }

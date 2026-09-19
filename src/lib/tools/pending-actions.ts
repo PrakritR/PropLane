@@ -12,6 +12,8 @@
  * table. `expiresInMs` is what distinguishes a live chat turn from that queue.
  */
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { currentSmsTestProvenance } from "@/lib/sms/sms-test-provenance.server";
+import { sameSmsTestProvenance, type SmsTestProvenance } from "@/lib/sms/sms-test-provenance";
 import type { ActionPreview } from "./registry";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
@@ -42,6 +44,7 @@ function pendingActionInsertPayload(
     sessionId?: string | null;
     expiresInMs?: number;
     proposalTraceId?: string | null;
+    smsTestProvenance?: SmsTestProvenance | null;
   },
   opts: { includeSessionId: boolean; includeProposalTraceId: boolean; includePortal: boolean },
 ): Record<string, unknown> {
@@ -51,15 +54,27 @@ function pendingActionInsertPayload(
     tool_name: args.toolName,
     input: args.input,
     preview: args.preview,
+    sms_test_actor_user_id: null,
+    sms_test_manager_user_id: null,
+    sms_test_session_id: null,
+    test_workspace_id: null,
   };
   if (opts.includePortal) row.portal = args.portal ?? "manager";
   if (opts.includeSessionId && args.sessionId) row.session_id = args.sessionId;
   if (opts.includeProposalTraceId && args.proposalTraceId) row.proposal_trace_id = args.proposalTraceId;
+  if (args.smsTestProvenance) {
+    row.sms_test_actor_user_id = args.smsTestProvenance.actorUserId;
+    row.sms_test_manager_user_id = args.smsTestProvenance.managerUserId;
+    row.sms_test_session_id = args.smsTestProvenance.sessionId;
+    row.test_workspace_id = args.smsTestProvenance.workspaceId ?? null;
+  }
   if (args.expiresInMs && args.expiresInMs > 0) {
     row.expires_at = new Date(Date.now() + args.expiresInMs).toISOString();
   }
   return row;
 }
+
+type PendingActionInsertArgs = Parameters<typeof pendingActionInsertPayload>[0];
 
 /**
  * Insert with bounded fallbacks for schema drift and optional FK columns.
@@ -68,8 +83,21 @@ function pendingActionInsertPayload(
  */
 async function insertPendingActionRow(
   db: Db,
-  args: Parameters<typeof createPendingActionForUser>[1],
+  args: PendingActionInsertArgs,
 ): Promise<{ id: string | null; lastError: DatabaseError | null }> {
+  // Test actions must retain their durable test identity. Falling back to an
+  // ordinary proposal during a rolling deploy would make it claimable outside
+  // its authenticated SMS session.
+  if (args.smsTestProvenance) {
+    const { data, error } = await db.from("agent_pending_actions").insert(
+      pendingActionInsertPayload(args, {
+        includePortal: true,
+        includeSessionId: true,
+        includeProposalTraceId: true,
+      }),
+    ).select("id").single();
+    return { id: !error && data?.id ? String(data.id) : null, lastError: error as DatabaseError | null };
+  }
   const attempts: Array<{
     payload: Record<string, unknown>;
     label: string;
@@ -172,7 +200,11 @@ export async function createPendingActionForUser(
   },
 ): Promise<string | null> {
   const expiresInMs = args.expiresInMs && args.expiresInMs > 0 ? args.expiresInMs : CHAT_PENDING_ACTION_TTL_MS;
-  const { id, lastError } = await insertPendingActionRow(db, { ...args, expiresInMs });
+  const { id, lastError } = await insertPendingActionRow(db, {
+    ...args,
+    expiresInMs,
+    smsTestProvenance: currentSmsTestProvenance(),
+  });
   if (id) return id;
   // Never swallow this silently: a null here becomes the user-facing "could not
   // show the confirmation card" fallback, so the real reason (a schema drift, an
@@ -222,13 +254,29 @@ export async function listProposedActionsForUser(
   db: Db,
   args: { userId: string; toolName: string },
 ): Promise<ProposedAction[]> {
-  const { data, error } = await db
+  const smsTestProvenance = currentSmsTestProvenance();
+  let query = db
     .from("agent_pending_actions")
     .select("id, input, preview, created_at")
     .eq("user_id", args.userId)
     .eq("tool_name", args.toolName)
     .eq("status", "proposed")
-    .gt("expires_at", new Date().toISOString())
+    .gt("expires_at", new Date().toISOString());
+  if (smsTestProvenance) {
+    query = query
+      .eq("sms_test_actor_user_id", smsTestProvenance.actorUserId)
+      .eq("sms_test_manager_user_id", smsTestProvenance.managerUserId)
+      .eq("sms_test_session_id", smsTestProvenance.sessionId);
+    query = smsTestProvenance.workspaceId
+      ? query.eq("test_workspace_id", smsTestProvenance.workspaceId)
+      : query.is("test_workspace_id", null);
+  } else {
+    query = query
+      .is("sms_test_actor_user_id", null)
+      .is("sms_test_manager_user_id", null)
+      .is("sms_test_session_id", null);
+  }
+  const { data, error } = await query
     .order("created_at", { ascending: false });
   if (error || !data) return [];
   return (data as { id: string; input: unknown; preview: ActionPreview; created_at: string }[]).map((row) => ({
@@ -247,6 +295,7 @@ export type ClaimedAction = {
   sessionId: string | null;
   /** Langfuse proposal-turn id, when the proposing chat turn was traced. */
   proposalTraceId: string | null;
+  smsTestProvenance: SmsTestProvenance | null;
 };
 
 async function resolvePendingAction(
@@ -261,14 +310,31 @@ async function resolvePendingAction(
   // `user_id` (not `landlord_id`) is the ownership key: two residents of the
   // same manager share a landlord_id, so filtering on it alone would let one
   // confirm the other's pending action.
-  const { data, error } = await actor.db
+  const testProvenance = currentSmsTestProvenance();
+  let claim = actor.db
     .from("agent_pending_actions")
     .update({ status, resolved_at: new Date().toISOString() })
     .eq("id", actionId)
     .eq("user_id", actor.userId)
     .eq("status", "proposed")
-    .gt("expires_at", new Date().toISOString())
-    .select("tool_name, input, portal, session_id, proposal_trace_id");
+    .gt("expires_at", new Date().toISOString());
+  if (testProvenance) {
+    claim = claim
+      .eq("sms_test_actor_user_id", testProvenance.actorUserId)
+      .eq("sms_test_manager_user_id", testProvenance.managerUserId)
+      .eq("sms_test_session_id", testProvenance.sessionId);
+    claim = testProvenance.workspaceId
+      ? claim.eq("test_workspace_id", testProvenance.workspaceId)
+      : claim.is("test_workspace_id", null);
+  } else {
+    claim = claim
+      .is("sms_test_actor_user_id", null)
+      .is("sms_test_manager_user_id", null)
+      .is("sms_test_session_id", null);
+  }
+  const { data, error } = await claim.select(
+    "tool_name, input, portal, session_id, proposal_trace_id, sms_test_actor_user_id, sms_test_manager_user_id, sms_test_session_id, test_workspace_id",
+  );
   const row = (data ?? [])[0] as
     | {
         tool_name: string;
@@ -276,9 +342,25 @@ async function resolvePendingAction(
         portal?: string | null;
         session_id?: string | null;
         proposal_trace_id?: string | null;
+        sms_test_actor_user_id?: string | null;
+        sms_test_manager_user_id?: string | null;
+        sms_test_session_id?: string | null;
+        test_workspace_id?: string | null;
       }
     | undefined;
   if (error || !row) return null;
+  const rowProvenance = row.sms_test_actor_user_id && row.sms_test_manager_user_id && row.sms_test_session_id
+    ? {
+      actorUserId: String(row.sms_test_actor_user_id),
+      managerUserId: String(row.sms_test_manager_user_id),
+      sessionId: String(row.sms_test_session_id),
+      ...(row.test_workspace_id ? { workspaceId: String(row.test_workspace_id) } : {}),
+    }
+    : null;
+  if (
+    Boolean(rowProvenance) !== Boolean(testProvenance) ||
+    (rowProvenance !== null && !sameSmsTestProvenance(rowProvenance, testProvenance))
+  ) return null;
   const portal = row.portal === "resident" || row.portal === "vendor" ? row.portal : "manager";
   return {
     toolName: String(row.tool_name),
@@ -286,6 +368,7 @@ async function resolvePendingAction(
     portal,
     sessionId: row.session_id ? String(row.session_id) : null,
     proposalTraceId: row.proposal_trace_id ? String(row.proposal_trace_id) : null,
+    smsTestProvenance: rowProvenance,
   };
 }
 
@@ -326,7 +409,7 @@ export async function markPendingActionFailed(actor: PendingActionActor, id: str
  * confirm gate would skip its portal check and burn the row it was protecting.
  */
 export type PeekedPendingAction =
-  | { state: "found"; portal: AgentPortal; toolName: string }
+  | { state: "found"; portal: AgentPortal; toolName: string; smsTestProvenance: SmsTestProvenance | null }
   | { state: "missing" }
   | { state: "unreadable" };
 
@@ -341,12 +424,20 @@ export async function peekPendingActionPortal(
 ): Promise<PeekedPendingAction> {
   const { data, error } = await actor.db
     .from("agent_pending_actions")
-    .select("portal, tool_name")
+    .select("portal, tool_name, sms_test_actor_user_id, sms_test_manager_user_id, sms_test_session_id, test_workspace_id")
     .eq("id", id)
     .eq("user_id", actor.userId)
     .maybeSingle();
   if (error) return { state: "unreadable" };
   if (!data) return { state: "missing" };
   const portal = data.portal === "resident" || data.portal === "vendor" ? data.portal : "manager";
-  return { state: "found", portal, toolName: String(data.tool_name) };
+  const smsTestProvenance = data.sms_test_actor_user_id && data.sms_test_manager_user_id && data.sms_test_session_id
+    ? {
+      actorUserId: String(data.sms_test_actor_user_id),
+      managerUserId: String(data.sms_test_manager_user_id),
+      sessionId: String(data.sms_test_session_id),
+      ...(data.test_workspace_id ? { workspaceId: String(data.test_workspace_id) } : {}),
+    }
+    : null;
+  return { state: "found", portal, toolName: String(data.tool_name), smsTestProvenance };
 }

@@ -406,11 +406,20 @@ export const prepareProspectTourConfirmationTool = defineWriteTool<z.infer<typeo
       hostUserId: offered.hostUserId,
       policy: "published_only",
     };
+    const testIdentity = scope.testActorUserId && scope.testSessionId
+      ? { testActorUserId: scope.testActorUserId, testSessionId: scope.testSessionId }
+      : { trustedPhoneE164: scope.prospectPhoneE164 };
     const result = await prepareProspectSmsTourOffer(ctx.db, {
       managerUserId: ctx.landlordId,
-      conversationKey: buildConversationKey({ ownerManagerUserId: ctx.landlordId, role: "prospect", counterpartyPhone: scope.prospectPhoneE164 }),
+      conversationKey: buildConversationKey({
+        ownerManagerUserId: ctx.landlordId,
+        role: "prospect",
+        ...(scope.testSessionId
+          ? { counterpartyUserId: scope.testSessionId }
+          : { counterpartyPhone: scope.prospectPhoneE164 }),
+      }),
       propertyId: input.propertyId,
-      trustedPhoneE164: scope.prospectPhoneE164,
+      ...testIdentity,
       contactName: input.name,
       contactEmail: input.email,
       offer: preparedOffer,
@@ -478,13 +487,36 @@ export const confirmProspectSmsTourTool = defineWriteTool<z.infer<typeof confirm
       attendeeEmail: input.email?.trim() || undefined, attendeePhone: scope.prospectPhoneE164,
       smsAutonomous: true,
     };
+    const testIdentity = scope.testActorUserId && scope.testSessionId
+      ? { testActorUserId: scope.testActorUserId, testSessionId: scope.testSessionId }
+      : { trustedPhoneE164: scope.prospectPhoneE164 };
     const result = await confirmProspectSmsTourOffer(ctx.db, {
       managerUserId: ctx.landlordId,
-      conversationKey: buildConversationKey({ ownerManagerUserId: ctx.landlordId, role: "prospect", counterpartyPhone: scope.prospectPhoneE164 }),
-      propertyId: input.propertyId, trustedPhoneE164: scope.prospectPhoneE164, contactName: input.name,
-      contactEmail: input.email, offer: { slotKey: offered.slotKey, start: offered.start, end: offered.end, label: offered.label, hostUserId: offered.hostUserId, policy: "published_only", burstId: burst.burstId, revision: burst.revision },
-      event, idempotencyKey: `prospect-tour:${burst.burstId}:${burst.revision}`,
-      burstId: burst.burstId, burstRevision: burst.revision,
+      conversationKey: buildConversationKey({
+        ownerManagerUserId: ctx.landlordId,
+        role: "prospect",
+        ...(scope.testSessionId
+          ? { counterpartyUserId: scope.testSessionId }
+          : { counterpartyPhone: scope.prospectPhoneE164 }),
+      }),
+      propertyId: input.propertyId,
+      ...testIdentity,
+      contactName: input.name,
+      contactEmail: input.email,
+      offer: {
+        slotKey: offered.slotKey,
+        start: offered.start,
+        end: offered.end,
+        label: offered.label,
+        hostUserId: offered.hostUserId,
+        policy: "published_only",
+        burstId: burst.burstId,
+        revision: burst.revision,
+      },
+      event,
+      idempotencyKey: `prospect-tour:${burst.burstId}:${burst.revision}`,
+      burstId: burst.burstId,
+      burstRevision: burst.revision,
       agreementSourceMessageId: agreement.agreementSourceMessageId,
       claimedSourceIds: agreement.claimedSourceIds,
       workerId: burst.workerId,

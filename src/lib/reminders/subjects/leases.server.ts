@@ -17,6 +17,7 @@ import { REMINDER_SUBJECT_CO_MANAGER_MODULE } from "@/lib/co-manager-notificatio
 import { materializeReminders } from "@/lib/reminders/queue.server";
 import type { ReminderRecipient } from "@/lib/reminders/queue.server";
 import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
+import { hasSmsTestProvenance } from "@/lib/sms/sms-test-provenance";
 
 const MAX_ROWS = 500;
 const MAX_AGE_DAYS = 180;
@@ -69,6 +70,7 @@ export async function sweepLeaseReminders(db: SupabaseClient, now: Date = new Da
 
   const candidates = rows
     .map((record) => {
+      if (hasSmsTestProvenance(record.row_data)) return null;
       const lease = normalizeLeasePipelineRow(record.row_data);
       const managerUserId = String(record.manager_user_id ?? lease.managerUserId ?? "").trim();
       if (!managerUserId) return null;

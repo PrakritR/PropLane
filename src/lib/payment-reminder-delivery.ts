@@ -1,5 +1,6 @@
 import { chargeDueLabel, isUnpaidHouseholdCharge, type HouseholdCharge } from "@/lib/household-charges";
 import { formatPacificDateTime } from "@/lib/pacific-time";
+import { postResendEmail } from "@/lib/resend-delivery.server";
 import { sendPushToUser } from "@/lib/push-notifications.server";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { canSendResidentOutboundSms, sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
@@ -74,10 +75,12 @@ export async function deliverPaymentReminder(input: {
   let emailSent = false;
   if (apiKey && emailAllowed) {
     try {
-      const res = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ from, to: [residentLower], subject, text, html }),
+      const res = await postResendEmail({
+        apiKey,
+        actorUserId: managerId,
+        payload: { from, to: [residentLower], subject, text, html },
+        effectSummary: "Payment reminder email captured for the test workspace.",
+        metadata: { chargeId: charge.id },
       });
       emailSent = res.ok;
       // Soft-fail: still write Axis inbox + SMS when Resend rejects the address.

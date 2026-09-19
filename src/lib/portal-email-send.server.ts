@@ -24,6 +24,7 @@ import {
   conversationAnchorMessageId,
 } from "@/lib/inbound-email/reply-address.server";
 import { sharedPortalFromAddress } from "@/lib/manager-outbound-identity.server";
+import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
 
 const RESEND_BATCH_LIMIT = 100;
 
@@ -57,6 +58,14 @@ export async function sendPortalConversationEmails(opts: {
   const results = new Map<string, ConversationEmailResult>(
     opts.toEmails.map((email) => [email, { sent: false, resendId: null }]),
   );
+  if (opts.toEmails.length > 0 && captureSmsTestDelivery({
+    kind: "email",
+    summary: opts.subject.trim() || "Email delivery captured in the test conversation.",
+    status: "captured",
+    metadata: { recipientCount: opts.toEmails.length },
+  })) {
+    return new Map(opts.toEmails.map((email) => [email, { sent: true, resendId: "in_app_test" }]));
+  }
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (!apiKey || opts.toEmails.length === 0) return results;
   // The manager's own work email wins when they have one; the shared sender is the fallback

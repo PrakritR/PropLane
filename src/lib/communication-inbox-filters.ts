@@ -118,7 +118,6 @@ export function countVisibleUnreadCommunication(
   const archivedSms = opts.archivedSmsIds;
   return collapsed.filter((thread) => {
     if (thread.folder !== "inbox" || !thread.unread) return false;
-    if (isSmsLikeInboxThread(thread)) return false;
     const binding = thread.smsConversationKey?.trim();
     if (binding && archivedSms?.has(binding)) return false;
     return true;

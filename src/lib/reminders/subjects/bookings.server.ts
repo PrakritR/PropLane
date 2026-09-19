@@ -27,6 +27,7 @@ import type { ReminderSettings } from "@/lib/reminders/rules";
 import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
 import { withinHorizon } from "@/lib/reminders/subjects/records.server";
 import { zonedWallTimeMs } from "@/lib/tour-slot-math";
+import { hasSmsTestProvenance } from "@/lib/sms/sms-test-provenance";
 
 const KIND = "booking" as const;
 /** Ceiling on rows examined per sweep, so one tick can never run unbounded. */
@@ -128,7 +129,7 @@ async function leaseStays(db: SupabaseClient): Promise<Stay[]> {
     const row = raw as { manager_user_id?: unknown; row_data?: unknown };
     const managerUserId = typeof row.manager_user_id === "string" ? row.manager_user_id : null;
     const data_ = (row.row_data ?? null) as Record<string, unknown> | null;
-    if (!managerUserId || !data_) continue;
+    if (!managerUserId || !data_ || hasSmsTestProvenance(data_)) continue;
     const id = str(data_, "id");
     if (!id) continue;
     const application = (data_.application ?? null) as Record<string, unknown> | null;

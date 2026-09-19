@@ -1,0 +1,25 @@
+{
+  "project": "emstjswhotsnyksqhqyf",
+  "method": "SQL role simulation with unchanged JWT sub; membership transitions rolled back",
+  "checks": [
+    {
+      "state": "active",
+      "tables_blocked": 147,
+      "own_membership_visible": true
+    },
+    {
+      "state": "suspended",
+      "tables_blocked": 147,
+      "own_membership_visible": true
+    },
+    {
+      "state": "expired",
+      "tables_blocked": 147,
+      "own_membership_visible": true
+    },
+    {
+      "normal_own_profile": true,
+      "normal_classification": false
+    }
+  ]
+}

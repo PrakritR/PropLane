@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildConversationKey } from "@/lib/sms-conversation-identity";
 import { readScopedSmsConsentState, recordScopedSmsConsent } from "@/lib/sms-consent";
 import { dispatchOwnerSmsOutbox, enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
+import { captureSmsTestDelivery } from "@/lib/sms/sms-test-transport.server";
 
 export const PROSPECT_TOUR_REMINDER_PURPOSE = "prospect_tour_followup";
 export const PROSPECT_TOUR_REMINDER_BODY =
@@ -86,6 +87,11 @@ export async function registerProspectTourReminder(
     traceId?: string | null;
   },
 ): Promise<{ registered: boolean; reason?: string }> {
+  if (captureSmsTestDelivery({
+    kind: "reminder",
+    summary: "Delayed tour reminder captured in the test conversation.",
+    status: "captured",
+  })) return { registered: true };
   const eligibility = prospectTourReminderEligibility(args.candidateContext, args.replyBody);
   if (!eligibility.eligible) return { registered: false, reason: "not_awaiting_exact_selection" };
   const conversationKey = buildConversationKey({

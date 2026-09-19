@@ -77,6 +77,41 @@ afterEach(() => {
 });
 
 describe("server-backed assistant conversation history", () => {
+  it("fully resets and fences an in-flight completion when the endpoint identity changes", async () => {
+    let finishPortal!: (response: Response) => void;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") return Promise.resolve(response({ threads: [], nextCursor: null }));
+      if (url === ENDPOINT) return new Promise<Response>((resolve) => { finishPortal = resolve; });
+      return Promise.resolve(response({ reply: "SMS reply", sessionId: "sms-session", smsTest: {
+        mode: "manager", stage: "approved", targetListingId: null, sessionId: "sms-session", effects: [],
+      } }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const hook = renderHook(
+      ({ endpoint }) => useAssistantConversation(endpoint, { archiveKey: "viewer-a:workspace-a" }),
+      { initialProps: { endpoint: ENDPOINT } },
+    );
+    let oldSend!: Promise<void>;
+    act(() => { oldSend = hook.result.current.send("Portal question"); });
+    expect(hook.result.current.loading).toBe(true);
+
+    hook.rerender({ endpoint: "/api/agent/sms-test?portal=manager" });
+    await waitFor(() => expect(hook.result.current.loading).toBe(false));
+    expect(hook.result.current.messages).toEqual([]);
+    expect(hook.result.current.activeThreadId).toBe("");
+
+    await act(async () => {
+      finishPortal(response({ reply: "Late portal reply", sessionId: LATEST }));
+      await oldSend;
+    });
+    expect(hook.result.current.messages).toEqual([]);
+
+    await act(async () => { await hook.result.current.send("SMS question"); });
+    expect(fetchMock.mock.calls.at(-1)?.[0]).toBe("/api/agent/sms-test?portal=manager");
+    expect(hook.result.current.messages.at(-1)?.content).toBe("SMS reply");
+    expect(hook.result.current.lastSmsTestTurn?.sessionId).toBe("sms-session");
+  });
+
   it("hydrates the latest archive session, starts a blank chat, and restores a selected transcript plus live preview", async () => {
     const fetchMock = installArchiveFetch();
     const { result } = renderHook(() => useAssistantConversation(ENDPOINT));
@@ -192,6 +227,71 @@ describe("server-backed assistant conversation history", () => {
       { role: "assistant", content: "Fresh reply." },
     ]);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("sessionId="))).toBe(false);
+  });
+
+  it("releases a stale first hydration so history can reload after starting a new chat", async () => {
+    const pendingLists: Array<(value: Response) => void> = [];
+    const fetchMock = vi.fn((url: string) => {
+      if (url.includes("sessionId=")) {
+        return Promise.resolve(response({ error: "An old transcript must not load." }, 500));
+      }
+      return new Promise<Response>((resolve) => pendingLists.push(resolve));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useAssistantConversation(ENDPOINT));
+
+    act(() => { void result.current.hydrateArchive(); });
+    await waitFor(() => expect(pendingLists).toHaveLength(1));
+    expect(result.current.historyLoading).toBe(true);
+
+    await act(async () => { await result.current.startNewChat(); });
+    expect(result.current.historyLoading).toBe(false);
+    act(() => { result.current.openHistory(); });
+    await waitFor(() => expect(pendingLists).toHaveLength(2));
+
+    await act(async () => {
+      pendingLists[1]!(response({ threads: [], nextCursor: null }));
+    });
+    await waitFor(() => expect(result.current.historyLoading).toBe(false));
+
+    await act(async () => {
+      pendingLists[0]!(response({
+        threads: [{ id: LATEST, title: "Stale", updatedAt: "2026-08-04T12:00:00.000Z" }],
+        nextCursor: null,
+      }));
+    });
+    expect(result.current.threads).toEqual([]);
+  });
+
+  it("settles selected-transcript loading when a new chat invalidates the request", async () => {
+    let releaseTranscript!: (value: Response) => void;
+    const fetchMock = vi.fn((url: string) => {
+      if (url.includes(`sessionId=${OLDER}`)) {
+        return new Promise<Response>((resolve) => { releaseTranscript = resolve; });
+      }
+      return Promise.resolve(response({ threads: [], nextCursor: null }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useAssistantConversation(ENDPOINT));
+    await act(async () => { await result.current.hydrateArchive(); });
+
+    act(() => { void result.current.selectThread(OLDER); });
+    await waitFor(() => expect(result.current.historyLoading).toBe(true));
+    await act(async () => { await result.current.startNewChat(); });
+    expect(result.current.historyLoading).toBe(false);
+
+    await act(async () => {
+      releaseTranscript(response({
+        conversation: {
+          id: OLDER,
+          messages: [{ role: "assistant", content: "Stale transcript" }],
+          pendingAction: null,
+        },
+      }));
+    });
+    expect(result.current.historyLoading).toBe(false);
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.activeThreadId).toBe("");
   });
 
   it("searches server-backed conversations while preserving the shared search state", async () => {

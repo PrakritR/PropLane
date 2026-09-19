@@ -5,6 +5,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { sendVendorNotification } from "@/lib/vendor-notification-delivery";
 import { buildVendorBidOfferEmail, buildVendorVisitEmail } from "@/lib/vendor-visit-email";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 export const runtime = "nodejs";
 
@@ -17,6 +18,9 @@ export async function POST(req: Request) {
     if (!user) return NextResponse.json({ ok: false, error: "Not authenticated." }, { status: 401 });
 
     const db = createSupabaseServiceRoleClient();
+    if ((await resolveAuthenticatedBusinessAccess(user.id, db)).kind === "denied") {
+      return NextResponse.json({ ok: false, error: "Vendor access is unavailable for this account." }, { status: 403 });
+    }
     const admin = await isAdminUser(user.id);
     const { data: profile } = await db.from("profiles").select("role, email, full_name").eq("id", user.id).maybeSingle();
     const role = String(profile?.role ?? user.user_metadata?.role ?? "").toLowerCase();

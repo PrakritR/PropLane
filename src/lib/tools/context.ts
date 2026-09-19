@@ -12,6 +12,7 @@
  */
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { resolveManagerSmsAccess } from "@/lib/sms/manager-sms-access.server";
 import type { AgentWorkspaceScope } from "@/lib/agent/manager-workspace-scope";
@@ -31,6 +32,8 @@ export type AgentContext = {
    * contexts so those surfaces keep account-wide tools.
    */
   workspace?: AgentWorkspaceScope;
+  /** Durable private schedule/data namespace for classified test actors. */
+  testWorkspaceId?: string;
   /**
    * Service-role client. It bypasses RLS, so every query built from it MUST
    * include an explicit `.eq("manager_user_id", ctx.landlordId)` (or equivalent
@@ -69,6 +72,9 @@ export type VendorAgentScope = {
 export type LeasingSmsAgentScope = {
   sessionId: string;
   prospectPhoneE164: string;
+  /** Authenticated in-app SMS tests are identified by actor and session, never a phone. */
+  testActorUserId?: string;
+  testSessionId?: string;
   /**
    * The prospect's email when they wrote in by mail instead of text. Exactly one
    * of this and `prospectPhoneE164` carries a real value — an email prospect has
@@ -109,6 +115,8 @@ export async function resolveAgentContext(): Promise<AgentContext | null> {
   if (!user) return null;
 
   const db = createSupabaseServiceRoleClient();
+  const businessAccess = await resolveAuthenticatedBusinessAccess(user.id, db);
+  if (businessAccess.kind === "denied") return null;
   const [{ data: profile }, { data: roleRows }] = await Promise.all([
     db.from("profiles").select("email, role").eq("id", user.id).maybeSingle(),
     db.from("profile_roles").select("role").eq("user_id", user.id),
@@ -153,6 +161,7 @@ export async function resolveAgentContext(): Promise<AgentContext | null> {
     db,
     managerSmsAccess,
     workspace,
+    ...(businessAccess.kind === "test" ? { testWorkspaceId: businessAccess.workspaceId } : {}),
   };
 }
 
@@ -184,12 +193,12 @@ export function buildVendorAgentContext(
  */
 export function buildLeasingSmsAgentContext(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
-  args: { landlordId: string; scope: LeasingSmsAgentScope },
+  args: { landlordId: string; scope: LeasingSmsAgentScope; actorUserId?: string },
 ): AgentContext {
   return {
     landlordId: args.landlordId,
-    userId: args.landlordId,
-    email: "",
+    userId: args.actorUserId?.trim() || args.landlordId,
+    email: args.scope.prospectEmail?.trim().toLowerCase() || "",
     roles: ["leasing_sms_agent"],
     isAdmin: false,
     db,

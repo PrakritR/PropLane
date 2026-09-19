@@ -28,7 +28,7 @@ export type ResidentOutboundSmsResult = {
   sent: boolean;
   /** True once the managed outbox owns delivery, even if provider submission is deferred. */
   accepted?: boolean;
-  channel?: "claw" | "twilio";
+  channel?: "claw" | "twilio" | "in_app_test";
   error?: string;
   sid?: string;
   outboxStatus?: string;

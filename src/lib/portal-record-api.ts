@@ -3,6 +3,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { getPortalAccessContext } from "@/lib/auth/portal-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { preserveStoredSmsTestProvenance } from "@/lib/sms/sms-test-provenance";
+import { resolveAuthenticatedBusinessAccess } from "@/lib/test-workspaces/index.server";
 
 type RecordUser = { id: string; email?: string | null; role: string; roles?: string[] };
 type AtomicWriteResult = { handled: boolean; error?: string; status?: number };
@@ -83,6 +85,7 @@ async function getUserContext() {
   const portalCtx = await getPortalAccessContext();
   if (!portalCtx.user) return null;
   const db = createSupabaseServiceRoleClient();
+  if ((await resolveAuthenticatedBusinessAccess(portalCtx.user.id, db)).kind === "denied") return null;
   const admin = await isAdminUser(portalCtx.user.id);
   const role = admin
     ? "admin"
@@ -242,13 +245,23 @@ export function createJsonRecordRoute(config: RecordConfig) {
           // On INSERT, stamp server-trusted ownership so client-supplied owner
           // ids cannot be used to write rows under another tenant.
           const ownedRecord = !recordExists && config.assignOwnership ? config.assignOwnership(record, ctx.user) : record;
-          const finalRecord = config.reconcileExisting
+          let finalRecord = config.reconcileExisting
             ? config.reconcileExisting(
                 ownedRecord,
                 ctx.user,
                 recordExists ? ((existing?.[0] as Record<string, unknown>) ?? null) : null,
               )
             : ownedRecord;
+          if (finalRecord.row_data && typeof finalRecord.row_data === "object") {
+            const storedRowData = (existing?.[0] as { row_data?: unknown } | undefined)?.row_data;
+            finalRecord = {
+              ...finalRecord,
+              row_data: preserveStoredSmsTestProvenance(
+                finalRecord.row_data as Record<string, unknown>,
+                storedRowData,
+              ),
+            };
+          }
           if (!recordExists && config.assertInsertAllowed) {
             const insertError = config.assertInsertAllowed(finalRecord, ctx.user);
             if (insertError) return NextResponse.json({ error: insertError }, { status: 403 });

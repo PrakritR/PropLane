@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PropLane test workspace release status</title><style>body{max-width:900px;margin:36px auto;padding:0 24px;font:16px/1.55 system-ui;color:#192532}li{margin:.6rem 0}code{overflow-wrap:anywhere}.status{background:#fff0e9;padding:16px}a{color:#145f9b}</style></head><body>
+<h1>PropLane test workspace release status</h1>
+<p class="status"><strong>Not ready for production. Not deployed.</strong> Implementation is preserved locally, but final independent review found five security/provider findings and one chat-history regression. Two automated correction cycles are complete. No third cycle was started.</p>
+<p>Akhil has explicitly authorized release once complete. That authorization persists; another ship confirmation is unnecessary. Keeper, main, staging QA, and production gates still apply.</p>
+<h2>Remaining source blockers</h2><ol>
+<li>Guest checkout can choose the identity used for test-workspace classification; the generic authenticated checkout route can provision before classification.</li>
+<li>An unmatched credit dispute can call Stripe before resolving the stored owner.</li>
+<li>A revoked test user can still download an existing lease-template PDF through GET.</li>
+<li>Active private calendar and resident-property reads can use ordinary data scope instead of their private workspace.</li>
+<li>Normal hosted and some guest/legacy checkout completion cannot satisfy the new webhook ownership gate.</li>
+<li>Starting a new chat while archive hydration is pending can retain stale loading/in-flight state and prevent history reloading.</li>
+</ol>
+<p>Precise source references and corrective requirements are in the <a href="../../security/2026-09-19-test-workspace-correction2-final-security.html">final security review</a> and <a href="../../security/2026-09-19-test-workspace-correction2-final-bugbot.html">final client review</a>. Source review is not runtime proof.</p>
+<h2>Validation and resource status</h2>
+<p>Latest root resource check: 3.7 GiB disk available, 99% filesystem capacity used, 34% system memory free. Heavy validation remains deferred to respect Akhil's laptop constraints. No task server or browser is left running. No other task's files or processes were deleted or stopped.</p>
+<p>Correction2's changed code has not been tested, linted, compiled, built, or exercised in a seeded browser. Earlier correction1 results (27 files, 218 tests passed) do not validate changed correction2 bytes. Baseline CI failures also remain unresolved. Calendar sequential-conflict and two-workspace lifecycle proof, route/provider matrices, seeded browser QA, and staging QA remain required.</p>
+<h2>Database and release state</h2>
+<p>The first eight task migrations have been applied to DEV only. The ninth direct-access migration is source-reviewed and unapplied. Read-only DEV catalog audits do not replace effective RLS/storage/session tests. No production or staging schema/data mutation, deployment, commit, push, or PR occurred in this release work.</p>
+<p>Before any eventual production schema change: resolve the exact target, preserve a backup, use a reviewed atomic fail-closed apply path, and verify postconditions. The personal production operator identity is still unresolved and must not be guessed. Production also triggers the iOS release workflow.</p>
+<h2>Preserved candidate</h2>
+<p>Worktree: <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/7/AXIS-2</code><br>Branch: <code>akhil/test-workspace-release-20260919</code><br>Base/HEAD: <code>f25ccada208092fbc96ad3f0fc6451b048b6d6fb</code>.</p>
+<p>The frozen source union contains 299 files; the final correction delta contains 60. See <a href="release-correction2-execution.html">execution handoff</a>, <a href="release-correction2-manifest.json">delta manifest</a>, and <a href="release-correction2-source-union.json">source union</a>. The original historical checkout remains separate; never copy entire historical files over this current-base candidate.</p>
+<h2>Why automation stopped</h2>
+<p>The <a href="/Users/akhilvemuri/.codex/skills/akhil-feature-cycle/SKILL.md">Akhil feature-cycle skill</a> explicitly says: <q>Stop after two correction cycles if findings remain and report them to Akhil.</q> Both correction cycles have been consumed. This is a process limit, separate from the concrete defects and missing validation that prevent shipping.</p>
+<p>On an explicitly resumed correction effort, begin from these final findings and the existing candidate, preserve immutable DEV migration bytes, coordinate one validation owner, and wait for adequate resource headroom before runtime work. Do not treat production authorization as a waiver of any release gate.</p>
+</body></html>

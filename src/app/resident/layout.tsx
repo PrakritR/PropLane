@@ -29,6 +29,9 @@ import { resolveResidentPortalNavStage } from "@/lib/resident-portal-nav";
 import { getResidentPortalDefinition } from "@/lib/portals/resident";
 import { getAssistantDockCollapsed } from "@/lib/assistant-dock-state";
 import { getSidebarCollapsed } from "@/lib/portal-sidebar-state";
+import { TestAccountBanner } from "@/components/portal/test-account-banner";
+import { TestAccountUnavailable } from "@/components/portal/test-account-unavailable";
+import { isTestWorkspaceFeatureEnabled, resolveTestWorkspaceClassification } from "@/lib/test-workspaces/index.server";
 
 function isResidentApplicationsApplyPath(pathname: string): boolean {
   return pathname === "/resident/applications/apply";
@@ -62,9 +65,13 @@ export default async function ResidentLayout({ children }: { children: React.Rea
   ]);
 
   const residentNavStage = resolveResidentPortalNavStage(access);
+  const testWorkspace = user ? await resolveTestWorkspaceClassification(user.id) : { kind: "normal" as const };
+  if (testWorkspace.kind === "classified" && (testWorkspace.state !== "active" || !isTestWorkspaceFeatureEnabled())) {
+    return <TestAccountUnavailable state={testWorkspace.state} />;
+  }
 
   return (
-    <AxisAssistant endpoint="/api/agent/resident-chat" managerName={profile?.full_name ?? null} dockable>
+    <AxisAssistant endpoint="/api/agent/resident-chat" managerName={profile?.full_name ?? null} smsTestPortal="resident" dockable>
     <div className={PORTAL_SHELL_ROOT_CLASS}>
       <SurfaceThemeDefault theme="light" />
       <PublicHomePrefetch />
@@ -88,6 +95,7 @@ export default async function ResidentLayout({ children }: { children: React.Rea
             name={profile?.full_name ?? null}
             email={profile?.email ?? null}
           />
+          {testWorkspace.kind === "classified" ? <TestAccountBanner state={testWorkspace.state} /> : null}
           <main id={PORTAL_MAIN_CONTENT_ID} tabIndex={-1} className={PORTAL_MAIN_CONTENT_CLASS}>
             <div className={PORTAL_MAIN_CONTENT_INNER_CLASS}>
               <PortalMobileNavBar

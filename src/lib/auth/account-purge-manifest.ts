@@ -814,6 +814,10 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   account_deleted_record_identities: "Non-recoverable hashed identity guards for retained business history; survive ordinary row deletion to block stale delete/reinsert.",
   profiles: "Identity row — deleted by the auth-user cascade in deleteProfileAndAuthUser.",
   profile_roles: "Identity row — deleted by the auth-user cascade in deleteProfileAndAuthUser.",
+  test_workspace_members:
+    "Durable test-domain classification by opaque auth UUID; retained so deleted or suspended accounts cannot fall through into customer behavior.",
+  test_workspaces:
+    "Durable test-domain namespace and audit owner; retained because member and record provenance must remain classifiable after account deletion.",
   mcp_oauth_clients: "Shared OAuth client registry, not owned by any one account.",
   site_config_records: "Global site configuration.",
   site_content_records: "Global marketing/site content.",

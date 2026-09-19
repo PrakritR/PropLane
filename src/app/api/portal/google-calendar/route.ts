@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { signedInWithGoogle } from "@/lib/google-calendar/link-from-auth.server";
-import { googleCalendarOAuthRedirectUri, stopGoogleCalendarWatch } from "@/lib/google-calendar/api.server";
+import { assertGoogleCalendarProviderAllowed, googleCalendarOAuthRedirectUri, stopGoogleCalendarWatch } from "@/lib/google-calendar/api.server";
 import { debugGoogleCalendarLog } from "@/lib/google-calendar/debug-log.server";
 import {
   clearGoogleCalendarConnection,
@@ -44,6 +44,7 @@ export async function GET(req: Request) {
     await warmGoogleCalendarOAuthConfig();
     const ctx = await requireManager();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    await assertGoogleCalendarProviderAllowed(ctx.db, ctx.userId, "settings_read");
     const schemaReady = await isGoogleCalendarSchemaReady(ctx.db);
     const connection = schemaReady
       ? await loadGoogleCalendarConnection(ctx.db, ctx.userId)
@@ -73,6 +74,7 @@ export async function PATCH(req: Request) {
   try {
     const ctx = await requireManager();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    await assertGoogleCalendarProviderAllowed(ctx.db, ctx.userId, "settings_write");
     const body = (await req.json()) as { syncEnabled?: boolean };
     const connection = await saveGoogleCalendarConnection(ctx.db, ctx.userId, {
       syncEnabled: body.syncEnabled !== false,
@@ -87,6 +89,7 @@ export async function DELETE() {
   try {
     const ctx = await requireManager();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    await assertGoogleCalendarProviderAllowed(ctx.db, ctx.userId, "disconnect");
     const connection = await loadGoogleCalendarConnection(ctx.db, ctx.userId);
     if (connection.channelId && connection.channelResourceId) {
       await stopGoogleCalendarWatch(ctx.db, ctx.userId, connection.channelId, connection.channelResourceId).catch(

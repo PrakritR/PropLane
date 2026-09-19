@@ -1,0 +1,37 @@
+{
+  "project": "emstjswhotsnyksqhqyf",
+  "read_only": "off",
+  "public_definer_client_executable": [
+    {
+      "routine": "allocate_sms_proxy_number(uuid)",
+      "authenticated": true,
+      "anon": true
+    },
+    {
+      "routine": "derive_test_workspace_provenance()",
+      "authenticated": true,
+      "anon": true
+    },
+    {
+      "routine": "current_user_has_password()",
+      "authenticated": true,
+      "anon": false
+    },
+    {
+      "routine": "inherit_agent_message_test_workspace()",
+      "authenticated": true,
+      "anon": true
+    },
+    {
+      "routine": "capture_confirmed_tour_google_calendar_cleanup()",
+      "authenticated": true,
+      "anon": true
+    },
+    {
+      "routine": "guard_prospect_tour_google_calendar_create_intents()",
+      "authenticated": true,
+      "anon": true
+    }
+  ],
+  "policy_function_dependencies": []
+}

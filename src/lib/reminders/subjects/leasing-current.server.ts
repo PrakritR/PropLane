@@ -4,6 +4,7 @@ import type { ReminderQueueRow } from "@/lib/reminders/queue.server";
 import { reminderAnchorMatches } from "@/lib/reminders/current.server";
 import { INQUIRIES_RECORD_ID, rowsFromRecord } from "@/lib/tour-inquiry.server";
 import { isActivePlannedEvent, type PlannedEvent } from "@/lib/demo-admin-scheduling";
+import { hasSmsTestProvenance } from "@/lib/sms/sms-test-provenance";
 
 export async function leasingReminderIsCurrent(db: SupabaseClient, row: ReminderQueueRow, expectedAnchor: unknown): Promise<boolean> {
   if (row.kind === "tour_request_unanswered" || row.kind === "tour_request_reoffer") {
@@ -12,6 +13,7 @@ export async function leasingReminderIsCurrent(db: SupabaseClient, row: Reminder
     const inquiry = rowsFromRecord(data?.row_data).find((candidate) => String(candidate.id ?? "") === row.subjectId);
     return Boolean(
       inquiry &&
+        !hasSmsTestProvenance(inquiry) &&
         String(inquiry.status ?? "") === "pending" &&
         String(inquiry.managerUserId ?? "") === row.managerUserId &&
         reminderAnchorMatches(expectedAnchor, inquiry.createdAt),
@@ -22,13 +24,14 @@ export async function leasingReminderIsCurrent(db: SupabaseClient, row: Reminder
     if (error) throw error;
     const payload = (data?.row_data as { payload?: unknown } | null)?.payload;
     const event = (Array.isArray(payload) ? (payload as PlannedEvent[]) : []).find((candidate) => candidate.id === row.subjectId);
-    return Boolean(event && isActivePlannedEvent(event) && event.managerUserId === row.managerUserId && reminderAnchorMatches(expectedAnchor, event.end ?? event.start));
+    return Boolean(event && !hasSmsTestProvenance(event as unknown as Record<string, unknown>) && isActivePlannedEvent(event) && event.managerUserId === row.managerUserId && reminderAnchorMatches(expectedAnchor, event.end ?? event.start));
   }
   if (row.kind === "application_decision_manager" || row.kind === "application_no_lease_manager") {
     const { data, error } = await db.from("manager_application_records").select("manager_user_id, created_at, updated_at, row_data").eq("id", row.subjectId).maybeSingle();
     if (error) throw error;
     if (!data || String(data.manager_user_id ?? "") !== row.managerUserId) return false;
     const app = (data.row_data ?? {}) as Record<string, unknown>;
+    if (hasSmsTestProvenance(app)) return false;
     if (app.withdrawnAt) return false;
     if (row.kind === "application_decision_manager") {
       return String(app.bucket ?? "") === "pending" && reminderAnchorMatches(expectedAnchor, data.created_at);

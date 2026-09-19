@@ -5,6 +5,7 @@
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { managerOutboundFromHeader, sharedPortalFromAddress } from "@/lib/manager-outbound-identity.server";
+import { postResendEmail } from "@/lib/resend-delivery.server";
 
 export const RESIDENT_APPLY_INVITE_EMAIL_SUBJECT = "Complete your PropLane housing application";
 
@@ -103,20 +104,25 @@ export async function sendResidentApplyInviteEmail(params: {
     params.db && params.managerUserId
       ? await managerOutboundFromHeader(params.db, params.managerUserId)
       : sharedPortalFromAddress();
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from,
-      to: [to],
-      subject: RESIDENT_APPLY_INVITE_EMAIL_SUBJECT,
-      text,
-      html,
-    }),
-  });
+  const payload = {
+    from,
+    to: [to],
+    subject: RESIDENT_APPLY_INVITE_EMAIL_SUBJECT,
+    text,
+    html,
+  };
+  const res = params.managerUserId
+    ? await postResendEmail({
+        apiKey,
+        actorUserId: params.managerUserId,
+        payload,
+        effectSummary: "Resident application invite email captured for the test workspace.",
+      })
+    : await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
   if (!res.ok) {
     const payload = (await res.json().catch(() => ({}))) as { message?: string };

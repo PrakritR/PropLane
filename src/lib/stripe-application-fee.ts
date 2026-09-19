@@ -5,6 +5,31 @@ import type { HouseholdCharge } from "@/lib/household-charges";
 import { cancelFuturePaymentRemindersForCharge } from "@/lib/payment-reminder-lifecycle.server";
 import { ensureApplicationFeeChargeRow } from "@/lib/application-fee-charge-row.server";
 import { syncLedgerPaymentEntry } from "@/lib/reports/ledger-sync";
+import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
+
+async function resolveApplicationFeeOwner(
+  db: SupabaseClient,
+  propertyId: string,
+  claimedOwner: string,
+  operation: string,
+): Promise<string | null> {
+  const { data, error } = await db
+    .from("manager_property_records")
+    .select("manager_user_id")
+    .eq("id", propertyId)
+    .maybeSingle();
+  if (error) throw new Error("Application payment ownership could not be verified.");
+  const owner = String(data?.manager_user_id ?? "").trim();
+  if (!owner || (claimedOwner && claimedOwner !== owner)) return null;
+  if ((await captureTestWorkspaceEffectForUser({
+    userId: owner,
+    kind: "payment",
+    summary: "Application payment webhook mutation was refused for a test workspace.",
+    metadata: { operation },
+    db,
+  })).captured) return null;
+  return owner;
+}
 
 export function includesHoldingDeposit(session: Stripe.Checkout.Session): boolean {
   return session.metadata?.includes_holding_deposit === "true";
@@ -43,6 +68,13 @@ export async function markApplicationFeePaidFromStripeSession(
     session.customer_email?.trim().toLowerCase() ??
     "";
   if (!propertyId || !residentEmail.includes("@")) return { ok: false };
+  const owner = await resolveApplicationFeeOwner(
+    db,
+    propertyId,
+    session.metadata?.manager_user_id?.trim() ?? "",
+    "application_fee_paid",
+  );
+  if (!owner) return { ok: false };
 
   const { data: rows, error } = await db
     .from("portal_household_charge_records")
@@ -147,6 +179,13 @@ export async function markApplicationDepositPaidFromStripeSession(
     session.customer_email?.trim().toLowerCase() ??
     "";
   if (!propertyId || !residentEmail.includes("@")) return { ok: false };
+  const owner = await resolveApplicationFeeOwner(
+    db,
+    propertyId,
+    session.metadata?.manager_user_id?.trim() ?? "",
+    "application_deposit_paid",
+  );
+  if (!owner) return { ok: false };
 
   const { data: rows, error } = await db
     .from("portal_household_charge_records")

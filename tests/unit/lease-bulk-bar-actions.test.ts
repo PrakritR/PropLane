@@ -19,8 +19,9 @@ describe("leases list bulk bar mirrors detail footer actions", () => {
   });
 
   it("exposes renewal actions on fully signed rows", () => {
-    expect(PANEL).toContain('data-attr="leases-bulk-renew"');
-    expect(PANEL).toContain('data-attr="leases-bulk-extend"');
+    expect(PANEL).toContain('data-attr="leases-bulk-new-terms"');
+    expect(PANEL).toContain("setAmendLeaseRow(bulkRenewalsRow)");
+    expect(PANEL).toContain("New terms");
   });
 
   it("exposes review-import when a row carries an uploaded parse", () => {

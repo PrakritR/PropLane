@@ -6,6 +6,7 @@ import { managerOwnedPropertyIdSet } from "@/lib/auth/manager-application-access
 import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
 import { writeAuditLog, updateAuditResult } from "@/lib/tools/audit";
 import { track } from "@/lib/analytics/posthog";
+import { smsTestProvenanceColumns } from "@/lib/sms/sms-test-provenance.server";
 import type { AgentContext } from "@/lib/tools/context";
 import type { ResidentAgentContext } from "@/lib/tools/resident-context";
 import {
@@ -22,7 +23,7 @@ import { leaseTypeInspectionRequirements, residencyInspectionRequirements, roomI
 export type InspectionActor = { role: "manager"; context: AgentContext } | { role: "resident"; context: ResidentAgentContext };
 const TABLE = "resident_inspections";
 export const INSPECTION_BUCKET = "inspection-evidence";
-const summaryColumns = "id,application_id,manager_user_id,property_id,resident_name,property_label,room_label,kind,status,inspection_date,baseline_id,revision,created_at,updated_at";
+const summaryColumns = "id,application_id,manager_user_id,property_id,resident_name,property_label,room_label,kind,status,inspection_date,baseline_id,revision,created_at,updated_at,sms_test_session_id";
 type Scope = { owners: Set<string>; properties: Set<string> };
 
 // One request resolves read and edit scope at most once each: every entry point below asks
@@ -329,6 +330,7 @@ async function insertInspection(actor: InspectionActor, insert: InspectionInsert
     ...identity, application_id: residency.id, resident_name: residency.name,
     property_label: residency.propertyLabel, room_label: room.label,
     kind, inspection_date: inspectionDate, baseline_id: baselineId, document,
+    ...smsTestProvenanceColumns(),
   }).select("*").single();
   await updateAuditResult(actor.context, auditKey, { status: insertError ? "failed" : "success", inspection_id: created?.id ?? null });
   // Two people opening the same residency at once: the loser of the race reads the row the
@@ -353,7 +355,7 @@ async function auditInspectionWrite(actor: InspectionActor, action: string, summ
 async function updateInspection(actor: InspectionActor, report: InspectionRecord, document: InspectionDocument, status = report.status): Promise<InspectionRecord> {
   const auditKey = await auditInspectionWrite(actor, document.history.at(-1)?.action ?? "update", { inspection_id: report.id, revision: report.revision });
   const { data, error } = await actor.context.db.from(TABLE).update({ document, status,
-    revision: report.revision + 1, updated_at: new Date().toISOString() })
+    revision: report.revision + 1, updated_at: new Date().toISOString(), ...smsTestProvenanceColumns() })
     .eq("id", report.id).eq("revision", report.revision).eq("status", report.status).select("*").maybeSingle();
   await updateAuditResult(actor.context, auditKey, { status: error || !data ? "failed" : "success", revision: data?.revision ?? null });
   if (error) throw new InspectionError("Could not save the inspection.", 500);
