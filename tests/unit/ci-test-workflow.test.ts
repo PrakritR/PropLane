@@ -74,7 +74,8 @@ describe("Test workflow resource budget", () => {
     const stop = unit.steps.find(step => step.name === "Stop isolated reconciliation PostgreSQL harness");
     expect(start?.if).toBeUndefined();
     expect(start?.run).toContain("--auth=trust -U reconciliation");
-    expect(start?.run).toContain('-o "-p 5547 -h 127.0.0.1"');
+    expect(start?.run).toContain('-o "-p 5547 -h 127.0.0.1 -k $HARNESS_DATA"');
+    expect(start?.run).toContain('cat "$RUNNER_TEMP/reconciliation-pg.log"');
     expect(start?.run).toContain('"RELEASE_RECONCILIATION_DISPOSABLE_PG=1" >> "$GITHUB_ENV"');
     expect(start?.run).toContain("postgresql://reconciliation@127.0.0.1:5547/postgres");
     expect(stop?.if).toBe("always()");

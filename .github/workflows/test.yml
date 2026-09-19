@@ -45,7 +45,10 @@ jobs:
           HARNESS_DATA="$RUNNER_TEMP/reconciliation-pg"
           mkdir -m 700 "$HARNESS_DATA"
           /usr/lib/postgresql/16/bin/initdb --no-locale --encoding=UTF8 --auth=trust -U reconciliation "$HARNESS_DATA"
-          /usr/lib/postgresql/16/bin/pg_ctl -D "$HARNESS_DATA" -l "$RUNNER_TEMP/reconciliation-pg.log" -o "-p 5547 -h 127.0.0.1" -w start
+          if ! /usr/lib/postgresql/16/bin/pg_ctl -D "$HARNESS_DATA" -l "$RUNNER_TEMP/reconciliation-pg.log" -o "-p 5547 -h 127.0.0.1 -k $HARNESS_DATA" -w start; then
+            cat "$RUNNER_TEMP/reconciliation-pg.log"
+            exit 1
+          fi
           echo "RELEASE_RECONCILIATION_DISPOSABLE_PG=1" >> "$GITHUB_ENV"
           echo "RELEASE_RECONCILIATION_PG_URL=postgresql://reconciliation@127.0.0.1:5547/postgres" >> "$GITHUB_ENV"
       - run: npm run lockfile:verify
