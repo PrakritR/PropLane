@@ -1,8 +1,8 @@
 {
   "base": "f25ccada208092fbc96ad3f0fc6451b048b6d6fb",
   "branch": "akhil/test-workspace-release-20260919",
-  "sourceFileCount": 407,
-  "scope": "Complete current source/test/SQL/script/workflow union from the prior 397-file final union plus the reviewed assistant modal selector correction and trusted classified SMS-test deployment-origin binding. Review and evidence documents and logs are excluded.",
+  "sourceFileCount": 408,
+  "scope": "Complete current source/test/SQL/script/workflow union from the prior 397-file final union plus the reviewed assistant modal selector correction, trusted classified SMS-test deployment-origin binding, and exact-draft listing-close E2E attribution. Review and evidence documents and logs are excluded.",
   "inputs": [
     "docs/plans/production-test-accounts/release-correction2-source-union.json",
     "docs/plans/production-test-accounts/release-resumed-correction-manifest.json",
@@ -15,7 +15,8 @@
     "docs/security/2026-09-19-test-workspace-combined-rehearsal-review.html",
     "docs/security/2026-09-19-test-workspace-apply-transport-review.html",
     "docs/security/2026-09-19-test-workspace-final-396-security.html",
-    "docs/security/2026-09-19-test-workspace-final-396-bugbot.html"
+    "docs/security/2026-09-19-test-workspace-final-396-bugbot.html",
+    "docs/security/2026-09-19-listing-close-save-test-review.html"
   ],
   "files": [
     {
@@ -1093,6 +1094,10 @@
     {
       "path": "supabase/migrations/20260919124500_harden_late_test_workspace_direct_access.sql",
       "sha256": "f25bc175cfcc79aa29994c705e70a20e44bca8f97fbad97b05c629c25c24a282"
+    },
+    {
+      "path": "tests/e2e/listing-editor-close-save.spec.ts",
+      "sha256": "074b75117d137b607756e813b97c0d82d50e5ebf6ea2d00a0432be2db47d75aa"
     },
     {
       "path": "tests/integration/portal/agent-action-confirm.test.ts",
