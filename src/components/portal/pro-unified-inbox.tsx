@@ -28,6 +28,7 @@ import { createCoalescedRefresher, type CoalescedRefresher } from "@/lib/coalesc
 import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
 import { useIsClient } from "@/hooks/use-is-client";
 import { usePortalSession } from "@/hooks/use-portal-session";
+import { observeCommunicationInitialViewer, retryStaleCommunicationSource } from "@/lib/communication-initial-load";
 import { CommunicationInboxInitialState } from "@/components/portal/communication-inbox-initial-state";
 import { useOptionalAppUi } from "@/components/providers/app-ui-provider";
 import {
@@ -422,6 +423,7 @@ export function ManagerUnifiedInbox({
   const [initialListState, setInitialListState] = useState<"loading" | "ready" | "error">("loading");
   const [initialListViewerId, setInitialListViewerId] = useState<string | null>(null);
   const initialLoadGeneration = useRef(0);
+  const initialViewerCleanupRef = useRef<(() => void) | null>(null);
   const initialListReady = isClient && initialListState === "ready" && initialListViewerId === viewerId;
 
   const threadListHref = useCallback(
@@ -537,6 +539,8 @@ export function ManagerUnifiedInbox({
 
   const loadInitialList = useCallback(async (): Promise<void> => {
     const requestGeneration = ++initialLoadGeneration.current;
+    initialViewerCleanupRef.current?.();
+    initialViewerCleanupRef.current = null;
     if (!isClient || !sessionReady || !viewerId?.trim()) {
       setInitialListViewerId(null);
       setInitialListState("loading");
@@ -546,16 +550,42 @@ export function ManagerUnifiedInbox({
     }
     setInitialListViewerId(viewerId);
     setInitialListState("loading");
-    const [inbox, applications, smsOk] = await Promise.all([
-      syncPersistedInboxFromServerWithStatus(MANAGER_INBOX_STORAGE_KEY),
-      syncManagerApplicationsFromServerWithStatus({ managerUserId: viewerId }),
-      smsUiEnabled ? loadSms({ initialGeneration: requestGeneration }) : Promise.resolve(true),
-    ]);
-    if (requestGeneration !== initialLoadGeneration.current) return;
-    if (inbox.stale || applications.stale) return;
-    if (applications.ok) onApplicationsLoaded?.();
-    if (inbox.ok) setEmailThreads(inbox.rows);
-    setInitialListState(inbox.ok && applications.ok && smsOk ? "ready" : "error");
+    const requestViewerEpoch = viewerEpochRef.current;
+    const isCurrentRequest = () => requestGeneration === initialLoadGeneration.current &&
+      requestViewerEpoch === viewerEpochRef.current;
+    const viewer = observeCommunicationInitialViewer(viewerId);
+    initialViewerCleanupRef.current = viewer.dispose;
+    try {
+      if (!viewer.isCurrent()) {
+        setInitialListState("error");
+        return;
+      }
+      const canRetry = () => isCurrentRequest() && viewer.canRetry();
+      const [inbox, applications, smsOk] = await Promise.all([
+        retryStaleCommunicationSource(
+          () => syncPersistedInboxFromServerWithStatus(MANAGER_INBOX_STORAGE_KEY),
+          canRetry,
+        ),
+        retryStaleCommunicationSource(
+          () => syncManagerApplicationsFromServerWithStatus({ managerUserId: viewerId }),
+          canRetry,
+        ),
+        smsUiEnabled ? loadSms({ initialGeneration: requestGeneration }) : Promise.resolve(true),
+      ]);
+      if (!isCurrentRequest()) return;
+      if (!viewer.isCurrent() || inbox.stale || applications.stale) {
+        setInitialListState("error");
+        return;
+      }
+      if (applications.ok) onApplicationsLoaded?.();
+      if (inbox.ok) setEmailThreads(inbox.rows);
+      setInitialListState(inbox.ok && applications.ok && smsOk ? "ready" : "error");
+    } catch {
+      if (isCurrentRequest()) setInitialListState("error");
+    } finally {
+      viewer.dispose();
+      if (initialViewerCleanupRef.current === viewer.dispose) initialViewerCleanupRef.current = null;
+    }
   }, [isClient, loadSms, onApplicationsLoaded, sessionReady, smsUiEnabled, viewerId]);
 
   const retryInitialList = useCallback(async (): Promise<void> => {
@@ -571,6 +601,8 @@ export function ManagerUnifiedInbox({
     void loadInitialList();
     return () => {
       initialLoadGeneration.current += 1;
+      initialViewerCleanupRef.current?.();
+      initialViewerCleanupRef.current = null;
     };
   }, [loadInitialList]);
 

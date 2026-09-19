@@ -54,6 +54,7 @@ import {
   withPinnedPropLaneAssistantThreads,
 } from "@/lib/communication-assistant-inbox-list";
 import { usePortalSession } from "@/hooks/use-portal-session";
+import { observeCommunicationInitialViewer, retryStaleCommunicationSource } from "@/lib/communication-initial-load";
 import { useResidentManagerContacts } from "@/hooks/use-resident-manager-contacts";
 import {
   inboxRowAddressLabel,
@@ -386,6 +387,7 @@ function ResidentUnifiedInbox({
   const [initialListState, setInitialListState] = useState<"loading" | "ready" | "error">("loading");
   const [initialListViewerId, setInitialListViewerId] = useState<string | null>(null);
   const initialLoadGeneration = useRef(0);
+  const initialViewerCleanupRef = useRef<(() => void) | null>(null);
   const readInFlightRef = useRef(new Map<string, object>());
   const readSucceededRef = useRef(new Set<string>());
   const readAttemptsRef = useRef(new Map<string, number>());
@@ -466,6 +468,8 @@ function ResidentUnifiedInbox({
 
   const loadInitialList = useCallback(async (): Promise<void> => {
     const requestGeneration = ++initialLoadGeneration.current;
+    initialViewerCleanupRef.current?.();
+    initialViewerCleanupRef.current = null;
     if (!sessionReady || !viewerId?.trim()) {
       setInitialListViewerId(null);
       setInitialListState("loading");
@@ -474,13 +478,38 @@ function ResidentUnifiedInbox({
     }
     setInitialListViewerId(viewerId);
     setInitialListState("loading");
-    const [inbox, smsOk] = await Promise.all([
-      syncPersistedInboxFromServerWithStatus(RESIDENT_INBOX_STORAGE_KEY),
-      smsUiEnabled ? loadResidentSms(requestGeneration) : Promise.resolve(true),
-    ]);
-    if (requestGeneration !== initialLoadGeneration.current || inbox.stale) return;
-    if (inbox.ok) setEmailThreads(inbox.rows);
-    setInitialListState(inbox.ok && smsOk ? "ready" : "error");
+    const requestViewerEpoch = viewerEpochRef.current;
+    const isCurrentRequest = () => requestGeneration === initialLoadGeneration.current &&
+      requestViewerEpoch === viewerEpochRef.current;
+    const viewer = observeCommunicationInitialViewer(viewerId);
+    initialViewerCleanupRef.current = viewer.dispose;
+    try {
+      if (!viewer.isCurrent()) {
+        setInitialListState("error");
+        return;
+      }
+      const [inbox, smsOk] = await Promise.all([
+        retryStaleCommunicationSource(
+          () => syncPersistedInboxFromServerWithStatus(RESIDENT_INBOX_STORAGE_KEY),
+          () => isCurrentRequest() && viewer.canRetry(),
+        ),
+        smsUiEnabled ? loadResidentSms(requestGeneration) : Promise.resolve(true),
+      ]);
+      if (!isCurrentRequest()) return;
+      // A second stale result is recoverable through Retry, never an endless
+      // skeleton. No partial membership is revealed if an enabled source fails.
+      if (!viewer.isCurrent() || inbox.stale) {
+        setInitialListState("error");
+        return;
+      }
+      if (inbox.ok) setEmailThreads(inbox.rows);
+      setInitialListState(inbox.ok && smsOk ? "ready" : "error");
+    } catch {
+      if (isCurrentRequest()) setInitialListState("error");
+    } finally {
+      viewer.dispose();
+      if (initialViewerCleanupRef.current === viewer.dispose) initialViewerCleanupRef.current = null;
+    }
   }, [
     loadResidentSms,
     sessionReady,
@@ -496,6 +525,8 @@ function ResidentUnifiedInbox({
     void loadInitialList();
     return () => {
       initialLoadGeneration.current += 1;
+      initialViewerCleanupRef.current?.();
+      initialViewerCleanupRef.current = null;
     };
   }, [loadInitialList]);
 
