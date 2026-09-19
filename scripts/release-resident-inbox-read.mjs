@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { PRIVATE_ROOT, PINNED_CLI, readPinned, sha256, ledgerGuardSql, doBlock, serializeHistoricalStatements, assertPinnedCli, assertExactDryRun } from './release-conversation-schema-reconciliation.mjs';
 
 export const RESIDENT_TARGETS = Object.freeze({ dev: 'emstjswhotsnyksqhqyf', staging: 'xwszcafaontidfgznlxd', production: 'qahnczmilgptcedaqype' });
-export const RESIDENT_IDENTITY = '20260919120000_mark_portal_inbox_source_read_resident_scope';
+export const RESIDENT_IDENTITY = '20260919161700_mark_portal_inbox_source_read_resident_scope';
 export const RESIDENT_SOURCE_SHA256 = 'a408f5bd035530daf70480f1f8c6a9f0d9b68335d5d90d73c4ac154cc20a25fc';
 const ORIGINAL_SHA256 = '8a6007c229d637f3eb4d6091650ddb8c546a7f5dee353abcb157e4bd99f5bad6';
 const REPO = resolve(fileURLToPath(new URL('..', import.meta.url)));

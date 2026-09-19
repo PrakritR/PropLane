@@ -14,7 +14,7 @@ if (enabled && !isLocal) throw new Error("Resident inbox disposable test require
 const describeDisposable = enabled ? describe : describe.skip;
 
 const originalSql = readFileSync("supabase/migrations/20260913170000_mark_portal_inbox_source_read.sql", "utf8");
-const correctedSql = readFileSync("supabase/migrations/20260919120000_mark_portal_inbox_source_read_resident_scope.sql", "utf8");
+const correctedSql = readFileSync("supabase/migrations/20260919161700_mark_portal_inbox_source_read_resident_scope.sql", "utf8");
 const functionSignature = "public.mark_portal_inbox_source_read(text,text,uuid,text,text,timestamptz,jsonb)";
 const managerScope = "axis_portal_inbox_manager_v1";
 const residentScope = "axis_portal_inbox_resident_v1";
@@ -165,7 +165,7 @@ describeDisposable("resident inbox source-read disposable PostgreSQL regression"
     try {
       await db.query(ledgerGuardSql(ledger));
       await db.query(residentRecoverySql(original));
-      await db.query("insert into supabase_migrations.schema_migrations values ('20260919120001','resident_read_recovery',array['fixture recovery'])");
+      await db.query("insert into supabase_migrations.schema_migrations values ('20260919161701','resident_read_recovery',array['fixture recovery'])");
       await db.query("commit");
     } catch (error) { await db.query("rollback"); throw error; }
     expect(await functionState()).toEqual(original);

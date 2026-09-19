@@ -7,7 +7,7 @@ const original = readFileSync(
   "utf8",
 );
 const corrected = readFileSync(
-  resolve("supabase/migrations/20260919120000_mark_portal_inbox_source_read_resident_scope.sql"),
+  resolve("supabase/migrations/20260919161700_mark_portal_inbox_source_read_resident_scope.sql"),
   "utf8",
 );
 const compact = (sql: string) => sql.replace(/--[^\n]*/g, " ").replace(/\s+/g, " ").toLowerCase();

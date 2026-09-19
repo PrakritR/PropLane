@@ -72,6 +72,11 @@ describe("resident inbox read release guards", () => {
     expect(recovery).not.toMatch(/delete\s+from|migration\s+repair/i);
   });
 
+  it("refuses an existing version even when its historical name is unrelated", () => {
+    const collision = { version: RESIDENT_IDENTITY.slice(0, 14), name: "unrelated_existing_migration", statements: ["select existing_history;"] };
+    expect(() => guardedResidentMigrationSql({ ...before, ledger: [...ledger, collision] })).toThrow(/already present/);
+  });
+
   it("rejects fabricated apply tokens before filesystem or transport access", () => {
     expect(() => assertResidentReadReady({}, {})).toThrow(/one-use dry-run token/);
     expect(() => assertResidentReadReady({ manifestSha256: "x", approvalSha256: "y" }, { identity: RESIDENT_IDENTITY })).toThrow(/one-use dry-run token/);
