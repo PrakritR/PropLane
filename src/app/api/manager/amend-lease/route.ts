@@ -33,7 +33,16 @@ export async function POST(req: NextRequest) {
       leaseEnd?: string;
       monthlyRent?: number | string | null;
       rentalType?: string;
+      listingMonthlyRent?: unknown;
+      listingRent?: unknown;
+      advertisedRent?: unknown;
     };
+    if (body.listingMonthlyRent != null || body.listingRent != null || body.advertisedRent != null) {
+      return NextResponse.json(
+        { error: "New terms do not change the house listing price." },
+        { status: 400 },
+      );
+    }
     const leaseId = (body.leaseId ?? "").trim();
     if (!leaseId) return NextResponse.json({ error: "leaseId is required." }, { status: 400 });
     const isRenew = body.mode === "renew";

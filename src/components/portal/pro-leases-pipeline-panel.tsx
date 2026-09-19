@@ -31,6 +31,7 @@ import { ManagerPipelineLeaseEditModal } from "@/components/portal/pro-pipeline-
 import { LeaseGenerateModal } from "@/components/portal/lease-generate-modal";
 import { LeaseAmendMoveOutModal } from "@/components/portal/lease-amend-move-out-modal";
 import { applySignedLeaseRenewal } from "@/lib/lease-renewal-payments";
+import { listingAdvertisedRentLabelForLease } from "@/lib/lease-renewal-preview";
 import { LeaseSigningModal } from "@/components/portal/lease-signing-modal";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
@@ -731,8 +732,7 @@ export function ManagerLeasesPipelinePanel({
           uploadPdfBusy={pendingRowId === row.id}
           onMarkSigned={leaseCanBeMarkedSignedOffPlatform(row) ? () => setMarkSignedRowId(row.id) : undefined}
           markSignedDataAttr="lease-mark-signed"
-          onRenewLease={() => setAmendLeaseRow(row)}
-          onExtendMoveOut={() => setAmendLeaseRow(row)}
+          onNewTerms={() => setAmendLeaseRow(row)}
         />
       </div>
     );
@@ -921,6 +921,7 @@ export function ManagerLeasesPipelinePanel({
       {amendLeaseRow ? (
         <LeaseAmendMoveOutModal
           open
+          variant="new-terms"
           onClose={() => setAmendLeaseRow(null)}
           currentEnd={amendLeaseRow.application?.leaseEnd ?? ""}
           leaseStart={amendLeaseRow.application?.leaseStart ?? ""}
@@ -934,6 +935,10 @@ export function ManagerLeasesPipelinePanel({
             currentRentLabel: amendLeaseRow.signedRentLabel ?? amendLeaseRow.application?.managerRentOverride ?? "",
             currentRentalType: amendLeaseRow.application?.rentalType,
             renewUrl: "/api/manager/amend-lease",
+            listingRentLabel: listingAdvertisedRentLabelForLease(
+              amendLeaseRow.propertyId ?? amendLeaseRow.application?.propertyId ?? "",
+              amendLeaseRow.roomChoice ?? amendLeaseRow.application?.roomChoice1 ?? "",
+            ),
           }}
           onSuccess={() => void handleAmendLeaseSuccess()}
         />
@@ -1200,26 +1205,15 @@ export function ManagerLeasesPipelinePanel({
                 </Button>
               ) : null}
               {bulkRenewalsRow ? (
-                <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={PORTAL_BULK_BAR_BTN}
-                    data-attr="leases-bulk-renew"
-                    onClick={() => setAmendLeaseRow(bulkRenewalsRow)}
-                  >
-                    Renew
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={PORTAL_BULK_BAR_BTN}
-                    data-attr="leases-bulk-extend"
-                    onClick={() => setAmendLeaseRow(bulkRenewalsRow)}
-                  >
-                    Extend move-out
-                  </Button>
-                </>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_BULK_BAR_BTN}
+                  data-attr="leases-bulk-new-terms"
+                  onClick={() => setAmendLeaseRow(bulkRenewalsRow)}
+                >
+                  New terms
+                </Button>
               ) : null}
             </>
           ) : null

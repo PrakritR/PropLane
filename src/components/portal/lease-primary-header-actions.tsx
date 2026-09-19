@@ -4,7 +4,6 @@ import { useMemo, useRef, type ReactNode } from "react";
 import {
   BadgeCheck,
   Bell,
-  CalendarClock,
   Download,
   FileSearch,
   FilePlus,
@@ -74,8 +73,11 @@ type LeasePrimaryHeaderActionsProps = {
   deleteDataAttr?: string;
   sendToResidentDataAttr?: string;
   moveToManagerReviewDataAttr?: string;
-  /** Opens renew / extend move-out for a fully signed lease. */
+  /** Opens New terms for a fully signed lease (e-sign or off-platform). */
+  onNewTerms?: () => void;
+  /** @deprecated Use onNewTerms. */
   onRenewLease?: () => void;
+  /** @deprecated Folded into onNewTerms. */
   onExtendMoveOut?: () => void;
   /** @deprecated Icons sit in the title row; kept so callers need not change. */
   btnClass?: string;
@@ -136,6 +138,7 @@ export function LeasePrimaryHeaderActions({
   onMarkSigned,
   markSignedDataAttr = "lease-primary-mark-signed",
   onReviewImportedLease,
+  onNewTerms,
   onRenewLease,
   onExtendMoveOut,
   onEditLease,
@@ -168,8 +171,8 @@ export function LeasePrimaryHeaderActions({
     !row.managerUploadedPdf?.dataUrl &&
     !row.templateDocumentUrl &&
     Boolean(onEditLease);
-  const showRenewals =
-    hasBothLeaseSignatures(row) && row.status === "Fully Signed" && Boolean(onRenewLease || onExtendMoveOut);
+  const openNewTerms = onNewTerms ?? onRenewLease ?? onExtendMoveOut;
+  const showNewTerms = hasBothLeaseSignatures(row) && row.status === "Fully Signed" && Boolean(openNewTerms);
   const reviewImportLabel = leaseUploadedImportFooterLabel(row);
   const showReviewImport = Boolean(onReviewImportedLease) && Boolean(reviewImportLabel);
   const importNeedsReview = leaseNeedsUploadedLeaseReviewAction(row);
@@ -218,6 +221,15 @@ export function LeasePrimaryHeaderActions({
             dataAttr="lease-share"
             recordTitle={row.residentName?.trim() || row.unit?.trim() || row.propertyId}
           />
+        ),
+      });
+    }
+
+    if (showNewTerms && openNewTerms) {
+      actions.push({
+        id: "new-terms",
+        node: (
+          <LeaseHeaderIcon icon={RefreshCw} label="New terms" dataAttr="lease-new-terms" onClick={openNewTerms} />
         ),
       });
     }
@@ -355,29 +367,6 @@ export function LeasePrimaryHeaderActions({
       });
     }
 
-    if (showRenewals && onRenewLease) {
-      actions.push({
-        id: "renew",
-        node: (
-          <LeaseHeaderIcon icon={RefreshCw} label="Renew" dataAttr="lease-renew" onClick={onRenewLease} />
-        ),
-      });
-    }
-
-    if (showRenewals && onExtendMoveOut) {
-      actions.push({
-        id: "extend",
-        node: (
-          <LeaseHeaderIcon
-            icon={CalendarClock}
-            label="Extend move-out"
-            dataAttr="lease-extend"
-            onClick={onExtendMoveOut}
-          />
-        ),
-      });
-    }
-
     if (onDelete && !hasDocument) {
       actions.push({
         id: "delete",
@@ -436,9 +425,8 @@ export function LeasePrimaryHeaderActions({
     reviewImportLabel,
     importNeedsReview,
     signLeaseLabel,
-    showRenewals,
-    onRenewLease,
-    onExtendMoveOut,
+    showNewTerms,
+    openNewTerms,
     onReviewImportedLease,
     deleteDataAttr,
     deleteLabel,

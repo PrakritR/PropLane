@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
 // The reorder menu sits inside the full-page question workspace, which is a Modal
-// stacked at z-[70]/z-[71]. Radix portals the menu to document.body, so at the
+// stacked at z-[90]/z-[91]. Radix portals the menu to document.body, so at the
 // default z-50 it painted BEHIND the workspace: visible, but every click landed on
 // the row on top of it, and reordering by mouse silently did nothing. Alt+Arrow
 // reorder never routes through this menu, which is exactly why the behavioural

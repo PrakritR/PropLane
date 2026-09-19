@@ -10,9 +10,15 @@ import {
   WizardRow,
   WizardSection,
   type FileStripState,
+  WizardMultiSelect,
   WizardSelect,
 } from "@/components/portal/add-workspace/parts";
-import type { AddPersonForm } from "./state";
+import {
+  ALSO_CREATE_OPTIONS,
+  defaultAlsoCreate,
+  normalizeAlsoCreate,
+  type AddPersonForm,
+} from "./state";
 
 export const RESIDENT_FILE_ACCEPT = "application/pdf,image/*";
 export const RESIDENT_FILE_CHIPS = ["application .pdf", "lease .pdf", "ID photo", "pay stub", "up to 3.5 MB each"] as const;
@@ -52,13 +58,28 @@ export function ContactStep({
         <WizardSelect
           label="Adding"
           value={form.kind}
-          onChange={(next) => patch({ kind: next === "prospect" ? "prospect" : "resident" })}
+          onChange={(next) => {
+            const kind = next === "prospect" ? "prospect" : "resident";
+            patch({ kind, alsoCreate: defaultAlsoCreate(kind) });
+          }}
           options={[
-            { value: "resident", label: "A current resident", hint: "application · lease · payments · documents" },
-            { value: "prospect", label: "A prospect", hint: "contact · tour" },
+            { value: "resident", label: "A current resident" },
+            { value: "prospect", label: "A prospect" },
           ]}
           dataAttr="residents-wizard-kind-select"
         />
+        {!prospect && mode !== "application" ? (
+          <div className="mt-3">
+            <WizardMultiSelect
+              label="Also create"
+              options={[...ALSO_CREATE_OPTIONS]}
+              selected={form.alsoCreate}
+              onChange={(next) => patch({ alsoCreate: normalizeAlsoCreate(next, "resident") })}
+              dataAttr="residents-wizard-also-create"
+              emptyLabel="Lease"
+            />
+          </div>
+        ) : null}
       </WizardSection>
       )}
       {!prospect || mode === "application" ? (

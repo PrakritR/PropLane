@@ -69,9 +69,10 @@ export function useModalPresentation(): "drawer" | "dialog" {
   return usePortalSurface("short-form") === "sheet" ? "drawer" : "dialog";
 }
 
-const DEFAULT_STACK_CLASS = "fixed inset-0 z-[70] overflow-y-auto overscroll-contain";
+/** Above ListingWizardOverlay (z-80); below field-select menus (z-10060). */
+const DEFAULT_STACK_CLASS = "fixed inset-0 z-[90] overflow-y-auto overscroll-contain";
 const DEFAULT_CENTER_CLASS =
-  "relative z-[71] flex min-h-full items-center justify-center px-2 py-4 sm:px-4 sm:py-6 [html[data-native]_&]:pt-[max(1rem,var(--native-safe-top))] [html[data-native]_&]:pb-[max(1rem,var(--native-safe-bottom))]";
+  "relative z-[91] flex min-h-full items-center justify-center px-2 py-4 sm:px-4 sm:py-6 [html[data-native]_&]:pt-[max(1rem,var(--native-safe-top))] [html[data-native]_&]:pb-[max(1rem,var(--native-safe-bottom))]";
 
 import { isPortaledFieldSelectMenuTarget } from "@/components/ui/field-select-portal-interaction";
 
@@ -184,7 +185,7 @@ export function ModalShell({
             <Drawer.Overlay
               className={cn(
                 overlayClass,
-                "z-[70] motion-reduce:transition-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+                "z-[90] motion-reduce:transition-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
               )}
             />
           ) : null}

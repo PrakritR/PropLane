@@ -15,8 +15,10 @@
  * manager who has built a listing already knows how to add a person.
  */
 
-import { useCallback, useMemo, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, type ReactNode } from "react";
 import { ListingWizardOverlay } from "@/components/portal/listing-wizard-v2/wizard-overlay";
+import { FIELD_SELECT_MENU_DATA_ATTR } from "@/components/ui/field-select-portal-interaction";
+import { nextOnPathIndex, prevOnPathIndex } from "@/components/portal/add-workspace/path";
 import {
   ListingWorkspace,
   RailNotice,
@@ -26,6 +28,8 @@ import {
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { useConfirm } from "@/components/providers/app-ui-provider";
+
+export { nextOnPathIndex, prevOnPathIndex } from "@/components/portal/add-workspace/path";
 
 export type AddWorkspaceStep = StepRailItem & {
   /** True while this step still has something required to fill. Drawn as the red dot. */
@@ -62,6 +66,7 @@ export function AddWorkspace({
   footerNote,
   overlay,
   headerActions,
+  skipOffPath = false,
 }: {
   title: string;
   subtitle?: string;
@@ -109,6 +114,11 @@ export function AddWorkspace({
   overlay?: ReactNode;
   /** Icon actions beside Ask PropLane — Generate / Upload on Add lease. */
   headerActions?: ReactNode;
+  /**
+   * When true, Continue / Back skip `offPath` extras (Add resident Also create).
+   * Other doors keep walking every listed step so optional rail rows stay reachable from Continue.
+   */
+  skipOffPath?: boolean;
 }) {
   const confirm = useConfirm();
   const railSteps = useMemo<StepRailItem[]>(
@@ -119,8 +129,17 @@ export function AddWorkspace({
     () => finishCount ?? steps.filter((s) => s.incomplete && s.id !== "review" && s.id !== "preview").length,
     [steps, finishCount],
   );
-  const last = steps.length - 1;
-  const isLast = current === last;
+  const nextPath = skipOffPath
+    ? nextOnPathIndex(steps, current)
+    : current < steps.length - 1
+      ? current + 1
+      : null;
+  const prevPath = skipOffPath
+    ? prevOnPathIndex(steps, current)
+    : current > 0
+      ? current - 1
+      : null;
+  const isLast = nextPath == null;
 
   const close = useCallback(() => {
     if (onRequestClose && !onRequestClose()) return;
@@ -140,10 +159,24 @@ export function AddWorkspace({
     });
   }, [confirm, dataAttrPrefix, dirty, discardBody, discardTitle, onClose, onRequestClose]);
 
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (event.defaultPrevented) return;
+      if (document.querySelector(`[${FIELD_SELECT_MENU_DATA_ATTR}]`)) return;
+      if (document.querySelector('[data-slot="modal-radix-dialog"], [data-slot="modal-vaul-drawer"]')) return;
+      event.preventDefault();
+      close();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [close]);
+
   const goNext = () => {
     if (nextDisabled) return;
     if (onBeforeNext && !onBeforeNext()) return;
-    onJump(current + 1);
+    if (nextPath == null) return;
+    onJump(nextPath);
   };
 
   return (
@@ -174,8 +207,10 @@ export function AddWorkspace({
               {dangerAction}
               <button
                 type="button"
-                disabled={current === 0}
-                onClick={() => onJump(current - 1)}
+                disabled={prevPath == null}
+                onClick={() => {
+                  if (prevPath != null) onJump(prevPath);
+                }}
                 data-attr={`${dataAttrPrefix}-back`}
                 className="min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground disabled:opacity-45"
               >
@@ -202,11 +237,11 @@ export function AddWorkspace({
                 onClick={goNext}
                 disabled={nextDisabled}
                 data-attr={`${dataAttrPrefix}-next`}
-                aria-label={`Continue to ${steps[current + 1]!.label}`}
+                aria-label={nextPath != null ? `Continue to ${steps[nextPath]!.label}` : "Continue"}
                 className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-45"
               >
                 <span className="sm:hidden">Continue</span>
-                <span className="hidden sm:inline">Continue to {steps[current + 1]!.label}</span>
+                <span className="hidden sm:inline">Continue to {nextPath != null ? steps[nextPath]!.label : "next"}</span>
               </button>
             )}
           </>

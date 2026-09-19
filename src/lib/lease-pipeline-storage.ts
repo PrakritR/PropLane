@@ -824,10 +824,11 @@ export type LeasePipelineRow = {
   /** SHA-256 of the document as first executed (see `LeaseSignature.documentSha256`). */
   documentSha256?: string | null;
   /**
-   * Renewal terms awaiting signatures. Set by the renew flow; consumed (and
-   * cleared) after BOTH parties sign, when the terms are applied to the
-   * application record and the payment schedule — payments always follow the
-   * signed lease, never a draft renewal.
+   * Renewal terms awaiting signatures. Set by New terms; consumed (and
+   * cleared) after BOTH parties e-sign or the manager marks the new lease
+   * signed, when the terms are applied to the application record and the
+   * payment schedule — payments always follow the signed lease, never a
+   * draft. Listing advertised rent is never written from this object.
    */
   pendingRenewal?: {
     leaseTerm: string;

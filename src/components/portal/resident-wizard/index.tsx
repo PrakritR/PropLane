@@ -39,9 +39,12 @@ import { ReviewStep } from "./step-review";
 import { ResidentSidePanel } from "./side-panel";
 import {
   addPersonFormIsDirty,
+  alsoCreates,
   buildApplicationDraftRow,
   buildManualResidentRow,
   buildProspectRow,
+  currentResidentStepOffPath,
+  defaultAlsoCreate,
   emptyAddPersonForm,
   formatMoney,
   thingsToFinish,
@@ -92,11 +95,14 @@ export function AddResidentWizard({
   onSaveEdit?: (form: AddPersonForm) => Promise<void>;
 }) {
   const { showToast } = useAppUi();
-  const [form, setForm] = useState<AddPersonForm>(() =>
-    initialForm
-      ? { ...initialForm }
-      : { ...emptyAddPersonForm(mode === "tour" ? "prospect" : initialKind), propertyId: defaultPropertyId ?? "" },
-  );
+  const [form, setForm] = useState<AddPersonForm>(() => {
+    const kind = initialForm?.kind ?? (mode === "tour" ? "prospect" : initialKind);
+    const blank = emptyAddPersonForm(kind);
+    if (initialForm) {
+      return { ...blank, ...initialForm, alsoCreate: initialForm.alsoCreate ?? defaultAlsoCreate(kind) };
+    }
+    return { ...blank, propertyId: defaultPropertyId ?? "" };
+  });
   const [stepIdx, setStepIdx] = useState(0);
   const [strip, setStrip] = useState<FileStripState>({ kind: "blank" });
   const [busy, setBusy] = useState(false);
@@ -149,10 +155,10 @@ export function AddResidentWizard({
     return [
       { id: "contact", label: "Resident", incomplete: missing("contact"), summary: form.name.trim() ? [form.name.trim(), form.email.trim()].filter(Boolean).join(" · ") : "Who they are" },
       { id: "home", label: "Home", incomplete: missing("home"), summary: propertyLabel ? `${propertyLabel}${derived.listingSays ? ` · ${derived.listingSays.split(" · ")[0]}` : ""}` : "No property yet" },
-      { id: "application", label: "Application", offPath: true, summary: form.application.employer || form.application.currentStreet ? [form.application.employer ? "Employment" : null, form.application.currentStreet ? "address" : null, form.application.ref1Name ? "1 reference" : null].filter(Boolean).join(" · ") : "Optional · nothing yet" },
-      { id: "lease", label: "Lease", incomplete: missing("lease"), summary: rent && form.moveInDate ? `${formatMoney(rent)}/${derived.isShortTerm ? "night" : "mo"} · ${form.moveInDate}${form.moveOutDate ? ` → ${form.moveOutDate}` : ""}` : "Rent not set" },
-      { id: "payments", label: "Payments", offPath: true, summary: derived.isAirbnb ? "Nothing billed" : form.billingStart === "next_due" ? "From the next due date" : paidMonths ? `${paidMonths} paid` : "From move-in" },
-      { id: "documents", label: "Documents", offPath: true, summary: form.documents.length ? `${form.documents.length} attached` : "None attached" },
+      { id: "application", label: "Application", offPath: currentResidentStepOffPath("application", form), summary: form.application.employer || form.application.currentStreet ? [form.application.employer ? "Employment" : null, form.application.currentStreet ? "address" : null, form.application.ref1Name ? "1 reference" : null].filter(Boolean).join(" · ") : alsoCreates(form, "application") ? "Nothing yet" : "Off this add" },
+      { id: "lease", label: "Lease", offPath: currentResidentStepOffPath("lease", form), incomplete: alsoCreates(form, "lease") && missing("lease"), summary: rent && form.moveInDate ? `${formatMoney(rent)}/${derived.isShortTerm ? "night" : "mo"} · ${form.moveInDate}${form.moveOutDate ? ` → ${form.moveOutDate}` : ""}` : alsoCreates(form, "lease") ? "Rent not set" : "Off this add" },
+      { id: "payments", label: "Payments", offPath: currentResidentStepOffPath("payments", form), summary: derived.isAirbnb ? "Nothing billed" : form.billingStart === "next_due" ? "From the next due date" : paidMonths ? `${paidMonths} paid` : alsoCreates(form, "payments") ? "From move-in" : "Off this add" },
+      { id: "documents", label: "Documents", offPath: currentResidentStepOffPath("documents", form), summary: form.documents.length ? `${form.documents.length} attached` : alsoCreates(form, "documents") ? "None attached" : "Off this add" },
       { id: "review", label: "Review", incomplete: todo.length > 0, summary: todo.length ? `${todo.length} to finish` : "Ready to add" },
     ];
   }, [form, todo, propertyLabel, derived.listingSays, derived.isShortTerm, derived.isAirbnb, mode]);
@@ -482,6 +488,7 @@ export function AddResidentWizard({
             }
           : onFinish
       }
+      skipOffPath={mode === "person" || mode === "edit"}
       dataAttrPrefix={mode === "tour" ? "tour-wizard" : mode === "application" ? "application-wizard" : "residents-wizard"}
       overlay={
         preview ? (
