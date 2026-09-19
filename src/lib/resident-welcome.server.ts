@@ -49,6 +49,7 @@ function skipExternalWelcomeEmail(to: string, senderEmail: string): boolean {
 }
 
 async function postResendEmail(input: {
+  actorUserId: string;
   apiKey: string;
   from: string;
   to: string;
@@ -60,6 +61,7 @@ async function postResendEmail(input: {
   try {
     const res = await postCapturedResendEmail({
       apiKey: input.apiKey,
+      actorUserId: input.actorUserId,
       payload: {
         from: input.from,
         to: [input.to],
@@ -243,6 +245,7 @@ export async function deliverResidentWelcome(
 
     const from = await managerOutboundFromHeader(db, actor.userId);
     const sent = await postResendEmail({
+      actorUserId: actor.userId,
       apiKey,
       from,
       to,
@@ -408,6 +411,7 @@ export async function deliverExistingResidentWelcome(
 
     const from = await managerOutboundFromHeader(db, actor.userId);
     const sent = await postResendEmail({
+      actorUserId: actor.userId,
       apiKey,
       from,
       to,

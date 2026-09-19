@@ -13,6 +13,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: async () => false }));
 vi.mock("@/lib/auth/co-manager-module-scope", () => ({ linkedPropertyIdsForModule: async () => [] }));
 vi.mock("@/lib/rate-limit", () => ({ clientIpFrom: () => "test", rateLimit: async () => ({ ok: true }) }));
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveAuthenticatedBusinessAccess: vi.fn(async () => ({ kind: "normal" })),
+}));
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({ auth: { getUser: async () => ({ data: { user: mocks.user } }) } }),
 }));

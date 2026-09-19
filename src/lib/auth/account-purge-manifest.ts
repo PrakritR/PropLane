@@ -818,6 +818,8 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
     "Durable test-domain classification by opaque auth UUID; retained so deleted or suspended accounts cannot fall through into customer behavior.",
   test_workspaces:
     "Durable test-domain namespace and audit owner; retained because member and record provenance must remain classifiable after account deletion.",
+  test_workspace_schedule_records:
+    "Shared test-workspace schedule state; retained with its durable workspace namespace so classified activity cannot fall through into customer scheduling.",
   mcp_oauth_clients: "Shared OAuth client registry, not owned by any one account.",
   site_config_records: "Global site configuration.",
   site_content_records: "Global marketing/site content.",
@@ -844,6 +846,30 @@ export const NON_OWNERSHIP_COLUMNS: Readonly<Record<string, string>> = {
   "manager_property_owners.owner_email": "Contact address for a third-party property owner, not a PropLane login.",
   "manager_sms_contacts.contact_email": "Denormalized contact address on the manager's own SMS contact row.",
   "vendor_business_profiles.work_email": "The vendor's public business mailbox, keyed by user_id; the row is deleted with the login.",
+  // These columns are immutable test-effect provenance. They identify which
+  // authenticated test actor and target manager produced an isolated effect;
+  // they are deliberately retained with the owning business row so deletion
+  // cannot erase its classification or let it be replayed as customer data.
+  "action_event_deliveries.sms_test_actor_user_id": "Retained test-effect provenance, not row ownership.",
+  "action_event_deliveries.sms_test_manager_user_id": "Retained test-effect target provenance, not row ownership.",
+  "action_events.sms_test_actor_user_id": "Retained test-effect provenance, not row ownership.",
+  "action_events.sms_test_manager_user_id": "Retained test-effect target provenance, not row ownership.",
+  "agent_pending_actions.sms_test_actor_user_id": "Retained test-action provenance, not row ownership.",
+  "agent_pending_actions.sms_test_manager_user_id": "Retained test-action target provenance, not row ownership.",
+  "agent_sessions.sms_test_manager_user_id": "Retained test-session target provenance, not row ownership.",
+  "agent_sessions.sms_test_origin_actor_user_id": "Retained test-session origin provenance, not row ownership.",
+  "agent_sessions.sms_test_origin_manager_user_id": "Retained test-session origin target provenance, not row ownership.",
+  "agent_sessions.test_actor_user_id": "Retained test-session provenance, not row ownership.",
+  "manager_bills.sms_test_actor_user_id": "Retained test-effect provenance, not row ownership.",
+  "manager_bills.sms_test_manager_user_id": "Retained test-effect target provenance, not row ownership.",
+  "prospect_sms_bursts.test_actor_user_id": "Retained test-message provenance, not row ownership.",
+  "prospect_sms_ingress.test_actor_user_id": "Retained test-message provenance, not row ownership.",
+  "prospect_tour_bookings.test_actor_user_id": "Retained test-booking provenance, not row ownership.",
+  "prospect_tour_google_calendar_cleanup.sms_test_actor_user_id": "Retained test-cleanup provenance, not row ownership.",
+  "prospect_tour_google_calendar_cleanup.sms_test_manager_user_id": "Retained test-cleanup target provenance, not row ownership.",
+  "prospect_tour_scheduling_state.test_actor_user_id": "Retained test-scheduling provenance, not row ownership.",
+  "resident_inspections.sms_test_actor_user_id": "Retained test-inspection provenance, not row ownership.",
+  "resident_inspections.sms_test_manager_user_id": "Retained test-inspection target provenance, not row ownership.",
 };
 
 export function purgeRulesForScope(scope: PurgeScope, phase: 1 | 2 | 3) {

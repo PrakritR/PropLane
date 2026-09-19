@@ -8,6 +8,10 @@ import { executeSendRentReminder, getOverdueChargesTool } from "@/lib/tools/doma
 import type { AgentContext } from "@/lib/tools/context";
 import type { HouseholdCharge } from "@/lib/household-charges";
 
+vi.mock("@/lib/test-workspaces/effects.server", () => ({
+  captureTestWorkspaceEffectForUser: vi.fn().mockResolvedValue({ captured: false }),
+}));
+
 /**
  * These tests pin the security-critical guarantee from the review: the agent's
  * gated send must re-resolve the charge from the manager's own data by id and

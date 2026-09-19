@@ -132,6 +132,7 @@ export async function sendVendorInvite(
   const from = await managerOutboundFromHeader(db, opts.managerUserId);
   const res = await postResendEmail({
     apiKey,
+    actorUserId: opts.managerUserId,
     payload: { from, to: [opts.vendorEmail], subject: draft.subject, text: draft.text, html: draft.html },
     effectSummary: `Vendor invite email to ${opts.vendorName || opts.vendorEmail} was captured for SMS test mode.`,
     metadata: { tool: "invite_vendor", vendorId: opts.vendorId },

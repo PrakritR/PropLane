@@ -11,6 +11,7 @@ import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submissio
 import { rateLimit } from "@/lib/rate-limit";
 import { getReportsAuthContext } from "@/lib/reports/auth";
 import { residentHasApprovedResidency, resolveResidentFilingScope } from "@/lib/resident-manager-scope";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";

@@ -88,6 +88,10 @@ vi.mock("@/lib/manager-listing-submission", () => ({
   normalizeManagerListingSubmissionV1: vi.fn((s: unknown) => s),
 }));
 
+vi.mock("@/lib/test-workspaces/effects.server", () => ({
+  captureTestWorkspaceEffectForUser: vi.fn().mockResolvedValue({ captured: false }),
+}));
+
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveAndValidateManagerConnectForPayments } from "@/lib/stripe-connect";
@@ -96,6 +100,7 @@ import { POST as householdChargeCheckout } from "@/app/api/stripe/household-char
 import { GET as householdChargeVerify } from "@/app/api/stripe/household-charge-verify/route";
 import { POST as applicationFeeCheckout } from "@/app/api/stripe/application-fee-checkout/route";
 import { getStripe } from "@/lib/stripe";
+import { captureTestWorkspaceEffectForUser } from "@/lib/test-workspaces/effects.server";
 
 describe("ACH checkout routes", () => {
   beforeEach(() => {
@@ -222,6 +227,9 @@ describe("ACH checkout routes", () => {
       expect(status, JSON.stringify(data)).toBe(200);
       expect(data.clientSecret).toBe("cs_ach_secret");
       expect(data.sessionId).toBe("cs_ach_session");
+      expect(captureTestWorkspaceEffectForUser).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: "res_1", kind: "payment" }),
+      );
     });
 
     it("keeps card when native app header is present (native supports card)", async () => {

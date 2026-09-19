@@ -499,8 +499,6 @@ export function AxisAssistant({
   const workspace = useActiveWorkspaceIdentity();
   const catalogScopeKey = useSyncExternalStore(subscribePropertyCatalogScope, propertyCatalogScopeKey, () => "server");
   const capabilityScopeKey = JSON.stringify([catalogScopeKey, userId, workspace.id, authReady, smsTestPortal, chatEndpoint]);
-  const capabilityScopeRef = useRef(capabilityScopeKey);
-  capabilityScopeRef.current = capabilityScopeKey;
   type SmsControlState = {
     scopeKey: string;
     capability: SmsTestCapabilityPayload | null;
@@ -528,7 +526,6 @@ export function AxisAssistant({
     if (!smsTestPortal || !authReady || !userId || isDemoModeActive()) return;
     const controller = new AbortController();
     const isCurrent = () => !controller.signal.aborted
-      && capabilityScopeRef.current === capabilityScopeKey
       && propertyCatalogScopeKey() === catalogScopeKey;
     const update = (patch: Partial<SmsControlState>) => {
       if (!isCurrent()) return;
@@ -576,7 +573,7 @@ export function AxisAssistant({
     : chatEndpoint;
   const activeEndpoint = smsState.active ? smsTestEndpoint : chatEndpoint;
   const updateCurrentSmsState = (patch: Partial<SmsControlState>) => {
-    if (capabilityScopeRef.current !== capabilityScopeKey || propertyCatalogScopeKey() !== catalogScopeKey) return;
+    if (propertyCatalogScopeKey() !== catalogScopeKey) return;
     setSmsState((current) => current.scopeKey === capabilityScopeKey ? { ...current, ...patch } : current);
   };
   const smsTestConfig = smsTestPortal && smsState.visible

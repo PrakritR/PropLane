@@ -11,6 +11,10 @@ vi.mock("@/lib/google-calendar/settings", () => ({
   resolveGoogleCalendarOAuthConfig: () => ({ clientId: "client", clientSecret: "secret" }),
   saveGoogleCalendarConnection: settings.save,
 }));
+vi.mock("@/lib/test-workspaces/effects.server", () => ({
+  assertTestWorkspaceProviderEffectAllowed: vi.fn().mockResolvedValue(undefined),
+  TestWorkspaceProviderDisabledError: class TestWorkspaceProviderDisabledError extends Error {},
+}));
 
 import {
   GoogleCalendarWriteSupersededError,

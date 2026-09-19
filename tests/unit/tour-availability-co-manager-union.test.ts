@@ -54,16 +54,17 @@ function fakeDb() {
       if (table === "manager_property_records") {
         return {
           select: () => ({
-            eq: () => ({
-              maybeSingle: async () => ({
+            eq: () => {
+              const maybeSingle = async () => ({
                 data: {
                   manager_user_id: OWNER,
                   status: "live",
                   property_data: { id: PROPERTY_ID, buildingName: "Union House", address: "1 Union Ave" },
                 },
                 error: null,
-              }),
-            }),
+              });
+              return { is: () => ({ maybeSingle }), maybeSingle };
+            },
           }),
         };
       }
@@ -101,6 +102,22 @@ function fakeDb() {
       }
       if (table === "portal_schedule_records") {
         let recordType = "";
+        let inColumn = "";
+        let inValues: string[] = [];
+        const result = () => {
+          if (recordType === "manager_property_availability") {
+            const rows = Object.entries(availabilityByManager).map(([managerUserId, slots]) =>
+              availabilityRow(managerUserId, slots),
+            );
+            return {
+              data: rows.filter((row) =>
+                inColumn === "manager_user_id" ? inValues.includes(row.manager_user_id) : inValues.includes(row.property_id),
+              ),
+              error: null,
+            };
+          }
+          return { data: [], error: null };
+        };
         const builder: Record<string, unknown> = {
           select: () => builder,
           eq: (column: string, value: string) => {
@@ -110,24 +127,14 @@ function fakeDb() {
             }
             return builder;
           },
-          in: async (column: string, values: string[]) => {
-            if (recordType === "manager_property_availability") {
-              const rows = Object.entries(availabilityByManager).map(([managerUserId, slots]) =>
-                availabilityRow(managerUserId, slots),
-              );
-              return {
-                data: rows.filter((row) =>
-                  column === "manager_user_id" ? values.includes(row.manager_user_id) : values.includes(row.property_id),
-                ),
-                error: null,
-              };
-            }
-            if (recordType === "manager_availability" || recordType === "partner_inquiry_request") {
-              return { data: [], error: null };
-            }
-            return { data: [], error: null };
+          in: (column: string, values: string[]) => {
+            inColumn = column;
+            inValues = values;
+            return builder;
           },
+          is: () => builder,
           maybeSingle: async () => ({ data: null, error: null }),
+          then: (resolve: (value: ReturnType<typeof result>) => unknown) => Promise.resolve(result()).then(resolve),
         };
         return builder;
       }

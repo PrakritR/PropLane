@@ -10,6 +10,14 @@ export type AssistantWirePayload = {
   pendingAction?: unknown;
   /** Langfuse proposal-turn id, when tracing is configured. */
   traceId?: string | null;
+  /** Redacted SMS-test turn state safe for the browser transport. */
+  smsTest?: {
+    mode: "manager" | "prospect" | "resident";
+    stage: "prospect" | "submitted" | "approved";
+    targetListingId: string | null;
+    sessionId: string;
+    effects: Array<{ kind: string; status: "captured" | "refused"; summary: string }>;
+  };
 };
 
 function event(name: string, data: unknown): string {
@@ -37,6 +45,7 @@ export function assistantResponse(req: Request, payload: AssistantWirePayload): 
             sessionId: payload.sessionId ?? null,
             ...(payload.traceId ? { traceId: payload.traceId } : {}),
             ...(typeof payload.archiveSaved === "boolean" ? { archiveSaved: payload.archiveSaved } : {}),
+            ...(payload.smsTest ? { smsTest: payload.smsTest } : {}),
           }),
         ),
       );

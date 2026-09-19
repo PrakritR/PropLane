@@ -64,11 +64,21 @@ const pendingPipelineLinkedIds = new Map<string, Set<string>>();
 // Mirrors the change-guard in pro-relationships.ts.
 let lastPipelineSnapshotSig: string | null = null;
 
-if (typeof window !== "undefined") {
-  onPortalSessionViewerChange(() => {
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  let observedViewerId = portalSessionViewerId();
+  onPortalSessionViewerChange((nextViewerId) => {
     // Initial anonymous-to-authenticated hydration is also a domain boundary.
     if (isDemoModeActive()) resetPublicListingCatalog();
-    else resetPropertyPipelineClientCache();
+    else {
+      const matchingHydrationRequest =
+        observedViewerId === null &&
+        nextViewerId !== null &&
+        propertyPipelineSyncPromises.has(nextViewerId);
+      resetPropertyPipelineClientCache(
+        matchingHydrationRequest ? { preserveInflightViewer: nextViewerId } : undefined,
+      );
+    }
+    observedViewerId = nextViewerId;
   });
   let previousWorkspace = selectedWorkspaceId();
   window.addEventListener(WORKSPACE_SELECTION_EVENT, () => {
@@ -399,13 +409,20 @@ export function hasCachedPropertyPipeline(): boolean {
 }
 
 /** Drop cached pipeline data when the signed-in portal user changes. */
-export function resetPropertyPipelineClientCache(): void {
+export function resetPropertyPipelineClientCache(opts?: { preserveInflightViewer?: string }): void {
   if (!isBrowser()) return;
-  propertyPipelineGeneration++;
+  const preservedViewer = opts?.preserveInflightViewer?.trim() || null;
+  if (!preservedViewer) propertyPipelineGeneration++;
   propertyPipelineReadyViewer = null;
-  propertyPipelineSyncPromises.clear();
-  propertyPipelineRefreshers.clear();
-  pendingPipelineLinkedIds.clear();
+  for (const key of propertyPipelineSyncPromises.keys()) {
+    if (key !== preservedViewer) propertyPipelineSyncPromises.delete(key);
+  }
+  for (const key of propertyPipelineRefreshers.keys()) {
+    if (key !== preservedViewer) propertyPipelineRefreshers.delete(key);
+  }
+  for (const key of pendingPipelineLinkedIds.keys()) {
+    if (key !== preservedViewer) pendingPipelineLinkedIds.delete(key);
+  }
   memoryStore.clear();
   memoryStore.delete(EXTRAS_BY_USER_KEY);
   memoryStore.delete("axis_admin_property_buckets_v1");

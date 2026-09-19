@@ -25,6 +25,12 @@ vi.mock("@/lib/manager-stripe-customer.server", async (importOriginal) => ({
 
 vi.mock("@/lib/manager-purchase-from-session", () => ({
   recordPaidManagerCheckoutSession: vi.fn().mockResolvedValue(undefined),
+  resolveManagerCheckoutPurchase: vi.fn().mockResolvedValue({
+    row: { id: "purchase_1", user_id: "user_1", manager_id: "MGR-123", email: "mgr@example.com" },
+    userId: "user_1",
+    expectedManagerId: "MGR-123",
+    expectedEmail: "mgr@example.com",
+  }),
 }));
 
 vi.mock("@/lib/manager-stripe-subscription-sync", () => ({
@@ -45,12 +51,29 @@ vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: vi.fn(),
 }));
 
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveTestWorkspaceClassification: vi.fn().mockResolvedValue({ kind: "normal" }),
+}));
+
+vi.mock("@/lib/test-workspaces/effects.server", () => ({
+  assertTestWorkspaceProviderEffectAllowed: vi.fn().mockResolvedValue(undefined),
+  captureTestWorkspaceEffectForUser: vi.fn().mockResolvedValue({ captured: false }),
+}));
+
+vi.mock("@/lib/sms/manager-sms-entitlement.server", () => ({
+  reconcileManagerSmsEntitlement: vi.fn().mockResolvedValue({ eligible: true }),
+}));
+
 import { getStripe } from "@/lib/stripe";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 import { ensureManagerBillingCustomer } from "@/lib/manager-stripe-customer.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { reconcileManagerPurchaseByStripeSubscriptionId } from "@/lib/manager-stripe-subscription-sync";
+import {
+  assertTestWorkspaceProviderEffectAllowed,
+  captureTestWorkspaceEffectForUser,
+} from "@/lib/test-workspaces/effects.server";
 import { POST as checkout } from "@/app/api/stripe/checkout/route";
 import { POST as checkoutPortal } from "@/app/api/stripe/checkout-portal/route";
 import { POST as billingPortal } from "@/app/api/stripe/billing-portal/route";
@@ -64,7 +87,12 @@ import { POST as webhook } from "@/app/api/stripe/webhook/route";
  */
 function serviceRoleDbMock(opts: { user_id?: string | null; update?: ReturnType<typeof vi.fn> } = {}) {
   const maybeSingle = vi.fn().mockResolvedValue({
-    data: opts.user_id === undefined ? null : { user_id: opts.user_id },
+    data: {
+      id: "purchase_1",
+      user_id: opts.user_id === undefined ? "user_1" : opts.user_id,
+      manager_id: "MGR-123",
+      email: "mgr@example.com",
+    },
     error: null,
   });
   const select = vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ maybeSingle }) });
@@ -76,11 +104,15 @@ function serviceRoleDbMock(opts: { user_id?: string | null; update?: ReturnType<
 function billingIdentityDbMock() {
   return {
     from: vi.fn((table: string) => {
+      const rows = [{ user_id: "user_1", stripe_customer_id: "cus_test_123", stripe_subscription_id: "sub_test_123" }];
       const query = {
         select: vi.fn(() => query), eq: vi.fn(() => query),
-        or: vi.fn(() => query), order: vi.fn(() => query),
-        limit: vi.fn().mockResolvedValue({ data: [{ user_id: "user_1", stripe_customer_id: "cus_test_123", stripe_subscription_id: "sub_test_123" }], error: null }),
+        not: vi.fn(() => query), or: vi.fn(() => query), order: vi.fn(() => query),
+        limit: vi.fn(() => query),
         maybeSingle: vi.fn().mockResolvedValue({ data: table === "manager_comms_billing_accounts" ? null : {}, error: null }),
+        upsert: vi.fn().mockResolvedValue({ error: null }),
+        then: (onfulfilled: (value: { data: typeof rows; error: null }) => unknown) =>
+          Promise.resolve({ data: rows, error: null }).then(onfulfilled),
       };
       return query;
     }),
@@ -233,6 +265,9 @@ describe("Stripe subscription billing", () => {
     expect(status).toBe(200);
     expect(data.url).toContain("checkout.stripe");
     expect(requireManagerRouteUser).toHaveBeenCalledOnce();
+    expect(assertTestWorkspaceProviderEffectAllowed).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "user_1", kind: "payment" }),
+    );
     expect(ensureManagerBillingCustomer).toHaveBeenCalledWith(managerDb, "user_1");
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -288,6 +323,9 @@ describe("Stripe subscription billing", () => {
 
     expect(status).toBe(200);
     expect(data.url).toContain("billing.stripe");
+    expect(assertTestWorkspaceProviderEffectAllowed).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "user_1", kind: "payment" }),
+    );
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
         customer: "cus_test_123",
@@ -316,6 +354,9 @@ describe("Stripe subscription billing", () => {
     });
     const res = await webhook(req);
     expect(res.status).toBe(200);
+    expect(captureTestWorkspaceEffectForUser).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "user_1", kind: "payment" }),
+    );
     expect(reconcileManagerPurchaseByStripeSubscriptionId).toHaveBeenCalledWith("sub_test_123");
   });
 

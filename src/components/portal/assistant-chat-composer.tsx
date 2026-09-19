@@ -1,7 +1,7 @@
 "use client";
 
 import { Paperclip, X } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   CHAT_ATTACHMENT_ACCEPT,
@@ -27,6 +27,8 @@ export type AssistantChatComposerProps = {
   inputId?: string;
   inputAriaLabel?: string;
   className?: string;
+  /** SMS test conversations are text-only and cannot carry browser attachments. */
+  allowAttachments?: boolean;
 };
 
 export function AssistantChatComposer({
@@ -43,14 +45,21 @@ export function AssistantChatComposer({
   inputId,
   inputAriaLabel,
   className,
+  allowAttachments = true,
 }: AssistantChatComposerProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
   const [dragOver, setDragOver] = useState(false);
-  const canSend = !loading && (input.trim().length > 0 || attachments.length > 0);
+  const canSend = !loading && (input.trim().length > 0 || (allowAttachments && attachments.length > 0));
+
+  useEffect(() => {
+    if (allowAttachments || attachments.length === 0) return;
+    attachments.forEach(revokeAttachmentPreview);
+    onAttachmentsChange([]);
+  }, [allowAttachments, attachments, onAttachmentsChange]);
 
   async function onPickFiles(files: FileList | null) {
-    if (!files?.length) return;
+    if (!allowAttachments || !files?.length) return;
     const { prepared, error } = await prepareChatAttachmentsFromFiles(files, attachments.length);
     if (prepared.length) onAttachmentsChange([...attachments, ...prepared]);
     if (error) onAttachmentError?.(error);
@@ -58,6 +67,7 @@ export function AssistantChatComposer({
   }
 
   function onDragEnter(e: React.DragEvent) {
+    if (!allowAttachments) return;
     if (!e.dataTransfer.types.includes("Files")) return;
     e.preventDefault();
     e.stopPropagation();
@@ -66,6 +76,7 @@ export function AssistantChatComposer({
   }
 
   function onDragLeave(e: React.DragEvent) {
+    if (!allowAttachments) return;
     if (!e.dataTransfer.types.includes("Files")) return;
     e.preventDefault();
     e.stopPropagation();
@@ -74,6 +85,7 @@ export function AssistantChatComposer({
   }
 
   function onDragOver(e: React.DragEvent) {
+    if (!allowAttachments) return;
     if (!e.dataTransfer.types.includes("Files")) return;
     e.preventDefault();
     e.stopPropagation();
@@ -82,6 +94,7 @@ export function AssistantChatComposer({
   }
 
   function onDrop(e: React.DragEvent) {
+    if (!allowAttachments) return;
     if (!e.dataTransfer.types.includes("Files")) return;
     e.preventDefault();
     e.stopPropagation();
@@ -99,7 +112,7 @@ export function AssistantChatComposer({
 
   return (
     <div className={className}>
-      {attachments.length > 0 ? (
+      {allowAttachments && attachments.length > 0 ? (
         <div className="mb-2 flex flex-wrap gap-2">
           {attachments.map((att) => (
             <div
@@ -140,27 +153,31 @@ export function AssistantChatComposer({
         onDragOver={onDragOver}
         onDrop={onDrop}
       >
-        <input
-          ref={fileRef}
-          type="file"
-          accept={CHAT_ATTACHMENT_ACCEPT}
-          multiple
-          className="sr-only"
-          data-attr="assistant-attachment-input"
-          onChange={(e) => void onPickFiles(e.target.files)}
-        />
-        <button
-          type="button"
-          disabled={loading || attachments.length >= MAX_CHAT_ATTACHMENTS}
-          aria-label="Attach image or PDF"
-          data-attr="assistant-attachment-button"
-          onClick={() => fileRef.current?.click()}
-          className={cn(
-            "absolute bottom-2 left-2 flex h-8 w-8 items-center justify-center rounded-full text-muted outline-none transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-40",
-          )}
-        >
-          <Paperclip className="h-4 w-4" aria-hidden />
-        </button>
+        {allowAttachments ? (
+          <>
+            <input
+              ref={fileRef}
+              type="file"
+              accept={CHAT_ATTACHMENT_ACCEPT}
+              multiple
+              className="sr-only"
+              data-attr="assistant-attachment-input"
+              onChange={(e) => void onPickFiles(e.target.files)}
+            />
+            <button
+              type="button"
+              disabled={loading || attachments.length >= MAX_CHAT_ATTACHMENTS}
+              aria-label="Attach image or PDF"
+              data-attr="assistant-attachment-button"
+              onClick={() => fileRef.current?.click()}
+              className={cn(
+                "absolute bottom-2 left-2 flex h-8 w-8 items-center justify-center rounded-full text-muted outline-none transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-40",
+              )}
+            >
+              <Paperclip className="h-4 w-4" aria-hidden />
+            </button>
+          </>
+        ) : null}
         <textarea
           ref={inputRef}
           id={inputId}
@@ -176,7 +193,8 @@ export function AssistantChatComposer({
           rows={compact ? 1 : 1}
           placeholder={placeholder}
           className={cn(
-            "w-full resize-none [field-sizing:content] rounded-2xl bg-transparent py-3 pl-11 pr-12 text-sm text-foreground outline-none placeholder:text-muted/70",
+            "w-full resize-none [field-sizing:content] rounded-2xl bg-transparent py-3 pr-12 text-sm text-foreground outline-none placeholder:text-muted/70",
+            allowAttachments ? "pl-11" : "pl-3",
             compact ? "max-h-20 min-h-[2.5rem]" : "max-h-32 min-h-[2.75rem]",
           )}
         />

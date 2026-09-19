@@ -3,6 +3,7 @@
 import { MessageSquareText } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { PortalFormSingleSelect } from "@/components/portal/filter-field-lists";
 import { useOptionalAssistantConversation } from "@/lib/axis-assistant/assistant-conversation-context";
 import { usePortalAssistantConfig } from "@/lib/axis-assistant/portal-assistant-context";
 import { currentSmsTestTurn } from "@/lib/axis-assistant/sms-test-turn-state";
@@ -55,23 +56,21 @@ export function AssistantSmsTestControl() {
       </div>
 
       {smsTest.portal === "resident" && !smsTest.active ? (
-        <label className="mt-2 block">
-          <span className="sr-only">Listing to test</span>
-          <select
+        <div className="mt-2">
+          <PortalFormSingleSelect
+            label="Listing to test"
             value={smsTest.selectedTargetId}
-            onChange={(event) => smsTest.onSelectTarget(event.target.value)}
+            onChange={smsTest.onSelectTarget}
             disabled={smsTest.loading}
-            className="h-9 w-full rounded-lg border border-border bg-background px-2.5 text-xs text-foreground outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15 disabled:opacity-60"
-            data-attr="assistant-sms-test-listing"
-          >
-            <option value="">Choose a listing…</option>
-            {smsTest.targets.map((candidate) => (
-              <option key={`${candidate.managerUserId}:${candidate.listingId}`} value={candidate.listingId}>
-                {candidate.title}{candidate.address ? ` - ${candidate.address}` : ""}
-              </option>
-            ))}
-          </select>
-        </label>
+            placeholder="Choose a listing…"
+            options={smsTest.targets.map((candidate) => ({
+              value: candidate.listingId,
+              label: `${candidate.title}${candidate.address ? ` - ${candidate.address}` : ""}`,
+            }))}
+            dataAttr="assistant-sms-test-listing"
+            labelClassName="sr-only"
+          />
+        </div>
       ) : null}
 
       {smsTest.loading ? <p className="mt-1 text-[11px] text-muted">Checking test access…</p> : null}

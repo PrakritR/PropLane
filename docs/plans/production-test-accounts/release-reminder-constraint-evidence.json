@@ -1,0 +1,38 @@
+{
+  "staging": {
+    "portal_reminder_records_kind_check": {
+      "definition": "CONSTRAINT portal_reminder_records_kind_check CHECK ((kind = ANY (ARRAY['tour'::text, 'tour_interest'::text, 'task'::text, 'service_order'::text, 'work_order'::text, 'booking'::text, 'application'::text, 'application_manager'::text, 'application_post_tour'::text, 'lease'::text, 'lease_manager'::text, 'payment_manager'::text, 'outgoing_payment'::text, 'inspection'::text, 'inspection_manager'::text, 'work_order_unassigned'::text, 'work_order_unassigned_emergency'::text, 'work_order_no_on_my_way'::text, 'vendor_offer_expiry'::text, 'vendor_invoice_nudge'::text, 'invoice_approval'::text, 'service_request_decision'::text, 'service_request_unpaid'::text, 'vendor_document_expiry'::text, 'lease_ending'::text, 'lease_ending_manager'::text, 'renewal_offer_expiry'::text, 'countersign_overdue'::text, 'move_in'::text, 'move_in_payment_method'::text, 'move_out'::text, 'move_out_inspection_manager'::text, 'deposit_accounting'::text, 'application_documents'::text, 'application_decision_manager'::text, 'application_no_lease_manager'::text, 'cosigner'::text, 'group_application'::text, 'tour_request_unanswered'::text, 'tour_request_reoffer'::text, 'tour_no_show_manager'::text, 'tour_feedback'::text, 'delinquency_manager'::text, 'message_unanswered'::text, 'document_signature'::text, 'task_overdue'::text, 'resident_welcome'::text, 'inspection_acknowledge'::text])))",
+      "sha256": "89fb76a2f4cfc607f72af4639fe06fc5e1e9d93258268020bc8f64bea34f2603"
+    },
+    "portal_reminder_records_role_check": {
+      "definition": "CONSTRAINT portal_reminder_records_role_check CHECK ((recipient_role = ANY (ARRAY['manager'::text, 'counterparty'::text, 'team'::text, 'vendor'::text])))",
+      "sha256": "35cc35596b4e9c045bcf0e44987608cc7ac91a8d8ecaed7f6ed74d2b4461b974"
+    },
+    "portal_reminder_records_lead_check": {
+      "definition": "CONSTRAINT portal_reminder_records_lead_check CHECK (((abs(lead_minutes) >= 5) AND (abs(lead_minutes) <= 129600)))",
+      "sha256": "ad1f4d9d3302d953256be1091e162972cf27fc28a51fa95aba44eb079efd39ff"
+    },
+    "work_order_vendor_offers_status_check": {
+      "definition": "CONSTRAINT work_order_vendor_offers_status_check CHECK ((status = ANY (ARRAY['sent'::text, 'withdrawn'::text, 'declined'::text, 'expired'::text, 'filled'::text])))",
+      "sha256": "ab04751a08a28adec1217a662d95a4454025d5bbd861dcb020ab1dbf5b5fb697"
+    }
+  },
+  "production": {
+    "portal_reminder_records_kind_check": {
+      "definition": "CONSTRAINT portal_reminder_records_kind_check CHECK ((kind = ANY (ARRAY['tour'::text, 'tour_interest'::text, 'task'::text, 'service_order'::text, 'work_order'::text, 'booking'::text, 'application'::text, 'application_manager'::text, 'application_post_tour'::text, 'lease'::text, 'lease_manager'::text, 'payment_manager'::text, 'outgoing_payment'::text, 'inspection'::text, 'inspection_manager'::text, 'work_order_unassigned'::text, 'work_order_unassigned_emergency'::text, 'work_order_no_on_my_way'::text, 'vendor_offer_expiry'::text, 'vendor_invoice_nudge'::text, 'invoice_approval'::text, 'service_request_decision'::text, 'service_request_unpaid'::text, 'vendor_document_expiry'::text, 'lease_ending'::text, 'lease_ending_manager'::text, 'renewal_offer_expiry'::text, 'countersign_overdue'::text, 'move_in'::text, 'move_in_payment_method'::text, 'move_out'::text, 'move_out_inspection_manager'::text, 'deposit_accounting'::text, 'application_documents'::text, 'application_decision_manager'::text, 'application_no_lease_manager'::text, 'cosigner'::text, 'group_application'::text, 'tour_request_unanswered'::text, 'tour_request_reoffer'::text, 'tour_no_show_manager'::text, 'tour_feedback'::text, 'delinquency_manager'::text, 'message_unanswered'::text, 'document_signature'::text, 'task_overdue'::text, 'resident_welcome'::text, 'inspection_acknowledge'::text])))",
+      "sha256": "89fb76a2f4cfc607f72af4639fe06fc5e1e9d93258268020bc8f64bea34f2603"
+    },
+    "portal_reminder_records_role_check": {
+      "definition": "CONSTRAINT portal_reminder_records_role_check CHECK ((recipient_role = ANY (ARRAY['manager'::text, 'counterparty'::text, 'team'::text, 'vendor'::text])))",
+      "sha256": "35cc35596b4e9c045bcf0e44987608cc7ac91a8d8ecaed7f6ed74d2b4461b974"
+    },
+    "portal_reminder_records_lead_check": {
+      "definition": "CONSTRAINT portal_reminder_records_lead_check CHECK (((abs(lead_minutes) >= 5) AND (abs(lead_minutes) <= 129600)))",
+      "sha256": "ad1f4d9d3302d953256be1091e162972cf27fc28a51fa95aba44eb079efd39ff"
+    },
+    "work_order_vendor_offers_status_check": {
+      "definition": "CONSTRAINT work_order_vendor_offers_status_check CHECK ((status = ANY (ARRAY['sent'::text, 'withdrawn'::text, 'declined'::text, 'expired'::text, 'filled'::text])))",
+      "sha256": "ab04751a08a28adec1217a662d95a4454025d5bbd861dcb020ab1dbf5b5fb697"
+    }
+  }
+}

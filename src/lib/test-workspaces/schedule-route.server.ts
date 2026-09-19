@@ -272,13 +272,14 @@ export async function handleTestWorkspaceSchedulePost(req: Request, fallback: (r
     if (!deleted || deleted.length !== 1) return NextResponse.json({ error: "Record not found." }, { status: 404 });
     return NextResponse.json({ ok: true, deleted: 1 });
   }
+  const replacementRows = Array.isArray(body.rows) ? body.rows : null;
   if (
     (action === "upsert" && (!body.row || body.rows !== undefined)) ||
-    (action === "replace" && (!Array.isArray(body.rows) || body.rows.length !== 1 || body.row !== undefined))
+    (action === "replace" && (!replacementRows || replacementRows.length !== 1 || body.row !== undefined))
   ) {
     return NextResponse.json({ error: "Test workspace schedule writes require exactly one owned record." }, { status: 400 });
   }
-  const candidate = action === "replace" ? body.rows?.[0] : body.row;
+  const candidate = action === "replace" ? replacementRows?.[0] : body.row;
   if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
     return NextResponse.json({ error: "Test workspace schedule writes require exactly one owned record." }, { status: 400 });
   }

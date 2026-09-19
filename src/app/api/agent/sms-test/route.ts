@@ -11,12 +11,20 @@ import {
   resolveSmsTestContext,
   type SmsTestPortal,
 } from "@/lib/agent/sms-test-context.server";
-import { runSmsTestTurn } from "@/lib/agent/sms-test-runner.server";
+import { runSmsTestTurn, type SmsTestTurnResult } from "@/lib/agent/sms-test-runner.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
 
 const PRIVATE_HEADERS = { "Cache-Control": "private, no-store" };
+
+type SmsTestWirePayload = {
+  mode: SmsTestTurnResult["mode"];
+  stage: SmsTestTurnResult["stage"];
+  targetListingId: string | null;
+  sessionId: string;
+  effects: Array<Pick<SmsTestTurnResult["effects"][number], "kind" | "status" | "summary">>;
+};
 
 function requestScope(request: Request): { portal: SmsTestPortal; targetListingId: string } | null {
   const params = new URL(request.url).searchParams;
@@ -119,24 +127,33 @@ export async function POST(request: Request) {
       ? body.sessionId.trim()
       : null;
     const result = await runSmsTestTurn({ context, message: lastUserText(messages), sessionId });
-    return assistantResponse(request, {
+    const smsTest: SmsTestWirePayload = {
+      mode: result.mode,
+      stage: result.stage,
+      targetListingId: result.target?.listingId ?? null,
+      sessionId: result.sessionId,
+      effects: result.effects.map((effect) => ({
+        kind: effect.kind,
+        status: effect.status,
+        summary: effect.summary,
+      })),
+    };
+    const responsePayload = {
       reply: result.reply,
       toolTrace: result.toolTrace,
       sessionId: result.sessionId,
       ...(result.traceId ? { traceId: result.traceId } : {}),
       archiveSaved: true,
-      smsTest: {
-        mode: result.mode,
-        stage: result.stage,
-        targetListingId: result.target?.listingId ?? null,
-        sessionId: result.sessionId,
-        effects: result.effects.map((effect) => ({
-          kind: effect.kind,
-          status: effect.status,
-          summary: effect.summary,
-        })),
-      },
-    });
+      smsTest,
+    };
+    const response = assistantResponse(request, responsePayload);
+    response.headers.set(
+      "Cache-Control",
+      request.headers.get("accept")?.includes("text/event-stream")
+        ? "private, no-store, no-transform"
+        : "private, no-store",
+    );
+    return response;
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
     const unavailable = message.includes("unavailable") || message.includes("non-production database");

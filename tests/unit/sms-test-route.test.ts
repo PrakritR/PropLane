@@ -22,10 +22,6 @@ vi.mock("@/lib/agent/chat-history-route", () => ({
   handleAgentChatHistoryRequest: mocks.history,
   handleAgentChatHistoryDeleteRequest: mocks.historyDelete,
 }));
-vi.mock("@/lib/agent/assistant-stream", () => ({
-  assistantResponse: (_request: Request, payload: Record<string, unknown>) =>
-    Response.json(payload),
-}));
 vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: mocks.serviceDb,
 }));
@@ -92,6 +88,7 @@ describe("SMS test route authorization and session scope", () => {
     }));
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(mocks.resolveContext).toHaveBeenCalledWith({
       portal: "resident",
       targetListingId: "listing-1",
@@ -110,6 +107,27 @@ describe("SMS test route authorization and session scope", () => {
         effects: [{ kind: "sms", status: "captured", summary: "Captured." }],
       },
     });
+  });
+
+  it("streams redacted SMS turn metadata with private non-cacheable headers", async () => {
+    const response = await POST(new Request(
+      "https://prop-lane.test/api/agent/sms-test?portal=resident&targetListingId=listing-1",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "text/event-stream" },
+        body: JSON.stringify({ messages: [{ role: "user", content: "What times are open?" }] }),
+      },
+    ));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    expect(response.headers.get("cache-control")).toBe("private, no-store, no-transform");
+    const body = await response.text();
+    expect(body).toContain("event: done");
+    expect(body).toContain('"smsTest":{"mode":"prospect","stage":"prospect"');
+    expect(body).toContain('"effects":[{"kind":"sms","status":"captured","summary":"Captured."}]');
+    expect(body).not.toContain("actorUserId");
+    expect(body).not.toContain("managerUserId");
   });
 
   it("rejects unauthenticated/wrong-role context and direct action or attachment payloads", async () => {

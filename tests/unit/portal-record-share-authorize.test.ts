@@ -24,6 +24,11 @@ vi.mock("@/lib/auth/manager-lease-scope", () => ({
 vi.mock("@/lib/auth/manager-application-access", () => ({
   managerCanAccessApplicationRecord: async () => false,
 }));
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveAuthenticatedBusinessAccess: vi.fn(async () => ({ kind: "normal" })),
+  resolveTestWorkspaceClassification: vi.fn(async () => ({ kind: "normal" })),
+  lookupRecordTestWorkspaceId: vi.fn(async () => null),
+}));
 
 let authedUserId: string | null = "mgr-1";
 vi.mock("@/lib/supabase/server", () => ({

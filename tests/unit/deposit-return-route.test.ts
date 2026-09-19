@@ -34,6 +34,9 @@ vi.mock("@/lib/supabase/service", () => ({
     }),
   }),
 }));
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveTestWorkspaceClassification: vi.fn().mockResolvedValue({ kind: "normal" }),
+}));
 
 const { POST } = await import("@/app/api/portal/deposit-return/route");
 

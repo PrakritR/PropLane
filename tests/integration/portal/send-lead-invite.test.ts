@@ -9,6 +9,11 @@ vi.mock("@/lib/supabase/service", () => ({
   createSupabaseServiceRoleClient: vi.fn(),
 }));
 
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveAuthenticatedBusinessAccess: vi.fn().mockResolvedValue({ kind: "normal" }),
+  resolveTestWorkspaceClassification: vi.fn().mockResolvedValue({ kind: "normal" }),
+}));
+
 vi.mock("@/lib/manager-property-links", () => ({
   buildManagerApplyUrl: vi.fn((origin: string, params: { propertyId: string }) => `${origin}/rent/apply?propertyId=${params.propertyId}`),
   buildManagerTourUrl: vi.fn((origin: string, propertyId: string) => `${origin}/rent/tours-contact?propertyId=${propertyId}`),

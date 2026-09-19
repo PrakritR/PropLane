@@ -7,6 +7,7 @@ import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
+import { PortalFormSingleSelect } from "@/components/portal/filter-field-lists";
 import { Button } from "@/components/ui/button";
 
 type TestWorkspaceMember = {
@@ -47,6 +48,7 @@ export function AdminTestWorkspacesClient() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [createMode, setCreateMode] = useState<CreateMode>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [inviteRoles, setInviteRoles] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     try {
@@ -254,14 +256,21 @@ export function AdminTestWorkspacesClient() {
                           Controlled email
                           <input id={`test-email-${workspace.id}`} name="email" type="email" required autoComplete="email" spellCheck={false} className="h-10 rounded-lg border border-border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/40" />
                         </label>
-                        <label className="grid gap-1 text-xs font-semibold text-foreground" htmlFor={`test-role-${workspace.id}`}>
-                          Portal role
-                          <select id={`test-role-${workspace.id}`} name="role" defaultValue="resident" className="h-10 rounded-lg border border-border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
-                            <option value="resident">Resident</option>
-                            <option value="manager">Manager</option>
-                            <option value="co_manager">Co-manager</option>
-                          </select>
-                        </label>
+                        <div className="grid gap-1">
+                          <PortalFormSingleSelect
+                            label="Portal role"
+                            value={inviteRoles[workspace.id] ?? "resident"}
+                            onChange={(role) => setInviteRoles((current) => ({ ...current, [workspace.id]: role }))}
+                            options={[
+                              { value: "resident", label: "Resident" },
+                              { value: "manager", label: "Manager" },
+                              { value: "co_manager", label: "Co-manager" },
+                            ]}
+                            dataAttr="test-workspace-member-role"
+                            labelClassName="block text-xs font-semibold text-foreground"
+                          />
+                          <input type="hidden" name="role" value={inviteRoles[workspace.id] ?? "resident"} />
+                        </div>
                         <label className="grid gap-1 text-xs font-semibold text-foreground" htmlFor={`test-expiry-${workspace.id}`}>
                           Expiry (optional)
                           <input id={`test-expiry-${workspace.id}`} name="expiresAt" type="datetime-local" className="h-10 rounded-lg border border-border bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/40" />

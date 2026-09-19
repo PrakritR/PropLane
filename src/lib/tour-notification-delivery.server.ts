@@ -13,7 +13,7 @@ import { resolveExistingApplicantConversation } from "@/lib/application-lifecycl
 import { traceSystemNotification } from "@/lib/observability/langfuse";
 import { buildReplyAddress } from "@/lib/inbound-email/reply-address.server";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
-import { managerOutboundFromHeader, sharedPortalFromAddress } from "@/lib/manager-outbound-identity.server";
+import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
 import {
   resolveManagerRecipientProfiles,
   resolvePropertyLeadRecipientIds,
@@ -115,11 +115,14 @@ async function deliverEmail(
   if (recipients.length === 0) return { sent: false, skipped: true };
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (!apiKey) return { sent: false, skipped: false, error: "Email delivery not configured (RESEND_API_KEY missing)." };
-  const from = identity
-    ? await managerOutboundFromHeader(identity.db, identity.managerUserId)
-    : sharedPortalFromAddress();
+  const actorUserId = identity?.managerUserId?.trim() ?? "";
+  if (!identity || !actorUserId) {
+    return { sent: false, skipped: false, error: "Manager identity is required for email delivery." };
+  }
+  const from = await managerOutboundFromHeader(identity.db, actorUserId);
   const res = await postResendEmail({
     apiKey,
+    actorUserId,
     payload: {
       from,
       to: recipients,
@@ -152,7 +155,7 @@ export type TourNotificationResult = {
     accepted?: boolean;
     skipped: boolean;
     error?: string;
-    channel?: "claw" | "twilio";
+    channel?: "claw" | "twilio" | "in_app_test";
     sid?: string;
     outboxStatus?: string;
   };
@@ -470,6 +473,9 @@ export async function notifyManagerTourRequest(
     recipients.map((recipient) => recipient.email),
     subject,
     text,
+    undefined,
+    undefined,
+    { db, managerUserId },
   );
 
   // Also text any recipient with a forward-enabled phone on file (e.g. the

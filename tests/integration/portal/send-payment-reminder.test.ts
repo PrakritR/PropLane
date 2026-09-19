@@ -28,6 +28,10 @@ vi.mock("@/lib/portal-inbox-delivery", () => ({
   deliverPortalMessageThreadSide: vi.fn().mockResolvedValue({ action: "create", threadId: "test-thread" }),
 }));
 
+vi.mock("@/lib/test-workspaces/index.server", () => ({
+  resolveAuthenticatedBusinessAccess: vi.fn().mockResolvedValue({ kind: "normal" }),
+}));
+
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { collectLinkedPropertyIdsForUser } from "@/lib/auth/manager-lease-scope";

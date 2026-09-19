@@ -209,7 +209,7 @@ export async function POST(req: Request) {
       try {
         const res = await postResendEmail({
           apiKey,
-          actorUserId: ownerManagerUserId || user.id,
+          actorUserId: loaded.managerUserId || user.id,
           payload: { from, to: [inboxEmail], subject, text: messageBody, html },
           effectSummary: "Payment reminder email captured for the test workspace.",
           metadata: { chargeId },

@@ -73,7 +73,7 @@ export async function deliverPaymentReminder(input: {
   const inboxAllowed = managerDeliverViaInbox && channels.inbox;
 
   let emailSent = false;
-  if (apiKey && emailAllowed) {
+  if (apiKey && emailAllowed && managerId) {
     try {
       const res = await postResendEmail({
         apiKey,
