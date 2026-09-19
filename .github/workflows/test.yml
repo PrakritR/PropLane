@@ -227,24 +227,24 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - name: Bind private local QA build origin
-        if: success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && github.event.repository.private
+      - name: Bind local QA build origin
+        if: success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919'
         run: echo "NEXT_PUBLIC_APP_URL=http://localhost:3010" >> "$GITHUB_ENV"
       - run: npm run build
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
-      - name: Package private local QA build
-        if: success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && github.event.repository.private
+      - name: Package encrypted local QA build
+        if: success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919'
         run: node scripts/package-local-qa-build.mjs
         env:
-          QA_REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
           # This is the only server-only input passed to the build above. Public
           # URL/anon inputs are intentionally public and are not scan targets.
           QA_BUILD_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
-      - name: Upload private local QA build
-        if: success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && github.event.repository.private
+          QA_ARTIFACT_ENCRYPTION_KEY: ${{ secrets.PROPLANE_LOCAL_QA_ARTIFACT_KEY }}
+      - name: Upload encrypted local QA build
+        if: success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: local-qa-build-${{ github.sha }}

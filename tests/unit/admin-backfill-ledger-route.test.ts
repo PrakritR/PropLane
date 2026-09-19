@@ -91,6 +91,9 @@ const state = vi.hoisted(() => ({
   user: null as { id: string } | null,
   adminIds: new Set<string>(),
   db: null as unknown,
+  portalSessionViewerId: vi.fn(() => {
+    throw new Error("A server route must not read client portal session state while its module is collected.");
+  }),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -101,6 +104,13 @@ vi.mock("@/lib/supabase/server", () => ({
 
 vi.mock("@/lib/auth/admin-preview", () => ({
   isAdminUser: async (userId: string) => state.adminIds.has(userId),
+}));
+
+vi.mock("@/lib/auth/portal-session-gate", () => ({
+  notePortalResponse: vi.fn(),
+  onPortalSessionViewerChange: vi.fn(),
+  portalSessionEnded: vi.fn(() => false),
+  portalSessionViewerId: state.portalSessionViewerId,
 }));
 
 vi.mock("@/lib/supabase/service", () => ({
@@ -174,6 +184,7 @@ describe("POST /api/admin/backfill-ledger", () => {
     state.user = null;
     state.adminIds = new Set([ADMIN_ID]);
     state.db = makeFakeDb(seedCharges());
+    vi.clearAllMocks();
     vi.resetModules();
   });
 
@@ -187,6 +198,12 @@ describe("POST /api/admin/backfill-ledger", () => {
       ),
     );
   }
+
+  it("collects without evaluating client portal session state", async () => {
+    const { runtime } = await import("@/app/api/admin/backfill-ledger/route");
+    expect(runtime).toBe("nodejs");
+    expect(state.portalSessionViewerId).not.toHaveBeenCalled();
+  });
 
   it("rejects anonymous callers with 401", async () => {
     const res = await post();

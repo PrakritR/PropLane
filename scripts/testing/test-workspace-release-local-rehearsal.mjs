@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Actual staging schema, synthetic auth, no customer rows, no cloud connection path. */
+/** Actual pinned staging/production schema, synthetic auth, no customer rows, no cloud connection path. */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync, appendFileSync } from "node:fs";
@@ -10,14 +10,43 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pg from "pg";
 import { buildAtomicBundle, ledgerRowDigest, reviewedMigrations, sha256, validateSnapshot, TARGETS } from "../prepare-test-workspace-release-migrations.mjs";
+import { BASELINE_CATALOG_SQL, baselineMigrations, buildBaselineBundle, INVITATION_DIGEST_SQL } from "../prepare-test-workspace-baseline-prerequisites.mjs";
+import { COMPACT_STATEMENTS_SHA_SQL, REMINDER_ATTESTATION } from "../historical-migration-parity-attestation.mjs";
 
-const BACKUP_DIR = "/Users/akhilvemuri/.local/state/proplane-release-backups/20260919-staging-test-workspace";
-const SCHEMA_SHA = "5ef79f5aec15630bc1fa8ee032902a7e70fde7d7dd267bb1d1e7cce85621da3d";
-const CAPTURE_SHA = "e5e5e21ecb5fc317f551b23108258e48b36d9c09b2a75654162a7852f1abcabd";
+const DEFAULT_TARGET = "staging";
+const REHEARSAL_TARGETS = Object.freeze({
+  staging: Object.freeze({
+    project: TARGETS.staging,
+    backupDirectory: "/Users/akhilvemuri/.local/state/proplane-release-backups/20260919-staging-test-workspace",
+    schemaSha256: "5ef79f5aec15630bc1fa8ee032902a7e70fde7d7dd267bb1d1e7cce85621da3d",
+    catalogSha256: "e5e5e21ecb5fc317f551b23108258e48b36d9c09b2a75654162a7852f1abcabd",
+    baselineCatalogSha256: "538d4c6f14f957967b74f5057f20a0d4fa80fb0b6388e00a5c715e52df4c604a",
+    invitationRowsSha256: "f5d2d1478f917c60a9cd5f874f8f43b4975e2ad337f5370e5c1112d55b3039fc",
+  }),
+  production: Object.freeze({
+    project: TARGETS.production,
+    backupDirectory: "/Users/akhilvemuri/.local/state/proplane-release-backups/20260919-production-test-workspace",
+    schemaSha256: "122bfcf96f0e093fc450893c04436be94f95d6a65475f479ec2ebdb1d58b0f7f",
+    catalogSha256: "a7a32a72e2cfef3c9df79356ef56f3e0f8a691e6e33b269a4388b0b86513f88f",
+    baselineCatalogSha256: "17ed6e241f9417ff717a8f37832eef4741f288e0247da5c1ebab9c35d5e5e83a",
+    invitationRowsSha256: "64d30833f4cb607499e29a1d55a167a38e4ceb8b61a1a0b82ece1af8940cf1a2",
+  }),
+});
+const REMINDER_REHEARSAL_ATTESTATION = Object.freeze({
+  staging: Object.freeze({
+    name: REMINDER_ATTESTATION.name,
+    statements: Object.freeze({
+      "20260916051253": REMINDER_ATTESTATION.statements["20260916063005"],
+    }),
+  }),
+  production: Object.freeze({
+    name: REMINDER_ATTESTATION.name,
+    statements: REMINDER_ATTESTATION.statements,
+  }),
+});
 const BIN = "/opt/homebrew/bin/";
 const ROLE_NAMES = Object.freeze(["anon", "authenticated", "service_role", "dashboard_user", "supabase_admin", "supabase_storage_admin"]);
 const LOCAL_DB = "test_workspace_rehearsal";
-const LOCAL_BACKUP_SHA = sha256(JSON.stringify({ purpose: "local-only-rehearsal", schema: SCHEMA_SHA, capture: CAPTURE_SHA }));
 const BARRIER = "20260919124501";
 let phase = "input";
 let interrupted = false;
@@ -26,6 +55,22 @@ let cleanupPromise;
 const clients = new Set();
 const results = [];
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+function rehearsalTarget(argv) {
+  if (argv.length === 0) return DEFAULT_TARGET;
+  assert.deepEqual(argv.slice(0, 1), ["--target"], "REHEARSAL accepts only --target staging|production");
+  assert.equal(argv.length, 2, "REHEARSAL accepts only --target staging|production");
+  assert(Object.hasOwn(REHEARSAL_TARGETS, argv[1]), "REHEARSAL target must be staging or production");
+  return argv[1];
+}
+function localBackupSha256(target, backup) {
+  return sha256(JSON.stringify({
+    purpose: "local-only-rehearsal",
+    target,
+    schema: backup.schemaSha256,
+    catalog: backup.catalogSha256,
+    baselineCatalog: backup.baselineCatalogSha256,
+  }));
+}
 function ensureActive() { if (interrupted) throw new Error("REHEARSAL interrupted"); }
 function identifier(value) { assert.match(value, /^[a-z][a-z0-9_]*$/); return `"${value}"`; }
 function run(binary, args, options = {}) {
@@ -203,7 +248,87 @@ async function assertBaseline(client, snapshot, digest) {
   assert.deepEqual(ledgerFingerprints(rows), ledgerFingerprints(snapshot.ledger));
   assert.equal(schemaDigest(), digest, "REHEARSAL rollback did not restore complete schema/ACL baseline");
 }
-async function attest(client, project = TARGETS.staging, backup = LOCAL_BACKUP_SHA) {
+function sameSnapshotState(left, right) {
+  assert.deepEqual(ledgerFingerprints(left.ledger), ledgerFingerprints(right.ledger), "REHEARSAL full and baseline catalogs disagree on historical ledger");
+  assert.deepEqual(left.tables, right.tables, "REHEARSAL full and baseline catalogs disagree on public table inventory");
+}
+function withReviewedInvitationRowsSha256(snapshot, expected) {
+  assert.match(expected, /^[a-f0-9]{64}$/, "REHEARSAL pinned invitationRowsSha256 must be a SHA-256");
+  if (Object.hasOwn(snapshot, "invitationRowsSha256")) {
+    assert.equal(snapshot.invitationRowsSha256, expected, "REHEARSAL captured invitationRowsSha256 differs from the pinned target value");
+  }
+  return { ...snapshot, invitationRowsSha256: expected };
+}
+async function captureLocalSnapshot(client, target) {
+  const ledger = await query(client, "select version,name,statements from supabase_migrations.schema_migrations order by version");
+  const tables = await query(client, `select c.relname as name,c.relrowsecurity as rls from pg_class c join pg_namespace n on n.oid=c.relnamespace
+    where n.nspname='public' and c.relkind in ('r','p') order by c.relname collate \"C\"`);
+  const validated = validateSnapshot(
+    { project: TARGETS[target], read_only: "on", ledger: ledger.rows, tables: tables.rows },
+    target,
+  );
+  // validateSnapshot deliberately returns normalized catalog fields only. The
+  // bundle preparer independently requires the read-only capture attestation.
+  return { ...validated, read_only: "on" };
+}
+async function captureLocalBaselineSnapshot(client, target, capturedSnapshot, invitationRowsSha256) {
+  const snapshot = await captureLocalSnapshot(client, target);
+  const catalog = await query(client, `select ${BASELINE_CATALOG_SQL} as baseline_catalog`);
+  assert.deepEqual(catalog.rows[0].baseline_catalog, capturedSnapshot.baselineCatalog, "REHEARSAL restored catalog differs from the captured reviewed baseline catalog");
+  return { ...snapshot, baselineCatalog: catalog.rows[0].baseline_catalog, invitationRowsSha256 };
+}
+async function invitationRowsSha256(client) {
+  const { rows } = await query(client, `select ${INVITATION_DIGEST_SQL} as digest`);
+  return rows[0].digest;
+}
+function localBaselineBundle({ target, snapshot, backupSha256, invitationRowsSha256 }) {
+  return buildBaselineBundle({
+    target,
+    snapshot: { ...snapshot, invitationRowsSha256 },
+    backupSha256,
+  });
+}
+async function seedBaselineInvitation(client, workspacePermissions) {
+  const inviter = "55555555-5555-4555-8555-555555555555";
+  const invitee = "66666666-6666-4666-8666-666666666666";
+  const invite = "77777777-7777-4777-8777-777777777777";
+  await query(client, "insert into auth.users(id,email,raw_user_meta_data) values ($1,'baseline-inviter@rehearsal.invalid','{}'),($2,'baseline-invitee@rehearsal.invalid','{}')", [inviter, invitee]);
+  await query(client, `insert into public.account_link_invites(id,inviter_user_id,invitee_user_id,tab_kind,inviter_axis_id,invitee_axis_id,status,workspace_permissions)
+    values($1,$2,$3,'manager','AXIS-BASELINE-INVITER','AXIS-BASELINE-INVITEE','accepted',$4::jsonb)`, [invite, inviter, invitee, JSON.stringify(workspacePermissions)]);
+  return { inviter, invitee, invite };
+}
+async function removeBaselineInvitation(client, fixture) {
+  await query(client, "select set_config('proplane.account_recovery_internal','on',false)");
+  try {
+    await query(client, "delete from public.account_link_invites where id=$1", [fixture.invite]);
+    await query(client, "delete from auth.users where id=any($1::uuid[])", [[fixture.inviter, fixture.invitee]]);
+  } finally {
+    await query(client, "select set_config('proplane.account_recovery_internal','off',false)");
+  }
+}
+async function assertHistoricalStatementArrayParity(client, target, checks) {
+  const attestation = REMINDER_REHEARSAL_ATTESTATION[target];
+  for (const { label, rows } of checks) {
+    const attestedRows = rows.filter((row) => row.name === attestation.name
+      && Object.hasOwn(attestation.statements, row.version));
+    assert.equal(attestedRows.length, Object.keys(attestation.statements).length,
+      `REHEARSAL missing target historical reminder rows: ${label}`);
+    const expected = attestedRows
+      .map((row) => {
+        const digest = sha256(JSON.stringify(row.statements));
+        assert.equal(digest, attestation.statements[row.version], `REHEARSAL unexpected historical reminder statement array: ${label}`);
+        return { version: row.version, compact_sha256: digest, array_json_sha256: digest };
+      })
+      .sort((left, right) => left.version < right.version ? -1 : left.version > right.version ? 1 : 0);
+    const versions = attestedRows.map((row) => row.version);
+    const result = await query(client, `select version,${COMPACT_STATEMENTS_SHA_SQL} as compact_sha256,
+      encode(sha256(convert_to(array_to_json(statements)::text,'UTF8')),'hex') as array_json_sha256
+      from supabase_migrations.schema_migrations where name=$1 and version=any($2::text[]) order by version collate "C"`, [attestation.name, versions]);
+    assert.deepEqual(result.rows, expected, `REHEARSAL exact historical statement arrays changed: ${label}`);
+    results.push(`${label} JavaScript/PostgreSQL COMPACT_STATEMENTS_SHA_SQL and array_to_json statement-array SHA-256 parity`);
+  }
+}
+async function attest(client, project, backup) {
   await query(client, "select set_config('proplane.release_project_ref',$1,false),set_config('proplane.release_backup_sha256',$2,false)", [project, backup]);
 }
 async function expectRefusal(client, sql, expectedMessage) {
@@ -226,6 +351,64 @@ async function fingerprintParity(client) {
     assert.equal(result.rows[0].digest, ledgerRowDigest(row));
   }
   results.push("JavaScript/PostgreSQL UTF-8/null/array fingerprint equivalence");
+}
+async function baselineRefusals(client, capturedSnapshot, snapshot, baselineDigest, target, project, backupSha256) {
+  const localSnapshot = await captureLocalBaselineSnapshot(client, target, capturedSnapshot, await invitationRowsSha256(client));
+  const recoveryBundle = localBaselineBundle({ target, snapshot: localSnapshot, backupSha256, invitationRowsSha256: localSnapshot.invitationRowsSha256 });
+  await attest(client, project, backupSha256);
+  await query(client, "select set_config('proplane.account_recovery_internal','on',false)");
+  try {
+    await expectRefusal(client, recoveryBundle.sql, "Encoding or recovery bypass rejected");
+  } finally {
+    await query(client, "select set_config('proplane.account_recovery_internal','off',false)");
+  }
+  await assertBaseline(client, snapshot, baselineDigest);
+
+  await query(client, "set session_replication_role=replica");
+  try {
+    await attest(client, project, backupSha256);
+    await expectRefusal(client, recoveryBundle.sql, "Origin replication mode required");
+  } finally {
+    await query(client, "set session_replication_role=origin");
+  }
+  await assertBaseline(client, snapshot, baselineDigest);
+
+  const fixture = await seedBaselineInvitation(client, {});
+  try {
+    const localInvitationRowsSha256 = await invitationRowsSha256(client);
+    const fixtureSnapshot = await captureLocalBaselineSnapshot(client, target, capturedSnapshot, localInvitationRowsSha256);
+    const wrongPreimageBundle = localBaselineBundle({ target, snapshot: fixtureSnapshot, backupSha256, invitationRowsSha256: "0".repeat(64) });
+    await attest(client, project, backupSha256);
+    await expectRefusal(client, wrongPreimageBundle.sql, "Reviewed invitation beforeimage changed");
+    const grantExpansionBundle = localBaselineBundle({ target, snapshot: fixtureSnapshot, backupSha256, invitationRowsSha256: localInvitationRowsSha256 });
+    await attest(client, project, backupSha256);
+    await expectRefusal(client, grantExpansionBundle.sql, "Permission change prohibited");
+  } finally {
+    await removeBaselineInvitation(client, fixture);
+  }
+  await assertBaseline(client, snapshot, baselineDigest);
+  results.push("baseline recovery-bypass, replica-mode, invitation preimage, and grant-expansion refusals preserve schema and history");
+}
+async function applyBaselineBundle(client, capturedSnapshot, snapshot, target, project, backupSha256) {
+  const fixture = await seedBaselineInvitation(client, { addProperties: true });
+  try {
+    const invitationBefore = await invitationRowsSha256(client);
+    const localSnapshot = await captureLocalBaselineSnapshot(client, target, capturedSnapshot, invitationBefore);
+    const bundle = localBaselineBundle({ target, snapshot: localSnapshot, backupSha256, invitationRowsSha256: invitationBefore });
+    await attest(client, project, backupSha256);
+    await query(client, bundle.sql);
+    const invitationAfter = await invitationRowsSha256(client);
+    assert.equal(invitationAfter, invitationBefore, "REHEARSAL baseline bundle changed an unchanged invitation row");
+    const installed = await query(client, "select version,name,statements from supabase_migrations.schema_migrations order by version");
+    assert.deepEqual(
+      ledgerFingerprints(installed.rows),
+      ledgerFingerprints([...snapshot.ledger, ...baselineMigrations(target)]),
+      "REHEARSAL baseline bundle changed historical ledger rows or appended the wrong entries",
+    );
+  } finally {
+    await removeBaselineInvitation(client, fixture);
+  }
+  results.push("reviewed baseline bundle committed first with unchanged invitation row and exact historical ledger preservation");
 }
 async function midBundleRollback(client, bundle, snapshot, baselineDigest) {
   const observer = await connect(LOCAL_DB, "test-workspace-rehearsal-observer");
@@ -296,58 +479,81 @@ async function policyProbes(client) {
   results.push("actual late-table restrictive policy with rollback-only permissive probe, durable classification states, own membership, service bypass and allocator privileges");
 }
 async function main() {
-  assert.equal(process.argv.length, 2, "REHEARSAL takes no paths, targets or connection arguments");
+  const target = rehearsalTarget(process.argv.slice(2));
+  const backup = REHEARSAL_TARGETS[target];
+  const localAttestationSha256 = localBackupSha256(target, backup);
   assert.match(process.versions.node, /^22\./, "REHEARSAL requires the repository's Node 22 runtime");
   assert(process.execArgv.includes("--max-old-space-size=256") && getHeapStatistics().heap_size_limit <= 320 * 1024 * 1024,
     "REHEARSAL requires --max-old-space-size=256");
-  const schema = readFileSync(join(BACKUP_DIR, "schema-with-acl.sql"));
-  const capture = readFileSync(join(BACKUP_DIR, "full-catalog.json"));
-  assert.equal(sha256(schema), SCHEMA_SHA, "REHEARSAL pinned actual schema changed");
-  assert.equal(sha256(capture), CAPTURE_SHA, "REHEARSAL pinned actual ledger capture changed");
+  const schema = readFileSync(join(backup.backupDirectory, "schema-with-acl.sql"));
+  const capture = readFileSync(join(backup.backupDirectory, "full-catalog.json"));
+  const baselineCapture = readFileSync(join(backup.backupDirectory, "full-catalog-baseline.json"));
+  assert.equal(sha256(schema), backup.schemaSha256, "REHEARSAL pinned actual schema changed");
+  assert.equal(sha256(capture), backup.catalogSha256, "REHEARSAL pinned actual ledger capture changed");
+  assert.equal(sha256(baselineCapture), backup.baselineCatalogSha256, "REHEARSAL pinned actual baseline catalog changed");
   const rawSnapshot = JSON.parse(capture.toString("utf8"));
-  const snapshot = validateSnapshot(rawSnapshot, "staging");
-  const bundle = buildAtomicBundle({ target:"staging",snapshot:rawSnapshot,backupSha256:LOCAL_BACKUP_SHA });
+  const rawBaselineSnapshot = JSON.parse(baselineCapture.toString("utf8"));
+  const snapshot = validateSnapshot(rawSnapshot, target);
+  const baselineSnapshot = validateSnapshot(rawBaselineSnapshot, target);
+  sameSnapshotState(snapshot, baselineSnapshot);
+  const preparedSnapshot = withReviewedInvitationRowsSha256(rawSnapshot, backup.invitationRowsSha256);
+  const preparedBaselineSnapshot = withReviewedInvitationRowsSha256(rawBaselineSnapshot, backup.invitationRowsSha256);
+  assert.equal(preparedSnapshot.invitationRowsSha256, preparedBaselineSnapshot.invitationRowsSha256, "REHEARSAL full and baseline captures disagree on invitationRowsSha256");
   phase = "cluster-start";
   await startCluster();
   const client = await connect();
   try {
     phase = "actual-schema-restore";
-    await restore(client, schema.toString("utf8"), snapshot);
+    await restore(client, schema.toString("utf8"), baselineSnapshot);
     const baselineDigest = schemaDigest();
-    await assertBaseline(client,snapshot,baselineDigest);
-    results.push("actual pinned staging schema/ACL restored; exact historical ledger inserted as data; no customer rows");
+    await assertBaseline(client, baselineSnapshot, baselineDigest);
+    results.push(`actual pinned ${target} schema/ACL restored; exact historical ledger inserted as data; no customer rows`);
+    phase = "baseline-refusals";
+    await baselineRefusals(client, preparedBaselineSnapshot, baselineSnapshot, baselineDigest, target, backup.project, localAttestationSha256);
+    phase = "baseline-bundle-success";
+    await applyBaselineBundle(client, preparedBaselineSnapshot, baselineSnapshot, target, backup.project, localAttestationSha256);
+    const featureSnapshot = await captureLocalSnapshot(client, target);
+    const featureBaselineDigest = schemaDigest();
+    const bundle = buildAtomicBundle({ target, snapshot: featureSnapshot, backupSha256: localAttestationSha256 });
+    results.push(`fresh local ledger/table catalog captured after the ${baselineMigrations(target).length}-file baseline before immutable feature bundle generation`);
     phase = "fingerprint-parity";
     await fingerprintParity(client);
     phase = "attestation-refusals";
-    for (const [project,backup] of [["",""],[TARGETS.production,LOCAL_BACKUP_SHA],[TARGETS.staging,"0".repeat(64)]]) {
-      await attest(client,project,backup);
+    const wrongProject = target === "staging" ? TARGETS.production : TARGETS.staging;
+    for (const [project,attestedBackup] of [["",""],[wrongProject,localAttestationSha256],[backup.project,"0".repeat(64)]]) {
+      await attest(client,project,attestedBackup);
       await expectRefusal(client,bundle.sql,"Root target/backup attestation missing or wrong");
-      await assertBaseline(client,snapshot,baselineDigest);
+      await assertBaseline(client,featureSnapshot,featureBaselineDigest);
     }
     results.push("missing/wrong target and backup refused before DDL");
-    await attest(client);
+    await attest(client,backup.project,localAttestationSha256);
     phase = "ledger-drift-refusal";
-    const row = snapshot.ledger[0];
+    const row = featureSnapshot.ledger[0];
     try {
       await query(client,"update supabase_migrations.schema_migrations set statements=$1::text[] where version=$2",[[...(row.statements ?? []),"-- local rehearsal drift"],row.version]);
       await expectRefusal(client,bundle.sql,"Exact historical migration ledger changed");
     } finally {
       await query(client,"update supabase_migrations.schema_migrations set statements=$1::text[] where version=$2",[row.statements,row.version]);
     }
-    await assertBaseline(client,snapshot,baselineDigest);
+    await assertBaseline(client,featureSnapshot,featureBaselineDigest);
     results.push("same-name historical statement drift refused without schema or ledger additions");
     phase = "mid-bundle-rollback";
-    await midBundleRollback(client,bundle,snapshot,baselineDigest);
+    await midBundleRollback(client,bundle,featureSnapshot,featureBaselineDigest);
     phase = "exact-bundle-success";
     await query(client,bundle.sql);
     const installed = await query(client,"select version,name,statements from supabase_migrations.schema_migrations order by version");
-    assert.deepEqual(ledgerFingerprints(installed.rows),ledgerFingerprints([...snapshot.ledger,...reviewedMigrations()]));
+    assert.deepEqual(ledgerFingerprints(installed.rows),ledgerFingerprints([...featureSnapshot.ledger,...reviewedMigrations()]));
     const installedDigest = schemaDigest();
     results.push("exact unmodified ten-migration bundle committed with all generated postconditions and exact ledger preservation");
     phase = "policy-probes";
     await policyProbes(client);
     assert.equal(schemaDigest(),installedDigest,"REHEARSAL probe schema changes did not roll back");
-    console.log(JSON.stringify({ status:"passed",target:"local-disposable-postgresql-17",sourceProject:TARGETS.staging,bundleSha256:bundle.plan.bundleSha256,results,
+    phase = "compact-historical-json-parity";
+    await assertHistoricalStatementArrayParity(client, target, [
+      { label: "pre-baseline historical ledger", rows: baselineSnapshot.ledger },
+      { label: "pre-feature historical ledger", rows: featureSnapshot.ledger },
+    ]);
+    console.log(JSON.stringify({ status:"passed",target:"local-disposable-postgresql-17",sourceProject:backup.project,bundleSha256:bundle.plan.bundleSha256,results,
       limits:["Synthetic auth functions and empty business data; no real sessions, Storage HTTP, providers, app browser or cloud transport were exercised.","The generated session attestations are local test values, not production backup/identity evidence."] },null,2));
   } finally { await close(client); }
 }

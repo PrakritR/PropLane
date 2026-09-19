@@ -634,7 +634,7 @@ type CatalogRequestIdentity = { viewerId: string; workspaceId: string | null; ge
 type CatalogScope =
   | { kind: "unresolved" | "normal" | "denied" }
   | { kind: "private"; workspaceId: string; listings: MockProperty[] };
-let catalogScope: CatalogScope = { kind: portalSessionViewerId() ? "unresolved" : "normal" };
+let catalogScope: CatalogScope = { kind: isBrowser() && portalSessionViewerId() ? "unresolved" : "normal" };
 const PROPERTY_CATALOG_SCOPE_EVENT = "proplane-property-catalog-scope";
 
 function publicCatalogRequestIdentity(): CatalogRequestIdentity {
