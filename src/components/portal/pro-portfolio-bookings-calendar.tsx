@@ -123,7 +123,7 @@ function dominantSourceForDay(
   dayBookings: PropertyBookingEntry[],
 ): PropertyBookingEntry["source"] | null {
   if (dayBookings.length === 0) return null;
-  for (const source of ["proplane", "airbnb", "hold", "block"] as const) {
+  for (const source of ["proplane", "airbnb", "booking_com", "hold", "block"] as const) {
     if (dayBookings.some((b) => bookingVisualSource(b) === source)) return source;
   }
   return null;
@@ -184,7 +184,7 @@ function DayBookingCell({
         <div className="mt-1 min-h-0 flex-1 space-y-0.5 overflow-hidden">
           <p className="truncate text-[10px] font-semibold leading-tight">
             {preview.source === "airbnb" || preview.source === "booking_com"
-              ? bookingGuestShortLabel(preview.summary, 14)
+              ? bookingGuestShortLabel(preview.summary, 14, preview.source)
               : preview.summary}
           </p>
           <p className="truncate text-[9px] opacity-80">
@@ -256,7 +256,7 @@ function YearMonthMiniGrid({
 function DayViewStayCard({ booking }: { booking: PropertyBookingEntry }) {
   const name =
     booking.source === "airbnb" || booking.source === "booking_com"
-      ? bookingGuestLabel(booking.summary)
+      ? bookingGuestLabel(booking.summary, booking.source)
       : booking.summary;
   return (
     <li

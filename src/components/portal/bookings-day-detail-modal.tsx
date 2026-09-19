@@ -44,7 +44,7 @@ export function BookingsDayDetailModal({
           {entries.map((entry, index) => {
             const name =
               entry.source === "airbnb" || entry.source === "booking_com"
-                ? bookingGuestLabel(entry.summary)
+                ? bookingGuestLabel(entry.summary, entry.source)
                 : entry.summary;
             const isBlock = entry.source === "block" && Boolean(entry.blockId);
             return (

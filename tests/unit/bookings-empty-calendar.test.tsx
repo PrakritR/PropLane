@@ -18,4 +18,9 @@ describe("Bookings empty calendar", () => {
     expect(calendar).toContain("if (fetchPropertyIds.length === 0)");
     expect(calendar).toContain("setAirbnbEntries([])");
   });
+
+  it("ranks Booking.com imports with other channel stays on the year grid", () => {
+    const calendar = src("src/components/portal/pro-portfolio-bookings-calendar.tsx");
+    expect(calendar).toContain('["proplane", "airbnb", "booking_com", "hold", "block"]');
+  });
 });

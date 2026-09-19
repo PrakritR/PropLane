@@ -20,7 +20,7 @@ import { bookingEntriesForDayKey } from "@/lib/channel-calendar/property-booking
 
 function guestName(entry: PropertyBookingEntry): string {
   return entry.source === "airbnb" || entry.source === "booking_com"
-    ? bookingGuestLabel(entry.summary)
+    ? bookingGuestLabel(entry.summary, entry.source)
     : entry.summary;
 }
 
