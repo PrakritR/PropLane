@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Inbox ownership correction 1 - source handoff</title>
+<style>
+  body{max-width:980px;margin:40px auto;padding:0 24px;font:16px/1.58 system-ui;color:#17212b}
+  h1,h2{line-height:1.2}code{background:#eef1f5;padding:2px 5px;overflow-wrap:anywhere}
+  table{width:100%;border-collapse:collapse}th,td{border:1px solid #cbd3dc;padding:9px;text-align:left;vertical-align:top}
+  .ok{background:#eef9f1;border-left:4px solid #238636;padding:14px}.pending{background:#fff5e6;border-left:4px solid #d97706;padding:14px}
+  li{margin:7px 0}
+</style>
+<body>
+<h1>Inbox ownership correction 1</h1>
+<p>Source execution handoff for <code>docs/plans/2026-09-19-inbox-hydration-fresh-review.html</code>. Worktree: <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code>. Supplied correction start: <code>a46b686b1</code>, original plan base: <code>480929fa3</code>. The shared worktree HEAD advanced externally to <code>4abac0f67558caec56b39fb32b21fe6839d47d27</code> during this source session for the separate property lane. This session performed no Git mutation.</p>
+
+<p class="ok"><strong>Source result:</strong> resident, manager, and vendor inbox panels now bind published rows to the current viewer before paint and bind delayed explicit operations to viewer generation, mount, and authenticated cache ownership. A ready A to ready B transition cannot retain A rows or manager readiness. A late A failure or AI draft completion cannot write or roll back B, including A-B-A.</p>
+
+<h2>Correction decisions</h2>
+<ul>
+  <li>Each panel derives a render-time viewer key. A key transition immediately replaces the prior presentation with only a cache proven to belong to the intended viewer, or an empty presentation when ownership is unresolved. Manager <code>inboxSynced</code> resets on every real viewer-key transition.</li>
+  <li>Each delayed action captures an ownership token containing viewer key and generation. Completion is accepted only while the panel is mounted, the generation is current, and <code>portalSessionViewerId()</code> still matches.</li>
+  <li>Resident, manager, and vendor read/unread failure paths reload the current authorized cache and revert only the affected unread field when it still equals the optimistic value. They preserve newer messages, preview changes, and sibling rows instead of restoring a captured whole array.</li>
+  <li>Resident and vendor reply rollback and post-send persistence are ownership guarded. A response from an old viewer can no longer change local presentation, upsert into the current viewer cache, or launch a current-viewer refresh.</li>
+  <li>Manager AI draft completion derives from the current authorized cache immediately before applying the draft. It drops stale viewer completions, checks the explicit upsert result, rolls back only its own draft fields on failure, preserves current row data, and shows <q>Could not save draft reply.</q></li>
+  <li>The existing <code>resident-communication.tsx</code> parent correction remains intact: its cache listener is scope filtered and viewer checked, its initial membership remains readiness gated, and it does not stage the Assistant placeholder. No additional parent edit was needed in this correction.</li>
+</ul>
+
+<h2>Changed source and behavioral coverage</h2>
+<table>
+  <tr><th>File</th><th>Correction</th></tr>
+  <tr><td><code>src/components/portal/resident-inbox-panel.tsx</code></td><td>Viewer-owned presentation, operation generation guard, field-level read rollback, and ownership-safe reply rollback/persistence.</td></tr>
+  <tr><td><code>src/components/portal/pro-inbox.tsx</code></td><td>Viewer-owned presentation and readiness, field-level read rollback, viewer-scoped draft bookkeeping, current-cache AI draft application, explicit upsert failure handling.</td></tr>
+  <tr><td><code>src/components/portal/vendor-inbox-panel.tsx</code></td><td>Viewer-owned presentation, operation generation guard, field-level read rollback, and ownership-safe reply rollback/persistence.</td></tr>
+  <tr><td><code>tests/unit/resident-inbox-hydration-read-only.test.tsx</code></td><td>Real-storage, real-panel matrix for resident, manager, and vendor: pending/failed B hides A, B cache events are accepted, A-B-A rejects late A, same-viewer failed read preserves concurrent event fields and rows, and delayed A read failure cannot roll B back.</td></tr>
+  <tr><td><code>tests/unit/manager-inbox-ai-draft.test.tsx</code></td><td>Failed AI upsert rollback/error and delayed A draft completion after switching to B.</td></tr>
+  <tr><td><code>tests/unit/manager-inbox-search.test.tsx</code></td><td>Harness now supplies the status loader explicitly, preventing incidental real fetch/session behavior.</td></tr>
+  <tr><td><code>tests/e2e/conversation-identity.spec.ts</code></td><td>Destructive-write observer is asserted both after initial settled membership and at the end of resident and manager browser flows.</td></tr>
+</table>
+
+<h2>Static inspection</h2>
+<ul>
+  <li><code>git diff --check</code> over the correction component and test files exited 0.</li>
+  <li>Source search confirms no passive <code>persistInbox</code> call or legacy persistence ref remains in the three panels.</li>
+  <li>The remaining whole-array failure rollbacks are pre-existing archive/restore action paths, outside the fresh review's delayed read and AI draft findings. This correction did not broaden into unrelated action refactoring.</li>
+</ul>
+
+<h2>Validation handoff</h2>
+<p class="pending"><strong>No runtime validation was run here.</strong> Root remains the only owner of Node, unit and E2E execution, typecheck, lint, build, browser, server, graph, database, remote CI, and Git operations. The source changes require runtime confirmation before approval.</p>
+<ol>
+  <li>Run the focused real-storage ownership test and manager AI draft test first. Confirm all resident, manager, and vendor parameterized cases execute, including failed POST responses and A-B-A.</li>
+  <li>Run manager search, cross-inbox reply integrity, resident refused-send, vendor conversation, initial readiness, and the other focused inbox suites listed in the prior execution handoff.</li>
+  <li>Run the real conversation-identity browser path now that the resident-read RPC lane is independently approved. Confirm zero observed <code>deleteIds</code> through final flow completion, source-aware acknowledgement, history/deep links, unread filtering, and mobile draft behavior.</li>
+  <li>Obtain a fresh Astra source and runtime review after root records exact commands and exit codes.</li>
+</ol>
+
+<h2>Delegation and limits</h2>
+<p>The required Terra and Luna delegation was attempted before implementation, but the shared collaboration tree rejected the spawn because its thread limit was already occupied by the root and another active correction lane. No model was silently substituted. The Sol execution manager completed the bounded source integration directly.</p>
+<p>Only source reads, source edits, read-only Git inspection, and this HTML handoff were performed. No Node command, test, build, browser, localhost server, install, graph command, database action, remote CI action, or Git mutation was performed. Property metadata and keepalive/auth-refresh files were excluded.</p>
+</body>
+</html>

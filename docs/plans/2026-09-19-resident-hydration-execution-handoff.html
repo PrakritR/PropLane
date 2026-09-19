@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Inbox hydration persistence correction - source handoff</title>
+<style>
+  body{max-width:980px;margin:40px auto;padding:0 24px;font:16px/1.55 system-ui;color:#17212b}
+  h1,h2{line-height:1.2} code{background:#eef1f5;padding:2px 5px;overflow-wrap:anywhere}
+  table{width:100%;border-collapse:collapse}th,td{border:1px solid #ccd3db;padding:9px;text-align:left;vertical-align:top}
+  .callout{background:#eef7ff;border-left:4px solid #2563eb;padding:14px}.pending{background:#fff5e6;border-left:4px solid #d97706;padding:14px}
+</style>
+<body>
+<h1>Inbox hydration persistence correction</h1>
+<p>Source execution handoff for the plan <code>docs/plans/2026-09-19-resident-hydration-destructive-persistence-plan.html</code>. Worktree: <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code>. Starting HEAD supplied by the plan: <code>480929fa3</code>.</p>
+
+<p class="callout"><strong>Result:</strong> resident, manager, and vendor inbox hydration and cache observation no longer own a passive full-snapshot network writer. A server read, mount, viewer transition, or cache event cannot infer missing ids and call <code>deleteIds</code>. Explicit user and product mutations remain explicit writes.</p>
+
+<h2>Implementation decisions</h2>
+<ul>
+  <li>Each inbox panel captures a hydration generation and intended session viewer. Accepted completions must still be mounted, belong to that generation and viewer, pass the shared initial-viewer observer, and match the authenticated cache viewer.</li>
+  <li>Hydration uses <code>syncPersistedInboxFromServerWithStatus</code> with the existing bounded stale retry. Failed, malformed, or stale reads preserve the usable presentation. A successful empty read is accepted as an empty presentation and remains read-only.</li>
+  <li>An accepted completion reads the current authorized cache after the loader commits instead of applying its captured response array. Scope-filtered cache events also verify viewer ownership before reading.</li>
+  <li>The resident parent no longer queues a captured full array to stage an Assistant placeholder. The existing pure pinned presentation helper supplies the placeholder without writing shared storage.</li>
+  <li>Manager and vendor read/unread actions now stage, upsert, and roll back explicitly. Manager AI-draft generation also upserts the changed row explicitly because it previously relied on the removed passive writer.</li>
+  <li>Archive, restore, permanent delete, accepted reply/compose, refused-send rollback, and source-aware read paths retain their dedicated mutation APIs.</li>
+</ul>
+
+<h2>Changed source and coverage</h2>
+<table>
+  <tr><th>File</th><th>Purpose</th></tr>
+  <tr><td><code>src/components/portal/resident-inbox-panel.tsx</code></td><td>Read-only, viewer-scoped status hydration; removed passive persistence.</td></tr>
+  <tr><td><code>src/components/portal/resident-communication.tsx</code></td><td>Removed queued whole-array Assistant staging; scoped parent cache listener.</td></tr>
+  <tr><td><code>src/components/portal/pro-inbox.tsx</code></td><td>Applied the same invariant to manager inbox; explicit read and AI-draft writes.</td></tr>
+  <tr><td><code>src/components/portal/vendor-inbox-panel.tsx</code></td><td>Applied the same invariant to vendor inbox; explicit read writes.</td></tr>
+  <tr><td><code>tests/unit/resident-inbox-hydration-read-only.test.tsx</code></td><td>Real storage and real panel coverage for cache events, A-B-A, late old completion, unmount, successful empty, malformed/error snapshots, no ambient POST, and explicit permanent delete.</td></tr>
+  <tr><td><code>tests/e2e/conversation-identity.spec.ts</code></td><td>Passively records resident and manager <code>deleteIds</code> before user action. Destructive traffic is allowed through so the assertion cannot hide data loss by blocking it.</td></tr>
+  <tr><td><code>tests/unit/manager-inbox-search.test.tsx</code></td><td>Read acknowledgement now asserts the explicit upsert rather than the removed passive effect.</td></tr>
+  <tr><td><code>tests/unit/manager-inbox-ai-draft.test.tsx</code></td><td>Status/viewer-aware harness and explicit AI-draft upsert event.</td></tr>
+  <tr><td><code>tests/unit/cross-inbox-reply-integrity.test.tsx</code></td><td>Status/viewer-aware manager and vendor harness.</td></tr>
+</table>
+
+<h2>Delegation and review notes</h2>
+<p>GPT-5.6 Terra owned the production component edits in two non-overlapping passes. A requested GPT-5.6 Luna test delegate could not start because the shared agent tree was at its thread limit, so the execution manager authored and inspected the focused test and E2E changes directly. No shared abstraction was required; the panels reuse the existing <code>communication-initial-load</code> observer and retry helpers.</p>
+
+<h2>Validation ownership</h2>
+<p class="pending"><strong>No executable validation was run in this source session.</strong> Per the task split, the root owner retains all Node, test, lint, build, browser, server, graph, database, and Git operations. This handoff makes no runtime-pass claim.</p>
+<p>The validation owner should run the focused resident hydration test first, then the existing manager search, manager AI draft, cross-inbox reply, resident refused-send, vendor conversation, initial readiness, and conversation-identity suites. The browser check must verify fixture membership before a click, the source-aware read acknowledgement, history and deep links, unread filtering, and the mobile draft path. A fresh Astra review should inspect this handoff and the complete diff before release work.</p>
+
+<h2>Residual review points</h2>
+<ul>
+  <li>Confirm the test environment's mocked session viewer matches the panel viewer in every older component harness.</li>
+  <li>Confirm successful empty hydration removes fallback presentation while malformed and failed reads retain a usable cache snapshot.</li>
+  <li>Confirm explicit permanent delete still sends <code>deleteIds</code>, and read/unread, archive/restore, accepted send, refused send, and AI-draft paths each write only through their dedicated helper.</li>
+  <li>Confirm no task-owned localhost server remains after browser validation.</li>
+</ul>
+</body>
+</html>
