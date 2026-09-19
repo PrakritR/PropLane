@@ -1576,39 +1576,33 @@ export function ManagerResidents({
         return;
       }
 
-      if (res.manuallyAdded && viaEmail && !customized) {
+      if (res.manuallyAdded && !customized && (viaEmail || viaSms || viaInbox)) {
         const response = await fetch("/api/portal/onboard-existing-resident", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ applicationId: res.axisId, sendWelcomeEmail: true }),
+          body: JSON.stringify({
+            applicationId: res.axisId,
+            sendWelcomeEmail: true,
+            viaEmail,
+            viaSms,
+            viaInbox,
+          }),
         });
         const data = (await response.json()) as { ok?: boolean; error?: string; mailtoHref?: string; welcomeEmailSent?: boolean };
         if (response.ok && data.ok) {
-          if (viaSms) {
-            const sms = await fetch("/api/portal/send-inbox-message", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              credentials: "include",
-              body: JSON.stringify({
-                fromName: managerEmail ?? "Property Manager",
-                toEmails: [res.email],
-                subject,
-                text: body,
-                deliverToPortalInbox: viaInbox,
-                deliverViaEmail: false,
-                deliverViaSms: true,
-              }),
-            });
-            const smsData = (await sms.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-            if (!sms.ok || !smsData.ok) {
-              toast(smsData.error ?? "Portal setup emailed. The text could not be sent.");
-              return;
-            }
-            toast("Portal setup emailed and texted.");
-            return;
-          }
-          showToast("Portal setup email sent.");
+          const sent = [
+            viaEmail ? "email" : null,
+            viaSms ? "SMS" : null,
+            viaInbox ? "PropLane inbox" : null,
+          ].filter(Boolean);
+          toast(
+            sent.length === 0
+              ? "Account setup message sent."
+              : sent.length === 1
+                ? `Account setup message sent via ${sent[0]}.`
+                : `Account setup message sent via ${sent.slice(0, -1).join(", ")} and ${sent[sent.length - 1]}.`,
+          );
           return;
         }
         if (typeof data.mailtoHref === "string") {

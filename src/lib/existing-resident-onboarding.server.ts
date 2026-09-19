@@ -42,7 +42,12 @@ export async function runExistingResidentOnboarding(
   db: SupabaseClient,
   actor: ResidentWelcomeActor & { managerName?: string },
   row: DemoApplicantRow,
-  opts?: { sendWelcomeEmail?: boolean; preserveExistingLease?: boolean; skipLeaseWrite?: boolean },
+  opts?: {
+    sendWelcomeEmail?: boolean;
+    preserveExistingLease?: boolean;
+    skipLeaseWrite?: boolean;
+    channels?: { viaEmail?: boolean; viaSms?: boolean; viaInbox?: boolean };
+  },
 ): Promise<ExistingResidentOnboardingResult> {
   if (!row.manuallyAdded) {
     return { ok: false, status: 400, error: "Not a manager-added existing resident." };
@@ -163,6 +168,7 @@ export async function runExistingResidentOnboarding(
           row.manualResidentDetails?.phone?.trim() ||
           (typeof row.application?.phone === "string" ? row.application.phone.trim() : "") ||
           undefined,
+        channels: opts?.channels,
       });
       if (welcome.ok) {
         welcomeEmailSent = !welcome.skipped;

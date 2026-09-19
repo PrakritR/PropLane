@@ -78,6 +78,14 @@ describe("person-record-actions", () => {
     expect(setupModal).toContain("defaultViaEmail");
     expect(setupModal).toContain("defaultViaSms");
     expect(setupModal).not.toContain("defaultViaSms={false}");
+    const onboardBlock = src.slice(
+      src.indexOf("onboard-existing-resident"),
+      src.indexOf('if (opts?.channels && (viaSms || viaEmail || viaInbox))'),
+    );
+    expect(onboardBlock).toContain("viaEmail");
+    expect(onboardBlock).toContain("viaSms");
+    expect(onboardBlock).toContain("viaInbox");
+    expect(onboardBlock).not.toContain("send-inbox-message");
   });
 
   it("Needs you lists setup and the stage reminder when those apply", () => {

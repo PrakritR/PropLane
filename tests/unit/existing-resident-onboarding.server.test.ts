@@ -170,8 +170,43 @@ describe("runExistingResidentOnboarding", () => {
     expect(result.welcomeEmailSent).toBe(true);
     expect(db._upsert).not.toHaveBeenCalled();
     expect(deliverExistingResidentWelcome).toHaveBeenCalled();
-    const welcomeArgs = deliverExistingResidentWelcome.mock.calls[0]?.[2] as { residentPhone?: string };
+    const welcomeArgs = deliverExistingResidentWelcome.mock.calls[0]?.[2] as {
+      residentPhone?: string;
+      channels?: { viaEmail?: boolean; viaSms?: boolean; viaInbox?: boolean };
+    };
     expect(welcomeArgs?.residentPhone).toBe("+12065550199");
+  });
+
+  it("forwards Send setup channels into the welcome send", async () => {
+    const db = mockDb();
+    const row: DemoApplicantRow = {
+      id: "PROPLANE-TEST04",
+      name: "Riley Sendtest",
+      email: "riley.onboard@test.proplane.local",
+      property: "Ballard House",
+      stage: "Active",
+      bucket: "approved",
+      detail: "",
+      manuallyAdded: true,
+      manualResidentDetails: { phone: "+12065550199" },
+    };
+
+    const result = await runExistingResidentOnboarding(
+      db as never,
+      { userId: "mgr-1", email: "manager@test.proplane.local", managerName: "Alex Manager" },
+      row,
+      {
+        sendWelcomeEmail: true,
+        skipLeaseWrite: true,
+        channels: { viaEmail: true, viaSms: false, viaInbox: true },
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    const welcomeArgs = deliverExistingResidentWelcome.mock.calls[0]?.[2] as {
+      channels?: { viaEmail?: boolean; viaSms?: boolean; viaInbox?: boolean };
+    };
+    expect(welcomeArgs?.channels).toEqual({ viaEmail: true, viaSms: false, viaInbox: true });
   });
 
   it("keeps the resident and lease when the welcome notice fails", async () => {

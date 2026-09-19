@@ -335,7 +335,14 @@ export async function deliverResidentWelcome(
 export async function deliverExistingResidentWelcome(
   db: SupabaseClient,
   actor: ResidentWelcomeActor,
-  input: { to: string; residentName?: string; axisId: string; propertyLabel?: string; residentPhone?: string },
+  input: {
+    to: string;
+    residentName?: string;
+    axisId: string;
+    propertyLabel?: string;
+    residentPhone?: string;
+    channels?: { viaEmail?: boolean; viaSms?: boolean; viaInbox?: boolean };
+  },
 ): Promise<DeliverResidentWelcomeResult> {
   const to = normalizeEmail(input.to);
   const residentName = input.residentName?.trim() ?? "";
@@ -344,6 +351,9 @@ export async function deliverExistingResidentWelcome(
 
   const senderEmail = normalizeEmail(actor.email);
   const skipExternalEmail = skipExternalWelcomeEmail(to, senderEmail);
+  const viaEmail = input.channels?.viaEmail !== false;
+  const viaSms = input.channels?.viaSms !== false;
+  const viaInbox = input.channels?.viaInbox !== false;
 
   const ensured = await ensureResidentSetupTokenForApplication(db, axisId, {
     managerUserId: actor.userId,
@@ -378,7 +388,7 @@ export async function deliverExistingResidentWelcome(
   });
 
   let payloadId: string | null = null;
-  if (!skipExternalEmail) {
+  if (viaEmail && !skipExternalEmail) {
     const apiKey = process.env.RESEND_API_KEY?.trim();
     if (!apiKey) {
       return {
@@ -436,7 +446,7 @@ export async function deliverExistingResidentWelcome(
       { onConflict: "id" },
     );
 
-    if (!skipExternalEmail && to !== senderLower) {
+    if (viaInbox && !skipExternalEmail && to !== senderLower) {
       const residentThreadId = `welcome_existing_inbox_${ts}_${rand}`;
       await db.from("portal_inbox_thread_records").upsert(
         {
@@ -468,7 +478,7 @@ export async function deliverExistingResidentWelcome(
 
   try {
     const { data: managerProfile } = await db.from("profiles").select("sms_from_number, full_name").eq("id", actor.userId).maybeSingle();
-    if (!skipExternalEmail) {
+    if (viaSms && !skipExternalEmail) {
       const { data: residentProfile } = await db.from("profiles").select("phone").eq("email", to).maybeSingle();
       const residentPhone = input.residentPhone?.trim() || String(residentProfile?.phone ?? "").trim();
       if (residentPhone) {
