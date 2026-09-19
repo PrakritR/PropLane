@@ -45,7 +45,7 @@ export function personRecordReminderLabel(kind: PersonRecordReminderKind | null)
 export function personRecordListActions(input: PersonRecordActionsInput): PersonRecordListAction[] {
   const actions: PersonRecordListAction[] = [];
   if (!input.hasPortalUser) {
-    actions.push({ id: "setup", label: "Message to setup account" });
+    actions.push({ id: "setup", label: "Send setup" });
   }
   const reminderLabel = personRecordReminderLabel(personRecordReminderKind(input));
   if (reminderLabel) {
@@ -68,7 +68,7 @@ export function personRecordNeedsYouItems(input: PersonRecordActionsInput): Pers
   if (!input.hasPortalUser) {
     items.push({
       id: "setup",
-      title: "Message to setup account",
+      title: "Send setup",
       detail: "They do not have a PropLane login yet",
     });
   }

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   personRecordListActions,
@@ -15,12 +16,12 @@ describe("person-record-actions", () => {
     expect(actions.map((a) => a.id)).toEqual(["edit", "delete"]);
   });
 
-  it("includes Message to setup account when there is no portal user", () => {
+  it("includes Send setup when there is no portal user", () => {
     const actions = personRecordListActions({
       kind: "vendor",
       hasPortalUser: false,
     });
-    expect(actions[0]).toEqual({ id: "setup", label: "Message to setup account" });
+    expect(actions[0]).toEqual({ id: "setup", label: "Send setup" });
   });
 
   it("picks application over lease over tour for the one reminder", () => {
@@ -66,6 +67,17 @@ describe("person-record-actions", () => {
       kind: "resident",
       hasPortalUser: true,
     })).toEqual([]);
+  });
+
+  it("resident Send setup is hidden after login and defaults SMS, email, and PropLane", () => {
+    const src = readFileSync("src/components/portal/pro-residents.tsx", "utf8");
+    expect(src).toContain('title="Send setup"');
+    expect(src).toContain("selectedHasPortalAccount ? null");
+    expect(src).toContain("singleListSelectedNeedsSetup");
+    const setupModal = src.slice(src.indexOf('title="Send setup"'), src.indexOf('confirmLabel="Send setup"'));
+    expect(setupModal).toContain("defaultViaEmail");
+    expect(setupModal).toContain("defaultViaSms");
+    expect(setupModal).not.toContain("defaultViaSms={false}");
   });
 
   it("Needs you lists setup and the stage reminder when those apply", () => {

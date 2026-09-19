@@ -179,7 +179,7 @@ export function ResidentOverviewPanel({
   leaseRows: LeasePipelineRow[];
   services: ResidentOverviewServiceItem[];
   links: ResidentOverviewLinks;
-  extraNeedsYou?: Array<{ id: string; title: string; detail: string; href?: string }>;
+  extraNeedsYou?: Array<{ id: string; title: string; detail: string; href?: string; onClick?: () => void }>;
 }) {
   const overdue = ledgerBalance(ledgerRows, "overdue");
   const pending = ledgerBalance(ledgerRows, "pending");
@@ -207,7 +207,7 @@ export function ResidentOverviewPanel({
 
   const waitingServices = services.filter((item) => item.bucket === "pending");
 
-  const needsYou: Array<{ id: string; title: string; detail: string; href?: string }> = [...extraNeedsYou];
+  const needsYou: Array<{ id: string; title: string; detail: string; href?: string; onClick?: () => void }> = [...extraNeedsYou];
   if (overdueCount > 0) {
     needsYou.push({
       id: "overdue",
@@ -287,7 +287,7 @@ export function ResidentOverviewPanel({
                     <span className="block truncate text-[13.5px] font-medium text-foreground">{row.title}</span>
                     <span className="block truncate text-[12px] text-muted">{row.detail}</span>
                   </span>
-                  {row.href ? <ArrowRight className="size-4 shrink-0 text-muted" aria-hidden /> : null}
+                  {row.href || row.onClick ? <ArrowRight className="size-4 shrink-0 text-muted" aria-hidden /> : null}
                 </>
               );
               const className = "flex items-center gap-3 px-4 py-2.5";
@@ -297,6 +297,14 @@ export function ResidentOverviewPanel({
                     <Link href={row.href} className={cn(className, "transition hover:bg-accent/40")}>
                       {inner}
                     </Link>
+                  ) : row.onClick ? (
+                    <button
+                      type="button"
+                      className={cn(className, "w-full text-left transition hover:bg-accent/40")}
+                      onClick={row.onClick}
+                    >
+                      {inner}
+                    </button>
                   ) : (
                     <div className={className}>{inner}</div>
                   )}

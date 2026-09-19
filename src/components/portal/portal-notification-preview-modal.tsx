@@ -180,7 +180,9 @@ export function PortalNotificationPreviewModal({
       // state could start carrying "sms", and the dropdown filters that only for
       // DISPLAY — so an untouched control still submitted viaSms: true.
       setSendVia(
-        portalMessageSelectionFromDeliverVia(saved, effectiveSmsAvailable),
+        portalMessageSelectionFromDeliverVia(saved, effectiveSmsAvailable).filter(
+          (value) => value !== "email" || emailAvailable,
+        ),
       );
       setScheduleLater(initialScheduleLater);
       setSendAt(defaultPortalMessageScheduleAt());

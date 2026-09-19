@@ -1023,6 +1023,13 @@ export function ManagerResidents({
     [residentDirectoryRows, singleListSelectedId],
   );
 
+  const singleListSelectedNeedsSetup = useMemo(() => {
+    void hcTick;
+    if (!singleListSelectedResident) return false;
+    const row = readManagerApplicationRows().find((app) => app.id === singleListSelectedResident.id);
+    return !row?.residentUserId;
+  }, [hcTick, singleListSelectedResident]);
+
   // The completion reminder is per-application (it carries that application's
   // own resume link), so it is offered on a single ticked row — the same shape
   // as Edit and Email setup beside it — rather than fanning out over a
@@ -1171,6 +1178,8 @@ export function ManagerResidents({
     if (!selected) return null;
     return readManagerApplicationRows().find((row) => row.id === selected.id) ?? null;
   }, [selected, hcTick]);
+
+  const selectedHasPortalAccount = Boolean(selectedApplicationRow?.residentUserId);
 
   const selectedApplicationGroup = useMemo(() => {
     if (!selectedApplicationRow) return null;
@@ -1506,7 +1515,7 @@ export function ManagerResidents({
   async function sendResidentAccountEmail(
     res: ActiveResident,
     opts?: {
-      channels?: { viaEmail?: boolean; viaSms?: boolean };
+      channels?: { viaInbox?: boolean; viaEmail?: boolean; viaSms?: boolean };
       draft?: { subject?: string; body?: string; scheduleAt?: string };
       quiet?: boolean;
     },
@@ -1536,8 +1545,9 @@ export function ManagerResidents({
             managerReachability,
           });
       const body = opts?.draft?.body?.trim() || defaultBody;
-      const viaEmail = opts?.channels?.viaEmail !== false;
-      const viaSms = opts?.channels?.viaSms === true;
+      const viaEmail = opts?.channels?.viaEmail !== false && Boolean(res.email.trim());
+      const viaSms = opts?.channels?.viaSms !== false;
+      const viaInbox = opts?.channels?.viaInbox !== false;
 
       const customized = Boolean(opts?.draft?.body?.trim() && opts.draft.body.trim() !== defaultBody.trim());
 
@@ -1585,7 +1595,7 @@ export function ManagerResidents({
                 toEmails: [res.email],
                 subject,
                 text: body,
-                deliverToPortalInbox: false,
+                deliverToPortalInbox: viaInbox,
                 deliverViaEmail: false,
                 deliverViaSms: true,
               }),
@@ -1616,7 +1626,7 @@ export function ManagerResidents({
         return;
       }
 
-      if (opts?.channels && (viaSms || viaEmail)) {
+      if (opts?.channels && (viaSms || viaEmail || viaInbox)) {
         const response = await fetch("/api/portal/send-inbox-message", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1626,7 +1636,7 @@ export function ManagerResidents({
             toEmails: [res.email],
             subject,
             text: body,
-            deliverToPortalInbox: true,
+            deliverToPortalInbox: viaInbox,
             deliverViaEmail: viaEmail,
             deliverViaSms: viaSms,
           }),
@@ -2946,7 +2956,7 @@ export function ManagerResidents({
                                   links={residentOverviewLinks}
                                   extraNeedsYou={personRecordNeedsYouItems({
                                     kind: "resident",
-                                    hasPortalUser: Boolean(selectedApplicationRow?.residentUserId),
+                                    hasPortalUser: selectedHasPortalAccount,
                                     applicationIncomplete: Boolean(
                                       selectedApplicationRow &&
                                         shouldOfferApplicationCompletionReminder(selectedApplicationRow),
@@ -2954,7 +2964,11 @@ export function ManagerResidents({
                                     leaseUnsigned: residentLeaseRows.some(
                                       (row) => row.bucket === "resident" || row.bucket === "manager",
                                     ),
-                                  })}
+                                  }).map((item) =>
+                                    item.id === "setup"
+                                      ? { ...item, onClick: () => openResidentEmailSetup(selected) }
+                                      : item,
+                                  )}
                                 />
                               </ResidentDetailTabPanel>
                             ) : resolvedDetailTab === "inspections" ? (
@@ -3552,12 +3566,14 @@ export function ManagerResidents({
               data-attr="resident-detail-edit"
               onClick={() => openEditResidentModal(selected.id)}
             />
+            {selectedHasPortalAccount ? null : (
             <PortalIconAction
               icon={Mail}
-              label="Message to setup account"
+              label="Send setup"
               data-attr="resident-detail-setup"
               onClick={() => openResidentEmailSetup(selected)}
             />
+            )}
           </PortalRecordActions>
           {residentDetailPanel}
         </PortalRecordDetailPage>
@@ -3677,18 +3693,19 @@ export function ManagerResidents({
           // accident went without ever being read back; the confirmation below
           // lists every resident it is about to destroy.
           <>
+            {singleListSelectedNeedsSetup && singleListSelectedResident ? (
             <Button
               type="button"
               variant="outline"
               className={PORTAL_BULK_BAR_BTN}
               data-attr="residents-bulk-email-setup"
-              disabled={!singleListSelectedResident}
               onClick={() => {
-                if (singleListSelectedResident) openResidentEmailSetup(singleListSelectedResident);
+                openResidentEmailSetup(singleListSelectedResident);
               }}
             >
-              Email setup
+              Send setup
             </Button>
+            ) : null}
             <Button
               type="button"
               variant="outline"
@@ -3959,7 +3976,7 @@ export function ManagerResidents({
 
       <PortalNotificationPreviewModal
         open={welcomePreviewFor !== null}
-        title="Email account setup · preview"
+        title="Send setup"
         onClose={() => setWelcomePreviewFor(null)}
         recipient={welcomePreviewFor?.email ?? ""}
         recipientPhone={
@@ -3972,6 +3989,7 @@ export function ManagerResidents({
         }
         subject={RESIDENT_WELCOME_EMAIL_SUBJECT}
         body={welcomePreviewContent}
+        emailAvailable={Boolean(welcomePreviewFor?.email?.trim())}
         smsAvailable={Boolean(
           welcomePreviewFor &&
             (() => {
@@ -3979,8 +3997,9 @@ export function ManagerResidents({
               return Boolean(row?.manualResidentDetails?.phone?.trim() || row?.application?.phone?.trim());
             })(),
         )}
-        defaultViaSms={false}
-        confirmLabel="Send message"
+        defaultViaEmail
+        defaultViaSms
+        confirmLabel="Send setup"
         confirmLabelWithoutMessage="Close without sending"
         confirmBusy={welcomePreviewFor !== null && welcomeEmailBusyForResident === welcomePreviewFor.id}
         confirmBusyLabel="Sending…"
