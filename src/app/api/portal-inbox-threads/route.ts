@@ -113,7 +113,7 @@ export async function GET(request: Request) {
     const records: (PortalInboxReadRecord & { houses?: { propertyId: string; label: string }[] })[] = communicationScope
       ? await filterVisibleInboxThreadRecords(ctx.db, communicationScope, fetched)
       : fetched;
-    let rows = records.map((record) => {
+    let rows: PersistedInboxThread[] = records.map((record) => {
       const row = (record.row_data && typeof record.row_data === "object" ? record.row_data : record) as Record<string, unknown>;
       return { ...normalizeInboxRow({ ...row, id: record.id, ownerUserId: record.owner_user_id, threadType: record.thread_type, ...(record.houses ? { houses: record.houses } : {}) }), readSources: [{ id: record.id, observation: portalInboxReadObservation(record), unread: row?.unread === true }], readSourcesComplete: true };
     });

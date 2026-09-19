@@ -729,6 +729,7 @@ async function loadProvenApplicantIdentityByConversation(
     if (samePair.length !== 1 || !conversationKey || !email || !hasExactWorkNumberTurn || (role !== "prospect" && role !== "applicant")) continue;
     const candidate = samePair[0]!;
     if (candidate.residentEmail?.trim().toLowerCase() !== email) continue;
+    if (candidate.tenancyStatus !== "resident" && candidate.tenancyStatus !== "applicant") continue;
     const existing = result.get(conversationKey);
     if (existing && existing.residentEmail !== email) {
       conflictedKeys.add(conversationKey);

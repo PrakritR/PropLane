@@ -74,7 +74,7 @@ async function getUserContext() {
   };
 }
 
-function normalizeRow(row: Record<string, unknown>, { sanitizeGeneratedHtml = false }: { sanitizeGeneratedHtml?: boolean } = {}) {
+function normalizeRow(row: Record<string, unknown>, { sanitizeGeneratedHtml = false }: { sanitizeGeneratedHtml?: boolean } = {}): Record<string, unknown> & { generatedHtml: unknown } {
   const generatedHtml =
     sanitizeGeneratedHtml && typeof row.generatedHtml === "string" ? sanitizeLeaseDocumentHtml(row.generatedHtml) : row.generatedHtml;
   return { ...row, generatedHtml };
