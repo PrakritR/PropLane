@@ -8,6 +8,12 @@ on:
     branches: [main, staging]
   pull_request:
   workflow_dispatch:
+    inputs:
+      unit_only:
+        description: "Run only the unit job"
+        required: false
+        type: boolean
+        default: false
   schedule:
     - cron: "0 6 * * *"
 
@@ -32,8 +38,26 @@ jobs:
           /usr/lib/postgresql/16/bin/initdb --version
           /usr/lib/postgresql/16/bin/pg_ctl --version
           openssl version
+      - name: Start isolated reconciliation PostgreSQL harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          HARNESS_DATA="$RUNNER_TEMP/reconciliation-pg"
+          mkdir -m 700 "$HARNESS_DATA"
+          /usr/lib/postgresql/16/bin/initdb --no-locale --encoding=UTF8 --auth=trust -U reconciliation "$HARNESS_DATA"
+          /usr/lib/postgresql/16/bin/pg_ctl -D "$HARNESS_DATA" -l "$RUNNER_TEMP/reconciliation-pg.log" -o "-p 5547 -h 127.0.0.1" -w start
+          echo "RELEASE_RECONCILIATION_DISPOSABLE_PG=1" >> "$GITHUB_ENV"
+          echo "RELEASE_RECONCILIATION_PG_URL=postgresql://reconciliation@127.0.0.1:5547/postgres" >> "$GITHUB_ENV"
       - run: npm run lockfile:verify
-      - run: npm run test:unit
+      - name: Run unit suite
+        run: npm run test:unit
+      - name: Stop isolated reconciliation PostgreSQL harness
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f "$RUNNER_TEMP/reconciliation-pg/postmaster.pid" ]]; then
+            /usr/lib/postgresql/16/bin/pg_ctl -D "$RUNNER_TEMP/reconciliation-pg" -m fast -w stop
+          fi
 
   # Every job below is INDEPENDENT on purpose. They used to chain off `unit`
   # (integration -> unit, e2e -> integration, check -> unit) to save CI minutes,
@@ -47,6 +71,7 @@ jobs:
   # so it reports on the others without ever cancelling one.
   integration:
     runs-on: ubuntu-latest
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.unit_only) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -67,6 +92,7 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.unit_only) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -134,7 +160,7 @@ jobs:
   e2e-full:
     runs-on: ubuntu-latest
     timeout-minutes: 50
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && !(github.event_name == 'workflow_dispatch' && inputs.unit_only) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -198,7 +224,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     needs: [unit, lint, build]
-    if: always()
+    if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.unit_only) }}
     steps:
       - name: Require every validation job to succeed
         env:
@@ -220,6 +246,7 @@ jobs:
   # reached `production` while every test signal was either green or cancelled.
   build:
     runs-on: ubuntu-latest
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.unit_only) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0

@@ -25,6 +25,7 @@ type WorkflowJob = {
   steps: WorkflowStep[];
 };
 const jobs = (parse(workflow) as { jobs: Record<string, WorkflowJob> }).jobs;
+const NORMAL_VALIDATION = "${{ !(github.event_name == 'workflow_dispatch' && inputs.unit_only) }}";
 const UPLOAD_ARTIFACT = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02";
 
 // Parse active YAML: comments cannot satisfy a gate, and all upload requirements
@@ -46,6 +47,44 @@ function jobTimeoutMinutes(name: string): number {
 }
 
 describe("Test workflow resource budget", () => {
+  it("permits the unit-only shortcut exclusively through an opt-in manual dispatch", () => {
+    const parsed = parse(workflow) as { on: Record<string, unknown> };
+    expect(parsed.on.push).toEqual({ branches: ["main", "staging"] });
+    expect(parsed.on).toHaveProperty("pull_request");
+    expect(parsed.on.workflow_dispatch).toEqual({ inputs: { unit_only: {
+      description: "Run only the unit job", required: false, type: "boolean", default: false,
+    } } });
+    // Exact parsed conditions prevent a similarly named push/PR input or a
+    // comment from disabling validation. Every bypass requires dispatch AND
+    // the boolean input; false/default keeps all existing checks active.
+    for (const name of ["integration", "lint", "build"]) expect(jobConfig(name).if).toBe(NORMAL_VALIDATION);
+    expect(jobConfig("check").if).toBe("${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.unit_only) }}");
+    const unit = jobConfig("unit");
+    expect(unit.if).toBeUndefined();
+    const commands = unit.steps.filter(step => step.run?.includes("npm run test:unit"));
+    expect(commands).toHaveLength(1);
+    expect(commands[0].run).toBe("npm run test:unit");
+    expect(commands[0].if).toBeUndefined();
+    expect(unit.steps.some(step => step.run?.includes("vitest run"))).toBe(false);
+  });
+
+  it("always runs the new database guards in an owned loopback cluster under the gated unit job", () => {
+    const unit = jobConfig("unit");
+    const start = unit.steps.find(step => step.name === "Start isolated reconciliation PostgreSQL harness");
+    const stop = unit.steps.find(step => step.name === "Stop isolated reconciliation PostgreSQL harness");
+    expect(start?.if).toBeUndefined();
+    expect(start?.run).toContain("--auth=trust -U reconciliation");
+    expect(start?.run).toContain('-o "-p 5547 -h 127.0.0.1"');
+    expect(start?.run).toContain('"RELEASE_RECONCILIATION_DISPOSABLE_PG=1" >> "$GITHUB_ENV"');
+    expect(start?.run).toContain("postgresql://reconciliation@127.0.0.1:5547/postgres");
+    expect(stop?.if).toBe("always()");
+    expect(stop?.run).toContain('"$RUNNER_TEMP/reconciliation-pg/postmaster.pid"');
+    expect(stop?.run).toContain('-D "$RUNNER_TEMP/reconciliation-pg" -m fast -w stop');
+    expect(stop?.run).not.toContain("|| true");
+    expect(JSON.stringify(unit)).not.toContain("secrets.");
+    expect(jobConfig("check").needs).toContain("unit");
+  });
+
   it("keeps the main E2E gate a bounded smoke", () => {
     expect(pkg.scripts["test:e2e:smoke"]).toContain("--no-deps");
     expect(pkg.scripts["test:e2e:smoke"]).toContain("public-tours.spec.ts");
@@ -61,7 +100,7 @@ describe("Test workflow resource budget", () => {
   it("keeps the full suite on schedule/manual dispatch only", () => {
     const full = jobConfig("e2e-full");
     expect(full.if).toBe(
-      "github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'",
+      "${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && !(github.event_name == 'workflow_dispatch' && inputs.unit_only) }}",
     );
     expect(full.steps).toContainEqual(expect.objectContaining({ run: "npm run test:e2e" }));
   });
@@ -116,7 +155,7 @@ describe("Test workflow resource budget", () => {
     const check = jobConfig("check");
 
     expect(check.needs).toEqual(["unit", "lint", "build"]);
-    expect(check.if).toBe("always()");
+    expect(check.if).toBe("${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.unit_only) }}");
     expect(check.steps.some((step) => step.run?.includes('if [ "$result" != "success" ]'))).toBe(true);
     // `e2e` is skipped on pull requests, and `integration` needs live Supabase
     // credentials a fork PR never receives — depending on either would make the
@@ -144,7 +183,8 @@ describe("Test workflow resource budget", () => {
     for (const [name, runner] of Object.entries(runners)) {
       const job = jobConfig(name);
       expect(job["runs-on"]).toBe(runner);
-      expect(job.if ?? "", `${name} must not be event-gated`).not.toContain("github.event_name");
+      if (name === "unit") expect(job.if).toBeUndefined();
+      else expect(job.if, `${name} skips only an explicit unit-only dispatch`).toBe(NORMAL_VALIDATION);
     }
   });
 
