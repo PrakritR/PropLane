@@ -228,7 +228,11 @@ export function seedDemoManagerProperties(userId: string, extras: MockProperty[]
  * `MockProperty` by spreading a cached one.
  */
 function propertyDataForServer(propertyData: unknown): unknown {
-  if (!propertyData || typeof propertyData !== "object" || Array.isArray(propertyData)) return propertyData ?? null;
+  // `undefined` means the caller did not supply this half of the record, while
+  // `null` is an intentional clear. Keep that distinction through
+  // JSON.stringify so the route can preserve the stored payload on omission.
+  if (propertyData === undefined || propertyData === null) return propertyData;
+  if (typeof propertyData !== "object" || Array.isArray(propertyData)) return propertyData;
   const { publicProjection: _local, ...rest } = propertyData as MockProperty;
   void _local;
   return rest;
@@ -251,7 +255,7 @@ function mirrorPropertyRecord(input: {
       id: input.id,
       managerUserId: input.managerUserId,
       status: input.status,
-      rowData: input.rowData ?? null,
+      rowData: input.rowData,
       propertyData: propertyDataForServer(input.propertyData),
       editRequestNote: input.editRequestNote ?? null,
     }),
@@ -294,7 +298,7 @@ export async function upsertPropertyRecordToServer(input: {
         id: input.id,
         managerUserId: input.managerUserId,
         status: input.status,
-        rowData: input.rowData ?? null,
+        rowData: input.rowData,
         propertyData: propertyDataForServer(input.propertyData),
         editRequestNote: input.editRequestNote ?? null,
       }),
