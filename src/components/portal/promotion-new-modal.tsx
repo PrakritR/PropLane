@@ -68,10 +68,8 @@ function flyerContentChanged(next: PromotionDraft, base: PromotionDraft): boolea
 }
 
 /**
- * The unified "New promotion" modal. Picking a type in the dropdown drops you
- * straight into that type's form in the SAME modal — there is no intermediate
- * "Continue" step. Switching type after entering content warns first so nothing
- * is silently discarded.
+ * The unified "New promotion" workspace moves through Kind, Content and Preview.
+ * Switching type after entering content warns before discarding the draft.
  *
  * `kind` "flyer" maps to the flyer builder (`PromotionForm`); "text" maps to the
  * promotion-text composer. Editing an existing flyer/text still uses the
@@ -291,7 +289,7 @@ export function PromotionNewModal({
           ) : null}
         </StepColumn>
       ) : null}
-      {stepId === "content" ? (
+      {stepId === "content" && kind !== "text" ? (
         <StepColumn wide>
           <StepHeading title="Content" />
           {kind === "flyer" ? (
@@ -302,7 +300,7 @@ export function PromotionNewModal({
               onSelectProperty={onSelectProperty}
               hidePropertyPicker
             />
-          ) : kind === "upload" ? (
+          ) : (
             <div className="space-y-4">
               <PromotionUploadComposer
                 fileName={uploadFileName}
@@ -314,7 +312,15 @@ export function PromotionNewModal({
                 }}
               />
             </div>
-          ) : (
+          )}
+        </StepColumn>
+      ) : null}
+      {kind === "text" ? (
+        // Keep the same composer and imperative generate handle through Preview.
+        // The hidden wrapper removes inactive controls from layout and navigation.
+        <div hidden={stepId !== "content"}>
+          <StepColumn wide>
+            <StepHeading title="Content" />
             <PromotionTextComposer
               ref={textComposerRef}
               onGenerate={onGenerateText}
@@ -327,8 +333,8 @@ export function PromotionNewModal({
               listings={listings}
               onSelectProperty={undefined}
             />
-          )}
-        </StepColumn>
+          </StepColumn>
+        </div>
       ) : null}
       {stepId === "preview" ? (
         <StepColumn>
