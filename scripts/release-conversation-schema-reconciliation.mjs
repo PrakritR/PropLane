@@ -1,7 +1,7 @@
 /** Offline, single-migration release reconciliation. Never use migration repair.
  * Private evidence is deliberately not printed. Root owns execution and review.
  */
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync, lstatSync, mkdirSync, writeFileSync, readdirSync, openSync, readSync, closeSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { resolve, join } from 'node:path';
@@ -117,6 +117,22 @@ export function doBlock(body, tag = 'ledger_guard') {
  while (body.includes(delimiter)) delimiter = `$${tag}_${++suffix}$`;
  return `do ${delimiter} ${body} ${delimiter};`;
 }
+/** The TypeScript CLI sends every migration statement plus its history INSERT
+ * as one extended-protocol batch. PostgreSQL keeps that batch atomic, but it is
+ * not an explicit transaction block. Run block-only settings and locks from a
+ * non-top-level DO body so they remain in force through the CLI history INSERT. */
+export function cliTransactionGuardSql({ lockTimeout = null, statementTimeout = null, locks = [], tag = 'cli_transaction_guard' } = {}) {
+ const timeout = value => value === null || /^\d+(?:ms|s|min)$/.test(value);
+ if (!timeout(lockTimeout) || !timeout(statementTimeout) || !Array.isArray(locks)) throw fail('invalid CLI transaction guard');
+ const lockSql = locks.map(lock => {
+  if (!lock || !Array.isArray(lock.relations) || lock.relations.length === 0 || !['exclusive','share row exclusive'].includes(lock.mode) || lock.relations.some(relation => !/^[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*$/.test(relation))) throw fail('invalid CLI transaction lock');
+  return `lock table ${lock.relations.join(', ')} in ${lock.mode} mode;`;
+ });
+ return doBlock(`begin
+ set local standard_conforming_strings = on;
+ ${lockTimeout === null ? '' : `set local lock_timeout = ${literal(lockTimeout)};\n `}${statementTimeout === null ? '' : `set local statement_timeout = ${literal(statementTimeout)};\n `}${lockSql.join('\n ')}
+ end`, tag);
+}
 export function ledgerGuardSql(ledger) {
  validateLedger(ledger);
  const expected = [...ledger].sort((a,b) => a.version.localeCompare(b.version));
@@ -164,8 +180,7 @@ export function historyNameRecoverySql(ledger) {
  const selected = ledger.find(r => r.version === RENAME_VERSION);
  if (selected?.name !== NEW_NAME || !ledger.some(r => `${r.version}_${r.name}` === HISTORY_IDENTITY)) throw fail('reconciled history required for recovery');
  const after = ledger.map(r => r.version === RENAME_VERSION ? {...r,name:OLD_NAME} : r);
- return `set local standard_conforming_strings = on;
- lock table supabase_migrations.schema_migrations in exclusive mode;
+ return `${cliTransactionGuardSql({locks:[{relations:['supabase_migrations.schema_migrations'],mode:'exclusive'}],tag:'history_recovery_transaction'})}
  ${ledgerGuardSql(ledger)}
  ${doBlock(`declare changed integer; begin
  update supabase_migrations.schema_migrations set name=${literal(OLD_NAME)} where version=${literal(RENAME_VERSION)} and name=${literal(NEW_NAME)};
@@ -178,7 +193,7 @@ export function historyNameRecoverySql(ledger) {
  * Root must review the concrete private SQL; this does not authorize execution. */
 export function functionRecoverySql(current, original) {
  if (canonical(current) !== canonical(expectedFunctionAfter(original))) throw fail('corrected function required for recovery');
- return `set local standard_conforming_strings = on;
+ return `${cliTransactionGuardSql({tag:'function_recovery_transaction'})}
  ${functionGuardSql(current)}
  ${original.definition};
  ${functionGuardSql(original)}`;
@@ -204,7 +219,15 @@ export function reconciliationSql(name, evidence) {
  const afterCatalog=expectedPostCatalog(evidence.catalog,name);
  const invites=activeInvitesGuardSql(evidence.active_invites);
  const functionPost=name==='team_delivery_recipient_key'?functionGuardSql(expectedFunctionAfter(evidence.lease_function)):'';
- return `set local lock_timeout = '3s';\nset local statement_timeout = '60s';\nset local standard_conforming_strings = on;\nlock table supabase_migrations.schema_migrations in exclusive mode;\nlock table ${TABLES.map(t => `public.${t}`).join(', ')} in share row exclusive mode;\n${ledgerGuardSql(evidence.ledger)}\n${catalogGuardSql(evidence.catalog)}\n${invites}\n${body}\n${catalogGuardSql(afterCatalog)}\n${functionPost}\n${invites}\n`;
+ const transactionGuard=cliTransactionGuardSql({
+  lockTimeout:'3s', statementTimeout:'60s',
+  locks:[
+   {relations:['supabase_migrations.schema_migrations'],mode:'exclusive'},
+   {relations:TABLES.map(table=>`public.${table}`),mode:'share row exclusive'},
+  ],
+  tag:'reconciliation_transaction',
+ });
+ return `${transactionGuard}\n${ledgerGuardSql(evidence.ledger)}\n${catalogGuardSql(evidence.catalog)}\n${invites}\n${body}\n${catalogGuardSql(afterCatalog)}\n${functionPost}\n${invites}\n`;
 }
 function activeInvitesGuardSql(rows) {
  if (!Array.isArray(rows)) throw fail('active invite snapshot missing');
@@ -324,6 +347,53 @@ function privateDirectory(path) {
  if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode&0o777)!==0o700) throw fail('private directory');
 }
 const writePrivate=(path,bytes)=>writeFileSync(path,bytes,{mode:0o600,flag:'wx'});
+
+function processErrorMetadata(error) {
+ if (!error) return null;
+ const metadata={name:String(error.name??'Error'),message:String(error.message??error)};
+ for (const key of ['code','errno','syscall']) {
+  if (typeof error[key]==='string' || typeof error[key]==='number') metadata[key]=error[key];
+ }
+ return metadata;
+}
+
+/** Persist bounded CLI output without exposing it through the calling terminal.
+ * The fixed root is verified before an exclusive 0600 create. Test operations
+ * can replace system calls, but cannot redirect the production artifact path. */
+export function writePrivateCliFailureDiagnostic({projectRef,phase,identity,result}, operations={}) {
+ if (!/^[a-z]{20}$/.test(projectRef??'') || !['dry-run','apply'].includes(phase) || !/^\d{14}_[a-z][a-z0-9_]*$/.test(identity??'') || !result || typeof result!=='object') throw fail('CLI failure diagnostic identity');
+ const stat=(operations.lstatSync??lstatSync)(PRIVATE_ROOT);
+ if (!stat.isDirectory() || stat.isSymbolicLink() || (stat.mode&0o777)!==0o700) throw fail('private directory');
+ const now=operations.now??Date.now;
+ const random=operations.randomBytes??randomBytes;
+ const write=operations.writeFileSync??writeFileSync;
+ const recordedAt=new Date(now()).toISOString();
+ const nonce=Buffer.from(random(16)).toString('hex');
+ if (!/^[a-f0-9]{32}$/.test(nonce)) throw fail('CLI failure diagnostic nonce');
+ const path=join(PRIVATE_ROOT,`cli-failure-${phase}-${Date.parse(recordedAt)}-${process.pid}-${nonce}.json`);
+ const artifact={
+  format:1,
+  projectRef,
+  phase,
+  identity,
+  recordedAt,
+  process:{status:result.status??null,signal:result.signal??null,error:processErrorMetadata(result.error)},
+  stdout:String(result.stdout??''),
+  stderr:String(result.stderr??''),
+ };
+ write(path,JSON.stringify(artifact,null,2)+'\n',{mode:0o600,flag:'wx'});
+ return path;
+}
+
+/** Always throws. If private logging itself fails, preserve fail-closed behavior
+ * and do not attach either the logging error or captured CLI output. */
+export function throwPrivateCliFailure(context,result,operations) {
+ let path;
+ try { path=writePrivateCliFailureDiagnostic({...context,result},operations); }
+ catch { throw new Error('Supported CLI operation failed; private diagnostic unavailable'); }
+ throw new Error(`Supported CLI operation failed; private diagnostic: ${path}`);
+}
+
 function makeFiles(target,evidence,identity) {
  const files={};
  files['supabase/config.toml']='project_id = "conversation-release-reconciliation"\n[db.migrations]\nenabled = true\n[db.seed]\nenabled = false\n';
@@ -415,7 +485,7 @@ function invokeCli(state,dryRun) {
  const args=['db','push','--linked','--project-ref',state.manifest.projectRef,'--skip-vault','--include-all','--yes',...(dryRun?['--dry-run']:[])];
  const result=spawnSync(PINNED_CLI,args,{cwd:state.directory,env:cliEnvironment(),encoding:'utf8',stdio:['ignore','pipe','pipe'],timeout:90_000,maxBuffer:4*1024*1024});
  // Never forward raw output, which may include temporary credentials or SQL.
- if (result.error || result.signal || result.status!==0) throw fail('supported CLI operation failed (output withheld)');
+ if (result.error || result.signal || result.status!==0) throwPrivateCliFailure({projectRef:state.manifest.projectRef,phase:dryRun?'dry-run':'apply',identity:state.manifest.identity},result);
  return String(result.stdout??'')+'\n'+String(result.stderr??'');
 }
 export function runReviewedDryRun(request) {

@@ -65,7 +65,7 @@ describe("Test workflow resource budget", () => {
     // Exact parsed conditions prevent a similarly named push/PR input or a
     // comment from disabling validation. Every bypass requires dispatch AND
     // the boolean input; false/default keeps all existing checks active.
-    for (const name of ["integration", "lint", "build"]) expect(jobConfig(name).if).toBe(NORMAL_VALIDATION);
+    for (const name of ["integration", "release-cli-transaction", "lint", "build"]) expect(jobConfig(name).if).toBe(NORMAL_VALIDATION);
     expect(jobConfig("check").if).toBe("${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.unit_only) }}");
     const unit = jobConfig("unit");
     expect(unit.if).toBeUndefined();
@@ -206,7 +206,7 @@ describe("Test workflow resource budget", () => {
   it("makes the required check job an aggregator that cannot pass on a failed dependency", () => {
     const check = jobConfig("check");
 
-    expect(check.needs).toEqual(["unit", "lint", "build"]);
+    expect(check.needs).toEqual(["unit", "release-cli-transaction", "lint", "build"]);
     expect(check.if).toBe("${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.unit_only) }}");
     expect(check.steps.some((step) => step.run?.includes('if [ "$result" != "success" ]'))).toBe(true);
     // `e2e` is skipped on pull requests, and `integration` needs live Supabase
@@ -227,6 +227,7 @@ describe("Test workflow resource budget", () => {
     // push and PR so its signal stays visible next to the required status.
     const runners = {
       unit: "ubuntu-24.04",
+      "release-cli-transaction": "ubuntu-24.04",
       integration: "ubuntu-latest",
       lint: "ubuntu-latest",
       build: "ubuntu-latest",
@@ -238,6 +239,36 @@ describe("Test workflow resource budget", () => {
       if (name === "unit") expect(job.if).toBeUndefined();
       else expect(job.if, `${name} skips only an explicit unit-only dispatch`).toBe(NORMAL_VALIDATION);
     }
+  });
+
+  it("proves the pinned CLI batch transaction on disposable PostgreSQL 16 and exact target 17.6", () => {
+    const job = jobConfig("release-cli-transaction") as WorkflowJob & {
+      strategy: { matrix: { include: Array<Record<string, string>> } };
+      services: { postgres: { image: string; env: Record<string, string>; ports: string[] } };
+    };
+    expect(job["timeout-minutes"]).toBe(12);
+    expect(job.strategy.matrix.include).toEqual([
+      { postgres: "16.10", image: "16.10-bookworm", "server-version-num": "160010" },
+      { postgres: "17.6", image: "17.6-bookworm", "server-version-num": "170006" },
+    ]);
+    expect(job.services.postgres.image).toBe("postgres:${{ matrix.image }}");
+    expect(job.services.postgres.env).toEqual({ POSTGRES_PASSWORD: "postgres" });
+    expect(job.services.postgres.ports).toEqual(["5432:5432"]);
+    expect(JSON.stringify(job)).not.toContain("secrets.");
+
+    const download = job.steps.find(step => step.name === "Download the official pinned Supabase CLI");
+    expect(download?.run).toContain("v2.117.0/supabase_2.117.0_linux_amd64.tar.gz");
+    expect(download?.run).toContain("afcec54b3b19d8c73957cafb4956bb10cb7493207c29df60cdcd9afe6317cdb0  checksums.txt");
+    expect(download?.run).toContain("69c05f85b9e47ee706d30f1a6ca8a526b4e337bfd12c7ef1ef522d24e7280d24  supabase_2.117.0_linux_amd64.tar.gz");
+    expect(download?.run).toContain("sha256sum --check --strict");
+
+    const proof = job.steps.find(step => step.name === "Prove exact CLI transaction and history behavior");
+    expect(proof?.run).toBe('node scripts/test-release-cli-transaction.mjs "$RELEASE_TRANSACTION_SUPABASE_CLI" "$RELEASE_TRANSACTION_PG_URL" "$EXPECTED_SERVER_VERSION_NUM"');
+    expect(proof?.env).toEqual({
+      RELEASE_TRANSACTION_PG_URL: "postgresql://postgres:postgres@127.0.0.1:5432/postgres",
+      EXPECTED_SERVER_VERSION_NUM: "${{ matrix.server-version-num }}",
+    });
+    expect(jobConfig("check").needs).toContain("release-cli-transaction");
   });
 
   it("keeps the unit harness provisioned with PostgreSQL 16 and OpenSSL before its unconditional command", () => {

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Resident read CLI transaction correction handoff</title>
+<style>
+  body { font: 16px/1.55 system-ui, sans-serif; max-width: 980px; margin: 40px auto; padding: 0 24px; color: #172033; }
+  h1, h2 { line-height: 1.2; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  pre { padding: 16px; overflow: auto; background: #f4f6f8; border: 1px solid #d8dee8; border-radius: 8px; }
+  li { margin: .45rem 0; }
+  .hold { padding: 14px 16px; background: #fff5d6; border-left: 4px solid #c48700; }
+</style>
+<h1>Resident read CLI transaction correction</h1>
+<p class="hold"><strong>Source complete; runtime proof pending.</strong> Do not apply a release migration from the earlier failed artifacts. The new CI matrix must pass, then fresh target evidence, manifests, dry run, recovery review and independent apply review must be created.</p>
+
+<h2>Goal and evidence</h2>
+<p>The starting source audit is <code>docs/plans/2026-09-19-resident-read-cli-transaction-source-audit.html</code>. Supabase CLI 2.117.0 uses one extended-protocol batch for all migration statements and its parameterized history INSERT. That batch is atomic, but PostgreSQL does not treat it as an explicit transaction block. The observed dev failure was PostgreSQL 25P01 at the first top-level <code>LOCK TABLE</code>, before guarded DDL. Root separately confirmed that dev, staging and production all report PostgreSQL 17.6 (<code>server_version_num=170006</code>).</p>
+
+<h2>Implementation</h2>
+<ul>
+  <li><code>scripts/release-conversation-schema-reconciliation.mjs</code> exports <code>cliTransactionGuardSql</code>. It validates controlled timeout, relation and lock-mode inputs, then emits transaction-local settings and table locks inside a collision-safe <code>DO</code> body.</li>
+  <li>Conversation reconciliation, history-name recovery and function recovery use that guard. They retain headerless outer SQL, all existing ledger, catalog, function and invite guards, and no authored <code>BEGIN</code>/<code>COMMIT</code>.</li>
+  <li><code>scripts/release-resident-inbox-read.mjs</code> uses the same guard for its apply and NEW-migration recovery SQL. Ledger and inbox-table locks therefore remain owned by the CLI batch through the automatic history INSERT.</li>
+  <li>Existing private CLI diagnostic capture and fail-closed runner behavior were preserved.</li>
+</ul>
+
+<h2>Exact disposable CLI proof</h2>
+<p><code>scripts/test-release-cli-transaction.mjs</code> is a CI-only harness. It accepts only a loopback PostgreSQL admin URL, uses bounded subprocesses, creates disposable databases and invokes <code>db push --db-url ... --skip-vault --include-all --yes</code>. It imports the production <code>cliTransactionGuardSql</code> and <code>ledgerGuardSql</code> generators rather than copying their SQL.</p>
+<p>The <code>release-cli-transaction</code> job in <code>.github/workflows/test.yml</code> runs a PostgreSQL 16.10 and 17.6 matrix. It downloads the official Supabase CLI 2.117.0 Linux amd64 release archive, verifies the official <code>checksums.txt</code> asset SHA-256 <code>afcec54b3b19d8c73957cafb4956bb10cb7493207c29df60cdcd9afe6317cdb0</code>, verifies the archive SHA-256 <code>69c05f85b9e47ee706d30f1a6ca8a526b4e337bfd12c7ef1ef522d24e7280d24</code>, and checks the extracted CLI reports exactly <code>2.117.0</code>. It uses no Supabase project, API access or secrets.</p>
+<p>The matrix must prove:</p>
+<ul>
+  <li>successful DDL and function replacement plus a nonempty automatic CLI history row whose statements contain the real DDL;</li>
+  <li>the exact ledger <code>ExclusiveLock</code>, payload <code>ShareRowExclusiveLock</code>, and transaction-local settings still exist inside the history INSERT trigger;</li>
+  <li>a forced error after DDL rolls back the table change, function replacement and history;</li>
+  <li>a forced automatic history-insertion error rolls back the table change and function replacement;</li>
+  <li>a second guarded recovery through the same CLI transport restores the function, records truthful recovery history and preserves the first automatic history row exactly.</li>
+</ul>
+<p>The hermetic matrix job is included in the required <code>check</code> aggregator. Workflow contract tests pin the versions, official digests, command, lack of secrets and gate membership.</p>
+
+<h2>Changed source</h2>
+<ul>
+  <li><code>scripts/release-conversation-schema-reconciliation.mjs</code></li>
+  <li><code>scripts/release-resident-inbox-read.mjs</code></li>
+  <li><code>scripts/test-release-cli-transaction.mjs</code></li>
+  <li><code>.github/workflows/test.yml</code></li>
+  <li><code>tests/unit/ci-test-workflow.test.ts</code></li>
+  <li><code>tests/unit/release-conversation-schema-reconciliation.test.ts</code></li>
+  <li><code>tests/unit/release-resident-inbox-read.test.ts</code></li>
+</ul>
+
+<h2>Validation ownership</h2>
+<p>This source-only execution did not run Node, tests, builds, browsers, servers, databases, Git or graph commands, and did not download or extract the Linux CLI locally. Root owns commit, push and the remote runtime. Starting HEAD supplied to this lane was <code>0e1692697</code>; current branch and HEAD remain root-owned.</p>
+<p>The exact runtime command inside each matrix leg is:</p>
+<pre>node scripts/test-release-cli-transaction.mjs "$RELEASE_TRANSACTION_SUPABASE_CLI" "$RELEASE_TRANSACTION_PG_URL" "$EXPECTED_SERVER_VERSION_NUM"</pre>
+<p>Dispatch the existing Test workflow at the committed keeper ref with normal validation enabled. Accept the correction only when both <code>Release CLI transaction (PostgreSQL 16.10)</code> and <code>Release CLI transaction (PostgreSQL 17.6)</code> finish with exit code 0 and the required <code>check</code> aggregate is green.</p>
+
+<h2>Post-proof release rule</h2>
+<p>A passing disposable matrix validates the transport correction only. It does not authorize a database apply. Regenerate every runner-bound source pin and private artifact, preserve the retained 25P01 diagnostic, capture fresh target and backup evidence, prepare a new exact manifest and recovery artifact, run a new exact dry run, obtain independent review, then apply and independently inspect the actual automatic history row and function state.</p>
+</html>

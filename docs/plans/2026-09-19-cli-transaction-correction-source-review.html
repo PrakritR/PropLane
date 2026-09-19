@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>CLI transaction correction: independent source review</title>
+<style>body{font:16px/1.6 system-ui;max-width:1000px;margin:40px auto;padding:0 24px}code{overflow-wrap:anywhere}li{margin:.6rem 0}table{border-collapse:collapse;width:100%}td,th{border:1px solid #bbb;padding:8px;text-align:left}</style>
+<h1>CLI transaction correction: independent source review</h1>
+<p><strong>No blocking source findings. Runtime validation is pending; this is not approval to apply a migration.</strong> Reviewed the frozen working-tree correction against HEAD <code>63d4d6d8711ec99f14b33fe45ad7c1e4d23009c2</code>. The implementation agent confirmed readiness before this verdict. The previously approved private diagnostic changes are preserved.</p>
+<h2>What the correction establishes in source</h2>
+<p>The common generator emits transaction-local settings and table locks inside a PL/pgSQL DO body. Resident apply and recovery, schema reconciliation and existing recovery helpers use it. Existing ledger and function guards remain intact. No explicit transaction BEGIN or COMMIT is introduced. This matches the source-audited PostgreSQL distinction between an extended-query transaction and a top-level transaction block, while retaining the pinned CLI batch's automatic history insertion.</p>
+<p>The observed dev failure was ERROR 25P01 on the first ledger LOCK before DDL. Root reports that the complete 211-row ledger and original RPC metadata stayed unchanged. All three actual targets are PostgreSQL 17.6. The earlier failed artifact and its receipt must not be reused for this correction.</p>
+<h2>Rehearsal and CI review</h2>
+<ul>
+<li>The new rehearsal invokes the actual CLI with db push against a disposable loopback database. It imports the production transaction-guard generator instead of reproducing the transaction behavior with an explicit psql transaction.</li>
+<li>Success requires schema and function changes plus automatic migration history containing the DDL. An INSERT trigger checks both required table locks and all three local settings at the moment the CLI writes history.</li>
+<li>Separate after-DDL and history-INSERT failures require rollback of the table alteration, function replacement and candidate history row. Expected exception markers distinguish these failures from an unrelated connection or command failure.</li>
+<li>Recovery is a second migration using the full ledger guard and function pre/postconditions. It restores the function, records a second automatic history row and compares the original history row exactly after recovery.</li>
+<li>The workflow checks PostgreSQL 16.10 and 17.6 through separate disposable service jobs and verifies the server version. It obtains the official CLI 2.117.0 Linux archive, checks both the checksum-list digest and archive digest, and verifies the CLI version in the rehearsal. Root independently confirmed both official digest pins.</li>
+<li>The job uses no Supabase secrets and has no dependency on secret-backed jobs. The check aggregate includes it and rejects any dependency result other than success. Existing explicit manual unit-only behavior remains consistent. Unit assertions parse active YAML and check the matrix, download pins, invocation, environment, condition and aggregate membership.</li>
+</ul>
+<h2>Limits and remaining gates</h2>
+<p>This review executed no Node, test, build, server, browser, database operation or Git mutation. Workflow parsing and runtime assertions were reviewed as source, not reported as passing. Root owns remote validation. Passing rehearsal on both exact PostgreSQL versions, focused tests and workflow validation remain required. The rehearsal proves the generated transaction guard and transport with a synthetic function; it does not prove resident authorization semantics or the complete real RPC migration by itself.</p>
+<p>Before a real target retry, recapture target and backup evidence, regenerate exact SQL and source pins, review the concrete artifact and recovery, prepare a new manifest and receipt, perform the exact dry run, and independently inspect the complete ledger and RPC after application. The existing function-only recovery template still explicitly requires adding the actual post-apply full ledger guard and recording it as a new reviewed migration. This review does not authorize running that template directly.</p>
+<h2>Reviewed SHA-256 fingerprints</h2>
+<table><thead><tr><th>File</th><th>SHA-256</th></tr></thead><tbody>
+<tr><td>scripts/release-conversation-schema-reconciliation.mjs</td><td><code>7836a4840055510a9a29c0617e9f18a74313fd592c344e325fea50dd2e574d80</code></td></tr>
+<tr><td>scripts/release-resident-inbox-read.mjs</td><td><code>0d4a521f9007a31edc5f8fb0c4e0c187ad60ed96d6867fe50128ee2461084cff</code></td></tr>
+<tr><td>scripts/test-release-cli-transaction.mjs</td><td><code>e2ee62f854b739ddc3e3dc1f4765fd26887c1cd0e6d9e377a4324894f492e73e</code></td></tr>
+<tr><td>.github/workflows/test.yml</td><td><code>3899a9ee65334aa3e3dc9ca672a5612afc2ecb414e48a9faebeadf2a8e65c5c3</code></td></tr>
+<tr><td>tests/unit/ci-test-workflow.test.ts</td><td><code>8c3cfde43eb5b82f1186727c09d7c073e1c86e6f6d5b54f8657a8318f8061787</code></td></tr>
+<tr><td>tests/unit/release-conversation-schema-reconciliation.test.ts</td><td><code>10594fb34df421401c2ac4bee232814d5508d374dba1a6d140ea1df529e29f9f</code></td></tr>
+<tr><td>tests/unit/release-resident-inbox-read.test.ts</td><td><code>7677dc136baf3293f3e31962c3a99dd9634b1078cf389d6c6a0bc4f87cbb2c74</code></td></tr>
+</tbody></table>
+<p>Context: <a href="2026-09-19-resident-read-cli-transaction-source-audit.html">prior transport source audit</a>. Only this review document was written.</p></html>

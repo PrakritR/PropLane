@@ -3,7 +3,7 @@ import { mkdtempSync, symlinkSync, writeFileSync, chmodSync, rmSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { doBlock, expectedFunctionAfter, pgFunctionDefinitionDelimiter, functionGuardSql, historyNameRecoverySql, assertCapturedProgress, assertExactDryRun, assertFreshEvidenceMatches, assertReleaseReadiness, catalogGuardSql, evidenceFingerprint, expectedMigrationIdentities, expectedPostCatalog, extractPlannedMigrationIdentities, ledgerGuardSql, parseArgs, readPinned, releaseSequence, renameHistorySql, reconciliationSql, serializeHistoricalStatements, sha256, TARGETS } from "../../scripts/release-conversation-schema-reconciliation.mjs";
+import { cliTransactionGuardSql, doBlock, expectedFunctionAfter, pgFunctionDefinitionDelimiter, functionGuardSql, historyNameRecoverySql, assertCapturedProgress, assertExactDryRun, assertFreshEvidenceMatches, assertReleaseReadiness, catalogGuardSql, evidenceFingerprint, expectedMigrationIdentities, expectedPostCatalog, extractPlannedMigrationIdentities, ledgerGuardSql, parseArgs, readPinned, releaseSequence, renameHistorySql, reconciliationSql, serializeHistoricalStatements, sha256, TARGETS } from "../../scripts/release-conversation-schema-reconciliation.mjs";
 
 const catalog = { columns: [{ table: "portal_workspaces", name: "id", type: "uuid", not_null: true, default: null, comment: null }], constraints: [{ table: "portal_workspaces", name: "portal_workspaces_pkey", type: "p", definition: "PRIMARY KEY (id)", validated: true, deferrable: false, deferred: false }], indexes: [{ table: "portal_workspaces", name: "portal_workspaces_pkey", definition: "CREATE UNIQUE INDEX portal_workspaces_pkey ON public.portal_workspaces USING btree (id)", valid: true, ready: true, live: true }] };
 const ledger = [{ version: "20260916000000", name: "automated_communication_reminder_kinds", statements: ["select old;"], extra: "preserve me" }, { version: "20260916063005", name: "automated_communication_reminder_kinds", statements: ["create table x;", "comment on table x is 'x';"], extra: "preserve me" }, { version: "20260917010000", name: "invite_workspace", statements: null, checksum: "abc" }, { version: "20260918000000", name: "other", statements: ["select 1"] }];
@@ -60,6 +60,25 @@ describe("conversation release schema reconciliation", () => {
     expect(catalogGuardSql(collision)).toMatch(/^do \$catalog_guard_1\$/);
     const changed = ledger.map(row => row.version === "20260916063005" ? { ...row, statements: ["select '$rename_history$'"] } : row);
     expect(renameHistorySql(changed)).toMatch(/^do \$rename_history_1\$/);
+  });
+
+  it("nests transaction-local settings and locks for the CLI extended batch", () => {
+    const sql = cliTransactionGuardSql({
+      lockTimeout: "5s", statementTimeout: "30s",
+      locks: [
+        { relations: ["supabase_migrations.schema_migrations"], mode: "exclusive" },
+        { relations: ["public.portal_inbox_thread_records"], mode: "share row exclusive" },
+      ],
+      tag: "resident_read_transaction",
+    });
+    expect(sql).toMatch(/^do \$resident_read_transaction\$ begin\n set local standard_conforming_strings = on;/);
+    expect(sql).toContain("set local lock_timeout = '5s';");
+    expect(sql).toContain("lock table supabase_migrations.schema_migrations in exclusive mode;");
+    expect(sql).toContain("lock table public.portal_inbox_thread_records in share row exclusive mode;");
+    expect(sql).not.toMatch(/^set local/m);
+    expect(sql).not.toMatch(/^lock table/m);
+    expect(sql).not.toMatch(/^\s*(?:begin|commit);/mi);
+    expect(() => cliTransactionGuardSql({ locks: [{ relations: ["public.safe; drop table x"], mode: "exclusive" }] })).toThrow(/transaction lock/);
   });
 
   it("recanonicalizes the corrected function body with a collision-free pg delimiter", () => {
@@ -135,7 +154,12 @@ describe("conversation release schema reconciliation", () => {
 
   it("keeps short transaction-local timeouts and exact source DDL", () => {
     const evidence = { ledger, catalog, active_invites: [], lease_function: { definition: "create function x() returns void language sql as $$select 1$$;", owner: "postgres", config: null, acl: null } };
-    expect(reconciliationSql("invite_workspace", evidence)).toContain("set local lock_timeout = '3s'"); expect(() => reconciliationSql("invite_workspace", undefined)).toThrow(/authenticated transaction evidence/);
+    const sql = reconciliationSql("invite_workspace", evidence);
+    expect(sql).toMatch(/^do \$reconciliation_transaction\$ begin/);
+    expect(sql).toContain("set local lock_timeout = '3s'");
+    expect(sql).not.toMatch(/^set local/m);
+    expect(sql).not.toMatch(/^lock table/m);
+    expect(() => reconciliationSql("invite_workspace", undefined)).toThrow(/authenticated transaction evidence/);
   });
 
   it("accepts only the exact ordered dry-run selection", () => {

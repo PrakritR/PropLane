@@ -3,7 +3,7 @@ import { readFileSync, lstatSync, mkdirSync, writeFileSync, readdirSync } from '
 import { spawnSync } from 'node:child_process';
 import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PRIVATE_ROOT, PINNED_CLI, readPinned, sha256, ledgerGuardSql, doBlock, serializeHistoricalStatements, assertPinnedCli, assertExactDryRun } from './release-conversation-schema-reconciliation.mjs';
+import { PRIVATE_ROOT, PINNED_CLI, readPinned, sha256, ledgerGuardSql, doBlock, cliTransactionGuardSql, serializeHistoricalStatements, assertPinnedCli, assertExactDryRun, throwPrivateCliFailure } from './release-conversation-schema-reconciliation.mjs';
 
 export const RESIDENT_TARGETS = Object.freeze({ dev: 'emstjswhotsnyksqhqyf', staging: 'xwszcafaontidfgznlxd', production: 'qahnczmilgptcedaqype' });
 export const RESIDENT_IDENTITY = '20260919161700_mark_portal_inbox_source_read_resident_scope';
@@ -47,7 +47,15 @@ export function residentFunctionGuardSql(fn) {
  end`, 'resident_function_guard');
 }
 
-const transactionSettings = "set local standard_conforming_strings = on;\nset local lock_timeout='5s';\nset local statement_timeout='30s';\nlock table supabase_migrations.schema_migrations in exclusive mode;\nlock table public.portal_inbox_thread_records in share row exclusive mode;";
+const transactionGuard = cliTransactionGuardSql({
+  lockTimeout: '5s',
+  statementTimeout: '30s',
+  locks: [
+    { relations: ['supabase_migrations.schema_migrations'], mode: 'exclusive' },
+    { relations: ['public.portal_inbox_thread_records'], mode: 'share row exclusive' },
+  ],
+  tag: 'resident_read_transaction',
+});
 export function guardedResidentMigrationSql(evidence, migrationSql = source()) {
   if (sha256(migrationSql) !== RESIDENT_SOURCE_SHA256) throw fail('migration source digest');
   if (evidence.ledger.some(row => row.version === RESIDENT_IDENTITY.slice(0, 14))) throw fail('feature migration already present');
@@ -56,11 +64,11 @@ export function guardedResidentMigrationSql(evidence, migrationSql = source()) {
   // Authored BEGIN/COMMIT would instead release locks before that INSERT.
   if (!migrationSql.startsWith('begin;\n') || !migrationSql.endsWith('commit;\n')) throw fail('source transaction boundaries');
   const inner = migrationSql.slice('begin;\n'.length, -'commit;\n'.length);
-  return `${transactionSettings}\n${ledgerGuardSql(evidence.ledger)}\n${residentFunctionGuardSql(evidence.inbox_function)}\n${inner}\n${residentFunctionGuardSql(expected)}\n`;
+  return `${transactionGuard}\n${ledgerGuardSql(evidence.ledger)}\n${residentFunctionGuardSql(evidence.inbox_function)}\n${inner}\n${residentFunctionGuardSql(expected)}\n`;
 }
 
 export function residentRecoverySql(fn) {
-  return `-- Function-only recovery. Apply only as a NEW reviewed migration after adding the actual post-apply full ledger guard. Never erase history.\n${transactionSettings}\n${residentFunctionGuardSql(expectedResidentFunction(fn))}\n${fn.definition};\n${residentFunctionGuardSql(fn)}\n`;
+  return `-- Function-only recovery. Apply only as a NEW reviewed migration after adding the actual post-apply full ledger guard. Never erase history.\n${transactionGuard}\n${residentFunctionGuardSql(expectedResidentFunction(fn))}\n${fn.definition};\n${residentFunctionGuardSql(fn)}\n`;
 }
 
 function privateDirectory(path) {
@@ -148,7 +156,7 @@ function invoke(state, dryRun) {
   if (!env.HOME || !env.PATH) throw fail('CLI environment');
   env.NO_COLOR = '1'; env.SUPABASE_TELEMETRY_DISABLED = 'true';
   const result = spawnSync(PINNED_CLI, ['db', 'push', '--linked', '--project-ref', state.manifest.projectRef, '--skip-vault', '--include-all', '--yes', ...(dryRun ? ['--dry-run'] : [])], { cwd: state.directory, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 90_000, maxBuffer: 4 * 1024 * 1024 });
-  if (result.error || result.signal || result.status !== 0) throw fail('supported CLI failed; output withheld');
+  if (result.error || result.signal || result.status !== 0) throwPrivateCliFailure({ projectRef: state.manifest.projectRef, phase: dryRun ? 'dry-run' : 'apply', identity: state.manifest.identity }, result);
   return String(result.stdout ?? '') + '\n' + String(result.stderr ?? '');
 }
 const tokens = new WeakMap();

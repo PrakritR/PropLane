@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Private release CLI failure diagnostics handoff</title>
+  <style>
+    body { max-width: 900px; margin: 40px auto; padding: 20px; font: 16px/1.55 system-ui, sans-serif; color: #171717; }
+    h1, h2 { line-height: 1.2; }
+    code { background: #f3f3f3; padding: 0.1em 0.3em; border-radius: 3px; }
+    li { margin: 0.35em 0; }
+  </style>
+</head>
+<body>
+  <h1>Private release CLI failure diagnostics handoff</h1>
+  <p>This source-only change preserves both release transports and adds observability for a failed supported CLI invocation before any retry.</p>
+
+  <h2>Failure evidence available after implementation began</h2>
+  <p>Root's independent read-only PostgreSQL log review identified SQLSTATE 25P01 at 16:47:04.617: <code>LOCK TABLE can only be used in transaction blocks</code>, accompanied by three warnings for transaction-local <code>SET</code> statements. The pinned CLI transport did not provide the transaction that the guarded drivers assumed. The source guards failed before mutation, and the independent post-capture remained exact. This diagnostics change deliberately does not restore authored <code>BEGIN</code>/<code>COMMIT</code>, because doing so naively could separate the CLI migration-history write from the guarded DDL.</p>
+
+  <h2>Implementation</h2>
+  <ul>
+    <li><code>scripts/release-conversation-schema-reconciliation.mjs</code> now owns the shared private diagnostic writer and fail-closed throw helper.</li>
+    <li>Both the conversation reconciliation transport and <code>scripts/release-resident-inbox-read.mjs</code> call the shared helper for dry-run and apply failures.</li>
+    <li>The writer verifies the fixed <code>PRIVATE_ROOT</code> as a real 0700 directory, then performs one exclusive <code>wx</code> create with mode 0600 directly under that root.</li>
+    <li>The collision-resistant filename uses the phase, timestamp, process id, and 128 random bits. The artifact contains only the fixed project, phase, migration identity, capture time, status, signal, selected error metadata, stdout, and stderr. It does not serialize the environment.</li>
+    <li>The terminal error exposes only safe wording and the private artifact path. If artifact creation fails for any reason, the transport still throws with safe diagnostic-unavailable wording.</li>
+    <li>No retry, SQL fallback, migration repair, target change, source change, token change, lock change, transaction change, or direct apply entry point was added.</li>
+  </ul>
+
+  <h2>Focused coverage added</h2>
+  <p><code>tests/unit/private-release-cli-failure-diagnostics.test.ts</code> covers unique direct-root paths, 0700 root verification, exclusive 0600 writes, fixed artifact fields, absence of an environment dump, private output secrecy in thrown errors, failure remaining a failure, and fail-closed behavior when logging fails.</p>
+
+  <h2>Validation status</h2>
+  <p>No Node command, test, build, browser, server, database command, Git command, or graph command was run. The root owner explicitly retained those responsibilities because this laptop is constrained. This handoff reports source inspection only.</p>
+
+  <h2>Required review before another CLI attempt</h2>
+  <ol>
+    <li>Independently review the two transport call sites, the shared writer, and the focused test.</li>
+    <li>Run the focused unit test under the repository's pinned runtime.</li>
+    <li>Regenerate the sealed resident manifest and approval. The resident manifest pins both its runner and the shared helper digests, so every prior manifest is intentionally stale after this source change.</li>
+    <li>Take a fresh independent capture and full backup, then confirm the original function and all 211 historical ledger rows remain exact before authorizing a new attempt.</li>
+    <li>On any future CLI failure, inspect the named private artifact without copying its stdout or stderr into chat, console output, or repository files.</li>
+  </ol>
+</body>
+</html>

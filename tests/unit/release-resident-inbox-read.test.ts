@@ -55,6 +55,9 @@ describe("resident inbox read release guards", () => {
     const sql = guardedResidentMigrationSql(before);
     expect(sql).toContain("lock table supabase_migrations.schema_migrations in exclusive mode");
     expect(sql).toContain("lock table public.portal_inbox_thread_records in share row exclusive mode");
+    expect(sql).toMatch(/^do \$resident_read_transaction\$ begin/);
+    expect(sql).not.toMatch(/^set local/m);
+    expect(sql).not.toMatch(/^lock table/m);
     expect(sql).toContain("full ledger differs");
     expect(sql).toContain("ledger array dimensions differ");
     expect(sql).not.toMatch(/^\s*(?:begin|commit);/mi);

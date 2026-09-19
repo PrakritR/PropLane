@@ -68,6 +68,70 @@ jobs:
             /usr/lib/postgresql/16/bin/pg_ctl -D "$RUNNER_TEMP/reconciliation-pg" -m fast -w stop
           fi
 
+  release-cli-transaction:
+    name: Release CLI transaction (PostgreSQL ${{ matrix.postgres }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.unit_only) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - postgres: "16.10"
+            image: "16.10-bookworm"
+            server-version-num: "160010"
+          - postgres: "17.6"
+            image: "17.6-bookworm"
+            server-version-num: "170006"
+    services:
+      postgres:
+        image: postgres:${{ matrix.image }}
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+      - name: Download the official pinned Supabase CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          CLI_ROOT="$RUNNER_TEMP/supabase-cli-2.117.0"
+          mkdir -p "$CLI_ROOT/bin"
+          curl --fail --silent --show-error --location \
+            https://github.com/supabase/cli/releases/download/v2.117.0/checksums.txt \
+            --output "$CLI_ROOT/checksums.txt"
+          curl --fail --silent --show-error --location \
+            https://github.com/supabase/cli/releases/download/v2.117.0/supabase_2.117.0_linux_amd64.tar.gz \
+            --output "$CLI_ROOT/supabase_2.117.0_linux_amd64.tar.gz"
+          cd "$CLI_ROOT"
+          echo "afcec54b3b19d8c73957cafb4956bb10cb7493207c29df60cdcd9afe6317cdb0  checksums.txt" | sha256sum --check --strict
+          grep --fixed-strings --line-regexp \
+            "69c05f85b9e47ee706d30f1a6ca8a526b4e337bfd12c7ef1ef522d24e7280d24  supabase_2.117.0_linux_amd64.tar.gz" \
+            checksums.txt > expected-linux-amd64.sha256
+          test "$(wc -l < expected-linux-amd64.sha256)" -eq 1
+          sha256sum --check --strict expected-linux-amd64.sha256
+          tar -xzf supabase_2.117.0_linux_amd64.tar.gz -C bin
+          chmod 0755 bin/supabase
+          echo "RELEASE_TRANSACTION_SUPABASE_CLI=$CLI_ROOT/bin/supabase" >> "$GITHUB_ENV"
+      - name: Prove exact CLI transaction and history behavior
+        env:
+          RELEASE_TRANSACTION_PG_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+          EXPECTED_SERVER_VERSION_NUM: ${{ matrix.server-version-num }}
+        run: node scripts/test-release-cli-transaction.mjs "$RELEASE_TRANSACTION_SUPABASE_CLI" "$RELEASE_TRANSACTION_PG_URL" "$EXPECTED_SERVER_VERSION_NUM"
+
   # Every job below is INDEPENDENT on purpose. They used to chain off `unit`
   # (integration -> unit, e2e -> integration, check -> unit) to save CI minutes,
   # but that made one red unit test cancel the entire rest of the pipeline. A
@@ -237,7 +301,7 @@ jobs:
   # Add a new HERMETIC validation job to `needs` and it is enforced automatically.
   check:
     runs-on: ubuntu-latest
-    needs: [unit, lint, build]
+    needs: [unit, release-cli-transaction, lint, build]
     if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.unit_only) }}
     steps:
       - name: Require every validation job to succeed
