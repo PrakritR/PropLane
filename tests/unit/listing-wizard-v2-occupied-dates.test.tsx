@@ -33,6 +33,7 @@ describe("OccupiedDates", () => {
     expect(screen.queryByText("Available now")).toBeNull();
     const add = screen.getByRole("button", { name: "Set booked dates" }) as HTMLButtonElement;
     expect(add.disabled).toBe(false);
+    expect(add.title).toBe("Set booked dates");
     expect(screen.queryByRole("button", { name: "Add booked dates" })).toBeNull();
     expect(screen.queryByLabelText("Booked from")).toBeNull();
     expect(container.textContent).not.toContain("Occupied");

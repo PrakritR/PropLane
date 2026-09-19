@@ -171,7 +171,7 @@ export function OccupiedDates({
   const sortedRows = [...rows].sort((a, b) => a.start.localeCompare(b.start));
   const anyRows = sortedRows.length + readOnly.length > 0;
   const blockedAdd = rows.some((r) => !r.end);
-  const addTitle = blockedAdd ? "Set an End date on the open row first" : "Set occupied dates";
+  const addTitle = blockedAdd ? "Set an End date on the open row first" : "Set booked dates";
 
   const [showCalendar, setShowCalendar] = useState(false);
   const calendarSpans: RoomCalendarSpan[] = [...manualRangesToSpans(sortedRows), ...readOnly]
