@@ -178,7 +178,6 @@ export function TeamMembersBlock({ members, embedded = false }: { members: TeamM
 export function TeamPendingInvitesBlock({
   invites,
   propertiesLabel,
-  onCopyLink,
   onRevoke,
   onAccept,
   onDecline,
@@ -192,7 +191,6 @@ export function TeamPendingInvitesBlock({
   propertiesLabel: (inv: AccountLinkInviteDto) => string;
   /** "Expires in 12 days" — the panel owns the wording. */
   expiryLabel: (expiresAt: string | null | undefined) => string;
-  onCopyLink: (inv: AccountLinkInviteDto) => void;
   onRevoke: (inv: AccountLinkInviteDto) => void;
   onAccept: (inv: AccountLinkInviteDto) => void;
   onDecline: (inv: AccountLinkInviteDto) => void;

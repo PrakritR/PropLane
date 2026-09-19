@@ -24,4 +24,14 @@ describe("portal calendar copy to houses wiring", () => {
     expect(panelsSrc).not.toContain("Prev week");
     expect(panelsSrc).not.toContain("PortalPageFooterActions");
   });
+
+  it("Copy previous week and Clear persist across All and Tours keys", () => {
+    expect(panelsSrc).toContain("const mutateAvailabilityAllKinds = useCallback(");
+    expect(panelsSrc).toContain("mutateAvailabilityAllKinds((activeSlotsForKey) => {");
+    expect(panelsSrc).toContain("const clearCurrentWeek = useCallback(() => {");
+    expect(panelsSrc).toContain("mutateAvailabilityAllKinds((current) => {");
+    expect(calendarSrc).toContain('// "all"');
+    expect(calendarSrc).toContain("services: managerKindKeys.services");
+    expect(calendarSrc).toContain("tasks: managerKindKeys.tasks");
+  });
 });

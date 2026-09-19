@@ -136,6 +136,8 @@ import {
   shouldSkipFirstListingOnboarding,
 } from "@/lib/manager-first-listing-onboarding";
 import { syncManagerPortfolioFromServer } from "@/lib/manager-portfolio-access";
+import { readCachedAccountLinkInvites } from "@/lib/portal-data-store";
+import { hasIncomingAcceptedTeamLink } from "@/lib/workspace-co-manager-permissions";
 import { propertyListHref } from "@/lib/portal-detail-routes";
 import { MANAGER_ATTENTION_MAX_ROWS, buildManagerAttentionRows } from "@/lib/manager-attention-queue";
 import {
@@ -648,7 +650,14 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
   // Properties → Drafts (seed + wizard live on that page). Banner stays as a
   // fallback when they navigate back.
   useEffect(() => {
-    if (!authReady || !userId || shouldSkipFirstListingOnboarding({ email })) {
+    if (
+      !authReady ||
+      !userId ||
+      shouldSkipFirstListingOnboarding({
+        email,
+        incomingTeam: hasIncomingAcceptedTeamLink(readCachedAccountLinkInvites()),
+      })
+    ) {
       setShowFirstListingBanner(false);
       return;
     }
