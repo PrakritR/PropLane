@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Resident read RPC correction handoff</title>
+<style>body{font:16px/1.6 system-ui;max-width:900px;margin:40px auto;padding:0 24px}code{overflow-wrap:anywhere}li{margin:.45rem 0}</style>
+<h1>Resident read RPC correction handoff</h1>
+<p>The additive migration <code>supabase/migrations/20260919120000_mark_portal_inbox_source_read_resident_scope.sql</code> replaces the existing source-read function with the same signature and behavior while allowing exactly the manager and resident inbox scopes.</p>
+<ul>
+  <li>Scope authorization is an explicit allowlist for <code>axis_portal_inbox_manager_v1</code> and <code>axis_portal_inbox_resident_v1</code>, plus exact equality with <code>p_scope</code>.</li>
+  <li>The existing snapshot CAS, non-null supplied owner and exact owner match, participant/thread checks, timestamp fence, JSON object/equality check, inbox/sent folder guard, unread guard, timestamp increment, SQL invoker mode, empty search path, and service-role-only grant are retained.</li>
+  <li>Vendor, admin, unknown, ownerless, null-owner, stale, changed-snapshot, wrong-participant, wrong-thread, trash, and repeated-read cases remain fail-closed through the unchanged predicates.</li>
+</ul>
+<p>Focused source regression coverage is in <code>tests/unit/portal-inbox-source-read-migration.test.ts</code>. The opt-in disposable PostgreSQL execution is in <code>tests/unit/portal-inbox-source-read-disposable.test.ts</code>: it creates a unique loopback database, proves the original resident failure, applies the actual replacement, checks manager/resident success and timestamp/JSON preservation, exercises the negative CAS/scope/owner/participant/thread/trash/repeat/null matrix, verifies ACLs, and forces a transactional rollback. It remains root-owned to execute and is guarded by <code>RELEASE_RECONCILIATION_DISPOSABLE_PG=1</code> plus a localhost-only <code>RELEASE_RECONCILIATION_PG_URL</code>.</p>
+<p>No runtime, database, browser, Node, build, install, graph, or Git mutation was performed by this handoff.</p>
+</html>
