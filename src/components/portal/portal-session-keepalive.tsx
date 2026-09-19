@@ -3,33 +3,29 @@
 import { useEffect } from "react";
 import { detectNativePlatformSync } from "@/lib/native/detect-native";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
-import {
-  clearStaleBrowserAuth,
-  isStaleRefreshTokenError,
-  safeBrowserGetSession,
-} from "@/lib/supabase/safe-browser-session";
+import { clearStaleBrowserAuth } from "@/lib/supabase/safe-browser-session";
+import { createPortalSessionRefreshCoordinator } from "@/lib/supabase/portal-session-refresh";
 
 const SIGNED_IN_FLAG_KEY = "axis:signed_in";
 
-async function refreshPortalSession(): Promise<void> {
-  try {
+const portalSessionRefresh = createPortalSessionRefreshCoordinator({
+  getSession: async () => {
     const supabase = createSupabaseBrowserClient();
-    const { session } = await safeBrowserGetSession(supabase);
-    if (!session) return;
-    const { error } = await supabase.auth.refreshSession();
-    if (error && isStaleRefreshTokenError(error)) {
-      await clearStaleBrowserAuth(supabase);
-      return;
-    }
+    // Keep this read non-destructive. The coordinator owns permanent-error
+    // cleanup so it can reject stale reads after an auth lifecycle change.
+    const { data, error } = await supabase.auth.getSession();
+    return { session: data.session ?? null, error };
+  },
+  refreshSession: async () => createSupabaseBrowserClient().auth.refreshSession(),
+  clearStaleAuth: async () => clearStaleBrowserAuth(createSupabaseBrowserClient()),
+  markSignedIn: () => {
     try {
       window.localStorage.setItem(SIGNED_IN_FLAG_KEY, "1");
     } catch {
       /* ignore */
     }
-  } catch {
-    /* ignore — keepalive is best-effort */
-  }
-}
+  },
+});
 
 /**
  * Renews Supabase auth on resume so mobile Safari and the Capacitor shell do not
@@ -37,25 +33,49 @@ async function refreshPortalSession(): Promise<void> {
  */
 export function PortalSessionKeepalive() {
   useEffect(() => {
-    void refreshPortalSession();
+    let disposed = false;
+    const supabase = createSupabaseBrowserClient();
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (disposed) return;
+      if (event === "INITIAL_SESSION") {
+        portalSessionRefresh.observeInitialSession(session);
+        return;
+      }
+      portalSessionRefresh.observeAuthLifecycle(session);
+    });
+
+    void portalSessionRefresh.refresh();
 
     const onVisible = () => {
-      if (document.visibilityState === "visible") void refreshPortalSession();
+      if (!disposed && document.visibilityState === "visible") {
+        void portalSessionRefresh.refresh();
+      }
     };
     document.addEventListener("visibilitychange", onVisible);
 
     let removeResume: (() => void) | undefined;
     if (detectNativePlatformSync()) {
       void import("@capacitor/app")
-        .then(({ App }) => App.addListener("resume", () => void refreshPortalSession()))
+        .then(({ App }) =>
+          App.addListener("resume", () => {
+            if (!disposed) void portalSessionRefresh.refresh();
+          }),
+        )
         .then((handle) => {
+          if (disposed) {
+            void handle.remove();
+            return;
+          }
           removeResume = () => void handle.remove();
         })
         .catch(() => undefined);
     }
 
     return () => {
+      disposed = true;
+      portalSessionRefresh.invalidate();
       document.removeEventListener("visibilitychange", onVisible);
+      authListener.subscription.unsubscribe();
       removeResume?.();
     };
   }, []);

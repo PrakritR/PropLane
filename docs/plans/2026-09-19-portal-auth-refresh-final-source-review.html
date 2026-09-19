@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Portal auth refresh: final independent source review</title>
+<style>body{max-width:920px;margin:40px auto;padding:0 24px;font:16px/1.6 system-ui;color:#20262d;background:#fafafa}h1,h2{line-height:1.25}code{background:#eceff2;padding:2px 4px;overflow-wrap:anywhere}li{margin:.5em 0}.verdict{padding:16px;border:1px solid #64856d;background:#eff7f1}table{border-collapse:collapse;width:100%}td,th{padding:10px;text-align:left;vertical-align:top;border-bottom:1px solid #ccc}</style>
+<h1>Portal auth refresh: final independent source review</h1>
+<p>19 September 2026. Fresh Astra source review after correction cycle 2. Assigned baseline HEAD: <code>4c6666f4dba079577faa5e8f9cc56ccc7b17de80</code>. Reviewed the working copies in <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code>. This review does not certify a later commit.</p>
+<p class="verdict"><strong>Source verdict: no blocking findings in the bounded auth correction.</strong> The prior P2 pending-first-read lifecycle gap is closed. One non-blocking P3 evidence-label finding remains below. Runtime validation is pending with the root owner; this is not release approval.</p>
+<h2>Scope and inputs</h2>
+<p>Read repository and Akhil instructions, the feature-cycle contract, the original refresh-storm plan, the first correction handoff, the correction review, and the correction-2 handoff. Independently reviewed only these implementation and test files:</p>
+<ul>
+<li><code>src/lib/supabase/portal-session-refresh.ts</code></li>
+<li><code>src/components/portal/portal-session-keepalive.tsx</code></li>
+<li><code>tests/unit/portal-session-refresh.test.ts</code></li>
+<li><code>tests/unit/portal-session-keepalive.test.tsx</code></li>
+</ul>
+<h2>Prior P2: closed at source level</h2>
+<p>The coordinator separates session generation from lifecycle epoch at lines 74-78. Auth transitions and disposal advance the epoch at lines 93-105. An invocation captures that epoch before its first read at lines 163-169, so matching the final session identity no longer lets old work cross A-to-B-to-A, a same-user re-login, or component invalidation.</p>
+<p>The read helper checks epoch immediately after the SDK await at line 128. The outer first-read continuation checks again at line 174 before observing identity, marking signed-in state, or starting another SDK read. The outer second-read continuation checks epoch at line 206 and full ownership at lines 208-209 before any further side effect. This closes the reported microtask gap. The successful pending-read regression cases at test lines 232, 253, 277, and 296 exercise each coordinator failure path; component test line 268 covers successful completion after unmount.</p>
+<h2>Source acceptance assessment</h2>
+<table>
+<tr><th>Contract</th><th>Assessment</th></tr>
+<tr><td>Fresh navigation avoids explicit refresh</td><td>Expiry is checked before explicit work, using the documented two-minute margin. The repeated-fresh-session test asserts zero explicit refresh calls. The behavior is expiry-based and survives a full navigation that recreates module state.</td></tr>
+<tr><td>Near-expiry renewal and INITIAL_SESSION</td><td>The initial subscription value establishes identity without advancing the lifecycle epoch. Matching pending reads remain eligible, allowing near-expiry renewal. Both focused suites contain this case. Auth events after initialization still invalidate pending work.</td></tr>
+<tr><td>Concurrent coalescing</td><td>Harmless matching reads may adopt the established generation within the same epoch. Explicit renewal work is keyed by session identity. Map cleanup compares the exact promise before deletion, so an older finally block cannot delete replacement work.</td></tr>
+<tr><td>SDK renewal and TOKEN_REFRESHED</td><td>A fresh second read avoids explicit refresh. A rotating SDK renewal accompanied by a lifecycle callback detaches the caller before more work. The new SDK-shaped test changes the refresh token and emits the observation before the read resolves. A successful explicit refresh may likewise return owner-changed when TOKEN_REFRESHED arrives first; the component ignores this diagnostic result and the SDK renewal has already happened.</td></tr>
+<tr><td>Permanent error cleanup</td><td>Returned and thrown permanent read errors pass through epoch and generation checks before the application cleanup dependency is invoked. Explicit refresh success/error continuations check full ownership at lines 218 and 238. The outer shared-work continuation checks epoch at line 252. Cleanup authorization is checked immediately before initiation; this is not cancellation or rollback of an already-started SDK or cleanup operation.</td></tr>
+<tr><td>Transient failures</td><td>The coordinator does not deliberately call additional application cleanup for mocked 429 or network errors. This does not promise that the underlying SDK preserves its session.</td></tr>
+<tr><td>Native disposal</td><td>The component sets disposed and invalidates work before unsubscribing. Resume callbacks check disposed; late registration handles are removed upon arrival, and already-received handles are removed during effect cleanup. A focused test covers delayed registration completion.</td></tr>
+</table>
+<h2>Remaining P3: test title overstates the 429 guarantee</h2>
+<p><code>tests/unit/portal-session-refresh.test.ts:137</code> still calls its mocked assertion “keeps local auth after rate limiting.” It checks that the application cleanup mock was not called, not that Supabase retained a session. The first correction handoff correctly records the installed SDK limitation: an ordinary JSON 429 may be treated as non-retryable and remove SDK session state before returning. The correction-2 handoff does not override that limitation. The dependency and adapter comments saying “non-destructive” likewise describe the application adapter only.</p>
+<p>Recommended wording for the test is “avoids additional application cleanup after rate limiting.” No source or test change was made by this reviewer. After two correction cycles, this remaining documentation-quality finding is reported for handoff rather than starting another automatic implementation cycle. It is not a functional blocker for the bounded correction.</p>
+<h2>Validation still required</h2>
+<p>No Node process, runtime test, lint, typecheck, build, browser automation, server, install, graph command, database operation, or Git mutation was performed in this review. Focused test cases were inspected, not executed. No passing exit code is claimed.</p>
+<p>The root validation owner must attach results for the final committed source. The original plan still requires the focused auth suites, fresh real-session manager route sweep with sanitized refresh counts/statuses, resident navigation, real near-expiry native resume, and Calendar and Promotion flows. Those results determine whether the source-level correction resolves the observed refresh storm without breaking recovery. No claim is made here about inbox, property, staging, production, SDK internals, or global auth recovery beyond the documented scope.</p>
+</html>
+
+<p>Root follow-up: corrected the rate-limit and network test titles to describe absence of additional application cleanup. Assertions and runtime behavior are unchanged. Runtime validation remains pending.</p>

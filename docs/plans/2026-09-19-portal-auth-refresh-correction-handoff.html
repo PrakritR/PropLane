@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Portal auth refresh correction handoff</title>
+<style>
+  body{max-width:920px;margin:48px auto;padding:0 24px;font:16px/1.6 system-ui;color:#20262d;background:#fafafa}
+  h1,h2{line-height:1.25}code{background:#eceff2;padding:2px 4px;overflow-wrap:anywhere}
+  li{margin:.35rem 0}.notice{padding:14px 16px;border:1px solid #d5a100;background:#fff8d8}
+  table{border-collapse:collapse;width:100%}td,th{padding:9px;text-align:left;vertical-align:top;border-bottom:1px solid #ccc}
+</style>
+<h1>Portal auth refresh correction handoff</h1>
+<p><strong>Goal:</strong> close the source-review gaps in portal session keepalive ownership, destructive cleanup, and native listener disposal while preserving expiry-aware refresh behavior.</p>
+<table>
+  <tr><th>Approved plan</th><td><code>docs/plans/2026-09-19-portal-auth-refresh-storm-plan.html</code></td></tr>
+  <tr><th>Correction source</th><td><code>docs/plans/2026-09-19-property-auth-fresh-review.html</code>, auth findings only</td></tr>
+  <tr><th>Execution baseline</th><td><code>a46b686b1583acb5f59342f80ad28fe005397300</code></td></tr>
+  <tr><th>Worktree</th><td><code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code></td></tr>
+</table>
+
+<h2>Corrected behavior</h2>
+<ul>
+  <li>The singleton Supabase auth client now has a component-owned <code>onAuthStateChange</code> subscription. Its synchronous callback invalidates coordinator work when the observed session changes. The session identity includes the refresh token, so a new login by the same user is a new generation.</li>
+  <li>Every observed A to B to A transition advances the generation, even if A returns with the same token. A stale completion must match both its original generation and session identity before application cleanup is allowed.</li>
+  <li>Keepalive reads use a non-destructive <code>auth.getSession()</code> adapter. Returned and thrown permanent errors from the first or second read pass through the coordinator's generation guard before <code>clearStaleBrowserAuth</code> runs.</li>
+  <li>Returned or thrown 429 and network read failures remain transient at the application layer. The implementation does not restore tokens, weaken portal guards, disable SDK auto-refresh, or change the shared recovery helper.</li>
+  <li>Unmount synchronously invalidates pending coordinator work before the auth subscription is removed. Native resume registration tracks disposal; a handle that resolves after unmount is removed immediately, and a disposed callback cannot run keepalive.</li>
+  <li>Concurrent reads can share the current session only when the exact process-local session identity matches. Near-expiry refresh work remains coalesced across mount, visibility, and native resume signals.</li>
+</ul>
+
+<h2>Changed files</h2>
+<ul>
+  <li><code>src/lib/supabase/portal-session-refresh.ts</code></li>
+  <li><code>src/components/portal/portal-session-keepalive.tsx</code></li>
+  <li><code>tests/unit/portal-session-refresh.test.ts</code></li>
+  <li><code>tests/unit/portal-session-keepalive.test.tsx</code></li>
+  <li><code>docs/plans/2026-09-19-portal-auth-refresh-correction-handoff.html</code></li>
+</ul>
+
+<h2>Focused coverage authored</h2>
+<ul>
+  <li>Fresh sessions, near-expiry renewal, concurrent coalescing, and an SDK-renewed second read.</li>
+  <li>Unobserved A to B, A to B to A with the same A identity, and sign-out/new sign-in by the same user.</li>
+  <li>Returned and thrown permanent failures on first and second reads, including changes while each read is pending.</li>
+  <li>Returned 429 and thrown network failures without application-triggered cleanup.</li>
+  <li>Actual component adapter and lifecycle subscription wiring.</li>
+  <li>Active visibility/native coalescing, pending cleanup invalidation on unmount, and late native listener registration after unmount.</li>
+</ul>
+
+<h2>SDK 429 limitation</h2>
+<p>The installed <code>@supabase/auth-js</code> implementation treats ordinary JSON 429 responses as non-retryable auth errors and may remove its stored session before returning to this coordinator. These tests can establish only that PropLane does not invoke its additional cleanup dependency for a 429. They cannot guarantee SDK session retention. This correction deliberately leaves that SDK security behavior unchanged and never restores a revoked token.</p>
+
+<h2>Validation status</h2>
+<p class="notice"><strong>Source-only constraint:</strong> this correction session did not run Node, tests, typecheck, lint, builds, browser automation, servers, installs, graph commands, database operations, or Git mutations. All runtime evidence remains pending with the designated root validation owner.</p>
+<p>Suggested focused command: <code>npx vitest run tests/unit/portal-session-refresh.test.ts tests/unit/portal-session-keepalive.test.tsx tests/unit/safe-browser-session.test.ts</code>. The root owner should then run the approved plan's fresh real-session manager sweep, resident navigation, near-expiry native resume, Calendar, and Promotion checks, recording only sanitized grant counts and statuses.</p>
+
+<h2>Execution-process note</h2>
+<p>No Terra or Luna delegate slot was available: the root owner, browser failure triage, inbox execution, and this correction occupied all four collaboration slots. The Sol correction manager therefore performed the bounded implementation and source review directly. No model substitution occurred.</p>
+
+<h2>Fresh review prompt</h2>
+<p>Fresh Astra review: read the approved refresh-storm plan, the prior fresh review's auth findings, and this correction handoff. Review only the two auth source files and two focused auth test files listed above. Verify lifecycle generation safety for unobserved A to B to A transitions, non-destructive getSession cleanup gating, same-user re-login, refresh success after TOKEN_REFRESHED, transient versus permanent errors, and late native registration disposal. Use only the root owner's command results as runtime evidence. Do not widen into inbox, property, global recovery, SDK changes, database paths, or release work.</p>
+</html>
