@@ -35,6 +35,11 @@ describe("add-workspace close stack", () => {
     expect(workspaceSource).toContain("close()");
   });
 
+  it("things-to-finish card still jumps to the last rail step", () => {
+    expect(workspaceSource).toMatch(/const last = steps\.length - 1/);
+    expect(workspaceSource).toContain("onJump(last)");
+  });
+
   it("Continue skips off-path extras", () => {
     const steps = [
       { id: "contact" },

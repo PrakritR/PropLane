@@ -129,9 +129,10 @@ export function AddWorkspace({
     () => finishCount ?? steps.filter((s) => s.incomplete && s.id !== "review" && s.id !== "preview").length,
     [steps, finishCount],
   );
+  const last = steps.length - 1;
   const nextPath = skipOffPath
     ? nextOnPathIndex(steps, current)
-    : current < steps.length - 1
+    : current < last
       ? current + 1
       : null;
   const prevPath = skipOffPath
