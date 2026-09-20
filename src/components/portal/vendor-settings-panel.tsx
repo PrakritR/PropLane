@@ -25,6 +25,7 @@ import {
 import { resolvePropertyLabelForId } from "@/lib/manager-portfolio-access";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
+import { Modal } from "@/components/ui/modal";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
 import {
   PortalSettingsFormBody,
@@ -144,8 +145,8 @@ function notifyAvailabilityChanged(rules?: VendorAvailabilityRule[]) {
   }
 }
 
-/** Weekly recurring hours + one-off blocked dates, editable inline. */
-export function VendorAvailabilityEditor() {
+/** Weekly recurring hours + one-off blocked dates, inline in Settings or in the calendar dialog. */
+export function VendorAvailabilityEditor({ dialog = false }: { dialog?: boolean }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
   const [rules, setRules] = useState<VendorAvailabilityRule[]>([]);
@@ -161,6 +162,7 @@ export function VendorAvailabilityEditor() {
   const [blockEditingId, setBlockEditingId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   const reload = async () => {
     if (demo) return;
@@ -188,6 +190,7 @@ export function VendorAvailabilityEditor() {
         note: "",
       });
       setOpenFormOpen(true);
+      if (dialog) setDialogOpen(true);
     };
     window.addEventListener(VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT, openCanonicalEditor);
     return () => window.removeEventListener(VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT, openCanonicalEditor);
@@ -522,7 +525,7 @@ export function VendorAvailabilityEditor() {
     await reload();
   };
 
-  return (
+  const editor = (
     <div className="space-y-4">
       <PortalCollapsibleSection
         title="Weekly hours"
@@ -657,7 +660,6 @@ export function VendorAvailabilityEditor() {
 
       <PortalCollapsibleSection
         title="Open specific dates"
-        subtitle="Open a one-off date for visits, even outside your weekly hours."
         surfaceMuted={false}
         contentClassName="px-4 pb-4"
         toggleDataAttr="vendor-availability-open-dates-toggle"
@@ -880,6 +882,20 @@ export function VendorAvailabilityEditor() {
       </PortalCollapsibleSection>
       {!loaded ? <p className="text-xs text-muted">Loading availability…</p> : null}
     </div>
+  );
+
+  if (!dialog) return editor;
+
+  return (
+    <Modal
+      open={dialogOpen}
+      onClose={() => setDialogOpen(false)}
+      title="Set availability"
+      panelClassName="w-full max-w-xl"
+      dataAttr="vendor-calendar-availability-dialog"
+    >
+      {editor}
+    </Modal>
   );
 }
 

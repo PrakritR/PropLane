@@ -13,20 +13,17 @@ import {
 } from "@/components/portal/vendor-settings-panel";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { CalendarClock } from "lucide-react";
 import { readVendorWorkOrderRows, syncManagerWorkOrdersFromServer, MANAGER_WORK_ORDERS_EVENT } from "@/lib/manager-work-orders-storage";
 import {
   SLOT_DURATION_MINUTES,
+  startOfWeekMonday,
   toLocalDateStr,
   vendorAvailabilityStorageKey,
-  writeAvailabilityDateSetForStorageKey,
+  installAvailabilityDateSetForStorageKey,
 } from "@/lib/demo-admin-scheduling";
-import {
-  convertFlexibleWeeklyRulesToWindows,
-  fetchVendorAvailability,
-  isFlexibleWeeklyRule,
-  slotKeysFromWeeklyRules,
-  type VendorAvailabilityRule,
-} from "@/lib/vendor-availability";
+import { fetchVendorAvailability, isFlexibleWeeklyRule, slotKeysFromWeeklyRules, type VendorAvailabilityRule } from "@/lib/vendor-availability";
 import { calendarMeetingMatchesQuery } from "@/lib/manager-calendar-tour-meetings";
 import {
   vendorCalendarViewHref,
@@ -69,10 +66,32 @@ function vendorMeetingFromRow(row: DemoManagerWorkOrderRow): DemoMeeting | null 
 }
 
 /** A disposable calendar paint cache derived wholly from the canonical availability API. */
-function replacePaintedSlotsFromRules(storageKey: string, rules: VendorAvailabilityRule[]) {
-  const keys = new Set(slotKeysFromWeeklyRules(rules, new Date(), 12));
+export function installVendorAvailabilityPaintCache(
+  storageKey: string,
+  rules: VendorAvailabilityRule[],
+  window: { from: Date; dayCount: number } = { from: new Date(), dayCount: 7 },
+) {
+  // Flexible is a legacy persisted rule shape. Project it to the historic
+  // 8am–6pm window for painting only; reading the calendar must not rewrite it.
+  const paintRules = rules.map((rule) =>
+    isFlexibleWeeklyRule(rule)
+      ? { ...rule, startMinute: 8 * 60, endMinute: 18 * 60, note: undefined }
+      : rule,
+  );
+  const from = new Date(window.from);
+  from.setHours(0, 0, 0, 0);
+  const dayCount = Math.max(1, window.dayCount);
+  const until = new Date(from);
+  until.setDate(from.getDate() + dayCount);
+  const keys = new Set(
+    slotKeysFromWeeklyRules(paintRules, from, Math.ceil(dayCount / 7)).filter((key) => {
+      const [date] = key.split(":");
+      return Boolean(date && date >= toLocalDateStr(from) && date < toLocalDateStr(until));
+    }),
+  );
   for (const rule of rules) {
     if (rule.kind !== "open" && rule.kind !== "block") continue;
+    if (rule.specificDate < toLocalDateStr(from) || rule.specificDate >= toLocalDateStr(until)) continue;
     const start = Math.floor(rule.startMinute / SLOT_DURATION_MINUTES);
     const end = Math.ceil(rule.endMinute / SLOT_DURATION_MINUTES);
     for (let slot = start; slot < end; slot += 1) {
@@ -81,7 +100,16 @@ function replacePaintedSlotsFromRules(storageKey: string, rules: VendorAvailabil
       else keys.delete(key);
     }
   }
-  writeAvailabilityDateSetForStorageKey(keys, storageKey);
+  installAvailabilityDateSetForStorageKey(keys, storageKey);
+}
+
+function paintWindowForCalendar(anchorDate: Date, view: VendorCalendarViewTabId): { from: Date; dayCount: number } {
+  if (view === "month") {
+    const from = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1, 12, 0, 0, 0);
+    return { from, dayCount: new Date(from.getFullYear(), from.getMonth() + 1, 0).getDate() };
+  }
+  if (view === "day") return { from: anchorDate, dayCount: 1 };
+  return { from: startOfWeekMonday(anchorDate), dayCount: 7 };
 }
 
 /** Week grid that paints availability the same way the manager calendar does. */
@@ -89,25 +117,30 @@ export function VendorCalendarPanel({ view = "week" }: { view?: VendorCalendarVi
   const { userId, ready } = usePortalSession();
   const demo = isDemoModeActive();
   const [rows, setRows] = useState<DemoManagerWorkOrderRow[]>(() => readVendorWorkOrderRows());
+  const [availabilityRules, setAvailabilityRules] = useState<VendorAvailabilityRule[] | null>(null);
   const [calendarRefreshSignal, setCalendarRefreshSignal] = useState(0);
+  const [calendarAnchorDate, setCalendarAnchorDate] = useState(() => new Date());
   const [listSearch, setListSearch] = useState("");
   const [weekActionsHost, setWeekActionsHost] = useState<HTMLElement | null>(null);
 
   const storageKey = useMemo(() => (userId ? vendorAvailabilityStorageKey(userId) : null), [userId]);
 
   const applyCanonicalAvailability = useCallback((rules: VendorAvailabilityRule[]) => {
-    if (storageKey) replacePaintedSlotsFromRules(storageKey, rules);
+    setAvailabilityRules(rules);
+  }, []);
+
+  useEffect(() => {
+    if (!storageKey || !availabilityRules) return;
+    installVendorAvailabilityPaintCache(storageKey, availabilityRules, paintWindowForCalendar(calendarAnchorDate, view));
     setCalendarRefreshSignal((n) => n + 1);
-  }, [storageKey]);
+  }, [availabilityRules, calendarAnchorDate, storageKey, view]);
 
   const reloadAvailability = useCallback(async () => {
     if (demo) return;
-    let rules = await fetchVendorAvailability();
-    if (rules.some(isFlexibleWeeklyRule)) {
-      const converted = await convertFlexibleWeeklyRulesToWindows(rules);
-      if (converted) rules = converted;
-    }
-    applyCanonicalAvailability(rules);
+    // Loading is intentionally read-only. A flexible rule is still rendered
+    // by the editor, but must never be rewritten just because the calendar
+    // opened or its view changed.
+    applyCanonicalAvailability(await fetchVendorAvailability());
   }, [applyCanonicalAvailability, demo]);
 
   useEffect(() => {
@@ -215,7 +248,23 @@ export function VendorCalendarPanel({ view = "week" }: { view?: VendorCalendarVi
           placeholder: "Search calendar",
           dataAttr: "vendor-calendar-search",
         }}
-        actions={<div ref={setWeekActionsHost} className="flex items-center" data-slot="calendar-week-actions-host" />}
+        actions={
+          <div className="flex items-center gap-1">
+            <PortalIconAction
+              icon={CalendarClock}
+              label="Set availability"
+              data-attr="vendor-calendar-set-availability"
+              onClick={() => {
+                window.dispatchEvent(
+                  new CustomEvent(VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT, {
+                    detail: { date: toLocalDateStr(new Date()) },
+                  }),
+                );
+              }}
+            />
+            <div ref={setWeekActionsHost} className="flex items-center" data-slot="calendar-week-actions-host" />
+          </div>
+        }
       />
       {searchMiss ? (
         <PortalListEmptyCard
@@ -252,6 +301,8 @@ export function VendorCalendarPanel({ view = "week" }: { view?: VendorCalendarVi
           compactAvailability={view === "week"}
           defaultViewMode={view}
           viewMode={view}
+          anchorDate={calendarAnchorDate}
+          onAnchorDateChange={setCalendarAnchorDate}
           hideViewModeControl
           onVendorAvailabilityEdit={(date, slotIdx) => {
             window.dispatchEvent(new CustomEvent(VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT, { detail: { date, slotIdx } }));
@@ -264,7 +315,7 @@ export function VendorCalendarPanel({ view = "week" }: { view?: VendorCalendarVi
           vendorViewer
         />
       )}
-      <VendorAvailabilityEditor />
+      <VendorAvailabilityEditor dialog />
     </ManagerPortalPageShell>
   );
 }

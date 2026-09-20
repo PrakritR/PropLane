@@ -11,6 +11,7 @@ import {
 } from "@/components/portal/portal-calendar-panels";
 
 const scheduleWrite = vi.fn(async () => true);
+const scheduleSync = vi.fn(async () => true);
 
 vi.mock("@/components/providers/app-ui-provider", () => ({ useAppUi: () => ({ showToast: vi.fn() }) }));
 vi.mock("@/lib/rental-application/data", () => ({ getPropertyById: () => undefined }));
@@ -21,7 +22,7 @@ vi.mock("@/lib/demo-admin-scheduling", async (importOriginal) => {
     ...actual,
     readAvailabilityDateSetForStorageKey: () => new Set<string>(),
     readPlannedEvents: () => [],
-    syncScheduleRecordsFromServer: vi.fn(),
+    syncScheduleRecordsFromServer: (...args: unknown[]) => scheduleSync(...(args as [])),
     writeAvailabilityDateSetForStorageKeyToServer: (...args: unknown[]) => scheduleWrite(...(args as [])),
   };
 });
@@ -32,6 +33,7 @@ const stamp = (date: Date) => date.toISOString().slice(0, 10);
 afterEach(() => {
   cleanup();
   scheduleWrite.mockClear();
+  scheduleSync.mockClear();
   vi.useRealTimers();
 });
 
@@ -79,9 +81,14 @@ describe("vendor calendar navigation", () => {
     fireEvent.click(screen.getByRole("button", { name: "Today" }));
     expect(screen.getByText("8/3–8/9")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: /Select 6 am on 2099-08-03/i }));
+    const emptyVendorSlot = document.querySelector<HTMLButtonElement>(
+      '[data-availability-date="2099-08-03"][data-availability-slot="12"]',
+    );
+    expect(emptyVendorSlot).toHaveAttribute("data-availability-state", "empty");
+    fireEvent.click(emptyVendorSlot!);
     expect(editCanonicalAvailability).toHaveBeenCalledWith("2099-08-03", 12);
     expect(scheduleWrite).not.toHaveBeenCalled();
+    expect(scheduleSync).not.toHaveBeenCalled();
   });
 
   it("renders the route-owned Day, Week, and Month DOM with mode-sized navigation", () => {
@@ -106,6 +113,7 @@ describe("vendor calendar navigation", () => {
       expect(onAnchorDateChange).toHaveBeenCalledWith(shiftCalendarAnchor(ANCHOR, mode, 1));
       fireEvent.click(screen.getByRole("button", { name: "Today" }));
       expect(onAnchorDateChange).toHaveBeenLastCalledWith(new Date(2099, 7, 5, 12, 0, 0, 0));
+      expect(scheduleSync).not.toHaveBeenCalled();
       if (mode === "day") expect(document.querySelectorAll('[data-slot="calendar-day-header"]')).toHaveLength(1);
       if (mode === "week") expect(document.querySelectorAll('[data-slot="calendar-week-date"]')).toHaveLength(7);
       if (mode === "month") expect(document.querySelectorAll('[data-slot="calendar-month-grid"] button')).toHaveLength(31);
