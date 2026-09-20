@@ -1,10 +1,8 @@
 // @vitest-environment jsdom
 //
-// The Review step's physical Save. Autosave and X already write on their own;
-// this is the visible commit a manager reaches for on the last step. Draft and
-// live both show Save beside Publish. A save that lands closes the editor. A
-// save that fails keeps the editor open with the work still in it — the button
-// exists to keep work, so unlike X it never gives up and leaves.
+// Save and Publish remain available throughout the wizard. Save preserves the
+// current work without closing the editor; a failure keeps the work available
+// for another attempt.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -50,7 +48,7 @@ afterEach(() => {
 
 describe("the Review step footer (editor shell)", () => {
   function mount(isEdit: boolean, busy = false) {
-    const onSaveExit = vi.fn();
+    const onSave = vi.fn(async () => true);
     const onPublish = vi.fn();
     render(
       <PortalAssistantConfigProvider endpoint="/api/agent/chat" managerName={null}>
@@ -59,49 +57,50 @@ describe("the Review step footer (editor shell)", () => {
           submission={createDefaultListingSubmission()}
           onChange={() => {}}
           onClose={() => {}}
-          onSaveExit={onSaveExit}
+          onSave={onSave}
           onPublish={onPublish}
           isEdit={isEdit}
           busy={busy}
         />
       </PortalAssistantConfigProvider>,
     );
-    return { onSaveExit, onPublish };
+    return { onSave, onPublish };
   }
 
   it("a draft has Save beside Publish; Save saves, it does not publish", () => {
-    const { onSaveExit, onPublish } = mount(false);
+    const { onSave, onPublish } = mount(false);
     goToReview();
     expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
     const save = screen.getByRole("button", { name: "Save" });
     expect(save.getAttribute("data-attr")).toBe("listing-v2-save-draft");
     fireEvent.click(save);
-    expect(onSaveExit).toHaveBeenCalledWith(REVIEW);
+    expect(onSave).toHaveBeenCalledWith(REVIEW);
     expect(onPublish).not.toHaveBeenCalled();
   });
 
   it("a live listing has Save beside Publish, labelled Save", () => {
-    const { onSaveExit, onPublish } = mount(true);
+    const { onSave, onPublish } = mount(true);
     goToReview();
     const save = screen.getByRole("button", { name: "Save" });
     expect(save.getAttribute("data-attr")).toBe("listing-v2-save");
     expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
     fireEvent.click(save);
-    expect(onSaveExit).toHaveBeenCalledWith(REVIEW);
+    expect(onSave).toHaveBeenCalledWith(REVIEW);
     expect(onPublish).not.toHaveBeenCalled();
   });
 
-  it("earlier steps still carry Continue, never a Save", () => {
+  it("earlier steps carry Continue, Save, and Publish", () => {
     mount(true);
     expect(screen.getByRole("button", { name: /^Continue to/ })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
   });
 
   it("while a write is in flight Save and Publish are disabled", () => {
     mount(true, true);
     goToReview();
     const save = screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
-    const publish = screen.getByRole("button", { name: "Publishing…" }) as HTMLButtonElement;
+    const publish = screen.getByRole("button", { name: "Publish" }) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
     expect(publish.disabled).toBe(true);
     expect(save.getAttribute("data-attr")).toBe("listing-v2-save");
@@ -125,21 +124,22 @@ describe("the Review step Save (whole wizard)", () => {
     return onClose;
   }
 
-  it("writes the unsaved change in place and closes the editor", async () => {
+  it("writes the unsaved change in place and keeps the editor open", async () => {
     const onClose = mountEdit();
     fireEvent.change(screen.getByDisplayValue("Ash Flats"), { target: { value: "Ash Flats 6" } });
     goToReview();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(updateExtraListingFromSubmissionOnServer).toHaveBeenCalled());
-    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(onClose).not.toHaveBeenCalled();
     expect(saveManagerPropertyDraftToServer).not.toHaveBeenCalled();
   });
 
-  it("with nothing unsaved it simply closes, writing nothing", async () => {
+  it("with nothing unsaved it stays open and writes nothing", async () => {
     const onClose = mountEdit();
     goToReview();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    await waitFor(() => expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false));
+    expect(onClose).not.toHaveBeenCalled();
     expect(updateExtraListingFromSubmissionOnServer).not.toHaveBeenCalled();
   });
 
