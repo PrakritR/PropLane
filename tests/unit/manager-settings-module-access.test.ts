@@ -71,6 +71,7 @@ vi.mock("@/lib/auth/co-manager-access", async (importOriginal) => {
 vi.mock("@/lib/manager-tour-settings", () => ({
   loadManagerTourSettings: vi.fn().mockResolvedValue({ tourNoticeDays: 0 }),
   saveManagerTourSettings: vi.fn().mockResolvedValue({ tourNoticeDays: 2 }),
+  normalizeManagerTourSettings: vi.fn((s: unknown) => s ?? { tourNoticeDays: 0 }),
 }));
 
 vi.mock("@/lib/task-lifecycle-automation.server", () => ({

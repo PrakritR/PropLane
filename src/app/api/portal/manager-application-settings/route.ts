@@ -21,13 +21,11 @@ import {
   loadApplicationAutomation,
   loadApplicationAutomationState,
   saveApplicationAutomation,
-  saveApplicationAutomationForProperty,
-  resolveApplicationAutomationForProperty,
+  normalizeApplicationAutomation,
   type ApplicationAutomationPreferences,
 } from "@/lib/application-automation-preferences";
 import {
   loadTaskAutomation,
-  normalizeTaskAutomation,
   saveTaskAutomation,
   type TaskAutomationPreferences,
 } from "@/lib/task-automation-preferences";
@@ -36,8 +34,54 @@ import {
 } from "@/lib/manager-landlord-profile";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 import { assertCoManagerModuleAccess } from "@/lib/auth/co-manager-access";
+import {
+  clearPropertyOverride,
+  ForeignPropertyError,
+  listPropertyOverrides,
+  savePropertyOverride,
+} from "@/lib/settings/property-overrides.server";
+import {
+  resolveSettingsScope,
+  saveWorkspaceNamespaceSettings,
+  type SettingsResolutionSource,
+} from "@/lib/settings/scope-resolver.server";
+import {
+  assertSettingsScopeOwned,
+  resolveSettingsScopeParams,
+  trackSettingsScopeChanged,
+  writeRungFromSource,
+} from "@/lib/scope/settings-scope";
 
 export const runtime = "nodejs";
+
+const NAMESPACE = "applicationAutomation" as const;
+const ANALYTICS_MODULE = "application_automation";
+
+/**
+ * `automation` (the `applicationAutomation` namespace) now resolves property
+ * override → workspace row → account row through the shared resolver
+ * (PLAN-0920-0845), replacing the bespoke `applicationAutomationByPropertyId`
+ * sidecar this route used to read/write directly — the ONLY caller of that
+ * sidecar's resolve/save functions in the whole codebase, so nothing else
+ * observes the change. `loadApplicationAutomationState` (and its
+ * `automationState` response field) still reads the OLD sidecar for backward
+ * compatibility with existing UI; it stops changing once a manager saves
+ * through this route, and Phase D should retire it.
+ */
+async function loadCurrentAutomation(
+  db: SupabaseClient,
+  managerUserId: string,
+  propertyId: string | null,
+  workspaceId: string | null,
+): Promise<{ automation: ApplicationAutomationPreferences; source: SettingsResolutionSource }> {
+  const { value, source } = await resolveSettingsScope(
+    db,
+    { managerUserId, propertyId, workspaceId },
+    NAMESPACE,
+    { normalize: normalizeApplicationAutomation, loadAccount: (d, m) => loadApplicationAutomation(d, m) },
+  );
+  return { automation: value, source };
+}
 
 
 /**
@@ -78,23 +122,29 @@ export async function GET(req: Request) {
   try {
     const ctx = await requireManagerRouteUser();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-    const url = new URL(req.url);
-    const propertyId = url.searchParams.get("propertyId")?.trim() ?? "";
-    const settings = await loadManagerApplicationSettings(ctx.db, ctx.userId);
-    const automationState = await loadApplicationAutomationState(ctx.db, ctx.userId);
-    const automation = propertyId
-      ? resolveApplicationAutomationForProperty(automationState, propertyId)
-      : automationState.portfolio;
-    const taskAutomation = await loadTaskAutomation(ctx.db, ctx.userId);
-    const landlordLegalName = await loadManagerLandlordLegalNameFromProfile(ctx.db, ctx.userId);
+    const scope = resolveSettingsScopeParams(req.url);
+    const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope);
+    if (!scopeAccess.ok) return NextResponse.json({ error: scopeAccess.error }, { status: scopeAccess.status });
+    const { ownerUserId, propertyId, workspaceId } = scopeAccess;
+    const settings = await loadManagerApplicationSettings(ctx.db, ownerUserId);
+    // `automationState` is kept for backward compatibility — see the header
+    // comment above `loadCurrentAutomation`; `automation` itself now comes
+    // from the shared resolver.
+    const automationState = await loadApplicationAutomationState(ctx.db, ownerUserId);
+    const [{ automation, source }, overriddenPropertyIds] = await Promise.all([
+      loadCurrentAutomation(ctx.db, ownerUserId, propertyId, workspaceId),
+      listPropertyOverrides(ctx.db, ownerUserId, NAMESPACE),
+    ]);
+    const taskAutomation = await loadTaskAutomation(ctx.db, ownerUserId);
+    const landlordLegalName = await loadManagerLandlordLegalNameFromProfile(ctx.db, ownerUserId);
     const landlord = { landlordLegalName };
     // Non-persisted suggestion the modal pre-fills so the manager confirms an
     // explicit value the first time (never a silent bulk change to what their
     // existing listings charge).
-    const suggestedFeeCents = await suggestedManagerApplicationFeeCents(ctx.db, ctx.userId);
-    const scope = await resolveWaiverCodeScope(ctx.db, ctx.userId, propertyId, "read");
-    if (!scope.ok) return NextResponse.json({ error: scope.error }, { status: scope.status });
-    const codes = await listApplicationFeeWaiverCodes(ctx.db, scope.ownerUserId);
+    const suggestedFeeCents = await suggestedManagerApplicationFeeCents(ctx.db, ownerUserId);
+    const waiverScope = await resolveWaiverCodeScope(ctx.db, ctx.userId, propertyId ?? "", "read");
+    if (!waiverScope.ok) return NextResponse.json({ error: waiverScope.error }, { status: waiverScope.status });
+    const codes = await listApplicationFeeWaiverCodes(ctx.db, waiverScope.ownerUserId);
     // NO fallback to the portfolio primary when a property is named. Falling
     // back showed a neighbouring listing's code under copy that reads "this
     // property's application" — and the field commits on blur, so it then
@@ -114,8 +164,15 @@ export async function GET(req: Request) {
       landlord,
       suggestedFeeCents,
       waiverCode: propertyWaiverCode,
+      scope: propertyId ? "property" : "workspace",
+      inherited: Boolean(propertyId) && source !== "property",
+      overriddenPropertyIds,
+      source,
     });
   } catch (e) {
+    if (e instanceof ForeignPropertyError) {
+      return NextResponse.json({ error: "That property is not in your workspace." }, { status: 403 });
+    }
     const message = e instanceof Error ? e.message : "Failed";
     return NextResponse.json({ error: message }, { status: 500 });
   }
@@ -126,34 +183,67 @@ export async function PATCH(req: Request) {
     const ctx = await requireManagerRouteUser();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const scope = resolveSettingsScopeParams(req.url, body);
+    const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope);
+    if (!scopeAccess.ok) return NextResponse.json({ error: scopeAccess.error }, { status: scopeAccess.status });
+    const { ownerUserId, propertyId, workspaceId } = scopeAccess;
 
     // The automation flags share this route because they share the settings surface AND the
     // underlying row. A PATCH that names ONLY `automation` must leave the fee untouched: the
     // fee branch below reads an absent key as "clear it", so saving automation through that path
     // would silently zero the manager's application fee.
     let automation: ApplicationAutomationPreferences | undefined;
-    const propertyId =
-      typeof body.propertyId === "string" && body.propertyId.trim() ? body.propertyId.trim() : "";
+    let automationSource: SettingsResolutionSource | undefined;
     if ("automation" in body) {
-      automation = propertyId
-        ? await saveApplicationAutomationForProperty(ctx.db, ctx.userId, propertyId, body.automation)
-        : await saveApplicationAutomation(ctx.db, ctx.userId, body.automation);
+      if (body.reset === true) {
+        if (!propertyId) return NextResponse.json({ error: "Reset needs a property." }, { status: 400 });
+        await clearPropertyOverride(ctx.db, ownerUserId, propertyId, NAMESPACE);
+        const resolved = await loadCurrentAutomation(ctx.db, ownerUserId, null, workspaceId);
+        automation = resolved.automation;
+        automationSource = resolved.source;
+      } else {
+        const { automation: current } = await loadCurrentAutomation(ctx.db, ownerUserId, propertyId, workspaceId);
+        const incoming = normalizeApplicationAutomation({ ...current, ...(body.automation as Record<string, unknown>) });
+        const rung: "property" | "workspace" | "account" = propertyId ? "property" : workspaceId ? "workspace" : "account";
+        if (propertyId) {
+          await savePropertyOverride(ctx.db, ownerUserId, propertyId, NAMESPACE, incoming);
+        } else if (workspaceId) {
+          await saveWorkspaceNamespaceSettings(ctx.db, workspaceId, ownerUserId, NAMESPACE, incoming);
+        } else {
+          await saveApplicationAutomation(ctx.db, ownerUserId, incoming);
+        }
+        automation = incoming;
+        automationSource = rung;
+      }
+      await trackSettingsScopeChanged(ctx.db, ctx.userId, {
+        module: ANALYTICS_MODULE,
+        rung: automationSource ? writeRungFromSource(automationSource) : "account",
+        ownerUserId,
+        workspaceId,
+      });
     }
 
     let taskAutomation: TaskAutomationPreferences | undefined;
     if ("taskAutomation" in body) {
-      taskAutomation = await saveTaskAutomation(ctx.db, ctx.userId, body.taskAutomation);
+      taskAutomation = await saveTaskAutomation(ctx.db, ownerUserId, body.taskAutomation);
     }
+
+    const overriddenPropertyIds = automation !== undefined ? await listPropertyOverrides(ctx.db, ownerUserId, NAMESPACE) : undefined;
+    const automationFields = {
+      automation,
+      ...(automationSource ? { source: automationSource, scope: propertyId ? "property" : "workspace", inherited: false } : {}),
+      ...(overriddenPropertyIds ? { overriddenPropertyIds } : {}),
+    };
 
     const feePatchRequested =
       "applicationFeeCents" in body ||
       "applicationFeeChargePolicy" in body ||
       "waiverCode" in body;
     if (!feePatchRequested) {
-      return NextResponse.json({ automation, taskAutomation });
+      return NextResponse.json({ ...automationFields, taskAutomation });
     }
 
-    const existing = await loadManagerApplicationSettings(ctx.db, ctx.userId);
+    const existing = await loadManagerApplicationSettings(ctx.db, ownerUserId);
 
     const validated = validateManagerApplicationFeeCents(
       "applicationFeeCents" in body ? body.applicationFeeCents : existing.applicationFeeCents,
@@ -170,15 +260,14 @@ export async function PATCH(req: Request) {
       applicationFeeCents: validated.applicationFeeCents,
       applicationFeeChargePolicy,
     });
-    const saved = await saveManagerApplicationSettings(ctx.db, ctx.userId, nextSettings);
+    const saved = await saveManagerApplicationSettings(ctx.db, ownerUserId, nextSettings);
 
     if (!("waiverCode" in body)) {
-      return NextResponse.json({ settings: saved, automation, taskAutomation });
+      return NextResponse.json({ settings: saved, ...automationFields, taskAutomation });
     }
 
     const raw = body.waiverCode == null ? "" : String(body.waiverCode);
-    const waiverPropertyId =
-      typeof body.propertyId === "string" && body.propertyId.trim() ? body.propertyId.trim() : "";
+    const waiverPropertyId = propertyId ?? "";
     const waiverScope = await resolveWaiverCodeScope(ctx.db, ctx.userId, waiverPropertyId, "edit");
     if (!waiverScope.ok) {
       return NextResponse.json({ error: waiverScope.error }, { status: waiverScope.status });
@@ -189,8 +278,11 @@ export async function PATCH(req: Request) {
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
-    return NextResponse.json({ settings: saved, automation, taskAutomation, waiverCode: result.code?.code ?? null });
+    return NextResponse.json({ settings: saved, ...automationFields, taskAutomation, waiverCode: result.code?.code ?? null });
   } catch (e) {
+    if (e instanceof ForeignPropertyError) {
+      return NextResponse.json({ error: "That property is not in your workspace." }, { status: 403 });
+    }
     const message = e instanceof Error ? e.message : "Failed";
     return NextResponse.json({ error: message }, { status: 500 });
   }

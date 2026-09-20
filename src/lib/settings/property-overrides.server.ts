@@ -3,42 +3,59 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /**
- * Per-property overrides for Operations settings (PLAN-0916-1040).
+ * Per-property overrides for Operations settings (PLAN-0916-1040, extended by
+ * PLAN-0920-0845).
  *
  * A house that wants its own reminders / automation stores a whole namespace
  * blob at `manager_property_records.row_data.operationsSettings.<namespace>` —
  * the same per-property JSON record the Payments service-fee payer already
  * lives in (`manager-manual-payment-settings.server.ts`). No migration.
  *
- * Resolution is always: house override → workspace default → built-in default.
- * An override is stored and cleared WHOLE per namespace per house (no
- * field-level merge), so "Reset to workspace default" is one delete and the
- * result is always exactly the workspace values.
+ * This module is the PROPERTY rung only. Resolution across every rung — house
+ * override → workspace row (`workspace_automation_settings`) → account row
+ * (this manager's own settings — what earlier comments here called "the
+ * workspace default", before a real `portal_workspaces`-scoped rung existed) →
+ * built-in default — lives in `@/lib/settings/scope-resolver.server`, which
+ * calls into this module for the first rung. An override is stored and
+ * cleared WHOLE per namespace per house (no field-level merge), so "Reset to
+ * account default" is one delete and the result is always exactly the
+ * account's values (or the workspace's, once a route resolves through the
+ * workspace rung too).
  *
  * Ownership is verified on every read and write against the manager who owns
  * the property record — the same `manager_user_id = managerUserId AND id = …`
  * check the manual-payment settings use. A `propertyId` not in this manager's
- * workspace throws {@link ForeignPropertyError}, which the routes map to 403;
- * it is never a silent fallback to the workspace value. The per-module
- * co-manager authorization (`assertReminderKindCoManagerAccess` and siblings)
- * still runs in front of every route path — this module is the ownership gate,
- * not the module gate.
+ * account throws {@link ForeignPropertyError}, which the routes map to 403;
+ * it is never a silent fallback to the account value. The per-module
+ * co-manager authorization (`assertReminderKindCoManagerAccess` and siblings,
+ * plus `assertSettingsScopeOwned` for a named workspace or a foreign owner's
+ * property) still runs in front of every route path — this module is the
+ * ownership gate, not the module gate.
  */
 
 /** The `row_data` key every Operations override namespace hangs under. */
 export const OPERATIONS_SETTINGS_KEY = "operationsSettings";
 
 /**
- * The namespaces a house may override. These mirror the keys the workspace
- * settings already use inside `manager_automation_settings.row_data`, so the
- * override is conceptually the same blob stored one level down on the house.
+ * The namespaces a house may override. These mirror the keys the account-level
+ * settings already use inside `manager_automation_settings.row_data` (and, for
+ * a workspace rung, `workspace_automation_settings.row_data`), so the override
+ * is conceptually the same blob stored one level down on the house.
+ *
+ * `applicationAutomation` and `tourSettings` (PLAN-0920-0845) join the set
+ * `resolveSettingsScope` resolves through all three rungs. `paymentAutomation`
+ * and `serviceAutomation` were declared here but never wired to a route until
+ * the same change — see `src/app/api/portal/automation-settings/route.ts` and
+ * `src/app/api/portal/service-automation-settings/route.ts`.
  */
 export type OperationsNamespace =
   | "reminderRules"
   | "paymentAutomation"
   | "lifecycleTasks"
   | "serviceAutomation"
-  | "automatedMessages";
+  | "automatedMessages"
+  | "applicationAutomation"
+  | "tourSettings";
 
 /** A `propertyId` that is not in this manager's workspace. Routes map it to 403. */
 export class ForeignPropertyError extends Error {
