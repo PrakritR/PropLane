@@ -372,10 +372,10 @@ export function calendarViewHref(basePath: string, tab: CalendarViewTabId | "boo
   return tab === DEFAULT_CALENDAR_VIEW ? `${basePath}/calendar` : `${basePath}/calendar/${tab}`;
 }
 
-/** Vendor calendar: All + Services. No Tours, no Tasks. */
-export const VENDOR_CALENDAR_VIEW_TABS = ["all", "services"] as const;
+/** Vendor calendar views. List is the accessible record view of the same visits. */
+export const VENDOR_CALENDAR_VIEW_TABS = ["list", "day", "week", "month"] as const;
 export type VendorCalendarViewTabId = (typeof VENDOR_CALENDAR_VIEW_TABS)[number];
-export const DEFAULT_VENDOR_CALENDAR_VIEW: VendorCalendarViewTabId = "all";
+export const DEFAULT_VENDOR_CALENDAR_VIEW: VendorCalendarViewTabId = "week";
 
 export function parseVendorCalendarViewTab(raw: string | undefined | null): VendorCalendarViewTabId {
   if (raw && (VENDOR_CALENDAR_VIEW_TABS as readonly string[]).includes(raw)) {

@@ -338,7 +338,7 @@ export function ManagerVendorDetail({
       (wo) => wo.vendorId === row.id || (wo.assignee?.type === "vendor" && wo.assignee.id === row.id),
     );
   }, [woTick, row.id]);
-  const openJobs = jobs.filter((j) => jobLabel(j).status !== "Done");
+  const openJobs = jobs.filter((j) => j.bucket !== "completed" && j.automationStatus !== "paid" && !j.paidAt);
   const ratings = jobs
     .filter((job) => job.bucket === "completed" && typeof job.residentConfirmation?.rating === "number")
     .map((job) => ({ id: job.id, rating: job.residentConfirmation!.rating!, title: job.title }));
@@ -474,9 +474,10 @@ export function ManagerVendorDetail({
               {jobs.map((job) => {
                 const l = jobLabel(job);
                 const acceptedQuote = job.biddingResolvedAt ? job.vendorCostCents : undefined;
+                const hasFinalAmount = job.vendorCostCents != null || job.materialsCostCents != null;
                 const finalAmount =
                   job.vendorMarkedDoneAt || job.automationStatus === "vendor_marked_done" || job.automationStatus === "paid" || job.paidAt
-                    ? (job.vendorCostCents ?? 0) + (job.materialsCostCents ?? 0)
+                    ? (hasFinalAmount ? (job.vendorCostCents ?? 0) + (job.materialsCostCents ?? 0) : undefined)
                     : undefined;
                 const paidAmount = job.automationStatus === "paid" || job.paidAt ? finalAmount : undefined;
                 return (

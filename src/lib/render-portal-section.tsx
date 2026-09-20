@@ -1533,7 +1533,7 @@ export async function renderPortalSection(
     } = await import("@/lib/portal-detail-routes");
     if (tabParts && tabParts.length > 1) notFound();
     const raw = tabParts?.[0];
-    if (raw === "tasks" || raw === "tours") {
+    if (raw === "tasks" || raw === "tours" || raw === "all" || raw === "services") {
       redirect(vendorCalendarViewHref(def.basePath, DEFAULT_VENDOR_CALENDAR_VIEW));
     }
     if (raw && !(VENDOR_CALENDAR_VIEW_TABS as readonly string[]).includes(raw)) notFound();
