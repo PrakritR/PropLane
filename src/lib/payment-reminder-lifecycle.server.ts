@@ -9,10 +9,12 @@ import {
 import {
   loadManagerAutomationSettings,
   loadScheduledMessageOverrides,
+  normalizeManagerAutomationSettings,
   scheduledOverrideId,
   upsertScheduledMessageOverride,
 } from "@/lib/payment-automation-settings";
 import { projectScheduledPaymentMessages } from "@/lib/scheduled-payment-messages";
+import { createSettingsScopeCache, resolveSettingsScope } from "@/lib/settings/scope-resolver.server";
 
 function startOfLocalDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -47,8 +49,17 @@ async function projectFutureRemindersForCharge(
       ? { ...charge, status: "pending" as const, balanceLabel: charge.amountLabel }
       : charge;
 
-  const [settings, overrides, listingByPropertyId, sentDedupIds] = await Promise.all([
-    loadManagerAutomationSettings(db, managerUserId),
+  const [{ value: settings }, overrides, listingByPropertyId, sentDedupIds] = await Promise.all([
+    // A house with its own payment-automation settings gets its own cadence and
+    // channels; an un-customized house falls through workspace then account
+    // (phase C).
+    resolveSettingsScope(
+      db,
+      { managerUserId, propertyId: charge.propertyId?.trim() || null },
+      "paymentAutomation",
+      { normalize: normalizeManagerAutomationSettings, loadAccount: (d, m) => loadManagerAutomationSettings(d, m) },
+      createSettingsScopeCache(),
+    ),
     loadScheduledMessageOverrides(db, managerUserId),
     loadListingByPropertyId(db),
     loadSentReminderDedupIds(db, [charge.id]),

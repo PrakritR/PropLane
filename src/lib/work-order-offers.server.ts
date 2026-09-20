@@ -13,7 +13,8 @@ import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import type { WorkOrderActionFailure, WorkOrderActor } from "@/lib/work-order-bids.server";
 import { workOrderEvent } from "@/lib/work-order-events.server";
 import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
-import { loadServiceAutomationSettings } from "@/lib/service-automation-settings.server";
+import { resolveServiceAutomationSettingsForRow } from "@/lib/service-automation-settings.server";
+import { createSettingsScopeCache } from "@/lib/settings/scope-resolver.server";
 import { offerExpiresAt } from "@/lib/service-automation-settings";
 
 function expiresLabel(at: Date): string {
@@ -92,8 +93,10 @@ export async function sendWorkOrderVendorOffers(
   const vendors = await vendorDirectoryRowsById(db, vendorIds);
   const sent: string[] = [];
   const skipped: string[] = [];
-  // Offers expire on the manager's Services setting; a round sent now shares one deadline.
-  const serviceSettings = await loadServiceAutomationSettings(db, String(workOrder.manager_user_id)).catch(() => null);
+  // Offers expire on the manager's Services setting (a house with its own gets
+  // it; otherwise workspace then account, phase C); a round sent now shares one deadline.
+  const offerPropertyId = rowData.assignedPropertyId || rowData.propertyId || null;
+  const serviceSettings = await resolveServiceAutomationSettingsForRow(db, createSettingsScopeCache(), String(workOrder.manager_user_id), offerPropertyId).catch(() => null);
   const expiresAt = serviceSettings ? offerExpiresAt(serviceSettings, new Date()) : null;
 
   for (const vendorId of vendorIds) {

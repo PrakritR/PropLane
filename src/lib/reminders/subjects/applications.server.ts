@@ -15,7 +15,10 @@ import {
 } from "@/lib/reminders/manager-recipients.server";
 import { REMINDER_SUBJECT_CO_MANAGER_MODULE } from "@/lib/co-manager-notification-recipients.server";
 import { materializeReminders } from "@/lib/reminders/queue.server";
-import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
+import {
+  createSettingsScopeCache,
+  resolveReminderSettingsForRow,
+} from "@/lib/reminders/settings.server";
 import {
   inProgressApplicationResumeUrl,
   shouldOfferApplicationCompletionReminder,
@@ -99,21 +102,22 @@ export async function sweepApplicationReminders(db: SupabaseClient, now: Date = 
   if (candidates.length === 0) return 0;
 
   const managerIds = candidates.map((entry) => entry.managerUserId);
-  const [settingsByManager, managerRecipients] = await Promise.all([
-    loadReminderSettingsForManagers(db, managerIds),
-    loadManagerReminderRecipients(db, managerIds),
-  ]);
+  const cache = createSettingsScopeCache();
+  const managerRecipients = await loadManagerReminderRecipients(db, managerIds);
   const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
 
   let queued = 0;
   for (const entry of candidates) {
-    const settings = settingsByManager.get(entry.managerUserId);
+    const propertyId = entry.row.propertyId ?? null;
+    // A house with its own reminder rules gets them; an application with no
+    // property, or an un-customized house, falls through workspace then account.
+    const settings = await resolveReminderSettingsForRow(db, cache, entry.managerUserId, propertyId);
     const resumeUrl = inProgressApplicationResumeUrl(origin, entry.row);
     const managerRecipient = managerRecipients.get(entry.managerUserId);
     const teamRecipients = teamReminderRecipients(
-      await loadTeamReminderRecipients(db, entry.managerUserId, settings?.rules.application_manager.teamUserIds ?? [], {
+      await loadTeamReminderRecipients(db, entry.managerUserId, settings.rules.application_manager.teamUserIds ?? [], {
         module: REMINDER_SUBJECT_CO_MANAGER_MODULE.application,
-        propertyId: entry.row.propertyId ?? null,
+        propertyId,
       }),
     );
     const payload = {
@@ -263,8 +267,7 @@ export async function sweepApplicationPostTourReminders(
       Boolean((row as { row_data?: unknown }).row_data),
   );
 
-  const managerIds = endedTours.map((event) => String((event as Record<string, unknown>).managerUserId));
-  const settingsByManager = await loadReminderSettingsForManagers(db, managerIds);
+  const cache = createSettingsScopeCache();
   const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
   const { buildTourApplyUrl } = await import("@/lib/tour-notifications");
 
@@ -272,15 +275,17 @@ export async function sweepApplicationPostTourReminders(
   for (const event of endedTours) {
     const row = event as Record<string, unknown>;
     const managerUserId = String(row.managerUserId ?? "").trim();
-    const settings = settingsByManager.get(managerUserId);
-    if (!settings?.rules.application_post_tour.enabled) continue;
+    const propertyId = String(row.propertyId ?? "").trim() || null;
+    // A house with its own reminder rules gets them; a tour with no property, or
+    // an un-customized house, falls through workspace then account (phase C).
+    const settings = await resolveReminderSettingsForRow(db, cache, managerUserId, propertyId);
+    if (!settings.rules.application_post_tour.enabled) continue;
     const anchorIso = tourEndedAnchorIso(
       { end: String(row.end ?? ""), start: String(row.start ?? "") },
       now,
     );
     if (!anchorIso) continue;
     const email = String(row.attendeeEmail ?? "").trim().toLowerCase();
-    const propertyId = String(row.propertyId ?? "").trim() || null;
     if (hasApplicationForProspect(applications, email, propertyId)) continue;
 
     const applyUrl = buildTourApplyUrl(origin, propertyId, String(row.roomLabel ?? "") || null);

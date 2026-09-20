@@ -17,7 +17,7 @@ vi.mock("@/lib/reminders/queue.server", () => ({
 vi.mock("@/lib/reminders/manager-recipients.server", () => ({
   loadManagerReminderRecipients: () =>
     Promise.resolve(new Map([["mgr-1", { email: "manager@example.com", name: "Morgan" }]])),
-  loadTeamReminderRecipientsByManager: () => Promise.resolve(new Map()),
+  loadTeamReminderRecipients: () => Promise.resolve([]),
   teamRecipientsScopedToSubject: () => [],
   teamReminderRecipients: () => [],
 }));
@@ -35,11 +35,15 @@ const rule = (over: Record<string, unknown> = {}) => ({
 });
 
 let paymentManagerRule = rule();
+const resolveReminderSettingsForRow = vi.fn(() =>
+  Promise.resolve({
+    rules: { payment_manager: paymentManagerRule, delinquency_manager: rule({ enabled: false }) },
+    quietHours: { enabled: false },
+  }),
+);
 vi.mock("@/lib/reminders/settings.server", () => ({
-  loadReminderSettingsForManagers: () =>
-    Promise.resolve(
-      new Map([["mgr-1", { rules: { payment_manager: paymentManagerRule }, quietHours: { enabled: false } }]]),
-    ),
+  createSettingsScopeCache: () => ({}),
+  resolveReminderSettingsForRow: (...args: unknown[]) => resolveReminderSettingsForRow(...(args as [])),
 }));
 
 import { sweepPaymentManagerReminders } from "@/lib/reminders/subjects/payments.server";
@@ -83,6 +87,7 @@ function fakeSweepDb(rows: unknown[]) {
 
 beforeEach(() => {
   materialize.mockClear();
+  resolveReminderSettingsForRow.mockClear();
   paymentManagerRule = rule();
 });
 
@@ -177,5 +182,15 @@ describe("sweepPaymentManagerReminders", () => {
     expect(secondCall.kind).toBe(firstCall.kind);
     expect(secondCall.subjectId).toBe(firstCall.subjectId);
     expect(secondCall.anchorIso).toBe(firstCall.anchorIso);
+  });
+
+  it("resolves settings per charge's property (phase C); a charge with no property still resolves to the account value", async () => {
+    await sweepPaymentManagerReminders(fakeSweepDb([chargeRow("charge-1")]), NOW);
+    expect(resolveReminderSettingsForRow).toHaveBeenCalledWith(expect.anything(), expect.anything(), "mgr-1", "mgr-house-1");
+
+    resolveReminderSettingsForRow.mockClear();
+    materialize.mockClear();
+    await sweepPaymentManagerReminders(fakeSweepDb([chargeRow("charge-2", { propertyId: undefined })]), NOW);
+    expect(resolveReminderSettingsForRow).toHaveBeenCalledWith(expect.anything(), expect.anything(), "mgr-1", null);
   });
 });

@@ -23,8 +23,10 @@ import {
   teamReminderRecipients,
 } from "@/lib/reminders/manager-recipients.server";
 import { materializeReminders } from "@/lib/reminders/queue.server";
-import type { ReminderSettings } from "@/lib/reminders/rules";
-import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
+import {
+  createSettingsScopeCache,
+  resolveReminderSettingsForRow,
+} from "@/lib/reminders/settings.server";
 import { withinHorizon } from "@/lib/reminders/subjects/records.server";
 import { zonedWallTimeMs } from "@/lib/tour-slot-math";
 
@@ -153,15 +155,15 @@ export async function sweepBookingReminders(db: SupabaseClient, now: Date = new 
   if (stays.length === 0) return 0;
 
   const managerIds = [...new Set(stays.map((stay) => stay.managerUserId))];
-  const [settingsByManager, managerRecipients] = await Promise.all([
-    loadReminderSettingsForManagers(db, managerIds),
-    loadManagerReminderRecipients(db, managerIds),
-  ]);
+  const cache = createSettingsScopeCache();
+  const managerRecipients = await loadManagerReminderRecipients(db, managerIds);
 
   let queued = 0;
   for (const stay of stays) {
-    const settings: ReminderSettings | undefined = settingsByManager.get(stay.managerUserId);
-    if (!settings?.rules[KIND]?.enabled) continue;
+    // A house with its own reminder rules gets them; a stay with no property, or
+    // an un-customized house, falls through workspace then account (phase C).
+    const settings = await resolveReminderSettingsForRow(db, cache, stay.managerUserId, stay.propertyId);
+    if (!settings.rules[KIND].enabled) continue;
 
     const anchorIso = bookingCheckInIso(stay.checkInKey);
     if (!withinHorizon(anchorIso, now)) continue;

@@ -7,7 +7,11 @@ import { createRoomInspectionDocument } from "@/lib/inspections/room-template";
 import { reportFixture } from "../helpers/inspection-fixture";
 
 vi.mock("@/lib/app-url", () => ({ resolveEmailLinkBaseUrl: () => "https://example.test" }));
-vi.mock("@/lib/reminders/settings.server", () => ({ loadReminderSettingsForManagers: async () => new Map([["owner", DEFAULT_REMINDER_SETTINGS]]) }));
+const resolveReminderSettingsForRow = vi.fn(async () => DEFAULT_REMINDER_SETTINGS);
+vi.mock("@/lib/reminders/settings.server", () => ({
+  createSettingsScopeCache: () => ({}),
+  resolveReminderSettingsForRow: (...args: unknown[]) => resolveReminderSettingsForRow(...(args as [])),
+}));
 vi.mock("@/lib/reminders/manager-recipients.server", () => ({ loadManagerReminderRecipients: async () => new Map([["owner", { email: "owner@example.test" }]]) }));
 
 type Row = Record<string, unknown>;
@@ -56,6 +60,7 @@ function roomReport(photoBy?: "manager" | "resident") {
 }
 
 beforeEach(() => {
+  resolveReminderSettingsForRow.mockClear();
   reports = []; queued = new Map(); rooms[0]!.moveInInspectionRequired = true;
   application = { id: "AXIS-TEST", manager_user_id: "owner", resident_email: "resident@example.test", property_id: "home", assigned_property_id: "home",
     placement: "", manual_room: "Room A", bucket: "approved", withdrawn: null,
@@ -122,5 +127,13 @@ describe("inspection reminder lifecycle", () => {
     reports = [roomReport()];
     (application.row_data as Row).withdrawnAt = "2026-09-06T13:00:00Z";
     expect(await inspectionReminderIsCurrent(db, asQueueRow(review!))).toBe(false);
+  });
+
+  it("resolves settings per residency's property (phase C)", async () => {
+    await sweepInspectionReminders(db, now);
+    // A residency without a resolvable property record is skipped upstream
+    // (there is no room template to reference), so every call this sweep makes
+    // carries the residency's own property id, never a bare account-wide read.
+    expect(resolveReminderSettingsForRow).toHaveBeenCalledWith(expect.anything(), expect.anything(), "owner", "home");
   });
 });

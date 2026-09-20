@@ -15,8 +15,11 @@ import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { materializeReminders, type ReminderRecipient } from "@/lib/reminders/queue.server";
 import { assigneeEmail } from "@/lib/manager-default-tasks.server";
 import { normalizeAssignee, type WorkAssignee } from "@/lib/work-assignment";
-import type { ReminderSettings, ReminderSubjectKind } from "@/lib/reminders/rules";
-import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
+import type { ReminderSubjectKind } from "@/lib/reminders/rules";
+import {
+  createSettingsScopeCache,
+  resolveReminderSettingsForRow,
+} from "@/lib/reminders/settings.server";
 import {
   loadManagerReminderRecipients,
   loadTeamReminderRecipients,
@@ -100,20 +103,20 @@ async function sweepRecordTable(
   if (rows.length === 0) return 0;
 
   const managerIds = rows.map((row) => row.manager_user_id);
-  const [settingsByManager, managerRecipients] = await Promise.all([
-    loadReminderSettingsForManagers(db, managerIds),
-    loadManagerReminderRecipients(db, managerIds),
-  ]);
+  const cache = createSettingsScopeCache();
+  const managerRecipients = await loadManagerReminderRecipients(db, managerIds);
 
   let queued = 0;
   for (const row of rows) {
-    const settings: ReminderSettings | undefined = settingsByManager.get(row.manager_user_id);
-    if (!settings?.rules[kind]?.enabled) continue;
-    const managerRecipient = managerRecipients.get(row.manager_user_id);
-
     const parsed = read(row);
     if (!parsed.subjectId || !parsed.active) continue;
     if (!withinHorizon(parsed.anchorIso, now)) continue;
+
+    // A house with its own reminder rules gets them; a record with no property,
+    // or an un-customized house, falls through workspace then account (phase C).
+    const settings = await resolveReminderSettingsForRow(db, cache, row.manager_user_id, parsed.propertyId);
+    if (!settings.rules[kind].enabled) continue;
+    const managerRecipient = managerRecipients.get(row.manager_user_id);
 
     const teamRecipients = teamReminderRecipients(
       await loadTeamReminderRecipients(

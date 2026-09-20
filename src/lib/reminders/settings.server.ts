@@ -16,6 +16,11 @@ import {
   loadPropertyOverride,
   loadPropertyOverridesForManagers,
 } from "@/lib/settings/property-overrides.server";
+import {
+  createSettingsScopeCache,
+  resolveSettingsScope,
+  type SettingsScopeCache,
+} from "@/lib/settings/scope-resolver.server";
 
 const ROW_DATA_KEY = "reminderRules";
 
@@ -114,6 +119,33 @@ export async function loadReminderSettingsResolver(
     },
   };
 }
+
+/**
+ * Reminder rules for one sweep row, through the full three-rung scope
+ * (PLAN-0920-0845 phase C): house override → workspace row → account row →
+ * default. `cache` should be one {@link createSettingsScopeCache} shared for
+ * an entire sweep pass so many rows under the same house or workspace do not
+ * re-query it. A row with no `propertyId` resolves to the account value,
+ * exactly `loadReminderSettingsForProperty`'s existing no-property behaviour.
+ */
+export async function resolveReminderSettingsForRow(
+  db: SupabaseClient,
+  cache: SettingsScopeCache,
+  managerUserId: string,
+  propertyId: string | null,
+): Promise<ReminderSettings> {
+  const { value } = await resolveSettingsScope(
+    db,
+    { managerUserId, propertyId },
+    ROW_DATA_KEY,
+    { normalize: normalizeReminderSettings, loadAccount: (d, m) => loadReminderSettings(d, m) },
+    cache,
+  );
+  return value;
+}
+
+export type { SettingsScopeCache };
+export { createSettingsScopeCache };
 
 export async function saveReminderSettings(
   db: SupabaseClient,

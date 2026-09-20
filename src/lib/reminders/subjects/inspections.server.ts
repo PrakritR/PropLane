@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { leaseTypeInspectionRequirements, residencyInspectionRequirements, roomInspectionRequirements } from "@/lib/inspections/requirements";
 import type { InspectionKind, InspectionRecord } from "@/lib/inspections/model";
 import { materializeReminders, type ReminderQueueRow } from "../queue.server";
-import { loadReminderSettingsForManagers } from "../settings.server";
+import { createSettingsScopeCache, resolveReminderSettingsForRow } from "../settings.server";
 import { loadManagerReminderRecipients } from "../manager-recipients.server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 
@@ -52,6 +52,7 @@ const photosBy = (report: InspectionRecord, role?: "manager" | "resident") => re
 /** Paginate narrow projections: no applicant identity documents or image bodies in a sweep. */
 export async function sweepInspectionReminders(db: SupabaseClient, now = new Date()): Promise<number> {
   let queued = 0;
+  const cache = createSettingsScopeCache();
   for (let offset = 0; ; offset += 100) {
     const { data, error } = await db.from("manager_application_records")
       .select("id,manager_user_id,resident_email,property_id,assigned_property_id,placement:row_data->>assignedRoomChoice,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,manual_room:row_data->manualResidentDetails->>roomNumber,lease_term:row_data->application->>leaseTerm,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,bucket:row_data->>bucket,withdrawn:row_data->>withdrawnAt")
@@ -62,17 +63,19 @@ export async function sweepInspectionReminders(db: SupabaseClient, now = new Dat
     if (!rows.length) break;
     const ids = [...new Set(rows.map(propertyId).filter(Boolean))];
     const owners = [...new Set(rows.map(r => r.manager_user_id).filter(Boolean))];
-    const [properties, reportsResult, settings, managers] = await Promise.all([
+    const [properties, reportsResult, managers] = await Promise.all([
       db.from("manager_property_records").select("id,manager_user_id,rooms:property_data->listingSubmission->rooms,legacy_rooms:row_data->submission->rooms,lease_inspections:property_data->listingSubmission->inspectionsByLeaseType").in("id", ids),
       reportsForApplications(db, rows.map(r => r.id)),
-      loadReminderSettingsForManagers(db, owners), loadManagerReminderRecipients(db, owners),
+      loadManagerReminderRecipients(db, owners),
     ]);
     if (properties.error) throw properties.error;
     const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
     for (const row of rows.filter(active)) {
       const property = properties.data?.find(p => p.id === propertyId(row) && p.manager_user_id === row.manager_user_id);
-      const config = settings.get(row.manager_user_id);
-      if (!property || !config) continue;
+      if (!property) continue;
+      // A house with its own reminder rules gets them; an un-customized house
+      // falls through workspace then account (phase C).
+      const config = await resolveReminderSettingsForRow(db, cache, row.manager_user_id, propertyId(row) || null);
       const manager = managers.get(row.manager_user_id);
       const reports = reportsResult.filter(r => r.application_id === row.id && sameRoom(r as InspectionRecord, row, property.rooms ?? property.legacy_rooms)) as InspectionRecord[];
       const rooms = property.rooms ?? property.legacy_rooms;

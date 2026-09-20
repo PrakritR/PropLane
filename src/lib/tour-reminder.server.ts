@@ -1,10 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { formatRangeLabel } from "@/lib/tour-inquiry-confirm.server";
+import { formatRangeLabel, PLANNED_RECORD_ID, rowsFromRecord } from "@/lib/tour-inquiry-confirm.server";
 import {
   loadManagerAutomationSettings,
+  normalizeManagerAutomationSettings,
   normalizeTourReminderMinutesBeforeList,
   type ManagerAutomationSettings,
 } from "@/lib/payment-automation-settings";
+import { resolveSettingsScope } from "@/lib/settings/scope-resolver.server";
 import {
   createScheduledInboxMessage,
   generateScheduledInboxMessageId,
@@ -57,6 +59,14 @@ function parseTourReminderRow(row: TourReminderDbRow): ScheduledInboxMessageReco
     sentAt: typeof data.sentAt === "string" ? data.sentAt : null,
     cancelledAt: typeof data.cancelledAt === "string" ? data.cancelledAt : null,
   };
+}
+
+/** The tour's property, read off the planned event it belongs to (or null when unfound). */
+async function resolvePlannedEventPropertyId(db: Db, plannedEventId: string): Promise<string | null> {
+  const { data } = await db.from("portal_schedule_records").select("row_data").eq("id", PLANNED_RECORD_ID).maybeSingle();
+  const event = rowsFromRecord(data?.row_data).find((row) => String(row.id ?? "").trim() === plannedEventId);
+  const propertyId = typeof event?.propertyId === "string" ? event.propertyId.trim() : "";
+  return propertyId || null;
 }
 
 async function loadTourReminderRows(
@@ -208,7 +218,22 @@ export async function upsertTourReminderForPlannedEvent(
   db: Db,
   input: UpsertTourReminderInput,
 ): Promise<ScheduledInboxMessageRecord | null> {
-  const settings = input.settings ?? (await loadManagerAutomationSettings(db, input.managerUserId));
+  // A house with its own payment-automation settings gets its own tour-reminder
+  // template, minutes-before list and channels; a tour with no property, or an
+  // un-customized house, falls through workspace then account (phase C).
+  let settings: ManagerAutomationSettings;
+  if (input.settings) {
+    settings = input.settings;
+  } else {
+    const propertyId = await resolvePlannedEventPropertyId(db, input.plannedEventId);
+    const resolved = await resolveSettingsScope(
+      db,
+      { managerUserId: input.managerUserId, propertyId },
+      "paymentAutomation",
+      { normalize: normalizeManagerAutomationSettings, loadAccount: (d, m) => loadManagerAutomationSettings(d, m) },
+    );
+    settings = resolved.value;
+  }
   if (settings.tourReminderEnabled === false) {
     await cancelTourReminderForPlannedEvent(db, input.managerUserId, input.plannedEventId);
     return null;

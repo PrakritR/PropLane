@@ -8,7 +8,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { materializeReminders, type ReminderRecipient } from "@/lib/reminders/queue.server";
-import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
+import {
+  createSettingsScopeCache,
+  resolveReminderSettingsForRow,
+} from "@/lib/reminders/settings.server";
 import { loadManagerReminderRecipients } from "@/lib/reminders/manager-recipients.server";
 import { assigneeEmail } from "@/lib/manager-default-tasks.server";
 import { normalizeAssignee } from "@/lib/work-assignment";
@@ -50,15 +53,16 @@ export async function sweepTaskOverdue(db: SupabaseClient, now: Date = new Date(
   }
   if (entries.length === 0) return 0;
   const managerIds = entries.map((entry) => entry.managerUserId);
-  const [settingsByManager, managerRecipients] = await Promise.all([
-    loadReminderSettingsForManagers(db, managerIds),
-    loadManagerReminderRecipients(db, managerIds),
-  ]);
+  const cache = createSettingsScopeCache();
+  const managerRecipients = await loadManagerReminderRecipients(db, managerIds);
   let queued = 0;
   for (const { managerUserId, task } of entries) {
-    const settings = settingsByManager.get(managerUserId);
-    const rule = settings?.rules.task_overdue;
-    if (!settings || !rule?.enabled) continue;
+    const propertyId = typeof task.propertyId === "string" ? task.propertyId.trim() || null : null;
+    // A house with its own reminder rules gets them; a task with no property, or
+    // an un-customized house, falls through workspace then account (phase C).
+    const settings = await resolveReminderSettingsForRow(db, cache, managerUserId, propertyId);
+    const rule = settings.rules.task_overdue;
+    if (!rule.enabled) continue;
     const anchorIso = iso(task.start ?? task.dueDate)!;
     const assignee = normalizeAssignee(task.assignee);
     const recipients: ReminderRecipient[] = [];
@@ -99,7 +103,7 @@ export async function sweepDocumentSignatureReminders(db: SupabaseClient, now: D
   const since = new Date(now.getTime() - 30 * 24 * 60 * 60_000).toISOString();
   const { data, error } = await db
     .from("manager_documents")
-    .select("id, manager_user_id, display_name, resident_user_id, resident_email, signature_requested_at")
+    .select("id, manager_user_id, display_name, property_id, resident_user_id, resident_email, signature_requested_at")
     .eq("signature_status", "pending")
     .is("deleted_at", null)
     .gte("signature_requested_at", since)
@@ -107,15 +111,18 @@ export async function sweepDocumentSignatureReminders(db: SupabaseClient, now: D
   if (error) throw error;
   const rows = (data ?? []).filter((row) => row.manager_user_id && (row.resident_email || row.resident_user_id));
   if (rows.length === 0) return 0;
-  const settingsByManager = await loadReminderSettingsForManagers(db, rows.map((row) => String(row.manager_user_id)));
+  const cache = createSettingsScopeCache();
   const userIds = [...new Set(rows.map((row) => row.resident_user_id).filter(Boolean).map(String))];
   const { data: profiles } = userIds.length ? await db.from("profiles").select("id, email, full_name").in("id", userIds) : { data: [] };
   const profileById = new Map((profiles ?? []).map((profile) => [String(profile.id), { email: String(profile.email ?? "").trim().toLowerCase(), name: String(profile.full_name ?? "").trim() }]));
   let queued = 0;
   for (const row of rows) {
     const managerUserId = String(row.manager_user_id);
-    const settings = settingsByManager.get(managerUserId);
-    if (!settings?.rules.document_signature.enabled) continue;
+    const propertyId = typeof row.property_id === "string" ? row.property_id.trim() || null : null;
+    // A house with its own reminder rules gets them; a document with no property,
+    // or an un-customized house, falls through workspace then account (phase C).
+    const settings = await resolveReminderSettingsForRow(db, cache, managerUserId, propertyId);
+    if (!settings.rules.document_signature.enabled) continue;
     const anchorIso = iso(row.signature_requested_at);
     if (!anchorIso) continue;
     const profile = row.resident_user_id ? profileById.get(String(row.resident_user_id)) : undefined;
@@ -149,16 +156,24 @@ export async function sweepResidentWelcome(db: SupabaseClient, now: Date = new D
   if (error) throw error;
   const rows = (data ?? []).filter((row) => row.manager_user_id && String((row.row_data as { residentUserId?: unknown })?.residentUserId ?? "").trim());
   if (rows.length === 0) return 0;
-  const settingsByManager = await loadReminderSettingsForManagers(db, rows.map((row) => String(row.manager_user_id)));
-  const active = rows.filter((row) => settingsByManager.get(String(row.manager_user_id))?.rules.resident_welcome.enabled);
-  if (active.length === 0) return 0;
-  const userIds = [...new Set(active.map((row) => String((row.row_data as { residentUserId: string }).residentUserId)))];
+  const cache = createSettingsScopeCache();
+  const rowsWithSettings: { row: (typeof rows)[number]; settings: Awaited<ReturnType<typeof resolveReminderSettingsForRow>> }[] = [];
+  for (const row of rows) {
+    const managerUserId = String(row.manager_user_id);
+    const app = row.row_data as { assignedPropertyId?: unknown; propertyId?: unknown };
+    const propertyId = String(app.assignedPropertyId ?? app.propertyId ?? "").trim() || null;
+    // A house with its own reminder rules gets them; an application with no
+    // property, or an un-customized house, falls through workspace then account.
+    const settings = await resolveReminderSettingsForRow(db, cache, managerUserId, propertyId);
+    if (settings.rules.resident_welcome.enabled) rowsWithSettings.push({ row, settings });
+  }
+  if (rowsWithSettings.length === 0) return 0;
+  const userIds = [...new Set(rowsWithSettings.map(({ row }) => String((row.row_data as { residentUserId: string }).residentUserId)))];
   const { data: profiles } = await db.from("profiles").select("id, email, full_name, created_at").in("id", userIds).gte("created_at", since);
   const profileById = new Map((profiles ?? []).map((profile) => [String(profile.id), profile]));
   let queued = 0;
-  for (const row of active) {
+  for (const { row, settings } of rowsWithSettings) {
     const managerUserId = String(row.manager_user_id);
-    const settings = settingsByManager.get(managerUserId)!;
     const app = row.row_data as { residentUserId: string; property?: string; name?: string };
     const profile = profileById.get(app.residentUserId);
     if (!profile) continue;

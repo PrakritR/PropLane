@@ -21,12 +21,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import {
   loadManagerReminderRecipients,
-  loadTeamReminderRecipientsByManager,
+  loadTeamReminderRecipients,
   teamRecipientsScopedToSubject,
   teamReminderRecipients,
 } from "@/lib/reminders/manager-recipients.server";
 import { materializeReminders } from "@/lib/reminders/queue.server";
-import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
+import {
+  createSettingsScopeCache,
+  resolveReminderSettingsForRow,
+} from "@/lib/reminders/settings.server";
 
 /** Ceiling on rows examined per sweep, so one tick can never run unbounded. */
 const MAX_ROWS = 500;
@@ -126,32 +129,25 @@ export async function sweepPaymentManagerReminders(db: SupabaseClient, now: Date
   if (entries.length === 0) return 0;
 
   const managerUserIds = entries.map((entry) => entry.managerUserId);
-  const [settingsByManager, managerRecipients] = await Promise.all([
-    loadReminderSettingsForManagers(db, managerUserIds),
-    loadManagerReminderRecipients(db, managerUserIds),
-  ]);
-  const teamRecipientsByManager = await loadTeamReminderRecipientsByManager(
-    db,
-    managerUserIds.map((managerUserId) => ({
-      managerUserId,
-      teamUserIds: settingsByManager.get(managerUserId)?.rules.payment_manager.teamUserIds ?? [],
-    })),
-  );
+  const cache = createSettingsScopeCache();
+  const managerRecipients = await loadManagerReminderRecipients(db, managerUserIds);
   const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
 
   let queued = 0;
   for (const entry of entries) {
-    const settings = settingsByManager.get(entry.managerUserId);
-    if (!settings?.rules.payment_manager.enabled) continue;
+    const propertyId = typeof entry.charge.propertyId === "string" ? entry.charge.propertyId : null;
+    // A house with its own reminder rules gets them; a charge with no property,
+    // or an un-customized house, falls through workspace then account (phase C).
+    const settings = await resolveReminderSettingsForRow(db, cache, entry.managerUserId, propertyId);
+    if (!settings.rules.payment_manager.enabled) continue;
 
     const managerRecipient = managerRecipients.get(entry.managerUserId);
-    const propertyId = typeof entry.charge.propertyId === "string" ? entry.charge.propertyId : null;
     // Audience is the manager (and team), never the resident — the default
     // rule is `audience: { manager: true, counterparty: false, team: false }`.
     const teamRecipients = settings.rules.payment_manager.audience.team
       ? teamReminderRecipients(
           teamRecipientsScopedToSubject(
-            teamRecipientsByManager.get(entry.managerUserId) ?? [],
+            await loadTeamReminderRecipients(db, entry.managerUserId, settings.rules.payment_manager.teamUserIds ?? []),
             propertyId,
             "payments",
           ),
@@ -209,7 +205,13 @@ export async function sweepPaymentManagerReminders(db: SupabaseClient, now: Date
     // rather than nudge again. Never writes a notice itself.
     if (settings.rules.delinquency_manager?.enabled) {
       const delinquencyTeam = settings.rules.delinquency_manager.audience.team
-        ? teamReminderRecipients(teamRecipientsScopedToSubject(teamRecipientsByManager.get(entry.managerUserId) ?? [], propertyId, "payments"))
+        ? teamReminderRecipients(
+            teamRecipientsScopedToSubject(
+              await loadTeamReminderRecipients(db, entry.managerUserId, settings.rules.delinquency_manager.teamUserIds ?? []),
+              propertyId,
+              "payments",
+            ),
+          )
         : [];
       queued += await materializeReminders(
         db,

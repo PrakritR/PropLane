@@ -15,14 +15,17 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { materializeReminders, type ReminderRecipient } from "@/lib/reminders/queue.server";
 import type { ReminderSettings, ReminderSubjectKind } from "@/lib/reminders/rules";
-import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
+import {
+  createSettingsScopeCache,
+  resolveReminderSettingsForRow,
+} from "@/lib/reminders/settings.server";
 import {
   loadManagerReminderRecipients,
   loadTeamReminderRecipients,
   teamReminderRecipients,
 } from "@/lib/reminders/manager-recipients.server";
 import { REMINDER_SUBJECT_CO_MANAGER_MODULE } from "@/lib/co-manager-notification-recipients.server";
-import { loadServiceAutomationSettingsForManagers } from "@/lib/service-automation-settings.server";
+import { resolveServiceAutomationSettingsForRow } from "@/lib/service-automation-settings.server";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { VENDOR_DOCUMENT_LABELS, type VendorDocumentRecord } from "@/lib/vendor-documents";
 import { isoOrNull } from "@/lib/reminders/subjects/records.server";
@@ -109,20 +112,19 @@ export async function sweepWorkOrderEscalations(db: SupabaseClient, now: Date = 
   const rows = (await loadOpenWorkOrders(db)).filter((row) => isUnassigned(row.row_data));
   if (rows.length === 0) return 0;
   const managerIds = rows.map((row) => row.manager_user_id);
-  const [settingsByManager, managerRecipients] = await Promise.all([
-    loadReminderSettingsForManagers(db, managerIds),
-    loadManagerReminderRecipients(db, managerIds),
-  ]);
+  const cache = createSettingsScopeCache();
+  const managerRecipients = await loadManagerReminderRecipients(db, managerIds);
   let queued = 0;
   for (const row of rows) {
-    const settings = settingsByManager.get(row.manager_user_id);
-    if (!settings) continue;
     const emergency = row.row_data.priority === "Emergency";
     const kind: ReminderSubjectKind = emergency ? "work_order_unassigned_emergency" : "work_order_unassigned";
-    if (!settings.rules[kind]?.enabled) continue;
+    const propertyId = row.row_data.assignedPropertyId || row.row_data.propertyId || null;
+    // A house with its own reminder rules gets them; a request with no property,
+    // or an un-customized house, falls through workspace then account (phase C).
+    const settings = await resolveReminderSettingsForRow(db, cache, row.manager_user_id, propertyId);
+    if (!settings.rules[kind].enabled) continue;
     const anchorIso = isoOrNull(row.created_at);
     if (!anchorIso || !withinAge(anchorIso, now)) continue;
-    const propertyId = row.row_data.assignedPropertyId || row.row_data.propertyId || null;
     const recipients = await managerSideRecipients(db, row.manager_user_id, kind, settings, managerRecipients, propertyId);
     if (recipients.length === 0) continue;
     queued += await materializeReminders(
@@ -160,19 +162,21 @@ export async function sweepWorkOrderNoOnMyWay(db: SupabaseClient, now: Date = ne
   );
   if (rows.length === 0) return 0;
   const managerIds = rows.map((row) => row.manager_user_id);
-  const [settingsByManager, serviceByManager, managerRecipients] = await Promise.all([
-    loadReminderSettingsForManagers(db, managerIds),
-    loadServiceAutomationSettingsForManagers(db, managerIds),
-    loadManagerReminderRecipients(db, managerIds),
-  ]);
+  const cache = createSettingsScopeCache();
+  const serviceCache = createSettingsScopeCache();
+  const managerRecipients = await loadManagerReminderRecipients(db, managerIds);
   let queued = 0;
   for (const row of rows) {
-    const settings = settingsByManager.get(row.manager_user_id);
-    if (!settings?.rules.work_order_no_on_my_way.enabled) continue;
-    if (!serviceByManager.get(row.manager_user_id)?.requireOnMyWay) continue;
+    const propertyId = row.row_data.assignedPropertyId || row.row_data.propertyId || null;
+    // A house with its own reminder rules gets them; a request with no property,
+    // or an un-customized house, falls through workspace then account (phase C).
+    const settings = await resolveReminderSettingsForRow(db, cache, row.manager_user_id, propertyId);
+    if (!settings.rules.work_order_no_on_my_way.enabled) continue;
+    // Same fallback for the `serviceAutomation` namespace's `requireOnMyWay` gate.
+    const serviceSettings = await resolveServiceAutomationSettingsForRow(db, serviceCache, row.manager_user_id, propertyId);
+    if (!serviceSettings.requireOnMyWay) continue;
     const anchorIso = isoOrNull(row.row_data.scheduledAtIso)!;
     if (!withinAge(anchorIso, now, 7)) continue;
-    const propertyId = row.row_data.assignedPropertyId || row.row_data.propertyId || null;
     const recipients = await managerSideRecipients(db, row.manager_user_id, "work_order_no_on_my_way", settings, managerRecipients, propertyId);
     if (recipients.length === 0) continue;
     queued += await materializeReminders(
@@ -225,8 +229,7 @@ export async function sweepVendorOfferExpiry(db: SupabaseClient, now: Date = new
   if (error) throw error;
   const offers = (data ?? []) as OfferRow[];
   if (offers.length === 0) return 0;
-  const managerIds = offers.map((offer) => offer.manager_user_id);
-  const settingsByManager = await loadReminderSettingsForManagers(db, managerIds);
+  const cache = createSettingsScopeCache();
   const workOrderIds = [...new Set(offers.map((offer) => offer.work_order_id))];
   const { data: workOrders } = await db.from("portal_work_order_records").select("id, row_data").in("id", workOrderIds);
   const workOrderById = new Map<string, DemoManagerWorkOrderRow>();
@@ -243,12 +246,15 @@ export async function sweepVendorOfferExpiry(db: SupabaseClient, now: Date = new
   }
   let queued = 0;
   for (const offer of offers) {
-    const settings = settingsByManager.get(offer.manager_user_id);
-    if (!settings?.rules.vendor_offer_expiry.enabled) continue;
-    const vendor = vendorById.get(offer.vendor_directory_id);
-    if (!vendor?.email.includes("@")) continue;
     const workOrder = workOrderById.get(offer.work_order_id);
     if (!workOrder || workOrder.bucket === "completed") continue;
+    const propertyId = workOrder.assignedPropertyId || workOrder.propertyId || null;
+    // A house with its own reminder rules gets them; an offer with no property,
+    // or an un-customized house, falls through workspace then account (phase C).
+    const settings = await resolveReminderSettingsForRow(db, cache, offer.manager_user_id, propertyId);
+    if (!settings.rules.vendor_offer_expiry.enabled) continue;
+    const vendor = vendorById.get(offer.vendor_directory_id);
+    if (!vendor?.email.includes("@")) continue;
     const anchorIso = isoOrNull(offer.expires_at);
     if (!anchorIso) continue;
     queued += await materializeReminders(
@@ -284,8 +290,7 @@ export async function sweepVendorInvoiceNudge(db: SupabaseClient, now: Date = ne
     (row) => row.row_data.automationStatus === "vendor_marked_done" && isoOrNull(row.row_data.vendorMarkedDoneAt) && row.row_data.vendorUserId,
   );
   if (rows.length === 0) return 0;
-  const managerIds = rows.map((row) => row.manager_user_id);
-  const settingsByManager = await loadReminderSettingsForManagers(db, managerIds);
+  const cache = createSettingsScopeCache();
   const vendorIds = [...new Set(rows.map((row) => String(row.row_data.vendorUserId)))];
   const { data: profiles } = await db.from("profiles").select("id, email, full_name").in("id", vendorIds);
   const vendorById = new Map<string, { email: string; name: string }>();
@@ -294,8 +299,11 @@ export async function sweepVendorInvoiceNudge(db: SupabaseClient, now: Date = ne
   }
   let queued = 0;
   for (const row of rows) {
-    const settings = settingsByManager.get(row.manager_user_id);
-    if (!settings?.rules.vendor_invoice_nudge.enabled) continue;
+    const propertyId = row.row_data.assignedPropertyId || row.row_data.propertyId || null;
+    // A house with its own reminder rules gets them; a work order with no
+    // property, or an un-customized house, falls through workspace then account.
+    const settings = await resolveReminderSettingsForRow(db, cache, row.manager_user_id, propertyId);
+    if (!settings.rules.vendor_invoice_nudge.enabled) continue;
     const vendor = vendorById.get(String(row.row_data.vendorUserId));
     if (!vendor?.email.includes("@")) continue;
     const anchorIso = isoOrNull(row.row_data.vendorMarkedDoneAt)!;
@@ -334,22 +342,32 @@ export async function sweepInvoiceApproval(db: SupabaseClient, now: Date = new D
   const invoices = data ?? [];
   if (invoices.length === 0) return 0;
   const managerIds = invoices.map((invoice) => String(invoice.manager_user_id));
-  const [settingsByManager, managerRecipients] = await Promise.all([
-    loadReminderSettingsForManagers(db, managerIds),
-    loadManagerReminderRecipients(db, managerIds),
-  ]);
+  const cache = createSettingsScopeCache();
+  const managerRecipients = await loadManagerReminderRecipients(db, managerIds);
   const vendorIds = [...new Set(invoices.map((invoice) => String(invoice.vendor_user_id)))];
   const { data: profiles } = await db.from("profiles").select("id, full_name").in("id", vendorIds);
   const vendorName = new Map<string, string>();
   for (const row of profiles ?? []) vendorName.set(String(row.id), String(row.full_name ?? "").trim());
+  const workOrderIds = [...new Set(invoices.map((invoice) => String(invoice.work_order_id ?? "")).filter(Boolean))];
+  const { data: invoiceWorkOrders } = workOrderIds.length
+    ? await db.from("portal_work_order_records").select("id, row_data").in("id", workOrderIds)
+    : { data: [] };
+  const workOrderPropertyId = new Map<string, string | null>();
+  for (const row of invoiceWorkOrders ?? []) {
+    const rowData = (row.row_data ?? {}) as DemoManagerWorkOrderRow;
+    workOrderPropertyId.set(String(row.id), rowData.assignedPropertyId || rowData.propertyId || null);
+  }
   let queued = 0;
   for (const invoice of invoices) {
     const managerUserId = String(invoice.manager_user_id);
-    const settings = settingsByManager.get(managerUserId);
-    if (!settings?.rules.invoice_approval.enabled) continue;
+    const propertyId = workOrderPropertyId.get(String(invoice.work_order_id ?? "")) ?? null;
+    // A house with its own reminder rules gets them; an invoice with no
+    // property, or an un-customized house, falls through workspace then account.
+    const settings = await resolveReminderSettingsForRow(db, cache, managerUserId, propertyId);
+    if (!settings.rules.invoice_approval.enabled) continue;
     const anchorIso = isoOrNull(invoice.submitted_at);
     if (!anchorIso || !withinAge(anchorIso, now)) continue;
-    const recipients = await managerSideRecipients(db, managerUserId, "invoice_approval", settings, managerRecipients, null);
+    const recipients = await managerSideRecipients(db, managerUserId, "invoice_approval", settings, managerRecipients, propertyId);
     if (recipients.length === 0) continue;
     const amount = `$${(Number(invoice.total_cents ?? 0) / 100).toFixed(2)}`;
     queued += await materializeReminders(
@@ -401,17 +419,17 @@ export async function sweepServiceRequestDecision(db: SupabaseClient, now: Date 
   const rows = (await loadServiceRequests(db)).filter((row) => String(row.row_data.status ?? "") === "pending");
   if (rows.length === 0) return 0;
   const managerIds = rows.map((row) => row.manager_user_id);
-  const [settingsByManager, managerRecipients] = await Promise.all([
-    loadReminderSettingsForManagers(db, managerIds),
-    loadManagerReminderRecipients(db, managerIds),
-  ]);
+  const cache = createSettingsScopeCache();
+  const managerRecipients = await loadManagerReminderRecipients(db, managerIds);
   let queued = 0;
   for (const row of rows) {
-    const settings = settingsByManager.get(row.manager_user_id);
-    if (!settings?.rules.service_request_decision.enabled) continue;
+    const propertyId = typeof row.row_data.propertyId === "string" ? row.row_data.propertyId : null;
+    // A house with its own reminder rules gets them; a request with no property,
+    // or an un-customized house, falls through workspace then account (phase C).
+    const settings = await resolveReminderSettingsForRow(db, cache, row.manager_user_id, propertyId);
+    if (!settings.rules.service_request_decision.enabled) continue;
     const anchorIso = isoOrNull(String(row.row_data.requestedAt ?? "")) ?? isoOrNull(row.created_at);
     if (!anchorIso || !withinAge(anchorIso, now)) continue;
-    const propertyId = typeof row.row_data.propertyId === "string" ? row.row_data.propertyId : null;
     const recipients = await managerSideRecipients(db, row.manager_user_id, "service_request_decision", settings, managerRecipients, propertyId);
     if (recipients.length === 0) continue;
     queued += await materializeReminders(
@@ -448,11 +466,14 @@ export async function sweepServiceRequestUnpaid(db: SupabaseClient, now: Date = 
       (row.resident_email ?? "").includes("@"),
   );
   if (rows.length === 0) return 0;
-  const settingsByManager = await loadReminderSettingsForManagers(db, rows.map((row) => row.manager_user_id));
+  const cache = createSettingsScopeCache();
   let queued = 0;
   for (const row of rows) {
-    const settings = settingsByManager.get(row.manager_user_id);
-    if (!settings?.rules.service_request_unpaid.enabled) continue;
+    const propertyId = typeof row.row_data.propertyId === "string" ? row.row_data.propertyId : null;
+    // A house with its own reminder rules gets them; a request with no property,
+    // or an un-customized house, falls through workspace then account (phase C).
+    const settings = await resolveReminderSettingsForRow(db, cache, row.manager_user_id, propertyId);
+    if (!settings.rules.service_request_unpaid.enabled) continue;
     const anchorIso = isoOrNull(String(row.row_data.approvedAt ?? ""));
     if (!anchorIso || !withinAge(anchorIso, now)) continue;
     queued += await materializeReminders(
@@ -500,14 +521,14 @@ export async function sweepVendorDocumentExpiry(db: SupabaseClient, now: Date = 
   });
   if (candidates.length === 0) return 0;
   const managerIds = candidates.map(({ row }) => row.manager_user_id);
-  const [settingsByManager, managerRecipients] = await Promise.all([
-    loadReminderSettingsForManagers(db, managerIds),
-    loadManagerReminderRecipients(db, managerIds),
-  ]);
+  const cache = createSettingsScopeCache();
+  const managerRecipients = await loadManagerReminderRecipients(db, managerIds);
   let queued = 0;
   for (const { row, document } of candidates) {
-    const settings = settingsByManager.get(row.manager_user_id);
-    if (!settings?.rules.vendor_document_expiry.enabled) continue;
+    // Vendor records carry no property, so this always resolves through
+    // workspace then account (phase C's fallback pin — no behaviour change).
+    const settings = await resolveReminderSettingsForRow(db, cache, row.manager_user_id, null);
+    if (!settings.rules.vendor_document_expiry.enabled) continue;
     const anchorIso = isoOrNull(document.expiresAt)!;
     if (Date.parse(anchorIso) <= now.getTime()) continue;
     const vendorEmail = String(row.row_data.email ?? "").trim().toLowerCase();

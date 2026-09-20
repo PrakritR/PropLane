@@ -18,7 +18,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
-import { loadServiceAutomationSettings } from "@/lib/service-automation-settings.server";
+import { resolveServiceAutomationSettingsForRow } from "@/lib/service-automation-settings.server";
+import { createSettingsScopeCache } from "@/lib/settings/scope-resolver.server";
 import { workOrderEvent, type WorkOrderEventRecipient } from "@/lib/work-order-events.server";
 
 export const RESIDENT_CONFIRMATION_PATH = "/services/confirm";
@@ -63,7 +64,11 @@ export async function requestResidentConfirmation(
   rowData: DemoManagerWorkOrderRow,
   now: Date = new Date(),
 ): Promise<{ rowData: DemoManagerWorkOrderRow; confirmUrl: string } | null> {
-  const settings = await loadServiceAutomationSettings(db, managerUserId).catch(() => null);
+  // A house with its own service automation settings gets them; a work order
+  // with no property, or an un-customized house, falls through workspace then
+  // account (phase C).
+  const propertyId = rowData.assignedPropertyId || rowData.propertyId || null;
+  const settings = await resolveServiceAutomationSettingsForRow(db, createSettingsScopeCache(), managerUserId, propertyId).catch(() => null);
   if (!settings?.residentConfirmation) return null;
   if (!(rowData.residentEmail ?? "").includes("@")) return null;
   const token = randomBytes(24).toString("base64url");
@@ -235,7 +240,11 @@ export async function rateResidentConfirmation(
   };
   await db.from("portal_work_order_records").update({ row_data: next, updated_at: now.toISOString() }).eq("id", record.id);
 
-  const settings = await loadServiceAutomationSettings(db, record.manager_user_id).catch(() => null);
+  // A house with its own service automation settings gets them; a work order
+  // with no property, or an un-customized house, falls through workspace then
+  // account (phase C).
+  const ratedPropertyId = record.row_data.assignedPropertyId || record.row_data.propertyId || null;
+  const settings = await resolveServiceAutomationSettingsForRow(db, createSettingsScopeCache(), record.manager_user_id, ratedPropertyId).catch(() => null);
   const sender = await senderFor(db, record.manager_user_id);
   const managers = await managerRecipients(db, record);
   await workOrderEvent(db, {
@@ -281,8 +290,13 @@ export async function autoCloseResidentConfirmations(db: SupabaseClient, now: Da
   );
   if (open.length === 0) return 0;
   let closed = 0;
+  const settingsCache = createSettingsScopeCache();
   for (const record of open) {
-    const settings = await loadServiceAutomationSettings(db, record.manager_user_id).catch(() => null);
+    // A house with its own service automation settings gets them; a work order
+    // with no property, or an un-customized house, falls through workspace then
+    // account (phase C).
+    const propertyId = record.row_data.assignedPropertyId || record.row_data.propertyId || null;
+    const settings = await resolveServiceAutomationSettingsForRow(db, settingsCache, record.manager_user_id, propertyId).catch(() => null);
     if (!settings || !settings.autoCloseHours) continue;
     const confirmation = record.row_data.residentConfirmation!;
     const dueMs = Date.parse(confirmation.requestedAt) + settings.autoCloseHours * 60 * 60_000;

@@ -17,7 +17,10 @@ import { isActivePlannedEvent, type PlannedEvent } from "@/lib/demo-admin-schedu
 import { INQUIRIES_RECORD_ID, rowsFromRecord } from "@/lib/tour-inquiry.server";
 import { materializeReminders, type ReminderRecipient } from "@/lib/reminders/queue.server";
 import type { ReminderSettings, ReminderSubjectKind } from "@/lib/reminders/rules";
-import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
+import {
+  createSettingsScopeCache,
+  resolveReminderSettingsForRow,
+} from "@/lib/reminders/settings.server";
 import {
   loadManagerReminderRecipients,
   loadTeamReminderRecipients,
@@ -77,20 +80,19 @@ export async function sweepTourRequestReminders(db: SupabaseClient, now: Date = 
   );
   if (rows.length === 0) return 0;
   const managerIds = rows.map((row) => String(row.managerUserId));
-  const [settingsByManager, managerRecipients] = await Promise.all([
-    loadReminderSettingsForManagers(db, managerIds),
-    loadManagerReminderRecipients(db, managerIds),
-  ]);
+  const cache = createSettingsScopeCache();
+  const managerRecipients = await loadManagerReminderRecipients(db, managerIds);
   let queued = 0;
   for (const row of rows) {
     const managerUserId = String(row.managerUserId);
-    const settings = settingsByManager.get(managerUserId);
-    if (!settings) continue;
+    const propertyId = String(row.propertyId ?? "").trim() || null;
+    // A house with its own reminder rules gets them; a request with no
+    // property, or an un-customized house, falls through workspace then account.
+    const settings = await resolveReminderSettingsForRow(db, cache, managerUserId, propertyId);
     const anchorIso = iso(row.createdAt);
     if (!anchorIso || !withinDays(anchorIso, now, 14)) continue;
     const guestEmail = String(row.email ?? "").trim().toLowerCase();
     const guestName = String(row.name ?? "").trim() || "A guest";
-    const propertyId = String(row.propertyId ?? "").trim() || null;
     const requested = iso(row.proposedStart);
     const payload = {
       title: "tour request",
@@ -142,15 +144,15 @@ export async function sweepTourNoShowPrompts(db: SupabaseClient, now: Date = new
   });
   if (events.length === 0) return 0;
   const managerIds = events.map((event) => event.managerUserId!);
-  const [settingsByManager, managerRecipients] = await Promise.all([
-    loadReminderSettingsForManagers(db, managerIds),
-    loadManagerReminderRecipients(db, managerIds),
-  ]);
+  const cache = createSettingsScopeCache();
+  const managerRecipients = await loadManagerReminderRecipients(db, managerIds);
   let queued = 0;
   for (const event of events) {
     const managerUserId = event.managerUserId!;
-    const settings = settingsByManager.get(managerUserId);
-    if (!settings?.rules.tour_no_show_manager.enabled) continue;
+    // A house with its own reminder rules gets them; a tour with no property,
+    // or an un-customized house, falls through workspace then account (phase C).
+    const settings = await resolveReminderSettingsForRow(db, cache, managerUserId, event.propertyId ?? null);
+    if (!settings.rules.tour_no_show_manager.enabled) continue;
     const anchorIso = iso(event.end ?? event.start);
     if (!anchorIso) continue;
     const recipients = await managerSide(db, managerUserId, "tour_no_show_manager", settings, managerRecipients, event.propertyId ?? null);
@@ -193,10 +195,8 @@ export async function sweepApplicationEscalations(db: SupabaseClient, now: Date 
   const approved = rows.filter((row) => String(row.row_data.bucket ?? "") === "approved" && !row.row_data.manuallyAdded);
   if (pending.length === 0 && approved.length === 0) return 0;
   const managerIds = [...pending, ...approved].map((row) => String(row.manager_user_id));
-  const [settingsByManager, managerRecipients] = await Promise.all([
-    loadReminderSettingsForManagers(db, managerIds),
-    loadManagerReminderRecipients(db, managerIds),
-  ]);
+  const cache = createSettingsScopeCache();
+  const managerRecipients = await loadManagerReminderRecipients(db, managerIds);
 
   // Which approved applications already have a lease row.
   const approvedIds = approved.map((row) => row.id);
@@ -209,11 +209,14 @@ export async function sweepApplicationEscalations(db: SupabaseClient, now: Date 
   let queued = 0;
   for (const row of pending) {
     const managerUserId = String(row.manager_user_id);
-    const settings = settingsByManager.get(managerUserId);
-    if (!settings?.rules.application_decision_manager.enabled) continue;
+    const propertyId = String(row.row_data.assignedPropertyId ?? row.row_data.propertyId ?? "").trim() || null;
+    // A house with its own reminder rules gets them; an application with no
+    // property, or an un-customized house, falls through workspace then account.
+    const settings = await resolveReminderSettingsForRow(db, cache, managerUserId, propertyId);
+    if (!settings.rules.application_decision_manager.enabled) continue;
     const anchorIso = iso(row.created_at);
     if (!anchorIso || !withinDays(anchorIso, now, 30)) continue;
-    const recipients = await managerSide(db, managerUserId, "application_decision_manager", settings, managerRecipients, String(row.row_data.assignedPropertyId ?? row.row_data.propertyId ?? "").trim() || null);
+    const recipients = await managerSide(db, managerUserId, "application_decision_manager", settings, managerRecipients, propertyId);
     if (recipients.length === 0) continue;
     queued += await materializeReminders(
       db,
@@ -232,11 +235,14 @@ export async function sweepApplicationEscalations(db: SupabaseClient, now: Date 
   for (const row of approved) {
     if (withLease.has(row.id)) continue;
     const managerUserId = String(row.manager_user_id);
-    const settings = settingsByManager.get(managerUserId);
-    if (!settings?.rules.application_no_lease_manager.enabled) continue;
+    const propertyId = String(row.row_data.assignedPropertyId ?? row.row_data.propertyId ?? "").trim() || null;
+    // A house with its own reminder rules gets them; an application with no
+    // property, or an un-customized house, falls through workspace then account.
+    const settings = await resolveReminderSettingsForRow(db, cache, managerUserId, propertyId);
+    if (!settings.rules.application_no_lease_manager.enabled) continue;
     const anchorIso = iso(row.row_data.approvedAt) ?? iso(row.updated_at);
     if (!anchorIso || !withinDays(anchorIso, now, 30)) continue;
-    const recipients = await managerSide(db, managerUserId, "application_no_lease_manager", settings, managerRecipients, String(row.row_data.assignedPropertyId ?? row.row_data.propertyId ?? "").trim() || null);
+    const recipients = await managerSide(db, managerUserId, "application_no_lease_manager", settings, managerRecipients, propertyId);
     if (recipients.length === 0) continue;
     queued += await materializeReminders(
       db,

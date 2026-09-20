@@ -9,12 +9,15 @@ import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { MANAGER_BILL_SELECT, mapManagerBillRow } from "@/lib/manager-bills";
 import {
   loadManagerReminderRecipients,
-  loadTeamReminderRecipientsByManager,
+  loadTeamReminderRecipients,
   teamRecipientsScopedToSubject,
   teamReminderRecipients,
 } from "@/lib/reminders/manager-recipients.server";
 import { materializeReminders } from "@/lib/reminders/queue.server";
-import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
+import {
+  createSettingsScopeCache,
+  resolveReminderSettingsForRow,
+} from "@/lib/reminders/settings.server";
 import { withinHorizon } from "@/lib/reminders/subjects/records.server";
 
 const MAX_ROWS = 500;
@@ -64,29 +67,23 @@ export async function sweepOutgoingPaymentReminders(db: SupabaseClient, now: Dat
   if (entries.length === 0) return 0;
 
   const managerUserIds = entries.map((entry) => entry.managerUserId);
-  const [settingsByManager, managerRecipients] = await Promise.all([
-    loadReminderSettingsForManagers(db, managerUserIds),
-    loadManagerReminderRecipients(db, managerUserIds),
-  ]);
-  const teamRecipientsByManager = await loadTeamReminderRecipientsByManager(
-    db,
-    managerUserIds.map((managerUserId) => ({
-      managerUserId,
-      teamUserIds: settingsByManager.get(managerUserId)?.rules.outgoing_payment.teamUserIds ?? [],
-    })),
-  );
+  const cache = createSettingsScopeCache();
+  const managerRecipients = await loadManagerReminderRecipients(db, managerUserIds);
   const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
 
   let queued = 0;
   for (const entry of entries) {
-    const settings = settingsByManager.get(entry.managerUserId);
-    if (!settings?.rules.outgoing_payment.enabled) continue;
+    const propertyId = entry.bill.propertyId ?? null;
+    // A house with its own reminder rules gets them; a bill with no property, or
+    // an un-customized house, falls through workspace then account (phase C).
+    const settings = await resolveReminderSettingsForRow(db, cache, entry.managerUserId, propertyId);
+    if (!settings.rules.outgoing_payment.enabled) continue;
     const managerRecipient = managerRecipients.get(entry.managerUserId);
     const teamRecipients = settings.rules.outgoing_payment.audience.team
       ? teamReminderRecipients(
           teamRecipientsScopedToSubject(
-            teamRecipientsByManager.get(entry.managerUserId) ?? [],
-            entry.bill.propertyId,
+            await loadTeamReminderRecipients(db, entry.managerUserId, settings.rules.outgoing_payment.teamUserIds ?? []),
+            propertyId,
             "financials",
           ),
         )
