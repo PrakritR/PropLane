@@ -75,12 +75,19 @@ function makeDb() {
             error: null,
           };
         }
+        if (table === "manager_property_records") {
+          return { data: [{ id: "prop-1", manager_user_id: MANAGER }], error: null };
+        }
         return { data: [], error: null };
       };
       const builder: Record<string, unknown> = {
         select: () => builder,
         eq: (column: string, value: string) => {
           filters[column] = value;
+          return builder;
+        },
+        in: (column: string, values: string[]) => {
+          filters[column] = values.join(",");
           return builder;
         },
         or: () => builder,
