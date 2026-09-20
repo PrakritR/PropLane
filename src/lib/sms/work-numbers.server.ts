@@ -159,11 +159,8 @@ export async function assignNumberToWorkspace(
     return { ok: false, error: "You cannot share a number you do not hold.", code: "not_authorized" };
   }
 
-  const { count } = await db
-    .from("workspace_work_numbers")
-    .select("number_id", { count: "exact", head: true })
-    .eq("workspace_id", workspaceId);
-  if ((count ?? 0) >= WORKSPACE_WORK_NUMBER_LIMIT) {
+  const { data: existingHolds } = await db.from("workspace_work_numbers").select("number_id").eq("workspace_id", workspaceId);
+  if ((existingHolds?.length ?? 0) >= WORKSPACE_WORK_NUMBER_LIMIT) {
     return { ok: false, error: "A workspace can hold at most 2 work numbers.", code: "cap_exceeded" };
   }
 
@@ -206,19 +203,40 @@ export async function unassignNumber(
   }
   const { data: existing } = await db
     .from("workspace_work_numbers")
-    .select("number_id")
+    .select("number_id, is_primary")
     .eq("workspace_id", workspaceId)
     .eq("number_id", numberId)
     .maybeSingle();
   if (!existing) {
     return { ok: false, error: "This workspace does not hold that number.", code: "not_found" };
   }
+  const wasPrimary = Boolean(existing.is_primary);
   const { error } = await db
     .from("workspace_work_numbers")
     .delete()
     .eq("workspace_id", workspaceId)
     .eq("number_id", numberId);
   if (error) return { ok: false, error: "Could not remove this number.", code: "not_found" };
+
+  // Removing the HOME copy of a number that another workspace still shares in
+  // leaves that number with no primary holder. Promote the earliest remaining
+  // holder so outbound resolution keeps a deterministic primary.
+  if (wasPrimary) {
+    const { data: remaining } = await db
+      .from("workspace_work_numbers")
+      .select("workspace_id, created_at")
+      .eq("number_id", numberId)
+      .order("created_at", { ascending: true })
+      .limit(1);
+    const next = remaining?.[0];
+    if (next) {
+      await db
+        .from("workspace_work_numbers")
+        .update({ is_primary: true })
+        .eq("workspace_id", next.workspace_id)
+        .eq("number_id", numberId);
+    }
+  }
   return { ok: true };
 }
 
@@ -275,11 +293,8 @@ export async function provisionNumberForWorkspace(
     return { ok: false, error: "You cannot request a number for that workspace.", state: "failed", code: "not_authorized" };
   }
 
-  const { count: heldCount } = await db
-    .from("workspace_work_numbers")
-    .select("number_id", { count: "exact", head: true })
-    .eq("workspace_id", workspaceId);
-  if ((heldCount ?? 0) >= WORKSPACE_WORK_NUMBER_LIMIT) {
+  const { data: heldNow } = await db.from("workspace_work_numbers").select("number_id").eq("workspace_id", workspaceId);
+  if ((heldNow?.length ?? 0) >= WORKSPACE_WORK_NUMBER_LIMIT) {
     return { ok: false, error: "A workspace can hold at most 2 work numbers.", state: "failed", code: "cap_exceeded" };
   }
 
