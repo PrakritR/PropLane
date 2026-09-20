@@ -112,7 +112,7 @@ describe("parseTeamRole", () => {
   });
 
   it("refuses unknown ids", () => {
-    expect(parseTeamRole("admin")).toEqual({ ok: false, error: UNKNOWN_TEAM_ROLE_ERROR });
+    expect(parseTeamRole("janitor")).toEqual({ ok: false, error: UNKNOWN_TEAM_ROLE_ERROR });
     expect(parseTeamRole(12)).toEqual({ ok: false, error: UNKNOWN_TEAM_ROLE_ERROR });
   });
 });

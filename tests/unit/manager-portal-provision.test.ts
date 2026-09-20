@@ -77,6 +77,28 @@ function mockSupabase() {
   };
 }
 
+/** Like `mockSupabase()`, but `profile_roles` reports the given roles as present. */
+function mockSupabaseWithRoles(existingRoles: string[]) {
+  return {
+    from: (table: string) => {
+      if (table === "profile_roles") {
+        return {
+          select: () => ({
+            eq: () => ({
+              eq: (_col: string, role: string) => ({
+                maybeSingle: () =>
+                  Promise.resolve({ data: existingRoles.includes(role) ? { role } : null, error: null }),
+              }),
+              maybeSingle: () => Promise.resolve({ data: null, error: null }),
+            }),
+          }),
+        };
+      }
+      return mockSupabase().from(table);
+    },
+  };
+}
+
 describe("ensureFreeManagerPortalAccess", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -232,5 +254,59 @@ describe("ensureFreeManagerPortalAccess", () => {
 
     expect(result).toEqual({ status: "portal_ready", managerId: "AXIS-DONE", provisioned: false });
     expect(provisionPendingManagerAccount).not.toHaveBeenCalled();
+  });
+
+  it("ensures a manager profile_roles row when a completed purchase already matches", async () => {
+    const { ensureFreeManagerPortalAccess } = await import("@/lib/auth/manager-portal-provision");
+    isManagerOnboardingComplete.mockReturnValue(true);
+    findManagerPurchaseForAccount.mockResolvedValue({
+      id: "purchase-1",
+      email: "new@test.com",
+      manager_id: "AXIS-DONE",
+      tier: "free",
+      billing: "monthly",
+      stripe_checkout_session_id: "oauth_free_user-1",
+      user_id: "user-1",
+      paid_at: new Date().toISOString(),
+    });
+
+    const result = await ensureFreeManagerPortalAccess(mockSupabase() as never, testUser());
+
+    expect(result).toEqual({ status: "portal_ready", managerId: "AXIS-DONE", provisioned: false });
+    expect(ensureProfileRoleRow).toHaveBeenCalledWith(expect.anything(), "user-1", "manager");
+  });
+
+  it("refuses a resident-only account by default (no explicit upgrade intent)", async () => {
+    const { ensureFreeManagerPortalAccess } = await import("@/lib/auth/manager-portal-provision");
+    findManagerPurchaseForAccount.mockResolvedValue(null);
+
+    const result = await ensureFreeManagerPortalAccess(mockSupabaseWithRoles(["resident"]) as never, testUser());
+
+    expect(result).toEqual({ status: "skipped", reason: "resident_only" });
+    expect(provisionPendingManagerAccount).not.toHaveBeenCalled();
+  });
+
+  it("provisions a resident-only account into a manager portal when allowResidentUpgrade is set", async () => {
+    const { ensureFreeManagerPortalAccess } = await import("@/lib/auth/manager-portal-provision");
+    findManagerPurchaseForAccount.mockResolvedValue(null);
+
+    const result = await ensureFreeManagerPortalAccess(mockSupabaseWithRoles(["resident"]) as never, testUser(), {
+      allowResidentUpgrade: true,
+    });
+
+    expect(result).toEqual({ status: "portal_ready", managerId: "AXIS-NEW", provisioned: true });
+    expect(provisionPendingManagerAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it("never refuses an account that already holds manager or admin portal access, even without the flag", async () => {
+    const { ensureFreeManagerPortalAccess } = await import("@/lib/auth/manager-portal-provision");
+    findManagerPurchaseForAccount.mockResolvedValue(null);
+
+    const result = await ensureFreeManagerPortalAccess(
+      mockSupabaseWithRoles(["resident", "admin"]) as never,
+      testUser(),
+    );
+
+    expect(result).toEqual({ status: "portal_ready", managerId: "AXIS-NEW", provisioned: true });
   });
 });

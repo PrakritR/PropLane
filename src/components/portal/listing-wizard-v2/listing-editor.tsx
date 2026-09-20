@@ -31,7 +31,6 @@ import {
   normalizeListingPaymentWaiverCode,
 } from "@/lib/payment-policy";
 import { isProcessingCoverageCodeShape } from "@/lib/processing-coverage-codes";
-import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { uploadListingImageFiles } from "@/lib/listing-media-client";
 import { ListingAddressAutocomplete } from "@/components/portal/listing-address-autocomplete";
 import { FieldMark, FoundOnlineCard } from "@/components/portal/listing-wizard-v2/found-online-card";
@@ -2876,71 +2875,14 @@ const READINESS_STEP: Record<string, (typeof LISTING_V2_STEPS)[number]["id"]> = 
   processing: "pricing",
 };
 
-/**
- * The two doors a renter has to the manager, as the listing will print them.
- *
- * Neither is a field on the listing: the work number and the work email are
- * resolved from the OWNING manager's account, server-side, and the stored
- * listing blob is never trusted for them (see `listing-contact-card.tsx`). So
- * the editor cannot ask for a phone or an email here — it shows what the
- * listing will carry, and points at Settings when a door is missing.
- */
-export type ListingContactDoors = {
-  /** The work number, E.164, or null when the listing prints no Text button. */
-  phone: string | null;
-  /** The work email, or null when the listing prints no Email button. */
-  email: string | null;
-  /** Saves the draft and opens Settings → Messaging, where the doors are set up. */
-  onSetUp?: () => void;
-};
-
-function ReachYouCard({ contact }: { contact: ListingContactDoors }) {
-  const phoneLabel = contact.phone ? formatSmsPhoneLabel(contact.phone) : null;
-  const setUp = contact.onSetUp ? (
-    <button
-      type="button"
-      onClick={contact.onSetUp}
-      data-attr="listing-v2-contact-set-up"
-      className="shrink-0 rounded-full border border-border bg-card px-3 py-1 text-[12.5px] font-bold text-foreground hover:bg-accent/40"
-    >
-      Set up
-    </button>
-  ) : (
-    <span className="text-[13px] text-muted">Not set</span>
-  );
-  const value = (text: string | null) =>
-    text ? (
-      <span className="flex min-w-0 items-center gap-2 text-[13px] text-foreground">
-        <span className="truncate">{text}</span>
-        <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full border border-emerald-200 bg-emerald-50 text-[10px] font-extrabold text-emerald-700">
-          ✓
-        </span>
-      </span>
-    ) : (
-      setUp
-    );
-  return (
-    <div className="mt-8 max-w-[620px]" data-attr="listing-v2-reach-you">
-      <b className="text-[13px] font-bold text-foreground">How renters reach you</b>
-      <div className="mt-2 overflow-hidden rounded-2xl border border-border bg-card">
-        <FactRow label="Text" first>
-          {value(phoneLabel)}
-        </FactRow>
-        <FactRow label="Email">{value(contact.email)}</FactRow>
-      </div>
-    </div>
-  );
-}
 
 function StepReview({
   sub,
   onJump,
-  contact,
 }: {
   sub: ManagerListingSubmissionV1;
   /** Take the manager to the step that closes a gap, rather than describing it. */
   onJump: (stepId: (typeof LISTING_V2_STEPS)[number]["id"]) => void;
-  contact?: ListingContactDoors;
 }) {
   const checks = listingReadiness(sub);
   const done = checks.filter((c) => c.state === "done").length;
@@ -2994,7 +2936,6 @@ function StepReview({
           })}
         </ul>
       </div>
-      {contact ? <ReachYouCard contact={contact} /> : null}
     </StepColumn>
   );
 }
@@ -3016,7 +2957,6 @@ export function ListingEditorV2({
   leadingStep,
   headerCenter,
   basicsLead,
-  contact,
   initialStep,
 }: {
   submission: ManagerListingSubmissionV1;
@@ -3052,8 +2992,6 @@ export function ListingEditorV2({
   headerCenter?: ReactNode;
   /** Drawn on Basics under its heading, ahead of Property type — Create's "Start from a file" strip. */
   basicsLead?: ReactNode;
-  /** What the Review step says about how renters reach the manager. */
-  contact?: ListingContactDoors;
   /** Open on this listing step — Import jumps to Rooms / Review without walking Basics. */
   initialStep?: ListingV2StepId;
 }) {
@@ -3199,7 +3137,6 @@ export function ListingEditorV2({
           <StepReview
             sub={submission}
             onJump={(id) => goTo(LISTING_V2_STEPS.findIndex((s) => s.id === id))}
-            contact={contact}
           />
         );
     }

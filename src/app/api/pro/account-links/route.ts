@@ -31,10 +31,14 @@ import { mintOpenCoManagerInvite } from "@/lib/co-manager-open-invite.server";
 import { resolveRequestOrigin } from "@/lib/app-url";
 
 import { asStringArray, serializeInvite, type InviteRow } from "@/lib/account-link-invite-row";
+import { normalizeWorkspacePermissions } from "@/lib/workspace-co-manager-permissions";
+import { parseHouseScope, roleAssignableBy, type HouseScope } from "@/lib/workspaces/membership";
 import {
-  DEFAULT_NEW_INVITE_WORKSPACE_GRANT,
-  normalizeWorkspacePermissions,
-} from "@/lib/workspace-co-manager-permissions";
+  actorWorkspaceStanding,
+  ownerDefaultWorkspaceId,
+  workspaceForHouses,
+  workspaceHouseIds,
+} from "@/lib/workspaces/membership.server";
 
 export const runtime = "nodejs";
 
@@ -98,7 +102,9 @@ export async function GET(): Promise<NextResponse<AccountLinksPayload | { error:
           "co_manager_permissions",
           "workspace_id",
           "workspace_permissions",
+          "legacy_workspace_permissions",
           "team_role",
+          "house_scope",
           "status",
           "created_at",
           "responded_at",
@@ -117,6 +123,38 @@ export async function GET(): Promise<NextResponse<AccountLinksPayload | { error:
 
     const rows = ((data ?? []) as unknown) as InviteRow[];
     const db = createSupabaseServiceRoleClient();
+    // An Admin runs a workspace's team without being on every row of it. The
+    // rows of the workspaces they administer are added here, read as the
+    // owner would see them; RLS keeps the session client to their own rows.
+    const managedRowIds = new Set<string>();
+    const adminWorkspaceIds = [
+      ...new Set(
+        rows
+          .filter(
+            (row) =>
+              row.invitee_user_id === user.id &&
+              row.status === "accepted" &&
+              (row.team_role === "admin" || row.team_role === "full") &&
+              String(row.workspace_id ?? "").trim(),
+          )
+          .map((row) => String(row.workspace_id)),
+      ),
+    ];
+    if (adminWorkspaceIds.length > 0) {
+      const { data: managed } = await db
+        .from("account_link_invites")
+        .select("*")
+        .in("workspace_id", adminWorkspaceIds)
+        .in("status", ["pending", "accepted"])
+        .not("invitee_user_id", "is", null)
+        .neq("invitee_user_id", user.id)
+        .order("created_at", { ascending: false });
+      for (const row of (managed ?? []) as InviteRow[]) {
+        if (rows.some((existing) => existing.id === row.id)) continue;
+        rows.push(row);
+        managedRowIds.add(row.id);
+      }
+    }
     const allAssignedPropertyIds = [
       ...new Set(rows.flatMap((row) => asStringArray(row.assigned_property_ids))),
     ];
@@ -141,25 +179,28 @@ export async function GET(): Promise<NextResponse<AccountLinksPayload | { error:
     ];
     const emailByUserId = new Map<string, string>();
     const phoneByUserId = new Map<string, string>();
+    const nameByUserId = new Map<string, string>();
     if (participantIds.length > 0) {
-      const { data: profiles } = await db.from("profiles").select("id, email, phone").in("id", participantIds);
+      const { data: profiles } = await db.from("profiles").select("id, email, phone, full_name").in("id", participantIds);
       for (const profile of profiles ?? []) {
         const id = String(profile.id ?? "").trim();
         const email = String(profile.email ?? "").trim();
         const phone = String(profile.phone ?? "").trim();
+        const name = String((profile as { full_name?: string | null }).full_name ?? "").trim();
         if (id && email) emailByUserId.set(id, email);
         if (id && phone) phoneByUserId.set(id, phone);
+        if (id && name) nameByUserId.set(id, name);
       }
     }
 
     const invites = rows
       .filter((row) => {
-        const otherUserId = row.inviter_user_id === user.id ? row.invitee_user_id : row.inviter_user_id;
+        const otherUserId = row.inviter_user_id === user.id || managedRowIds.has(row.id) ? row.invitee_user_id : row.inviter_user_id;
         const otherEmail = emailByUserId.get(String(otherUserId ?? "").trim()) ?? "";
         return !isCrossSandboxPortalPair(viewerEmail, otherEmail);
       })
       .map((r) => {
-        const invite = serializeInvite(r, user.id, propertyLabelsById);
+        const invite = serializeInvite(r, user.id, propertyLabelsById, { viewAsWorkspaceManager: managedRowIds.has(r.id) });
         const linkedId = invite.linkedUserId.trim();
         // Contact details are NOT disclosed by the mere existence of an invite.
         // Creating one needs only the target's PropLane ID and a property the
@@ -172,6 +213,11 @@ export async function GET(): Promise<NextResponse<AccountLinksPayload | { error:
         const contactDisclosed = invite.status === "accepted" || invite.direction === "incoming";
         return {
           ...invite,
+          // A row written by a redeem path that could not read the profile
+          // carries no display name; the profile's current name fills it, on
+          // the same disclosure terms as the contact details.
+          linkedDisplayName:
+            invite.linkedDisplayName?.trim() || (contactDisclosed ? nameByUserId.get(linkedId) ?? null : null) || invite.linkedDisplayName,
           linkedEmail: contactDisclosed ? (emailByUserId.get(linkedId) ?? null) : null,
           linkedPhone: contactDisclosed ? (phoneByUserId.get(linkedId) ?? null) : null,
         };
@@ -203,6 +249,8 @@ export async function POST(req: Request) {
       workspaceId?: string | null;
       workspacePermissions?: unknown;
       teamRole?: unknown;
+      /** all = every house in `workspaceId`, now and later; selected = the listed houses. */
+      houseScope?: unknown;
       /** When true, the client already delivered (or will deliver) the invite message. */
       skipInviteNotification?: boolean;
     } | null;
@@ -211,7 +259,9 @@ export async function POST(req: Request) {
     const tabKind = "manager" satisfies AccountLinkTabKind;
     void body?.tabKind;
     const skipInviteNotification = body?.skipInviteNotification === true;
-    const assignedPropertyIds = asStringArray(body?.assignedPropertyIds);
+    let assignedPropertyIds = asStringArray(body?.assignedPropertyIds);
+    const houseScope: HouseScope = parseHouseScope(body?.houseScope);
+    const requestedWorkspaceId = typeof body?.workspaceId === "string" ? body.workspaceId.trim() || null : null;
     let payoutPercentForManager = Math.min(
       100,
       Math.max(0, Math.round(Number(body?.payoutPercentForManager ?? 15) * 10) / 10),
@@ -247,11 +297,56 @@ export async function POST(req: Request) {
 
     const svc = createSupabaseServiceRoleClient();
 
-    const delegate = await resolveTeamInviteDelegate(svc, user.id, assignedPropertyIds);
-    if (!delegate.ok) {
-      return NextResponse.json({ error: delegate.error }, { status: delegate.status });
+    // The membership is OF A WORKSPACE. When the request names one, its owner is
+    // the inviter and the actor must run it (owner, or an Admin of that same
+    // workspace); "all houses" resolves to the workspace's houses here so the
+    // ownership and delegation checks below see real ids. A request with no
+    // workspace (an older client) keeps the per-house delegate path and is
+    // pinned to the workspace its houses sit in.
+    let inviterUserId: string;
+    let workspaceId: string | null = requestedWorkspaceId;
+    let actorRole: "owner" | TeamRoleId | null = null;
+    if (requestedWorkspaceId) {
+      const standing = await actorWorkspaceStanding(svc, user.id, requestedWorkspaceId);
+      if (!standing) {
+        return NextResponse.json({ error: "That workspace is not yours to invite into." }, { status: 403 });
+      }
+      if (!standing.rights.members) {
+        return NextResponse.json(
+          { error: "Only the workspace owner or an admin can invite into this workspace." },
+          { status: 403 },
+        );
+      }
+      inviterUserId = standing.ownerUserId;
+      actorRole = standing.role;
+      const houses = await workspaceHouseIds(svc, inviterUserId, standing.workspaceId);
+      if (houseScope === "all") {
+        assignedPropertyIds = houses;
+      } else if (assignedPropertyIds.some((id) => !houses.includes(id))) {
+        return NextResponse.json({ error: "Choose houses from this workspace only." }, { status: 400 });
+      }
+      if (!roleAssignableBy(actorRole, teamRole)) {
+        return NextResponse.json({ error: "You cannot hand out a role above your own." }, { status: 403 });
+      }
+      if (teamRole !== "custom") {
+        propertyCoManagerPermissions = stampTeamRoleOnProperties(teamRole, assignedPropertyIds, propertyCoManagerPermissions);
+      } else {
+        propertyCoManagerPermissions = normalizePropertyCoManagerPermissions(
+          body?.propertyCoManagerPermissions ?? body?.coManagerPermissions,
+          assignedPropertyIds,
+        );
+      }
+    } else {
+      const delegate = await resolveTeamInviteDelegate(svc, user.id, assignedPropertyIds);
+      if (!delegate.ok) {
+        return NextResponse.json({ error: delegate.error }, { status: delegate.status });
+      }
+      inviterUserId = delegate.ownerUserId;
+      actorRole = user.id.trim() === inviterUserId.trim() ? "owner" : null;
+      workspaceId =
+        (await workspaceForHouses(svc, inviterUserId, assignedPropertyIds)) ??
+        (await ownerDefaultWorkspaceId(svc, inviterUserId));
     }
-    const inviterUserId = delegate.ownerUserId;
 
     const isDelegateInvite = user.id.trim() !== inviterUserId.trim();
     if (isDelegateInvite) {
@@ -281,10 +376,9 @@ export async function POST(req: Request) {
       }
     }
 
-    const workspaceId = typeof body?.workspaceId === "string" ? body.workspaceId.trim() || null : null;
-    const workspacePermissions = Object.keys(normalizeWorkspacePermissions(body?.workspacePermissions)).length
-      ? normalizeWorkspacePermissions(body?.workspacePermissions)
-      : DEFAULT_NEW_INVITE_WORKSPACE_GRANT;
+    // Workspace rights follow the role; only a Custom row keeps explicit flags.
+    const workspacePermissions = teamRole === "custom" ? normalizeWorkspacePermissions(body?.workspacePermissions) : {};
+    void actorRole;
     const stampedFlat = stampTeamRolePermissions(teamRole);
     const coManagerPermissions: CoManagerPermissions = stampedFlat
       ? stampedFlat
@@ -354,14 +448,14 @@ export async function POST(req: Request) {
           }
           return NextResponse.json({ error: capErr.message }, { status: 500 });
         }
-        const { data: existingOpen } = await svc
+        const openQuery = svc
           .from("account_link_invites")
           .select("id")
           .eq("inviter_user_id", inviterUserId)
           .eq("tab_kind", tabKind)
           .eq("status", "pending")
-          .is("invitee_user_id", null)
-          .maybeSingle();
+          .is("invitee_user_id", null);
+        const { data: existingOpen } = await (workspaceId ? openQuery.eq("workspace_id", workspaceId) : openQuery.is("workspace_id", null)).maybeSingle();
         const replacingOpen = Boolean(existingOpen?.id);
         if (!replacingOpen && (used ?? 0) >= openLinkCap) {
           return NextResponse.json(
@@ -386,6 +480,7 @@ export async function POST(req: Request) {
         workspaceId,
         workspacePermissions,
         teamRole,
+        houseScope,
         tabKind,
         requestOrigin: resolveRequestOrigin(req),
       });
@@ -456,14 +551,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: CROSS_SANDBOX_PORTAL_PAIR_ERROR }, { status: 400 });
     }
 
-    const { data: existingLink, error: existingErr } = await svc
+    // One membership per person per WORKSPACE. The same pair may be linked in
+    // another workspace of the same owner.
+    const pairQuery = svc
       .from("account_link_invites")
       .select("id,status")
       .eq("tab_kind", tabKind)
       .in("status", ["pending", "accepted"])
       .or(
         `and(inviter_user_id.eq.${inviterUserId},invitee_user_id.eq.${inviteeProfile.id}),and(inviter_user_id.eq.${inviteeProfile.id},invitee_user_id.eq.${inviterUserId})`,
-      )
+      );
+    const { data: existingLink, error: existingErr } = await (workspaceId
+      ? pairQuery.eq("workspace_id", workspaceId)
+      : pairQuery.is("workspace_id", null)
+    )
       .limit(1)
       .maybeSingle();
 
@@ -482,7 +583,7 @@ export async function POST(req: Request) {
     }
     if (existingLink) {
       return NextResponse.json(
-        { error: "These workspaces already have a pending or active link for this role." },
+        { error: "This person is already a member of this workspace, or has a pending invite to it." },
         { status: 409 },
       );
     }
@@ -585,6 +686,7 @@ export async function POST(req: Request) {
         workspace_id: workspaceId,
         workspace_permissions: workspacePermissions,
         team_role: teamRole,
+        house_scope: houseScope,
         status: "pending",
       })
       .select(
@@ -604,6 +706,7 @@ export async function POST(req: Request) {
           "workspace_id",
           "workspace_permissions",
           "team_role",
+          "house_scope",
           "status",
           "created_at",
           "responded_at",

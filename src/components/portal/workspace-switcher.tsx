@@ -1,5 +1,8 @@
 "use client";
 
+import { TEAM_ROLE_LABELS } from "@/lib/co-manager-team-roles";
+import type { PortalWorkspace } from "@/lib/workspaces/types";
+
 import Link from "next/link";
 import { Building2, Check, ChevronDown, Plus, Settings, UserPlus } from "lucide-react";
 import {
@@ -38,6 +41,22 @@ export function workspaceInitials(name: string): string {
  * the plan cap shown inline ("2 of 3") so the limit is visible before the
  * click, not after it.
  */
+/**
+ * "Owner · 10 houses", "Admin · All houses", "Viewer · 3 houses" — the standing
+ * the viewer has in a workspace, in one line. A shared workspace only lists the
+ * houses the viewer reaches, so a selected scope prints that count.
+ */
+function standingLabel(workspace: PortalWorkspace): string {
+  // Live houses only — a workspace's record list also holds drafts and
+  // unlisted rows that still drive scoping (PRP-481).
+  const count = workspace.livePropertyCount ?? 0;
+  const houses = `${count} ${count === 1 ? "house" : "houses"}`;
+  if (workspace.owned) return `Owner · ${houses}`;
+  const role = workspace.viewerRole && workspace.viewerRole !== "owner" ? TEAM_ROLE_LABELS[workspace.viewerRole] : "Shared";
+  if (workspace.viewerHouseScope === "all") return `${role} · All houses`;
+  return `${role} · ${houses}`;
+}
+
 export function WorkspaceSwitcher({
   compact = false,
   variant = "header",
@@ -49,11 +68,7 @@ export function WorkspaceSwitcher({
   const { showToast } = useAppUi();
   if (!ctx) return null;
   const name = ctx.loading ? "Loading…" : (ctx.active?.name ?? "My workspace");
-  const role = ctx.active ? (ctx.active.owned ? "Owner" : "Shared access") : "";
-  const propertyCount = ctx.active?.livePropertyCount ?? 0;
-  const meta = [role, ctx.active ? `${propertyCount} ${propertyCount === 1 ? "property" : "properties"}` : ""]
-    .filter(Boolean)
-    .join(" · ");
+  const meta = ctx.active ? standingLabel(ctx.active) : "";
   const plan = ctx.plan;
   const capKnown = Boolean(plan && !plan.unknown);
   const atCap = capKnown ? plan!.usage.workspaces >= plan!.workspaceLimit : false;
@@ -145,10 +160,7 @@ export function WorkspaceSwitcher({
               {/* The home count is what tells a manager WHERE their portfolio
                   is: a workspace showing nothing is answered by the row that
                   holds the homes, without opening settings first. */}
-              <span className="ml-2 text-xs text-muted">
-                {workspace.owned ? "Owned" : "Shared"} ·{" "}
-                {workspace.livePropertyCount ?? 0} {(workspace.livePropertyCount ?? 0) === 1 ? "home" : "homes"}
-              </span>
+              <span className="ml-2 text-xs text-muted">{standingLabel(workspace)}</span>
             </span>
             {workspace.id === ctx.active?.id && <Check className="size-4" aria-hidden />}
           </DropdownMenuItem>
@@ -160,13 +172,15 @@ export function WorkspaceSwitcher({
             Workspace settings
           </Link>
         </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          {/* Invite lives on each workspace card; land on the active one. */}
-          <Link href={`/portal/profile?tab=workspaces${ctx.active ? `#workspace-${ctx.active.id}` : ""}`} data-attr="workspace-switcher-invite">
-            <UserPlus className="size-4" aria-hidden />
-            Invite a manager
-          </Link>
-        </DropdownMenuItem>
+        {ctx.active?.owned || ctx.active?.canManageMembers ? (
+          <DropdownMenuItem asChild>
+            {/* Invite lives on each workspace card; land on the active one. */}
+            <Link href={`/portal/profile?tab=workspaces${ctx.active ? `#workspace-${ctx.active.id}` : ""}`} data-attr="workspace-switcher-invite">
+              <UserPlus className="size-4" aria-hidden />
+              <span className="min-w-0 truncate">Invite a manager to {ctx.active.name}</span>
+            </Link>
+          </DropdownMenuItem>
+        ) : null}
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
           <Link

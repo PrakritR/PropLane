@@ -8,6 +8,8 @@ export type MintInviteLinkClientInput = {
   expiry?: string;
   uses?: string;
   teamRole?: string;
+  /** all = every house in the workspace, now and later. */
+  houseScope?: "all" | "selected";
 };
 
 export type MintInviteLinkClientResult =
@@ -32,6 +34,7 @@ export async function mintInviteLinkClient(
         expiry: input.expiry,
         uses: input.uses,
         teamRole: input.teamRole,
+        houseScope: input.houseScope,
       }),
     });
     const body = (await res.json().catch(() => ({}))) as {

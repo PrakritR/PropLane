@@ -17,6 +17,9 @@ type Preview = {
   ownerUserId?: string;
   propertyLabels: string[];
   teamRole?: string | null;
+  houseScope?: "all" | "selected";
+  houseCount?: number;
+  canDo?: string | null;
   unusableReason: InviteLinkUnusableReason | null;
 };
 
@@ -200,13 +203,34 @@ export default function InviteLinkClient({ token }: { token: string }) {
         })}
       />
 
-      {preview.kind === "manager" && preview.teamRole ? (
-        <p className="mt-3 text-center text-sm text-foreground" data-attr="invite-link-role">
-          Role: {teamRoleListLabel(preview.teamRole)}
-        </p>
-      ) : null}
-
-      {preview.propertyLabels.length > 0 ? (
+      {preview.kind === "manager" ? (
+        // What is being accepted: the role, whether the houses are the workspace
+        // itself (so ones added later count) or a list, and the reach in words.
+        <dl className="mt-5 divide-y divide-border rounded-2xl border border-border bg-accent/20 px-4" data-attr="invite-link-terms">
+          {preview.teamRole ? (
+            <div className="flex items-baseline justify-between gap-3 py-2.5 text-sm">
+              <dt className="text-muted">Role</dt>
+              <dd className="font-semibold text-foreground" data-attr="invite-link-role">{teamRoleListLabel(preview.teamRole)}</dd>
+            </div>
+          ) : null}
+          <div className="flex items-baseline justify-between gap-3 py-2.5 text-sm">
+            <dt className="text-muted">Houses</dt>
+            <dd className="text-right font-semibold text-foreground" data-attr="invite-link-houses">
+              {preview.houseScope === "all"
+                ? `All houses in ${preview.workspaceName ?? "the workspace"} (${preview.houseCount ?? preview.propertyLabels.length} today, and any added later)`
+                : preview.propertyLabels.length > 0
+                  ? preview.propertyLabels.join(" · ")
+                  : "Assigned after you join"}
+            </dd>
+          </div>
+          {preview.canDo ? (
+            <div className="flex items-baseline justify-between gap-3 py-2.5 text-sm">
+              <dt className="text-muted">You can</dt>
+              <dd className="text-right text-foreground" data-attr="invite-link-can-do">{preview.canDo}</dd>
+            </div>
+          ) : null}
+        </dl>
+      ) : preview.propertyLabels.length > 0 ? (
         <div className="mt-5 rounded-2xl border border-border bg-accent/20 p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted">
             {isResident

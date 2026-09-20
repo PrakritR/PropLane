@@ -10,7 +10,8 @@ describe("invite Role dropdown", () => {
   it("replaces All view / edit / manage pills with a Role field", () => {
     const panel = src("src/components/portal/pro-account-links-panel.tsx");
     expect(panel).toContain('label="Role"');
-    expect(panel).toContain("TEAM_ROLE_SELECT_OPTIONS");
+    // Admin is offered; the legacy Full access stamp is not.
+    expect(panel).toContain("TEAM_ROLE_INVITE_OPTIONS");
     expect(panel).not.toContain('label: "All view"');
     expect(panel).not.toContain('label: "All edit"');
     expect(panel).not.toContain('label: "All manage"');

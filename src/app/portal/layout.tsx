@@ -79,8 +79,14 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
                 Text button and no page said why — only the property preview
                 tab carried the notice, and a manager who never opens that tab
                 never found out. It hides itself for a free account, which is
-                already showing the upgrade banner above. */}
-            <ManagerMessagingSetupBanner />
+                already showing the upgrade banner above.
+                Desktop-only mount: on phones the mobile header (workspace
+                switcher + avatar) must render above this notice, so the phone
+                copy mounts inside <main>, right after PortalMobileNavBar,
+                instead of here. */}
+            <div className="hidden lg:block">
+              <ManagerMessagingSetupBanner />
+            </div>
             <main id={PORTAL_MAIN_CONTENT_ID} tabIndex={-1} className={PORTAL_MAIN_CONTENT_CLASS}>
               <PortalHorizontalScrollRoot>
                 <div className={PORTAL_MAIN_CONTENT_INNER_CLASS}>
@@ -89,6 +95,9 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
                     name={profile?.full_name ?? null}
                     email={profile?.email ?? null}
                   />
+                  <div className="lg:hidden">
+                    <ManagerMessagingSetupBanner />
+                  </div>
                   {children}
                 </div>
               </PortalHorizontalScrollRoot>
