@@ -10,6 +10,7 @@ import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import {
   bookingEntryKey,
+  bookingOpenTarget,
   bookingSourceLabel,
   formatBookingStayRange,
   type ManagerBookingListBucketId,
@@ -127,11 +128,22 @@ export function ManagerBookingsListView({
           const isBlock = entry.source === "block" && Boolean(entry.blockId);
           const href = bookingRecordHref(basePath, key);
           const status = bookingRowStatusFact(entry);
+          // A signed lease's dates belong to the Lease record, and a channel
+          // import is owned by Airbnb — the same jump the record page's header
+          // icon takes, reached here from the row's own ⋯ (PLAN-0920-1058, area 1c).
+          const openTarget = isBlock ? null : bookingOpenTarget(entry, basePath);
           return (
             <BookingsRowOverflow
               key={key}
               label={name}
-              onEditDates={isBlock && onEditBlock ? () => onEditBlock(entry) : undefined}
+              onEditDates={
+                isBlock && onEditBlock
+                  ? () => onEditBlock(entry)
+                  : openTarget
+                    ? () => navigate(openTarget.href)
+                    : undefined
+              }
+              editDatesLabel={openTarget?.label}
               onMoveRoom={isBlock && onEditBlock ? () => onEditBlock(entry) : undefined}
               onMessage={() => navigate(bookingRecordHref(basePath, key, "communication"))}
               onCopyLink={() => void copyLink(entry)}

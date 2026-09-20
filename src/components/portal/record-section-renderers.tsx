@@ -42,6 +42,8 @@ export type RecordSectionRendererProps = {
   /** Narrow the record's Communication to this property / these contacts when the panel knows them. */
   propertyId?: string;
   contactIds?: string[];
+  /** Open the record's compose immediately — the "Message" header/phone action lands here with compose already up. */
+  autoOpenCompose?: boolean;
 };
 
 const renderers = new Map<string, ComponentType<RecordSectionRendererProps>>();
@@ -120,7 +122,7 @@ function ActivitySection({ activity }: RecordSectionRendererProps) {
  * A panel whose kind is not a `RecordKind` gets the titled empty card so the
  * rail never renders a blank section.
  */
-function CommunicationSection({ role, kind, kindLabel, recordId, recordLabel, propertyId, contactIds }: RecordSectionRendererProps) {
+function CommunicationSection({ role, kind, kindLabel, recordId, recordLabel, propertyId, contactIds, autoOpenCompose }: RecordSectionRendererProps) {
   if (!isRecordKind(kind)) {
     return (
       <PortalListEmptyCard
@@ -136,6 +138,7 @@ function CommunicationSection({ role, kind, kindLabel, recordId, recordLabel, pr
       recordRef={{ kind, id: recordId, label: recordLabel ?? kindLabel }}
       propertyId={propertyId}
       contactIds={contactIds}
+      autoOpenCompose={autoOpenCompose}
     />
   );
 }

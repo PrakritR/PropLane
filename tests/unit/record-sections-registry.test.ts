@@ -88,4 +88,49 @@ describe("record-sections registry", () => {
       expect(new Set(labels).size).toBe(labels.length);
     }
   });
+
+  // PLAN-0920-1058, area 1c: documents, resident services, and vendor jobs/
+  // invoices/payouts now have their own dedicated href builders (matching
+  // lease/tour's convention of omitting the record's own FIRST tab from the
+  // URL) instead of the placeholder `genericHref` every other test above
+  // still exercises structurally through `routeResolves`.
+  it("manager document href omits the default 'preview' tab", () => {
+    const sections = recordSections("manager", "document", { basePath: "/portal" });
+    const preview = sections.groups[0]!.items.find((item) => item.id === "preview")!;
+    const details = sections.groups[0]!.items.find((item) => item.id === "details")!;
+    expect(preview.href("doc-1")).toBe("/portal/documents/doc-1");
+    expect(details.href("doc-1")).toBe("/portal/documents/doc-1/details");
+  });
+
+  it("resident service href omits the default 'overview' tab", () => {
+    const sections = recordSections("resident", "service", { basePath: "/resident" });
+    const overview = sections.groups[0]!.items.find((item) => item.id === "overview")!;
+    const updates = sections.groups[0]!.items.find((item) => item.id === "updates")!;
+    expect(overview.href("svc-1")).toBe("/resident/services/svc-1");
+    expect(updates.href("svc-1")).toBe("/resident/services/svc-1/updates");
+  });
+
+  it("vendor job href lives under /work-orders", () => {
+    const sections = recordSections("vendor", "job", { basePath: "/vendor" });
+    const overview = sections.groups[0]!.items.find((item) => item.id === "overview")!;
+    const bidInvoice = sections.groups[0]!.items.find((item) => item.id === "bid-invoice")!;
+    expect(overview.href("wo-1")).toBe("/vendor/work-orders/wo-1");
+    expect(bidInvoice.href("wo-1")).toBe("/vendor/work-orders/wo-1/bid-invoice");
+  });
+
+  it("vendor invoice href lives under /financials/invoices", () => {
+    const sections = recordSections("vendor", "invoice", { basePath: "/vendor" });
+    const overview = sections.groups[0]!.items.find((item) => item.id === "overview")!;
+    const lines = sections.groups[0]!.items.find((item) => item.id === "lines")!;
+    expect(overview.href("inv-1")).toBe("/vendor/financials/invoices/inv-1");
+    expect(lines.href("inv-1")).toBe("/vendor/financials/invoices/inv-1/lines");
+  });
+
+  it("vendor payout href lives under /financials/payouts", () => {
+    const sections = recordSections("vendor", "payout", { basePath: "/vendor" });
+    const overview = sections.groups[0]!.items.find((item) => item.id === "overview")!;
+    const included = sections.groups[0]!.items.find((item) => item.id === "included-invoices")!;
+    expect(overview.href("po-1")).toBe("/vendor/financials/payouts/po-1");
+    expect(included.href("po-1")).toBe("/vendor/financials/payouts/po-1/included-invoices");
+  });
 });

@@ -631,6 +631,74 @@ export function vendorWorkOrderListHref(
   return `${basePath}/work-orders/${tab}`;
 }
 
+/** Vendor job (work order) record rail tabs (PLAN-0920-1058, area 1c): the record's own sections plus the shared trio. */
+export const VENDOR_JOB_DETAIL_TABS = [
+  "overview",
+  "scope-photos",
+  "schedule",
+  "bid-invoice",
+  "communication",
+  "documents",
+  "activity",
+] as const;
+export type VendorJobDetailTabId = (typeof VENDOR_JOB_DETAIL_TABS)[number];
+
+export function parseVendorJobDetailTab(raw: string | undefined | null): VendorJobDetailTabId {
+  if (raw && (VENDOR_JOB_DETAIL_TABS as readonly string[]).includes(raw)) {
+    return raw as VendorJobDetailTabId;
+  }
+  return "overview";
+}
+
+export function vendorJobDetailHref(
+  basePath: string,
+  workOrderId: string,
+  tab: VendorJobDetailTabId = "overview",
+): string {
+  const base = `${basePath}/work-orders/${encodeURIComponent(workOrderId)}`;
+  return tab === "overview" ? base : `${base}/${tab}`;
+}
+
+/** Vendor invoice record rail tabs (PLAN-0920-1058, area 1c). */
+export const VENDOR_INVOICE_DETAIL_TABS = ["overview", "lines", "payout", "communication", "documents"] as const;
+export type VendorInvoiceDetailTabId = (typeof VENDOR_INVOICE_DETAIL_TABS)[number];
+
+export function parseVendorInvoiceDetailTab(raw: string | undefined | null): VendorInvoiceDetailTabId {
+  if (raw && (VENDOR_INVOICE_DETAIL_TABS as readonly string[]).includes(raw)) {
+    return raw as VendorInvoiceDetailTabId;
+  }
+  return "overview";
+}
+
+export function vendorInvoiceDetailHref(
+  basePath: string,
+  invoiceId: string,
+  tab: VendorInvoiceDetailTabId = "overview",
+): string {
+  const base = `${basePath}/financials/invoices/${encodeURIComponent(invoiceId)}`;
+  return tab === "overview" ? base : `${base}/${tab}`;
+}
+
+/** Vendor payout record rail tabs (PLAN-0920-1058, area 1c). */
+export const VENDOR_PAYOUT_DETAIL_TABS = ["overview", "included-invoices", "communication"] as const;
+export type VendorPayoutDetailTabId = (typeof VENDOR_PAYOUT_DETAIL_TABS)[number];
+
+export function parseVendorPayoutDetailTab(raw: string | undefined | null): VendorPayoutDetailTabId {
+  if (raw && (VENDOR_PAYOUT_DETAIL_TABS as readonly string[]).includes(raw)) {
+    return raw as VendorPayoutDetailTabId;
+  }
+  return "overview";
+}
+
+export function vendorPayoutDetailHref(
+  basePath: string,
+  payoutId: string,
+  tab: VendorPayoutDetailTabId = "overview",
+): string {
+  const base = `${basePath}/financials/payouts/${encodeURIComponent(payoutId)}`;
+  return tab === "overview" ? base : `${base}/${tab}`;
+}
+
 export function managerTaskListHref(
   basePath: string,
   tab: ManagerTaskListTabId = "in-progress",
@@ -1281,6 +1349,46 @@ export function paymentRecordDetailHref(
 ): string {
   const path = paymentDetailHref(basePath, direction, bucket, paymentId);
   return tab === "overview" ? path : `${path}/${tab}`;
+}
+
+/** Manager document record rail tabs (PLAN-0920-1058, area 1c): the record's own sections plus the shared trio. */
+export const DOCUMENT_DETAIL_TABS = ["preview", "details", "communication", "activity"] as const;
+export type DocumentDetailTabId = (typeof DOCUMENT_DETAIL_TABS)[number];
+
+export function parseDocumentDetailTab(raw: string | undefined | null): DocumentDetailTabId {
+  if (raw && (DOCUMENT_DETAIL_TABS as readonly string[]).includes(raw)) {
+    return raw as DocumentDetailTabId;
+  }
+  return "preview";
+}
+
+export function documentRecordHref(
+  basePath: string,
+  documentId: string,
+  tab: DocumentDetailTabId = "preview",
+): string {
+  const base = `${basePath}/documents/${encodeURIComponent(documentId)}`;
+  return tab === "preview" ? base : `${base}/${tab}`;
+}
+
+/** Resident service record rail tabs (PLAN-0920-1058, area 1c). */
+export const RESIDENT_SERVICE_DETAIL_TABS = ["overview", "updates", "photos", "communication"] as const;
+export type ResidentServiceDetailTabId = (typeof RESIDENT_SERVICE_DETAIL_TABS)[number];
+
+export function parseResidentServiceDetailTab(raw: string | undefined | null): ResidentServiceDetailTabId {
+  if (raw && (RESIDENT_SERVICE_DETAIL_TABS as readonly string[]).includes(raw)) {
+    return raw as ResidentServiceDetailTabId;
+  }
+  return "overview";
+}
+
+export function residentServiceDetailHref(
+  basePath: string,
+  serviceId: string,
+  tab: ResidentServiceDetailTabId = "overview",
+): string {
+  const base = `${basePath}/services/${encodeURIComponent(serviceId)}`;
+  return tab === "overview" ? base : `${base}/${tab}`;
 }
 
 // Vendors is its own section. These builders point at it directly rather than leaning on the

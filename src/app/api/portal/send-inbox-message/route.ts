@@ -716,6 +716,7 @@ export async function POST(req: Request) {
             recipientEmail: recipients[0]!.email,
           }),
         } : {}),
+        recordRef,
       });
       propertyThreadId = chat.threadId;
       // This branch resolved the property's owning manager explicitly, so it is

@@ -68,6 +68,7 @@ import {
   DOCUMENT_CATEGORIES,
   DOCUMENT_CATEGORY_LABELS,
 } from "@/lib/documents/manager-documents";
+import type { DocumentDetailTabId } from "@/lib/portal-detail-routes";
 
 export const DOCUMENT_TAB_DESTINATIONS = [
   { id: "applications", label: "Applications" },
@@ -121,10 +122,15 @@ export function ManagerDocumentsPanel({
   tabId: serverTabId,
   basePath = "/portal",
   applicationId,
+  documentId,
+  documentDetailTab,
 }: {
   tabId: string;
   basePath?: string;
   applicationId?: string;
+  /** A manager document RECORD id (docs/agents/record-page.md); set only when routed to /documents/<id>/<tab>. */
+  documentId?: string;
+  documentDetailTab?: DocumentDetailTabId;
 }) {
   // Tab switches are shallow (client-only) — see TabNav `shallow` below.
   const tabId = useShallowTabId(
@@ -538,6 +544,19 @@ export function ManagerDocumentsPanel({
         basePath={basePath}
         userId={userId ?? null}
         ready={ready}
+      />
+    );
+  }
+
+  // A document record page replaces the whole tabbed shell — same shape as
+  // the applications branch just above.
+  if (documentId) {
+    return (
+      <ManagerDocumentLibrary
+        userId={userId ?? null}
+        basePath={basePath}
+        documentId={documentId}
+        documentDetailTab={documentDetailTab}
       />
     );
   }

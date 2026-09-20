@@ -17,6 +17,8 @@ afterEach(() => {
   navigate.mockClear();
 });
 
+const noop = async () => {};
+
 const block: PropertyBookingEntry = {
   source: "block",
   propertyId: "h1",
@@ -69,8 +71,6 @@ describe("booking list row opens the record page, ⋯ in canonical order", () =>
 });
 
 describe("booking record page", () => {
-  const noop = async () => {};
-
   it("the rail has the six sections and the header icons match the registry (record payment dropped)", () => {
     render(
       <AppUiProvider>
@@ -140,5 +140,100 @@ describe("booking record page", () => {
       </AppUiProvider>,
     );
     expect(screen.getByText("Booking not found.")).toBeTruthy();
+  });
+});
+
+const leaseEntry: PropertyBookingEntry = {
+  source: "proplane",
+  propertyId: "h1",
+  propertyLabel: "4709A 8th Ave NE",
+  roomId: "room-9",
+  roomLabel: "Room 9",
+  summary: "Ada Lovelace",
+  start: "2026-09-01",
+  end: "2027-03-01",
+  statusLabel: "Fully Signed",
+  leaseId: "lease-42",
+};
+
+const airbnbEntry: PropertyBookingEntry = {
+  source: "airbnb",
+  propertyId: "h2",
+  propertyLabel: "5257 Brooklyn",
+  roomId: "",
+  roomLabel: "Whole home",
+  summary: "Reservation #ABNB123 - Jamie",
+  start: "2026-10-01",
+  end: "2026-10-05",
+};
+
+describe("Edit dates / Move room become Open lease / Open listing for entries this screen cannot edit", () => {
+  it("a lease-derived booking's header shows a single 'Open lease' action that navigates to the lease", () => {
+    render(
+      <AppUiProvider>
+        <BookingsRecordPage
+          bookingId={bookingEntryKey(leaseEntry)}
+          basePath="/portal"
+          entries={[leaseEntry]}
+          loading={false}
+          residentOptions={[]}
+          onSaveBlock={noop}
+          onRemoveBlock={noop}
+          showToast={() => {}}
+        />
+      </AppUiProvider>,
+    );
+    const editDates = document.querySelector('[data-attr="record-header-action-edit-dates"]')!;
+    expect(editDates.getAttribute("aria-label")).toBe("Open lease");
+    // Collapsed into the single "Open lease" action — no separate "Move room".
+    expect(document.querySelector('[data-attr="record-header-action-move-room"]')).toBeNull();
+
+    navigate.mockClear();
+    fireEvent.click(editDates);
+    expect(navigate).toHaveBeenCalledWith("/portal/leases/manager/lease-42");
+  });
+
+  it("an Airbnb-derived booking's header shows a single 'Open listing' action that navigates to the property", () => {
+    render(
+      <AppUiProvider>
+        <BookingsRecordPage
+          bookingId={bookingEntryKey(airbnbEntry)}
+          basePath="/portal"
+          entries={[airbnbEntry]}
+          loading={false}
+          residentOptions={[]}
+          onSaveBlock={noop}
+          onRemoveBlock={noop}
+          showToast={() => {}}
+        />
+      </AppUiProvider>,
+    );
+    const editDates = document.querySelector('[data-attr="record-header-action-edit-dates"]')!;
+    expect(editDates.getAttribute("aria-label")).toBe("Open listing");
+    expect(document.querySelector('[data-attr="record-header-action-move-room"]')).toBeNull();
+
+    navigate.mockClear();
+    fireEvent.click(editDates);
+    expect(navigate).toHaveBeenCalledWith("/portal/properties/all/h2/preview");
+  });
+});
+
+describe("manager-bookings-list-view ⋯ also opens the lease / listing record", () => {
+  it("a lease-derived row's ⋯ offers 'Open lease' in place of Edit dates", () => {
+    render(
+      <ManagerBookingsListView
+        entries={[leaseEntry]}
+        bucket="upcoming"
+        selectedKeys={new Set()}
+        onToggleSelected={() => {}}
+      />,
+    );
+    fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Ada Lovelace" }), { key: "ArrowDown" });
+    const menu = document.body.querySelector('[data-attr="record-actions-menu"]')!;
+    expect(within(menu).getByText("Open lease")).toBeTruthy();
+
+    navigate.mockClear();
+    fireEvent.click(within(menu).getByText("Open lease"));
+    expect(navigate).toHaveBeenCalledWith("/portal/leases/manager/lease-42");
   });
 });

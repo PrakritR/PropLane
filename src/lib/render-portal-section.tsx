@@ -171,7 +171,29 @@ async function renderManagerDocumentsSection(
   if (financesRedirect) {
     redirect(`${basePath}/financials/${financesRedirect}`);
   }
-  if (!DOCUMENTS_TABS.includes(docTab as (typeof DOCUMENTS_TABS)[number])) notFound();
+  if (!DOCUMENTS_TABS.includes(docTab as (typeof DOCUMENTS_TABS)[number])) {
+    // Not a known documents tab — a manager document RECORD id
+    // (PLAN-0920-1058, area 1c): /documents/<id>/<tab>.
+    const { parseDocumentDetailTab } = await import("@/lib/portal-detail-routes");
+    const documentId = decodeURIComponent(docTab);
+    const detailTabRaw = tabParts.length === 2 ? tabParts[1]! : undefined;
+    const detailTab = parseDocumentDetailTab(detailTabRaw);
+    if (detailTabRaw && detailTab !== detailTabRaw) {
+      redirect(`${basePath}/documents/${encodeURIComponent(documentId)}/${detailTab}`);
+    }
+    const ManagerDocumentsPanel = await loadManagerDocumentsPanel();
+    return subscriptionGated(
+      <ManagerDocumentsPanel
+        tabId="library"
+        basePath={basePath}
+        documentId={documentId}
+        documentDetailTab={detailTab}
+      />,
+      kind,
+      "documents",
+      tier,
+    );
+  }
   if (tabParts.length === 2 && docTab !== "applications") {
     if (tabParts[1] === "pending") {
       redirect(`${basePath}/documents/${docTab}`);
@@ -1517,11 +1539,27 @@ export async function renderPortalSection(
         const tierGate = residentManagerTierGate("services", residentManagerTier, meta.label);
         if (tierGate) return tierGate;
         if (tabParts?.length) {
-          const legacy = tabParts[0];
+          const legacy = tabParts[0]!;
           if (legacy === "requests" || legacy === "work-orders") {
             redirect(`${def.basePath}/services`);
           }
-          notFound();
+          // A service RECORD id (PLAN-0920-1058, area 1c): /services/<id>/<tab>.
+          if (tabParts.length > 2) notFound();
+          const { parseResidentServiceDetailTab } = await import("@/lib/portal-detail-routes");
+          const serviceId = decodeURIComponent(legacy);
+          const detailTabRaw = tabParts.length === 2 ? tabParts[1]! : undefined;
+          const detailTab = parseResidentServiceDetailTab(detailTabRaw);
+          if (detailTabRaw && detailTab !== detailTabRaw) {
+            redirect(`${def.basePath}/services/${encodeURIComponent(serviceId)}/${detailTab}`);
+          }
+          const ResidentServicesPanel = await loadResidentServicesPanel();
+          return (
+            <ResidentServicesPanel
+              basePath={def.basePath}
+              serviceId={serviceId}
+              serviceDetailTab={detailTab}
+            />
+          );
         }
         const ResidentServicesPanel = await loadResidentServicesPanel();
         return <ResidentServicesPanel basePath={def.basePath} />;
@@ -1546,16 +1584,33 @@ export async function renderPortalSection(
       VENDOR_WORK_ORDER_LIST_TABS,
       VENDOR_WORK_ORDER_LEGACY_LIST_TABS,
       vendorWorkOrderListHref,
+      parseVendorJobDetailTab,
     } = await import("@/lib/portal-detail-routes");
     if (!tabParts?.length) {
       redirect(vendorWorkOrderListHref(def.basePath, DEFAULT_VENDOR_WORK_ORDER_TAB));
     }
-    if (tabParts.length > 1) notFound();
     const raw = tabParts[0]!;
     if (VENDOR_WORK_ORDER_LEGACY_LIST_TABS[raw]) {
       redirect(vendorWorkOrderListHref(def.basePath, VENDOR_WORK_ORDER_LEGACY_LIST_TABS[raw]!));
     }
-    if (!(VENDOR_WORK_ORDER_LIST_TABS as readonly string[]).includes(raw)) notFound();
+    if (!(VENDOR_WORK_ORDER_LIST_TABS as readonly string[]).includes(raw)) {
+      // Not a known list tab — a vendor job RECORD id (PLAN-0920-1058, area 1c).
+      if (tabParts.length > 2) notFound();
+      const workOrderId = decodeURIComponent(raw);
+      const detailTabRaw = tabParts.length === 2 ? tabParts[1]! : undefined;
+      const detailTab = parseVendorJobDetailTab(detailTabRaw);
+      if (detailTabRaw && detailTab !== detailTabRaw) {
+        redirect(`${def.basePath}/work-orders/${encodeURIComponent(workOrderId)}/${detailTab}`);
+      }
+      return (
+        <VendorWorkOrdersPanel
+          tabId={DEFAULT_VENDOR_WORK_ORDER_TAB}
+          workOrderId={workOrderId}
+          workOrderDetailTab={detailTab}
+        />
+      );
+    }
+    if (tabParts.length > 1) notFound();
     return <VendorWorkOrdersPanel tabId={parseVendorWorkOrderListTab(raw)} />;
   }
 
@@ -1632,14 +1687,47 @@ export async function renderPortalSection(
     if (!tabParts?.length) {
       redirect(`${def.basePath}/financials/income`);
     }
+    const finTab = tabParts[0]!;
+    if (!meta.tabs.some((tab) => tab.id === finTab)) notFound();
+
+    if (finTab === "invoices" || finTab === "payouts") {
+      // A record under this tab: /financials/invoices|payouts/<id>/<tab>
+      // (PLAN-0920-1058, area 1c).
+      if (tabParts.length > 3) notFound();
+      if (tabParts.length === 1) {
+        return <VendorFinancesPanel tabId={finTab} basePath={def.basePath} />;
+      }
+      if (tabParts.length === 2 && tabParts[1] === "pending") {
+        redirect(`${def.basePath}/financials/${finTab}`);
+      }
+      const { parseVendorInvoiceDetailTab, parseVendorPayoutDetailTab } = await import(
+        "@/lib/portal-detail-routes"
+      );
+      const recordId = decodeURIComponent(tabParts[1]!);
+      const detailTabRaw = tabParts.length === 3 ? tabParts[2]! : undefined;
+      const detailTab =
+        finTab === "invoices"
+          ? parseVendorInvoiceDetailTab(detailTabRaw)
+          : parseVendorPayoutDetailTab(detailTabRaw);
+      if (detailTabRaw && detailTab !== detailTabRaw) {
+        redirect(`${def.basePath}/financials/${finTab}/${encodeURIComponent(recordId)}/${detailTab}`);
+      }
+      return (
+        <VendorFinancesPanel
+          tabId={finTab}
+          basePath={def.basePath}
+          recordId={recordId}
+          recordDetailTab={detailTab}
+        />
+      );
+    }
+
     if (tabParts.length > 1) {
       if (tabParts.length === 2 && tabParts[1] === "pending") {
         redirect(`${def.basePath}/financials/${tabParts[0]}`);
       }
       notFound();
     }
-    const finTab = tabParts[0]!;
-    if (!meta.tabs.some((tab) => tab.id === finTab)) notFound();
     return <VendorFinancesPanel tabId={finTab} basePath={def.basePath} />;
   }
 

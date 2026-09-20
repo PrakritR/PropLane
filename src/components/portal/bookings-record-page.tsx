@@ -32,11 +32,13 @@ import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-booki
 import {
   addDaysToDateKey,
   bookingEntryKey,
+  bookingOpenTarget,
   bookingSourceLabel,
   formatBookingStayRange,
 } from "@/lib/channel-calendar/bookings-ui";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import { managerBookingListHref, parseBookingDetailTab } from "@/lib/portal-detail-routes";
+import { FileSignature, Home } from "lucide-react";
 
 function Fact({ label, value }: { label: string; value: string }) {
   return (
@@ -105,11 +107,22 @@ export function BookingsRecordPage({
   );
 
   const allSections = recordSections("manager", "booking", { basePath });
+  // A signed lease's dates belong to the Lease record, and a channel import is
+  // owned by Airbnb — "Edit dates" / "Move room" become a single "Open lease" /
+  // "Open listing" jump to that record instead of two dead actions.
+  const openTarget = isBlock ? null : bookingOpenTarget(entry, basePath);
   // Record payment has no verified charge path on any booking yet — dropped
   // entirely rather than shown as a dead action.
   const sections = {
     ...allSections,
-    headerActions: allSections.headerActions.filter((action) => action.id !== "record-payment"),
+    headerActions: allSections.headerActions
+      .filter((action) => action.id !== "record-payment")
+      .filter((action) => !(openTarget && action.id === "move-room"))
+      .map((action) =>
+        action.id === "edit-dates" && openTarget
+          ? { ...action, label: openTarget.label, icon: entry.source === "proplane" ? FileSignature : Home }
+          : action,
+      ),
   };
 
   const backHref = managerBookingListHref(basePath, "upcoming");
@@ -136,6 +149,7 @@ export function BookingsRecordPage({
   const onHeaderAction = (actionId: string) => {
     if (actionId === "edit-dates") {
       if (isBlock) setSheet("dates");
+      else if (openTarget) navigate(openTarget.href);
       else showToast("Coming soon");
       return;
     }

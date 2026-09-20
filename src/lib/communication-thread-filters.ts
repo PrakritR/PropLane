@@ -2,7 +2,7 @@ import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { PRIMARY_AXIS_ADMIN_EMAIL, PRIMARY_AXIS_ADMIN_LABEL } from "@/data/inbox-scoped-directory";
 import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
 import { trimmedText } from "@/lib/trimmed-text";
-import type { RecordKind } from "@/lib/portals/record-kinds";
+import { RECORD_KINDS, type RecordKind } from "@/lib/portals/record-kinds";
 
 export type CommunicationFilterRole = "resident" | "management" | "admin" | "vendor";
 
@@ -27,6 +27,28 @@ export const EMPTY_COMMUNICATION_THREAD_FILTERS: CommunicationThreadFilters = {
   roles: [],
   contactIds: [],
 };
+
+/** Title-case option labels for the "About" filter dropdown — every `RecordKind`, once. */
+export const RECORD_KIND_FILTER_LABELS: Record<RecordKind, string> = {
+  property: "Property",
+  resident: "Resident",
+  payment: "Charge",
+  "outgoing-payment": "Payment",
+  lease: "Lease",
+  application: "Application",
+  inspection: "Inspection",
+  service: "Service",
+  task: "Task",
+  vendor: "Vendor",
+  tour: "Tour",
+  booking: "Booking",
+  document: "Document",
+};
+
+export const RECORD_KIND_FILTER_OPTIONS: { value: RecordKind; label: string }[] = RECORD_KINDS.map((kind) => ({
+  value: kind,
+  label: RECORD_KIND_FILTER_LABELS[kind],
+}));
 
 export function communicationFiltersActive(filters: CommunicationThreadFilters): boolean {
   return (

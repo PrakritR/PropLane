@@ -1,5 +1,6 @@
 import { bookedDayKeyCountInMonth, type PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import { addDays, dateKey, startOfLocalDay, startOfWeekSunday } from "@/lib/room-availability-calendar";
+import { leaseDetailHref, propertyDetailHref } from "@/lib/portal-detail-routes";
 
 export type BookingsListTabId = "all" | "check_ins" | "check_outs";
 
@@ -225,6 +226,25 @@ export function bookingSourceBadgeTone(
     default:
       return "info";
   }
+}
+
+/**
+ * Where "Edit dates" / "Move room" should actually go for a booking this
+ * screen cannot edit directly (PLAN-0920-1058, area 1c): a signed lease's
+ * dates belong to the Lease record, and a channel import is owned by Airbnb.
+ * `null` for a block (editable here) or any other source (still "Coming soon").
+ */
+export function bookingOpenTarget(
+  entry: PropertyBookingEntry,
+  basePath: string,
+): { href: string; label: string } | null {
+  if (entry.source === "proplane" && entry.leaseId) {
+    return { href: leaseDetailHref(basePath, "manager", entry.leaseId), label: "Open lease" };
+  }
+  if (entry.source === "airbnb" || entry.source === "booking_com") {
+    return { href: propertyDetailHref(basePath, "all", entry.propertyId, "preview"), label: "Open listing" };
+  }
+  return null;
 }
 
 export function bookingSourceLabel(source: PropertyBookingEntry["source"]): string {

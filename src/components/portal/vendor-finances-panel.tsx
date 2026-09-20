@@ -14,6 +14,16 @@ import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/p
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
+import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
+import { recordSections } from "@/lib/portals/record-sections";
+import { renderRecordSection } from "@/components/portal/record-section-renderers";
+import { usePortalNavigate } from "@/lib/portal-nav-client";
+import {
+  vendorInvoiceDetailHref,
+  type VendorInvoiceDetailTabId,
+  type VendorPayoutDetailTabId,
+} from "@/lib/portal-detail-routes";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import {
@@ -24,7 +34,7 @@ import {
 } from "@/components/portal/filter-field-lists";
 import { PortalPayoutsPanel } from "@/components/portal/portal-payouts-panel";
 import { VendorQuoteWizard } from "@/components/portal/vendor-quote-wizard";
-import { PORTAL_DETAIL_BTN, PortalTableDetailActions } from "@/components/portal/portal-data-table";
+import { PORTAL_DETAIL_BTN, PortalDataTableEmpty, PortalTableDetailActions } from "@/components/portal/portal-data-table";
 import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
 import type { ReportFilterState } from "@/components/portal/reports/report-filter-bar";
 import { MANAGER_WORK_ORDERS_EVENT, readVendorWorkOrderRows, syncManagerWorkOrdersFromServer } from "@/lib/manager-work-orders-storage";
@@ -37,7 +47,7 @@ import {
   type VendorIncomeRow,
 } from "@/lib/vendor-income";
 import { fetchVendorPayoutsResult, type VendorPayout } from "@/lib/vendor-payouts";
-import { useConfirm } from "@/components/providers/app-ui-provider";
+import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 import {
   formatInvoiceMoney,
@@ -452,7 +462,21 @@ function formatInvoiceDate(iso: string): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label: string; href: string }[]; tabId: string }) {
+function VendorInvoicesView({
+  tabItems,
+  tabId,
+  basePath = "/vendor",
+  recordId,
+  recordDetailTab,
+}: {
+  tabItems: { id: string; label: string; href: string }[];
+  tabId: string;
+  basePath?: string;
+  /** A vendor invoice RECORD id (docs/agents/record-page.md); set only when routed to /financials/invoices/<id>/<tab>. */
+  recordId?: string;
+  recordDetailTab?: VendorInvoiceDetailTabId;
+}) {
+  const navigate = usePortalNavigate();
   const [invoices, setInvoices] = useState<VendorInvoice[]>([]);
   const [linkedManagers, setLinkedManagers] = useState<VendorLinkedManagerOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -539,6 +563,108 @@ function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label
     setEditingInvoice(null);
   }
 
+  if (recordId) {
+    const invoice = invoices.find((inv) => inv.id === recordId) ?? null;
+    if (!invoice) {
+      return loading ? (
+        <PortalDataTableEmpty icon="default" message="Loading…" />
+      ) : (
+        <PortalDataTableEmpty icon="default" message="Invoice not found." />
+      );
+    }
+    const activeTab: VendorInvoiceDetailTabId = recordDetailTab ?? "overview";
+    const backHref = `${basePath}/financials/invoices`;
+    const sections = recordSections("vendor", "invoice", { basePath });
+    const onHeaderAction = (actionId: string) => {
+      if (actionId === "edit" || actionId === "submit") {
+        openEdit(invoice);
+        return;
+      }
+      if (actionId === "withdraw") {
+        void withdrawInvoice(invoice).then(() => navigate(backHref));
+        return;
+      }
+      if (actionId === "download") {
+        window.open(vendorExportUrl("invoices"), "_blank", "noopener");
+      }
+    };
+    const ownContent =
+      activeTab === "lines" ? (
+        <ul className="divide-y divide-border rounded-xl border border-border bg-card px-3 sm:px-4" data-attr="vendor-invoice-lines">
+          {invoice.lineItems.map((line, i) => (
+            <li key={i} className="flex items-center justify-between gap-3 py-3 text-sm">
+              <span className="truncate">{line.description}</span>
+              <span className="shrink-0 font-medium tabular-nums">{formatInvoiceMoney(line.amountCents, invoice.currency)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : activeTab === "payout" ? (
+        <div className="px-3 pb-4 sm:px-4">
+          {invoice.status === "paid" ? (
+            <p className="text-sm text-foreground">Paid — see the Payouts tab for transfer details.</p>
+          ) : (
+            <PortalListEmptyCard title="Not paid out yet" workspaceAware={false} dataAttr="vendor-invoice-payout-empty" />
+          )}
+        </div>
+      ) : activeTab === "communication" || activeTab === "documents" ? (
+        renderRecordSection(activeTab, {
+          role: "vendor",
+          kind: "invoice",
+          kindLabel: "invoice",
+          recordId: invoice.id,
+          recordLabel: invoice.invoiceNumber || "Invoice",
+        })
+      ) : (
+        <div className="px-3 pb-4 sm:px-4" data-attr="vendor-invoice-overview">
+          <p className="text-sm text-foreground">
+            {formatInvoiceMoney(invoice.totalCents, invoice.currency)} · {vendorInvoiceStatusLabel(invoice.status)}
+          </p>
+          <p className="mt-1 text-xs text-muted">Submitted {formatInvoiceDate(invoice.submittedAt)}</p>
+          {invoice.memo ? <p className="mt-2 text-sm whitespace-pre-wrap text-muted">{invoice.memo}</p> : null}
+        </div>
+      );
+    return (
+      <>
+        <PortalRecordDetailPage
+          pageTitle="Finances"
+          title={invoice.invoiceNumber || "Invoice"}
+          subtitle={formatInvoiceDate(invoice.submittedAt)}
+          avatarName={invoice.invoiceNumber || "Invoice"}
+          backHref={backHref}
+          backLabel="Back to invoices"
+          hideBackText
+          bareHeader
+          iconTitleActions
+          pinScrollBody
+        >
+          <PortalRecordActions>
+            <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onHeaderAction} />
+          </PortalRecordActions>
+          <PortalRecordSectionChrome
+            sections={sections}
+            recordId={invoice.id}
+            activeId={activeTab}
+            title={invoice.invoiceNumber || "Invoice"}
+            subtitle={formatInvoiceDate(invoice.submittedAt)}
+            backHref={backHref}
+            backLabel="All invoices"
+            ariaLabel="Invoice sections"
+            onHeaderAction={onHeaderAction}
+          >
+            {ownContent}
+          </PortalRecordSectionChrome>
+        </PortalRecordDetailPage>
+        <SubmitInvoiceModal
+          open={modalOpen}
+          onClose={closeModal}
+          onSubmitted={load}
+          linkedManagers={linkedManagers}
+          editingInvoice={editingInvoice}
+        />
+      </>
+    );
+  }
+
   return (
     <VendorFinancesChrome
       tabId={tabId}
@@ -595,7 +721,7 @@ function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label
                 facts={`${inv.lineItems.length} ${inv.lineItems.length === 1 ? "item" : "items"} · ${vendorInvoiceStatusLabel(inv.status)}`}
                 trailing={formatInvoiceMoney(inv.totalCents, inv.currency)}
                 selected={editingInvoice?.id === inv.id}
-                onOpen={() => openEdit(inv)}
+                onOpen={() => navigate(vendorInvoiceDetailHref(basePath, inv.id))}
                 dataAttr="vendor-invoice-row"
               />
               {inv.status === "submitted" ? (
@@ -642,13 +768,119 @@ function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label
   );
 }
 
+/**
+ * A single vendor payout's record page. `vendor_payouts` is one row per work
+ * order (not a Stripe-style batch of several invoices), so "Included
+ * invoices" shows the one job that produced this payout rather than a real
+ * invoice list — the closest honest mapping onto this data model.
+ */
+function VendorPayoutRecordPage({
+  payoutId,
+  detailTab,
+  basePath,
+}: {
+  payoutId: string;
+  detailTab: VendorPayoutDetailTabId;
+  basePath: string;
+}) {
+  const { showToast } = useAppUi();
+  const [payout, setPayout] = useState<VendorPayout | null | undefined>(undefined);
+
+  useEffect(() => {
+    let active = true;
+    void fetchVendorPayoutsResult().then((result) => {
+      if (!active) return;
+      setPayout(result.ok ? (result.payouts.find((p) => p.id === payoutId) ?? null) : null);
+    });
+    return () => {
+      active = false;
+    };
+  }, [payoutId]);
+
+  if (payout === undefined) {
+    return <PortalDataTableEmpty icon="default" message="Loading…" />;
+  }
+  if (!payout) {
+    return <PortalDataTableEmpty icon="default" message="Payout not found." />;
+  }
+
+  const job = readVendorWorkOrderRows().find((row) => row.id === payout.workOrderId) ?? null;
+  const backHref = `${basePath}/financials/payouts`;
+  const sections = recordSections("vendor", "payout", { basePath });
+  const title = job?.title || "Payout";
+
+  const ownContent =
+    detailTab === "included-invoices" ? (
+      <div className="px-3 pb-4 sm:px-4" data-attr="vendor-payout-included">
+        {job ? (
+          <p className="text-sm text-foreground">{[job.title, job.reference].filter(Boolean).join(" · ")}</p>
+        ) : (
+          <PortalListEmptyCard title="No linked job found" workspaceAware={false} dataAttr="vendor-payout-included-empty" />
+        )}
+      </div>
+    ) : detailTab === "communication" ? (
+      renderRecordSection("communication", {
+        role: "vendor",
+        kind: "payout",
+        kindLabel: "payout",
+        recordId: payout.id,
+        recordLabel: title,
+      })
+    ) : (
+      <div className="px-3 pb-4 sm:px-4" data-attr="vendor-payout-overview">
+        <p className="text-sm text-foreground">
+          {formatInvoiceMoney(payout.amountCents)} · {payout.status}
+        </p>
+        <p className="mt-1 text-xs text-muted">Created {formatIncomeDate(payout.createdAt)}</p>
+        {payout.failureReason ? <p className="mt-2 text-sm text-muted">{payout.failureReason}</p> : null}
+      </div>
+    );
+
+  return (
+    <PortalRecordDetailPage
+      pageTitle="Finances"
+      title={title}
+      subtitle="Payout"
+      avatarName={title}
+      backHref={backHref}
+      backLabel="Back to payouts"
+      hideBackText
+      bareHeader
+      iconTitleActions
+      pinScrollBody
+    >
+      <PortalRecordActions>
+        <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={() => showToast("Coming soon")} />
+      </PortalRecordActions>
+      <PortalRecordSectionChrome
+        sections={sections}
+        recordId={payout.id}
+        activeId={detailTab}
+        title={title}
+        subtitle="Payout"
+        backHref={backHref}
+        backLabel="All payouts"
+        ariaLabel="Payout sections"
+        onHeaderAction={() => showToast("Coming soon")}
+      >
+        {ownContent}
+      </PortalRecordSectionChrome>
+    </PortalRecordDetailPage>
+  );
+}
+
 /** Vendor Finances — income earned from completed work orders and payouts. */
 export function VendorFinancesPanel({
   tabId,
   basePath = "/vendor",
+  recordId,
+  recordDetailTab,
 }: {
   tabId: string;
   basePath?: string;
+  /** An invoice or payout RECORD id (docs/agents/record-page.md); set only when routed to /financials/invoices|payouts/<id>/<tab>. */
+  recordId?: string;
+  recordDetailTab?: VendorInvoiceDetailTabId | VendorPayoutDetailTabId;
 }) {
   const [filters, setFilters] = useState(defaultFilters);
   const [propertyIds, setPropertyIds] = useState<string[]>([]);
@@ -758,10 +990,27 @@ export function VendorFinancesPanel({
   );
 
   if (tabId === "invoices") {
-    return <VendorInvoicesView tabItems={financeTabItems} tabId={tabId} />;
+    return (
+      <VendorInvoicesView
+        tabItems={financeTabItems}
+        tabId={tabId}
+        basePath={basePath}
+        recordId={recordId}
+        recordDetailTab={recordId ? (recordDetailTab as VendorInvoiceDetailTabId) : undefined}
+      />
+    );
   }
 
   if (tabId === "payouts") {
+    if (recordId) {
+      return (
+        <VendorPayoutRecordPage
+          payoutId={recordId}
+          detailTab={(recordDetailTab as VendorPayoutDetailTabId) ?? "overview"}
+          basePath={basePath}
+        />
+      );
+    }
     // The Payouts page owns its own command bar (search + settings), balance,
     // bank and history — the old CSV export / reminder / payment-methods
     // toolbar and the shared "Request payment" primary moved off this tab

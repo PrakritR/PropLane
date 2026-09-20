@@ -38,6 +38,8 @@ export type RecordCommunicationSectionProps = {
   propertyId?: string;
   /** The person(s) this record's thread is naturally with (e.g. the resident on a lease, the vendor on a job). First entry is who compose addresses. */
   contactIds?: string[];
+  /** Open compose immediately — the record's "Message" header/phone action lands here with it already up. */
+  autoOpenCompose?: boolean;
 };
 
 const SCOPE_BY_ROLE: Record<RecordCommunicationSectionRole, string> = {
@@ -62,10 +64,37 @@ const KIND_LABEL: Record<RecordRef["kind"], string> = {
   document: "document",
 };
 
-export function RecordCommunicationSection({ role, recordRef, propertyId, contactIds }: RecordCommunicationSectionProps) {
-  const [composeOpen, setComposeOpen] = useState(false);
+export function RecordCommunicationSection({ role, recordRef, propertyId, contactIds, autoOpenCompose }: RecordCommunicationSectionProps) {
+  const [composeOpen, setComposeOpen] = useState(() => Boolean(autoOpenCompose));
   const scope = SCOPE_BY_ROLE[role];
   const primaryContact = contactIds?.[0];
+
+  // The "Message" header/phone action can land on an already-mounted
+  // Communication section (a soft nav within the same record page) — the
+  // state initializer alone would miss that, so also react to the prop.
+  useEffect(() => {
+    if (autoOpenCompose) setComposeOpen(true);
+  }, [autoOpenCompose]);
+
+  // The real signed-in name, not a hardcoded fallback — same source
+  // (`GET /api/profile`) every other compose surface reads (vendor's own
+  // inbox reads the vendor-specific twin, `/api/vendor/profile`).
+  const [senderIdentity, setSenderIdentity] = useState<{ name: string; email: string } | null>(null);
+  useEffect(() => {
+    let active = true;
+    void fetch(role === "vendor" ? "/api/vendor/profile" : "/api/profile", { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { fullName?: string; email?: string; profile?: { name?: string; email?: string } } | null) => {
+        if (!active || !data) return;
+        const name = String(data.fullName ?? data.profile?.name ?? "").trim();
+        const email = String(data.email ?? data.profile?.email ?? "").trim();
+        if (name || email) setSenderIdentity({ name, email });
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [role]);
 
   // Best-effort client-side read of the already-synced inbox cache, purely to
   // decide (a) whether to show the "no messages yet" empty banner above the
@@ -154,6 +183,8 @@ export function RecordCommunicationSection({ role, recordRef, propertyId, contac
       }}
       portal={role}
       title={`Message about ${recordRef.label}`}
+      {...(senderIdentity?.name ? { senderName: senderIdentity.name } : {})}
+      {...(senderIdentity?.email ? { senderEmail: senderIdentity.email } : {})}
       initialDraft={{
         subject: recordRef.label,
         body: "",

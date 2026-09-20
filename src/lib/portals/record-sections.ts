@@ -22,6 +22,7 @@ import {
   XCircle,
 } from "lucide-react";
 import {
+  documentRecordHref,
   inspectionDetailHref,
   leaseDetailHref,
   managerTaskDetailHref,
@@ -30,16 +31,25 @@ import {
   propertyDetailHref,
   PROPERTY_DETAIL_TAB_LABELS,
   residentDetailHref,
+  residentServiceDetailHref,
   serviceRequestDetailHref,
   vendorDetailHref,
+  vendorInvoiceDetailHref,
+  vendorJobDetailHref,
+  vendorPayoutDetailHref,
   workOrderDetailHref,
+  type DocumentDetailTabId,
   type LeaseDetailTabId,
   type LeasePipelineTabId,
   type ManagerTourBucketId,
   type PaymentDirectionId,
+  type ResidentServiceDetailTabId,
   type ServiceDetailTabId,
   type ServiceRequestBucketId,
   type TourDetailTabId,
+  type VendorInvoiceDetailTabId,
+  type VendorJobDetailTabId,
+  type VendorPayoutDetailTabId,
   type WorkOrderBucketId,
 } from "@/lib/portal-detail-routes";
 
@@ -462,7 +472,10 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     phonePrimary: "download",
     hasDocuments: false,
     hasActivity: true,
-    href: (ctx) => genericHref(ctx.basePath ?? "/portal", "documents"),
+    href: (ctx) => {
+      const basePath = ctx.basePath ?? "/portal";
+      return (recordId, tab) => documentRecordHref(basePath, recordId, tab as DocumentDetailTabId);
+    },
   },
 };
 
@@ -515,7 +528,10 @@ const RESIDENT_DEFS: Record<ResidentRecordKind, KindDef> = {
     phonePrimaryLabel: "Message manager",
     hasDocuments: false,
     hasActivity: false,
-    href: (ctx) => genericHref(ctx.basePath ?? "/resident", "services"),
+    href: (ctx) => {
+      const basePath = ctx.basePath ?? "/resident";
+      return (recordId, tab) => residentServiceDetailHref(basePath, recordId, tab as ResidentServiceDetailTabId);
+    },
   },
   inspection: {
     basePathDefault: "/resident",
@@ -564,7 +580,10 @@ const VENDOR_DEFS: Record<VendorRecordKind, KindDef> = {
     phonePrimary: "accept",
     hasDocuments: true,
     hasActivity: true,
-    href: (ctx) => genericHref(ctx.basePath ?? "/vendor", "work-orders"),
+    href: (ctx) => {
+      const basePath = ctx.basePath ?? "/vendor";
+      return (recordId, tab) => vendorJobDetailHref(basePath, recordId, tab as VendorJobDetailTabId);
+    },
   },
   invoice: {
     basePathDefault: "/vendor",
@@ -582,7 +601,10 @@ const VENDOR_DEFS: Record<VendorRecordKind, KindDef> = {
     phonePrimary: "submit",
     hasDocuments: true,
     hasActivity: false,
-    href: (ctx) => genericHref(ctx.basePath ?? "/vendor", "invoices"),
+    href: (ctx) => {
+      const basePath = ctx.basePath ?? "/vendor";
+      return (recordId, tab) => vendorInvoiceDetailHref(basePath, recordId, tab as VendorInvoiceDetailTabId);
+    },
   },
   payout: {
     basePathDefault: "/vendor",
@@ -593,7 +615,10 @@ const VENDOR_DEFS: Record<VendorRecordKind, KindDef> = {
     headerActions: [{ id: "download", label: "Download", icon: Download }],
     hasDocuments: false,
     hasActivity: false,
-    href: (ctx) => genericHref(ctx.basePath ?? "/vendor", "payouts"),
+    href: (ctx) => {
+      const basePath = ctx.basePath ?? "/vendor";
+      return (recordId, tab) => vendorPayoutDetailHref(basePath, recordId, tab as VendorPayoutDetailTabId);
+    },
   },
 };
 
