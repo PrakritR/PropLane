@@ -14,6 +14,14 @@ on:
         required: false
         type: boolean
         default: false
+      e2e_scope:
+        description: "Select the manual browser scope"
+        required: false
+        type: choice
+        default: full
+        options:
+          - full
+          - property_metadata
   schedule:
     - cron: "0 6 * * *"
 
@@ -152,7 +160,28 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e
+      - name: Run full E2E suite
+        if: github.event_name != 'workflow_dispatch' || inputs.e2e_scope == 'full'
+        run: npm run test:e2e
+        env:
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          PLAYWRIGHT_BASE_URL: http://localhost:3000
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          PROPLANE_PAYMENT_WAIVER_CODE: FREE100
+          AXIS_ADMIN_REGISTER_KEY: ${{ secrets.TEST_AXIS_ADMIN_REGISTER_KEY }}
+          E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+          E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+          E2E_MANAGER_EMAIL: ${{ secrets.E2E_MANAGER_EMAIL }}
+          E2E_MANAGER_PASSWORD: ${{ secrets.E2E_MANAGER_PASSWORD }}
+          E2E_RESIDENT_EMAIL: ${{ secrets.E2E_RESIDENT_EMAIL }}
+          E2E_RESIDENT_PASSWORD: ${{ secrets.E2E_RESIDENT_PASSWORD }}
+          E2E_TESTS_ENABLED: "1"
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      - name: Run property metadata E2E scope
+        if: github.event_name == 'workflow_dispatch' && inputs.e2e_scope == 'property_metadata'
+        run: npx playwright test tests/e2e/property-metadata-omission-preservation.spec.ts
         env:
           NEXT_PUBLIC_APP_URL: http://localhost:3000
           PLAYWRIGHT_BASE_URL: http://localhost:3000
@@ -244,6 +273,9 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+      - name: Run property metadata ship preflight
+        if: success() && github.event_name == 'workflow_dispatch' && inputs.e2e_scope == 'property_metadata'
+        run: npm run ship:preflight
       - name: Package encrypted local QA build
         if: success() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919'
         run: node scripts/package-local-qa-build.mjs

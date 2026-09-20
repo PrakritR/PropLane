@@ -15,6 +15,7 @@ type WorkflowStep = {
   uses?: string;
   run?: string;
   if?: string;
+  env?: Record<string, unknown>;
   with?: Record<string, unknown>;
 };
 type WorkflowJob = {
@@ -25,7 +26,7 @@ type WorkflowJob = {
   steps: WorkflowStep[];
 };
 type WorkflowDocument = {
-  on: { workflow_dispatch: { inputs: Record<string, { type: string; required: boolean; default: boolean }> } };
+  on: { workflow_dispatch: { inputs: Record<string, { type: string; required: boolean; default: boolean | string; options?: string[] }> } };
   jobs: Record<string, WorkflowJob>;
 };
 const workflowDocument = parse(workflow) as WorkflowDocument;
@@ -33,6 +34,14 @@ const jobs = workflowDocument.jobs;
 const UPLOAD_ARTIFACT = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02";
 const BUILD_ONLY = "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && inputs.build_only == true";
 const NOT_BUILD_ONLY = `\${{ !(${BUILD_ONLY}) }}`;
+const E2E_ENV = {
+  NEXT_PUBLIC_APP_URL: "http://localhost:3000",
+  PLAYWRIGHT_BASE_URL: "http://localhost:3000",
+  NEXT_PUBLIC_SUPABASE_URL: "${{ secrets.TEST_SUPABASE_URL }}",
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: "${{ secrets.TEST_SUPABASE_ANON_KEY }}",
+  SUPABASE_SERVICE_ROLE_KEY: "${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}",
+  E2E_TESTS_ENABLED: "1",
+};
 
 // Parse active YAML: comments cannot satisfy a gate, and all upload requirements
 // must belong to the same executable step in the same job.
@@ -70,7 +79,35 @@ describe("Test workflow resource budget", () => {
     expect(full.if).toBe(
       `github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !(github.ref == 'refs/heads/akhil/test-workspace-release-20260919' && inputs.build_only == true))`,
     );
-    expect(full.steps).toContainEqual(expect.objectContaining({ run: "npm run test:e2e" }));
+    expect(full.steps).toContainEqual(expect.objectContaining({
+      name: "Run full E2E suite",
+      if: "github.event_name != 'workflow_dispatch' || inputs.e2e_scope == 'full'",
+      run: "npm run test:e2e",
+    }));
+    expect(full.steps).toContainEqual(expect.objectContaining({
+      name: "Run property metadata E2E scope",
+      if: "github.event_name == 'workflow_dispatch' && inputs.e2e_scope == 'property_metadata'",
+      run: "npx playwright test tests/e2e/property-metadata-omission-preservation.spec.ts",
+    }));
+    for (const name of ["Run full E2E suite", "Run property metadata E2E scope"]) {
+      const step = full.steps.find((candidate) => candidate.name === name);
+      expect(step?.env, `${name} must use the dev/test E2E environment`).toMatchObject(E2E_ENV);
+    }
+  });
+
+  it("keeps property metadata preflight limited to its manual dispatch scope", () => {
+    expect(workflowDocument.on.workflow_dispatch.inputs.e2e_scope).toEqual({
+      description: "Select the manual browser scope",
+      required: false,
+      type: "choice",
+      default: "full",
+      options: ["full", "property_metadata"],
+    });
+    expect(jobConfig("build").steps).toContainEqual(expect.objectContaining({
+      name: "Run property metadata ship preflight",
+      if: "success() && github.event_name == 'workflow_dispatch' && inputs.e2e_scope == 'property_metadata'",
+      run: "npm run ship:preflight",
+    }));
   });
 
   it("sets retries exactly once, in the Playwright config", () => {
