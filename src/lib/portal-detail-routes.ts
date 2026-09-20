@@ -1109,8 +1109,14 @@ export function parseVendorDirectoryTab(raw: string | null | undefined): VendorD
   return raw === "catalog" ? "catalog" : "yours";
 }
 
-export function vendorCatalogDetailHref(basePath: string, catalogId: string): string {
-  return `${basePath}/vendors?tab=catalog&catalog=${encodeURIComponent(catalogId)}`;
+export function vendorCatalogDetailHref(
+  basePath: string,
+  catalogId: string,
+  detailTab: VendorDetailTabId = "overview",
+): string {
+  const params = new URLSearchParams({ tab: "catalog", catalog: catalogId });
+  if (detailTab !== "overview") params.set("detailTab", detailTab);
+  return `${basePath}/vendors?${params.toString()}`;
 }
 
 /** Routed detail tabs for a manager vendor — same chrome as a resident. */
