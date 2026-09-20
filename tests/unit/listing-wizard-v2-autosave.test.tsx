@@ -30,6 +30,12 @@ vi.mock("@/lib/prepare-listing-submission-for-persist", () => ({
   })),
   listingSaveFailureMessage: (reason: string) => reason || "Could not save.",
 }));
+vi.mock("@/lib/analytics/track-client", () => ({
+  track: vi.fn(),
+}));
+vi.mock("@/lib/native/detect-native", () => ({
+  isNativeRuntimeSync: vi.fn(() => false),
+}));
 
 import { ListingWizardV2 } from "@/components/portal/listing-wizard-v2";
 
@@ -92,5 +98,26 @@ describe("listing wizard v2 autosave", () => {
     const opts = saveManagerPropertyDraftToServer.mock.calls.at(-1)?.[2] as { stepIndex?: number };
     expect(opts.stepIndex).toBe(1);
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("registers a beforeunload listener when dirty and removes it on unmount", async () => {
+    const addEventListenerSpy = vi.spyOn(window, "addEventListener");
+    const removeEventListenerSpy = vi.spyOn(window, "removeEventListener");
+
+    const { unmount } = render(<ListingWizardV2 userId="mgr-1" skuTier="starter" onClose={vi.fn()} />);
+    // Make the editor dirty by changing a field.
+    fireEvent.change(screen.getByPlaceholderText("Magnolia House"), {
+      target: { value: "Dirty House" },
+    });
+    await waitFor(() => {
+      expect(addEventListenerSpy).toHaveBeenCalledWith("beforeunload", expect.any(Function));
+    });
+
+    // Unmount the component and verify the listener was removed.
+    unmount();
+    expect(removeEventListenerSpy).toHaveBeenCalledWith("beforeunload", expect.any(Function));
+
+    addEventListenerSpy.mockRestore();
+    removeEventListenerSpy.mockRestore();
   });
 });
