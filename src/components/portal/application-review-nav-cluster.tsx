@@ -55,12 +55,6 @@ export function ClusterNavRow({
   primary: string;
   meta?: string;
   icon: React.ReactNode;
-  /**
-   * Never drawn: a nav row is title · meta, no pill (AGENTS.md → Portal UI
-   * system → "No pills on rows"). Still accepted so the lists that have not
-   * had their row swap yet keep compiling; what they pass is dropped.
-   */
-  statusPill?: { label: string; tone: string };
   selected?: boolean;
   checked?: boolean;
   onCheck?: () => void;
