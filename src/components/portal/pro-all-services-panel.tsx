@@ -35,7 +35,12 @@ import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import {
   serviceRequestDetailHref,
   serviceRequestListHref,
+  type ServiceDetailTabId,
 } from "@/lib/portal-detail-routes";
+import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
+import { recordSections } from "@/lib/portals/record-sections";
+import { renderRecordSection } from "@/components/portal/record-section-renderers";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -71,6 +76,7 @@ import { ManagerWorkOrdersPanel } from "@/components/portal/pro-work-orders-pane
 import {
   ManagerServiceRequestDetail,
   managerServiceRequestBucket,
+  managerServiceRequestPricingSummary,
   type ManagerServiceRequestBucket,
 } from "@/components/portal/pro-service-request-detail";
 import { ManagerAddServiceModal } from "@/components/portal/pro-add-service-modal";
@@ -108,6 +114,7 @@ export function ManagerAllServicesPanel({
   workOrderBucket: workOrderBucketProp = "open",
   serviceRequestId: serviceRequestIdProp,
   workOrderId: workOrderIdProp,
+  serviceDetailTab,
 }: {
   tabId: FilterType;
   basePath: string;
@@ -115,6 +122,8 @@ export function ManagerAllServicesPanel({
   workOrderBucket?: ManagerWorkOrderBucket;
   serviceRequestId?: string;
   workOrderId?: string;
+  /** The service record's own rail tab (docs/agents/record-page.md); undefined = Overview. */
+  serviceDetailTab?: ServiceDetailTabId;
 }) {
   const tabId = useShallowTabId<FilterType>(serverTabId, SERVICES_TAB_IDS);
   const router = useRouter();
@@ -598,6 +607,56 @@ export function ManagerAllServicesPanel({
   // One row of state pills over the merged list. The Requests / Work orders type nav is gone —
   // that split is now just the `kind` carried on each row.
   if (serviceRequestIdProp && detailRequest) {
+    // An add-on request's real actions (Approve/Deny/Edit/Delete) already live in the footer via
+    // `renderRequestDetail` — the header carries none of the generic assign-vendor/schedule/close
+    // set, which does not describe an add-on (docs/agents/record-page.md § Known gap).
+    const sections = {
+      ...recordSections("manager", "service", { basePath, serviceKind: "request", serviceBucket: reqBucket }),
+      headerActions: [],
+      phonePrimary: undefined,
+    };
+    const activeTab = serviceDetailTab ?? "overview";
+    const backHref = serviceRequestListHref(basePath, reqBucket);
+    const ownContent =
+      activeTab === "vendor-bids" ? (
+        <div className="px-3 pb-4 sm:px-4" data-attr="service-request-vendor-bids">
+          {detailRequest.assignee ? (
+            <p className="text-sm text-foreground">
+              Assigned to <span className="font-medium">{detailRequest.assignee.name}</span>
+            </p>
+          ) : (
+            <PortalListEmptyCard title="No vendor for this service" workspaceAware={false} dataAttr="service-request-vendor-empty" />
+          )}
+        </div>
+      ) : activeTab === "schedule" ? (
+        <div className="px-3 pb-4 sm:px-4" data-attr="service-request-schedule">
+          {detailRequest.proposedVisit ? (
+            <p className="text-sm text-foreground">
+              Proposed {new Date(detailRequest.proposedVisit.iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+            </p>
+          ) : (
+            <PortalListEmptyCard title="Not scheduled yet" workspaceAware={false} dataAttr="service-request-schedule-empty" />
+          )}
+        </div>
+      ) : activeTab === "invoice" ? (
+        <div className="px-3 pb-4 sm:px-4" data-attr="service-request-invoice">
+          <p className="text-sm text-foreground">
+            Charges: <span className="font-medium">{managerServiceRequestPricingSummary(detailRequest)}</span>
+          </p>
+        </div>
+      ) : activeTab === "communication" || activeTab === "documents" || activeTab === "activity" ? (
+        renderRecordSection(activeTab, {
+          role: "manager",
+          kind: "service",
+          kindLabel: "service",
+          recordId: detailRequest.id,
+          recordLabel: detailRequest.offerName,
+          propertyId: detailRequest.propertyId,
+          contactIds: detailRequest.residentEmail ? [detailRequest.residentEmail] : undefined,
+        })
+      ) : (
+        renderRequestDetail(detailRequest)
+      );
     return (
       <>
         <PortalRecordDetailPage
@@ -605,12 +664,32 @@ export function ManagerAllServicesPanel({
           title={detailRequest.offerName}
           subtitle={detailRequest.residentName}
           avatarName={detailRequest.residentName}
-          backHref={serviceRequestListHref(basePath, reqBucket)}
+          backHref={backHref}
           hideBackText
+          bareHeader
+          iconTitleActions
           dataAttrBack="service-request-detail-back"
+          pinScrollBody
           footer={detailFooterActions ?? undefined}
         >
-          {renderRequestDetail(detailRequest)}
+          {/*
+            No header icons here — the footer above already publishes
+            Approve / Deny / Edit / Delete into this same title-row icon slot
+            (`iconTitleActions`); a second publisher would silently overwrite
+            it rather than combine with it (docs/agents/record-page.md).
+          */}
+          <PortalRecordSectionChrome
+            sections={sections}
+            recordId={detailRequest.id}
+            activeId={activeTab}
+            title={detailRequest.offerName}
+            subtitle={detailRequest.residentName}
+            backHref={backHref}
+            backLabel="All services"
+            ariaLabel="Service sections"
+          >
+            {ownContent}
+          </PortalRecordSectionChrome>
         </PortalRecordDetailPage>
         <ManagerAddServiceModal
           open={addServiceOpen}
@@ -633,6 +712,7 @@ export function ManagerAllServicesPanel({
           allRows={filteredWorkOrders}
           bucket={woBucket}
           workOrderId={workOrderIdProp}
+          serviceDetailTab={serviceDetailTab}
           listBasePath={basePath}
           onAfterSchedule={() => router.push(`${basePath}/services/work-orders/scheduled`)}
           listAddAction={{
