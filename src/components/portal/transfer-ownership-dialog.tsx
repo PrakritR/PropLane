@@ -90,6 +90,10 @@ export function TransferOwnershipDialog({
   const submit = async () => {
     if (!confirmed || houseIds.length === 0) return;
     let done = 0;
+    // Read WHY the first failing house didn't move (plan limit, ownership,
+    // locked listing) so the toast names the reason instead of just the
+    // house — the response body already carries it.
+    let failureReason: string | null = null;
     for (const id of houseIds) {
       try {
         const res = await fetch(`/api/pro/properties/${encodeURIComponent(id)}/transfer-ownership`, {
@@ -98,7 +102,11 @@ export function TransferOwnershipDialog({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ newManagerUserId: member.userId, formerOwnerPermissions }),
         });
-        if (!res.ok) break;
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          failureReason = data.error?.trim() || null;
+          break;
+        }
         done += 1;
       } catch {
         break;
@@ -109,7 +117,9 @@ export function TransferOwnershipDialog({
       showToast(`${total} house${total === 1 ? "" : "s"} transferred to ${member.name}.`);
     } else {
       const notMoved = houseIds.slice(done).map((id) => houseLabel(id));
-      showToast(`${done} of ${total} transferred. Not moved: ${notMoved.join(", ")}.`);
+      showToast(
+        `${done} of ${total} transferred. Not moved: ${notMoved.join(", ")}.${failureReason ? ` ${failureReason}` : ""}`,
+      );
     }
     onDone();
   };

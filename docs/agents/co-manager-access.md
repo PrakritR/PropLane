@@ -80,19 +80,38 @@ workspace**, names the workspace, and offers Message the inviter.
 **The invite sheet (`workspace-invite-sheet.tsx`) is the one manager invite
 surface** — opened by `ProAccountLinksPanel.openLinkModal`, no separate
 chooser step or "Continue" page. It holds exactly one active manager link per
-workspace: on open it reads it (`GET /api/pro/invite-links?workspaceId=`) or
-mints one if none exists; changing Role or Houses re-mints with
+workspace, but **opening the sheet and changing the access chip never mint
+anything**: on open it only READS the workspace's active link
+(`GET /api/pro/invite-links?workspaceId=`) to hydrate Role, Houses, and (for
+Custom) the workspace-level grant, and changing any of those only updates
+local state. Minting or reusing a link happens ONLY at the moment Copy or
+Send is pressed, through `resolveLinkForCurrentTerms`: when the on-screen
+terms still match the held link, it reuses that link's URL (revealing it if
+not already in hand); otherwise it mints a fresh one with
 `replaceActive: true` so a URL already sent can never gain more power than
 whoever holds it agreed to, and the previous link is revoked in the same call
 (`mintInviteLink`, `docs/agents/co-manager-access.md` "Mint stores a hash..."
-above). Sending by phone or email goes out through the manager directory
-message path (`deliverManagerDirectoryMessage`) with the auto-formatted body
-from `formatInviteMessageBody`; a PropLane code recipient instead POSTs
-directly to `/api/pro/account-links` as an addressed invite (no message step).
-Every invite row this way stamps `invited_via` and `invited_at`
-(`20260920190000_invite_delivery.sql`). The old three-path chooser
-(`PortalInvitePaths`, "how to send it" step) is **gone from the manager
-invite**; it is kept only for the vendor invite modal
+above). The reveal call is `POST /api/pro/invite-links/[linkId]/link` with no
+body, which **reveals** the stored ciphertext rather than rotating (rotate is
+the separate `{ rotate: true }` call two sections below).
+Sending by email goes out through the manager directory message path
+(`deliverManagerDirectoryMessage`) with the auto-formatted body from
+`formatInviteMessageBody`; that path only ever resolves an existing account or
+an email address, so phone instead texts straight from the manager's own work
+number (`POST /api/pro/invite-links/send-sms`, the same
+`sendFromManagerWorkNumber` transport `record-share-link/send` and
+`send-lead-invite` use for an ad hoc phone recipient) and fails with the real
+reason (most commonly no work number provisioned yet) rather than pretending
+to send. A PropLane code recipient instead POSTs directly to
+`/api/pro/account-links` as an addressed invite (no message step) and is the
+ONLY one of the three that creates an `account_link_invites` row before
+redemption — it alone stamps `invited_via` ("code") and `invited_at`
+(`20260920190000_invite_delivery.sql`). Phone and email sends carry no such
+row (the invite lives entirely in the link until redeemed), so "Who has
+access" shows them only for the current sheet session
+(`sentThisSession`, cleared on reopen), never durably. The old three-path
+chooser (`PortalInvitePaths`, "how to send it" step) is **gone from the
+manager invite**; it is kept only for the vendor invite modal
 (`pro-vendor-form-modal.tsx`), which still owns its own Continue → New
 message flow. Coverage: `tests/unit/workspace-invite-sheet.test.tsx`.
 

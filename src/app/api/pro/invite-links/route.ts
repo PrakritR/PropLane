@@ -61,6 +61,7 @@ export async function POST(req: Request) {
     propertyLabelsById?: unknown;
     teamRole?: unknown;
     houseScope?: unknown;
+    workspacePermissions?: unknown;
     replaceActive?: boolean;
   };
 
@@ -86,6 +87,7 @@ export async function POST(req: Request) {
     propertyLabelsById,
     teamRole: body.teamRole,
     houseScope: body.houseScope,
+    workspacePermissions: body.workspacePermissions,
     replaceActive: body.replaceActive === true,
   });
 

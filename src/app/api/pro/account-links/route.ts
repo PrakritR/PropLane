@@ -380,7 +380,6 @@ export async function POST(req: Request) {
 
     // Workspace rights follow the role; only a Custom row keeps explicit flags.
     const workspacePermissions = teamRole === "custom" ? normalizeWorkspacePermissions(body?.workspacePermissions) : {};
-    void actorRole;
     const stampedFlat = stampTeamRolePermissions(teamRole);
     const coManagerPermissions: CoManagerPermissions = stampedFlat
       ? stampedFlat

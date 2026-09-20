@@ -19,9 +19,12 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
 }));
 
 const deliverManagerDirectoryMessage = vi.fn(async () => ({ ok: true, message: "sent" }) as const);
+const sendWorkspaceInviteSms = vi.fn(async () => ({ ok: true }) as const);
 vi.mock("@/lib/manager-vendor-invite-client", () => ({
   deliverManagerDirectoryMessage: (...args: unknown[]) =>
     (deliverManagerDirectoryMessage as unknown as (...a: unknown[]) => unknown)(...args),
+  sendWorkspaceInviteSms: (...args: unknown[]) =>
+    (sendWorkspaceInviteSms as unknown as (...a: unknown[]) => unknown)(...args),
 }));
 
 import { WorkspaceInviteSheet } from "@/components/portal/workspace-invite-sheet";
@@ -32,6 +35,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   showToast.mockClear();
   deliverManagerDirectoryMessage.mockClear();
+  sendWorkspaceInviteSms.mockClear();
 });
 
 const workspace: PortalWorkspace = {
@@ -52,6 +56,7 @@ type ExistingLink = {
   houseScope?: string | null;
   assignedPropertyIds?: string[];
   propertyPermissions?: Record<string, unknown>;
+  workspacePermissions?: Record<string, unknown>;
 } | null;
 
 /** Routes fetch by method + path prefix; each test overrides only what it cares about. */
@@ -340,5 +345,127 @@ describe("WorkspaceInviteSheet", () => {
     expect(deliverManagerDirectoryMessage).toHaveBeenCalledTimes(1);
     const [preview] = deliverManagerDirectoryMessage.mock.calls[0] as [{ body: string }, ...unknown[]];
     expect(preview.body).toContain("Join: https://proplane.test/invite/fresh");
+  });
+
+  it("texting an invite parses the recipient to E.164 and sends through the manager's work number, not the shared directory path (Info finding)", async () => {
+    mockFetch({
+      existingLink: {
+        id: "link-existing",
+        teamRole: "viewer",
+        houseScope: "all",
+        assignedPropertyIds: ["prop-a", "prop-b"],
+        propertyPermissions: {},
+      },
+      revealResult: { url: "https://proplane.test/invite/revealed" },
+    });
+    renderSheet();
+    await waitFor(() => expect(accessChipText()).toContain("Viewer"));
+
+    const input = screen.getByLabelText("Add people");
+    fireEvent.change(input, { target: { value: "(206) 555-1212" } });
+    const send = screen.getByRole("button", { name: "Send" });
+    expect(send).not.toBeDisabled();
+    fireEvent.click(send);
+
+    await waitFor(() => expect(sendWorkspaceInviteSms).toHaveBeenCalledTimes(1));
+    expect(deliverManagerDirectoryMessage).not.toHaveBeenCalled();
+    const [payload] = sendWorkspaceInviteSms.mock.calls[0] as [
+      { workspaceId: string; phone: string; text: string },
+    ];
+    expect(payload.workspaceId).toBe("ws-1");
+    expect(payload.phone).toBe("+12065551212");
+    expect(payload.text).toContain("Join: https://proplane.test/invite/revealed");
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith(expect.stringContaining("texted")));
+  });
+
+  it("a failed text toasts the real reason and suggests copying the link instead, rather than pretending to send", async () => {
+    sendWorkspaceInviteSms.mockResolvedValueOnce({
+      ok: false,
+      error: "No work number on this account yet. Finish SMS setup under Communication first.",
+    });
+    mockFetch({
+      existingLink: {
+        id: "link-existing",
+        teamRole: "viewer",
+        houseScope: "all",
+        assignedPropertyIds: ["prop-a", "prop-b"],
+        propertyPermissions: {},
+      },
+      revealResult: { url: "https://proplane.test/invite/revealed" },
+    });
+    renderSheet();
+    await waitFor(() => expect(accessChipText()).toContain("Viewer"));
+
+    const input = screen.getByLabelText("Add people");
+    fireEvent.change(input, { target: { value: "2065551212" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith(
+        "No work number on this account yet. Finish SMS setup under Communication first. Copy the link and send it yourself instead.",
+      ),
+    );
+  });
+
+  it("changing a Custom role's workspace-level grant re-mints instead of reusing the held link (Low finding)", async () => {
+    const { calls } = mockFetch({
+      existingLink: {
+        id: "link-existing",
+        teamRole: "custom",
+        houseScope: "all",
+        assignedPropertyIds: ["prop-a", "prop-b"],
+        propertyPermissions: {},
+        workspacePermissions: {},
+      },
+      mintResult: { url: "https://proplane.test/invite/fresh-grant", link: { id: "link-fresh-grant" } },
+    });
+    renderSheet();
+    await waitFor(() => expect(accessChipText()).toContain("Custom"));
+    await flushMicrotasks();
+
+    const addPropertiesCheckbox = document.querySelector(
+      '[data-attr="team-grant-add-properties"]',
+    ) as HTMLInputElement;
+    expect(addPropertiesCheckbox).toBeTruthy();
+    fireEvent.click(addPropertiesCheckbox);
+    await flushMicrotasks();
+
+    // Toggling the workspace grant alone never mints.
+    expect(calls.some((c) => c.url === "/api/pro/invite-links" && c.method === "POST")).toBe(false);
+
+    clickCopy();
+    await flushMicrotasks();
+
+    const mintCall = calls.find((c) => c.url === "/api/pro/invite-links" && c.method === "POST");
+    expect(mintCall?.body).toMatchObject({
+      teamRole: "custom",
+      replaceActive: true,
+      workspacePermissions: { addProperties: true },
+    });
+  });
+
+  it("Copy on an unchanged Custom workspace grant still reveals rather than reminting", async () => {
+    const { calls } = mockFetch({
+      existingLink: {
+        id: "link-existing",
+        teamRole: "custom",
+        houseScope: "all",
+        assignedPropertyIds: ["prop-a", "prop-b"],
+        propertyPermissions: {},
+        workspacePermissions: { teams: true },
+      },
+      revealResult: { url: "https://proplane.test/invite/revealed-custom" },
+    });
+    renderSheet();
+    await waitFor(() => expect(accessChipText()).toContain("Custom"));
+    await flushMicrotasks();
+
+    clickCopy();
+    await waitFor(() =>
+      expect(
+        calls.some((c) => c.url === "/api/pro/invite-links/link-existing/link" && c.method === "POST"),
+      ).toBe(true),
+    );
+    expect(calls.some((c) => c.url === "/api/pro/invite-links" && c.method === "POST")).toBe(false);
   });
 });

@@ -15,7 +15,7 @@ import {
   type TeamRoleId,
 } from "@/lib/co-manager-team-roles";
 import { normalizeWorkspacePermissions } from "@/lib/workspace-co-manager-permissions";
-import { canActOnMember, parseHouseScope, roleAssignableBy, type WorkspaceRole } from "@/lib/workspaces/membership";
+import { canActOnMember, canManageWorkspaceMembers, parseHouseScope, roleAssignableBy, type WorkspaceRole } from "@/lib/workspaces/membership";
 import { actorWorkspaceStanding, workspaceAdminCount, workspaceHouseIds } from "@/lib/workspaces/membership.server";
 import { isCrossSandboxPortalPair, CROSS_SANDBOX_PORTAL_PAIR_ERROR } from "@/lib/portal-sandbox-accounts";
 import { scopedRelationshipDeletesForRevokedInvite } from "@/lib/pro-relationships";
@@ -87,7 +87,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
       const standing = await actorWorkspaceStanding(svc, user.id, inviteWorkspaceId);
       if (standing?.rights.members) actorRole = standing.role;
     }
-    const actorManages = actorRole === "owner" || (actorRole != null && actorRole !== "custom" && actorRole !== "viewer" && actorRole !== "leasing" && actorRole !== "bookkeeper" && actorRole !== "maintenance" && actorRole !== "property_manager");
+    const actorManages = canManageWorkspaceMembers(actorRole);
     const targetRole = resolveInviteTeamRole(invite.team_role, readPropertyPermissionsFromRow(invite));
     const guardMemberAction = async (): Promise<NextResponse | null> => {
       if (actorRole === "owner") return null;

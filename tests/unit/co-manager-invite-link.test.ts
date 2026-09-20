@@ -186,3 +186,52 @@ describe("active invite link per workspace", () => {
     expect(rowFnMatch?.[1] ?? "").not.toMatch(/token/i);
   });
 });
+
+describe("invite link carries the Custom role's workspace-level grant (security review Low)", () => {
+  const SERVER = readFileSync(
+    join(process.cwd(), "src/lib/invite-links/invite-links.server.ts"),
+    "utf8",
+  );
+
+  it("mintInviteLink accepts and normalizes workspacePermissions, only for a Custom manager link", () => {
+    expect(SERVER).toContain("workspacePermissions?: unknown;");
+    expect(SERVER).toContain('if (parsedRole.role === "custom") {\n      workspacePermissions = normalizeWorkspacePermissions(input.workspacePermissions);');
+    expect(SERVER).toContain("workspace_permissions: workspacePermissions,");
+  });
+
+  it("LINK_COLUMNS and toInviteLinkRow return workspacePermissions so the sheet can hydrate and compare it", () => {
+    const columnsMatch = SERVER.match(/const LINK_COLUMNS =\s*\n?\s*"([^"]+)"/);
+    expect(columnsMatch?.[1] ?? "").toContain("workspace_permissions");
+    expect(SERVER).toContain("workspacePermissions: normalizeWorkspacePermissions(row.workspace_permissions)");
+  });
+
+  it("the mint route and client pass workspacePermissions through to mintInviteLink", () => {
+    const route = readFileSync(join(process.cwd(), "src/app/api/pro/invite-links/route.ts"), "utf8");
+    expect(route).toContain("workspacePermissions: body.workspacePermissions,");
+    const client = readFileSync(
+      join(process.cwd(), "src/lib/invite-links/mint-invite-link-client.ts"),
+      "utf8",
+    );
+    expect(client).toContain("workspacePermissions: input.workspacePermissions,");
+  });
+
+  it("the sheet's termsMatch deep-compares workspacePermissions for a Custom role, so tightening or loosening rights re-mints", () => {
+    const sheet = readFileSync(
+      join(process.cwd(), "src/components/portal/workspace-invite-sheet.tsx"),
+      "utf8",
+    );
+    expect(sheet).toContain(
+      'JSON.stringify(held.workspacePermissions) === JSON.stringify(current.workspacePermissions)',
+    );
+    expect(sheet).toContain("workspacePermissions: effectiveWorkspacePermissions");
+  });
+
+  it("a migration adds manager_invite_links.workspace_permissions", () => {
+    const migration = readFileSync(
+      join(process.cwd(), "supabase/migrations/20260920201000_invite_link_workspace_permissions.sql"),
+      "utf8",
+    );
+    expect(migration).toContain("alter table public.manager_invite_links");
+    expect(migration).toContain("add column if not exists workspace_permissions jsonb not null default '{}'::jsonb");
+  });
+});

@@ -115,8 +115,10 @@ describe("TransferOwnershipDialog", () => {
     expect(showToast).toHaveBeenCalledWith("2 houses transferred to Jordan Lee.");
   });
 
-  it("stops after a failed first house and names it in the toast", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ error: "nope" }), { status: 500 }));
+  it("stops after a failed first house, names it, and includes the server's reason in the toast", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ error: "Plan limit reached for this workspace." }), { status: 403 }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     renderDialog();
 
@@ -125,6 +127,20 @@ describe("TransferOwnershipDialog", () => {
 
     await waitFor(() => expect(showToast).toHaveBeenCalled());
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(showToast).toHaveBeenCalledWith(
+      "0 of 2 transferred. Not moved: House A, House B. Plan limit reached for this workspace.",
+    );
+  });
+
+  it("falls back to no reason when the failed response carries none (network error, empty body)", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({}), { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+    renderDialog();
+
+    typeConfirm("Acme Portfolio");
+    fireEvent.click(submitButton());
+
+    await waitFor(() => expect(showToast).toHaveBeenCalled());
     expect(showToast).toHaveBeenCalledWith("0 of 2 transferred. Not moved: House A, House B.");
   });
 });

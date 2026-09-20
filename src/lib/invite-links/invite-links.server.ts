@@ -25,6 +25,10 @@ import {
   normalizePropertyCoManagerPermissions,
   type PropertyCoManagerPermissions,
 } from "@/lib/co-manager-permissions";
+import {
+  normalizeWorkspacePermissions,
+  type WorkspaceCoManagerGrant,
+} from "@/lib/workspace-co-manager-permissions";
 import { parseTeamRole, stampTeamRoleOnProperties, type TeamRoleId } from "@/lib/co-manager-team-roles";
 
 function storedTeamRole(raw: unknown): TeamRoleId | null {
@@ -35,7 +39,7 @@ import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { parseHouseScope, roleAssignableBy } from "@/lib/workspaces/membership";
 import { stampTeamRolePermissions } from "@/lib/co-manager-team-roles";
 import { describeCoManagerPermissions, flatCoManagerPermissionsFromProperty } from "@/lib/co-manager-permissions";
-import { actorWorkspaceStanding, workspaceHouseIds } from "@/lib/workspaces/membership.server";
+import { actorOwnWorkspaceHouseIds, actorWorkspaceStanding, workspaceHouseIds } from "@/lib/workspaces/membership.server";
 import { primaryRoleWhenAddingVendor } from "@/lib/auth/profile-primary-role";
 
 const TOKEN_BYTES = 32;
@@ -81,6 +85,8 @@ export type InviteLinkRow = {
   teamRole?: TeamRoleId | null;
   /** Manager links only: 'all' = every house in the workspace, now and later. */
   houseScope?: "all" | "selected";
+  /** Custom-role manager links only: workspace-level grant (members/billing). Empty for every other role. */
+  workspacePermissions: WorkspaceCoManagerGrant;
 };
 
 type DbRow = {
@@ -101,6 +107,7 @@ type DbRow = {
   property_labels?: unknown;
   token_ciphertext?: string | null;
   team_role?: string | null;
+  workspace_permissions?: unknown;
 };
 
 const INVITE_TOKEN_ENCRYPT_FIELD = "token";
@@ -155,11 +162,12 @@ function toInviteLinkRow(row: DbRow): InviteLinkRow {
     createdAt: row.created_at,
     teamRole: storedTeamRole(row.team_role),
     houseScope: parseHouseScope(row.house_scope),
+    workspacePermissions: normalizeWorkspacePermissions(row.workspace_permissions),
   };
 }
 
 const LINK_COLUMNS =
-  "id, kind, label, assigned_property_ids, assigned_room_id, property_permissions, max_uses, used_count, expires_at, revoked_at, created_at, team_role, house_scope";
+  "id, kind, label, assigned_property_ids, assigned_room_id, property_permissions, max_uses, used_count, expires_at, revoked_at, created_at, team_role, house_scope, workspace_permissions";
 
 export type MintInviteLinkResult =
   | { ok: true; link: InviteLinkRow; token: string }
@@ -191,6 +199,8 @@ export async function mintInviteLink(
     teamRole?: unknown;
     /** Co-manager links: all = every house in `workspaceId`, now and later. */
     houseScope?: unknown;
+    /** Custom-role manager links only: workspace-level grant (members/billing). Ignored for every other role. */
+    workspacePermissions?: unknown;
     /** When true and kind === "manager": revoke prior active links for this workspace before inserting. */
     replaceActive?: boolean;
   },
@@ -221,6 +231,18 @@ export async function mintInviteLink(
     ownerUserId = standing.ownerUserId;
     if (houseScope === "all") {
       propertyIds = await workspaceHouseIds(db, ownerUserId, standing.workspaceId);
+      if (actorUserId !== ownerUserId) {
+        // A delegate (an Admin, say) whose OWN membership is scoped to a
+        // subset of the workspace's houses must never mint an "all houses"
+        // link that reaches beyond that subset. Capping only the PERMISSION
+        // map per house is not enough here: an "all" row's assigned_property_ids
+        // is kept current by the workspace-houses triggers, so a house that
+        // joins the workspace LATER would auto-fill from the role's flat
+        // stamp on that row with no cap ever re-applied (security review
+        // Warning: mint-link-stamp-after-cap).
+        const actorHouseIds = new Set(await actorOwnWorkspaceHouseIds(db, actorUserId, ownerUserId, standing.workspaceId));
+        propertyIds = propertyIds.filter((id) => actorHouseIds.has(id));
+      }
     } else if (propertyIds.length > 0) {
       const inWorkspace = new Set(await workspaceHouseIds(db, ownerUserId, standing.workspaceId));
       if (propertyIds.some((id) => !inWorkspace.has(id))) {
@@ -275,24 +297,41 @@ export async function mintInviteLink(
   // populated map on the row would be a grant waiting for a future reader to
   // honour. A co-manager link still caps to what the acting delegate holds.
   let permissions: PropertyCoManagerPermissions | Record<string, never> = {};
+  // Workspace-level rights (members/billing) follow the role for every stock
+  // role — the same split `effectivePermissions` uses in the sheet. Only a
+  // Custom link carries its own map, so a role change can never smuggle a
+  // workspace grant through untouched.
+  let workspacePermissions: WorkspaceCoManagerGrant = {};
   if (kind === "manager") {
+    const parsedRole = parseTeamRole(input.teamRole);
+    if (!parsedRole.ok) {
+      return { ok: false, status: 400, error: parsedRole.error };
+    }
+    // Stamp (or accept the Custom map) against the FULL requested property
+    // set FIRST, then cap to what the acting delegate actually holds.
+    // Capping first and stamping second — the previous order — let the stamp
+    // overwrite the just-capped map with the full role grant on every
+    // property, including ones the delegate does not hold (security review
+    // Warning: mint-link-stamp-after-cap). `POST /api/pro/account-links`
+    // already gets this right; this mirrors it.
+    const requested = normalizePropertyCoManagerPermissions(input.propertyPermissions, propertyIds);
+    const stamped =
+      parsedRole.role && parsedRole.role !== "custom"
+        ? stampTeamRoleOnProperties(parsedRole.role, propertyIds, requested)
+        : requested;
     const cappedPermissions = await capTeamInvitePermissionsForDelegate(
       db,
       actorUserId,
       ownerUserId,
       propertyIds,
-      normalizePropertyCoManagerPermissions(input.propertyPermissions, propertyIds),
+      stamped,
     );
     if (!cappedPermissions.ok) {
       return { ok: false, status: cappedPermissions.status, error: cappedPermissions.error };
     }
     permissions = cappedPermissions.permissions;
-    const parsedRole = parseTeamRole(input.teamRole);
-    if (!parsedRole.ok) {
-      return { ok: false, status: 400, error: parsedRole.error };
-    }
-    if (parsedRole.role && parsedRole.role !== "custom") {
-      permissions = stampTeamRoleOnProperties(parsedRole.role, propertyIds, permissions);
+    if (parsedRole.role === "custom") {
+      workspacePermissions = normalizeWorkspacePermissions(input.workspacePermissions);
     }
   }
   // A room narrows a resident link; it is meaningless on a co-manager one,
@@ -376,6 +415,7 @@ export async function mintInviteLink(
       property_labels: propertyLabels,
       team_role: kind === "manager" ? storedTeamRole(input.teamRole) : null,
       house_scope: houseScope,
+      workspace_permissions: workspacePermissions,
     })
     .select(LINK_COLUMNS)
     .maybeSingle();

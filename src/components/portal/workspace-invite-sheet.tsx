@@ -53,11 +53,12 @@ import {
 } from "@/lib/co-manager-permissions";
 import {
   DEFAULT_NEW_INVITE_WORKSPACE_GRANT,
+  normalizeWorkspacePermissions,
   type WorkspaceCoManagerGrant,
 } from "@/lib/workspace-co-manager-permissions";
 import { mintInviteLinkClient, revealInviteLinkClient } from "@/lib/invite-links/mint-invite-link-client";
 import { formatInviteMessageBody, formatInviteMessageSubject } from "@/lib/invite-message-body";
-import { deliverManagerDirectoryMessage } from "@/lib/manager-vendor-invite-client";
+import { deliverManagerDirectoryMessage, sendWorkspaceInviteSms } from "@/lib/manager-vendor-invite-client";
 import type { AccountLinkInviteDto } from "@/lib/account-links";
 import { teamRoleListLabel } from "@/lib/co-manager-team-roles";
 import { cn } from "@/lib/utils";
@@ -165,6 +166,7 @@ type HeldLinkTerms = {
   houseScope: HouseScope;
   houseIds: string[];
   permissions: CoManagerPermissions;
+  workspacePermissions: WorkspaceCoManagerGrant;
 };
 
 function sameIds(a: string[], b: string[]): boolean {
@@ -179,7 +181,10 @@ function termsMatch(held: HeldLinkTerms, current: HeldLinkTerms): boolean {
   if (held.houseScope !== current.houseScope) return false;
   if (!sameIds(held.houseIds, current.houseIds)) return false;
   if (held.role === "custom") {
-    return JSON.stringify(held.permissions) === JSON.stringify(current.permissions);
+    return (
+      JSON.stringify(held.permissions) === JSON.stringify(current.permissions) &&
+      JSON.stringify(held.workspacePermissions) === JSON.stringify(current.workspacePermissions)
+    );
   }
   return true;
 }
@@ -232,6 +237,13 @@ export function WorkspaceInviteSheet({
     [role, customPermissions],
   );
 
+  // Workspace-level rights (members/billing) follow the role for every stock
+  // role — only Custom carries its own map, same split as `effectivePermissions`.
+  const effectiveWorkspacePermissions = useMemo(
+    () => (role === "custom" ? normalizeWorkspacePermissions(workspacePermissions) : DEFAULT_NEW_INVITE_WORKSPACE_GRANT),
+    [role, workspacePermissions],
+  );
+
   const houseIds = useMemo(
     () => (houseScope === "all" ? workspace.propertyIds : selectedHouseIds),
     [houseScope, selectedHouseIds, workspace.propertyIds],
@@ -243,8 +255,8 @@ export function WorkspaceInviteSheet({
   );
 
   const currentTerms: HeldLinkTerms = useMemo(
-    () => ({ role, houseScope, houseIds, permissions: effectivePermissions }),
-    [role, houseScope, houseIds, effectivePermissions],
+    () => ({ role, houseScope, houseIds, permissions: effectivePermissions, workspacePermissions: effectiveWorkspacePermissions }),
+    [role, houseScope, houseIds, effectivePermissions, effectiveWorkspacePermissions],
   );
 
   /** The on-screen access chip exactly describes the link Copy/Send would hand out. */
@@ -279,6 +291,7 @@ export function WorkspaceInviteSheet({
             houseScope?: string | null;
             assignedPropertyIds?: string[];
             propertyPermissions?: Record<string, unknown>;
+            workspacePermissions?: Record<string, unknown>;
           } | null;
         };
         if (cancelled) return;
@@ -299,13 +312,24 @@ export function WorkspaceInviteSheet({
             : EMPTY_CO_MANAGER_PERMISSIONS;
         const nextPermissions =
           nextRole === "custom" ? nextCustomPermissions : stampTeamRolePermissions(nextRole) ?? EMPTY_CO_MANAGER_PERMISSIONS;
+        const nextWorkspacePermissions =
+          nextRole === "custom"
+            ? normalizeWorkspacePermissions(link.workspacePermissions)
+            : DEFAULT_NEW_INVITE_WORKSPACE_GRANT;
 
         setRole(nextRole);
         setHouseScope(nextHouseScope);
         setSelectedHouseIds(nextSelectedHouseIds);
         setCustomPermissions(nextCustomPermissions);
+        setWorkspacePermissions(nextWorkspacePermissions);
         setLinkId(link.id);
-        setHeldTerms({ role: nextRole, houseScope: nextHouseScope, houseIds: nextHouseIds, permissions: nextPermissions });
+        setHeldTerms({
+          role: nextRole,
+          houseScope: nextHouseScope,
+          houseIds: nextHouseIds,
+          permissions: nextPermissions,
+          workspacePermissions: nextWorkspacePermissions,
+        });
       } finally {
         if (!cancelled) setLinkLoading(false);
       }
@@ -371,6 +395,7 @@ export function WorkspaceInviteSheet({
       propertyLabelsById: workspace.propertyLabels,
       teamRole: role,
       houseScope,
+      workspacePermissions: effectiveWorkspacePermissions,
       replaceActive: true,
     });
     if (!result.ok) return { ok: false, error: result.error };
@@ -449,15 +474,17 @@ export function WorkspaceInviteSheet({
       }
 
       // phone / email: no PropLane account exists yet, so there is no row to
-      // create — the invite lives entirely in the link. We still try to
-      // deliver a message through the one delivery path the portal has;
-      // today that path can only resolve an existing account or an email
-      // address, so a bare phone number with no account cannot be reached
-      // this way yet (see PR notes) and the manager falls back to Copy link.
+      // create — the invite lives entirely in the link. Email goes out through
+      // the shared manager directory message path; phone cannot, because that
+      // path only ever resolves an existing account or an email address (it
+      // never accepts a raw phone number), so it goes out through the
+      // manager's own work number instead — the same transport
+      // `record-share-link/send` and `send-lead-invite` already use for an
+      // ad hoc phone recipient.
       //
       // The link must exist and match what is on screen BEFORE the message is
       // built — otherwise a sheet opened onto an existing link, never copied,
-      // would email an invite with no URL to accept it with.
+      // would email or text an invite with no URL to accept it with.
       const linkResult = await resolveLinkForCurrentTerms();
       if (!linkResult.ok) {
         showToast(linkResult.error);
@@ -474,25 +501,29 @@ export function WorkspaceInviteSheet({
       };
       const subject = formatInviteMessageSubject(facts);
       const body = formatInviteMessageBody(facts);
-      const result = await deliverManagerDirectoryMessage(
-        {
-          name: recipient.kind === "email" ? recipient.value : recipient.label,
-          email: recipient.kind === "email" ? recipient.value : "",
-          subject,
-          body,
-        },
-        false,
-        { viaInbox: false, viaEmail: recipient.kind === "email", viaSms: recipient.kind === "phone" },
-        undefined,
-        {},
-      );
-      if (!result.ok) {
-        showToast(
-          recipient.kind === "phone"
-            ? "Can't text that number yet — copy the link and send it yourself."
-            : result.message,
+
+      if (recipient.kind === "phone") {
+        const smsResult = await sendWorkspaceInviteSms({
+          workspaceId: workspace.id,
+          phone: recipient.value,
+          text: body,
+        });
+        if (!smsResult.ok) {
+          showToast(`${smsResult.error} Copy the link and send it yourself instead.`);
+          return;
+        }
+      } else {
+        const result = await deliverManagerDirectoryMessage(
+          { name: recipient.value, email: recipient.value, subject, body },
+          false,
+          { viaInbox: false, viaEmail: true, viaSms: false },
+          undefined,
+          {},
         );
-        return;
+        if (!result.ok) {
+          showToast(result.message);
+          return;
+        }
       }
       showToast(
         `Invite ${recipient.kind === "phone" ? "texted" : "emailed"} to ${recipient.label} · ${roleLabel} · ${reach}`,
