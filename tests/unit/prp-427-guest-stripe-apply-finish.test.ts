@@ -11,7 +11,10 @@ function read(rel: string): string {
 describe("PRP-427 guest Stripe apply finish + multi-property waive", () => {
   const WIZARD = read("src/components/marketing/rental-application-wizard.tsx");
   const CHECKOUT = read("src/app/api/stripe/application-fee-checkout/route.ts");
-  const SETTINGS = read("src/components/portal/pro-portal-settings-panels.tsx");
+  // PLAN-0920-0845 phase D moved the property multi-select itself out of this panel
+  // (its own "Applies to" row, `PropertyScopeRow`, is gone) and into the module's
+  // own `SettingsScopeBar`, mounted once per module by the host.
+  const SETTINGS = read("src/components/portal/settings-scope-bar.tsx");
   // The Applications panel's property-selection wiring moved out of the modal into
   // `SettingsModulePage`, the one component both the dialog and the standalone
   // `/portal/settings/<tab>` page render — see that file's own header comment.
@@ -44,7 +47,7 @@ describe("PRP-427 guest Stripe apply finish + multi-property waive", () => {
 
   it("offers multi-select properties with Select all for the waive code", () => {
     expect(SETTINGS).toContain("CheckboxMultiSelect");
-    expect(SETTINGS).toContain('data-attr="manager-settings-properties-select-all"');
+    expect(SETTINGS).toContain('data-attr="settings-scope-properties-select-all"');
     expect(SETTINGS).toContain("Select all");
     expect(MODULE_PAGE).toContain("onPropertyIdsChange");
     expect(MODULE_PAGE).toContain("onWaiverCodeCommit");

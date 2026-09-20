@@ -44,6 +44,7 @@ import {
   PortalSettingsNav,
   PortalSettingsProfileHeader,
   PortalSettingsRow,
+  PortalSettingsScopeTag,
   PortalSettingsSection,
   PortalSettingsSections,
   type PortalSettingsSaveState,
@@ -57,10 +58,8 @@ import { ManagerMessagingSettingsPanel } from "@/components/portal/pro-messaging
 import { ManagerAssistantEmailSettingsPanel } from "@/components/portal/pro-assistant-email-settings-panel";
 import { CommunicationSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
 import { SettingsModulePage } from "@/components/portal/settings-module-page";
-import {
-  SettingsPropertyScopeBar,
-  SettingsPropertyScopeProvider,
-} from "@/components/portal/settings-property-scope";
+import { SettingsPropertyScopeProvider } from "@/components/portal/settings-property-scope";
+import { SettingsScopeBar } from "@/components/portal/settings-scope-bar";
 import { buildManagerPropertyFilterOptions, MANAGER_PORTFOLIO_REFRESH_EVENTS } from "@/lib/manager-portfolio-access";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
@@ -103,12 +102,18 @@ function emptyToDash(v: unknown) {
  */
 const SETTINGS_TAB_PARAM = "tab";
 
-/** Every remaining settings module — Properties is no longer a settings pane. */
-const SCOPED_OPERATIONS_PANES = new Set<SettingsGroupId>([
+/**
+ * The eleven Portfolio + Operations modules (PLAN-0920-0845 phase D) — every
+ * Portfolio and Operations nav entry, Properties excluded (no longer a
+ * settings pane). Each gets the full `SettingsScopeBar` (workspace select,
+ * properties multi-select, scope tag, Reset).
+ */
+export const SCOPED_OPERATIONS_PANES = new Set<SettingsGroupId>([
   "applications",
   "lease",
   "tours",
   "resident",
+  "messaging",
   "payments",
   "tasks",
   "reminders",
@@ -117,10 +122,32 @@ const SCOPED_OPERATIONS_PANES = new Set<SettingsGroupId>([
   "services",
 ]);
 
+/**
+ * Notifications is workspace-only: manager alert routing has no per-house
+ * rung (`pro-notification-routing-setting.tsx`), so it gets the bar's
+ * `workspace-only` variant — no properties picker.
+ */
+export const WORKSPACE_ONLY_PANES = new Set<SettingsGroupId>(["notifications"]);
+
+/** Profile, Billing, Login & security, API & MCP, Feedback, Account — every setting on these applies to the account, never a workspace or house. */
+export const ACCOUNT_TAG_PANES = new Set<SettingsGroupId>(["profile", "billing", "security", "developer", "feedback", "account"]);
+
+/** Preferences (appearance, assistant, device options) is per-device, never account- or workspace-wide. */
+export const DEVICE_TAG_PANES = new Set<SettingsGroupId>(["preferences"]);
+
+/**
+ * Exempt from every classification above: Workspaces is its own switcher
+ * (`WorkspaceSettings`), not a scoped setting and not account- or
+ * device-wide in the sense the tags mean. Exported alongside the four
+ * classification sets so `tests/unit/settings-account-tags.test.tsx` can
+ * assert every nav entry is accounted for exactly once.
+ */
+export const SETTINGS_SCOPE_EXEMPT_PANES = new Set<SettingsGroupId>(["workspaces"]);
+
 /** The two fields on this screen a person may write. */
 type ProfileField = "fullName" | "phone";
 
-type SettingsGroupId =
+export type SettingsGroupId =
   | "workspaces"
   | "profile"
   | "billing"
@@ -516,13 +543,21 @@ export function PortalProfileClient({
     [pathname, searchParams],
   );
 
-  // The property scope for Operations settings rides in the URL beside `?tab=`
-  // so a reload and the browser back button keep the chosen house. pushState is
-  // the same history mechanism `openGroup` uses (Next syncs it into
-  // useSearchParams). "" is the workspace default ("All properties").
+  // The workspace + property scope for Portfolio/Operations settings rides in
+  // the URL beside `?tab=` (PLAN-0920-0845 phase D) so a reload and the browser
+  // back button keep the chosen scope. pushState is the same history mechanism
+  // `openGroup` uses (Next syncs it into useSearchParams). No `?workspace=` is
+  // "All workspaces" (the account rung); no `?property=` is that workspace's
+  // (or the account's) own default.
   const { userId: managerUserId, ready: managerReady } = useManagerUserId();
-  const workspaces = useWorkspaces();
-  const scopeProperty = searchParams.get("property") ?? "";
+  const scopeWorkspaceId = searchParams.get("workspace") ?? "";
+  const scopePropertyIds = useMemo(() => {
+    const raw = searchParams.get("property") ?? "";
+    return raw
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
+  }, [searchParams]);
   // The picker options come from the client property store, which hydrates
   // asynchronously from /api/property-records; recompute when the pipeline syncs
   // (the same tick pattern pro-bookings uses) or the options are empty on load.
@@ -539,18 +574,28 @@ export function PortalProfileClient({
       for (const eventName of MANAGER_PORTFOLIO_REFRESH_EVENTS) window.removeEventListener(eventName, bump);
     };
   }, [variant]);
+  // The FULL account list — `SettingsScopeBar` narrows it to whichever workspace
+  // is chosen, so this must not pre-filter to only the currently active one.
   const scopeOptions = useMemo(
-    () =>
-      filterPropertyOptionsForActiveWorkspace(
-        buildManagerPropertyFilterOptions(resolveManagerScopeUserId(managerUserId)),
-      ),
+    () => buildManagerPropertyFilterOptions(resolveManagerScopeUserId(managerUserId)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [managerUserId, workspaces?.active?.id, propertyTick],
+    [managerUserId, propertyTick],
   );
-  const setScopeProperty = useCallback(
+  const setScopeWorkspaceId = useCallback(
     (id: string) => {
       const params = new URLSearchParams(searchParams.toString());
-      if (id) params.set("property", id);
+      if (id) params.set("workspace", id);
+      else params.delete("workspace");
+      params.delete("property");
+      const query = params.toString();
+      window.history.pushState(null, "", query ? `${pathname}?${query}` : pathname);
+    },
+    [pathname, searchParams],
+  );
+  const setScopePropertyIds = useCallback(
+    (ids: string[]) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (ids.length > 0) params.set("property", ids.join(","));
       else params.delete("property");
       const query = params.toString();
       window.history.pushState(null, "", query ? `${pathname}?${query}` : pathname);
@@ -693,6 +738,17 @@ export function PortalProfileClient({
         >
           {(() => {
             const scoped = SCOPED_OPERATIONS_PANES.has(paneGroup.id);
+            const workspaceOnly = WORKSPACE_ONLY_PANES.has(paneGroup.id);
+            const barred = scoped || workspaceOnly;
+            const accountTagged = ACCOUNT_TAG_PANES.has(paneGroup.id);
+            const deviceTagged = DEVICE_TAG_PANES.has(paneGroup.id);
+            const headerAction = barred ? (
+              <SettingsScopeBar variant={scoped ? "full" : "workspace-only"} />
+            ) : accountTagged ? (
+              <PortalSettingsScopeTag>Account</PortalSettingsScopeTag>
+            ) : deviceTagged ? (
+              <PortalSettingsScopeTag>Device</PortalSettingsScopeTag>
+            ) : null;
             const body = (
               <>
                 {activeGroup === null ? (
@@ -727,15 +783,15 @@ export function PortalProfileClient({
                       backLabel="Settings"
                       bare
                       inlineActions
-                      actions={scoped ? <SettingsPropertyScopeBar /> : undefined}
+                      actions={headerAction ?? undefined}
                       dataAttrBack="settings-back-to-root"
                     />
                   </div>
                 )}
-                {scoped ? (
+                {headerAction ? (
                   <div className="mb-4 hidden items-center justify-between gap-3 lg:flex">
                     <h2 className="text-[15px] font-bold tracking-[-0.01em] text-foreground">{paneGroup.label}</h2>
-                    <SettingsPropertyScopeBar />
+                    {headerAction}
                   </div>
                 ) : null}
                 <PortalSettingsSections className={activeGroup === null ? "max-lg:hidden" : undefined}>
@@ -743,10 +799,12 @@ export function PortalProfileClient({
                 </PortalSettingsSections>
               </>
             );
-            return scoped ? (
+            return barred ? (
               <SettingsPropertyScopeProvider
-                propertyId={scopeProperty}
-                onPropertyIdChange={setScopeProperty}
+                workspaceId={scopeWorkspaceId}
+                onWorkspaceIdChange={setScopeWorkspaceId}
+                propertyIds={scopePropertyIds}
+                onPropertyIdsChange={setScopePropertyIds}
                 options={scopeOptions}
               >
                 {body}

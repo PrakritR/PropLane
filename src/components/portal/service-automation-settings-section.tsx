@@ -5,7 +5,7 @@
  * a label and its control, autosaved on change through
  * `/api/portal/service-automation-settings`.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
@@ -19,11 +19,30 @@ import {
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsToggle } from "@/components/portal/portal-settings-ui";
 import { useReportSettingsSaveStatus } from "@/components/portal/settings-save-status-context";
+import {
+  useSettingsPropertyScope,
+  type SettingsResolutionSource,
+} from "@/components/portal/settings-property-scope";
 
+/**
+ * Workspace + per-property scope (PLAN-0920-0845 phase D). Each caller
+ * (`ServiceRequestAutomationRows` / `ServiceVendorAutomationRows`) mounts its
+ * own independent fetch of the SAME namespace, so both report to and reset
+ * on the same `service-automation-settings` key.
+ */
 export function useServiceAutomationSettings() {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
   const reportSaveStatus = useReportSettingsSaveStatus();
+  const {
+    propertyId: scopePropertyId,
+    propertyIds: scopePropertyIds,
+    workspaceId: scopeWorkspaceId,
+    reportOverriddenPropertyIds,
+    reportSource,
+    resetSignal,
+  } = useSettingsPropertyScope();
+  const scopeKey = `service-automation:${useId()}`;
   const [settings, setSettings] = useState<ServiceAutomationSettings | null>(null);
 
   useEffect(() => {
@@ -34,10 +53,23 @@ export function useServiceAutomationSettings() {
         return;
       }
       try {
-        const res = await fetch("/api/portal/service-automation-settings", { credentials: "include", cache: "no-store" });
-        const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
+        const params = new URLSearchParams();
+        if (scopePropertyId) params.set("propertyId", scopePropertyId);
+        if (scopeWorkspaceId) params.set("workspaceId", scopeWorkspaceId);
+        const query = params.toString() ? `?${params.toString()}` : "";
+        const res = await fetch(`/api/portal/service-automation-settings${query}`, { credentials: "include", cache: "no-store" });
+        const body = (await res.json().catch(() => ({}))) as {
+          settings?: unknown;
+          error?: string;
+          overriddenPropertyIds?: string[];
+          source?: SettingsResolutionSource;
+        };
         if (!res.ok) throw new Error(body.error ?? "Could not load service settings.");
-        if (!cancelled) setSettings(normalizeServiceAutomationSettings(body.settings));
+        if (!cancelled) {
+          setSettings(normalizeServiceAutomationSettings(body.settings));
+          reportOverriddenPropertyIds(scopeKey, body.overriddenPropertyIds ?? []);
+          reportSource("service-automation-settings", body.source);
+        }
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not load service settings.");
         if (!cancelled) setSettings(DEFAULT_SERVICE_AUTOMATION_SETTINGS);
@@ -46,7 +78,44 @@ export function useServiceAutomationSettings() {
     return () => {
       cancelled = true;
     };
-  }, [demo, showToast]);
+  }, [demo, showToast, scopePropertyId, scopeWorkspaceId, scopeKey, reportOverriddenPropertyIds, reportSource]);
+
+  // Reset the selected house(s)' service-automation override on the scope bar's
+  // request. Fire only when the signal advances past the mount value.
+  const lastResetRef = useRef(resetSignal);
+  useEffect(() => {
+    if (resetSignal === lastResetRef.current) return;
+    lastResetRef.current = resetSignal;
+    const targets = scopePropertyIds.length > 0 ? scopePropertyIds : scopePropertyId ? [scopePropertyId] : [];
+    if (targets.length === 0 || demo) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        let last: { settings?: unknown; overriddenPropertyIds?: string[] } | null = null;
+        for (const target of targets) {
+          const res = await fetch("/api/portal/service-automation-settings", {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ propertyId: target, reset: true }),
+          });
+          const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string; overriddenPropertyIds?: string[] };
+          if (!res.ok) throw new Error(body.error ?? "Could not reset service settings.");
+          last = body;
+        }
+        if (!cancelled && last) {
+          setSettings(normalizeServiceAutomationSettings(last.settings));
+          reportOverriddenPropertyIds(scopeKey, last.overriddenPropertyIds ?? []);
+        }
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Could not reset service settings.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetSignal]);
 
   const patch = async (next: Partial<ServiceAutomationSettings>) => {
     const previous = settings;
@@ -58,12 +127,23 @@ export function useServiceAutomationSettings() {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(next),
+        body: JSON.stringify({
+          ...next,
+          ...(scopePropertyId ? { propertyId: scopePropertyId } : {}),
+          ...(scopeWorkspaceId ? { workspaceId: scopeWorkspaceId } : {}),
+        }),
         keepalive: true,
       });
-      const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
+      const body = (await res.json().catch(() => ({}))) as {
+        settings?: unknown;
+        error?: string;
+        overriddenPropertyIds?: string[];
+        source?: SettingsResolutionSource;
+      };
       if (!res.ok) throw new Error(body.error ?? "Could not save service settings.");
       setSettings(normalizeServiceAutomationSettings(body.settings));
+      reportOverriddenPropertyIds(scopeKey, body.overriddenPropertyIds ?? []);
+      reportSource("service-automation-settings", body.source);
       reportSaveStatus({ type: "success" });
     } catch (e) {
       const message = e instanceof Error ? e.message : "Could not save service settings.";

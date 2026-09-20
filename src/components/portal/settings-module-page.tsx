@@ -52,7 +52,10 @@ import {
   filterPropertyOptionsForActiveWorkspace,
 } from "@/lib/workspaces/selection";
 import { shouldMountTourSettings } from "@/lib/portal-settings-module-visibility";
-import { useSettingsPropertyScope } from "@/components/portal/settings-property-scope";
+import {
+  useSettingsPropertyScope,
+  type SettingsResolutionSource,
+} from "@/components/portal/settings-property-scope";
 
 type PendingSaveHandle = { saveIfDirty: () => Promise<boolean> };
 
@@ -156,35 +159,33 @@ export const SettingsModulePage = forwardRef<
   const [residentHubArea, setResidentHubArea] = useState<ResidentSettingsArea>("household");
   const [automation, setAutomation] = useState<ApplicationAutomationPreferences>(DEFAULT_APPLICATION_AUTOMATION);
   const [waiverCode, setWaiverCode] = useState("");
+  const [applicationSource, setApplicationSource] = useState<SettingsResolutionSource | null>(null);
   const [panelFooter, setPanelFooter] = useState<ManagerSettingsPanelFooter | null>(null);
   const scopedPropertyOptions = useMemo(
     () => filterPropertyOptionsForActiveWorkspace(propertyOptions),
     [propertyOptions, workspaces?.active?.id],
   );
-  const lockPropertyField = true;
   const showApplications = tab === "applications";
   const showLease = tab === "lease";
   const showTours = shouldMountTourSettings(active, tab);
 
+  const scopePropertyIds = scope.propertyIds;
   useEffect(() => {
-    const preferred = (scope.propertyId || initialPropertyId || "").trim();
-    setPropertyId(preferred);
-    setPropertyIds((current) => {
-      const next = preferred ? [preferred] : [];
-      return current.length === next.length && current.every((id, index) => id === next[index]) ? current : next;
-    });
-  }, [initialPropertyId, scope.propertyId]);
+    // The module's own local property target now mirrors the bar's FULL
+    // selection (PLAN-0920-0845 phase D), not just a single house — a legacy
+    // caller's `initialPropertyId` seeds it only while the bar has picked none.
+    const preferred = scopePropertyIds.length > 0 ? scopePropertyIds : initialPropertyId ? [initialPropertyId.trim()].filter(Boolean) : [];
+    setPropertyIds((current) =>
+      current.length === preferred.length && current.every((id, index) => id === preferred[index]) ? current : preferred,
+    );
+    setPropertyId(preferred[0] ?? "");
+  }, [initialPropertyId, scopePropertyIds]);
 
   useEffect(() => {
     setPanelFooter(null);
   }, [tab, propertyId, propertyIds.join("|")]);
 
   const loadApplications = useCallback(async () => {
-    const loadId = propertyIds[0] || propertyId;
-    if (!loadId) {
-      setAutomation(DEFAULT_APPLICATION_AUTOMATION);
-      return;
-    }
     if (demo) {
       setAutomation(DEFAULT_APPLICATION_AUTOMATION);
       cacheLandlordLegalName(CANONICAL_DEMO_MANAGER_NAME);
@@ -192,14 +193,20 @@ export const SettingsModulePage = forwardRef<
     }
     setLoading(true);
     try {
-      const res = await fetch(
-        `/api/portal/manager-application-settings?propertyId=${encodeURIComponent(loadId)}`,
-        { credentials: "include" },
-      );
+      const params = new URLSearchParams();
+      // Reading one house shows that house's own values; reading several (or
+      // none) reads the shared workspace/account rung every one of them falls
+      // back to — the FIRST selected id is enough to resolve that rung.
+      const loadId = propertyIds.length === 1 ? propertyIds[0] : "";
+      if (loadId) params.set("propertyId", loadId);
+      if (scope.workspaceId) params.set("workspaceId", scope.workspaceId);
+      const query = params.toString() ? `?${params.toString()}` : "";
+      const res = await fetch(`/api/portal/manager-application-settings${query}`, { credentials: "include" });
       const data = (await res.json().catch(() => ({}))) as {
         automation?: unknown;
         waiverCode?: string | null;
         error?: string;
+        source?: SettingsResolutionSource;
       };
       if (!res.ok) {
         showToast(data.error ?? "Could not load settings.");
@@ -207,12 +214,15 @@ export const SettingsModulePage = forwardRef<
       }
       setAutomation(normalizeApplicationAutomation(data.automation));
       setWaiverCode(typeof data.waiverCode === "string" ? data.waiverCode : "");
+      setApplicationSource(data.source ?? null);
+      scope.reportSource("manager-application-settings", data.source);
     } catch {
       showToast("Could not load settings.");
     } finally {
       setLoading(false);
     }
-  }, [demo, propertyId, propertyIds, showToast]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [demo, propertyIds, scope.workspaceId, showToast]);
 
   useEffect(() => {
     if (!active) return;
@@ -254,33 +264,60 @@ export const SettingsModulePage = forwardRef<
 
   const saveApplicationAutomationSettings = useCallback(
     async (next: ApplicationAutomationPreferences, nextWaiverCode: string, targetPropertyIds: string[]) => {
+      if (demo) return;
       const allowed = activeWorkspacePropertyIds();
       const ids = targetPropertyIds
         .map((id) => id.trim())
         .filter(Boolean)
         .filter((id) => allowed === null || allowed.includes(id));
-      if (ids.length === 0 || demo) return;
       setSaving(true);
       reportSaveStatus({ type: "start" });
       try {
         let failureReason: string | null = null;
-        for (const id of ids) {
+        let lastSource: SettingsResolutionSource | undefined;
+        if (ids.length > 0) {
+          for (const id of ids) {
+            const res = await fetch("/api/portal/manager-application-settings", {
+              method: "PATCH",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ propertyId: id, automation: next, waiverCode: nextWaiverCode }),
+            });
+            const data = (await res.json().catch(() => ({}))) as { error?: string; source?: SettingsResolutionSource };
+            if (!res.ok) {
+              failureReason = data.error ?? "Could not save settings.";
+              showToast(failureReason);
+              break;
+            }
+            lastSource = data.source;
+          }
+        } else {
+          // "All properties" — a house-less write targets the workspace rung ("" reads/writes
+          // the account when no workspace is chosen either). Never fans an account-wide value
+          // out onto every property record.
           const res = await fetch("/api/portal/manager-application-settings", {
             method: "PATCH",
             credentials: "include",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ propertyId: id, automation: next, waiverCode: nextWaiverCode }),
+            body: JSON.stringify({
+              automation: next,
+              waiverCode: nextWaiverCode,
+              ...(scope.workspaceId ? { workspaceId: scope.workspaceId } : {}),
+            }),
           });
+          const data = (await res.json().catch(() => ({}))) as { error?: string; source?: SettingsResolutionSource };
           if (!res.ok) {
-            const data = (await res.json().catch(() => ({}))) as { error?: string };
             failureReason = data.error ?? "Could not save settings.";
             showToast(failureReason);
-            break;
+          } else {
+            lastSource = data.source;
           }
         }
         if (failureReason) {
           reportSaveStatus({ type: "failure", reason: failureReason });
         } else {
+          setApplicationSource(lastSource ?? null);
+          scope.reportSource("manager-application-settings", lastSource);
           reportSaveStatus({ type: "success" });
         }
       } catch {
@@ -291,7 +328,7 @@ export const SettingsModulePage = forwardRef<
         setSaving(false);
       }
     },
-    [demo, reportSaveStatus, showToast],
+    [demo, reportSaveStatus, showToast, scope.workspaceId, scope.reportSource],
   );
 
   const commitWaiverCode = useCallback(() => {
@@ -449,10 +486,10 @@ export const SettingsModulePage = forwardRef<
           waiverCode={waiverCode}
           onWaiverCodeChange={setWaiverCode}
           onWaiverCodeCommit={commitWaiverCode}
-          hidePropertyField={lockPropertyField}
           teamMembers={teamMembers}
           reminderFormRef={applicationsReminderFormRef}
           showFormLink={showFormLink}
+          source={applicationSource}
         />
       ) : null}
 
@@ -477,10 +514,10 @@ export const SettingsModulePage = forwardRef<
           propertyId={propertyId}
           onPropertyIdChange={setPropertyId}
           onAutomationChange={changeAutomation}
-          hidePropertyField={lockPropertyField}
           teamMembers={teamMembers}
           reminderFormRef={leaseReminderFormRef}
           showFormLink={showFormLink}
+          source={applicationSource}
         />
       ) : null}
 

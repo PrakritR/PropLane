@@ -10,21 +10,23 @@ import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-ses
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
-import {
-  activeWorkspaceScope,
-  filterPropertyOptionsForActiveWorkspace,
-} from "@/lib/workspaces/selection";
+import { filterPropertyOptionsForActiveWorkspace } from "@/lib/workspaces/selection";
 import {
   PortalSettingsGroup,
   PortalSettingsLinkRow,
   PortalSettingsRow,
+  PortalSettingsScopeTag,
   PortalSettingsSection,
   PortalSettingsSections,
   PortalSettingsToggle,
 } from "@/components/portal/portal-settings-ui";
 import { useRouter } from "next/navigation";
 import { propertyDetailHref } from "@/lib/portal-detail-routes";
-import { useSettingsPropertyScope } from "@/components/portal/settings-property-scope";
+import {
+  useSettingsPropertyScope,
+  type SettingsResolutionSource,
+} from "@/components/portal/settings-property-scope";
+import { SettingsGroupSourceTag, scopeTagLabel } from "@/components/portal/settings-scope-bar";
 import { AutomationRuleRows } from "@/components/portal/automation-rule-rows";
 import { LeaseAutomationSettingsRows } from "@/components/portal/lease-automation-settings-rows";
 import { AutomatedMessagesList } from "@/components/portal/automated-messages-list";
@@ -253,107 +255,11 @@ export function ManagerSettingsPropertyField({
 }
 
 /**
- * The FIRST row of a per-property module's settings group: which properties
- * the automation below actually applies to. Multi-select (Applications) or
- * single-select (Lease) render the same "Applies to" row so scope is never
- * buried mid-panel.
- *
- * When `propertyOptions` is empty this renders an honest explanation instead
- * of a picker that looks live but can never select anything — the standalone
- * `/portal/settings/applications` and `/portal/settings/lease` pages
- * currently reach this with an empty list (see `ApplicationsSettingsPanel`'s
- * and `LeaseSettingsPanel`'s own doc comments for why that gap could not be
- * closed from this file).
- */
-function PropertyScopeRow({
-  multiSelect,
-  propertyOptions,
-  selectedIds,
-  onPropertyIdChange,
-  onPropertyIdsChange,
-  disabled,
-}: {
-  multiSelect: boolean;
-  propertyOptions: { id: string; label: string }[];
-  selectedIds: string[];
-  onPropertyIdChange?: (propertyId: string) => void;
-  onPropertyIdsChange?: (propertyIds: string[]) => void;
-  disabled: boolean;
-}) {
-  const noOptions = propertyOptions.length === 0;
-
-  return (
-    <PortalSettingsRow
-      className="flex-wrap items-start gap-y-2.5"
-      label="Applies to"
-    >
-      {noOptions ? (
-        <span className="text-sm text-muted">
-          {(() => {
-            const scope = activeWorkspaceScope();
-            return scope ? `No houses in ${scope.name} yet` : "No houses yet";
-          })()}
-        </span>
-      ) : multiSelect ? (
-        <CheckboxMultiSelect
-          label="Properties"
-          hideLabel
-          options={propertyOptions.map((option) => ({ value: option.id, label: option.label }))}
-          selected={selectedIds}
-          onChange={onPropertyIdsChange ?? (() => {})}
-          disabled={disabled}
-          emptyLabel="Select properties…"
-          searchPlaceholder="Search properties…"
-          dataAttr="manager-settings-properties"
-          className="w-56"
-          menuFooter={
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className="text-xs font-semibold text-primary hover:underline"
-                data-attr="manager-settings-properties-select-all"
-                disabled={disabled}
-                onClick={() => onPropertyIdsChange?.(propertyOptions.map((option) => option.id))}
-              >
-                Select all
-              </button>
-              <button
-                type="button"
-                className="text-xs font-semibold text-muted hover:underline"
-                data-attr="manager-settings-properties-clear"
-                disabled={disabled || selectedIds.length === 0}
-                onClick={() => onPropertyIdsChange?.([])}
-              >
-                Clear
-              </button>
-            </div>
-          }
-        />
-      ) : (
-        <FieldSingleSelect
-          label="Property"
-          hideLabel
-          value={selectedIds[0] ?? ""}
-          options={propertyOptions.map((option) => ({ value: option.id, label: option.label }))}
-          onChange={onPropertyIdChange ?? (() => {})}
-          disabled={disabled}
-          dataAttr="manager-settings-property"
-          wrapperClassName="w-56"
-        />
-      )}
-    </PortalSettingsRow>
-  );
-}
-
-/**
- * The standalone `/portal/settings/applications` host (`portal-settings-section-client.tsx`,
- * off limits to this file) never fetches or passes `propertyOptions`, so it always reaches
- * this component with an empty list even when the manager has properties — the gear on a
- * property's own Application tab passes real options and hides this row entirely
- * (`hidePropertyField`). Closing that gap means fetching properties in `portal-settings-section-client.tsx`
- * or `settings-module-page.tsx`, both outside this file's ownership; `PropertyScopeRow` above
- * renders the honest "add a property listing" explanation rather than a picker that always
- * looks empty.
+ * Applications' per-property scope now comes from the module's own
+ * `SettingsScopeBar` (PLAN-0920-0845 phase D), not a row inside this panel —
+ * there is exactly one property control per module (AGENTS.md § Icon chrome).
+ * `propertyIds` still arrives as a prop: it is what the automation below
+ * fans its writes out across (`onAutomationChange` below loops every id).
  */
 export function ApplicationsSettingsPanel({
   automation,
@@ -368,10 +274,10 @@ export function ApplicationsSettingsPanel({
   waiverCode = "",
   onWaiverCodeChange,
   onWaiverCodeCommit,
-  hidePropertyField = false,
   teamMembers = [],
   reminderFormRef,
   showFormLink = false,
+  source,
 }: {
   automation: ApplicationAutomationPreferences;
   loading: boolean;
@@ -388,20 +294,23 @@ export function ApplicationsSettingsPanel({
   onWaiverCodeChange?: (code: string) => void;
   /** Persist the promo code to every selected property (blur / Apply). */
   onWaiverCodeCommit?: () => void;
-  /** When opened from one property's Application tab, the house is already known. */
-  hidePropertyField?: boolean;
   teamMembers?: WorkAssignmentTeamMember[];
   reminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
   showFormLink?: boolean;
+  /** The `source` the host's `manager-application-settings` GET resolved to, for the Handling tag. */
+  source?: SettingsResolutionSource | null;
 }) {
-  const multiSelect = Boolean(onPropertyIdsChange);
   const selectedIds = propertyIds ?? (propertyId ? [propertyId] : []);
   const hasSelection = selectedIds.length > 0;
   const disabled = loading || saving;
+  const scope = useSettingsPropertyScope();
 
   return (
     <div className="space-y-6">
-      <PortalSettingsSection title="Handling">
+      <PortalSettingsSection
+        title="Handling"
+        action={source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, scope.propertyIds.length)}</PortalSettingsScopeTag> : null}
+      >
         {showFormLink ? (
           <SettingsFormJumpRow
             detailTab="application"
@@ -410,16 +319,6 @@ export function ApplicationsSettingsPanel({
           />
         ) : null}
         <PortalSettingsGroup>
-          {hidePropertyField ? null : (
-            <PropertyScopeRow
-              multiSelect={multiSelect}
-              propertyOptions={propertyOptions}
-              selectedIds={selectedIds}
-              onPropertyIdChange={onPropertyIdChange}
-              onPropertyIdsChange={onPropertyIdsChange}
-              disabled={disabled || propertyOptions.length === 0}
-            />
-          )}
           {onWaiverCodeChange ? (
             <PortalSettingsRow
               label="Promo code"
@@ -461,7 +360,7 @@ export function ApplicationsSettingsPanel({
         ) : null}
       </PortalSettingsSection>
 
-      <PortalSettingsSection title="Reminders">
+      <PortalSettingsSection title="Reminders" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
         <ManagerAutomationSelectRow
           label="Response promise"
           field="applicationResponsePromiseDays"
@@ -489,7 +388,7 @@ export function ApplicationsSettingsPanel({
         />
       </PortalSettingsSection>
 
-      <PortalSettingsSection title="Messages sent automatically">
+      <PortalSettingsSection title="Messages sent automatically" action={<SettingsGroupSourceTag namespace="automated-messages" />}>
         <AutomatedMessagesList area="applications" disabled={loading || saving} />
       </PortalSettingsSection>
     </div>
@@ -512,10 +411,13 @@ export function TaskSettingsPanel({
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
   const reportSaveStatus = useReportSettingsSaveStatus();
-  // Per-property scope (PLAN-0916-1040); the no-op workspace scope outside a provider.
+  // Workspace + per-property scope (PLAN-0916-1040 / PLAN-0920-0845 phase D); the no-op
+  // account scope outside a provider.
   const {
     propertyId: scopePropertyId,
+    workspaceId: scopeWorkspaceId,
     reportOverriddenPropertyIds,
+    reportSource,
     reportLoading: reportScopeLoading,
     resetSignal,
   } = useSettingsPropertyScope();
@@ -538,15 +440,23 @@ export function TaskSettingsPanel({
           }
           return;
         }
-        const query = scopePropertyId ? `?propertyId=${encodeURIComponent(scopePropertyId)}` : "";
+        const params = new URLSearchParams();
+        if (scopePropertyId) params.set("propertyId", scopePropertyId);
+        if (scopeWorkspaceId) params.set("workspaceId", scopeWorkspaceId);
+        const query = params.toString() ? `?${params.toString()}` : "";
         const res = await fetch(`/api/portal/task-automation-settings${query}`, { credentials: "include", cache: "no-store" });
         if (!res.ok) throw new Error("Could not load task settings.");
-        const body = (await res.json()) as { automation?: LifecycleTaskAutomation; overriddenPropertyIds?: string[] };
+        const body = (await res.json()) as {
+          automation?: LifecycleTaskAutomation;
+          overriddenPropertyIds?: string[];
+          source?: SettingsResolutionSource;
+        };
         const next = body.automation ?? DEFAULT_LIFECYCLE_AUTOMATION;
         if (!cancelled) {
           setAutomation(next);
           setSavedSnapshot(JSON.stringify(next));
           reportOverriddenPropertyIds(scopeKey, body.overriddenPropertyIds ?? []);
+          reportSource("task-automation-settings", body.source);
         }
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not load task settings.");
@@ -560,7 +470,7 @@ export function TaskSettingsPanel({
     return () => {
       cancelled = true;
     };
-  }, [demo, showToast, scopePropertyId, scopeKey, reportOverriddenPropertyIds, reportScopeLoading]);
+  }, [demo, showToast, scopePropertyId, scopeWorkspaceId, scopeKey, reportOverriddenPropertyIds, reportSource, reportScopeLoading]);
 
   // Reset the house's lifecycle override when the scope bar requests it. Fire only
   // when the signal advances past the mount value (StrictMode double-invokes mount).
@@ -616,19 +526,29 @@ export function TaskSettingsPanel({
           credentials: "include",
           headers: { "Content-Type": "application/json" },
           // A house PATCH edits that house's own override; "" edits the workspace.
-          body: JSON.stringify({ automation, ...(scopePropertyId ? { propertyId: scopePropertyId } : {}) }),
+          body: JSON.stringify({
+            automation,
+            ...(scopePropertyId ? { propertyId: scopePropertyId } : {}),
+            ...(scopeWorkspaceId ? { workspaceId: scopeWorkspaceId } : {}),
+          }),
           // A hard page unload (real reload/close, not a same-app route change) can abort an
           // ordinary in-flight fetch before it lands — this is exactly the write the
           // `pagehide`/`visibilitychange` flush in `settings-module-page.tsx` exists to send;
           // `keepalive` is what lets the browser actually finish it after the document goes away.
           keepalive: true,
         });
-        const body = (await res.json().catch(() => ({}))) as { automation?: LifecycleTaskAutomation; overriddenPropertyIds?: string[]; error?: string };
+        const body = (await res.json().catch(() => ({}))) as {
+          automation?: LifecycleTaskAutomation;
+          overriddenPropertyIds?: string[];
+          source?: SettingsResolutionSource;
+          error?: string;
+        };
         if (!res.ok) throw new Error(body.error ?? "Could not save task settings.");
         const next = body.automation ?? automation;
         setAutomation(next);
         setSavedSnapshot(JSON.stringify(next));
         reportOverriddenPropertyIds(scopeKey, body.overriddenPropertyIds ?? []);
+        reportSource("task-automation-settings", body.source);
         if (!options?.silent) showToast("Task settings saved.");
         onSaved?.();
         reportSaveStatus({ type: "success" });
@@ -644,7 +564,19 @@ export function TaskSettingsPanel({
         setSaving(false);
       }
     },
-    [automation, demo, isDirty, onSaved, reportSaveStatus, showToast, scopePropertyId, scopeKey, reportOverriddenPropertyIds],
+    [
+      automation,
+      demo,
+      isDirty,
+      onSaved,
+      reportSaveStatus,
+      showToast,
+      scopePropertyId,
+      scopeWorkspaceId,
+      scopeKey,
+      reportOverriddenPropertyIds,
+      reportSource,
+    ],
   );
 
   // `save` already checks `isDirty` itself, so it doubles directly as `saveIfDirty` — this is
@@ -680,7 +612,7 @@ export function TaskSettingsPanel({
 
   return (
     <div className="space-y-6">
-      <PortalSettingsSection title="Reminders">
+      <PortalSettingsSection title="Reminders" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
         <ManagerReminderRuleSettingsPanel
           kind="task"
           audienceMode="manager"
@@ -691,7 +623,7 @@ export function TaskSettingsPanel({
         <AutomationRuleRows rows={[{ kind: "task_overdue" }]} disabled={saving} />
       </PortalSettingsSection>
 
-      <PortalSettingsSection title="Lifecycle automation">
+      <PortalSettingsSection title="Lifecycle automation" action={<SettingsGroupSourceTag namespace="task-automation-settings" />}>
         <TaskAutomationSettingsFields
           automation={automation}
           teamMembers={teamMembers}
@@ -705,9 +637,8 @@ export function TaskSettingsPanel({
 }
 
 /**
- * See `ApplicationsSettingsPanel`'s doc comment above `PropertyScopeRow` —
- * the same standalone-host `propertyOptions` gap applies here and is
- * likewise not fixable from this file.
+ * Lease's per-property scope comes from the module's own `SettingsScopeBar`
+ * (PLAN-0920-0845 phase D) — see `ApplicationsSettingsPanel`'s doc comment.
  */
 export function LeaseSettingsPanel({
   automation,
@@ -717,10 +648,10 @@ export function LeaseSettingsPanel({
   propertyId,
   onPropertyIdChange,
   onAutomationChange,
-  hidePropertyField = false,
   teamMembers = [],
   reminderFormRef,
   showFormLink = false,
+  source,
 }: {
   automation: ApplicationAutomationPreferences;
   loading: boolean;
@@ -729,12 +660,14 @@ export function LeaseSettingsPanel({
   propertyId: string;
   onPropertyIdChange: (propertyId: string) => void;
   onAutomationChange: (next: ApplicationAutomationPreferences) => void;
-  hidePropertyField?: boolean;
   teamMembers?: WorkAssignmentTeamMember[];
   reminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
   showFormLink?: boolean;
+  /** The `source` the host's `manager-application-settings` GET resolved to, for the Documents tag. */
+  source?: SettingsResolutionSource | null;
 }) {
   const disabled = loading || saving;
+  const scope = useSettingsPropertyScope();
   const LEASE_TOGGLE_ROWS = [
     {
       step: "autoGenerateLease" as const,
@@ -750,7 +683,10 @@ export function LeaseSettingsPanel({
 
   return (
     <div className="space-y-6">
-      <PortalSettingsSection title="Documents">
+      <PortalSettingsSection
+        title="Documents"
+        action={source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, scope.propertyIds.length)}</PortalSettingsScopeTag> : null}
+      >
         {showFormLink ? (
           <SettingsFormJumpRow
             detailTab="lease"
@@ -759,15 +695,6 @@ export function LeaseSettingsPanel({
           />
         ) : null}
         <PortalSettingsGroup>
-          {hidePropertyField ? null : (
-            <PropertyScopeRow
-              multiSelect={false}
-              propertyOptions={propertyOptions}
-              selectedIds={propertyId ? [propertyId] : []}
-              onPropertyIdChange={onPropertyIdChange}
-              disabled={disabled || propertyOptions.length === 0}
-            />
-          )}
           {LEASE_TOGGLE_ROWS.map(({ step, label, meta }) => (
             <PortalSettingsRow key={step} label={label}>
               <PortalSettingsToggle
@@ -782,7 +709,7 @@ export function LeaseSettingsPanel({
         </PortalSettingsGroup>
       </PortalSettingsSection>
 
-      <PortalSettingsSection title="Ending">
+      <PortalSettingsSection title="Ending" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
         <AutomationRuleRows
           rows={[
             { kind: "lease_ending_manager", multi: true },
@@ -794,7 +721,7 @@ export function LeaseSettingsPanel({
         />
       </PortalSettingsSection>
 
-      <PortalSettingsSection title="Move-in">
+      <PortalSettingsSection title="Move-in" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
         <AutomationRuleRows
           rows={[
             { kind: "move_in", multi: true },
@@ -804,7 +731,7 @@ export function LeaseSettingsPanel({
         />
       </PortalSettingsSection>
 
-      <PortalSettingsSection title="Move-out">
+      <PortalSettingsSection title="Move-out" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
         <AutomationRuleRows
           rows={[
             { kind: "move_out", multi: true },
@@ -816,7 +743,7 @@ export function LeaseSettingsPanel({
         <LeaseAutomationSettingsRows />
       </PortalSettingsSection>
 
-      <PortalSettingsSection title="Reminders">
+      <PortalSettingsSection title="Reminders" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
         <LeaseRemindersSettingsBundle
           teamMembers={teamMembers}
           formRef={reminderFormRef}
@@ -825,7 +752,7 @@ export function LeaseSettingsPanel({
         <AutomationRuleRows rows={[{ kind: "document_signature" }]} disabled={loading || saving} />
       </PortalSettingsSection>
 
-      <PortalSettingsSection title="Messages sent automatically">
+      <PortalSettingsSection title="Messages sent automatically" action={<SettingsGroupSourceTag namespace="automated-messages" />}>
         <AutomatedMessagesList area="lease" disabled={loading || saving} />
       </PortalSettingsSection>
     </div>
@@ -847,7 +774,7 @@ export function ServicesSettingsPanel({
 
   return (
     <PortalSettingsSections>
-      <PortalSettingsSection title="Requests">
+      <PortalSettingsSection title="Requests" action={<SettingsGroupSourceTag namespace="service-automation-settings" />}>
         <ServiceRequestAutomationRows />
         <AutomationRuleRows
           rows={[
@@ -858,7 +785,7 @@ export function ServicesSettingsPanel({
           ]}
         />
       </PortalSettingsSection>
-      <PortalSettingsSection title="Vendors">
+      <PortalSettingsSection title="Vendors" action={<SettingsGroupSourceTag namespace="service-automation-settings" />}>
         <ServiceVendorAutomationRows />
         <AutomationRuleRows
           rows={[
@@ -870,7 +797,7 @@ export function ServicesSettingsPanel({
           ]}
         />
       </PortalSettingsSection>
-      <PortalSettingsSection title="Reminders">
+      <PortalSettingsSection title="Reminders" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
         <AutoMessageAssigneeRow />
         <ServiceRemindersSettingsBundle
           teamMembers={teamMembers}
@@ -878,7 +805,7 @@ export function ServicesSettingsPanel({
           serviceOrderFormRef={serviceOrderReminderFormRef}
         />
       </PortalSettingsSection>
-      <PortalSettingsSection title="Messages sent automatically">
+      <PortalSettingsSection title="Messages sent automatically" action={<SettingsGroupSourceTag namespace="automated-messages" />}>
         <AutomatedMessagesList area="services" />
       </PortalSettingsSection>
     </PortalSettingsSections>
@@ -988,14 +915,14 @@ export function InspectionsSettingsPanel({
 
   return (
     <PortalSettingsSections>
-      <PortalSettingsSection title="Reminders">
+      <PortalSettingsSection title="Reminders" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
         <InspectionRemindersSettingsBundle
           teamMembers={teamMembers}
           dueFormRef={dueReminderFormRef}
           reviewFormRef={reviewReminderFormRef}
         />
       </PortalSettingsSection>
-      <PortalSettingsSection title="Messages sent automatically">
+      <PortalSettingsSection title="Messages sent automatically" action={<SettingsGroupSourceTag namespace="automated-messages" />}>
         <AutomatedMessagesList area="inspections" />
       </PortalSettingsSection>
     </PortalSettingsSections>
@@ -1014,7 +941,7 @@ export function BookingsSettingsPanel({
   useReportSettingsPanelFooter(onFooterReady, null);
 
   return (
-    <PortalSettingsSection title="Reminders">
+    <PortalSettingsSection title="Reminders" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
       <ManagerReminderRuleSettingsPanel
         kind="booking"
         audienceMode="manager"
@@ -1065,7 +992,7 @@ export function ResidentSettingsPanel({
 
   return (
     <PortalSettingsSections>
-      <PortalSettingsSection title="Welcome">
+      <PortalSettingsSection title="Welcome" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
         <AutomationRuleRows rows={[{ kind: "resident_welcome", multi: true }]} />
       </PortalSettingsSection>
     </PortalSettingsSections>
@@ -1372,7 +1299,7 @@ export function TourSettingsPanel({
           </PortalSettingsGroup>
         </PortalSettingsSection>
 
-        <PortalSettingsSection title="Reminders">
+        <PortalSettingsSection title="Reminders" action={<SettingsGroupSourceTag namespace="reminder-settings" />}>
           <div className="space-y-4">
             <ReminderTypePicker
               value={tourReminderType}
@@ -1450,7 +1377,7 @@ export function TourSettingsPanel({
           />
         </PortalSettingsSection>
 
-        <PortalSettingsSection title="Messages sent automatically">
+        <PortalSettingsSection title="Messages sent automatically" action={<SettingsGroupSourceTag namespace="automated-messages" />}>
           <AutomatedMessagesList area="tours" />
         </PortalSettingsSection>
       </div>
@@ -1657,12 +1584,14 @@ export function CommunicationSettingsPanel({
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
   const reportSaveStatus = useReportSettingsSaveStatus();
+  const scope = useSettingsPropertyScope();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<ManagerAutomationSettings>(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
   const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(DEFAULT_MANAGER_AUTOMATION_SETTINGS));
   const [smsSetup, setSmsSetup] = useState<{ phone: string | null; canSend: boolean } | null>(null);
   const [workEmail, setWorkEmail] = useState<string | null>(null);
+  const [source, setSource] = useState<SettingsResolutionSource | null>(null);
 
   const anySmsEnabled = useMemo(
     () =>
@@ -1672,6 +1601,8 @@ export function CommunicationSettingsPanel({
     [draft],
   );
 
+  const scopePropertyId = scope.propertyId;
+  const scopeWorkspaceId = scope.workspaceId;
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -1686,8 +1617,12 @@ export function CommunicationSettingsPanel({
           }
           return;
         }
+        const params = new URLSearchParams();
+        if (scopePropertyId) params.set("propertyId", scopePropertyId);
+        if (scopeWorkspaceId) params.set("workspaceId", scopeWorkspaceId);
+        const query = params.toString() ? `?${params.toString()}` : "";
         const [settingsRes, numberRes, emailRes] = await Promise.all([
-          fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" }),
+          fetch(`/api/portal/automation-settings${query}`, { credentials: "include", cache: "no-store" }),
           fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" }).catch(
             () => null,
           ),
@@ -1696,11 +1631,13 @@ export function CommunicationSettingsPanel({
           ),
         ]);
         if (!settingsRes.ok) throw new Error("Could not load communication settings.");
-        const body = (await settingsRes.json()) as { settings: ManagerAutomationSettings };
+        const body = (await settingsRes.json()) as { settings: ManagerAutomationSettings; source?: SettingsResolutionSource };
         const nextSettings = normalizeManagerAutomationSettings(body.settings);
         if (!cancelled) {
           setDraft(nextSettings);
           setSavedSnapshot(JSON.stringify(nextSettings));
+          setSource(body.source ?? null);
+          scope.reportSource("automation-settings", body.source);
         }
         if (!cancelled) {
           const status =
@@ -1730,7 +1667,11 @@ export function CommunicationSettingsPanel({
     return () => {
       cancelled = true;
     };
-  }, [demo, showToast]);
+    // scope.reportSource is a stable useCallback and must not be a dependency here — it fires
+    // during this same effect, and its own reference is derived from `sources` state that this
+    // very call updates, so listing `scope` would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [demo, showToast, scopePropertyId, scopeWorkspaceId]);
 
   const isDirty = useMemo(() => JSON.stringify(draft) !== savedSnapshot, [draft, savedSnapshot]);
 
@@ -1753,7 +1694,11 @@ export function CommunicationSettingsPanel({
           method: "PATCH",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ inboxAiDraftAutoSend: draft.inboxAiDraftAutoSend }),
+          body: JSON.stringify({
+            inboxAiDraftAutoSend: draft.inboxAiDraftAutoSend,
+            ...(scope.propertyId ? { propertyId: scope.propertyId } : {}),
+            ...(scope.workspaceId ? { workspaceId: scope.workspaceId } : {}),
+          }),
           // A hard page unload can abort an ordinary in-flight fetch before it lands — exactly
           // the write the `pagehide`/`visibilitychange` flush in `settings-module-page.tsx`
           // exists to send.
@@ -1761,12 +1706,15 @@ export function CommunicationSettingsPanel({
         });
         const body = (await res.json().catch(() => ({}))) as {
           settings?: ManagerAutomationSettings;
+          source?: SettingsResolutionSource;
           error?: string;
         };
         if (!res.ok) throw new Error(body.error ?? "Could not save communication settings.");
         const next = body.settings ? normalizeManagerAutomationSettings(body.settings) : draft;
         setDraft(next);
         setSavedSnapshot(JSON.stringify(next));
+        setSource(body.source ?? source);
+        scope.reportSource("automation-settings", body.source);
         window.dispatchEvent(new Event(PAYMENT_AUTOMATION_SETTINGS_EVENT));
         if (!options?.silent) showToast("Communication settings saved.");
         onSaved?.();
@@ -1783,7 +1731,7 @@ export function CommunicationSettingsPanel({
         setSaving(false);
       }
     },
-    [demo, draft, isDirty, onSaved, reportSaveStatus, showToast],
+    [demo, draft, isDirty, onSaved, reportSaveStatus, showToast, scope.propertyId, scope.workspaceId, scope.reportSource, source],
   );
 
   // `save` already checks `isDirty` itself, so it doubles directly as `saveIfDirty` — this is
@@ -1816,7 +1764,10 @@ export function CommunicationSettingsPanel({
   if (loading) return <p className="text-sm text-muted">Loading…</p>;
 
   return (
-    <PortalSettingsSection title="Automation">
+    <PortalSettingsSection
+      title="Automation"
+      action={source ? <PortalSettingsScopeTag variant="muted">{scopeTagLabel(source, scope.propertyIds.length)}</PortalSettingsScopeTag> : null}
+    >
       <PortalSettingsGroup>
         <PortalSettingsRow label="Auto-send AI drafts">
           <PortalSettingsToggle

@@ -5,6 +5,7 @@
  * −/+ buttons), the auto-confirm toggle (`role="switch"`), and that every
  * row carries a real consequence line via `PortalSettingsRow`'s `meta` prop.
  */
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -29,6 +30,7 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
 }));
 
 import { TourSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
+import { SettingsPropertyScopeProvider } from "@/components/portal/settings-property-scope";
 
 function stubFetch(overrides?: { tourNoticeDays?: number; proposeTourConfirmations?: boolean }) {
   vi.stubGlobal(
@@ -55,10 +57,28 @@ function stubFetch(overrides?: { tourNoticeDays?: number; proposeTourConfirmatio
         });
       }
       if (url.includes("/api/portal/reminder-settings")) {
-        return Response.json({ settings: {} });
+        return Response.json({ settings: {}, source: "account" });
+      }
+      if (url.includes("/api/portal/automated-messages")) {
+        return Response.json({ settings: {}, defaults: {}, source: "account" });
       }
       throw new Error(`Unexpected fetch: ${url}`);
     }),
+  );
+}
+
+/** Stands in for the module host, which mounts `SettingsPropertyScopeProvider` around a panel. */
+function withScope(node: ReactNode) {
+  return (
+    <SettingsPropertyScopeProvider
+      workspaceId=""
+      onWorkspaceIdChange={() => {}}
+      propertyIds={[]}
+      onPropertyIdsChange={() => {}}
+      options={[]}
+    >
+      {node}
+    </SettingsPropertyScopeProvider>
   );
 }
 
@@ -72,7 +92,7 @@ afterEach(() => {
 describe("TourSettingsPanel redraw", () => {
   it("renders the notice-required stepper with an accessible name and value, and clamps at its minimum", async () => {
     stubFetch({ tourNoticeDays: 0 });
-    render(<TourSettingsPanel />);
+    render(withScope(<TourSettingsPanel />));
     await screen.findByText("Notice required");
 
     const input = screen.getByRole("spinbutton", { name: "Notice required" }) as HTMLInputElement;
@@ -99,7 +119,7 @@ describe("TourSettingsPanel redraw", () => {
 
   it("renders auto-confirm as a switch and flips it", async () => {
     stubFetch({ proposeTourConfirmations: false });
-    render(<TourSettingsPanel />);
+    render(withScope(<TourSettingsPanel />));
     await screen.findByText("Notice required");
 
     const toggle = screen.getByRole("switch", { name: "Auto confirm tours" });
@@ -114,7 +134,7 @@ describe("TourSettingsPanel redraw", () => {
 
   it("gives every settings row a label and a control, never a sentence under it", async () => {
     stubFetch();
-    render(<TourSettingsPanel />);
+    render(withScope(<TourSettingsPanel />));
     const notice = await screen.findByText("Notice required");
     // The label column is the label alone (AGENTS.md § No subtext).
     expect(notice.parentElement?.textContent).toBe("Notice required");
@@ -122,12 +142,12 @@ describe("TourSettingsPanel redraw", () => {
     expect(screen.queryByText(/without asking you first/i)).toBeNull();
   });
 
-  it("tags both sections with what they apply to", async () => {
+  it("tags its Reminders, Requests and follow-ups, and Messages sent automatically sections Account when no house is picked", async () => {
     stubFetch();
-    render(<TourSettingsPanel />);
+    render(withScope(<TourSettingsPanel />));
     await screen.findByText("Notice required");
 
-    const tags = screen.getAllByText("All properties");
+    const tags = await screen.findAllByText("Account");
     expect(tags.length).toBeGreaterThanOrEqual(2);
   });
 });
