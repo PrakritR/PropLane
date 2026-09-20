@@ -310,12 +310,16 @@ export async function setupVendorWorkIdentity(
     if (channel === "email") {
       const email = await provider.emailDomainReadiness(domain!);
       if (!email.sendReady || !email.receiveReady || !email.domainId) {
-        await db.from("vendor_work_identities").update({ email_state: "blocked", email_provider_id: email.domainId, email_domain_verified: false, email_send_ready: email.sendReady, email_receive_ready: email.receiveReady, last_error: "email_domain_not_ready", updated_at: new Date().toISOString() }).eq("id", ensured);
-      await db.from("vendor_work_identity_operations").update({ state: "failed", error_code: "email_domain_not_ready", updated_at: new Date().toISOString() }).eq("id", claim.operation_id);
-      return getVendorWorkIdentity(db, vendorUserId, provider);
+        const { error: emailBlockedError } = await db.from("vendor_work_identities").update({ email_state: "blocked", email_provider_id: email.domainId, email_domain_verified: false, email_send_ready: email.sendReady, email_receive_ready: email.receiveReady, last_error: "email_domain_not_ready", updated_at: new Date().toISOString() }).eq("id", ensured);
+        if (emailBlockedError) throw new Error(emailBlockedError.message);
+        const { error: emailOperationError } = await db.from("vendor_work_identity_operations").update({ state: "failed", error_code: "email_domain_not_ready", updated_at: new Date().toISOString() }).eq("id", claim.operation_id);
+        if (emailOperationError) throw new Error(emailOperationError.message);
+        return getVendorWorkIdentity(db, vendorUserId, provider);
       }
-      await db.from("vendor_work_identities").update({ email_state: "ready", email_provider_id: email.domainId, email_domain_verified: true, email_send_ready: true, email_receive_ready: true, updated_at: new Date().toISOString() }).eq("id", ensured);
-      await db.from("vendor_work_identity_operations").update({ state: "succeeded", provider_reference: email.domainId, updated_at: new Date().toISOString() }).eq("id", claim.operation_id);
+      const { error: emailReadyError } = await db.from("vendor_work_identities").update({ email_state: "ready", email_provider_id: email.domainId, email_domain_verified: true, email_send_ready: true, email_receive_ready: true, updated_at: new Date().toISOString() }).eq("id", ensured);
+      if (emailReadyError) throw new Error(emailReadyError.message);
+      const { error: emailOperationReadyError } = await db.from("vendor_work_identity_operations").update({ state: "succeeded", provider_reference: email.domainId, updated_at: new Date().toISOString() }).eq("id", claim.operation_id);
+      if (emailOperationReadyError) throw new Error(emailOperationReadyError.message);
       return getVendorWorkIdentity(db, vendorUserId, provider);
     }
     const webhookUrl = smsWebhookUrl();
