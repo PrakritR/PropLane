@@ -92,6 +92,8 @@ export type VendorSponsoredOutboundRequest = {
   recipientUserId?: string;
   recipientAdmin?: boolean;
   attachmentUrls?: string[];
+  /** Authorization/target resolution only; never creates an outbox or calls a provider. */
+  preflight?: boolean;
 };
 
 export type VendorSponsoredOutboundResult =
@@ -218,6 +220,8 @@ export async function sendVendorSponsoredOutbound(
     );
     if (scoped.allowed.length !== 1) return { ok: false, error: "recipient_unlinked" };
   }
+
+  if (request.preflight) return { ok: true, providerMessageId: null, delivery: "sending" };
 
   const delivered = await deliverVendorWorkIdentity(
     db,
