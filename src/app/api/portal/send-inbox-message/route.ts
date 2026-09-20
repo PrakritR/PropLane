@@ -70,6 +70,7 @@ import { attachmentMetaFromUrls as inboxAttachmentsFromUrls } from "@/lib/inbox-
 import { normalizeInboxAttachmentUrls } from "@/lib/inbox-attachments.server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { resolveManagerOutboundFrom } from "@/lib/manager-outbound-identity.server";
+import { normalizeRecordRef, type RecordRef } from "@/lib/portals/record-kinds";
 
 export const runtime = "nodejs";
 
@@ -218,6 +219,8 @@ export async function POST(req: Request) {
       eventCategory?: string;
       attachmentUrls?: unknown;
       senderPortal?: string;
+      /** What record this thread is about, when composed from inside a record's Communication section. Never authorization — validated structurally, then stamped as a display/filter label only. */
+      recordRef?: unknown;
     };
 
     const threadId = String(body.threadId ?? "").trim();
@@ -258,6 +261,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "subject and text are required." }, { status: 400 });
     }
 
+    // Structural validation only — a recordRef is a LABEL on the thread for
+    // display and filtering, never a grant. Every recipient/ownership check
+    // below runs exactly as it would with no recordRef at all; a malformed
+    // one is rejected outright rather than silently dropped, so a caller
+    // building the wrong shape finds out immediately.
+    let recordRef: RecordRef | undefined;
+    if (body.recordRef !== undefined) {
+      const normalized = normalizeRecordRef(body.recordRef);
+      if (!normalized) {
+        return NextResponse.json({ ok: false, error: "Invalid recordRef." }, { status: 400 });
+      }
+      recordRef = normalized;
+    }
+
     const db = createSupabaseServiceRoleClient();
 
     // Resolving the thread authorizes the sender against it but writes NOTHING
@@ -277,6 +294,7 @@ export async function POST(req: Request) {
       attachments: inboxAttachmentsFromUrls(attachmentUrls),
       channel: replyChannel as "email" | "sms" | "proplane",
       ...(deliverViaEmail ? { subject } : {}),
+      recordRef,
     };
 
     if (replyTarget) {
@@ -776,6 +794,7 @@ export async function POST(req: Request) {
           outbound: true,
           category: eventCategory ?? undefined,
           attachments: inboxAttachmentsFromUrls(attachmentUrls),
+          recordRef,
         });
 
         if (recipientLower === senderEmail) continue;
@@ -798,6 +817,7 @@ export async function POST(req: Request) {
           outbound: false,
           category: eventCategory ?? undefined,
           attachments: inboxAttachmentsFromUrls(attachmentUrls),
+          recordRef,
         });
       }
 

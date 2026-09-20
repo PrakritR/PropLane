@@ -986,6 +986,7 @@ export function InboxConversationRow({
   unreadCount,
   address,
   category,
+  recordChip,
   selected = false,
   onOpen,
   leading,
@@ -1009,6 +1010,13 @@ export function InboxConversationRow({
   address?: string;
   /** Tour / Application / Payments / Maintenance. Omit when the source is unknown; never guess. */
   category?: string;
+  /**
+   * The record this thread is about (`recordRef`), when it has one — e.g.
+   * "Rent · September". Clicking it opens the record instead of the thread;
+   * `href` is null when this viewer's role has no page for that record kind,
+   * in which case it renders as a plain (non-clickable) label.
+   */
+  recordChip?: { label: string; href: string | null };
   selected?: boolean;
   onOpen: () => void;
   /** Optional slot before the avatar (e.g. a bulk-select checkbox). */
@@ -1040,6 +1048,7 @@ export function InboxConversationRow({
       }`}
     >
       {leading}
+      <div className="flex min-w-0 flex-1 flex-col">
       <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 text-left">
         <InboxAvatar name={name} className="h-10 w-10 text-[13px] max-md:h-9 max-md:w-9 max-md:text-[12px]" />
         <div className="min-w-0 flex-1">
@@ -1088,22 +1097,43 @@ export function InboxConversationRow({
             </p>
           </div>
           ) : null}
-          {/* Third line. Collapses entirely rather than leaving an empty row, so
-              a conversation with neither reads as two lines, not a gap. */}
-          {address || category ? (
-            <div className="mt-1.5 flex items-center gap-2">
-              {address ? (
-                <span className="min-w-0 truncate text-xs text-muted/[0.78]">{address}</span>
-              ) : null}
-              {category ? (
-                <span className="shrink-0 rounded-full border border-border bg-foreground/5 px-2 py-0.5 text-[10px] font-bold tracking-[0.02em] text-muted">
-                  {category}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
         </div>
       </button>
+      {/* Third line lives OUTSIDE the button: `recordChip` is a link, and an
+          anchor nested inside a <button> is invalid HTML (and un-clickable in
+          some browsers). Left-indented to align under the name, not the avatar. */}
+      {address || category || recordChip ? (
+        <div className="mt-1.5 flex items-center gap-2 pl-[52px] max-md:pl-[46px]">
+          {address ? (
+            <span className="min-w-0 truncate text-xs text-muted/[0.78]">{address}</span>
+          ) : null}
+          {category ? (
+            <span className="shrink-0 rounded-full border border-border bg-foreground/5 px-2 py-0.5 text-[10px] font-bold tracking-[0.02em] text-muted">
+              {category}
+            </span>
+          ) : null}
+          {recordChip ? (
+            recordChip.href ? (
+              <Link
+                href={recordChip.href}
+                onClick={(event) => event.stopPropagation()}
+                className="shrink-0 truncate rounded-full border border-primary/25 bg-primary/[0.06] px-2 py-0.5 text-[10px] font-bold tracking-[0.02em] text-primary hover:bg-primary/10"
+                data-attr="inbox-record-chip"
+              >
+                {recordChip.label}
+              </Link>
+            ) : (
+              <span
+                className="shrink-0 truncate rounded-full border border-border bg-foreground/5 px-2 py-0.5 text-[10px] font-bold tracking-[0.02em] text-muted"
+                data-attr="inbox-record-chip"
+              >
+                {recordChip.label}
+              </span>
+            )
+          ) : null}
+        </div>
+      ) : null}
+      </div>
       {trailing ? <div className="shrink-0">{trailing}</div> : null}
     </div>
   );

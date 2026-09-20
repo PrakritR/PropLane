@@ -14,6 +14,7 @@ import {
   portalSessionViewerId,
 } from "@/lib/auth/portal-session-gate";
 import { trimmedText } from "@/lib/trimmed-text";
+import { normalizeRecordRef, type RecordRef } from "@/lib/portals/record-kinds";
 /** Persist portal inbox threads (demo localStorage) so actions survive navigation and reloads. */
 
 export type InboxThreadMessage = {
@@ -152,6 +153,17 @@ export type PersistedInboxThread = {
    * first one; visibility was already decided with the same set.
    */
   houses?: { propertyId: string; label: string }[];
+  /**
+   * What RECORD this thread is about — a property, a charge, a lease, a
+   * service request, and so on — stamped by the send path when the caller
+   * composed from inside that record's Communication section (see
+   * `docs/agents/communication-inbox.md` § `recordRef`). It is a LABEL on the
+   * thread for display and filtering, never an authorization grant: every
+   * send still authorizes the recipient first and appends second, exactly as
+   * every other send does. A thread written before this existed carries none
+   * and renders no chip — never a guessed one.
+   */
+  recordRef?: RecordRef;
 };
 
 export const MANAGER_INBOX_STORAGE_KEY = "axis_portal_inbox_manager_v1";
@@ -310,6 +322,9 @@ export function normalizePersistedInboxThread(thread: PersistedInboxThread): Per
     body: typeof thread.body === "string" ? thread.body : String(thread.body ?? ""),
     time: trimmedText(thread.time) || String(thread.time ?? ""),
     ...(smsBindingKeys.length > 0 ? { smsBindingKeys } : {}),
+    // Malformed `recordRef` (bad kind, empty id/label) never renders a chip or
+    // participates in filtering rather than crashing the list on a bad row.
+    recordRef: normalizeRecordRef(thread.recordRef) ?? undefined,
   };
 }
 
