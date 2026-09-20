@@ -46,6 +46,7 @@ import {
   type ListingFeePresetId,
 } from "@/lib/listing-fees";
 import { houseDefaultsForSubmission, roomInheritsDefault } from "@/lib/listing-house-defaults";
+import { sharedSpaceAccessNames } from "@/lib/listing-shared-space-access";
 import { shortTermNightlyRate } from "@/lib/short-term-stay-pricing";
 
 function normalizeLeaseRentPriceLabel(raw: string, period: "month" | "day"): string {
@@ -324,8 +325,7 @@ function buildListingFloorCard(
 }
 
 function sharedSpaceAccessLine(ids: string[], sub: ManagerListingSubmissionV1): string {
-  const names = (ids ?? []).map((id) => sub.rooms.find((r) => r.id === id)?.name?.trim()).filter(Boolean);
-  return names.length ? names.join(", ") : "";
+  return sharedSpaceAccessNames(ids, sub.rooms);
 }
 
 function bundleRowHasContent(b: ManagerBundleRow): boolean {
@@ -1287,7 +1287,7 @@ export function listingRichFromManagerSubmission(
             name: s.name.trim(),
             detail: location || (access ? `Room access: ${access}` : "Room access not listed."),
             useNote: s.detail.trim() || "No extra details listed.",
-            availability: (s.roomAccessIds?.length ?? 0) > 0 ? "Shared" : "—",
+            availability: access ? "Shared" : "—",
             modal: {
               eyebrow: "Shared space",
               tourEyebrow: "Space tour",
