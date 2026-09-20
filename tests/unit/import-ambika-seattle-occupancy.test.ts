@@ -8,6 +8,7 @@ import {
   ambikaSeattlePropertyId,
   bookingGetsOnboard,
   isLockedLiveListingId,
+  leasePdfFileNameFor,
   occupancyPlaceholderEmail,
   residentEmailFor,
   roomIdForNumber,
@@ -53,11 +54,27 @@ describe("Ambika Seattle occupancy roster (PLAN-0918-1909)", () => {
     expect(AMBIKA_SEATTLE_RESIDENTS.find((r) => r.key === "dagvadorj-5259-r8")?.roomNumber).toBe(8);
   });
 
+  it("files each signed lease PDF on its own resident, never by substring", () => {
+    const sohan = AMBIKA_SEATTLE_RESIDENTS.find((r) => r.key === "sohan-4709a-r2");
+    const vivek = AMBIKA_SEATTLE_RESIDENTS.find((r) => r.key === "vivek-5259-r4");
+    expect(sohan?.pdfFileName).toBe("Lease Sohan Room2.pdf");
+    expect(leasePdfFileNameFor("Vivek")).toBe("Lease Vivek Room4.pdf");
+    expect(leasePdfFileNameFor("Vivek", residentEmailFor(vivek!))).toBe("Lease Vivek Room4.pdf");
+    expect(leasePdfFileNameFor("Sohan Vivek Naik")).toBe("Lease Sohan Room2.pdf");
+    expect(leasePdfFileNameFor("Sohan", residentEmailFor(sohan!))).toBe("Lease Sohan Room2.pdf");
+    expect(leasePdfFileNameFor("Someone Else", residentEmailFor(sohan!))).toBe("Lease Sohan Room2.pdf");
+    expect(leasePdfFileNameFor("Daniel Armbrister")).toBeNull();
+    expect(leasePdfFileNameFor("")).toBeNull();
+  });
+
   it("uses Vivek $1,000 and files Prakrit as a resident without charges", () => {
     const vivek = AMBIKA_SEATTLE_RESIDENTS.find((r) => r.key === "vivek-5259-r4");
     const prakrit = AMBIKA_SEATTLE_RESIDENTS.find((r) => r.key === "prakrit-5257-r9");
     expect(vivek?.rentCents).toBe(100_000);
     expect(vivek?.pdfFileName).toBeUndefined();
+    expect(AMBIKA_SEATTLE_RESIDENTS.find((r) => r.key === "grace-4709a-r1")?.pdfFileName).toBe(
+      "Lease Agreement Room1.pdf",
+    );
     expect(prakrit?.onboard).toBe(true);
     expect(prakrit?.skipCharges).toBe(true);
     expect(prakrit?.rentCents).toBeUndefined();
@@ -76,10 +93,13 @@ describe("Ambika Seattle occupancy roster (PLAN-0918-1909)", () => {
 
   it("does not invent Gmail — placeholders stay on import.proplane.local", () => {
     const heesu = AMBIKA_SEATTLE_RESIDENTS.find((r) => r.key === "heesu-5257-r1")!;
+    const grace = AMBIKA_SEATTLE_RESIDENTS.find((r) => r.key === "grace-4709a-r1")!;
     expect(heesu.email).toBeUndefined();
+    expect(grace.email).toBeUndefined();
     expect(residentEmailFor(heesu)).toBe(occupancyPlaceholderEmail("Heesu", 1, "5257"));
     expect(residentEmailFor(heesu)).toMatch(/@import\.proplane\.local$/);
     expect(residentEmailFor(heesu)).not.toMatch(/gmail\.com/);
+    expect(JSON.stringify(AMBIKA_SEATTLE_RESIDENTS)).not.toMatch(/unkown-email/);
   });
 
   it("resolves Room N labels the same way the occupancy importer does", () => {
@@ -174,6 +194,7 @@ describe("setup-account SMS when there is no real email", () => {
   it("treats import.proplane.local as a placeholder inbox", () => {
     expect(isPlaceholderResidentEmail("occupancy.heesu.r1.5257@import.proplane.local")).toBe(true);
     expect(isPlaceholderResidentEmail("akshaya.vk25@gmail.com")).toBe(false);
+    expect(isPlaceholderResidentEmail("unkown-email(input)@gmail.com")).toBe(true);
   });
 
   it("names portal pay and includes the setup link", () => {

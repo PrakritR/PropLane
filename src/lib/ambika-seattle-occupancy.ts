@@ -115,12 +115,12 @@ export const AMBIKA_SEATTLE_RESIDENTS: AmbikaSeattleResident[] = [
     house: "4709A",
     roomNumber: 1,
     name: "Grace Natalie Halverson",
-    email: "unkown-email(input)@gmail.com",
     phone: "(715) 419-2818",
     rentCents: 72_500,
     utilitiesCents: 15_000,
     start: SEP,
     end: "2026-12-31",
+    pdfFileName: "Lease Agreement Room1.pdf",
     onboard: true,
   },
   {
@@ -131,6 +131,7 @@ export const AMBIKA_SEATTLE_RESIDENTS: AmbikaSeattleResident[] = [
     email: "sohanvnaik@gmail.com",
     start: "2026-09-21",
     skipCharges: true,
+    pdfFileName: "Lease Sohan Room2.pdf",
     onboard: true,
   },
   {
@@ -143,6 +144,7 @@ export const AMBIKA_SEATTLE_RESIDENTS: AmbikaSeattleResident[] = [
     utilitiesCents: 15_000,
     start: SEP,
     monthToMonth: true,
+    pdfFileName: "Lease Aaron6.pdf",
     onboard: true,
   },
   {
@@ -264,6 +266,7 @@ export const AMBIKA_SEATTLE_RESIDENTS: AmbikaSeattleResident[] = [
     email: "akshaya.vk25@gmail.com",
     rentCents: 90_000,
     start: SEP,
+    pdfFileName: "Lease Akshaya Room3.pdf",
     onboard: true,
   },
   {
@@ -315,6 +318,53 @@ export const AMBIKA_SEATTLE_BOOKINGS: AmbikaSeattleBooking[] = [
 
 export function bookingGetsOnboard(_booking: AmbikaSeattleBooking): false {
   return false;
+}
+
+function ambikaNamesOverlap(a: string, b: string): boolean {
+  const left = a.trim().toLowerCase();
+  const right = b.trim().toLowerCase();
+  if (!left || !right) return false;
+  return left === right || left.includes(right) || right.includes(left);
+}
+
+/** Signed leases on disk whose resident row deliberately carries no pdfFileName. */
+export const AMBIKA_EXTRA_LEASE_PDFS: Record<string, string> = {
+  vivek: "Lease Vivek Room4.pdf",
+};
+
+/** Roster row for a lease record: email is exact, then the exact name, and only then a substring overlap. */
+export function ambikaResidentForLease(
+  residentName: string,
+  residentEmail?: string | null,
+): AmbikaSeattleResident | null {
+  const email = (residentEmail ?? "").trim().toLowerCase();
+  if (email) {
+    const byEmail = AMBIKA_SEATTLE_RESIDENTS.find(
+      (row) => residentEmailFor(row) === email || row.email?.trim().toLowerCase() === email,
+    );
+    if (byEmail) return byEmail;
+  }
+  const key = residentName.trim().toLowerCase();
+  if (!key) return null;
+  const exact = AMBIKA_SEATTLE_RESIDENTS.find((row) => row.name.trim().toLowerCase() === key);
+  if (exact) return exact;
+  return (
+    AMBIKA_SEATTLE_RESIDENTS.find((row) => row.pdfFileName && ambikaNamesOverlap(row.name, residentName)) ??
+    AMBIKA_SEATTLE_RESIDENTS.find((row) => ambikaNamesOverlap(row.name, residentName)) ??
+    null
+  );
+}
+
+export function leasePdfFileNameFor(residentName: string, residentEmail?: string | null): string | null {
+  const key = residentName.trim().toLowerCase();
+  if (key.includes("armbrister")) return null;
+  const stay = ambikaResidentForLease(residentName, residentEmail);
+  if (stay?.pdfFileName) return stay.pdfFileName;
+  const extraKey = (stay?.name ?? residentName).trim().toLowerCase();
+  for (const [needle, file] of Object.entries(AMBIKA_EXTRA_LEASE_PDFS)) {
+    if (extraKey.includes(needle)) return file;
+  }
+  return null;
 }
 
 /** Inclusive last night → exclusive checkout for a room-date block. */
