@@ -1,3 +1,4 @@
+import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { pickPrimaryFilingScope } from "@/lib/resident-filing-scope";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -34,9 +35,7 @@ export async function managerIdsOwningResident(
     .select("manager_user_id, row_data")
     .eq("resident_email", email);
   for (const row of apps ?? []) {
-    const rowData = (row.row_data ?? {}) as Record<string, unknown>;
-    const bucket = applicationBucket(rowData);
-    if (!applicationLinksResidentToManager(bucket)) continue;
+    if (!applicationRowLinksResident(row.row_data)) continue;
     const id = String(row.manager_user_id ?? "").trim();
     if (id) ids.add(id);
   }
@@ -85,6 +84,25 @@ export function applicationBucket(rowData: unknown): string {
 
 function applicationLinksResidentToManager(bucket: string): boolean {
   return bucket !== "rejected" && bucket !== "withdrawn";
+}
+
+/**
+ * Whether an application record still links the resident to the manager —
+ * the ONE "which applications count" rule, shared by the messaging scope
+ * above and the resident contact card (`resident-manager-contact.server.ts`),
+ * so the two cannot drift.
+ *
+ * Withdrawal is checked separately from `bucket`: a resident withdrawal
+ * (`PATCH /api/manager-applications`) stamps only `row_data.withdrawnAt` and
+ * never rewrites `bucket` away from "pending", so a withdrawn row must be
+ * excluded here even though `applicationLinksResidentToManager` alone would
+ * still call it linked.
+ */
+export function applicationRowLinksResident(rowData: unknown): boolean {
+  if (!rowData || typeof rowData !== "object" || Array.isArray(rowData)) return false;
+  const record = rowData as Record<string, unknown>;
+  if (isWithdrawnApplicationRow({ withdrawnAt: record.withdrawnAt as string | null | undefined })) return false;
+  return applicationLinksResidentToManager(applicationBucket(record));
 }
 
 export function isApprovedApplicationRow(row: { row_data?: unknown }): boolean {
