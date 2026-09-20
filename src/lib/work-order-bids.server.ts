@@ -479,6 +479,9 @@ export async function acceptWorkOrderBid(
       vendorId: record.vendor_directory_id ?? undefined,
       vendorName: winningVendor?.name || rowData.vendorName,
       vendorAssignedAt: now,
+      // A fresh accept — including a re-offer's own eventual accept — is a
+      // clean slate for the "vendor silent after accept" escalation.
+      vendorSilentEscalatedAt: undefined,
       selfAssigned: false,
       cost: `$${(totalCents / 100).toFixed(2)}`,
       vendorCostCents: record.amount_cents,

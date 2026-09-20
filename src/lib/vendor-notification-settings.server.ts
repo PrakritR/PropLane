@@ -6,9 +6,34 @@ import {
   normalizeVendorNotificationSettings,
   type LegacyVendorNotificationFlags,
   type VendorNotificationSettings,
+  type VendorQuietHours,
 } from "@/lib/vendor-notification-settings";
 
 const ROW_DATA_KEY = "vendor";
+
+/**
+ * Batch-load just the quiet-hours window for several vendor user ids
+ * (PLAN-0915 area 4) — a sweep resolving several vendor recipients at once
+ * would otherwise issue one `loadVendorNotificationSettings` query per vendor.
+ * A vendor with no saved row, or no linked account at all, is simply absent
+ * from the map; callers keep the manager's own quiet hours for those.
+ */
+export async function loadVendorQuietHoursForUsers(
+  db: SupabaseClient,
+  vendorUserIds: readonly (string | null | undefined)[],
+): Promise<Map<string, VendorQuietHours>> {
+  const out = new Map<string, VendorQuietHours>();
+  const ids = [...new Set(vendorUserIds.map((id) => (id ?? "").trim()).filter(Boolean))];
+  if (ids.length === 0) return out;
+  const { data, error } = await db.from("notification_preferences").select("user_id, row_data").in("user_id", ids);
+  if (error) throw error;
+  for (const row of data ?? []) {
+    const rowData = (row as { row_data?: Record<string, unknown> | null }).row_data ?? null;
+    const settings = normalizeVendorNotificationSettings(rowData?.[ROW_DATA_KEY]);
+    out.set(String((row as { user_id: string }).user_id), settings.quietHours);
+  }
+  return out;
+}
 
 async function loadLegacyFlags(db: SupabaseClient, userId: string): Promise<LegacyVendorNotificationFlags | null> {
   const { data } = await db

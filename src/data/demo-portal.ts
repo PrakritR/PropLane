@@ -262,6 +262,14 @@ export type DemoManagerWorkOrderRow = {
   /** Populated once the vendor signs up and links to manager_vendor_records. */
   vendorUserId?: string | null;
   vendorAssignedAt?: string;
+  /**
+   * Stamped once the "vendor silent after accept" escalation acts on this job
+   * (PLAN-0915 area 4) — either it re-offered to the next-best bid or, with no
+   * candidate left, it told the manager. Guards against re-firing every 5
+   * minutes when there is nobody left to re-offer to; a fresh vendor accept
+   * clears it.
+   */
+  vendorSilentEscalatedAt?: string;
   /** Manager handles the work themselves — no vendor assigned, no vendor email sent. */
   selfAssigned?: boolean;
   /**

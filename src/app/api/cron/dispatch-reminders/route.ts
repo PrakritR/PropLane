@@ -28,6 +28,7 @@ import {
   sweepVendorDocumentExpiry,
   sweepVendorInvoiceNudge,
   sweepVendorOfferExpiry,
+  sweepVendorSilentAfterAccept,
   sweepWorkOrderEscalations,
   sweepWorkOrderNoOnMyWay,
 } from "@/lib/reminders/subjects/services.server";
@@ -106,6 +107,7 @@ export async function GET(req: Request) {
       ["service_request_decision", sweepServiceRequestDecision],
       ["service_request_unpaid", sweepServiceRequestUnpaid],
       ["vendor_document_expiry", sweepVendorDocumentExpiry],
+      ["vendor_silent_after_accept", sweepVendorSilentAfterAccept],
       // PLAN-0915 leases, move-in, move-out.
       ["tenancy", sweepTenancyReminders],
       ["move_in_payment_method", sweepMoveInPaymentMethod],

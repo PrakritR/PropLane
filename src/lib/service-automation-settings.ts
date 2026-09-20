@@ -20,6 +20,12 @@ export type ServiceAutomationSettings = {
   notifyWhenNoVendorAnswers: boolean;
   /** Vendors are expected to tap On my way; the manager is told when they do not. */
   requireOnMyWay: boolean;
+  /**
+   * Escalation (PLAN-0915 area 4): a vendor who accepted the job but has not
+   * scheduled the visit this many hours later is unassigned and the job is
+   * re-offered to the next-best declined bid; 0 = never auto-re-offer.
+   */
+  reofferAfterVendorSilentHours: 0 | 24 | 48;
   /** Ask the resident "was this fixed?" when the vendor marks it done. */
   residentConfirmation: boolean;
   /** Hours of silence after which the confirmation request closes itself; 0 = never. */
@@ -33,6 +39,7 @@ export const DEFAULT_SERVICE_AUTOMATION_SETTINGS: ServiceAutomationSettings = {
   offerExpiryHours: 24,
   notifyWhenNoVendorAnswers: true,
   requireOnMyWay: false,
+  reofferAfterVendorSilentHours: 24,
   residentConfirmation: true,
   autoCloseHours: 48,
   shareRatingsWithVendors: false,
@@ -51,6 +58,12 @@ export const OFFER_EXPIRY_OPTIONS: { value: ServiceAutomationSettings["offerExpi
   { value: 12, label: "After 12 hours" },
   { value: 48, label: "After 48 hours" },
   { value: 0, label: "Never" },
+];
+
+export const REOFFER_AFTER_VENDOR_SILENT_OPTIONS: { value: ServiceAutomationSettings["reofferAfterVendorSilentHours"]; label: string }[] = [
+  { value: 24, label: "24 hours" },
+  { value: 48, label: "48 hours" },
+  { value: 0, label: "Never re-offer" },
 ];
 
 export const AUTO_CLOSE_OPTIONS: { value: ServiceAutomationSettings["autoCloseHours"]; label: string }[] = [
@@ -80,6 +93,7 @@ export function normalizeServiceAutomationSettings(raw: unknown): ServiceAutomat
     offerExpiryHours: oneOf(row.offerExpiryHours, [0, 4, 12, 24, 48] as const, d.offerExpiryHours),
     notifyWhenNoVendorAnswers: bool(row.notifyWhenNoVendorAnswers, d.notifyWhenNoVendorAnswers),
     requireOnMyWay: bool(row.requireOnMyWay, d.requireOnMyWay),
+    reofferAfterVendorSilentHours: oneOf(row.reofferAfterVendorSilentHours, [0, 24, 48] as const, d.reofferAfterVendorSilentHours),
     residentConfirmation: bool(row.residentConfirmation, d.residentConfirmation),
     autoCloseHours: oneOf(row.autoCloseHours, [0, 24, 48, 72] as const, d.autoCloseHours),
     shareRatingsWithVendors: bool(row.shareRatingsWithVendors, d.shareRatingsWithVendors),

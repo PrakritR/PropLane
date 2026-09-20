@@ -23,6 +23,9 @@ const TENANCY_KINDS: ReadonlySet<ReminderSubjectKind> = new Set<ReminderSubjectK
   "deposit_accounting",
   "countersign_overdue",
   "renewal_offer_expiry",
+  "lease_renewal_offer",
+  "move_out_instructions",
+  "deposit_return_notice",
 ]);
 
 /** Kinds whose currency lives in `subjects/services-current.server.ts`. */
