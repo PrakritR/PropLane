@@ -103,17 +103,11 @@ import {
   defaultValueIsUnset,
   defaultValuesMatch,
   emptyBathroomDefaults,
-  SHARED_SPACE_DEFAULT_FIELDS,
-  sharedSpaceDefaultsForSubmission,
-  sharedSpaceFieldValue,
   writeBathroomField,
   writeBathroomType,
-  writeSharedSpaceField,
   type BathroomDefaults,
   type BathroomInheritField,
   type BathroomType,
-  type SharedSpaceDefaults,
-  type SharedSpaceInheritField,
 } from "@/lib/listing-record-defaults";
 import {
   encodeSharedSpaceAccessPick,
@@ -122,7 +116,6 @@ import {
   sharedSpaceAccessMenuSelected,
   sharedSpaceAccessOptions,
   sharedSpaceAccessTriggerLabel,
-  sharedSpaceIsEveryone,
 } from "@/lib/listing-shared-space-access";
 import { listingLeaseTypeScopeOptions } from "@/lib/listing-fee-scope";
 import { LONG_TERM_LEASE_TERM as DEFAULT_QUOTE_TERM } from "@/lib/rental-application/lease-terms";
@@ -2001,29 +1994,20 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
 
 /* ── shared spaces ── */
 
-
-/** "Everyone" is an empty list, or every current room — both read as not narrowed. */
-function spaceIsNarrowed(space: ManagerSharedSpaceSubmission, rooms: readonly ManagerRoomSubmission[]): boolean {
-  return !sharedSpaceIsEveryone(
-    space.roomAccessIds,
-    rooms.map((room) => room.id),
-  );
-}
-
 const SPACE_HELP = {
-  all: "Set once. Every shared space ticked “Same as default shared space” copies this. Change one field on a space and only that field becomes its own; untick one and the whole card does.",
   who: "Every room, unless this space is only for some of them.",
 } as const;
 
+/**
+ * A shared space is its own record: there is no Default card for shared spaces
+ * and nothing for a space to follow or reset to. Rooms and Bathrooms keep theirs.
+ */
 function SharedSpaceCardBody({
   space,
   who,
   rooms,
   wholePlace,
   storiesId,
-  isOwn,
-  onField,
-  onReset,
   onChange,
   onDone,
 }: {
@@ -2032,9 +2016,6 @@ function SharedSpaceCardBody({
   rooms: readonly ManagerRoomSubmission[];
   wholePlace: boolean;
   storiesId: string | undefined;
-  isOwn: (field: SharedSpaceInheritField) => boolean;
-  onField: (field: keyof SharedSpaceDefaults, value: string) => void;
-  onReset: (field: SharedSpaceInheritField) => void;
   onChange: (patch: Partial<ManagerSharedSpaceSubmission>) => void;
   onDone: () => void;
 }) {
@@ -2046,17 +2027,17 @@ function SharedSpaceCardBody({
       <FactRow first label="Type">
         <RowSelectCell ariaLabel={`Type of ${who}`} value={space.spaceKind ?? ""} options={kinds} placeholder="Type…" onChange={(v) => onChange({ spaceKind: v as ManagerSharedSpaceSubmission["spaceKind"] })} />
       </FactRow>
-      <FactRow label="Floor" own={isOwn("location")} onReset={() => onReset("location")} resetLabel={`Reset floor for ${who} to every shared space`}>
-        <RowSelectCell ariaLabel={`Floor for ${who}`} value={space.location ?? ""} options={floorLevelSelectOptions(storiesId, space.location).map((l) => ({ value: l, label: l }))} placeholder="Floor…" inherited={!isOwn("location")} onChange={(v) => onField("location", v)} />
+      <FactRow label="Floor">
+        <RowSelectCell ariaLabel={`Floor for ${who}`} value={space.location ?? ""} options={floorLevelSelectOptions(storiesId, space.location).map((l) => ({ value: l, label: l }))} placeholder="Floor…" onChange={(v) => onChange({ location: v })} />
       </FactRow>
       {wholePlace || rooms.length === 0 ? null : (
-        <FactRow label={<span className="inline-flex items-center gap-1.5">Who may use it <ColumnHelp title="Who may use it" text={SPACE_HELP.who} /></span>} own={isOwn("access")} onReset={() => onReset("access")} resetLabel={`Reset who may use ${who} to every room`}>
+        <FactRow label={<span className="inline-flex items-center gap-1.5">Who may use it <ColumnHelp title="Who may use it" text={SPACE_HELP.who} /></span>}>
           <CheckboxMultiSelect
             hideLabel
             label={`Who may use ${who}`}
             dataAttr="listing-v2-space-who"
             variant="cell"
-            className={cn("min-w-[150px] max-w-[220px]", !isOwn("access") && "border-dashed text-muted")}
+            className="min-w-[150px] max-w-[220px]"
             options={sharedSpaceAccessOptions(rooms.map((room, i) => ({ id: room.id, name: roomLabel(room, i) })))}
             selected={sharedSpaceAccessMenuSelected(space.roomAccessIds, roomIds)}
             selectionTriggerLabel={sharedSpaceAccessTriggerLabel(space.roomAccessIds, roomIds)}
@@ -2078,16 +2059,16 @@ function SharedSpaceCardBody({
           <AmenityPick label={`What is in ${who}`} presets={sharedSpaceAmenityPresetsForKind(space.spaceKind)} value={space.amenitiesText ?? ""} onChange={(next) => onChange({ amenitiesText: next })} />
         </FactRow>
         <CardFields>
-          <Field label="Description" labelAside={isOwn("detail") ? <CellResetTag onClick={() => onReset("detail")} label={`Reset description for ${who} to the Default shared space`} /> : null}>
-            <Textarea rows={2} value={space.detail ?? ""} className={isOwn("detail") ? undefined : "border-dashed text-muted"} onChange={(e) => onChange({ detail: e.target.value })} placeholder="Sunny room off the kitchen, seats six" />
+          <Field label="Description">
+            <Textarea rows={2} value={space.detail ?? ""} onChange={(e) => onChange({ detail: e.target.value })} placeholder="Sunny room off the kitchen, seats six" />
           </Field>
         </CardFields>
         <CardFields cols={2}>
-          <Field label="Photos" labelAside={isOwn("photoDataUrls") ? <CellResetTag onClick={() => onReset("photoDataUrls")} label={`Reset photos for ${who} to the Default shared space`} /> : null}>
-            <PhotoStrip label="shared space" urls={space.photoDataUrls ?? []} inherited={!isOwn("photoDataUrls")} onChange={(next) => onChange({ photoDataUrls: next })} />
+          <Field label="Photos">
+            <PhotoStrip label="shared space" urls={space.photoDataUrls ?? []} onChange={(next) => onChange({ photoDataUrls: next })} />
           </Field>
-          <Field label="Video" labelAside={isOwn("videoDataUrl") ? <CellResetTag onClick={() => onReset("videoDataUrl")} label={`Reset video for ${who} to the Default shared space`} /> : null}>
-            <VideoSlot label="shared space" url={space.videoDataUrl} inherited={!isOwn("videoDataUrl")} onChange={(next) => onChange({ videoDataUrl: next })} />
+          <Field label="Video">
+            <VideoSlot label="shared space" url={space.videoDataUrl} onChange={(next) => onChange({ videoDataUrl: next })} />
           </Field>
         </CardFields>
       </MoreRows>
@@ -2096,91 +2077,21 @@ function SharedSpaceCardBody({
   );
 }
 
+/**
+ * One card per shared space and nothing above them. A listing saved while the
+ * shared-space Default card existed still carries a `sharedSpaceDefaults` block;
+ * this step neither reads nor writes it — every space always held its own copy.
+ */
 function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   const [open, setOpen] = useState<string | null>(null);
-  /** The Default shared space is saved with the listing; an older listing infers it from its spaces. */
-  const defaults = sharedSpaceDefaultsForSubmission(sub);
-  const own = useOwnFields();
-  const confirm = useConfirm();
   const spaces = sub.sharedSpaces ?? [];
   const rooms = sub.rooms ?? [];
   const wholePlace = sub.listingPlaceCategoryId === "entire_home";
-  const floors = floorLevelSelectOptions(sub.listingStoriesId, "").map((l) => ({ value: l, label: l }));
+  /** The listing's ground floor — where a new space starts. */
+  const groundFloor = floorLevelSelectOptions(sub.listingStoriesId, "")[0] ?? "";
 
-  /** Own once edited by hand this session, or when the stored value differs from the top card. Access is read from the room list. */
-  const isOwn = (space: ManagerSharedSpaceSubmission, field: SharedSpaceInheritField) => {
-    if (field === "access") return spaceIsNarrowed(space, rooms);
-    if (own.has(space.id, field)) return true;
-    const value = sharedSpaceFieldValue(space, field);
-    const def = defaults[field];
-    if (defaultValueIsUnset(value)) return false;
-    if (defaultValueIsUnset(def)) return true;
-    return !defaultValuesMatch(value, def);
-  };
   const writeSpace = (id: string, next: ManagerSharedSpaceSubmission) => patch({ sharedSpaces: spaces.map((sp) => (sp.id === id ? next : sp)) });
-  const setField = (space: ManagerSharedSpaceSubmission, field: keyof SharedSpaceDefaults, value: string) => {
-    own.mark(space.id, field);
-    writeSpace(space.id, writeSharedSpaceField(space, field, value));
-  };
-  /** A patch from the card body: whichever tracked fields it names become the space's own. */
-  const patchSpace = (space: ManagerSharedSpaceSubmission, p: Partial<ManagerSharedSpaceSubmission>) => {
-    for (const key of Object.keys(p)) if ((SHARED_SPACE_DEFAULT_FIELDS as readonly string[]).includes(key)) own.mark(space.id, key);
-    writeSpace(space.id, { ...space, ...p });
-  };
-  const resetField = (space: ManagerSharedSpaceSubmission, field: SharedSpaceInheritField) => {
-    if (field === "access") {
-      writeSpace(space.id, { ...space, roomAccessIds: encodeSharedSpaceEveryone() });
-      return;
-    }
-    own.clear(space.id, field);
-    writeSpace(space.id, writeSharedSpaceField(space, field, defaults[field]));
-  };
-  const copyDefaultsInto = (space: ManagerSharedSpaceSubmission) => {
-    let next = space;
-    for (const field of SHARED_SPACE_DEFAULT_FIELDS) next = writeSharedSpaceField(next, field, defaults[field]);
-    return { ...next, roomAccessIds: encodeSharedSpaceEveryone() };
-  };
-  const sharedSpaceFields: readonly SharedSpaceInheritField[] = [...SHARED_SPACE_DEFAULT_FIELDS, "access"];
-  const [unticked, setUnticked] = useState<Set<string>>(new Set());
-  const sameAsAll = (space: ManagerSharedSpaceSubmission) => !unticked.has(space.id) && !sharedSpaceFields.some((field) => isOwn(space, field));
-  const setSameAsAll = (space: ManagerSharedSpaceSubmission, same: boolean) => {
-    setUnticked((prev) => {
-      const out = new Set(prev);
-      if (same) out.delete(space.id);
-      else out.add(space.id);
-      return out;
-    });
-    if (same) {
-      own.clearRecord(space.id);
-      writeSpace(space.id, copyDefaultsInto(space));
-      return;
-    }
-    let next = space;
-    for (const field of SHARED_SPACE_DEFAULT_FIELDS) if (!defaultValueIsUnset(defaults[field])) next = writeSharedSpaceField(next, field, defaults[field]);
-    if (next !== space) writeSpace(space.id, next);
-  };
-  const spacesHaveOverrides = spaces.some((space) => !sameAsAll(space));
-  const resetAllSharedSpaces = async () => {
-    if (spaces.length === 0) return;
-    const withOwnMedia = spaces.filter((space) => isOwn(space, "photoDataUrls") || isOwn(space, "videoDataUrl"));
-    if (withOwnMedia.length > 0) {
-      const names = withOwnMedia.map((space) => space.name.trim() || `Shared space ${spaces.indexOf(space) + 1}`).join(", ");
-      const ok = await confirm({
-        title: "Replace their photos too?",
-        description: `${names} ${withOwnMedia.length === 1 ? "has" : "have"} photos or a clip of ${withOwnMedia.length === 1 ? "its" : "their"} own. Making all the same replaces them with the Default shared space's.`,
-        confirmLabel: "Replace",
-      });
-      if (!ok) return;
-    }
-    own.resetAll();
-    setUnticked(new Set());
-    patch({ sharedSpaces: spaces.map(copyDefaultsInto) });
-  };
-  function editDefault<K extends keyof SharedSpaceDefaults>(field: K, value: SharedSpaceDefaults[K]) {
-    const followers = spaces.filter((sp) => !isOwn(sp, field) && !unticked.has(sp.id));
-    const next: SharedSpaceDefaults = { ...defaults, [field]: value };
-    patch({ sharedSpaces: spaces.map((sp) => (followers.includes(sp) ? writeSharedSpaceField(sp, field, value) : sp)), sharedSpaceDefaults: next });
-  }
+  const patchSpace = (space: ManagerSharedSpaceSubmission, p: Partial<ManagerSharedSpaceSubmission>) => writeSpace(space.id, { ...space, ...p });
   const toggle = (id: string) => setOpen((prev) => (prev === id ? null : id));
   const accessSummary = (space: ManagerSharedSpaceSubmission) =>
     sharedSpaceAccessTriggerLabel(
@@ -2188,49 +2099,13 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
       rooms.map((room) => room.id),
     );
   const summaryFor = (space: ManagerSharedSpaceSubmission) =>
-    [SHARED_SPACE_KIND_OPTIONS.find((o) => o.id === space.spaceKind)?.label, space.location || defaults.location || "Floor not set", wholePlace ? "" : accessSummary(space)]
+    [SHARED_SPACE_KIND_OPTIONS.find((o) => o.id === space.spaceKind)?.label, space.location || "Floor not set", wholePlace ? "" : accessSummary(space)]
       .filter(Boolean)
       .join(" · ");
 
   return (
     <StepColumn>
-      <StepHeading
-        title={`${spaces.length} shared ${spaces.length === 1 ? "space" : "spaces"}`}
-        action={
-          spaces.length > 0 ? (
-            <ResetAllInheritanceButton label="Make all the same" dataAttr="listing-v2-spaces-reset-all" disabled={!spacesHaveOverrides} onClick={() => void resetAllSharedSpaces()} />
-          ) : null
-        }
-      />
-
-      <RecordCard
-        every
-        title="Default shared space"
-        help={SPACE_HELP.all}
-        dataAttr="listing-v2-space-defaults-card"
-        rows={
-          <div data-attr="listing-v2-space-defaults-editor">
-            <FactRow first label="Floor">
-              <RowSelectCell ariaLabel="Floor for every shared space" value={defaults.location} options={floors} placeholder="Floor…" onChange={(v) => editDefault("location", v)} />
-            </FactRow>
-            <MoreRows dataAttr="listing-v2-space-defaults-more">
-              <CardFields>
-                <Field label="Description">
-                  <Textarea rows={2} value={defaults.detail} placeholder="What a renter should know about every shared space" onChange={(e) => editDefault("detail", e.target.value)} />
-                </Field>
-              </CardFields>
-              <CardFields cols={2}>
-                <Field label="Photos">
-                  <PhotoStrip label="every shared space" urls={defaults.photoDataUrls} onChange={(next) => editDefault("photoDataUrls", next)} />
-                </Field>
-                <Field label="Video">
-                  <VideoSlot label="every shared space" url={defaults.videoDataUrl} onChange={(next) => editDefault("videoDataUrl", next)} />
-                </Field>
-              </CardFields>
-            </MoreRows>
-          </div>
-        }
-      />
+      <StepHeading title={`${spaces.length} shared ${spaces.length === 1 ? "space" : "spaces"}`} />
 
       {spaces.map((space, i) => {
         const isOpen = open === space.id;
@@ -2242,7 +2117,6 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
             nameLabel={`Name for shared space ${i + 1}`}
             namePlaceholder="Kitchen"
             onName={(v) => writeSpace(space.id, { ...space, name: v })}
-            same={<SameAsAllToggle same={sameAsAll(space)} noun="shared space" onChange={(next) => setSameAsAll(space, next)} onReset={() => setSameAsAll(space, true)} dataAttr="listing-v2-space-same-as-all" />}
             onDuplicate={() => {
               const copy = duplicateSharedSpaceEntry(space);
               const idx = spaces.findIndex((sp) => sp.id === space.id);
@@ -2267,9 +2141,6 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
                 rooms={rooms}
                 wholePlace={wholePlace}
                 storiesId={sub.listingStoriesId}
-                isOwn={(f) => isOwn(space, f)}
-                onField={(f, v) => setField(space, f, v)}
-                onReset={(f) => resetField(space, f)}
                 onChange={(p) => patchSpace(space, p)}
                 onDone={() => setOpen(null)}
               />
@@ -2283,12 +2154,18 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
         icon={LayoutGrid}
         dataAttr="listing-v2-add-space"
         onClick={() => {
-          const base = spaces[0];
           const id = `space-${Date.now()}`;
-          const blank = base
-            ? { ...base, id, name: "", photoDataUrls: [], videoDataUrl: null, detail: "", roomAccessIds: encodeSharedSpaceEveryone(), location: defaults.location || base.location }
-            : ({ id, name: "", location: defaults.location, roomAccessIds: encodeSharedSpaceEveryone() } as never);
-          patch({ sharedSpaces: [...spaces, copyDefaultsInto(blank)] });
+          const blank: ManagerSharedSpaceSubmission = {
+            id,
+            name: "",
+            location: groundFloor,
+            detail: "",
+            amenitiesText: "",
+            photoDataUrls: [],
+            videoDataUrl: null,
+            roomAccessIds: encodeSharedSpaceEveryone(),
+          };
+          patch({ sharedSpaces: [...spaces, blank] });
           setOpen(id);
         }}
       />
