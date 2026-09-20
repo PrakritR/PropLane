@@ -7,16 +7,18 @@ import {
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
-import { ensureManagerConnectAccountId } from "@/lib/stripe-connect-account";
-import { createAccountSession, isEmbeddedComponent } from "@/lib/stripe-connect-embedded";
+import { resolveManagerConnectAccountId } from "@/lib/stripe-connect";
+import { createInAppPayout } from "@/lib/stripe-payouts.server";
+import { validateCreatePayoutRequestBody } from "@/lib/stripe-payouts";
 
 export const runtime = "nodejs";
 
 /**
- * Creates a Stripe Account Session for exactly one embedded component, so the
- * client can mount Stripe's onboarding/management UI inside PropLane's own
- * modal chrome. Replaces Account Links and Express Dashboard login links —
- * see PLAN-0920-0853.
+ * Pays out from the manager's Connect balance. Auth re-derives the payout
+ * owner from the session (never trusts a client-supplied account id), the
+ * co-manager bank-edit permission gates the write, and every number
+ * (amount vs. a fresh balance read, eligibility, fee) is re-checked
+ * server-side — see `createInAppPayout` for the claim-before-call pattern.
  */
 export async function POST(req: Request) {
   try {
@@ -29,9 +31,9 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json().catch(() => null);
-    const component = (body as { component?: unknown } | null)?.component;
-    if (!isEmbeddedComponent(component)) {
-      return NextResponse.json({ error: "Invalid component." }, { status: 400 });
+    const validated = validateCreatePayoutRequestBody(body);
+    if (!validated.ok) {
+      return NextResponse.json({ error: validated.error }, { status: 422 });
     }
 
     const service = createSupabaseServiceRoleClient();
@@ -42,37 +44,35 @@ export async function POST(req: Request) {
         { status: payout.unresolvedReason === "ambiguous_owner" ? 409 : 500 },
       );
     }
-
-    // `notification_banner` is read-only; onboarding/management mutate bank
-    // details and therefore need the edit-level co-manager grant.
-    const level = component === "notification_banner" ? "read" : "edit";
-    const access = await assertCoManagerBankAccountAccess(service, user.id, payout.payoutOwnerUserId, level);
+    const access = await assertCoManagerBankAccountAccess(service, user.id, payout.payoutOwnerUserId, "edit");
     if (!access.ok) {
       return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
+    const accountId = await resolveManagerConnectAccountId(service, payout.payoutOwnerUserId);
+    if (!accountId) {
+      return NextResponse.json({ error: "Finish setting up payouts before paying out." }, { status: 422 });
+    }
+
     try {
       const stripe = getStripe();
-      const { data: ownerProfile } = await service
-        .from("profiles")
-        .select("email")
-        .eq("id", payout.payoutOwnerUserId)
-        .maybeSingle();
-      const accountId = await ensureManagerConnectAccountId(stripe, service, {
-        userId: payout.payoutOwnerUserId,
-        email: ownerProfile?.email ?? user.email ?? undefined,
+      const result = await createInAppPayout(stripe, service, {
+        accountId,
+        ownerUserId: payout.payoutOwnerUserId,
+        input: validated.input,
       });
-
-      const session = await createAccountSession(stripe, accountId, component);
-      return NextResponse.json(session);
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: result.status });
+      }
+      const { payoutId, amountCents, feeCents, netCents, arrivalDate, method } = result;
+      return NextResponse.json({ payoutId, amountCents, feeCents, netCents, arrivalDate, method });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Stripe error";
       if (msg.includes("STRIPE_SECRET_KEY") || msg.includes("Missing STRIPE")) {
-        return NextResponse.json({
-          demo: true,
-          message:
-            "Stripe is not configured (missing STRIPE_SECRET_KEY). Add keys in your environment to enable live embedded payout setup.",
-        });
+        return NextResponse.json(
+          { code: "STRIPE_NOT_CONFIGURED", error: "Stripe is not configured (missing STRIPE_SECRET_KEY)." },
+          { status: 503 },
+        );
       }
       return NextResponse.json({ error: msg }, { status: 400 });
     }

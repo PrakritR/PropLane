@@ -48,6 +48,16 @@ export async function createAxisConnectAccount(
       axis_user_id: opts.axisUserId,
       axis_portal: opts.axisPortal ?? "portal",
     },
+    // Decide 1 (PLAN-0920-0853): a newly linked bank defaults to automatic
+    // weekly payouts (Friday) — rent reaches the bank without a tap, and the
+    // in-app "Pay out" button remains available any time regardless of this
+    // setting (Stripe's `payouts.create` isn't gated by the schedule
+    // interval; the schedule only controls Stripe's OWN automatic payouts).
+    settings: {
+      payouts: {
+        schedule: { interval: "weekly", weekly_anchor: "friday" },
+      },
+    },
   });
 }
 

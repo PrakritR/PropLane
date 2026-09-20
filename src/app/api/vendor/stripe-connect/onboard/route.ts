@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
-import { resolveAppOrigin } from "@/lib/app-url";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getStripe, stripeConnectRedirectOriginError } from "@/lib/stripe";
+import { getStripe } from "@/lib/stripe";
 import { ensureVendorConnectAccountId } from "@/lib/stripe-connect-account";
 import {
+  clearManagerConnectAccountId,
   connectAccountReadyForAchPayouts,
+  connectAccountTransfersActive,
   ensureConnectAccountTransfersRequested,
   isStripeConnectAccountAccessError,
 } from "@/lib/stripe-connect";
@@ -12,10 +13,12 @@ import {
 export const runtime = "nodejs";
 
 /**
- * Creates or resumes Stripe Connect Express onboarding for the signed-in vendor.
- * Returns an Account Link URL — the client opens a blank tab on click, then navigates after POST.
+ * Ensures a Connect account exists for the signed-in vendor and reports its
+ * readiness. PLAN-0920-0853: embedded onboarding (mounted via
+ * `/api/vendor/stripe-connect/account-session`) replaces the redirect to
+ * Stripe and the Express Dashboard login link — no Stripe-hosted URL here.
  */
-export async function POST(req: Request) {
+export async function POST() {
   try {
     const supabase = await createSupabaseServerClient();
     const {
@@ -30,18 +33,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
-    const origin = resolveAppOrigin(req);
-    const redirectError = stripeConnectRedirectOriginError(origin);
-    if (redirectError) {
-      return NextResponse.json(
-        { code: "LIVEMODE_REQUIRES_HTTPS", error: redirectError },
-        { status: 422 },
-      );
-    }
-
-    const refreshUrl = `${origin}/vendor/financials/payouts?connect=refresh`;
-    const returnUrl = `${origin}/vendor/financials/payouts?connect=done`;
-
     try {
       const stripe = getStripe();
       const accountId = await ensureVendorConnectAccountId(stripe, supabase, {
@@ -50,29 +41,13 @@ export async function POST(req: Request) {
       });
 
       const acct = await ensureConnectAccountTransfersRequested(stripe, accountId);
-      const readyForPayouts = connectAccountReadyForAchPayouts(acct);
-
-      if (readyForPayouts) {
-        const loginLink = await stripe.accounts.createLoginLink(accountId);
-        return NextResponse.json({
-          url: loginLink.url,
-          accountId,
-          mode: "express_dashboard" as const,
-        });
-      }
-
-      const linkType = acct.details_submitted ? "account_update" : "account_onboarding";
-      const accountLink = await stripe.accountLinks.create({
-        account: accountId,
-        refresh_url: refreshUrl,
-        return_url: returnUrl,
-        type: linkType,
-      });
 
       return NextResponse.json({
-        url: accountLink.url,
+        mode: "embedded" as const,
         accountId,
-        mode: linkType === "account_onboarding" ? ("onboarding" as const) : ("update" as const),
+        connected: connectAccountTransfersActive(acct),
+        paymentReady: connectAccountReadyForAchPayouts(acct),
+        detailsSubmitted: Boolean(acct.details_submitted),
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Stripe error";
@@ -95,17 +70,8 @@ export async function POST(req: Request) {
           { status: 400 },
         );
       }
-      if (msg.includes("redirected via HTTPS") || msg.toLowerCase().includes("https")) {
-        return NextResponse.json(
-          {
-            code: "LIVEMODE_REQUIRES_HTTPS",
-            error:
-              "Live Stripe requires HTTPS return URLs. Use test keys locally, or set NEXT_PUBLIC_APP_URL to your production https URL.",
-          },
-          { status: 422 },
-        );
-      }
       if (isStripeConnectAccountAccessError(msg)) {
+        await clearManagerConnectAccountId(supabase, user.id).catch(() => undefined);
         return NextResponse.json(
           {
             code: "CONNECT_ACCOUNT_STALE",

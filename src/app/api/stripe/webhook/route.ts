@@ -353,7 +353,7 @@ export async function POST(req: Request) {
       event.type === "payout.failed" ||
       event.type === "payout.canceled"
     ) {
-      await handleConnectPayoutEvent(db, event.data.object as Stripe.Payout, event.account).catch((e) => {
+      await handleConnectPayoutEvent(db, event.data.object as Stripe.Payout, event.account, stripe).catch((e) => {
         console.error("[stripe webhook] payout event", e);
       });
     }
