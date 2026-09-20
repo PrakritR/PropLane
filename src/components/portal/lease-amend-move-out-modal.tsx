@@ -29,6 +29,8 @@ type LeaseRenewConfig = {
   currentRentLabel: string;
   currentRentalType?: "standard" | "short_term" | string | null;
   renewUrl?: string;
+  /** Advertised house rent — shown as an unchanged fact, never written. */
+  listingRentLabel?: string;
 };
 
 function addMonthsToIsoDate(isoDate: string, months: number): string {
@@ -61,6 +63,8 @@ function LeaseRenewalFormFields({
   customEnd,
   rent,
   currentRentLabel,
+  listingRentLabel,
+  hideRentHint,
   onLeaseStartChange,
   onCustomEndChange,
   onRentChange,
@@ -70,6 +74,8 @@ function LeaseRenewalFormFields({
   customEnd: string;
   rent: string;
   currentRentLabel: string;
+  listingRentLabel?: string;
+  hideRentHint?: boolean;
   onLeaseStartChange: (value: string) => void;
   onCustomEndChange: (value: string) => void;
   onRentChange: (value: string) => void;
@@ -86,15 +92,17 @@ function LeaseRenewalFormFields({
 
   return (
     <>
-      <div className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-accent/20 px-4 py-3 text-sm">
-        <span className="text-muted">Renewal term</span>
-        <span className="ml-auto font-semibold text-foreground">{leaseTerm}</span>
-      </div>
+      {hideRentHint ? null : (
+        <div className="mb-4 flex items-center gap-3 rounded-xl border border-border bg-accent/20 px-4 py-3 text-sm">
+          <span className="text-muted">Renewal term</span>
+          <span className="ml-auto font-semibold text-foreground">{leaseTerm}</span>
+        </div>
+      )}
 
       <div className="mb-4 grid gap-4 sm:grid-cols-2">
         <div>
           <label className="mb-1.5 block text-sm font-semibold text-muted">
-            {isShortTerm ? "Check-in" : "Renewal starts"}
+            {isShortTerm ? "Check-in" : hideRentHint ? "Starts" : "Renewal starts"}
           </label>
           <input
             type="date"
@@ -140,9 +148,11 @@ function LeaseRenewalFormFields({
             data-attr="lease-renew-rent"
           />
         </div>
-        <p className="mt-1.5 text-xs text-muted">
-          Leave blank to keep current rent{currentRentLabel ? ` (${currentRentLabel})` : ""}.
-        </p>
+        {hideRentHint ? null : (
+          <p className="mt-1.5 text-xs text-muted">
+            Leave blank to keep current rent{currentRentLabel ? ` (${currentRentLabel})` : ""}.
+          </p>
+        )}
       </div>
 
       <RenewalPaymentPreviewCard
@@ -151,6 +161,7 @@ function LeaseRenewalFormFields({
         leaseEnd={leaseEnd}
         rent={rent}
         currentRentLabel={currentRentLabel}
+        listingRentLabel={listingRentLabel}
       />
     </>
   );
@@ -170,12 +181,14 @@ function RenewalPaymentPreviewCard({
   leaseEnd,
   rent,
   currentRentLabel,
+  listingRentLabel,
 }: {
   leaseTerm: string;
   leaseStart: string;
   leaseEnd: string;
   rent: string;
   currentRentLabel: string;
+  listingRentLabel?: string;
 }) {
   const preview = useMemo(() => {
     const typed = rent.trim() ? Number(rent.replace(/[^\d.]/g, "")) : null;
@@ -190,7 +203,15 @@ function RenewalPaymentPreviewCard({
   }, [leaseTerm, leaseStart, leaseEnd, rent, currentRentLabel]);
 
   if (!preview.applies) {
-    return preview.note ? <p className="mb-4 text-xs text-muted">{preview.note}</p> : null;
+    if (listingRentLabel) {
+      return (
+        <div className="mb-4 flex items-center justify-between rounded-xl border border-border bg-accent/20 px-4 py-3 text-sm">
+          <span className="text-foreground">House listing</span>
+          <span className="font-semibold text-foreground">{listingRentLabel}</span>
+        </div>
+      );
+    }
+    return preview.note ? <p className="mb-4 text-sm text-foreground">{preview.note}</p> : null;
   }
 
   return (
@@ -216,10 +237,13 @@ function RenewalPaymentPreviewCard({
           <span className="font-semibold text-foreground">{formatRenewalUsd(preview.total)}</span>
         </div>
       ) : null}
-      <p className="mt-2 text-xs text-muted">
-        {preview.note} Utilities and any other recurring charges continue unchanged. Charges are only created once
-        both parties have signed.
-      </p>
+      {listingRentLabel ? (
+        <div className="mt-3 flex items-center justify-between border-t border-border pt-2.5 text-sm">
+          <span>House listing</span>
+          <span className="font-semibold text-foreground">{listingRentLabel}</span>
+        </div>
+      ) : null}
+      {preview.note ? <p className="mt-2 text-sm text-foreground">{preview.note}</p> : null}
     </div>
   );
 }
@@ -233,6 +257,7 @@ function useLeaseRenewalSubmit({
   leaseId,
   onClose,
   onSuccess,
+  successToast,
 }: {
   leaseTerm: string;
   leaseStart: string;
@@ -242,6 +267,7 @@ function useLeaseRenewalSubmit({
   leaseId: string;
   onClose: () => void;
   onSuccess: () => void;
+  successToast?: string;
 }) {
   const { showToast } = useAppUi();
   const [submitting, setSubmitting] = useState(false);
@@ -287,14 +313,17 @@ function useLeaseRenewalSubmit({
       } else {
         onClose();
         onSuccess();
-        showToast("Renewal created. The lease needs to be signed by both parties. Payments update once it's fully signed.");
+        showToast(
+          successToast ??
+            "Renewal created. The lease needs to be signed by both parties. Payments update once it's fully signed.",
+        );
       }
     } catch {
       showToast("Network error. Please try again.");
     } finally {
       setSubmitting(false);
     }
-  }, [canConfirm, renewUrl, leaseId, leaseTerm, leaseStart, leaseEnd, rentAmount, rentalType, onClose, onSuccess, showToast]);
+  }, [canConfirm, renewUrl, leaseId, leaseTerm, leaseStart, leaseEnd, rentAmount, rentalType, onClose, onSuccess, showToast, successToast]);
 
   return { submitting, canConfirm, handleConfirm };
 }
@@ -311,6 +340,7 @@ export function LeaseAmendMoveOutModal({
   onSuccess,
   propertyId = "",
   renew,
+  variant = "amend",
   /** @deprecated Inline renewal replaces opening a second modal when `renew` is set. */
   onOpenRenew,
 }: {
@@ -326,6 +356,8 @@ export function LeaseAmendMoveOutModal({
   propertyId?: string;
   /** When set, term picks expand the same modal with renewal fields instead of a second popup. */
   renew?: LeaseRenewConfig;
+  /** Manager Signed-tab New terms: skip the extend picker and open the term/rent sheet. */
+  variant?: "amend" | "new-terms";
   onOpenRenew?: (leaseTerm: string) => void;
 }) {
   const { showToast } = useAppUi();
@@ -352,6 +384,16 @@ export function LeaseAmendMoveOutModal({
   const longTermOption = extendTypeOptions.find((option) => option.id === "long_term");
   const longTermChoices = longTermOption?.id === "long_term" ? longTermOption.leaseTerms : [];
   const defaultRenewStart = currentEnd ? dayAfter(currentEnd) : new Date().toISOString().slice(0, 10);
+  const newTermsInitialTerm = useMemo(() => {
+    if (!renew) return "";
+    const terms = renewalLeaseTermOptionsForProperty(propertyId);
+    const preferred = renew.currentTerm.trim();
+    if (preferred && terms.includes(preferred)) return preferred;
+    if (renew.currentRentalType === "short_term" && terms.includes(SHORT_TERM_LEASE_TERM)) {
+      return SHORT_TERM_LEASE_TERM;
+    }
+    return terms[0] ?? preferred;
+  }, [renew, propertyId]);
 
   const openRenewFlow = useCallback(
     (leaseTerm: string) => {
@@ -382,8 +424,18 @@ export function LeaseAmendMoveOutModal({
         setRenewCustomEnd("");
         setRenewRent("");
       });
+      return;
     }
-  }, [open]);
+    if (variant === "new-terms" && renew && newTermsInitialTerm) {
+      queueMicrotask(() => {
+        setIntent("extend");
+        setActiveRenewTerm(newTermsInitialTerm);
+        setRenewLeaseStart(defaultRenewStart);
+        setRenewCustomEnd("");
+        setRenewRent(renew.currentRentLabel.replace(/[^\d.]/g, ""));
+      });
+    }
+  }, [open, variant, renew, newTermsInitialTerm, defaultRenewStart]);
 
   useEffect(() => {
     if (!open || intent !== "early" || selectedDate) return;
@@ -484,6 +536,10 @@ export function LeaseAmendMoveOutModal({
     leaseId: renew?.leaseId ?? "",
     onClose,
     onSuccess,
+    successToast:
+      variant === "new-terms"
+        ? "New terms created. Send the lease. Payments update once it's signed."
+        : undefined,
   });
 
   const quickExtendOptions = useMemo(
@@ -569,16 +625,18 @@ export function LeaseAmendMoveOutModal({
   const showAmendFooter = showCustomDateExtend || intent === "early";
   const showRenewFooter = showRenewForm;
 
+  const modalTitle = variant === "new-terms" ? "New terms" : title;
+
   return (
     <Modal
       open={open}
-      title={title}
+      title={modalTitle}
       onClose={onClose}
-      assistantContext={title}
-      assistantStorageScopeKey={title}
+      assistantContext={modalTitle}
+      assistantStorageScopeKey={modalTitle}
       footer={
         <div className="flex flex-col gap-0">
-          {showRenewFooter || showAmendFooter ? (
+          {variant !== "new-terms" && (showRenewFooter || showAmendFooter) ? (
             <p className="w-full pb-2 text-center text-xs text-muted" data-attr="lease-amend-resign-notice">
               Both you and your manager sign the updated lease before it takes effect.
             </p>
@@ -593,7 +651,7 @@ export function LeaseAmendMoveOutModal({
                 onClick={() => handleRenewConfirm()}
                 data-attr="lease-renew-confirm"
               >
-                {renewSubmitting ? "Creating…" : "Create renewal"}
+                {renewSubmitting ? "Creating…" : variant === "new-terms" ? "Create and send" : "Create renewal"}
               </Button>
             </ModalFooter>
           ) : showAmendFooter ? (
@@ -612,12 +670,14 @@ export function LeaseAmendMoveOutModal({
         </div>
       }
     >
-      <div className="mb-4 flex items-center gap-3 rounded-xl bg-accent/30 px-4 py-3 text-sm">
-        <span className="text-muted">Current move-out date</span>
-        <span className="ml-auto font-semibold text-foreground">{currentEndFormatted}</span>
-      </div>
+      {variant === "new-terms" ? null : (
+        <div className="mb-4 flex items-center gap-3 rounded-xl bg-accent/30 px-4 py-3 text-sm">
+          <span className="text-muted">Current move-out date</span>
+          <span className="ml-auto font-semibold text-foreground">{currentEndFormatted}</span>
+        </div>
+      )}
 
-      {!showRenewForm ? (
+      {variant !== "new-terms" && !showRenewForm ? (
         <>
           <div className="mb-4">
             <label className="mb-1.5 block text-sm font-semibold text-muted">What do you want to do?</label>
@@ -697,16 +757,36 @@ export function LeaseAmendMoveOutModal({
       ) : null}
 
       {showRenewForm && activeRenewTerm ? (
-        <LeaseRenewalFormFields
-          leaseTerm={activeRenewTerm}
-          leaseStart={renewLeaseStart}
-          customEnd={renewCustomEnd}
-          rent={renewRent}
-          currentRentLabel={renew?.currentRentLabel ?? ""}
-          onLeaseStartChange={setRenewLeaseStart}
-          onCustomEndChange={setRenewCustomEnd}
-          onRentChange={setRenewRent}
-        />
+        <>
+          {variant === "new-terms" ? (
+            <div className="mb-4">
+              <label className="mb-1.5 block text-sm font-semibold text-muted">Term</label>
+              <Select
+                value={activeRenewTerm}
+                onChange={(e) => setActiveRenewTerm(e.target.value)}
+                data-attr="lease-renew-term"
+              >
+                {renewalLeaseTermOptionsForProperty(propertyId).map((term) => (
+                  <option key={term} value={term}>
+                    {term}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          ) : null}
+          <LeaseRenewalFormFields
+            leaseTerm={activeRenewTerm}
+            leaseStart={renewLeaseStart}
+            customEnd={renewCustomEnd}
+            rent={renewRent}
+            currentRentLabel={renew?.currentRentLabel ?? ""}
+            listingRentLabel={renew?.listingRentLabel}
+            hideRentHint={variant === "new-terms"}
+            onLeaseStartChange={setRenewLeaseStart}
+            onCustomEndChange={setRenewCustomEnd}
+            onRentChange={setRenewRent}
+          />
+        </>
       ) : null}
 
       {!showRenewForm && (intent === "early" || showCustomDateExtend) ? (
@@ -780,7 +860,7 @@ export function LeaseAmendMoveOutModal({
         </>
       ) : null}
 
-      {showRenewForm ? (
+      {showRenewForm && variant !== "new-terms" ? (
         <button
           type="button"
           className="mt-1 text-sm font-semibold text-primary"

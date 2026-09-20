@@ -6,9 +6,7 @@
 //
 // Saving: typing and X write on their own on every section, so the footer
 // carries Continue rather than a Save on the way through. The Review step is
-// the one exception — it ends the flow, so it holds a physical "Save changes"
-// (the captain asked for a visible commit on top of autosave). Do not put that
-// button back on the earlier steps, and do not take it off Review.
+// the one exception — it ends the flow, so it holds Save beside Publish.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -84,17 +82,16 @@ describe("the footer on an edit", () => {
   it("continues to the next section — typing and X save, not a footer Save", () => {
     mount(subWith({}), true);
     expect(screen.getByRole("button", { name: /^Continue to Rooms$/ })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Save & exit" })).toBeNull();
   });
 
-  it("review on a live listing has Save changes, not Publish — it is already listed", () => {
+  it("review on a live listing has Save beside Publish", () => {
     const { onSaveExit, onPublish } = mount(subWith({}), true);
     fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-review"]')!);
-    expect(screen.queryByRole("button", { name: "Publish changes" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Publish" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Save draft" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(onSaveExit).toHaveBeenCalledWith(LISTING_V2_STEPS.length - 1);
     expect(onPublish).not.toHaveBeenCalled();
   });
@@ -103,7 +100,7 @@ describe("the footer on an edit", () => {
     mount(subWith({}), false);
     expect(screen.getByRole("button", { name: /^Continue to Rooms$/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Save & exit" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   });
 
   it("shows Ask PropLane in the header when assistant config is present", () => {

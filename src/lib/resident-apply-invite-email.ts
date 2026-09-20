@@ -3,6 +3,8 @@
  */
 
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { managerOutboundFromHeader, sharedPortalFromAddress } from "@/lib/manager-outbound-identity.server";
 
 export const RESIDENT_APPLY_INVITE_EMAIL_SUBJECT = "Complete your PropLane housing application";
 
@@ -76,6 +78,8 @@ export async function sendResidentApplyInviteEmail(params: {
   to: string;
   residentName?: string;
   applyPath?: string;
+  db?: SupabaseClient;
+  managerUserId?: string;
 }): Promise<{ ok: boolean; error?: string }> {
   const to = params.to.trim().toLowerCase();
   if (!to.includes("@")) return { ok: false, error: "Invalid email." };
@@ -95,7 +99,10 @@ export async function sendResidentApplyInviteEmail(params: {
     return { ok: false, error: "Email delivery is not configured (set RESEND_API_KEY)." };
   }
 
-  const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
+  const from =
+    params.db && params.managerUserId
+      ? await managerOutboundFromHeader(params.db, params.managerUserId)
+      : sharedPortalFromAddress();
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tour SMS release integration handoff</title>
+  <style>
+    :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+    body { margin: 0; background: Canvas; color: CanvasText; }
+    main { max-width: 1040px; margin: 0 auto; padding: 40px 24px 72px; }
+    h1, h2 { line-height: 1.15; }
+    section { margin-top: 32px; padding-top: 8px; border-top: 1px solid color-mix(in srgb, CanvasText 18%, transparent); }
+    code { overflow-wrap: anywhere; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 10px; text-align: left; vertical-align: top; border-bottom: 1px solid color-mix(in srgb, CanvasText 14%, transparent); }
+    .ok { color: #18864b; font-weight: 700; }
+    .warn { color: #b66a00; font-weight: 700; }
+  </style>
+</head>
+<body><main>
+  <h1>Tour SMS release integration handoff</h1>
+  <p><strong>Candidate:</strong> <code>tour-sms-release-20260916</code> in <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/8/AXIS-2</code>, integrated on <code>054f4d73cbd37b891106a704aa177f4bf38bd26e</code>. Main, staging, and production still point to that base. No remote feature migration, push, deploy, provider send, or locked-listing write was performed by the integration agent.</p>
+
+  <section><h2>Integrated behavior</h2><ul>
+    <li>Autonomous prospect tour booking uses an atomic PostgreSQL boundary for slot arbitration, planned-event persistence, booking state, SMS outbox preparation, and communication-credit reservation.</li>
+    <li>Recovery-first and normal-worker dispatch share one submission owner. The real TypeScript dispatcher and real PostgreSQL credit ledger prove one provider acceptance and one charge.</li>
+    <li>Google create intent is durable before the provider call. Cleanup cannot erase an in-flight obligation. Expired recovery leases are reclaimable, canceled creates retain a durable tombstone with capped exponential sweeps, and a delayed provider commit after an earlier 404 is deleted on a later sweep.</li>
+    <li>Reschedules retain reconciliation ownership through remote sync and lifecycle-safe local persistence. Metadata-only Google-id persistence does not invalidate that lease, while a true second window change does. A deterministic create conflict patches the current body after HTTP 409 so stale old-window content cannot survive.</li>
+    <li>Scheduled prospect reminders, generic schedule persistence, account purge coverage, tools, prompts, burst recovery, and manager notifications are integrated with current-main communication billing, reminder, workspace, and quiet-handoff behavior.</li>
+    <li>Two adjacent baseline defects encountered during validation were corrected: inactive Properties-hub tour settings no longer mount, and the inbox test now distinguishes the intentional single Archive destination from forbidden folder tabs.</li>
+  </ul></section>
+
+  <section><h2>Conflict inventory</h2><ul>
+    <li><code>src/lib/tools/domains/tours.ts</code>: retained current E.164 normalization and composed autonomous booking tools.</li>
+    <li><code>tour-inquiry-confirm.server.ts</code>, <code>tour-planned-change.server.ts</code>, and <code>tour-inquiry.server.ts</code>: retained current notification channels, slot keys, reminders, and task behavior while routing acceptance through atomic persistence. The mutation graph is lazily imported so pure inquiry constants remain safe in auth and public read paths.</li>
+    <li><code>leasing-sms-system-prompt.ts</code> and agent tests: retained links-first and quiet-handoff rules, with the narrow text-scheduling exception.</li>
+    <li><code>api/internal/prospect-sms-burst/route.ts</code>: retained current quiet-handoff behavior and added booking recovery.</li>
+    <li><code>sms/owner-sms-dispatcher.server.ts</code>: retained the latest eight-parameter credit RPC, plan resolution, reminder fences, and workspace sender selection while adding booking-owned submission.</li>
+    <li><code>google-calendar/sync.server.ts</code> and <code>api.server.ts</code>: retained existing timeout and calendar behavior while adding durable deterministic create recovery and 409 body reconciliation.</li>
+  </ul></section>
+
+  <section><h2>Migration mapping and hashes</h2>
+    <p>Dev history was repaired separately by root with a reviewed metadata-only transaction: the exact tour cleanup row moved from <code>20260915120000</code> to <code>20260915120100</code>. All 192 rows, names, and statement digests were otherwise unchanged. Staging and production histories were untouched. Evidence: <code>/tmp/axis-tour-release-backup.vrVcr2/</code>.</p>
+    <table><thead><tr><th>Version</th><th>Purpose</th><th>SHA-256</th></tr></thead><tbody>
+      <tr><td>20260915103000</td><td>prospect SMS tour booking</td><td><code>b02a28daec12e43dba1f810871e50b3ba29c3a30ab3bcf3a91b6c7e01f16510b</code></td></tr>
+      <tr><td>20260915104500</td><td>tour reminders</td><td><code>55f68238dad2171c658be76b626ce3ae0e0888de078c8294f49e7cb088f2cd9c</code></td></tr>
+      <tr><td>20260915105500</td><td>atomic planned schedule</td><td><code>b66db6376b8ba00d297ce8dff2807423132e0840d3090b0b3aa1f242c1ebecde</code></td></tr>
+      <tr><td>20260915113000</td><td>booking correction</td><td><code>2782e6d7e223ec9b5169bad51f7ca3cf9684263238594b5dbfead2bd399c68a0</code></td></tr>
+      <tr><td>20260915120100</td><td>renamed immutable cleanup migration</td><td><code>8b63cd46239cc2f9c89286423749cacda753de8d800b0278c0ee01989956ecf0</code></td></tr>
+      <tr><td>20260915120500</td><td>recovery first</td><td><code>f69440d38656cbfb133a6502696d4eacbd061ec6cd61a494cbdf861e454c3ce5</code></td></tr>
+      <tr><td>20260916100000</td><td>additive budget ownership</td><td><code>398eba447c490d4dc5d29e3fe8a85ca7c394bb44b2332bbe1065ba875666a807</code></td></tr>
+      <tr><td>20260916100500</td><td>additive Google create intents and tombstones</td><td><code>4d2b70d25b17fe2969105f888884a031b857aabf13f7d2412a850f1cb38d5ea5</code></td></tr>
+    </tbody></table>
+    <p>Reserved additive versions were confirmed absent from dev, staging, and production. The immutable six hashes remain unchanged. Rollout verification SQL: <code>/tmp/axis-tour-release-backup.vrVcr2/verify-tour-schema.sql</code>. Reviewed staging-only fixture planner: <code>/tmp/axis-tour-release-backup.vrVcr2/staging-qa-fixture.mjs</code>.</p>
+  </section>
+
+  <section><h2>Validation evidence</h2><ul>
+    <li class="ok">PostgreSQL 17 integration: 18/18 tests, exit 0. It applies current communication-credit and eight-parameter submission migrations before the tour chain. It covers actual dispatcher billing, recovery races, expired claim reclaim, tombstone re-sweep, reschedule metadata persistence, and concurrent second reschedule invalidation.</li>
+    <li class="ok">Provider-sink and focused regression set: 6 files, 36 tests, exit 0. The paused create order is create paused, cancellation, lease expiry, first 404 reconciliation, provider commit, crash before metadata, later tombstone delete, then cleanup.</li>
+    <li class="ok">Feature-focused set: 16 files, 138 tests, exit 0.</li>
+    <li class="ok">Canonical Node 22.23 TypeScript, 4 GB cap: exit 0.</li>
+    <li class="ok">Full ESLint: exit 0, 780 existing warnings and zero errors.</li>
+    <li class="ok">Next 16.3.4 production build on Node 22.23, dev/test env via dotenv, 4 GB cap: exit 0. Compile, TypeScript, page collection, and 409 static pages completed.</li>
+    <li class="warn">Final full unit run: 1,626 files passed and 1 failed; 11,536 tests passed and 1 failed; exit 1 after 1,258.10 seconds. The only failure was a synchronous, untouched <code>data-list.test.tsx</code> test timing out at 20 seconds under the long single-worker run. Immediate isolated rerun passed 5/5 in 116 ms. No timeout or assertion was weakened.</li>
+    <li class="ok">The preceding full run proved the two baseline UI failures fixed but exposed 11 OAuth failures from the eager import. After the lazy-import fix, the OAuth file passed in the 6-file focused set and the final full run passed all OAuth tests.</li>
+    <li class="ok"><code>git diff --check</code> exit 0, no conflict markers, no duplicate migration versions.</li>
+    <li class="warn"><code>npx graphify hook-rebuild</code> was attempted after edits and exited 1 because npm could not determine a Graphify executable. No large graph install/rebuild or unrelated artifact was added.</li>
+  </ul></section>
+
+  <section><h2>Operational state and remaining gates</h2><ul>
+    <li>Local PostgreSQL data remains at <code>/tmp/axis-tour-pg.aHTHTl/data</code> and is stopped. Restart deliberately with port 55439 only for active review.</li>
+    <li><code>.env.test</code> was seeded without production files or force and targets dev/test. Port 3000 is pinned. No localhost listener is running; root may start the completed build only during active browser and E2E QA, then stop it.</li>
+    <li>Root still owns remote feature migration application, post-apply verification, seeded dev/staging browser QA, fresh review cycles, commit/push/promotion, and all production operations.</li>
+    <li>No real Twilio, Google Calendar, or email provider send was made. Provider behavior was exercised against in-process sinks. Deployed worker and browser end-to-end evidence remains pending root QA.</li>
+    <li>The broad unit gate has the one non-reproducing host-timing failure described above; fresh review should decide whether isolated proof plus CI is sufficient.</li>
+    <li>The frontend-design-guidelines skill drove the inactive-panel behavioral boundary and test coverage; no visual restyling was introduced.</li>
+  </ul></section>
+</main></body></html>

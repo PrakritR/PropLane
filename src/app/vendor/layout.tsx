@@ -7,6 +7,7 @@ import { PortalMobileNavBar } from "@/components/portal/portal-mobile-nav-bar";
 import { PortalSidebar } from "@/components/portal/portal-sidebar";
 import { PortalSkipLink } from "@/components/portal/portal-skip-link";
 import { PortalTopBar } from "@/components/portal/portal-top-bar";
+import { VendorMessagingSetupBanner } from "@/components/portal/vendor-messaging-setup-banner";
 import { PublicHomePrefetch } from "@/components/layout/public-home-prefetch";
 import { SurfaceThemeDefault } from "@/components/providers/theme-provider";
 import {
@@ -54,6 +55,7 @@ export default async function VendorLayout({ children }: { children: React.React
             name={profile?.full_name ?? null}
             email={profile?.email ?? null}
           />
+          <VendorMessagingSetupBanner />
           <main id={PORTAL_MAIN_CONTENT_ID} tabIndex={-1} className={PORTAL_MAIN_CONTENT_CLASS}>
             <div className={PORTAL_MAIN_CONTENT_INNER_CLASS}>
               <PortalMobileNavBar

@@ -26,6 +26,8 @@ export function ListingAddressAutocomplete({
   const wrapRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [resolved, setResolved] = useState(false);
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
   const [activeIndex, setActiveIndex] = useState(-1);
   /**
@@ -60,6 +62,8 @@ export function ListingAddressAutocomplete({
       setSuggestions([]);
       setOpen(false);
       setLoading(false);
+      setError(null);
+      setResolved(false);
       return;
     }
     const settled = appliedValueRef.current;
@@ -72,15 +76,22 @@ export function ListingAddressAutocomplete({
     if (q.length < 4) {
       setSuggestions([]);
       setLoading(false);
+      setError(null);
+      setResolved(false);
       return;
     }
 
     let cancelled = false;
     const timer = window.setTimeout(() => {
       setLoading(true);
+      setError(null);
+      setResolved(false);
       void fetch(`/api/geocode/suggest?q=${encodeURIComponent(q)}`, { cache: "no-store" })
         .then(async (res) => {
-          const data = (await res.json().catch(() => ({}))) as { suggestions?: AddressSuggestion[] };
+          const data = (await res.json().catch(() => ({}))) as {
+            suggestions?: AddressSuggestion[];
+            error?: string;
+          };
           if (cancelled) return;
           // A late response must not reopen the list over an address that was
           // chosen while the request was in flight.
@@ -88,12 +99,24 @@ export function ListingAddressAutocomplete({
           // The manager left the box while the search was in flight — do not
           // reopen a list over a field nobody is looking at.
           if (!wrapRef.current?.contains(document.activeElement)) return;
+          if (res.ok === false) {
+            setSuggestions([]);
+            setError("Address lookup failed. Type the street, city, state, and ZIP.");
+            setResolved(true);
+            setOpen(true);
+            return;
+          }
           setSuggestions(Array.isArray(data.suggestions) ? data.suggestions : []);
+          setError(null);
+          setResolved(true);
           setOpen(true);
           setActiveIndex(-1);
         })
         .catch(() => {
-          if (!cancelled) setSuggestions([]);
+          if (cancelled) return;
+          setSuggestions([]);
+          setError("Address lookup failed. Type the street, city, state, and ZIP.");
+          setResolved(true);
         })
         .finally(() => {
           if (!cancelled) setLoading(false);
@@ -103,6 +126,7 @@ export function ListingAddressAutocomplete({
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
+      setLoading(false);
     };
   }, [value]);
 
@@ -166,6 +190,10 @@ export function ListingAddressAutocomplete({
       />
       {loading ? (
         <p className="mt-1 text-[11px] text-muted">Searching addresses…</p>
+      ) : error ? (
+        <p className="mt-1 text-[13px] font-semibold text-destructive">{error}</p>
+      ) : open && resolved && suggestions.length === 0 && value.trim().length >= 4 ? (
+        <p className="mt-1 text-[11px] text-muted">No matching streets. Keep typing the address.</p>
       ) : null}
       {open && suggestions.length > 0 ? (
         <ul

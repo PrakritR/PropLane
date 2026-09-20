@@ -7,11 +7,14 @@ import { Button } from "@/components/ui/button";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
 import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import {
-  PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS,
   PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
   PortalPropertyDetailSection,
-  PropertyDetailFooterActions,
 } from "@/components/portal/portal-property-detail-section";
+import { PropertyFormAutomationCommandBar } from "@/components/portal/property-form-automation-chrome";
+import { SettingsModulePage } from "@/components/portal/settings-module-page";
+import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
+import { PortalFormSingleSelect } from "@/components/portal/filter-field-lists";
+import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { usePublishModalBulkActions } from "@/hooks/use-publish-modal-bulk-actions";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
@@ -24,6 +27,7 @@ import {
   resolveManagerListingSubmissionForPropertyId,
 } from "@/lib/manager-property-save-target";
 import {
+  applicationFormVariantForTemplate,
   readPropertyApplicationTemplates,
   removePropertyApplicationTemplate,
   withPropertyApplicationTemplatesExplicit,
@@ -110,6 +114,8 @@ export function ManagerPropertyApplicationQuestionsPanel({
   onBulkActionsChange?: (actions: ReactNode | null) => void;
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pane, setPane] = useState<"form" | "automation">("form");
+  const [formKindFilter, setFormKindFilter] = useState("");
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<"add" | "edit">("edit");
   const [editingTemplate, setEditingTemplate] = useState<PropertyApplicationTemplate | null>(null);
@@ -311,6 +317,11 @@ export function ManagerPropertyApplicationQuestionsPanel({
     return () => onRegisterAddApplication?.(null);
   }, [onRegisterAddApplication, openAdd]);
 
+  const visibleTemplates = useMemo(() => {
+    if (!formKindFilter) return templates;
+    return templates.filter((template) => applicationFormVariantForTemplate(template) === formKindFilter);
+  }, [formKindFilter, templates]);
+
   const selectedTemplates = useMemo(
     () => templates.filter((template) => selectedIds.has(template.id)),
     [selectedIds, templates],
@@ -365,25 +376,37 @@ export function ManagerPropertyApplicationQuestionsPanel({
 
   if (!managerUserId || (!saveTarget && bulkPropertyIds.length === 0)) return null;
 
-  const settingsFooter =
-    !embedInModal && settingsPropertyOptions.length > 0 ? (
-      <PropertyDetailFooterActions>
-        <Button
-          type="button"
-          variant="outline"
-          className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
-          data-attr="property-application-settings-open"
-          onClick={() => setSettingsOpen(true)}
-        >
-          Settings
-        </Button>
-      </PropertyDetailFooterActions>
-    ) : null;
+  const formFilterSheet = !embedInModal ? (
+    <PortalFilterSortSheet
+      activeCount={portalFilterActiveCount([formKindFilter])}
+      compactPanel
+      commandStripTrigger
+      dropdownAlign="start"
+      filterFieldCount={1}
+      mobileFlushBody
+      onReset={() => setFormKindFilter("")}
+      dataAttr="property-application-filter-sheet-open"
+    >
+      <PortalFormSingleSelect
+        label="Form"
+        value={formKindFilter}
+        onChange={setFormKindFilter}
+        options={[
+          { value: "", label: "All forms" },
+          { value: "standard", label: "Long-term" },
+          { value: "short_term", label: "Short-term" },
+          { value: "cosigner", label: "Co-signer" },
+        ]}
+        placeholder="All forms"
+        dataAttr="property-application-filter-kind"
+      />
+    </PortalFilterSortSheet>
+  ) : null;
 
   const catalogBody = (
     <>
-      <PortalPropertyDetailSection contentClassName="space-y-0" actions={settingsFooter}>
-        {templates.map((template) => (
+      <PortalPropertyDetailSection contentClassName="space-y-0">
+        {visibleTemplates.map((template) => (
           <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
             <div className="flex min-w-0 flex-1 items-start gap-3">
               <RowSelectCheckbox
@@ -463,6 +486,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
           open={settingsOpen}
           onClose={() => setSettingsOpen(false)}
           initialTab="applications"
+          initialPane="automation"
           scoped
           scopedTitle="Application"
           propertyOptions={settingsPropertyOptions}
@@ -472,8 +496,54 @@ export function ManagerPropertyApplicationQuestionsPanel({
     </>
   );
 
+  const commandBar = !embedInModal ? (
+    <PropertyFormAutomationCommandBar
+      pane={pane}
+      onPaneChange={setPane}
+      filter={formFilterSheet}
+      onSettings={() => setSettingsOpen(true)}
+      settingsLabel="Application settings"
+      settingsDataAttr="property-application-settings-open"
+      settingsDisabled={settingsPropertyOptions.length === 0}
+      onAdd={openAdd}
+      addLabel="Add application"
+      addDataAttr="property-application-command-add"
+      activeFilterChips={
+        formKindFilter ? (
+          <PortalActiveFilterChips
+            chips={[
+              {
+                id: "form-kind",
+                label:
+                  formKindFilter === "short_term"
+                    ? "Short-term"
+                    : formKindFilter === "cosigner"
+                      ? "Co-signer"
+                      : "Long-term",
+                onRemove: () => setFormKindFilter(""),
+              },
+            ]}
+          />
+        ) : null
+      }
+    />
+  ) : null;
+
+  const automationBody =
+    !embedInModal && pane === "automation" ? (
+      <SettingsModulePage
+        tab="applications"
+        propertyOptions={settingsPropertyOptions}
+        initialPropertyId={settingsPropertyOptions[0]?.id}
+        active
+      />
+    ) : null;
+
   return (
     <>
+      {commandBar}
+      {automationBody}
+      {embedInModal || pane === "form" ? (
       <PortalRecordListSurface className="mt-0 pb-0 max-lg:pb-0" onBulkClear={embedInModal ? undefined : clearSelection} bulkCount={selectedIds.size} bulkActions={!embedInModal && selectedTemplateId ? (
         <>
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
@@ -492,6 +562,7 @@ export function ManagerPropertyApplicationQuestionsPanel({
           </div>
         </>
       ) : null}>{catalogBody}</PortalRecordListSurface>
+      ) : null}
 
       {editorModals}
     </>

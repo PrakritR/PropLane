@@ -70,6 +70,7 @@ describe("vendor income", () => {
         }),
         workOrder({
           id: "wo-pending",
+          title: "Leak repair",
           automationStatus: "vendor_marked_done",
           vendorCostCents: 17_500,
           vendorMarkedDoneAt: "2026-02-01T10:00:00.000Z",
@@ -107,5 +108,21 @@ describe("vendor income", () => {
     );
     expect(row?.payoutStatusLabel).toBe("Payout failed");
     expect(vendorIncomeTotals(filtered).totalCents).toBe(33_000);
+
+    expect(
+      filterVendorIncomeRows(rows, {
+        from: "2026-01-01",
+        to: "2026-12-31",
+        propertyIds: ["prop-b"],
+      }).map((r) => r.id),
+    ).toEqual(["wo-pending"]);
+
+    expect(
+      filterVendorIncomeRows(rows, {
+        from: "2026-01-01",
+        to: "2026-12-31",
+        query: "leak",
+      }).map((r) => r.id),
+    ).toEqual(["wo-pending"]);
   });
 });

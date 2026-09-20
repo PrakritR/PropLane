@@ -35,7 +35,6 @@ export function PromotionDefaultSuggestions({
         <div key={preset.kind} className={PROMOTION_PRESET_ROW_CLASS}>
           <div className="min-w-0 flex-1 text-left">
             <p className="text-sm font-medium text-foreground">{preset.name}</p>
-            <p className="mt-0.5 text-xs text-muted">{preset.description}</p>
           </div>
           <button
             type="button"

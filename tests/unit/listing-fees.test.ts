@@ -163,6 +163,29 @@ describe("listing fees migration", () => {
     expect(longTerm.some((row) => row.title === "Custom lease")).toBe(false);
     expect(shortTerm.some((row) => row.title === "Custom lease")).toBe(true);
   });
+
+  it("keeps a room-and-short-term custom fee out of the long-term lease-basics section", () => {
+    const sub = createDefaultListingSubmission();
+    sub.shortTermRentalsAllowed = true;
+    const roomId = sub.rooms[0]?.id || "room-9";
+    sub.rooms = sub.rooms.map((room, index) => (index === 0 ? { ...room, id: roomId, name: "Room 9" } : room));
+    sub.customFees = [
+      normalizeListingFeeRow({
+        id: "cf-room-9-deposit",
+        label: "Deposit",
+        amount: "100",
+        frequency: "one-time",
+        presetId: "custom",
+        leaseTypes: ["Short-Term Stay"],
+        roomIds: [roomId],
+      }),
+    ];
+    const longTerm = listingFeeRowsForLeaseBasicsSection(sub, "long-term", (v) => `$${v}`);
+    const shortTerm = listingFeeRowsForLeaseBasicsSection(sub, "short-term", (v) => `$${v}`);
+    expect(longTerm.some((row) => row.title.includes("Room 9"))).toBe(false);
+    const row = shortTerm.find((entry) => entry.title.includes("Room 9"));
+    expect(row?.title).toMatch(/Room 9/);
+  });
 });
 
 describe("lease payment at signing", () => {

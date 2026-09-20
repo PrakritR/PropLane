@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { listingGeocodeQuery, parseGeocodeResult, parseNominatimAddressSuggestion } from "@/lib/geocode-address";
+import {
+  listingGeocodeQuery,
+  parseGeocodeResult,
+  parseNominatimAddressSuggestion,
+  rankNominatimAddressSuggestions,
+  shapeNominatimSuggestQuery,
+} from "@/lib/geocode-address";
 
 describe("listingGeocodeQuery", () => {
   it("joins street, city, state, zip, and USA for US zips", () => {
@@ -85,5 +91,109 @@ describe("parseNominatimAddressSuggestion", () => {
       lat: 47.6689,
       lng: -122.3845,
     });
+  });
+});
+
+describe("shapeNominatimSuggestQuery", () => {
+  it("does not rewrite a street into Seattle, WA", () => {
+    expect(shapeNominatimSuggestQuery("123 Main St")).toBe("123 Main St");
+    expect(shapeNominatimSuggestQuery("41932 Paseo Padre")).toBe("41932 Paseo Padre");
+    expect(shapeNominatimSuggestQuery("  5257 Brooklyn   Ave NE ")).toBe("5257 Brooklyn Ave NE");
+  });
+});
+
+describe("rankNominatimAddressSuggestions", () => {
+  const fifteenthAveNw = {
+    place_id: 1,
+    display_name: "15th Avenue Northwest, Ballard, Seattle, WA 98107, USA",
+    lat: "47.6689",
+    lon: "-122.3845",
+    address: {
+      road: "15th Avenue Northwest",
+      neighbourhood: "Ballard",
+      city: "Seattle",
+      state: "Washington",
+      "ISO3166-2-lvl4": "US-WA",
+      postcode: "98107",
+    },
+  };
+  const mainStreet = {
+    place_id: 2,
+    display_name: "123 Main Street, Seattle, WA 98104, USA",
+    lat: "47.601",
+    lon: "-122.334",
+    address: {
+      house_number: "123",
+      road: "Main Street",
+      city: "Seattle",
+      state: "Washington",
+      "ISO3166-2-lvl4": "US-WA",
+      postcode: "98104",
+    },
+  };
+  const seattleCity = {
+    place_id: 3,
+    display_name: "Seattle, King County, Washington, United States",
+    class: "place",
+    type: "city",
+    address: {
+      city: "Seattle",
+      county: "King County",
+      state: "Washington",
+      "ISO3166-2-lvl4": "US-WA",
+    },
+  };
+  const paseoPadre = {
+    place_id: 4,
+    display_name: "41932 Paseo Padre Parkway, Fremont, CA 94538, USA",
+    lat: "37.5485",
+    lon: "-121.9886",
+    address: {
+      house_number: "41932",
+      road: "Paseo Padre Parkway",
+      city: "Fremont",
+      state: "California",
+      "ISO3166-2-lvl4": "US-CA",
+      postcode: "94538",
+    },
+  };
+  const brooklyn = {
+    place_id: 5,
+    display_name: "5257 Brooklyn Avenue Northeast, Seattle, WA 98105, USA",
+    lat: "47.667",
+    lon: "-122.314",
+    address: {
+      house_number: "5257",
+      road: "Brooklyn Avenue Northeast",
+      city: "Seattle",
+      state: "Washington",
+      "ISO3166-2-lvl4": "US-WA",
+      postcode: "98105",
+    },
+  };
+
+  it("ranks 123 Main over a Seattle side street and drops the unmatched road", () => {
+    const ranked = rankNominatimAddressSuggestions("123 Main St", [fifteenthAveNw, mainStreet]);
+    expect(ranked).toHaveLength(1);
+    expect(ranked[0]?.address).toMatch(/123 Main/i);
+  });
+
+  it("drops a city-only hit when the query has digits", () => {
+    expect(rankNominatimAddressSuggestions("123 Main St", [seattleCity])).toEqual([]);
+  });
+
+  it("keeps a Fremont Paseo Padre row without a Seattle rewrite", () => {
+    expect(shapeNominatimSuggestQuery("41932 Paseo Padre")).not.toMatch(/Seattle/i);
+    const ranked = rankNominatimAddressSuggestions("41932 Paseo Padre", [paseoPadre, fifteenthAveNw]);
+    expect(ranked).toHaveLength(1);
+    expect(ranked[0]?.city).toBe("Fremont");
+    expect(ranked[0]?.address).toMatch(/Paseo Padre/i);
+  });
+
+  it("still keeps 5257 Brooklyn as the Seattle house", () => {
+    const ranked = rankNominatimAddressSuggestions("5257 Brooklyn", [brooklyn, fifteenthAveNw]);
+    expect(ranked).toHaveLength(1);
+    expect(ranked[0]?.address).toMatch(/5257 Brooklyn/i);
+    expect(ranked[0]?.city).toBe("Seattle");
   });
 });

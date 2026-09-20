@@ -5,6 +5,8 @@ import {
   classifyBookingListBucket,
   countBookingsByListBucket,
   bookingOccupancyStats,
+  bookingEntryMatchesSearch,
+  filterBookingsBySearch,
   formatBookingStayRange,
 } from "@/lib/channel-calendar/bookings-ui";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
@@ -86,5 +88,20 @@ describe("bookingOccupancyStats", () => {
 describe("formatBookingStayRange", () => {
   it("marks open-ended stays", () => {
     expect(formatBookingStayRange("2026-09-01", "2028-09-01", true)).toContain("onward");
+  });
+});
+
+describe("booking search", () => {
+  it("matches guest, house, room, and dates, and ignores blank queries", () => {
+    const row = entry({ summary: "Maya Zuneh", roomLabel: "Room 3", start: "2026-09-20", end: "2026-09-22" });
+    expect(bookingEntryMatchesSearch(row, "")).toBe(true);
+    expect(bookingEntryMatchesSearch(row, "maya")).toBe(true);
+    expect(bookingEntryMatchesSearch(row, "brooklyn")).toBe(true);
+    expect(bookingEntryMatchesSearch(row, "room 3")).toBe(true);
+    expect(bookingEntryMatchesSearch(row, "sep 20")).toBe(true);
+    expect(bookingEntryMatchesSearch(row, "nobody-here")).toBe(false);
+    expect(filterBookingsBySearch([row, entry({ summary: "Ada" })], "maya").map((r) => r.summary)).toEqual([
+      "Maya Zuneh",
+    ]);
   });
 });

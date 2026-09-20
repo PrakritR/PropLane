@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Modal, ModalFooter } from "@/components/ui/modal";
-import { Button } from "@/components/ui/button";
-import { Input, Select } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
+import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
+import { PreviewPanel, WizardField, WizardSelect } from "@/components/portal/add-workspace/parts";
+import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import type { ManagerServiceResidentOption } from "@/components/portal/pro-create-service-request-modal";
 import {
@@ -12,7 +13,6 @@ import {
   ServiceIntakePhotoPicker,
   type ServiceIntakeFormState,
 } from "@/components/portal/service-intake-form-fields";
-import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { isCurrentResidentApplicationRow } from "@/lib/current-resident";
@@ -199,6 +199,8 @@ export function ManagerAddServiceModal({
   const [autoMessageAssignee, setAutoMessageAssignee] = useState<boolean | null>(null);
   const [assignmentPreview, setAssignmentPreview] = useState<AssignmentPreview | null>(null);
   const [assignmentBusy, setAssignmentBusy] = useState(false);
+  const [stepIdx, setStepIdx] = useState(0);
+  const [stepError, setStepError] = useState<string | null>(null);
   const [form, setForm] = useState<ServiceIntakeFormState>({
     optionKey: "repair:General",
     title: "",
@@ -268,6 +270,8 @@ export function ManagerAddServiceModal({
       setTasks([]);
       setResidentCharge("");
       setForm({ ...createEmptyServiceIntakeFormState([]), entryPermission: "allowed" });
+      setStepIdx(0);
+      setStepError(null);
     });
   }, [open, defaultPropertyId, defaultResident]);
 
@@ -648,188 +652,256 @@ export function ManagerAddServiceModal({
     }
   };
 
+  if (!open) return null;
+
+  const serviceTitle = form.title.trim() || selectedOffer?.name || "Service";
+  const whereIncomplete = !selectedResident;
+  const whatIncomplete = !form.optionKey;
+  const steps: AddWorkspaceStep[] = [
+    {
+      id: "where",
+      label: "Where",
+      summary: whereIncomplete ? "Property and resident" : `${selectedResident?.residentName} · ${selectedProperty?.propertyLabel ?? ""}`,
+      incomplete: whereIncomplete,
+    },
+    {
+      id: "what",
+      label: "What",
+      summary: whatIncomplete ? "Service" : serviceTitle,
+      incomplete: whatIncomplete,
+    },
+    { id: "review", label: "Review", summary: "Ready" },
+  ];
+  const current = Math.min(stepIdx, steps.length - 1);
+  const stepId = steps[current]!.id;
+
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
+    <AddWorkspace
       title="Add service"
-      footer={
-        <ModalFooter>
-          <Button type="button" variant="primary" onClick={() => void submit()} disabled={busy}>
-            {busy ? "Saving…" : "Add service"}
-          </Button>
-        </ModalFooter>
+      steps={steps}
+      current={current}
+      onJump={(index) => {
+        setStepError(null);
+        setStepIdx(index);
+      }}
+      onClose={onClose}
+      onRequestClose={() => {
+        if (assignmentPreview) {
+          if (assignmentBusy) return false;
+          setAssignmentPreview(null);
+          return false;
+        }
+        return true;
+      }}
+      dirty={Boolean(propertyId || residentEmail || form.description.trim() || photos.length)}
+      discardTitle="Discard this service?"
+      assistantContext="Log a service for a resident. Assignment messages wait until you assign someone."
+      assistantScopeKey="Add service"
+      sidePanel={
+        <PreviewPanel
+          title="Service"
+          name={serviceTitle}
+          facts={[
+            { label: "Resident", value: selectedResident?.residentName ?? "—", warn: !selectedResident },
+            { label: "Property", value: selectedProperty?.propertyLabel ?? "—", warn: !selectedProperty },
+            { label: "Priority", value: form.priority },
+          ]}
+          creates={[
+            { tone: "yes", text: selectedResident ? `Logged service for ${selectedResident.residentName}` : "Logged service" },
+            { tone: "no", text: "No assignment message until you assign" },
+          ]}
+        />
+      }
+      lastLabel={busy ? "Saving…" : "Add service"}
+      lastDisabled={busy || whereIncomplete}
+      nextDisabled={(stepId === "where" && whereIncomplete) || (stepId === "what" && whatIncomplete)}
+      onBeforeNext={() => {
+        if (stepId === "where" && whereIncomplete) {
+          setStepError(propertyOptions.length === 0 ? "Add a property first." : "Select a property and resident.");
+          return false;
+        }
+        if (stepId === "what" && whatIncomplete) {
+          setStepError("Choose a service type.");
+          return false;
+        }
+        setStepError(null);
+        return true;
+      }}
+      busy={busy}
+      onFinish={() => void submit()}
+      dataAttrPrefix="manager-add-service"
+      finishDataAttr="manager-add-service-save"
+      footerNote={stepError ? <span className="text-sm text-rose-600">{stepError}</span> : null}
+      overlay={
+        assignmentPreview ? (
+          <PortalNotificationPreviewModal
+            open
+            title={`Message ${assignmentPreview.contact.name}`}
+            onClose={() => {
+              if (assignmentBusy) return;
+              setAssignmentPreview(null);
+            }}
+            recipient={assignmentPreview.contact.email}
+            recipientPhone={assignmentPreview.contact.phone}
+            subject={assignmentPreview.subject}
+            body={assignmentPreview.body}
+            editableSubject
+            editableBody
+            skipMessageLabel="Skip message"
+            showChannelPicker
+            emailAvailable
+            smsAvailable={Boolean(assignmentPreview.contact.phone)}
+            defaultViaSms={false}
+            confirmLabel="Send"
+            confirmBusy={assignmentBusy}
+            confirmBusyLabel="Sending…"
+            onConfirm={(skip, channels, draft) => void sendAssignmentPreview(skip, channels, draft)}
+          />
+        ) : null
       }
     >
-      <div className="space-y-4">
-        {lockedResident ? (
-          <div className="rounded-xl border border-border bg-accent/20 px-3 py-2.5 text-sm">
-            <p className="font-semibold text-foreground">
-              {lockedResident.residentName}
-              {lockedResident.roomLabel ? ` · ${lockedResident.roomLabel}` : ""}
-            </p>
-            <p className="mt-0.5 text-xs text-muted">{lockedResident.propertyLabel}</p>
-          </div>
-        ) : (
-          <>
-            <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-              Property *
-              <Select
+      {stepId === "where" ? (
+        <StepColumn>
+          <StepHeading title="Property and resident" />
+          {propertyOptions.length === 0 ? (
+            <div className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border px-4 py-8">
+              <p className="text-[16px] font-bold">No properties</p>
+            </div>
+          ) : lockedResident ? (
+            <div className="rounded-2xl border border-border bg-card px-4 py-3">
+              <p className="text-[15px] font-bold text-foreground">
+                {lockedResident.residentName}
+                {lockedResident.roomLabel ? ` · ${lockedResident.roomLabel}` : ""}
+              </p>
+              <p className="mt-1 text-[13px] font-semibold text-foreground">{lockedResident.propertyLabel}</p>
+            </div>
+          ) : (
+            <>
+              <WizardSelect
+                label="Property"
                 value={propertyId}
-                onChange={(e) => {
-                  setPropertyId(e.target.value);
+                onChange={(value) => {
+                  setPropertyId(value);
                   setResidentEmail("");
                 }}
-                className="bg-card"
-                data-attr="manager-service-intake-property"
-              >
-                <option value="">Select property</option>
-                {propertyOptions.map((property) => (
-                  <option key={property.propertyId} value={property.propertyId}>
-                    {property.propertyLabel}
-                  </option>
-                ))}
-              </Select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-              Resident *
-              <Select
+                options={propertyOptions.map((property) => ({
+                  value: property.propertyId,
+                  label: property.propertyLabel,
+                }))}
+                placeholder="Select property"
+                dataAttr="manager-service-intake-property"
+                disabled={busy}
+              />
+              <WizardSelect
+                label="Resident"
                 value={residentEmail}
-                onChange={(e) => setResidentEmail(e.target.value)}
-                className="bg-card"
-                disabled={!propertyId}
-                data-attr="manager-service-intake-resident"
-              >
-                <option value="">Select resident</option>
-                {residentsForProperty.map((resident) => (
-                  <option key={resident.residentEmail} value={resident.residentEmail}>
-                    {resident.residentName}
-                    {resident.roomLabel ? ` · ${resident.roomLabel}` : ""}
-                  </option>
-                ))}
-              </Select>
-            </label>
-          </>
-        )}
-
-        <ServiceIntakeFormFields
-          catalogOffers={offersForProperty}
-          form={form}
-          onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
-          disabled={busy}
-          voice="manager"
-          photoSlot={
-            <ServiceIntakePhotoPicker
-              onPick={() => {
-                const input = document.createElement("input");
-                input.type = "file";
-                input.accept = "image/*";
-                input.multiple = true;
-                input.style.cssText = "position:fixed;left:-9999px;top:-9999px;opacity:0;width:0;height:0;";
-                input.setAttribute("tabindex", "-1");
-                input.setAttribute("aria-hidden", "true");
-                input.addEventListener("change", () => {
-                  void (async () => {
-                    const files = input.files;
-                    if (!files?.length) return;
-                    const remaining = 6 - photos.length;
-                    if (remaining <= 0) {
-                      showToast("Up to 6 photos.");
-                      return;
-                    }
-                    const next = [...photos];
-                    for (let i = 0; i < Math.min(files.length, remaining); i++) {
-                      const file = files[i];
-                      if (!file?.type.startsWith("image/")) {
-                        showToast("Images only.");
+                onChange={setResidentEmail}
+                options={residentsForProperty.map((resident) => ({
+                  value: resident.residentEmail,
+                  label: resident.roomLabel ? `${resident.residentName} · ${resident.roomLabel}` : resident.residentName,
+                }))}
+                placeholder={!propertyId ? "Select property first" : residentsForProperty.length === 0 ? "No residents at this property" : "Select resident"}
+                disabled={busy || !propertyId}
+                dataAttr="manager-service-intake-resident"
+              />
+            </>
+          )}
+        </StepColumn>
+      ) : null}
+      {stepId === "what" ? (
+        <StepColumn>
+          <StepHeading title="Service" />
+          <ServiceIntakeFormFields
+            catalogOffers={offersForProperty}
+            form={form}
+            onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
+            disabled={busy}
+            voice="manager"
+            photoSlot={
+              <ServiceIntakePhotoPicker
+                onPick={() => {
+                  const input = document.createElement("input");
+                  input.type = "file";
+                  input.accept = "image/*";
+                  input.multiple = true;
+                  input.style.cssText = "position:fixed;left:-9999px;top:-9999px;opacity:0;width:0;height:0;";
+                  input.setAttribute("tabindex", "-1");
+                  input.setAttribute("aria-hidden", "true");
+                  input.addEventListener("change", () => {
+                    void (async () => {
+                      const files = input.files;
+                      if (!files?.length) return;
+                      const remaining = 6 - photos.length;
+                      if (remaining <= 0) {
+                        showToast("Up to 6 photos.");
                         return;
                       }
-                      next.push(
-                        await new Promise<string>((resolve, reject) => {
-                          const reader = new FileReader();
-                          reader.onload = () => resolve(String(reader.result ?? ""));
-                          reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
-                          reader.readAsDataURL(file);
-                        }),
-                      );
-                    }
-                    setPhotos(next);
-                  })();
-                  input.remove();
-                });
-                document.body.appendChild(input);
-                input.click();
-              }}
-              disabled={busy}
-            />
-          }
-        />
-
-        {/* Every kind can be assigned. `work-assignment.ts` decides who is offered:
-            vendors take maintenance, teammates take anything. */}
-        <WorkAssignmentPicker
-          kind={selectedIntakeKind === "repair" ? "maintenance" : "service"}
-          teamMembers={teamMembers}
-          vendors={vendors}
-          value={assignee}
-          onChange={setAssignee}
-          disabled={busy}
-          dataAttr="manager-add-service-assignee"
-        />
-
-        <ServiceTasksField tasks={tasks} onChange={setTasks} disabled={busy} dataAttr="manager-add-service-task" />
-
-        {selectedOffer ? (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-              Price
-              <Input value={requestPrice} onChange={(e) => setRequestPrice(e.target.value)} className="bg-card" />
-            </label>
-            <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-              Deposit
-              <Input value={requestDeposit} onChange={(e) => setRequestDeposit(e.target.value)} className="bg-card" />
-            </label>
-          </div>
-        ) : (
-          <label className="flex flex-col gap-1 text-xs font-medium text-muted">
-            Resident charge
-            <Input
-              value={residentCharge}
-              onChange={(e) => setResidentCharge(e.target.value)}
-              placeholder="$0.00 — leave blank if no charge"
-              inputMode="decimal"
-              className="bg-card"
-              disabled={busy}
-              data-attr="manager-add-service-resident-charge"
-            />
-          </label>
-        )}
-      </div>
-      {assignmentPreview ? (
-        <PortalNotificationPreviewModal
-          open
-          title={`Message ${assignmentPreview.contact.name}`}
-          onClose={() => {
-            if (assignmentBusy) return;
-            setAssignmentPreview(null);
-          }}
-          recipient={assignmentPreview.contact.email}
-          recipientPhone={assignmentPreview.contact.phone}
-          subject={assignmentPreview.subject}
-          body={assignmentPreview.body}
-          editableSubject
-          editableBody
-          skipMessageLabel="Skip message"
-          showChannelPicker
-          emailAvailable
-          smsAvailable={Boolean(assignmentPreview.contact.phone)}
-          defaultViaSms={false}
-          confirmLabel="Send"
-          confirmBusy={assignmentBusy}
-          confirmBusyLabel="Sending…"
-          onConfirm={(skip, channels, draft) => void sendAssignmentPreview(skip, channels, draft)}
-        />
+                      const next = [...photos];
+                      for (let i = 0; i < Math.min(files.length, remaining); i++) {
+                        const file = files[i];
+                        if (!file?.type.startsWith("image/")) {
+                          showToast("Images only.");
+                          return;
+                        }
+                        next.push(
+                          await new Promise<string>((resolve, reject) => {
+                            const reader = new FileReader();
+                            reader.onload = () => resolve(String(reader.result ?? ""));
+                            reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+                            reader.readAsDataURL(file);
+                          }),
+                        );
+                      }
+                      setPhotos(next);
+                    })();
+                    input.remove();
+                  });
+                  document.body.appendChild(input);
+                  input.click();
+                }}
+                disabled={busy}
+              />
+            }
+          />
+          <ServiceTasksField tasks={tasks} onChange={setTasks} disabled={busy} dataAttr="manager-add-service-task" />
+          {selectedOffer ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <WizardField label="Price">
+                <Input value={requestPrice} onChange={(e) => setRequestPrice(e.target.value)} className="bg-card" />
+              </WizardField>
+              <WizardField label="Deposit">
+                <Input value={requestDeposit} onChange={(e) => setRequestDeposit(e.target.value)} className="bg-card" />
+              </WizardField>
+            </div>
+          ) : (
+            <WizardField label="Resident charge">
+              <Input
+                value={residentCharge}
+                onChange={(e) => setResidentCharge(e.target.value)}
+                inputMode="decimal"
+                className="bg-card"
+                disabled={busy}
+                data-attr="manager-add-service-resident-charge"
+              />
+            </WizardField>
+          )}
+        </StepColumn>
       ) : null}
-    </Modal>
+      {stepId === "review" ? (
+        <StepColumn>
+          <StepHeading title="Review" />
+          <PreviewPanel
+            title="Service"
+            name={serviceTitle}
+            facts={[
+              { label: "Resident", value: selectedResident?.residentName ?? "—" },
+              { label: "Property", value: selectedProperty?.propertyLabel ?? "—" },
+              { label: "Priority", value: form.priority },
+            ]}
+            creates={[{ tone: "yes", text: "Logs a manager-initiated service" }]}
+          />
+        </StepColumn>
+      ) : null}
+    </AddWorkspace>
   );
 }

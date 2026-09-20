@@ -70,8 +70,9 @@ RevenueCat fulfillment need separate setup before native top-ups can be offered;
 ## Billing & plan and saved cards
 
 Settings → Billing & plan owns the current plan, payment methods, communication
-balance, top-up checkout, usage history and budget alerts. Communication settings
-owns work-number setup and controls only.
+balance, Buy credit checkout, usage, and Alert at. Promo codes belong on checkout
+(and signup), not on that page. Communication settings owns work-number setup:
+a free trial must Activate paid plan first; FREE100 / waiver counts as paid.
 
 `/api/manager/payment-methods` lists masked cards, opens Stripe Checkout in `setup`
 mode, and sets an explicitly selected default. Setup collects no payment. Stripe

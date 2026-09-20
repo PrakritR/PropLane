@@ -9,18 +9,17 @@ export const vendorPortal: PortalDefinition = {
   sections: [
     { section: "dashboard", label: "Dashboard", tabs: [] },
     { section: "work-orders", label: "Services", tabs: [] },
-    { section: "tasks", label: "Tasks", tabs: [] },
     { section: "calendar", label: "Calendar", tabs: [] },
-    { section: "communication", label: "Inbox", tabs: [] },
+    { section: "communication", label: "Communication", tabs: [] },
     {
       section: "financials",
       label: "Finances",
       tabs: [
         { id: "income", label: "Income" },
         { id: "invoices", label: "Invoices" },
+        { id: "payouts", label: "Payouts" },
       ],
     },
-    { section: "payments", label: "Payments", tabs: [] },
     {
       section: "documents",
       label: "Documents",
@@ -42,12 +41,11 @@ export const vendorPortal: PortalDefinition = {
 export const VENDOR_PORTAL_SMOKE_PATHS = [
   { label: "Dashboard", path: "/vendor/dashboard" },
   { label: "Services", path: "/vendor/work-orders" },
-  { label: "Tasks", path: "/vendor/tasks" },
   { label: "Calendar", path: "/vendor/calendar" },
-  { label: "Inbox", path: "/vendor/communication/active" },
+  { label: "Communication", path: "/vendor/communication/active" },
   { label: "Finances", path: "/vendor/financials/income" },
   { label: "Invoices", path: "/vendor/financials/invoices" },
-  { label: "Payments", path: "/vendor/payments" },
+  { label: "Payouts", path: "/vendor/financials/payouts" },
   { label: "Documents", path: "/vendor/documents/mine" },
   { label: "Settings", path: "/vendor/profile" },
 ] as const;

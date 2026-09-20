@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ManagerAddListingForm } from "@/components/portal/pro-add-listing-form";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { CreateWorkspace } from "@/components/portal/listing-wizard-v2/create-workspace";
 import { ListingWizardOverlay } from "@/components/portal/listing-wizard-v2/wizard-overlay";
 import {
@@ -14,12 +14,7 @@ import {
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { Settings2, Share2 } from "lucide-react";
-import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
-import {
-  getSettingsEntryPoint,
-  settingsDialogTitlePrefix,
-} from "@/components/portal/settings-entry-points";
+import { Share2 } from "lucide-react";
 import {
   ManagerPortalPageShell,
 } from "@/components/portal/portal-metrics";
@@ -35,13 +30,15 @@ import {
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { readAdminPropertyRows } from "@/lib/demo-admin-property-inventory";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
+import { resolveAddPropertyWorkspaceAction } from "@/lib/workspaces/add-property-gate";
 import {
   countManagerManagedPropertiesForUser,
   mirrorLocalPropertyPipelineToServer,
   PROPERTY_PIPELINE_EVENT,
 } from "@/lib/demo-property-pipeline";
 import { collectLinkedPropertyIds, syncManagerPortfolioFromServer } from "@/lib/manager-portfolio-access";
-import { accountLinksKnown, fetchAccountLinksCached } from "@/lib/portal-data-store";
+import { accountLinksKnown, fetchAccountLinksCached, readCachedAccountLinkInvites } from "@/lib/portal-data-store";
+import { hasIncomingAcceptedTeamLink } from "@/lib/workspace-co-manager-permissions";
 import { isServerSyncOriginatedEvent } from "@/lib/property-pipeline-events";
 import { buildManagerShareablePropertyOptions } from "@/lib/manager-property-links";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
@@ -66,7 +63,36 @@ import {
   writePendingFirstListingAutoOpen,
 } from "@/lib/manager-first-listing-onboarding";
 
-const propertiesSettingsEntry = getSettingsEntryPoint("properties");
+/**
+ * Adding a property from a co-managed workspace was refused by the records API
+ * (403 "Select an owned workspace before adding a property.") only AFTER the
+ * manager filled in the whole form — the cause of the repeating save toast in
+ * PLAN-0916-1119. The gate below switches to an owned workspace before the
+ * editor opens; a switch remounts this page (WorkspaceProvider keys its
+ * children on the active workspace id), so the intent to open Add is handed to
+ * the fresh mount through sessionStorage, the same pattern the first-listing
+ * auto-open uses across a stage-change remount.
+ */
+const PENDING_ADD_AFTER_SWITCH_KEY = "proplane:add-property-after-workspace-switch";
+function writePendingAddAfterSwitch(userId: string | null) {
+  try {
+    if (userId) window.sessionStorage.setItem(PENDING_ADD_AFTER_SWITCH_KEY, userId);
+  } catch {
+    /* private mode / storage blocked — the switch still happens, just no auto-open */
+  }
+}
+function takePendingAddAfterSwitch(userId: string | null): boolean {
+  try {
+    const pending = window.sessionStorage.getItem(PENDING_ADD_AFTER_SWITCH_KEY);
+    if (pending && pending === userId) {
+      window.sessionStorage.removeItem(PENDING_ADD_AFTER_SWITCH_KEY);
+      return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
 
 export function ManagerProperties({
   stage: stageProp = "listed",
@@ -85,6 +111,7 @@ export function ManagerProperties({
 }) {
   const { showToast } = useAppUi();
   const router = useRouter();
+  const workspaces = useWorkspaces();
   const { userId, email } = useManagerUserId();
   const scopeUserId = resolveManagerScopeUserId(userId);
   const [skuLoaded, setSkuLoaded] = useState(false);
@@ -92,28 +119,16 @@ export function ManagerProperties({
   const [propCount, setPropCount] = useState(0);
   const [wizardOpen, setWizardOpen] = useState(false);
   /**
-   * The redesigned wizard is the default. `?wizard=v1` falls back to the previous
-   * one, which stays in the tree as an escape hatch while the new flow settles.
+   * Create is one door: CreateWorkspace. `?wizard=v2` still opens it straight
+   * away so review can skip the ADD affordance (which turns into a paywall
+   * link at the plan limit). Publishing is still gated in useListingPersistence.
    *
    * Read from `window` rather than `useSearchParams` so this component does not
    * acquire a Suspense boundary it does not otherwise need.
-   *
-   * It starts as `null` — "not decided yet" — so the first paint renders NEITHER
-   * wizard. Defaulting either way would flash the wrong editor for a moment at
-   * the one time a manager is watching the screen most closely.
    */
-  const [useV2Wizard, setUseV2Wizard] = useState<boolean | null>(null);
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    // The redesigned workspace is what everybody gets. `?wizard=v1` is the way
-    // back to the original form while it is still in the tree, and `?wizard=v2`
-    // still opens the redesign straight away — that is how it is reviewed
-    // without going through the ADD affordance, which turns into a paywall link
-    // once a manager is at their plan limit. Publishing is still gated:
-    // useListingPersistence pre-checks the plan and the server re-checks it.
-    setUseV2Wizard(params.get("wizard") !== "v1");
-    if (params.get("wizard") === "v2") setWizardOpen(true);
+    if (new URLSearchParams(window.location.search).get("wizard") === "v2") setWizardOpen(true);
   }, []);
   /** Resume the seeded / first draft in the wizard (PRP-396). */
   const [resumeDraftId, setResumeDraftId] = useState<string | null>(null);
@@ -143,7 +158,6 @@ export function ManagerProperties({
   const [portfolioTick, setPortfolioTick] = useState(0);
   const firstListingSeedAttemptedRef = useRef(false);
   const [shareListingOpen, setShareListingOpen] = useState(false);
-  const [listSettingsOpen, setListSettingsOpen] = useState(false);
   const [listSearch, setListSearch] = useState("");
   const [shareListingPropertyId, setShareListingPropertyId] = useState<string | undefined>();
   /** Several selected listings, for a bulk share from the Properties list (AXI-140). */
@@ -243,7 +257,10 @@ export function ManagerProperties({
           portfolioSynced &&
           !propertyKeyProp &&
           !firstListingSeedAttemptedRef.current &&
-          !shouldSkipFirstListingOnboarding({ email })
+          !shouldSkipFirstListingOnboarding({
+            email,
+            incomingTeam: hasIncomingAcceptedTeamLink(readCachedAccountLinkInvites()),
+          })
         ) {
           firstListingSeedAttemptedRef.current = true;
           // Wait for a real answer about co-manager links before judging the
@@ -261,6 +278,7 @@ export function ManagerProperties({
             email,
             portfolioSynced,
             coManagerLinksKnown: linksKnown,
+            incomingTeam: hasIncomingAcceptedTeamLink(readCachedAccountLinkInvites()),
           });
           if (seeded) {
             setPropCount(countManagerManagedPropertiesForUser(scopeUserId));
@@ -380,11 +398,51 @@ export function ManagerProperties({
     }
     return true;
   };
+  /**
+   * "Add property" can only save into a workspace the manager OWNS (the records
+   * API refuses a co-managed one). Resolve that BEFORE the editor opens rather
+   * than after the form is filled in. Returns true when the editor may open now.
+   */
+  const ensureOwnedWorkspaceForAdd = (): boolean => {
+    const action = resolveAddPropertyWorkspaceAction(workspaces);
+    switch (action.kind) {
+      case "open":
+        return true;
+      case "wait":
+        return false;
+      case "no-owned":
+        showToast("You need a workspace you own to add a property.");
+        return false;
+      case "switch":
+        // Silent switch to the one owned workspace, then re-open Add on the
+        // fresh mount the switch triggers.
+        writePendingAddAfterSwitch(userId);
+        void workspaces!.select(action.workspaceId, { href: false }).catch((e) => {
+          takePendingAddAfterSwitch(userId);
+          showToast(e instanceof Error ? e.message : "Could not switch workspace.");
+        });
+        return false;
+      case "ask-pick":
+        // Several owned workspaces: the manager chooses which. The switcher in
+        // the sidebar / top bar is the one picker — point them at it rather than
+        // opening an editor that cannot save here.
+        showToast("Pick a workspace you own to add a property.");
+        return false;
+    }
+  };
+
   const tryOpenAdd = () => {
     if (!canOpenAdd()) return;
+    if (!ensureOwnedWorkspaceForAdd()) return;
     // Prefer resuming the first-listing draft when that is the only work left.
     const snap = readFirstListingPortfolioSnapshot(scopeUserId);
-    if (managerNeedsFirstListingOnboarding(snap) && !shouldSkipFirstListingOnboarding({ email })) {
+    if (
+      managerNeedsFirstListingOnboarding(snap) &&
+      !shouldSkipFirstListingOnboarding({
+        email,
+        incomingTeam: hasIncomingAcceptedTeamLink(readCachedAccountLinkInvites()),
+      })
+    ) {
       const draftId = readAdminPropertyRows(5, scopeUserId)[0]?.adminRefId?.trim() || null;
       if (draftId) {
         setResumeDraftId(draftId);
@@ -395,6 +453,19 @@ export function ManagerProperties({
     setResumeDraftId(null);
     setWizardOpen(true);
   };
+  // After a workspace switch triggered by "Add property" from a co-managed
+  // workspace, the page remounts under the now-owned workspace; re-open Add here
+  // (once the plan tier is known so canOpenAdd can pass).
+  const pendingAddAfterSwitchRef = useRef(false);
+  useEffect(() => {
+    if (userId && takePendingAddAfterSwitch(userId)) pendingAddAfterSwitchRef.current = true;
+  }, [userId]);
+  useEffect(() => {
+    if (!pendingAddAfterSwitchRef.current || !skuLoaded) return;
+    pendingAddAfterSwitchRef.current = false;
+    tryOpenAdd();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skuLoaded]);
   useEffect(() => {
     if (!isDemoModeActive()) return;
     const onOpen = () => tryOpenAdd();
@@ -486,12 +557,6 @@ export function ManagerProperties({
             actions={
               <>
                 <PortalIconAction
-                  icon={Settings2}
-                  label={propertiesSettingsEntry.label}
-                  data-attr={propertiesSettingsEntry.dataAttr}
-                  onClick={() => setListSettingsOpen(true)}
-                />
-                <PortalIconAction
                   icon={Share2}
                   label="Share listing link"
                   data-attr="manager-properties-share-open"
@@ -513,12 +578,6 @@ export function ManagerProperties({
               />
             }
           />
-          <ManagerPortalSettingsModal
-            open={listSettingsOpen}
-            onClose={() => setListSettingsOpen(false)}
-            initialTab="properties"
-            scopedTitle={settingsDialogTitlePrefix(propertiesSettingsEntry)}
-          />
           {atPropertyLimit && limitMax != null ? (
             <p className="mb-4 shrink-0 rounded-2xl border px-4 py-3 text-sm portal-banner-danger lg:mb-4">
               You&apos;ve reached your plan limit of {limitMax} propert{limitMax === 1 ? "y" : "ies"}.
@@ -534,7 +593,7 @@ export function ManagerProperties({
           {listPanel}
         </ManagerPortalPageShell>
       )}
-      {wizardOpen && useV2Wizard === true ? (
+      {wizardOpen ? (
         /*
          * The redesigned listing workspace — a step rail, the form, and a panel
          * that shows what the manager just changed. It writes the same
@@ -560,9 +619,9 @@ export function ManagerProperties({
               void refreshPending();
             }}
             onSaved={(_sub, savedId) => {
-              // The editor autosaves two seconds after every change. A save
-              // never closes it — that used to bounce a manager to the draft's
-              // preview four seconds into typing. The id is kept for the close.
+              // The editor saves on ✕ (and on Review Save / Publish), never on a
+              // typing timer. A save never closes it. The id is kept for when the
+              // close callback fires so it lands on the right draft.
               if (savedId?.trim()) lastSavedDraftIdRef.current = savedId.trim();
               void refreshPending();
             }}
@@ -587,37 +646,6 @@ export function ManagerProperties({
             propertyCount={propCount}
           />
         </ListingWizardOverlay>
-      ) : wizardOpen && useV2Wizard === false ? (
-        <ManagerAddListingForm
-          key={resumeDraftId ?? "new-listing"}
-          onClose={dismissFirstListingWizard}
-          onSubmitted={(listingId) => {
-            setWizardOpen(false);
-            setResumeDraftId(null);
-            showToast("Listing submitted and published.");
-            // Open the listing the manager just made instead of leaving them on
-            // whichever stage they started from — after publishing the seeded
-            // draft that stage is Drafts, which no longer holds the row, so the
-            // reward for finishing the wizard was an empty list (PRP-429). The
-            // publish helpers force a pipeline sync before resolving, but the
-            // local catalog is re-read here anyway before the push so the detail
-            // page never renders against a stale snapshot.
-            void refreshPending().then(() => {
-              const id = listingId?.trim();
-              if (!id) return;
-              router.push(propertyDetailHref(basePath, "listed", id, "preview"), {
-                scroll: false,
-              });
-            });
-          }}
-          showToast={showToast}
-          skuTier={skuTier}
-          propCountBeforeSubmit={propCount}
-          editDraftId={resumeDraftId}
-          initialSubmission={resumeDraftRow?.submission ?? null}
-          initialStepIndex={resumeDraftRow?.draftStepIndex ?? null}
-          initialMaxStepReached={resumeDraftRow?.draftMaxStepReached ?? null}
-        />
       ) : null}
       <ShareLeadLinkModal
         open={shareListingOpen}

@@ -136,6 +136,8 @@ import {
   shouldSkipFirstListingOnboarding,
 } from "@/lib/manager-first-listing-onboarding";
 import { syncManagerPortfolioFromServer } from "@/lib/manager-portfolio-access";
+import { fetchAccountLinksCached, readCachedAccountLinkInvites } from "@/lib/portal-data-store";
+import { hasIncomingAcceptedTeamLink } from "@/lib/workspace-co-manager-permissions";
 import { propertyListHref } from "@/lib/portal-detail-routes";
 import { MANAGER_ATTENTION_MAX_ROWS, buildManagerAttentionRows } from "@/lib/manager-attention-queue";
 import {
@@ -654,6 +656,21 @@ export function ManagerDashboard({ displayName: _displayName = "there" }: { disp
     }
     let cancelled = false;
     void (async () => {
+      try {
+        await fetchAccountLinksCached();
+      } catch {
+        /* empty cache stays empty until a later sync */
+      }
+      if (cancelled) return;
+      if (
+        shouldSkipFirstListingOnboarding({
+          email,
+          incomingTeam: hasIncomingAcceptedTeamLink(readCachedAccountLinkInvites()),
+        })
+      ) {
+        setShowFirstListingBanner(false);
+        return;
+      }
       let portfolioSynced = false;
       try {
         portfolioSynced = await syncManagerPortfolioFromServer(userId, { force: true });

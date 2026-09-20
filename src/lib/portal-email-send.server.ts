@@ -14,16 +14,18 @@
  * One recipient goes through POST /emails; more go through POST /emails/batch
  * in chunks of 100 (the batch cap), keeping a broadcast at ~1 HTTP call under
  * Resend's low request rate limit. Attachments are unsupported on batch and
- * unused here. Notification emails (reminders, invites, …) still use their own
- * inline sends — extend them onto this helper deliberately, not by default.
+ * unused here. Manager-originated notification emails (reminders, invites, …)
+ * resolve From through `managerOutboundFromHeader` so they leave on the
+ * workspace work email. Auth mail and alerts *to* a manager stay on the
+ * shared sender.
  */
 import {
   buildReplyAddress,
   conversationAnchorMessageId,
 } from "@/lib/inbound-email/reply-address.server";
+import { sharedPortalFromAddress } from "@/lib/manager-outbound-identity.server";
 
 const RESEND_BATCH_LIMIT = 100;
-const DEFAULT_FROM = "PropLane <onboarding@resend.dev>";
 
 export type ConversationEmailResult = { sent: boolean; resendId: string | null };
 
@@ -59,7 +61,7 @@ export async function sendPortalConversationEmails(opts: {
   if (!apiKey || opts.toEmails.length === 0) return results;
   // The manager's own work email wins when they have one; the shared sender is the fallback
   // for managers who have not set one up and for every non-manager sender.
-  const from = opts.fromAddress?.trim() || process.env.RESEND_FROM?.trim() || DEFAULT_FROM;
+  const from = opts.fromAddress?.trim() || sharedPortalFromAddress();
   const domain = fromDomain(from);
 
   const payloads = opts.toEmails.map((email) => {

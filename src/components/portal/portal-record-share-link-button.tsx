@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalRecordShareModal } from "@/components/portal/portal-record-share-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -21,6 +23,8 @@ type Props = {
   disabled?: boolean;
   /** Render inside a dropdown menu instead of a standalone button. */
   menuItem?: boolean;
+  /** Round icon in the record header — no visible word. */
+  icon?: boolean;
   recordTitle?: string;
 };
 
@@ -40,6 +44,7 @@ export function PortalRecordShareLinkButton({
   dataAttr,
   disabled = false,
   menuItem = false,
+  icon = false,
   recordTitle,
 }: Props) {
   const { showToast } = useAppUi();
@@ -67,6 +72,14 @@ export function PortalRecordShareLinkButton({
         >
           {label}
         </DropdownMenuItem>
+      ) : icon ? (
+        <PortalIconAction
+          icon={Share2}
+          label={label}
+          data-attr={dataAttr}
+          disabled={disabled}
+          onClick={openShare}
+        />
       ) : (
         <Button
           type="button"

@@ -12,7 +12,7 @@ import { RESIDENT_SYSTEM_PROMPT } from "@/lib/agent/resident-system-prompt";
 describe("PRP-133: assistant payment-system context", () => {
   it("teaches the manager assistant where the money lands and who bears the fee", () => {
     expect(SYSTEM_PROMPT).toContain("connected Stripe account");
-    expect(SYSTEM_PROMPT).toContain("Settings > Payment setup");
+    expect(SYSTEM_PROMPT).toContain("Settings > Payments > Payment setup");
     // Pass-through, never a markup — a manager asking "what do you charge me"
     // must not be told a made-up percentage.
     expect(SYSTEM_PROMPT).toContain("never a PropLane markup");

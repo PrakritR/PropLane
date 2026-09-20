@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ManagerEditLeasesModal } from "@/components/portal/pro-edit-leases-modal";
 import { ManagerAddLeaseModal } from "@/components/portal/pro-add-lease-modal";
 import { ManagerLeasesPipelinePanel } from "@/components/portal/pro-leases-pipeline-panel";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
@@ -18,8 +17,7 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
-import { Settings2 } from "lucide-react";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { Settings } from "lucide-react";
 import type { ManagerLeaseTab } from "@/data/demo-portal";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -56,7 +54,6 @@ export function ManagerLeases({
   basePath?: string;
   leaseId?: string;
 }) {
-  const { showToast } = useAppUi();
   const navigate = usePortalNavigate();
   const { userId, ready: authReady } = useManagerUserId();
   const [tab, setTab] = useState<ManagerLeaseTab>(tabProp);
@@ -70,7 +67,6 @@ export function ManagerLeases({
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
   const [residentAccountEmails, setResidentAccountEmails] = useState<Set<string>>(new Set());
   const [clientReady, setClientReady] = useState(false);
-  const [editLeasesOpen, setEditLeasesOpen] = useState(false);
   const [shareLeasesOpen, setShareLeasesOpen] = useState(false);
   const [addLeaseOpen, setAddLeaseOpen] = useState(false);
   const [leaseSettingsOpen, setLeaseSettingsOpen] = useState(false);
@@ -175,11 +171,6 @@ export function ManagerLeases({
     [counts],
   );
 
-  const editablePropertyOptions = useMemo(() => {
-    void propertyTick;
-    return buildManagerPropertyFilterOptions(userId);
-  }, [userId, propertyTick]);
-
   const shareableProperties = useMemo(() => {
     void propertyTick;
     return buildManagerShareablePropertyOptions(userId);
@@ -206,13 +197,13 @@ export function ManagerLeases({
     </PortalFilterSortSheet>
   );
 
-  // Edit lives under Settings ("Edit lease configuration") — the toolbar is one
+  // Lease form lives inside Settings (Form | Automation) — the toolbar is one
   // row of plain icons.
   const leasesListActions = (
     <>
       {leasesFilterSheet}
       <PortalIconAction
-        icon={Settings2}
+        icon={Settings}
         label={leasesSettingsEntry.label}
         data-attr={leasesSettingsEntry.dataAttr}
         onClick={() => setLeaseSettingsOpen(true)}
@@ -226,14 +217,6 @@ export function ManagerLeases({
 
   const modals = (
     <>
-      <ManagerEditLeasesModal
-        open={editLeasesOpen}
-        onClose={() => setEditLeasesOpen(false)}
-        propertyOptions={editablePropertyOptions}
-        managerUserId={userId}
-        onSaved={() => setPropertyTick((n) => n + 1)}
-        showToast={showToast}
-      />
       <ShareLeadLinkModal
         open={shareLeasesOpen}
         onClose={() => setShareLeasesOpen(false)}
@@ -254,12 +237,7 @@ export function ManagerLeases({
         scopedTitle={settingsDialogTitlePrefix(leasesSettingsEntry)}
         propertyOptions={propertyOptions}
         initialPropertyId={propertyFilters.length === 1 ? propertyFilters[0] : undefined}
-        editAction={{
-          label: "Edit lease configuration",
-          description: "Templates, terms, and signing settings per property.",
-          dataAttr: "leases-edit-open",
-          onSelect: () => setEditLeasesOpen(true),
-        }}
+        onFormSaved={() => setPropertyTick((n) => n + 1)}
       />
     </>
   );

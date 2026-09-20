@@ -34,8 +34,6 @@ export function isHiddenFromMobileNav(kind: PortalKind, section: string): boolea
   if (section === "profile") return true;
   // App download page: reachable from Settings, never a nav destination.
   if (section === "app" && (kind === "manager" || kind === "pro")) return true;
-  // Vendor tasks sit inside Services.
-  if (section === "tasks" && kind === "vendor") return true;
   // Manager team management lives in Settings.
   if (section === "teams" && (kind === "manager" || kind === "pro")) return true;
   return false;
@@ -75,11 +73,10 @@ const RESIDENT_GROUPS: NavGroupConfig[] = [
 ];
 
 const VENDOR_GROUPS: NavGroupConfig[] = [
-  { id: "home", label: null, sections: ["dashboard"] },
-  // Vendor tasks live inside Services (a tab there); the route stays but is not a row.
+  { id: "workspace", label: "Workspace", sections: ["dashboard"] },
   { id: "work", label: "Work", sections: ["work-orders", "calendar"] },
   { id: "operations", label: "Operations", sections: ["communication"] },
-  { id: "finances", label: "Finances", sections: ["financials", "payments", "documents"] },
+  { id: "finances", label: "Finances", sections: ["financials", "documents"] },
 ];
 
 export const PORTAL_NAV_GROUPS: Record<PortalKind, NavGroupConfig[]> = {
@@ -128,8 +125,6 @@ export function groupNavItems<T extends { section: string }>(
     (i) =>
       !assigned.has(i.section) &&
       !SIDEBAR_EXCLUDED_SECTIONS.has(i.section) &&
-      // Vendor tasks are a Services tab, not a row; the route stays reachable.
-      !(kind === "vendor" && i.section === "tasks") &&
       // Manager Teams moved into Settings (Workspaces / Team / Vendors).
       !((kind === "manager" || kind === "pro") && i.section === "teams"),
   );

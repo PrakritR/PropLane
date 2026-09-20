@@ -528,6 +528,7 @@ export function MessageStep({
   smsAvailable,
   linkLabel = "Copy a link",
   dataAttr = "add-message",
+  fixedBody,
 }: {
   who: string;
   draft: MessageDraft;
@@ -536,6 +537,8 @@ export function MessageStep({
   smsAvailable: boolean;
   linkLabel?: string;
   dataAttr?: string;
+  /** When the server composes the message (it carries a secure link), say so instead of an editor. */
+  fixedBody?: string;
 }) {
   const options = MESSAGE_CHANNEL_OPTIONS.map((o) => ({
     ...o,
@@ -563,7 +566,8 @@ export function MessageStep({
           dataAttr={`${dataAttr}-when`}
         />
       </WizardRow>
-      {!quiet ? (
+      {!quiet && fixedBody ? <div className="mt-3"><WizardLine label={fixedBody} chip={<WizardChip>secure link</WizardChip>} /></div> : null}
+      {!quiet && !fixedBody ? (
         <div className="mt-3 grid gap-3">
           <WizardField label="Subject">
             <Input value={draft.subject} onChange={(e) => onChange({ ...draft, subject: e.target.value })} data-attr={`${dataAttr}-subject`} />

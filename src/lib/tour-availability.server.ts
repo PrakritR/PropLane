@@ -255,6 +255,13 @@ type ScheduleRecordRow = {
   row_data: unknown;
 };
 
+type ActiveTourReservationRow = {
+  manager_user_id: string | null;
+  slot_key: string | null;
+  starts_at: string | null;
+  ends_at: string | null;
+};
+
 type PropertyManagerEntry = {
   userId: string;
   label: string;
@@ -307,7 +314,7 @@ export type ListOpenTourSlotsResult =
  */
 export async function listOpenTourSlots(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
-  args: { propertyId: string; buildingName?: string | null; address?: string | null },
+  args: { propertyId: string; buildingName?: string | null; address?: string | null; publishedOnly?: boolean },
 ): Promise<ListOpenTourSlotsResult> {
   const propertyId = args.propertyId.trim();
   if (!propertyId) return { ok: false, error: "propertyId required" };
@@ -529,9 +536,11 @@ export async function listOpenTourSlots(
       slots: resolveTourOfferingSlots(
         publishedSlotsByManager.get(managerUserId) ?? [],
         Date.now(),
-        managerTourSettingsToDefaultAvailability(
-          settingsByManager.get(managerUserId) ?? DEFAULT_MANAGER_TOUR_SETTINGS,
-        ),
+        args.publishedOnly
+          ? { startSlot: 0, endSlotExclusive: 1, horizonDays: 7, enabled: false }
+          : managerTourSettingsToDefaultAvailability(
+              settingsByManager.get(managerUserId) ?? DEFAULT_MANAGER_TOUR_SETTINGS,
+            ),
       ),
     }));
 
@@ -576,6 +585,27 @@ export async function listOpenTourSlots(
         if (!start || !end) continue;
         const blocks = blockedSlotsByManager.get(managerUserId) ?? [];
         blocks.push({ start, end, slotKey: textField(event, "slotKey") || undefined });
+        blockedSlotsByManager.set(managerUserId, blocks);
+      }
+
+      // The reservation table is the atomic booking authority. The shared
+      // planned-event singleton is a read model and can lag or be damaged; an
+      // active reservation must still close its host's slot or a prospect is
+      // repeatedly offered a time the booking RPC will deterministically
+      // reject.
+      const { data: reservationRows, error: reservationError } = await db
+        .from("tour_slot_reservations")
+        .select("manager_user_id, slot_key, starts_at, ends_at")
+        .eq("status", "active")
+        .in("manager_user_id", availabilityManagerIds);
+      if (reservationError) return { ok: false, error: reservationError.message };
+      for (const reservation of (reservationRows ?? []) as ActiveTourReservationRow[]) {
+        const managerUserId = reservation.manager_user_id?.trim() ?? "";
+        const start = reservation.starts_at?.trim() ?? "";
+        const end = reservation.ends_at?.trim() ?? "";
+        if (!managerUserId || !start || !end) continue;
+        const blocks = blockedSlotsByManager.get(managerUserId) ?? [];
+        blocks.push({ start, end, slotKey: reservation.slot_key?.trim() || undefined });
         blockedSlotsByManager.set(managerUserId, blocks);
       }
 

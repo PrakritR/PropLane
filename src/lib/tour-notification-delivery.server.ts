@@ -13,6 +13,7 @@ import { resolveExistingApplicantConversation } from "@/lib/application-lifecycl
 import { traceSystemNotification } from "@/lib/observability/langfuse";
 import { buildReplyAddress } from "@/lib/inbound-email/reply-address.server";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
+import { managerOutboundFromHeader, sharedPortalFromAddress } from "@/lib/manager-outbound-identity.server";
 import {
   resolveManagerRecipientProfiles,
   resolvePropertyLeadRecipientIds,
@@ -99,6 +100,7 @@ async function deliverEmail(
   text: string,
   html?: string,
   replyTo?: string | null,
+  identity?: { db: Db; managerUserId: string | null | undefined },
 ): Promise<{ sent: boolean; skipped: boolean; error?: string }> {
   // `shouldSkipOutboundEmail` is the ONE rule for sandbox addresses, and it covers BOTH
   // `@axis.local` and `@test.proplane.local`. This hand-rolled check only knew the first, so
@@ -112,7 +114,9 @@ async function deliverEmail(
   if (recipients.length === 0) return { sent: false, skipped: true };
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (!apiKey) return { sent: false, skipped: false, error: "Email delivery not configured (RESEND_API_KEY missing)." };
-  const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
+  const from = identity
+    ? await managerOutboundFromHeader(identity.db, identity.managerUserId)
+    : sharedPortalFromAddress();
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -623,7 +627,10 @@ export async function notifyTenantTourRequestReceived(
 
   const subject = TOUR_REQUEST_TENANT_SUBJECT;
   const text = buildTourRequestTenantBody(ctx);
-  const email = await deliverEmail([guestEmail], subject, text);
+  const email = await deliverEmail([guestEmail], subject, text, undefined, undefined, {
+    db,
+    managerUserId: textField(inquiry as Record<string, unknown>, "managerUserId"),
+  });
 
   await recordGuestInboxCopy(db, textField(inquiry as Record<string, unknown>, "id") || null, {
     participantEmail: guestEmail,
@@ -709,7 +716,10 @@ export async function notifyTenantTourRequestRemoved(
     propertyTitle: ctx.propertyTitle,
   });
 
-  const email = await deliverEmail([guestEmail], subject, text);
+  const email = await deliverEmail([guestEmail], subject, text, undefined, undefined, {
+    db,
+    managerUserId,
+  });
 
   const listingLink = propertyId ? `${origin}/rent/listings/${propertyId}` : origin;
   await textTourGuest({
@@ -852,6 +862,7 @@ async function notifyTenantTourChanged(
           text,
           undefined,
           replyTo,
+          { db, managerUserId },
         )
       : { sent: false, skipped: true, error: "Guest email is required to notify the guest." }
     : { sent: false, skipped: true };
@@ -1014,7 +1025,14 @@ async function deliverTenantTourConfirmed(
   }
   const email = wantsEmail
     ? hasGuestEmail
-      ? await deliverEmail([guestEmail], subject, text, html, buildReplyAddress(window.managerUserId, guestEmail))
+      ? await deliverEmail(
+          [guestEmail],
+          subject,
+          text,
+          html,
+          buildReplyAddress(window.managerUserId, guestEmail),
+          { db, managerUserId: window.managerUserId },
+        )
       : { sent: false, skipped: true, error: "Guest email is required to send tour confirmation." }
     : { sent: false, skipped: true };
 

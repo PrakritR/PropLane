@@ -26,6 +26,10 @@ import {
 import { leaseBodyMatchesManagerFiledLease } from "@/lib/lease-manager-filed-document.server";
 import { sanitizeLeaseDocumentHtml, sanitizeManagerLeaseDocumentEdit } from "@/lib/lease-document-sanitizer";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import {
+  projectLeasePipelineListRow,
+  restoreOmittedLeaseDocument,
+} from "@/lib/lease-pipeline-list-projection";
 import { syncLeaseLifecycleTasks } from "@/lib/manager-default-tasks.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -261,10 +265,54 @@ function buildUpsert(
   };
 }
 
-export async function GET() {
+type LeaseRecordForRead = LeaseScopeRecord & {
+  resident_email?: string | null;
+  resident_user_id?: string | null;
+};
+
+function rowFromLeaseRecord(record: LeaseScopeRecord): Record<string, unknown> {
+  return (record.row_data && typeof record.row_data === "object" ? record.row_data : record) as Record<
+    string,
+    unknown
+  >;
+}
+
+async function viewerMayReadLeaseRecord(
+  ctx: { db: ReturnType<typeof createSupabaseServiceRoleClient>; user: RecordUser },
+  record: LeaseRecordForRead,
+): Promise<boolean> {
+  if (ctx.user.role === "admin") return true;
+  if (ctx.user.role === "resident") {
+    const email = (record.resident_email ?? "").trim().toLowerCase();
+    const residentUserId = (record.resident_user_id ?? "").trim();
+    return Boolean(
+      (ctx.user.email && email && email === ctx.user.email) ||
+        (ctx.user.id && residentUserId && residentUserId === ctx.user.id),
+    );
+  }
+  return managerCanAccessLeaseRecord(ctx.db, ctx.user.id, record);
+}
+
+export async function GET(req?: Request) {
   try {
     const ctx = await getUserContext();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+
+    const id = req?.url ? new URL(req.url).searchParams.get("id")?.trim() ?? "" : "";
+    if (id) {
+      const { data, error } = await ctx.db
+        .from("portal_lease_pipeline_records")
+        .select("id, row_data, updated_at, manager_user_id, property_id, resident_email, resident_user_id")
+        .eq("id", id)
+        .maybeSingle();
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (!data) return NextResponse.json({ error: "Not found." }, { status: 404 });
+      const record = data as LeaseRecordForRead;
+      if (!(await viewerMayReadLeaseRecord(ctx, record))) {
+        return NextResponse.json({ error: "Not found." }, { status: 404 });
+      }
+      return NextResponse.json({ rows: [normalizeRow(rowFromLeaseRecord(record))] });
+    }
 
     let records: LeaseScopeRecord[] = [];
 
@@ -293,13 +341,7 @@ export async function GET() {
       records = await fetchLeasesForManagerUser(ctx.db, ctx.user.id);
     }
 
-    const rows = records.map((record) => {
-      const row = (record.row_data && typeof record.row_data === "object" ? record.row_data : record) as Record<
-        string,
-        unknown
-      >;
-      return normalizeRow(row);
-    });
+    const rows = records.map((record) => projectLeasePipelineListRow(normalizeRow(rowFromLeaseRecord(record))));
 
     return NextResponse.json({ rows });
   } catch (e) {
@@ -475,6 +517,15 @@ export async function POST(req: Request) {
       // both deserve to surface. Admins are not exempt; the point is that the
       // executed text cannot change, not that only strangers may not change it.
       const storedRow = existingRecord?.row_data as LeasePipelineRow | undefined;
+      // A list-shaped client row has filenames only. Putting those bytes
+      // back here means an ordinary save cannot 409 as a document replacement
+      // and cannot empty the stored PDF.
+      if (storedRow) {
+        normalized = restoreOmittedLeaseDocument(storedRow, normalized as LeasePipelineRow) as Record<
+          string,
+          unknown
+        >;
+      }
       if (storedRow && replacesSignedLeaseDocument(storedRow, normalized as unknown as LeasePipelineRow)) {
         return NextResponse.json(
           { error: "This lease already carries a signature; its document cannot be replaced." },

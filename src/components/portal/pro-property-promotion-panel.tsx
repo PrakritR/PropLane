@@ -44,6 +44,7 @@ import {
   nextPromotionAssetDefaultTitle,
   sortPromotionAssets,
   type PromotionAsset,
+  type PromotionAssetKind,
 } from "@/lib/promotion-assets";
 import {
   FLYER_IMAGE_LIMIT,
@@ -72,7 +73,7 @@ import {
   type PromotionUploadEntry,
 } from "@/lib/promotion-upload";
 import { PromotionDefaultSuggestions } from "@/components/portal/promotion-default-suggestions";
-import { addDefaultPromotionPreset, type PromotionPresetKind } from "@/lib/promotion-default-sync";
+import { type PromotionPresetKind } from "@/lib/promotion-default-sync";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { useConfirm } from "@/components/providers/app-ui-provider";
@@ -132,6 +133,8 @@ export function ManagerPropertyPromotionPanel({
   const [tick, setTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
   const [showNewModal, setShowNewModal] = useState(false);
+  const [newPromotionKind, setNewPromotionKind] = useState<PromotionAssetKind>("flyer");
+  const [newPromotionStepId, setNewPromotionStepId] = useState<"kind" | "content">("kind");
   const [uploadBusy, setUploadBusy] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [draft, setDraft] = useState<PromotionDraft>(EMPTY_DRAFT);
@@ -192,39 +195,22 @@ export function ManagerPropertyPromotionPanel({
 
   const addPromotionPreset = useCallback(
     (preset: PromotionPresetKind) => {
-      if (!userId || !propertyId) return;
-      const listing = listings.find((l) => l.id === propertyId);
-      if (!listing?.property) {
-        showToast("Listing details are not available yet.");
-        return;
-      }
-      const existingRow = readManagerPromotionRows().find((row) => row.propertyId === propertyId) ?? null;
-      const next = addDefaultPromotionPreset({
-        propertyId,
-        property: listing.property,
-        managerUserId: userId,
-        managerContact: autofillOpts.managerContact,
-        appOrigin: autofillOpts.appOrigin,
-        existingRow,
-        preset,
-      });
-      if (!next) {
-        showToast("That promotion is already on this property.");
-        return;
-      }
-      upsertManagerPromotion(next);
-      setTick((n) => n + 1);
-      onUpdated?.();
-      showToast("Promotion added from listing.");
+      setEditingRowId(null);
+      setEditingEntryId(null);
+      setNewPromotionKind(preset === "default_flyer" ? "flyer" : "text");
+      setNewPromotionStepId("content");
+      setDraft(draftWithPropertyKey(EMPTY_DRAFT, propertyId, listings, autofillOpts));
+      setShowNewModal(true);
     },
-    [userId, propertyId, listings, autofillOpts, showToast, onUpdated],
+    [listings, propertyId, autofillOpts],
   );
 
-  // Open the unified "New promotion" modal (type dropdown + inline form, no
-  // separate "Continue" step) seeded to this property.
+  // Open the unified new-promotion workspace on Kind.
   const openNewPromotion = useCallback(() => {
     setEditingRowId(null);
     setEditingEntryId(null);
+    setNewPromotionKind("flyer");
+    setNewPromotionStepId("kind");
     setDraft(draftWithPropertyKey(EMPTY_DRAFT, propertyId, listings, autofillOpts));
     setShowNewModal(true);
   }, [listings, propertyId, autofillOpts]);
@@ -276,6 +262,8 @@ export function ManagerPropertyPromotionPanel({
     setTextModalAssetId(null);
     setEditingRowId(null);
     setEditingEntryId(null);
+    setNewPromotionKind("flyer");
+    setNewPromotionStepId("kind");
     setDraft(EMPTY_DRAFT);
     // The bar exists to reach these editors; leaving the row ticked afterwards
     // just parks a floating bar over a row the manager is done with.
@@ -634,6 +622,8 @@ export function ManagerPropertyPromotionPanel({
       <PromotionNewModal
         open={showNewModal}
         onClose={closeForm}
+        initialKind={newPromotionKind}
+        initialStepId={newPromotionStepId}
         draft={draft}
         setDraft={setDraft}
         listings={listings}

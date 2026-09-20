@@ -137,4 +137,52 @@ describe("getPublicListings — CTA phone per listing", () => {
     // nothing, so the CTA falls back to "Schedule a tour" / "Apply".
     expect(listing.contactSmsPhone).toBeUndefined();
   });
+
+  it("omits malformed stored rows instead of crashing or inventing public identity", async () => {
+    process.env.VERCEL_ENV = "preview";
+    queryQueue.push({
+      data: [
+        {
+          id: "lst-malformed",
+          manager_user_id: "mgr-alice",
+          property_data: {
+            id: "lst-malformed",
+            buildingName: "Legacy House",
+            address: "9 Legacy St",
+            adminPublishLive: true,
+            wifiPassword: "must-not-escape",
+          },
+        },
+        {
+          ...listingRow("lst-alice", "mgr-alice", "Alder Row"),
+          property_data: {
+            ...listingRow("lst-alice", "mgr-alice", "Alder Row").property_data,
+            title: " Alder Row ",
+          },
+        },
+      ],
+      error: null,
+    });
+    queryQueue.push({
+      data: [{
+        id: "mgr-alice",
+        email: "alice@landlord.com",
+        phone: ALICE_CELL,
+        phone_verified_at: "2026-01-04T00:00:00Z",
+        sms_from_number: ALICE_WORK,
+      }],
+      error: null,
+    });
+
+    const listings = await getPublicListings();
+
+    expect(listings).toHaveLength(1);
+    expect(listings[0]).toMatchObject({
+      id: "lst-alice",
+      title: "Alder Row",
+      buildingName: "Alder Row",
+      address: "Alder Row St",
+    });
+    expect(JSON.stringify(listings)).not.toContain("must-not-escape");
+  });
 });

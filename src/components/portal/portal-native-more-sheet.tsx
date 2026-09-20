@@ -33,7 +33,14 @@ export type PortalMoreNavItem = {
    */
   lockedNavigable?: boolean;
   count?: number;
+  /** Communication and Application use the blue alert pill; inventory stays muted. */
+  countTone?: "muted" | "alert";
 };
+
+function moreSheetCountTone(item: PortalMoreNavItem): "muted" | "alert" {
+  if (item.countTone) return item.countTone;
+  return item.section === "communication" || item.section === "applications" ? "alert" : "muted";
+}
 
 function MoreGridIcon() {
   return (
@@ -111,7 +118,9 @@ function MoreNavRow({
         </span>
       ) : null}
       <span className="min-w-0 flex-1 truncate">{item.label}</span>
-      {!item.locked && (item.count ?? 0) > 0 ? <PortalNavCountBadge count={item.count ?? 0} /> : null}
+      {!item.locked && (item.count ?? 0) > 0 ? (
+        <PortalNavCountBadge count={item.count ?? 0} tone={moreSheetCountTone(item)} />
+      ) : null}
       <ChevronRight className="h-4 w-4 shrink-0 text-muted/60" aria-hidden />
     </Link>
   );

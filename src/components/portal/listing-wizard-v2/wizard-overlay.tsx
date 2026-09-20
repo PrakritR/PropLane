@@ -14,7 +14,13 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-export function ListingWizardOverlay({ children }: { children: ReactNode }) {
+export function ListingWizardOverlay({
+  children,
+  ariaLabel = "Listing editor",
+}: {
+  children: ReactNode;
+  ariaLabel?: string;
+}) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     setMounted(true);
@@ -30,7 +36,7 @@ export function ListingWizardOverlay({ children }: { children: ReactNode }) {
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Listing editor"
+      aria-label={ariaLabel}
       className="pointer-events-none fixed inset-0 z-[80] flex min-h-0 min-w-0 outline-none overscroll-contain bg-foreground/30 p-0 backdrop-blur-sm sm:p-4"
     >
       {/*

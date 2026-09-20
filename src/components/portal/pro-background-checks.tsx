@@ -8,7 +8,7 @@ import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
-import { Settings2 } from "lucide-react";
+import { Settings } from "lucide-react";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
@@ -367,7 +367,7 @@ export function ManagerBackgroundChecks({
 
   const settingsButton = (
     <PortalIconAction
-      icon={Settings2}
+      icon={Settings}
       label={backgroundChecksSettingsEntry.label}
       data-attr={backgroundChecksSettingsEntry.dataAttr}
       onClick={() => setScreeningSettingsOpen(true)}

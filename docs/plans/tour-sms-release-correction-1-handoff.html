@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tour SMS release correction 1 - implementation checkpoint</title><style>body{font:17px/1.6 system-ui,sans-serif;max-width:88ch;margin:40px auto;padding:0 24px;color:#202422;background:#fafaf8}h1,h2{line-height:1.25}section{padding:20px 0;border-top:1px solid #ccd2cc}code{overflow-wrap:anywhere}li{margin:9px 0}.ok{color:#176b3a}.pending{color:#8a5a00}</style></head><body><main>
+<h1>Tour SMS release: correction 1 implementation checkpoint</h1>
+<p>September 16, 2026. Worktree <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/8/AXIS-2</code>, branch <code>tour-sms-release-20260916</code>, starting candidate <code>975ce0dae6de0de2eedb5a49bfa0af3f170942f9</code>. The source correction is frozen for review; broad validation is still in progress, so this is not release approval.</p>
+<section><h2>Implemented corrections</h2><ul>
+<li><strong>Google changed-window create:</strong> additive migration <code>20260916101000</code> keeps a successful stale live create in <code>reconcile_current</code>. Exact-window settlement follows the current-window patch and lifecycle-safe id persistence. In-flight ownership and a second move return <code>deferred</code>, so booking recovery remains pending.</li>
+<li><strong>Stale browser schedule save:</strong> the browser now sends its actually observed baseline, serializes local writes, resyncs on conflict, and fails closed when it never observed the singleton. Generic snapshot writes cannot mutate tours; those remain owned by the dedicated cancel/reschedule lifecycle.</li>
+<li><strong>Ownership:</strong> the pending additive <code>20260916101500</code> contract preserves tour, null/missing-owner, and other-manager rows with NULL-safe predicates. Managers CAS only their non-tour slice. Admins explicitly CAS all non-tour rows without restamping ownership.</li>
+<li><strong>Reminder cancellation:</strong> additive migration <code>20260916102000</code> rechecks the exact reminder, outbox, burst revision, scheduling revision/status, archive state, owner, phone, conversation and property after budget/credit awaits. A stale result releases communication credit and never reaches the provider.</li>
+<li><strong>Public listing robustness:</strong> malformed stored public-listing JSON missing required title/building/address identity is omitted instead of crashing catalog sorting. No identity, photo, private field, or fallback copy is fabricated.</li>
+</ul></section>
+<section><h2>Evidence so far</h2><ul>
+<li class="ok">Google focused unit set: 4 files, 31 tests, exit 0; scoped ESLint exit 0.</li>
+<li class="ok">Reminder plus public-listing focused set: 2 files, 9 tests, exit 0.</li>
+<li class="ok">Consolidated corrected feature set: 27 files, 215 tests, exit 0.</li>
+<li class="ok">PostgreSQL 17 transaction suite on the disposable local port 55439 cluster: 20/20, exit 0. The cluster was stopped immediately afterward and port 55439 returned no response.</li>
+<li class="ok">Scoped ESLint across every corrected source/test file: exit 0. <code>git diff --check</code>: exit 0; no conflict markers or duplicate migration versions.</li>
+<li>The Google delegate's early PostgreSQL attempt exited 1 with <code>ECONNREFUSED</code> because the task-owned local cluster was stopped. This honest failed attempt is retained in the record; the subsequent successful 20/20 run above supersedes it.</li>
+<li>Root confirmed proposed migration versions <code>20260916101000</code>, <code>20260916101500</code>, and <code>20260916102000</code> are absent in dev, staging and production. No correction or feature SQL has been remotely applied.</li>
+<li class="ok">Root's guarded DEV read reproduced then verified the public-listing correction: production-mode <code>getPublicListings</code> changed from a <code>localeCompare</code> crash to six listings with zero invalid titles, exit 0. A separate provider-blocked real-data availability probe excluded booked slot <code>2026-09-17:20</code> and offered free slot <code>:21</code>, exit 0.</li>
+<li class="pending">The post-commit full unit run was stopped on root instruction after upstream advanced across overlapping tour/calendar code. It exited 130 from deliberate SIGINT, so it is not a completed gate. Before interruption it reported five unrelated extreme-duration failures: communication-billing local harness (347,714 ms), inbox readiness (509,196 ms), lease resident-upsert scope (158,182 ms), withdrawn approval (88,988 ms), and OAuth portal access (558,592 ms). No assertion was weakened and no isolated rerun was started after the drift notice.</li>
+<li><code>npx --no-install graphify hook-rebuild</code> was attempted after the code commit and exited 1 because npm could not determine a Graphify executable. No package was installed and no graph artifact is claimed.</li>
+</ul></section>
+<section><h2>Correction migration hashes</h2><ul>
+<li><code>20260916101000</code> Google changed-window reconciliation: <code>b6a1cd7374ead7bee43dca71ccbd1e7822c179f7702c3fd9c24ddf42bcf30c69</code></li>
+<li><code>20260916101500</code> observed schedule baseline: <code>d63da589e98148bce8e26810ebe7e7f5ff43832afbebb609060925877cb7841a</code></li>
+<li><code>20260916102000</code> reminder final fence: <code>2a38764734c70e0ab57950ef63085884d38049693a420f353dc7564a123e88d7</code></li>
+</ul><p>The six previously applied September 15 migration hashes and the two unapplied feature migration hashes remain byte-for-byte identical to the prior integration handoff.</p></section>
+<section><h2>Upstream drift and next gate</h2><p>The correction source is committed locally at <code>61b06e4f1</code>. During its full-unit run, root fetched a new remote tip <code>32efb2507547431755d1862b539ee39b22425cf5</code> replacing the prior <code>054f4d73cbd37b891106a704aa177f4bf38bd26e</code> base with 317 changed files, including overlapping tour host enumeration/claim guards, Google sync/pull, the portal schedule route, communication/workspace code and unrelated payments. This candidate must not be rebased or promoted ad hoc.</p><ol>
+<li>Root supplies a bounded integration plan against the new upstream and determines which correction code/tests remain applicable.</li>
+<li>A fresh implementation pass resolves overlapping source and migration history without replaying stale whole files.</li>
+<li>Only the integrated candidate reruns full units, typecheck, lint, dev-targeted build, browser/E2E and fresh review. The stopped broad run above cannot gate that candidate.</li>
+<li>Attempt Graphify refresh after the next source integration; the graph and executable were absent in the prior run.</li>
+</ol></section>
+<section><h2>Operational boundaries</h2><p>No localhost server, real provider call, remote schema write, push, deployment, PR, no-mistakes run, Linear work, production record mutation, or locked-listing write has occurred in this correction session. Root's updated <code>tour-sms-release-browser-qa-1.html</code> and its synthetic dev availability fixture evidence are preserved. The interrupted Vitest process exited 130; all Vitest workers, Next build/typecheck processes and the task-owned PostgreSQL cluster were verified stopped.</p></section>
+</main></body></html>

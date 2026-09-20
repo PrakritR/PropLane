@@ -6,13 +6,13 @@
  * this email is an always-admin fallback and the self-registration/provisioning
  * gate.
  *
- * Moved off founders@axis-seattle-housing.com on the captain's instruction: this
- * is now the ONLY admin account. Note the consequence — `filterAdminUserIds`
- * grants admin on `profiles.email` matching this value, and that column carries
- * no unique constraint, so changing it changes who is admin. It must never be
+ * Captain 2026-09-16: `founders@axis-seattle-housing.com` is the admin account.
+ * `prakritramachandran@gmail.com` is a manager only — it must not match this
+ * value. `filterAdminUserIds` grants admin on `profiles.email` matching this
+ * address, and that column carries no unique constraint, so it must never be
  * set to an address a stranger could self-register.
  */
-export const PRIMARY_ADMIN_EMAIL = "prakritramachandran@gmail.com";
+export const PRIMARY_ADMIN_EMAIL = "founders@axis-seattle-housing.com";
 
 export function normalizeAdminEmail(email: string | null | undefined): string {
   return (email ?? "").trim().toLowerCase();

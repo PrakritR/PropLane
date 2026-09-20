@@ -95,9 +95,9 @@ describe("google calendar meetings", () => {
     expect(meeting?.name).toBeUndefined();
     expect(JSON.stringify(meeting)).not.toContain("Private note");
 
-    // The start cell reads the title; the hover text adds the free/busy word.
-    expect(meetingCalendarGridLabel(meeting!)).toBe("Dentist appointment");
-    expect(meetingCalendarGridTooltip(meeting!)).toBe("Dentist appointment · Blocked");
+    // Private busy paints as Blocked on every surface, including the grid and tooltip.
+    expect(meetingCalendarGridLabel(meeting!)).toBe("Blocked");
+    expect(meetingCalendarGridTooltip(meeting!)).toBe("Blocked");
     expect(googleBusyBlockStatusLabel(meeting!)).toBe("Blocked");
   });
 

@@ -39,11 +39,11 @@ function bid(partial: Partial<WorkOrderBid>): WorkOrderBid {
 }
 
 describe("vendorWorkOrderTab", () => {
-  it("routes open bidding to Quote", () => {
-    expect(vendorWorkOrderTab(row({ biddingOpen: true }), undefined)).toBe("quote");
+  it("routes open bidding to Pending", () => {
+    expect(vendorWorkOrderTab(row({ biddingOpen: true }), undefined)).toBe("pending");
   });
 
-  it("routes post-consultation pricing to Site visit", () => {
+  it("routes post-consultation pricing to Pending", () => {
     expect(
       vendorWorkOrderTab(
         row({ biddingOpen: true }),
@@ -54,17 +54,17 @@ describe("vendorWorkOrderTab", () => {
           proposedTime: null,
         }),
       ),
-    ).toBe("tour");
+    ).toBe("pending");
   });
 
-  it("routes accepted fixed-price jobs to Scheduled", () => {
+  it("routes accepted fixed-price jobs to Upcoming", () => {
     expect(
       vendorWorkOrderTab(row({ bucket: "scheduled", vendorCostCents: 15_000, scheduledAtIso: "2026-07-12T10:00:00.000Z" })),
-    ).toBe("scheduled");
+    ).toBe("upcoming");
   });
 
-  it("routes completed jobs to Completed", () => {
-    expect(vendorWorkOrderTab(row({ bucket: "completed" }))).toBe("completed");
+  it("routes completed jobs to Past", () => {
+    expect(vendorWorkOrderTab(row({ bucket: "completed" }))).toBe("past");
   });
 });
 

@@ -15,6 +15,7 @@ vi.mock("@/lib/demo-property-pipeline", () => ({ submitManagerPendingPropertyToS
 
 import { ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
 import { createDefaultListingSubmission, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { EVERYONE_ACCESS_VALUE } from "@/lib/listing-shared-space-access";
 
 afterEach(() => cleanup());
 
@@ -121,15 +122,19 @@ describe("bathrooms as cards", () => {
     expect(seen.at(-1)!.bathrooms!.find((b) => b.id === "b2")?.location).toBe(options[0]);
   });
 
-  it("who uses it is one row per room on the bathroom card, and a room's own Bathroom row is only the access kind", () => {
+  it("who uses it is a room dropdown on the bathroom card, and a room's own Bathroom row is only the access kind", async () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open("bathrooms", (s) => seen.push(s));
     openCard("Upstairs");
-    fireEvent.click(document.querySelector('[data-attr="listing-v2-bath-more"]')!);
-    expect(screen.getByRole("button", { name: "Room A uses Upstairs" }).textContent).toContain("Doesn't use it");
-    pickFloor("Room A uses Upstairs", "yes");
+    const who = screen.getByRole("button", { name: "Who uses Upstairs" });
+    expect(who.textContent).toContain("No rooms yet");
+    fireEvent.click(who);
+    const roomA = screen.getByRole("option", { name: "Room A" });
+    fireEvent.pointerDown(roomA, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(roomA, { pointerId: 1, clientX: 10, clientY: 10 });
     expect(seen.at(-1)!.bathrooms!.find((b) => b.id === "b2")?.assignedRoomIds).toEqual(["r1"]);
-    pickFloor("Room A uses Upstairs", "no");
+    fireEvent.pointerDown(roomA, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(roomA, { pointerId: 1, clientX: 10, clientY: 10 });
     expect(seen.at(-1)!.bathrooms!.find((b) => b.id === "b2")?.assignedRoomIds).toEqual([]);
     // Rooms step: the room card offers only the access kind.
     fireEvent.click(document.querySelector('[data-attr="listing-v2-rail-rooms"]')!);
@@ -149,6 +154,33 @@ describe("shared spaces as cards", () => {
     expect(document.querySelector('[data-attr="listing-v2-space-editor"]')).not.toBeNull();
     expect(document.querySelector('[data-attr="listing-v2-space-done"]')).not.toBeNull();
     expect(document.querySelector('[data-attr="listing-v2-space-card-remove"]')).not.toBeNull();
+    const who = screen.getByRole("button", { name: "Who may use Kitchen" });
+    expect(who.textContent).toContain("Everyone");
+    fireEvent.click(who);
+    const options = [...document.getElementById(who.getAttribute("aria-controls")!)!.querySelectorAll("[role='option']")];
+    expect(options[0]?.getAttribute("data-field-select-option-value")).toBe(EVERYONE_ACCESS_VALUE);
+    expect(options[0]?.textContent).toContain("Everyone");
+    expect(options.map((option) => option.textContent ?? "")).toEqual(expect.arrayContaining([
+      expect.stringContaining("Everyone"),
+      expect.stringContaining("Room A"),
+      expect.stringContaining("Room B"),
+    ]));
+  });
+
+  it("Everyone in the menu writes empty access; unticking a room narrows", () => {
+    const seen: ManagerListingSubmissionV1[] = [];
+    open("spaces", (s) => seen.push(s));
+    openCard("Kitchen");
+    const who = screen.getByRole("button", { name: "Who may use Kitchen" });
+    fireEvent.click(who);
+    const roomA = screen.getByRole("option", { name: "Room A" });
+    fireEvent.pointerDown(roomA, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(roomA, { pointerId: 1, clientX: 10, clientY: 10 });
+    expect(seen.at(-1)!.sharedSpaces!.find((space) => space.id === "s1")?.roomAccessIds).toEqual(["r2"]);
+    const everyone = screen.getByRole("option", { name: "Everyone" });
+    fireEvent.pointerDown(everyone, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(everyone, { pointerId: 1, clientX: 10, clientY: 10 });
+    expect(seen.at(-1)!.sharedSpaces!.find((space) => space.id === "s1")?.roomAccessIds).toEqual([]);
   });
 
   it("the Every shared space floor moves every space still following it", () => {

@@ -1171,6 +1171,9 @@ export async function handleClawLeasingInbound(args: {
       const { runLeasingSmsAgentTurn, deliverLeasingSmsReply } = await import(
         "@/lib/agent/leasing-sms-agent.server"
       );
+      const { loadConfirmedProspectTourBooking } = await import(
+        "@/lib/prospect-tour-booking-recovery.server"
+      );
       const db = createSupabaseServiceRoleClient();
       const agent = await runLeasingSmsAgentTurn(db, {
         landlordId,
@@ -1207,6 +1210,38 @@ export async function handleClawLeasingInbound(args: {
           releaseInboundMessageClaims(claimedMessageIds);
           return { ok: false, intent, replied: false, error: "Reply preparation failed." };
         }
+        if (args.prospectBurst) {
+          const { registerProspectTourReminder } = await import(
+            "@/lib/sms/prospect-tour-reminder.server"
+          );
+          const reminder = await registerProspectTourReminder(createSupabaseServiceRoleClient(), {
+            burstId: args.prospectBurst.burstId,
+            burstRevision: args.prospectBurst.revision,
+            managerUserId: landlordId,
+            recipientPhoneE164: from,
+            candidateContext: agent.candidateContext,
+            replyBody: agent.reply,
+            traceId: agent.traceId,
+          }).catch(() => ({ registered: false, reason: "reminder_registration_unavailable" }));
+          if (!reminder.registered && reminder.reason !== "not_awaiting_exact_selection") {
+            console.error("prospect tour reminder registration skipped", {
+              burstId: args.prospectBurst.burstId,
+              burstRevision: args.prospectBurst.revision,
+              reason: reminder.reason,
+            });
+          }
+        }
+        // A committed autonomous booking is not an ordinary burst reply. The
+        // transport receives its durable booking identity before enqueueing,
+        // so the database can arbitrate an older burst row and apply the
+        // booking lifecycle fence immediately before provider submission.
+        const committedBooking = args.prospectBurst
+          ? await loadConfirmedProspectTourBooking(db, {
+              managerUserId: landlordId,
+              burstId: args.prospectBurst.burstId,
+              burstRevision: args.prospectBurst.revision,
+            })
+          : null;
         const send = await deliverLeasingSmsReply({
           landlordId,
           toPhone: from,
@@ -1214,6 +1249,7 @@ export async function handleClawLeasingInbound(args: {
           workNumber,
           inboundMessageSid: messageId,
           traceId: agent.traceId,
+          prospectTourBookingConfirmationId: committedBooking?.id ?? null,
           prospectBurst: args.prospectBurst
             ? {
                 ...args.prospectBurst,

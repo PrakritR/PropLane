@@ -356,7 +356,7 @@ export function PortalRecordShareModal({
         defaultViaEmail={viaEmail}
         defaultViaSms={viaSms}
         editableSubject={viaEmail}
-        footerNote="Sent via PropLane when email and SMS delivery are configured."
+        footerNote=""
         confirmLabel="Send link"
         confirmBusy={sendBusy}
         confirmBusyLabel="Sending…"

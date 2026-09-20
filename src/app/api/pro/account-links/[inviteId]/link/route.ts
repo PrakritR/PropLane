@@ -91,6 +91,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ inviteId: stri
       payoutPercentForManager: Number(invite.payout_percent_for_manager),
       propertyCoManagerPermissions,
       coManagerPermissions: flatCoManagerPermissionsFromProperty(propertyCoManagerPermissions),
+      teamRole: invite.team_role ?? null,
       tabKind: invite.tab_kind,
       requestOrigin: resolveRequestOrigin(req),
     });

@@ -4,7 +4,8 @@ import { isAdminUser } from "@/lib/auth/admin-preview";
 import { getPortalAccessContext } from "@/lib/auth/portal-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
-type RecordUser = { id: string; email?: string | null; role: string };
+type RecordUser = { id: string; email?: string | null; role: string; roles?: string[] };
+type AtomicWriteResult = { handled: boolean; error?: string; status?: number };
 
 type RecordConfig = {
   table: string;
@@ -12,6 +13,23 @@ type RecordConfig = {
   orderColumn?: string;
   normalize?: (row: Record<string, unknown>) => Record<string, unknown>;
   scope?: (query: unknown, user: RecordUser) => unknown;
+  /** Optional server-side reader for tables with item-level authorization inside JSON containers. */
+  readRecords?: (args: { db: ReturnType<typeof createSupabaseServiceRoleClient>; user: RecordUser }) => Promise<{
+    data: Record<string, unknown>[] | null;
+    error: { message: string } | null;
+  }>;
+  /** Project rows before they are serialized. It must remove unauthorized rows, not merely redact them. */
+  projectRead?: (args: {
+    db: ReturnType<typeof createSupabaseServiceRoleClient>;
+    user: RecordUser;
+    records: Record<string, unknown>[];
+  }) => Promise<Record<string, unknown>[]>;
+  /** Batch authorization for delete/deleteIds. Called after every target is read, before any delete. */
+  authorizeDelete?: (args: {
+    db: ReturnType<typeof createSupabaseServiceRoleClient>;
+    user: RecordUser;
+    records: Record<string, unknown>[];
+  }) => Promise<{ ok: true } | { ok: false; error: string; status?: number }>;
   buildUpsert: (row: Record<string, unknown>, user: RecordUser) => Record<string, unknown>;
   /**
    * Stamps server-trusted ownership columns onto a record that is being created
@@ -22,6 +40,12 @@ type RecordConfig = {
   assignOwnership?: (record: Record<string, unknown>, user: RecordUser) => Record<string, unknown>;
   /** Reject INSERT when the record id is not owned by the caller (returns error message). */
   assertInsertAllowed?: (record: Record<string, unknown>, user: RecordUser) => string | null;
+  /** Batch authorization before any existing-row reads or writes occur. */
+  authorizeUpsert?: (args: {
+    db: ReturnType<typeof createSupabaseServiceRoleClient>;
+    user: RecordUser;
+    records: Record<string, unknown>[];
+  }) => Promise<{ ok: true } | { ok: false; error: string; status?: number }>;
   /** Reconcile an upsert with server-stored state before it is persisted. */
   reconcileExisting?: (
     record: Record<string, unknown>,
@@ -41,6 +65,18 @@ type RecordConfig = {
     existing: Record<string, unknown> | null;
     db: SupabaseClient;
   }) => void | Promise<void>;
+  /** Optional table-specific transaction boundary for rows whose JSON payload
+   * is shared by several managers. `handled` skips the ordinary upsert. */
+  atomicWrite?: (args: {
+    db: ReturnType<typeof createSupabaseServiceRoleClient>;
+    user: RecordUser;
+    record: Record<string, unknown>;
+    existing: Record<string, unknown> | null;
+    /** Client-observed payload used by a table-specific compare-and-swap. */
+    expectedPayload: unknown;
+    /** Whether the caller actually supplied an observed payload. */
+    expectedPayloadKnown: boolean;
+  }) => Promise<AtomicWriteResult>;
 };
 
 async function getUserContext() {
@@ -59,6 +95,7 @@ async function getUserContext() {
       id: portalCtx.user.id,
       email: (portalCtx.profile?.email ?? portalCtx.user.email ?? "").trim().toLowerCase(),
       role,
+      roles: portalCtx.roles,
     },
   };
 }
@@ -69,15 +106,24 @@ export function createJsonRecordRoute(config: RecordConfig) {
       try {
         const ctx = await getUserContext();
         if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-        let query = ctx.db
-          .from(config.table)
-          .select(config.select ?? "id, row_data, updated_at")
-          .order(config.orderColumn ?? "updated_at", { ascending: false })
-          .limit(500);
-        if (config.scope) query = config.scope(query, ctx.user) as typeof query;
-        const { data, error } = await query;
+        let data: Record<string, unknown>[] | null;
+        let error: { message: string } | null;
+        if (config.readRecords) {
+          ({ data, error } = await config.readRecords({ db: ctx.db, user: ctx.user }));
+        } else {
+          let query = ctx.db
+            .from(config.table)
+            .select(config.select ?? "id, row_data, updated_at")
+            .order(config.orderColumn ?? "updated_at", { ascending: false })
+            .limit(500);
+          if (config.scope) query = config.scope(query, ctx.user) as typeof query;
+          const result = await query;
+          data = result.data as unknown as Record<string, unknown>[] | null;
+          error = result.error ? { message: result.error.message } : null;
+        }
         if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-        const records = (Array.isArray(data) ? data : []) as unknown as Record<string, unknown>[];
+        let records = (Array.isArray(data) ? data : []) as unknown as Record<string, unknown>[];
+        if (config.projectRead) records = await config.projectRead({ db: ctx.db, user: ctx.user, records });
         const rows = records.map((record) => {
           const payload = (
             record.row_data && typeof record.row_data === "object" ? record.row_data : record
@@ -110,12 +156,43 @@ export function createJsonRecordRoute(config: RecordConfig) {
           ids?: unknown[];
           row?: Record<string, unknown>;
           rows?: Record<string, unknown>[];
+          expectedPayload?: unknown;
+          expectedPayloadKnown?: boolean;
         };
         if (body.action === "delete" || body.action === "deleteIds") {
           const ids = body.action === "deleteIds"
             ? (Array.isArray((body as { ids?: unknown }).ids) ? (body as { ids: unknown[] }).ids.map(String) : [])
             : [body.id?.trim() ?? ""];
           if (ids.length === 0 || ids.some((id) => !id)) return NextResponse.json({ error: "id required" }, { status: 400 });
+          const targets: Record<string, unknown>[] = [];
+          for (const id of ids) {
+            const { data, error } = await ctx.db
+              .from(config.table)
+              .select("id, manager_user_id, property_id, record_type, row_data")
+              .eq("id", id)
+              .limit(1);
+            if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+            const target = Array.isArray(data) ? data[0] as Record<string, unknown> | undefined : undefined;
+            if (!target) return NextResponse.json({ error: "Record not found." }, { status: 404 });
+            targets.push(target);
+          }
+          if (config.authorizeDelete) {
+            const authorization = await config.authorizeDelete({ db: ctx.db, user: ctx.user, records: targets });
+            if (!authorization.ok) {
+              return NextResponse.json({ error: authorization.error }, { status: authorization.status ?? 403 });
+            }
+          }
+          for (const id of ids) {
+            if (config.scope) {
+              let visibleQuery = ctx.db.from(config.table).select("id").eq("id", id).limit(1);
+              visibleQuery = config.scope(visibleQuery, ctx.user) as typeof visibleQuery;
+              const { data: visible, error: visibleError } = await visibleQuery;
+              if (visibleError) return NextResponse.json({ error: visibleError.message }, { status: 500 });
+              if (!Array.isArray(visible) || visible.length === 0) {
+                return NextResponse.json({ error: "Record not found." }, { status: 404 });
+              }
+            }
+          }
           let deleted = 0;
           for (const id of ids) {
             let deleteQuery = ctx.db.from(config.table).delete().eq("id", id).select("id");
@@ -132,9 +209,18 @@ export function createJsonRecordRoute(config: RecordConfig) {
 
         const rows = body.action === "replace" ? body.rows ?? [] : body.row ? [body.row] : [];
         if (rows.length === 0) return NextResponse.json({ error: "row required" }, { status: 400 });
-        for (const row of rows) {
+        const records = rows.map((row) => {
           const normalized = config.normalize ? config.normalize(row) : row;
-          const record = config.buildUpsert(normalized, ctx.user);
+          return config.buildUpsert(normalized, ctx.user);
+        });
+        if (records.some((record) => !record.id)) return NextResponse.json({ error: "row id required" }, { status: 400 });
+        if (config.authorizeUpsert) {
+          const authorization = await config.authorizeUpsert({ db: ctx.db, user: ctx.user, records });
+          if (!authorization.ok) {
+            return NextResponse.json({ error: authorization.error }, { status: authorization.status ?? 403 });
+          }
+        }
+        for (const record of records) {
           if (!record.id) return NextResponse.json({ error: "row id required" }, { status: 400 });
           const id = String(record.id);
           const { data: existing, error: existingError } = await ctx.db
@@ -166,6 +252,23 @@ export function createJsonRecordRoute(config: RecordConfig) {
           if (!recordExists && config.assertInsertAllowed) {
             const insertError = config.assertInsertAllowed(finalRecord, ctx.user);
             if (insertError) return NextResponse.json({ error: insertError }, { status: 403 });
+          }
+          if (config.atomicWrite) {
+            const atomic = await config.atomicWrite({
+              db: ctx.db,
+              user: ctx.user,
+              record: finalRecord,
+              existing: recordExists ? ((existing?.[0] as Record<string, unknown>) ?? null) : null,
+              expectedPayload: body.expectedPayload,
+              expectedPayloadKnown:
+                body.expectedPayloadKnown === true ||
+                (body.expectedPayloadKnown === undefined &&
+                  Object.prototype.hasOwnProperty.call(body, "expectedPayload")),
+            });
+            if (atomic.handled) {
+              if (atomic.error) return NextResponse.json({ error: atomic.error }, { status: atomic.status ?? 500 });
+              continue;
+            }
           }
           const { error } = await ctx.db.from(config.table).upsert(finalRecord, { onConflict: "id" });
           if (error) return NextResponse.json({ error: error.message }, { status: 500 });

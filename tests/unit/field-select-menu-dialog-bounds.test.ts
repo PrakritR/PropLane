@@ -220,7 +220,7 @@ describe("field menu inside a full-bleed dialog wrapper", () => {
     expect(rect.top + rect.maxHeight).toBeLessThanOrEqual(480);
   });
 
-  it("body-portaled modal menus stay below the trigger when the footer is close", () => {
+  it("body-portaled modal menus flip up when the footer leaves no five-row room below", () => {
     const host = document.createElement("div");
     host.setAttribute("data-slot", "modal-radix-dialog");
     host.className = "modal-panel";
@@ -241,9 +241,8 @@ describe("field menu inside a full-bleed dialog wrapper", () => {
     });
 
     expect(rect.position).toBe("fixed");
-    expect(rect.top).toBeGreaterThanOrEqual(464);
-    expect(rect.top + rect.maxHeight).toBeLessThanOrEqual(480);
-    expect(rect.maxHeight).toBeGreaterThan(0);
+    expect(rect.maxHeight).toBeGreaterThanOrEqual(200);
+    expect(rect.top + rect.maxHeight).toBeLessThanOrEqual(420);
 
     document.body.removeChild(host);
   });

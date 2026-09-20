@@ -16,7 +16,11 @@ import {
   PORTAL_DETAIL_BTN,
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
-import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
+import { PortalRecordRelatedPanel } from "@/components/portal/portal-record-related-panel";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { Mail } from "lucide-react";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 import { DataList } from "@/components/ui/data-list";
@@ -31,7 +35,7 @@ import { deleteManagerOutgoingExpense } from "@/lib/manager-outgoing-payments";
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import { readManagerWorkOrderRows } from "@/lib/manager-work-orders-storage";
 import { isPropertyClusterList, type PortalListGroupMode } from "@/lib/portal-list-grouping";
-import { paymentDetailHref, paymentListHref } from "@/lib/portal-detail-routes";
+import { paymentDetailHref, paymentListHref, paymentRecordDetailHref, PAYMENT_RECORD_RAIL_GROUPS, PAYMENT_RECORD_TAB_DESCRIPTIONS, PAYMENT_RECORD_TAB_LABELS, PAYMENT_RECORD_TABS, parsePaymentRecordTab, vendorDetailHref, workOrderDetailHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 
@@ -57,6 +61,7 @@ export function ManagerOutgoingPaymentsPanel({
   vendorById,
   onRowsChanged,
   paymentId: paymentIdProp,
+  paymentTab: paymentTabProp,
   listBasePath,
   onAddPayment,
   emptyCard,
@@ -67,6 +72,7 @@ export function ManagerOutgoingPaymentsPanel({
   vendorById?: Map<string, ManagerVendorRow>;
   onRowsChanged?: () => void;
   paymentId?: string;
+  paymentTab?: string;
   listBasePath?: string;
   onAddPayment?: () => void;
   /** The tab's empty card — the page owns the copy, tab counts and filter reset. */
@@ -472,15 +478,83 @@ export function ManagerOutgoingPaymentsPanel({
         pageTitle="Payments"
         title={detailRow.chargeTitle}
         subtitle={detailRow.payeeLabel}
+        avatarName={detailRow.payeeLabel}
         backHref={listBasePath ? paymentListHref(listBasePath, "outgoing", activeBucket) : "#"}
         backLabel="Back to payments"
         hideBackText
         bareHeader
         dataAttrBack="outgoing-payment-detail-back"
-        inlineActions
-        actions={renderHeaderActions(detailRow)}
+        iconTitleActions
+        pinScrollBody
       >
-        {renderDetailBody(detailRow)}
+        <PortalRecordActions>
+          <PortalIconAction
+            icon={Mail}
+            label="Message"
+            data-attr="outgoing-payment-detail-message"
+            onClick={() => {
+              if (listBasePath) navigate(`${listBasePath}/communication`);
+            }}
+          />
+        </PortalRecordActions>
+        {(() => {
+          const recordTab = parsePaymentRecordTab(paymentTabProp);
+          const navItems = PAYMENT_RECORD_TABS.map((tab) => ({
+            id: tab,
+            label: PAYMENT_RECORD_TAB_LABELS[tab],
+            description: PAYMENT_RECORD_TAB_DESCRIPTIONS[tab],
+            href: listBasePath
+              ? paymentRecordDetailHref(listBasePath, "outgoing", activeBucket, detailRow.id, tab)
+              : "#",
+          }));
+          return (
+            <PortalRecordSectionChrome
+              items={navItems}
+              activeId={recordTab}
+              groups={PAYMENT_RECORD_RAIL_GROUPS}
+              title={detailRow.chargeTitle}
+              backHref={listBasePath ? paymentListHref(listBasePath, "outgoing", activeBucket) : "#"}
+              backLabel="All payments"
+              ariaLabel="Payment sections"
+              currentLabel={PAYMENT_RECORD_TAB_LABELS[recordTab]}
+              defaultDisclosureOpen={recordTab === "overview"}
+            >
+              {recordTab === "overview" ? (
+                renderDetailBody(detailRow)
+              ) : recordTab === "communication" ? (
+                <PortalRecordRelatedPanel
+                  title="Communication"
+                  href={listBasePath ? `${listBasePath}/communication` : undefined}
+                  empty="No thread for this payment yet."
+                />
+              ) : recordTab === "service" ? (
+                <PortalRecordRelatedPanel
+                  title="Service"
+                  value={detailRow.workOrderId ? detailRow.chargeTitle : undefined}
+                  href={
+                    listBasePath && detailRow.workOrderId
+                      ? workOrderDetailHref(listBasePath, "open", detailRow.workOrderId)
+                      : undefined
+                  }
+                  empty="No service on this payment."
+                />
+              ) : recordTab === "vendor" ? (
+                <PortalRecordRelatedPanel
+                  title="Vendor"
+                  value={detailRow.payeeLabel}
+                  href={
+                    listBasePath && detailRow.vendorId
+                      ? vendorDetailHref(listBasePath, detailRow.vendorId)
+                      : undefined
+                  }
+                  empty="No vendor on this payment."
+                />
+              ) : (
+                <PortalRecordRelatedPanel title="Resident" empty="This outgoing payment is not tied to a resident." />
+              )}
+            </PortalRecordSectionChrome>
+          );
+        })()}
       </PortalRecordDetailPage>
     );
   }

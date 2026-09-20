@@ -160,9 +160,8 @@ describe("clicking a free slot on the manager calendar", () => {
     renderManagerCalendar([googleBusyAt(WEDNESDAY, TEN_AM_SLOT)]);
 
     const cell = await slotCell(`Open details for 10 am on ${WEDNESDAY}`);
-    // The block is drawn with the event's own title (PRP-397).
-    expect(cell.textContent).toContain("Dentist appointment");
-    expect(cell.getAttribute("title")).toContain("Dentist appointment · Blocked");
+    expect(cell.textContent).toContain("Blocked");
+    expect(cell.getAttribute("title")).toContain("Blocked");
     fireEvent.click(cell);
 
     await waitFor(() => expect(document.querySelector(".modal-panel")).not.toBeNull());

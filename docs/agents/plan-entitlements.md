@@ -31,7 +31,12 @@ on an account with five listings and no paywall anywhere).
   correctly said Free. The plan the product ENFORCES has to equal the plan it
   DISPLAYS. Only the signup trial is expired here: a live Stripe subscription or
   Apple grant is authoritative and is never run through date math, and waiver /
-  admin / portal grants have their own authorization rules. Omitting `billing`
+  admin / portal grants have their own authorization rules. **A live signup trial
+  is not a paid account** (`billing: trial`); it cannot provision a work number.
+  A validated promo waiver (FREE100 / `promo_code` on the purchase row) **is
+  paid**, same as Stripe or Apple. Managers enter promo codes on checkout (and
+  signup), never on the Billing & plan page.
+  Omitting `billing`
   and `paidAt` keeps the older behaviour for a caller with no billing row to
   read. Coverage: `tests/unit/manager-trial-expiry-quota.test.ts`.
   **That rule has to reach BOTH halves or it is worse than not

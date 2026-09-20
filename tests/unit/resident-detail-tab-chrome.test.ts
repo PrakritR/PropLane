@@ -109,6 +109,8 @@ describe("resident detail tab chrome", () => {
     // Duplicate Settings/Setup dock on the Payments list is gone.
     expect(residents).not.toContain('data-attr="resident-payments-settings-open"');
     expect(residents).not.toContain('data-attr="resident-payment-setup-open"');
+    expect(residents).toContain("iconTitleActions");
+    expect(residents).toContain("PortalRecordSectionsDisclosure");
 
     const tours = readFileSync(
       `${process.cwd()}/src/components/portal/pro-resident-tours-panel.tsx`,

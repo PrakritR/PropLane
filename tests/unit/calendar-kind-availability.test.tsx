@@ -1,12 +1,11 @@
 // @vitest-environment jsdom
 /**
  * PLAN-0914-1710 §2 — `availabilityKeysByKind` reads/writes availability per
- * kind instead of one union: a tours-only run still reads plain "Open", a
- * services run names itself, and removing one run's × writes only that
- * kind's storage key.
+ * kind: a tours-only run reads "Tours", a services run names itself, and the
+ * small × on a run writes only that kind's storage key.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { PortalCalendarPanels } from "@/components/portal/portal-calendar-panels";
 import { toLocalDateStr, startOfWeekMonday } from "@/lib/demo-admin-scheduling";
 import { resolveDefaultTourAvailabilityConfig } from "@/lib/tour-slot-math";
@@ -102,17 +101,15 @@ describe("kind-scoped availability (PLAN-0914-1710 §2)", () => {
     expect(labels.some((label) => label?.includes("Services"))).toBe(true);
   });
 
-  it("deleting the services run via its dialog writes only the services key", async () => {
+  it("deleting the services run via its × writes only the services key", async () => {
     const { container } = renderKindAvailability();
     const monday = toLocalDateStr(startOfWeekMonday(new Date()));
-    // The floating grid × is gone (PLAN-0916-0041); deletion is via the
-    // click-through edit dialog's "Delete block".
-    expect(container.querySelectorAll('[data-attr="calendar-remove-availability-slot"]').length).toBe(0);
     const servicesCells = container.querySelectorAll(`[aria-label="Open details for 12 pm on ${monday}"]`);
     expect(servicesCells.length).toBeGreaterThanOrEqual(1);
-    fireEvent.click(servicesCells[0] as HTMLElement);
-    await waitFor(() => expect(document.querySelector(".modal-panel")).not.toBeNull());
-    fireEvent.click(screen.getAllByText("Delete block")[0]!);
+    const wrap = servicesCells[0]?.closest(".group\\/slot") ?? servicesCells[0]?.parentElement;
+    const remove = wrap?.querySelector('[data-attr="calendar-remove-availability-slot"]') as HTMLButtonElement | null;
+    expect(remove).toBeTruthy();
+    fireEvent.click(remove!);
     await waitFor(() => {
       expect(writeAvailability).toHaveBeenCalled();
     });

@@ -134,7 +134,12 @@ function fullDb(input: {
   onRead?: (id: string) => void;
 }) {
   let upsertCalls = 0;
+  let mutationCalls = 0;
   const db = {
+    rpc: async (name: string) => {
+      if (name === "mutate_confirmed_tour_schedule") mutationCalls += 1;
+      return { data: { ok: true }, error: null };
+    },
     from(table: string) {
       if (table === "tour_inquiry_claims") return claimsDb(input.claimRows).from(table);
       return {
@@ -162,7 +167,11 @@ function fullDb(input: {
       };
     },
   };
-  return { db: db as never, upsertCallCount: () => upsertCalls };
+  return {
+    db: db as never,
+    upsertCallCount: () => upsertCalls,
+    mutationCallCount: () => mutationCalls,
+  };
 }
 
 describe("confirmTourInquiry: claim guard integration", () => {
@@ -184,7 +193,7 @@ describe("confirmTourInquiry: claim guard integration", () => {
 
   it("wins the claim, confirms, and releases it — a retry is not permanently locked out", async () => {
     const claimRows = new Map<string, ClaimRow>();
-    const { db, upsertCallCount } = fullDb({ inquiries: [inquiry()], claimRows });
+    const { db, mutationCallCount, upsertCallCount } = fullDb({ inquiries: [inquiry()], claimRows });
 
     const result = await confirmTourInquiry(db, {
       inquiryId: "inq-claim-1",
@@ -193,7 +202,8 @@ describe("confirmTourInquiry: claim guard integration", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(upsertCallCount()).toBe(1);
+    expect(mutationCallCount()).toBe(1);
+    expect(upsertCallCount()).toBe(0);
     // Released on success — nothing is left holding the mutex.
     expect(claimRows.has("inq-claim-1")).toBe(false);
   });

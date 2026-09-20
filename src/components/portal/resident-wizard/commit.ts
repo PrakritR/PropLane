@@ -31,7 +31,10 @@ import {
 } from "@/lib/household-charges";
 import {
   ensureManagerReviewLeaseForApplication,
-  syncLeasePipelineFromApplications,
+  generateLeaseHtmlForRow,
+  persistLeaseRowToServerAwait,
+  readLeasePipeline,
+  sendLeaseToResident,
   syncLeasePipelineFromServer,
 } from "@/lib/lease-pipeline-storage";
 import { uploadAndParseLeasePdf } from "@/lib/uploaded-lease-parse.client";
@@ -43,7 +46,7 @@ import { getPropertyById } from "@/lib/rental-application/data";
 import type { WorkAssignee } from "@/lib/work-assignment";
 import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import type { AttachedDocument } from "@/components/portal/add-workspace/parts";
-import { paymentSchedulePreview, type AddPersonForm } from "./state";
+import { commitCreatesLease, commitCreatesPayments, paymentSchedulePreview, type AddPersonForm } from "./state";
 
 export type CommitStage = "row" | "lease" | "charges" | "documents" | "tour" | "message";
 export type CommitOutcome = {
@@ -53,6 +56,15 @@ export type CommitOutcome = {
   failures: Partial<Record<CommitStage, string>>;
   notes: string[];
   tourId?: string | null;
+  leaseId?: string | null;
+  welcomeEmailSent?: boolean;
+};
+
+export type CommitResidentOptions = {
+  /** Official Resend welcome — only when the manager confirmed Send. */
+  sendWelcomeEmail?: boolean;
+  /** Generate (if needed) then send the lease for signature. */
+  sendLease?: boolean;
 };
 
 export type CommitContext = {
@@ -90,25 +102,68 @@ function combineLocalDateTime(date: string, time: string): string {
   return new Date(y!, (m ?? 1) - 1, d ?? 1, hh ?? 0, mm ?? 0, 0, 0).toISOString();
 }
 
-export async function commitResident(row: DemoApplicantRow, form: AddPersonForm, ctx: CommitContext): Promise<CommitOutcome> {
+function leaseRowHasDocument(leaseId: string, managerUserId: string | null): boolean {
+  const row = readLeasePipeline(managerUserId).find((candidate) => candidate.id === leaseId);
+  return Boolean(row?.generatedHtml || row?.managerUploadedPdf?.dataUrl);
+}
+
+async function fileLeaseForAddResident(
+  applicationId: string,
+  form: AddPersonForm,
+  managerUserId: string | null,
+): Promise<{ leaseId?: string; error?: string }> {
+  const ensured = ensureManagerReviewLeaseForApplication(applicationId, managerUserId);
+  if (!ensured.ok) return { error: ensured.error ?? "The lease could not be created." };
+  const leaseId = ensured.row.id;
+
+  if (form.leaseDocument === "draft" && form.leaseFile) {
+    const uploaded = await uploadAndParseLeasePdf(leaseId, form.leaseFile, managerUserId);
+    if (!uploaded.ok) return { leaseId, error: uploaded.error ?? "The draft lease PDF could not be filed." };
+    return { leaseId };
+  }
+
+  if (form.leaseDocument === "signed" && form.leaseDataUrl.trim()) {
+    return { leaseId };
+  }
+
+  if (leaseRowHasDocument(leaseId, managerUserId)) return { leaseId };
+
+  const generated = generateLeaseHtmlForRow(leaseId, managerUserId, { persist: false });
+  if (!generated.ok) return { leaseId, error: generated.error ?? "The lease could not be generated." };
+  const next = readLeasePipeline(managerUserId).find((candidate) => candidate.id === leaseId);
+  if (!next) return { leaseId, error: "The lease could not be generated." };
+  const saved = await persistLeaseRowToServerAwait(next);
+  if (!saved.ok) return { leaseId, error: saved.error };
+  return { leaseId };
+}
+
+export async function commitResident(
+  row: DemoApplicantRow,
+  form: AddPersonForm,
+  ctx: CommitContext,
+  opts?: CommitResidentOptions,
+): Promise<CommitOutcome> {
   const failures: CommitOutcome["failures"] = {};
   const notes: string[] = [];
+  const sendWelcomeEmail = opts?.sendWelcomeEmail === true;
 
   // 1. The row. A refused write (room full, property not yours…) leaves no
   //    phantom in the local list — the wizard stays open with the reason.
   appendManagerApplicationRow(row, { skipServerMirror: true });
-  const persisted = await upsertApplicationRowToServerAwait(row, { existingResidentOnboarding: { sendWelcomeEmail: false } });
-  if (!persisted.ok) {
+  const persisted = await upsertApplicationRowToServerAwait(row, { existingResidentOnboarding: { sendWelcomeEmail } });
+  if (!persisted.ok && !persisted.leaseId) {
     dropRowFromCache(row.id);
     return { ok: false, row, failures: { row: persisted.error ?? "Could not save the resident." }, notes };
   }
+  if (!persisted.ok && persisted.leaseId) {
+    failures.message = persisted.error ?? "The notice could not be sent.";
+  }
+  let leaseId = persisted.leaseId ?? null;
+  const welcomeEmailSent = persisted.welcomeEmailSent === true;
 
-  // 2. Charges from the tenancy — the same generator approval runs — then the
-  //    manager's payment marks on top of them, then one awaited mirror so the
-  //    server holds the charges and the recurring profile BEFORE anything
-  //    re-syncs from it (a force sync racing a fire-and-forget mirror wiped
-  //    the profile). Then the lease filing.
-  if (row.bucket === "approved") {
+  // 2. Charges from the tenancy — only when Also create includes Payments.
+  //    Skipping the Payments step used to still mark every past month paid.
+  if (commitCreatesPayments(form) && row.bucket === "approved") {
     recordApprovedApplicationCharges(row, ctx.userId, true, {
       leaseExecuted:
         row.manuallyAdded === true ||
@@ -126,7 +181,7 @@ export async function commitResident(row: DemoApplicantRow, form: AddPersonForm,
           const rows = paymentSchedulePreview(form);
           const months: ImportedTenancyMarks["months"] = {};
           for (const r of rows) {
-            const mark = form.paymentMarks[r.monthKey] ?? { status: r.isCurrent ? "due" : "paid", paidOn: r.dueOn, method: "zelle" };
+            const mark = form.paymentMarks[r.monthKey] ?? { status: r.isCurrent ? "due" : "paid", paidOn: r.dueOn, method: "card" };
             months[r.monthKey] = {
               status: mark.status,
               paidOn: mark.paidOn,
@@ -156,14 +211,14 @@ export async function commitResident(row: DemoApplicantRow, form: AddPersonForm,
     const mirrored = await mirrorHouseholdChargesToServerAwait();
     if (!mirrored && !failures.charges) failures.charges = "The payment schedule could not be saved — open Payments to check it.";
   }
-  syncLeasePipelineFromApplications(ctx.userId);
-
-  if (form.leaseDocument === "draft" && form.leaseFile) {
-    const ensured = ensureManagerReviewLeaseForApplication(row.id, ctx.userId);
-    if (!ensured.ok) failures.lease = ensured.error ?? "The draft lease could not be filed.";
-    else {
-      const uploaded = await uploadAndParseLeasePdf(ensured.row.id, form.leaseFile, ctx.userId);
-      if (!uploaded.ok) failures.lease = uploaded.error ?? "The draft lease PDF could not be filed.";
+  if (commitCreatesLease(form)) {
+    await syncLeasePipelineFromServer(ctx.userId, { force: true });
+    const filed = await fileLeaseForAddResident(row.id, form, ctx.userId);
+    leaseId = filed.leaseId ?? leaseId;
+    if (filed.error) failures.lease = filed.error;
+    else if (opts?.sendLease === true && leaseId && form.leaseDocument !== "signed") {
+      const sent = await sendLeaseToResident(leaseId, ctx.userId);
+      if (!sent.ok) failures.lease = sent.error ?? "The lease could not be sent.";
     }
   }
 
@@ -174,6 +229,8 @@ export async function commitResident(row: DemoApplicantRow, form: AddPersonForm,
   ]);
 
   // 4. Documents — after the row exists, since the photo route needs its id.
+  //    Do not re-run existing-resident onboarding here: that upserts a blank
+  //    lease stub over the generated / sent document.
   const attachments = await uploadDocuments(row, form.documents, failures);
   if (attachments.changed) {
     const updated: DemoApplicantRow = {
@@ -185,11 +242,11 @@ export async function commitResident(row: DemoApplicantRow, form: AddPersonForm,
       },
     };
     replaceManagerApplicationRowInCache(updated);
-    const saved = await upsertApplicationRowToServerAwait(updated, { existingResidentOnboarding: { sendWelcomeEmail: false } });
+    const saved = await upsertApplicationRowToServerAwait(updated);
     if (!saved.ok) failures.documents = saved.error ?? "Documents were uploaded but could not be linked to the resident.";
   }
 
-  return { ok: Object.keys(failures).length === 0, row, failures, notes };
+  return { ok: Object.keys(failures).length === 0, row, failures, notes, leaseId, welcomeEmailSent };
 }
 
 export async function commitProspect(built: DemoApplicantRow, form: AddPersonForm, ctx: CommitContext): Promise<CommitOutcome> {
@@ -265,6 +322,48 @@ export async function commitProspect(built: DemoApplicantRow, form: AddPersonFor
     }
   }
   return { ok: Object.keys(failures).length === 0, row, failures, notes, tourId };
+}
+
+/** Add application: a pending in-progress draft the applicant finishes through their secure link. */
+export async function commitApplicationDraft(row: DemoApplicantRow, form: AddPersonForm, ctx: CommitContext): Promise<CommitOutcome> {
+  const failures: CommitOutcome["failures"] = {};
+  const notes: string[] = [];
+  appendManagerApplicationRow(row, { skipServerMirror: true });
+  const persisted = await upsertApplicationRowToServerAwait(row);
+  if (!persisted.ok) {
+    dropRowFromCache(row.id);
+    return { ok: false, row, failures: { row: persisted.error ?? "Could not save the application." }, notes };
+  }
+  await syncManagerApplicationsFromServer({ force: true, managerUserId: ctx.userId });
+  const attachments = await uploadDocuments(row, form.documents, failures);
+  if (attachments.changed) {
+    const updated: DemoApplicantRow = {
+      ...row,
+      application: { ...(row.application ?? {}), ...attachments.applicationPatch } as DemoApplicantRow["application"],
+      manualResidentDetails: { ...row.manualResidentDetails, ...(attachments.other.length ? { documents: attachments.other } : {}) },
+    };
+    replaceManagerApplicationRowInCache(updated);
+    const saved = await upsertApplicationRowToServerAwait(updated);
+    if (!saved.ok) failures.documents = saved.error ?? "Documents were uploaded but could not be linked to the application.";
+  }
+  return { ok: Object.keys(failures).length === 0, row, failures, notes };
+}
+
+/**
+ * The "review & sign" email for a manager-started application — composed by
+ * the server because it carries the applicant's secure resume link. `preview`
+ * returns the text so the same words can go by SMS.
+ */
+export async function sendApplicationStartedEmail(applicationId: string, opts: { preview?: boolean } = {}): Promise<{ ok: boolean; error?: string; preview?: { to?: string; subject?: string; text?: string }; skipped?: boolean }> {
+  const res = await fetch("/api/portal/send-manager-application-started", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ applicationId, preview: opts.preview === true }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; preview?: { to?: string; subject?: string; text?: string }; skipped?: boolean };
+  if (!res.ok || data.ok === false) return { ok: false, error: data.error ?? "Could not send the application email." };
+  return { ok: true, preview: data.preview, skipped: data.skipped };
 }
 
 async function uploadDocuments(

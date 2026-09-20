@@ -1,28 +1,32 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { TabNav } from "@/components/ui/tabs";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Bell, CreditCard, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
-import { Badge } from "@/components/ui/badge";
-import { Select } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import {
-  ManagerPortalFilterRow,
   ManagerPortalPageShell,
   ManagerPortalStatusPills,
-  MANAGER_TABLE_TH,
 } from "@/components/portal/portal-metrics";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { PortalPropertyRecordRow, PortalRowStatusChip } from "@/components/portal/portal-record-row";
+import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
+import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import {
-  PORTAL_DATA_TABLE,
-  PORTAL_DATA_TABLE_SCROLL,
-  PORTAL_DATA_TABLE_WRAP,
-  PORTAL_MOBILE_CARD_CLASS,
-  PORTAL_TABLE_HEAD_ROW,
-  PORTAL_TABLE_TD,
-  PORTAL_TABLE_TR,
-  PortalDataTableEmpty,
-} from "@/components/portal/portal-data-table";
-import { ReportFilterBar, type ReportFilterState } from "@/components/portal/reports/report-filter-bar";
+  FilterCheckboxList,
+  FilterCollapsibleSection,
+  FilterFieldsAccordion,
+  filterMultiSelectSummary,
+} from "@/components/portal/filter-field-lists";
+import { VendorPaymentsPanel, type VendorPaymentsPanelHandle } from "@/components/portal/vendor-payments-panel";
+import { VendorQuoteWizard } from "@/components/portal/vendor-quote-wizard";
+import { PORTAL_DETAIL_BTN, PortalTableDetailActions } from "@/components/portal/portal-data-table";
+import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
+import type { ReportFilterState } from "@/components/portal/reports/report-filter-bar";
 import { MANAGER_WORK_ORDERS_EVENT, readVendorWorkOrderRows, syncManagerWorkOrdersFromServer } from "@/lib/manager-work-orders-storage";
 import {
   buildVendorIncomeRows,
@@ -34,11 +38,11 @@ import {
 } from "@/lib/vendor-income";
 import { fetchVendorPayoutsResult, type VendorPayout } from "@/lib/vendor-payouts";
 import { useConfirm } from "@/components/providers/app-ui-provider";
+import { portalEmptyCopy } from "@/lib/portal-empty-copy";
 import {
   formatInvoiceMoney,
   normalizeLineItems,
   sumLineItemsCents,
-  vendorInvoiceBadgeTone,
   vendorInvoiceStatusLabel,
   type VendorInvoice,
   type VendorInvoiceStatus,
@@ -52,7 +56,51 @@ type VendorLinkedManagerOption = {
 const VENDOR_FINANCE_TABS = [
   { id: "income", label: "Income" },
   { id: "invoices", label: "Invoices" },
+  { id: "payouts", label: "Payouts" },
 ] as const;
+
+function VendorFinancesChrome({
+  tabId,
+  tabItems,
+  actions,
+  primary,
+  filterRow,
+  search,
+  activeFilterChips,
+  children,
+}: {
+  tabId: string;
+  tabItems: { id: string; label: string; href: string }[];
+  actions?: ReactNode;
+  primary?: ReactNode;
+  filterRow?: ReactNode;
+  search?: { value: string; onChange: (value: string) => void; placeholder: string; dataAttr?: string };
+  activeFilterChips?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <ManagerPortalPageShell title="Finances" hideTitleOnMobileNav compactFilterRow>
+      <PortalListControlStack
+        className="mb-2 max-lg:mb-1.5"
+        variant="command"
+        destinations={tabItems.map((tab) => ({
+          id: tab.id,
+          label: tab.label,
+          href: tab.href,
+          dataAttr: `vendor-finances-tab-${tab.id}`,
+        }))}
+        activeDestinationId={tabId}
+        destinationAriaLabel="Finance view"
+        filterRow={filterRow}
+        search={search}
+        activeFilterChips={activeFilterChips}
+        actions={actions}
+        primary={primary}
+      />
+      {children}
+    </ManagerPortalPageShell>
+  );
+}
 
 function defaultFilters(): ReportFilterState {
   const now = new Date();
@@ -74,196 +122,42 @@ function formatIncomeDate(dateIso: string): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
-function payoutStatusTone(status: VendorIncomeRow["payoutStatus"]): string {
-  if (status === "paid") {
-    return "portal-badge-success ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]";
-  }
-  if (status === "failed") {
-    return "portal-badge-danger ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]";
-  }
-  if (status === "pending") {
-    return "portal-badge-pending ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]";
-  }
-  return "bg-accent/30 text-foreground ring-1 ring-border";
-}
-
-function compareIncomeRows(a: VendorIncomeRow, b: VendorIncomeRow, key: string, dir: "asc" | "desc"): number {
-  let cmp = 0;
-  if (key === "date") {
-    cmp = (a.dateIso || "").localeCompare(b.dateIso || "");
-  } else if (key === "workOrder") {
-    cmp = a.workOrderTitle.localeCompare(b.workOrderTitle, undefined, { sensitivity: "base" });
-  } else if (key === "property") {
-    cmp = a.propertyLabel.localeCompare(b.propertyLabel, undefined, { sensitivity: "base" });
-  } else if (key === "labor") {
-    cmp = a.laborCents - b.laborCents;
-  } else if (key === "materials") {
-    cmp = a.materialsCents - b.materialsCents;
-  } else if (key === "total") {
-    cmp = a.totalCents - b.totalCents;
-  } else if (key === "payoutStatus") {
-    cmp = a.payoutStatusLabel.localeCompare(b.payoutStatusLabel, undefined, { sensitivity: "base" });
-  }
-  return dir === "asc" ? cmp : -cmp;
-}
-
 function VendorIncomeTable({
   rows,
-  sortKey,
-  sortDir,
-  onHeaderSort,
 }: {
   rows: VendorIncomeRow[];
-  sortKey: string;
-  sortDir: "asc" | "desc";
-  onHeaderSort: (key: string) => void;
 }) {
-  const sortedRows = useMemo(
-    () => [...rows].sort((a, b) => compareIncomeRows(a, b, sortKey, sortDir)),
-    [rows, sortKey, sortDir],
-  );
   const totals = useMemo(() => vendorIncomeTotals(rows), [rows]);
 
   if (rows.length === 0) {
-    return <PortalDataTableEmpty message="No income entries yet." icon="finance" />;
+    const empty = portalEmptyCopy("finances.income");
+    return <PortalListEmptyCard title={empty.title} section={empty.section} />;
   }
 
-  const columns = [
-    { key: "date", label: "Date", align: "left" as const },
-    { key: "workOrder", label: "Work order", align: "left" as const },
-    { key: "property", label: "Property", align: "left" as const },
-    { key: "labor", label: "Labor", align: "right" as const },
-    { key: "materials", label: "Materials", align: "right" as const },
-    { key: "total", label: "Total", align: "right" as const },
-    { key: "payoutStatus", label: "Payout status", align: "left" as const },
-  ];
-
   return (
-    <>
-      <div className="space-y-2 lg:hidden">
-        {sortedRows.map((row) => (
-          <div key={row.id} className={PORTAL_MOBILE_CARD_CLASS}>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-              <div className="min-w-0 col-span-2">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted/70">Work order</p>
-                <p className="truncate text-sm font-medium text-foreground">{row.workOrderTitle}</p>
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted/70">Date</p>
-                <p className="truncate text-sm text-foreground">{formatIncomeDate(row.dateIso)}</p>
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted/70">Total</p>
-                <p className="truncate text-sm font-medium tabular-nums text-foreground">
-                  {formatVendorIncomeMoney(row.totalCents)}
-                </p>
-              </div>
-              <div className="min-w-0 col-span-2">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted/70">Property</p>
-                <p className="truncate text-sm text-foreground">{row.propertyLabel}</p>
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted/70">Labor</p>
-                <p className="truncate text-sm tabular-nums text-foreground">{formatVendorIncomeMoney(row.laborCents)}</p>
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted/70">Materials</p>
-                <p className="truncate text-sm tabular-nums text-foreground">
-                  {formatVendorIncomeMoney(row.materialsCents)}
-                </p>
-              </div>
-              <div className="min-w-0 col-span-2">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted/70">Payout status</p>
-                <span
-                  className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${payoutStatusTone(row.payoutStatus)}`}
-                >
-                  {row.payoutStatusLabel}
-                </span>
-              </div>
-            </div>
-          </div>
-        ))}
-        <div className={`${PORTAL_MOBILE_CARD_CLASS} bg-accent/10`}>
-          <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-            <div className="min-w-0 col-span-2">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted/70">Total income</p>
-              <p className="truncate text-sm font-semibold tabular-nums text-foreground">
-                {formatVendorIncomeMoney(totals.totalCents)}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className={`${PORTAL_DATA_TABLE_WRAP} hidden lg:block`}>
-        <div className={PORTAL_DATA_TABLE_SCROLL}>
-          <table className={PORTAL_DATA_TABLE}>
-            <thead>
-              <tr className={PORTAL_TABLE_HEAD_ROW}>
-                {columns.map((col) => (
-                  <th
-                    key={col.key}
-                    className={`${MANAGER_TABLE_TH} ${col.align === "right" ? "text-right" : "text-left"} cursor-pointer select-none hover:bg-accent/30 transition`}
-                    onClick={() => onHeaderSort(col.key)}
-                    data-attr={`vendor-finances-sort-${col.key}`}
-                  >
-                    <span className="inline-flex items-center gap-1">
-                      {col.label}
-                      <span className="text-[10px] text-muted/60">
-                        {sortKey === col.key ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
-                      </span>
-                    </span>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {sortedRows.map((row) => (
-                <tr key={row.id} className={PORTAL_TABLE_TR}>
-                  <td className={`${PORTAL_TABLE_TD} text-muted`}>{formatIncomeDate(row.dateIso)}</td>
-                  <td className={`${PORTAL_TABLE_TD} font-medium text-foreground`}>{row.workOrderTitle}</td>
-                  <td className={`${PORTAL_TABLE_TD} font-medium text-foreground`}>{row.propertyLabel}</td>
-                  <td className={`${PORTAL_TABLE_TD} text-right tabular-nums`}>{formatVendorIncomeMoney(row.laborCents)}</td>
-                  <td className={`${PORTAL_TABLE_TD} text-right tabular-nums`}>
-                    {formatVendorIncomeMoney(row.materialsCents)}
-                  </td>
-                  <td className={`${PORTAL_TABLE_TD} text-right tabular-nums font-medium text-foreground`}>
-                    {formatVendorIncomeMoney(row.totalCents)}
-                  </td>
-                  <td className={PORTAL_TABLE_TD}>
-                    <span
-                      className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${payoutStatusTone(row.payoutStatus)}`}
-                    >
-                      {row.payoutStatusLabel}
-                    </span>
-                    {row.payoutFailureReason ? (
-                      <p className="mt-1 text-xs text-muted">{row.payoutFailureReason}</p>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="border-t-2 border-border bg-accent/10 font-semibold text-sm">
-                <td className={PORTAL_TABLE_TD}>Total income</td>
-                <td className={PORTAL_TABLE_TD} />
-                <td className={PORTAL_TABLE_TD} />
-                <td className={`${PORTAL_TABLE_TD} text-right tabular-nums`}>
-                  {formatVendorIncomeMoney(totals.laborCents)}
-                </td>
-                <td className={`${PORTAL_TABLE_TD} text-right tabular-nums`}>
-                  {formatVendorIncomeMoney(totals.materialsCents)}
-                </td>
-                <td className={`${PORTAL_TABLE_TD} text-right tabular-nums`}>
-                  {formatVendorIncomeMoney(totals.totalCents)}
-                </td>
-                <td className={PORTAL_TABLE_TD} />
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      </div>
-    </>
+    <PortalRecordListSurface isEmpty={false} dataAttr="vendor-income-list">
+      {rows.map((row) => (
+        <PortalPropertyRecordRow
+          key={row.id}
+          title={row.workOrderTitle}
+          address={row.propertyLabel}
+          facts={formatIncomeDate(row.dateIso)}
+          trailing={formatVendorIncomeMoney(row.totalCents)}
+          chip={
+            <PortalRowStatusChip tone={row.payoutStatus === "paid" ? "ok" : row.payoutStatus === "failed" ? "warn" : "neutral"}>
+              {row.payoutStatusLabel}
+            </PortalRowStatusChip>
+          }
+          dataAttr="vendor-income-row"
+        />
+      ))}
+      <PortalPropertyRecordRow
+        title="Total income"
+        address={`${rows.length} ${rows.length === 1 ? "service" : "services"}`}
+        trailing={formatVendorIncomeMoney(totals.totalCents)}
+        dataAttr="vendor-income-total"
+      />
+    </PortalRecordListSurface>
   );
 }
 
@@ -576,6 +470,8 @@ function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label
   const [editingInvoice, setEditingInvoice] = useState<VendorInvoice | null>(null);
   const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
   const [exportRange] = useState(() => defaultFilters());
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const jobs = useMemo(() => readVendorWorkOrderRows(), [invoices]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -653,135 +549,90 @@ function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label
   }
 
   return (
-    <ManagerPortalPageShell
-      title="Finances"
-      hideTitleOnMobileNav
-      titleAside={
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="outline"
-            data-attr="vendor-export-invoices-csv"
-            onClick={() => {
-              window.location.assign(vendorExportUrl("invoices", exportRange.from, exportRange.to));
-            }}
-          >
-            Export CSV
-          </Button>
-          <Button
-            variant="primary"
-            onClick={() => {
-              setEditingInvoice(null);
-              setModalOpen(true);
-            }}
-            data-attr="vendor-invoice-new"
-          >
-            Submit invoice
-          </Button>
-        </div>
+    <VendorFinancesChrome
+      tabId={tabId}
+      tabItems={tabItems}
+      actions={
+        <PortalIconAction
+          icon={Download}
+          label="Export CSV"
+          data-attr="vendor-export-invoices-csv"
+          onClick={() => {
+            window.location.assign(vendorExportUrl("invoices", exportRange.from, exportRange.to));
+          }}
+        />
       }
-      filterRow={
-        <ManagerPortalFilterRow>
-          <TabNav activeId={tabId} items={tabItems} />
-          <ManagerPortalStatusPills
-            tabs={INVOICE_STATUS_FILTERS.map((f) => ({ id: f.id, label: f.label, count: counts[f.id] ?? 0 }))}
-            activeId={statusFilter}
-            onChange={(id) => setStatusFilter(id as "all" | VendorInvoiceStatus)}
-          />
-        </ManagerPortalFilterRow>
+      primary={
+        <PortalPrimaryIconAction
+          label="Request payment"
+          data-attr="vendor-invoice-new"
+          onClick={() => setWizardOpen(true)}
+        />
       }
     >
+      <ManagerPortalStatusPills
+        tabs={INVOICE_STATUS_FILTERS.map((f) => ({ id: f.id, label: f.label, count: counts[f.id] ?? 0 }))}
+        activeId={statusFilter}
+        onChange={(id) => setStatusFilter(id as "all" | VendorInvoiceStatus)}
+      />
       {loading ? (
-        <PortalDataTableEmpty message="Loading invoices…" icon="finance" />
+        <div className="h-40 animate-pulse rounded-2xl bg-muted" data-attr="vendor-invoices-loading" aria-hidden />
       ) : filtered.length === 0 ? (
-        <PortalDataTableEmpty
-          message={invoices.length === 0 ? "No invoices yet. Submit one to bill your manager." : "No invoices match this filter."}
-          icon="finance"
+        <PortalListEmptyCard
+          title={invoices.length === 0 ? portalEmptyCopy("finances.invoices").title : "No invoices match this filter"}
+          section={portalEmptyCopy("finances.invoices").section}
+          tone={invoices.length === 0 ? "default" : "muted"}
+          actions={
+            invoices.length === 0
+              ? [
+                  {
+                    label: "Request payment",
+                    onClick: () => setWizardOpen(true),
+                    dataAttr: "vendor-invoice-empty-add",
+                  },
+                ]
+              : []
+          }
         />
       ) : (
-        <>
-          <div className="space-y-2 lg:hidden">
-            {filtered.map((inv) => (
-              <div key={inv.id} className={PORTAL_MOBILE_CARD_CLASS}>
-                <div className="flex items-center justify-between gap-2">
-                  <p className="truncate text-sm font-medium text-foreground">{inv.invoiceNumber || "Invoice"}</p>
-                  <Badge tone={vendorInvoiceBadgeTone(inv.status)}>{vendorInvoiceStatusLabel(inv.status)}</Badge>
+        <PortalRecordListSurface isEmpty={false} dataAttr="vendor-invoices-list">
+          {filtered.map((inv) => (
+            <div key={inv.id}>
+              <PortalPropertyRecordRow
+                title={inv.invoiceNumber || "Invoice"}
+                address={formatInvoiceDate(inv.submittedAt)}
+                facts={`${inv.lineItems.length} ${inv.lineItems.length === 1 ? "item" : "items"}`}
+                trailing={formatInvoiceMoney(inv.totalCents, inv.currency)}
+                chip={
+                  <PortalRowStatusChip tone={inv.status === "paid" || inv.status === "approved" ? "ok" : inv.status === "rejected" ? "warn" : "neutral"}>
+                    {vendorInvoiceStatusLabel(inv.status)}
+                  </PortalRowStatusChip>
+                }
+                selected={editingInvoice?.id === inv.id}
+                onOpen={() => openEdit(inv)}
+                dataAttr="vendor-invoice-row"
+              />
+              {inv.status === "submitted" ? (
+                <div className="mb-2 px-1">
+                  <PortalTableDetailActions>
+                    <Button variant="outline" className={PORTAL_DETAIL_BTN} data-attr="vendor-invoice-edit" onClick={() => openEdit(inv)}>
+                      Edit
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className={PORTAL_DETAIL_BTN}
+                      data-attr="vendor-invoice-withdraw"
+                      disabled={withdrawingId === inv.id}
+                      onClick={() => withdrawInvoice(inv)}
+                    >
+                      {withdrawingId === inv.id ? "Withdrawing…" : "Withdraw"}
+                    </Button>
+                  </PortalTableDetailActions>
                 </div>
-                <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2">
-                  <div className="min-w-0">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted/70">Submitted</p>
-                    <p className="truncate text-sm text-foreground">{formatInvoiceDate(inv.submittedAt)}</p>
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted/70">Total</p>
-                    <p className="truncate text-sm font-medium tabular-nums text-foreground">
-                      {formatInvoiceMoney(inv.totalCents, inv.currency)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className={`${PORTAL_DATA_TABLE_WRAP} hidden lg:block`}>
-            <div className={PORTAL_DATA_TABLE_SCROLL}>
-              <table className={PORTAL_DATA_TABLE}>
-                <thead>
-                  <tr className={PORTAL_TABLE_HEAD_ROW}>
-                    <th className={`${MANAGER_TABLE_TH} text-left`}>Invoice #</th>
-                    <th className={`${MANAGER_TABLE_TH} text-left`}>Submitted</th>
-                    <th className={`${MANAGER_TABLE_TH} text-left`}>Work order</th>
-                    <th className={`${MANAGER_TABLE_TH} text-right`}>Items</th>
-                    <th className={`${MANAGER_TABLE_TH} text-right`}>Total</th>
-                    <th className={`${MANAGER_TABLE_TH} text-left`}>Status</th>
-                    <th className={`${MANAGER_TABLE_TH} text-right`}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((inv) => (
-                    <tr key={inv.id} className={PORTAL_TABLE_TR}>
-                      <td className={`${PORTAL_TABLE_TD} font-medium text-foreground`}>{inv.invoiceNumber || "—"}</td>
-                      <td className={`${PORTAL_TABLE_TD} text-muted`}>{formatInvoiceDate(inv.submittedAt)}</td>
-                      <td className={`${PORTAL_TABLE_TD} text-muted`}>{inv.workOrderId || "—"}</td>
-                      <td className={`${PORTAL_TABLE_TD} text-right tabular-nums`}>{inv.lineItems.length}</td>
-                      <td className={`${PORTAL_TABLE_TD} text-right tabular-nums font-medium text-foreground`}>
-                        {formatInvoiceMoney(inv.totalCents, inv.currency)}
-                      </td>
-                      <td className={PORTAL_TABLE_TD}>
-                        <Badge tone={vendorInvoiceBadgeTone(inv.status)}>{vendorInvoiceStatusLabel(inv.status)}</Badge>
-                        {inv.decisionNote ? <p className="mt-1 text-xs text-muted">{inv.decisionNote}</p> : null}
-                      </td>
-                      <td className={`${PORTAL_TABLE_TD} text-right`}>
-                        {inv.status === "submitted" ? (
-                          <div className="flex justify-end gap-2">
-                            <Button
-                              variant="outline"
-                              className="h-8 min-h-0 px-3 text-[13px]"
-                              data-attr="vendor-invoice-edit"
-                              onClick={() => openEdit(inv)}
-                            >
-                              Edit
-                            </Button>
-                            <Button
-                              variant="outline"
-                              className="h-8 min-h-0 px-3 text-[13px]"
-                              data-attr="vendor-invoice-withdraw"
-                              disabled={withdrawingId === inv.id}
-                              onClick={() => withdrawInvoice(inv)}
-                            >
-                              {withdrawingId === inv.id ? "Withdrawing…" : "Withdraw"}
-                            </Button>
-                          </div>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              ) : null}
             </div>
-          </div>
-        </>
+          ))}
+        </PortalRecordListSurface>
       )}
 
       <SubmitInvoiceModal
@@ -791,7 +642,17 @@ function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label
         linkedManagers={linkedManagers}
         editingInvoice={editingInvoice}
       />
-    </ManagerPortalPageShell>
+      <VendorQuoteWizard
+        open={wizardOpen}
+        door="invoice"
+        jobs={jobs}
+        onClose={() => setWizardOpen(false)}
+        onSubmitted={() => {
+          setWizardOpen(false);
+          void load();
+        }}
+      />
+    </VendorFinancesChrome>
   );
 }
 
@@ -804,10 +665,11 @@ export function VendorFinancesPanel({
   basePath?: string;
 }) {
   const [filters, setFilters] = useState(defaultFilters);
+  const [propertyIds, setPropertyIds] = useState<string[]>([]);
+  const [listSearch, setListSearch] = useState("");
   const [tick, setTick] = useState(0);
   const [payoutsByWorkOrderId, setPayoutsByWorkOrderId] = useState<Record<string, VendorPayout>>({});
-  const [sortKey, setSortKey] = useState("date");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [requestOpen, setRequestOpen] = useState(false);
 
   const loadPayouts = useCallback(async () => {
     const result = await fetchVendorPayoutsResult();
@@ -823,10 +685,15 @@ export function VendorFinancesPanel({
     return () => window.removeEventListener(MANAGER_WORK_ORDERS_EVENT, bump);
   }, [loadPayouts]);
 
-  const allRows = useMemo(() => {
+  const jobs = useMemo(() => {
     void tick;
-    return buildVendorIncomeRows(readVendorWorkOrderRows(), payoutsByWorkOrderId);
-  }, [tick, payoutsByWorkOrderId]);
+    return readVendorWorkOrderRows();
+  }, [tick]);
+
+  const allRows = useMemo(
+    () => buildVendorIncomeRows(jobs, payoutsByWorkOrderId),
+    [jobs, payoutsByWorkOrderId],
+  );
 
   const propertyOptions = useMemo(() => buildVendorPropertyFilterOptions(allRows), [allRows]);
 
@@ -835,9 +702,10 @@ export function VendorFinancesPanel({
       filterVendorIncomeRows(allRows, {
         from: filters.from,
         to: filters.to,
-        propertyId: filters.propertyId,
+        propertyIds,
+        query: listSearch,
       }),
-    [allRows, filters.from, filters.to, filters.propertyId],
+    [allRows, filters.from, filters.to, propertyIds, listSearch],
   );
 
   const financeTabItems = useMemo(
@@ -845,71 +713,220 @@ export function VendorFinancesPanel({
     [basePath],
   );
 
-  function onHeaderSort(key: string) {
-    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    else {
-      setSortKey(key);
-      setSortDir(key === "date" || key === "total" || key === "labor" || key === "materials" ? "desc" : "asc");
-    }
-  }
+  const payoutsRef = useRef<VendorPaymentsPanelHandle>(null);
+  const defaults = defaultFilters();
+  const filterTouchCount =
+    propertyIds.length +
+    (filters.from !== defaults.from ? 1 : 0) +
+    (filters.to !== defaults.to ? 1 : 0);
+
+  const filterSheet = (
+    <PortalFilterSortSheet
+      activeCount={filterTouchCount}
+      compactPanel
+      filterFieldCount={3}
+      commandStripTrigger
+      onReset={() => {
+        setPropertyIds([]);
+        setFilters(defaultFilters());
+      }}
+      dataAttr="vendor-finances-filter-sheet-open"
+    >
+      <VendorFinanceFilterFields
+        propertyOptions={propertyOptions}
+        propertyIds={propertyIds}
+        onPropertyIdsChange={setPropertyIds}
+        from={filters.from}
+        to={filters.to}
+        onRangeChange={(next) => setFilters((current) => ({ ...current, ...next }))}
+      />
+    </PortalFilterSortSheet>
+  );
+
+  const filterChips: PortalActiveFilterChip[] = [
+    ...propertyIds.map((id) => ({
+      id: `property-${id}`,
+      label: propertyOptions.find((option) => option.id === id)?.label ?? id,
+      onRemove: () => setPropertyIds((current) => current.filter((item) => item !== id)),
+    })),
+  ];
+
+  const requestPayment = (
+    <PortalPrimaryIconAction
+      label="Request payment"
+      data-attr="vendor-finances-request-payment"
+      onClick={() => setRequestOpen(true)}
+    />
+  );
+
+  const requestWizard = (
+    <VendorQuoteWizard
+      open={requestOpen}
+      door="invoice"
+      jobs={jobs}
+      onClose={() => setRequestOpen(false)}
+      onSubmitted={() => {
+        setRequestOpen(false);
+        setTick((n) => n + 1);
+      }}
+    />
+  );
 
   if (tabId === "invoices") {
     return <VendorInvoicesView tabItems={financeTabItems} tabId={tabId} />;
   }
 
-  if (tabId !== "income") {
+  if (tabId === "payouts") {
     return (
-      <ManagerPortalPageShell title="Finances" hideTitleOnMobileNav>
-        <PortalDataTableEmpty message="This finances view is not available." icon="finance" />
-      </ManagerPortalPageShell>
+      <VendorFinancesChrome
+        tabId={tabId}
+        tabItems={financeTabItems}
+        filterRow={filterSheet}
+        actions={
+          <>
+            <PortalIconAction
+              icon={Download}
+              label="Export CSV"
+              data-attr="vendor-export-payouts-csv"
+              onClick={() => {
+                window.location.assign(vendorExportUrl("payouts", filters.from, filters.to));
+              }}
+            />
+            <PortalIconAction
+              icon={Bell}
+              label="Send reminder"
+              data-attr="vendor-payments-send-reminder"
+              onClick={() => payoutsRef.current?.sendReminder()}
+            />
+            <PortalIconAction
+              icon={CreditCard}
+              label="Payment methods"
+              data-attr="vendor-payments-add"
+              onClick={() => payoutsRef.current?.openPaymentMethods()}
+            />
+          </>
+        }
+        primary={requestPayment}
+      >
+        <VendorPaymentsPanel ref={payoutsRef} embedded />
+        {requestWizard}
+      </VendorFinancesChrome>
     );
   }
 
-  return (
-    <ManagerPortalPageShell
-      title="Finances"
-      hideTitleOnMobileNav
-      filterRow={
-        <ManagerPortalFilterRow>
-          <TabNav activeId={tabId} items={financeTabItems} />
-        </ManagerPortalFilterRow>
-      }
-    >
-      <div className="space-y-5">
-        <ReportFilterBar
-          showProperty
-          showDateRange
-          showDaysAhead={false}
-          showTaxYear={false}
-          propertyOptions={propertyOptions}
-          filters={filters}
-          onChange={(next) => setFilters((f) => ({ ...f, ...next }))}
-          onRun={() => undefined}
-          showRunButton={false}
-        />
-        <div className="flex justify-end">
-          <Button
-            variant="outline"
-            data-attr="vendor-export-payouts-csv"
-            onClick={() => {
-              window.location.assign(vendorExportUrl("payouts", filters.from, filters.to));
-            }}
-          >
-            Export payouts CSV
-          </Button>
-        </div>
+  const incomeEmpty = portalEmptyCopy("finances.income");
+  const filtersHideRows = allRows.length > 0 && filteredRows.length === 0;
 
-        {filteredRows.length === 0 && allRows.length > 0 ? (
-          <PortalDataTableEmpty message="No income entries match these filters yet." icon="finance" />
-        ) : (
-          <VendorIncomeTable
-            rows={filteredRows}
-            sortKey={sortKey}
-            sortDir={sortDir}
-            onHeaderSort={onHeaderSort}
-          />
-        )}
-      </div>
-    </ManagerPortalPageShell>
+  return (
+    <VendorFinancesChrome
+      tabId={tabId}
+      tabItems={financeTabItems}
+      filterRow={filterSheet}
+      search={{
+        value: listSearch,
+        onChange: setListSearch,
+        placeholder: "Search income",
+        dataAttr: "vendor-income-search",
+      }}
+      activeFilterChips={<PortalActiveFilterChips chips={filterChips} />}
+      primary={requestPayment}
+    >
+      {filteredRows.length === 0 ? (
+        <PortalListEmptyCard
+          title={filtersHideRows ? "No income matches these filters" : incomeEmpty.title}
+          section={incomeEmpty.section}
+          tone={filtersHideRows ? "muted" : "default"}
+          actions={
+            filtersHideRows
+              ? []
+              : [{ label: "Request payment", onClick: () => setRequestOpen(true), dataAttr: "vendor-income-empty-add" }]
+          }
+          clear={
+            filtersHideRows
+              ? {
+                  label: "Clear filters",
+                  onClick: () => {
+                    setPropertyIds([]);
+                    setFilters(defaultFilters());
+                    setListSearch("");
+                  },
+                  dataAttr: "vendor-income-empty-clear-filters",
+                }
+              : undefined
+          }
+        />
+      ) : (
+        <VendorIncomeTable rows={filteredRows} />
+      )}
+      {requestWizard}
+    </VendorFinancesChrome>
+  );
+}
+
+function VendorFinanceFilterFields({
+  propertyOptions,
+  propertyIds,
+  onPropertyIdsChange,
+  from,
+  to,
+  onRangeChange,
+}: {
+  propertyOptions: { id: string; label: string }[];
+  propertyIds: string[];
+  onPropertyIdsChange: (next: string[]) => void;
+  from: string;
+  to: string;
+  onRangeChange: (next: Partial<ReportFilterState>) => void;
+}) {
+  const [draftPropertyIds, setDraftPropertyIds] = usePortalFilterDraft(propertyIds, onPropertyIdsChange, []);
+  const [draftFrom, setDraftFrom] = usePortalFilterDraft(from, (next) => onRangeChange({ from: next }), from);
+  const [draftTo, setDraftTo] = usePortalFilterDraft(to, (next) => onRangeChange({ to: next }), to);
+  const propertyListOptions = propertyOptions.map((option) => ({ value: option.id, label: option.label }));
+
+  return (
+    <FilterFieldsAccordion>
+      <FilterCollapsibleSection
+        sectionId="property"
+        label="Property"
+        summary={filterMultiSelectSummary(draftPropertyIds, propertyListOptions)}
+        empty={draftPropertyIds.length === 0}
+        menuOptionCount={Math.max(1, propertyListOptions.length)}
+      >
+        <FilterCheckboxList
+          options={propertyListOptions}
+          selected={draftPropertyIds}
+          onChange={setDraftPropertyIds}
+          dataAttr="vendor-finances-filter-property"
+        />
+      </FilterCollapsibleSection>
+      <FilterCollapsibleSection
+        sectionId="from"
+        label="From"
+        summary={draftFrom || "Any"}
+        empty={!draftFrom}
+        menuOptionCount={1}
+      >
+        <Input
+          type="date"
+          value={draftFrom}
+          onChange={(event) => setDraftFrom(event.target.value)}
+          data-attr="vendor-finances-filter-from"
+        />
+      </FilterCollapsibleSection>
+      <FilterCollapsibleSection
+        sectionId="to"
+        label="To"
+        summary={draftTo || "Any"}
+        empty={!draftTo}
+        menuOptionCount={1}
+      >
+        <Input
+          type="date"
+          value={draftTo}
+          onChange={(event) => setDraftTo(event.target.value)}
+          data-attr="vendor-finances-filter-to"
+        />
+      </FilterCollapsibleSection>
+    </FilterFieldsAccordion>
   );
 }

@@ -3,6 +3,7 @@ import {
   countTaskListFilterBuckets,
   managerTaskIsScheduled,
   taskListRowMatchesFilter,
+  taskListRowMatchesSearch,
 } from "@/lib/manager-task-display";
 import type { ManagerTask } from "@/lib/manager-tasks";
 import type { ServiceRequest } from "@/lib/service-requests-storage";
@@ -49,6 +50,40 @@ describe("taskListRowMatchesFilter", () => {
     expect(taskListRowMatchesFilter(house, "house_tasks")).toBe(true);
     expect(taskListRowMatchesFilter(general, "general_tasks")).toBe(true);
     expect(taskListRowMatchesFilter(general, "tours")).toBe(false);
+  });
+});
+
+describe("taskListRowMatchesSearch", () => {
+  it("matches task title, house, and assignee; empty query keeps every row", () => {
+    const row = {
+      kind: "task" as const,
+      task: baseTask({
+        title: "Fix the porch light",
+        propertyTitle: "12 Maple St",
+        assignee: { type: "team", id: "u1", name: "Alex" },
+      }),
+    };
+    expect(taskListRowMatchesSearch(row, "")).toBe(true);
+    expect(taskListRowMatchesSearch(row, "porch")).toBe(true);
+    expect(taskListRowMatchesSearch(row, "maple")).toBe(true);
+    expect(taskListRowMatchesSearch(row, "alex")).toBe(true);
+    expect(taskListRowMatchesSearch(row, "zzzz")).toBe(false);
+  });
+
+  it("matches service rows by offer and resident", () => {
+    const row = {
+      kind: "service" as const,
+      request: {
+        id: "s1",
+        offerName: "Deep clean",
+        residentName: "Sam",
+        residentEmail: "sam@example.com",
+        notes: "Friday",
+      } as ServiceRequest,
+    };
+    expect(taskListRowMatchesSearch(row, "clean")).toBe(true);
+    expect(taskListRowMatchesSearch(row, "sam@")).toBe(true);
+    expect(taskListRowMatchesSearch(row, "porch")).toBe(false);
   });
 });
 

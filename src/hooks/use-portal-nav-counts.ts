@@ -27,9 +27,12 @@ import {
   readAllServiceRequests,
   SERVICE_REQUESTS_EVENT,
 } from "@/lib/service-requests-storage";
+import { countVisibleUnreadCommunication } from "@/lib/communication-inbox-filters";
+import { loadManagerSmsArchivedIds, MANAGER_SMS_ARCHIVE_CHANGED_EVENT } from "@/lib/manager-sms-archive.client";
 import {
   loadPersistedInbox,
   MANAGER_INBOX_STORAGE_KEY,
+  PORTAL_INBOX_CHANGED_EVENT,
   RESIDENT_INBOX_STORAGE_KEY,
 } from "@/lib/portal-inbox-storage";
 import { readBugFeedbackRows } from "@/lib/portal-bug-feedback";
@@ -41,23 +44,10 @@ import { MANAGER_TASKS_EVENT, readManagerTasksLocal } from "@/lib/manager-tasks"
 import { buildManagerTourRows, countManagerTourRowsByBucket } from "@/lib/manager-tour-list";
 import {
   WORKSPACE_SELECTION_EVENT,
+  activeWorkspaceIdentity,
   workspaceContainsProperty,
   workspacePropertyIdFromRow,
 } from "@/lib/workspaces/selection";
-
-/**
- * Unread Communication conversations for the nav badge.
- *
- * Deliberately does NOT drop SMS-like rows. Communication is one section that
- * owns both the conversation list and the SMS panel, and while the SMS UI is
- * hidden an inbound-SMS notice falls through into the conversation list
- * (`keepSmsLike` in `filterEmailInboxThreads`). This hook is a client hook with
- * no access to the server-resolved `smsUiEnabled` flag, so counting every
- * unread inbox row is the only way the badge can never disagree with the list.
- */
-function countUnreadCommunication(rows: { folder?: string; unread?: boolean }[]): number {
-  return rows.filter((t) => t.folder === "inbox" && t.unread).length;
-}
 
 /** A count that must never take the sidebar down with it — a half-migrated mirror reads as 0. */
 function safeCount(read: () => number): number {
@@ -94,10 +84,14 @@ export function usePortalNavCounts(kind: PortalKind): Partial<Record<string, num
     window.addEventListener(SERVICE_REQUESTS_EVENT, bump);
     window.addEventListener(MANAGER_TASKS_EVENT, bump);
     window.addEventListener(WORKSPACE_SELECTION_EVENT, bump);
+    window.addEventListener(PORTAL_INBOX_CHANGED_EVENT, bump);
+    window.addEventListener(MANAGER_SMS_ARCHIVE_CHANGED_EVENT, bump);
     window.addEventListener("storage", bump);
     return () => {
       window.removeEventListener(MANAGER_TASKS_EVENT, bump);
       window.removeEventListener(WORKSPACE_SELECTION_EVENT, bump);
+      window.removeEventListener(PORTAL_INBOX_CHANGED_EVENT, bump);
+      window.removeEventListener(MANAGER_SMS_ARCHIVE_CHANGED_EVENT, bump);
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, bump);
       window.removeEventListener(ADMIN_UI_EVENT, bump);
       window.removeEventListener(MANAGER_APPLICATIONS_EVENT, bump);
@@ -141,7 +135,14 @@ export function usePortalNavCounts(kind: PortalKind): Partial<Record<string, num
       const pendingWorkOrders = readManagerWorkOrderRows().filter(
         (w) => moduleRowVisibleToPortalUser(w, userId, "services") && w.bucket === "open",
       ).length;
-      const inbox = countUnreadCommunication(loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []));
+      const inbox = safeCount(() =>
+        countVisibleUnreadCommunication(loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []), {
+          portal: "manager",
+          viewerId: userId,
+          workspace: activeWorkspaceIdentity(),
+          archivedSmsIds: loadManagerSmsArchivedIds(),
+        }),
+      );
       // The same numbers the list tabs render — Properties' plan meter, Tours'
       // Pending tab, Payments' Pending + Overdue, Tasks' Open — read from the
       // same local mirrors, so the nav can never disagree with the page.
@@ -180,8 +181,11 @@ export function usePortalNavCounts(kind: PortalKind): Partial<Record<string, num
     }
 
     if (kind === "resident") {
-      const inbox = countUnreadCommunication(
-        loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK),
+      const inbox = safeCount(() =>
+        countVisibleUnreadCommunication(
+          loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK),
+          { portal: "resident", viewerId: userId },
+        ),
       );
       return { communication: inbox };
     }

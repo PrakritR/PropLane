@@ -4,6 +4,10 @@ import { Receiver } from "@upstash/qstash";
 import { handleClawLeasingInbound } from "@/lib/claw-leasing-bot.server";
 import { claimProspectSmsBurst, completeProspectSmsBurst, durableProspectSmsHealth } from "@/lib/sms/prospect-sms-burst.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import {
+  loadConfirmedProspectTourBooking,
+  recoverProspectTourBookingForBurst,
+} from "@/lib/prospect-tour-booking-recovery.server";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -65,6 +69,41 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, unsupported: true, error: "retired_transport_unsupported" });
   }
   const sourceIds = ingress.map((row) => String(row.source_message_id));
+  const committedBooking = await loadConfirmedProspectTourBooking(db, {
+    managerUserId: String(burst.manager_user_id),
+    burstId,
+  });
+  if (committedBooking) {
+    const recovered = await recoverProspectTourBookingForBurst(db, {
+      booking: committedBooking,
+      workerId: claim.workerId,
+      recipientPhone: String(burst.counterparty_phone_e164),
+      workNumber: burst.reply_from_number ? String(burst.reply_from_number) : null,
+      transport: "twilio",
+    });
+    if (!recovered.ok) {
+      await completeProspectSmsBurst(db, { burstId, revision, workerId: claim.workerId, status: "failed" });
+      return NextResponse.json({ error: recovered.error }, { status: 503 });
+    }
+    // A newer inbound must not strand a committed confirmation just because it
+    // superseded the mutable burst row. Recover that booking, then still let
+    // the current inbound receive its own ordinary burst-fenced response.
+    if (committedBooking.burst_revision === revision) {
+      await completeProspectSmsBurst(db, {
+        burstId,
+        revision,
+        workerId: claim.workerId,
+        status: "dispatched",
+        outboxId: recovered.outboxId || undefined,
+      });
+      return NextResponse.json({
+        ok: true,
+        replied: true,
+        recoveredBooking: true,
+        outboxStatus: recovered.outboxStatus,
+      });
+    }
+  }
   let result;
   try {
     result = await handleClawLeasingInbound({
@@ -109,6 +148,30 @@ export async function POST(req: Request) {
     if (outboxError || !outbox) return NextResponse.json({ error: "Outbox state unavailable." }, { status: 503 });
     const status = String(outbox.status);
     if (["queued", "claimed", "deferred", "submitting", "submitted", "sent", "delivered", "unknown"].includes(status)) {
+      await db.from("prospect_tour_bookings").update({
+        confirmation_outbox_id: result.outboxId,
+        confirmation_status: ["submitted", "sent", "delivered"].includes(status)
+          ? "submitted"
+          : status === "unknown"
+            ? "blocked"
+            : "prepared",
+        updated_at: new Date().toISOString(),
+      }).eq("burst_id", burstId).eq("burst_revision", revision).eq("status", "confirmed");
+      const { data: booking } = await db.from("prospect_tour_bookings")
+        .select("id")
+        .eq("burst_id", burstId)
+        .eq("burst_revision", revision)
+        .eq("status", "confirmed")
+        .maybeSingle();
+      if (booking) {
+        await completeProspectSmsBurst(db, {
+          burstId,
+          revision,
+          workerId: claim.workerId,
+          status: "dispatched",
+          outboxId: result.outboxId,
+        });
+      }
       return NextResponse.json({ ok: true, replied: Boolean(result.replied), outboxStatus: status });
     }
     if (status === "blocked") return NextResponse.json({ ok: true, stale: true });

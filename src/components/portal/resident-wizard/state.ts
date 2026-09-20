@@ -24,6 +24,56 @@ export type PaymentRowStatus = "paid" | "due" | "partial";
 export type BillingStart = "move_in" | "next_due";
 export type LeaseDocumentChoice = "signed" | "draft" | "later";
 
+/** Extras a current resident can pick on Contact — rail on-path only. */
+export const ALSO_CREATE_IDS = ["lease", "application", "payments", "documents"] as const;
+export type AlsoCreateId = (typeof ALSO_CREATE_IDS)[number];
+
+export const ALSO_CREATE_OPTIONS: { value: AlsoCreateId; label: string }[] = [
+  { value: "lease", label: "Lease" },
+  { value: "application", label: "Application" },
+  { value: "payments", label: "Payments" },
+  { value: "documents", label: "Documents" },
+];
+
+export function defaultAlsoCreate(kind: AddPersonKind): AlsoCreateId[] {
+  return kind === "resident" ? ["lease"] : [];
+}
+
+export function alsoCreates(form: { alsoCreate: readonly AlsoCreateId[] }, id: AlsoCreateId): boolean {
+  return form.alsoCreate.includes(id);
+}
+
+/** Also create Payments is off by default — commit must not invent a ledger. */
+export function commitCreatesPayments(form: { kind: AddPersonKind; alsoCreate: readonly AlsoCreateId[] }): boolean {
+  return form.kind !== "prospect" && alsoCreates(form, "payments");
+}
+
+/** Also create Lease is the default extra — draft/signed filing only when it stays on. */
+export function commitCreatesLease(form: { kind: AddPersonKind; alsoCreate: readonly AlsoCreateId[] }): boolean {
+  return form.kind !== "prospect" && alsoCreates(form, "lease");
+}
+
+/** Empty selection snaps back to Lease — a current resident always has a default extra. */
+export function normalizeAlsoCreate(next: readonly string[], kind: AddPersonKind = "resident"): AlsoCreateId[] {
+  if (kind === "prospect") return [];
+  const picked = ALSO_CREATE_IDS.filter((id) => next.includes(id));
+  return picked.length ? picked : ["lease"];
+}
+
+function sameAlsoCreate(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const left = [...a].sort();
+  const right = [...b].sort();
+  return left.every((id, i) => id === right[i]);
+}
+
+export function currentResidentStepOffPath(stepId: string, form: { alsoCreate: readonly AlsoCreateId[] }): boolean {
+  if (stepId === "application" || stepId === "lease" || stepId === "payments" || stepId === "documents") {
+    return !alsoCreates(form, stepId);
+  }
+  return false;
+}
+
 /** The application answers a manager may fill — the applicant's keys, minus SSN, consent, signature and fee. */
 export const MANAGER_APPLICATION_TEXT_KEYS = [
   "dateOfBirth",
@@ -136,6 +186,8 @@ export type AddPersonForm = {
   oneTimeMethod: string;
   // Documents
   documents: AttachedDocument[];
+  /** Current resident extras — which rail steps are on-path. Default Lease. */
+  alsoCreate: AlsoCreateId[];
   // Parse marks — which fields a file filled, until the manager edits them.
   marks: Record<string, FieldMarkKind>;
   // Message
@@ -144,12 +196,10 @@ export type AddPersonForm = {
 };
 
 export const PAYMENT_METHOD_OPTIONS = [
-  { value: "zelle", label: "Zelle" },
-  { value: "venmo", label: "Venmo" },
-  { value: "check", label: "Check" },
-  { value: "cash", label: "Cash" },
   { value: "card", label: "Card" },
   { value: "bank", label: "Bank transfer" },
+  { value: "check", label: "Check" },
+  { value: "cash", label: "Cash" },
   { value: "other", label: "Other" },
 ];
 
@@ -185,7 +235,7 @@ export function emptyAddPersonForm(kind: AddPersonKind = "resident"): AddPersonF
     otherFeeLabel: "",
     otherFeeAmount: "",
     rentDueDay: "1",
-    leaseDocument: "signed",
+    leaseDocument: "later",
     leaseFile: null,
     leaseDataUrl: "",
     leaseFileName: "",
@@ -194,8 +244,9 @@ export function emptyAddPersonForm(kind: AddPersonKind = "resident"): AddPersonF
     depositPaid: true,
     moveInFeePaid: true,
     oneTimePaidOn: "",
-    oneTimeMethod: "zelle",
+    oneTimeMethod: "card",
     documents: [],
+    alsoCreate: defaultAlsoCreate(kind),
     marks: {},
     message: { channels: ["email"], subject: "", body: "" },
     notes: "",
@@ -212,6 +263,7 @@ export function addPersonFormIsDirty(form: AddPersonForm): boolean {
   ];
   if (keys.some((k) => form[k] !== blank[k])) return true;
   if (form.documents.length > 0 || form.vehicles > 0) return true;
+  if (!sameAlsoCreate(form.alsoCreate, blank.alsoCreate)) return true;
   if (Object.values(form.application).some((v) => (typeof v === "string" ? v.trim() : Boolean(v)))) return true;
   if (Object.values(form.customAnswers).some((v) => v.trim())) return true;
   return false;
@@ -423,12 +475,74 @@ export function buildProspectRow(form: AddPersonForm, ctx: BuildRowContext): Bui
   return { ok: true, row };
 }
 
+/**
+ * An application started by the manager on the applicant's behalf: a pending,
+ * in-progress draft carrying whatever the manager filled. The applicant opens
+ * the secure link, adds what only they can (SSN if screening needs it,
+ * consent, signature) and submits — or the manager keeps it as filled.
+ */
+export function buildApplicationDraftRow(
+  form: AddPersonForm,
+  ctx: BuildRowContext,
+  customQuestions: readonly { key: string; label: string; type: RentalCustomFieldAnswer["type"]; section?: string }[] = [],
+): BuildRowResult {
+  if (!form.name.trim()) return { ok: false, error: "Enter the applicant's name." };
+  if (!form.email.trim()) return { ok: false, error: "Enter the applicant's email." };
+  if (!form.propertyId.trim()) return { ok: false, error: "Pick the property they are applying for." };
+  const axisId = `PROPLANE-${(ctx.idSuffix ?? (() => Date.now().toString(36).toUpperCase().slice(-8)))()}`;
+  const propLabel = ctx.propertyLabelFor(form.propertyId) ?? form.propertyId;
+  const placement = resolveManualResidentAssignment({ propertyId: form.propertyId, roomId: form.roomId, bundleId: form.bundleId });
+  const leaseFields = residentLeaseTermToApplicationFields(form.leaseTerm, form.leaseTermCustomMode, form.propertyId);
+  const answers = applicationAnswersForRow(form);
+  const custom = customAnswersForRow(form, customQuestions);
+  const row: DemoApplicantRow = {
+    id: axisId,
+    name: form.name.trim(),
+    email: form.email.trim(),
+    property: propLabel,
+    stage: "In progress",
+    bucket: "pending",
+    detail: "Started by you",
+    propertyId: form.propertyId,
+    managerUserId: ctx.userId ?? undefined,
+    manuallyAdded: true,
+    manualResidentDetails: {
+      phone: form.phone.trim() || undefined,
+      roomNumber: placement.placementLabel?.trim() || undefined,
+      notes: form.notes.trim() || undefined,
+      ...(form.vehicles > 0 ? { vehicles: form.vehicles } : {}),
+      ...(form.preferredContact === "sms" ? { preferredContact: "sms" as const } : {}),
+    },
+    application: {
+      propertyId: form.propertyId,
+      roomChoice1: placement.assignedRoomChoice,
+      bundleId: placement.bundleId,
+      ...(leaseFields.leaseTerm ? { leaseTerm: leaseFields.leaseTerm, rentalType: leaseFields.rentalType } : {}),
+      leaseStart: form.moveInDate || undefined,
+      fullLegalName: form.name.trim(),
+      email: form.email.trim(),
+      phone: form.phone.trim() || undefined,
+      ...answers,
+      ...(custom.length ? { customFieldAnswers: custom } : {}),
+      wizardStep: 1,
+      wizardMaxStepReached: 1,
+    } as unknown as DemoApplicantRow["application"],
+  };
+  return { ok: true, row };
+}
+
 /* ─────────────────────────── things to finish ─────────────────────────── */
 
 export type ThingToFinish = { step: string; label: string };
 
-export function thingsToFinish(form: AddPersonForm): ThingToFinish[] {
+export function thingsToFinish(form: AddPersonForm, mode: "person" | "tour" | "application" = "person"): ThingToFinish[] {
   const out: ThingToFinish[] = [];
+  if (mode === "application") {
+    if (!form.name.trim()) out.push({ step: "contact", label: "Applicant's name" });
+    if (!form.email.trim()) out.push({ step: "contact", label: "Applicant's email" });
+    if (!form.propertyId.trim()) out.push({ step: "home", label: "Property they're applying for" });
+    return out;
+  }
   if (!form.name.trim()) out.push({ step: "contact", label: form.kind === "prospect" ? "Prospect's name" : "Resident's name" });
   if (form.kind === "prospect") {
     if (!form.email.trim() && !form.phone.trim()) out.push({ step: "contact", label: "An email or phone" });
@@ -437,13 +551,15 @@ export function thingsToFinish(form: AddPersonForm): ThingToFinish[] {
   }
   if (!form.email.trim()) out.push({ step: "contact", label: "Resident's email" });
   if (!form.propertyId.trim()) out.push({ step: "home", label: "Property" });
-  const leaseFields = residentLeaseTermToApplicationFields(form.leaseTerm, form.leaseTermCustomMode, form.propertyId);
-  const airbnb = leaseFields.rentalType === "airbnb";
-  if (!form.leaseTerm.trim()) out.push({ step: "lease", label: "Lease term" });
-  if (!form.moveInDate.trim()) out.push({ step: "lease", label: "Move-in date" });
-  if (airbnb && !form.moveOutDate.trim()) out.push({ step: "lease", label: "Move-out date" });
-  if (!airbnb && !form.rent.trim()) out.push({ step: "lease", label: "Monthly rent" });
-  if (form.leaseDocument !== "later" && !form.leaseDataUrl.trim()) out.push({ step: "lease", label: form.leaseDocument === "signed" ? "The signed lease PDF" : "The draft lease PDF" });
+  if (alsoCreates(form, "lease")) {
+    const leaseFields = residentLeaseTermToApplicationFields(form.leaseTerm, form.leaseTermCustomMode, form.propertyId);
+    const airbnb = leaseFields.rentalType === "airbnb";
+    if (!form.leaseTerm.trim()) out.push({ step: "lease", label: "Lease term" });
+    if (!form.moveInDate.trim()) out.push({ step: "lease", label: "Move-in date" });
+    if (airbnb && !form.moveOutDate.trim()) out.push({ step: "lease", label: "Move-out date" });
+    if (!airbnb && !form.rent.trim()) out.push({ step: "lease", label: "Monthly rent" });
+    if (form.leaseDocument !== "later" && !form.leaseDataUrl.trim()) out.push({ step: "lease", label: form.leaseDocument === "signed" ? "The signed lease PDF" : "The draft lease PDF" });
+  }
   return out;
 }
 

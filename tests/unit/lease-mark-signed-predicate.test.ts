@@ -5,7 +5,7 @@
  * any kind on the row — across every status × signature combination.
  */
 import { describe, expect, it } from "vitest";
-import { leaseCanBeMarkedSignedOffPlatform } from "@/lib/lease-execution-evidence";
+import { leaseAllowsSignedPdfUpload, leaseCanBeMarkedSignedOffPlatform } from "@/lib/lease-execution-evidence";
 
 const resident = { role: "resident" as const, name: "Luna Testerson", signedAtIso: "2026-09-13T02:00:00.000Z" };
 const manager = { role: "manager" as const, name: "Pat Manager", signedAtIso: "2026-09-13T03:00:00.000Z" };
@@ -65,5 +65,24 @@ describe("leaseCanBeMarkedSignedOffPlatform", () => {
   it("stays closed for Admin Review and for the signed bucket without a signature object", () => {
     expect(leaseCanBeMarkedSignedOffPlatform(row({ status: "Admin Review" }))).toBe(false);
     expect(leaseCanBeMarkedSignedOffPlatform(row({ bucket: "signed", status: "Manager Signature Pending" }))).toBe(false);
+  });
+});
+
+describe("leaseAllowsSignedPdfUpload", () => {
+  it("opens at Draft, Manager Review, and unsigned Resident Signature Pending", () => {
+    expect(leaseAllowsSignedPdfUpload(row({ status: "Draft" }))).toBe(true);
+    expect(leaseAllowsSignedPdfUpload(row({ status: "Manager Review" }))).toBe(true);
+    expect(leaseAllowsSignedPdfUpload(row({ bucket: "resident", status: "Resident Signature Pending" }))).toBe(true);
+  });
+
+  it("closes once the lease is executed, voided, or in Admin Review", () => {
+    expect(
+      leaseAllowsSignedPdfUpload(
+        row({ bucket: "signed", status: "Fully Signed", residentSignature: resident, managerSignature: manager, fullySignedAt: manager.signedAtIso }),
+      ),
+    ).toBe(false);
+    expect(leaseAllowsSignedPdfUpload(row({ status: "Voided", voidedAt: "2026-09-13T04:00:00.000Z" }))).toBe(false);
+    expect(leaseAllowsSignedPdfUpload(row({ status: "Admin Review" }))).toBe(false);
+    expect(leaseAllowsSignedPdfUpload(row({ residentSignature: resident }))).toBe(false);
   });
 });

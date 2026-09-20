@@ -10,9 +10,10 @@
  * `/api/portal/automated-messages`. The default copy is rendered server-side
  * by the real renderers so what the modal shows is what actually goes out.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { useSettingsPropertyScope } from "@/components/portal/settings-property-scope";
 import {
   automatedMessageCatalogForArea,
   automatedMessageKey,
@@ -31,6 +32,13 @@ export function AutomatedMessagesList({ area, disabled: disabledProp }: { area: 
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
   const reportSaveStatus = useReportSettingsSaveStatus();
+  // Per-property scope (PLAN-0916-1040); no-op workspace scope outside a provider.
+  const {
+    propertyId: scopePropertyId,
+    reportOverriddenPropertyIds,
+    resetSignal,
+  } = useSettingsPropertyScope();
+  const scopeKey = `automated-messages:${area}:${useId()}`;
   const entries = useMemo(() => automatedMessageCatalogForArea(area), [area]);
   const [settings, setSettings] = useState<AutomatedMessageSettings | null>(null);
   const [defaults, setDefaults] = useState<Record<string, { subject: string; body: string }>>({});
@@ -44,12 +52,14 @@ export function AutomatedMessagesList({ area, disabled: disabledProp }: { area: 
         return;
       }
       try {
-        const res = await fetch("/api/portal/automated-messages", { credentials: "include", cache: "no-store" });
-        const body = (await res.json().catch(() => ({}))) as { settings?: unknown; defaults?: Record<string, { subject: string; body: string }>; error?: string };
+        const query = scopePropertyId ? `?propertyId=${encodeURIComponent(scopePropertyId)}` : "";
+        const res = await fetch(`/api/portal/automated-messages${query}`, { credentials: "include", cache: "no-store" });
+        const body = (await res.json().catch(() => ({}))) as { settings?: unknown; defaults?: Record<string, { subject: string; body: string }>; error?: string; overriddenPropertyIds?: string[] };
         if (!res.ok) throw new Error(body.error ?? "Could not load automated messages.");
         if (!cancelled) {
           setSettings(normalizeAutomatedMessageSettings(body.settings));
           setDefaults(body.defaults ?? {});
+          reportOverriddenPropertyIds(scopeKey, body.overriddenPropertyIds ?? []);
         }
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not load automated messages.");
@@ -59,7 +69,39 @@ export function AutomatedMessagesList({ area, disabled: disabledProp }: { area: 
     return () => {
       cancelled = true;
     };
-  }, [demo, showToast]);
+  }, [demo, showToast, scopePropertyId, scopeKey, reportOverriddenPropertyIds]);
+
+  // Reset the house's automated-message override on the scope bar's request. Fire
+  // only when the signal advances past the mount value (StrictMode double mount).
+  const lastResetRef = useRef(resetSignal);
+  useEffect(() => {
+    if (resetSignal === lastResetRef.current) return;
+    lastResetRef.current = resetSignal;
+    if (!scopePropertyId || demo) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/portal/automated-messages", {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ propertyId: scopePropertyId, reset: true }),
+        });
+        const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string; overriddenPropertyIds?: string[] };
+        if (!res.ok) throw new Error(body.error ?? "Could not reset automated messages.");
+        if (!cancelled) {
+          setSettings(normalizeAutomatedMessageSettings(body.settings));
+          reportOverriddenPropertyIds(scopeKey, body.overriddenPropertyIds ?? []);
+        }
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Could not reset automated messages.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetSignal]);
 
   const save = async (patch: AutomatedMessageSettings) => {
     const previous = settings;
@@ -71,12 +113,13 @@ export function AutomatedMessagesList({ area, disabled: disabledProp }: { area: 
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ settings: patch }),
+        body: JSON.stringify({ settings: patch, ...(scopePropertyId ? { propertyId: scopePropertyId } : {}) }),
         keepalive: true,
       });
-      const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string };
+      const body = (await res.json().catch(() => ({}))) as { settings?: unknown; error?: string; overriddenPropertyIds?: string[] };
       if (!res.ok) throw new Error(body.error ?? "Could not save automated messages.");
       setSettings(normalizeAutomatedMessageSettings(body.settings));
+      reportOverriddenPropertyIds(scopeKey, body.overriddenPropertyIds ?? []);
       reportSaveStatus({ type: "success" });
     } catch (e) {
       const message = e instanceof Error ? e.message : "Could not save automated messages.";

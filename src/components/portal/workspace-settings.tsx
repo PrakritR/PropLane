@@ -19,10 +19,11 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Building2, ChevronDown, ChevronUp, Pencil, Trash2 } from "lucide-react";
+import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 import { resolvePropertyLabelForId } from "@/lib/manager-portfolio-access";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
@@ -329,17 +330,17 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
           <h2 className="text-lg font-semibold">Workspaces</h2>
           <p className="text-sm text-muted">Group your houses, and decide who works in each group.</p>
         </div>
-        <Button
+        <PortalPrimaryIconAction
+          label="Add workspace"
+          icon={Plus}
+          disabled={atWorkspaceCap || ctx.loading}
+          title={atWorkspaceCap ? "Your plan's workspace limit is reached" : "Add workspace"}
+          data-attr="workspace-add"
           onClick={() => {
             setName("");
             setEditing("new");
           }}
-          disabled={atWorkspaceCap || ctx.loading}
-          title={atWorkspaceCap ? "Your plan's workspace limit is reached" : undefined}
-          data-attr="workspace-add"
-        >
-          + Add workspace
-        </Button>
+        />
       </div>
       {error ? (
         <p role="alert" className="text-sm text-danger">

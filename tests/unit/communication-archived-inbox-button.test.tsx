@@ -30,20 +30,34 @@ describe("InboxListSegmentTabs", () => {
   it("is Active | Archived destinations under the identity boxes", () => {
     render(<InboxListSegmentTabs commBase="/portal/communication" value="active" />);
 
-    const active = screen.getByRole("tab", { name: "Active" });
-    const archived = screen.getByRole("tab", { name: "Archived" });
+    const active = screen.getByRole("link", { name: "Active" });
+    const archived = screen.getByRole("link", { name: "Archived" });
     expect(active.getAttribute("href")).toBe("/portal/communication/active");
     expect(archived.getAttribute("href")).toBe("/portal/communication/archived");
-    expect(active.getAttribute("aria-selected")).toBe("true");
-    expect(archived.getAttribute("aria-selected")).toBe("false");
-    expect(screen.getByRole("tablist").getAttribute("data-attr")).toBe("inbox-list-segments");
-    expect(screen.queryByRole("tab", { name: "Unread" })).toBeNull();
+    expect(active.getAttribute("aria-current")).toBe("page");
+    expect(archived.getAttribute("aria-current")).toBeNull();
+    expect(document.querySelector("[data-attr='inbox-list-segments']")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Unread" })).toBeNull();
   });
 
   it("treats the unread URL as the Active tab", () => {
     render(<InboxListSegmentTabs commBase="/portal/communication" value="unread" />);
-    expect(screen.getByRole("tab", { name: "Active" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByRole("tab", { name: "Archived" }).getAttribute("aria-selected")).toBe("false");
+    expect(screen.getByRole("link", { name: "Active" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("link", { name: "Archived" }).getAttribute("aria-current")).toBeNull();
+  });
+
+  it("shows Tours-style counts on Active and Archived", () => {
+    render(
+      <InboxListSegmentTabs
+        commBase="/portal/communication"
+        value="archived"
+        counts={{ active: 4, archived: 2 }}
+      />,
+    );
+    expect(screen.getByRole("link", { name: /Active/ }).textContent).toContain("4");
+    const archived = screen.getByRole("link", { name: /Archived/ });
+    expect(archived.getAttribute("aria-current")).toBe("page");
+    expect(archived.textContent).toContain("2");
   });
 });
 
@@ -73,6 +87,12 @@ describe("Communication archived chrome", () => {
   it("mounts Active | Archived tabs on the manager conversation list", () => {
     const source = readFileSync("src/components/portal/pro-unified-inbox.tsx", "utf8");
     expect(source).toContain("<InboxListSegmentTabs");
+    expect(source).toContain("PortalIconAction");
+    expect(source).toContain("Trash2");
+    expect(source).toContain('label="Delete all archived"');
+    expect(source).toContain("unified-inbox-delete-all-archived");
+    expect(source).not.toMatch(/>\s*Delete all archived\s*</);
+    expect(source).toContain("InboxThreadSkeleton");
     expect(source).not.toContain("<CommunicationArchivedInboxButton");
     expect(source).not.toContain("onTellResidents");
     expect(source).not.toContain("<InboxListSegmentRail");

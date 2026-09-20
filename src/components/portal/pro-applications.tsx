@@ -6,7 +6,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { Badge } from "@/components/ui/badge";
 import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
@@ -17,20 +16,16 @@ import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
-import { Settings2, Share2 } from "lucide-react";
+import { Bell, Check, Download, Plus, Settings, Share2, Shield, Trash2, Undo2, X } from "lucide-react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { armFilterSheetOpenSuppressFromOverlayDismiss } from "@/components/ui/field-select-portal-interaction";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import {
-  PortalFooterFitActionRow,
-  type PortalFooterFitAction,
-} from "@/components/portal/portal-footer-fit-action-row";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { ManagerApplicationOnBehalfModal } from "@/components/portal/pro-application-on-behalf-modal";
+import { AddResidentWizard } from "@/components/portal/resident-wizard";
 import {
   PORTAL_DATA_TABLE_WRAP,
   PORTAL_DETAIL_BTN,
@@ -43,7 +38,6 @@ import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible
 import { ApplicationDetailReviewBody } from "@/components/portal/application-detail-review-body";
 import { downloadBackgroundCheckForApplication, ApplicationScreeningPanel } from "@/components/portal/application-screening-panel";
 import { ApplicationHoldingFeeToggle } from "@/components/portal/application-holding-fee-box";
-import { ManagerEditApplicationModal } from "@/components/portal/pro-edit-application-modal";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { CheckrScreeningModal } from "@/components/portal/checkr-screening-modal";
@@ -214,6 +208,8 @@ function applicationRoomLabel(row: DemoApplicantRow): string {
 }
 
 /** Server PDF endpoint for an application, with the client-resolved room label as a display hint. */
+const EMPTY_LEASE_KEYS = { axisIds: new Set<string>(), emails: new Set<string>() };
+
 export function applicationPdfHref(row: DemoApplicantRow, opts?: { inline?: boolean }): string {
   const params = new URLSearchParams();
   const roomLabel = applicationRoomLabel(row);
@@ -249,23 +245,33 @@ export function ApplicationPdfDownloadButton({
   row,
   label = "Download PDF",
   className = PORTAL_DETAIL_BTN,
+  icon = false,
 }: {
   row: DemoApplicantRow;
   label?: string;
   className?: string;
+  icon?: boolean;
 }) {
   const { showToast } = useAppUi();
-  const confirm = useConfirm();
   return (
-    <Button
-      type="button"
-      variant="outline"
-      className={className}
-      data-attr="application-pdf-download"
-      onClick={() => runApplicationPdfDownload(row, showToast)}
-    >
-      {label}
-    </Button>
+    icon ? (
+      <PortalIconAction
+        icon={Download}
+        label={label}
+        data-attr="application-pdf-download"
+        onClick={() => runApplicationPdfDownload(row, showToast)}
+      />
+    ) : (
+      <Button
+        type="button"
+        variant="outline"
+        className={className}
+        data-attr="application-pdf-download"
+        onClick={() => runApplicationPdfDownload(row, showToast)}
+      >
+        {label}
+      </Button>
+    )
   );
 }
 
@@ -551,7 +557,6 @@ export function ManagerApplications({
     setApplicationsFilterOpen(false);
     setInviteModalOpen(true);
   }, []);
-  const [editApplicationOpen, setEditApplicationOpen] = useState(false);
   const [screeningModalOpen, setScreeningModalOpen] = useState(false);
   const [applicationSettingsOpen, setApplicationSettingsOpen] = useState(false);
   const [checkrScreeningRowId, setCheckrScreeningRowId] = useState<string | null>(null);
@@ -1291,186 +1296,68 @@ export function ManagerApplications({
   };
 
   const renderApplicationRowActions = (row: DemoApplicantRow) => {
-    const isPending = row.bucket === "pending";
-    const actionBtnClass = RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN;
     const showCompletionReminder = showCompletionReminderForRow(row);
     const recordTitle = row.name?.trim() || row.application?.fullLegalName?.trim() || row.property?.trim();
-    const actions: PortalFooterFitAction[] = [];
 
-    if (showCompletionReminder) {
-      actions.push({
-        id: "reminder",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={actionBtnClass}
+    return (
+      <div
+        className="flex min-w-0 flex-nowrap items-center justify-end gap-1.5"
+        data-attr="application-header-icons"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+        role="presentation"
+      >
+        {showCompletionReminder ? (
+          <PortalIconAction
+            icon={Bell}
+            label={reminderPreviewBusyId === row.id ? "Loading…" : "Send reminder"}
             data-attr="application-send-reminder"
             disabled={reminderPreviewBusyId !== null || reminderBusyId !== null}
             onClick={() => openReminderPreview(row)}
-          >
-            {reminderPreviewBusyId === row.id ? "Loading…" : "Send reminder"}
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem
-            data-attr="application-send-reminder"
-            disabled={reminderPreviewBusyId !== null || reminderBusyId !== null}
-            onSelect={() => openReminderPreview(row)}
-          >
-            Send reminder
-          </DropdownMenuItem>
-        ),
-      });
-    }
-
-    actions.push({
-      id: "share",
-      button: (
+          />
+        ) : null}
         <PortalRecordShareLinkButton
           kind="application"
           recordId={row.id}
-          className={actionBtnClass}
+          icon
           dataAttr="application-share"
           recordTitle={recordTitle}
         />
-      ),
-      menuItem: (
-        <PortalRecordShareLinkButton
-          kind="application"
-          recordId={row.id}
-          menuItem
-          dataAttr="application-share"
-          recordTitle={recordTitle}
-        />
-      ),
-    });
-
-    if (isApprovableApplicationRow(row)) {
-      actions.push({
-        id: "approve",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={actionBtnClass}
+        {isApprovableApplicationRow(row) ? (
+          <PortalIconAction
+            icon={Check}
+            label="Approve"
             data-attr="application-approve"
             onClick={() => {
               setApproveError(null);
               setApprovePreviewRow(row);
             }}
-          >
-            Approve
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem
-            data-attr="application-approve"
-            onSelect={() => {
-              setApproveError(null);
-              setApprovePreviewRow(row);
-            }}
-          >
-            Approve
-          </DropdownMenuItem>
-        ),
-      });
-    }
-
-    if (row.bucket === "pending") {
-      actions.push({
-        id: "reject",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={actionBtnClass}
+          />
+        ) : null}
+        {row.bucket === "pending" ? (
+          <PortalIconAction
+            icon={X}
+            label="Reject"
             data-attr="application-reject"
             onClick={() => setRejectPreviewRows([row])}
-          >
-            Reject
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem data-attr="application-reject" onSelect={() => setRejectPreviewRows([row])}>
-            Reject
-          </DropdownMenuItem>
-        ),
-      });
-    }
-
-    actions.push({
-      id: "download",
-      button: (
-        <ApplicationPdfDownloadButton row={row} label="Download" className={actionBtnClass} />
-      ),
-      menuItem: (
-        <DropdownMenuItem
-          data-attr="application-pdf-download"
-          onSelect={() => runApplicationPdfDownload(row, showToast)}
-        >
-          Download
-        </DropdownMenuItem>
-      ),
-    });
-
-    if (applicationRowCanMoveToPending(row)) {
-      actions.push({
-        id: "move-pending",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={actionBtnClass}
+          />
+        ) : null}
+        <ApplicationPdfDownloadButton row={row} label="Download" icon />
+        {applicationRowCanMoveToPending(row) ? (
+          <PortalIconAction
+            icon={Undo2}
+            label="Move to pending"
             data-attr="application-move-pending"
             onClick={() => setRowBucket(row.id, "pending")}
-          >
-            Move to pending
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem
-            data-attr="application-move-pending"
-            onSelect={() => setRowBucket(row.id, "pending")}
-          >
-            Move to pending
-          </DropdownMenuItem>
-        ),
-      });
-    }
-
-    actions.push({
-      id: "delete",
-      button: (
-        <Button
-          type="button"
-          variant="outline"
-          className={`${actionBtnClass} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
+          />
+        ) : null}
+        <PortalIconAction
+          icon={Trash2}
+          label="Delete"
+          tone="danger"
           data-attr="application-delete"
           onClick={() => deleteApplication(row.id)}
-        >
-          Delete
-        </Button>
-      ),
-      menuItem: (
-        <DropdownMenuItem
-          className="text-rose-800 focus:text-rose-800"
-          data-attr="application-delete"
-          onSelect={() => deleteApplication(row.id)}
-        >
-          Delete
-        </DropdownMenuItem>
-      ),
-    });
-
-    return (
-      <div
-        className="relative w-full min-w-0 flex-1"
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
-        role="presentation"
-      >
-        <PortalFooterFitActionRow actions={actions} moreLabel="More application actions" />
+        />
       </div>
     );
   };
@@ -1492,66 +1379,32 @@ export function ManagerApplications({
         cosignerSubmissionId: cosigner.id,
       });
 
-    const actionBtnClass = RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN;
-    const actions: PortalFooterFitAction[] = [];
-
-    if (showsRunCheck) {
-      actions.push({
-        id: "run-background-check",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={actionBtnClass}
-            data-attr="run-background-check"
-            onClick={() => openCosignerScreening()}
-          >
-            Run background check
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem data-attr="run-background-check" onSelect={() => openCosignerScreening()}>
-            Run background check
-          </DropdownMenuItem>
-        ),
-      });
-    }
-
-    if (canDownloadScreening) {
-      actions.push({
-        id: "download-screening",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={actionBtnClass}
-            data-attr="screening-pdf-download"
-            onClick={() => downloadBackgroundCheckForApplication(screeningRow)}
-          >
-            Download
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem
-            data-attr="screening-pdf-download"
-            onSelect={() => downloadBackgroundCheckForApplication(screeningRow)}
-          >
-            Download background check
-          </DropdownMenuItem>
-        ),
-      });
-    }
-
-    if (actions.length === 0) return undefined;
+    if (!showsRunCheck && !canDownloadScreening) return undefined;
 
     return (
       <div
-        className="relative w-full min-w-0"
+        className="flex min-w-0 flex-nowrap items-center justify-end gap-1.5"
+        data-attr="cosigner-header-icons"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
         role="presentation"
       >
-        <PortalFooterFitActionRow actions={actions} moreLabel="More cosigner actions" />
+        {showsRunCheck ? (
+          <PortalIconAction
+            icon={Shield}
+            label="Run background check"
+            data-attr="run-background-check"
+            onClick={() => openCosignerScreening()}
+          />
+        ) : null}
+        {canDownloadScreening ? (
+          <PortalIconAction
+            icon={Download}
+            label="Download background check"
+            data-attr="screening-pdf-download"
+            onClick={() => downloadBackgroundCheckForApplication(screeningRow)}
+          />
+        ) : null}
       </div>
     );
   };
@@ -1669,11 +1522,11 @@ export function ManagerApplications({
     </PortalFilterSortSheet>
   );
 
-  // Edit moved under Settings ("Edit application form") so the toolbar is one
-  // row of plain icons; Send application is the share glyph.
+  // Application form lives inside Settings (Form | Automation), so the toolbar
+  // stays one row of plain icons; Send application is the share glyph.
   const applicationsSettingsButton = (
     <PortalIconAction
-      icon={Settings2}
+      icon={Settings}
       label={applicationsSettingsEntry.label}
       data-attr={applicationsSettingsEntry.dataAttr}
       onClick={() => setApplicationSettingsOpen(true)}
@@ -1694,11 +1547,7 @@ export function ManagerApplications({
     />
   );
 
-  /**
-   * Add an application by hand — the "on behalf" flow that already existed
-   * (`ManagerApplicationOnBehalfModal`) but nothing opened. The header + and
-   * the list's dashed Add row both land here.
-   */
+  /** Add application — the same AddWorkspace rail as Add resident / Schedule tour. */
   const [addApplicationOpen, setAddApplicationOpen] = useState(false);
   const applicationsManualAddButton = (
     <PortalPrimaryIconAction
@@ -1722,14 +1571,16 @@ export function ManagerApplications({
       {/* Mounted only while open: the modal reads the portfolio on render, and
           the list page must not pay for that (or its imports) until asked. */}
       {addApplicationOpen ? (
-        <ManagerApplicationOnBehalfModal
-          open
+        <AddResidentWizard
+          mode="application"
           onClose={() => setAddApplicationOpen(false)}
-          onSubmitted={() => {
-            setAddApplicationOpen(false);
+          managerUserId={userId ?? null}
+          propertyOptions={propertyOptions}
+          propertyTick={0}
+          executedLeaseKeys={EMPTY_LEASE_KEYS}
+          onAdded={() => {
             void syncManagerApplicationsFromServer({ force: true, managerUserId: userId });
           }}
-          managerUserId={userId ?? null}
         />
       ) : null}
       <PortalNotificationPreviewModal
@@ -1855,14 +1706,6 @@ export function ManagerApplications({
         kind="apply"
         properties={shareableProperties}
       />
-      <ManagerEditApplicationModal
-        open={editApplicationOpen}
-        onClose={() => setEditApplicationOpen(false)}
-        propertyOptions={propertyOptions}
-        managerUserId={userId}
-        onSaved={() => setPortfolioTick((n) => n + 1)}
-        showToast={showToast}
-      />
       {checkrScreeningModal}
     </>
   );
@@ -1916,6 +1759,7 @@ export function ManagerApplications({
           }
           hideBackText
           bareHeader
+          iconTitleActions
           dataAttrBack="application-detail-back"
           pinScrollBody
           scrollBody={false}
@@ -2004,12 +1848,7 @@ export function ManagerApplications({
         scopedTitle={settingsDialogTitlePrefix(applicationsSettingsEntry)}
         propertyOptions={propertyOptions}
         initialPropertyId={propertyFilters.length === 1 ? propertyFilters[0] : undefined}
-        editAction={{
-          label: "Edit application form",
-          description: "Questions, documents, and fee settings per property.",
-          dataAttr: "application-edit-open",
-          onSelect: () => setEditApplicationOpen(true),
-        }}
+        onFormSaved={() => setPortfolioTick((n) => n + 1)}
       />
       {checkrScreeningModal}
       {!authReady && rows.length === 0 ? (
@@ -2040,19 +1879,16 @@ export function ManagerApplications({
                     tabs.map((t) => ({ id: t.id, label: t.label, count: t.count, href: applicationsListHref(t.id) })),
                     bucket,
                   ),
-                  // Applications has no "add": the pill does what the bar's share glyph does,
-                  // and only on the tabs a new application can reach.
+                  // Incomplete and Pending: the pill matches the header + (add
+                  // an applicant). Share-a-link stays on the header share glyph.
                   actions:
                     bucket === "incomplete" || bucket === "pending"
                       ? [
                           {
-                            label: "Send application link",
-                            secondary: true,
-                            icon: Share2,
-                            onClick: openSendApplicationInvite,
-                            disabled: shareableProperties.length === 0,
-                            reason: shareableProperties.length === 0 ? "List a property first — applications are sent for a listing." : undefined,
-                            dataAttr: "applications-empty-send",
+                            label: "Add applicant",
+                            icon: Plus,
+                            onClick: () => setAddApplicationOpen(true),
+                            dataAttr: "applications-empty-add",
                           },
                         ]
                       : [],

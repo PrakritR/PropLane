@@ -58,6 +58,21 @@ it.each(actions.flatMap(action => [false, true].map(sms => ({ action, sms }))))(
     expect(fetchMock).not.toHaveBeenCalled();
   },
 );
+it("archives leftover source rows when only the collapsed thread id is passed", async () => {
+  const leftover = storedRow(false, "archive");
+  leftover.id = "email-old";
+  leftover.sourceThreadIds = undefined;
+  leftover.folder = "inbox";
+  leftover.unread = true;
+  const merged = storedRow(false, "archive");
+  merged.folder = "inbox";
+  merged.unread = true;
+  stagePersistedInboxRows(key, [merged, leftover]);
+  const result = await archivePersistedInboxThreads(key, [merged.id]);
+  expect(result.ok).toBe(true);
+  expect(loadPersistedInbox(key, []).every((row) => row.folder === "trash" && row.unread === false)).toBe(true);
+});
+
 it.each(actions)("demo direct folder helper %s never fetches", async (action) => {
   mode.demo = true;
   expect(await changePersistedInboxThreadFolders(key, ["email-new"], action)).toBe(true);

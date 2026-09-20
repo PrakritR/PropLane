@@ -35,9 +35,13 @@ vi.mock("@/lib/demo-admin-scheduling", () => ({
   // the import rather than the assertion.
   formatAvailabilitySlotLabel: (slot: number) => `slot ${slot}`,
 }));
-vi.mock("@/lib/demo-property-pipeline", () => ({
-  syncPropertyPipelineFromServer: () => Promise.resolve(true),
-}));
+vi.mock("@/lib/demo-property-pipeline", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/demo-property-pipeline")>();
+  return {
+    ...actual,
+    syncPropertyPipelineFromServer: () => Promise.resolve(true),
+  };
+});
 vi.mock("@/lib/manager-portfolio-access", () => ({
   buildManagerPropertyFilterOptions: () => [],
 }));
@@ -145,6 +149,26 @@ describe("ManagerTaskList", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Mark done" }));
     await waitFor(() => {
       expect(updateManagerTask).toHaveBeenCalledWith("mgr-1", "task-1", { completed: true });
+    });
+  });
+
+  it("filters the list from the command-bar search like Properties", async () => {
+    tasks.push(makeTask({ id: "task-1", title: "Fix the porch light" }));
+    tasks.push(makeTask({ id: "task-2", title: "Replace filter" }));
+    render(<ManagerTaskList tabId="in-progress" basePath="/portal" />);
+    await waitFor(() => {
+      expect(screen.getByText("Fix the porch light")).toBeInTheDocument();
+    });
+    const search = screen.getByPlaceholderText("Search tasks");
+    expect(search).toHaveAttribute("data-attr", "manager-tasks-search");
+    fireEvent.change(search, { target: { value: "porch" } });
+    expect(screen.getByText("Fix the porch light")).toBeInTheDocument();
+    expect(screen.queryByText("Replace filter")).not.toBeInTheDocument();
+    fireEvent.change(search, { target: { value: "zzzz" } });
+    expect(screen.getByText("No tasks match “zzzz”")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    await waitFor(() => {
+      expect(screen.getByText("Replace filter")).toBeInTheDocument();
     });
   });
 });

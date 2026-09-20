@@ -159,7 +159,7 @@ export type HouseholdCharge = {
   status: "pending" | "processing" | "partially_paid" | "paid" | "cancelled" | "refunded" | "failed";
   paidAmountCents?: number;
   paidAt?: string;
-  /** How an off-platform payment was received (zelle, check, cash…) when the manager recorded it by hand. */
+  /** How a hand-recorded payment was received (check, cash, card…). */
   paidMethod?: string;
   /** Resident questions or issues about this charge, newest last. */
   residentChargeMessages?: ResidentChargeMessage[];

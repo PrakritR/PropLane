@@ -63,7 +63,7 @@ describe("portal nav groups cover the registry exactly", () => {
         .filter((s) => {
           if (s === "profile") return sidebarShowsProfile;
           if (s === "bugs-feedback") return sidebarShowsFeedback;
-          // Vendor tasks are a Services tab since the redesign — routable, never a row.
+          // Vendor tasks were dropped from the portal — Services is the work list.
           if (kind === "vendor" && s === "tasks") return false;
           // Manager Teams moved into Settings (Workspaces / Team / Vendors).
           if ((kind === "pro" || kind === "manager") && s === "teams") return false;

@@ -2,9 +2,9 @@
 
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ClipboardCheck, Settings2 } from "lucide-react";
+import { ClipboardCheck, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { portalEmptyCopy, portalEmptySibling } from "@/lib/portal-empty-copy";
@@ -15,6 +15,17 @@ import { ResidentDetailSubsectionChrome } from "@/components/portal/resident-det
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { ManagerPortalPageShell, ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
 import { InspectionEditor } from "@/components/portal/inspection-editor";
+import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
+import { PortalRecordRelatedPanel } from "@/components/portal/portal-record-related-panel";
+import {
+  inspectionDetailHref,
+  INSPECTION_RECORD_RAIL_GROUPS,
+  INSPECTION_RECORD_TAB_DESCRIPTIONS,
+  parseServiceRecordTab,
+  SERVICE_RECORD_TAB_LABELS,
+  SERVICE_RECORD_TABS,
+} from "@/lib/portal-detail-routes";
 import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import {
   getSettingsEntryPoint,
@@ -22,6 +33,7 @@ import {
 } from "@/components/portal/settings-entry-points";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
+import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { downloadInspection, inspectionRequest, loadInspectionList, INSPECTIONS_CHANGED, type InspectionList } from "@/lib/inspections/client";
 import { inspectionRoomLabel, type InspectionDetail, type InspectionKind, type InspectionPhotoCounts, type InspectionResidency, type InspectionRole, type InspectionSummary } from "@/lib/inspections/model";
@@ -167,8 +179,8 @@ export function ResidentInspectionsPage({ kind = "move-in", reportId, basePath =
   );
 }
 
-export function ManagerInspectionsPage({ kind = "move-in", reportId, basePath = "/portal" }: { kind?: InspectionKind; reportId?: string; basePath?: string }) {
-  if (reportId) return <InspectionsPanel role="manager" initialKind={kind} reportId={reportId} routeBase={`${basePath}/inspections`} />;
+export function ManagerInspectionsPage({ kind = "move-in", reportId, recordTab, basePath = "/portal" }: { kind?: InspectionKind; reportId?: string; recordTab?: string; basePath?: string }) {
+  if (reportId) return <InspectionsPanel role="manager" initialKind={kind} reportId={reportId} recordTab={recordTab} routeBase={`${basePath}/inspections`} />;
   return (
     <ManagerPortalPageShell
       title="Inspections"
@@ -180,18 +192,18 @@ export function ManagerInspectionsPage({ kind = "move-in", reportId, basePath = 
   );
 }
 
-export function InspectionsPanel({ role, applicationId, initialKind = "move-in", reportId, routeBase, embeddedInResident = false }: {
-  role: InspectionRole; applicationId?: string; initialKind?: InspectionKind; reportId?: string; routeBase?: string; embeddedInResident?: boolean;
+export function InspectionsPanel({ role, applicationId, initialKind = "move-in", reportId, recordTab, routeBase, embeddedInResident = false }: {
+  role: InspectionRole; applicationId?: string; initialKind?: InspectionKind; reportId?: string; recordTab?: string; routeBase?: string; embeddedInResident?: boolean;
 }) {
   const { userId, ready } = usePortalSession();
   // Remount state on an account/portal/residency change so another viewer never sees old evidence.
   if (!ready) return <p role="status" className="p-4 text-sm text-muted">Loading inspections…</p>;
   if (!userId && !isDemoModeActive()) return <p className="p-4 text-sm text-muted">Sign in to view your inspections.</p>;
-  return <InspectionWorkspace key={`${role}:${userId}:${applicationId ?? ""}:${reportId ?? ""}:${initialKind}`} userId={userId ?? "demo"} role={role} applicationId={applicationId} initialKind={initialKind} reportId={reportId} routeBase={routeBase} embeddedInResident={embeddedInResident} />;
+  return <InspectionWorkspace key={`${role}:${userId}:${applicationId ?? ""}:${reportId ?? ""}:${initialKind}`} userId={userId ?? "demo"} role={role} applicationId={applicationId} initialKind={initialKind} reportId={reportId} recordTab={recordTab} routeBase={routeBase} embeddedInResident={embeddedInResident} />;
 }
 
-function InspectionWorkspace({ userId, role, applicationId, initialKind, reportId, routeBase, embeddedInResident = false }: {
-  userId: string; role: InspectionRole; applicationId?: string; initialKind: InspectionKind; reportId?: string; routeBase?: string; embeddedInResident?: boolean;
+function InspectionWorkspace({ userId, role, applicationId, initialKind, reportId, recordTab, routeBase, embeddedInResident = false }: {
+  userId: string; role: InspectionRole; applicationId?: string; initialKind: InspectionKind; reportId?: string; recordTab?: string; routeBase?: string; embeddedInResident?: boolean;
 }) {
   const router = useRouter();
   const [kind, setKind] = useState(initialKind);
@@ -202,6 +214,10 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const propertyOptions = useMemo(
+    () => (role === "manager" ? buildManagerPropertyFilterOptions(userId) : []),
+    [role, userId],
+  );
   const working = useRef(false);
   const requestVersion = useRef(0);
   const live = useRef(true);
@@ -290,7 +306,57 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   };
   const embeddedEditDisabled = !embeddedPrimaryReport && !embeddedResidency?.canCreate;
 
-  if (detail) return <InspectionEditor initial={detail} role={role} userId={userId} onChanged={() => { void refresh(true); }} onBack={() => { setDetail(null); setSelected(new Set()); if (routeBase) router.push(`${routeBase}/${kind}`); }} />;
+  if (detail) {
+    const editor = <InspectionEditor initial={detail} role={role} userId={userId} onChanged={() => { void refresh(true); }} onBack={() => { setDetail(null); setSelected(new Set()); if (routeBase) router.push(`${routeBase}/${kind}`); }} />;
+    if (role !== "manager" || !routeBase) return editor;
+    const recordTabId = parseServiceRecordTab(recordTab);
+    const navItems = SERVICE_RECORD_TABS.map((tab) => ({
+      id: tab,
+      label: SERVICE_RECORD_TAB_LABELS[tab],
+      description: INSPECTION_RECORD_TAB_DESCRIPTIONS[tab],
+      href: inspectionDetailHref(routeBase.replace(/\/inspections$/, "") || "/portal", kind, detail.report.id, tab),
+    }));
+    return (
+      <PortalRecordDetailPage
+        pageTitle="Inspections"
+        title={`${kindLabel(detail.report.kind)} · ${detail.report.resident_name || "Inspection"}`}
+        subtitle={[detail.report.property_label, inspectionRoomLabel(detail.report.room_label)].filter(Boolean).join(" · ") || undefined}
+        avatarName={detail.report.resident_name}
+        backHref={`${routeBase}/${kind}`}
+        hideBackText
+        bareHeader
+        dataAttrBack="inspection-detail-back"
+        iconTitleActions
+        pinScrollBody
+      >
+        <PortalRecordSectionChrome
+          items={navItems}
+          activeId={recordTabId}
+          groups={INSPECTION_RECORD_RAIL_GROUPS}
+          title={kindLabel(detail.report.kind)}
+          backHref={`${routeBase}/${kind}`}
+          backLabel="All inspections"
+          ariaLabel="Inspection sections"
+          currentLabel={SERVICE_RECORD_TAB_LABELS[recordTabId]}
+          defaultDisclosureOpen={recordTabId === "overview"}
+        >
+          {recordTabId === "overview" ? editor : recordTabId === "communication" ? (
+            <PortalRecordRelatedPanel title="Communication" empty="No thread for this report yet." />
+          ) : recordTabId === "payments" ? (
+            <PortalRecordRelatedPanel title="Payments" empty="No payment on this inspection." />
+          ) : recordTabId === "vendor" ? (
+            <PortalRecordRelatedPanel title="Vendor" empty="No vendor on this inspection." />
+          ) : (
+            <PortalRecordRelatedPanel
+              title="Resident"
+              value={detail.report.resident_name}
+              empty="No resident on this inspection."
+            />
+          )}
+        </PortalRecordSectionChrome>
+      </PortalRecordDetailPage>
+    );
+  }
   if (reportId) return <div className="space-y-3 p-4">{error ? <p role="alert">{error}</p> : <p role="status">Loading inspection…</p>}<Button variant="outline" onClick={() => router.push(`${routeBase}/${kind}`)} data-attr="inspection-list-back">Back to inspections</Button></div>;
   return <div className="min-w-0 space-y-3" data-attr="inspections-panel">
     {embeddedInResident ? (
@@ -321,7 +387,7 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
       destinations={routeBase ? (["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, href: `${routeBase}/${id}`, dataAttr: `inspection-type-${id}` })) : undefined}
       destinationRow={!routeBase ? <ManagerPortalStatusPills activeId={kind} mobileSelect={false} onChange={id => changeKind(id as InspectionKind)} tabs={(["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, dataAttr: `inspection-type-${id}` }))} /> : undefined}
       actions={role === "manager" && !isDemoModeActive()
-        ? <PortalIconAction icon={Settings2} label={inspectionsSettingsEntry.label} data-attr={inspectionsSettingsEntry.dataAttr} onClick={() => setSettingsOpen(true)} />
+        ? <PortalIconAction icon={Settings} label={inspectionsSettingsEntry.label} data-attr={inspectionsSettingsEntry.dataAttr} onClick={() => setSettingsOpen(true)} />
         : undefined}
     />
     )}
@@ -380,8 +446,20 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
             )
           : null,
       }}
-      /* No ADD: every resident with an assigned room already has a report waiting on their
-         row, so a "＋ Add inspection" footer would only offer to duplicate one. */
+      add={{
+        ariaLabel: `Add ${kind === "move-in" ? "move-in" : "move-out"} inspection`,
+        inline: true,
+        dataAttr: "inspection-add",
+        onClick: () => {
+          const next = visible.find((residency) =>
+            residency.canCreate && !visibleReports.some((report) => report.application_id === residency.id && report.kind === kind),
+          );
+          if (next) openResidency(next);
+        },
+        disabled: !visible.some((residency) =>
+          residency.canCreate && !visibleReports.some((report) => report.application_id === residency.id && report.kind === kind),
+        ),
+      }}
       onBulkClear={() => setSelected(new Set())}
       bulkCount={selected.size}
       bulkActions={<PortalSectionActionRow variant="header">
@@ -392,6 +470,6 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
       onSelectedChange={checked => setSelected(current => { const next = new Set(current); if (checked) next.add(row.key); else next.delete(row.key); return next; })}
       onOpen={() => openRow(row)}
       dataAttr="inspection-row" />)}</PortalRecordListSurface>}
-    {role === "manager" && <ProPortalSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} initialTab="inspections" scoped scopedTitle={settingsDialogTitlePrefix(inspectionsSettingsEntry)} />}
+    {role === "manager" && <ProPortalSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} initialTab="inspections" scoped scopedTitle={settingsDialogTitlePrefix(inspectionsSettingsEntry)} propertyOptions={propertyOptions} />}
   </div>;
 }

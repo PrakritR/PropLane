@@ -1,4 +1,4 @@
-export const CHANNEL_CALENDAR_PROVIDERS = ["airbnb"] as const;
+export const CHANNEL_CALENDAR_PROVIDERS = ["airbnb", "booking_com"] as const;
 export type ChannelCalendarProvider = (typeof CHANNEL_CALENDAR_PROVIDERS)[number];
 
 export const CHANNEL_CALENDAR_IMPORTED_RANGE_PREFIX = "channel-import";

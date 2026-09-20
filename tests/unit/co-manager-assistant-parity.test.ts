@@ -161,6 +161,6 @@ describe("outbound identity is the workspace address on every manager send path"
 
   it("the email transport prefers it over the shared sender", () => {
     const send = readFileSync("src/lib/portal-email-send.server.ts", "utf8");
-    expect(send).toMatch(/opts\.fromAddress\?\.trim\(\)\s*\|\|\s*process\.env\.RESEND_FROM/);
+    expect(send).toMatch(/opts\.fromAddress\?\.trim\(\)\s*\|\|\s*sharedPortalFromAddress\(\)/);
   });
 });

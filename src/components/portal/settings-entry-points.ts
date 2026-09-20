@@ -55,7 +55,7 @@ export const MANAGER_SETTINGS_ENTRY_POINTS = {
   inspections: entryPoint("inspections", "Inspection settings", "inspections"),
   payments: entryPoint("payments", "Payment settings", "payments"),
   leases: entryPoint("leases", "Lease settings", "lease"),
-  properties: entryPoint("properties", "Property settings", "properties"),
+  properties: entryPoint("properties", "Property settings"),
   applications: entryPoint("applications", "Application settings", "applications"),
   tours: entryPoint("tours", "Tour settings", "tours"),
   // No `ManagerPortalSettingsTab` fits this — background checks are a
@@ -75,6 +75,9 @@ export const MANAGER_SETTINGS_ENTRY_POINTS = {
   // Every other section has a settings gear; Communication did not. This
   // entry is what that new gear (in `pro-communication.tsx`) opens.
   communication: entryPoint("communication", "Communication settings", "communication"),
+  vendorServices: entryPoint("vendor-services", "Service settings"),
+  vendorCalendar: entryPoint("vendor-calendar", "Calendar settings"),
+  vendorCommunication: entryPoint("vendor-communication", "Communication settings"),
   /**
    * The generic default for `ResidentDetailSubsectionChrome`'s Settings
    * action when a caller does not resolve a specific module (e.g. the

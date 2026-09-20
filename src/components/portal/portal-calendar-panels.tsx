@@ -13,8 +13,9 @@ import {
   type ReactNode,
   type SetStateAction,
 } from "react";
-import { Card } from "@/components/ui/card";
+import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Input, Select } from "@/components/ui/input";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import {
@@ -24,7 +25,8 @@ import {
 } from "@/lib/manager-availability-kinds";
 import { mergeOpenRuns, formatOpenRunKindsLabel, type OpenRun } from "@/lib/calendar-open-runs";
 import { Modal, ModalFooter, MODAL_HEADER_CLOSE_CLASS } from "@/components/ui/modal";
-import { X } from "lucide-react";
+import { Copy, Eraser, House, Plus, X } from "lucide-react";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { PortalNotificationPreviewModal, type NotificationConfirmDraft } from "@/components/portal/portal-notification-preview-modal";
 import { TourReminderTourPanel } from "@/components/portal/tour-reminder-tour-panel";
 import { PORTAL_CALENDAR_FRAME, PortalSegmentedControl } from "./portal-metrics";
@@ -78,11 +80,6 @@ import {
   type DefaultTourAvailabilityConfig,
 } from "@/lib/tour-slot-math";
 import { cn } from "@/lib/utils";
-import { PortalPageFooterActions } from "@/components/portal/portal-section-action-row";
-
-/** Compact footer pills on property tour calendar — four actions must fit one row on phones. */
-const CALENDAR_AVAILABILITY_FOOTER_BUTTON_CLASS =
-  "h-7 min-h-0 w-auto max-w-none shrink-0 rounded-full px-2 text-[10px] font-semibold leading-tight sm:h-8 sm:px-2.5 sm:text-xs";
 import {
   type CoManagerAvailabilityOverlay,
   type ScheduledTourFilter,
@@ -100,6 +97,7 @@ import {
 import { deleteProplaneGoogleTourFromServer } from "@/lib/google-calendar/delete-tour.client";
 import {
   cancelPlannedTourFromServer,
+  deletePlannedTourFromServer,
   tourGuestNotificationFailed,
   tourGuestNotificationSummary,
 } from "@/lib/tour-planned-change.client";
@@ -259,25 +257,25 @@ function RecurringBlockModalFormFields({
       ) : null}
 
       <div className="space-y-1.5">
-        <p className={BLOCK_MODAL_LABEL_CLASS}>Days of week</p>
-        <div className="flex flex-wrap gap-1.5">
-          {WEEKDAY_OPTIONS.map((option) => {
-            const active = blockWeekdays.includes(option.value);
-            return (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => toggleBlockWeekday(option.value)}
-                className={cn(
-                  BLOCK_MODAL_DAY_BTN_BASE,
-                  active ? BLOCK_MODAL_DAY_BTN_ACTIVE : BLOCK_MODAL_DAY_BTN_INACTIVE,
-                )}
-              >
-                {option.label}
-              </button>
-            );
-          })}
-        </div>
+        <CheckboxMultiSelect
+          label="Days of week"
+          labelClassName={BLOCK_MODAL_LABEL_CLASS}
+          options={WEEKDAY_OPTIONS.map((option) => ({ value: String(option.value), label: option.label }))}
+          selected={blockWeekdays.map(String)}
+          onChange={(next) => {
+            const values = next
+              .map((value) => Number.parseInt(value, 10))
+              .filter((value) => Number.isFinite(value));
+            for (const option of WEEKDAY_OPTIONS) {
+              const has = values.includes(option.value);
+              const already = blockWeekdays.includes(option.value);
+              if (has !== already) toggleBlockWeekday(option.value);
+            }
+          }}
+          emptyLabel="Select days…"
+          dataAttr="calendar-block-days"
+          className="w-full sm:w-64"
+        />
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -798,49 +796,6 @@ function buildTourGuestNotifyContext(
   });
 }
 
-/**
- * Availability actions live in the page-fixed footer dock on a normal page, but that dock is
- * `position: fixed` — inside a modal the buttons escape the panel and land at the bottom of the
- * page behind it. `inline` renders them as an ordinary block under the grid instead.
- *
- * Keep the in-flow spacer (do not `omitSpacer`): without it the last slot rows sit under the
- * dock and stay unclickable even after scrolling (PRP-373).
- */
-function FooterShell({ inline, children }: { inline: boolean; children: React.ReactNode }) {
-  if (!inline) {
-    return (
-      <PortalPageFooterActions pinned rowVariant="header">
-        {children}
-      </PortalPageFooterActions>
-    );
-  }
-  return <div className="mt-3 shrink-0 border-t border-border pt-3">{children}</div>;
-}
-
-function AvailabilityFooterDelegate({
-  revisionKey,
-  renderFooter,
-  onChange,
-}: {
-  /** Stable string — footer JSX is recreated every render; only re-sync when this changes. */
-  revisionKey: string;
-  renderFooter: () => ReactNode | null;
-  onChange?: (footer: ReactNode | null) => void;
-}) {
-  const renderFooterRef = useRef(renderFooter);
-  // Synced in a layout effect rather than during render: the consumer below is a
-  // plain effect, so this lands first and it always calls the current renderer.
-  useLayoutEffect(() => {
-    renderFooterRef.current = renderFooter;
-  });
-
-  useEffect(() => {
-    onChange?.(renderFooterRef.current());
-    return () => onChange?.(null);
-  }, [revisionKey, onChange]);
-  return null;
-}
-
 export function PortalCalendarPanels({
   storageKey,
   /** When set, availability edits apply to every key (union display). */
@@ -879,7 +834,7 @@ export function PortalCalendarPanels({
   onAnchorDateChange,
   /** Flat portal canvas — no outer card or input-style chrome (property calendar tab). */
   bareSurface = false,
-  inlineFooter = false,
+  inlineFooter: _inlineFooter = false,
   /**
    * Scroll with the parent page instead of a nested grid viewport (property detail
    * tab). Keeps the week toolbar sticky inside that one scroll surface.
@@ -887,19 +842,21 @@ export function PortalCalendarPanels({
   flowScroll = false,
   /**
    * Fill a modal body (`scrollableContent={false}`) — grid scrolls inside the panel
-   * while toolbar + delegated footer stay pinned.
+   * while the week toolbar stays pinned.
    */
   embeddedInModal = false,
   /**
-   * Hoist availability footer actions into the parent modal's `footer` slot so they
-   * land below the assistant strip instead of inside the scroll area.
+   * @deprecated Week actions live on the toolbar (PLAN-0916-1034). Kept so callers
+   * that still pass a modal footer slot just get `null`.
    */
-  delegateFooterToModal = false,
+  delegateFooterToModal: _delegateFooterToModal = false,
   onModalFooterChange,
   defaultTourAvailability,
   editableDefaultTourHours = false,
   onDefaultTourHoursChange,
   onDefaultTourGridEnabledChange,
+  weekActionsHost,
+  vendorViewer = false,
 }: {
   storageKey: string | null;
   availabilityStorageKeys?: string[];
@@ -912,13 +869,7 @@ export function PortalCalendarPanels({
   unavailableMessage?: string;
   compactAvailability?: boolean;
   bareSurface?: boolean;
-  /**
-   * Render the availability actions INLINE instead of in the page-fixed footer dock.
-   *
-   * `PortalPageFooterActions pinned` is `position: fixed`, so inside a modal the buttons escape
-   * the panel and land at the bottom of the page behind it — visible, unreachable, and attached to
-   * the wrong surface. A modal passes this so they sit under the grid where they belong.
-   */
+  /** @deprecated Week actions are toolbar icons. Kept so existing callers type-check. */
   inlineFooter?: boolean;
   flowScroll?: boolean;
   embeddedInModal?: boolean;
@@ -930,6 +881,14 @@ export function PortalCalendarPanels({
   editableDefaultTourHours?: boolean;
   onDefaultTourHoursChange?: (startSlot: number, endSlotExclusive: number) => void;
   onDefaultTourGridEnabledChange?: (enabled: boolean) => void;
+  /** Command-bar host for copy / add / clear / house actions. */
+  weekActionsHost?: HTMLElement | null;
+  /**
+   * Vendor calendar: skip the manager assignment directory (403 on
+   * `/api/portal-vendors`) without turning on Flexible / Add work. Those
+   * still key off `vendorDayFlexibility`.
+   */
+  vendorViewer?: boolean;
   otherProperties?: { id: string; name: string }[];
   onCopyWeekToHouses?: (propertyIds: string[], weekDateStrs: string[], scope: "week" | "entire") => void;
   scheduledTourFilter?: ScheduledTourFilter;
@@ -1019,12 +978,16 @@ export function PortalCalendarPanels({
     observer.observe(toolbar);
     return () => observer.disconnect();
   });
+  useEffect(() => {
+    onModalFooterChange?.(null);
+    return () => onModalFooterChange?.(null);
+  }, [onModalFooterChange]);
   // This calendar renders in the VENDOR portal too, where the assignment
   // directory (the manager's team + vendor list) is not the viewer's to read —
-  // /api/portal-vendors answers 403 by design. `vendorDayFlexibility` is the
-  // prop only the vendor calendar passes, and is already how `vendorMode` is
-  // derived further down.
-  const isVendorViewer = Boolean(vendorDayFlexibility);
+  // /api/portal-vendors answers 403 by design. `vendorViewer` is the flag the
+  // vendor calendar passes once Flexible / Add work are gone; `vendorDayFlexibility`
+  // still means the old vendor-only chrome.
+  const isVendorViewer = vendorViewer || Boolean(vendorDayFlexibility);
   const { teamMembers, vendors } = useWorkAssignmentDirectory({
     managerUserId: userId,
     enabled: !isVendorViewer,
@@ -1330,6 +1293,15 @@ export function PortalCalendarPanels({
         });
     },
     [editKind, kindKeysMap, reloadAvailability, scheduleOwnerLabel],
+  );
+
+  const mutateAvailabilityAllKinds = useCallback(
+    (mutate: (current: Set<string>) => Set<string>) => {
+      for (const kind of AVAILABILITY_KINDS) {
+        if ((kindKeysMap[kind]?.length ?? 0) > 0) mutateAvailability(mutate, kind);
+      }
+    },
+    [kindKeysMap, mutateAvailability],
   );
 
   /**
@@ -1824,6 +1796,22 @@ export function PortalCalendarPanels({
           showToast(e instanceof Error ? e.message : "Could not delete task.");
           return;
         }
+      } else if (meeting.kind === "tour") {
+        // A confirmed tour owns a durable slot reservation. Even when it has
+        // no guest email, delete it through the tour lifecycle RPC so the JSON
+        // row and reservation are retired atomically. The generic snapshot
+        // writer intentionally preserves tours and would otherwise return a
+        // misleading 200 while leaving both records active.
+        const result = await deletePlannedTourFromServer({
+          plannedEventId: meeting.sourceId,
+          notifyGuest: false,
+        });
+        if (!result.ok) {
+          showToast(result.error ?? "Could not delete this tour.");
+          return;
+        }
+        await syncScheduleRecordsFromServer({ force: true });
+        ok = true;
       } else {
         if (planned?.googleCalendarEventId?.trim()) {
           await deleteProplaneGoogleTourFromServer(planned.googleCalendarEventId);
@@ -2147,7 +2135,7 @@ export function PortalCalendarPanels({
     const currentDates = activeBlockDates;
     const previousBlockDates = currentDates.map((date) => addDays(date, -7));
 
-    mutateAvailability((activeSlotsForKey) => {
+    mutateAvailabilityAllKinds((activeSlotsForKey) => {
       const next = new Set(activeSlotsForKey);
 
       for (const targetDate of currentDates) {
@@ -2169,7 +2157,7 @@ export function PortalCalendarPanels({
 
       return next;
     });
-  }, [activeBlockDates, mutateAvailability]);
+  }, [activeBlockDates, mutateAvailabilityAllKinds, slotRowIndices]);
 
   const toggleBlockWeekday = useCallback((weekday: number) => {
     setBlockWeekdays((current) =>
@@ -2348,7 +2336,7 @@ export function PortalCalendarPanels({
   ]);
 
   const clearCurrentWeek = useCallback(() => {
-    mutateAvailability((current) => {
+    mutateAvailabilityAllKinds((current) => {
       const next = new Set(current);
       for (const ds of activeBlockDateStrs) {
         for (const slot of slotRowIndices) {
@@ -2359,7 +2347,7 @@ export function PortalCalendarPanels({
       }
       return next;
     });
-  }, [activeBlockDateStrs, mutateAvailability, slotRowIndices]);
+  }, [activeBlockDateStrs, mutateAvailabilityAllKinds, slotRowIndices]);
 
   const blockSummary = useMemo(() => {
     const days = blockWeekdays.length > 0 ? weekdayLabelList(blockWeekdays) : "No days selected";
@@ -2957,163 +2945,107 @@ export function PortalCalendarPanels({
     );
     const compactGridTopGap = flowScroll ? "mt-0" : "mt-2";
     const compactMobileTopGap = flowScroll ? "mt-0" : "mt-2 max-lg:mt-4";
-    const availabilityFooterActions =
+    const copyToHousesDisabled = !onCopyWeekToHouses || !otherProperties?.length;
+    const availabilityWeekActions =
       !vendorMode && canEditAvailability ? (
-        <div
-          className={cn(
-            "flex min-w-0 flex-nowrap items-center justify-start gap-1 overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch] sm:gap-1.5",
-            delegateFooterToModal ? "w-auto shrink-0" : "w-full",
-            "[&_button]:w-auto [&_button]:shrink-0",
-          )}
-        >
-          <Button
-            type="button"
-            variant="outline"
-            className={CALENDAR_AVAILABILITY_FOOTER_BUTTON_CLASS}
+        <div className="flex shrink-0 items-center" data-slot="calendar-week-actions">
+          <PortalIconAction
+            icon={Copy}
+            label="Copy previous week"
             data-attr="calendar-copy-previous-week"
             onClick={copyPreviousWeek}
-          >
-            <span className="sm:hidden">Prev week</span>
-            <span className="hidden sm:inline">Copy previous week</span>
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className={CALENDAR_AVAILABILITY_FOOTER_BUTTON_CLASS}
+          />
+          <PortalIconAction
+            icon={Plus}
+            label="Add availability"
             data-attr="calendar-create-block"
             onClick={openBlockModal}
-          >
-            <span className="sm:hidden">Add</span>
-            <span className="hidden sm:inline">Add availability</span>
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className={CALENDAR_AVAILABILITY_FOOTER_BUTTON_CLASS}
+          />
+          <PortalIconAction
+            icon={Eraser}
+            label="Clear week"
             data-attr="calendar-clear-week"
             onClick={clearCurrentWeek}
-          >
-            Clear
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className={CALENDAR_AVAILABILITY_FOOTER_BUTTON_CLASS}
-            data-attr="calendar-copy-to-houses"
-            disabled={!onCopyWeekToHouses || !otherProperties?.length}
-            title={
-              !onCopyWeekToHouses
-                ? "Add another house to copy availability"
-                : !otherProperties?.length
-                  ? "Add another house to copy availability"
-                  : undefined
-            }
-            onClick={() => {
-              setSelectedHouseIds(new Set());
-              setCopyToHousesScope("week");
-              setUpdateToHousesOpen(true);
-            }}
-          >
-            <span className="sm:hidden">Copy</span>
-            <span className="hidden sm:inline">Copy to houses</span>
-          </Button>
+          />
+          {isVendorViewer ? null : (
+            <PortalIconAction
+              icon={House}
+              label={copyToHousesDisabled ? "Add another house to copy availability" : "Copy to houses"}
+              data-attr="calendar-copy-to-houses"
+              disabled={copyToHousesDisabled}
+              onClick={() => {
+                setSelectedHouseIds(new Set());
+                setCopyToHousesScope("week");
+                setUpdateToHousesOpen(true);
+              }}
+            />
+          )}
         </div>
       ) : null;
-    const availabilityFooterRevisionKey = [
-      vendorMode ? "vendor" : "manager",
-      canEditAvailability ? "edit" : "readonly",
-      onCopyWeekToHouses ? "copy" : "nocopy",
-      otherProperties?.length ?? 0,
-    ].join(":");
     return (
       <>
-        {delegateFooterToModal ? (
-          <AvailabilityFooterDelegate
-            revisionKey={availabilityFooterRevisionKey}
-            renderFooter={() => availabilityFooterActions}
-            onChange={onModalFooterChange}
-          />
-        ) : null}
         <div className={compactShellClass} ref={compactShellRef}>
           <div className={compactToolbarClass} ref={compactToolbarRef}>
-            <div className="flex w-full min-w-0 max-w-full flex-col gap-1.5 overflow-x-clip max-lg:gap-1 lg:flex-row lg:flex-wrap lg:items-center lg:justify-center lg:gap-1.5 sm:gap-2">
-              <div className="flex w-full min-w-0 items-center gap-1 overflow-x-clip sm:gap-1.5 lg:hidden">
+            <div className="grid w-full min-w-0 max-w-full grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-1 overflow-x-clip sm:gap-1.5">
+              <div className="flex min-w-0 items-center justify-start gap-1.5">
+                {saveStatus === "saving" ? <span className={`shrink-0 px-2 py-0.5 text-[11px] font-semibold ${CALENDAR_BADGE_INFO}`}>Saving…</span> : null}
+                {saveStatus === "error" ? <span className={`shrink-0 px-2 py-0.5 text-[11px] font-semibold ${CALENDAR_BADGE_ERROR}`}>Failed</span> : null}
+                {vendorMode ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-7 shrink-0 rounded-full px-2.5 text-xs"
+                    data-attr="vendor-flexible-settings-open"
+                    onClick={vendorDayFlexibility!.onOpenFlexibleSettings}
+                  >
+                    Flexible
+                  </Button>
+                ) : null}
+                {vendorMode && vendorCalendarActions?.onAddWork ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-7 shrink-0 rounded-full px-2.5 text-xs"
+                    data-attr="vendor-add-work-open"
+                    onClick={vendorCalendarActions.onAddWork}
+                  >
+                    Add work
+                  </Button>
+                ) : null}
+              </div>
+              <div className="flex min-w-0 items-center justify-center gap-1 sm:gap-1.5">
                 <Button
                   type="button"
                   variant="ghost"
-                  className="h-8 w-6 shrink-0 rounded-full p-0 text-xs leading-none text-muted hover:bg-accent/60 hover:text-foreground"
+                  className="h-8 w-6 shrink-0 rounded-full p-0 text-xs leading-none text-muted hover:bg-accent/60 hover:text-foreground lg:w-7 lg:text-base"
                   onClick={() => shiftAvailabilityWeek(-1)}
                   aria-label="Previous week"
                 >
                   ←
                 </Button>
-                <p className={cn("shrink-0 whitespace-nowrap text-foreground", CALENDAR_COMPACT_TOOLBAR_TEXT)}>
+                <p className={cn("shrink-0 whitespace-nowrap px-0.5 text-center text-foreground", CALENDAR_COMPACT_TOOLBAR_TEXT, "lg:text-sm lg:font-semibold")}>
                   <span className="md:hidden">{formatWeekRangeMonSunNumeric(weekMonday)}</span>
-                  <span className="hidden md:inline">{formatWeekRangeMonSunShort(weekMonday)}</span>
+                  <span className="hidden md:inline lg:hidden">{formatWeekRangeMonSunShort(weekMonday)}</span>
+                  <span className="hidden lg:inline">{formatWeekRangeMonSun(weekMonday)}</span>
                 </p>
                 <Button
                   type="button"
                   variant="ghost"
-                  className="h-8 w-6 shrink-0 rounded-full p-0 text-xs leading-none text-muted hover:bg-accent/60 hover:text-foreground"
+                  className="h-8 w-6 shrink-0 rounded-full p-0 text-xs leading-none text-muted hover:bg-accent/60 hover:text-foreground lg:w-7 lg:text-base"
                   onClick={() => shiftAvailabilityWeek(1)}
                   aria-label="Next week"
                 >
                   →
                 </Button>
-                {!vendorMode ? renderCompactMobileTimeWindow() : null}
+                {!vendorMode ? (
+                  <>
+                    <div className="lg:hidden">{renderCompactMobileTimeWindow()}</div>
+                    <div className="hidden lg:block">{renderTimeWindowControl(true)}</div>
+                  </>
+                ) : null}
               </div>
-              <div className="hidden min-w-0 shrink-0 items-center gap-1 sm:gap-1.5 lg:flex">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="h-8 w-7 shrink-0 rounded-full p-0 text-base leading-none text-muted hover:bg-accent/60 hover:text-foreground"
-                  onClick={() => shiftAvailabilityWeek(-1)}
-                  aria-label="Previous week"
-                >
-                  ←
-                </Button>
-                <p className="shrink-0 whitespace-nowrap px-0.5 text-center text-sm font-semibold text-foreground">
-                  {formatWeekRangeMonSun(weekMonday)}
-                </p>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="h-8 w-7 shrink-0 rounded-full p-0 text-base leading-none text-muted hover:bg-accent/60 hover:text-foreground"
-                  onClick={() => shiftAvailabilityWeek(1)}
-                  aria-label="Next week"
-                >
-                  →
-                </Button>
-              </div>
-              {!vendorMode ? (
-                <div className="hidden shrink-0 items-center justify-end lg:flex">{renderTimeWindowControl(true)}</div>
-              ) : null}
-              <div className="mx-0.5 hidden h-7 w-px shrink-0 bg-border/80 sm:block" aria-hidden />
-              <div className="flex flex-wrap items-center justify-center gap-1.5 lg:contents">
-              {saveStatus === "saving" ? <span className={`shrink-0 px-2 py-0.5 text-[11px] font-semibold ${CALENDAR_BADGE_INFO}`}>Saving…</span> : null}
-              {saveStatus === "error" ? <span className={`shrink-0 px-2 py-0.5 text-[11px] font-semibold ${CALENDAR_BADGE_ERROR}`}>Failed</span> : null}
-              {vendorMode ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-7 shrink-0 rounded-full px-2.5 text-xs"
-                  data-attr="vendor-flexible-settings-open"
-                  onClick={vendorDayFlexibility!.onOpenFlexibleSettings}
-                >
-                  Flexible
-                </Button>
-              ) : null}
-              {vendorMode && vendorCalendarActions?.onAddWork ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-7 shrink-0 rounded-full px-2.5 text-xs"
-                  data-attr="vendor-add-work-open"
-                  onClick={vendorCalendarActions.onAddWork}
-                >
-                  Add work
-                </Button>
-              ) : null}
+              <div className="flex min-w-0 items-center justify-end">
+                {weekActionsHost ? createPortal(availabilityWeekActions, weekActionsHost) : availabilityWeekActions}
               </div>
             </div>
           </div>
@@ -3143,10 +3075,10 @@ export function PortalCalendarPanels({
               const isRunFirstCell = Boolean(run && run.startSlot === slotIdx);
               const isRunLastCell = Boolean(run && run.endSlotExclusive === slotIdx + 1);
               const runTint = run ? (run.isDefault ? CALENDAR_DEFAULT_OPEN_RUN_TINT : CALENDAR_OPEN_RUN_TINTS[run.kinds[0] ?? "tours"]) : undefined;
-              // Deleting an open block now happens inside the click-through
-              // "Edit availability block" dialog (its Delete affordance), so the
-              // grid no longer carries a floating per-run × — that button sat
-              // misaligned over the run's top-right corner (PLAN-0916-0041).
+              const runLabel = run ? (run.isDefault ? "Tours" : formatOpenRunKindsLabel(run.kinds)) : "";
+              // Super plan item 43: a small × on the first cell of an open run
+              // (not a chip). Week toolbar icons stay; Delete block in the
+              // dialog remains as the longer edit path.
               return (
                 <div
                   key={key}
@@ -3261,7 +3193,7 @@ export function PortalCalendarPanels({
                       isRunFirstCell ? (
                         <span className="flex flex-col items-center justify-center leading-tight">
                           <span className="block truncate">
-                            {run.isDefault ? "Tours" : formatOpenRunKindsLabel(run.kinds)}
+                            {runLabel}
                           </span>
                           <span className="block truncate text-[9px] font-medium opacity-80">
                             {formatOpenRunTimeRangeLabel(run.startSlot, run.endSlotExclusive)}
@@ -3279,6 +3211,25 @@ export function PortalCalendarPanels({
                       readOnly ? "" : <span aria-hidden className="text-base leading-none">+</span>
                     )}
                   </button>
+                  {isRunFirstCell && run && canEditAvailability && !readOnly ? (
+                    <button
+                      type="button"
+                      data-attr="calendar-remove-availability-slot"
+                      aria-label={`Remove ${runLabel} block on ${ds}`}
+                      className="absolute right-0.5 top-0.5 z-10 flex h-4 w-4 items-center justify-center rounded-sm text-current/70 hover:bg-foreground/10 hover:text-foreground"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        if (run.isDefault) {
+                          removeDefaultRun(ds, run.startSlot, run.endSlotExclusive);
+                        } else {
+                          removeOpenRun(ds, run.startSlot, run.endSlotExclusive, run.kinds);
+                        }
+                      }}
+                    >
+                      <X className="h-3 w-3" strokeWidth={2} aria-hidden />
+                    </button>
+                  ) : null}
                 </div>
               );
             };
@@ -3426,10 +3377,6 @@ export function PortalCalendarPanels({
           })()}
           </div>
         </div>
-
-        {!vendorMode && canEditAvailability && !delegateFooterToModal ? (
-          <FooterShell inline={inlineFooter}>{availabilityFooterActions}</FooterShell>
-        ) : null}
 
         <Modal
           open={blockModalOpen}
