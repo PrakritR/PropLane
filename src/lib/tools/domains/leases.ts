@@ -204,9 +204,27 @@ export const amendLeaseTool = defineWriteTool({
       await updateAuditResult(ctx, dedupeKey, { amended: false }, { clearDedupeKey: true });
       throw new Error(result.error);
     }
-    await updateAuditResult(ctx, dedupeKey, { amended: true, direction: result.direction, newLeaseEnd: result.newLeaseEnd });
+    await updateAuditResult(ctx, dedupeKey, {
+      amended: true,
+      direction: result.direction,
+      newLeaseEnd: result.newLeaseEnd,
+      earlyMoveOutFee: result.earlyMoveOutFee,
+      earlyMoveOutFeeFailed: result.earlyMoveOutFeeFailed,
+    });
     const verb = result.direction === "extend" ? "extended" : "shortened";
-    return { reply: `${row.residentName}'s lease was ${verb} to end ${result.newLeaseEnd}. Both signatures were reset — the lease is back in manager review and must be re-signed.`, resultSummary: { leaseId: record.id, direction: result.direction, newLeaseEnd: result.newLeaseEnd } };
+    const feeNote = result.earlyMoveOutFeeFailed
+      ? " The early move-out fee could not be added — add it from Payments."
+      : "";
+    return {
+      reply: `${row.residentName}'s lease was ${verb} to end ${result.newLeaseEnd}. Both signatures were reset — the lease is back in manager review and must be re-signed.${feeNote}`,
+      resultSummary: {
+        leaseId: record.id,
+        direction: result.direction,
+        newLeaseEnd: result.newLeaseEnd,
+        earlyMoveOutFee: result.earlyMoveOutFee,
+        earlyMoveOutFeeFailed: result.earlyMoveOutFeeFailed,
+      },
+    };
   },
 });
 

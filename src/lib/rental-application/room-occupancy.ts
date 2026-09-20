@@ -12,7 +12,20 @@
  * residents whose stays touch some part of a requested span. Summing every
  * intersecting lease would refuse a second resident in a two-bed room whenever a
  * long search window happened to span two consecutive single stays.
+ *
+ * {@link openResidentSlots} is the sibling decision for a room priced per
+ * resident (PLAN-0920-0631): not just how many beds are free, but WHICH slot —
+ * and therefore which rent — a placement holds. Pure and server-shareable for
+ * the same reason: the approval route re-derives it inside the same write that
+ * takes the bed, so a client's stale picker can never write a taken rent.
  */
+
+import {
+  roomPricesPerResident,
+  roomResidentPriceForSlot,
+  type RoomPricingLike,
+  type RoomResidentPrice,
+} from "@/lib/room-pricing";
 
 /** A room with no explicit capacity holds one resident, exactly as it always has. */
 export const DEFAULT_ROOM_OCCUPANCY_CAPACITY = 1;
@@ -210,4 +223,105 @@ export function evaluateRoomOccupancy(params: EvaluateRoomOccupancyParams): Room
     hasRoom: peakOccupancy < capacity,
     fullyBookedIntervals,
   };
+}
+
+/* ─────────────── which resident slot a placement holds (PLAN-0920-0631) ─────────────── */
+
+/**
+ * A placement in a room priced per resident. Carries everything
+ * {@link RoomOccupancyPlacement} does, plus the two facts only THIS module
+ * needs: the slot the application itself has already stored (else it is
+ * assigned by approval order) and a display name for "who holds it, since
+ * when" in the approval picker.
+ */
+export type RoomResidentSlotPlacement = RoomOccupancyPlacement & {
+  /** The application's own stored 1-based slot, when known. Out-of-range or non-integer is treated as unknown. */
+  residentSlot?: number | null;
+  /** Display name for the approval picker's "Aaron · since Sep 1". */
+  holderName?: string | null;
+};
+
+export type OpenResidentSlot = {
+  slot: number;
+  /** The resolved rent/utilities/deposit for this slot — never trust a caller's own figures over this. */
+  price: RoomResidentPrice;
+  /** Who currently holds this slot, or null when it is open. */
+  holder?: { name: string; since: Date } | null;
+};
+
+/**
+ * Which resident slot each CURRENT or UPCOMING placement holds, and which
+ * slots are open — the one decision the approval picker and the approval
+ * route both read, so a stale client picker can never write a rent the
+ * server would refuse.
+ *
+ * A placement "holds" its slot from the moment it is given (a placement
+ * whose stay has already ended by `at` is excluded, so a moved-out resident's
+ * slot reads open again) through infinity when open-ended. An UPCOMING stay
+ * (one that has not started yet) still counts as a holder — the same rule the
+ * bed guard itself uses ("current + upcoming stays count as holders") — so a
+ * signed but not-yet-moved-in resident cannot be double-booked into.
+ *
+ * Slots are assigned in two passes: every placement carrying its own stored
+ * `residentSlot` claims it first (first claim wins on a duplicate, which
+ * should never happen); every remaining placement then takes the lowest
+ * still-open slot, in the ORDER `placements` was given — the caller's
+ * approval order, so an older approval always reads as holding the lower
+ * slot when neither stored one.
+ *
+ * Returns one entry per slot 1..capacity, ordered by slot; an empty array
+ * when the room does not price per resident (nothing to pick).
+ */
+export function openResidentSlots(params: {
+  room: RoomPricingLike;
+  placements: readonly RoomResidentSlotPlacement[];
+  /** Defaults to now. */
+  at?: Date;
+  /** The lease term naming which of the room's per-term prices apply, else long-term. */
+  term?: string | null;
+}): OpenResidentSlot[] {
+  const { room, placements, at = new Date(), term } = params;
+  if (!roomPricesPerResident(room, term)) return [];
+
+  const atIdx = dayIndex(at);
+  const isCurrentOrUpcomingHolder = (placement: RoomResidentSlotPlacement): boolean => {
+    if (!placement.end) return true; // open-ended: holds forever
+    return dayIndex(placement.end) >= atIdx; // not yet ended as of `at`
+  };
+  const holders = placements.filter((p) => p?.start && isCurrentOrUpcomingHolder(p));
+
+  const claimed = new Map<number, RoomResidentSlotPlacement>();
+  const unassigned: RoomResidentSlotPlacement[] = [];
+  for (const holder of holders) {
+    const stored = Number(holder.residentSlot);
+    if (Number.isInteger(stored) && stored >= 1 && !claimed.has(stored)) {
+      claimed.set(stored, holder);
+    } else {
+      unassigned.push(holder);
+    }
+  }
+  // Approval order = the order the caller handed them in, never re-sorted here —
+  // the risk this guards against (a slot read from approval order drifting) is
+  // about the CALLER passing rows out of order, not about this function's own
+  // stability.
+  for (const holder of unassigned) {
+    let slot = 1;
+    while (claimed.has(slot)) slot += 1;
+    claimed.set(slot, holder);
+  }
+
+  const out: OpenResidentSlot[] = [];
+  let slot = 1;
+  while (true) {
+    const price = roomResidentPriceForSlot(room, slot, term);
+    if (!price) break; // past the room's capacity
+    const holder = claimed.get(slot);
+    out.push({
+      slot,
+      price,
+      holder: holder ? { name: (holder.holderName ?? "").trim() || "Resident", since: holder.start } : null,
+    });
+    slot += 1;
+  }
+  return out;
 }

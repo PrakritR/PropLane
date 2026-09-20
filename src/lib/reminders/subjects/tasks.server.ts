@@ -17,8 +17,7 @@ import { managerTaskListHref } from "@/lib/portal-detail-routes";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { normalizeManagerTasks, type ManagerTask } from "@/lib/manager-tasks";
 import { materializeReminders } from "@/lib/reminders/queue.server";
-import type { ReminderSettings } from "@/lib/reminders/rules";
-import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
+import { loadReminderSettingsResolver, type ReminderSettingsResolver } from "@/lib/reminders/settings.server";
 import {
   loadManagerReminderRecipients,
   loadTeamReminderRecipients,
@@ -75,17 +74,19 @@ async function sweepManagerTasks(
   db: SupabaseClient,
   managerUserId: string,
   tasks: readonly ManagerTask[],
-  settings: ReminderSettings,
+  reminderResolver: ReminderSettingsResolver,
   managerRecipient: ManagerReminderRecipient | undefined,
   now: Date,
 ): Promise<number> {
-  const rule = settings.rules.task;
-  if (!rule.enabled) return 0;
-
   const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
   let queued = 0;
 
   for (const task of remindableTasks(tasks, now)) {
+    // A house's own reminder rule wins when it has one (PLAN-0916-1040);
+    // resolved per task since one manager's task blob spans every house.
+    const settings = reminderResolver.resolve(managerUserId, task.propertyId ?? null);
+    const rule = settings.rules.task;
+    if (!rule.enabled) continue;
     const anchorIso = taskAnchorIso(task);
     if (!anchorIso || !task.assignee) continue;
     const assigneeAddress = await assigneeEmail(db, task.assignee);
@@ -163,7 +164,7 @@ export async function sweepTaskReminders(db: SupabaseClient, now: Date = new Dat
   );
   if (rows.length === 0) return 0;
 
-  const settingsByManager = await loadReminderSettingsForManagers(
+  const reminderResolver = await loadReminderSettingsResolver(
     db,
     rows.map((row) => row.manager_user_id),
   );
@@ -176,13 +177,11 @@ export async function sweepTaskReminders(db: SupabaseClient, now: Date = new Dat
   for (const row of rows) {
     const tasks = normalizeManagerTasks((row.row_data as { tasks?: unknown } | null)?.tasks);
     if (tasks.length === 0) continue;
-    const settings = settingsByManager.get(row.manager_user_id);
-    if (!settings) continue;
     queued += await sweepManagerTasks(
       db,
       row.manager_user_id,
       tasks,
-      settings,
+      reminderResolver,
       managerRecipients.get(row.manager_user_id),
       now,
     );

@@ -204,7 +204,15 @@ function ListingModalStatGrid({ items, columns }: { items: { label: string; valu
 function roomRentLabel(room: ListingRoomRow): string | null {
   const amount = room.priceHeadlineAmount;
   if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) return null;
-  return `${formatRoomPriceAmount(amount)}${room.pricePeriod === "day" ? "/day" : room.pricePeriod === "week" ? "/week" : "/mo"}`;
+  // A shared room priced per resident carries its LOWEST slot as the headline.
+  const prefix = room.priceFrom ? "from " : "";
+  return `${prefix}${formatRoomPriceAmount(amount)}${room.pricePeriod === "day" ? "/day" : room.pricePeriod === "week" ? "/week" : "/mo"}`;
+}
+
+/** "Resident 1 · $900/mo · Resident 2 · $800/mo" — each slot's rent, or null. */
+function roomResidentRentsLine(room: ListingRoomRow): string | null {
+  const lines = room.residentRentLines ?? [];
+  return lines.length > 0 ? lines.join(" · ") : null;
 }
 
 /**
@@ -480,9 +488,20 @@ export function ListingDetailModal({
                         value: (() => {
                           const rent = roomRentLabel(state.room);
                           if (rent) {
+                            const residents = roomResidentRentsLine(state.room);
                             return (
-                              <span className="text-base font-bold tabular-nums text-foreground sm:text-lg">
-                                {rent}
+                              <span className="block">
+                                <span className="text-base font-bold tabular-nums text-foreground sm:text-lg">
+                                  {rent}
+                                </span>
+                                {residents ? (
+                                  <span
+                                    data-attr="listing-room-resident-rents"
+                                    className="mt-1 block text-sm font-semibold tabular-nums text-foreground"
+                                  >
+                                    {residents}
+                                  </span>
+                                ) : null}
                               </span>
                             );
                           }
@@ -1288,7 +1307,17 @@ export function SpacesInteractive({
                     <td className={SPACE_TD}>
                       <ListingThumb urls={room.modal.photoUrls} className="h-[54px] w-[72px]" />
                     </td>
-                    <td className={`${SPACE_TD} font-bold text-foreground`}>{room.name}</td>
+                    <td className={`${SPACE_TD} font-bold text-foreground`}>
+                      {room.name}
+                      {roomResidentRentsLine(room) ? (
+                        <span
+                          data-attr="listing-room-resident-rents"
+                          className="block text-xs font-semibold tabular-nums text-foreground"
+                        >
+                          {roomResidentRentsLine(room)}
+                        </span>
+                      ) : null}
+                    </td>
                     <td className={`${SPACE_TD} whitespace-nowrap text-muted`}>{floorLabel}</td>
                     <td className={`${SPACE_TD} whitespace-nowrap text-muted`}>{roomBathLabel(room)}</td>
                     <td className={SPACE_TD}>
@@ -1327,6 +1356,14 @@ export function SpacesInteractive({
                   <span className="block truncate text-xs text-muted">
                     {floorLabel} · {roomBathLabel(room)}
                   </span>
+                  {roomResidentRentsLine(room) ? (
+                    <span
+                      data-attr="listing-room-resident-rents"
+                      className="block truncate text-xs font-semibold tabular-nums text-foreground"
+                    >
+                      {roomResidentRentsLine(room)}
+                    </span>
+                  ) : null}
                 </span>
                 <span className="shrink-0 text-right">
                   <span className="block text-sm font-bold tabular-nums text-foreground">{roomRentCell(room)}</span>

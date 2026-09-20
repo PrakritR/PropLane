@@ -20,10 +20,6 @@ vi.mock("@/lib/resident-outbound-sms.server", () => ({
   sendResidentOutboundSms: vi.fn().mockResolvedValue({ sent: true, channel: "managed" }),
 }));
 
-vi.mock("@/lib/stripe-household-charge-checkout.server", () => ({
-  createHouseholdChargeCheckout: vi.fn(),
-}));
-
 vi.mock("@/lib/observability/langfuse", () => ({
   traceSystemNotification: vi.fn(async (opts: { run: () => Promise<unknown> }) => opts.run()),
 }));
@@ -53,7 +49,6 @@ import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
 import { notifyPropertyScopedManagersFromAgent } from "@/lib/co-manager-notification-recipients.server";
 import { traceSystemNotification } from "@/lib/observability/langfuse";
 import { sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
-import { createHouseholdChargeCheckout } from "@/lib/stripe-household-charge-checkout.server";
 import { deliverPaymentReminder, reminderHtmlFromText } from "@/lib/payment-reminder-delivery";
 import type { HouseholdCharge } from "@/lib/household-charges";
 
@@ -199,21 +194,7 @@ describe("deliverPaymentReminder", () => {
     });
   });
 
-  it("adds an ownership-scoped hosted checkout URL to payment reminder SMS", async () => {
-    vi.mocked(createHouseholdChargeCheckout).mockResolvedValue({
-      ok: true,
-      mode: "hosted",
-      url: "https://checkout.stripe.test/session",
-      sessionId: "cs_test_1",
-      amountCents: 120000,
-      subtotalCents: 120000,
-      processingFeeCents: 0,
-      axisFeeCents: 0,
-      platformFeeCents: 0,
-      totalCents: 120000,
-      paymentMethod: "ach",
-      chargeIds: ["charge-1"],
-    });
+  it("adds the resident's in-app Payments link to payment reminder SMS — never a hosted Stripe URL", async () => {
     const upsert = vi.fn().mockResolvedValue({ error: null });
     const maybeSingle = vi.fn().mockResolvedValue({
       data: { id: "user-res-1", phone: "+12065550113", phone_verified_at: "2026-07-01T00:00:00.000Z" },
@@ -240,20 +221,14 @@ describe("deliverPaymentReminder", () => {
       managerDeliverViaSms: true,
     });
 
-    expect(createHouseholdChargeCheckout).toHaveBeenCalledWith(expect.anything(), {
-      userId: "user-res-1",
-      userEmail: "resident@example.com",
-      chargeIds: ["charge-1"],
-      mode: "hosted",
-      paymentMethod: "ach",
-      expectedManagerUserId: "mgr-1",
-      appOrigin: "http://localhost:3000",
-    });
     expect(sendResidentOutboundSms).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: expect.stringContaining("Pay securely: https://checkout.stripe.test/session"),
+        text: expect.stringContaining("Pay in PropLane: http://localhost:3000/resident/payments/pending"),
       }),
     );
+    const smsCall = vi.mocked(sendResidentOutboundSms).mock.calls[0]![0];
+    expect(smsCall.text).not.toMatch(/checkout\.stripe\.com/i);
+    expect(smsCall.text).not.toMatch(/connect\.stripe\.com/i);
     expect(traceSystemNotification).toHaveBeenCalledWith(
       expect.objectContaining({
         domain: "payment_reminder",
@@ -265,8 +240,7 @@ describe("deliverPaymentReminder", () => {
     );
   });
 
-  it("still sends a text-only SMS when checkout creation fails", async () => {
-    vi.mocked(createHouseholdChargeCheckout).mockRejectedValueOnce(new Error("Stripe unavailable"));
+  it("omits the pay link for a non-payments reminder category", async () => {
     const upsert = vi.fn().mockResolvedValue({ error: null });
     const maybeSingle = vi.fn().mockResolvedValue({
       data: { id: "user-res-1", phone: "+12065550113", phone_verified_at: "2026-07-01T00:00:00.000Z" },
@@ -281,20 +255,21 @@ describe("deliverPaymentReminder", () => {
       db: { from } as never,
       charge: makeCharge(),
       managerId: "mgr-1",
-      dedupId: "payment_reminder_sms_fallback",
+      dedupId: "payment_reminder_sms_lease",
       managerName: "Manager",
       managerSmsFromNumber: "+12065550111",
       apiKey: "",
       from: "PropLane <test@example.com>",
-      subject: "Rent due",
-      text: "Your July rent is due.",
+      subject: "Lease reminder",
+      text: "Your lease needs attention.",
       html: "<p>test</p>",
       slotLabel: "due_date",
       managerDeliverViaSms: true,
+      eventCategory: "leases",
     });
 
     expect(sendResidentOutboundSms).toHaveBeenCalledWith(
-      expect.objectContaining({ text: "(Rent due)\nYour July rent is due." }),
+      expect.objectContaining({ text: "(Lease reminder)\nYour lease needs attention." }),
     );
   });
 

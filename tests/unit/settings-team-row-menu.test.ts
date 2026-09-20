@@ -6,9 +6,13 @@ const blocks = readFileSync(resolve("src/components/portal/pro-team-blocks.tsx")
 const panel = readFileSync(resolve("src/components/portal/pro-account-links-panel.tsx"), "utf8");
 
 describe("Settings Team row actions", () => {
-  it("puts Edit permissions and Disconnect in a far-right ⋯ — Permissions opened the same page as Edit, and Remove is now Disconnect", () => {
-    expect(blocks).toContain('label: "Edit permissions"');
-    expect(blocks).toContain('label: "Disconnect"');
+  it("puts Edit and the workspace-named remove in a far-right ⋯ — Permissions opened the same page as Edit, and a bare Remove is gone", () => {
+    // The member sheet is the one editor (role, house scope, houses, Custom
+    // grid), so the row says "Edit"; the destructive item reads "Remove from
+    // <workspace>" from the card that owns the row and falls back to Disconnect
+    // (docs/agents/co-manager-access.md § Team).
+    expect(blocks).toContain('label: "Edit"');
+    expect(blocks).toContain('label: m.removeLabel ?? "Disconnect"');
     expect(blocks).toContain('dataAttr: "team-member-edit"');
     expect(blocks).toContain('dataAttr: "team-member-disconnect"');
     expect(blocks).not.toContain('label: "Permissions"');

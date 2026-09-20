@@ -45,10 +45,11 @@ export type InviteRow = {
 
 /**
  * Columns a reader must select for `readPropertyPermissionsFromRow` to see an
- * "all houses" row correctly. One string so no reader forgets `house_scope`.
+ * "all houses" row correctly. One string so no reader forgets `house_scope`
+ * or `team_role`.
  */
 export const INVITE_PERMISSION_COLUMNS =
-  "assigned_property_ids, property_co_manager_permissions, co_manager_permissions, house_scope";
+  "assigned_property_ids, property_co_manager_permissions, co_manager_permissions, house_scope, team_role";
 
 export function asStringArray(v: unknown): string[] {
   if (!Array.isArray(v)) return [];

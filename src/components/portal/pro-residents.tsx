@@ -7,6 +7,7 @@ import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 import { Link2, Mail, Pencil, Settings } from "lucide-react";
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { portalEmptyCopy, portalEmptyNoMatchTitle, portalEmptySibling, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
+import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import { InspectionsPanel } from "@/components/portal/inspections-panel";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { cn } from "@/lib/utils";
@@ -99,6 +100,7 @@ import { PortalRecordActions, PortalRecordDetailPage } from "@/components/portal
 import { ManagerResidentsGroupedTable } from "@/components/portal/pro-residents-grouped-table";
 import { ManagerResidentToursPanel } from "@/components/portal/pro-resident-tours-panel";
 import { buildResidentListClustersByMode } from "@/lib/manager-resident-list-grouping";
+import { residentRowSlotFact } from "@/lib/manager-resident-list";
 import {
   PORTAL_LIST_GROUP_MODE_LABELS,
   portalListGroupModeActiveCount,
@@ -388,6 +390,8 @@ type ActiveResident = {
   stage: ResidentDirectoryStage;
   /** "Incomplete" / "Pending review" / "Approved" — what this person's application says today. */
   statusLabel: string;
+  /** "Resident 2 of 2 · $800/mo" — populated when the resident is in a multi-occupancy room. */
+  residentSlotFact?: string;
 };
 
 export function ManagerResidents({
@@ -445,6 +449,7 @@ export function ManagerResidents({
   );
   const directorySourcesReady = directoryReady && (isDemoModeActive() || process.env.NODE_ENV === "test" || directoryLoadedFor === userId);
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
+  const [residentSearch, setResidentSearch] = useState("");
   const RESIDENT_LIST_DEFAULT_GROUP_MODE: PortalListGroupMode = "house";
   const [groupMode, setGroupMode] = useState<PortalListGroupMode>(RESIDENT_LIST_DEFAULT_GROUP_MODE);
   const residentsTab = parseResidentsTab(tabIdProp);
@@ -795,6 +800,7 @@ export function ManagerResidents({
           isPrevious: isPreviousResidentDirectoryRow(row),
           stage,
           statusLabel: applicationStageDisplayLabel(row),
+          residentSlotFact: residentRowSlotFact(row),
         };
       });
     if (built.length === 0 && shouldShowDevResidentListFixtures()) {
@@ -802,6 +808,7 @@ export function ManagerResidents({
         ...row,
         stage: (row.isPrevious ? "past" : "current") as ResidentDirectoryStage,
         statusLabel: "",
+        residentSlotFact: undefined,
       }));
     }
     return built;
@@ -952,9 +959,20 @@ export function ManagerResidents({
     const inTab = dedupeResidentsByEmail(
       residentDirectoryRows.filter((resident) => resident.stage === residentsTab),
     );
-    const base = propertyFilters.length > 0
+    const inProperty = propertyFilters.length > 0
       ? inTab.filter((r) => propertyFilters.includes(r.propertyId))
       : inTab;
+    // The search box narrows the current stage only; the tab counts stay the stage totals.
+    const base = inProperty.filter((r) =>
+      matchesPortalListSearch(
+        residentSearch,
+        r.name,
+        r.email,
+        r.propertyLabel,
+        r.roomLabel,
+        r.stage === "potential" ? r.statusLabel : "",
+      ),
+    );
 
     return [...base].sort((a, b) => {
       if (propertyFilters.length === 0) {
@@ -969,7 +987,7 @@ export function ManagerResidents({
       const bNum = parseInt(b.roomLabel.match(/\d+/)?.[0] ?? "0", 10);
       return aNum - bNum;
     });
-  }, [residentDirectoryRows, propertyFilters, residentsTab]);
+  }, [residentDirectoryRows, propertyFilters, residentsTab, residentSearch]);
 
   const residentTabCounts = useMemo(() => {
     const counts: Record<ResidentsTabId, number> = { potential: 0, current: 0, past: 0 };
@@ -999,6 +1017,7 @@ export function ManagerResidents({
           leaseStart: res.leaseStart,
           groupId: res.groupId,
           statusLabel: res.stage === "potential" ? res.statusLabel : "",
+          residentSlotFact: res.residentSlotFact,
         })),
         applicationGroups,
         groupMode,
@@ -3590,6 +3609,7 @@ export function ManagerResidents({
         }))}
         activeDestinationId={residentsTab}
         destinationAriaLabel="Resident directory stage"
+        search={{ value: residentSearch, onChange: setResidentSearch, placeholder: "Search residents", dataAttr: "residents-search" }}
         actions={
           <>
             {residentsFilterSheet}
@@ -3653,7 +3673,14 @@ export function ManagerResidents({
         onRetry={() => setDirectoryRetry((n) => n + 1)}
         isEmpty={filtered.length === 0}
         emptyCard={
-          propertyFilters.length > 0
+          residentSearch.trim()
+            ? {
+                title: portalEmptyNoMatchTitle("residents", residentSearch),
+                section: "residents",
+                tone: "muted",
+                clear: { label: "Clear search", onClick: () => setResidentSearch(""), dataAttr: "residents-empty-clear-search" },
+              }
+            : propertyFilters.length > 0
             ? {
                 title: portalEmptyNoMatchTitle("residents"),
                 section: "residents",

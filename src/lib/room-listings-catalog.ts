@@ -10,14 +10,17 @@ import {
 import { isRoomChoiceAvailable, LISTING_ROOM_CHOICE_SEP, roomBedAvailability } from "@/lib/rental-application/data";
 import {
   roomHeadlineAmount,
+  roomHeadlinePriceIsFrom,
   roomHeadlinePriceLabel,
   roomIsDailyPriced,
   roomIsWeeklyPriced,
   roomMonthlyEquivalent,
   roomPricePeriod,
+  roomPricesPerResident,
   roomPricingIsFlexible,
   roomAdvertisedPriceLabel,
   roomFlexibleSortAmount,
+  roomResidentRentLines,
   roomShortLeaseListingNote,
 } from "@/lib/room-pricing";
 
@@ -345,8 +348,15 @@ function browseRoomEntries(
       // "From" uses a flexible room's advertised MINIMUM where it has one, and skips
       // it entirely where it does not — never 0, which would advertise the whole
       // property as free off the back of one unpriced room.
+      // A room priced per resident contributes its LOWEST slot, the "from" figure.
       const rents = submissionRooms
-        .map((r) => (roomPricingIsFlexible(r) ? roomFlexibleSortAmount(r) : r.monthlyRent))
+        .map((r) =>
+          roomPricingIsFlexible(r)
+            ? roomFlexibleSortAmount(r)
+            : roomPricesPerResident(r)
+              ? (roomHeadlineAmount(r) ?? undefined)
+              : r.monthlyRent,
+        )
         .filter((n): n is number => typeof n === "number" && n > 0);
       const from = rents.length ? Math.min(...rents) : parseMonthlyRent(property.rentLabel) ?? 0;
       const floor: ListingFloorCard = {
@@ -364,7 +374,7 @@ function browseRoomEntries(
           utilitiesEstimate: r.utilitiesEstimate?.trim() || undefined,
           price: roomPricingIsFlexible(r)
             ? roomAdvertisedPriceLabel(r)
-            : roomIsDailyPriced(r) || roomIsWeeklyPriced(r)
+            : roomIsDailyPriced(r) || roomIsWeeklyPriced(r) || roomPricesPerResident(r)
               ? roomHeadlinePriceLabel(r)
               : r.monthlyRent > 0
                 ? `$${r.monthlyRent}/mo`
@@ -373,15 +383,17 @@ function browseRoomEntries(
           // A flexible room ranks and budget-filters on its advertised minimum, so a
           // prospect searching "under $700" still sees a $600-$900 room they may be
           // able to agree. With no bounds it stays undefined — shown, but never
-          // sorted or filtered as if it were free.
+          // sorted or filtered as if it were free. A per-resident room ranks on
+          // its lowest slot.
           priceMonthlyEquivalent: roomPricingIsFlexible(r)
             ? roomFlexibleSortAmount(r)
-            : roomIsDailyPriced(r) || roomIsWeeklyPriced(r)
+            : roomIsDailyPriced(r) || roomIsWeeklyPriced(r) || roomPricesPerResident(r)
               ? roomMonthlyEquivalent(r)
               : undefined,
           priceHeadlineAmount: roomPricingIsFlexible(r)
             ? roomFlexibleSortAmount(r)
             : (roomHeadlineAmount(r) ?? undefined),
+          ...(roomHeadlinePriceIsFrom(r) ? { priceFrom: true, residentRentLines: roomResidentRentLines(r) } : {}),
           shortLeaseNote: roomShortLeaseListingNote(r) ?? undefined,
           availability: "Available now",
           modal: BROWSE_ROOM_MODAL_STUB,

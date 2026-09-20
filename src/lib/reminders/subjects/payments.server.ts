@@ -26,7 +26,7 @@ import {
   teamReminderRecipients,
 } from "@/lib/reminders/manager-recipients.server";
 import { materializeReminders } from "@/lib/reminders/queue.server";
-import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
+import { loadReminderSettingsForManagers, loadReminderSettingsResolver } from "@/lib/reminders/settings.server";
 
 /** Ceiling on rows examined per sweep, so one tick can never run unbounded. */
 const MAX_ROWS = 500;
@@ -126,8 +126,14 @@ export async function sweepPaymentManagerReminders(db: SupabaseClient, now: Date
   if (entries.length === 0) return 0;
 
   const managerUserIds = entries.map((entry) => entry.managerUserId);
-  const [settingsByManager, managerRecipients] = await Promise.all([
+  // The team roster prefetch below is batched ONE QUERY PER MANAGER (not per
+  // house), so it still keys off the WORKSPACE'S teamUserIds; a house override
+  // that names a different team roster for `payment_manager` is applied to
+  // every OTHER setting on this kind (enabled, timing, audience) below, just
+  // not to which co-managers the batched roster fetch considers.
+  const [settingsByManager, reminderResolver, managerRecipients] = await Promise.all([
     loadReminderSettingsForManagers(db, managerUserIds),
+    loadReminderSettingsResolver(db, managerUserIds),
     loadManagerReminderRecipients(db, managerUserIds),
   ]);
   const teamRecipientsByManager = await loadTeamReminderRecipientsByManager(
@@ -141,11 +147,12 @@ export async function sweepPaymentManagerReminders(db: SupabaseClient, now: Date
 
   let queued = 0;
   for (const entry of entries) {
-    const settings = settingsByManager.get(entry.managerUserId);
-    if (!settings?.rules.payment_manager.enabled) continue;
+    const propertyId = typeof entry.charge.propertyId === "string" ? entry.charge.propertyId : null;
+    // A house's own reminder override wins when it has one (PLAN-0916-1040).
+    const settings = reminderResolver.resolve(entry.managerUserId, propertyId);
+    if (!settings.rules.payment_manager.enabled) continue;
 
     const managerRecipient = managerRecipients.get(entry.managerUserId);
-    const propertyId = typeof entry.charge.propertyId === "string" ? entry.charge.propertyId : null;
     // Audience is the manager (and team), never the resident — the default
     // rule is `audience: { manager: true, counterparty: false, team: false }`.
     const teamRecipients = settings.rules.payment_manager.audience.team

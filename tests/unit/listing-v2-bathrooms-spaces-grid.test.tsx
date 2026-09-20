@@ -15,7 +15,7 @@ vi.mock("@/lib/demo-property-pipeline", () => ({ submitManagerPendingPropertyToS
 
 import { ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
 import { createDefaultListingSubmission, type ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import { EVERYONE_ACCESS_VALUE } from "@/lib/listing-shared-space-access";
+import { EVERYONE_ACCESS_VALUE, encodeSharedSpaceEveryone } from "@/lib/listing-shared-space-access";
 
 afterEach(() => cleanup());
 
@@ -183,11 +183,49 @@ describe("shared spaces as cards", () => {
     expect(seen.at(-1)!.sharedSpaces!.find((space) => space.id === "s1")?.roomAccessIds).toEqual([]);
   });
 
-  it("the Every shared space floor moves every space still following it", () => {
+  it("has no Every shared space card, tick or Make-all button; a new space starts on the ground floor with Everyone and nothing else", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open("spaces", (s) => seen.push(s));
-    const options = floorOptions("Floor for every shared space");
-    pickFloor("Floor for every shared space", options[0]!);
-    expect(seen.at(-1)!.sharedSpaces!.map((s) => s.location)).toEqual([options[0], options[0]]);
+    expect(screen.queryByRole("button", { name: "Floor for every shared space" })).toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-space-defaults-card"]')).toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-spaces-reset-all"]')).toBeNull();
+    expect(document.querySelector('[data-attr="listing-v2-space-card"] [data-attr="listing-v2-space-same-as-all"]')).toBeNull();
+    expect(screen.queryByText("Make all the same")).toBeNull();
+    // A space's floor is picked on its own card and moves only that space.
+    openCard("Kitchen");
+    const options = floorOptions("Floor for Kitchen");
+    expect(options.length).toBeGreaterThan(1);
+    pickFloor("Floor for Kitchen", options[1]!);
+    expect(seen.at(-1)!.sharedSpaces!.find((s) => s.id === "s1")?.location).toBe(options[1]);
+    expect(seen.at(-1)!.sharedSpaces!.find((s) => s.id === "s2")?.location ?? "").toBe("");
+    // Add: ground floor, Everyone, everything else blank; the legacy block is never written.
+    fireEvent.click(screen.getByRole("button", { name: "Add shared space" }));
+    const spaces = seen.at(-1)!.sharedSpaces!;
+    expect(spaces.length).toBe(3);
+    const added = spaces[2]!;
+    expect(added.location).toBe(options[0]);
+    expect(added.roomAccessIds).toEqual(encodeSharedSpaceEveryone());
+    expect(added.name).toBe("");
+    expect(added.detail).toBe("");
+    expect(added.amenitiesText).toBe("");
+    expect(added.photoDataUrls).toEqual([]);
+    expect(added.videoDataUrl).toBeNull();
+    expect(added.spaceKind).toBeUndefined();
+    expect(seen.at(-1)!.sharedSpaceDefaults).toBeUndefined();
+  });
+
+  it("has its own Size · sq ft row behind More ▾, same box as a room's (PRP-481)", () => {
+    const seen: ManagerListingSubmissionV1[] = [];
+    open("spaces", (s) => seen.push(s));
+    openCard("Kitchen");
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-space-editor"] [data-attr="listing-v2-space-more"]')!);
+    const size = screen.getByLabelText("Size of Kitchen") as HTMLInputElement;
+    expect(size.placeholder).toBe("—");
+    fireEvent.focus(size);
+    fireEvent.change(size, { target: { value: "140" } });
+    fireEvent.blur(size);
+    expect(seen.at(-1)!.sharedSpaces!.find((s) => s.id === "s1")?.sizeSqft).toBe(140);
+    // No Default card for shared spaces, so no Reset tag appears on the row.
+    expect(screen.queryByRole("button", { name: /Reset size/ })).toBeNull();
   });
 });

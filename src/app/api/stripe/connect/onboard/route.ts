@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { resolveAppOrigin } from "@/lib/app-url";
 import { assertCoManagerBankAccountAccess } from "@/lib/auth/co-manager-bank-account-access";
 import {
   resolveStripePayoutContext,
@@ -7,19 +6,35 @@ import {
 } from "@/lib/auth/manager-stripe-payout-access.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { getStripe, stripeConnectRedirectOriginError } from "@/lib/stripe";
+import { getStripe } from "@/lib/stripe";
 import { ensureManagerConnectAccountId } from "@/lib/stripe-connect-account";
 import {
   connectAccountReadyForAchPayouts,
+  connectAccountTransfersActive,
   ensureConnectAccountTransfersRequested,
   isStripeConnectAccountAccessError,
+  clearManagerConnectAccountId,
+  resolveManagerConnectAccountId,
+  retrieveManagerConnectAccountOrNull,
 } from "@/lib/stripe-connect";
 
 export const runtime = "nodejs";
 
 /**
- * Creates or resumes Stripe Connect onboarding for the signed-in user.
- * Returns an Account Link URL — the client opens a blank tab on click, then navigates after POST.
+ * Ensures a Connect account exists for the signed-in user (creating one if
+ * needed) and reports its readiness. PLAN-0920-0853 replaces the redirect to
+ * Stripe (Account Links) and the Express Dashboard login link with embedded
+ * onboarding — the client mounts `account_onboarding` via
+ * `/api/stripe/connect/account-session` in PropLane's own modal, so this
+ * route no longer mints or returns any Stripe-hosted URL.
+ *
+ * A saved account id Stripe can no longer retrieve is NEVER cleared silently
+ * — that used to happen on every access error, even on a routine load, which
+ * meant a transient platform-key hiccup could strand a manager's saved id
+ * with no chance to recover it. It is now kept as-is and reported as
+ * `needsRelink`; only an explicit `{ relink: true }` body (the user's own
+ * "Reconnect" action) clears it and creates a fresh one, and the id being
+ * replaced is logged first.
  */
 export async function POST(req: Request) {
   try {
@@ -39,67 +54,56 @@ export async function POST(req: Request) {
         { status: payout.unresolvedReason === "ambiguous_owner" ? 409 : 500 },
       );
     }
-    const access = await assertCoManagerBankAccountAccess(
-      service,
-      user.id,
-      payout.payoutOwnerUserId,
-      "edit",
-    );
+    const access = await assertCoManagerBankAccountAccess(service, user.id, payout.payoutOwnerUserId, "edit");
     if (!access.ok) {
       return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
     const payoutOwnerId = payout.payoutOwnerUserId;
+    const body = await req.json().catch(() => null);
+    const relink = (body as { relink?: unknown } | null)?.relink === true;
+
     const { data: ownerProfile } = await service
       .from("profiles")
       .select("email")
       .eq("id", payoutOwnerId)
       .maybeSingle();
 
-    const basePath = "/portal";
-    const origin = resolveAppOrigin(req);
-    const redirectError = stripeConnectRedirectOriginError(origin);
-    if (redirectError) {
-      return NextResponse.json(
-        { code: "LIVEMODE_REQUIRES_HTTPS", error: redirectError },
-        { status: 422 },
-      );
-    }
-
-    const refreshUrl = `${origin}${basePath}/payments?connect=refresh`;
-    const returnUrl = `${origin}${basePath}/payments?connect=done`;
-
     try {
       const stripe = getStripe();
+      if (relink) {
+        // Explicit user action ("Reconnect" / "Start over"): log the id being
+        // replaced, then clear it before creating a fresh account.
+        const staleAccountId = await resolveManagerConnectAccountId(service, payoutOwnerId);
+        if (staleAccountId && (await retrieveManagerConnectAccountOrNull(stripe, staleAccountId))) {
+          return NextResponse.json(
+            { code: "CONNECT_ACCOUNT_HEALTHY", error: "Your saved Stripe account is still connected." },
+            { status: 409 },
+          );
+        }
+        if (staleAccountId) {
+          console.error(
+            `[stripe-connect] onboard relink: replacing account ${staleAccountId} for owner ${payoutOwnerId} (requested by ${user.id})`,
+          );
+          await clearManagerConnectAccountId(service, payoutOwnerId);
+        }
+      }
       const accountId = await ensureManagerConnectAccountId(stripe, service, {
         userId: payoutOwnerId,
         email: ownerProfile?.email ?? user.email ?? undefined,
+        // Never let this call silently wipe a saved id on its own — only the
+        // explicit relink branch above may replace it, and it already has.
+        allowClearStale: false,
       });
 
       const acct = await ensureConnectAccountTransfersRequested(stripe, accountId);
-      const readyForPayouts = connectAccountReadyForAchPayouts(acct);
-
-      if (readyForPayouts) {
-        const loginLink = await stripe.accounts.createLoginLink(accountId);
-        return NextResponse.json({
-          url: loginLink.url,
-          accountId,
-          mode: "express_dashboard" as const,
-        });
-      }
-
-      const linkType = acct.details_submitted ? "account_update" : "account_onboarding";
-      const accountLink = await stripe.accountLinks.create({
-        account: accountId,
-        refresh_url: refreshUrl,
-        return_url: returnUrl,
-        type: linkType,
-      });
 
       return NextResponse.json({
-        url: accountLink.url,
+        mode: "embedded" as const,
         accountId,
-        mode: linkType === "account_onboarding" ? ("onboarding" as const) : ("update" as const),
+        connected: connectAccountTransfersActive(acct),
+        paymentReady: connectAccountReadyForAchPayouts(acct),
+        detailsSubmitted: Boolean(acct.details_submitted),
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Stripe error";
@@ -122,23 +126,17 @@ export async function POST(req: Request) {
           { status: 400 },
         );
       }
-      if (msg.includes("redirected via HTTPS") || msg.toLowerCase().includes("https")) {
-        return NextResponse.json(
-          {
-            code: "LIVEMODE_REQUIRES_HTTPS",
-            error:
-              "Live Stripe requires HTTPS return URLs. Use test keys locally, or set NEXT_PUBLIC_APP_URL to your production https URL.",
-          },
-          { status: 422 },
-        );
-      }
+      // The saved account id stays exactly as it was — refuse and ask for an
+      // explicit relink rather than wiping it on an error the platform key
+      // could be reporting only transiently.
       if (isStripeConnectAccountAccessError(msg)) {
         return NextResponse.json(
           {
-            code: "CONNECT_ACCOUNT_STALE",
-            error: "Your saved Stripe account is from an old setup. Refresh this page and link your bank again.",
+            code: "CONNECT_ACCOUNT_NEEDS_RELINK",
+            needsRelink: true,
+            error: "We couldn't reach your saved Stripe account. Reconnect to start over.",
           },
-          { status: 422 },
+          { status: 409 },
         );
       }
       return NextResponse.json({ code: "STRIPE_CONNECT_ERROR", error: msg }, { status: 400 });

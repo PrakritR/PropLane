@@ -310,6 +310,36 @@ describe("publicListingProjection", () => {
     expect(JSON.stringify(projected.customFees)).not.toMatch(/"amount":"100"/);
   });
 
+  it("publishes a shared room's per-resident rents — money only, never who holds a slot (PLAN-0920-0631)", () => {
+    const listing = storedListing();
+    const sub = listing.listingSubmission!;
+    Object.assign(sub.rooms[0]!, {
+      residentPricing: "per_resident",
+      residentPrices: [
+        { monthlyRent: 900, utilitiesEstimate: "75", securityDeposit: "250", pricingMode: "fixed" },
+        // A stray field on a row — say a later slice stamps who took the slot — must not leak.
+        { monthlyRent: 800, holderEmail: "aaron@example.com", residentSlotHolder: "Aaron" },
+      ],
+    });
+    sub.customFees = [
+      { id: "fee-parking", label: "Parking", amount: "50", frequency: "monthly", presetId: "parking_monthly", residentSlots: [1] },
+    ] as typeof sub.customFees;
+
+    const projected = publicListingProjection(listing);
+    const room = projected.listingSubmission!.rooms[0]!;
+    expect(room.residentPricing).toBe("per_resident");
+    expect(room.residentPrices).toEqual([
+      { monthlyRent: 900, utilitiesEstimate: "75", securityDeposit: "250", pricingMode: "fixed" },
+      { monthlyRent: 800 },
+    ]);
+    expect(projected.listingSubmission!.customFees).toEqual([expect.objectContaining({ residentSlots: [1] })]);
+
+    const keys = allKeys(projected);
+    expect(keys.has("holderEmail")).toBe(false);
+    expect(keys.has("residentSlotHolder")).toBe(false);
+    expect(JSON.stringify(projected)).not.toContain("aaron@example.com");
+  });
+
   it("drops a house-wide leftover when rooms disagree on deposit", () => {
     const listing = storedListing();
     const sub = listing.listingSubmission!;

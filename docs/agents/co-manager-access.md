@@ -391,7 +391,13 @@ co-manager holds `bankAccount` at `edit` on **any** property assigned by that
 owner. `assertCoManagerBankAccountAccess`
 (`src/lib/auth/co-manager-bank-account-access.ts`) is the route-level wrapper:
 acting on your own account is always allowed, `read` is always allowed, and only
-an `edit` against someone else's account consults the grant.
+an `edit` against someone else's account consults the grant. That same `edit`
+also authorizes initiating a payout (Standard or fee-bearing Instant) and
+changing the automatic payout schedule (`/api/stripe/payouts/{create,schedule}`,
+and an `account_onboarding` / `account_management` embedded session), so the
+module option is labelled **Bank account & payouts**
+(`CO_MANAGER_PERMISSION_OPTIONS`); the balance read (`/api/stripe/payouts/balance`)
+and the `notification_banner` session are `read`.
 
 **Payouts never guess an owner.** `resolveStripePayoutContext`
 (`src/lib/auth/manager-stripe-payout-access.server.ts`) decides whose

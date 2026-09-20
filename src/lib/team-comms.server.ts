@@ -49,7 +49,7 @@ import "server-only";
  * upsert.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { asStringArray, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
+import { asStringArray, INVITE_PERMISSION_COLUMNS, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
 import {
   hasCoManagerPermissionLevelForProperty,
   type CoManagerPermissionId,
@@ -132,7 +132,7 @@ export async function assertTeamThreadMember(
   try {
     const { data, error } = await db
       .from("account_link_invites")
-      .select("invitee_user_id, assigned_property_ids, property_co_manager_permissions, co_manager_permissions")
+      .select(`invitee_user_id, ${INVITE_PERMISSION_COLUMNS}`)
       .eq("status", "accepted")
       .eq("inviter_user_id", ownerId)
       .eq("invitee_user_id", userId);

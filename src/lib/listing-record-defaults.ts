@@ -1,14 +1,20 @@
 /**
- * Default bathroom and Default shared space for the listing wizard.
+ * Default bathroom for the listing wizard, plus the shared-space readers older
+ * listings still need.
  *
- * The Rooms step has `listing-house-defaults.ts`; Bathrooms and Shared spaces
- * used to keep their defaults in a React `useState` that was forgotten on
- * reload. They now live on the submission (`bathroomDefaults`,
- * `sharedSpaceDefaults`) and follow the same rule as the rooms: a record
- * follows the Default card for a field when its value equals the default's or
- * is empty, and lists compare by value. The wizard remembers hand edits per
- * field on top of that, so a blank default never sweeps up a value set before
- * the default was.
+ * The Rooms step has `listing-house-defaults.ts`; Bathrooms used to keep their
+ * defaults in a React `useState` that was forgotten on reload. They now live on
+ * the submission (`bathroomDefaults`) and follow the same rule as the rooms: a
+ * record follows the Default card for a field when its value equals the
+ * default's or is empty, and lists compare by value. The wizard remembers hand
+ * edits per field on top of that, so a blank default never sweeps up a value
+ * set before the default was.
+ *
+ * Shared spaces no longer have a Default card: every shared space is its own
+ * record. A listing saved while the card existed still carries a
+ * `sharedSpaceDefaults` block; the readers below keep normalising and reading
+ * it (the prefill path fills a blank space from it) but the wizard never
+ * draws or writes it again.
  */
 import type {
   ManagerBathroomSubmission,
@@ -36,8 +42,6 @@ export type SharedSpaceDefaults = {
   photoDataUrls: string[];
   videoDataUrl: string | null;
 };
-/** `access` is judged from the space's room list, not from a default. */
-export type SharedSpaceInheritField = keyof SharedSpaceDefaults | "access";
 export const SHARED_SPACE_DEFAULT_FIELDS: readonly (keyof SharedSpaceDefaults)[] = ["location", "detail", "photoDataUrls", "videoDataUrl"];
 
 export function emptyBathroomDefaults(): BathroomDefaults {
@@ -204,6 +208,12 @@ export function bathroomDefaultsForSubmission(sub: Pick<ManagerListingSubmission
   return { ...inferred, ...(sub.bathroomDefaults ?? {}) };
 }
 
+/**
+ * Read-only: what a listing's stored `sharedSpaceDefaults` block says, over a
+ * guess from its spaces. The wizard draws no Default card for shared spaces
+ * and never writes this block; it stays so an older listing keeps reading
+ * exactly as it did (the prefill path fills a blank space from it).
+ */
 export function sharedSpaceDefaultsForSubmission(sub: Pick<ManagerListingSubmissionV1, "sharedSpaces" | "sharedSpaceDefaults">): SharedSpaceDefaults {
   const spaces = sub.sharedSpaces ?? [];
   const inferred = emptySharedSpaceDefaults();

@@ -62,7 +62,14 @@ export type PortalWorkspace = {
   ownerUserId: string;
   owned: boolean;
   isDefault: boolean;
+  /** Every property scoped to this workspace, drafts and unlisted included — drives scoping, never a display count. */
   propertyIds: string[];
+  /**
+   * Properties in this workspace with status "live" — what Properties → Listed
+   * counts (PRP-481). Optional so existing fixtures/tests built before this
+   * field keep compiling; every real payload from `loadWorkspaces` sets it.
+   */
+  livePropertyCount?: number;
   /** Display names from the property record itself, so the pane never depends on a client cache. */
   propertyLabels?: Record<string, string>;
   propertyPermissions: PropertyCoManagerPermissions;

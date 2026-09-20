@@ -15,7 +15,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { isActivePlannedEvent, type PlannedEvent } from "@/lib/demo-admin-scheduling";
 import { materializeReminders } from "@/lib/reminders/queue.server";
-import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
+import { loadReminderSettingsResolver } from "@/lib/reminders/settings.server";
 import { loadManagerReminderRecipients, loadTeamReminderRecipients, teamReminderRecipients } from "@/lib/reminders/manager-recipients.server";
 import { REMINDER_SUBJECT_CO_MANAGER_MODULE } from "@/lib/co-manager-notification-recipients.server";
 
@@ -72,8 +72,8 @@ export async function sweepTourReminders(db: SupabaseClient, now: Date = new Dat
   if (tours.length === 0) return 0;
 
   const managerIds = tours.map((tour) => tour.managerUserId!);
-  const [settingsByManager, managerRecipients] = await Promise.all([
-    loadReminderSettingsForManagers(db, managerIds),
+  const [reminderResolver, managerRecipients] = await Promise.all([
+    loadReminderSettingsResolver(db, managerIds),
     loadManagerReminderRecipients(db, managerIds),
   ]);
   const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
@@ -81,8 +81,9 @@ export async function sweepTourReminders(db: SupabaseClient, now: Date = new Dat
   let queued = 0;
   for (const tour of tours) {
     const managerUserId = tour.managerUserId!;
-    const settings = settingsByManager.get(managerUserId);
-    if (!settings?.rules.tour.enabled) continue;
+    // A house's own reminder override wins when it has one (PLAN-0916-1040).
+    const settings = reminderResolver.resolve(managerUserId, tour.propertyId ?? null);
+    if (!settings.rules.tour.enabled) continue;
     const managerRecipient = managerRecipients.get(managerUserId);
     const teamRecipients = teamReminderRecipients(
       await loadTeamReminderRecipients(db, managerUserId, settings.rules.tour.teamUserIds ?? [], {

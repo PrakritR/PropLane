@@ -40,7 +40,11 @@ function seedListing(propertyId: string, submission: ManagerListingSubmissionV1)
   cachePublicExtraListings([property]);
 }
 
-function applicantRow(propertyId: string, email: string): DemoApplicantRow {
+function applicantRow(
+  propertyId: string,
+  email: string,
+  applicationOverrides: Record<string, unknown> = {},
+): DemoApplicantRow {
   const roomId = "room-1";
   const roomChoice = `Room 1${LISTING_ROOM_CHOICE_SEP}${roomId}`;
   return {
@@ -64,6 +68,7 @@ function applicantRow(propertyId: string, email: string): DemoApplicantRow {
       fullLegalName: "Sohan Naik",
       managerRentOverride: "$800",
       managerUtilitiesOverride: "$200",
+      ...applicationOverrides,
     },
   } as unknown as DemoApplicantRow;
 }
@@ -609,4 +614,101 @@ describe("buildLeaseBillingSnapshot", () => {
     expect(html).not.toContain('font-weight:700">Due at signing</p><ul>');
   });
 
+});
+
+describe("buildLeaseBillingSnapshot — a room priced per resident (PLAN-0920-0631)", () => {
+  beforeEach(() => {
+    window.sessionStorage.clear();
+  });
+
+  // Label deliberately avoids the built-in "Parking" preset's default label, which would
+  // otherwise get this custom row silently re-tagged onto the (blank) parking_monthly preset
+  // by normalizeListingFeeRow's legacy-recovery step — see the same note in
+  // tests/unit/household-charges-per-resident.test.ts.
+  const scopedFee = { id: "cf-parking", label: "Assigned parking spot", amount: "50", frequency: "monthly" as const, residentSlots: [1] };
+
+  function seedRoommateListing(propertyId: string) {
+    seedListing(propertyId, normalizeManagerListingSubmissionV1({
+      ...createDefaultListingSubmission(),
+      securityDeposit: "",
+      moveInFee: "",
+      applicationFee: "",
+      customFees: [scopedFee],
+      rooms: [{ ...emptyRoom(0), id: "room-1", name: "Room 1", monthlyRent: 1000, utilitiesEstimate: "0", occupancyCapacity: 2 }],
+    }));
+  }
+
+  it("bills Resident 1's own rent, utilities and the fee scoped to their slot", () => {
+    const propertyId = "prop-roommate-snapshot-1";
+    const email = "roommate1-snapshot@example.com";
+    removeResidentHouseholdPaymentData(email);
+    seedRoommateListing(propertyId);
+    const row = applicantRow(propertyId, email, {
+      leaseStart: "2026-03-10",
+      leaseEnd: "2026-06-12",
+      leaseTerm: undefined,
+      managerRentOverride: "900",
+      managerUtilitiesOverride: "75",
+      residentSlot: 1,
+    });
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
+
+    const billing = buildLeaseBillingSnapshot(row, MANAGER_ID);
+    expect(billing.monthlyRent).toBe(900);
+    expect(billing.monthlyUtilities).toBe(75);
+    // The fee named this resident's slot, so its prorated first- and last-month lines appear.
+    expect(billing.proratedFeeLines?.find((l) => l.id === "cf-parking")).toBeTruthy();
+    expect(billing.proratedLastMonthFeeLines?.find((l) => l.id === "cf-parking")).toBeTruthy();
+  });
+
+  it("never shows Resident 2 a fee scoped to Resident 1's slot, even on the same room", () => {
+    const propertyId = "prop-roommate-snapshot-2";
+    const email = "roommate2-snapshot@example.com";
+    removeResidentHouseholdPaymentData(email);
+    seedRoommateListing(propertyId);
+    const row = applicantRow(propertyId, email, {
+      leaseStart: "2026-03-10",
+      leaseEnd: "2026-06-12",
+      leaseTerm: undefined,
+      managerRentOverride: "800",
+      managerUtilitiesOverride: "75",
+      residentSlot: 2,
+    });
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
+
+    const billing = buildLeaseBillingSnapshot(row, MANAGER_ID);
+    expect(billing.monthlyRent).toBe(800);
+    expect(billing.monthlyUtilities).toBe(75);
+    // Resident 2 holds no slot the fee names, so the document's fee schedule never shows it
+    // — not from the ledger (already scoped in household-charges.ts) and not from the
+    // listing recomputation either (this file's own filter).
+    expect(billing.proratedFeeLines?.find((l) => l.id === "cf-parking")).toBeUndefined();
+    expect(billing.proratedLastMonthFeeLines?.find((l) => l.id === "cf-parking")).toBeUndefined();
+  });
+
+  it("applies to every resident when the room's fee names no slot (unchanged default)", () => {
+    const propertyId = "prop-roommate-snapshot-unscoped";
+    const email = "roommate-unscoped-snapshot@example.com";
+    removeResidentHouseholdPaymentData(email);
+    seedListing(propertyId, normalizeManagerListingSubmissionV1({
+      ...createDefaultListingSubmission(),
+      securityDeposit: "",
+      moveInFee: "",
+      applicationFee: "",
+      customFees: [{ id: "cf-wifi", label: "Premium wifi", amount: "20", frequency: "monthly" }],
+      rooms: [{ ...emptyRoom(0), id: "room-1", name: "Room 1", monthlyRent: 1000, utilitiesEstimate: "0", occupancyCapacity: 2 }],
+    }));
+    const row = applicantRow(propertyId, email, {
+      leaseStart: "2026-03-10",
+      leaseEnd: "2026-06-12",
+      leaseTerm: undefined,
+      managerRentOverride: "900",
+      managerUtilitiesOverride: "75",
+      residentSlot: 2,
+    });
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
+
+    const billing = buildLeaseBillingSnapshot(row, MANAGER_ID);
+    expect(billing.proratedFeeLines?.find((l) => l.id === "cf-wifi")).toBeTruthy();
+  });
 });

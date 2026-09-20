@@ -10,6 +10,7 @@ import type {
   ManagerBundleRow,
   ManagerListingSubmissionV1,
   ManagerQuickFactRow,
+  ManagerRoomResidentPrice,
   ManagerRoomSubmission,
   ManagerSharedSpaceSubmission,
 } from "@/lib/manager-listing-submission";
@@ -216,7 +217,19 @@ const PUBLIC_ROOM_KEYS = [
   "weeklyRentPrice",
   "shortLeaseSurchargeMonthly",
   "shortLeaseMaxMonths",
+  // Rent per resident on a shared room: the "from $800/mo" headline and each
+  // slot's rent, utilities and deposit. WHO holds a slot lives on the application
+  // and never reaches a prospect; the rows are re-picked to the money keys below.
+  "residentPricing",
+  "residentPrices",
 ] as const satisfies readonly (keyof ManagerRoomSubmission)[];
+
+const PUBLIC_RESIDENT_PRICE_KEYS = [
+  "monthlyRent",
+  "utilitiesEstimate",
+  "securityDeposit",
+  "pricingMode",
+] as const satisfies readonly (keyof ManagerRoomResidentPrice)[];
 
 const PUBLIC_BATHROOM_KEYS = [
   "id",
@@ -275,6 +288,8 @@ const PUBLIC_CUSTOM_FEE_KEYS = [
   "roomIds",
   "leaseTypes",
   "shortTermAmount",
+  // A fee scoped to a resident slot is a scope like `roomIds`, not an identity.
+  "residentSlots",
 ] as const satisfies readonly (keyof ListingFeeRow)[];
 
 const PUBLIC_HOUSE_DEFAULT_PRICE_KEYS = [
@@ -383,7 +398,18 @@ function publicSubmission(sub: ManagerListingSubmissionV1): ManagerListingSubmis
     : undefined;
   return {
     ...pick(charged, PUBLIC_SUBMISSION_KEYS),
-    rooms: pickRows<ManagerRoomSubmission, (typeof PUBLIC_ROOM_KEYS)[number]>(charged.rooms, PUBLIC_ROOM_KEYS),
+    rooms: pickRows<ManagerRoomSubmission, (typeof PUBLIC_ROOM_KEYS)[number]>(charged.rooms, PUBLIC_ROOM_KEYS).map(
+      (room) =>
+        room.residentPrices === undefined
+          ? room
+          : {
+              ...room,
+              residentPrices: pickRows<ManagerRoomResidentPrice, (typeof PUBLIC_RESIDENT_PRICE_KEYS)[number]>(
+                room.residentPrices,
+                PUBLIC_RESIDENT_PRICE_KEYS,
+              ) as ManagerRoomResidentPrice[],
+            },
+    ),
     bathrooms: pickRows<ManagerBathroomSubmission, (typeof PUBLIC_BATHROOM_KEYS)[number]>(
       charged.bathrooms,
       PUBLIC_BATHROOM_KEYS,

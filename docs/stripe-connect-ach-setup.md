@@ -17,6 +17,34 @@ Fee model (who pays what): see [`docs/agents/resident-payments.md`](agents/resid
 
 Each manager gets a **Stripe Connect Express** account stored in `profiles.stripe_connect_account_id`.
 
+### In-app payouts (PLAN-0920-0853) — Account Links and the Express dashboard are gone
+
+Identity verification and bank linking, and paying out and setting a schedule,
+all happen on PropLane's own **Payments → Payouts** page
+(`/portal/payments/payouts`, vendor twin `/vendor/financials/payouts`) — never
+a redirect to `connect.stripe.com` and never the Express Dashboard login link.
+`src/app/api/stripe/connect/onboard/route.ts` (and its vendor twin) only
+ensure a Connect account exists and report its readiness; the client mounts
+Stripe's `account_onboarding` / `account_management` embedded components
+inside PropLane's own modal chrome using a client secret from
+`POST /api/stripe/connect/account-session` (`src/lib/stripe-connect-embedded.ts`).
+
+Balance, "Pay out" and the payout schedule are their own routes:
+`GET /api/stripe/payouts/balance`, `POST /api/stripe/payouts/create`,
+`PUT /api/stripe/payouts/schedule` (vendor twins under `/api/vendor/payouts/`).
+Pure eligibility/fee/schedule logic lives in `src/lib/stripe-payouts.ts`; the
+Stripe/DB reads and the idempotent claim-before-call payout creation (same
+pattern as `payoutVendorForWorkOrder`) live in `src/lib/stripe-payouts.server.ts`.
+
+**Instant Payouts** must be turned on once for the platform in the Stripe
+Dashboard (Connect → Instant Payouts) before any connected account can use the
+Instant speed — this is a Stripe Dashboard setting, not a code change. Stripe
+charges a flat **1% fee** on every Instant Payout
+(docs.stripe.com/connect/instant-payouts); PropLane passes that fee straight
+through and adds no markup (Decide 2). A newly linked bank defaults to
+**automatic weekly payouts (Friday)** (Decide 1); "Pay out" remains available
+at any time regardless of the schedule.
+
 ---
 
 ## Part A — Platform setup (you, once)

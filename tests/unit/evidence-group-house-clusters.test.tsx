@@ -15,7 +15,7 @@
 // while the list itself is derived in render-time memos, so static markup still
 // shows the real clustered rows.
 import { afterEach, afterAll, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import fs from "node:fs";
 import path from "node:path";
@@ -318,7 +318,7 @@ describe("household and resident list shells", () => {
     expect(currentHtml).toContain("No current residents");
   });
 
-  it("Leases clusters each resident in the Tours-style table shell", async () => {
+  it("Leases renders one card per lease with the ⋯ menu — no grouping box, no pill, no raw timestamp", async () => {
     const rows: LeasePipelineRow[] = [
       leaseRow({ id: "lease-1", residentName: "Jordan Reyes", application: group({ groupId: GROUP_A, propertyId: PROP_5257 }) }),
       leaseRow({ id: "lease-2", residentName: "Priya Nair", unit: `${HOUSE_5257} · Room B`, application: group({ groupId: GROUP_A, propertyId: PROP_5257 }) }),
@@ -343,8 +343,35 @@ describe("household and resident list shells", () => {
     );
     await waitFor(() => expect(screen.getAllByText("Jordan Reyes").length).toBeGreaterThan(0));
 
-    expect(document.querySelector("[data-attr='leases-resident-groups']")).toBeTruthy();
-    expect(screen.getAllByText("1 lease").length).toBeGreaterThanOrEqual(3);
-    dump("leases-resident-clusters", container.innerHTML);
+    const groups = document.querySelector("[data-attr='leases-resident-groups']");
+    expect(groups).toBeTruthy();
+    // One card per lease, flattened from the resident clusters in order.
+    const cards = container.querySelectorAll("[data-attr='lease-list-row']");
+    expect(cards).toHaveLength(5);
+    expect(Array.from(cards).map((card) => card.querySelector("p")?.textContent)).toEqual([
+      "Jordan Reyes",
+      "Priya Nair",
+      "Casey Lund",
+      "Morgan Diaz",
+      "Taylor Brooks",
+    ]);
+    // The grouping box and its "1 lease" count are gone; so is the bare checkbox.
+    expect(screen.queryByText("1 lease")).toBeNull();
+    expect(container.querySelector("[data-attr^='lease-select-']")).toBeNull();
+    // Place line is property · room; the stage and the update are facts, never a pill or an ISO string.
+    const text = groups!.textContent ?? "";
+    expect(text).toContain(`${HOUSE_5259} · Room A`);
+    expect(text).toContain("Manager Review");
+    expect(text).toContain("Updated Aug 12");
+    expect(text).not.toContain("2026-08-12T");
+    expect(groups!.querySelector(".rounded-full.px-2")).toBeNull();
+    // Every card carries the ⋯, and opening one shows that row's actions.
+    expect(container.querySelectorAll("[data-attr='record-actions-trigger']")).toHaveLength(5);
+    fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Taylor Brooks" }), { key: "ArrowDown" });
+    const menu = await screen.findByRole("menu", { name: "Actions for Taylor Brooks" });
+    expect(menu.textContent).toContain("View");
+    expect(menu.textContent).toContain("Edit");
+    expect(menu.textContent).toContain("Delete");
+    dump("leases-list-cards", container.innerHTML);
   });
 });

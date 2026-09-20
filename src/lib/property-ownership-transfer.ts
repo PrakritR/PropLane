@@ -14,7 +14,7 @@ import {
   notifyPromotedToMainManager,
 } from "@/lib/co-manager-notification.server";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { asStringArray } from "@/lib/account-link-invite-row";
+import { asStringArray, INVITE_PERMISSION_COLUMNS, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -221,9 +221,7 @@ export async function transferPropertyOwnership(
   if (!coManagerPermissionsAreEmpty(formerOwnerPermissions)) {
     let reverseLinkQuery = db
       .from("account_link_invites")
-      .select(
-        "id, assigned_property_ids, property_co_manager_permissions, co_manager_permissions, payout_percent_for_manager",
-      )
+      .select(`id, payout_percent_for_manager, ${INVITE_PERMISSION_COLUMNS}`)
       .eq("status", "accepted")
       .eq("inviter_user_id", newManagerUserId)
       .eq("invitee_user_id", currentOwnerUserId);
@@ -238,11 +236,7 @@ export async function transferPropertyOwnership(
 
     if (reverseLink?.id) {
       const reverseAssigned = [...new Set([...asStringArray(reverseLink.assigned_property_ids), propertyId])];
-      const reversePerms = normalizePropertyCoManagerPermissions(
-        (reverseLink as { property_co_manager_permissions?: unknown }).property_co_manager_permissions ??
-          (reverseLink as { co_manager_permissions?: unknown }).co_manager_permissions,
-        asStringArray(reverseLink.assigned_property_ids),
-      );
+      const reversePerms = readPropertyPermissionsFromRow(reverseLink as Parameters<typeof readPropertyPermissionsFromRow>[0]);
       reversePerms[propertyId] = formerOwnerPerms[propertyId] ?? formerOwnerPermissions;
       await db
         .from("account_link_invites")

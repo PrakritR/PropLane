@@ -21,6 +21,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveActiveManagerWorkEmail } from "@/lib/manager-assistant-email/manager-assistant-email.server";
+import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
 import { resolveActiveManagerSendNumber } from "@/lib/sms/manager-number-provisioning.server";
 import { orFilterForIdentity } from "@/lib/supabase/or-filter";
 import { normalizeE164 } from "@/lib/phone-e164";
@@ -37,7 +38,9 @@ export type ResidentManagerContact = {
   /**
    * The phone the resident can reach this manager on, E.164. The provisioned
    * work number wins when it can send; otherwise the phone on the manager's
-   * own profile. Null only when the manager has neither.
+   * own profile, but ONLY when they opted in
+   * (`shareProfileContactWithoutWorkChannel`, default off). Null when the
+   * manager has neither, or has not opted in.
    */
   phone: string | null;
   /**
@@ -47,8 +50,8 @@ export type ResidentManagerContact = {
   phoneKind: "work" | "profile" | null;
   /**
    * The email the resident can write to. The workspace work email wins when
-   * provisioned; otherwise the manager's account email. Null only when the
-   * manager has neither.
+   * provisioned; otherwise the manager's account email under the same opt-in
+   * as `phone`. Null when the manager has neither, or has not opted in.
    */
   email: string | null;
   emailKind: "work" | "account" | null;
@@ -251,9 +254,12 @@ export async function resolveResidentManagerContacts(
  * A work number that cannot actually send is dropped rather than shown: the
  * resident would text it and hear nothing, which reads as being ignored. But
  * "no work channel yet" is NOT "unreachable" — most managers put a phone and an
- * email on their profile long before they provision a work line, and the
- * resident's card used to vanish for exactly those managers. So each channel
- * falls back to the profile, and a contact is kept whenever either resolves.
+ * email on their profile long before they provision a work line. But a profile
+ * phone is a personal line, and this resolver also serves applicants the
+ * manager has not accepted, so the profile fallback is OPT-IN: only a manager
+ * who turned on "Share my profile phone and email" in Communication settings
+ * has those channels shown. Off (the default), only provisioned work channels
+ * are disclosed, and a contact with neither is dropped.
  */
 export async function resolveResidentManagerPhones(
   db: SupabaseClient,
@@ -262,7 +268,7 @@ export async function resolveResidentManagerPhones(
   const contacts = await resolveResidentManagerContacts(db, args);
   const withChannels = await Promise.all(
     contacts.map(async (contact) => {
-      const [workPhone, workEmail, profileRow] = await Promise.all([
+      const [workPhone, workEmail, profileRow, settings] = await Promise.all([
         resolveActiveManagerSendNumber(db, contact.managerUserId).catch(() => null),
         resolveActiveManagerWorkEmail(db, contact.managerUserId).catch(() => null),
         Promise.resolve(
@@ -270,10 +276,13 @@ export async function resolveResidentManagerPhones(
         )
           .then((res) => res.data)
           .catch(() => null),
+        loadManagerAutomationSettings(db, contact.managerUserId).catch(() => null),
       ]);
       const profile = (profileRow ?? null) as { full_name?: unknown; phone?: unknown; email?: unknown } | null;
-      const profilePhone = text(profile?.phone);
-      const accountEmail = text(profile?.email)?.toLowerCase() ?? null;
+      // A failed settings read stays closed: nothing personal is shown by accident.
+      const shareProfile = settings?.shareProfileContactWithoutWorkChannel === true;
+      const profilePhone = shareProfile ? text(profile?.phone) : null;
+      const accountEmail = shareProfile ? (text(profile?.email)?.toLowerCase() ?? null) : null;
       // `profiles.phone` is free-form trimmed text (`PATCH /api/profile` never
       // normalizes it), yet this value is interpolated verbatim into a
       // `tel:`/`sms:` href. Normalize through the codebase's one E.164

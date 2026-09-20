@@ -176,14 +176,34 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
         if (refused) return refused;
       }
 
+      const requestedWorkspaceId =
+        body?.workspaceId !== undefined
+          ? (typeof body.workspaceId === "string" ? body.workspaceId.trim() || null : null)
+          : undefined;
+      let nextWorkspaceId: string | null = invite.workspace_id ?? null;
+      if (requestedWorkspaceId !== undefined && requestedWorkspaceId !== nextWorkspaceId) {
+        if (actorRole !== "owner") {
+          return NextResponse.json({ error: "Only the workspace owner can move a member to another workspace." }, { status: 403 });
+        }
+        if (!requestedWorkspaceId) {
+          return NextResponse.json({ error: "A membership belongs to a workspace." }, { status: 400 });
+        }
+        const target = await actorWorkspaceStanding(svc, invite.inviter_user_id, requestedWorkspaceId);
+        if (!target || target.role !== "owner") {
+          return NextResponse.json({ error: "That workspace is not yours." }, { status: 403 });
+        }
+        nextWorkspaceId = target.workspaceId;
+      }
+      const houseWorkspaceId = nextWorkspaceId ?? "";
+
       const nextHouseScope = body?.houseScope !== undefined ? parseHouseScope(body.houseScope) : parseHouseScope(invite.house_scope);
       let nextAssigned = patchProps ? asStringArray(body?.assignedPropertyIds) : asStringArray(invite.assigned_property_ids);
-      if (nextHouseScope === "all" && inviteWorkspaceId) {
+      if (nextHouseScope === "all" && houseWorkspaceId) {
         // The workspace decides: every house it holds now, and the database
         // keeps the list current after this write.
-        nextAssigned = await workspaceHouseIds(svc, invite.inviter_user_id, inviteWorkspaceId);
-      } else if (inviteWorkspaceId && patchProps) {
-        const houses = new Set(await workspaceHouseIds(svc, invite.inviter_user_id, inviteWorkspaceId));
+        nextAssigned = await workspaceHouseIds(svc, invite.inviter_user_id, houseWorkspaceId);
+      } else if (houseWorkspaceId && (patchProps || houseWorkspaceId !== inviteWorkspaceId)) {
+        const houses = new Set(await workspaceHouseIds(svc, invite.inviter_user_id, houseWorkspaceId));
         if (nextAssigned.some((pid) => !houses.has(pid))) {
           return NextResponse.json({ error: "Choose houses from this workspace only." }, { status: 400 });
         }
@@ -277,10 +297,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
           : body?.workspacePermissions !== undefined
             ? normalizeWorkspacePermissions(body.workspacePermissions)
             : normalizeWorkspacePermissions(invite.workspace_permissions);
-      const nextWorkspaceId =
-        body?.workspaceId !== undefined
-          ? (typeof body.workspaceId === "string" ? body.workspaceId.trim() || null : null)
-          : invite.workspace_id ?? null;
       const stampedWorkspace = stampTeamRolePermissions(nextTeamRole);
       const nextWorkspaceDefaults =
         stampedWorkspace ??

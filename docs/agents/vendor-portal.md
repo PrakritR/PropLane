@@ -194,15 +194,19 @@ is a thin wrapper over the existing `ensureManagerConnectAccountId`, passing
 `axisPortal: "vendor"` so the Stripe account's `metadata.axis_portal` distinguishes vendor
 from manager accounts in the Stripe Dashboard.
 
-**Vendor-specific onboarding routes.** `/api/vendor/stripe-connect/{onboard,status}` are
-clones of the manager `/api/stripe/connect/{onboard,status}` routes (not a generalized single
-route) because the manager routes hardcode `basePath = "/portal"` for the Account Link
-return/refresh URLs; the vendor routes hardcode `/vendor/profile` instead and additionally
-gate on `profiles.role === "vendor"`. The shared `PortalStripeConnectPanel` component
-(`src/components/portal/portal-stripe-connect-panel.tsx`) gained optional `apiBase`,
-`returnPath`, and `dataAttrPrefix` props (all defaulting to the original manager behavior) so
-it could be reused for the vendor Settings → Payments panel (`variant="embedded"`, previously
-unused) instead of forking the whole component.
+**Vendor-specific onboarding routes.** `/api/vendor/stripe-connect/{onboard,status,account-session}`
+are clones of the manager `/api/stripe/connect/*` routes (not a generalized single route):
+the manager routes resolve a payout OWNER (a co-manager may act on the owner's account),
+the vendor routes act only on the signed-in vendor's own account and gate on the vendor
+role. Onboarding is embedded (Stripe's `account_onboarding` / `account_management`
+components from `account-session`) — there is no Account Link redirect and no Express
+Dashboard login link; the vendor's balance, Pay out and schedule live on the Payouts tab of
+Finances (`/vendor/financials/payouts`, `PortalPayoutsPanel portal="vendor"`, routes under
+`/api/vendor/payouts/`). Owner of the payout model: `financials.md` § In-app payouts. The
+shared `PortalStripeConnectPanel` component
+(`src/components/portal/portal-stripe-connect-panel.tsx`) takes optional `apiBase`,
+`returnPath`, and `dataAttrPrefix` props (all defaulting to the manager behavior) so the
+vendor payment-methods modal reuses it instead of forking the whole component.
 
 **Demo-mode mock.** `PortalStripeConnectPanel` now short-circuits in `isDemoModeActive()`:
 `loadStatus` returns a canned "already connected" `ConnectStatus` instead of leaving status
