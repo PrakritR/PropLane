@@ -859,6 +859,11 @@ export async function redeemInviteLink(
     db.from("profiles").select("axis_id, full_name").eq("id", redeemerUserId).maybeSingle(),
   ]);
 
+  const normalizedPropertyMap = normalizePropertyCoManagerPermissions(
+    link.property_permissions,
+    link.assigned_property_ids ?? [],
+  );
+  const redeemedRole = storedTeamRole(link.team_role);
   const { data: invite, error: inviteError } = await db
     .from("account_link_invites")
     .insert({
@@ -873,14 +878,17 @@ export async function redeemInviteLink(
       tab_kind: "manager",
       status: "pending",
       assigned_property_ids: link.assigned_property_ids ?? [],
-      property_co_manager_permissions: normalizePropertyCoManagerPermissions(
-        link.property_permissions,
-        link.assigned_property_ids ?? [],
-      ),
+      property_co_manager_permissions: normalizedPropertyMap,
+      // The flat grant an "all houses" row falls back to for a house that
+      // joins later (see `readPropertyPermissionsFromRow`). Leaving this
+      // empty made every later-joined house read as no access.
+      co_manager_permissions:
+        (redeemedRole ? stampTeamRolePermissions(redeemedRole) : null) ??
+        flatCoManagerPermissionsFromProperty(normalizedPropertyMap),
       workspace_id: link.workspace_id ?? null,
       // Workspace rights follow the role now; nothing is switched on by default.
       workspace_permissions: {},
-      team_role: storedTeamRole(link.team_role),
+      team_role: redeemedRole,
       house_scope: parseHouseScope(link.house_scope),
     })
     .select("id")

@@ -9,6 +9,7 @@ import {
 import {
   inferInviteTeamRole,
   parseTeamRole,
+  stampTeamRolePermissions,
   type CoManagerTeamRole,
 } from "@/lib/co-manager-team-roles";
 import { normalizeWorkspacePermissions } from "@/lib/workspace-co-manager-permissions";
@@ -56,18 +57,24 @@ export function asStringArray(v: unknown): string[] {
  * The per-house map a row grants. On an "all houses" row the database keeps
  * `assigned_property_ids` current as houses join the workspace, and a house
  * that joined after the row was written has no per-house entry yet — it takes
- * the row's flat grant (`co_manager_permissions`, the role stamp). Only an
- * EMPTY entry is filled: an explicit narrower grant on one house stands.
+ * the row's flat grant (`co_manager_permissions`, the role stamp), falling
+ * back to the stored `team_role`'s stamp when that flat grant is empty. Only
+ * an EMPTY entry is filled: an explicit narrower grant on one house stands.
  */
 export function readPropertyPermissionsFromRow(
   row: Pick<InviteRow, "assigned_property_ids" | "property_co_manager_permissions" | "co_manager_permissions"> &
-    Partial<Pick<InviteRow, "house_scope">>,
+    Partial<Pick<InviteRow, "house_scope" | "team_role">>,
 ): PropertyCoManagerPermissions {
   const assigned = asStringArray(row.assigned_property_ids);
   const raw = row.property_co_manager_permissions ?? row.co_manager_permissions;
   const perms = normalizePropertyCoManagerPermissions(raw, assigned);
   if (parseHouseScope(row.house_scope) !== "all") return perms;
-  const flat = normalizeCoManagerPermissions(row.co_manager_permissions);
+  let flat = normalizeCoManagerPermissions(row.co_manager_permissions);
+  if (Object.keys(flat).length === 0) {
+    const parsedRole = parseTeamRole(row.team_role);
+    const roleStamp = parsedRole.ok && parsedRole.role ? stampTeamRolePermissions(parsedRole.role) : null;
+    if (roleStamp) flat = roleStamp;
+  }
   if (Object.keys(flat).length === 0) return perms;
   for (const id of assigned) {
     if (Object.keys(perms[id] ?? {}).length === 0) perms[id] = { ...flat };

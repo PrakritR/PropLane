@@ -258,7 +258,17 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
       } else if (parsedTeamRole.role === "custom") {
         nextTeamRole = "custom";
       } else {
-        nextTeamRole = inferInviteTeamRole(nextPropertyPerms);
+        // The body named no role. A house that joined an "all houses" row
+        // after it was written has no per-house map entry yet, so inferring
+        // from the map would read that gap as Custom and silently demote the
+        // member. Keep the stored role when it already names one.
+        const storedRole = parseTeamRole(invite.team_role);
+        if (storedRole.ok && storedRole.role && storedRole.role !== "custom") {
+          nextPropertyPerms = stampTeamRoleOnProperties(storedRole.role, nextAssigned, nextPropertyPerms);
+          nextTeamRole = storedRole.role;
+        } else {
+          nextTeamRole = inferInviteTeamRole(nextPropertyPerms);
+        }
       }
       // Workspace rights follow the role; explicit flags survive only on a Custom row.
       const nextWorkspacePermissions =

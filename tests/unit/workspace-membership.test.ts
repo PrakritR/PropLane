@@ -99,6 +99,26 @@ describe("an 'all houses' row grants its role on a house that joined later", () 
     });
     expect(coManagerModuleAllowed(perms, "h1", "properties", "read")).toBe(false);
   });
+  it("falls back to the stored team_role's stamp when the flat grant is empty (a row from a redeemed link)", () => {
+    const perms = readPropertyPermissionsFromRow({
+      house_scope: "all",
+      team_role: "admin",
+      assigned_property_ids: ["old-house", "new-house"],
+      property_co_manager_permissions: { "old-house": { properties: true } },
+      co_manager_permissions: {},
+    });
+    expect(coManagerModuleAllowed(perms, "new-house", "properties", "edit")).toBe(true);
+  });
+  it("a 'selected' row is never filled from team_role either", () => {
+    const perms = readPropertyPermissionsFromRow({
+      house_scope: "selected",
+      team_role: "admin",
+      assigned_property_ids: ["h1"],
+      property_co_manager_permissions: { h1: {} },
+      co_manager_permissions: {},
+    });
+    expect(coManagerModuleAllowed(perms, "h1", "properties", "read")).toBe(false);
+  });
 });
 
 describe("moving a house between workspaces", () => {
