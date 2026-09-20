@@ -14,7 +14,7 @@ import {
   paymentAtSigningIncludedLabels,
   utilitiesListingEstimateLabel,
 } from "@/lib/rental-application/listing-fees-display";
-import { leaseDocumentFeeLines } from "@/lib/listing-fees";
+import { feeAppliesToResidentSlot, leaseDocumentFeeLines, type ListingFeeRow } from "@/lib/listing-fees";
 import {
   formatUtilitiesListingLine,
   resolveListingUtilitiesPaymentModel,
@@ -255,6 +255,23 @@ function fmtUsd(n: number): string {
 
 function isMonthToMonthLease(application: Partial<RentalWizardFormState> | undefined | null): boolean {
   return application?.rentalType !== "short_term" && application?.leaseTerm?.trim() === "Month-to-Month";
+}
+
+/**
+ * Drops a fee whose row is scoped to resident slots that do not include this application's
+ * slot (PLAN-0920-0631) — "Parking $50" scoped to Resident 1 never appears on Resident 2's
+ * document. A fee row with no `residentSlots`, or an application with no `residentSlot` (not
+ * a per-resident room), passes through untouched — identical to today for every listing that
+ * does not price per resident.
+ */
+function filterFeeLinesForResidentSlot<T extends { id: string }>(
+  lines: T[],
+  sub: { customFees?: readonly { id: string }[] } | null | undefined,
+  residentSlot: number | null | undefined,
+): T[] {
+  if (!lines.length) return lines;
+  const feeById = new Map((sub?.customFees ?? []).map((fee) => [fee.id, fee as unknown as ListingFeeRow]));
+  return lines.filter((line) => feeAppliesToResidentSlot(feeById.get(line.id) ?? {}, residentSlot));
 }
 
 function overrideFeeLabel(overrideRaw: string | undefined | null, fallbackLabel: string): string {
@@ -635,8 +652,11 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   const rentFoldsMonthlyFees = listingFoldsAllMonthlyFeesIntoRent(subNorm, list);
   // The monthly fees that bill as their OWN charge, for the partial-month lines below. The
   // same resolver the ledger reads, so a fee prorated here is a fee the ledger prorates.
-  const separatelyBilledMonthlyFees =
-    subNorm && !propertyTemplatePreview ? monthlyFeesBilledSeparately(subNorm, list, leaseFeeBillingContext) : [];
+  const separatelyBilledMonthlyFees = filterFeeLinesForResidentSlot(
+    subNorm && !propertyTemplatePreview ? monthlyFeesBilledSeparately(subNorm, list, leaseFeeBillingContext) : [],
+    subNorm,
+    a.residentSlot,
+  );
   // A ledger line (possibly hand-edited) wins over the recomputation, exactly as rent does.
   const mergeDocFeeLines = (
     computed: ProratedFeeLine[],
@@ -789,6 +809,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
     const presetId = (fee as { presetId?: string }).presetId;
     if (presetId && presetId !== "custom") return false;
     if (fee.frequency !== "one-time") return false;
+    if (!feeAppliesToResidentSlot(fee as ListingFeeRow, a.residentSlot)) return false;
     const n = parseAmount(fee.amount);
     return n != null && n > 0;
   });

@@ -13,7 +13,7 @@ import {
   selfBillingPresetFees,
   type MonthlyFeeLine,
 } from "@/lib/rent-fold-in";
-import { listingFeeCadence } from "@/lib/listing-fees";
+import { feeAppliesToResidentSlot, listingFeeCadence, type ListingFeeRow } from "@/lib/listing-fees";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { paymentAtSigningPriceLabel } from "@/lib/rental-application/listing-fees-display";
@@ -3550,6 +3550,24 @@ function patchPendingApprovedChargeAmount(applicationId: string, draft: Approved
   return true;
 }
 
+/**
+ * Drops a monthly fee line whose fee row is scoped to resident slots that do not include
+ * this application's slot (PLAN-0920-0631) — "Parking $50" scoped to Resident 1 never bills
+ * Resident 2 of the same room. A fee row with no `residentSlots`, or an application with no
+ * `residentSlot` (not a per-resident room), passes through untouched — identical to today for
+ * every listing that does not price per resident. `lines` come from `monthlyFeesBilledSeparately`
+ * (already flattened to `{ id, label, amount }`), so the original fee row is looked up by id.
+ */
+function filterFeesForResidentSlot(
+  lines: MonthlyFeeLine[],
+  sub: ManagerListingSubmissionV1 | null | undefined,
+  residentSlot: number | null | undefined,
+): MonthlyFeeLine[] {
+  if (!lines.length) return lines;
+  const feeById = new Map((sub?.customFees ?? []).map((fee) => [fee.id, fee as ListingFeeRow]));
+  return lines.filter((line) => feeAppliesToResidentSlot(feeById.get(line.id) ?? {}, residentSlot));
+}
+
 function buildApprovedStandardChargeDrafts(
   row: DemoApplicantRow,
   sub: ReturnType<typeof normalizeManagerListingSubmissionV1>,
@@ -3640,14 +3658,18 @@ function buildApprovedStandardChargeDrafts(
     }
   }
 
-  const monthlyFeeSet = opts.allowListingDefaults && ledgerHasProratedFeeLines(opts.applicationId)
-    ? monthlyFeesBilledSeparately(sub, listingProperty, {
-        leaseStart: opts.leaseStart,
-        leaseEnd: opts.leaseEnd,
-        leaseTerm: row.application?.leaseTerm,
-        rentalType: row.application?.rentalType,
-      })
-    : [];
+  const monthlyFeeSet = filterFeesForResidentSlot(
+    opts.allowListingDefaults && ledgerHasProratedFeeLines(opts.applicationId)
+      ? monthlyFeesBilledSeparately(sub, listingProperty, {
+          leaseStart: opts.leaseStart,
+          leaseEnd: opts.leaseEnd,
+          leaseTerm: row.application?.leaseTerm,
+          rentalType: row.application?.rentalType,
+        })
+      : [],
+    sub,
+    row.application?.residentSlot,
+  );
   const feeDrafts = proratedFeeChargeDrafts(monthlyFeeSet, {
     leaseStart: opts.leaseStart,
     leaseEnd: opts.leaseEnd,
@@ -4309,12 +4331,16 @@ export function recordApprovedApplicationCharges(
   // lease start)". A Seattle-folded fee is inside the rent line and already prorates with
   // it, which is why only the separately-billed set is read here. A $0 fee is skipped
   // exactly like $0 utilities. The recurring profile still starts the first FULL month.
-  const monthlyFeeSet = monthlyFeesBilledSeparately(sub, prop, {
-    leaseStart,
-    leaseEnd,
-    leaseTerm: row.application?.leaseTerm,
-    rentalType: row.application?.rentalType,
-  });
+  const monthlyFeeSet = filterFeesForResidentSlot(
+    monthlyFeesBilledSeparately(sub, prop, {
+      leaseStart,
+      leaseEnd,
+      leaseTerm: row.application?.leaseTerm,
+      rentalType: row.application?.rentalType,
+    }),
+    sub,
+    row.application?.residentSlot,
+  );
   const feeDrafts = allowListingDefaults
     ? proratedFeeChargeDrafts(monthlyFeeSet, { leaseStart, leaseEnd, endsInsideFirstMonth, prorateMethod, moveInDue })
     : [];
@@ -4414,13 +4440,15 @@ export function recordApprovedApplicationCharges(
   // (preset-backed rows bill through their own legacy fields); monthly custom fees bill
   // through the recurring profile below, not here.
   if (allowListingDefaults) {
+    const residentSlot = row.application?.residentSlot;
     for (const fee of oneTimeCustomFees(sub)) {
+      if (!feeAppliesToResidentSlot(fee as ListingFeeRow, residentSlot)) continue;
       const amt = parseMoneyAmount(fee.amount ?? "");
       if (amt > 0)
         pushCharge("other_cost", amt, fee.label?.trim() || chargeTitle("other_cost"), false, "Before move-in", fee.id);
     }
     // Parking / HOA / other fees a manager switched to one-time cadence. Same checkbox gate.
-    for (const fee of selfBillingPresetFees(sub, "one-time")) {
+    for (const fee of filterFeesForResidentSlot(selfBillingPresetFees(sub, "one-time"), sub, residentSlot)) {
       pushCharge("other_cost", fee.amount, fee.label, false, "Before move-in", fee.id);
     }
   }
