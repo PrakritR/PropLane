@@ -145,7 +145,7 @@ export function proposePortfolioImport(input: {
 
       const rooms: ImportRoomProposal[] = property.rooms.map((room, i) => ({
         key: `${propertyKey}:room:${i}:${slug(room.label, 24)}`,
-        name: room.name ?? room.label,
+        name: room.label,
         rent: room.rent,
         source: { file: fileName, sheet: property.sourceSheet, rows: room.sourceRow != null ? [room.sourceRow] : property.sourceRows },
       }));
