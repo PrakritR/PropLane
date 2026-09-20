@@ -2,10 +2,12 @@
 
 import { TourInterestSettings } from "./tour-interest-settings";
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { Minus, Plus } from "lucide-react";
+import { Copy, Minus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect, CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { copyTextToClipboard } from "@/lib/manager-property-links";
 import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
@@ -1869,6 +1871,56 @@ export const PROPERTY_SETTINGS_AREAS = [
 export type PropertySettingsArea = (typeof PROPERTY_SETTINGS_AREAS)[number]["value"];
 
 /**
+ * Read-only "Zillow feed URL" row — one feed per account, registered once
+ * with Zillow (Rental Network: Zillow, Trulia, HotPads). The row itself
+ * never changes the URL; regenerating the key is out of scope, since a
+ * manager who already registered it with Zillow would break that
+ * registration. Each listing's own opt-in lives on its Review step.
+ */
+function ZillowFeedUrlRow() {
+  const { showToast } = useAppUi();
+  const [feedUrl, setFeedUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/manager/syndication-feed", { credentials: "include", cache: "no-store" })
+      .then((res) => res.json())
+      .then((body: { feedUrl?: string }) => {
+        if (!cancelled && body.feedUrl) setFeedUrl(body.feedUrl);
+      })
+      .catch(() => {
+        /* row simply stays hidden while unavailable */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <PortalSettingsRow label="Zillow feed URL">
+      {feedUrl ? (
+        <div className="flex min-w-0 items-center gap-1">
+          <span className="max-w-[13rem] truncate text-sm text-muted sm:max-w-[18rem]" title={feedUrl}>
+            {feedUrl}
+          </span>
+          <PortalIconAction
+            icon={Copy}
+            label="Copy Zillow feed URL"
+            data-attr="property-settings-zillow-feed-copy"
+            onClick={async () => {
+              const ok = await copyTextToClipboard(feedUrl);
+              showToast(ok ? "Feed URL copied." : "Could not copy the feed URL.");
+            }}
+          />
+        </div>
+      ) : (
+        <span className="text-sm text-muted">Loading…</span>
+      )}
+    </PortalSettingsRow>
+  );
+}
+
+/**
  * Property settings stay in this tab: pick a house, then Application / Lease /
  * Tour. The host mounts those modules underneath with the house locked, so
  * the chevron rows never leave Settings for the listing.
@@ -1938,6 +1990,9 @@ export function PropertySettingsPanel({
             dataAttr="property-settings-area"
           />
         </PortalSettingsRow>
+      </PortalSettingsGroup>
+      <PortalSettingsGroup className="mt-4">
+        <ZillowFeedUrlRow />
       </PortalSettingsGroup>
     </PortalSettingsSection>
   );
