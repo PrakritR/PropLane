@@ -449,6 +449,54 @@ export function managerBookingListHref(
   return `${basePath}/bookings/${bucket}`;
 }
 
+/**
+ * A booking record's own routed tabs (PLAN-0920-1058, area 1e). Own sections
+ * come from `src/lib/portals/record-sections.ts`; this is the URL contract
+ * they and `render-portal-section.tsx` both read.
+ */
+export const BOOKING_DETAIL_TABS = [
+  "overview",
+  "guest",
+  "charges",
+  "communication",
+  "documents",
+  "activity",
+] as const;
+export type BookingDetailTabId = (typeof BOOKING_DETAIL_TABS)[number];
+export const DEFAULT_BOOKING_DETAIL_TAB: BookingDetailTabId = "overview";
+
+export function parseBookingDetailTab(raw: string | undefined | null): BookingDetailTabId {
+  if (raw && (BOOKING_DETAIL_TABS as readonly string[]).includes(raw)) {
+    return raw as BookingDetailTabId;
+  }
+  return DEFAULT_BOOKING_DETAIL_TAB;
+}
+
+/**
+ * A booking has no stored id of its own — `bookingEntryKey` (source, property,
+ * room, dates, summary) is what already identifies one row for selection, so
+ * the record route reuses it verbatim as the opaque id. Never collides with a
+ * bucket keyword (`calendar`/`upcoming`/`inhouse`/`past`) or a day-page date.
+ */
+export function bookingRecordHref(
+  basePath: string,
+  bookingId: string,
+  tab: BookingDetailTabId = DEFAULT_BOOKING_DETAIL_TAB,
+): string {
+  return `${basePath}/bookings/${encodeURIComponent(bookingId)}/${tab}`;
+}
+
+/** `YYYY-MM-DD` — the day page replacing the old day pop-up. */
+const BOOKING_DAY_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+export function isBookingDayKeySegment(segment: string): boolean {
+  return BOOKING_DAY_KEY_PATTERN.test(segment);
+}
+
+export function managerBookingDayHref(basePath: string, dayKey: string): string {
+  return `${basePath}/bookings/${dayKey}`;
+}
+
 export function portfolioToursHref(basePath: string): string {
   return `${basePath}/tours/pending`;
 }

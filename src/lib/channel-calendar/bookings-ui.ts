@@ -71,6 +71,22 @@ export function formatBookingStayRange(
   return `${fmt(start)} – ${fmt(end)}`;
 }
 
+/**
+ * The overlap refusal, named — "Room 9 is booked Sep 1 – Aug 31 by Prakrit"
+ * (PLAN-0920-1058, area 1e), never a generic "these dates are taken". Shared
+ * by the Edit dates and Move room sheets so the wording never drifts between
+ * the two.
+ */
+export function describeBookingConflict(
+  conflict: Pick<PropertyBookingEntry, "roomLabel" | "start" | "end" | "openEnded" | "summary">,
+  fallbackRoomLabel: string,
+): string {
+  const room = conflict.roomLabel?.trim() || fallbackRoomLabel;
+  const range = formatBookingStayRange(conflict.start, conflict.end, conflict.openEnded);
+  const who = conflict.summary?.trim();
+  return who ? `${room} is booked ${range} by ${who}` : `${room} is booked ${range}`;
+}
+
 export function classifyBookingListBucket(
   entry: PropertyBookingEntry,
   todayKey: string,

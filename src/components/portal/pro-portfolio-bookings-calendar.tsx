@@ -3,15 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
-import {
-  BookingsDayDetailModal,
-  type BookingsDayEntry,
-} from "@/components/portal/bookings-day-detail-modal";
 import { BookingsKpiStrip } from "@/components/portal/bookings-kpi-strip";
 import { ManagerBookingsListPanel } from "@/components/portal/bookings-list-panel";
 import { PORTAL_CALENDAR_FRAME, PortalSegmentedControl } from "@/components/portal/portal-metrics";
 import { fetchManagerChannelBookings } from "@/lib/channel-calendar/client";
-import { bookingGuestShortLabel, bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
+import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import {
   airbnbBookingEntries,
   bookedDayKeyCountInMonth,
@@ -27,6 +23,18 @@ import {
   formatBookingStayRange,
   type BookingsHubMode,
 } from "@/lib/channel-calendar/bookings-ui";
+import {
+  dayOccupancy,
+  monthOccupancyPercent,
+  occupancyHeatBucket,
+  occupancyHeatBucketClass,
+  occupancyPercent,
+  rangeOccupancyPercent,
+  OCCUPANCY_HEAT_BUCKETS,
+} from "@/lib/channel-calendar/bookings-occupancy";
+import { roomCountForProperty } from "@/lib/channel-calendar/bookings-room-counts";
+import { managerBookingDayHref } from "@/lib/portal-detail-routes";
+import { usePortalNavigate } from "@/lib/portal-nav-client";
 import {
   addDays,
   addMonths,
@@ -90,6 +98,33 @@ function formatNavTitle(anchor: Date, view: BookingsCalendarView): string {
   return String(anchor.getFullYear());
 }
 
+function padDateSegment(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+/** Every day key the current view spans — what the KPI strip's occupancy percent is computed over. */
+function dayKeysForView(anchor: Date, view: BookingsCalendarView): string[] {
+  if (view === "day") return [dateKey(anchor)];
+  if (view === "week") {
+    const start = startOfWeekSunday(anchor);
+    return Array.from({ length: 7 }, (_, index) => dateKey(addDays(start, index)));
+  }
+  const year = anchor.getFullYear();
+  if (view === "month") {
+    const month = anchor.getMonth();
+    const days = new Date(year, month + 1, 0).getDate();
+    return Array.from({ length: days }, (_, index) => `${year}-${padDateSegment(month + 1)}-${padDateSegment(index + 1)}`);
+  }
+  const keys: string[] = [];
+  for (let month = 0; month < 12; month += 1) {
+    const days = new Date(year, month + 1, 0).getDate();
+    for (let day = 1; day <= days; day += 1) {
+      keys.push(`${year}-${padDateSegment(month + 1)}-${padDateSegment(day)}`);
+    }
+  }
+  return keys;
+}
+
 function kpiPeriodLabel(view: BookingsCalendarView): string {
   if (view === "day") return "Today";
   if (view === "week") return "This week";
@@ -129,126 +164,106 @@ function dominantSourceForDay(
   return null;
 }
 
-function dayCellClassName(
-  booked: boolean,
-  isToday: boolean,
-  _source: PropertyBookingEntry["source"] | null,
-): string {
-  const base =
-    "flex min-h-0 flex-1 flex-col items-stretch rounded-lg border p-1.5 text-left text-xs transition hover:shadow-[var(--shadow-sm)]";
-  if (!booked) {
-    return `${base} border-border/80 bg-card/90 text-foreground hover:border-primary/25 hover:bg-accent/25`;
-  }
-  return `${base} border-rose-300 bg-rose-100 text-rose-950 hover:border-rose-400`;
-}
+const DAY_CELL_BASE =
+  "flex min-h-0 flex-1 flex-col items-stretch gap-1 rounded-lg border border-border/80 bg-card/90 p-1.5 text-left text-xs transition hover:border-primary/25 hover:bg-accent/25 hover:shadow-[var(--shadow-sm)]";
 
+/**
+ * A cell answers "how full is this day" (PLAN-0920-1058, area 1e) — an
+ * occupancy bar, `occupied / rooms`, and check-ins/check-outs, never a name
+ * and a "+N": names belong on the day page, and a 9-room house is not a
+ * binary booked/not-booked flag. The small dot is the dominant source, kept
+ * for a quick read of what filled the day.
+ */
 function DayBookingCell({
   cell,
   entries,
   today,
   onOpenDay,
+  propertyIds,
 }: {
   cell: Date;
   entries: PropertyBookingEntry[];
   today: Date;
   onOpenDay: (key: string) => void;
+  propertyIds: readonly string[];
 }) {
   const key = dateKey(cell);
   const dayBookings = bookingEntriesForDayKey(entries, key);
-  const booked = dayBookings.length > 0;
   const isToday = key === dateKey(today);
-  const preview = dayBookings[0];
   const source = dominantSourceForDay(dayBookings);
+  const stats = dayOccupancy(entries, key, propertyIds, roomCountForProperty);
+  const percent = occupancyPercent(stats);
+  const inOut = [
+    stats.checkIns > 0 ? `${stats.checkIns} in` : "",
+    stats.checkOuts > 0 ? `${stats.checkOuts} out` : "",
+  ].filter(Boolean);
 
   return (
     <button
       type="button"
       data-attr={`portfolio-booking-day-${key}`}
-      className={dayCellClassName(booked, isToday, source)}
+      className={DAY_CELL_BASE}
       onClick={() => onOpenDay(key)}
     >
       <div className="flex items-start justify-between gap-0.5">
-        <span
-          className={`text-[11px] font-bold tabular-nums ${isToday ? "text-primary" : ""}`}
-        >
+        <span className={`text-[11px] font-bold tabular-nums ${isToday ? "text-primary" : ""}`}>
           {cell.getDate()}
         </span>
-        {booked && source ? (
-          <span
-            className={`h-1.5 w-1.5 shrink-0 rounded-full ${bookingSourceDotClass(source)}`}
-            aria-hidden
-          />
+        {stats.occupied > 0 && source ? (
+          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${bookingSourceDotClass(source)}`} aria-hidden />
         ) : null}
       </div>
-      {booked && preview ? (
-        <div className="mt-1 min-h-0 flex-1 space-y-0.5 overflow-hidden">
-          <p className="truncate text-[10px] font-semibold leading-tight">
-            {preview.source === "airbnb" || preview.source === "booking_com"
-              ? bookingGuestShortLabel(preview.summary, 14, preview.source)
-              : preview.summary}
-          </p>
-          <p className="truncate text-[9px] opacity-80">
-            {preview.roomLabel}
-            {dayBookings.length > 1 ? ` +${dayBookings.length - 1}` : ""}
-          </p>
-        </div>
-      ) : null}
+      <div className="h-1 w-full overflow-hidden rounded-full bg-border/50" aria-hidden>
+        <div className="h-full rounded-full bg-primary" style={{ width: `${percent}%` }} />
+      </div>
+      <p className="truncate text-[10px] font-semibold tabular-nums leading-tight">
+        {stats.occupied}/{stats.rooms}
+      </p>
+      {inOut.length > 0 ? <p className="truncate text-[9px] opacity-80">{inOut.join(" · ")}</p> : null}
     </button>
   );
 }
 
+/**
+ * Year is a heat map of occupancy (PLAN-0920-1058, area 1e) — a percent tile
+ * per month, coloured by {@link occupancyHeatBucket}. "Available/Booked" as
+ * two colours could not describe a 9-room house, and the old legend called
+ * the booked squares available; this reads as one scale with one legend.
+ */
 function YearMonthMiniGrid({
   year,
   month,
   entries,
   isCurrentMonth,
   onSelect,
+  propertyIds,
 }: {
   year: number;
   month: number;
   entries: PropertyBookingEntry[];
   isCurrentMonth: boolean;
   onSelect: () => void;
+  propertyIds: readonly string[];
 }) {
   const monthStart = new Date(year, month, 1);
-  const cells = buildMonthDayCells(monthStart);
-  const booked = bookedDayKeyCountInMonth(entries, year, month);
   const label = monthStart.toLocaleDateString("en-US", { month: "long" });
+  const percent = monthOccupancyPercent(entries, year, month, propertyIds, roomCountForProperty);
+  const bucket = occupancyHeatBucket(percent);
+  const lightText = bucket === "empty" || bucket === "under-half";
 
   return (
     <button
       type="button"
       data-attr={`bookings-calendar-year-month-${month + 1}`}
-      className={`flex min-h-0 flex-col rounded-xl border p-2 text-left transition hover:border-primary/35 hover:shadow-[var(--shadow-sm)] ${
-        isCurrentMonth
-          ? "border-primary/40 bg-card ring-1 ring-primary/25"
-          : "border-border bg-card/90"
+      className={`flex min-h-0 flex-col justify-between gap-2 rounded-xl border p-3 text-left transition hover:shadow-[var(--shadow-sm)] ${occupancyHeatBucketClass(bucket)} ${
+        isCurrentMonth ? "ring-1 ring-primary/40" : ""
       }`}
       onClick={onSelect}
     >
-      <div className="flex items-baseline justify-between gap-1">
-        <span className="text-sm font-semibold text-foreground">{label}</span>
-        <span className="text-[10px] font-medium text-muted">{booked}d</span>
-      </div>
-      <div className="mt-1.5 grid grid-cols-7 gap-px">
-        {cells.map((cell, index) => {
-          if (!cell) {
-            return <span key={`pad-${index}`} className="aspect-square" aria-hidden />;
-          }
-          const key = dateKey(cell);
-          const filled = bookingEntriesForDayKey(entries, key).length > 0;
-          const src = dominantSourceForDay(bookingEntriesForDayKey(entries, key));
-          return (
-            <span
-              key={key}
-              className={`aspect-square rounded-[2px] ${
-                filled && src ? `${bookingSourceDotClass(src)} opacity-70` : "bg-border/40"
-              }`}
-              aria-hidden
-            />
-          );
-        })}
-      </div>
+      <span className={`text-sm font-semibold ${lightText ? "text-foreground" : "text-white"}`}>{label}</span>
+      <span className={`text-xl font-bold tabular-nums ${lightText ? "text-foreground" : "text-white"}`}>
+        {percent}%
+      </span>
     </button>
   );
 }
@@ -283,8 +298,7 @@ export function ManagerPortfolioBookingsCalendar({
   emptyMessage,
   variant = "embedded",
   calendarOnly = false,
-  onBlockDates,
-  onRemoveBlock,
+  onDayClick,
   searchQuery = "",
 }: {
   propertyIds: string[];
@@ -295,8 +309,8 @@ export function ManagerPortfolioBookingsCalendar({
   emptyMessage?: string;
   variant?: "embedded" | "standalone";
   calendarOnly?: boolean;
-  onBlockDates?: (dayKey: string) => void;
-  onRemoveBlock?: (blockId: string) => Promise<void>;
+  /** Navigate to the day page. Defaults to `/portal/bookings/<date>` when absent (an embedded, unrouted caller). */
+  onDayClick?: (dayKey: string) => void;
   searchQuery?: string;
 }) {
   return (
@@ -309,8 +323,7 @@ export function ManagerPortfolioBookingsCalendar({
       emptyMessage={emptyMessage}
       variant={variant}
       calendarOnly={calendarOnly}
-      onBlockDates={onBlockDates}
-      onRemoveBlock={onRemoveBlock}
+      onDayClick={onDayClick}
       searchQuery={searchQuery}
     />
   );
@@ -325,8 +338,7 @@ export function ManagerBookingsHub({
   emptyMessage,
   variant = "embedded",
   calendarOnly = false,
-  onBlockDates,
-  onRemoveBlock,
+  onDayClick,
   searchQuery = "",
 }: {
   propertyIds: string[];
@@ -338,19 +350,16 @@ export function ManagerBookingsHub({
   variant?: "embedded" | "standalone";
   /** When true, skip the List|Calendar hub toggle — calendar grid only (portfolio Calendar tab). */
   calendarOnly?: boolean;
-  /** Open the "Block dates" form preset to this day. */
-  onBlockDates?: (dayKey: string) => void;
-  /** Lift a block from the day detail. */
-  onRemoveBlock?: (blockId: string) => Promise<void>;
+  /** Navigate to the day page. Defaults to `/portal/bookings/<date>` when absent. */
+  onDayClick?: (dayKey: string) => void;
   searchQuery?: string;
 }) {
+  const navigate = usePortalNavigate();
   const [airbnbEntries, setAirbnbEntries] = useState<PropertyBookingEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [hubMode, setHubMode] = useState<BookingsHubMode>("calendar");
   const [view, setView] = useState<BookingsCalendarView>("month");
   const [anchorDate, setAnchorDate] = useState(() => startOfLocalDay(new Date()));
-  const [dayModalOpen, setDayModalOpen] = useState(false);
-  const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
 
   const today = useMemo(() => startOfLocalDay(new Date()), []);
 
@@ -402,26 +411,23 @@ export function ManagerBookingsHub({
     [airbnbEntries, extraEntries, roomFilterId, searchQuery],
   );
 
-  const stats = useMemo(
-    () => bookingOccupancyStats(entries, anchorDate, view),
-    [entries, anchorDate, view],
-  );
-
-  const selectedDayBookings = useMemo<BookingsDayEntry[]>(
-    () => (selectedDayKey ? bookingEntriesForDayKey(entries, selectedDayKey) : []),
-    [entries, selectedDayKey],
-  );
-
-  const selectedDayLabel = useMemo(() => {
-    if (!selectedDayKey) return "";
-    const [y, m, d] = selectedDayKey.split("-").map(Number);
-    if (!y || !m || !d) return selectedDayKey;
-    return new Date(y, m - 1, d).toLocaleDateString("en-US", {
-      weekday: "long",
-      month: "long",
-      day: "numeric",
-    });
-  }, [selectedDayKey]);
+  /**
+   * The KPI strip reads the SAME room-based occupancy math as the grid
+   * (PLAN-0920-1058, area 1e) — the mobile QA sweep caught a strip and a grid
+   * disagreeing ("Tours 0" above six tour blocks) and this is the fix for
+   * Bookings' version of that bug. `checkInsThisWeek` keeps its existing,
+   * week-scoped meaning regardless of the current view.
+   */
+  const stats = useMemo(() => {
+    const legacy = bookingOccupancyStats(entries, anchorDate, view);
+    const dayKeys = dayKeysForView(anchorDate, view);
+    const bookedNights = dayKeys.reduce(
+      (total, key) => total + dayOccupancy(entries, key, propertyIds, roomCountForProperty).occupied,
+      0,
+    );
+    const occupancy = rangeOccupancyPercent(entries, dayKeys, propertyIds, roomCountForProperty);
+    return { bookedNights, checkInsThisWeek: legacy.checkInsThisWeek, occupancyPercent: occupancy };
+  }, [entries, anchorDate, view, propertyIds]);
 
   const navSubtitle = useMemo(() => {
     if (view === "day") {
@@ -440,10 +446,11 @@ export function ManagerBookingsHub({
     return `${count} booked day${count === 1 ? "" : "s"} this year`;
   }, [anchorDate, entries, monthStart, view, weekStart]);
 
-  const openDay = (key: string) => {
-    setSelectedDayKey(key);
-    setDayModalOpen(true);
-  };
+  // The day page replaces the old day pop-up. `onDayClick` is the routed
+  // caller's navigate-to-day-page; an unrouted embed (a house's own Bookings
+  // tab) still lands on the one real day route — there is no property-scoped
+  // day page.
+  const openDay = (key: string) => (onDayClick ?? ((dayKey: string) => navigate(managerBookingDayHref("/portal", dayKey))))(key);
 
   const goToMonth = (year: number, month: number) => {
     setAnchorDate(new Date(year, month, 1));
@@ -500,7 +507,7 @@ export function ManagerBookingsHub({
         ) : null}
 
         {showListHub ? (
-          <ManagerBookingsListPanel entries={entries} onOpenDay={openDay} />
+          <ManagerBookingsListPanel entries={entries} />
         ) : (
           <div className={PORTAL_CALENDAR_FRAME}>
             <div className="flex min-h-0 flex-1 flex-col gap-3 p-3 sm:p-4">
@@ -605,6 +612,7 @@ export function ManagerBookingsHub({
                         entries={entries}
                         today={today}
                         onOpenDay={openDay}
+                        propertyIds={propertyIds}
                       />
                     ))}
                   </div>
@@ -635,6 +643,7 @@ export function ManagerBookingsHub({
                           entries={entries}
                           today={today}
                           onOpenDay={openDay}
+                          propertyIds={propertyIds}
                         />
                       );
                     })}
@@ -656,42 +665,30 @@ export function ManagerBookingsHub({
                         entries={entries}
                         isCurrentMonth={isCurrentMonth}
                         onSelect={() => goToMonth(year, month)}
+                        propertyIds={propertyIds}
                       />
                     );
                   })}
                 </div>
               ) : null}
 
-              <div className="flex shrink-0 flex-wrap items-center gap-3 border-t border-border/60 pt-2 text-[10px] text-muted" aria-label="Calendar key">
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-sm bg-emerald-100 ring-1 ring-inset ring-emerald-300" aria-hidden />
-                  Available
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-sm bg-rose-100 ring-1 ring-inset ring-rose-300" aria-hidden />
-                  Booked
-                </span>
-              </div>
+              {view === "year" ? (
+                <div
+                  className="flex shrink-0 flex-wrap items-center gap-3 border-t border-border/60 pt-2 text-[10px] text-muted"
+                  aria-label="Calendar key"
+                >
+                  {OCCUPANCY_HEAT_BUCKETS.map((step) => (
+                    <span key={step.id} className="inline-flex items-center gap-1.5">
+                      <span className={`h-2 w-2 rounded-sm border ${occupancyHeatBucketClass(step.id)}`} aria-hidden />
+                      {step.label}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
             </div>
           </div>
         )}
       </div>
-
-      <BookingsDayDetailModal
-        open={dayModalOpen}
-        onClose={() => setDayModalOpen(false)}
-        dayLabel={selectedDayLabel}
-        entries={selectedDayBookings}
-        onBlockDates={
-          onBlockDates && selectedDayKey
-            ? () => {
-                setDayModalOpen(false);
-                onBlockDates(selectedDayKey);
-              }
-            : undefined
-        }
-        onRemoveBlock={onRemoveBlock}
-      />
     </>
   );
 }
