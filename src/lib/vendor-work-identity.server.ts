@@ -223,25 +223,31 @@ function responseFor(input: { identity: IdentityRow | null; runtime: RuntimeRow 
   const smsBlocked = channelBlock(smsState, input.smsConfigured);
   const cap = runtime?.outbound_message_cap ?? 0;
   const capped = cap <= input.outboundUsed;
+  const emailLifecycleReady = emailState === "ready";
+  const smsLifecycleReady = smsState === "ready";
+  const emailReceiveReady = emailLifecycleReady && input.emailConfigured && Boolean(identity?.email_receive_ready);
+  const smsReceiveReady = smsLifecycleReady && input.smsConfigured && Boolean(identity?.sms_receive_ready);
+  const emailSendReady = emailReceiveReady && Boolean(runtime?.enabled) && !capped && Boolean(identity?.email_send_ready);
+  const smsSendReady = smsReceiveReady && Boolean(runtime?.enabled) && !capped && Boolean(identity?.sms_send_ready);
   return {
     sponsoredBy: "proplane",
     email: {
       state: emailState,
       value: identity?.email_address ?? null,
-      sendReady: Boolean(identity?.email_send_ready),
-      receiveReady: Boolean(identity?.email_receive_ready),
-      canSetup: emailBlocked === "none" && emailState !== "ready",
+      sendReady: emailSendReady,
+      receiveReady: emailReceiveReady,
+      canSetup: emailBlocked === "none" && !["ready", "disabled", "released"].includes(emailState),
       blockedReason: emailBlocked,
     },
     sms: {
       state: smsState,
       value: identity?.phone_number ?? null,
-      sendReady: Boolean(identity?.sms_send_ready),
-      receiveReady: Boolean(identity?.sms_receive_ready),
-      canSetup: smsBlocked === "none" && smsState !== "ready",
+      sendReady: smsSendReady,
+      receiveReady: smsReceiveReady,
+      canSetup: smsBlocked === "none" && !["ready", "disabled", "released"].includes(smsState),
       blockedReason: smsBlocked,
     },
-    inboundAvailable: { email: Boolean(identity?.email_receive_ready), sms: Boolean(identity?.sms_receive_ready) },
+    inboundAvailable: { email: emailReceiveReady, sms: smsReceiveReady },
     smsUiEnabled: process.env.SMS_COMM_UI_ENABLED === "1",
     usage: { outboundUsed: input.outboundUsed, outboundCap: cap, capState: cap <= 0 ? "unconfigured" : capped ? "exhausted" : "available" },
   };
