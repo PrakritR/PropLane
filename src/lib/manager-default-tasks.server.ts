@@ -11,10 +11,12 @@ import {
   LIFECYCLE_TASK_META,
   lifecycleDueDate,
   formatTaskReminderTimingLabel,
+  normalizeLifecycleAutomation,
   type LifecycleTaskKey,
   type LifecycleTaskConfig,
 } from "@/lib/task-lifecycle-automation";
 import { loadLifecycleAutomation } from "@/lib/task-lifecycle-automation.server";
+import { loadPropertyOverridesForManagers } from "@/lib/settings/property-overrides.server";
 import type { WorkAssignee } from "@/lib/work-assignment";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { isManagerTaskLate } from "@/lib/manager-task-display";
@@ -511,6 +513,19 @@ export async function syncLeaseLifecycleTasks(
 export async function processDueTaskReminders(db: ServiceDb, managerUserId: string): Promise<number> {
   const automation = await loadLifecycleAutomation(db, managerUserId);
   const tasks = await loadManagerTasks(db, managerUserId);
+  // A house's own lifecycle-task override wins when it has one (PLAN-0916-1040,
+  // `lifecycleTasks` namespace — kept atomic: a house override replaces the
+  // whole blob, same as the workspace save this mirrors). One batched query
+  // rather than one per task.
+  const propertyIds = [...new Set(tasks.map((task) => task.propertyId?.trim()).filter((id): id is string => Boolean(id)))];
+  const overridesByManager =
+    propertyIds.length > 0 ? await loadPropertyOverridesForManagers(db, [managerUserId], "lifecycleTasks") : new Map();
+  const overridesByProperty = overridesByManager.get(managerUserId) ?? new Map<string, unknown>();
+  const automationFor = (propertyId: string | undefined) => {
+    if (!propertyId) return automation;
+    const raw = overridesByProperty.get(propertyId);
+    return raw == null ? automation : normalizeLifecycleAutomation(raw);
+  };
   const now = Date.now();
   const todayKey = new Date().toISOString().slice(0, 10);
   let sent = 0;
@@ -530,7 +545,8 @@ export async function processDueTaskReminders(db: ServiceDb, managerUserId: stri
 
     let nextTask = task;
     const templateKey = task.templateKey;
-    const lifecycleConfig = isLifecycleTemplateKey(templateKey) ? automation[templateKey] : null;
+    const taskAutomation = automationFor(task.propertyId);
+    const lifecycleConfig = isLifecycleTemplateKey(templateKey) ? taskAutomation[templateKey] : null;
 
     if (
       lifecycleConfig?.sendEmailReminder &&

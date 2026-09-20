@@ -7,7 +7,15 @@ import { createRoomInspectionDocument } from "@/lib/inspections/room-template";
 import { reportFixture } from "../helpers/inspection-fixture";
 
 vi.mock("@/lib/app-url", () => ({ resolveEmailLinkBaseUrl: () => "https://example.test" }));
-vi.mock("@/lib/reminders/settings.server", () => ({ loadReminderSettingsForManagers: async () => new Map([["owner", DEFAULT_REMINDER_SETTINGS]]) }));
+/** House "home" tracks the workspace default unless a test opts it into its own override. */
+let inspectionOverride: typeof DEFAULT_REMINDER_SETTINGS | null = null;
+vi.mock("@/lib/reminders/settings.server", () => ({
+  loadReminderSettingsForManagers: async () => new Map([["owner", DEFAULT_REMINDER_SETTINGS]]),
+  loadReminderSettingsResolver: async () => ({
+    resolve: (_managerUserId: string, propertyId: string | null) =>
+      propertyId === "home" && inspectionOverride ? inspectionOverride : DEFAULT_REMINDER_SETTINGS,
+  }),
+}));
 vi.mock("@/lib/reminders/manager-recipients.server", () => ({ loadManagerReminderRecipients: async () => new Map([["owner", { email: "owner@example.test" }]]) }));
 
 type Row = Record<string, unknown>;
@@ -56,6 +64,7 @@ function roomReport(photoBy?: "manager" | "resident") {
 }
 
 beforeEach(() => {
+  inspectionOverride = null;
   reports = []; queued = new Map(); rooms[0]!.moveInInspectionRequired = true;
   application = { id: "AXIS-TEST", manager_user_id: "owner", resident_email: "resident@example.test", property_id: "home", assigned_property_id: "home",
     placement: "", manual_room: "Room A", bucket: "approved", withdrawn: null,
@@ -122,5 +131,19 @@ describe("inspection reminder lifecycle", () => {
     reports = [roomReport()];
     (application.row_data as Row).withdrawnAt = "2026-09-06T13:00:00Z";
     expect(await inspectionReminderIsCurrent(db, asQueueRow(review!))).toBe(false);
+  });
+
+  it("PLAN-0916-1040: a house override that disables the resident reminder wins over the workspace default", async () => {
+    // The workspace default has `inspection` enabled (proven by the earlier
+    // tests); this house's own override turns it off.
+    inspectionOverride = {
+      ...DEFAULT_REMINDER_SETTINGS,
+      rules: { ...DEFAULT_REMINDER_SETTINGS.rules, inspection: { ...DEFAULT_REMINDER_SETTINGS.rules.inspection, enabled: false } },
+    };
+    await sweepInspectionReminders(db, now);
+    expect([...queued.values()].some(row => row.kind === "inspection")).toBe(false);
+    // The manager-side kind was never touched by this house's override, so it
+    // still queues exactly like the workspace default would.
+    expect([...queued.values()].some(row => row.kind === "inspection_manager")).toBe(true);
   });
 });
