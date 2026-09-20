@@ -109,6 +109,15 @@ import {
   type SharedSpaceDefaults,
   type SharedSpaceInheritField,
 } from "@/lib/listing-record-defaults";
+import {
+  encodeSharedSpaceAccessPick,
+  encodeSharedSpaceEveryone,
+  retainSharedSpaceAccessAfterRoomsChange,
+  sharedSpaceAccessMenuSelected,
+  sharedSpaceAccessOptions,
+  sharedSpaceAccessTriggerLabel,
+  sharedSpaceIsEveryone,
+} from "@/lib/listing-shared-space-access";
 import { listingLeaseTypeScopeOptions } from "@/lib/listing-fee-scope";
 import { LONG_TERM_LEASE_TERM as DEFAULT_QUOTE_TERM } from "@/lib/rental-application/lease-terms";
 import { ListingPricingSections } from "@/components/portal/listing-wizard-v2/listing-pricing-step";
@@ -557,10 +566,23 @@ function StepBasics({
   const roomCount = sub.rooms?.length || sub.listingBedroomSlots || 1;
   const setRentModel = (id: "shared_home" | "entire_home") => patch({ listingPlaceCategoryId: id, rentalModelStamp: id });
   const setBedrooms = (next: number) => {
+    const prevIds = (sub.rooms ?? []).map((room) => room.id);
     const applied = applyListingBedroomSlots({ ...sub, listingBedroomSlots: next }, next);
     // A refusal means the count could not be honoured; keep the rooms the
     // manager has rather than writing a number they do not match.
-    patch(applied.ok ? { ...applied.sub, listingBedroomSlots: next } : { listingBedroomSlots: next });
+    if (!applied.ok) {
+      patch({ listingBedroomSlots: next });
+      return;
+    }
+    const nextIds = (applied.sub.rooms ?? []).map((room) => room.id);
+    patch({
+      ...applied.sub,
+      listingBedroomSlots: next,
+      sharedSpaces: (applied.sub.sharedSpaces ?? sub.sharedSpaces ?? []).map((space) => ({
+        ...space,
+        roomAccessIds: retainSharedSpaceAccessAfterRoomsChange(space.roomAccessIds, prevIds, nextIds),
+      })),
+    });
   };
   /**
    * The bathroom count makes the bathroom cards, the way the bedroom count
@@ -1341,7 +1363,25 @@ function StepRooms({
   const wholePlace = sub.listingPlaceCategoryId === "entire_home";
   const noun = wholePlace ? "bedroom" : "room";
 
-  const writeRooms = (next: ManagerRoomSubmission[]) => patch({ rooms: next });
+  const writeRooms = (next: ManagerRoomSubmission[]) => {
+    const prevIds = rooms.map((room) => room.id);
+    const nextIds = next.map((room) => room.id);
+    const idSetChanged =
+      prevIds.length !== nextIds.length ||
+      prevIds.some((id) => !nextIds.includes(id)) ||
+      nextIds.some((id) => !prevIds.includes(id));
+    if (!idSetChanged) {
+      patch({ rooms: next });
+      return;
+    }
+    patch({
+      rooms: next,
+      sharedSpaces: (sub.sharedSpaces ?? []).map((space) => ({
+        ...space,
+        roomAccessIds: retainSharedSpaceAccessAfterRoomsChange(space.roomAccessIds, prevIds, nextIds),
+      })),
+    });
+  };
   /** A hand edit: whichever tracked fields the patch names become this room's own. Name, photos of the room's own, dates mark nothing. */
   const writeRoom = (id: string, roomPatch: Partial<ManagerRoomSubmission>) => {
     for (const key of Object.keys(roomPatch) as (keyof ManagerRoomSubmission)[]) {
@@ -1956,11 +1996,12 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
 /* ── shared spaces ── */
 
 
-/** "Everyone" is an empty list nowhere, and every room everywhere — both read as not narrowed. */
+/** "Everyone" is an empty list, or every current room — both read as not narrowed. */
 function spaceIsNarrowed(space: ManagerSharedSpaceSubmission, rooms: readonly ManagerRoomSubmission[]): boolean {
-  const ids = space.roomAccessIds ?? [];
-  if (ids.length === 0) return false;
-  return rooms.some((r) => !ids.includes(r.id));
+  return !sharedSpaceIsEveryone(
+    space.roomAccessIds,
+    rooms.map((room) => room.id),
+  );
 }
 
 const SPACE_HELP = {
@@ -1993,10 +2034,7 @@ function SharedSpaceCardBody({
 }) {
   const kinds = SHARED_SPACE_KIND_OPTIONS.map((o) => ({ value: o.id, label: o.label }));
   const roomLabel = (r: ManagerRoomSubmission, i: number) => r.name.trim() || `Room ${i + 1}`;
-  const selectedRooms = ((space.roomAccessIds ?? []).length > 0 ? space.roomAccessIds : rooms.map((r) => r.id))
-    .map((id) => rooms.findIndex((r) => r.id === id))
-    .filter((i) => i >= 0)
-    .map((i) => roomLabel(rooms[i]!, i));
+  const roomIds = rooms.map((room) => room.id);
   return (
     <>
       <FactRow first label="Type">
@@ -2007,14 +2045,25 @@ function SharedSpaceCardBody({
       </FactRow>
       {wholePlace || rooms.length === 0 ? null : (
         <FactRow label={<span className="inline-flex items-center gap-1.5">Who may use it <ColumnHelp title="Who may use it" text={SPACE_HELP.who} /></span>} own={isOwn("access")} onReset={() => onReset("access")} resetLabel={`Reset who may use ${who} to every room`}>
-          <MultiPick
+          <CheckboxMultiSelect
+            hideLabel
             label={`Who may use ${who}`}
-            options={rooms.map(roomLabel)}
-            selected={selectedRooms}
-            allowOther={false}
+            dataAttr="listing-v2-space-who"
+            variant="cell"
+            className={cn("min-w-[150px] max-w-[220px]", !isOwn("access") && "border-dashed text-muted")}
+            options={sharedSpaceAccessOptions(rooms.map((room, i) => ({ id: room.id, name: roomLabel(room, i) })))}
+            selected={sharedSpaceAccessMenuSelected(space.roomAccessIds, roomIds)}
+            selectionTriggerLabel={sharedSpaceAccessTriggerLabel(space.roomAccessIds, roomIds)}
             emptyLabel="Everyone"
-            inherited={!isOwn("access")}
-            onChange={(next) => onChange({ roomAccessIds: rooms.filter((r, i) => next.includes(roomLabel(r, i))).map((r) => r.id) })}
+            onChange={(next) =>
+              onChange({
+                roomAccessIds: encodeSharedSpaceAccessPick({
+                  nextSelected: next,
+                  roomIds,
+                  previousAccessIds: space.roomAccessIds,
+                }),
+              })
+            }
           />
         </FactRow>
       )}
@@ -2074,7 +2123,7 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
   };
   const resetField = (space: ManagerSharedSpaceSubmission, field: SharedSpaceInheritField) => {
     if (field === "access") {
-      writeSpace(space.id, { ...space, roomAccessIds: rooms.map((r) => r.id) });
+      writeSpace(space.id, { ...space, roomAccessIds: encodeSharedSpaceEveryone() });
       return;
     }
     own.clear(space.id, field);
@@ -2083,7 +2132,7 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
   const copyDefaultsInto = (space: ManagerSharedSpaceSubmission) => {
     let next = space;
     for (const field of SHARED_SPACE_DEFAULT_FIELDS) next = writeSharedSpaceField(next, field, defaults[field]);
-    return { ...next, roomAccessIds: rooms.map((room) => room.id) };
+    return { ...next, roomAccessIds: encodeSharedSpaceEveryone() };
   };
   const sharedSpaceFields: readonly SharedSpaceInheritField[] = [...SHARED_SPACE_DEFAULT_FIELDS, "access"];
   const [unticked, setUnticked] = useState<Set<string>>(new Set());
@@ -2127,11 +2176,11 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
     patch({ sharedSpaces: spaces.map((sp) => (followers.includes(sp) ? writeSharedSpaceField(sp, field, value) : sp)), sharedSpaceDefaults: next });
   }
   const toggle = (id: string) => setOpen((prev) => (prev === id ? null : id));
-  const accessSummary = (space: ManagerSharedSpaceSubmission) => {
-    if (!spaceIsNarrowed(space, rooms)) return "Everyone";
-    const n = (space.roomAccessIds ?? []).filter((id) => rooms.some((r) => r.id === id)).length;
-    return `${n} ${n === 1 ? "room" : "rooms"}`;
-  };
+  const accessSummary = (space: ManagerSharedSpaceSubmission) =>
+    sharedSpaceAccessTriggerLabel(
+      space.roomAccessIds,
+      rooms.map((room) => room.id),
+    );
   const summaryFor = (space: ManagerSharedSpaceSubmission) =>
     [SHARED_SPACE_KIND_OPTIONS.find((o) => o.id === space.spaceKind)?.label, space.location || defaults.location || "Floor not set", wholePlace ? "" : accessSummary(space)]
       .filter(Boolean)
@@ -2231,8 +2280,8 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
           const base = spaces[0];
           const id = `space-${Date.now()}`;
           const blank = base
-            ? { ...base, id, name: "", photoDataUrls: [], videoDataUrl: null, detail: "", roomAccessIds: rooms.map((r) => r.id), location: defaults.location || base.location }
-            : ({ id, name: "", location: defaults.location, roomAccessIds: rooms.map((r) => r.id) } as never);
+            ? { ...base, id, name: "", photoDataUrls: [], videoDataUrl: null, detail: "", roomAccessIds: encodeSharedSpaceEveryone(), location: defaults.location || base.location }
+            : ({ id, name: "", location: defaults.location, roomAccessIds: encodeSharedSpaceEveryone() } as never);
           patch({ sharedSpaces: [...spaces, copyDefaultsInto(blank)] });
           setOpen(id);
         }}

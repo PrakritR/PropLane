@@ -44,6 +44,9 @@ each card from its records (`houseDefaultsForSubmission`,
 
 Library: `src/lib/listing-house-defaults.ts` (rooms),
 `src/lib/listing-record-defaults.ts` (bathrooms and shared spaces).
+"Who may use it" on a shared space is not a Default-card field: Everyone is an
+empty `roomAccessIds` (a list naming every current room reads the same), and
+Reset writes Everyone (`src/lib/listing-shared-space-access.ts`).
 `roomsFollowingDefaults` is the older per-record reading the previous wizard
 still uses; the v2 Rooms step does not call it.
 
