@@ -975,7 +975,7 @@ export async function renderPortalSection(
       if (!tabParts?.length) {
         redirect(`${def.basePath}/leases/manager`);
       }
-      if (tabParts.length > 2) notFound();
+      if (tabParts.length > 3) notFound();
       const tabRaw = tabParts[0]!;
       const leaseTab = LEASE_TABS.includes(tabRaw as typeof LEASE_TABS[number])
         ? (tabRaw as typeof LEASE_TABS[number])
@@ -984,8 +984,14 @@ export async function renderPortalSection(
         redirect(`${def.basePath}/leases/${leaseTab}`);
       }
       const leaseId = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
+      const { parseLeaseDetailTab } = await import("@/lib/portal-detail-routes");
+      const leaseDetailTabRaw = tabParts.length >= 3 ? tabParts[2]! : undefined;
+      const leaseDetailTab = leaseId ? parseLeaseDetailTab(leaseDetailTabRaw) : undefined;
+      if (leaseId && leaseDetailTabRaw && leaseDetailTab !== leaseDetailTabRaw) {
+        redirect(`${def.basePath}/leases/${leaseTab}/${encodeURIComponent(leaseId)}/${leaseDetailTab}`);
+      }
       return subscriptionGated(
-        <ManagerLeases tab={leaseTab} basePath={def.basePath} leaseId={leaseId} />,
+        <ManagerLeases tab={leaseTab} basePath={def.basePath} leaseId={leaseId} leaseDetailTab={leaseDetailTab} />,
         kind,
         "leases",
         managerOwnerSubscriptionTier,
@@ -1196,7 +1202,9 @@ export async function renderPortalSection(
     }
 
     if (section === "tours") {
-      const { MANAGER_TOUR_BUCKETS, parseManagerTourBucket } = await import("@/lib/portal-detail-routes");
+      const { MANAGER_TOUR_BUCKETS, parseManagerTourBucket, parseTourDetailTab } = await import(
+        "@/lib/portal-detail-routes"
+      );
       if (!tabParts?.length) {
         redirect(`${def.basePath}/tours/pending`);
       }
@@ -1210,12 +1218,17 @@ export async function renderPortalSection(
       if (!MANAGER_TOUR_BUCKETS.includes(segmentRaw as (typeof MANAGER_TOUR_BUCKETS)[number])) {
         notFound();
       }
-      if (tabParts.length > 2) notFound();
+      if (tabParts.length > 3) notFound();
       const bucket = parseManagerTourBucket(segmentRaw);
-      const tourId = tabParts.length === 2 ? decodeURIComponent(tabParts[1]!) : undefined;
+      const tourId = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
+      const tourDetailTabRaw = tabParts.length >= 3 ? tabParts[2]! : undefined;
+      const tourDetailTab = tourId ? parseTourDetailTab(tourDetailTabRaw) : undefined;
+      if (tourId && tourDetailTabRaw && tourDetailTab !== tourDetailTabRaw) {
+        redirect(`${def.basePath}/tours/${bucket}/${encodeURIComponent(tourId)}/${tourDetailTab}`);
+      }
       const ManagerTours = await loadManagerTours();
       return subscriptionGated(
-        <ManagerTours bucket={bucket} basePath={def.basePath} tourId={tourId} />,
+        <ManagerTours bucket={bucket} basePath={def.basePath} tourId={tourId} tourDetailTab={tourDetailTab} />,
         kind,
         "tours",
         managerOwnerSubscriptionTier,

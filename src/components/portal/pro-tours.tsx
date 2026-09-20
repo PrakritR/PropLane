@@ -30,7 +30,11 @@ import {
   PortalNotificationPreviewModal,
   type NotificationConfirmDraft,
 } from "@/components/portal/portal-notification-preview-modal";
-import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { recordSections } from "@/lib/portals/record-sections";
+import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
@@ -112,6 +116,15 @@ const BULK_BAR_BTN = PORTAL_BULK_BAR_BTN;
  * never a bare glyph.
  */
 const TOUR_DETAIL_ICON_BTN = "h-10 min-h-10 w-10 rounded-full px-0";
+
+function TourFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex min-h-11 items-center justify-between gap-3 border-b border-border/60 py-2 last:border-b-0">
+      <span className="text-[13px] font-medium">{label}</span>
+      <span className="min-w-0 truncate text-right text-[13.5px]">{value || "—"}</span>
+    </div>
+  );
+}
 
 function isPendingInquiry(row: ManagerTourRow): boolean {
   return row.bucket === "pending" && row.source === "inquiry";
@@ -326,6 +339,7 @@ export function ManagerTours({
   bucket = "pending",
   basePath = "/portal",
   tourId: tourIdProp,
+  tourDetailTab: tourDetailTabProp,
   embedded = false,
   scopedPropertyId,
   scopedPropertyLabel,
@@ -335,6 +349,8 @@ export function ManagerTours({
   bucket?: ManagerTourBucketId;
   basePath?: string;
   tourId?: string;
+  /** The tour record's own rail tab (docs/agents/record-page.md); undefined = Overview. */
+  tourDetailTab?: import("@/lib/portal-detail-routes").TourDetailTabId;
   /** Property detail tab — no duplicate page title shell. */
   embedded?: boolean;
   /** Limit the list to one property and hide the portfolio property filter. */
@@ -1603,6 +1619,94 @@ export function ManagerTours({
   );
 
   if (tourIdProp && detailRow) {
+    const sections = recordSections("manager", "tour", { basePath, tourBucket: bucket });
+    const activeTab = tourDetailTabProp ?? "overview";
+    const onHeaderAction = (actionId: string) => {
+      if (actionId === "confirm") {
+        if (isPendingInquiry(detailRow)) {
+          openApprovePreview([detailRow]);
+          return;
+        }
+        if (isPendingProposal(detailRow)) {
+          void decideTourProposals([detailRow], "approve");
+          return;
+        }
+        showToast("Coming soon");
+        return;
+      }
+      if (actionId === "reschedule") {
+        if (isPendingInquiry(detailRow) || isUpcomingPlanned(detailRow)) {
+          openReschedulePreview([detailRow]);
+          return;
+        }
+        showToast("Coming soon");
+        return;
+      }
+      if (actionId === "decline") {
+        if (detailRow.bucket === "pending" && detailRow.source === "inquiry") {
+          openDeclinePreview([detailRow]);
+          return;
+        }
+        if (isPendingProposal(detailRow)) {
+          void decideTourProposals([detailRow], "discard");
+          return;
+        }
+        showToast("Coming soon");
+      }
+    };
+    const ownContent =
+      activeTab === "prospect" ? (
+        <div className="px-3 pb-4 sm:px-4" data-attr="tour-prospect-facts">
+          <TourFact label="Guest" value={detailRow.guestName} />
+          <TourFact label="Email" value={detailRow.guestEmail} />
+          <TourFact label="Phone" value={detailRow.guestPhone} />
+          <TourFact
+            label="Source"
+            value={
+              detailRow.source === "inquiry" ? "Inquiry" : detailRow.source === "proposal" ? "Proposed" : "Planned"
+            }
+          />
+        </div>
+      ) : activeTab === "slot" ? (
+        <div className="px-3 pb-4 sm:px-4" data-attr="tour-slot-facts">
+          <TourFact label="Property" value={detailRow.propertyTitle} />
+          <TourFact label="Room" value={detailRow.roomLabel ?? ""} />
+          <TourFact label="When" value={detailRow.whenLabel} />
+          <TourFact label="Format" value={tourFormatLabel(detailRow.tourFormat)} />
+          <TourFact label="Status" value={detailRow.statusLabel} />
+        </div>
+      ) : activeTab === "follow-up" ? (
+        <div className="px-3 pb-4 sm:px-4" data-attr="tour-follow-up-facts">
+          {detailRow.notes ? (
+            <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-foreground/90">{detailRow.notes}</p>
+          ) : (
+            <PortalListEmptyCard
+              title="No follow-up notes yet"
+              workspaceAware={false}
+              dataAttr="tour-follow-up-empty"
+            />
+          )}
+        </div>
+      ) : activeTab === "communication" || activeTab === "activity" ? (
+        renderRecordSection(activeTab, {
+          role: "manager",
+          kind: "tour",
+          kindLabel: "tour",
+          recordId: detailRow.id,
+          recordLabel: detailRow.guestName,
+          propertyId: detailRow.propertyId,
+          contactIds: detailRow.guestEmail ? [detailRow.guestEmail] : undefined,
+        })
+      ) : (
+        <>
+          {renderDetailPanel(detailRow)}
+          {detailActions ? (
+            <div className="flex flex-wrap items-center gap-2 px-3 pb-3 sm:px-4" data-attr="tour-overview-actions">
+              {detailActions}
+            </div>
+          ) : null}
+        </>
+      );
     return (
       <>
         {modals}
@@ -1615,11 +1719,26 @@ export function ManagerTours({
           backLabel="Back to tours"
           hideBackText
           bareHeader
+          iconTitleActions
           dataAttrBack="tour-detail-back"
-          inlineActions
-          actions={detailActions}
+          pinScrollBody
         >
-          {renderDetailPanel(detailRow)}
+          <PortalRecordActions>
+            <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onHeaderAction} />
+          </PortalRecordActions>
+          <PortalRecordSectionChrome
+            sections={sections}
+            recordId={detailRow.id}
+            activeId={activeTab}
+            title={detailRow.guestName}
+            subtitle={detailRow.whenLabel}
+            backHref={listHrefForBucket(bucket)}
+            backLabel="All tours"
+            ariaLabel="Tour sections"
+            onHeaderAction={onHeaderAction}
+          >
+            {ownContent}
+          </PortalRecordSectionChrome>
         </PortalRecordDetailPage>
       </>
     );

@@ -5,7 +5,7 @@ import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/p
 import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
 import { matchesPortalListSearch } from "@/lib/portal-list-search";
 
-import { Mail, Phone, Settings, UserRound, X } from "lucide-react";
+import { Mail, Phone, Settings, UserRound } from "lucide-react";
 import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
@@ -904,14 +904,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
 
   const vendorToolbar = (
     <>
-      {directoryTab === "catalog" && !catalogDetailId ? (
-        <PortalIconAction
-          icon={X}
-          label="Close PropLane vendors"
-          onClick={() => navigate(vendorListHref(basePath, "yours"))}
-          data-attr="vendors-catalog-close"
-        />
-      ) : null}
       <ManagerVendorsToolbar onDefaults={() => openDefaultsForm()} />
     </>
   );
