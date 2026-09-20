@@ -27,11 +27,11 @@ import {
   type ManagerPaymentResidentCluster,
 } from "@/lib/manager-payment-ledger-grouping";
 import { isPropertyClusterList, type PortalListGroupMode } from "@/lib/portal-list-grouping";
-import { paymentDetailHref, paymentListHref, paymentRecordDetailHref, PAYMENT_RECORD_RAIL_GROUPS, PAYMENT_RECORD_TAB_DESCRIPTIONS, PAYMENT_RECORD_TAB_LABELS, PAYMENT_RECORD_TABS, parsePaymentRecordTab } from "@/lib/portal-detail-routes";
-import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
+import { paymentDetailHref, paymentListHref, parsePaymentRecordTab } from "@/lib/portal-detail-routes";
+import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
+import { recordSections } from "@/lib/portals/record-sections";
+import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { PortalRecordRelatedPanel } from "@/components/portal/portal-record-related-panel";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
-import { Mail } from "lucide-react";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { RESIDENT_DETAIL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -1835,46 +1835,40 @@ export function ManagerPaymentsLedgerPanel({
         iconTitleActions
         pinScrollBody
       >
-        <PortalRecordActions>
-          <PortalIconAction
-            icon={Mail}
-            label="Message"
-            data-attr="payment-detail-message"
-            onClick={() => {
-              if (listBasePath) navigate(`${listBasePath}/communication`);
-            }}
-          />
-        </PortalRecordActions>
         {(() => {
           const recordTab = parsePaymentRecordTab(paymentTabProp);
-          const navItems = PAYMENT_RECORD_TABS.map((tab) => ({
-            id: tab,
-            label: PAYMENT_RECORD_TAB_LABELS[tab],
-            description: PAYMENT_RECORD_TAB_DESCRIPTIONS[tab],
-            href: listBasePath
-              ? paymentRecordDetailHref(listBasePath, direction, activeBucket, detailRow.id, tab)
-              : "#",
-          }));
+          const sections = recordSections("manager", "payment", {
+            basePath: listBasePath ?? "/portal",
+            direction,
+            bucket: activeBucket,
+          });
+          // Real handlers exist today only for the actions below; the rest are
+          // real header buttons wired to a visible "coming soon" rather than a
+          // silent no-op — see area-1a's final report.
+          const onHeaderAction = (actionId: string) => {
+            if (actionId === "send-reminder") {
+              setChargeRemindersRow(detailRow);
+              return;
+            }
+            showToast("Coming soon");
+          };
           return (
+            <>
+            <PortalRecordActions>
+              <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onHeaderAction} />
+            </PortalRecordActions>
             <PortalRecordSectionChrome
-              items={navItems}
+              sections={sections}
+              recordId={detailRow.id}
               activeId={recordTab}
-              groups={PAYMENT_RECORD_RAIL_GROUPS}
               title={detailRow.chargeTitle}
               backHref={listBasePath ? paymentListHref(listBasePath, direction, activeBucket) : "#"}
               backLabel="All payments"
               ariaLabel="Payment sections"
-              currentLabel={PAYMENT_RECORD_TAB_LABELS[recordTab]}
-              defaultDisclosureOpen={recordTab === "overview"}
+              onHeaderAction={onHeaderAction}
             >
               {recordTab === "overview" ? (
                 renderPaymentDetailPanel(detailRow)
-              ) : recordTab === "communication" ? (
-                <PortalRecordRelatedPanel
-                  title="Communication"
-                  href={listBasePath ? `${listBasePath}/communication` : undefined}
-                  empty="No thread for this charge yet."
-                />
               ) : recordTab === "service" ? (
                 <PortalRecordRelatedPanel
                   title="Service"
@@ -1882,14 +1876,23 @@ export function ManagerPaymentsLedgerPanel({
                 />
               ) : recordTab === "vendor" ? (
                 <PortalRecordRelatedPanel title="Vendor" empty="This charge is not a vendor payment." />
-              ) : (
+              ) : recordTab === "resident" ? (
                 <PortalRecordRelatedPanel
                   title="Resident"
                   value={detailRow.residentName}
                   empty="No resident on this charge."
                 />
+              ) : (
+                renderRecordSection(recordTab, {
+                  role: "manager",
+                  kind: "payment",
+                  kindLabel: "charge",
+                  recordId: detailRow.id,
+                  recordLabel: detailRow.chargeTitle,
+                })
               )}
             </PortalRecordSectionChrome>
+            </>
           );
         })()}
       </PortalRecordDetailPage>

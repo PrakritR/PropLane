@@ -15,17 +15,13 @@ import { ResidentDetailSubsectionChrome } from "@/components/portal/resident-det
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { ManagerPortalPageShell, ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
 import { InspectionEditor } from "@/components/portal/inspection-editor";
-import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
-import { PortalRecordSectionChrome } from "@/components/portal/portal-record-section-chrome";
+import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/components/portal/portal-record-section-chrome";
 import { PortalRecordRelatedPanel } from "@/components/portal/portal-record-related-panel";
-import {
-  inspectionDetailHref,
-  INSPECTION_RECORD_RAIL_GROUPS,
-  INSPECTION_RECORD_TAB_DESCRIPTIONS,
-  parseServiceRecordTab,
-  SERVICE_RECORD_TAB_LABELS,
-  SERVICE_RECORD_TABS,
-} from "@/lib/portal-detail-routes";
+import { recordSections } from "@/lib/portals/record-sections";
+import { renderRecordSection } from "@/components/portal/record-section-renderers";
+import { useAppUi } from "@/components/providers/app-ui-provider";
+import { parseServiceRecordTab } from "@/lib/portal-detail-routes";
 import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import {
   getSettingsEntryPoint,
@@ -206,6 +202,7 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   userId: string; role: InspectionRole; applicationId?: string; initialKind: InspectionKind; reportId?: string; recordTab?: string; routeBase?: string; embeddedInResident?: boolean;
 }) {
   const router = useRouter();
+  const { showToast } = useAppUi();
   const [kind, setKind] = useState(initialKind);
   const [data, setData] = useState<InspectionList>({ reports: [], residencies: [] });
   const [loading, setLoading] = useState(true);
@@ -310,12 +307,18 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
     const editor = <InspectionEditor initial={detail} role={role} userId={userId} onChanged={() => { void refresh(true); }} onBack={() => { setDetail(null); setSelected(new Set()); if (routeBase) router.push(`${routeBase}/${kind}`); }} />;
     if (role !== "manager" || !routeBase) return editor;
     const recordTabId = parseServiceRecordTab(recordTab);
-    const navItems = SERVICE_RECORD_TABS.map((tab) => ({
-      id: tab,
-      label: SERVICE_RECORD_TAB_LABELS[tab],
-      description: INSPECTION_RECORD_TAB_DESCRIPTIONS[tab],
-      href: inspectionDetailHref(routeBase.replace(/\/inspections$/, "") || "/portal", kind, detail.report.id, tab),
-    }));
+    const inspectionBasePath = routeBase.replace(/\/inspections$/, "") || "/portal";
+    const sections = recordSections("manager", "inspection", {
+      basePath: inspectionBasePath,
+      inspectionKind: kind,
+    });
+    const onInspectionHeaderAction = (actionId: string) => {
+      if (actionId === "download-report") {
+        void downloadInspection(role, detail.report.id);
+        return;
+      }
+      showToast("Coming soon");
+    };
     return (
       <PortalRecordDetailPage
         pageTitle="Inspections"
@@ -329,29 +332,37 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
         iconTitleActions
         pinScrollBody
       >
+        <PortalRecordActions>
+          <PortalRecordHeaderIconActions actions={sections.headerActions} onAction={onInspectionHeaderAction} />
+        </PortalRecordActions>
         <PortalRecordSectionChrome
-          items={navItems}
+          sections={sections}
+          recordId={detail.report.id}
           activeId={recordTabId}
-          groups={INSPECTION_RECORD_RAIL_GROUPS}
           title={kindLabel(detail.report.kind)}
           backHref={`${routeBase}/${kind}`}
           backLabel="All inspections"
           ariaLabel="Inspection sections"
-          currentLabel={SERVICE_RECORD_TAB_LABELS[recordTabId]}
-          defaultDisclosureOpen={recordTabId === "overview"}
+          onHeaderAction={onInspectionHeaderAction}
         >
-          {recordTabId === "overview" ? editor : recordTabId === "communication" ? (
-            <PortalRecordRelatedPanel title="Communication" empty="No thread for this report yet." />
-          ) : recordTabId === "payments" ? (
+          {recordTabId === "overview" ? editor : recordTabId === "payments" ? (
             <PortalRecordRelatedPanel title="Payments" empty="No payment on this inspection." />
           ) : recordTabId === "vendor" ? (
             <PortalRecordRelatedPanel title="Vendor" empty="No vendor on this inspection." />
-          ) : (
+          ) : recordTabId === "resident" ? (
             <PortalRecordRelatedPanel
               title="Resident"
               value={detail.report.resident_name}
               empty="No resident on this inspection."
             />
+          ) : (
+            renderRecordSection(recordTabId, {
+              role: "manager",
+              kind: "inspection",
+              kindLabel: "report",
+              recordId: detail.report.id,
+              recordLabel: kindLabel(detail.report.kind),
+            })
           )}
         </PortalRecordSectionChrome>
       </PortalRecordDetailPage>
