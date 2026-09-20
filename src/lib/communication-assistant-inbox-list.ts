@@ -97,8 +97,9 @@ export function resolveCommunicationViewerId(
 
 /**
  * Inject / restore the viewer’s PropLane Assistant row.
- * Manager: Active and Unread only, keyed by workspace — Archived is a real
- * archive, so the live Assistant thread is not pinned there.
+ * Manager: Active, Unread, and Archived, keyed by workspace. The Assistant
+ * cannot be archived away, so every manager segment keeps the live workspace
+ * thread available.
  * Resident: Active only (unchanged).
  */
 export function withPinnedPropLaneAssistantThreads(
@@ -124,7 +125,6 @@ export function withPinnedPropLaneAssistantThreads(
     if (!parsed || parsed.userId.toLowerCase() !== viewer) return true;
     return thread.id === liveId;
   });
-  if (listSegment === "archived") return scoped;
   return ensureAssistantThreadInRows(scoped, placeholder);
 }
 
