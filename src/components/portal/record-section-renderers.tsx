@@ -3,6 +3,8 @@
 import { createElement, type ComponentType } from "react";
 import { FileText, Clock3 } from "lucide-react";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { RecordCommunicationSection } from "@/components/portal/record-communication-section";
+import { isRecordKind } from "@/lib/portals/record-kinds";
 
 /**
  * The shared trio's content (PLAN-0920-1058, area 1a) — one place a section id
@@ -37,6 +39,9 @@ export type RecordSectionRendererProps = {
   onAddDocument?: () => void;
   /** The record's existing status/event history, when it has one. */
   activity?: RecordSectionActivityEvent[];
+  /** Narrow the record's Communication to this property / these contacts when the panel knows them. */
+  propertyId?: string;
+  contactIds?: string[];
 };
 
 const renderers = new Map<string, ComponentType<RecordSectionRendererProps>>();
@@ -109,16 +114,32 @@ function ActivitySection({ activity }: RecordSectionRendererProps) {
   );
 }
 
-function CommunicationPlaceholderSection({ kindLabel }: RecordSectionRendererProps) {
+/**
+ * Communication inside a record: the same inbox, narrowed to threads that carry
+ * this record's `recordRef` (docs/agents/communication-inbox.md § recordRef).
+ * A panel whose kind is not a `RecordKind` gets the titled empty card so the
+ * rail never renders a blank section.
+ */
+function CommunicationSection({ role, kind, kindLabel, recordId, recordLabel, propertyId, contactIds }: RecordSectionRendererProps) {
+  if (!isRecordKind(kind)) {
+    return (
+      <PortalListEmptyCard
+        title={`No messages about this ${kindLabel} yet`}
+        dataAttr="record-communication-empty"
+        workspaceAware={false}
+      />
+    );
+  }
   return (
-    <PortalListEmptyCard
-      title={`No messages about this ${kindLabel} yet`}
-      dataAttr="record-communication-empty"
-      workspaceAware={false}
+    <RecordCommunicationSection
+      role={role}
+      recordRef={{ kind, id: recordId, label: recordLabel ?? kindLabel }}
+      propertyId={propertyId}
+      contactIds={contactIds}
     />
   );
 }
 
 registerRecordSectionRenderer("documents", DocumentsSection);
 registerRecordSectionRenderer("activity", ActivitySection);
-registerRecordSectionRenderer("communication", CommunicationPlaceholderSection);
+registerRecordSectionRenderer("communication", CommunicationSection);
