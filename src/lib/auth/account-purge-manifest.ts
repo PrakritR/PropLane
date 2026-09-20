@@ -145,6 +145,19 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     resident: { ids: ["resident_user_id"], emails: ["resident_email"], preserveFinancial: true },
   },
   {
+    table: "resident_rent_reporting",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+    resident: { ids: ["resident_user_id"] },
+  },
+  {
+    table: "rent_reporting_submissions",
+    phase: 1,
+    // No manager_user_id column; cascades from resident_rent_reporting when the
+    // manager is purged. Resident is classified directly since the column exists.
+    resident: { ids: ["resident_user_id"] },
+  },
+  {
     table: "manager_bank_statement_lines",
     phase: 1,
     // No ownership column; cascades from manager_bank_statements.
