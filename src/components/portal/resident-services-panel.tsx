@@ -439,7 +439,7 @@ export function WorkOrderDetail({
     <>
       {row.reference ? (
         <div className="mb-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted">Work order</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-muted">Service</p>
           <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">{row.reference}</p>
         </div>
       ) : null}
@@ -1291,10 +1291,7 @@ export function ResidentServicesPanel({
       >
         {editingRequest ? (
           <>
-            <p className="text-xs text-muted">
-              Update the details of your <span className="font-semibold text-foreground">{editingRequest.offerName}</span> request.
-              Pricing is set by your manager and can&apos;t be changed here.
-            </p>
+            <p className="text-xs text-muted">Pricing is set by your manager and can&apos;t be changed here.</p>
             <div className="mt-4 grid gap-3">
               <div>
                 <p className="mb-1 text-[11px] font-medium text-muted">Notes</p>
@@ -1325,7 +1322,6 @@ export function ResidentServicesPanel({
           </ModalFooter>
         }
       >
-        <p className="text-xs text-muted">Update your maintenance request. Your property manager sees these changes.</p>
         <div className="mt-4 grid gap-3">
           <div>
             <p className="mb-1 text-[11px] font-medium text-muted">Title</p>

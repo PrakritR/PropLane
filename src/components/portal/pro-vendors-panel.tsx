@@ -656,6 +656,9 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   const catalogDetail = catalogDetailId
     ? catalogRows.find((row) => row.catalogId === catalogDetailId) ?? null
     : null;
+  const catalogRosterMatch = catalogDetail
+    ? findRosterCatalogMatch(vendors, catalogDetail)
+    : null;
 
   const listBody =
     directoryTab === "catalog" && catalogDetailId ? (
@@ -675,11 +678,11 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         <PortalRecordActions>
           <Button
             type="button"
-            disabled={Boolean(findRosterCatalogMatch(vendors, catalogDetail ?? { name: "", trade: "" }))}
+            disabled={Boolean(catalogRosterMatch)}
             onClick={() => catalogDetail && openAddVendorForm(catalogDetail.trade, catalogDetail)}
             data-attr="vendor-catalog-add"
           >
-            {findRosterCatalogMatch(vendors, catalogDetail ?? { name: "", trade: "" }) ? "Added" : "Add"}
+            {catalogRosterMatch ? "Added" : "Add"}
           </Button>
         </PortalRecordActions>
         <PortalRecordSectionChrome
@@ -699,7 +702,20 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           currentLabel={VENDOR_DETAIL_TAB_LABELS[catalogDetailTab]}
           defaultDisclosureOpen={catalogDetailTab === "overview"}
         >
-          <ManagerVendorCatalogDetail catalogId={catalogDetailId} vendor={catalogDetail} tab={catalogDetailTab} basePath={basePath} />
+          {catalogRosterMatch ? (
+            <div data-attr="vendor-catalog-matched-profile">
+              <ManagerVendorDetail
+                row={catalogRosterMatch}
+                managerUserId={userId}
+                basePath={basePath}
+                onNavigate={navigate}
+                tab={catalogDetailTab}
+                detailHref={(tab) => vendorCatalogDetailHref(basePath, catalogDetailId, tab)}
+              />
+            </div>
+          ) : (
+            <ManagerVendorCatalogDetail catalogId={catalogDetailId} vendor={catalogDetail} tab={catalogDetailTab} basePath={basePath} />
+          )}
         </PortalRecordSectionChrome>
       </PortalRecordDetailPage>
     ) : directoryTab === "catalog" && catalogRows.length === 0 ? (

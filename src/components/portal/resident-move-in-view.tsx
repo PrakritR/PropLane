@@ -32,7 +32,6 @@ function DetailField({ label, value }: { label: string; value: string | null | u
 function PlacementTabContent({ resolved }: { resolved: ResidentMoveInResolved }) {
   return (
     <div className={PORTAL_LIST_PAGE_BODY}>
-      <p className="mb-4 text-sm text-muted">Where you are assigned and when you can move in.</p>
       <div className="grid gap-4 sm:grid-cols-3">
         <DetailField label="Assigned room" value={resolved.roomLabel} />
         <div>
@@ -94,11 +93,6 @@ function HousematesTabContent({ resolved }: { resolved: ResidentMoveInResolved }
       {roommates.length > 0 ? (
         <section className="mb-6" data-attr="move-in-roommates">
           <h3 className="text-sm font-semibold text-foreground">Roommates — your room</h3>
-          <p className="mb-3 mt-0.5 text-sm text-muted">
-            {roommates.length === 1
-              ? "Sharing your room."
-              : `Sharing your room (${roommates.length}).`}
-          </p>
           <ul className="divide-y divide-border/50">
             {roommates.map((mate, index) => (
               <HousemateRow key={mate.id ?? `housemate-${index}`} mate={mate} />
@@ -146,7 +140,6 @@ function InfoTabContent({ resolved }: { resolved: ResidentMoveInResolved }) {
 
   return (
     <div className={PORTAL_LIST_PAGE_BODY}>
-      <p className="mb-4 text-sm text-muted">Shared information from your property manager.</p>
       <div className="space-y-3">
         <HouseInfoReadSections info={resolved.houseInfo} />
 
@@ -177,7 +170,6 @@ function AmenitiesTabContent({ resolved }: { resolved: ResidentMoveInResolved })
 
   return (
     <div className={PORTAL_LIST_PAGE_BODY}>
-      <p className="mb-4 text-sm text-muted">What this home offers.</p>
       <ul className="list-disc space-y-1 pl-5 text-sm leading-relaxed text-foreground">
         {resolved.amenities.map((amenity) => (
           <li key={amenity}>{amenity}</li>
@@ -203,10 +195,6 @@ function InstructionsTabContent({ resolved }: { resolved: ResidentMoveInResolved
 
   return (
     <div className={PORTAL_LIST_PAGE_BODY}>
-      <p className="mb-4 text-sm text-muted">
-        Keys, parking, access codes, and anything to know before arrival.
-      </p>
-
       {hasHouse ? (
         <section className="mb-6" data-attr="resident-move-in-house-section">
           <h3 className="mb-1.5 text-sm font-semibold text-foreground">The whole house</h3>
@@ -228,10 +216,7 @@ function InstructionsTabContent({ resolved }: { resolved: ResidentMoveInResolved
         ) : null}
         <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
           {resolved.instructions ?? (
-            <span className="text-muted">
-              No house instructions have been added for this room yet. Your property manager can add keys,
-              parking, access codes, and house rules when they edit the listing.
-            </span>
+            <span className="text-muted">No room instructions have been added yet.</span>
           )}
         </div>
         <ResidentMoveInMediaGallery
