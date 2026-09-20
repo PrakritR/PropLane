@@ -52,12 +52,18 @@ function fakeTable(name: string) {
     const filters: Array<[string, unknown]> = [];
     /** PostgREST `or=(a.eq.x,b.eq.y)` — the real row-visibility gate. */
     const orClauses: Array<[string, string]> = [];
+    /** PostgREST `in=(col,(a,b))` — used by the vendor work-identity lookup. */
+    const inClauses: Array<[string, unknown[]]> = [];
     const collect = () => {
       let list = [...rowsFor().entries()].map(([id, value]) =>
         name === "profiles" ? { id, ...(value as Row) } : (value as Row),
       );
       for (const [column, value] of filters) {
         list = list.filter((row) => String((row as Row)[column] ?? "") === String(value));
+      }
+      for (const [column, values] of inClauses) {
+        const wanted = new Set(values.map((v) => String(v)));
+        list = list.filter((row) => wanted.has(String((row as Row)[column] ?? "")));
       }
       if (orClauses.length > 0) {
         list = list.filter((row) =>
@@ -69,6 +75,10 @@ function fakeTable(name: string) {
     const chain: Record<string, unknown> = {
       eq(column: string, value: unknown) {
         filters.push([column, value]);
+        return chain;
+      },
+      in(column: string, values: unknown[]) {
+        inClauses.push([column, values]);
         return chain;
       },
       or(expr: string) {
