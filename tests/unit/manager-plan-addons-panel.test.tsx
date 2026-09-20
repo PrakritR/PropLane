@@ -16,7 +16,9 @@ afterEach(() => {
 
 describe("ManagerPlanAddonsPanel purchase closure", () => {
   it("disables removal of an existing quantity when the catalog is not purchasable", async () => {
-    const fetchMock = vi.fn(async () =>
+    // The panel also renders the separate Rent reporting row (its own endpoint,
+    // its own fetch) beside the PLAN_ADDONS catalogue this test exercises.
+    const addonsFetchMock = vi.fn(async () =>
       Response.json({
         tier: "business",
         canHoldAddons: true,
@@ -35,7 +37,15 @@ describe("ManagerPlanAddonsPanel purchase closure", () => {
         ],
       }),
     );
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes("/api/manager/rent-reporting-addon")) {
+          return Response.json({ tier: "business", canHoldAddon: true, enabled: false, reporting: 0, total: 0 });
+        }
+        return addonsFetchMock();
+      }),
+    );
 
     render(<ManagerPlanAddonsPanel />);
 
@@ -44,6 +54,6 @@ describe("ManagerPlanAddonsPanel purchase closure", () => {
     expect(remove).toHaveAttribute("title", "Not available for purchase yet");
 
     fireEvent.click(remove);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(addonsFetchMock).toHaveBeenCalledTimes(1);
   });
 });
