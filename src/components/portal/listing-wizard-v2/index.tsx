@@ -143,7 +143,7 @@ export function ListingWizardV2({
   /** Open the editor on this listing step (Import jumping to Rooms / Review). */
   initialStep?: ListingV2StepId;
 }) {
-  const { saveDraft, publish, busy } = useListingPersistence({
+  const { saveDraft, publish, busy: persistenceBusy } = useListingPersistence({
     userId,
     skuTier,
     propertyCount,
@@ -189,8 +189,15 @@ export function ListingWizardV2({
     ),
   );
   const stepRef = useRef(listingV2StepIndex(initialStep));
+  // Preparation uploads media before the persistence hook starts its own busy
+  // state. Guard the entire lifecycle so two fast clicks cannot prepare stale
+  // snapshots and resurrect a draft after a publish.
+  const lifecycleRef = useRef(false);
+  const [lifecycleBusy, setLifecycleBusy] = useState(false);
+  const busy = persistenceBusy || lifecycleBusy;
   const lastPersistErrorRef = useRef("Could not save this listing.");
   const [saveFail, setSaveFail] = useState<{ message: string; stepIndex: number } | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   useEffect(() => {
     setDirty(listingWizardHasUnsavedInput(submission, savedFingerprintRef.current));
@@ -202,8 +209,21 @@ export function ListingWizardV2({
   // draft, an imported property), so with nothing unsaved it IS saved.
   const saveState = busy ? "Saving…" : dirty ? "Unsaved changes" : editing || initialDraftId ? "Saved" : "Not saved yet";
 
+  const runLifecycle = useCallback(async (task: () => Promise<boolean>): Promise<boolean> => {
+    if (lifecycleRef.current) return false;
+    lifecycleRef.current = true;
+    setLifecycleBusy(true);
+    try {
+      return await task();
+    } finally {
+      lifecycleRef.current = false;
+      setLifecycleBusy(false);
+    }
+  }, []);
+
   const persistSubmission = useCallback(async (
     raw: ManagerListingSubmissionV1,
+    opts?: { validateWaiverCode?: boolean },
   ): Promise<
     | { ok: true; submission: ManagerListingSubmissionV1; droppedMediaCount: number }
     | { ok: false; message: string }
@@ -211,6 +231,7 @@ export function ListingWizardV2({
     try {
       const prepared = await prepareListingSubmissionForPersist(raw, {
         accountPaymentWaiverGranted: paymentWaiverGranted ?? undefined,
+        validateWaiverCode: opts?.validateWaiverCode,
       });
       return { ok: true, ...prepared };
     } catch (err) {
@@ -227,9 +248,10 @@ export function ListingWizardV2({
     ): Promise<boolean> => {
       const notify = opts?.notify !== false;
       if (!listingWizardHasUnsavedInput(raw, savedFingerprintRef.current)) return true;
-      const prepared = await persistSubmission(raw);
+      const prepared = await persistSubmission(raw, { validateWaiverCode: editing });
       if (!prepared.ok) {
         lastPersistErrorRef.current = prepared.message;
+        setActionError(prepared.message);
         if (notify) showToast?.(prepared.message);
         return false;
       }
@@ -242,10 +264,12 @@ export function ListingWizardV2({
         : await saveDraft(prepared.submission, stepIndex);
       if (!result.ok) {
         lastPersistErrorRef.current = result.message;
+        setActionError(result.message);
         if (notify) showToast?.(result.message);
         return false;
       }
       savedFingerprintRef.current = listingSubmissionFingerprint(prepared.submission);
+      setActionError(null);
       setDirty(listingWizardHasUnsavedInput(submissionRef.current, savedFingerprintRef.current));
       onSaved?.(prepared.submission, result.id);
       return true;
@@ -255,11 +279,11 @@ export function ListingWizardV2({
 
   useEffect(() => {
     if (!flushRef) return;
-    flushRef.current = () => persist(submissionRef.current, stepRef.current);
+    flushRef.current = () => runLifecycle(() => persist(submissionRef.current, stepRef.current));
     return () => {
       flushRef.current = null;
     };
-  }, [flushRef, persist]);
+  }, [flushRef, persist, runLifecycle]);
 
   /**
    * The doors the listing will print — resolved exactly as the public page and
@@ -281,14 +305,14 @@ export function ListingWizardV2({
     // the X performs — and the manager comes back to it from Drafts. A plain
     // navigation rather than the app router: the editor also mounts in tests
     // and hosts with no router, and this is a rare, deliberate leave.
-    const ok = await persist(submissionRef.current, stepRef.current);
+    const ok = await runLifecycle(() => persist(submissionRef.current, stepRef.current));
     if (!ok) {
       showToast?.("Could not save. Nothing was kept.");
       return;
     }
     onClose();
     window.location.assign(MANAGER_ASSISTANT_EMAIL_SETTINGS_HREF);
-  }, [onClose, persist, showToast]);
+  }, [onClose, persist, runLifecycle, showToast]);
   const contact = useMemo<ListingContactDoors>(
     () => ({
       phone: contactPhone,
@@ -302,8 +326,9 @@ export function ListingWizardV2({
 
   const handleClose = useCallback(
     async (stepIndex: number) => {
+      if (lifecycleRef.current) return;
       stepRef.current = stepIndex;
-      const ok = await persist(submissionRef.current, stepIndex, { notify: false });
+      const ok = await runLifecycle(() => persist(submissionRef.current, stepIndex, { notify: false }));
       if (ok) {
         setSaveFail(null);
         onClose();
@@ -311,18 +336,17 @@ export function ListingWizardV2({
       }
       setSaveFail({ message: lastPersistErrorRef.current, stepIndex });
     },
-    [onClose, persist],
+    [onClose, persist, runLifecycle],
   );
 
-  // The Review step's Save button. Close failures open one dialog; an
-  // explicit Save that fails stays open with the toast.
+  // Explicit save is available from every V2 step. It keeps the editor open so
+  // managers can safely continue after committing a partial draft.
   const handleSave = useCallback(
     async (stepIndex: number) => {
       stepRef.current = stepIndex;
-      const ok = await persist(submissionRef.current, stepIndex);
-      if (ok) onClose();
+      return runLifecycle(() => persist(submissionRef.current, stepIndex));
     },
-    [onClose, persist],
+    [persist, runLifecycle],
   );
 
   return (
@@ -336,12 +360,8 @@ export function ListingWizardV2({
         onStepChange={(stepIndex) => {
           stepRef.current = stepIndex;
         }}
-        onClose={(stepIndex) => {
-          void handleClose(stepIndex);
-        }}
-        onSaveExit={(stepIndex) => {
-          void handleSave(stepIndex);
-        }}
+        onClose={handleClose}
+        onSave={handleSave}
         busy={busy}
         isEdit={editing}
         saveState={saveState}
@@ -350,28 +370,35 @@ export function ListingWizardV2({
         basicsLead={basicsLead}
         contact={contact}
         initialStep={initialStep}
-        onPublish={async () => {
-        const prepared = await persistSubmission(submission);
-        if (!prepared.ok) {
-          showToast?.(prepared.message);
-          return;
+        actionError={actionError}
+        onPublish={() =>
+          runLifecycle(async () => {
+            const prepared = await persistSubmission(submissionRef.current, { validateWaiverCode: true });
+            if (!prepared.ok) {
+              setActionError(prepared.message);
+              showToast?.(prepared.message);
+              return false;
+            }
+            if (prepared.droppedMediaCount > 0) {
+              setSubmission(prepared.submission);
+            }
+            const result = await publish(prepared.submission);
+            if (!result.ok) {
+              setActionError(result.message);
+              showToast?.(result.message);
+              return false;
+            }
+            savedFingerprintRef.current = listingSubmissionFingerprint(prepared.submission);
+            setActionError(null);
+            setDirty(false);
+            if (prepared.droppedMediaCount > 0) {
+              showToast?.("Published. Some attachments could not upload and were removed.");
+            }
+            onPublished?.(result.id);
+            return true;
+          })
         }
-        if (prepared.droppedMediaCount > 0) {
-          setSubmission(prepared.submission);
-        }
-        const result = await publish(prepared.submission);
-        if (!result.ok) {
-          showToast?.(result.message);
-          return;
-        }
-        savedFingerprintRef.current = listingSubmissionFingerprint(prepared.submission);
-        setDirty(false);
-        if (prepared.droppedMediaCount > 0) {
-          showToast?.("Published. Some attachments could not upload and were removed.");
-        }
-        onPublished?.(result.id);
-      }}
-    />
+      />
       <Modal
         open={saveFail !== null}
         title="Could not save"
