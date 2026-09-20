@@ -17,6 +17,7 @@ import {
 import { usePublicListings } from "@/hooks/use-public-listings";
 import {
   buildPropertyBrowseCards,
+  filterRoomListings,
   demoOnlyBrowseCardPlaceholderImage,
   type BrowseSortId,
   type PropertyBrowseCard,
@@ -450,10 +451,12 @@ export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] 
     Boolean(neighborhood),
   ].filter(Boolean).length;
 
-  /* Every home in scope before the budget is applied — the range's histogram. */
   const budgetRents = useMemo(
     () =>
-      buildPropertyBrowseCards(listings, { filters: { propertyIds: scopedIds } })
+      filterRoomListings(
+        scopedIds?.length ? listings.filter((property) => scopedIds.includes(property.id)) : listings,
+        { zipRaw: "", radiusMiles: 50, maxBudgetNum: null, bathroom: "any" },
+      )
         .map((c) => c.rentNumeric)
         .filter((n): n is number => typeof n === "number" && Number.isFinite(n)),
     // `occupancyReady` is not read here, but the catalog reads occupancy from
@@ -502,7 +505,7 @@ export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] 
     const q = query.trim().toLowerCase();
     if (!q) return filteredCards;
     return filteredCards.filter(
-      (c) => c.headlineAddress.toLowerCase().includes(q) || c.neighborhood.toLowerCase().includes(q),
+      (c) => c.fullAddress.toLowerCase().includes(q) || c.neighborhood.toLowerCase().includes(q),
     );
   }, [filteredCards, query]);
 
