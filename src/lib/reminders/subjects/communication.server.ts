@@ -12,7 +12,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { materializeReminders, type ReminderRecipient } from "@/lib/reminders/queue.server";
-import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
+import { loadReminderSettingsResolver } from "@/lib/reminders/settings.server";
 import { loadManagerReminderRecipients, loadTeamReminderRecipients, teamReminderRecipients } from "@/lib/reminders/manager-recipients.server";
 import { REMINDER_SUBJECT_CO_MANAGER_MODULE } from "@/lib/co-manager-notification-recipients.server";
 
@@ -47,16 +47,18 @@ export async function sweepUnansweredMessages(db: SupabaseClient, now: Date = ne
   const rows = ((data ?? []) as ThreadRow[]).filter((row) => row.owner_user_id && row.participant_email && lastInboundMessage(row.row_data ?? {}));
   if (rows.length === 0) return 0;
   const managerIds = rows.map((row) => String(row.owner_user_id));
-  const [settingsByManager, managerRecipients] = await Promise.all([
-    loadReminderSettingsForManagers(db, managerIds),
+  const [reminderResolver, managerRecipients] = await Promise.all([
+    loadReminderSettingsResolver(db, managerIds),
     loadManagerReminderRecipients(db, managerIds),
   ]);
   const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
   let queued = 0;
   for (const row of rows) {
     const managerUserId = String(row.owner_user_id);
-    const settings = settingsByManager.get(managerUserId);
-    if (!settings?.rules.message_unanswered.enabled) continue;
+    // An inbox thread has no property, so `message_unanswered` always resolves to
+    // the workspace rule (PLAN-0916-1040) — no per-house override applies here.
+    const settings = reminderResolver.resolve(managerUserId, null);
+    if (!settings.rules.message_unanswered.enabled) continue;
     const last = lastInboundMessage(row.row_data ?? {})!;
     const manager = managerRecipients.get(managerUserId);
     const recipients: ReminderRecipient[] = manager ? [{ email: manager.email, role: "manager", name: manager.name, userId: managerUserId }] : [];

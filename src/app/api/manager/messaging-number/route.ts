@@ -22,7 +22,6 @@ import { provisionManagerNumber } from "@/lib/sms/manager-number-provisioning.se
 import {
   effectiveRegistrationState,
   isProvisioningEnabled,
-  isTrialWorkNumberOnboardingEnabled,
   managerSmsNumberIsSendable,
   normalizeProvisionState,
   normalizeRegistrationState,
@@ -154,7 +153,6 @@ async function buildStatus(
     number.state === "failed";
   const entitlementCanBeReconciled =
     entitlement.eligible ||
-    (entitlement.reason === "trialing" && isTrialWorkNumberOnboardingEnabled()) ||
     entitlement.reason === "plan_unreadable" ||
     entitlement.reason === "legacy_unknown";
   const strictNumberReady = managerSmsNumberIsSendable(normalizedNumber, {

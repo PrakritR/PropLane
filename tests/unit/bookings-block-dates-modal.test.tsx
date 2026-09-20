@@ -5,11 +5,18 @@
  * button sits bottom-right like every other PropLane dialog.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@/lib/rental-application/data", () => ({
   getRoomOptionsForProperty: () => [{ value: "h1::r1", label: "Room 1" }],
   parseRoomChoiceValue: (value: string) => ({ listingRoomId: value.split("::")[1] ?? null }),
+}));
+
+vi.mock("@/lib/channel-calendar/client", () => ({
+  fetchManagerChannelBookings: () => Promise.resolve([]),
+  saveChannelCalendarConnection: () => Promise.resolve({ id: "c1" }),
+  syncChannelCalendarConnection: () => Promise.resolve(),
+  deleteChannelCalendarConnection: () => Promise.resolve(),
 }));
 
 import { BookingsBlockDatesModal } from "@/components/portal/bookings-block-dates-modal";
@@ -105,5 +112,76 @@ describe("BookingsBlockDatesModal — resident", () => {
     fireEvent.click(attr(view, "bookings-block-resident-new")!);
     fireEvent.click(attr(view, "bookings-block-resident-pick-list")!);
     expect(attr(view, "bookings-block-resident")!.textContent).toContain("No one — just close the room");
+  });
+
+  it("labels the form House, Move in, and Move out under Add booking", () => {
+    const { view } = open();
+    const body = document.body.textContent ?? "";
+    expect(body).toContain("Add booking");
+    expect(body).toContain("House");
+    expect(body).toContain("Move in");
+    expect(body).toContain("Move out");
+    expect(body).toContain("Resident");
+    expect(body).not.toContain("Check-in");
+    expect(body).not.toContain("Check-out");
+    expect(attr(view, "bookings-block-property")).not.toBeNull();
+    expect(attr(view, "bookings-block-check-in")).not.toBeNull();
+    expect(attr(view, "bookings-block-check-out")).not.toBeNull();
+  });
+
+  it("is one sheet with Add booking and Link calendars panes, and no helper description", () => {
+    const { view } = open();
+    const body = document.body.textContent ?? "";
+    expect(attr(view, "bookings-sheet-pane-block")).not.toBeNull();
+    expect(attr(view, "bookings-sheet-pane-airbnb")).not.toBeNull();
+    expect(body).not.toContain("Close a room to new bookings");
+    expect(body).not.toContain("optional");
+    expect(body).not.toContain("Puts their name on the hold");
+
+    fireEvent.click(attr(view, "bookings-sheet-pane-airbnb")!);
+    const linkBody = document.body.textContent ?? "";
+    expect(attr(view, "channel-calendar-link-import-url")).not.toBeNull();
+    const provider = attr(view, "channel-calendar-link-provider")!;
+    expect(provider).not.toBeNull();
+    expect(linkBody).toContain("Channel");
+    expect(linkBody).toContain("Airbnb import URL");
+    expect(linkBody).not.toContain("Airbnb → Calendar → Availability");
+    expect(optionLabels(provider)).toEqual(["Airbnb", "Booking.com"]);
+  });
+
+  it("lists existing holds with Edit and Delete, not a Blocked or View pill", () => {
+    const view = render(
+      <BookingsBlockDatesModal
+        open
+        onClose={() => {}}
+        propertyOptions={PROPERTY}
+        initialPropertyId="h1"
+        entries={[
+          {
+            source: "block",
+            propertyId: "h1",
+            propertyLabel: "4709A 8th Ave NE",
+            roomId: "r1",
+            roomLabel: "Room 1",
+            summary: "Sep hold",
+            start: "2026-09-20",
+            end: "2026-09-21",
+            statusLabel: "Blocked",
+            blockId: "block-1",
+            reason: "Repairs",
+          },
+        ]}
+        residentOptions={RESIDENTS}
+        onSave={async () => {}}
+        onDeleteBlock={async () => {}}
+      />,
+    );
+    expect(attr(view, "bookings-sheet-existing-blocks")).not.toBeNull();
+    fireEvent.keyDown(screen.getByRole("button", { name: /Actions for Sep 20/i }), { key: "ArrowDown" });
+    const menu = document.body.querySelector('[data-attr="record-actions-menu"]')!;
+    expect(menu.textContent).toContain("Edit");
+    expect(menu.textContent).toContain("Delete");
+    expect(menu.textContent).not.toContain("View");
+    expect(menu.textContent).not.toContain("Blocked");
   });
 });

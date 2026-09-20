@@ -9,9 +9,10 @@
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { ManagerInbox } from "@/components/portal/pro-inbox";
+import { ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
 import { Button } from "@/components/ui/button";
-import { LocalDestinationNav } from "@/components/ui/destination-nav";
-import { Input, Select, Textarea } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import { MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal-styles";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { SaveStatus } from "@/components/ui/save-status";
@@ -43,24 +44,17 @@ import {
   type VendorCheckInOnNoOrSilent,
 } from "@/lib/vendor-check-ins";
 import {
-  estimateSmsSegments,
   normalizeVendorMessaging,
-  renderVendorMessage,
   resolveVendorChannel,
-  unknownVendorMessageTokens,
   VENDOR_CHANNELS,
-  VENDOR_MESSAGE_EVENT_META,
-  VENDOR_MESSAGE_EVENTS,
   vendorChannelLabel,
-  vendorTemplateFor,
   type VendorChannel,
-  type VendorMessageEvent,
   type VendorMessaging,
 } from "@/lib/vendor-messaging";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
 import { cn } from "@/lib/utils";
 
-export type VendorDetailTab = "profile" | "messages" | "checkins" | "jobs";
+export type VendorDetailTab = "overview" | "profile" | "jobs" | "check-ins" | "communication";
 
 /** The editable subset of a vendor row. Everything else on the row is left untouched by a save. */
 type VendorDraft = {
@@ -235,16 +229,21 @@ function jobLabel(row: DemoManagerWorkOrderRow): { status: string; tone: "ok" | 
 export function ManagerVendorDetail({
   row,
   managerUserId,
-  initialTab = "profile",
+  tab: tabProp,
+  extraNeedsYou = [],
+  onEdit: _onEdit,
   onSendCheckInNow,
 }: {
   row: ManagerVendorRow;
   managerUserId: string | null;
-  initialTab?: VendorDetailTab;
+  tab?: VendorDetailTab;
+  extraNeedsYou?: readonly { id: string; title: string; detail: string }[];
+  onEdit?: () => void;
   /** Slice E wires the real send; until then the button is hidden when absent. */
   onSendCheckInNow?: (checkIn: VendorCheckIn) => Promise<void>;
 }) {
-  const [tab, setTab] = useState<VendorDetailTab>(initialTab);
+  const tab = tabProp ?? "overview";
+  const [inboxTab, setInboxTab] = useState<"all" | "trash">("all");
   const messaging = useManagerMessagingNumberStatus();
   const smsAvailable = Boolean(messaging.status?.sendingAvailable && messaging.status?.number);
 
@@ -344,132 +343,90 @@ export function ManagerVendorDetail({
     smsAvailable,
   });
 
-  const tabs = [
-    { id: "profile", label: "Profile" },
-    { id: "messages", label: "Messages" },
-    { id: "checkins", label: "Check-ins", count: draft.checkIns.filter((c) => c.enabled).length || undefined },
-    { id: "jobs", label: "Jobs", count: openJobs.length || undefined },
-  ];
+  const fact = (label: string, value: string) => (
+    <div className="flex min-h-11 items-center justify-between gap-3 border-b border-border/60 py-2 last:border-b-0">
+      <span className="text-[13px] font-medium">{label}</span>
+      <span className="min-w-0 truncate text-right text-[13.5px]">{value || "—"}</span>
+    </div>
+  );
+
+  const profileFacts = (
+    <div className="px-3 pb-4 sm:px-4" data-attr="vendor-profile-facts">
+      {fact("Name", draft.name)}
+      {fact("Call them", callName)}
+      {fact("Trades", draft.trades.join(", "))}
+      {fact("Phone", draft.phone)}
+      {fact("Email", draft.email)}
+      {fact("Reach them by", vendorChannelLabel(reach.channel))}
+      {fact("Language", draft.preferredLanguage === "es" ? "Español" : "English")}
+      {fact("Status", draft.active ? "Active" : "Inactive")}
+      {fact("Portal account", row.vendorUserId ? "Signed up" : row.invitedAt ? `Invite sent ${formatPacificDateTime(row.invitedAt)}` : "Not invited")}
+      {fact("Properties", draft.propertyIds.length ? propertyOptions.filter((o) => draft.propertyIds.includes(o.id)).map((o) => o.label).join(", ") : "Every property")}
+      {draft.notes.trim() ? fact("Notes", draft.notes) : null}
+    </div>
+  );
 
   return (
     <div className="space-y-3" data-attr="vendor-detail">
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4">
-        <p className="text-sm text-muted">
-          Call them <span className="font-semibold text-foreground">{callName}</span>
-          {draft.trades.length ? ` · ${draft.trades.join(", ")}` : ""}
-          {" · "}
-          {vendorChannelLabel(reach.channel)}
-          {draft.preferredLanguage === "es" ? " · Español" : ""}
-          {draft.defaultForTrades.length ? (
-            <span className="ml-2 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
-              default for {draft.defaultForTrades.join(", ")}
-            </span>
-          ) : null}
-        </p>
-        <SaveStatus status={autosave} />
-      </div>
+      {tab === "overview" || tab === "profile" ? (
+        <div className="flex items-center justify-end px-3 sm:px-4">
+          <SaveStatus status={autosave} />
+        </div>
+      ) : (
+        <div className="flex items-center justify-end px-3 sm:px-4">
+          <SaveStatus status={autosave} />
+        </div>
+      )}
 
-      <LocalDestinationNav
-        items={tabs}
-        activeId={tab}
-        onChange={(id) => setTab(id as VendorDetailTab)}
-        ariaLabel="Vendor sections"
-        appearance="command"
-        className="px-3 sm:px-4"
-      />
-
-      {tab === "profile" ? (
-        <div className="grid gap-4 px-3 pb-4 sm:grid-cols-2 sm:px-4">
-          <Field label="Business or person">
-            <Input value={draft.name} onChange={(e) => patch({ name: e.target.value })} data-attr="vendor-name" />
-          </Field>
-          <Field label="Call them" help={`Used in every message: “${greeting(draft.preferredLanguage, callName)} —”.`}>
-            <Input
-              value={draft.preferredName}
-              onChange={(e) => patch({ preferredName: e.target.value })}
-              placeholder={draft.name.trim().split(" ")[0] || "First name"}
-              data-attr="vendor-preferred-name"
-            />
-          </Field>
-          <Field label="Trades" className="sm:col-span-2">
-            <ChipSelect
-              options={VENDOR_TRADE_OPTIONS.map((t) => ({ id: t, label: t }))}
-              value={draft.trades}
-              onChange={(trades) => patch({ trades, trade: trades[0] ?? draft.trade })}
-              dataAttr="vendor-trades"
-            />
-          </Field>
-          <Field label="Phone">
-            <PhoneNumberField value={draft.phone} onChange={(phone) => patch({ phone })} dataAttr="vendor-phone" />
-          </Field>
-          <Field label="Email">
-            <Input
-              type="email"
-              value={draft.email}
-              onChange={(e) => patch({ email: e.target.value })}
-              placeholder="optional"
-              data-attr="vendor-email"
-            />
-          </Field>
-          <Field label="Reach them by" help={reach.note ?? "Where every automatic message goes. Falls back to the next one that exists."}>
-            <ChannelSegments value={draft.preferredChannel} onChange={(preferredChannel) => patch({ preferredChannel })} dataAttr="vendor-channel" />
-          </Field>
-          <Field label="Language">
-            <Select value={draft.preferredLanguage} onChange={(e) => patch({ preferredLanguage: e.target.value })} data-attr="vendor-language">
-              {LANGUAGES.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.label}
-                </option>
+      {tab === "overview" ? (
+        <div className="space-y-4 px-3 pb-4 sm:px-4" data-attr="vendor-overview">
+          {extraNeedsYou.length ? (
+            <div className="space-y-2" data-attr="vendor-needs-you">
+              <h2 className="text-sm font-semibold">Needs you</h2>
+              {extraNeedsYou.map((item) => (
+                <div key={item.id} className="rounded-xl border border-border bg-card px-3 py-2.5">
+                  <p className="text-[13.5px] font-medium">{item.title}</p>
+                  <p className="text-[13px]">{item.detail}</p>
+                </div>
               ))}
-            </Select>
-          </Field>
-          <Field label="Status">
-            <div className="flex items-center gap-2 text-sm">
-              <Toggle checked={draft.active} onChange={(active) => patch({ active })} label="Active" dataAttr="vendor-active" />
-              <span>{draft.active ? "Active" : "Inactive — not offered for new work"}</span>
             </div>
-          </Field>
-          <Field label="Portal account">
-            <p className="text-sm">
-              {row.vendorUserId ? "Signed up" : row.invitedAt ? `Invite sent ${formatPacificDateTime(row.invitedAt)}` : "Not invited"}
-            </p>
-          </Field>
-          {propertyOptions.length ? (
-            <Field label="Properties" className="sm:col-span-2" help="Leave empty for every property.">
-              <ChipSelect options={propertyOptions} value={draft.propertyIds} onChange={(propertyIds) => patch({ propertyIds })} dataAttr="vendor-properties" />
-            </Field>
           ) : null}
-          <Field label="Default for" className="sm:col-span-2" help="Suggested first when a service of this trade is scheduled.">
-            <ChipSelect
-              options={VENDOR_TRADE_OPTIONS.map((t) => ({ id: t, label: t }))}
-              value={draft.defaultForTrades}
-              onChange={(defaultForTrades) => patch({ defaultForTrades })}
-              dataAttr="vendor-default-for"
-            />
-          </Field>
-          <Field label="Notes" className="sm:col-span-2">
-            <Textarea
-              rows={3}
-              value={draft.notes}
-              onChange={(e) => patch({ notes: e.target.value })}
-              placeholder="License, service area, after-hours contact, billing notes…"
-              data-attr="vendor-notes"
-            />
-          </Field>
+          {profileFacts}
+          {openJobs.length ? (
+            <p className="text-[13.5px]">{openJobs.length} open {openJobs.length === 1 ? "job" : "jobs"}</p>
+          ) : null}
         </div>
       ) : null}
 
-      {tab === "messages" ? (
-        <VendorMessagesTab
-          draft={draft}
-          callName={callName}
-          reach={reach}
-          sampleJob={jobs[0] ?? null}
-          onChange={(messaging) => patch({ messaging })}
-        />
+      {tab === "profile" ? profileFacts : null}
+
+      {tab === "communication" ? (
+        <div className="min-h-[520px] px-1 sm:px-2" data-attr="vendor-detail-inbox">
+          <div className="px-2 pb-2 sm:px-3">
+            <ManagerPortalStatusPills
+              tabs={[
+                { id: "all", label: "Active", count: 0 },
+                { id: "trash", label: "Archived", count: 0 },
+              ]}
+              activeId={inboxTab}
+              onChange={(id) => setInboxTab(id === "trash" ? "trash" : "all")}
+            />
+          </div>
+          <ManagerInbox
+            tabId={inboxTab}
+            embeddedInCommunication
+            filterVendorEmail={draft.email}
+            filterVendorPhone={draft.phone}
+            emptyThreadFallback={
+              <p className="px-4 py-10 text-center text-sm text-muted">
+                No messages with {callName} yet.
+              </p>
+            }
+          />
+        </div>
       ) : null}
 
-      {tab === "checkins" ? (
+      {tab === "check-ins" ? (
         <VendorCheckInsTab
           checkIns={draft.checkIns}
           callName={callName}
@@ -485,7 +442,7 @@ export function ManagerVendorDetail({
       {tab === "jobs" ? (
         <div className="px-3 pb-4 sm:px-4">
           {jobs.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted">No services assigned to {callName} yet.</p>
+            <p className="py-8 text-center text-sm">No services assigned to {callName} yet.</p>
           ) : (
             <ul className="divide-y divide-border rounded-xl border border-border">
               {jobs.map((job) => {
@@ -494,20 +451,11 @@ export function ManagerVendorDetail({
                   <li key={job.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium text-foreground">{job.title}</p>
-                      <p className="truncate text-xs text-muted">
+                      <p className="truncate text-[13px]">
                         {[job.propertyName, job.unit, job.residentName].filter(Boolean).join(" · ")}
                       </p>
                     </div>
-                    <span
-                      className={cn(
-                        "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                        l.tone === "ok" && "bg-emerald-50 text-emerald-700",
-                        l.tone === "warn" && "bg-amber-50 text-amber-700",
-                        l.tone === "mut" && "bg-muted text-muted",
-                      )}
-                    >
-                      {l.status}
-                    </span>
+                    <span className="shrink-0 text-[13px]">{l.status}</span>
                   </li>
                 );
               })}
@@ -515,116 +463,6 @@ export function ManagerVendorDetail({
           )}
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function VendorMessagesTab({
-  draft,
-  callName,
-  reach,
-  sampleJob,
-  onChange,
-}: {
-  draft: VendorDraft;
-  callName: string;
-  reach: ReturnType<typeof resolveVendorChannel>;
-  sampleJob: DemoManagerWorkOrderRow | null;
-  onChange: (next: VendorMessaging) => void;
-}) {
-  const [previewEvent, setPreviewEvent] = useState<VendorMessageEvent>("visit_scheduled");
-  const ctx = useMemo(
-    () => ({
-      vendor: callName,
-      service: sampleJob?.title || "Kitchen faucet drip",
-      property: sampleJob?.propertyName || "The Pioneer",
-      unit: sampleJob?.unit || "Room 8B",
-      resident_first: (sampleJob?.residentName || "Liam Foster").split(" ")[0],
-      visit_time: "Mon, Sep 14 · 10:00 AM",
-      priority: sampleJob?.priority || "Medium",
-      notes: sampleJob?.description || "",
-      cost: sampleJob?.cost && sampleJob.cost !== "—" ? sampleJob.cost : "$140",
-    }),
-    [callName, sampleJob],
-  );
-  const preview = renderVendorMessage(vendorTemplateFor(draft.messaging, previewEvent).body, ctx);
-  const setTemplate = (event: VendorMessageEvent, next: { enabled?: boolean; body?: string }) => {
-    const current = draft.messaging.templates[event] ?? { enabled: true, body: "" };
-    onChange({ ...draft.messaging, templates: { ...draft.messaging.templates, [event]: { ...current, ...next } } });
-  };
-
-  return (
-    <div className="space-y-4 px-3 pb-4 sm:px-4">
-      <Field
-        label="Instructions for every message"
-        help="Read by the assistant when it drafts or answers on your behalf. Your own words — keep it to what matters."
-      >
-        <Textarea
-          rows={3}
-          value={draft.messaging.instructions}
-          onChange={(e) => onChange({ ...draft.messaging, instructions: e.target.value })}
-          placeholder="Always Spanish. Keep it short — reads on the road. Never before 7am or after 8pm. Ask for a reply of OK."
-          data-attr="vendor-messaging-instructions"
-        />
-      </Field>
-
-      <div>
-        <p className="mb-2 text-sm font-semibold text-foreground">What {callName} gets, step by step</p>
-        <div className="space-y-2">
-          {VENDOR_MESSAGE_EVENTS.map((event) => {
-            const meta = VENDOR_MESSAGE_EVENT_META[event];
-            const t = vendorTemplateFor(draft.messaging, event);
-            const own = draft.messaging.templates[event]?.body ?? "";
-            const unknown = unknownVendorMessageTokens(own);
-            return (
-              <div key={event} className={cn("rounded-xl border border-border p-3", !t.enabled && "opacity-70")} data-attr={`vendor-template-${event}`}>
-                <div className="flex items-center gap-2.5">
-                  <Toggle checked={t.enabled} onChange={(enabled) => setTemplate(event, { enabled })} label={`${meta.label} on`} />
-                  <button type="button" className="text-sm font-semibold text-foreground" onClick={() => setPreviewEvent(event)}>
-                    {meta.label}
-                  </button>
-                  <span className="text-xs text-muted">· {meta.when}</span>
-                </div>
-                <Textarea
-                  rows={2}
-                  className="mt-2"
-                  value={own}
-                  onChange={(e) => setTemplate(event, { body: e.target.value })}
-                  onFocus={() => setPreviewEvent(event)}
-                  placeholder={t.body}
-                  data-attr={`vendor-template-${event}-body`}
-                />
-                <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                  {meta.variables.map((v) => (
-                    <code key={v} className="rounded bg-primary/10 px-1.5 py-0.5 text-[11px] text-primary">{`{${v}}`}</code>
-                  ))}
-                  {!own.trim() ? <span className="ml-1 text-[11px] text-muted">Blank = the built-in wording shown above.</span> : null}
-                  {unknown.length ? (
-                    <span className="ml-1 text-[11px] text-amber-700">
-                      {unknown.map((u) => `{${u}}`).join(", ")} is not a variable and will be sent as typed.
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <p className="mt-2 text-xs text-muted">
-          Access codes are never a variable — {callName} asks the assistant once assigned and the visit is booked.
-        </p>
-      </div>
-
-      <div className="flex items-start gap-3">
-        <p className="pt-2 text-xs text-muted">Preview →</p>
-        <div className="max-w-sm rounded-2xl rounded-bl-md bg-primary/10 px-3 py-2 text-sm text-foreground" data-attr="vendor-message-preview">
-          {preview}
-          <p className="mt-1 text-[11px] text-muted">
-            {VENDOR_MESSAGE_EVENT_META[previewEvent].label} · as {vendorChannelLabel(reach.channel).toLowerCase()}
-            {reach.channel === "sms" ? ` · ${estimateSmsSegments(preview)} segment${estimateSmsSegments(preview) === 1 ? "" : "s"}` : ""}
-            {reach.note ? ` · ${reach.note}` : ""}
-          </p>
-        </div>
-      </div>
     </div>
   );
 }

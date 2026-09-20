@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -361,6 +361,7 @@ export function FieldSingleSelect({
   variant = "field",
   inherited = false,
   valueClassName,
+  menuFooter,
 }: {
   label: string;
   options?: CheckboxMultiSelectOption[];
@@ -382,6 +383,7 @@ export function FieldSingleSelect({
   inherited?: boolean;
   /** Extra classes on the value text (e.g. right padding so an overlaid control never covers it). */
   valueClassName?: string;
+  menuFooter?: ReactNode | ((close: () => void) => ReactNode);
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -450,12 +452,23 @@ export function FieldSingleSelect({
     ? (filteredGroups?.length ?? 0) > 0
     : filteredOptions.length > 0;
 
-  const listRef = useFieldSelectListboxPointerPick((pickedValue) => {
+  const attachListPick = useFieldSelectListboxPointerPick((pickedValue) => {
     const option = flatOptions.find((o) => o.value === pickedValue);
     if (!option || option.disabled || disabled) return;
     onChange(pickedValue);
     deferAfterFieldSelectPick(() => setOpenAndReset(false));
   });
+  const listRef = useCallback(
+    (list: HTMLDivElement | null) => {
+      attachListPick(list);
+      if (!list) return;
+      const selected = list.querySelector('[aria-selected="true"]');
+      if (selected instanceof HTMLElement) {
+        selected.scrollIntoView?.({ block: "center", inline: "nearest" });
+      }
+    },
+    [attachListPick],
+  );
 
   const renderOption = (opt: CheckboxMultiSelectOption) => {
     const active = opt.value === value;
@@ -553,6 +566,11 @@ export function FieldSingleSelect({
             filteredOptions.map((opt) => renderOption(opt))
           )}
         </div>
+        {menuFooter ? (
+          <div className="border-t border-border px-2 py-1.5">
+            {typeof menuFooter === "function" ? menuFooter(() => setOpenAndReset(false)) : menuFooter}
+          </div>
+        ) : null}
       </div>
     ) : null;
 

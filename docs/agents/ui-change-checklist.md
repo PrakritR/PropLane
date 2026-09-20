@@ -19,6 +19,7 @@ re-reading solved work or "fixing" something fixed months ago.
 | 3 | `docs/design.md` | The visual system — colour, type, spacing, Blue Steel |
 | 4 | `docs/website-component-standard.md` | Marketing-site counterpart to `design.md` |
 | 5 | `AGENTS.md` → Portal UI system | `PortalRecordListSurface` — every list tab copies Properties |
+| 6 | `docs/agents/send-message-compose.md` | Any send copies New message; body is auto-formatted from every collected fact |
 
 ### Tier 2 — point-in-time, never a rule
 
@@ -61,7 +62,9 @@ Reference: manager **Properties** tab.
 
 ## No subtext
 
-The captain's standing rule (PLAN-0914-1615): a screen is labels and controls.
+Site-wide, not wizard-only. The captain's standing rule (PLAN-0914-1615): a
+screen is labels and controls. Never generate a muted sentence under a heading,
+row, field, or choice.
 
 - **Do not add** step subtitles, section descriptions, field hints, "optional"
   markers, explanatory sentences under a row or in a footer, or descriptions
@@ -78,7 +81,23 @@ The captain's standing rule (PLAN-0914-1615): a screen is labels and controls.
   phone; the website gets the same cards in its wider workspace.
 - Guard: `tests/unit/no-subtext-listing-wizard.test.ts` reads the wizard
   source and fails on `hint=`, `subtitle=`, `description=`, `optional`, or a
-  sentence of grey text.
+  sentence of grey text. Billing: `tests/unit/pro-plan-no-subtext.test.ts`.
+  Do not site-sweep existing copy unless the surface is in scope.
+
+## Icon chrome
+
+Secondary utilities in a title or card header — Share, Copy, Filter, Settings,
+Download, Edit, Delete — are `PortalIconAction` in the top right. The word is
+the tooltip and `aria-label` only; never a labeled pill or outline button in
+that chrome.
+
+Labeled text is reserved for a data-commit (**Save**) or a destructive confirm
+(**Delete** after confirm). Apply this on the surface you are changing; do not
+site-sweep every utility in the app.
+
+**Settings property scope:** one property control in module chrome (the title
+row next to Services, Tours, …). Never repeat it on each section header.
+Account / Billing / API / Feedback stay unscoped.
 
 ## Mobile
 

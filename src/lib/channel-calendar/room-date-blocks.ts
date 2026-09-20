@@ -72,6 +72,7 @@ export async function fetchRoomDateBlocks(): Promise<RoomDateBlock[]> {
 export async function saveRoomDateBlock(
   userId: string,
   input: {
+    id?: string;
     propertyId: string;
     roomId: string;
     checkIn: string;
@@ -88,7 +89,7 @@ export async function saveRoomDateBlock(
       ? crypto.randomUUID()
       : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   const block: RoomDateBlock = {
-    id: roomDateBlockRecordId(userId, uid),
+    id: input.id?.trim() || roomDateBlockRecordId(userId, uid),
     propertyId: input.propertyId,
     roomId: input.roomId,
     checkIn: input.checkIn,

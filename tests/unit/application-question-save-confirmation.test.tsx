@@ -9,7 +9,7 @@
 // the server-confirmed persist (`persistManagerListingSubmissionOnServer`)
 // and only treats the save as successful when it resolves true.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
@@ -40,10 +40,18 @@ function renderEditor() {
   return { onSaved, onClose };
 }
 
+async function waitWorkspace() {
+  await screen.findByRole("dialog", { name: "Edit application" });
+}
+
+function jumpRail(id: string) {
+  const btn = document.querySelector(`[data-attr="listing-v2-rail-${id}"]`) as HTMLElement | null;
+  expect(btn).not.toBeNull();
+  fireEvent.click(btn!);
+}
+
 function expandFirstQuestionSection() {
-  const toggle = document.querySelector('[data-attr^="application-section-toggle-"]') as HTMLElement | null;
-  expect(toggle).not.toBeNull();
-  fireEvent.click(toggle!);
+  jumpRail("household");
 }
 
 function removeFirstQuestion() {
@@ -54,7 +62,10 @@ function removeFirstQuestion() {
 }
 
 function saveButton(): HTMLButtonElement {
-  return document.querySelector('[data-attr="application-questions-save"]') as HTMLButtonElement;
+  jumpRail("preview");
+  const save = document.querySelector('[data-attr="application-questions-save"]') as HTMLButtonElement;
+  expect(save).not.toBeNull();
+  return save;
 }
 
 beforeEach(() => {
@@ -70,6 +81,7 @@ describe("application-question editor — server-confirmed save", () => {
   it("does not close or report success when the server refuses the save", async () => {
     persistOnServer.mockResolvedValue(false);
     const { onSaved, onClose } = renderEditor();
+    await waitWorkspace();
 
     removeFirstQuestion();
     expect(saveButton().disabled).toBe(false);
@@ -95,6 +107,7 @@ describe("application-question editor — server-confirmed save", () => {
   it("closes and reports success only after the server confirms the save", async () => {
     persistOnServer.mockResolvedValue(true);
     const { onSaved, onClose } = renderEditor();
+    await waitWorkspace();
 
     removeFirstQuestion();
     fireEvent.click(saveButton());

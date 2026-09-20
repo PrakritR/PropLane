@@ -99,7 +99,7 @@ export const AUTOMATED_MESSAGE_CATALOG: AutomatedMessageCatalogEntry[] = [
   { domain: "tour", event: "cancelled_by_guest", area: "tours", label: "Cancelled by guest", audiences: ["manager"], placeholders: ["guestName", "propertyTitle", "whenLabel"] },
   // ---- WS5: shared-tour claim + availability, team-only ----
   { domain: "tour", event: "claimed", area: "tours", label: "Tour claimed by a teammate", audiences: ["team"], placeholders: ["guestName", "propertyTitle", "whenLabel", "claimedByName"] },
-  { domain: "availability", event: "changed", area: "communication", label: "Availability changed", audiences: ["team"], placeholders: ["changedByName", "summary"] },
+  { domain: "availability", event: "changed", area: "tours", label: "Availability changed", audiences: ["team"], placeholders: ["changedByName", "summary"] },
   // ---- Inspections (a report has two sides; the resident submits theirs, the manager may reopen it) ----
   { domain: "inspection", event: "submitted", area: "inspections", label: "Resident submitted their photos", audiences: ["manager"], placeholders: ["residentName", "propertyTitle", "kind", "url"] },
   { domain: "inspection", event: "reopened", area: "inspections", label: "Report reopened for the resident", audiences: ["resident"], placeholders: ["residentName", "propertyTitle", "kind", "url"] },

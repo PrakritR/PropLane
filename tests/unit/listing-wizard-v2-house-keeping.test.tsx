@@ -28,6 +28,7 @@ describe("Basics · Move-in · The building · Local compliance", () => {
       </PortalAssistantConfigProvider>,
     );
     const bar = document.querySelector<HTMLButtonElement>("[data-attr='listing-v2-house-keeping']")!;
+    expect(bar.textContent).toContain("Advanced");
     expect(bar.getAttribute("aria-expanded")).toBe("false");
     expect(document.querySelector("[data-attr='listing-v2-house-compliance']")).toBeNull();
 

@@ -15,7 +15,9 @@ import {
   computeProratedFirstMonthTotals,
   computeProratedLastMonthTotals,
 } from "@/lib/lease-first-period-proration";
+import { getPropertyById } from "@/lib/rental-application/data";
 import { parseFlexibleLocalDate } from "@/lib/rental-application/lease-dates";
+import { applicantFirstChoiceRentLabel } from "@/lib/rental-application/listing-fees-display";
 import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 
 export type RenewalPaymentLine = {
@@ -38,6 +40,14 @@ export type RenewalPaymentPreview = {
 };
 
 const EMPTY: RenewalPaymentPreview = { applies: false, lines: [], total: null, note: "" };
+
+/** Advertised house rent for the leased room — never the renewal amount. */
+export function listingAdvertisedRentLabelForLease(propertyId: string, roomChoice?: string): string {
+  const prop = propertyId.trim() ? getPropertyById(propertyId.trim()) : undefined;
+  const sub = prop?.listingSubmission?.v === 1 ? prop.listingSubmission : undefined;
+  const label = applicantFirstChoiceRentLabel(sub, roomChoice ?? "");
+  return !label || label === "—" ? "" : label;
+}
 
 export function formatRenewalUsd(amount: number): string {
   return `$${amount.toFixed(2).replace(/\.00$/, "")}`;

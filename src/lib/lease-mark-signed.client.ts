@@ -12,6 +12,7 @@ import { track } from "@/lib/analytics/track-client";
 import { recordDelightMoment } from "@/lib/native/app-review";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { recordApprovedApplicationCharges } from "@/lib/household-charges";
+import { applySignedLeaseRenewal } from "@/lib/lease-renewal-payments";
 import { readLeasePipeline, syncLeasePipelineFromServer, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { freezeSignedLeaseTerms, persistFrozenSignedLeaseTerms } from "@/lib/lease-signed-terms";
 import { normalizeApplicationAxisId, readManagerApplicationRows } from "@/lib/manager-applications-storage";
@@ -79,18 +80,24 @@ export async function markLeaseSignedOffPlatform(
   // A signed lease is what makes rent, deposit and move-in charges real —
   // the same moment an e-signed lease bills. Best effort: a charge that does
   // not post here posts on the next Payments materialize.
+  // New terms stashed as pendingRenewal apply here too — mark-signed is the
+  // paper path; manager countersign is the e-sign path.
   try {
-    const axisId = (marked ?? row).axisId ? normalizeApplicationAxisId((marked ?? row).axisId) : "";
-    const email = (marked ?? row).residentEmail.trim().toLowerCase();
-    const app = readManagerApplicationRows().find(
-      (a) => (axisId && normalizeApplicationAxisId(a.id) === axisId) || (email && a.email?.trim().toLowerCase() === email),
-    );
-    if (app) {
-      // Signature freezes the money terms before the first bill is posted, so the
-      // listing's price from here on is someone else's business.
-      const frozen = freezeSignedLeaseTerms(app, { managerUserId: opts.managerUserId, lease: marked ?? row });
-      if (frozen.changed) persistFrozenSignedLeaseTerms([frozen.row]);
-      recordApprovedApplicationCharges(frozen.row, opts.managerUserId, true, { leaseExecuted: true });
+    if ((marked ?? row).pendingRenewal) {
+      await applySignedLeaseRenewal(rowId, opts.managerUserId);
+    } else {
+      const axisId = (marked ?? row).axisId ? normalizeApplicationAxisId((marked ?? row).axisId) : "";
+      const email = (marked ?? row).residentEmail.trim().toLowerCase();
+      const app = readManagerApplicationRows().find(
+        (a) => (axisId && normalizeApplicationAxisId(a.id) === axisId) || (email && a.email?.trim().toLowerCase() === email),
+      );
+      if (app) {
+        // Signature freezes the money terms before the first bill is posted, so the
+        // listing's price from here on is someone else's business.
+        const frozen = freezeSignedLeaseTerms(app, { managerUserId: opts.managerUserId, lease: marked ?? row });
+        if (frozen.changed) persistFrozenSignedLeaseTerms([frozen.row]);
+        recordApprovedApplicationCharges(frozen.row, opts.managerUserId, true, { leaseExecuted: true });
+      }
     }
   } catch {
     /* charges reconcile on the next materialize */

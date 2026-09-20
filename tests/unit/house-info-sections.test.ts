@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   HOUSE_INFO_SECTIONS,
@@ -263,6 +264,15 @@ describe("houseInfoRenderSections", () => {
   it("returns nothing for an empty or missing record", () => {
     expect(houseInfoRenderSections(emptyHouseInfo())).toEqual([]);
     expect(houseInfoRenderSections(null)).toEqual([]);
+  });
+});
+
+describe("house details editor chrome", () => {
+  it("puts the expand mark at the end of each section row", () => {
+    const src = readFileSync("src/components/portal/house-info-sections.tsx", "utf8");
+    expect(src).toContain("export function HouseDetailsExpandable");
+    expect(src).toContain("PortalTableExpandChevron");
+    expect(src.indexOf("SectionCountPill")).toBeLessThan(src.lastIndexOf("PortalTableExpandChevron"));
   });
 });
 

@@ -22,7 +22,9 @@ export type VendorIncomeRow = {
 export type VendorIncomeFilters = {
   from: string;
   to: string;
-  propertyId: string;
+  propertyId?: string;
+  propertyIds?: string[];
+  query?: string;
 };
 
 function propertyLabel(row: DemoManagerWorkOrderRow): string {
@@ -144,8 +146,15 @@ function inDateRange(dateIso: string, from: string, to: string): boolean {
 }
 
 export function filterVendorIncomeRows(rows: VendorIncomeRow[], filters: VendorIncomeFilters): VendorIncomeRow[] {
+  const propertyIds = (filters.propertyIds ?? []).filter(Boolean);
+  const query = filters.query?.trim().toLowerCase() ?? "";
   return rows.filter((row) => {
     if (filters.propertyId && row.propertyId !== filters.propertyId) return false;
+    if (propertyIds.length > 0 && !propertyIds.includes(row.propertyId)) return false;
+    if (query) {
+      const haystack = `${row.workOrderTitle} ${row.propertyLabel}`.toLowerCase();
+      if (!haystack.includes(query)) return false;
+    }
     return inDateRange(row.dateIso, filters.from, filters.to);
   });
 }

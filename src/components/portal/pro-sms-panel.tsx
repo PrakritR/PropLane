@@ -30,6 +30,7 @@ import {
   InboxAvatar,
   InboxComposer,
   InboxThreadEmpty,
+  InboxThreadSkeleton,
   InboxTwoPane,
   PortalInboxEmptyState,
   type InboxListSegment,
@@ -950,7 +951,11 @@ export const ManagerSmsPanel = forwardRef<
   );
 
   const threadPane = !active ? (
-    <InboxThreadEmpty hint="Choose a conversation on the left, or use New message above." />
+    controlledActiveId ? (
+      <InboxThreadSkeleton />
+    ) : (
+      <InboxThreadEmpty hint="Choose a conversation on the left, or use New message above." />
+    )
   ) : (
     <div className={pageScroll ? "flex flex-col" : "flex h-full min-h-0 flex-1 flex-col overflow-hidden"}>
       <header
@@ -1047,7 +1052,7 @@ export const ManagerSmsPanel = forwardRef<
           </div>
         ) : (
           <div
-            className={`flex w-full flex-col gap-2 ${pageScroll ? "space-y-2" : "min-h-min flex-grow justify-end"}`}
+            className={`flex w-full flex-col gap-2 ${pageScroll ? "space-y-2" : "mt-auto"}`}
           >
             {threadMessages.map((msg, index) => (
               <Bubble
@@ -1093,7 +1098,7 @@ export const ManagerSmsPanel = forwardRef<
         </p>
       ) : null}
 
-      {!active.archived ? (
+      <div className="shrink-0">
       <InboxComposer
         value={draft}
         onChange={setDraft}
@@ -1118,7 +1123,7 @@ export const ManagerSmsPanel = forwardRef<
           </>
         }
       />
-      ) : null}
+      </div>
     </div>
   );
 

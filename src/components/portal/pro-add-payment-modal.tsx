@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Modal, MODAL_FIELD_LABEL_CLASS, ModalFooter } from "@/components/ui/modal";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
+import { PreviewPanel, WizardField, WizardSelect } from "@/components/portal/add-workspace/parts";
+import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { Input, Select } from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import type { ManagerPaymentBucket } from "@/data/demo-portal";
 import { createManagerCharge } from "@/lib/household-charges";
 import { MANAGER_PAYMENT_PRESETS, type ManagerPaymentPresetId } from "@/lib/payment-policy";
@@ -20,16 +23,11 @@ import {
 } from "@/lib/manager-applications-storage";
 import {
   applicationVisibleToPortalUser,
-  collectLinkedPropertyIdsForModule,
-  resolvePropertyLabelForId,
+  buildManagerPropertyFilterOptions,
 } from "@/lib/manager-portfolio-access";
 import { getRoomChoiceLabel } from "@/lib/rental-application/data";
-import {
-  PROPERTY_PIPELINE_EVENT,
-  readExtraListingsForUser,
-  readPendingManagerPropertiesForUser,
-  syncPropertyPipelineFromServer,
-} from "@/lib/demo-property-pipeline";
+import { PROPERTY_PIPELINE_EVENT, syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
+import { WORKSPACE_SELECTION_EVENT } from "@/lib/workspaces/selection";
 
 function dueLabelFromIso(iso: string): string {
   const d = new Date(`${iso}T12:00:00`);
@@ -52,46 +50,6 @@ type PropertyPaymentOption = {
   propertyId: string;
   propertyLabel: string;
 };
-
-function buildManagerPropertyOptions(managerUserId: string | null): PropertyPaymentOption[] {
-  if (!managerUserId) return [];
-  const seen = new Map<string, PropertyPaymentOption>();
-
-  for (const property of readExtraListingsForUser(managerUserId)) {
-    const propertyId = property.id.trim();
-    if (!propertyId || seen.has(propertyId)) continue;
-    const propertyLabel = displayPropertyLabel(property.buildingName.trim() || property.title);
-    if (!propertyLabel) continue;
-    seen.set(propertyId, { propertyId, propertyLabel });
-  }
-
-  for (const property of readPendingManagerPropertiesForUser(managerUserId)) {
-    const propertyId = property.id.trim();
-    if (!propertyId || seen.has(propertyId)) continue;
-    const propertyLabel = displayPropertyLabel(property.buildingName.trim());
-    if (!propertyLabel) continue;
-    seen.set(propertyId, { propertyId, propertyLabel });
-  }
-
-  // A co-manager's linked listings live in the OWNER's bucket of the property
-  // pipeline store, never this viewer's, so the two loops above see none of them
-  // and the picker reads "No properties in portfolio" for a co-manager who can
-  // plainly see the same homes on the Properties tab (AXI-156). Same third loop
-  // `manager-add-lease-modal` already had.
-  // EDIT level, not read: this picker is the create surface, and a co-manager who
-  // may only VIEW an owner's payments must not be offered the owner's property to
-  // bill against.
-  for (const propertyId of collectLinkedPropertyIdsForModule(managerUserId, "payments", "edit")) {
-    if (!propertyId || seen.has(propertyId)) continue;
-    const propertyLabel = displayPropertyLabel(resolvePropertyLabelForId(propertyId));
-    if (!propertyLabel) continue;
-    seen.set(propertyId, { propertyId, propertyLabel });
-  }
-
-  return [...seen.values()].sort((a, b) =>
-    a.propertyLabel.localeCompare(b.propertyLabel, undefined, { sensitivity: "base" }),
-  );
-}
 
 type ResidentPaymentOption = {
   applicationId: string;
@@ -174,6 +132,9 @@ export function ManagerAddPaymentModal({
   initialPropertyId?: string;
 }) {
   const { showToast } = useAppUi();
+  const router = useRouter();
+  const [stepIdx, setStepIdx] = useState(0);
+  const [stepError, setStepError] = useState<string | null>(null);
   const [applicationTick, setApplicationTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
   const [propertyId, setPropertyId] = useState("");
@@ -194,15 +155,22 @@ export function ManagerAddPaymentModal({
     void syncPropertyPipelineFromServer({ force: true }).then(onProperties);
     window.addEventListener(MANAGER_APPLICATIONS_EVENT, onApplications);
     window.addEventListener(PROPERTY_PIPELINE_EVENT, onProperties);
+    window.addEventListener(WORKSPACE_SELECTION_EVENT, onProperties);
     return () => {
       window.removeEventListener(MANAGER_APPLICATIONS_EVENT, onApplications);
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, onProperties);
+      window.removeEventListener(WORKSPACE_SELECTION_EVENT, onProperties);
     };
   }, [open, managerUserId]);
 
   const propertyOptions = useMemo(() => {
     void propertyTick;
-    return buildManagerPropertyOptions(managerUserId);
+    return buildManagerPropertyFilterOptions(managerUserId)
+      .map((option) => ({
+        propertyId: option.id,
+        propertyLabel: displayPropertyLabel(option.label) || option.label,
+      }))
+      .filter((option) => option.propertyLabel);
   }, [managerUserId, propertyTick]);
 
   const residentOptions = useMemo(() => {
@@ -255,6 +223,8 @@ export function ManagerAddPaymentModal({
     setBucket("pending");
     setNoticePreview(null);
     setNoticeBusy(false);
+    setStepIdx(0);
+    setStepError(null);
   };
 
   const handleClose = () => {
@@ -383,139 +353,180 @@ export function ManagerAddPaymentModal({
     });
 
   const noProperties = propertyOptions.length === 0;
-  const compactField = "min-h-9 rounded-xl px-3 py-1.5 text-sm";
+  const amountNum = Number.parseFloat(amount);
+  const whoIncomplete = !propertyId || !residentApplicationId;
+  const amountIncomplete = !chargeTitle.trim() || !Number.isFinite(amountNum) || amountNum <= 0;
+  const presetLabel = MANAGER_PAYMENT_PRESETS.find((option) => option.id === preset)?.label ?? "Charge";
+  const propertyLabel = selectedProperty?.propertyLabel ?? "Not set";
+  const residentLabel = selectedResident?.residentName ?? "Not set";
+  const amountLabel = Number.isFinite(amountNum) && amountNum > 0 ? `$${amountNum.toFixed(2)}` : "Not set";
+  const steps: AddWorkspaceStep[] = [
+    { id: "who", label: "Who", summary: whoIncomplete ? "Property and resident" : `${residentLabel} · ${propertyLabel}`, incomplete: whoIncomplete },
+    { id: "amount", label: "Amount", summary: amountIncomplete ? "Amount" : `${presetLabel} · ${amountLabel}`, incomplete: amountIncomplete },
+    { id: "review", label: "Review", summary: "Ready" },
+  ];
+  const current = Math.min(stepIdx, steps.length - 1);
+  const stepId = steps[current]!.id;
 
   return (
     <>
-      <Modal
-        open={open && noticePreview === null}
-        title="Add payment"
-        onClose={handleClose}
-        dense
-        panelClassName="max-w-xl p-3 sm:p-4"
-        footer={
-          <ModalFooter>
-            <Button
-              type="button"
-              variant="primary"
-              className="h-9 rounded-full px-4 text-sm"
-              onClick={reviewPayment}
-              disabled={!propertyId}
-            >
-              Review & add payment
-            </Button>
-          </ModalFooter>
-        }
-      >
-        <div className="grid gap-2 sm:grid-cols-2">
-          <label className="flex flex-col gap-0.5 sm:col-span-2">
-            <span className={MODAL_FIELD_LABEL_CLASS}>Payment type</span>
-            <Select value={preset} className={compactField} onChange={(e) => onPresetChange(e.target.value as ManagerPaymentPresetId)}>
-              {MANAGER_PAYMENT_PRESETS.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
-          </label>
-          <label className="flex flex-col gap-0.5">
-            <span className={MODAL_FIELD_LABEL_CLASS}>Property</span>
-            <Select
-              className={compactField}
-              value={propertyId}
-              onChange={(e) => {
-                setPropertyId(e.target.value);
-                setResidentApplicationId("");
-              }}
-              disabled={noProperties}
-            >
-              <option value="">{noProperties ? "No properties in portfolio" : "Select property"}</option>
-              {propertyOptions.map((option) => (
-                <option key={option.propertyId} value={option.propertyId}>
-                  {option.propertyLabel}
-                </option>
-              ))}
-            </Select>
-          </label>
-          <label className="flex flex-col gap-0.5">
-            <span className={MODAL_FIELD_LABEL_CLASS}>Resident</span>
-            <Select
-              className={compactField}
-              value={residentApplicationId}
-              onChange={(e) => setResidentApplicationId(e.target.value)}
-              disabled={!propertyId || residentsForProperty.length === 0}
-            >
-              <option value="">
-                {!propertyId
-                  ? "Select property first"
-                  : residentsForProperty.length === 0
-                    ? "No residents at this property"
-                    : "Select resident"}
-              </option>
-              {residentsForProperty.map((row) => (
-                <option key={row.applicationId} value={row.applicationId}>
-                  {row.residentName}
-                </option>
-              ))}
-            </Select>
-          </label>
-          <label className="flex flex-col gap-0.5">
-            <span className={MODAL_FIELD_LABEL_CLASS}>Charge title</span>
-            <Input
-              className={compactField}
-              value={chargeTitle}
-              onChange={(e) => setChargeTitle(e.target.value)}
-              placeholder="April rent"
-              autoComplete="off"
+      {open ? (
+        <AddWorkspace
+          title="Add charge"
+          steps={steps}
+          current={current}
+          onJump={(index) => {
+            setStepError(null);
+            setStepIdx(index);
+          }}
+          onClose={handleClose}
+          onRequestClose={() => {
+            if (noticePreview) {
+              setNoticePreview(null);
+              return false;
+            }
+            return true;
+          }}
+          dirty={Boolean(propertyId || residentApplicationId || amount.trim())}
+          discardTitle="Discard this charge?"
+          assistantContext="Add a resident charge on Incoming."
+          assistantScopeKey="Add charge"
+          overlay={
+            noticePreview ? (
+              <PortalNotificationPreviewModal
+                open
+                title="New payment — notification preview"
+                onClose={() => setNoticePreview(null)}
+                recipient={noticePreview.residentEmail}
+                subject={`New charge: ${noticePreview.chargeTitle}`}
+                body={previewBody ?? ""}
+                showChannelPicker
+                emailAvailable={Boolean(noticePreview.residentEmail?.includes("@"))}
+                smsAvailable
+                deliverViaKind="payments"
+                hideSendViaFooterNote
+                confirmLabel="Add payment & send notice"
+                confirmLabelWithoutMessage="Add payment only"
+                confirmBusy={noticeBusy}
+                confirmBusyLabel="Adding…"
+                cancelLabel="Back"
+                onConfirm={(skipMessage, channels, draft) => void confirmPayment(skipMessage, channels, draft)}
+              />
+            ) : null
+          }
+          sidePanel={
+            <PreviewPanel
+              title="Charge"
+              name={residentLabel}
+              facts={[
+                { label: "Resident", value: residentLabel, warn: !residentApplicationId },
+                { label: "Type", value: presetLabel },
+                { label: "Amount", value: amountLabel, warn: amountIncomplete },
+              ]}
+              creates={[
+                { tone: "yes", text: "Pending charge on Incoming" },
+                { tone: "no", text: "Reminder uses your payment settings" },
+              ]}
             />
-          </label>
-          <label className="flex flex-col gap-0.5">
-            <span className={MODAL_FIELD_LABEL_CLASS}>Amount (USD)</span>
-            <Input
-              className={compactField}
-              type="number"
-              inputMode="decimal"
-              min={0.01}
-              step={0.01}
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="1850"
-            />
-          </label>
-          <label className="flex flex-col gap-0.5">
-            <span className={MODAL_FIELD_LABEL_CLASS}>Due date</span>
-            <Input className={compactField} type="date" value={dueIso} onChange={(e) => setDueIso(e.target.value)} />
-          </label>
-          <label className="flex flex-col gap-0.5">
-            <span className={MODAL_FIELD_LABEL_CLASS}>Status</span>
-            <Select className={compactField} value={bucket} onChange={(e) => setBucket(e.target.value as ManagerPaymentBucket)}>
-              <option value="pending">Pending</option>
-              <option value="overdue">Overdue</option>
-              <option value="paid">Paid</option>
-            </Select>
-          </label>
-        </div>
-      </Modal>
-
-      <PortalNotificationPreviewModal
-        open={noticePreview !== null}
-        title="New payment — notification preview"
-        onClose={() => setNoticePreview(null)}
-        recipient={noticePreview?.residentEmail ?? ""}
-        subject={noticePreview ? `New charge: ${noticePreview.chargeTitle}` : ""}
-        body={previewBody ?? ""}
-        showChannelPicker
-        emailAvailable={Boolean(noticePreview?.residentEmail?.includes("@"))}
-        smsAvailable
-        deliverViaKind="payments"
-        hideSendViaFooterNote
-        confirmLabel="Add payment & send notice"
-        confirmLabelWithoutMessage="Add payment only"
-        confirmBusy={noticeBusy}
-        confirmBusyLabel="Adding…"
-        cancelLabel="Back"
-        onConfirm={(skipMessage, channels, draft) => void confirmPayment(skipMessage, channels, draft)}
-      />
+          }
+          lastLabel="Add charge"
+          nextDisabled={(stepId === "who" && whoIncomplete) || (stepId === "amount" && amountIncomplete)}
+          onBeforeNext={() => {
+            if (stepId === "who" && whoIncomplete) {
+              setStepError(noProperties ? "Add a property first." : "Select a property and resident.");
+              return false;
+            }
+            if (stepId === "amount" && amountIncomplete) {
+              setStepError("Enter a charge title and a positive amount.");
+              return false;
+            }
+            setStepError(null);
+            return true;
+          }}
+          onFinish={reviewPayment}
+          dataAttrPrefix="payments-add"
+          finishDataAttr="payments-empty-add"
+          footerNote={stepError ? <span className="text-sm text-rose-600">{stepError}</span> : null}
+        >
+          {stepId === "who" ? (
+            <StepColumn>
+              <StepHeading title="Property and resident" />
+              {noProperties ? (
+                <div className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border px-4 py-8">
+                  <p className="text-[16px] font-bold">No properties</p>
+                  <Button type="button" onClick={() => router.push("/portal/properties")}>Add property</Button>
+                </div>
+              ) : (
+                <>
+                  <WizardSelect
+                    label="Property"
+                    value={propertyId}
+                    onChange={(next) => {
+                      setPropertyId(next);
+                      setResidentApplicationId("");
+                    }}
+                    options={propertyOptions.map((option) => ({ value: option.propertyId, label: option.propertyLabel }))}
+                    placeholder="Select property"
+                  />
+                  <WizardSelect
+                    label="Resident"
+                    value={residentApplicationId}
+                    onChange={setResidentApplicationId}
+                    options={residentsForProperty.map((row) => ({ value: row.applicationId, label: row.residentName }))}
+                    placeholder={!propertyId ? "Select property first" : residentsForProperty.length === 0 ? "No residents at this property" : "Select resident"}
+                    disabled={!propertyId}
+                  />
+                </>
+              )}
+            </StepColumn>
+          ) : null}
+          {stepId === "amount" ? (
+            <StepColumn>
+              <StepHeading title="Amount" />
+              <WizardSelect
+                label="Type"
+                value={preset}
+                onChange={(next) => onPresetChange(next as ManagerPaymentPresetId)}
+                options={MANAGER_PAYMENT_PRESETS.map((option) => ({ value: option.id, label: option.label }))}
+              />
+              <WizardField label="Charge title" required>
+                <Input value={chargeTitle} onChange={(e) => setChargeTitle(e.target.value)} placeholder="April rent" autoComplete="off" />
+              </WizardField>
+              <WizardField label="Amount" required>
+                <Input type="number" inputMode="decimal" min={0.01} step={0.01} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="1100" />
+              </WizardField>
+              <WizardField label="Due">
+                <Input type="date" value={dueIso} onChange={(e) => setDueIso(e.target.value)} />
+              </WizardField>
+              <WizardSelect
+                label="Status"
+                value={bucket}
+                onChange={(next) => setBucket(next as ManagerPaymentBucket)}
+                options={[
+                  { value: "pending", label: "Pending" },
+                  { value: "overdue", label: "Overdue" },
+                  { value: "paid", label: "Paid" },
+                ]}
+              />
+            </StepColumn>
+          ) : null}
+          {stepId === "review" ? (
+            <StepColumn>
+              <StepHeading title="Review" />
+              <PreviewPanel
+                title="Charge"
+                name={residentLabel}
+                facts={[
+                  { label: "Resident", value: residentLabel },
+                  { label: "Type", value: presetLabel },
+                  { label: "Amount", value: amountLabel },
+                ]}
+                creates={[{ tone: "yes", text: "Creates a charge on Incoming" }]}
+              />
+            </StepColumn>
+          ) : null}
+        </AddWorkspace>
+      ) : null}
     </>
   );
 }

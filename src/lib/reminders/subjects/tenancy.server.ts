@@ -21,7 +21,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { materializeReminders, type ReminderRecipient } from "@/lib/reminders/queue.server";
 import type { ReminderSettings, ReminderSubjectKind } from "@/lib/reminders/rules";
-import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
+import { loadReminderSettingsResolver } from "@/lib/reminders/settings.server";
 import {
   loadManagerReminderRecipients,
   loadTeamReminderRecipients,
@@ -159,15 +159,16 @@ export async function sweepTenancyReminders(db: SupabaseClient, now: Date = new 
   const rows = await loadTenancies(db);
   if (rows.length === 0) return 0;
   const managerIds = rows.map((row) => row.managerUserId);
-  const [settingsByManager, managerRecipients, leaseSettings] = await Promise.all([
-    loadReminderSettingsForManagers(db, managerIds),
+  const [reminderResolver, managerRecipients, leaseSettings] = await Promise.all([
+    loadReminderSettingsResolver(db, managerIds),
     loadManagerReminderRecipients(db, managerIds),
     loadLeaseAutomationSettingsForManagers(db, managerIds),
   ]);
   let queued = 0;
   for (const row of rows) {
-    const settings = settingsByManager.get(row.managerUserId);
-    if (!settings) continue;
+    // A house with its own reminder rules gets them; a lease with no property,
+    // or an un-customized house, keeps the workspace rule (PLAN-0916-1040).
+    const settings = reminderResolver.resolve(row.managerUserId, row.propertyId);
     for (const sweep of SWEEPS) {
       if (!settings.rules[sweep.kind]?.enabled) continue;
       const date = sweep.anchor(row);
@@ -249,11 +250,11 @@ export async function sweepMoveInPaymentMethod(db: SupabaseClient, now: Date = n
   const hasMethod = new Set((profiles ?? []).filter((p) => String(p.stripe_customer_id ?? "").trim()).map((p) => String(p.id)));
   const needing = upcoming.filter((row) => !hasMethod.has(String(row.residentUserId)));
   if (needing.length === 0) return 0;
-  const settingsByManager = await loadReminderSettingsForManagers(db, needing.map((row) => row.managerUserId));
+  const reminderResolver = await loadReminderSettingsResolver(db, needing.map((row) => row.managerUserId));
   let queued = 0;
   for (const row of needing) {
-    const settings = settingsByManager.get(row.managerUserId);
-    if (!settings?.rules.move_in_payment_method.enabled) continue;
+    const settings = reminderResolver.resolve(row.managerUserId, row.propertyId);
+    if (!settings.rules.move_in_payment_method.enabled) continue;
     const { data: charges } = await db
       .from("portal_household_charge_records")
       .select("id, row_data")

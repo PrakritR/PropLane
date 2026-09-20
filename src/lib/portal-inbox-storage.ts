@@ -902,7 +902,29 @@ export function lastInboundChannelOf(thread: PersistedInboxThread): InboxThreadM
     if (isRoot && !rootInbound) continue;
     if (turn.channel) return turn.channel;
   }
+  // Work-email ingest keys the first row `assistant-email-<id>` and stamps
+  // email on the root. A historical copy that lost the stamp still replies
+  // by email — the in-app default would land on a row the sender cannot read.
+  if (thread.id.startsWith("assistant-email-") && thread.folder === "inbox") return "email";
   return null;
+}
+
+/**
+ * Newest inbound channel across a person's folded email threads (Direct Chat
+ * merges several rows). Trash is ignored. Null when nothing is stamped.
+ */
+export function lastInboundChannelFromThreads(
+  threads: readonly PersistedInboxThread[],
+): InboxThreadMessageChannel | null {
+  let best: { ms: number; channel: InboxThreadMessageChannel } | null = null;
+  for (const thread of threads) {
+    if (thread.folder === "trash") continue;
+    const channel = lastInboundChannelOf(thread);
+    if (!channel) continue;
+    const ms = inboxThreadSortMs(thread.id, thread.time);
+    if (!best || ms > best.ms) best = { ms, channel };
+  }
+  return best?.channel ?? null;
 }
 
 /**

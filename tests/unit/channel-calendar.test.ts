@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isValidAirbnbImportUrl } from "@/lib/channel-calendar/airbnb-url";
+import { isValidAirbnbImportUrl, isValidBookingComImportUrl } from "@/lib/channel-calendar/airbnb-url";
 import {
   mergeChannelImportedRanges,
   stripChannelImportedRanges,
@@ -21,6 +21,16 @@ describe("isValidAirbnbImportUrl", () => {
 
   it("rejects http", () => {
     expect(isValidAirbnbImportUrl("http://www.airbnb.com/calendar/ical/x.ics")).toBe(false);
+  });
+});
+
+describe("isValidBookingComImportUrl", () => {
+  it("accepts Booking.com iCal export URLs", () => {
+    expect(isValidBookingComImportUrl("https://ical.booking.com/v1/export?t=token")).toBe(true);
+  });
+
+  it("rejects non-Booking hosts", () => {
+    expect(isValidBookingComImportUrl("https://evil.example/v1/export?t=token")).toBe(false);
   });
 });
 

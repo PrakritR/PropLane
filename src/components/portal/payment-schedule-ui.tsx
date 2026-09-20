@@ -1058,14 +1058,8 @@ function PaymentAutomationSettingsForm({
     compact && variant === "payments" ? (
       <div className={embeddedInBundle ? "space-y-3" : "space-y-3 border-t border-border pt-4"}>
         <ReminderScheduleChips draft={draft} busy={busy} onChange={applySchedulePatch} />
-        <div className="flex items-start justify-between gap-2 text-sm text-foreground">
-          <span>
-            <span className="font-medium">Late fee notices</span>
-            <span className="mt-0.5 block text-xs font-normal text-muted">
-              Account-wide gate for automatic late fees. Each listing also needs Automatic late fees
-              on in Pricing (grace days and amount are per property).
-            </span>
-          </span>
+        <div className="flex items-center justify-between gap-2 text-sm text-foreground">
+          <span className="font-medium">Late fee notices</span>
           <PortalSettingsToggle
             checked={draft.lateFeeNoticeEnabled}
             onChange={(next) => setDraft({ ...draft, lateFeeNoticeEnabled: next })}

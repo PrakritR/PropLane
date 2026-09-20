@@ -47,7 +47,7 @@ describe("room-availability-calendar", () => {
   });
 
   it("labels month tones for the calendar legend", () => {
-    expect(monthToneLabel("available")).toBe("Open");
+    expect(monthToneLabel("available")).toBe("Available");
     expect(monthToneLabel("unavailable")).toBe("Unavailable");
     expect(monthToneLabel("mixed")).toBe("Mixed");
   });

@@ -6,6 +6,7 @@
  * Resend call + audit log + inbox delivery, rather than duplicating it per route.
  */
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
+import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
@@ -32,7 +33,7 @@ export async function sendVendorNotification(
   let emailSent = false;
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (vendorEmail.includes("@") && !skippedDemoEmail && apiKey) {
-    const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
+    const from = await managerOutboundFromHeader(db, actor.userId);
     const html = `<p style="white-space:pre-wrap;font-family:sans-serif;font-size:15px;line-height:1.6;color:#1e293b">${params.body
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")

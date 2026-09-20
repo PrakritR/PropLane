@@ -40,7 +40,8 @@ describe("Team invite delegation (server contract)", () => {
     expect(ACCOUNT_LINKS).toContain("capTeamInvitePermissionsForDelegate");
   });
 
-  it("exposes a copy route that rotates the token server-side", () => {
+  it("exposes a copy route that reveals the same token, and rotates only when asked", () => {
+    expect(COPY_ROUTE).toContain("revealInviteLinkToken");
     expect(COPY_ROUTE).toContain("rotateInviteLinkToken");
     expect(COPY_ROUTE).toContain("inviteLinkUrl");
   });

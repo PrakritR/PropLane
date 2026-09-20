@@ -12,13 +12,16 @@ import {
   type LeaseRecurringFeeBillingContext,
 } from "@/lib/custom-lease-billing";
 import {
+  AIRBNB_LEASE_TERM,
   CUSTOM_LEASE_TERM,
   LONG_TERM_LEASE_TERM,
+  SHORT_TERM_LEASE_TERM,
   isLegacyFixedLeaseTerm,
 } from "@/lib/rental-application/lease-terms";
 import {
   derivePaymentAtSigningIncludesFromMatrix,
   feeAppliesToLeaseType,
+  feeScopeIsAll,
   listingFeeRowIdForPresetId,
   paymentAtSigningMatrix,
   PAYMENT_AT_SIGNING_ROOM_RENT_KEY_PREFIX,
@@ -1064,6 +1067,12 @@ export function customFeeBelongsInShortTermLeaseSection(fee: ListingFeeRow): boo
   return /^short\s*term/i.test(fee.label.trim());
 }
 
+function feeIsExclusiveShortStay(fee: Pick<ListingFeeRow, "leaseTypes">): boolean {
+  if (feeScopeIsAll(fee.leaseTypes)) return false;
+  const longSectionTerms = [LONG_TERM_LEASE_TERM, CUSTOM_LEASE_TERM, "Month-to-Month"];
+  return !longSectionTerms.some((term) => feeAppliesToLeaseType(fee, term));
+}
+
 function feeBelongsInLeaseBasicsSection(
   fee: ListingFeeRow,
   section: LeaseBasicsFeeSection,
@@ -1081,9 +1090,28 @@ function feeBelongsInLeaseBasicsSection(
 
   if (section === "short-term") {
     if (!shortTermOn) return false;
+    if (!feeScopeIsAll(fee.leaseTypes)) {
+      return feeAppliesToLeaseType(fee, SHORT_TERM_LEASE_TERM) || feeAppliesToLeaseType(fee, AIRBNB_LEASE_TERM);
+    }
     return isShortTermPreset;
   }
+
+  // LONG TERM on the public page is every non-stay fee, including Custom and
+  // month-to-month. A fee scoped only to Short-Term Stay / Airbnb stays out.
+  if (!feeScopeIsAll(fee.leaseTypes)) return !feeIsExclusiveShortStay(fee);
   return !isShortTermPreset;
+}
+
+function listingFeeRoomScopeLabel(
+  sub: ManagerListingSubmissionV1,
+  fee: Pick<ListingFeeRow, "roomIds">,
+): string | null {
+  if (feeScopeIsAll(fee.roomIds)) return null;
+  const names = (fee.roomIds ?? [])
+    .map((id) => sub.rooms.find((room) => room.id === id)?.name.trim() || id)
+    .filter(Boolean);
+  if (names.length === 0) return null;
+  return names.join(", ");
 }
 
 function listingFeeToDisplayRow(
@@ -1375,14 +1403,23 @@ export function listingFeeRowsForLeaseBasicsSection(
     if (!feeBelongsInLeaseBasicsSection(fee, section, shortTermOn)) continue;
     const row = listingFeeToDisplayRow(fee, formatPrice, section);
     if (!row) continue;
+    const roomLabel = listingFeeRoomScopeLabel(sub, fee);
+    const scoped = roomLabel
+      ? {
+          ...row,
+          title: `${row.title} · ${roomLabel}`,
+          detail: row.detail ? `${row.detail} · ${roomLabel}` : roomLabel,
+          body: `${row.body} Applies to ${roomLabel}.`,
+        }
+      : row;
     rows.push(
       foldsMonthlyIntoRent && listingFeeCadence(fee) === "monthly"
         ? {
-            ...row,
+            ...scoped,
             status: "Added to rent",
-            body: `${row.body} Included in the rent figure, never billed as a separate monthly charge.`,
+            body: `${scoped.body} Included in the rent figure, never billed as a separate monthly charge.`,
           }
-        : row,
+        : scoped,
     );
   }
 

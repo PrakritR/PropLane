@@ -5,10 +5,13 @@ import { CommunicationStatusFilterDraft, type CommunicationStatus } from "@/comp
 import { CommunicationRowActions } from "@/components/portal/communication-row-actions";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { PenSquare, Settings } from "lucide-react";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { VendorWorkNumberCard } from "@/components/portal/vendor-work-number-card";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
+import { VendorSectionSettingsModal } from "@/components/portal/vendor-section-settings-modal";
 
 import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
 import { VendorInboxPanel, type VendorInboxPanelHandle } from "@/components/portal/vendor-inbox-panel";
@@ -16,12 +19,13 @@ import { RoleSmsPanel } from "@/components/portal/role-sms-panel";
 import {
   INBOX_LIST_SCROLL,
   InboxConversationRow,
+  InboxListSegmentTabs,
   InboxTwoPane,
+  PORTAL_INBOX_LIST_TOOLBAR_CLASS,
   PortalInboxEmptyState,
   type InboxListSegment,
 } from "@/components/portal/portal-inbox-ui";
 import { PortalCommunicationShell } from "@/components/portal/portal-communication-shell";
-import { PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { inboxThreadCategoryLabel, inboxThreadUnreadCount } from "@/lib/communication-row-meta";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
 import { communicationInboxListPreview } from "@/lib/communication-assistant-inbox-list";
@@ -82,7 +86,7 @@ function VendorUnifiedInbox({
   onThreadOpenChange,
   onThreadSelectedChange,
   commBase,
-  onAddConversation,
+  listActions,
 }: {
   inboxRef: React.RefObject<VendorInboxPanelHandle | null>;
   smsUiEnabled: boolean;
@@ -97,7 +101,7 @@ function VendorUnifiedInbox({
   onThreadOpenChange?: (open: boolean) => void;
   onThreadSelectedChange?: (selected: boolean) => void;
   commBase: string;
-  onAddConversation?: () => void;
+  listActions?: React.ReactNode;
 }) {
   const { ready: sessionReady } = usePortalSession();
   const [emailThreads, setEmailThreads] = useState(() => loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, []));
@@ -235,17 +239,27 @@ function VendorUnifiedInbox({
 
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-      <VendorWorkNumberCard onTellManagers={onAddConversation} />
-      <div className="shrink-0 px-3 pb-1 pt-3">
-        <Input
-          type="search"
-          value={searchQuery}
-          onChange={(e) => onSearchQueryChange(e.target.value)}
-          placeholder="Search messages"
-          aria-label="Search messages"
-          className="h-10 min-h-10 rounded-lg"
-          data-attr="vendor-inbox-search"
-        />
+      <VendorWorkNumberCard />
+      <div className={PORTAL_INBOX_LIST_TOOLBAR_CLASS}>
+        <InboxListSegmentTabs commBase={commBase} value={listSegment} />
+        <div className="flex min-w-0 items-center gap-1">
+          <div className="relative min-w-0 flex-1">
+            <Input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => onSearchQueryChange(e.target.value)}
+              placeholder="Search messages"
+              aria-label="Search messages"
+              className="h-9 min-h-9 rounded-xl"
+              data-attr="vendor-inbox-search"
+            />
+          </div>
+          {listActions ? (
+            <div className="flex shrink-0 items-center gap-0.5" data-attr="communication-list-actions">
+              {listActions}
+            </div>
+          ) : null}
+        </div>
       </div>
       {merged.length > 0 && searchQuery.trim() ? (
         <p className="mb-2 hidden shrink-0 px-1 text-[11px] text-muted sm:block">
@@ -367,6 +381,7 @@ export function VendorCommunication({
   smsUiEnabled?: boolean;
 }) {
   const commBase = "/vendor/communication";
+  const communicationSettingsEntry = getSettingsEntryPoint("vendorCommunication");
   const inboxRef = useRef<VendorInboxPanelHandle>(null);
   const { activeThreadId, setActiveThreadId } = useCommunicationThreadId(commBase, threadId);
   const [threadOpen, setThreadOpen] = useState(Boolean(threadId));
@@ -374,33 +389,47 @@ export function VendorCommunication({
   const [status, setStatus] = useState<CommunicationStatus>(listSegment);
   useEffect(() => setStatus(listSegment), [listSegment]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const newMessageButton = (
-    <Button
-      type="button"
-      variant="outline"
-      className={`shrink-0 ${PORTAL_HEADER_PRIMARY_ACTION_BTN}`}
-      data-attr="communication-new-message"
-      onClick={() => inboxRef.current?.openCompose()}
-    >
-      New message
-    </Button>
+  const communicationCommandActions = (
+    <>
+      <PortalFilterSortSheet
+        activeCount={status === "active" ? 0 : 1}
+        compactPanel
+        filterFieldCount={1}
+        commandStripTrigger
+        dataAttr="vendor-communication-filter-open"
+      >
+        <CommunicationStatusFilterDraft value={status} onChange={setStatus} />
+      </PortalFilterSortSheet>
+      <PortalIconAction
+        icon={Settings}
+        label={communicationSettingsEntry.label}
+        data-attr={communicationSettingsEntry.dataAttr}
+        onClick={() => setSettingsOpen(true)}
+      />
+      <PortalPrimaryIconAction
+        icon={PenSquare}
+        label="New message"
+        data-attr="communication-new-message"
+        onClick={() => inboxRef.current?.openCompose()}
+      />
+    </>
   );
 
   return (
     <PortalCommunicationShell
-      title="Inbox"
-      titleAside={<>
-        <PortalFilterSortSheet activeCount={status === "active" ? 0 : 1} compactPanel filterFieldCount={1} dataAttr="vendor-communication-filter-open">
-          <CommunicationStatusFilterDraft value={status} onChange={setStatus} />
-        </PortalFilterSortSheet>
-        {newMessageButton}
-      </>}
+      title="Communication"
       hideTitleOnMobileNav
       hideMobileFilterRow={threadOpen}
       mobileThreadReading={threadOpen}
       threadSelected={threadSelected}
     >
+      <VendorSectionSettingsModal
+        open={settingsOpen}
+        title={communicationSettingsEntry.dialogTitle}
+        onClose={() => setSettingsOpen(false)}
+      />
       <VendorUnifiedInbox
         inboxRef={inboxRef}
         smsUiEnabled={smsUiEnabled}
@@ -414,7 +443,7 @@ export function VendorCommunication({
         onThreadOpenChange={setThreadOpen}
         onThreadSelectedChange={setThreadSelected}
         commBase={commBase}
-        onAddConversation={() => inboxRef.current?.openCompose()}
+        listActions={communicationCommandActions}
       />
     </PortalCommunicationShell>
   );

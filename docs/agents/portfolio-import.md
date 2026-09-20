@@ -26,6 +26,7 @@ Properties ＋ / Dashboard ＋ / empty state → Create   (pro-properties.tsx, C
         │
    ONE property   → it replaces the blank listing in place: Basics, filled, with the Import step behind it on the rail
    SEVERAL        → Import step = Found list: one row per property, ⋯ Open / Merge into… / Not a property, hint + Re-read
+        │              Left rail = editor chrome for the selected draft (Add photos, N things to finish, summaries, Draft).
         │
    Basics → Rooms → Bathrooms → Shared spaces → Pricing → Review  (ListingWizardV2 with leadingStep + headerCenter + basicsLead)
             header switcher "1 of 6 · 400 Pike St ▾" moves between drafts (several only); switching flushes first (flushRef)
@@ -39,7 +40,7 @@ Properties ＋ / Dashboard ＋ / empty state → Create   (pro-properties.tsx, C
 | Understood property → listing draft | `src/lib/property-import/to-submission.ts` |
 | Route | `src/app/api/portal/property-import/read/route.ts` |
 | Create workspace, strip + Import step, switcher | `src/components/portal/listing-wizard-v2/create-workspace.tsx`, `import-upload-step.tsx`, `import-property-switcher.tsx` |
-| Editor hooks the import uses | `ListingEditorV2` `leadingStep` / `headerCenter` / `basicsLead`; `ListingWizardV2` `flushRef` / `onDirtyChange` |
+| Editor hooks the import uses | `ListingEditorV2` `leadingStep` / `headerCenter` / `basicsLead` / `initialStep`; `listingRailChrome` on the Import rail; `ListingWizardV2` `flushRef` / `onDirtyChange` |
 | Live proof (dev only) | `scripts/testing/property-import-live-read.mts` |
 
 ## Invariants

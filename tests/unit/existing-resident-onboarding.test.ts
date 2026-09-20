@@ -13,7 +13,7 @@ describe("existing resident welcome email", () => {
     });
     expect(body.toLowerCase()).not.toContain("application has been approved");
     expect(body).toContain("pay");
-    expect(body).toContain("lease is already on file");
+    expect(body).toContain("open Leases to review and sign");
   });
 });
 

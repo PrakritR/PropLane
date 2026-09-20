@@ -23,6 +23,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Input, Textarea } from "@/components/ui/input";
+import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { OccupiedDates } from "@/components/portal/listing-wizard-v2/occupied-dates";
 import { cn } from "@/lib/utils";
 import {
@@ -108,6 +109,15 @@ import {
   type SharedSpaceDefaults,
   type SharedSpaceInheritField,
 } from "@/lib/listing-record-defaults";
+import {
+  encodeSharedSpaceAccessPick,
+  encodeSharedSpaceEveryone,
+  retainSharedSpaceAccessAfterRoomsChange,
+  sharedSpaceAccessMenuSelected,
+  sharedSpaceAccessOptions,
+  sharedSpaceAccessTriggerLabel,
+  sharedSpaceIsEveryone,
+} from "@/lib/listing-shared-space-access";
 import { listingLeaseTypeScopeOptions } from "@/lib/listing-fee-scope";
 import { LONG_TERM_LEASE_TERM as DEFAULT_QUOTE_TERM } from "@/lib/rental-application/lease-terms";
 import { ListingPricingSections } from "@/components/portal/listing-wizard-v2/listing-pricing-step";
@@ -199,8 +209,7 @@ export type ListingEditorLeadingStep = {
  * The steps a listing HAS to pass through. Basics already carries the title,
  * the photos and the description; Pricing carries the price; Review publishes.
  * Rooms, Bathrooms and Shared spaces are detail a manager adds when they want
- * to — Continue skips them, the rail marks them optional, and Basics offers
- * them under Add details.
+ * to — Continue skips them, and the rail marks them optional.
  *
  * The one exception is deliberate: a home let BY THE ROOM keeps Rooms on the
  * path, because there the rooms are the product and each carries its own price.
@@ -213,14 +222,93 @@ export type ListingEditorLeadingStep = {
 export function listingV2PathStepIds(sub: ManagerListingSubmissionV1): ListingV2StepId[] {
   const byTheRoom = sub.listingPlaceCategoryId === "shared_home";
   const hasRooms = byTheRoom || (sub.rooms?.length ?? 0) > 0;
-  const hasBathrooms = (sub.bathrooms?.length ?? 0) > 0;
-  const hasSpaces = (sub.sharedSpaces?.length ?? 0) > 0;
+  const hasBathrooms = (sub.bathrooms ?? []).length > 0;
+  const hasSpaces = (sub.sharedSpaces ?? []).length > 0;
   return LISTING_V2_STEPS.map((step) => step.id).filter((id) => {
     if (id === "rooms") return hasRooms;
     if (id === "bathrooms") return hasBathrooms;
     if (id === "spaces") return hasSpaces;
     return true;
   });
+}
+
+export function listingV2StepIndex(id: ListingV2StepId | null | undefined): number {
+  if (!id) return 0;
+  const index = LISTING_V2_STEPS.findIndex((step) => step.id === id);
+  return index >= 0 ? index : 0;
+}
+
+/**
+ * What the left rail says for a listing — cover, finish count, per-step
+ * summaries and attention dots. Import and the editor both call this so the
+ * Found list cannot drift from Basics.
+ */
+export type ListingRailChrome = {
+  attention: Record<string, number>;
+  summaries: {
+    basics: string;
+    rooms: string;
+    bathrooms: string;
+    spaces: string;
+    pricing: string;
+    review: string;
+    open: number;
+  };
+  coverUrl: string | null;
+  photoCount: number;
+};
+
+export function listingRailChrome(submission: ManagerListingSubmissionV1): ListingRailChrome {
+  const rooms = submission.rooms ?? [];
+  const leaseTerms = listingLeaseTypeScopeOptions(submission);
+  const checks = listingReadiness(submission);
+  const unresolved = (id: string) => checks.find((c) => c.id === id && c.state !== "done");
+  const attention = {
+    basics: [unresolved("address"), unresolved("description")].filter(Boolean).length,
+    rooms: [unresolved("rooms"), unresolved("photos")].filter(Boolean).length,
+    bathrooms: (submission.bathrooms ?? []).length === 0 ? 1 : 0,
+    spaces: 0,
+    pricing: [unresolved("terms"), unresolved("deposit")].filter(Boolean).length,
+    review: 0,
+  } as Record<string, number>;
+  const open = checks.filter((c) => c.state !== "done").length;
+  const withPhotos = rooms.filter((r) => (r.photoDataUrls ?? []).length > 0).length;
+  const priced = rooms.map((r) => r.monthlyRent).filter((n) => n > 0);
+  const from = priced.length > 0 ? Math.min(...priced) : 0;
+  const typeLabel = LISTING_PROPERTY_TYPE_OPTIONS.find((o) => o.id === submission.listingPropertyTypeId)?.label;
+  const baths = (submission.bathrooms ?? []).length;
+  const spaces = (submission.sharedSpaces ?? []).length;
+  const plural = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
+  return {
+    attention,
+    summaries: {
+      basics:
+        [
+          submission.address.split(",")[0]!.trim(),
+          submission.listingPlaceCategoryId === "entire_home" ? "Whole place" : "By the room",
+          typeLabel,
+        ]
+          .filter(Boolean)
+          .join(" · ") || "Address and type",
+      rooms:
+        rooms.length === 0
+          ? "Add the first room"
+          : `${plural(rooms.length, "room")} · ${withPhotos === rooms.length ? "all with photos" : `${withPhotos} with photos`}`,
+      bathrooms: baths === 0 ? "None yet" : plural(baths, "bathroom"),
+      spaces: spaces === 0 ? "None listed" : plural(spaces, "shared space"),
+      pricing:
+        from > 0
+          ? `From $${Math.round(from).toLocaleString("en-US")} a month · ${plural(leaseTerms.length, "lease type")}`
+          : "Rent not set",
+      review: open === 0 ? "Ready to publish" : `${open} to finish`,
+      open,
+    },
+    coverUrl: (submission.housePhotoDataUrls ?? [])[0] ?? rooms.flatMap((r) => r.photoDataUrls ?? [])[0] ?? null,
+    photoCount:
+      (submission.housePhotoDataUrls ?? []).length +
+      rooms.reduce((n, r) => n + (r.photoDataUrls ?? []).length, 0) +
+      (submission.bathrooms ?? []).reduce((n, b) => n + (b.photoDataUrls ?? []).length, 0),
+  };
 }
 
 /** How a room reaches its bathroom. Mirrors ManagerBathroomRoomAccessKind. */
@@ -478,10 +566,23 @@ function StepBasics({
   const roomCount = sub.rooms?.length || sub.listingBedroomSlots || 1;
   const setRentModel = (id: "shared_home" | "entire_home") => patch({ listingPlaceCategoryId: id, rentalModelStamp: id });
   const setBedrooms = (next: number) => {
+    const prevIds = (sub.rooms ?? []).map((room) => room.id);
     const applied = applyListingBedroomSlots({ ...sub, listingBedroomSlots: next }, next);
     // A refusal means the count could not be honoured; keep the rooms the
     // manager has rather than writing a number they do not match.
-    patch(applied.ok ? { ...applied.sub, listingBedroomSlots: next } : { listingBedroomSlots: next });
+    if (!applied.ok) {
+      patch({ listingBedroomSlots: next });
+      return;
+    }
+    const nextIds = (applied.sub.rooms ?? []).map((room) => room.id);
+    patch({
+      ...applied.sub,
+      listingBedroomSlots: next,
+      sharedSpaces: (applied.sub.sharedSpaces ?? sub.sharedSpaces ?? []).map((space) => ({
+        ...space,
+        roomAccessIds: retainSharedSpaceAccessAfterRoomsChange(space.roomAccessIds, prevIds, nextIds),
+      })),
+    });
   };
   /**
    * The bathroom count makes the bathroom cards, the way the bedroom count
@@ -1220,50 +1321,6 @@ function RoomCardBody({
   );
 }
 
-/** The way into the detail steps from Basics. */
-function AddDetailsRow({
-  sub,
-  pathIds,
-  onOpen,
-}: {
-  sub: ManagerListingSubmissionV1;
-  pathIds: ListingV2StepId[];
-  onOpen: (id: ListingV2StepId) => void;
-}) {
-  const rooms = sub.rooms?.length ?? 0;
-  const baths = sub.bathrooms?.length ?? 0;
-  const spaces = sub.sharedSpaces?.length ?? 0;
-  const rows: Array<{ id: ListingV2StepId; label: string; count: string }> = [
-    { id: "rooms", label: "Rooms", count: rooms ? `${rooms}` : "" },
-    { id: "bathrooms", label: "Bathrooms", count: baths ? `${baths}` : "" },
-    { id: "spaces", label: "Shared spaces", count: spaces ? `${spaces}` : "" },
-  ];
-  const offStep = rows.filter((row) => !pathIds.includes(row.id));
-  if (offStep.length === 0) return null;
-  return (
-    <div className="mt-8 max-w-[860px]" data-attr="listing-v2-add-details">
-      <p className="mb-2 text-[12px] font-semibold uppercase tracking-[0.08em] text-foreground/70">Add details</p>
-      <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
-        {offStep.map((row) => (
-          <li key={row.id}>
-            <button
-              type="button"
-              onClick={() => onOpen(row.id)}
-              data-attr={`listing-v2-add-details-${row.id}`}
-              className="flex min-h-[52px] w-full items-center justify-between gap-3 px-4 text-left hover:bg-foreground/[0.03]"
-            >
-              <span className="text-[14px] font-semibold text-foreground">{row.label}</span>
-              <span className="flex items-center gap-2 text-[13px] font-semibold text-foreground/70">
-                {row.count}
-                <span aria-hidden className="text-primary">›</span>
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
 
 function StepRooms({
   sub,
@@ -1306,7 +1363,25 @@ function StepRooms({
   const wholePlace = sub.listingPlaceCategoryId === "entire_home";
   const noun = wholePlace ? "bedroom" : "room";
 
-  const writeRooms = (next: ManagerRoomSubmission[]) => patch({ rooms: next });
+  const writeRooms = (next: ManagerRoomSubmission[]) => {
+    const prevIds = rooms.map((room) => room.id);
+    const nextIds = next.map((room) => room.id);
+    const idSetChanged =
+      prevIds.length !== nextIds.length ||
+      prevIds.some((id) => !nextIds.includes(id)) ||
+      nextIds.some((id) => !prevIds.includes(id));
+    if (!idSetChanged) {
+      patch({ rooms: next });
+      return;
+    }
+    patch({
+      rooms: next,
+      sharedSpaces: (sub.sharedSpaces ?? []).map((space) => ({
+        ...space,
+        roomAccessIds: retainSharedSpaceAccessAfterRoomsChange(space.roomAccessIds, prevIds, nextIds),
+      })),
+    });
+  };
   /** A hand edit: whichever tracked fields the patch names become this room's own. Name, photos of the room's own, dates mark nothing. */
   const writeRoom = (id: string, roomPatch: Partial<ManagerRoomSubmission>) => {
     for (const key of Object.keys(roomPatch) as (keyof ManagerRoomSubmission)[]) {
@@ -1599,11 +1674,6 @@ const BATHROOM_TYPE_OPTIONS: readonly { value: BathroomType; label: string }[] =
   { value: "quarter", label: "Quarter bath" },
 ];
 
-const USES_OPTIONS = [
-  { value: "yes", label: "Uses it" },
-  { value: "no", label: "Doesn't use it" },
-] as const;
-
 const BATHROOM_HELP = {
   all: "Set once. Every bathroom ticked “Same as default bathroom” copies this. Change one field on a bathroom and only that field becomes its own; untick one and the whole card does.",
   type: "Full = tub and shower. Three-quarter = shower, no tub. Half = toilet and sink. Quarter = toilet only.",
@@ -1635,12 +1705,6 @@ function BathroomCardBody({
   const floors = floorLevelSelectOptions(storiesId, bath.location ?? "").map((l) => ({ value: l, label: l }));
   const assigned = bath.assignedRoomIds ?? [];
   const resetTag = (field: BathroomInheritField, what: string) => (isOwn(field) ? <CellResetTag onClick={() => onReset(field)} label={`Reset ${what} for ${who} to the Default bathroom`} /> : null);
-  const setUses = (roomId: string, uses: boolean) => {
-    const next = uses ? Array.from(new Set([...assigned, roomId])) : assigned.filter((id) => id !== roomId);
-    const kinds = { ...(bath.accessKindByRoomId ?? {}) };
-    if (!uses) delete kinds[roomId];
-    onChange({ assignedRoomIds: next, allResidents: false, accessKindByRoomId: kinds });
-  };
   return (
     <>
       <FactRow first label="Floor" own={isOwn("location")} onReset={() => onReset("location")} resetLabel={`Reset floor for ${who} to every bathroom`}>
@@ -1652,23 +1716,46 @@ function BathroomCardBody({
       <FactRow label="Finishes" own={isOwn("amenitiesText")} onReset={() => onReset("amenitiesText")} resetLabel={`Reset finishes for ${who} to every bathroom`}>
         <AmenityPick label={`Finishes for ${who}`} presets={BATHROOM_EXTRA_AMENITY_PRESETS} value={bath.amenitiesText ?? ""} inherited={!isOwn("amenitiesText")} onChange={(next) => onField("amenitiesText", next)} />
       </FactRow>
+      {wholePlace || rooms.length === 0 ? null : (
+        <FactRow label="Who uses it">
+          <CheckboxMultiSelect
+            hideLabel
+            label={`Who uses ${who}`}
+            dataAttr="listing-v2-bath-who-uses"
+            variant="cell"
+            className="min-w-[150px] max-w-[220px]"
+            options={rooms.map((room, i) => ({
+              value: room.id,
+              label: room.name.trim() || `Room ${i + 1}`,
+            }))}
+            selected={bath.allResidents ? rooms.map((room) => room.id) : assigned}
+            selectionTriggerLabel={
+              bath.allResidents
+                ? "Every room"
+                : assigned.length === 0
+                  ? "No rooms yet"
+                  : assigned
+                      .map((id) => {
+                        const index = rooms.findIndex((room) => room.id === id);
+                        const room = index >= 0 ? rooms[index] : null;
+                        return room?.name.trim() || (index >= 0 ? `Room ${index + 1}` : id);
+                      })
+                      .join(", ")
+            }
+            emptyLabel="No rooms yet"
+            onChange={(next) => {
+              const kinds = { ...(bath.accessKindByRoomId ?? {}) };
+              for (const id of Object.keys(kinds)) if (!next.includes(id)) delete kinds[id];
+              onChange({
+                assignedRoomIds: next,
+                allResidents: next.length > 0 && next.length === rooms.length,
+                accessKindByRoomId: kinds,
+              });
+            }}
+          />
+        </FactRow>
+      )}
       <MoreRows dataAttr="listing-v2-bath-more">
-        {wholePlace || rooms.length === 0 ? null : (
-          <>
-            <FactRow label="Who uses it">
-              <span />
-            </FactRow>
-            {rooms.map((room, i) => {
-              const roomLabel = room.name.trim() || `Room ${i + 1}`;
-              const uses = bath.allResidents || assigned.includes(room.id);
-              return (
-                <FactRow key={room.id} sub label={roomLabel}>
-                  <RowSelectCell ariaLabel={`${roomLabel} uses ${who}`} value={uses ? "yes" : "no"} options={USES_OPTIONS} inherited={!uses} onChange={(v) => setUses(room.id, v === "yes")} />
-                </FactRow>
-              );
-            })}
-          </>
-        )}
         <CardFields>
           <Field label="Description" labelAside={resetTag("detail", "description")}>
             <Textarea rows={2} value={bath.detail ?? ""} placeholder="What a renter should know about this bathroom" className={isOwn("detail") ? undefined : "border-dashed text-muted"} onChange={(e) => onChange({ detail: e.target.value })} />
@@ -1909,11 +1996,12 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
 /* ── shared spaces ── */
 
 
-/** "Everyone" is an empty list nowhere, and every room everywhere — both read as not narrowed. */
+/** "Everyone" is an empty list, or every current room — both read as not narrowed. */
 function spaceIsNarrowed(space: ManagerSharedSpaceSubmission, rooms: readonly ManagerRoomSubmission[]): boolean {
-  const ids = space.roomAccessIds ?? [];
-  if (ids.length === 0) return false;
-  return rooms.some((r) => !ids.includes(r.id));
+  return !sharedSpaceIsEveryone(
+    space.roomAccessIds,
+    rooms.map((room) => room.id),
+  );
 }
 
 const SPACE_HELP = {
@@ -1946,10 +2034,7 @@ function SharedSpaceCardBody({
 }) {
   const kinds = SHARED_SPACE_KIND_OPTIONS.map((o) => ({ value: o.id, label: o.label }));
   const roomLabel = (r: ManagerRoomSubmission, i: number) => r.name.trim() || `Room ${i + 1}`;
-  const selectedRooms = ((space.roomAccessIds ?? []).length > 0 ? space.roomAccessIds : rooms.map((r) => r.id))
-    .map((id) => rooms.findIndex((r) => r.id === id))
-    .filter((i) => i >= 0)
-    .map((i) => roomLabel(rooms[i]!, i));
+  const roomIds = rooms.map((room) => room.id);
   return (
     <>
       <FactRow first label="Type">
@@ -1960,14 +2045,25 @@ function SharedSpaceCardBody({
       </FactRow>
       {wholePlace || rooms.length === 0 ? null : (
         <FactRow label={<span className="inline-flex items-center gap-1.5">Who may use it <ColumnHelp title="Who may use it" text={SPACE_HELP.who} /></span>} own={isOwn("access")} onReset={() => onReset("access")} resetLabel={`Reset who may use ${who} to every room`}>
-          <MultiPick
+          <CheckboxMultiSelect
+            hideLabel
             label={`Who may use ${who}`}
-            options={rooms.map(roomLabel)}
-            selected={selectedRooms}
-            allowOther={false}
+            dataAttr="listing-v2-space-who"
+            variant="cell"
+            className={cn("min-w-[150px] max-w-[220px]", !isOwn("access") && "border-dashed text-muted")}
+            options={sharedSpaceAccessOptions(rooms.map((room, i) => ({ id: room.id, name: roomLabel(room, i) })))}
+            selected={sharedSpaceAccessMenuSelected(space.roomAccessIds, roomIds)}
+            selectionTriggerLabel={sharedSpaceAccessTriggerLabel(space.roomAccessIds, roomIds)}
             emptyLabel="Everyone"
-            inherited={!isOwn("access")}
-            onChange={(next) => onChange({ roomAccessIds: rooms.filter((r, i) => next.includes(roomLabel(r, i))).map((r) => r.id) })}
+            onChange={(next) =>
+              onChange({
+                roomAccessIds: encodeSharedSpaceAccessPick({
+                  nextSelected: next,
+                  roomIds,
+                  previousAccessIds: space.roomAccessIds,
+                }),
+              })
+            }
           />
         </FactRow>
       )}
@@ -2027,7 +2123,7 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
   };
   const resetField = (space: ManagerSharedSpaceSubmission, field: SharedSpaceInheritField) => {
     if (field === "access") {
-      writeSpace(space.id, { ...space, roomAccessIds: rooms.map((r) => r.id) });
+      writeSpace(space.id, { ...space, roomAccessIds: encodeSharedSpaceEveryone() });
       return;
     }
     own.clear(space.id, field);
@@ -2036,7 +2132,7 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
   const copyDefaultsInto = (space: ManagerSharedSpaceSubmission) => {
     let next = space;
     for (const field of SHARED_SPACE_DEFAULT_FIELDS) next = writeSharedSpaceField(next, field, defaults[field]);
-    return { ...next, roomAccessIds: rooms.map((room) => room.id) };
+    return { ...next, roomAccessIds: encodeSharedSpaceEveryone() };
   };
   const sharedSpaceFields: readonly SharedSpaceInheritField[] = [...SHARED_SPACE_DEFAULT_FIELDS, "access"];
   const [unticked, setUnticked] = useState<Set<string>>(new Set());
@@ -2080,11 +2176,11 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
     patch({ sharedSpaces: spaces.map((sp) => (followers.includes(sp) ? writeSharedSpaceField(sp, field, value) : sp)), sharedSpaceDefaults: next });
   }
   const toggle = (id: string) => setOpen((prev) => (prev === id ? null : id));
-  const accessSummary = (space: ManagerSharedSpaceSubmission) => {
-    if (!spaceIsNarrowed(space, rooms)) return "Everyone";
-    const n = (space.roomAccessIds ?? []).filter((id) => rooms.some((r) => r.id === id)).length;
-    return `${n} ${n === 1 ? "room" : "rooms"}`;
-  };
+  const accessSummary = (space: ManagerSharedSpaceSubmission) =>
+    sharedSpaceAccessTriggerLabel(
+      space.roomAccessIds,
+      rooms.map((room) => room.id),
+    );
   const summaryFor = (space: ManagerSharedSpaceSubmission) =>
     [SHARED_SPACE_KIND_OPTIONS.find((o) => o.id === space.spaceKind)?.label, space.location || defaults.location || "Floor not set", wholePlace ? "" : accessSummary(space)]
       .filter(Boolean)
@@ -2184,8 +2280,8 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
           const base = spaces[0];
           const id = `space-${Date.now()}`;
           const blank = base
-            ? { ...base, id, name: "", photoDataUrls: [], videoDataUrl: null, detail: "", roomAccessIds: rooms.map((r) => r.id), location: defaults.location || base.location }
-            : ({ id, name: "", location: defaults.location, roomAccessIds: rooms.map((r) => r.id) } as never);
+            ? { ...base, id, name: "", photoDataUrls: [], videoDataUrl: null, detail: "", roomAccessIds: encodeSharedSpaceEveryone(), location: defaults.location || base.location }
+            : ({ id, name: "", location: defaults.location, roomAccessIds: encodeSharedSpaceEveryone() } as never);
           patch({ sharedSpaces: [...spaces, copyDefaultsInto(blank)] });
           setOpen(id);
         }}
@@ -2757,7 +2853,7 @@ function HouseKeepingPanel({ sub, patch }: { sub: ManagerListingSubmissionV1; pa
   const [open, setOpen] = useState(false);
   return (
     <AdvancedPanel
-      summary="Move-in · The building · Local compliance"
+      summary="Advanced"
       open={open}
       onToggle={() => setOpen((prev) => !prev)}
       dataAttr="listing-v2-house-keeping"
@@ -3021,6 +3117,7 @@ export function ListingEditorV2({
   headerCenter,
   basicsLead,
   contact,
+  initialStep,
 }: {
   submission: ManagerListingSubmissionV1;
   /** The listing's record id when it already has one — booked rows on the Rooms step need it. Null for a brand-new listing. */
@@ -3057,13 +3154,15 @@ export function ListingEditorV2({
   basicsLead?: ReactNode;
   /** What the Review step says about how renters reach the manager. */
   contact?: ListingContactDoors;
+  /** Open on this listing step — Import jumps to Rooms / Review without walking Basics. */
+  initialStep?: ListingV2StepId;
 }) {
   // Save and Publish share one `busy`; remember which was pressed so only that
   // button reads as in flight. The flag is read only while busy, so a stale
   // true after the write lands is harmless and the next press resets it.
   const [savePressed, setSavePressed] = useState(false);
 
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(() => listingV2StepIndex(initialStep));
   useEffect(() => {
     onStepChange?.(step);
   }, [step, onStepChange]);
@@ -3075,7 +3174,10 @@ export function ListingEditorV2({
    * earlier in the list — on an edit a manager may only ever open Pricing, and
    * telling them Rooms is "done" because it is step 2 would be a lie.
    */
-  const [visited, setVisited] = useState<Set<string>>(() => new Set([LISTING_V2_STEPS[0]!.id]));
+  const [visited, setVisited] = useState<Set<string>>(() => {
+    const start = LISTING_V2_STEPS[listingV2StepIndex(initialStep)]!.id;
+    return new Set([LISTING_V2_STEPS[0]!.id, start]);
+  });
   /** Which room and lease type the receipt is quoting. */
   const [quoteRoomId, setQuoteRoomId] = useState<string | null>(null);
   const [quoteTerm, setQuoteTerm] = useState<string | null>(null);
@@ -3127,65 +3229,9 @@ export function ListingEditorV2({
     [title, step, submission],
   );
 
-  /**
-   * What the rail flags for attention.
-   *
-   * Drawn from the same `listingReadiness` the Review step reports, so the rail
-   * and Review can never disagree about what is missing.
-   */
-  const attention = useMemo(() => {
-    const checks = listingReadiness(submission);
-    const unresolved = (id: string) => checks.find((c) => c.id === id && c.state !== "done");
-    return {
-      basics: [unresolved("address"), unresolved("description")].filter(Boolean).length,
-      rooms: [unresolved("rooms"), unresolved("photos")].filter(Boolean).length,
-      bathrooms: (submission.bathrooms ?? []).length === 0 ? 1 : 0,
-      spaces: 0,
-      pricing: [unresolved("terms"), unresolved("deposit")].filter(Boolean).length,
-      review: 0,
-    } as Record<string, number>;
-  }, [submission]);
-
-  /**
-   * One line per section, of what it currently says.
-   *
-   * The rail is the listing's table of contents: a manager who opened it to
-   * change the rent finds "From $1,160 a month" under Pricing before clicking
-   * anything, and a section that still reads "Not set yet" says so.
-   */
-  const summaries = useMemo(() => {
-    const open = listingReadiness(submission).filter((c) => c.state !== "done").length;
-    const withPhotos = rooms.filter((r) => (r.photoDataUrls ?? []).length > 0).length;
-    const priced = rooms.map((r) => r.monthlyRent).filter((n) => n > 0);
-    const from = priced.length > 0 ? Math.min(...priced) : 0;
-    const typeLabel = LISTING_PROPERTY_TYPE_OPTIONS.find((o) => o.id === submission.listingPropertyTypeId)?.label;
-    const baths = (submission.bathrooms ?? []).length;
-    const spaces = (submission.sharedSpaces ?? []).length;
-    const plural = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
-    return {
-      basics:
-        [
-          // The street alone — the city and state are the header's to say.
-          submission.address.split(",")[0]!.trim(),
-          submission.listingPlaceCategoryId === "entire_home" ? "Whole place" : "By the room",
-          typeLabel,
-        ]
-          .filter(Boolean)
-          .join(" · ") || "Address and type",
-      rooms:
-        rooms.length === 0
-          ? "Add the first room"
-          : `${plural(rooms.length, "room")} · ${withPhotos === rooms.length ? "all with photos" : `${withPhotos} with photos`}`,
-      bathrooms: baths === 0 ? "None yet" : plural(baths, "bathroom"),
-      spaces: spaces === 0 ? "None listed" : plural(spaces, "shared space"),
-      pricing:
-        from > 0
-          ? `From $${Math.round(from).toLocaleString("en-US")} a month · ${plural(leaseTerms.length, "lease type")}`
-          : "Rent not set",
-      review: open === 0 ? "Ready to publish" : `${open} to finish`,
-      open,
-    };
-  }, [submission, rooms, leaseTerms]);
+  const chrome = useMemo(() => listingRailChrome(submission), [submission]);
+  const attention = chrome.attention;
+  const summaries = chrome.summaries;
 
   const listingRailSteps = LISTING_V2_STEPS.map((s) => ({
     id: s.id,
@@ -3208,11 +3254,8 @@ export function ListingEditorV2({
     goTo(index - railOffset);
   };
 
-  const coverUrl = (submission.housePhotoDataUrls ?? [])[0] ?? rooms.flatMap((r) => r.photoDataUrls ?? [])[0] ?? null;
-  const photoCount =
-    (submission.housePhotoDataUrls ?? []).length +
-    rooms.reduce((n, r) => n + (r.photoDataUrls ?? []).length, 0) +
-    (submission.bathrooms ?? []).reduce((n, b) => n + (b.photoDataUrls ?? []).length, 0);
+  const coverUrl = chrome.coverUrl;
+  const photoCount = chrome.photoCount;
 
   const body = useMemo(() => {
     switch (stepId) {
@@ -3220,11 +3263,6 @@ export function ListingEditorV2({
         return (
           <>
             <StepBasics sub={submission} patch={patch} lead={basicsLead} onHouseDefaults={setDefaults} />
-            <AddDetailsRow
-              sub={submission}
-              pathIds={pathIds}
-              onOpen={(id) => goTo(stepIndexOf(id))}
-            />
             <div className="mt-8 max-w-[860px]">
               <HouseKeepingPanel sub={submission} patch={patch} />
             </div>
@@ -3348,39 +3386,11 @@ export function ListingEditorV2({
           <span className="min-w-0 flex-1 truncate text-center text-[12.5px] text-muted">
             {pathPosition != null ? `Step ${pathPosition + railOffset} of ${pathIds.length + railOffset}` : "Optional detail"}
           </span>
-          {isEdit ? (
-            nextStep == null ? (
-              // A live listing's Review step: the one place with a physical
-              // Save. Autosave and ✕ still write on their own; this is the
-              // explicit "I'm done" that closes the editor once the write lands.
-              <button
-                type="button"
-                onClick={() => {
-                  setSavePressed(true);
-                  onSaveExit?.(step);
-                }}
-                disabled={busy}
-                data-attr="listing-v2-save"
-                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
-              >
-                {busy ? "Saving…" : "Save changes"}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => goTo(nextStep)}
-                data-attr="listing-v2-next"
-                aria-label={`Continue to ${LISTING_V2_STEPS[nextStep]!.label}`}
-                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white"
-              >
-                <span className="sm:hidden">Continue</span>
-                <span className="hidden sm:inline">Continue to {LISTING_V2_STEPS[nextStep]!.label}</span>
-              </button>
-            )
-          ) : step === last ? (
+          {nextStep == null ? (
             <div className="flex items-center gap-2">
-              {/* Keep it as a draft and leave; on a phone the text-only
-                  button lets Back + Save draft + Publish share one row. */}
+              {/* Review is Save + Publish — a draft stays a draft, a live
+                  listing writes in place. ✕ still writes on close; this Save
+                  is the explicit pair the Review step shows. */}
               <button
                 type="button"
                 onClick={() => {
@@ -3388,10 +3398,10 @@ export function ListingEditorV2({
                   onSaveExit?.(step);
                 }}
                 disabled={busy}
-                data-attr="listing-v2-save-draft"
+                data-attr={isEdit ? "listing-v2-save" : "listing-v2-save-draft"}
                 className="min-h-[44px] rounded-full px-3 text-[14px] font-bold text-primary disabled:opacity-60 sm:border sm:border-border sm:bg-card sm:px-6 sm:text-foreground"
               >
-                {busy && savePressed ? "Saving…" : "Save draft"}
+                {busy && savePressed ? "Saving…" : "Save"}
               </button>
               <button
                 type="button"
@@ -3409,13 +3419,13 @@ export function ListingEditorV2({
           ) : (
             <button
               type="button"
-              onClick={() => nextStep != null && goTo(nextStep)}
+              onClick={() => goTo(nextStep)}
               data-attr="listing-v2-next"
-              aria-label={`Continue to ${LISTING_V2_STEPS[nextStep ?? last]!.label}`}
+              aria-label={`Continue to ${LISTING_V2_STEPS[nextStep]!.label}`}
               className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white"
             >
               <span className="sm:hidden">Continue</span>
-              <span className="hidden sm:inline">Continue to {LISTING_V2_STEPS[nextStep ?? last]!.label}</span>
+              <span className="hidden sm:inline">Continue to {LISTING_V2_STEPS[nextStep]!.label}</span>
             </button>
           )}
         </>

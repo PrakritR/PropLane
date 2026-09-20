@@ -19,6 +19,11 @@ import { buildListingShareSummary } from "@/lib/listing-share-summary";
 import { getShareablePropertyForUser } from "@/lib/manager-property-share-access";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
 import { recordResidentProspectInboxMessage } from "@/lib/tour-notification-delivery.server";
+import {
+  fromHeaderAddress,
+  fromHeaderDisplayName,
+  managerOutboundFromHeader,
+} from "@/lib/manager-outbound-identity.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
@@ -258,7 +263,7 @@ export async function POST(req: Request) {
         );
       }
 
-      const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
+      const from = await managerOutboundFromHeader(svc, user.id);
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -274,8 +279,8 @@ export async function POST(req: Request) {
         participantEmail: to,
         subject,
         body: text,
-        fromName: "PropLane",
-        fromEmail: "invites@axis.local",
+        fromName: fromHeaderDisplayName(from),
+        fromEmail: fromHeaderAddress(from),
       });
     }
 

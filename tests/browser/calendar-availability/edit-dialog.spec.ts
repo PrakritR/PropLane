@@ -73,7 +73,7 @@ const cell = (page: Page, label: string) => page.locator(`[aria-label="${label}"
 type Fixture = { mondayDs: string; wednesdayDs: string; painted: string[] };
 type Written = { key: string; slots: string[] }[];
 
-test("grid: 'Tours' label, 'N open' day headers, no floating ×, hover-only '+'", async ({ page }) => {
+test("grid: 'Tours' label, 'N open' day headers, small ×, hover-only '+'", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
@@ -87,8 +87,8 @@ test("grid: 'Tours' label, 'N open' day headers, no floating ×, hover-only '+'"
   await expect(mondayCell).toContainText("10");
   await expect(page.locator("body")).not.toContainText(/\bOpen\b\s*\n?\s*10/);
 
-  // The floating per-run × is gone.
-  await expect(page.locator('[data-attr="calendar-remove-availability-slot"]')).toHaveCount(0);
+  // Small × on the first cell of an open run (not a chip).
+  await expect(page.locator('[data-attr="calendar-remove-availability-slot"]').first()).toBeVisible();
 
   // Day headers say "N open" (never "0 EVENTS").
   await expect(page.locator("body")).toContainText("3 open");

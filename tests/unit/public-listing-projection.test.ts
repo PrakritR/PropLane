@@ -282,4 +282,49 @@ describe("publicListingProjection", () => {
     expect(projected.listingSubmission).toBeUndefined();
     expect(projected.title).toBe("Ballard House");
   });
+
+  it("publishes the Pricing room deposit, not a leftover listing-level house-wide amount", () => {
+    const listing = storedListing();
+    const sub = listing.listingSubmission!;
+    sub.securityDeposit = "100";
+    sub.rooms[0]!.securityDeposit = "1050";
+    sub.customFees = [
+      {
+        id: "fee-phantom-deposit",
+        label: "Security deposit",
+        amount: "100",
+        frequency: "one-time",
+        presetId: "security_deposit",
+      },
+    ] as typeof sub.customFees;
+
+    const projected = publicListingProjection(listing).listingSubmission!;
+    expect(projected.securityDeposit).toBe("1050");
+    expect(projected.rooms[0]).toMatchObject({ securityDeposit: "1050" });
+    expect(projected.customFees).toEqual([
+      expect.objectContaining({
+        presetId: "security_deposit",
+        amount: "1050",
+      }),
+    ]);
+    expect(JSON.stringify(projected.customFees)).not.toMatch(/"amount":"100"/);
+  });
+
+  it("drops a house-wide leftover when rooms disagree on deposit", () => {
+    const listing = storedListing();
+    const sub = listing.listingSubmission!;
+    sub.securityDeposit = "100";
+    sub.rooms = [
+      { ...sub.rooms[0]!, id: "r1", securityDeposit: "1050" },
+      { ...sub.rooms[0]!, id: "r2", name: "Room B", securityDeposit: "900" },
+    ];
+    sub.customFees = [
+      { id: "fee-sd", label: "Security deposit", amount: "100", frequency: "one-time", presetId: "security_deposit" },
+    ] as typeof sub.customFees;
+
+    const projected = publicListingProjection(listing).listingSubmission!;
+    expect(projected.securityDeposit).toBe("");
+    expect(projected.customFees).toEqual([]);
+    expect(projected.rooms.map((room) => room.securityDeposit)).toEqual(["1050", "900"]);
+  });
 });

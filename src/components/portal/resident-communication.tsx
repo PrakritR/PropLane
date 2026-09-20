@@ -334,6 +334,7 @@ function ResidentUnifiedInbox({
     listSegment,
     storageKey: RESIDENT_INBOX_STORAGE_KEY,
     emailThreads,
+    assistantPlaceholder: viewerId ? buildResidentAssistantPlaceholderThread(viewerId) : undefined,
     onEmailThreadsChange: setEmailThreads,
     onSelectionCleared: () => {
       setSelectedKey(null);

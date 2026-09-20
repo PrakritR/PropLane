@@ -301,7 +301,7 @@ describe("resident portal redesign completeness", () => {
       const amend = readPanel("lease-amend-move-out-modal.tsx");
       expect(amend).not.toContain("assistantStrip={false}");
       expect(amend).not.toContain("ModalAssistantStrip");
-      expect(amend).toContain("assistantContext={title}");
+      expect(amend).toContain("assistantContext={modalTitle}");
       expect(amend).toContain('assistantContext="Renew lease"');
       expect(amend).toContain('data-attr="lease-amend-intent"');
       expect(amend).toContain('data-attr="lease-amend-extend-type"');

@@ -12,6 +12,10 @@ import {
   normalizeReminderSettings,
   type ReminderSettings,
 } from "@/lib/reminders/rules";
+import {
+  loadPropertyOverride,
+  loadPropertyOverridesForManagers,
+} from "@/lib/settings/property-overrides.server";
 
 const ROW_DATA_KEY = "reminderRules";
 
@@ -60,6 +64,55 @@ export async function loadReminderSettingsForManagers(
     if (!out.has(id)) out.set(id, DEFAULT_REMINDER_SETTINGS);
   }
   return out;
+}
+
+/**
+ * Reminder rules for one manager + one house (PLAN-0916-1040).
+ *
+ * `propertyId === null` — a row with no property, such as an unanswered inbox
+ * thread — keeps the workspace rule. A house with its own `reminderRules`
+ * override returns it; otherwise the workspace value. Verifies the property
+ * belongs to the manager (a foreign id throws, never a silent workspace fall
+ * back), so only call it with a `propertyId` that came from the row itself.
+ */
+export async function loadReminderSettingsForProperty(
+  db: SupabaseClient,
+  managerUserId: string,
+  propertyId: string | null,
+): Promise<ReminderSettings> {
+  const workspace = await loadReminderSettings(db, managerUserId);
+  if (!propertyId) return workspace;
+  const override = await loadPropertyOverride(db, managerUserId, propertyId, ROW_DATA_KEY);
+  return override == null ? workspace : normalizeReminderSettings(override);
+}
+
+export type ReminderSettingsResolver = {
+  /** Reminder rules for `(managerUserId, propertyId)` — override → workspace → default. */
+  resolve: (managerUserId: string, propertyId: string | null) => ReminderSettings;
+};
+
+/**
+ * Batch resolver for the senders: one query for every manager's workspace rules
+ * and one for every house override, then `resolve(manager, property)` picks the
+ * house's own rule when it has one, else the workspace's. A row with no property
+ * (`propertyId === null`) always gets the workspace rule.
+ */
+export async function loadReminderSettingsResolver(
+  db: SupabaseClient,
+  managerUserIds: readonly string[],
+): Promise<ReminderSettingsResolver> {
+  const [workspace, overrides] = await Promise.all([
+    loadReminderSettingsForManagers(db, managerUserIds),
+    loadPropertyOverridesForManagers(db, managerUserIds, ROW_DATA_KEY),
+  ]);
+  return {
+    resolve(managerUserId, propertyId) {
+      const ws = workspace.get(managerUserId) ?? DEFAULT_REMINDER_SETTINGS;
+      if (!propertyId) return ws;
+      const raw = overrides.get(managerUserId)?.get(propertyId);
+      return raw == null ? ws : normalizeReminderSettings(raw);
+    },
+  };
 }
 
 export async function saveReminderSettings(

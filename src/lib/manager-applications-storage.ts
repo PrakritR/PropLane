@@ -892,7 +892,10 @@ export function readManagerApplicationRows(fallback: DemoApplicantRow[] = EMPTY_
   });
 }
 
-export function writeManagerApplicationRows(rows: DemoApplicantRow[], opts?: { serverConfirmed?: boolean }): void {
+export function writeManagerApplicationRows(
+  rows: DemoApplicantRow[],
+  opts?: { serverConfirmed?: boolean; skipLeaseSeed?: boolean },
+): void {
   try {
     const normalizedRows = normalizeApplicationRows(rows);
     if (!applicationRowsChanged(memoryRows, normalizedRows)) return;
@@ -901,6 +904,7 @@ export function writeManagerApplicationRows(rows: DemoApplicantRow[], opts?: { s
     managerApplicationsLastSyncedAt = Date.now();
     emit();
     if (!opts?.serverConfirmed) mirrorApplicationsToServer(normalizedRows);
+    if (opts?.skipLeaseSeed) return;
     void import("@/lib/lease-pipeline-storage").then(async ({ syncLeasePipelineFromApplications, syncLeasePipelineFromServer }) => {
       const scope = activeApplicationsScopeUserId ?? null;
       // Hydrate leases from the server before seeding from applications so an
@@ -957,7 +961,9 @@ export function appendManagerApplicationRow(
   const rows = readManagerApplicationRows();
   if (rows.some((r) => r.id === normalizedRow.id)) return;
   const next = [...rows, normalizedRow];
-  writeManagerApplicationRows(next);
+  // Add-resident commit upserts next. A replace + lease-seed here races that
+  // write, 409s the bed, and leaves a Draft stub with no document or notice.
+  writeManagerApplicationRows(next, opts?.skipServerMirror ? { serverConfirmed: true, skipLeaseSeed: true } : undefined);
   if (!opts?.skipServerMirror) mirrorApplicationRowToServer(normalizedRow);
 }
 

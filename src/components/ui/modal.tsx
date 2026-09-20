@@ -69,9 +69,10 @@ export function useModalPresentation(): "drawer" | "dialog" {
   return usePortalSurface("short-form") === "sheet" ? "drawer" : "dialog";
 }
 
-const DEFAULT_STACK_CLASS = "fixed inset-0 z-[70] overflow-y-auto overscroll-contain";
+/** Above ListingWizardOverlay (z-80); below field-select menus (z-10060). */
+const DEFAULT_STACK_CLASS = "fixed inset-0 z-[90] overflow-y-auto overscroll-contain";
 const DEFAULT_CENTER_CLASS =
-  "relative z-[71] flex min-h-full items-center justify-center px-2 py-4 sm:px-4 sm:py-6 [html[data-native]_&]:pt-[max(1rem,var(--native-safe-top))] [html[data-native]_&]:pb-[max(1rem,var(--native-safe-bottom))]";
+  "relative z-[91] flex min-h-full items-center justify-center px-2 py-4 sm:px-4 sm:py-6 [html[data-native]_&]:pt-[max(1rem,var(--native-safe-top))] [html[data-native]_&]:pb-[max(1rem,var(--native-safe-bottom))]";
 
 import { isPortaledFieldSelectMenuTarget } from "@/components/ui/field-select-portal-interaction";
 
@@ -184,7 +185,7 @@ export function ModalShell({
             <Drawer.Overlay
               className={cn(
                 overlayClass,
-                "z-[70] motion-reduce:transition-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+                "z-[90] motion-reduce:transition-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
               )}
             />
           ) : null}
@@ -306,8 +307,13 @@ function ModalPanelInner({
   const bodyFillsPanel = scrollableContent || pinActionsToBottom;
   /** Side-by-side chat needs the middle band to grow; footer modals fill the panel so actions sit on the bottom edge. */
   const assistantSideLayout = showAssistantStrip && assistantExpanded;
-  const middleGrows =
-    bodyFillsPanel && (assistantSideLayout || !scrollableContent || pinActionsToBottom);
+  /**
+   * Hug short forms; once the panel hits `max-h`, this band must shrink so the
+   * body can be the scrollport. `shrink-0` here clipped Title/Schedule on Add
+   * task: the panel overflow-hidden the overflow, and a nested child scroller
+   * with no height trapped the gesture.
+   */
+  const middleGrows = bodyFillsPanel;
   const bodyScrollFillsMiddle =
     bodyFillsPanel && scrollableContent && (assistantSideLayout || pinActionsToBottom);
   return (
@@ -371,7 +377,7 @@ function ModalPanelInner({
                     "min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]",
                     bodyScrollFillsMiddle
                       ? "max-h-[min(42vh,calc(min(92dvh,56rem)-12rem))] shrink-0 @2xl:flex @2xl:min-h-0 @2xl:max-h-none @2xl:flex-1 @2xl:shrink"
-                      : "shrink-0 max-h-[min(60vh,calc(min(92dvh,56rem)-11rem))]",
+                      : "min-h-0 flex-1",
                   )
                 : // `overflow-hidden` here clipped instead of scrolled. A modal with a
                 // footer has `scrollableContent` forced false on the assumption that

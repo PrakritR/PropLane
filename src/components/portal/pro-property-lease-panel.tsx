@@ -7,11 +7,14 @@ import { Button } from "@/components/ui/button";
 import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import { PropertyLeaseFormModal } from "@/components/portal/property-lease-form-modal";
 import {
-  PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS,
   PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
   PortalPropertyDetailSection,
-  PropertyDetailFooterActions,
 } from "@/components/portal/portal-property-detail-section";
+import { PropertyFormAutomationCommandBar } from "@/components/portal/property-form-automation-chrome";
+import { SettingsModulePage } from "@/components/portal/settings-module-page";
+import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
+import { PortalFormSingleSelect } from "@/components/portal/filter-field-lists";
+import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { usePublishModalBulkActions } from "@/hooks/use-publish-modal-bulk-actions";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
@@ -41,10 +44,6 @@ import {
   syncLegacyLeaseFieldsFromTemplates,
   type PropertyLeaseTemplate,
 } from "@/lib/property-lease-templates";
-import {
-  documentModeFromLease,
-  propertyLeaseDocumentModeLabel,
-} from "@/lib/property-lease-source";
 
 type LeaseSaveTarget =
   | { mode: "pending"; saveId: string }
@@ -108,12 +107,18 @@ export function ManagerPropertyLeasePanel({
   onBulkActionsChange?: (actions: ReactNode | null) => void;
 }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pane, setPane] = useState<"form" | "automation">("form");
+  const [leaseKindFilter, setLeaseKindFilter] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<"add" | "edit">("add");
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
 
   const syncedSub = useMemo(() => syncPropertyLeaseTemplatesFromListing(sub), [sub]);
   const templates = useMemo(() => readPropertyLeaseTemplates(syncedSub), [syncedSub]);
+  const visibleTemplates = useMemo(() => {
+    if (!leaseKindFilter) return templates;
+    return templates.filter((template) => template.kind === leaseKindFilter);
+  }, [leaseKindFilter, templates]);
   const availableSeeds = useMemo(() => availableLeaseTemplateSeeds(syncedSub), [syncedSub]);
   const embedInModal = Boolean(onBulkActionsChange);
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(templates.length);
@@ -362,28 +367,38 @@ export function ManagerPropertyLeasePanel({
 
   const editingTemplate = templates.find((t) => t.id === editingTemplateId) ?? null;
 
-  const settingsFooter =
-    !embedInModal && settingsPropertyOptions.length > 0 ? (
-      <PropertyDetailFooterActions>
-        <Button
-          type="button"
-          variant="outline"
-          className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
-          data-attr="property-lease-settings-open"
-          onClick={() => setSettingsOpen(true)}
-        >
-          Settings
-        </Button>
-      </PropertyDetailFooterActions>
-    ) : null;
+  const formFilterSheet = !embedInModal ? (
+    <PortalFilterSortSheet
+      activeCount={portalFilterActiveCount([leaseKindFilter])}
+      compactPanel
+      commandStripTrigger
+      dropdownAlign="start"
+      filterFieldCount={1}
+      mobileFlushBody
+      onReset={() => setLeaseKindFilter("")}
+      dataAttr="property-lease-filter-sheet-open"
+    >
+      <PortalFormSingleSelect
+        label="Lease"
+        value={leaseKindFilter}
+        onChange={setLeaseKindFilter}
+        options={[
+          { value: "", label: "All leases" },
+          { value: "long-term", label: "Long-term" },
+          { value: "short-term", label: "Short-term" },
+          { value: "time-based", label: "Time-based" },
+          { value: "custom", label: "Custom" },
+        ]}
+        placeholder="All leases"
+        dataAttr="property-lease-filter-kind"
+      />
+    </PortalFilterSortSheet>
+  ) : null;
 
   const catalogBody = (
     <>
-      <PortalPropertyDetailSection
-        contentClassName="space-y-0"
-        actions={settingsFooter}
-      >
-        {templates.map((template) => (
+      <PortalPropertyDetailSection contentClassName="space-y-0">
+        {visibleTemplates.map((template) => (
           <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
             <div className="flex min-w-0 flex-1 items-start gap-3">
               <RowSelectCheckbox
@@ -458,6 +473,7 @@ export function ManagerPropertyLeasePanel({
           open={settingsOpen}
           onClose={() => setSettingsOpen(false)}
           initialTab="lease"
+          initialPane="automation"
           scoped
           scopedTitle="Lease"
           propertyOptions={settingsPropertyOptions}
@@ -467,8 +483,56 @@ export function ManagerPropertyLeasePanel({
     </>
   );
 
+  const commandBar = !embedInModal ? (
+    <PropertyFormAutomationCommandBar
+      pane={pane}
+      onPaneChange={setPane}
+      filter={formFilterSheet}
+      onSettings={() => setSettingsOpen(true)}
+      settingsLabel="Lease settings"
+      settingsDataAttr="property-lease-settings-open"
+      settingsDisabled={settingsPropertyOptions.length === 0}
+      onAdd={openAdd}
+      addLabel="Add lease"
+      addDataAttr="property-lease-command-add"
+      activeFilterChips={
+        leaseKindFilter ? (
+          <PortalActiveFilterChips
+            chips={[
+              {
+                id: "lease-kind",
+                label:
+                  leaseKindFilter === "short-term"
+                    ? "Short-term"
+                    : leaseKindFilter === "time-based"
+                      ? "Time-based"
+                      : leaseKindFilter === "custom"
+                        ? "Custom"
+                        : "Long-term",
+                onRemove: () => setLeaseKindFilter(""),
+              },
+            ]}
+          />
+        ) : null
+      }
+    />
+  ) : null;
+
+  const automationBody =
+    !embedInModal && pane === "automation" ? (
+      <SettingsModulePage
+        tab="lease"
+        propertyOptions={settingsPropertyOptions}
+        initialPropertyId={settingsPropertyOptions[0]?.id}
+        active
+      />
+    ) : null;
+
   return (
     <>
+      {commandBar}
+      {automationBody}
+      {embedInModal || pane === "form" ? (
       <PortalRecordListSurface className="mt-0 pb-0 max-lg:pb-0" onBulkClear={embedInModal ? undefined : clearSelection} bulkCount={selectedIds.size} bulkActions={!embedInModal && selectedTemplateId ? (
         <>
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
@@ -484,6 +548,7 @@ export function ManagerPropertyLeasePanel({
           </div>
         </>
       ) : null}>{catalogBody}</PortalRecordListSurface>
+      ) : null}
 
       {formModals}
     </>

@@ -40,12 +40,17 @@ import {
   PORTAL_INBOX_CHANGED_EVENT,
   formatInboxStamp,
   inboxThreadMessages,
-  inboxMessageOutbound,
+  lastInboundChannelFromThreads,
   loadPersistedInbox,
   parseInboxStampMs,
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
 import { inboxTurnDirection } from "@/lib/inbox-turn-direction";
+import {
+  emailReplySubjectFor,
+  inboxEmailBubbleFields,
+  latestEmailSubjectFromThreads,
+} from "@/lib/inbox-email-display";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
 import {
   normalizeManagerSmsConversationsPayload,
@@ -75,43 +80,40 @@ import {
 } from "@/components/portal/portal-contact-details-modal";
 import { dispatchManagerSmsContactsChanged } from "@/lib/manager-sms-messages";
 
-function loadResidentThreadBubbles(email: string): InboxBubbleMessage[] {
+function emailThreadsForResident(email: string, snapshot?: PersistedInboxThread[]): PersistedInboxThread[] {
+  if (snapshot) return snapshot.filter((thread) => thread.folder !== "trash");
   const norm = email.trim().toLowerCase();
   if (!norm) return [];
-  const threads = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as PersistedInboxThread[];
-  const bubbles: InboxBubbleMessage[] = [];
-  for (const thread of threads) {
-    if (thread.email.trim().toLowerCase() !== norm || thread.folder === "trash") continue;
-    const folder = thread.folder === "sent" ? "sent" : "inbox";
-    for (const [i, m] of inboxThreadMessages(thread).entries()) {
-      const direction = inboxTurnDirection(thread, m, i, folder);
-      bubbles.push({
-        id: m.id,
-        author: m.from,
-        body: m.body,
-        at: m.at,
-        direction,
-        channel: "email",
-        attachments: m.attachments,
-      });
-    }
-  }
-  return bubbles;
+  return (loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as PersistedInboxThread[]).filter(
+    (thread) => thread.email.trim().toLowerCase() === norm && thread.folder !== "trash",
+  );
 }
 
 function inboxThreadBubbles(threads: PersistedInboxThread[]): InboxBubbleMessage[] {
   const bubbles: InboxBubbleMessage[] = [];
+  let lastShownSubject = "";
   for (const thread of threads) {
     if (thread.folder === "trash") continue;
     const folder = thread.folder === "sent" ? "sent" : "inbox";
     for (const [i, message] of inboxThreadMessages(thread).entries()) {
+      const channel = message.channel ?? thread.rootChannel;
+      const fields = inboxEmailBubbleFields(
+        {
+          body: message.body,
+          subject: message.subject ?? (i === 0 ? thread.subject : undefined),
+          channel,
+        },
+        lastShownSubject,
+      );
+      lastShownSubject = fields.lastShownSubject;
       bubbles.push({
         id: message.id,
         author: message.from,
-        body: message.body,
+        body: fields.body,
         at: message.at,
         direction: inboxTurnDirection(thread, message, i, folder),
-        channel: "email",
+        channel,
+        ...(fields.subject ? { subject: fields.subject } : {}),
         attachments: message.attachments,
       });
     }
@@ -261,10 +263,24 @@ export function ResidentDirectChatPane({
     return () => window.removeEventListener(PORTAL_INBOX_CHANGED_EVENT, sync as EventListener);
   }, []);
 
+  const emailThreads = useMemo(() => {
+    void inboxTick;
+    return emailThreadsForResident(email, emailThreadSnapshot);
+  }, [email, emailThreadSnapshot, inboxTick]);
+  const lastInboundChannel = useMemo(
+    () => lastInboundChannelFromThreads(emailThreads),
+    [emailThreads],
+  );
+  const emailReplySubject = useMemo(
+    () => emailReplySubjectFor(latestEmailSubjectFromThreads(emailThreads)),
+    [emailThreads],
+  );
+
   useEffect(() => {
     const next = resolveCommunicationPersonThreadReplyChannels({
       emailAvailable,
       smsAvailable,
+      lastInboundChannel,
     });
     setReplyViaProplane(next.viaProplane);
     setReplyViaEmail(next.viaEmail);
@@ -276,16 +292,15 @@ export function ResidentDirectChatPane({
       prev.forEach(revokeInboxAttachmentPreview);
       return [];
     });
-  }, [email, smsAvailable, emailAvailable]);
+  }, [email, smsAvailable, emailAvailable, lastInboundChannel]);
 
   const messages = useMemo(() => {
-    void inboxTick;
     const native = smsResidents?.length ? smsResidents : smsResident ? [smsResident] : [];
     return mergeThreadBubbles(
-      emailThreadSnapshot ? inboxThreadBubbles(emailThreadSnapshot) : loadResidentThreadBubbles(email),
+      inboxThreadBubbles(emailThreads),
       native.flatMap((resident) => smsThreadBubbles(resident, displayName)),
     );
-  }, [displayName, email, emailThreadSnapshot, inboxTick, smsResident, smsResidents]);
+  }, [displayName, emailThreads, smsResident, smsResidents]);
   const viewedSignature = useMemo(() => {
     const sources = readSources.map((source) => `${source.id}:${source.observation}`);
     const inboundSms = (smsResidents?.length ? smsResidents : smsResident ? [smsResident] : [])
@@ -638,7 +653,7 @@ export function ResidentDirectChatPane({
           body: JSON.stringify({
             fromName: "Property manager",
             toEmails: [email],
-            subject: "Message from your property manager",
+            subject: emailReplySubject,
             text,
             deliverToPortalInbox: true,
             eventCategory: "messages",
@@ -687,6 +702,7 @@ export function ResidentDirectChatPane({
   }, [
     draft,
     email,
+    emailReplySubject,
     onSent,
     replyAttachments,
     replyViaEmail,

@@ -18,6 +18,13 @@ page is broken" or "the seed has no properties" when the data is fine and the
 OWNER moved. When those surfaces disagree, diff the two sources before touching
 either.
 
+List tabs (Payments, Bookings, lease/charge pickers, and the other portfolio
+filters) read the active workspace’s property ids and labels
+(`activeWorkspacePropertyOptions` in `src/lib/workspaces/selection.ts`, seeded
+into `buildManagerPropertyFilterOptions`) — not the local property pipeline
+alone. An empty pipeline with houses on the workspace still fills those lists.
+Properties remains the only surface that owns `GET /api/property-records`.
+
 - **`POST /api/property-records` never MOVES an owned row from the request body
   — not even for an admin.** Every client posts `managerUserId` straight out of a
   browser-local pipeline bucket (`mirrorLocalPropertyPipelineToServer`,

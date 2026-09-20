@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveOwnerSendNumberRow } from "@/lib/sms/manager-workspace-role.server";
 import { normalizeE164 } from "@/lib/phone-e164";
-import { readSmsSuppressionState } from "@/lib/sms-consent";
+import { readScopedSmsConsentState, readSmsSuppressionState } from "@/lib/sms-consent";
 import { ensureApplicationScopedSmsConsent } from "@/lib/sms/application-consent.server";
 import { TEAM_NOTICE_SMS_PURPOSE, ensureTeamNoticeScopedSmsConsent } from "@/lib/sms/team-notice-consent.server";
 import { validateTourSmsPurposeAtDispatch } from "@/lib/sms/tour-sms-eligibility.server";
@@ -37,6 +37,8 @@ type RuntimeRow = {
   pilot_manager_user_ids: string[] | null;
 };
 
+const PROSPECT_TOUR_REMINDER_PURPOSE = "prospect_tour_followup";
+
 type NumberRow = {
   manager_user_id: string;
   workspace_id?: string | null;
@@ -70,6 +72,15 @@ export type OwnerSmsEnqueueInput = {
   recipientTimezone?: string | null;
   dedupeKey?: string | null;
   traceId?: string | null;
+  /** Durable final-dispatch fence for the one prospect scheduling follow-up. */
+  prospectTourReminderId?: string | null;
+  /** Submission identity used only by the final provider-boundary recheck. */
+  prospectTourReminderSubmission?: {
+    outboxId: string;
+    workerId: string;
+  } | null;
+  /** Booking-keyed final-dispatch fence for an autonomous tour confirmation. */
+  prospectTourBookingConfirmationId?: string | null;
   prospectBurst?: {
     burstId: string; revision: number; workerId: string;
     transport?: "twilio" | "claw"; transportFromNumber?: string | null;
@@ -185,12 +196,27 @@ async function loadSendPolicy(
     // A team notice goes to a manager, whose consent is their own verified
     // work phone — an applicant's rental-application stamp can never vouch
     // for a co-manager (see team-notice-consent.server.ts).
-    const consent =
-      input.purpose === TEAM_NOTICE_SMS_PURPOSE
-        ? await ensureTeamNoticeScopedSmsConsent(db, consentScope)
-        : await ensureApplicationScopedSmsConsent(db, consentScope);
-    if (!consent.ok) return { allowed: false, reason: consent.error };
-    if (!consent.granted) return { allowed: false, reason: "scoped_consent_missing" };
+    if (input.purpose === TEAM_NOTICE_SMS_PURPOSE) {
+      const consent = await ensureTeamNoticeScopedSmsConsent(db, consentScope);
+      if (!consent.ok) return { allowed: false, reason: consent.error };
+      if (!consent.granted) return { allowed: false, reason: "scoped_consent_missing" };
+    } else if (input.purpose === PROSPECT_TOUR_REMINDER_PURPOSE) {
+      const consent = await readScopedSmsConsentState(db, recipient, {
+        managerUserId: ownerId,
+        purpose: input.purpose,
+        sendClass: input.sendClass,
+        conversationKey: input.conversationKey,
+        messagingServiceSid: expectedServiceSid,
+      });
+      if (!consent.ok) return { allowed: false, reason: consent.error };
+      if (consent.state !== "granted") {
+        return { allowed: false, reason: consent.state === "revoked" ? "scoped_consent_revoked" : "scoped_consent_missing" };
+      }
+    } else {
+      const consent = await ensureApplicationScopedSmsConsent(db, consentScope);
+      if (!consent.ok) return { allowed: false, reason: consent.error };
+      if (!consent.granted) return { allowed: false, reason: "scoped_consent_missing" };
+    }
     // A lifecycle grant may have been queued while its source conversation was
     // valid. Recheck that explicit derivation at the provider boundary.
     if (CONVERSATION_DERIVED_TOUR_PURPOSES.has(input.purpose)) {
@@ -207,6 +233,32 @@ async function loadSendPolicy(
 
   if (quietHoursBlocks(input.purpose === "tour_interest_followup" ? "automated" : input.sendClass, now, { tz: input.recipientTimezone ?? "America/Los_Angeles", startHour: 21, endHour: 8 })) {
     return { allowed: false, reason: "quiet_hours", deferUntil: new Date(now.getTime() + 60 * 60 * 1000).toISOString() };
+  }
+
+  // begin_prospect_tour_reminder_submission fences the queued attempt before
+  // budget and credit work. Those awaits are long enough for a reply, booking,
+  // handoff, opt-out, deferral, or archive to cancel the reminder. Re-read the
+  // exact durable reminder at the last policy boundary so `submitting` never
+  // means authorization survives a later lifecycle transition.
+  if (input.purpose === PROSPECT_TOUR_REMINDER_PURPOSE) {
+    const reminderId = input.prospectTourReminderId?.trim();
+    const submission = input.prospectTourReminderSubmission;
+    if (submission) {
+      if (!reminderId || !submission.outboxId.trim() || !submission.workerId.trim()) {
+        return { allowed: false, reason: "invalid_prospect_tour_reminder_identity" };
+      }
+      const { data: current, error } = await db.rpc("prospect_tour_reminder_submission_is_current", {
+        p_reminder_id: reminderId,
+        p_outbox_id: submission.outboxId,
+        p_outbox_worker_id: submission.workerId,
+        p_manager_user_id: ownerId,
+        p_conversation_key: input.conversationKey ?? null,
+        p_recipient_phone_e164: recipient,
+        p_property_id: input.propertyId ?? null,
+      });
+      if (error) return { allowed: false, reason: "prospect_tour_reminder_state_unavailable" };
+      if (current !== true) return { allowed: false, reason: "prospect_tour_reminder_stale" };
+    }
   }
 
   return {
@@ -251,6 +303,46 @@ export async function enqueueOwnerSms(
   const segments = estimateSmsSegments(body).segmentCount;
   const dedupeKey = input.dedupeKey?.trim() || randomUUID();
   const status = enqueuePolicy.allowed ? "queued" : "deferred";
+  if (input.prospectTourBookingConfirmationId?.trim()) {
+    const { data, error } = await db.rpc("prepare_prospect_tour_booking_confirmation", {
+      p_booking_id: input.prospectTourBookingConfirmationId.trim(),
+      p_manager_user_id: input.managerUserId,
+      p_actor_user_id: input.actorUserId,
+      p_recipient_user_id: input.recipientUserId ?? null,
+      p_recipient_email: input.recipientEmail?.trim().toLowerCase() || null,
+      p_recipient_phone: recipient,
+      p_body: body,
+      p_send_class: input.sendClass,
+      p_purpose: input.purpose,
+      p_conversation_key: input.conversationKey ?? null,
+      p_counterparty_role: input.counterpartyRole ?? null,
+      p_property_id: input.propertyId ?? null,
+      p_recipient_timezone: input.recipientTimezone ?? "America/Los_Angeles",
+      p_dedupe_key: dedupeKey,
+      p_trace_id: input.traceId ?? null,
+      p_segment_count: segments,
+      p_status: status,
+      p_available_at: enqueuePolicy.allowed ? new Date().toISOString() : enqueuePolicy.deferUntil,
+      p_blocked_reason: enqueuePolicy.allowed ? null : enqueuePolicy.reason,
+      p_burst_id: input.prospectBurst?.burstId ?? null,
+      p_burst_revision: input.prospectBurst?.revision ?? null,
+      p_burst_worker_id: input.prospectBurst?.workerId ?? null,
+      p_transport: input.prospectBurst?.transport ?? "twilio",
+      p_transport_from_number: input.prospectBurst?.transportFromNumber ?? null,
+      p_candidate_context: input.prospectBurst?.candidateContext ?? null,
+      p_candidate_shadow_snapshot: input.prospectBurst?.candidateShadowSnapshot ?? null,
+    });
+    const prepared = Array.isArray(data) ? data[0] : data;
+    if (error || !prepared?.outbox_id) {
+      return { ok: false, error: error ? "outbox_unavailable" : "prospect_tour_confirmation_stale" };
+    }
+    return {
+      ok: true,
+      outboxId: String(prepared.outbox_id),
+      status: String(prepared.status),
+      deduplicated: Boolean(prepared.terminal),
+    };
+  }
   if (input.prospectBurst) {
     const { data, error } = await db.rpc("prepare_prospect_sms_delivery", {
       p_burst_id: input.prospectBurst.burstId,
@@ -307,6 +399,8 @@ export async function enqueueOwnerSms(
       recipient_timezone: input.recipientTimezone ?? "America/Los_Angeles",
       dedupe_key: dedupeKey,
       trace_id: input.traceId ?? null,
+      prospect_tour_reminder_id: input.prospectTourReminderId?.trim() || null,
+      prospect_tour_booking_confirmation_id: input.prospectTourBookingConfirmationId?.trim() || null,
       segment_count: segments,
       status,
       available_at: enqueuePolicy.allowed ? new Date().toISOString() : enqueuePolicy.deferUntil,
@@ -350,6 +444,8 @@ type ClaimedOutboxRow = {
   prospect_burst_id: string | null;
   prospect_burst_revision: number | null;
   prospect_burst_worker_id: string | null;
+  prospect_tour_reminder_id?: string | null;
+  prospect_tour_booking_confirmation_id?: string | null;
   transport?: "twilio" | "claw";
   transport_from_number?: string | null;
 };
@@ -656,64 +752,108 @@ export async function dispatchOwnerSmsOutbox(
     const dispatchStartedAt = new Date().toISOString();
     let started = false;
     let staleBurst = false;
-    let prospectBudgetSpent = false;
+    let submissionCostsReserved = false;
+    let submitOutcome: string | null = null;
+    let plan: Awaited<ReturnType<typeof commsPlanBudget>> | null = null;
     let startError: unknown = null;
-    if (row.prospect_burst_id) {
-      let plan;
+
+    if (row.prospect_tour_booking_confirmation_id || row.prospect_burst_id) {
       try {
         plan = await commsPlanBudget(row.manager_user_id);
       } catch {
         const transitioned = await blockOrDeferClaim(db, row, {
-          allowed: false, reason: "credit_unavailable",
+          allowed: false,
+          reason: "credit_unavailable",
           deferUntil: new Date(Date.now() + 5 * 60_000).toISOString(),
         }, workerId);
-        await db.from("sms_delivery_attempts").update({ state: "pre_dispatch_failed", finished_at: new Date().toISOString() }).eq("id", attempt.id);
+        await db.from("sms_delivery_attempts").update({
+          state: "pre_dispatch_failed",
+          finished_at: new Date().toISOString(),
+        }).eq("id", attempt.id);
         if (!transitioned) recordInfrastructureError("credit_transition_unavailable");
         continue;
       }
+    }
+
+    const beginBookingSubmission = async (bookingId: string) => {
+      const transition = await db.rpc("begin_prospect_tour_booking_confirmation_submission_v2", {
+        p_booking_id: bookingId,
+        p_outbox_id: row.id,
+        p_outbox_worker_id: workerId,
+        p_attempt_id: attempt.id,
+        p_dispatch_started_at: dispatchStartedAt,
+        p_allowance: plan!.allowance,
+        p_legacy_allowance: plan!.legacy,
+        p_unit_cents: unitPriceCentsForMeter("sms_outbound_segment"),
+        p_provider_from_phone: policy.fromNumber,
+      });
+      const payload = transition.data && typeof transition.data === "object" && !Array.isArray(transition.data)
+        ? transition.data as { outcome?: unknown; costs_reserved?: unknown }
+        : null;
+      return {
+        error: transition.error,
+        outcome: typeof payload?.outcome === "string" ? payload.outcome : null,
+        costsReserved: payload?.costs_reserved === true,
+      };
+    };
+
+    if (row.prospect_tour_booking_confirmation_id) {
+      const transition = await beginBookingSubmission(row.prospect_tour_booking_confirmation_id);
+      startError = transition.error;
+      submitOutcome = transition.outcome;
+      started = submitOutcome === "started";
+      staleBurst = submitOutcome === "stale";
+      submissionCostsReserved = started && transition.costsReserved;
+    } else if (row.prospect_burst_id) {
       const transition = await db.rpc("begin_sms_outbox_submission", {
         p_outbox_id: row.id,
         p_outbox_worker_id: workerId,
         p_attempt_id: attempt.id,
         p_dispatch_started_at: dispatchStartedAt,
-        p_allowance: plan.allowance,
-        p_legacy_allowance: plan.legacy,
+        p_allowance: plan!.allowance,
+        p_legacy_allowance: plan!.legacy,
         p_unit_cents: unitPriceCentsForMeter("sms_outbound_segment"),
         p_provider_from_phone: policy.fromNumber,
       });
       startError = transition.error;
-      started = transition.data === "started";
-      staleBurst = transition.data === "stale";
-      prospectBudgetSpent = started;
-      if (!startError && (transition.data === "budget_exhausted" || transition.data === "budget_unavailable" || transition.data === "credit_unavailable")) {
-        const retryAt = new Date();
-        if (transition.data === "budget_unavailable" || transition.data === "credit_unavailable") retryAt.setTime(Date.now() + 5 * 60_000);
-        else {
-          retryAt.setUTCDate(retryAt.getUTCDate() + 1);
-          retryAt.setUTCHours(0, 0, 5, 0);
+      submitOutcome = typeof transition.data === "string" ? transition.data : null;
+      started = submitOutcome === "started";
+      staleBurst = submitOutcome === "stale";
+      submissionCostsReserved = started;
+      if (submitOutcome === "booking_required") {
+        const { data: adopted, error: adoptedError } = await db.from("sms_outbox")
+          .select("prospect_tour_booking_confirmation_id")
+          .eq("id", row.id)
+          .maybeSingle();
+        if (adoptedError || !adopted?.prospect_tour_booking_confirmation_id) {
+          startError = adoptedError ?? new Error("booking_transition_unavailable");
+          submitOutcome = "unavailable";
+        } else {
+          const bookingTransition = await beginBookingSubmission(adopted.prospect_tour_booking_confirmation_id);
+          startError = bookingTransition.error;
+          submitOutcome = bookingTransition.outcome;
+          started = submitOutcome === "started";
+          staleBurst = submitOutcome === "stale";
+          submissionCostsReserved = started && bookingTransition.costsReserved;
         }
-        await db.from("sms_outbox").update({
-          status: "deferred",
-          available_at: retryAt.toISOString(),
-          blocked_reason: transition.data === "credit_unavailable" ? "credit_unavailable" : transition.data === "budget_unavailable" ? "campaign_budget_unavailable" : "campaign_segment_budget_exhausted",
-          lease_owner: null,
-          lease_expires_at: null,
-          updated_at: new Date().toISOString(),
-        }).eq("id", row.id).eq("lease_owner", workerId).eq("status", "claimed");
-        await db.from("sms_delivery_attempts").update({ state: "pre_dispatch_failed", finished_at: new Date().toISOString() }).eq("id", attempt.id);
-        continue;
       }
-      if (!startError && typeof transition.data === "string" && transition.data.startsWith("credit_")) {
-        await db.from("sms_outbox").update({ status: "blocked", blocked_reason: transition.data,
-          lease_owner: null, lease_expires_at: null, updated_at: new Date().toISOString() })
-          .eq("id", row.id).eq("lease_owner", workerId).eq("status", "claimed");
-        await db.from("sms_delivery_attempts").update({ state: "pre_dispatch_failed", finished_at: new Date().toISOString() }).eq("id", attempt.id);
-        result.blocked += 1;
-        continue;
-      }
+    } else if (row.prospect_tour_reminder_id) {
+      const transition = await db.rpc("begin_prospect_tour_reminder_submission", {
+        p_reminder_id: row.prospect_tour_reminder_id,
+        p_outbox_id: row.id,
+        p_outbox_worker_id: workerId,
+        p_attempt_id: attempt.id,
+        p_dispatch_started_at: dispatchStartedAt,
+      });
+      startError = transition.error;
+      submitOutcome = typeof transition.data === "string" ? transition.data : null;
+      started = submitOutcome === "started";
+      staleBurst = submitOutcome === "stale";
     } else if (row.purpose === "tour_interest_followup") {
       const transition = await db.rpc("begin_tour_interest_submission", {
-        p_outbox_id: row.id, p_worker: workerId, p_from: policy.fromNumber,
+        p_outbox_id: row.id,
+        p_worker: workerId,
+        p_from: policy.fromNumber,
       });
       startError = transition.error;
       started = transition.data === true;
@@ -730,6 +870,39 @@ export async function dispatchOwnerSmsOutbox(
       startError = transition.error;
       started = Boolean(transition.data);
     }
+    if (!startError && ["budget_exhausted", "budget_unavailable", "credit_unavailable"].includes(submitOutcome ?? "")) {
+      const retryAt = new Date();
+      if (submitOutcome === "budget_unavailable" || submitOutcome === "credit_unavailable") {
+        retryAt.setTime(Date.now() + 5 * 60_000);
+      }
+      else { retryAt.setUTCDate(retryAt.getUTCDate() + 1); retryAt.setUTCHours(0, 0, 5, 0); }
+      await db.from("sms_outbox").update({
+        status: "deferred", available_at: retryAt.toISOString(),
+        blocked_reason: submitOutcome === "credit_unavailable"
+          ? "credit_unavailable"
+          : submitOutcome === "budget_unavailable"
+            ? "campaign_budget_unavailable"
+            : "campaign_segment_budget_exhausted",
+        lease_owner: null, lease_expires_at: null, updated_at: new Date().toISOString(),
+      }).eq("id", row.id).eq("lease_owner", workerId).eq("status", "claimed");
+      await db.from("sms_delivery_attempts").update({ state: "pre_dispatch_failed", finished_at: new Date().toISOString() }).eq("id", attempt.id);
+      continue;
+    }
+    if (!startError && submitOutcome?.startsWith("credit_")) {
+      await db.from("sms_outbox").update({
+        status: "blocked",
+        blocked_reason: submitOutcome,
+        lease_owner: null,
+        lease_expires_at: null,
+        updated_at: new Date().toISOString(),
+      }).eq("id", row.id).eq("lease_owner", workerId).eq("status", "claimed");
+      await db.from("sms_delivery_attempts").update({
+        state: "pre_dispatch_failed",
+        finished_at: new Date().toISOString(),
+      }).eq("id", attempt.id);
+      result.blocked += 1;
+      continue;
+    }
     if (startError || !started) {
       await db.from("sms_delivery_attempts").update({ state: "pre_dispatch_failed", finished_at: new Date().toISOString() }).eq("id", attempt.id);
       result.blocked += 1;
@@ -740,7 +913,7 @@ export async function dispatchOwnerSmsOutbox(
     // The revision-fenced burst transition reserves its campaign budget in
     // the same transaction. Ordinary rows retain the current one-reservation-
     // per-outbox guard.
-    const { data: budgetAvailable, error: budgetError } = prospectBudgetSpent
+    const { data: budgetAvailable, error: budgetError } = submissionCostsReserved
       ? { data: true, error: null }
       : await db.rpc("spend_sms_outbox_segment_budget", {
           p_outbox_id: row.id,
@@ -780,7 +953,7 @@ export async function dispatchOwnerSmsOutbox(
     }
 
     const creditKey = `sms_outbound:${row.id}`;
-    const credit = prospectBudgetSpent
+    const credit = submissionCostsReserved
       ? { allowed: true as const, duplicate: false, state: "reserved" as const }
       : await reserveCommsCredit(db, {
           managerUserId: row.manager_user_id, meter: "sms_outbound_segment",
@@ -819,12 +992,16 @@ export async function dispatchOwnerSmsOutbox(
     // Recheck after budget/credit awaits, at the last boundary before external
     // submission. Cancellation already fences the earlier state transition;
     // this also catches a new inbound, opt-out, booking or revoked grant.
-    if (row.purpose === "tour_interest_followup") {
+    if (row.purpose === "tour_interest_followup" || row.purpose === PROSPECT_TOUR_REMINDER_PURPOSE) {
       const finalPolicy = await loadSendPolicy(db, {
         managerUserId: row.manager_user_id, actorUserId: row.actor_user_id ?? row.manager_user_id,
         recipientPhone: row.recipient_phone, recipientEmail: row.recipient_email, body: row.body,
         sendClass: row.send_class, purpose: row.purpose, conversationKey: row.conversation_key,
         propertyId: row.property_id, dedupeKey: row.dedupe_key, recipientTimezone: row.recipient_timezone,
+        prospectTourReminderId: row.prospect_tour_reminder_id,
+        prospectTourReminderSubmission: row.prospect_tour_reminder_id
+          ? { outboxId: row.id, workerId }
+          : null,
       });
       if (!finalPolicy.allowed || finalPolicy.fromNumber !== policy.fromNumber) {
         await finishCommsCredit(db, row.manager_user_id, creditKey, true);

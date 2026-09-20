@@ -12,6 +12,7 @@ import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
 import { maxAccountLinksForTier, maxPropertiesForManagerTier } from "@/lib/manager-access";
 import { EMPTY_PLAN_ADDON_QUANTITIES } from "@/lib/plan-addons";
 import { addonUnitsForCap, loadManagerPlanAddonQuantities } from "@/lib/plan-addons.server";
+import { hasWorkspaceAddProperties } from "@/lib/workspace-co-manager-permissions";
 import {
   WORKSPACE_LIMIT,
   WORKSPACE_PLAN_ENTITLEMENTS,
@@ -25,7 +26,7 @@ import {
 export async function loadWorkspaces(db: SupabaseClient, userId: string): Promise<PortalWorkspace[]> {
   const [owned, links] = await Promise.all([
     db.from("portal_workspaces").select("id,name,owner_user_id,is_default").eq("owner_user_id", userId).order("created_at"),
-    db.from("account_link_invites").select("inviter_user_id,assigned_property_ids,property_co_manager_permissions,co_manager_permissions")
+    db.from("account_link_invites").select("inviter_user_id,assigned_property_ids,property_co_manager_permissions,co_manager_permissions,workspace_id,workspace_permissions")
       .eq("invitee_user_id", userId).eq("status", "accepted"),
   ]);
   if (owned.error || links.error) throw new Error("Could not load workspace access. Please retry.");
@@ -35,6 +36,8 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
   const emails = new Map((profiles.data ?? []).map((p) => [p.id, p.email ?? ""]));
   const permissions: PropertyCoManagerPermissions = {};
   const assigned = new Set<string>();
+  const grantedWorkspaceIds = new Set<string>();
+  const addPropertyWorkspaceIds = new Set<string>();
   for (const link of links.data ?? []) {
     if (!emails.has(userId) || !emails.has(link.inviter_user_id)) continue;
     if (isCrossSandboxPortalPair(emails.get(userId)!, emails.get(link.inviter_user_id)!)) continue;
@@ -47,6 +50,12 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
         permissions[id] = mergeCoManagerPermissions([{ coManagerPermissions: permissions[id] }, { coManagerPermissions: map[id] }]);
       }
     }
+    const pinnedWorkspace = String((link as { workspace_id?: string | null }).workspace_id ?? "").trim();
+    if (pinnedWorkspace) grantedWorkspaceIds.add(pinnedWorkspace);
+    if (hasWorkspaceAddProperties((link as { workspace_permissions?: unknown }).workspace_permissions)) {
+      if (pinnedWorkspace) addPropertyWorkspaceIds.add(pinnedWorkspace);
+      else addPropertyWorkspaceIds.add(`owner:${link.inviter_user_id}`);
+    }
   }
   const ownedProperties = await db.from("manager_property_records").select("id,workspace_id,row_data").eq("manager_user_id", userId);
   if (ownedProperties.error) throw new Error("Could not load workspace properties. Please retry.");
@@ -54,7 +63,19 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
     ? await db.from("manager_property_records").select("id,workspace_id,row_data").in("id", [...assigned])
     : { data: [], error: null };
   if (linkedProperties.error) throw new Error("Could not load shared workspace properties. Please retry.");
-  const sharedIds = [...new Set((linkedProperties.data ?? []).map((p) => p.workspace_id).filter(Boolean))];
+  const sharedIds = [...new Set([
+    ...(linkedProperties.data ?? []).map((p) => p.workspace_id).filter(Boolean),
+    ...grantedWorkspaceIds,
+  ])];
+  const ownerGrantIds = [...addPropertyWorkspaceIds].filter((id) => id.startsWith("owner:")).map((id) => id.slice(6));
+  const ownerDefaults = ownerGrantIds.length
+    ? await db.from("portal_workspaces").select("id,name,owner_user_id,is_default").in("owner_user_id", ownerGrantIds).eq("is_default", true)
+    : { data: [] as { id: string; name: string; owner_user_id: string; is_default: boolean }[], error: null };
+  if (ownerDefaults.error) throw new Error("Could not load granted workspaces. Please retry.");
+  for (const row of ownerDefaults.data ?? []) {
+    sharedIds.push(row.id);
+    addPropertyWorkspaceIds.add(row.id);
+  }
   const shared = sharedIds.length
     ? await db.from("portal_workspaces").select("id,name,owner_user_id,is_default").in("id", sharedIds).order("created_at")
     : { data: [], error: null };
@@ -119,6 +140,7 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
       ),
       propertyPermissions: Object.fromEntries(propertyIds.filter((id) => permissions[id]).map((id) => [id, permissions[id]])),
       members,
+      canAddProperties: ownedHere || addPropertyWorkspaceIds.has(w.id),
     };
   });
 }

@@ -7,11 +7,16 @@ import { AuthPageHeader } from "@/components/auth/auth-mobile-primitives";
 import { Button } from "@/components/ui/button";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { inviteLinkUnusableMessage, type InviteLinkUnusableReason } from "@/lib/invite-links/invite-link-model";
+import { firstNameFromDisplay, inviteAcceptSubtitle, inviteAcceptTitle } from "@/lib/invite-links/invite-accept-copy";
+import { teamRoleListLabel } from "@/lib/co-manager-team-roles";
 
 type Preview = {
   kind: "manager" | "vendor" | "resident";
   ownerName: string;
+  workspaceName?: string | null;
+  ownerUserId?: string;
   propertyLabels: string[];
+  teamRole?: string | null;
   unusableReason: InviteLinkUnusableReason | null;
 };
 
@@ -156,6 +161,9 @@ export default function InviteLinkClient({ token }: { token: string }) {
 
   const isVendor = preview.kind === "vendor";
   const isResident = preview.kind === "resident";
+  const messageHref = preview.ownerUserId
+    ? `/portal/communication?composeToUserId=${encodeURIComponent(preview.ownerUserId)}`
+    : `/auth/sign-in?next=${encodeURIComponent(`/invite/${token}`)}`;
 
   // A resident's claim is filed, not granted. Ending on "we sent your request"
   // is the truthful screen: nothing about their account has changed yet.
@@ -184,15 +192,19 @@ export default function InviteLinkClient({ token }: { token: string }) {
     <AuthCard variant="blend">
       <AuthPageHeader
         showLogo
-        title={isResident ? `${preview.ownerName} invited you to PropLane` : `${preview.ownerName} invited you`}
-        subtitle={
-          isResident
-            ? "Already living in one of the homes below? Confirm it and they will set up your resident portal."
-            : isVendor
-              ? "Join their vendor directory on PropLane."
-              : "Co-manage the properties below with them on PropLane."
-        }
+        title={inviteAcceptTitle(preview.kind)}
+        subtitle={inviteAcceptSubtitle({
+          kind: preview.kind,
+          ownerName: preview.ownerName,
+          workspaceName: preview.workspaceName,
+        })}
       />
+
+      {preview.kind === "manager" && preview.teamRole ? (
+        <p className="mt-3 text-center text-sm text-foreground" data-attr="invite-link-role">
+          Role: {teamRoleListLabel(preview.teamRole)}
+        </p>
+      ) : null}
 
       {preview.propertyLabels.length > 0 ? (
         <div className="mt-5 rounded-2xl border border-border bg-accent/20 p-4">
@@ -237,6 +249,17 @@ export default function InviteLinkClient({ token }: { token: string }) {
             {isResident ? "This is my home" : isVendor ? "Join as vendor" : "Continue"}
           </Button>
         )}
+        {!isResident ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="mt-3 w-full rounded-full py-2.5 text-[15px] font-semibold"
+            data-attr="invite-link-message-inviter"
+            onClick={() => router.push(messageHref)}
+          >
+            Message {firstNameFromDisplay(preview.ownerName)}
+          </Button>
+        ) : null}
       </div>
 
       <p className="mt-4 text-center text-xs text-muted">

@@ -124,6 +124,19 @@ describe("CreateWorkspace", () => {
     expect(screen.getByText("New listing")).toBeInTheDocument();
   });
 
+  it("opens Local compliance from Advanced on Basics", () => {
+    mount();
+    const bar = document.querySelector<HTMLButtonElement>("[data-attr='listing-v2-house-keeping']")!;
+    expect(bar).not.toBeNull();
+    expect(bar.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(bar);
+    const compliance = document.querySelector<HTMLButtonElement>("[data-attr='listing-v2-house-compliance']")!;
+    expect(compliance.textContent).toContain("Local compliance");
+    fireEvent.click(compliance);
+    expect(screen.getByText("Certificate of occupancy date")).toBeInTheDocument();
+    expect(screen.getByText("RRIO registration number")).toBeInTheDocument();
+  });
+
   it("a file with one property fills this listing in place, marked, with Import behind Basics on the rail and no switcher", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ok: true, understanding: { ...understanding, properties: [pike] } }), { status: 200 })));
     mount();
@@ -182,6 +195,40 @@ describe("CreateWorkspace", () => {
     expect(document.querySelector("[data-attr='import-understood']")!.textContent).toContain("Rent taken from the Rent column");
     expect(document.querySelector("[data-attr='import-upload-continue']")).not.toBeDisabled();
     expect(document.querySelector("[data-attr='import-property-switcher']")!.textContent).toContain("1 of 2");
+  });
+
+  it("Import rail matches the editor chrome for the selected draft", async () => {
+    mount();
+    await uploadAndWait();
+    const nav = screen.getByRole("navigation", { name: "Listing sections" });
+    expect(document.querySelector("[data-attr='listing-v2-rail-add-photos']")).not.toBeNull();
+    expect(document.querySelector("[data-attr='listing-v2-rail-finish']")).not.toBeNull();
+    expect(nav.textContent).toContain("By the room");
+    expect(nav.textContent).toMatch(/4 rooms/);
+    expect(nav.textContent).toContain("Draft");
+    const importStep = screen.getByText(/^Step 1 of \d+$/).textContent;
+    const total = importStep?.match(/of (\d+)/)?.[1];
+    fireEvent.click(document.querySelector("[data-attr='listing-v2-rail-rooms']")!);
+    await screen.findByText("Default room");
+    expect(document.querySelector("[data-attr='listing-v2-rail-rooms']")?.getAttribute("aria-current")).toBe("step");
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await screen.findByText("The home itself");
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await screen.findByText("Found 2 properties");
+    fireEvent.click(document.querySelector("[data-attr='import-upload-continue']")!);
+    await screen.findByText("The home itself");
+    expect(screen.getByText(`Step 2 of ${total}`)).toBeInTheDocument();
+  });
+
+  it("Import switcher stays on the Found list and refreshes rail summaries", async () => {
+    mount();
+    await uploadAndWait();
+    await userEvent.click(screen.getByLabelText(/Imported property 1 of 2/));
+    await userEvent.click(await screen.findByRole("menuitem", { name: /918 Harvard Ave E/ }));
+    expect(screen.getByText("Found 2 properties")).toBeInTheDocument();
+    expect(document.querySelector("[data-attr='import-property-switcher']")!.textContent).toContain("2 of 2");
+    const nav = screen.getByRole("navigation", { name: "Listing sections" });
+    expect(nav.textContent).toContain("Whole place");
   });
 
   it("opens a property in the editor with Import behind it on the rail, and the switcher in the header", async () => {

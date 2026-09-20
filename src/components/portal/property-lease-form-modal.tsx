@@ -1,15 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Modal,
-  ModalFooter,
-  MODAL_FIELD_LABEL_CLASS,
-  PORTAL_MODAL_FORM_FIELD_CLASS,
-  PORTAL_MODAL_FORM_GRID_CLASS,
-} from "@/components/ui/modal";
+import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
+import { WIZARD_LABEL_CLASS } from "@/components/portal/add-workspace/parts";
+import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import {
   LeaseConfigForm,
   LeaseDocumentModeField,
@@ -127,6 +122,7 @@ export function PropertyLeaseFormModal({
   const [parsingLease, setParsingLease] = useState(false);
   const [saveReviewOpen, setSaveReviewOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [stepIdx, setStepIdx] = useState(0);
 
   const source = leaseSourceFromDraft(draft);
   const typeMeta = useMemo(
@@ -184,6 +180,7 @@ export function PropertyLeaseFormModal({
   useEffect(() => {
     if (!open) return;
     setError(null);
+    setStepIdx(0);
     if (mode === "edit" && template) {
       const templateDraftFields = draftFromTemplate(template);
       const templateSource = leaseSourceFromDraft(templateDraftFields);
@@ -379,88 +376,108 @@ export function PropertyLeaseFormModal({
     setHtmlOverride(template.leaseTemplateHtmlOverride.trim());
   }, [open, template?.id, template?.updatedAt, template?.leaseTemplateHtmlOverride]);
 
+  const workspaceSteps: AddWorkspaceStep[] = [
+    {
+      id: "name",
+      label: mode === "edit" ? "Name & applies to" : "Name",
+      incomplete: !label.trim() || (mode === "edit" && applicationLeaseTerms.length === 0),
+      summary: label.trim() || "Name this lease",
+    },
+    {
+      id: "document",
+      label: "Document",
+      incomplete: documentMode === "upload" && !draft.leaseTemplateDocUrl,
+      summary: documentModeMeta?.label ?? "Lease document",
+    },
+    { id: "preview", label: "Preview", summary: "What residents sign" },
+  ];
+  const current = Math.min(stepIdx, workspaceSteps.length - 1);
+  const stepId = workspaceSteps[current]!.id;
+  const dirty = Boolean(label.trim() || htmlOverride.trim() || draft.leaseTemplateDocUrl);
+
+  const htmlPreview = (
+    <div className="max-h-[70vh] overflow-auto rounded-2xl border border-border bg-card p-3 text-[13px] leading-relaxed text-foreground" data-attr="property-lease-html-preview">
+      {displayHtml.trim() ? (
+        <div dangerouslySetInnerHTML={{ __html: displayHtml }} />
+      ) : (
+        <p>No lease document yet.</p>
+      )}
+    </div>
+  );
+
+  if (!open) return null;
+
   return (
-    <Modal
-      open={open}
+    <AddWorkspace
       title={mode === "add" ? "New lease" : "Edit lease"}
+      steps={workspaceSteps}
+      current={current}
+      onJump={setStepIdx}
       onClose={dismiss}
-      panelClassName="max-w-4xl"
+      dirty={dirty}
+      discardTitle="Discard this lease?"
       assistantContext={assistantContext}
-      assistantEditHint="Type in chat to edit the lease — changes apply after you confirm."
-      assistantStorageScopeKey="Lease modal"
-      footer={
-        <ModalFooter className="w-full">
-          {mode === "edit" && canDelete && onDelete ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-full border-red-200 text-red-700 hover:bg-red-50"
-              onClick={handleDelete}
-              data-attr="property-lease-delete"
-            >
-              Delete
-            </Button>
-          ) : null}
-          <Button
+      assistantScopeKey="Lease modal"
+      sidePanel={htmlPreview}
+      lastLabel="Save"
+      lastDisabled={templateUploading || parsingLease || saving}
+      onBeforeNext={() => {
+        if (stepId === "name" && !label.trim()) {
+          setError("Enter a name for this lease.");
+          return false;
+        }
+        if (stepId === "name" && mode === "edit" && applicationLeaseTerms.length === 0) {
+          setError("A lease must apply to at least one lease type.");
+          return false;
+        }
+        if (stepId === "document") {
+          const validationError = validateLeaseDraft(draft, documentMode);
+          if (validationError) {
+            setError(validationError);
+            return false;
+          }
+        }
+        setError(null);
+        return true;
+      }}
+      busy={templateUploading || parsingLease || saving}
+      onFinish={save}
+      saveState={saving ? "Saving…" : parsingLease ? "Parsing…" : templateUploading ? "Uploading…" : "Not saved yet"}
+      dataAttrPrefix="property-lease"
+      finishDataAttr={mode === "add" ? "property-lease-add-save" : "property-lease-edit-save"}
+      footerNote={error ? <span className="text-sm text-rose-600">{error}</span> : null}
+      dangerAction={
+        mode === "edit" && canDelete && onDelete ? (
+          <button
             type="button"
-            variant="primary"
-            className="ml-auto rounded-full"
-            disabled={templateUploading || parsingLease || saving}
-            onClick={save}
-            data-attr={mode === "add" ? "property-lease-add-save" : "property-lease-edit-save"}
+            className="min-h-[44px] rounded-full border border-red-200 bg-card px-6 text-[14px] font-bold text-red-700"
+            onClick={() => void handleDelete()}
+            data-attr="property-lease-delete"
           >
-            {templateUploading ? "Uploading…" : parsingLease ? "Parsing lease…" : saving ? "Saving…" : "Save"}
-          </Button>
-        </ModalFooter>
+            Delete
+          </button>
+        ) : null
       }
     >
-      <div className="space-y-4">
-        {mode === "add" ? (
-          <div className="space-y-3">
-            <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
-              <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-                <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="property-lease-name">
-                  Lease document name
-                </label>
-                <Input
-                  id="property-lease-name"
-                  value={label}
-                  onChange={(e) => setLabel(e.target.value)}
-                  placeholder={typeMeta?.defaultLabel ?? "e.g. Room rental lease"}
-                  data-attr="property-lease-name"
-                />
-              </div>
-              <LeaseDocumentModeField
-                mode={documentMode}
-                onModeChange={handleDocumentModeChange}
-                dataAttrPrefix="property"
-                labelClassName={MODAL_FIELD_LABEL_CLASS}
-                fieldClassName={PORTAL_MODAL_FORM_FIELD_CLASS}
-                showDetail={false}
-              />
-            </div>
-            {documentModeMeta ? (
-              <p className="text-xs leading-relaxed text-muted">{documentModeMeta.detail}</p>
-            ) : null}
-          </div>
-        ) : (
-          <>
-            <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
-              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="property-lease-name">
-                Lease document name
-              </label>
-              <Input
-                id="property-lease-name"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                placeholder={typeMeta?.defaultLabel ?? "e.g. Room rental lease"}
-                data-attr="property-lease-name"
-              />
-            </div>
-            {/* Which applicant lease-term choices land on this lease — the same
-                `applicationLeaseTerms` the application flow already routes by. */}
-            <fieldset className="space-y-2">
-              <legend className={MODAL_FIELD_LABEL_CLASS}>Applies to</legend>
+      {stepId === "name" ? (
+        <StepColumn>
+          <StepHeading title={mode === "edit" ? "Name & applies to" : "Name"} />
+          <label className={WIZARD_LABEL_CLASS} htmlFor="property-lease-name">
+            Lease document name
+          </label>
+          <Input
+            id="property-lease-name"
+            value={label}
+            onChange={(e) => {
+              setError(null);
+              setLabel(e.target.value);
+            }}
+            placeholder={typeMeta?.defaultLabel ?? "e.g. Room rental lease"}
+            data-attr="property-lease-name"
+          />
+          {mode === "edit" ? (
+            <fieldset className="mt-4 space-y-2">
+              <legend className={WIZARD_LABEL_CLASS}>Applies to</legend>
               <div className="flex flex-wrap gap-x-5 gap-y-2">
                 {LEASE_APPLIES_TO_OPTIONS.map((term) => (
                   <label key={term.value} className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
@@ -469,10 +486,10 @@ export function PropertyLeaseFormModal({
                       className="h-4 w-4 rounded border-border text-primary"
                       checked={applicationLeaseTerms.includes(term.value)}
                       onChange={(e) =>
-                        setApplicationLeaseTerms((current) =>
+                        setApplicationLeaseTerms((currentTerms) =>
                           e.target.checked
-                            ? [...new Set([...current, term.value])]
-                            : current.filter((value) => value !== term.value),
+                            ? [...new Set([...currentTerms, term.value])]
+                            : currentTerms.filter((value) => value !== term.value),
                         )
                       }
                       data-attr={`property-lease-applies-to-${term.value.toLowerCase().replace(/[^a-z]+/g, "-")}`}
@@ -482,55 +499,63 @@ export function PropertyLeaseFormModal({
                 ))}
               </div>
             </fieldset>
-          </>
-        )}
-
-        {documentMode === "upload" ? (
-          <LeaseConfigForm
-            variant="modal"
-            embedded
-            dataAttrPrefix="property"
-            draft={draft}
-            onDraftChange={(patch) => {
-              setError(null);
-              if ("leaseTemplateDocUrl" in patch) {
-                setHtmlOverride("");
-              }
-              setDraft((d) => ({ ...d, ...patch }));
-            }}
-            onStandardToggle={() => setError(null)}
-            onPickLeaseTemplateDoc={onPickLeaseTemplateDoc}
-            leaseTemplateError={leaseTemplateError}
-            hideDocumentDropdown
-            forcedSource="custom_format"
-          />
-        ) : null}
-
-        {showLeaseEditor ? (
-          <div className="flex min-h-[min(420px,55vh)] flex-col gap-3">
-            <PropertyLeaseDocumentNotice html={noticeHtml} />
-            {saveReviewOpen ? (
-              <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-                <p className="font-semibold">Review before saving</p>
-                <p className="mt-1">
-                  This lease still has items to fix. Ask PropLane Assistant in the panel below, then save when it looks
-                  right — or{" "}
-                  <button
-                    type="button"
-                    className="font-semibold underline"
-                    onClick={() => {
-                      setSaveReviewOpen(false);
-                      void commitSave();
-                    }}
-                  >
-                    save anyway
-                  </button>
-                  .
-                </p>
-              </div>
-            ) : null}
-            <div className="flex min-h-0 flex-1 flex-col">
-              <p className={MODAL_FIELD_LABEL_CLASS}>Lease format</p>
+          ) : null}
+        </StepColumn>
+      ) : null}
+      {stepId === "document" ? (
+        <StepColumn wide>
+          <StepHeading title="Document" />
+          {mode === "add" ? (
+            <LeaseDocumentModeField
+              mode={documentMode}
+              onModeChange={handleDocumentModeChange}
+              dataAttrPrefix="property"
+              labelClassName={WIZARD_LABEL_CLASS}
+              showDetail={false}
+            />
+          ) : null}
+          {documentMode === "upload" ? (
+            <LeaseConfigForm
+              variant="modal"
+              embedded
+              dataAttrPrefix="property"
+              draft={draft}
+              onDraftChange={(patch) => {
+                setError(null);
+                if ("leaseTemplateDocUrl" in patch) {
+                  setHtmlOverride("");
+                }
+                setDraft((d) => ({ ...d, ...patch }));
+              }}
+              onStandardToggle={() => setError(null)}
+              onPickLeaseTemplateDoc={onPickLeaseTemplateDoc}
+              leaseTemplateError={leaseTemplateError}
+              hideDocumentDropdown
+              forcedSource="custom_format"
+            />
+          ) : null}
+          {showLeaseEditor ? (
+            <div className="mt-4 flex min-h-[min(420px,55vh)] flex-col gap-3">
+              <PropertyLeaseDocumentNotice html={noticeHtml} />
+              {saveReviewOpen ? (
+                <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                  <p className="font-semibold">Review before saving</p>
+                  <p className="mt-1">
+                    This lease still has items to fix. Ask PropLane Assistant, then save when it looks right — or{" "}
+                    <button
+                      type="button"
+                      className="font-semibold underline"
+                      onClick={() => {
+                        setSaveReviewOpen(false);
+                        void commitSave();
+                      }}
+                    >
+                      save anyway
+                    </button>
+                    .
+                  </p>
+                </div>
+              ) : null}
               <LeaseHtmlDirectEditor
                 className="min-h-[min(380px,50vh)] flex-1"
                 html={displayHtml}
@@ -539,11 +564,17 @@ export function PropertyLeaseFormModal({
                 showPersistBar={false}
               />
             </div>
-          </div>
-        ) : documentMode === "upload" && !draft.leaseTemplateDocUrl ? (
-          <p className="text-sm text-muted">Upload a PDF above to parse it into PropPlane format.</p>
-        ) : null}
-      </div>
-    </Modal>
+          ) : documentMode === "upload" && !draft.leaseTemplateDocUrl ? (
+            <p className="mt-3 text-sm text-foreground">Upload a PDF to parse it into PropLane format.</p>
+          ) : null}
+        </StepColumn>
+      ) : null}
+      {stepId === "preview" ? (
+        <StepColumn wide>
+          <StepHeading title="Preview" />
+          {htmlPreview}
+        </StepColumn>
+      ) : null}
+    </AddWorkspace>
   );
 }

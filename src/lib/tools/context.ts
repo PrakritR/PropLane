@@ -93,6 +93,8 @@ export type LeasingSmsAgentScope = {
     text: string;
     submittedAt: string;
   }[];
+  /** Durable inbound revision - only the queue worker may expose autonomous writes. */
+  prospectBurst?: { burstId: string; revision: number; workerId: string; claimedSourceIds: readonly string[] };
 };
 
 /**

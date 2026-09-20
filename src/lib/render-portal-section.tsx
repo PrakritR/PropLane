@@ -31,16 +31,14 @@ import { ResidentProfileSection } from "@/components/portal/resident-profile-sec
 import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-panel";
 import { VendorDashboard } from "@/components/portal/vendor-dashboard";
 import { VendorWorkOrdersPanel } from "@/components/portal/vendor-work-orders-panel";
-import { VendorCalendarPanel } from "@/components/portal/vendor-calendar-panel";
-import { VendorTaskList } from "@/components/portal/vendor-task-list";
 import { VendorFinancesPanel } from "@/components/portal/vendor-finances-panel";
-import { VendorPaymentsPanel } from "@/components/portal/vendor-payments-panel";
 import { VendorDocumentsPanel } from "@/components/portal/vendor-documents-panel";
 import { VendorSettingsPanel } from "@/components/portal/vendor-settings-panel";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalTierPaywall, ResidentTierPaywall } from "@/components/portal/portal-tier-paywall";
 import { PortalWorkspaceClient } from "@/components/portal/portal-workspace-client";
-import { managerSettingsHubTab, parseManagerSettingsAreaTab } from "@/lib/portal-settings-section";
+import { DEFAULT_MANAGER_SETTINGS_TAB, parseManagerSettingsAreaTab } from "@/lib/portal-settings-section";
+import { PortalSettingsSectionClient } from "@/components/portal/portal-settings-section-client";
 import {
   loadManagerAllServicesPanel,
   loadManagerTaskList,
@@ -339,6 +337,14 @@ export async function renderPortalSection(
     redirect(legacyTaskListSectionRedirectPath(def.basePath, tabParts));
   }
 
+  if (kind === "vendor" && section === "payments") {
+    redirect(`${def.basePath}/financials/payouts`);
+  }
+
+  if (kind === "vendor" && section === "tasks") {
+    redirect(`${def.basePath}/work-orders/pending`);
+  }
+
   const residentCtx = kind === "resident" ? await getEffectiveSessionForPortal("resident") : null;
   const residentManagerTier =
     kind === "resident" && residentCtx?.profile?.manager_id?.trim()
@@ -435,8 +441,9 @@ export async function renderPortalSection(
   // dedicated top-level nav row for it, to avoid exactly that duplicate-"Settings" row.
   if ((kind === "manager" || kind === "pro") && section === "settings") {
     if (tabParts && tabParts.length > 1) notFound();
-    const tab = parseManagerSettingsAreaTab(tabParts?.[0] ?? null);
-    redirect(`${def.basePath}/profile?tab=${managerSettingsHubTab(tab)}`);
+    const raw = tabParts?.[0] ?? null;
+    const tab = raw ? parseManagerSettingsAreaTab(raw) : DEFAULT_MANAGER_SETTINGS_TAB;
+    return <PortalSettingsSectionClient tab={tab} basePath={def.basePath} />;
   }
 
   const meta = findSection(def, section);
@@ -564,10 +571,14 @@ export async function renderPortalSection(
     // Vendors: its own section. `/vendors` is the list, `/vendors/<id>` the detail page.
     if ((kind === "manager" || kind === "pro") && section === "vendors") {
       const vendorId = tabParts?.length ? decodeURIComponent(tabParts[0]!) : undefined;
-      if ((tabParts?.length ?? 0) > 1) notFound();
+      if ((tabParts?.length ?? 0) > 2) notFound();
+      if (vendorId && (tabParts?.length ?? 0) === 1) {
+        redirect(`${def.basePath}/vendors/${encodeURIComponent(vendorId)}/overview`);
+      }
+      const vendorTab = tabParts && tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
       const ManagerVendorsPanel = await loadManagerVendorsPanel();
       return subscriptionGated(
-        <ManagerVendorsPanel listBasePath={def.basePath} vendorId={vendorId} />,
+        <ManagerVendorsPanel listBasePath={def.basePath} vendorId={vendorId} vendorTab={vendorTab} />,
         kind,
         "vendors",
         managerOwnerSubscriptionTier,
@@ -617,9 +628,20 @@ export async function renderPortalSection(
     if (section === "inspections") {
       if (!tabParts?.length) redirect(`${def.basePath}/inspections/move-in`);
       const inspectionKind = tabParts[0];
-      if ((inspectionKind !== "move-in" && inspectionKind !== "move-out") || tabParts.length > 2) notFound();
+      if ((inspectionKind !== "move-in" && inspectionKind !== "move-out") || tabParts.length > 3) notFound();
       if (tabParts[1] && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tabParts[1])) notFound();
-      return subscriptionGated(<ManagerInspectionsPage kind={inspectionKind} reportId={tabParts[1]} basePath={def.basePath} />, kind, "inspections", managerOwnerSubscriptionTier);
+      const inspectionTab = tabParts[2];
+      return subscriptionGated(
+        <ManagerInspectionsPage
+          kind={inspectionKind}
+          reportId={tabParts[1]}
+          recordTab={inspectionTab}
+          basePath={def.basePath}
+        />,
+        kind,
+        "inspections",
+        managerOwnerSubscriptionTier,
+      );
     }
 
     if (section === "residents") {
@@ -841,7 +863,7 @@ export async function renderPortalSection(
 
     if (section === "tasks") {
       const taskTab = tabParts?.[0];
-      if (taskTab === "in-progress") {
+      if (taskTab === "in-progress" && (tabParts?.length ?? 0) <= 1) {
         redirect(`${def.basePath}/tasks`);
       }
       if (taskTab === "late") {
@@ -853,11 +875,17 @@ export async function renderPortalSection(
       if (taskTab && !(MANAGER_TASK_LIST_TABS as readonly string[]).includes(taskTab)) {
         redirect(`${def.basePath}/tasks`);
       }
-      if (tabParts && tabParts.length > 1) notFound();
+      if (tabParts && tabParts.length > 3) notFound();
+      const taskId =
+        tabParts && tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
+      const taskDetailTab =
+        tabParts && tabParts.length >= 3 ? decodeURIComponent(tabParts[2]!) : undefined;
       const ManagerTaskList = await loadManagerTaskList();
       return subscriptionGated(
         <ManagerTaskList
           tabId={parseManagerTaskListTab(taskTab)}
+          taskId={taskId}
+          taskTab={taskDetailTab}
           basePath={def.basePath}
         />,
         kind,
@@ -893,7 +921,7 @@ export async function renderPortalSection(
         redirect(`${def.basePath}/payments/${direction}/pending`);
       }
 
-      if (tabParts.length > 3) {
+      if (tabParts.length > 4) {
         redirect(`${def.basePath}/payments/${direction}/pending`);
       }
 
@@ -908,11 +936,14 @@ export async function renderPortalSection(
 
       const paymentId =
         tabParts.length >= 3 ? decodeURIComponent(tabParts[2]!) : undefined;
+      const paymentTab =
+        tabParts.length >= 4 ? decodeURIComponent(tabParts[3]!) : undefined;
 
       return subscriptionGated(
         <ManagerPayments
           direction={direction}
           bucket={bucket}
+          paymentTab={paymentTab}
           basePath={def.basePath}
           paymentId={paymentId}
         />,
@@ -1468,30 +1499,40 @@ export async function renderPortalSection(
   }
 
   if (kind === "vendor" && section === "work-orders") {
-    if (tabParts?.length) notFound();
-    return <VendorWorkOrdersPanel />;
-  }
-
-  if (kind === "vendor" && section === "tasks") {
-    const { VENDOR_TASK_LIST_TABS, parseVendorTaskListTab } = await import(
-      "@/lib/portal-detail-routes"
-    );
-    const taskTab = tabParts?.[0];
-    if (taskTab === "in-progress") {
-      redirect(`${def.basePath}/tasks`);
+    const {
+      parseVendorWorkOrderListTab,
+      DEFAULT_VENDOR_WORK_ORDER_TAB,
+      VENDOR_WORK_ORDER_LIST_TABS,
+      VENDOR_WORK_ORDER_LEGACY_LIST_TABS,
+      vendorWorkOrderListHref,
+    } = await import("@/lib/portal-detail-routes");
+    if (!tabParts?.length) {
+      redirect(vendorWorkOrderListHref(def.basePath, DEFAULT_VENDOR_WORK_ORDER_TAB));
     }
-    if (taskTab && !(VENDOR_TASK_LIST_TABS as readonly string[]).includes(taskTab)) {
-      redirect(`${def.basePath}/tasks`);
+    if (tabParts.length > 1) notFound();
+    const raw = tabParts[0]!;
+    if (VENDOR_WORK_ORDER_LEGACY_LIST_TABS[raw]) {
+      redirect(vendorWorkOrderListHref(def.basePath, VENDOR_WORK_ORDER_LEGACY_LIST_TABS[raw]!));
     }
-    if (tabParts && tabParts.length > 1) notFound();
-    return (
-      <VendorTaskList tabId={parseVendorTaskListTab(taskTab)} basePath={def.basePath} />
-    );
+    if (!(VENDOR_WORK_ORDER_LIST_TABS as readonly string[]).includes(raw)) notFound();
+    return <VendorWorkOrdersPanel tabId={parseVendorWorkOrderListTab(raw)} />;
   }
 
   if (kind === "vendor" && section === "calendar") {
-    if (tabParts?.length) notFound();
-    return <VendorCalendarPanel />;
+    const {
+      parseVendorCalendarViewTab,
+      VENDOR_CALENDAR_VIEW_TABS,
+      vendorCalendarViewHref,
+      DEFAULT_VENDOR_CALENDAR_VIEW,
+    } = await import("@/lib/portal-detail-routes");
+    if (tabParts && tabParts.length > 1) notFound();
+    const raw = tabParts?.[0];
+    if (raw === "tasks" || raw === "tours") {
+      redirect(vendorCalendarViewHref(def.basePath, DEFAULT_VENDOR_CALENDAR_VIEW));
+    }
+    if (raw && !(VENDOR_CALENDAR_VIEW_TABS as readonly string[]).includes(raw)) notFound();
+    const PortalCalendar = await loadPortalCalendar();
+    return <PortalCalendar portal="vendor" vendorCalendarView={parseVendorCalendarViewTab(raw)} />;
   }
 
   if (kind === "vendor" && section === "communication") {
@@ -1559,11 +1600,6 @@ export async function renderPortalSection(
     const finTab = tabParts[0]!;
     if (!meta.tabs.some((tab) => tab.id === finTab)) notFound();
     return <VendorFinancesPanel tabId={finTab} basePath={def.basePath} />;
-  }
-
-  if (kind === "vendor" && section === "payments") {
-    if (tabParts?.length) notFound();
-    return <VendorPaymentsPanel />;
   }
 
   if (kind === "vendor" && section === "documents") {

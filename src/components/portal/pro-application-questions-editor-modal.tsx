@@ -4,13 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
+import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { ApplicationFormBuilder, ApplicationSectionPreviewPane } from "@/components/portal/application-form-builder";
 import { sanitizeCustomApplicationFieldsForSave, validateField } from "@/components/portal/application-question-edit-modal";
 import {
   PORTAL_EDIT_ROW_ICON_BUTTON_CLASS,
 } from "@/components/portal/portal-collapsible-edit-row";
-import { PortalCollapsibleEditRow } from "@/components/portal/portal-collapsible-edit-row";
-import { Modal, ModalFooter, MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
+import { Modal, ModalFooter } from "@/components/ui/modal";
+import { WIZARD_LABEL_CLASS } from "@/components/portal/add-workspace/parts";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import {
   customApplicationFieldTypeLabel,
@@ -40,7 +42,6 @@ import {
   editorVisibleDisabledApplicationFields,
   resolveListingApplicationFields,
   restoreDefaultApplicationConfig,
-  STANDARD_APPLICATION_FIELD_COUNT,
   type ApplicationConfigSlice,
   type ApplicationFormVariant,
   type ResolvedApplicationField,
@@ -51,7 +52,6 @@ import {
   buildQuestionsFromPack,
 } from "@/lib/rental-application/application-question-packs";
 import { useConfirm } from "@/components/providers/app-ui-provider";
-import { cn } from "@/lib/utils";
 import {
   createPropertyApplicationTemplate,
   withPropertyApplicationTemplatesExplicit,
@@ -207,9 +207,7 @@ export function ManagerApplicationQuestionsEditorModal({
   // The ADD flow's template chooser — which section it targets, or null when closed.
   const [addChooserSectionId, setAddChooserSectionId] = useState<string | null>(null);
   const [addChoice, setAddChoice] = useState<string>(RECOMMENDED_QUESTION_PACK?.id ?? "blank");
-  // Edit | Preview workspace toggle — Preview renders the real applicant control
-  // for the currently open section, bound to the unsaved buffered draft below.
-  const [workspaceView, setWorkspaceView] = useState<"edit" | "preview">("edit");
+  const [stepIdx, setStepIdx] = useState(0);
   // Round 31: every edit stays local until an explicit Save. `dirty` gates the Save button
   // and drives the discard confirmation so a stray click can never overwrite properties.
   const [dirty, setDirty] = useState(false);
@@ -227,7 +225,7 @@ export function ManagerApplicationQuestionsEditorModal({
     setExpandedQuestionIds(new Set());
     setAddChooserSectionId(null);
     setAddChoice(RECOMMENDED_QUESTION_PACK?.id ?? "blank");
-    setWorkspaceView("edit");
+    setStepIdx(0);
     setDirty(templateEditorMode === "add");
     setSaving(false);
     setSaveError(null);
@@ -304,6 +302,30 @@ export function ManagerApplicationQuestionsEditorModal({
     () => applicationFields.filter((f) => (f.section ?? "additional") === previewSectionId),
     [applicationFields, previewSectionId],
   );
+
+  const workspaceSteps = useMemo<AddWorkspaceStep[]>(() => {
+    const questionSummary = (sectionId: string) => {
+      const n = applicationFields.filter((f) => (f.section ?? "additional") === sectionId).length;
+      return n === 1 ? "1 question" : `${n} questions`;
+    };
+    const head: AddWorkspaceStep[] = isTemplateEditor
+      ? [{ id: "name", label: "Name", incomplete: !templateLabel.trim(), summary: templateLabel.trim() || "Name this application" }]
+      : lockVariant
+        ? []
+        : [{ id: "form", label: "Form", summary: APPLICATION_FORM_VARIANTS.find((v) => v.id === variant)?.label ?? "Form" }];
+    return [
+      ...head,
+      ...RENTAL_APPLICATION_SECTIONS.map((section) => ({
+        id: section.id,
+        label: section.title,
+        summary: questionSummary(section.id),
+      })),
+      { id: "preview", label: "Preview", summary: "What the applicant sees" },
+    ];
+  }, [applicationFields, isTemplateEditor, lockVariant, templateLabel, variant]);
+
+  const current = Math.min(stepIdx, workspaceSteps.length - 1);
+  const stepId = workspaceSteps[current]?.id ?? "preview";
 
   // Apply an edit to LOCAL state only — nothing is persisted until Save.
   const applySlice = (nextSlice: ApplicationConfigSlice): void => {
@@ -412,17 +434,12 @@ export function ManagerApplicationQuestionsEditorModal({
     onClose();
   };
 
-  const requestClose = async () => {
-    if (dirty && !(await confirm({ title: "Discard changes", description: "Discard unsaved changes to this application?", confirmLabel: "Discard", note: null }))) return;
-    onClose();
-  };
-
-  const handleParentClose = () => {
-    if (addChooserSectionId) {
-      setAddChooserSectionId(null);
-      return;
+  const jump = (index: number) => {
+    setStepIdx(index);
+    const id = workspaceSteps[index]?.id;
+    if (id && RENTAL_APPLICATION_SECTIONS.some((section) => section.id === id)) {
+      setPreviewSectionPick(id as RentalApplicationSectionId);
     }
-    requestClose();
   };
 
   const removeField = (field: ResolvedApplicationField) => {
@@ -543,82 +560,208 @@ export function ManagerApplicationQuestionsEditorModal({
     </button>
   );
 
+  const restoreLabel =
+    isTemplateEditor && (templateEditorMode === "add" || (applicationTemplate != null && !applicationTemplate.listingSeedKey))
+      ? "Reset all standard questions"
+      : "Restore PropLane defaults";
+
+  const renderSection = (sectionId: RentalApplicationSectionId) => {
+    const sectionQuestions = applicationFields.filter((f) => (f.section ?? "additional") === sectionId);
+    const sectionDisabled = disabledFields.filter((f) => (f.section ?? "additional") === sectionId);
+    return (
+      <div data-attr={`application-section-toggle-${sectionId}`}>
+        {sectionQuestions.length === 0 && sectionDisabled.length === 0 ? (
+          <p className="text-sm text-muted">No questions in this section yet.</p>
+        ) : (
+          <ApplicationFormBuilder
+            applicationFields={applicationFields}
+            disabledFields={disabledFields}
+            activeSectionId={sectionId}
+            showSectionChrome={false}
+            expandedQuestionIds={expandedQuestionIds}
+            onToggleExpand={toggleQuestionExpand}
+            fieldErrors={fieldErrors}
+            onAddQuestion={openAddChooser}
+            onRemoveField={removeField}
+            onReenableField={reenableField}
+            onPatchField={patchField}
+            onMoveField={moveField}
+            onMoveFieldToSection={moveFieldToSection}
+            canMoveField={canMoveField}
+          />
+        )}
+      </div>
+    );
+  };
+
+  const previewBody = (
+    <div className="space-y-3">
+      <FieldSingleSelect
+        label="Section"
+        labelClassName={WIZARD_LABEL_CLASS}
+        value={previewSectionId ?? ""}
+        options={RENTAL_APPLICATION_SECTIONS.map((section) => ({
+          value: section.id,
+          label: `${section.title} · ${applicationFields.filter((f) => (f.section ?? "additional") === section.id).length} questions`,
+        }))}
+        onChange={(next) => setPreviewSectionPick(next as RentalApplicationSectionId)}
+        dataAttr="application-preview-section"
+      />
+      <ApplicationSectionPreviewPane
+        section={previewSection}
+        fields={previewFields}
+        applicationPreviewPropertyId={applicationPreviewPropertyId}
+      />
+      <div className="flex items-center justify-between gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          className="rounded-full"
+          disabled={previewSectionIndex <= 0}
+          data-attr="application-preview-previous"
+          onClick={() => stepPreviewSection(-1)}
+        >
+          ‹ Previous
+        </Button>
+        <span className="text-xs text-muted" data-attr="application-preview-position">
+          {previewSectionIndex + 1} of {RENTAL_APPLICATION_SECTIONS.length}
+        </span>
+        <Button
+          type="button"
+          variant="primary"
+          className="rounded-full"
+          disabled={previewSectionIndex < 0 || previewSectionIndex >= RENTAL_APPLICATION_SECTIONS.length - 1}
+          data-attr="application-preview-next"
+          onClick={() => stepPreviewSection(1)}
+        >
+          Next ›
+        </Button>
+      </div>
+    </div>
+  );
+
+  if (!open) return null;
+
+  const currentSection = RENTAL_APPLICATION_SECTIONS.find((section) => section.id === stepId);
+
   return (
-    <Modal
-      open={open}
-      title={title}
-      onClose={handleParentClose}
-      dismissBlocked={Boolean(addChooserSectionId)}
-      fullPage
-        presentation="dialog"
-        dense
-        footer={
-          <>
-            {saveError ? (
-              <p
-                className="mb-2 w-full text-sm text-rose-600"
-                role="alert"
-                data-attr="application-questions-save-error"
-              >
-                {saveError}
-              </p>
-            ) : null}
-            <ModalFooter className="w-full">
-            {showDelete ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="rounded-full border-red-200 text-red-700 hover:bg-red-50"
-                data-attr="application-questions-delete"
-                disabled={saving}
-                onClick={handleDelete}
-              >
-                Delete
-              </Button>
-            ) : null}
-            <Button
+    <>
+      <AddWorkspace
+        title={title}
+        steps={workspaceSteps}
+        current={current}
+        onJump={jump}
+        onClose={onClose}
+        onRequestClose={() => {
+          if (addChooserSectionId) {
+            setAddChooserSectionId(null);
+            return false;
+          }
+          return true;
+        }}
+        dirty={dirty}
+        discardTitle="Discard changes"
+        discardBody="Discard unsaved changes to this application?"
+        assistantContext="Edit application"
+        assistantScopeKey="edit-application-workspace"
+        sidePanel={
+          <ApplicationSectionPreviewPane
+            section={previewSection}
+            fields={previewFields}
+            applicationPreviewPropertyId={applicationPreviewPropertyId}
+          />
+        }
+        lastLabel={templateEditorMode === "add" ? "Add application" : "Save"}
+        lastDisabled={saving || (isTemplateEditor ? !templateLabel.trim() : !dirty) || hasFieldErrors}
+        onBeforeNext={() => {
+          if (stepId === "name" && !templateLabel.trim()) {
+            setTemplateLabelError("Enter a name for this application.");
+            return false;
+          }
+          return true;
+        }}
+        busy={saving}
+        onFinish={() => void commitSave()}
+        saveState={saving ? "Saving…" : dirty ? "Not saved yet" : "Saved"}
+        dataAttrPrefix="application-questions"
+        finishDataAttr="application-questions-save"
+        footerNote={
+          saveError ? (
+            <span className="text-sm text-rose-600" role="alert" data-attr="application-questions-save-error">
+              {saveError}
+            </span>
+          ) : isBulkSave ? (
+            <span>Applies to {bulkIds.length} properties</span>
+          ) : null
+        }
+        dangerAction={
+          showDelete ? (
+            <button
               type="button"
-              variant="primary"
-              className="ml-auto rounded-full"
-              data-attr="application-questions-save"
-              disabled={saving || (isTemplateEditor ? !templateLabel.trim() : !dirty) || hasFieldErrors}
-              onClick={commitSave}
+              className="min-h-[44px] rounded-full border border-red-200 bg-card px-6 text-[14px] font-bold text-red-700 disabled:opacity-45"
+              data-attr="application-questions-delete"
+              disabled={saving}
+              onClick={() => void handleDelete()}
             >
-              {saving ? "Saving…" : templateEditorMode === "add" ? "Add application" : "Save"}
-            </Button>
-            </ModalFooter>
-          </>
+              Delete
+            </button>
+          ) : null
         }
       >
-        {isBulkSave ? (
-          <p className="mb-4 text-sm text-muted">
-            These settings apply to all {bulkIds.length} selected properties. Existing per-property differences are
-            replaced when you save changes.
-          </p>
+        {stepId === "name" ? (
+          <StepColumn>
+            <StepHeading
+              title="Name"
+              action={
+                <button type="button" className="text-xs font-semibold text-primary underline-offset-2 hover:underline" onClick={restoreDefaults}>
+                  {restoreLabel}
+                </button>
+              }
+            />
+            <label className={WIZARD_LABEL_CLASS} htmlFor="application-template-name">
+              Application name
+            </label>
+            <Input
+              id="application-template-name"
+              value={templateLabel}
+              onChange={(e) => {
+                setTemplateLabel(e.target.value);
+                setTemplateLabelError(null);
+                setDirty(true);
+              }}
+              placeholder="e.g. Summer intern application"
+              data-attr="property-application-name"
+            />
+            {templateLabelError ? <p className="mt-1.5 text-sm text-rose-600">{templateLabelError}</p> : null}
+          </StepColumn>
         ) : null}
-        <div className={cn("mx-auto w-full space-y-3", workspaceView === "preview" ? "max-w-6xl" : "max-w-3xl")}>
-          <div className="flex justify-end">
-            <div
-              className="flex gap-1 rounded-full border border-border bg-accent/30 p-1"
-              role="tablist"
-              aria-label="Workspace view"
-            >
-              {(
-                [
-                  { id: "edit", label: "Edit" },
-                  { id: "preview", label: "Preview" },
-                ] as const
-              ).map((v) => {
-                const active = workspaceView === v.id;
+        {stepId === "form" ? (
+          <StepColumn>
+            <StepHeading
+              title="Form"
+              action={
+                <button type="button" className="text-xs font-semibold text-primary underline-offset-2 hover:underline" onClick={restoreDefaults}>
+                  {restoreLabel}
+                </button>
+              }
+            />
+            <div className="flex gap-1 rounded-full border border-border bg-accent/30 p-1" role="tablist" aria-label="Application form">
+              {APPLICATION_FORM_VARIANTS.map((v) => {
+                const active = variant === v.id;
                 return (
                   <button
                     key={v.id}
                     type="button"
                     role="tab"
                     aria-selected={active}
-                    data-attr={`application-preview-toggle-${v.id}`}
-                    onClick={() => setWorkspaceView(v.id)}
-                    className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                    title={v.hint}
+                    data-attr={`application-variant-tab-${v.id}`}
+                    onClick={() => {
+                      setVariant(v.id);
+                      setExpandedSectionIds(collapsedApplicationSections());
+                      setExpandedQuestionIds(new Set());
+                    }}
+                    className={`flex-1 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
                       active ? "bg-card text-foreground shadow-sm" : "text-muted hover:text-foreground"
                     }`}
                   >
@@ -627,197 +770,21 @@ export function ManagerApplicationQuestionsEditorModal({
                 );
               })}
             </div>
-          </div>
-
-          <div
-            className={cn(
-              workspaceView === "preview" ? "gap-6 xl:grid xl:grid-cols-[minmax(0,1fr)_22rem] xl:items-start" : undefined,
-            )}
-          >
-          <div className={cn("space-y-3", workspaceView === "preview" ? "hidden xl:block" : "block")}>
-          {isTemplateEditor ? (
-            <div>
-              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="application-template-name">
-                Application name
-              </label>
-              <Input
-                id="application-template-name"
-                value={templateLabel}
-                onChange={(e) => {
-                  setTemplateLabel(e.target.value);
-                  setTemplateLabelError(null);
-                  setDirty(true);
-                }}
-                placeholder="e.g. Summer intern application"
-                data-attr="property-application-name"
-              />
-              {templateLabelError ? <p className="mt-1.5 text-sm text-rose-600">{templateLabelError}</p> : null}
-            </div>
-          ) : null}
-          {lockVariant || isTemplateEditor ? null : (
-          <div
-            className="flex gap-1 rounded-full border border-border bg-accent/30 p-1"
-            role="tablist"
-            aria-label="Application form"
-          >
-            {APPLICATION_FORM_VARIANTS.map((v) => {
-              const active = variant === v.id;
-              return (
-                <button
-                  key={v.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  title={v.hint}
-                  data-attr={`application-variant-tab-${v.id}`}
-                  onClick={() => {
-                    setVariant(v.id);
-                    setExpandedSectionIds(collapsedApplicationSections());
-                    setExpandedQuestionIds(new Set());
-                  }}
-                  className={`flex-1 rounded-full px-3 py-1.5 text-xs font-semibold transition ${
-                    active
-                      ? "bg-card text-foreground shadow-sm"
-                      : "text-muted hover:text-foreground"
-                  }`}
-                >
-                  {v.label}
-                </button>
-              );
-            })}
-          </div>
-          )}
-
-          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-            <p className="text-sm text-muted">
-              {applicationFields.length} question{applicationFields.length === 1 ? "" : "s"}
-              {isTemplateEditor &&
-              (templateEditorMode === "add" ||
-                (applicationTemplate != null && !applicationTemplate.listingSeedKey))
-                ? ` · includes all ${STANDARD_APPLICATION_FIELD_COUNT} standard questions`
-                : !isTemplateEditor
-                  ? ` on the ${variant === "short_term" ? "short-term" : "long-term"} application`
-                  : ""}
-            </p>
-            <button
-              type="button"
-              className="text-xs font-semibold text-primary underline-offset-2 hover:underline"
-              onClick={restoreDefaults}
-            >
-              {isTemplateEditor &&
-              (templateEditorMode === "add" ||
-                (applicationTemplate != null && !applicationTemplate.listingSeedKey))
-                ? "Reset all standard questions"
-                : "Restore PropLane defaults"}
-            </button>
-          </div>
-
-          {RENTAL_APPLICATION_SECTIONS.map((section) => {
-            const sectionQuestions = applicationFields.filter((f) => (f.section ?? "additional") === section.id);
-            const sectionDisabled = disabledFields.filter((f) => (f.section ?? "additional") === section.id);
-            const sectionExpanded = expandedSectionIds.has(section.id);
-            const sectionHasContent = sectionQuestions.length > 0 || sectionDisabled.length > 0;
-            return (
-              <PortalCollapsibleEditRow
-                key={section.id}
-                title={section.title}
-                titleVariant="label"
-                subtitle={
-                  sectionQuestions.length === 0
-                    ? sectionDisabled.length > 0
-                      ? `${sectionDisabled.length} question${sectionDisabled.length === 1 ? "" : "s"} off`
-                      : "No questions in this section"
-                    : `${sectionQuestions.length} question${sectionQuestions.length === 1 ? "" : "s"}${
-                        sectionDisabled.length > 0 ? ` · ${sectionDisabled.length} off` : ""
-                      }`
-                }
-                expanded={sectionExpanded}
-                collapsible={sectionHasContent}
-                onExpandedChange={(next) => {
-                  setExpandedSectionIds((prev) => {
-                    const ids = new Set(prev);
-                    if (next) ids.add(section.id);
-                    else ids.delete(section.id);
-                    return ids;
-                  });
-                }}
-                toggleDataAttr={`application-section-toggle-${section.id}`}
-                contentClassName="space-y-2 pt-1"
-                headerActions={sectionAddButton(section.id)}
-              >
-                {sectionQuestions.length === 0 && sectionDisabled.length === 0 ? (
-                  <p className="text-sm text-muted">No questions in this section yet.</p>
-                ) : (
-                  <ApplicationFormBuilder
-                    applicationFields={applicationFields}
-                    disabledFields={disabledFields}
-                    activeSectionId={section.id}
-                    showSectionChrome={false}
-                    expandedQuestionIds={expandedQuestionIds}
-                    onToggleExpand={toggleQuestionExpand}
-                    fieldErrors={fieldErrors}
-                    onAddQuestion={openAddChooser}
-                    onRemoveField={removeField}
-                    onReenableField={reenableField}
-                    onPatchField={patchField}
-                    onMoveField={moveField}
-                    onMoveFieldToSection={moveFieldToSection}
-                    canMoveField={canMoveField}
-                  />
-                )}
-              </PortalCollapsibleEditRow>
-            );
-          })}
-          </div>
-
-          {workspaceView === "preview" ? (
-            <div className="space-y-3 xl:sticky xl:top-4">
-              <FieldSingleSelect
-                label="Section"
-                labelClassName={MODAL_FIELD_LABEL_CLASS}
-                value={previewSectionId ?? ""}
-                options={RENTAL_APPLICATION_SECTIONS.map((section) => ({
-                  value: section.id,
-                  label: `${section.title} · ${applicationFields.filter((f) => (f.section ?? "additional") === section.id).length} questions`,
-                }))}
-                onChange={(next) => setPreviewSectionPick(next as RentalApplicationSectionId)}
-                dataAttr="application-preview-section"
-              />
-              <ApplicationSectionPreviewPane
-                section={previewSection}
-                fields={previewFields}
-                applicationPreviewPropertyId={applicationPreviewPropertyId}
-              />
-              <div className="flex items-center justify-between gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-full"
-                  disabled={previewSectionIndex <= 0}
-                  data-attr="application-preview-previous"
-                  onClick={() => stepPreviewSection(-1)}
-                >
-                  ‹ Previous
-                </Button>
-                <span className="text-xs text-muted" data-attr="application-preview-position">
-                  {previewSectionIndex + 1} of {RENTAL_APPLICATION_SECTIONS.length}
-                </span>
-                <Button
-                  type="button"
-                  variant="primary"
-                  className="rounded-full"
-                  disabled={previewSectionIndex < 0 || previewSectionIndex >= RENTAL_APPLICATION_SECTIONS.length - 1}
-                  data-attr="application-preview-next"
-                  onClick={() => stepPreviewSection(1)}
-                >
-                  Next ›
-                </Button>
-              </div>
-            </div>
-          ) : null}
-          </div>
-        </div>
-
+          </StepColumn>
+        ) : null}
+        {currentSection ? (
+          <StepColumn>
+            <StepHeading title={currentSection.title} action={sectionAddButton(currentSection.id)} />
+            {renderSection(currentSection.id)}
+          </StepColumn>
+        ) : null}
+        {stepId === "preview" ? (
+          <StepColumn>
+            <StepHeading title="Preview" />
+            {previewBody}
+          </StepColumn>
+        ) : null}
+      </AddWorkspace>
       <Modal
         open={Boolean(addChooserSectionId)}
         title="Add question"
@@ -825,7 +792,7 @@ export function ManagerApplicationQuestionsEditorModal({
         presentation="dialog"
         dense
         panelClassName="max-w-xl"
-        stackClassName="fixed inset-0 z-[80] overflow-y-auto overscroll-contain"
+        stackClassName="fixed inset-0 z-[90] overflow-y-auto overscroll-contain"
         footer={
           <ModalFooter>
             <Button
@@ -852,7 +819,6 @@ export function ManagerApplicationQuestionsEditorModal({
             />
             <span>
               <span className="block text-sm font-semibold text-foreground">Blank question</span>
-              <span className="block text-xs text-muted">Start from an empty question.</span>
             </span>
           </label>
           <p className="px-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted">Question packs</p>
@@ -878,12 +844,11 @@ export function ManagerApplicationQuestionsEditorModal({
                     </span>
                   ) : null}
                 </span>
-                <span className="block text-xs text-muted">{pack.blurb}</span>
               </span>
             </label>
           ))}
         </div>
       </Modal>
-    </Modal>
+    </>
   );
 }

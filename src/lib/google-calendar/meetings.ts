@@ -181,19 +181,15 @@ export function googleBusyBlockStatusLabel(
 /**
  * Label for calendar grid cells.
  *
- * A personal Google block reads as ITS OWN TITLE ("Dentist", "Standup") so the
- * manager can tell which meeting is holding the half hour instead of reading a
- * wall of identical "Blocked" cells (PRP-397). That is the manager reading their
- * own calendar: the events route answers only for the signed-in account's
- * linked calendar, and {@link googleCalendarEventsToMeetings} carries the
- * summary and the times through and nothing else — no attendees, no
- * description. Every OTHER surface that describes this manager's time
- * (co-manager overlays, the public tour grid, the iCal feed) sees free/busy
- * only, and must stay that way.
+ * A busy personal Google block paints as "Blocked" with no title — the
+ * manager's own grid and every other surface (co-manager overlays, the public
+ * tour grid, the iCal feed) agree on free/busy only. A Free personal event
+ * still shows its title so optional / transparent time is distinguishable.
  */
 export function meetingCalendarGridLabel(meeting: DemoMeeting): string {
   if (isGoogleCalendarPrivateBlock(meeting)) {
-    return meeting.title.trim() || googleBusyBlockStatusLabel(meeting);
+    const status = googleBusyBlockStatusLabel(meeting);
+    return status === "Blocked" ? status : meeting.title.trim() || status;
   }
   if (meeting.source === "external" && meeting.kind === "tour") {
     return meeting.statusLabel ? `${meeting.statusLabel}: ${meeting.title}` : meeting.title;
@@ -212,8 +208,9 @@ export function meetingCalendarGridLabel(meeting: DemoMeeting): string {
  */
 export function meetingCalendarGridTooltip(meeting: DemoMeeting): string {
   if (isGoogleCalendarPrivateBlock(meeting)) {
-    const title = meeting.title.trim();
     const status = googleBusyBlockStatusLabel(meeting);
+    if (status === "Blocked") return status;
+    const title = meeting.title.trim();
     return title && title !== status ? `${title} · ${status}` : status;
   }
   return meetingCalendarGridLabel(meeting);

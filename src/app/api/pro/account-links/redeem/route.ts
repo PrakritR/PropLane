@@ -14,6 +14,7 @@ import { maxAccountLinksForTier } from "@/lib/manager-access";
 import { ensureProfileProplaneId, getManagerPurchaseSku } from "@/lib/manager-access-server";
 import { isCrossSandboxPortalPair, CROSS_SANDBOX_PORTAL_PAIR_ERROR } from "@/lib/portal-sandbox-accounts";
 import { labelFromManagerPropertyRecordRow } from "@/lib/co-manager-property-label";
+import { teamRoleListLabel } from "@/lib/co-manager-team-roles";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { bestEffortFailed } from "@/lib/observability/best-effort";
@@ -59,6 +60,7 @@ async function previewOpenInvite(token: string) {
     ok: true,
     inviterDisplayName: String(row.inviter_display_name ?? "").trim() || "A property manager",
     propertyLabels,
+    teamRoleLabel: teamRoleListLabel(typeof row.team_role === "string" ? row.team_role : null),
     expiresAt: row.expires_at ?? null,
   });
 }

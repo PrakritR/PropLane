@@ -10,13 +10,13 @@ const BOOKING_CALENDARS_PATH = `/portal/properties/listed/${encodeURIComponent(B
  * A house's Calendar → Bookings tab.
  *
  * The tab is a month grid (PropLane leases + imported Airbnb ranges) with the
- * channel wiring behind a "Link Airbnb" modal; the old inline "Channel
+ * channel wiring behind a "Link calendars" modal; the old inline "Channel
  * calendars" form — and its per-room "Copy export URL" control — were removed.
  * The export URL itself still exists and is still served, so this asserts the
  * round trip through the API rather than through a button that no longer ships.
  */
 test.describe("Channel calendars (Airbnb iCal)", () => {
-  test("manager can reach Link Airbnb from the property Bookings tab", async ({ page }) => {
+  test("manager can reach Link calendars from the property Bookings tab", async ({ page }) => {
     await signIn(
       page,
       E2E_ACCOUNTS.manager.email,
@@ -35,7 +35,8 @@ test.describe("Channel calendars (Airbnb iCal)", () => {
     await expect(linkAirbnb).toBeVisible({ timeout: 30_000 });
     await linkAirbnb.click();
 
-    await expect(page.getByRole("heading", { name: "Link Airbnb" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Link calendars" })).toBeVisible();
+    await expect(page.getByText("Channel").first()).toBeVisible();
     await expect(page.getByText("Airbnb import URL").first()).toBeVisible();
     await expect(page.locator('[data-attr="channel-calendar-save-link"]')).toBeVisible();
   });
@@ -49,7 +50,7 @@ test.describe("Channel calendars (Airbnb iCal)", () => {
     const linkAirbnb = page.locator('[data-attr="property-bookings-link-airbnb"]');
     await expect(linkAirbnb).toBeVisible({ timeout: 30_000 });
     await linkAirbnb.click();
-    await expect(page.getByRole("heading", { name: "Link Airbnb" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Link calendars" })).toBeVisible();
 
     // The room select auto-picks when the listing has exactly one room, so read
     // the options rather than assuming either shape.

@@ -6,6 +6,7 @@ import {
   changePersistedInboxThreadFolders,
   loadPersistedInbox,
   stagePersistedInboxRows,
+  upsertPersistedInboxRows,
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
 
@@ -13,6 +14,23 @@ function inferPreviousFolder(thread: PersistedInboxThread): "inbox" | "sent" {
   if (thread.previousFolder) return thread.previousFolder;
   if (/^(sent_|msg_|welcome_)/.test(thread.id)) return "sent";
   return "inbox";
+}
+
+function expandInboxMutationIds(prev: PersistedInboxThread[], ids: string[]): Set<string> {
+  const expanded = new Set(ids);
+  for (const thread of prev) {
+    const sources = thread.sourceThreadIds ?? [];
+    const hit = expanded.has(thread.id) || sources.some((id) => expanded.has(id));
+    if (!hit) continue;
+    expanded.add(thread.id);
+    for (const id of sources) expanded.add(id);
+  }
+  return expanded;
+}
+
+function threadMatchesMutationIds(thread: PersistedInboxThread, ids: Set<string>): boolean {
+  if (ids.has(thread.id)) return true;
+  return (thread.sourceThreadIds ?? []).some((id) => ids.has(id));
 }
 
 export async function archivePersistedInboxThreads(
@@ -23,9 +41,10 @@ export async function archivePersistedInboxThreads(
   if (clean.length === 0) return { ok: true, next: loadPersistedInbox(storageKey, []) };
 
   const prev = loadPersistedInbox(storageKey, []);
+  const matchIds = expandInboxMutationIds(prev, clean);
   const changed: PersistedInboxThread[] = [];
   const next = prev.map((thread) => {
-    if (!clean.includes(thread.id)) return thread;
+    if (!threadMatchesMutationIds(thread, matchIds)) return thread;
     if (thread.folder === "trash" || (thread.folder !== "inbox" && thread.folder !== "sent")) {
       return thread;
     }
@@ -60,7 +79,7 @@ export async function archivePersistedInboxThreads(
       }
     }
   }
-  const ordinaryIds = clean.filter((id) => !noticeIds.has(id));
+  const ordinaryIds = [...matchIds].filter((id) => !noticeIds.has(id));
   if (ordinaryIds.length > 0 && !(await changePersistedInboxThreadFolders(storageKey, ordinaryIds, "archive"))) {
     return { ok: false, next: prev };
   }
@@ -76,9 +95,10 @@ export async function restorePersistedInboxThreads(
   if (clean.length === 0) return { ok: true, next: loadPersistedInbox(storageKey, []) };
 
   const prev = loadPersistedInbox(storageKey, []);
+  const matchIds = expandInboxMutationIds(prev, clean);
   const changed: PersistedInboxThread[] = [];
   const next = prev.map((thread) => {
-    if (!clean.includes(thread.id) || thread.folder !== "trash") return thread;
+    if (!threadMatchesMutationIds(thread, matchIds) || thread.folder !== "trash") return thread;
     const dest = inferPreviousFolder(thread);
     const updated: PersistedInboxThread = {
       ...thread,
@@ -111,7 +131,7 @@ export async function restorePersistedInboxThreads(
       }
     }
   }
-  const ordinaryIds = clean.filter((id) => !noticeIds.has(id));
+  const ordinaryIds = [...matchIds].filter((id) => !noticeIds.has(id));
   if (ordinaryIds.length > 0 && !(await changePersistedInboxThreadFolders(storageKey, ordinaryIds, "restore"))) {
     return { ok: false, next: prev };
   }
@@ -133,5 +153,85 @@ export async function deletePersistedInboxThreadsForever(
   const ok = await deleteInboxThreadIds(clean);
   if (!ok) return { ok: false, next: prev };
   stagePersistedInboxRows(storageKey, next);
+  return { ok: true, next };
+}
+
+export type ClearedInboxThreadPlaceholder = {
+  preview?: string;
+  subject?: string;
+  from?: string;
+};
+
+function threadMatchesClearId(thread: PersistedInboxThread, threadId: string): boolean {
+  return thread.id === threadId || (thread.sourceThreadIds ?? []).includes(threadId);
+}
+
+function clearedInboxThread(
+  thread: PersistedInboxThread,
+  placeholder: ClearedInboxThreadPlaceholder,
+): PersistedInboxThread {
+  const next: PersistedInboxThread = {
+    ...thread,
+    messages: [],
+    body: "",
+    preview: placeholder.preview ?? "",
+    unread: false,
+    time: "",
+    subject: placeholder.subject ?? thread.subject,
+    from: placeholder.from ?? thread.from,
+  };
+  delete next.aiDraft;
+  delete next.aiDraftQueue;
+  return next;
+}
+
+/**
+ * Wipe messages on one conversation and keep the row. PropLane Assistant
+ * cannot be deleted — the server recreates it — so Clear upserts the same id
+ * empty with the placeholder preview.
+ */
+export async function clearPersistedInboxThread(
+  storageKey: string,
+  threadId: string,
+  placeholder: ClearedInboxThreadPlaceholder = {},
+): Promise<{ ok: boolean; next: PersistedInboxThread[] }> {
+  const id = threadId.trim();
+  if (!id) return { ok: true, next: loadPersistedInbox(storageKey, []) };
+
+  const prev = loadPersistedInbox(storageKey, []);
+  const changed: PersistedInboxThread[] = [];
+  let next = prev.map((thread) => {
+    if (!threadMatchesClearId(thread, id)) return thread;
+    const updated = clearedInboxThread(thread, placeholder);
+    changed.push(updated);
+    return updated;
+  });
+
+  if (changed.length === 0) {
+    const inserted = clearedInboxThread(
+      {
+        id,
+        folder: "inbox",
+        from: placeholder.from ?? "PropLane Assistant",
+        email: "",
+        subject: placeholder.subject ?? "PropLane Assistant",
+        preview: placeholder.preview ?? "",
+        body: "",
+        time: "",
+        unread: false,
+        messages: [],
+      },
+      placeholder,
+    );
+    changed.push(inserted);
+    next = [inserted, ...prev];
+  }
+
+  if (isDemoModeActive()) {
+    stagePersistedInboxRows(storageKey, next);
+    return { ok: true, next };
+  }
+  const ok = await upsertPersistedInboxRows(storageKey, changed, next);
+  if (!ok) return { ok: false, next: prev };
   return { ok: true, next };
 }

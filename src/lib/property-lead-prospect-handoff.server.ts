@@ -3,13 +3,20 @@ import { sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
 import { buildConversationKey } from "@/lib/sms-conversation-identity";
 import { recordScopedSmsConsent } from "@/lib/sms-consent";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
 
-async function deliverEmail(to: string[], subject: string, text: string): Promise<void> {
+async function deliverEmail(
+  to: string[],
+  subject: string,
+  text: string,
+  managerUserId: string,
+): Promise<void> {
   const recipients = to.map((e) => e.trim().toLowerCase()).filter((e) => e.includes("@"));
   if (recipients.length === 0) return;
   const apiKey = process.env.RESEND_API_KEY?.trim();
   if (!apiKey) return;
-  const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
+  const db = createSupabaseServiceRoleClient();
+  const from = await managerOutboundFromHeader(db, managerUserId);
   await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -71,7 +78,7 @@ export async function notifyProspectPropertyMessageHandoff(input: {
     "— PropLane",
   ].join("\n");
 
-  await deliverEmail([email], subject, text);
+  await deliverEmail([email], subject, text, input.managerUserId);
 
   const phone = input.phone?.trim();
   if (input.smsConsent === true && phone) {

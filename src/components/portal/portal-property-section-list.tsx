@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -119,5 +119,35 @@ export function PortalPropertySectionList({
         })}
       </ul>
     </nav>
+  );
+}
+
+/** Phone All sections disclosure — same chrome as a property, for any record. */
+export function PortalRecordSectionsDisclosure({
+  currentLabel,
+  items,
+  activeId,
+  ariaLabel,
+  defaultOpen = false,
+}: {
+  currentLabel: string;
+  items: PortalPropertySectionItem[];
+  activeId?: string;
+  ariaLabel: string;
+  defaultOpen?: boolean;
+}) {
+  return (
+    <details
+      className="group mb-3 lg:hidden"
+      open={defaultOpen}
+      data-attr="record-sections-disclosure"
+    >
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-lg border border-border bg-card px-3 text-[13.5px] font-semibold text-foreground [&::-webkit-details-marker]:hidden">
+        <span className="min-w-0 flex-1 truncate">{currentLabel}</span>
+        <span className="text-[12px] font-medium text-muted">All sections</span>
+        <ChevronDown className="size-4 shrink-0 text-muted transition-transform group-open:rotate-180" aria-hidden />
+      </summary>
+      <PortalPropertySectionList items={items} activeId={activeId} ariaLabel={ariaLabel} className="mt-2" />
+    </details>
   );
 }

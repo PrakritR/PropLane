@@ -15,6 +15,9 @@ import { act, render } from "@testing-library/react";
 vi.mock("@/lib/channel-calendar/client", () => ({
   fetchManagerChannelBookings: () => Promise.resolve([]),
   saveManagerChannelCalendarLink: () => Promise.resolve({ ok: true }),
+  saveChannelCalendarConnection: () => Promise.resolve({ id: "c1" }),
+  syncChannelCalendarConnection: () => Promise.resolve(),
+  deleteChannelCalendarConnection: () => Promise.resolve(),
 }));
 vi.mock("@/lib/lease-pipeline-storage", () => ({
   LEASE_PIPELINE_EVENT: "lease-pipeline-changed",
@@ -48,10 +51,10 @@ import { AppUiProvider } from "@/components/providers/app-ui-provider";
 import { ManagerBookings } from "@/components/portal/pro-bookings";
 import { PORTAL_PAGE_SCROLL_BODY_CLASS } from "@/lib/portal-page-chrome-layout";
 
-async function renderBookings() {
+async function renderBookings(bucket: "upcoming" | "calendar" = "upcoming") {
   const view = render(
     <AppUiProvider>
-      <ManagerBookings bucket="upcoming" basePath="/portal" />
+      <ManagerBookings bucket={bucket} basePath="/portal" />
     </AppUiProvider>,
   );
   await act(async () => {
@@ -97,5 +100,17 @@ describe("Bookings page chrome stays pinned while the list scrolls", () => {
     expect(actions.querySelector('[data-attr="portfolio-bookings-link-airbnb"]')).not.toBeNull();
     expect(actions.querySelector('[data-attr="settings-open-bookings"]')).not.toBeNull();
     expect(scroller.contains(actions)).toBe(false);
+  });
+
+  it("puts Search and Filter on the command bar", async () => {
+    const view = await renderBookings();
+    expect(view.container.querySelector('[data-attr="bookings-search"]')).not.toBeNull();
+    expect(view.container.querySelector('[data-attr="bookings-filter-sheet-open"]')).not.toBeNull();
+  });
+
+  it("keeps Search and Filter on the Calendar tab", async () => {
+    const view = await renderBookings("calendar");
+    expect(view.container.querySelector('[data-attr="bookings-search"]')).not.toBeNull();
+    expect(view.container.querySelector('[data-attr="bookings-filter-sheet-open"]')).not.toBeNull();
   });
 });

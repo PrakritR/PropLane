@@ -237,6 +237,7 @@ export function ManagerPlan({
     const b = sub?.billing?.toLowerCase();
     return b === "annual" ? "annual" : "monthly";
   }, [sub?.billing]);
+  const isTrialBilling = sub?.billing?.toLowerCase().trim() === "trial";
   const renewalLabel = periodEndLabel(sub?.currentPeriodEnd ?? null);
   const anyBusy = busyTier !== null || billingSyncBusy || billingPortalBusy || resumeBusy || cancelDowngradeBusy || feedbackBusy;
 
@@ -246,6 +247,7 @@ export function ManagerPlan({
   }, [currentBilling]);
 
   const checkoutHandledRef = useRef(false);
+  const activatePaidHandledRef = useRef(false);
   useEffect(() => {
     if (typeof window === "undefined") return;
     const q = new URLSearchParams(window.location.search);
@@ -319,7 +321,9 @@ export function ManagerPlan({
     if (!planModal) return "";
     switch (planModal.kind) {
       case "checkout":
-        return `Subscribe to ${tierLabel(planModal.tier)}`;
+        return isTrialBilling
+          ? `Activate ${tierLabel(planModal.tier)}`
+          : `Subscribe to ${tierLabel(planModal.tier)}`;
       case "confirm_upgrade":
         return `Upgrade to ${tierLabel(planModal.target)}`;
       case "confirm_downgrade":
@@ -333,15 +337,13 @@ export function ManagerPlan({
       default:
         return "";
     }
-  }, [planModal]);
+  }, [planModal, isTrialBilling]);
 
   const scheduledBillingChange =
     sub?.scheduledDowngrade &&
     !sub.cancelAtPeriodEnd &&
     sub.scheduledDowngrade.tier === currentTier &&
     sub.scheduledDowngrade.billing !== currentBilling;
-
-  const showBillingPromo = Boolean(sub && !sub.stripeManaged && !sub.appleManaged);
 
   /**
    * The interval the manager is already scheduled to move to. Offering an
@@ -401,6 +403,18 @@ export function ManagerPlan({
       setBusyTier(null);
     }
   };
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !sub || activatePaidHandledRef.current) return;
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("activatePaid") !== "1") return;
+    activatePaidHandledRef.current = true;
+    q.delete("activatePaid");
+    const next = `${pathname}${q.toString() ? `?${q.toString()}` : ""}${window.location.hash}`;
+    window.history.replaceState({}, "", next);
+    if (!isTrialBilling || currentTier === "free") return;
+    void startEmbeddedCheckout(currentTier as "pro" | "business", priceView);
+  }, [sub, isTrialBilling, currentTier, pathname, priceView]);
 
   const applyWaiverPromo = async (
     tier: "pro" | "business",
@@ -613,13 +627,6 @@ export function ManagerPlan({
 
     const paidTarget = target as "pro" | "business";
     if (!sub.stripeManaged) {
-      const code = promoCode.trim();
-      if (code) {
-        flushSync(() => setBusyTier(paidTarget));
-        await applyWaiverPromo(paidTarget, priceView, code);
-        setBusyTier(null);
-        return;
-      }
       await startEmbeddedCheckout(paidTarget, priceView);
       return;
     }
@@ -662,7 +669,15 @@ export function ManagerPlan({
     return () => window.cancelAnimationFrame(id);
   }, [embedded]);
 
-  const isTrialBilling = sub?.billing?.toLowerCase().trim() === "trial";
+  const planStatusLabel = isTrialBilling
+    ? `Free trial of ${tierLabel(currentTier)}`
+    : currentTier === "free"
+      ? "Free plan"
+      : `Paid ${tierLabel(currentTier)} plan`;
+  const activatePaidPlan = () => {
+    if (currentTier === "free") return;
+    void startEmbeddedCheckout(currentTier as "pro" | "business", priceView);
+  };
 
   /** Scheduled-change notice + its actions — must stay reachable in BOTH the
    * full summary card and the compact Settings strip, or a manager who
@@ -724,26 +739,25 @@ export function ManagerPlan({
   const compactCurrentPlan = sub ? (
     <section className="surface-panel overflow-hidden rounded-2xl border border-border">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-4">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <span className="text-base font-bold tracking-tight text-foreground">{tierLabel(currentTier)}</span>
-          <span className="rounded-full bg-primary px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-            Current plan
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="text-base font-bold tracking-tight text-foreground" data-attr="billing-plan-status">
+            {planStatusLabel}
           </span>
-          {isTrialBilling ? (
-            <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary">
-              Free trial
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span className="rounded-full bg-primary px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+              {isTrialBilling ? "Free trial" : currentTier === "free" ? "Free" : "Paid plan"}
             </span>
-          ) : null}
-          {sub.cancelAtPeriodEnd ? (
+            {sub.cancelAtPeriodEnd ? (
             <span className="rounded-full bg-[var(--status-pending-bg)] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[var(--status-pending-fg)]">
               Cancelling
             </span>
           ) : null}
-          {sub.scheduledDowngrade && !sub.cancelAtPeriodEnd ? (
+            {sub.scheduledDowngrade && !sub.cancelAtPeriodEnd ? (
             <span className="rounded-full bg-[var(--status-pending-bg)] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[var(--status-pending-fg)]">
               {scheduledBillingChange ? "Billing change scheduled" : "Downgrade scheduled"}
             </span>
           ) : null}
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <p className="text-sm text-muted">
@@ -755,6 +769,18 @@ export function ManagerPlan({
                   ? "14-day trial · no card on file"
                   : tierTagline(currentTier)}
           </p>
+          {isTrialBilling && currentTier !== "free" ? (
+            <Button
+              type="button"
+              variant="primary"
+              className="h-9 min-h-0 rounded-full px-4 text-[13px]"
+              disabled={anyBusy}
+              onClick={() => activatePaidPlan()}
+              data-attr="billing-activate-paid-plan"
+            >
+              Activate paid plan
+            </Button>
+          ) : null}
           {sub.stripeManaged && currentTier !== "free" ? (
             <Button
               type="button"
@@ -788,8 +814,12 @@ export function ManagerPlan({
             <div className="border-b border-border px-6 py-5 sm:px-8">
               <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted">Your plan</p>
               <div className="mt-2 flex flex-wrap items-center gap-3">
-                <h2 className="text-2xl font-bold tracking-tight text-foreground">{tierLabel(currentTier)}</h2>
-                <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">Active</span>
+                <h2 className="text-2xl font-bold tracking-tight text-foreground" data-attr="billing-plan-status">
+                  {planStatusLabel}
+                </h2>
+                <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                  {isTrialBilling ? "Free trial" : currentTier === "free" ? "Free" : "Paid plan"}
+                </span>
                 {sub.cancelAtPeriodEnd ? (
                   <span className="rounded-full bg-[var(--status-pending-bg)] px-3 py-1 text-xs font-semibold text-[var(--status-pending-fg)]">
                     Cancelling
@@ -825,6 +855,18 @@ export function ManagerPlan({
               </div>
 
               <div className="flex flex-wrap items-end gap-2 sm:justify-start">
+                {isTrialBilling && currentTier !== "free" ? (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    className="rounded-full text-[13px]"
+                    disabled={anyBusy}
+                    onClick={() => activatePaidPlan()}
+                    data-attr="billing-activate-paid-plan"
+                  >
+                    Activate paid plan
+                  </Button>
+                ) : null}
                 {sub.stripeManaged && currentTier !== "free" ? (
                   <Button
                     type="button"
@@ -880,14 +922,11 @@ export function ManagerPlan({
 
         {/* Compare plans */}
         <section aria-labelledby="plan-comparison-heading">
-          <div className="flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-end sm:justify-between">
+          <div className="flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 id="plan-comparison-heading" className="text-xl font-semibold tracking-[-0.02em] text-foreground sm:text-2xl">
-                Choose the plan that fits your portfolio
+                Choose your plan
               </h2>
-              <p className="mt-1.5 max-w-2xl text-sm leading-6 text-muted">
-                Start with the tools you need today and change plans as your portfolio grows.
-              </p>
             </div>
             <div className="surface-panel inline-flex shrink-0 items-center gap-1 rounded-full border border-border p-1 shadow-sm">
               <button
@@ -917,41 +956,6 @@ export function ManagerPlan({
               </button>
             </div>
           </div>
-
-          {showBillingPromo ? (
-            <div className="mt-4 rounded-xl border border-border bg-accent/20 px-4 py-3">
-              <label className="text-sm font-semibold text-foreground" htmlFor="billing-plan-promo-code">
-                Promo code <span className="font-normal text-muted">(optional)</span>
-              </label>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <div className="min-w-40 flex-1">
-                  <Input
-                    id="billing-plan-promo-code"
-                    value={promoCode}
-                    onChange={(e) => {
-                      setPromoCode(e.target.value);
-                      if (promoError) setPromoError(null);
-                    }}
-                    placeholder="Enter code"
-                    autoComplete="off"
-                    spellCheck={false}
-                    disabled={promoBusy || anyBusy}
-                    className="uppercase placeholder:normal-case"
-                    data-attr="billing-plan-promo-code-input"
-                  />
-                </div>
-              </div>
-              {promoError ? (
-                <p className="mt-2 text-xs font-medium text-[var(--status-overdue-fg)]" role="alert">
-                  {promoError}
-                </p>
-              ) : (
-                <p className="mt-2 text-xs text-muted">
-                  Enter a valid code, then choose Pro or Business — no card required.
-                </p>
-              )}
-            </div>
-          ) : null}
 
           {!sub ? (
             <div className="mt-5 grid gap-4 lg:grid-cols-3">
@@ -1014,7 +1018,18 @@ export function ManagerPlan({
                     <p className="mt-2 min-h-[4.5rem] text-sm leading-snug text-muted">{pb.sub}</p>
 
                     <div className="mt-5 min-h-[52px]">
-                      {isCurrent ? (
+                      {isCurrent && isTrialBilling && currentTier !== "free" ? (
+                          <Button
+                            type="button"
+                            variant="primary"
+                            className="h-[52px] w-full rounded-xl text-[15px] font-semibold"
+                            disabled={anyBusy}
+                            onClick={() => activatePaidPlan()}
+                            data-attr="billing-activate-paid-plan"
+                          >
+                            Activate paid plan
+                          </Button>
+                      ) : isCurrent ? (
                         sub.stripeManaged &&
                         tierId !== "free" &&
                         !sub.cancelAtPeriodEnd &&
@@ -1138,11 +1153,7 @@ export function ManagerPlan({
                 <p className="mt-2 text-xs font-medium text-[var(--status-overdue-fg)]" role="alert">
                   {promoError}
                 </p>
-              ) : (
-                <p className="mt-2 text-xs text-muted">
-                  A valid code activates {tierLabel(planModal.tier)} instantly. No card required.
-                </p>
-              )}
+              ) : null}
             </div>
             {planModal.clientSecret ? (
               <EmbeddedCheckoutMount

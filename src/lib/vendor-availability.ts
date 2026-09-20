@@ -449,6 +449,61 @@ export function deleteVendorAvailabilityRule(id: string) {
   return postAvailability({ action: "delete", id });
 }
 
+/** Turn leftover Flexible all-day weekly flags into 8am–6pm open windows. */
+export async function convertFlexibleWeeklyRulesToWindows(
+  rules: VendorAvailabilityRule[],
+): Promise<VendorAvailabilityRule[] | null> {
+  const flexible = rules.filter(
+    (rule): rule is Extract<VendorAvailabilityRule, { kind: "weekly" }> => isFlexibleWeeklyRule(rule),
+  );
+  if (flexible.length === 0) return null;
+  for (const rule of flexible) {
+    const result = await saveVendorWeeklyRule({
+      id: rule.id,
+      weekday: rule.weekday,
+      startMinute: 8 * 60,
+      endMinute: 18 * 60,
+    });
+    if (!result.ok) return null;
+  }
+  return fetchVendorAvailability();
+}
+
+/** Paint weekly open windows onto the manager-style slot grid for the next N weeks. */
+export function slotKeysFromWeeklyRules(
+  rules: VendorAvailabilityRule[],
+  from: Date,
+  weekCount: number,
+): string[] {
+  const windows = rules.filter(
+    (rule): rule is Extract<VendorAvailabilityRule, { kind: "weekly" }> =>
+      rule.kind === "weekly" && !isFlexibleWeeklyRule(rule),
+  );
+  if (windows.length === 0) return [];
+  const keys: string[] = [];
+  const start = new Date(from);
+  start.setHours(0, 0, 0, 0);
+  const days = Math.max(0, weekCount) * 7;
+  for (let i = 0; i < days; i += 1) {
+    const day = new Date(start);
+    day.setDate(start.getDate() + i);
+    const weekday = day.getDay();
+    const y = day.getFullYear();
+    const m = String(day.getMonth() + 1).padStart(2, "0");
+    const d = String(day.getDate()).padStart(2, "0");
+    const dateStr = `${y}-${m}-${d}`;
+    for (const rule of windows) {
+      if (rule.weekday !== weekday) continue;
+      const startSlot = Math.floor(rule.startMinute / SLOT_STEP_MINUTES);
+      const endSlot = Math.ceil(rule.endMinute / SLOT_STEP_MINUTES);
+      for (let slot = startSlot; slot < endSlot; slot += 1) {
+        keys.push(`${dateStr}:${slot}`);
+      }
+    }
+  }
+  return keys;
+}
+
 export async function fetchVendorFlexiblePreferences(): Promise<VendorFlexiblePreferences> {
   try {
     const res = await fetch("/api/vendor/availability?preferences=1", { credentials: "include" });

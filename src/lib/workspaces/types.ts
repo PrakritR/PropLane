@@ -58,6 +58,8 @@ export type PortalWorkspace = {
   propertyPermissions: PropertyCoManagerPermissions;
   /** Managers the owner has granted access on houses in this workspace (owned workspaces only). */
   members?: WorkspaceMember[];
+  /** Viewer may create listings here (owner, or teammate with Add properties). */
+  canAddProperties?: boolean;
 };
 export type WorkspacePayload = {
   workspaces: PortalWorkspace[];

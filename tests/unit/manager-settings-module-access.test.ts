@@ -129,6 +129,28 @@ vi.mock("@/lib/reminders/settings.server", () => ({
   saveReminderSettings: vi.fn().mockResolvedValue({ rules: {}, quietHours: { enabled: false } }),
 }));
 
+// PLAN-0916-1040: the per-property override store is exercised by the routes on
+// every path but is not what this gating test asserts — stub it so the module
+// gate (assertCoManagerModuleAccess) is the only thing under test. The workspace
+// scope (propertyId null) still flows through the real loaders above.
+vi.mock("@/lib/settings/property-overrides.server", () => ({
+  resolveOperationsOverride: vi.fn(
+    async (
+      _db: unknown,
+      _uid: unknown,
+      _pid: unknown,
+      _ns: unknown,
+      ops: { loadWorkspace: () => Promise<unknown> },
+    ) => ({ settings: await ops.loadWorkspace(), scope: "workspace", inherited: false }),
+  ),
+  listPropertyOverrides: vi.fn().mockResolvedValue([]),
+  savePropertyOverride: vi.fn().mockResolvedValue(undefined),
+  clearPropertyOverride: vi.fn().mockResolvedValue(undefined),
+  loadPropertyOverride: vi.fn().mockResolvedValue(null),
+  loadPropertyOverridesForManagers: vi.fn().mockResolvedValue(new Map()),
+  ForeignPropertyError: class ForeignPropertyError extends Error {},
+}));
+
 import { assertCoManagerModuleAccess } from "@/lib/auth/co-manager-access";
 import { GET as tourSettingsGet, PATCH as tourSettingsPatch } from "@/app/api/portal/manager-tour-settings/route";
 import { GET as taskAutomationGet, PATCH as taskAutomationPatch } from "@/app/api/portal/task-automation-settings/route";

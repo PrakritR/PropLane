@@ -352,6 +352,31 @@ after that still returns `ok: true` so Twilio does not drop the receipt.
 `resolveOwnedWorkNumber` also falls back to a unique phone match when the row
 is not yet attached to `TWILIO_MESSAGING_SERVICE_SID`.
 
+## Prospect SMS scheduling and follow-up
+
+The leasing SMS agent has a prospect-only scheduling exception implemented by
+the separate typed `prepare_prospect_tour_confirmation` and
+`confirm_prospect_sms_tour` tools. Links remain the default. When a prospect
+cannot use the tour page or explicitly asks to complete scheduling by text, the
+first tool persists one exact published slot and asks the prospect to reply
+`YES`; only a later unambiguous affirmative from the trusted inbound number lets
+the second tool auto-confirm that same offer. A new time, weekday, date,
+property, or qualification requires a new offer. Name is required; email is
+optional. Resident SMS, public/web requests, manager automation, and manager
+calendar proposals retain their existing human-confirmation requirement.
+
+The handler resolves listing, room, slot, host, manager scope, and current
+availability on the server. Unknown or nonpublic listings, stale ids, default
+unpublished slots, expired offers, and model-supplied phone identity never
+authorize a booking. Booking and reservation share one atomic idempotency
+boundary. Provider retries may retry only missing side effects, never create a
+second reservation, planned event, or confirmation.
+
+One durable follow-up may send two hours after a scheduling question. A new
+inbound, booking, opt-out, deferral, handoff, or archive cancels it; quiet hours
+may defer it. Provider delivery remains in the outbox, and retries cannot revive
+historical conversations or duplicate the reminder.
+
 **Proxy-pair relay (RETIRED for message routing, September 2026): manager ↔
 resident text from their personal phones through a pooled number, neither seeing
 the other's real number.** `/api/twilio/inbound` no longer consults

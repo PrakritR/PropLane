@@ -107,7 +107,7 @@ export function LeaseMarkSignedModal({
               }
             }}
           >
-            Mark as signed
+            Move to Signed
           </Button>
         </ModalFooter>
       }

@@ -1,13 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Modal, ModalFooter } from "@/components/ui/modal";
-import { Select } from "@/components/ui/input";
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
+import { PreviewPanel, WizardSelect } from "@/components/portal/add-workspace/parts";
+import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import {
   CUSTOM_PROPERTY_KEY,
   PromotionForm,
-  PromotionPropertyPicker,
   type PromotionDraft,
 } from "@/components/portal/promotion-form";
 import {
@@ -22,10 +21,10 @@ import type { PromotionTextFormat } from "@/lib/promotion-text";
 import { PromotionUploadComposer } from "@/components/portal/promotion-upload-composer";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 
-const PROMOTION_KIND_OPTIONS: { id: PromotionAssetKind; label: string; description: string }[] = [
-  { id: "flyer", label: "Flyer", description: "Printable or social-ready design." },
-  { id: "text", label: "Text", description: "Caption, email, SMS, or listing blurb." },
-  { id: "upload", label: "Upload your own", description: "Use your own image or PDF for this property." },
+const PROMOTION_KIND_OPTIONS: { id: PromotionAssetKind; label: string }[] = [
+  { id: "flyer", label: "Flyer" },
+  { id: "text", label: "Text" },
+  { id: "upload", label: "Upload your own" },
 ];
 
 type FlyerContentField = Exclude<keyof PromotionDraft, "propertyKey" | "images">;
@@ -82,6 +81,7 @@ export function PromotionNewModal({
   open,
   onClose,
   initialKind = "flyer",
+  initialStepId,
   draft,
   setDraft,
   listings,
@@ -100,8 +100,10 @@ export function PromotionNewModal({
   open: boolean;
   onClose: () => void;
   initialKind?: PromotionAssetKind;
+  /** Suggestion + lands on Content with Kind already chosen. */
+  initialStepId?: "kind" | "content" | "preview";
   draft: PromotionDraft;
-  setDraft: React.Dispatch<React.SetStateAction<PromotionDraft>>;
+  setDraft: Dispatch<SetStateAction<PromotionDraft>>;
   listings: ManagerPromotionPropertyOption[];
   onSelectProperty: (key: string) => void;
   hidePropertyPicker?: boolean;
@@ -116,6 +118,7 @@ export function PromotionNewModal({
   uploadBusy?: boolean;
 }) {
   const [kind, setKind] = useState<PromotionAssetKind>(initialKind);
+  const [stepIdx, setStepIdx] = useState(0);
   // Snapshot of the flyer draft as it was seeded. Anything the user changes from
   // this counts as "entered content" for the discard warn, and it's what we reset
   // back to when the flyer form is abandoned on a switch.
@@ -130,6 +133,7 @@ export function PromotionNewModal({
   useEffect(() => {
     if (!open) return;
     setKind(initialKind);
+    setStepIdx(initialStepId === "content" ? 1 : initialStepId === "preview" ? 2 : 0);
     flyerBaseRef.current = draft;
     flyerBasePropertyRef.current = draft.propertyKey;
     textDirtyRef.current = false;
@@ -138,7 +142,7 @@ export function PromotionNewModal({
     setUploadError(null);
     // Intentionally only re-run on open — draft is captured as the opening seed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialKind]);
+  }, [open, initialKind, initialStepId]);
 
   // Selecting a property (here or in the text composer) re-derives most of the
   // draft from the listing, and a parent can re-seed the draft while the modal is
@@ -198,121 +202,143 @@ export function PromotionNewModal({
     void onUploadPromotion?.(uploadFile);
   };
 
-  const selected = PROMOTION_KIND_OPTIONS.find((o) => o.id === kind);
   const assistantContext = buildPromotionNewModalAssistantContext(draft, kind);
+  const kindLabel = PROMOTION_KIND_OPTIONS.find((opt) => opt.id === kind)?.label ?? "Promotion";
+  const workspaceSteps: AddWorkspaceStep[] = [
+    { id: "kind", label: "Kind", summary: kindLabel },
+    { id: "content", label: "Content", summary: kind === "upload" ? uploadFileName || "Choose a file" : draft.title || draft.headline || "Listing facts" },
+    { id: "preview", label: "Preview", summary: kindLabel },
+  ];
+  const current = Math.min(stepIdx, workspaceSteps.length - 1);
+  const stepId = workspaceSteps[current]!.id;
+  const lastLabel = kind === "flyer" ? "Generate flyer" : kind === "upload" ? "Save promotion" : "Generate promotion text";
+  const lastDisabled = flyerBusy || textBusy || uploadBusy || (kind === "upload" && !uploadFile);
+  const finish = () => {
+    if (kind === "flyer") onGenerateFlyer();
+    else if (kind === "upload") saveUpload();
+    else textComposerRef.current?.generate();
+  };
+  const leavingDirty =
+    kind === "flyer"
+      ? flyerContentChanged(draft, flyerBaseRef.current)
+      : kind === "text"
+        ? textDirtyRef.current
+        : Boolean(uploadFile);
+
+  if (!open) return null;
 
   return (
-    <Modal
-      open={open}
+    <AddWorkspace
       title="New promotion"
+      steps={workspaceSteps}
+      current={current}
+      onJump={setStepIdx}
       onClose={onClose}
-      panelClassName="max-w-2xl"
+      dirty={leavingDirty}
+      discardTitle="Discard this promotion?"
       assistantContext={assistantContext}
-      assistantStorageScopeKey="New promotion"
-      footer={
-        kind === "flyer" ? (
-          <ModalFooter>
-            <Button
-              type="button"
-              onClick={onGenerateFlyer}
-              disabled={flyerBusy}
-              data-attr="promotion-generate"
-            >
-              {flyerBusy ? "Generating…" : "Generate flyer"}
-            </Button>
-          </ModalFooter>
-        ) : kind === "upload" ? (
-          <ModalFooter>
-            <Button
-              type="button"
-              onClick={saveUpload}
-              disabled={uploadBusy || !uploadFile}
-              data-attr="promotion-upload-save"
-            >
-              {uploadBusy ? "Saving…" : "Save promotion"}
-            </Button>
-          </ModalFooter>
-        ) : (
-          <ModalFooter>
-            <Button
-              type="button"
-              disabled={textBusy}
-              data-attr="promotion-text-generate-submit"
-              onClick={() => textComposerRef.current?.generate()}
-            >
-              {textBusy ? "Generating…" : "Generate promotion text"}
-            </Button>
-          </ModalFooter>
-        )
+      assistantScopeKey="New promotion"
+      sidePanel={
+        <PreviewPanel
+          title="Promotion preview"
+          name={kindLabel}
+          sub={draft.propertyLabel || draft.address || undefined}
+          facts={[
+            { label: "Type", value: kindLabel },
+            { label: "Property", value: draft.propertyLabel || "Not set", warn: !draft.propertyLabel },
+            { label: "Headline", value: draft.headline || "From listing", warn: false },
+          ]}
+          creates={[{ tone: "yes", text: kind === "upload" ? "Saves the file on this property" : `Generates a ${kindLabel.toLowerCase()}` }]}
+        />
       }
+      lastLabel={lastLabel}
+      lastDisabled={lastDisabled}
+      busy={flyerBusy || textBusy || uploadBusy}
+      onFinish={finish}
+      dataAttrPrefix="promotion-new"
+      finishDataAttr={kind === "flyer" ? "promotion-generate" : kind === "upload" ? "promotion-upload-save" : "promotion-text-generate-submit"}
+      footerNote={uploadError ? <span className="text-sm text-rose-600">{uploadError}</span> : null}
     >
-      {/* The Modal body is the one scroll container — no nested scroller here,
-          which trapped touch scrolling in the native WebView. */}
-      <div className="pr-1">
-        <div className="mb-3">
-          <label className="text-xs font-semibold text-muted" htmlFor="promotion-new-kind">
-            Promotion type
-          </label>
-          <Select
-            id="promotion-new-kind"
-            className="mt-1"
+      {stepId === "kind" ? (
+        <StepColumn>
+          <StepHeading title="Kind" />
+          <WizardSelect
+            label="Promotion type"
             value={kind}
-            onChange={(e) => requestSwitch(e.target.value as PromotionAssetKind)}
+            onChange={(next) => void requestSwitch(next as PromotionAssetKind)}
+            options={PROMOTION_KIND_OPTIONS.map((opt) => ({ value: opt.id, label: opt.label }))}
             disabled={flyerBusy || textBusy || uploadBusy}
-            data-attr="promotion-new-kind"
-          >
-            {PROMOTION_KIND_OPTIONS.map((opt) => (
-              <option key={opt.id} value={opt.id}>
-                {opt.label}
-              </option>
-            ))}
-          </Select>
-          {selected ? <p className="mt-1.5 text-xs text-muted">{selected.description}</p> : null}
-        </div>
-
-        {kind === "flyer" ? (
-          <PromotionForm
-            draft={draft}
-            setDraft={setDraft}
-            listings={listings}
-            onSelectProperty={onSelectProperty}
-            hidePropertyPicker={hidePropertyPicker}
+            dataAttr="promotion-new-kind"
           />
-        ) : kind === "upload" ? (
-          <div className="space-y-4">
-            {!hidePropertyPicker ? (
-              <PromotionPropertyPicker
-                id="promotion-upload-property"
-                value={draft.propertyKey}
-                listings={listings}
-                onSelect={onSelectProperty}
-              />
-            ) : null}
-            <PromotionUploadComposer
-              fileName={uploadFileName}
-              error={uploadError}
-              onPickFile={(file) => {
-                setUploadError(null);
-                setUploadFile(file);
-                setUploadFileName(file?.name ?? null);
-              }}
+          {!hidePropertyPicker ? (
+            <WizardSelect
+              label="Property"
+              value={draft.propertyKey}
+              onChange={onSelectProperty}
+              options={[
+                { value: CUSTOM_PROPERTY_KEY, label: "Custom" },
+                ...listings.map((listing) => ({ value: listing.id, label: listing.label })),
+              ]}
+              dataAttr="promotion-new-property"
             />
-          </div>
-        ) : (
-          <PromotionTextComposer
-            ref={textComposerRef}
-            onGenerate={onGenerateText}
-            busy={textBusy}
-            initialFormat={textInitialFormat}
-            initialTone={textInitialTone}
-            initialImages={textInitialImages}
-            onDirtyChange={handleTextDirty}
-            propertyKey={hidePropertyPicker ? undefined : draft.propertyKey}
-            listings={listings}
-            onSelectProperty={hidePropertyPicker ? undefined : onSelectProperty}
+          ) : null}
+        </StepColumn>
+      ) : null}
+      {stepId === "content" ? (
+        <StepColumn wide>
+          <StepHeading title="Content" />
+          {kind === "flyer" ? (
+            <PromotionForm
+              draft={draft}
+              setDraft={setDraft}
+              listings={listings}
+              onSelectProperty={onSelectProperty}
+              hidePropertyPicker
+            />
+          ) : kind === "upload" ? (
+            <div className="space-y-4">
+              <PromotionUploadComposer
+                fileName={uploadFileName}
+                error={uploadError}
+                onPickFile={(file) => {
+                  setUploadError(null);
+                  setUploadFile(file);
+                  setUploadFileName(file?.name ?? null);
+                }}
+              />
+            </div>
+          ) : (
+            <PromotionTextComposer
+              ref={textComposerRef}
+              onGenerate={onGenerateText}
+              busy={textBusy}
+              initialFormat={textInitialFormat}
+              initialTone={textInitialTone}
+              initialImages={textInitialImages}
+              onDirtyChange={handleTextDirty}
+              propertyKey={undefined}
+              listings={listings}
+              onSelectProperty={undefined}
+            />
+          )}
+        </StepColumn>
+      ) : null}
+      {stepId === "preview" ? (
+        <StepColumn>
+          <StepHeading title="Preview" />
+          <PreviewPanel
+            title="Promotion preview"
+            name={kindLabel}
+            sub={draft.propertyLabel || draft.address || undefined}
+            facts={[
+              { label: "Type", value: kindLabel },
+              { label: "Property", value: draft.propertyLabel || "Not set", warn: !draft.propertyLabel },
+              { label: "Headline", value: draft.headline || "From listing" },
+            ]}
+            creates={[{ tone: "yes", text: kind === "upload" ? "Saves the file on this property" : `Generates a ${kindLabel.toLowerCase()}` }]}
           />
-        )}
-      </div>
-    </Modal>
+        </StepColumn>
+      ) : null}
+    </AddWorkspace>
   );
 }

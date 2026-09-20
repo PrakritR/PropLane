@@ -24,6 +24,35 @@ export function addDaysToDateKey(dayKey: string, days: number): string {
   return dateKey(addDays(new Date(y, m - 1, d), days));
 }
 
+export function bookingEntryMatchesSearch(
+  entry: PropertyBookingEntry,
+  query: string,
+): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  const haystack = [
+    entry.summary,
+    entry.propertyLabel,
+    entry.roomLabel,
+    entry.residentName,
+    entry.reason,
+    formatBookingStayRange(entry.start, entry.end, entry.openEnded),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(needle);
+}
+
+export function filterBookingsBySearch(
+  entries: readonly PropertyBookingEntry[],
+  query: string,
+): PropertyBookingEntry[] {
+  const needle = query.trim();
+  if (!needle) return [...entries];
+  return entries.filter((entry) => bookingEntryMatchesSearch(entry, needle));
+}
+
 export function formatBookingStayRange(
   start: string,
   end: string,
@@ -157,6 +186,7 @@ export function bookingSourceDotClass(source: PropertyBookingEntry["source"]): s
     case "proplane":
       return "bg-primary";
     case "airbnb":
+    case "booking_com":
       return "bg-[var(--status-pending-fg)]";
     case "hold":
       return "bg-[var(--status-confirmed-fg)]";
@@ -170,6 +200,7 @@ export function bookingSourceBadgeTone(
 ): "pending" | "info" | "confirmed" | "neutral" {
   switch (source) {
     case "airbnb":
+    case "booking_com":
       return "pending";
     case "hold":
       return "confirmed";
@@ -184,6 +215,8 @@ export function bookingSourceLabel(source: PropertyBookingEntry["source"]): stri
   switch (source) {
     case "airbnb":
       return "Airbnb";
+    case "booking_com":
+      return "Booking.com";
     case "hold":
       return "Hold";
     case "block":
@@ -196,7 +229,7 @@ export function bookingSourceLabel(source: PropertyBookingEntry["source"]): stri
 export function bookingStatusTone(
   entry: PropertyBookingEntry,
 ): "confirmed" | "pending" | "info" {
-  if (entry.source === "airbnb") return "pending";
+  if (entry.source === "airbnb" || entry.source === "booking_com") return "pending";
   const status = entry.statusLabel?.toLowerCase() ?? "";
   if (status.includes("sign") || status.includes("pending") || status.includes("draft")) {
     return "pending";

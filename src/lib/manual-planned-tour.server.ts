@@ -6,9 +6,10 @@ import { isAdminUser } from "@/lib/auth/admin-preview";
 import { syncPlannedTourToGoogleCalendar } from "@/lib/google-calendar/sync.server";
 import { getShareablePropertyForUser } from "@/lib/manager-property-share-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { mutateConfirmedTourSchedule } from "@/lib/tour-schedule-persistence.server";
 import { formatRangeLabel } from "@/lib/tour-inquiry-confirm.server";
 import { canAssign, normalizeAssignee, type WorkAssignee } from "@/lib/work-assignment";
-import { isActivePlannedTourEvent } from "@/lib/tour-slot-math";
+import { isActivePlannedTourEvent, slotKeyForInstant } from "@/lib/tour-slot-math";
 import { PLANNED_RECORD_ID, rowsFromRecord } from "@/lib/tour-inquiry-confirm.server";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
@@ -169,6 +170,7 @@ export async function createManualPlannedTour(
     roomLabel: input.roomLabel?.trim() || undefined,
     tourFormat: normalizeTourFormat(input.tourFormat),
     adminUserId: managerUserId,
+    slotKey: slotKeyForInstant(start) ?? undefined,
     attendeeName: guestName,
     attendeeEmail: input.guestEmail?.trim() || undefined,
     attendeePhone: input.guestPhone?.trim() || undefined,
@@ -176,23 +178,14 @@ export async function createManualPlannedTour(
     assignee: assignee ?? undefined,
   };
 
-  const { error: writeError } = await db.from("portal_schedule_records").upsert({
-    id: PLANNED_RECORD_ID,
-    manager_user_id: null,
-    property_id: propertyId,
-    record_type: PLANNED_RECORD_ID,
-    starts_at: start,
-    ends_at: end,
-    row_data: {
-      id: PLANNED_RECORD_ID,
-      recordType: PLANNED_RECORD_ID,
-      managerUserId: null,
-      propertyId: null,
-      payload: [...plannedRows, plannedEvent],
-    },
-    updated_at: new Date().toISOString(),
-  });
-  if (writeError) return { ok: false, status: 500, error: writeError.message };
+  const persisted = await mutateConfirmedTourSchedule(db, { operation: "append", event: plannedEvent });
+  if (!persisted.ok) {
+    return {
+      ok: false,
+      status: persisted.reason === "conflict" ? 409 : 500,
+      error: persisted.reason === "conflict" ? "That time is already booked. Pick another slot." : persisted.reason,
+    };
+  }
 
   await syncPlannedTourToGoogleCalendar(db, managerUserId, {
     plannedEventId: String(plannedEvent.id),

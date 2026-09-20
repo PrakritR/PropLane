@@ -4,7 +4,7 @@ import { readWorkspaceCookie } from "@/lib/workspaces/cookie";
 import { track } from "@/lib/analytics/posthog";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { assertCoManagerModuleAccess } from "@/lib/auth/co-manager-access";
-import { asStringArray } from "@/lib/account-link-invite-row";
+import { asStringArray, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -13,6 +13,12 @@ import { MANAGER_PROPERTY_LIMIT_ERROR_CODE } from "@/lib/manager-access";
 import { assertManagerPropertyListingQuota } from "@/lib/manager-property-quota.server";
 import { propertyRowsToSnapshot, type ManagerPropertyRecordStatus } from "@/lib/persisted-property-records";
 import { reconcileListingServiceFeeOnWrite } from "@/lib/listing-service-fee-write.server";
+import { resolveCreateListingOwner } from "@/lib/auth/workspace-add-property.server";
+import {
+  buildAllModulesGrant,
+  normalizeCoManagerPermissions,
+  normalizePropertyCoManagerPermissions,
+} from "@/lib/co-manager-permissions";
 
 export const runtime = "nodejs";
 
@@ -212,14 +218,21 @@ export async function POST(req: Request) {
     // `invalid input syntax for type uuid`, which surfaced as a 500 on an
     // ordinary co-manager save.
     let ownerForWrite: string | null;
+    let createWorkspaceId: string | undefined;
+    let appendCreatedListingToInviteId: string | undefined;
     if (!existing) {
-      // Creating a brand-new record. An admin may attribute it to a manager —
-      // the admin inventory publishes on a manager's behalf — but a co-manager
-      // cannot create a property owned by someone else.
-      ownerForWrite = body.managerUserId?.trim() || user.id;
-      if (!admin && ownerForWrite !== user.id) {
-        return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      const created = await resolveCreateListingOwner(db, {
+        callerUserId: user.id,
+        admin,
+        requestedOwnerId: body.managerUserId?.trim() || null,
+        workspaceId: readWorkspaceCookie(req.headers.get("cookie")) ?? null,
+      });
+      if (!created.ok) {
+        return NextResponse.json({ error: created.error }, { status: created.status });
       }
+      ownerForWrite = created.ownerUserId;
+      createWorkspaceId = created.workspaceId;
+      appendCreatedListingToInviteId = created.appendToInviteId;
     } else if (admin) {
       // Never MOVE a row that still has an owner; an orphaned row (the column is
       // `on delete set null`) may still be re-attributed by an admin.
@@ -332,16 +345,7 @@ export async function POST(req: Request) {
         propertyData: propertyDataForWrite0,
       });
 
-    let newWorkspaceId: string | undefined;
-    if (!existing && managerUserIdForWrite === user.id) {
-      const selected = readWorkspaceCookie(req.headers.get("cookie"));
-      if (selected) {
-        const workspace = await db.from("portal_workspaces").select("id").eq("id", selected).eq("owner_user_id", user.id).maybeSingle();
-        if (workspace.error) return NextResponse.json({ error: "Could not verify workspace." }, { status: 503 });
-        if (!workspace.data) return NextResponse.json({ error: "Select an owned workspace before adding a property." }, { status: 403 });
-        newWorkspaceId = workspace.data.id;
-      }
-    }
+    const newWorkspaceId = !existing ? createWorkspaceId : undefined;
     const { error } = await db.from("manager_property_records").upsert(
       {
         id,
@@ -363,6 +367,35 @@ export async function POST(req: Request) {
       // 500 turned it into "check your connection" on a healthy network.
       if (error.code === "23514") return NextResponse.json({ error: error.message }, { status: 422 });
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    if (appendCreatedListingToInviteId) {
+      const invite = await db
+        .from("account_link_invites")
+        .select("assigned_property_ids, property_co_manager_permissions, co_manager_permissions")
+        .eq("id", appendCreatedListingToInviteId)
+        .maybeSingle();
+      if (!invite.error && invite.data) {
+        const assigned = asStringArray(invite.data.assigned_property_ids);
+        if (!assigned.includes(id)) {
+          const nextAssigned = [...assigned, id];
+          const current = readPropertyPermissionsFromRow(invite.data);
+          const defaults = Object.keys(normalizeCoManagerPermissions(invite.data.co_manager_permissions)).length
+            ? normalizeCoManagerPermissions(invite.data.co_manager_permissions)
+            : buildAllModulesGrant("read");
+          const nextPerms = normalizePropertyCoManagerPermissions(
+            { ...current, [id]: defaults },
+            nextAssigned,
+          );
+          await db
+            .from("account_link_invites")
+            .update({
+              assigned_property_ids: nextAssigned,
+              property_co_manager_permissions: nextPerms,
+            })
+            .eq("id", appendCreatedListingToInviteId);
+        }
+      }
     }
 
     // A draft is unvalidated by contract (docs/agents/property-drafts.md): it is

@@ -283,7 +283,7 @@ export function ScheduleInboxComposeForm({
           selected={sendVia}
           onChange={setSendVia}
           disabled={busy}
-          footerNote="Always saved to PropLane inbox. Choose email and/or SMS for delivery."
+          footerNote=""
           dataAttr="scheduled-message-send-via"
         />
 

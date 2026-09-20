@@ -1,4 +1,4 @@
-/** Curated vendors discoverable in the Axis catalog (before added to a manager account). */
+/** Curated vendors discoverable in the PropLane catalog (before added to a manager account). */
 export type AxisCatalogVendor = {
   catalogId: string;
   name: string;
@@ -7,10 +7,26 @@ export type AxisCatalogVendor = {
   zip: string;
   phone: string;
   email: string;
+  description: string;
+  hourlyCents: number;
+  serviceCents: number;
   notes?: string;
 };
 
 export const AXIS_VENDOR_CATALOG: AxisCatalogVendor[] = [
+  {
+    catalogId: "axis-catalog-plumbing-nw",
+    name: "Northwest Plumbing Co",
+    trade: "Plumbing",
+    city: "Seattle, WA",
+    zip: "98101",
+    phone: "(206) 555-0142",
+    email: "jobs@nwplumbing.example",
+    description:
+      "Licensed plumber for leaks, water heaters, and drain work. Typical house call billed as the service rate; extra time at the hourly rate.",
+    hourlyCents: 9500,
+    serviceCents: 18500,
+  },
   {
     catalogId: "axis-catalog-hvac-1",
     name: "Sound HVAC Collective",
@@ -19,6 +35,9 @@ export const AXIS_VENDOR_CATALOG: AxisCatalogVendor[] = [
     zip: "98104",
     phone: "(206) 555-4401",
     email: "dispatch@soundhvac.example.com",
+    description: "Licensed residential HVAC — installs, tune-ups, and emergency repair.",
+    hourlyCents: 12500,
+    serviceCents: 24500,
     notes: "Licensed residential HVAC — installs, tune-ups, and emergency repair.",
   },
   {
@@ -29,6 +48,9 @@ export const AXIS_VENDOR_CATALOG: AxisCatalogVendor[] = [
     zip: "98004",
     phone: "(425) 555-1182",
     email: "jobs@emeraldcityplumb.example.com",
+    description: "Residential plumbing for leaks, fixtures, and water heaters across the Eastside.",
+    hourlyCents: 9900,
+    serviceCents: 17500,
   },
   {
     catalogId: "axis-catalog-electrical-1",
@@ -38,6 +60,9 @@ export const AXIS_VENDOR_CATALOG: AxisCatalogVendor[] = [
     zip: "98402",
     phone: "(253) 555-9020",
     email: "service@pugetpowerpros.example.com",
+    description: "Panel upgrades, outlets, and lighting for houses and small multifamily.",
+    hourlyCents: 11000,
+    serviceCents: 16500,
   },
   {
     catalogId: "axis-catalog-cleaning-1",
@@ -47,6 +72,9 @@ export const AXIS_VENDOR_CATALOG: AxisCatalogVendor[] = [
     zip: "98109",
     phone: "(206) 555-7710",
     email: "turns@sparkleturnover.example.com",
+    description: "Move-out and recurring unit cleaning for multifamily.",
+    hourlyCents: 4500,
+    serviceCents: 22000,
     notes: "Move-out and recurring unit cleaning for multifamily.",
   },
   {
@@ -57,6 +85,9 @@ export const AXIS_VENDOR_CATALOG: AxisCatalogVendor[] = [
     zip: "98101",
     phone: "(206) 555-3300",
     email: "workorders@axishandyman.example.com",
+    description: "General repairs, punch lists, and between-tenancy fixes.",
+    hourlyCents: 7500,
+    serviceCents: 12500,
   },
   {
     catalogId: "axis-catalog-appliance-1",
@@ -66,6 +97,9 @@ export const AXIS_VENDOR_CATALOG: AxisCatalogVendor[] = [
     zip: "98033",
     phone: "(425) 555-6614",
     email: "repairs@nwappliance.example.com",
+    description: "In-unit appliance diagnosis and repair for common residential brands.",
+    hourlyCents: 9900,
+    serviceCents: 17500,
   },
   {
     catalogId: "axis-catalog-landscaping-1",
@@ -75,6 +109,9 @@ export const AXIS_VENDOR_CATALOG: AxisCatalogVendor[] = [
     zip: "98052",
     phone: "(425) 555-2290",
     email: "crew@greenlinecare.example.com",
+    description: "Yard, walkway, and exterior upkeep on a typical visit rate.",
+    hourlyCents: 6500,
+    serviceCents: 15000,
   },
   {
     catalogId: "axis-catalog-pest-1",
@@ -84,6 +121,9 @@ export const AXIS_VENDOR_CATALOG: AxisCatalogVendor[] = [
     zip: "98122",
     phone: "(206) 555-8844",
     email: "dispatch@harborpest.example.com",
+    description: "Inspection and treatment for common household pests.",
+    hourlyCents: 8000,
+    serviceCents: 14500,
   },
 ];
 
@@ -96,6 +136,7 @@ export function vendorCatalogEntryMatchesQuery(
     email?: string;
     phone?: string;
     notes?: string;
+    description?: string;
   },
   query: string,
 ): boolean {
@@ -109,6 +150,7 @@ export function vendorCatalogEntryMatchesQuery(
     fields.email ?? "",
     fields.phone ?? "",
     fields.notes ?? "",
+    fields.description ?? "",
   ]
     .join(" ")
     .toLowerCase();
@@ -129,6 +171,22 @@ export function managerOwnsCatalogVendor(
 
 export function searchAxisVendorCatalog(query: string): AxisCatalogVendor[] {
   return AXIS_VENDOR_CATALOG.filter((row) => vendorCatalogEntryMatchesQuery(row, query));
+}
+
+export function axisCatalogVendorById(catalogId: string | null | undefined): AxisCatalogVendor | null {
+  const id = catalogId?.trim();
+  if (!id) return null;
+  return AXIS_VENDOR_CATALOG.find((row) => row.catalogId === id) ?? null;
+}
+
+export function formatVendorCatalogUsd(cents: number): string {
+  if (!Number.isFinite(cents) || cents <= 0) return "—";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
+    maximumFractionDigits: cents % 100 === 0 ? 0 : 2,
+  }).format(cents / 100);
 }
 
 /** Map outgoing expense category codes to vendor trade labels. */

@@ -240,6 +240,14 @@ describe("authorizeApplicationPhotoWrite", () => {
     expect(authorizeApplicationPhotoWrite({ actor: { kind: "admin" }, row: approved })).toBe(true);
   });
 
+  it("ALLOWS the owning manager on a row THEY created (Add resident) even though it is approved — and nobody else", () => {
+    const manual = { ...pendingRow, bucket: "approved", manuallyAdded: true };
+    expect(authorizeApplicationPhotoWrite({ actor: managerA, row: manual })).toBe(true);
+    expect(authorizeApplicationPhotoWrite({ actor: managerB, row: manual })).toBe(false);
+    expect(authorizeApplicationPhotoWrite({ actor: applicant, row: manual })).toBe(false);
+    expect(authorizeApplicationPhotoWrite({ actor: { kind: "guest", email: "applicant@example.com" }, row: manual, setupToken: "anything" })).toBe(false);
+  });
+
   it("DENIES a foreign manager and a mismatched resident even on a pending row", () => {
     expect(authorizeApplicationPhotoWrite({ actor: managerB, row: pendingRow })).toBe(false);
     const other: ApplicationPhotoActor = { kind: "resident", email: "someone-else@example.com" };

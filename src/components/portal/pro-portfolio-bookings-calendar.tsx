@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import Link from "next/link";
 import {
   BookingsDayDetailModal,
   type BookingsDayEntry,
@@ -22,10 +22,8 @@ import {
 } from "@/lib/channel-calendar/property-bookings";
 import {
   bookingOccupancyStats,
-  bookingSourceBadgeTone,
   bookingSourceDotClass,
-  bookingSourceLabel,
-  bookingStatusTone,
+  filterBookingsBySearch,
   formatBookingStayRange,
   type BookingsHubMode,
 } from "@/lib/channel-calendar/bookings-ui";
@@ -125,7 +123,7 @@ function dominantSourceForDay(
   dayBookings: PropertyBookingEntry[],
 ): PropertyBookingEntry["source"] | null {
   if (dayBookings.length === 0) return null;
-  for (const source of ["proplane", "airbnb", "hold", "block"] as const) {
+  for (const source of ["proplane", "airbnb", "booking_com", "hold", "block"] as const) {
     if (dayBookings.some((b) => bookingVisualSource(b) === source)) return source;
   }
   return null;
@@ -134,23 +132,14 @@ function dominantSourceForDay(
 function dayCellClassName(
   booked: boolean,
   isToday: boolean,
-  source: PropertyBookingEntry["source"] | null,
+  _source: PropertyBookingEntry["source"] | null,
 ): string {
   const base =
     "flex min-h-0 flex-1 flex-col items-stretch rounded-lg border p-1.5 text-left text-xs transition hover:shadow-[var(--shadow-sm)]";
   if (!booked) {
     return `${base} border-border/80 bg-card/90 text-foreground hover:border-primary/25 hover:bg-accent/25`;
   }
-  if (source === "proplane") {
-    return `${base} border-[color-mix(in_srgb,var(--status-approved-fg)_35%,transparent)] bg-[var(--status-approved-bg)] text-[var(--status-approved-fg)]`;
-  }
-  if (source === "hold") {
-    return `${base} border-[color-mix(in_srgb,var(--status-confirmed-fg)_35%,transparent)] bg-[var(--status-confirmed-bg)] text-[var(--status-confirmed-fg)]`;
-  }
-  if (source === "block") {
-    return `${base} border-border bg-[var(--secondary)] text-muted [background-image:repeating-linear-gradient(135deg,transparent_0_6px,color-mix(in_srgb,var(--border)_70%,transparent)_6px_7px)]`;
-  }
-  return `${base} border-[color-mix(in_srgb,var(--status-pending-fg)_35%,transparent)] bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)]`;
+  return `${base} border-rose-300 bg-rose-100 text-rose-950 hover:border-rose-400`;
 }
 
 function DayBookingCell({
@@ -194,8 +183,8 @@ function DayBookingCell({
       {booked && preview ? (
         <div className="mt-1 min-h-0 flex-1 space-y-0.5 overflow-hidden">
           <p className="truncate text-[10px] font-semibold leading-tight">
-            {preview.source === "airbnb"
-              ? bookingGuestShortLabel(preview.summary, 14)
+            {preview.source === "airbnb" || preview.source === "booking_com"
+              ? bookingGuestShortLabel(preview.summary, 14, preview.source)
               : preview.summary}
           </p>
           <p className="truncate text-[9px] opacity-80">
@@ -266,28 +255,18 @@ function YearMonthMiniGrid({
 
 function DayViewStayCard({ booking }: { booking: PropertyBookingEntry }) {
   const name =
-    booking.source === "airbnb" ? bookingGuestLabel(booking.summary) : booking.summary;
+    booking.source === "airbnb" || booking.source === "booking_com"
+      ? bookingGuestLabel(booking.summary, booking.source)
+      : booking.summary;
   return (
     <li
       className="rounded-xl border border-border bg-card/95 p-3 shadow-[var(--shadow-sm)]"
       data-attr="bookings-day-stay-card"
     >
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="font-semibold text-foreground">{name}</p>
-          <p className="mt-0.5 text-xs text-muted">
-            {[booking.propertyLabel, booking.roomLabel].filter(Boolean).join(" · ")}
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-wrap gap-1">
-          <Badge tone={bookingSourceBadgeTone(booking.source)}>
-            {bookingSourceLabel(booking.source)}
-          </Badge>
-          {booking.statusLabel ? (
-            <Badge tone={bookingStatusTone(booking)}>{booking.statusLabel}</Badge>
-          ) : null}
-        </div>
-      </div>
+      <p className="font-semibold text-foreground">{name}</p>
+      <p className="mt-0.5 text-xs text-muted">
+        {[booking.propertyLabel, booking.roomLabel].filter(Boolean).join(" · ")}
+      </p>
       <p className="mt-2 text-sm text-foreground">
         {formatBookingStayRange(booking.start, booking.end, booking.openEnded)}
       </p>
@@ -306,6 +285,7 @@ export function ManagerPortfolioBookingsCalendar({
   calendarOnly = false,
   onBlockDates,
   onRemoveBlock,
+  searchQuery = "",
 }: {
   propertyIds: string[];
   showToast: (message: string) => void;
@@ -317,6 +297,7 @@ export function ManagerPortfolioBookingsCalendar({
   calendarOnly?: boolean;
   onBlockDates?: (dayKey: string) => void;
   onRemoveBlock?: (blockId: string) => Promise<void>;
+  searchQuery?: string;
 }) {
   return (
     <ManagerBookingsHub
@@ -330,6 +311,7 @@ export function ManagerPortfolioBookingsCalendar({
       calendarOnly={calendarOnly}
       onBlockDates={onBlockDates}
       onRemoveBlock={onRemoveBlock}
+      searchQuery={searchQuery}
     />
   );
 }
@@ -345,6 +327,7 @@ export function ManagerBookingsHub({
   calendarOnly = false,
   onBlockDates,
   onRemoveBlock,
+  searchQuery = "",
 }: {
   propertyIds: string[];
   showToast: (message: string) => void;
@@ -359,6 +342,7 @@ export function ManagerBookingsHub({
   onBlockDates?: (dayKey: string) => void;
   /** Lift a block from the day detail. */
   onRemoveBlock?: (blockId: string) => Promise<void>;
+  searchQuery?: string;
 }) {
   const [airbnbEntries, setAirbnbEntries] = useState<PropertyBookingEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -388,6 +372,11 @@ export function ManagerBookingsHub({
   );
 
   const reload = useCallback(async () => {
+    if (fetchPropertyIds.length === 0) {
+      setAirbnbEntries([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const rows = await fetchManagerChannelBookings(fetchPropertyIds);
@@ -405,8 +394,12 @@ export function ManagerBookingsHub({
   }, [reload, refreshSignal]);
 
   const entries = useMemo(
-    () => filterBookingEntriesByRoom([...airbnbEntries, ...(extraEntries ?? [])], roomFilterId),
-    [airbnbEntries, extraEntries, roomFilterId],
+    () =>
+      filterBookingsBySearch(
+        filterBookingEntriesByRoom([...airbnbEntries, ...(extraEntries ?? [])], roomFilterId),
+        searchQuery,
+      ),
+    [airbnbEntries, extraEntries, roomFilterId, searchQuery],
   );
 
   const stats = useMemo(
@@ -460,16 +453,9 @@ export function ManagerBookingsHub({
 
   const showListHub = !calendarOnly && hubMode === "list";
 
-  if (propertyIds.length === 0) {
-    return (
-      <p className="text-sm text-muted">
-        {emptyMessage ??
-          "No houses in your portfolio yet. List a property, then link rooms with Link Airbnb."}
-      </p>
-    );
-  }
+  const emptyPortfolio = propertyIds.length === 0;
 
-  if (loading) {
+  if (loading && !emptyPortfolio) {
     return (
       <div className="flex min-h-[12rem] flex-1 items-center justify-center rounded-2xl border border-border bg-card/60">
         <p className="text-sm text-muted">Loading bookings…</p>
@@ -518,7 +504,25 @@ export function ManagerBookingsHub({
         ) : (
           <div className={PORTAL_CALENDAR_FRAME}>
             <div className="flex min-h-0 flex-1 flex-col gap-3 p-3 sm:p-4">
-              <BookingsKpiStrip stats={stats} periodLabel={kpiPeriodLabel(view)} />
+              {emptyPortfolio ? (
+                <div
+                  className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2.5"
+                  data-attr="bookings-empty-houses-banner"
+                >
+                  <p className="text-sm font-semibold text-foreground">
+                    {emptyMessage ?? "No houses yet"}
+                  </p>
+                  <Link
+                    href="/portal/properties"
+                    className="inline-flex h-9 shrink-0 items-center rounded-full border border-border bg-card px-3 text-sm font-semibold"
+                    data-attr="bookings-empty-add-property"
+                  >
+                    Add property
+                  </Link>
+                </div>
+              ) : (
+                <BookingsKpiStrip stats={stats} periodLabel={kpiPeriodLabel(view)} />
+              )}
 
               <PortalSegmentedControl
                 options={CALENDAR_VIEW_OPTIONS}
@@ -658,25 +662,14 @@ export function ManagerBookingsHub({
                 </div>
               ) : null}
 
-              <div className="flex shrink-0 flex-wrap items-center gap-3 border-t border-border/60 pt-2 text-[10px] text-muted">
+              <div className="flex shrink-0 flex-wrap items-center gap-3 border-t border-border/60 pt-2 text-[10px] text-muted" aria-label="Calendar key">
                 <span className="inline-flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-primary" aria-hidden />
-                  PropLane stay
+                  <span className="h-2 w-2 rounded-sm bg-emerald-100 ring-1 ring-inset ring-emerald-300" aria-hidden />
+                  Available
                 </span>
                 <span className="inline-flex items-center gap-1.5">
-                  <span
-                    className="h-2 w-2 rounded-full bg-[var(--status-pending-fg)]"
-                    aria-hidden
-                  />
-                  Airbnb
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-[var(--status-confirmed-fg)]" aria-hidden />
-                  Approved · lease pending
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-muted" aria-hidden />
-                  Blocked
+                  <span className="h-2 w-2 rounded-sm bg-rose-100 ring-1 ring-inset ring-rose-300" aria-hidden />
+                  Booked
                 </span>
               </div>
             </div>

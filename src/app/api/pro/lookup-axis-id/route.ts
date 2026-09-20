@@ -7,9 +7,13 @@ import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligib
 
 export const runtime = "nodejs";
 
+function looksLikeEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
 /**
- * Resolve another workspace by PropLane ID (`profiles.manager_id`). Owner and
- * manager workspaces validate separately per Account links tab.
+ * Resolve another workspace by PropLane ID (`profiles.manager_id`) or by email.
+ * Owner and manager workspaces validate separately per Account links tab.
  * Requires an authenticated caller and returns minimal fields (no email).
  */
 export async function GET(req: Request) {
@@ -28,26 +32,37 @@ export async function GET(req: Request) {
 
     const { searchParams } = new URL(req.url);
     const axisId = searchParams.get("axisId")?.trim() ?? "";
-    if (!axisId) {
-      return NextResponse.json({ error: "PropLane ID is required." }, { status: 400 });
+    const email = searchParams.get("email")?.trim().toLowerCase() ?? "";
+    if (!axisId && !email) {
+      return NextResponse.json({ error: "PropLane ID or email is required." }, { status: 400 });
+    }
+    if (email && !looksLikeEmail(email)) {
+      return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
     }
 
-    const lookupIds = proplaneIdLookupVariants(axisId);
-    const queryIds = lookupIds.length > 0 ? lookupIds : [axisId];
-
     const supabase = createSupabaseServiceRoleClient();
-    const { data: profile, error } = await supabase
-      .from("profiles")
-      .select("id, full_name, manager_id, role")
-      .in("manager_id", queryIds)
-      .limit(1)
-      .maybeSingle();
+    const profileQuery = supabase.from("profiles").select("id, full_name, manager_id, role");
+    const { data: profile, error } = email
+      ? await profileQuery.ilike("email", email).limit(1).maybeSingle()
+      : await profileQuery
+          .in("manager_id", (() => {
+            const lookupIds = proplaneIdLookupVariants(axisId);
+            return lookupIds.length > 0 ? lookupIds : [axisId];
+          })())
+          .limit(1)
+          .maybeSingle();
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
     if (!profile?.id) {
-      return NextResponse.json({ ok: false, error: "No account found with this PropLane ID." }, { status: 404 });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: email ? "No manager account found with this email." : "No account found with this PropLane ID.",
+        },
+        { status: 404 },
+      );
     }
 
     const eligible = await userIsPropertyPortalManager(supabase, profile.id);
@@ -59,12 +74,13 @@ export async function GET(req: Request) {
     }
 
     const role = String(profile.role ?? "").toLowerCase();
+    const resolvedAxisId = String(profile.manager_id ?? axisId);
 
     return NextResponse.json({
       ok: true,
       userId: profile.id,
-      axisId: String(profile.manager_id ?? axisId),
-      displayName: profile.full_name?.trim() || axisId,
+      axisId: resolvedAxisId,
+      displayName: profile.full_name?.trim() || resolvedAxisId || email,
       role: role === "owner" ? "owner" : "manager",
     });
   } catch (e) {

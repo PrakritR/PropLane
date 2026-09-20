@@ -4,6 +4,9 @@ import { Fragment, forwardRef, useCallback, useEffect, useImperativeHandle, useM
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input, Select } from "@/components/ui/input";
+import { AddWorkspace, type AddWorkspaceStep } from "@/components/portal/add-workspace";
+import { PreviewPanel, WizardField, WizardSelect } from "@/components/portal/add-workspace/parts";
+import { StepColumn, StepHeading } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import {
   FilterCollapsibleSection,
   FilterFieldsAccordion,
@@ -898,7 +901,6 @@ function UploadModal({
   versionMode?: boolean;
 }) {
   const { showToast } = useAppUi();
-  const confirm = useConfirm();
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [displayName, setDisplayName] = useState("");
@@ -910,6 +912,8 @@ function UploadModal({
   const [expiresAt, setExpiresAt] = useState("");
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [stepIdx, setStepIdx] = useState(0);
+  const [stepError, setStepError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) {
@@ -923,6 +927,8 @@ function UploadModal({
       setExpiresAt("");
       setDragging(false);
       setBusy(false);
+      setStepIdx(0);
+      setStepError(null);
     }
   }, [open]);
 
@@ -978,83 +984,112 @@ function UploadModal({
     }
   };
 
+  if (!open) return null;
+
+  const fileIncomplete = !file;
+  const steps: AddWorkspaceStep[] = versionMode
+    ? [
+        { id: "file", label: "File", summary: file?.name ?? "Choose a file", incomplete: fileIncomplete },
+        { id: "review", label: "Review", summary: "Ready" },
+      ]
+    : [
+        { id: "file", label: "File", summary: file?.name ?? "Choose a file", incomplete: fileIncomplete },
+        { id: "details", label: "Details", summary: DOCUMENT_CATEGORY_LABELS[category] },
+        { id: "review", label: "Review", summary: "Ready" },
+      ];
+  const current = Math.min(stepIdx, steps.length - 1);
+  const stepId = steps[current]!.id;
+  const propertyLabel = propertyOptions.find((row) => row.id === propertyId)?.label ?? "Manager-level";
+  const vendorLabel = vendorRows.find((row) => row.id === vendorId)?.name ?? "—";
+
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
+    <AddWorkspace
       title={title}
-      footer={
-        <ModalFooter>
-          <Button type="button" variant="primary" onClick={() => submit()} disabled={busy || !file} data-attr="document-upload-submit">
-            {busy ? "Uploading…" : versionMode ? "Upload version" : "Upload"}
-          </Button>
-        </ModalFooter>
-      }
-    >
-      <div className="space-y-4">
-        <button
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={onDrop}
-          className={`flex w-full flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed px-4 py-8 text-center text-sm transition-colors ${
-            dragging ? "border-primary bg-primary/5" : "border-border bg-accent/20 hover:bg-accent/30"
-          }`}
-        >
-          <span className="font-medium text-foreground">
-            {file ? file.name : "Drag a file here or tap to choose"}
-          </span>
-          <span className="text-xs text-muted">
-            {file ? formatBytes(file.size) : "PDF, images, or Office files up to 25 MB"}
-          </span>
-        </button>
-        <input
-          ref={inputRef}
-          type="file"
-          accept={DOCUMENT_UPLOAD_ACCEPT}
-          className="sr-only"
-          onChange={(e) => pickFile(e.target.files?.[0])}
+      steps={steps}
+      current={current}
+      onJump={(index) => {
+        setStepError(null);
+        setStepIdx(index);
+      }}
+      onClose={onClose}
+      dirty={Boolean(file || displayName.trim())}
+      discardTitle="Discard this upload?"
+      assistantContext="Upload a document to the manager library."
+      assistantScopeKey="Upload document"
+      sidePanel={
+        <PreviewPanel
+          title="Document"
+          name={displayName.trim() || file?.name || "Document"}
+          facts={[
+            { label: "File", value: file?.name ?? "Not chosen", warn: !file },
+            { label: "Category", value: DOCUMENT_CATEGORY_LABELS[category] },
+            { label: "Visibility", value: DOCUMENT_VISIBILITY_LABELS[visibility] },
+          ]}
+          creates={[{ tone: "yes", text: versionMode ? "Uploads a new version" : "Saves this document" }]}
         />
-
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-foreground/70" htmlFor="doc-display-name">
-            Name
-          </label>
-          <Input
-            id="doc-display-name"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            placeholder="Document name"
+      }
+      lastLabel={busy ? "Uploading…" : versionMode ? "Upload version" : "Upload"}
+      lastDisabled={busy || !file}
+      nextDisabled={stepId === "file" && fileIncomplete}
+      onBeforeNext={() => {
+        if (stepId === "file" && fileIncomplete) {
+          setStepError("Choose a file to upload.");
+          return false;
+        }
+        setStepError(null);
+        return true;
+      }}
+      busy={busy}
+      onFinish={() => void submit()}
+      dataAttrPrefix="document-upload"
+      finishDataAttr="document-upload-submit"
+      footerNote={stepError ? <span className="text-sm text-rose-600">{stepError}</span> : null}
+    >
+      {stepId === "file" ? (
+        <StepColumn>
+          <StepHeading title="File" />
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragging(true);
+            }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={onDrop}
+            className={`flex w-full flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed px-4 py-8 text-center text-sm transition-colors ${
+              dragging ? "border-primary bg-primary/5" : "border-border bg-card hover:bg-accent/30"
+            }`}
+          >
+            <span className="font-bold text-foreground">{file ? file.name : "Choose a file"}</span>
+          </button>
+          <input
+            ref={inputRef}
+            type="file"
+            accept={DOCUMENT_UPLOAD_ACCEPT}
+            className="sr-only"
+            onChange={(e) => pickFile(e.target.files?.[0])}
           />
-        </div>
-
-        {versionMode ? (
-          <p className="text-xs text-muted">
-            Category, scope, and visibility carry over from the current version. The prior file stays in history.
-          </p>
-        ) : (
-        <>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-foreground/70" htmlFor="doc-category">
-              Category
-            </label>
-            <Select id="doc-category" value={category} onChange={(e) => setCategory(e.target.value as ManagerDocumentCategory)}>
-              {DOCUMENT_CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {DOCUMENT_CATEGORY_LABELS[c]}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-foreground/70" htmlFor="doc-expires">
-              Expiration (optional)
-            </label>
+          <WizardField label="Name">
+            <Input
+              id="doc-display-name"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder="Document name"
+            />
+          </WizardField>
+        </StepColumn>
+      ) : null}
+      {stepId === "details" ? (
+        <StepColumn>
+          <StepHeading title="Details" />
+          <WizardSelect
+            label="Category"
+            value={category}
+            onChange={(next) => setCategory(next as ManagerDocumentCategory)}
+            options={DOCUMENT_CATEGORIES.map((c) => ({ value: c, label: DOCUMENT_CATEGORY_LABELS[c] }))}
+          />
+          <WizardField label="Expiration">
             <Input
               id="doc-expires"
               type="date"
@@ -1062,76 +1097,58 @@ function UploadModal({
               onChange={(e) => setExpiresAt(e.target.value)}
               data-attr="document-expires-at"
             />
-          </div>
+          </WizardField>
           {propertyOptions.length > 0 ? (
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-foreground/70" htmlFor="doc-property">
-                Property (optional)
-              </label>
-              <Select id="doc-property" value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
-                <option value="">Manager-level</option>
-                {propertyOptions.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          ) : null}
-        </div>
-
-        <div className="space-y-1">
-          <label className="text-xs font-medium text-foreground/70" htmlFor="doc-visibility">
-            Visibility
-          </label>
-          <Select
-            id="doc-visibility"
-            value={visibility}
-            onChange={(e) => setVisibility(e.target.value as ManagerDocumentVisibility)}
-            data-attr="document-visibility"
-          >
-            {DOCUMENT_VISIBILITY_VALUES.map((v) => (
-              <option key={v} value={v}>
-                {DOCUMENT_VISIBILITY_LABELS[v]}
-              </option>
-            ))}
-          </Select>
-        </div>
-
-        {visibility === "resident" ? (
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-foreground/70" htmlFor="doc-resident-email">
-              Resident email
-            </label>
-            <Input
-              id="doc-resident-email"
-              type="email"
-              value={residentEmail}
-              onChange={(e) => setResidentEmail(e.target.value)}
-              placeholder="resident@example.com"
+            <WizardSelect
+              label="Property"
+              value={propertyId}
+              onChange={setPropertyId}
+              options={[{ value: "", label: "Manager-level" }, ...propertyOptions.map((row) => ({ value: row.id, label: row.label }))]}
             />
-          </div>
-        ) : null}
-
-        {visibility === "vendor" ? (
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-foreground/70" htmlFor="doc-vendor">
-              Vendor
-            </label>
-            <Select id="doc-vendor" value={vendorId} onChange={(e) => setVendorId(e.target.value)}>
-              <option value="">Select vendor…</option>
-              {vendorRows.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-        ) : null}
-        </>
-        )}
-      </div>
-    </Modal>
+          ) : null}
+          <WizardSelect
+            label="Visibility"
+            value={visibility}
+            onChange={(next) => setVisibility(next as ManagerDocumentVisibility)}
+            options={DOCUMENT_VISIBILITY_VALUES.map((v) => ({ value: v, label: DOCUMENT_VISIBILITY_LABELS[v] }))}
+            dataAttr="document-visibility"
+          />
+          {visibility === "resident" ? (
+            <WizardField label="Resident email">
+              <Input
+                id="doc-resident-email"
+                type="email"
+                value={residentEmail}
+                onChange={(e) => setResidentEmail(e.target.value)}
+              />
+            </WizardField>
+          ) : null}
+          {visibility === "vendor" ? (
+            <WizardSelect
+              label="Vendor"
+              value={vendorId}
+              onChange={setVendorId}
+              options={[{ value: "", label: "Select vendor" }, ...vendorRows.map((row) => ({ value: row.id, label: row.name }))]}
+            />
+          ) : null}
+        </StepColumn>
+      ) : null}
+      {stepId === "review" ? (
+        <StepColumn>
+          <StepHeading title="Review" />
+          <PreviewPanel
+            title="Document"
+            name={displayName.trim() || file?.name || "Document"}
+            facts={[
+              { label: "File", value: file?.name ?? "—" },
+              { label: "Property", value: propertyLabel },
+              { label: "Visibility", value: visibility === "vendor" ? vendorLabel : DOCUMENT_VISIBILITY_LABELS[visibility] },
+            ]}
+            creates={[{ tone: "yes", text: versionMode ? "Uploads a new version" : "Saves this document" }]}
+          />
+        </StepColumn>
+      ) : null}
+    </AddWorkspace>
   );
 }
 

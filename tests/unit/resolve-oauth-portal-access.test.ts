@@ -297,7 +297,7 @@ describe("resolveOAuthPortalRedirect", () => {
     vi.mocked(isPrimaryAdminEmail).mockReturnValue(true);
 
     const { resolveOAuthPortalRedirect } = await import("@/lib/auth/resolve-oauth-portal-access");
-    const user = { id: "founder", email: "prakritramachandran@gmail.com" } as User;
+    const user = { id: "founder", email: "founders@axis-seattle-housing.com" } as User;
     const supabase = {
       from: (table: string) => {
         if (table === "profile_roles") {

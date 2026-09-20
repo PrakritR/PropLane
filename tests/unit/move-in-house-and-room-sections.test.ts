@@ -80,20 +80,20 @@ describe("manager move-in panel", () => {
 
   it("offers the house section to a room-by-room listing too", () => {
     expect(panel).toContain("The whole house");
-    expect(panel).toContain("hideBackText");
-    expect(panel).toContain('data-attr="property-move-in-house"');
+    expect(panel).toContain("property-move-in-house");
+    expect(panel).toContain("property-move-in-room-");
     expect(panel).not.toContain("move-in-editor-save");
     expect(panel).not.toContain("earliest move-in date");
   });
 
-  it("makes rooms selectable with edit and share bulk actions", () => {
-    expect(panel).toContain("property-move-in-house-select");
-    expect(panel).toContain("property-move-in-room-select-");
-    expect(panel).toContain('data-attr="property-move-in-bulk-edit"');
+  it("expands house and room cards in place", () => {
+    expect(panel).toContain("HouseDetailsExpandable");
     expect(panel).toContain('data-attr="property-move-in-share"');
-    expect(panel).toContain("<PortalRecordListSurface");
-    expect(panel).toContain("bulkActions={moveInBulkBar}");
-    expect(panel).not.toContain(">Clear<");
+    expect(panel).toContain('data-attr="property-move-in-copy"');
+    expect(panel).not.toContain("PortalRecordListSurface");
+    expect(panel).not.toContain("hideBackText");
+    expect(panel).not.toContain("property-move-in-house-select");
+    expect(panel).not.toContain("property-move-in-bulk-edit");
   });
 
   it("copies the SAVED house details, never the unsaved draft", () => {

@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DEFAULT_MANAGER_AUTOMATION_SETTINGS } from "@/lib/payment-automation-settings";
 import { DEFAULT_LIFECYCLE_AUTOMATION } from "@/lib/task-lifecycle-automation";
@@ -141,7 +141,8 @@ describe("settings module redraws — scope tags", () => {
     cleanup();
 
     render(<PaymentsSettingsPanel teamMembers={[]} />);
-    expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
+    expect(await screen.findByRole("button", { name: "Settings" })).toBeTruthy();
+    expect(screen.getAllByText("Payment setup").length).toBeGreaterThan(0);
     cleanup();
 
     render(<BookingsSettingsPanel teamMembers={[]} />);
@@ -160,22 +161,22 @@ describe("settings module redraws — scope tags", () => {
     expect((await screen.findAllByText("All properties")).length).toBeGreaterThan(0);
   });
 
-  it("Resident stays in Settings with a house dropdown, not outbound links", async () => {
+  it("Resident settings is the welcome message, scoped by the Property bar", async () => {
     stubFetch();
     render(
       <ResidentSettingsPanel
         propertyOptions={PROPERTY_OPTIONS}
         selectedPropertyId="prop-1"
         onPropertyIdChange={() => {}}
-        area="payments"
+        area="household"
         onAreaChange={() => {}}
         teamMembers={[]}
       />,
     );
-    expect(await screen.findByRole("heading", { name: "Ballard House" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "House" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
-    expect(screen.queryByText("All properties")).toBeNull();
+    expect(await screen.findByRole("heading", { name: "Welcome" })).toBeTruthy();
+    expect(screen.getByText("All properties")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Ballard House" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "House" })).toBeNull();
     expect(screen.queryByText("Informational")).toBeNull();
     expect(screen.queryByText(/no settings of its own/i)).toBeNull();
   });
@@ -189,9 +190,11 @@ describe("a section is never titled the same as the module that contains it", ()
    * repeats that name draws the word twice, one line apart -- which is exactly
    * what Bookings, Lease, Applications, Services, Inspections and Residents did.
    *
-   * Tours ("Tour booking" / "Tour reminders") and Tasks ("Task reminders" /
-   * "Lifecycle automation") were always right: a section is titled for what it
-   * contains, not for where it lives.
+   * Tours, Tasks, Bookings, and Communication now title sections for what they
+   * contain (Booking, Reminders, Automation) rather than repeating the rail.
+   * "Reminders" is also the automation-hub rail label; that noun is allowed on
+   * other modules because the page heading there is Bookings / Tours / Lease,
+   * not Reminders.
    */
   it("no panel's section title is just its rail label", () => {
     const source = readFileSync(
@@ -200,12 +203,41 @@ describe("a section is never titled the same as the module that contains it", ()
     );
     const sectionTitles = Array.from(source.matchAll(/title="([^"]+)"/g)).map((m) => m[1]!);
     const railLabels = MANAGER_PORTAL_SETTINGS_TABS.map((tab) => tab.label);
+    const contentNounsSharedAcrossModules = new Set(["Reminders"]);
 
-    const duplicated = sectionTitles.filter((title) => railLabels.includes(title));
+    const duplicated = sectionTitles.filter(
+      (title) => railLabels.includes(title) && !contentNounsSharedAcrossModules.has(title),
+    );
     expect(
       duplicated,
       `these section titles repeat the module name the host already shows: ${duplicated.join(", ")}`,
     ).toEqual([]);
+
+    const hub = readFileSync(
+      join(process.cwd(), "src/components/portal/pro-portal-automation-settings-panel.tsx"),
+      "utf8",
+    );
+    expect(hub).not.toMatch(/title="Reminders"/);
+  });
+  it("module sections do not repeat the tab name in the title", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/components/portal/pro-portal-settings-panels.tsx"),
+      "utf8",
+    );
+    expect(source).not.toContain('title="Inbox automation"');
+    expect(source).not.toContain('title="Booking reminders"');
+    expect(source).not.toContain('title="Application reminders"');
+    expect(source).not.toContain('title="Application handling"');
+    expect(source).not.toContain('title="Task reminders"');
+    expect(source).not.toContain('title="Inspection reminders"');
+    expect(source).not.toContain('title="Tour reminders"');
+    expect(source).not.toContain('title="Tour booking"');
+    expect(source).not.toContain('title="Visit reminders"');
+    expect(source).not.toContain('title="Signing reminders"');
+    expect(source).not.toContain('title="Outgoing payment reminders"');
+    expect(source).not.toContain('title="Lease ending"');
+    expect(source).not.toContain('title="Lease documents"');
+    expect(source).not.toContain("PortalSettingsScopeTag>All properties");
   });
 });
 
@@ -262,35 +294,33 @@ describe("settings module redraws — every row is a label and its control, noth
     ).toBeNull();
   });
 
-  it("Resident keeps Payment and Household reminders in this tab", async () => {
+  it("Resident welcome is the only household section in this tab", async () => {
     stubFetch();
     render(
       <ResidentSettingsPanel
         propertyOptions={PROPERTY_OPTIONS}
         selectedPropertyId="prop-1"
         onPropertyIdChange={() => {}}
-        area="payments"
+        area="household"
         onAreaChange={() => {}}
         teamMembers={[]}
       />,
     );
-    expect(await screen.findByRole("button", { name: "Settings" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    expect(screen.getByRole("option", { name: "Payment reminders" })).toBeTruthy();
-    expect(screen.getByRole("option", { name: "Household reminders" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Welcome" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Household reminders" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "Payment reminders" })).toBeNull();
     expect(screen.queryByText(/Portfolio-wide payment reminder presets/)).toBeNull();
   });
 });
 
-describe("Property and Resident settings stay in the hub", () => {
-  it("does not link those panels out to listing or residents routes", () => {
+describe("Application and Lease settings jump to the listing Form", () => {
+  it("links those panels to the listing, not to the residents list", () => {
     const source = readFileSync(
       join(process.cwd(), "src/components/portal/pro-portal-settings-panels.tsx"),
       "utf8",
     );
-    expect(source).not.toContain("propertyDetailHref");
-    expect(source).toContain("property-settings-house");
-    expect(source).toContain("resident-settings-house");
+    expect(source).toContain("propertyDetailHref");
+    expect(source).toContain("SettingsFormJumpRow");
     expect(source).not.toContain('href="/portal/residents"');
     expect(source).not.toContain('href="/portal/profile?tab=payments"');
   });

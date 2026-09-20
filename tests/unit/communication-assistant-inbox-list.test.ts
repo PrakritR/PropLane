@@ -74,15 +74,16 @@ describe("communication assistant inbox list", () => {
     expect(withPinnedPropLaneAssistantThreads([], "resident", RESIDENT, "archived")).toEqual([]);
   });
 
-  it("pins the manager assistant on every Communication section, keyed by workspace", () => {
+  it("pins the manager assistant on Active and Unread, keyed by workspace — not Archived", () => {
     const workspace = { id: "ws-brooklyn", isDefault: false };
     const id = managerAgentNoticeThreadId(MANAGER, workspace);
-    for (const segment of ["active", "unread", "archived"] as const) {
+    for (const segment of ["active", "unread"] as const) {
       const rows = withPinnedPropLaneAssistantThreads([], "manager", MANAGER, segment, workspace);
       expect(rows).toHaveLength(1);
       expect(rows[0]!.id).toBe(id);
       expect(rows[0]!.folder).toBe("inbox");
     }
+    expect(withPinnedPropLaneAssistantThreads([], "manager", MANAGER, "archived", workspace)).toEqual([]);
   });
 
   it("pins the manager assistant on the legacy id before a workspace identity loads", () => {
@@ -95,6 +96,43 @@ describe("communication assistant inbox list", () => {
     const workspace = { id: "ws-default", isDefault: true };
     const rows = withPinnedPropLaneAssistantThreads([], "manager", MANAGER, "active", workspace);
     expect(rows[0]!.id).toBe(managerAgentNoticeThreadId(MANAGER));
+  });
+
+  it("hides leftover workspace assistant chats so they cannot badge Communication", () => {
+    const workspace = { id: "ws-brooklyn", isDefault: false };
+    const leftover: Parameters<typeof withPinnedPropLaneAssistantThreads>[0][number] = {
+      id: managerAgentNoticeThreadId(MANAGER),
+      folder: "inbox",
+      from: "PropLane Assistant",
+      email: "",
+      subject: "PropLane Assistant",
+      preview: "Old workspace",
+      body: "Old workspace",
+      time: "",
+      unread: true,
+      threadType: "agent_notice",
+    };
+    const liveId = managerAgentNoticeThreadId(MANAGER, workspace);
+    const live = { ...leftover, id: liveId, unread: false, body: "Seen", preview: "Seen" };
+    const rows = withPinnedPropLaneAssistantThreads([leftover, live], "manager", MANAGER, "active", workspace);
+    expect(rows.map((row) => row.id)).toEqual([liveId]);
+  });
+
+  it("does not treat a longer user id as this viewer's leftover assistant", () => {
+    const other = {
+      id: `agent_notice_${MANAGER}0`,
+      folder: "inbox" as const,
+      from: "PropLane Assistant",
+      email: "",
+      subject: "PropLane Assistant",
+      preview: "Other manager",
+      body: "Other manager",
+      time: "",
+      unread: true,
+      threadType: "agent_notice" as const,
+    };
+    const rows = withPinnedPropLaneAssistantThreads([other], "manager", MANAGER, "active");
+    expect(rows.map((row) => row.id)).toContain(other.id);
   });
 
   it("prefers the server-provided viewer id", () => {

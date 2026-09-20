@@ -6,7 +6,6 @@ import { useWorkspaces } from "@/components/portal/workspace-provider";
 import {
   Bell,
   BellRing,
-  Building2,
   Calendar,
   CalendarDays,
   CheckSquare,
@@ -19,7 +18,7 @@ import {
   MessageSquareText,
   MessagesSquare,
   ScrollText,
-  Settings2,
+  Settings,
   SlidersHorizontal,
   UserRound,
   Wallet,
@@ -58,7 +57,12 @@ import { ManagerMessagingSettingsPanel } from "@/components/portal/pro-messaging
 import { ManagerAssistantEmailSettingsPanel } from "@/components/portal/pro-assistant-email-settings-panel";
 import { CommunicationSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
 import { SettingsModulePage } from "@/components/portal/settings-module-page";
-import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
+import {
+  SettingsPropertyScopeBar,
+  SettingsPropertyScopeProvider,
+} from "@/components/portal/settings-property-scope";
+import { buildManagerPropertyFilterOptions, MANAGER_PORTFOLIO_REFRESH_EVENTS } from "@/lib/manager-portfolio-access";
+import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import { filterPropertyOptionsForActiveWorkspace } from "@/lib/workspaces/selection";
 import type { ManagerPortalSettingsTab } from "@/components/portal/pro-portal-settings-modal";
@@ -99,6 +103,20 @@ function emptyToDash(v: unknown) {
  */
 const SETTINGS_TAB_PARAM = "tab";
 
+/** Every remaining settings module — Properties is no longer a settings pane. */
+const SCOPED_OPERATIONS_PANES = new Set<SettingsGroupId>([
+  "applications",
+  "lease",
+  "tours",
+  "resident",
+  "payments",
+  "tasks",
+  "reminders",
+  "bookings",
+  "inspections",
+  "services",
+]);
+
 /** The two fields on this screen a person may write. */
 type ProfileField = "fullName" | "phone";
 
@@ -126,7 +144,6 @@ type SettingsGroupId =
   | "services";
 
 const HUB_MODULE_TABS: Partial<Record<SettingsGroupId, ManagerPortalSettingsTab>> = {
-  properties: "properties",
   applications: "applications",
   lease: "lease",
   tours: "tours",
@@ -174,7 +191,8 @@ function HubSettingsModulePane({ tab }: { tab: ManagerPortalSettingsTab }) {
       ),
     [userId, workspaces?.active?.id],
   );
-  return <SettingsModulePage tab={tab} propertyOptions={propertyOptions} />;
+
+  return <SettingsModulePage tab={tab} propertyOptions={propertyOptions} showFormLink />;
 }
 
 export function PortalProfileClient({
@@ -345,7 +363,7 @@ export function PortalProfileClient({
       },
     ];
     if (!demo && variant === "manager") {
-      list.push({ id: "workspaces", label: "Workspaces", description: "Plan limits, your workspaces, and who works in each.", icon: Settings2, group: "Account" });
+      list.push({ id: "workspaces", label: "Workspaces", description: "Plan limits, your workspaces, and who works in each.", icon: Settings, group: "Account" });
       list.push({
         id: "billing",
         label: "Billing & plan",
@@ -402,13 +420,12 @@ export function PortalProfileClient({
         id: "account",
         label: "Account",
         description: "Switch portals, sign out, or delete your account.",
-        icon: Settings2,
+        icon: Settings,
         group: "Account",
       },
     );
     if (variant === "manager") {
       list.push(
-        { id: "properties", label: "Properties", description: "Houses in this workspace.", icon: Building2, group: "Portfolio" },
         { id: "applications", label: "Applications", description: "Application handling for this workspace.", icon: FileText, group: "Portfolio" },
         { id: "lease", label: "Leases", description: "Lease automation for this workspace.", icon: ScrollText, group: "Portfolio" },
         { id: "tours", label: "Tours", description: "Tour notice and reminders.", icon: Calendar, group: "Portfolio" },
@@ -428,12 +445,12 @@ export function PortalProfileClient({
     }
     if (variant === "manager") {
       list.push(
-        { id: "payments", label: "Payments", description: "Rent reminders and payment rules.", icon: Wallet, group: "Operations" },
+        { id: "payments", label: "Payments", description: "Payment setup, rent reminders, and late fees.", icon: Wallet, group: "Operations" },
+        { id: "services", label: "Services", description: "Service rules.", icon: Wrench, group: "Operations" },
         { id: "tasks", label: "Tasks", description: "Task automation.", icon: CheckSquare, group: "Operations" },
-        { id: "reminders", label: "Reminders", description: "Reminder matrix and quiet hours.", icon: BellRing, group: "Operations" },
         { id: "bookings", label: "Bookings", description: "Booking rules.", icon: CalendarDays, group: "Operations" },
         { id: "inspections", label: "Inspections", description: "Inspection rules.", icon: ClipboardCheck, group: "Operations" },
-        { id: "services", label: "Services", description: "Service rules.", icon: Wrench, group: "Operations" },
+        { id: "reminders", label: "Reminders", description: "Reminder matrix and quiet hours.", icon: BellRing, group: "Operations" },
       );
     }
     return list;
@@ -456,6 +473,7 @@ export function PortalProfileClient({
 
   const rawTab = searchParams.get(SETTINGS_TAB_PARAM);
   useEffect(() => {
+    if (rawTab === "properties") router.replace("/portal/profile?tab=applications");
     if (rawTab === "vendors") router.replace("/portal/vendors");
     if (rawTab === "team") router.replace("/portal/profile?tab=workspaces");
     if (rawTab === "communication") router.replace("/portal/profile?tab=messaging");
@@ -498,6 +516,48 @@ export function PortalProfileClient({
     [pathname, searchParams],
   );
 
+  // The property scope for Operations settings rides in the URL beside `?tab=`
+  // so a reload and the browser back button keep the chosen house. pushState is
+  // the same history mechanism `openGroup` uses (Next syncs it into
+  // useSearchParams). "" is the workspace default ("All properties").
+  const { userId: managerUserId, ready: managerReady } = useManagerUserId();
+  const workspaces = useWorkspaces();
+  const scopeProperty = searchParams.get("property") ?? "";
+  // The picker options come from the client property store, which hydrates
+  // asynchronously from /api/property-records; recompute when the pipeline syncs
+  // (the same tick pattern pro-bookings uses) or the options are empty on load.
+  const [propertyTick, setPropertyTick] = useState(0);
+  useEffect(() => {
+    if (!managerReady || !managerUserId || variant !== "manager") return;
+    void syncPropertyPipelineFromServer().then(() => setPropertyTick((n) => n + 1));
+  }, [managerReady, managerUserId, variant]);
+  useEffect(() => {
+    if (variant !== "manager") return;
+    const bump = () => setPropertyTick((n) => n + 1);
+    for (const eventName of MANAGER_PORTFOLIO_REFRESH_EVENTS) window.addEventListener(eventName, bump);
+    return () => {
+      for (const eventName of MANAGER_PORTFOLIO_REFRESH_EVENTS) window.removeEventListener(eventName, bump);
+    };
+  }, [variant]);
+  const scopeOptions = useMemo(
+    () =>
+      filterPropertyOptionsForActiveWorkspace(
+        buildManagerPropertyFilterOptions(resolveManagerScopeUserId(managerUserId)),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [managerUserId, workspaces?.active?.id, propertyTick],
+  );
+  const setScopeProperty = useCallback(
+    (id: string) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (id) params.set("property", id);
+      else params.delete("property");
+      const query = params.toString();
+      window.history.pushState(null, "", query ? `${pathname}?${query}` : pathname);
+    },
+    [pathname, searchParams],
+  );
+
   const openGroup = useCallback(
     (id: string) => {
       setBillingOverride(false);
@@ -518,15 +578,19 @@ export function PortalProfileClient({
     window.history.pushState(null, "", urlForTab(null));
   }, [urlForTab]);
 
-  // Reset scroll when the pane changes — the shell scrolls in an inner
-  // container, so a router-style scroll-to-top never happens on its own.
+  // Reset scroll when the pane changes. On desktop the content column is its own
+  // scroll container (independent of the rail), so resetting its `scrollTop` is
+  // what lands a switched pane at the top; on mobile the whole shell scrolls, so
+  // scrollIntoView on the layout top still applies there.
   const layoutTopRef = useRef<HTMLDivElement>(null);
+  const contentColRef = useRef<HTMLDivElement>(null);
   const skipInitialScroll = useRef(true);
   useEffect(() => {
     if (skipInitialScroll.current) {
       skipInitialScroll.current = false;
       return;
     }
+    contentColRef.current?.scrollTo?.({ top: 0, behavior: "auto" });
     layoutTopRef.current?.scrollIntoView({ block: "start", behavior: "auto" });
   }, [activeGroup?.id]);
 
@@ -609,7 +673,7 @@ export function PortalProfileClient({
       // other manager section, drop the duplicate in-page title on phones.
       hideTitleOnMobileNav
     >
-      <div ref={layoutTopRef} className="lg:flex lg:items-start lg:gap-10">
+      <div ref={layoutTopRef} className="lg:flex lg:h-full lg:min-h-0 lg:flex-1 lg:gap-10">
         <PortalSettingsNav
           className="max-lg:hidden"
           name={emptyToDash(fullName)}
@@ -623,45 +687,74 @@ export function PortalProfileClient({
           activeId={paneGroup.id}
           onSelect={openGroup}
         />
-        <div className="min-w-0 flex-1 lg:max-w-3xl">
-          {activeGroup === null ? (
-            <div className="space-y-5 lg:hidden">
-              <PortalSettingsProfileHeader name={emptyToDash(fullName)} email={initialEmail} />
-              {(["Account", "Portfolio", "Operations"] as const).map((group) => {
-                const groupItems = groups.filter((item) => item.group === group);
-                if (groupItems.length === 0) return null;
-                return (
-                  <section key={group} className="space-y-2">
-                    <h2 className="px-1 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">{group}</h2>
-                    <PortalSettingsGroup>
-                      {groupItems.map((g) => (
-                        <PortalSettingsLinkRow
-                          key={g.id}
-                          icon={<g.icon className="h-4 w-4" />}
-                          label={g.label}
-                          onClick={() => openGroup(g.id)}
-                          dataAttr={`settings-open-${g.id}`}
-                        />
-                      ))}
-                    </PortalSettingsGroup>
-                  </section>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="mb-4 lg:hidden">
-              <PortalDetailHeader
-                title={activeGroup.label}
-                onBack={backToRoot}
-                backLabel="Settings"
-                bare
-                dataAttrBack="settings-back-to-root"
-              />
-            </div>
-          )}
-          <PortalSettingsSections className={activeGroup === null ? "max-lg:hidden" : undefined}>
-            {renderPane(paneGroup.id)}
-          </PortalSettingsSections>
+        <div
+          ref={contentColRef}
+          className="min-w-0 flex-1 lg:min-h-0 lg:max-w-3xl lg:overflow-y-auto lg:overscroll-contain"
+        >
+          {(() => {
+            const scoped = SCOPED_OPERATIONS_PANES.has(paneGroup.id);
+            const body = (
+              <>
+                {activeGroup === null ? (
+                  <div className="space-y-5 lg:hidden">
+                    <PortalSettingsProfileHeader name={emptyToDash(fullName)} email={initialEmail} />
+                    {(["Account", "Portfolio", "Operations"] as const).map((group) => {
+                      const groupItems = groups.filter((item) => item.group === group);
+                      if (groupItems.length === 0) return null;
+                      return (
+                        <section key={group} className="space-y-2">
+                          <h2 className="px-1 text-[11px] font-bold uppercase tracking-[0.12em] text-muted">{group}</h2>
+                          <PortalSettingsGroup>
+                            {groupItems.map((g) => (
+                              <PortalSettingsLinkRow
+                                key={g.id}
+                                icon={<g.icon className="h-4 w-4" />}
+                                label={g.label}
+                                onClick={() => openGroup(g.id)}
+                                dataAttr={`settings-open-${g.id}`}
+                              />
+                            ))}
+                          </PortalSettingsGroup>
+                        </section>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="mb-4 lg:hidden">
+                    <PortalDetailHeader
+                      title={activeGroup.label}
+                      onBack={backToRoot}
+                      backLabel="Settings"
+                      bare
+                      inlineActions
+                      actions={scoped ? <SettingsPropertyScopeBar /> : undefined}
+                      dataAttrBack="settings-back-to-root"
+                    />
+                  </div>
+                )}
+                {scoped ? (
+                  <div className="mb-4 hidden items-center justify-between gap-3 lg:flex">
+                    <h2 className="text-[15px] font-bold tracking-[-0.01em] text-foreground">{paneGroup.label}</h2>
+                    <SettingsPropertyScopeBar />
+                  </div>
+                ) : null}
+                <PortalSettingsSections className={activeGroup === null ? "max-lg:hidden" : undefined}>
+                  {renderPane(paneGroup.id)}
+                </PortalSettingsSections>
+              </>
+            );
+            return scoped ? (
+              <SettingsPropertyScopeProvider
+                propertyId={scopeProperty}
+                onPropertyIdChange={setScopeProperty}
+                options={scopeOptions}
+              >
+                {body}
+              </SettingsPropertyScopeProvider>
+            ) : (
+              body
+            );
+          })()}
         </div>
       </div>
     </ManagerPortalPageShell>
