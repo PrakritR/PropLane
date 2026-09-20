@@ -418,6 +418,7 @@ answer. Fail closed to `true`.
 | Property import | `docs/agents/portfolio-import.md` | The drafts are the import; the model answers only through the tool and cites rows; rent is what the tenant pays, never market rent |
 | Address prefill | `docs/agents/listing-prefill.md` | Facts from RentCast only; never fetch a listing page — ad text arrives by paste; default-only fill with marks and undo; nothing sets the rent |
 | Automated communication | `docs/agents/automated-communication.md` | One spine: action events + reminder rules; inbox is the record; a manager's own copy is an Assistant notice; cross-party copies send as the manager; nothing automates a regulated notice |
+| Listing syndication | `docs/agents/listing-syndication.md` | Zillow Rental Network only; the feed is a `publicListingProjection` map, nothing wider; a listing missing a street address or a real photo is excluded, never given a placeholder |
 
 ## There are no "work orders" in the product — only services
 

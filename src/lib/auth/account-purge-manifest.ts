@@ -184,6 +184,11 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    table: "manager_syndication_feeds",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
     table: "cosigner_submission_records",
     phase: 1,
     manager: { ids: ["manager_user_id"] },
