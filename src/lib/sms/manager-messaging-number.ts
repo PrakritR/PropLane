@@ -1,3 +1,6 @@
+/** Type-only import: never pulls the `server-only` module into a client bundle. */
+import type { WorkspaceNumberEntry } from "@/lib/sms/work-numbers.server";
+
 export type ManagerMessagingRuntimeMode =
   "paused" | "allowlisted_self_service" | "automatic";
 
@@ -69,6 +72,12 @@ export type ManagerMessagingNumberStatus = {
     ownerName: string | null;
     phoneNumber: string | null;
     provisionState: string | null;
+    /**
+     * Every number this workspace holds (home plus shared-in), up to 2,
+     * primary first. Present only for a workspace the viewer OWNS — a
+     * shared workspace still reads its single line from `workspaceNumber`.
+     */
+    numbers?: WorkspaceNumberEntry[];
   }>;
   /**
    * The line of a SHARED workspace. A work number belongs to the workspace,

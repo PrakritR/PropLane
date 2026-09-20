@@ -237,9 +237,9 @@ describe("a conversation about no house shows in the workspace whose line carrie
     untaggedOwnedVisible: active === PRAKRIT_WS,
     activeWorkspaceId: active,
     workspaceByLine: new Map([
-      ["2065550001", PRAKRIT_WS],
-      ["2065550002", PRAKRIT_WS2],
-      ["assist-seattle@prop-lane.space", PRAKRIT_WS2],
+      ["2065550001", new Set([PRAKRIT_WS])],
+      ["2065550002", new Set([PRAKRIT_WS2])],
+      ["assist-seattle@prop-lane.space", new Set([PRAKRIT_WS2])],
     ]),
   });
 

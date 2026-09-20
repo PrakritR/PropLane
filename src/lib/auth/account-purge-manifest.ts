@@ -832,6 +832,8 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
     "Short-lived confirm mutex keyed by inquiry id; the row is deleted when the confirm attempt finishes and carries no account column.",
   application_document_storage_aliases:
     "Child of manager_application_records (cascades); keyed on the storage path, not an account.",
+  workspace_work_numbers:
+    "Workspace <-> work-number assignment join table; keyed on workspace_id/number_id only, no account column — cascades away with portal_workspaces (on delete cascade) when the manager's workspaces are purged.",
 };
 
 /**
