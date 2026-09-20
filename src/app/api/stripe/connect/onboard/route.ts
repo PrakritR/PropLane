@@ -15,6 +15,7 @@ import {
   isStripeConnectAccountAccessError,
   clearManagerConnectAccountId,
   resolveManagerConnectAccountId,
+  retrieveManagerConnectAccountOrNull,
 } from "@/lib/stripe-connect";
 
 export const runtime = "nodejs";
@@ -34,6 +35,13 @@ export const runtime = "nodejs";
  * `needsRelink`; only an explicit `{ relink: true }` body (the user's own
  * "Reconnect" action) clears it and creates a fresh one, and the id being
  * replaced is logged first.
+ *
+ * `relink: true` is honored only when the saved account is re-checked at
+ * request time and genuinely can't be retrieved (`isStripeConnectAccountAccessError`).
+ * A saved account Stripe CAN still retrieve is healthy — relink is refused
+ * with 409 and the id is left untouched, so a stale client-side "reconnect"
+ * click (or a request replayed against a since-recovered account) can't
+ * discard a working Connect account.
  */
 export async function POST(req: Request) {
   try {
@@ -71,10 +79,22 @@ export async function POST(req: Request) {
     try {
       const stripe = getStripe();
       if (relink) {
-        // Explicit user action ("Reconnect" / "Start over"): log the id being
-        // replaced, then clear it before creating a fresh account.
+        // Explicit user action ("Reconnect" / "Start over") — but only honored
+        // when the saved account is genuinely unreachable, re-checked right
+        // now rather than trusting client-supplied intent. A healthy account
+        // is refused, not replaced.
         const staleAccountId = await resolveManagerConnectAccountId(service, payoutOwnerId);
         if (staleAccountId) {
+          const stillRetrievable = await retrieveManagerConnectAccountOrNull(stripe, staleAccountId);
+          if (stillRetrievable) {
+            return NextResponse.json(
+              {
+                code: "CONNECT_ACCOUNT_HEALTHY",
+                error: "Your Stripe payout account is connected and reachable — reconnect isn't needed.",
+              },
+              { status: 409 },
+            );
+          }
           console.error(
             `[stripe-connect] onboard relink: replacing account ${staleAccountId} for owner ${payoutOwnerId} (requested by ${user.id})`,
           );

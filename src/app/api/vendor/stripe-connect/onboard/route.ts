@@ -9,6 +9,7 @@ import {
   ensureConnectAccountTransfersRequested,
   isStripeConnectAccountAccessError,
   resolveManagerConnectAccountId,
+  retrieveManagerConnectAccountOrNull,
 } from "@/lib/stripe-connect";
 
 export const runtime = "nodejs";
@@ -24,6 +25,11 @@ export const runtime = "nodejs";
  * rationale. It is kept as-is and reported as `needsRelink`; only an explicit
  * `{ relink: true }` body (the vendor's own "Reconnect" action) clears it and
  * creates a fresh one, and the id being replaced is logged first.
+ *
+ * `relink: true` is honored only when the saved account is re-checked at
+ * request time and genuinely can't be retrieved. A saved account Stripe CAN
+ * still retrieve is healthy — relink is refused with 409 and the id is left
+ * untouched.
  */
 export async function POST(req: Request) {
   try {
@@ -48,6 +54,16 @@ export async function POST(req: Request) {
       if (relink) {
         const staleAccountId = await resolveManagerConnectAccountId(supabase, user.id);
         if (staleAccountId) {
+          const stillRetrievable = await retrieveManagerConnectAccountOrNull(stripe, staleAccountId);
+          if (stillRetrievable) {
+            return NextResponse.json(
+              {
+                code: "CONNECT_ACCOUNT_HEALTHY",
+                error: "Your Stripe payout account is connected and reachable — reconnect isn't needed.",
+              },
+              { status: 409 },
+            );
+          }
           console.error(
             `[stripe-connect] vendor onboard relink: replacing account ${staleAccountId} for ${user.id}`,
           );
