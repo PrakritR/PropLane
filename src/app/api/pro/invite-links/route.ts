@@ -42,6 +42,7 @@ export async function POST(req: Request) {
     workspaceId?: string;
     propertyLabelsById?: unknown;
     teamRole?: unknown;
+    houseScope?: unknown;
   };
 
   const propertyLabelsById: Record<string, string> = {};
@@ -65,6 +66,7 @@ export async function POST(req: Request) {
     workspaceId: typeof body.workspaceId === "string" ? body.workspaceId : undefined,
     propertyLabelsById,
     teamRole: body.teamRole,
+    houseScope: body.houseScope,
   });
 
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });

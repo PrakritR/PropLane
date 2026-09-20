@@ -1,6 +1,14 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { asStringArray, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
+import {
+  asStringArray,
+  readHouseScopeFromRow,
+  readPropertyPermissionsFromRow,
+  resolveInviteTeamRole,
+  type InviteRow,
+} from "@/lib/account-link-invite-row";
+import type { TeamRoleId } from "@/lib/co-manager-team-roles";
+import { effectiveHouseIds, workspaceRightsForMembership, type HouseScope, type WorkspaceRights } from "@/lib/workspaces/membership";
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
 import {
   CO_MANAGER_PERMISSION_OPTIONS,
@@ -12,7 +20,7 @@ import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
 import { maxAccountLinksForTier, maxPropertiesForManagerTier } from "@/lib/manager-access";
 import { EMPTY_PLAN_ADDON_QUANTITIES } from "@/lib/plan-addons";
 import { addonUnitsForCap, loadManagerPlanAddonQuantities } from "@/lib/plan-addons.server";
-import { hasWorkspaceAddProperties } from "@/lib/workspace-co-manager-permissions";
+import { normalizeWorkspacePermissions } from "@/lib/workspace-co-manager-permissions";
 import {
   WORKSPACE_LIMIT,
   WORKSPACE_PLAN_ENTITLEMENTS,
@@ -26,7 +34,8 @@ import {
 export async function loadWorkspaces(db: SupabaseClient, userId: string): Promise<PortalWorkspace[]> {
   const [owned, links] = await Promise.all([
     db.from("portal_workspaces").select("id,name,owner_user_id,is_default").eq("owner_user_id", userId).order("created_at"),
-    db.from("account_link_invites").select("inviter_user_id,assigned_property_ids,property_co_manager_permissions,co_manager_permissions,workspace_id,workspace_permissions")
+    db.from("account_link_invites")
+      .select("id,inviter_user_id,assigned_property_ids,property_co_manager_permissions,co_manager_permissions,workspace_id,workspace_permissions,team_role,house_scope")
       .eq("invitee_user_id", userId).eq("status", "accepted"),
   ]);
   if (owned.error || links.error) throw new Error("Could not load workspace access. Please retry.");
@@ -36,8 +45,9 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
   const emails = new Map((profiles.data ?? []).map((p) => [p.id, p.email ?? ""]));
   const permissions: PropertyCoManagerPermissions = {};
   const assigned = new Set<string>();
-  const grantedWorkspaceIds = new Set<string>();
-  const addPropertyWorkspaceIds = new Set<string>();
+  // The viewer's standing in every workspace they were invited into: the role
+  // on THAT workspace's membership row, and the rights the role carries.
+  const standingByWorkspace = new Map<string, { role: TeamRoleId; houseScope: HouseScope; rights: WorkspaceRights }>();
   for (const link of links.data ?? []) {
     if (!emails.has(userId) || !emails.has(link.inviter_user_id)) continue;
     if (isCrossSandboxPortalPair(emails.get(userId)!, emails.get(link.inviter_user_id)!)) continue;
@@ -51,11 +61,16 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
       }
     }
     const pinnedWorkspace = String((link as { workspace_id?: string | null }).workspace_id ?? "").trim();
-    if (pinnedWorkspace) grantedWorkspaceIds.add(pinnedWorkspace);
-    if (hasWorkspaceAddProperties((link as { workspace_permissions?: unknown }).workspace_permissions)) {
-      if (pinnedWorkspace) addPropertyWorkspaceIds.add(pinnedWorkspace);
-      else addPropertyWorkspaceIds.add(`owner:${link.inviter_user_id}`);
-    }
+    if (!pinnedWorkspace) continue;
+    const role = resolveInviteTeamRole((link as { team_role?: unknown }).team_role, map);
+    standingByWorkspace.set(pinnedWorkspace, {
+      role,
+      houseScope: readHouseScopeFromRow(link as { house_scope?: string | null }),
+      rights: workspaceRightsForMembership({
+        teamRole: role,
+        workspacePermissions: normalizeWorkspacePermissions((link as { workspace_permissions?: unknown }).workspace_permissions),
+      }),
+    });
   }
   const ownedProperties = await db.from("manager_property_records").select("id,workspace_id,row_data").eq("manager_user_id", userId);
   if (ownedProperties.error) throw new Error("Could not load workspace properties. Please retry.");
@@ -65,17 +80,8 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
   if (linkedProperties.error) throw new Error("Could not load shared workspace properties. Please retry.");
   const sharedIds = [...new Set([
     ...(linkedProperties.data ?? []).map((p) => p.workspace_id).filter(Boolean),
-    ...grantedWorkspaceIds,
+    ...standingByWorkspace.keys(),
   ])];
-  const ownerGrantIds = [...addPropertyWorkspaceIds].filter((id) => id.startsWith("owner:")).map((id) => id.slice(6));
-  const ownerDefaults = ownerGrantIds.length
-    ? await db.from("portal_workspaces").select("id,name,owner_user_id,is_default").in("owner_user_id", ownerGrantIds).eq("is_default", true)
-    : { data: [] as { id: string; name: string; owner_user_id: string; is_default: boolean }[], error: null };
-  if (ownerDefaults.error) throw new Error("Could not load granted workspaces. Please retry.");
-  for (const row of ownerDefaults.data ?? []) {
-    sharedIds.push(row.id);
-    addPropertyWorkspaceIds.add(row.id);
-  }
   const shared = sharedIds.length
     ? await db.from("portal_workspaces").select("id,name,owner_user_id,is_default").in("id", sharedIds).order("created_at")
     : { data: [], error: null };
@@ -89,15 +95,23 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
   };
   const rows = new Map([...(owned.data ?? []), ...(shared.data ?? [])].map((w) => [w.id, w]));
 
-  // Managers this owner has granted access — grouped per workspace by the
-  // houses they were assigned. This is a display roll-up of the existing
-  // co-manager grants, never a second authorization source.
-  const grantsOut = await db
-    .from("account_link_invites")
-    .select("invitee_user_id, assigned_property_ids, property_co_manager_permissions, co_manager_permissions")
-    .eq("inviter_user_id", userId)
-    .eq("status", "accepted");
-  const inviteeIds = [...new Set((grantsOut.data ?? []).map((l) => l.invitee_user_id).filter(Boolean))] as string[];
+  // Memberships of every workspace the viewer runs: their own, and any shared
+  // one where their role carries the members right. One row per (person,
+  // workspace) since the memberships migration; a row with no workspace yet is
+  // a legacy row and is placed by its houses.
+  const manageableIds = [...rows.values()]
+    .filter((w) => w.owner_user_id === userId || standingByWorkspace.get(w.id)?.rights.members)
+    .map((w) => w.id);
+  const membershipRows = manageableIds.length
+    ? await db
+        .from("account_link_invites")
+        .select("id, inviter_user_id, invitee_user_id, invitee_display_name, assigned_property_ids, property_co_manager_permissions, co_manager_permissions, workspace_id, workspace_permissions, legacy_workspace_permissions, team_role, house_scope, status, responded_at")
+        .in("status", ["accepted", "pending"])
+        .not("invitee_user_id", "is", null)
+        .or(`workspace_id.in.(${manageableIds.join(",")}),and(inviter_user_id.eq.${userId},workspace_id.is.null)`)
+    : { data: [] as Record<string, unknown>[], error: null };
+  const memberships = (membershipRows.data ?? []) as (InviteRow & { status: string })[];
+  const inviteeIds = [...new Set(memberships.map((l) => String(l.invitee_user_id ?? "")).filter(Boolean))];
   const inviteeProfiles = inviteeIds.length
     ? await db.from("profiles").select("id, full_name, email").in("id", inviteeIds)
     : { data: [] as { id: string; full_name: string | null; email: string | null }[] };
@@ -106,27 +120,43 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
   return [...rows.values()].map((w) => {
     const propertyIds = [...new Set(properties.filter((p) => p.workspace_id === w.id).map((p) => p.id))];
     const ownedHere = w.owner_user_id === userId;
-    const members: WorkspaceMember[] = ownedHere
-      ? (grantsOut.data ?? [])
+    const standing = standingByWorkspace.get(w.id) ?? null;
+    const canManageMembers = ownedHere || Boolean(standing?.rights.members);
+    const members: WorkspaceMember[] = canManageMembers
+      ? memberships
+          .filter((link) => {
+            if (String(link.inviter_user_id) !== w.owner_user_id) return false;
+            const pinned = String(link.workspace_id ?? "").trim();
+            if (pinned) return pinned === w.id;
+            // Legacy row: place it by its houses, once, under the default card.
+            const here = asStringArray(link.assigned_property_ids).filter((id) => propertyIds.includes(id));
+            return here.length > 0 || (asStringArray(link.assigned_property_ids).length === 0 && w.is_default);
+          })
           .map((link): WorkspaceMember | null => {
             const inviteeId = String(link.invitee_user_id ?? "");
             if (!inviteeId) return null;
-            const assigned = asStringArray(link.assigned_property_ids).filter((id) => propertyIds.includes(id));
-            if (assigned.length === 0) return null;
+            const houseScope = readHouseScopeFromRow(link);
+            const reach = effectiveHouseIds({ houseScope, assignedPropertyIds: asStringArray(link.assigned_property_ids), workspacePropertyIds: propertyIds });
             const map = readPropertyPermissionsFromRow(link);
             const modules = new Set<string>();
-            for (const id of assigned) {
+            for (const id of reach) {
               for (const { id: module, label } of CO_MANAGER_PERMISSION_OPTIONS) {
                 if (hasCoManagerPermission(map[id], module)) modules.add(label);
               }
             }
             const profile = inviteeById.get(inviteeId);
             return {
+              linkId: String(link.id),
               userId: inviteeId,
-              name: String(profile?.full_name ?? "").trim() || String(profile?.email ?? "").trim() || "Team member",
+              name: String(profile?.full_name ?? "").trim() || String(link.invitee_display_name ?? "").trim() || String(profile?.email ?? "").trim() || "Team member",
               email: String(profile?.email ?? "").trim(),
-              propertyIds: assigned,
+              role: resolveInviteTeamRole(link.team_role, map),
+              houseScope,
+              propertyIds: reach,
               modules: [...modules],
+              status: link.status === "pending" ? "pending" : "accepted",
+              joinedAt: link.responded_at ?? null,
+              legacyRights: Object.keys(normalizeWorkspacePermissions(link.legacy_workspace_permissions)).length > 0,
             };
           })
           .filter((member): member is WorkspaceMember => Boolean(member))
@@ -140,7 +170,10 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
       ),
       propertyPermissions: Object.fromEntries(propertyIds.filter((id) => permissions[id]).map((id) => [id, permissions[id]])),
       members,
-      canAddProperties: ownedHere || addPropertyWorkspaceIds.has(w.id),
+      viewerRole: ownedHere ? "owner" : (standing?.role ?? null),
+      viewerHouseScope: ownedHere ? "all" : (standing?.houseScope ?? "selected"),
+      canAddProperties: ownedHere || Boolean(standing?.rights.houses),
+      canManageMembers,
     };
   });
 }
