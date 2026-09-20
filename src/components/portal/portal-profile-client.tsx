@@ -53,7 +53,7 @@ import { ManagerCommsBillingPanel } from "@/components/portal/manager-comms-bill
 import { ManagerPlanAddonsPanel } from "@/components/portal/manager-plan-addons-panel";
 import { ManagerPlan } from "@/components/portal/pro-plan";
 import { ManagerApiKeysPanel } from "@/components/portal/pro-api-keys-panel";
-import { ManagerMessagingSettingsPanel } from "@/components/portal/pro-messaging-settings-panel";
+import { ManagerMessagingSettingsPanel, ManagerWorkNumbersPanel } from "@/components/portal/pro-messaging-settings-panel";
 import { ManagerAssistantEmailSettingsPanel } from "@/components/portal/pro-assistant-email-settings-panel";
 import { CommunicationSettingsPanel } from "@/components/portal/pro-portal-settings-panels";
 import { SettingsModulePage } from "@/components/portal/settings-module-page";
@@ -175,6 +175,7 @@ function ManagerMessagingSettingsPane() {
         onVerified={() => setPersonalPhoneRefreshKey((value) => value + 1)}
       />
       <ManagerMessagingSettingsPanel personalPhoneRefreshKey={personalPhoneRefreshKey} />
+      <ManagerWorkNumbersPanel />
       <ManagerAssistantEmailSettingsPanel />
       <CommunicationSettingsPanel />
     </>

@@ -11,6 +11,7 @@ import {
   PortalSettingsSection,
 } from "@/components/portal/portal-settings-ui";
 import { Button } from "@/components/ui/button";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import {
@@ -948,5 +949,266 @@ export function ManagerMessagingSettingsPanel({
       </PortalMessageComposeModalBody>
     </Modal>
     </>
+  );
+}
+
+/** Mirrors `WORKSPACE_WORK_NUMBER_LIMIT` in src/lib/sms/work-numbers.server.ts (server-only, not importable from a client component). */
+const WORKSPACE_NUMBER_LIMIT = 2;
+
+type WorkspaceWithNumbers = NonNullable<ManagerMessagingNumberStatus["workspaces"]>[number];
+
+/**
+ * Settings → Communication → Work numbers: every workspace the manager owns,
+ * each with the up-to-2 numbers it holds. A number shared into a second
+ * workspace shows once per holder — "included" on its home workspace,
+ * "shared with <home>" on the workspace it was shared into. Sharing and
+ * removal both go through `PATCH /api/manager/messaging-number`; ids are
+ * re-derived server-side, never trusted from this component alone.
+ */
+export function ManagerWorkNumbersPanel() {
+  const { showToast } = useAppUi();
+  const [status, setStatus] = useState<ManagerMessagingNumberStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+
+  const load = useCallback(async (signal?: AbortSignal) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(ENDPOINT, { credentials: "include", cache: "no-store", signal });
+      const body = (await res.json().catch(() => ({}))) as ManagerMessagingNumberStatus & { error?: string };
+      if (!res.ok) throw new Error(body.error ?? "Could not load work numbers.");
+      if (!isMessagingNumberStatus(body)) throw new Error("Work numbers returned an invalid response.");
+      setStatus(body);
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === "AbortError") return;
+      setError(cause instanceof Error ? cause.message : "Could not load work numbers.");
+    } finally {
+      if (!signal?.aborted) setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void load(controller.signal);
+    return () => controller.abort();
+  }, [load]);
+
+  const addNumber = useCallback(
+    async (workspaceId: string) => {
+      setBusyKey(`${workspaceId}:add`);
+      setError(null);
+      try {
+        const res = await fetch(`${ENDPOINT}?workspaceId=${encodeURIComponent(workspaceId)}`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "request_number" }),
+        });
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) {
+          const message = body.error ?? "Could not add a work number.";
+          setError(message);
+          showToast(message);
+          return;
+        }
+        showToast("Work number requested.");
+        void load();
+      } catch {
+        setError("Network error. Check your connection and try again.");
+      } finally {
+        setBusyKey(null);
+      }
+    },
+    [load, showToast],
+  );
+
+  const removeNumber = useCallback(
+    async (workspaceId: string, numberId: string) => {
+      setBusyKey(`${workspaceId}:${numberId}:remove`);
+      setError(null);
+      try {
+        const res = await fetch(ENDPOINT, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "unassign", numberId, workspaceId }),
+        });
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) {
+          const message = body.error ?? "Could not remove this number.";
+          setError(message);
+          showToast(message);
+          return;
+        }
+        showToast("Number removed from this workspace.");
+        void load();
+      } catch {
+        setError("Network error. Check your connection and try again.");
+      } finally {
+        setBusyKey(null);
+      }
+    },
+    [load, showToast],
+  );
+
+  const shareNumber = useCallback(
+    async (numberId: string, fromWorkspaceId: string, toWorkspaceId: string) => {
+      if (!toWorkspaceId) return;
+      setBusyKey(`${fromWorkspaceId}:${numberId}:share`);
+      setError(null);
+      try {
+        const res = await fetch(ENDPOINT, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "assign", numberId, workspaceId: toWorkspaceId }),
+        });
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) {
+          const message = body.error ?? "Could not share this number.";
+          setError(message);
+          showToast(message);
+          return;
+        }
+        showToast("Number shared into that workspace.");
+        void load();
+      } catch {
+        setError("Network error. Check your connection and try again.");
+      } finally {
+        setBusyKey(null);
+      }
+    },
+    [load, showToast],
+  );
+
+  // A pure co-manager owns no workspace here and has nothing to manage.
+  if (status?.workspaceRole === "co_manager") return null;
+
+  if (loading && !status) {
+    return (
+      <PortalSettingsSection title="Work numbers">
+        <PortalSettingsGroup>
+          <div className="space-y-3 px-4 py-5" aria-label="Loading work numbers">
+            <div className="h-4 w-36 animate-pulse rounded bg-accent motion-reduce:animate-none" />
+            <div className="h-3 w-full max-w-md animate-pulse rounded bg-accent motion-reduce:animate-none" />
+          </div>
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+    );
+  }
+
+  const workspaces: WorkspaceWithNumbers[] = (status?.workspaces ?? []).filter((w) => w.owned);
+  if (!status || workspaces.length === 0) return null;
+
+  return (
+    <PortalSettingsSection title="Work numbers">
+      <PortalSettingsGroup>
+        {workspaces.map((workspace) => {
+          const numbers = workspace.numbers ?? [];
+          const otherWorkspaces = workspaces.filter((w) => w.workspaceId !== workspace.workspaceId);
+          const canAddNumber = !numbers.some((n) => n.isPrimary) && numbers.length < WORKSPACE_NUMBER_LIMIT;
+          return (
+            <div key={workspace.workspaceId} className="border-b border-border/70 px-4 py-3 last:border-0">
+              <div className="flex items-center justify-between gap-3 pb-2">
+                <span className="text-[13px] font-semibold text-foreground">{workspace.workspaceName}</span>
+                <span className="text-xs text-muted">
+                  {numbers.length} of {WORKSPACE_NUMBER_LIMIT} numbers
+                </span>
+              </div>
+              <div className="space-y-2">
+                {numbers.map((entry) => {
+                  const label = entry.isPrimary
+                    ? "included"
+                    : `shared with ${entry.sharedWithWorkspaceNames[0] || "another workspace"}`;
+                  const shareTargets = entry.isPrimary
+                    ? otherWorkspaces.filter(
+                        (w) =>
+                          !entry.sharedWithWorkspaceIds.includes(w.workspaceId) &&
+                          (w.numbers ?? []).length < WORKSPACE_NUMBER_LIMIT,
+                      )
+                    : [];
+                  const removeBusy = busyKey === `${workspace.workspaceId}:${entry.numberId}:remove`;
+                  const shareBusy = busyKey === `${workspace.workspaceId}:${entry.numberId}:share`;
+                  return (
+                    <div
+                      key={entry.numberId}
+                      className="flex flex-wrap items-center justify-between gap-2 py-1 text-sm"
+                      data-attr="work-number-row"
+                    >
+                      <span className="font-medium text-foreground">
+                        {entry.phoneNumber ? formatManagerMessagingPhone(entry.phoneNumber) : "Setting up…"}
+                        <span className="ml-2 text-xs font-normal text-muted">{label}</span>
+                      </span>
+                      <span className="flex items-center gap-2">
+                        {shareTargets.length > 0 ? (
+                          <FieldSingleSelect
+                            label={`Use ${entry.phoneNumber ? formatManagerMessagingPhone(entry.phoneNumber) : "this number"} in another workspace`}
+                            hideLabel
+                            variant="pill"
+                            placeholder="Use in another workspace ▾"
+                            value=""
+                            disabled={shareBusy}
+                            dataAttr="work-number-share-select"
+                            options={shareTargets.map((w) => ({ value: w.workspaceId, label: w.workspaceName }))}
+                            onChange={(target) => {
+                              if (target) void shareNumber(entry.numberId, workspace.workspaceId, target);
+                            }}
+                          />
+                        ) : null}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="min-h-9 px-3 text-xs"
+                          disabled={removeBusy}
+                          aria-busy={removeBusy}
+                          onClick={() => removeNumber(workspace.workspaceId, entry.numberId)}
+                          data-attr="work-number-remove"
+                        >
+                          Remove
+                        </Button>
+                      </span>
+                    </div>
+                  );
+                })}
+                {canAddNumber ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-9 w-full justify-between rounded-xl border-dashed px-3 text-xs"
+                    disabled={busyKey === `${workspace.workspaceId}:add`}
+                    aria-busy={busyKey === `${workspace.workspaceId}:add`}
+                    onClick={() => addNumber(workspace.workspaceId)}
+                    data-attr="work-number-add"
+                  >
+                    <span>Add number</span>
+                    <span className="text-muted">included · or $5/mo</span>
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+        {error ? (
+          <div className="flex items-start gap-2 px-4 py-3 text-sm text-danger" role="alert">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            <p>{error}</p>
+          </div>
+        ) : null}
+        <div className="px-4 py-3">
+          <Button
+            asChild
+            variant="outline"
+            className="min-h-9 w-full justify-between rounded-xl border-dashed px-3 text-xs"
+          >
+            <Link href="/portal/profile?tab=workspaces&new=1" data-attr="work-number-add-workspace">
+              <span>Add workspace</span>
+              <span className="text-muted">$30/mo · includes a work number</span>
+            </Link>
+          </Button>
+        </div>
+      </PortalSettingsGroup>
+    </PortalSettingsSection>
   );
 }
