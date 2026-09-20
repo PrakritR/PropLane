@@ -83,7 +83,7 @@ resolved, projected) with this manager's raw opt-in flags before mapping to
 XML. `Content-Type: application/xml`, `Cache-Control` matches the other public
 listing reads (`public, s-maxage=60, stale-while-revalidate=600`).
 
-`manager_syndication_feeds` (`supabase/migrations/20260920200000_listing_syndication.sql`)
+`manager_syndication_feeds` (`supabase/migrations/20260920203000_listing_syndication.sql`)
 follows `manager_house_public_links`'s shape exactly: service-role only,
 `revoke all ... from anon, authenticated`. The manager-facing "Zillow feed URL"
 settings row (Settings → Properties, `ZillowFeedUrlRow` in
