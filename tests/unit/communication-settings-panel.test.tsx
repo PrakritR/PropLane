@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 
 const showToast = vi.fn();
 
@@ -98,100 +98,45 @@ function stubPanelFetches(
   );
 }
 
-describe("CommunicationSettingsPanel work number", () => {
-  it.each([123, {}, [], true])("ignores a malformed API phone value (%j) without a trim error", async (phoneNumber) => {
-    stubPanelFetches({
-      ...readyNumber,
-      number: { ...readyNumber.number!, phoneNumber: phoneNumber as unknown as string },
-    });
+/**
+ * PLAN-0920-1530: the work number and work email each appear exactly once now
+ * — on their Channels row in `pro-messaging-settings-panel.tsx`. The
+ * standalone copy controls this panel used to render (`Copy work number` /
+ * `Copy work email`) are gone; only the audience fact ("Who can email the
+ * assistant") that has no other home moved here.
+ */
+describe("CommunicationSettingsPanel", () => {
+  it("no longer renders the work number or work email copy controls", async () => {
+    stubPanelFetches(readyNumber, readyEmail);
     render(<CommunicationSettingsPanel />);
 
     expect(await screen.findByText("Auto-send AI drafts")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Copy work number/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Copy work email/ })).toBeNull();
     expect(showToast).not.toHaveBeenCalled();
   });
 
-  it("keeps a JSON-number work number so the current account still sees it", async () => {
-    stubPanelFetches({
-      ...readyNumber,
-      number: { ...readyNumber.number!, phoneNumber: 18559168031 as unknown as string },
-    });
-    render(<CommunicationSettingsPanel />);
-
-    expect(
-      await screen.findByRole("button", { name: "Copy work number +1 (855) 916-8031" }),
-    ).toBeTruthy();
-  });
-
-  it("shows the assigned work number even when SMS is not a default channel", async () => {
-    stubPanelFetches(readyNumber);
-    render(<CommunicationSettingsPanel />);
-
-    expect(
-      await screen.findByRole("button", { name: "Copy work number +1 (855) 916-8031" }),
-    ).toBeTruthy();
-  });
-
-  it("copies the work number to the clipboard when the number is clicked", async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    vi.stubGlobal("navigator", {
-      clipboard: { writeText },
-    });
-    stubPanelFetches(readyNumber);
-    render(<CommunicationSettingsPanel />);
-
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Copy work number +1 (855) 916-8031" }),
-    );
-
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith("+18559168031"));
-    expect(showToast).toHaveBeenCalledWith("Work number copied.");
-  });
-
-  it("omits the copy control when no work number is assigned", async () => {
-    stubPanelFetches({ ...readyNumber, number: null, canSend: false });
-    render(<CommunicationSettingsPanel />);
-
-    expect(await screen.findByText("Auto-send AI drafts")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Copy work number/ })).toBeNull();
-  });
-});
-
-describe("CommunicationSettingsPanel work email", () => {
-  it("shows the workspace work email with a copy control", async () => {
+  it("shows who can email the assistant when the address is ready", async () => {
     stubPanelFetches(readyNumber, readyEmail);
     render(<CommunicationSettingsPanel />);
 
-    expect(
-      await screen.findByRole("button", {
-        name: "Copy work email manager@inbound.prop-lane.space",
-      }),
-    ).toBeTruthy();
+    expect(await screen.findByText("Who can email the assistant")).toBeTruthy();
+    expect(screen.getByText("Your team, your residents, and prospects")).toBeTruthy();
   });
 
-  it("copies the work email when the address is clicked", async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    vi.stubGlobal("navigator", {
-      clipboard: { writeText },
-    });
-    stubPanelFetches(readyNumber, readyEmail);
+  it("reflects a paused work email as nobody can reach it yet", async () => {
+    stubPanelFetches(readyNumber, { ...readyEmail, state: "assigned_plan_hold", canUse: false });
     render(<CommunicationSettingsPanel />);
 
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Copy work email manager@inbound.prop-lane.space",
-      }),
-    );
-
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith("manager@inbound.prop-lane.space"));
-    expect(showToast).toHaveBeenCalledWith("Work email copied.");
+    expect(await screen.findByText("Who can email the assistant")).toBeTruthy();
+    expect(screen.getByText("Nobody until your plan is active again")).toBeTruthy();
   });
 
-  it("omits the work email copy control when no address is assigned", async () => {
-    stubPanelFetches(readyNumber, { ...readyEmail, address: null, canUse: false });
+  it("omits the row when the work email status could not be read", async () => {
+    stubPanelFetches(readyNumber, null);
     render(<CommunicationSettingsPanel />);
 
     await screen.findByText("Auto-send AI drafts");
-    expect(screen.queryByRole("button", { name: /Copy work email/ })).toBeNull();
+    expect(screen.queryByText("Who can email the assistant")).toBeNull();
   });
 });

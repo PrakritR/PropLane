@@ -67,7 +67,6 @@ vi.mock("@/components/portal/pro-api-keys-panel", () => ({
 }));
 vi.mock("@/components/portal/pro-messaging-settings-panel", () => ({
   ManagerMessagingSettingsPanel: () => <div data-testid="pane-messaging" />,
-  ManagerWorkNumbersPanel: () => <div data-testid="pane-work-numbers" />,
 }));
 vi.mock("@/components/portal/pro-portal-settings-panels", () => ({
   CommunicationSettingsPanel: () => <div data-testid="pane-communication-module" />,
