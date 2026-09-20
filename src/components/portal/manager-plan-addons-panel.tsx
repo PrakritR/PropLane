@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsSection } from "@/components/portal/portal-settings-ui";
 import { Button } from "@/components/ui/button";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
 import { formatAddonPrice, type PlanAddonId } from "@/lib/plan-addons";
@@ -250,6 +251,116 @@ export function ManagerPlanAddonsPanel() {
           ) : null}
         </>
       ) : null}
+      <RentReportingAddonRow disabled={isNative === true} />
     </PortalSettingsSection>
+  );
+}
+
+const RENT_REPORTING_ENDPOINT = "/api/manager/rent-reporting-addon";
+
+type RentReportingAddonPayload = {
+  tier: "free" | "pro" | "business" | null;
+  canHoldAddon: boolean;
+  /** False until a furnisher partner is signed — the row reads "Coming soon" and cannot be turned on. */
+  partnerLive?: boolean;
+  enabled: boolean;
+  reporting: number;
+  total: number;
+};
+
+/**
+ * Rent reporting is its own On/Off switch, not a `PLAN_ADDONS` quantity: its cost
+ * scales with however many residents opt in this month, which the manager does not
+ * choose, so it has no stepper and no per-unit price row here (see
+ * `docs/agents/rent-reporting.md` "Billing" for how that gets charged).
+ */
+function RentReportingAddonRow({ disabled }: { disabled: boolean }) {
+  const [data, setData] = useState<RentReportingAddonPayload | null>(null);
+  const [busy, setBusy] = useState(false);
+  const mounted = useRef(true);
+
+  const load = useCallback(async () => {
+    try {
+      const response = await fetch(RENT_REPORTING_ENDPOINT, { credentials: "include", cache: "no-store" });
+      const body = (await response.json()) as RentReportingAddonPayload & { error?: string };
+      if (!response.ok) return;
+      if (mounted.current) setData(body);
+    } catch {
+      /* Settings panel already surfaces a load error for the addons above; this row just stays hidden. */
+    }
+  }, []);
+
+  useEffect(() => {
+    mounted.current = true;
+    void load();
+    return () => {
+      mounted.current = false;
+    };
+  }, [load]);
+
+  const toggle = async (next: string) => {
+    if (!data) return;
+    const enabled = next === "on";
+    setBusy(true);
+    try {
+      const response = await fetch(RENT_REPORTING_ENDPOINT, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled }),
+      });
+      const body = (await response.json()) as RentReportingAddonPayload & { error?: string };
+      if (response.ok && mounted.current) setData(body);
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  };
+
+  if (!data) return null;
+
+  return (
+    <PortalSettingsGroup className="mt-4">
+      <PortalSettingsRow label="Rent reporting">
+        {data.partnerLive !== true ? (
+          <FieldSingleSelect
+            label="Rent reporting"
+            hideLabel
+            variant="cell"
+            wrapperClassName="w-32"
+            value="coming_soon"
+            onChange={() => undefined}
+            disabled
+            options={[{ value: "coming_soon", label: "Coming soon" }]}
+            dataAttr="rent-reporting-addon-coming-soon"
+          />
+        ) : data.canHoldAddon ? (
+          <FieldSingleSelect
+            label="Rent reporting"
+            hideLabel
+            variant="cell"
+            wrapperClassName="w-32"
+            value={data.enabled ? "on" : "off"}
+            onChange={(next) => void toggle(next)}
+            disabled={disabled || busy}
+            options={[
+              { value: "on", label: "On" },
+              { value: "off", label: "Off" },
+            ]}
+            dataAttr="rent-reporting-addon-toggle"
+          />
+        ) : (
+          <Link href={MANAGER_PLAN_PORTAL_URL} className="text-sm font-semibold text-primary hover:underline" data-attr="rent-reporting-addon-upgrade">
+            Upgrade
+          </Link>
+        )}
+      </PortalSettingsRow>
+      {data.partnerLive === true && data.canHoldAddon && data.enabled ? (
+        <PortalSettingsRow label="Residents reporting">
+          <span className="text-sm font-semibold tabular-nums" data-attr="rent-reporting-addon-count">
+            {data.reporting} of {data.total}
+          </span>
+        </PortalSettingsRow>
+      ) : null}
+    </PortalSettingsGroup>
   );
 }

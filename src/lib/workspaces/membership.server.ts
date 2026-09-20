@@ -64,6 +64,37 @@ export async function actorWorkspaceStanding(
   return { ...base, role, rights, linkId: String(link.id) };
 }
 
+/**
+ * The houses the ACTOR's own accepted membership reaches in a workspace —
+ * never the owner's full set. A delegate (an Admin or other role acting on
+ * the owner's behalf, not the owner) minting a link must never reach further
+ * than this, even though `workspaceHouseIds` below returns every house the
+ * OWNER holds. Empty when the actor has no accepted membership here (fail
+ * closed, not the owner's full reach).
+ */
+export async function actorOwnWorkspaceHouseIds(
+  db: SupabaseClient,
+  actorUserId: string,
+  ownerUserId: string,
+  workspaceId: string,
+): Promise<string[]> {
+  const { data: link } = await db
+    .from("account_link_invites")
+    .select("assigned_property_ids, house_scope")
+    .eq("invitee_user_id", actorUserId.trim())
+    .eq("inviter_user_id", ownerUserId.trim())
+    .eq("workspace_id", workspaceId.trim())
+    .eq("status", "accepted")
+    .maybeSingle();
+  if (!link) return [];
+  if (parseHouseScope(link.house_scope) === "all") {
+    return workspaceHouseIds(db, ownerUserId, workspaceId);
+  }
+  return Array.isArray(link.assigned_property_ids)
+    ? link.assigned_property_ids.map((id) => String(id ?? "").trim()).filter(Boolean)
+    : [];
+}
+
 /** Accepted Admin rows in a workspace — the last one cannot be removed by another admin. */
 export async function workspaceAdminCount(db: SupabaseClient, ownerUserId: string, workspaceId: string): Promise<number> {
   const { count } = await db

@@ -42,6 +42,8 @@ import {
 import { runScreeningFromStripeSession, SCREENING_CHECKOUT_PURPOSE } from "@/lib/stripe-screening";
 import { enrichLedgerFromCheckoutSession } from "@/lib/stripe-ledger-fees";
 import {
+  handleAutopayPaymentIntentFailed,
+  handleAutopayPaymentIntentSucceeded,
   handleConnectPayoutEvent,
   handleExternalAccountEvent,
   handlePaymentIntentFailed,
@@ -428,8 +430,25 @@ export async function POST(req: Request) {
     }
 
     if (event.type === "payment_intent.payment_failed") {
-      await handlePaymentIntentFailed(db, event.data.object as Stripe.PaymentIntent).catch((e) => {
+      const paymentIntent = event.data.object as Stripe.PaymentIntent;
+      await handlePaymentIntentFailed(db, paymentIntent).catch((e) => {
         console.error("[stripe webhook] payment_intent.payment_failed", e);
+      });
+      // Additive: an autopay off-session PaymentIntent (metadata.autopay_run_id)
+      // also updates its own run row and sends the resident the decline notice.
+      // The charge itself is already handled above, exactly like a declined
+      // manual payment — this never duplicates that write.
+      await handleAutopayPaymentIntentFailed(db, paymentIntent).catch((e) => {
+        console.error("[stripe webhook] autopay payment_intent.payment_failed", e);
+      });
+    }
+
+    if (event.type === "payment_intent.succeeded") {
+      // Only autopay's off-session PaymentIntents carry this metadata — every
+      // other household-charge payment settles through checkout.session.completed
+      // above, so this is scoped and never double-marks a manual payment.
+      await handleAutopayPaymentIntentSucceeded(db, event.data.object as Stripe.PaymentIntent).catch((e) => {
+        console.error("[stripe webhook] autopay payment_intent.succeeded", e);
       });
     }
   } catch (e) {

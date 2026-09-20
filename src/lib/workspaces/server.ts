@@ -152,16 +152,32 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
               }
             }
             const profile = inviteeById.get(inviteeId);
+            const pending = link.status === "pending";
+            // Mirror `GET /api/pro/account-links`'s disclosure rule exactly
+            // (route.ts ~207-215): creating an invite needs only the target's
+            // PropLane ID, the invitee never consented, and this list is the
+            // viewer's OWN outgoing invite (the workspace's manager, looking
+            // at a row where they are the inviter) — so an undisclosed pending
+            // row must never leak the live profile's email or name. Only the
+            // row's own invite-time snapshot (`invitee_display_name`) is
+            // shown, exactly like `linkedDisplayName` for an outgoing pending
+            // invite there. Accepted rows disclose in full, same as that route.
+            const name = pending
+              ? String(link.invitee_display_name ?? "").trim() || "Team member"
+              : String(profile?.full_name ?? "").trim() ||
+                String(link.invitee_display_name ?? "").trim() ||
+                String(profile?.email ?? "").trim() ||
+                "Team member";
             return {
               linkId: String(link.id),
               userId: inviteeId,
-              name: String(profile?.full_name ?? "").trim() || String(link.invitee_display_name ?? "").trim() || String(profile?.email ?? "").trim() || "Team member",
-              email: String(profile?.email ?? "").trim(),
+              name,
+              email: pending ? "" : String(profile?.email ?? "").trim(),
               role: resolveInviteTeamRole(link.team_role, map),
               houseScope,
               propertyIds: reach,
               modules: [...modules],
-              status: link.status === "pending" ? "pending" : "accepted",
+              status: pending ? "pending" : "accepted",
               joinedAt: link.responded_at ?? null,
               legacyRights: Object.keys(normalizeWorkspacePermissions(link.legacy_workspace_permissions)).length > 0,
             };

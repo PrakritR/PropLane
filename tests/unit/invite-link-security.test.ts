@@ -146,16 +146,17 @@ describe("minting a link", () => {
     expect(PANEL).toContain("canSendTeamInvites");
   });
 
-  it("opens the add dialog from Invite on the title and on each workspace card", () => {
+  it("opens the invite sheet from Invite on the title and on each workspace card", () => {
     expect(PANEL).not.toContain('data-attr="co-manager-invite-link-open"');
-    expect(PANEL).toContain("PortalInvitePaths");
+    expect(PANEL).not.toContain("PortalInvitePaths");
     expect(PANEL.match(/onClick=\{\(\) => openLinkModal\(\)\}/g)).toHaveLength(1);
     expect(PANEL.match(/onClick=\{\(\) => openLinkModal\(workspace\.id\)\}/g)).toHaveLength(1);
     expect(PANEL).not.toContain("onInvite={openLinkModal}");
     expect(PANEL).toContain('data-attr="co-manager-invite-top"');
     expect(PANEL).not.toContain('data-attr="team-invite-link-create"');
-    expect(PANEL).toContain('data-attr="co-manager-link-continue"');
+    expect(PANEL).not.toContain('data-attr="co-manager-link-continue"');
     expect(PANEL).not.toContain("PortalInviteChoiceStep");
+    expect(PANEL).toContain("<WorkspaceInviteSheet");
   });
 
   it("uses one invite dialog for link, message, and PropLane code", () => {

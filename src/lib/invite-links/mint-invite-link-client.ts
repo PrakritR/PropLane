@@ -10,6 +10,10 @@ export type MintInviteLinkClientInput = {
   teamRole?: string;
   /** all = every house in the workspace, now and later. */
   houseScope?: "all" | "selected";
+  /** Workspace-level grant (members/billing) for a Custom-role manager link. */
+  workspacePermissions?: unknown;
+  /** Revoke the workspace's prior active link before minting this one. */
+  replaceActive?: boolean;
 };
 
 export type MintInviteLinkClientResult =
@@ -35,6 +39,8 @@ export async function mintInviteLinkClient(
         uses: input.uses,
         teamRole: input.teamRole,
         houseScope: input.houseScope,
+        workspacePermissions: input.workspacePermissions,
+        replaceActive: input.replaceActive,
       }),
     });
     const body = (await res.json().catch(() => ({}))) as {

@@ -65,6 +65,10 @@ export type AccountLinkInviteDto = {
   legacyWorkspacePermissions?: WorkspaceCoManagerGrant;
   createdAt: string;
   respondedAt: string | null;
+  /** How this invite was sent: phone, email, or code. Absent on rows written before delivery was tracked. */
+  invitedVia?: "phone" | "email" | "code" | null;
+  /** When it was sent via `invitedVia`. */
+  invitedAt?: string | null;
 };
 
 export type AccountLinksPayload = {

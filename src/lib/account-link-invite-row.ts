@@ -39,6 +39,8 @@ export type InviteRow = {
   legacy_workspace_permissions?: unknown;
   team_role?: string | null;
   house_scope?: string | null;
+  invited_via?: string | null;
+  invited_at?: string | null;
 };
 
 /**
@@ -148,6 +150,11 @@ export function serializeInvite(
     createdAt: row.created_at,
     respondedAt: row.responded_at,
     expiresAt: row.expires_at ?? null,
+    invitedVia:
+      row.invited_via === "phone" || row.invited_via === "email" || row.invited_via === "code"
+        ? row.invited_via
+        : null,
+    invitedAt: row.invited_at ?? null,
   };
 }
 

@@ -35,8 +35,10 @@ describe("Edit permissions is a popup", () => {
     expect(panel).toContain('dataAttr="team-member-houses"');
   });
 
-  it("keeps Make owner on the member sheet instead of a dead property bulk bar", () => {
-    expect(panel).toContain('data-attr="co-manager-make-owner"');
+  it("moves ownership transfer to the member's ⋯ menu instead of a dead property bulk bar", () => {
+    expect(panel).not.toContain('data-attr="co-manager-make-owner"');
+    expect(blocks).toContain('dataAttr: "team-member-transfer"');
+    expect(panel).toContain('data-attr="team-member-transfer"');
     expect(panel).not.toContain("team-detail-bulk-make-owner");
     expect(panel).not.toContain("selectedDetailPropertyIds");
   });

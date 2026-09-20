@@ -33,6 +33,11 @@ import {
 import { isProcessingCoverageCodeShape } from "@/lib/processing-coverage-codes";
 import { uploadListingImageFiles } from "@/lib/listing-media-client";
 import { ListingAddressAutocomplete } from "@/components/portal/listing-address-autocomplete";
+import {
+  listingSyndicationHasStreetAddress,
+  listingSyndicationPhotoUrls,
+} from "@/lib/listing-syndication/zillow-feed";
+import { track } from "@/lib/analytics/track-client";
 import { FieldMark, FoundOnlineCard } from "@/components/portal/listing-wizard-v2/found-online-card";
 import { prefillMarkFor } from "@/lib/listing-prefill/apply";
 import {
@@ -2876,11 +2881,103 @@ const READINESS_STEP: Record<string, (typeof LISTING_V2_STEPS)[number]["id"]> = 
 };
 
 
-function StepReview({
+/** Everything Zillow's Rental Network feed needs that this listing does not have yet. */
+function zillowSyndicationGapStep(sub: ManagerListingSubmissionV1): (typeof LISTING_V2_STEPS)[number]["id"] | null {
+  if (!listingSyndicationHasStreetAddress(sub.address)) return "basics";
+  if (listingSyndicationPhotoUrls(sub).length === 0) return "rooms";
+  return null;
+}
+
+function ZillowSyndicationRow({
   sub,
+  patch,
   onJump,
 }: {
   sub: ManagerListingSubmissionV1;
+  patch: Patch;
+  onJump: (stepId: (typeof LISTING_V2_STEPS)[number]["id"]) => void;
+}) {
+  const zillow = sub.syndication?.zillow;
+  const enabled = zillow?.enabled === true;
+  const gapStep = zillowSyndicationGapStep(sub);
+
+  const setEnabled = (next: boolean) => {
+    patch({
+      syndication: {
+        ...sub.syndication,
+        zillow: next
+          ? { enabled: true, sentAt: new Date().toISOString(), status: "sent" }
+          : { ...zillow, enabled: false },
+      },
+    });
+    track("listing_syndication_toggle", { network: "zillow", enabled: next });
+  };
+
+  let networkValue = "—";
+  if (enabled) {
+    if (gapStep) networkValue = "Not accepted · fix the items below";
+    else if (zillow?.status === "live" && zillow.sentAt) {
+      networkValue = `Live since ${new Date(zillow.sentAt).toLocaleDateString()}`;
+    } else {
+      networkValue = "Sent · usually live within 24 hours";
+    }
+  }
+
+  return (
+    <SectionGroup title="Syndication">
+      <div className="rounded-2xl border border-border bg-card">
+        <FactRow first label="Also list on Zillow, Trulia and HotPads">
+          <RowSelectCell
+            ariaLabel="Also list on Zillow, Trulia and HotPads"
+            value={enabled ? "on" : "off"}
+            options={[
+              { value: "off", label: "Off" },
+              { value: "on", label: "On" },
+            ]}
+            onChange={(v) => setEnabled(v === "on")}
+            dataAttr="listing-v2-review-zillow-toggle"
+          />
+        </FactRow>
+        {enabled ? (
+          <>
+            <FactRow label="Zillow network">
+              <span className="text-[13px] font-semibold text-foreground">{networkValue}</span>
+            </FactRow>
+            <FactRow label="Leads arrive as">
+              <span className="text-[13px] font-semibold text-foreground">Tour requests + inbox</span>
+            </FactRow>
+            {gapStep ? (
+              <div className="flex items-center gap-2.5 border-t border-border bg-amber-50/60 px-3.5 py-2.5 text-[13px]">
+                <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full border border-amber-200 bg-amber-50 text-[10px] font-extrabold text-amber-700">
+                  !
+                </span>
+                <span className="min-w-0 flex-1 text-foreground">
+                  Zillow needs a street address and at least one photo
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onJump(gapStep)}
+                  data-attr="listing-v2-review-zillow-fix"
+                  className="shrink-0 rounded-full border border-border bg-card px-3 py-1 text-[12.5px] font-bold text-foreground hover:bg-accent/40"
+                >
+                  Fix
+                </button>
+              </div>
+            ) : null}
+          </>
+        ) : null}
+      </div>
+    </SectionGroup>
+  );
+}
+
+function StepReview({
+  sub,
+  patch,
+  onJump,
+}: {
+  sub: ManagerListingSubmissionV1;
+  patch: Patch;
   /** Take the manager to the step that closes a gap, rather than describing it. */
   onJump: (stepId: (typeof LISTING_V2_STEPS)[number]["id"]) => void;
 }) {
@@ -2935,6 +3032,9 @@ function StepReview({
             );
           })}
         </ul>
+      </div>
+      <div className="mt-6 max-w-[620px]">
+        <ZillowSyndicationRow sub={sub} patch={patch} onJump={onJump} />
       </div>
     </StepColumn>
   );
@@ -3136,6 +3236,7 @@ export function ListingEditorV2({
         return (
           <StepReview
             sub={submission}
+            patch={patch}
             onJump={(id) => goTo(LISTING_V2_STEPS.findIndex((s) => s.id === id))}
           />
         );

@@ -105,6 +105,8 @@ export async function GET(): Promise<NextResponse<AccountLinksPayload | { error:
           "legacy_workspace_permissions",
           "team_role",
           "house_scope",
+          "invited_via",
+          "invited_at",
           "status",
           "created_at",
           "responded_at",
@@ -381,7 +383,6 @@ export async function POST(req: Request) {
 
     // Workspace rights follow the role; only a Custom row keeps explicit flags.
     const workspacePermissions = teamRole === "custom" ? normalizeWorkspacePermissions(body?.workspacePermissions) : {};
-    void actorRole;
     const stampedFlat = stampTeamRolePermissions(teamRole);
     const coManagerPermissions: CoManagerPermissions = stampedFlat
       ? stampedFlat
@@ -690,6 +691,10 @@ export async function POST(req: Request) {
         workspace_permissions: workspacePermissions,
         team_role: teamRole,
         house_scope: houseScope,
+        // This insert is the addressed (PropLane ID) invite path — the open-link
+        // path mints via mintOpenCoManagerInvite instead, which never sets this.
+        invited_via: "code",
+        invited_at: new Date().toISOString(),
         status: "pending",
       })
       .select(
@@ -710,6 +715,8 @@ export async function POST(req: Request) {
           "workspace_permissions",
           "team_role",
           "house_scope",
+          "invited_via",
+          "invited_at",
           "status",
           "created_at",
           "responded_at",

@@ -40,6 +40,8 @@ export type TeamMemberRow = {
   /** Menu wording for the destructive action; "Disconnect" when absent. */
   removeLabel?: string;
   onEdit?: () => void;
+  /** Promotes this member to main manager of one or more houses. */
+  onTransfer?: () => void;
   onDisconnect?: () => void;
 };
 
@@ -142,6 +144,9 @@ export function TeamMembersBlock({ members, embedded = false }: { members: TeamM
           const pillLabel = m.role === "co_manager" ? (m.roleLabel ?? pill.label) : pill.label;
           const items = ([
             m.onEdit ? { id: "edit", label: "Edit", onSelect: m.onEdit, dataAttr: "team-member-edit" } : null,
+            m.onTransfer
+              ? { id: "transfer", label: "Transfer ownership…", onSelect: m.onTransfer, dataAttr: "team-member-transfer" }
+              : null,
             m.onDisconnect ? { id: "disconnect", label: m.removeLabel ?? "Disconnect", onSelect: m.onDisconnect, destructive: true, dataAttr: "team-member-disconnect" } : null,
           ] as (TeamRowMenuItem | null)[]).filter((item): item is TeamRowMenuItem => item != null);
           return (
