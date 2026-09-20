@@ -28,6 +28,14 @@ describe("vendor sponsored fanout route", () => {
     expect(real).toEqual([`${id}:manager-1`, `${id}:manager-2`, `${id}:manager-1`, `${id}:manager-2`]);
   });
 
+  it("fails closed when management broadcast expansion cannot be read", async () => {
+    const q: Record<string, unknown> = {}; q.select = () => q; q.eq = () => q; q.then = (resolve: (value: unknown) => unknown) => resolve({ data: null, error: { message: "database unavailable" } }); from.mockReturnValue(q);
+    const response = await POST(request({ broadcastCategories: ["management"], includesAxisAdmin: true }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ ok: false, error: "Could not resolve management recipients." });
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it("refuses the entire fanout when one preflight recipient is unauthorized", async () => {
     send.mockImplementation(async (_db: unknown, _actor: unknown, input: { preflight?: boolean; recipientUserId?: string }) => input.preflight && input.recipientUserId === "manager-2" ? { ok: false, error: "recipient_unlinked" } : { ok: true, delivery: "sent", providerMessageId: null });
     const response = await POST(request({ recipientUserIds: ["manager-1", "manager-2"] }));

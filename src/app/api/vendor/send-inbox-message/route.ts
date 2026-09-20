@@ -26,8 +26,11 @@ export async function POST(req: Request) {
   const threadId = typeof body.threadId === "string" ? body.threadId : undefined;
   const wantsManagement = Array.isArray(body.broadcastCategories) && body.broadcastCategories.includes("management");
   if (!threadId && wantsManagement) {
-    const { data: links } = await createSupabaseServiceRoleClient().from("manager_vendor_records")
+    const { data: links, error: linksError } = await createSupabaseServiceRoleClient().from("manager_vendor_records")
       .select("manager_user_id").eq("vendor_user_id", access.actor.userId);
+    // Management broadcast is all-or-none. A failed expansion must not quietly
+    // degrade to an admin-only or partial recipient set.
+    if (linksError) return NextResponse.json({ ok: false, error: "Could not resolve management recipients." }, { status: 503 });
     requestedRecipientUserIds.push(...(links ?? []).map((row) => String(row.manager_user_id ?? "").trim()).filter(Boolean));
   }
   const wantsAdmin = body.includesAxisAdmin === true;
