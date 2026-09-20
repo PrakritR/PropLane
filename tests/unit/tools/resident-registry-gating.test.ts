@@ -66,6 +66,11 @@ const UNGATED_TOOLS = [
   "get_move_in_info",
   "request_lease_extension",
   "start_rent_payment",
+  // Read-only status checks with no phase/tier gate of their own.
+  "rent_reporting_status",
+  // Autopay enrollment is a standing payment-method change — portal-chat only
+  // (see the SMS-exclusion test below), but not phase- or tier-gated.
+  "set_autopay",
 ];
 
 describe("resident registry gating", () => {
@@ -111,6 +116,13 @@ describe("resident registry gating", () => {
     for (const name of [...SERVICES_TOOLS, ...INBOX_TOOLS, ...DOCUMENTS_TOOLS]) {
       expect(registry.has(name), `${name} should be available on null tier`).toBe(true);
     }
+  });
+
+  it("keeps autopay off resident SMS but leaves the rest of the toolset", () => {
+    const registry = buildResidentRegistry({ ...gatingCtx("approved", "paid"), channel: "sms" });
+    expect(registry.has("set_autopay"), "set_autopay is portal-only, never SMS").toBe(false);
+    expect(registry.has("rent_reporting_status")).toBe(true);
+    expect(registry.has("start_rent_payment")).toBe(true);
   });
 
   it("no manager tool names leak into the resident registry", () => {

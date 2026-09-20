@@ -105,6 +105,8 @@ vi.mock("@/lib/manager-access-server", () => ({
 vi.mock("@/lib/workspace-payment-settings.server", () => ({
   loadWorkspacePaymentSettings: vi.fn().mockResolvedValue({}),
   saveWorkspacePaymentSettings: vi.fn().mockResolvedValue({ saved: true }),
+  workspaceAutopayEnabled: vi.fn().mockReturnValue(true),
+  workspaceAutopayRetryEnabled: vi.fn().mockReturnValue(true),
 }));
 
 vi.mock("@/lib/payment-automation-settings", async (importOriginal) => {

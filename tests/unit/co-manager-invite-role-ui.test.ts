@@ -15,11 +15,20 @@ describe("invite Role dropdown", () => {
     expect(panel).not.toContain('label: "All view"');
     expect(panel).not.toContain('label: "All edit"');
     expect(panel).not.toContain('label: "All manage"');
-    expect(panel).toContain("teamRole: inviteTeamRole");
-    const roleIdx = panel.indexOf("<CoManagerRoleSelect");
-    const propertiesIdx = panel.indexOf('dataAttr="co-manager-invite-properties"');
+    // Editing an existing member: Role comes before the houses picker.
+    const roleIdx = panel.indexOf("<CoManagerRoleSelect value={draft.teamRole}");
+    const propertiesIdx = panel.indexOf('dataAttr="team-member-houses"');
     expect(roleIdx).toBeGreaterThan(-1);
     expect(propertiesIdx).toBeGreaterThan(roleIdx);
+
+    // Sending a new invite: the sheet's access control offers the same role
+    // set before its houses picker, with no separate pills.
+    const sheet = src("src/components/portal/workspace-invite-sheet.tsx");
+    expect(sheet).toContain("TEAM_ROLE_INVITE_OPTIONS");
+    const sheetRoleIdx = sheet.indexOf('data-attr="workspace-invite-access"');
+    const sheetHousesIdx = sheet.indexOf('dataAttr="workspace-invite-selected-houses"');
+    expect(sheetRoleIdx).toBeGreaterThan(-1);
+    expect(sheetHousesIdx).toBeGreaterThan(sheetRoleIdx);
   });
 
   it("shows the stamped role on team rows and the accept screen", () => {

@@ -14,6 +14,7 @@ import {
   resolveResidentManagerContacts,
   resolveResidentManagerPhones,
 } from "@/lib/resident-manager-contact.server";
+import { applicationRowLinksResident } from "@/lib/resident-manager-scope";
 import { createMemoryDb } from "./support/memory-supabase";
 
 const workNumber = vi.fn(async (): Promise<string | null> => "+12065559000");
@@ -161,6 +162,59 @@ describe("resolveResidentManagerContacts before a lease exists", () => {
     expect(await resolveResidentManagerContacts(db as never, { residentEmail: "res@example.com", nowMs: NOW })).toEqual([]);
   });
 
+  it("treats a withdrawn application as no longer linking, even though its bucket stays pending", async () => {
+    // A resident withdrawal (`PATCH /api/manager-applications`) stamps only
+    // `row_data.withdrawnAt` and never rewrites `bucket` away from "pending" —
+    // the withdrawn row above with a literal `bucket: "withdrawn"` never
+    // actually occurs in stored data. This is the real shape a withdrawal
+    // produces, and it must stop linking the resident just the same.
+    const db = createMemoryDb({
+      portal_lease_pipeline_records: [],
+      manager_application_records: [
+        {
+          manager_user_id: "mgr-a",
+          resident_email: "res@example.com",
+          property_id: "prop-a",
+          updated_at: "2026-10-01T00:00:00Z",
+          row_data: { bucket: "pending", withdrawnAt: "2026-10-05T00:00:00Z" },
+        },
+      ],
+      portal_household_charge_records: [],
+    });
+    expect(await resolveResidentManagerContacts(db as never, { residentEmail: "res@example.com", nowMs: NOW })).toEqual([]);
+  });
+
+  it("surfaces a live application at a different manager even though an earlier lease ended", async () => {
+    // A former resident whose lease ended and who has since applied to a
+    // different manager's house must not be stuck seeing only the old
+    // manager. The fallback is gated on "no LIVE tenancy", not "no lease row
+    // at all".
+    const db = createMemoryDb({
+      portal_lease_pipeline_records: [
+        lease({ row_data: { propertyLabel: "4709A", leaseStart: "2025-09-01", leaseEnd: "2026-08-31" } }),
+      ],
+      manager_application_records: [
+        {
+          manager_user_id: "mgr-z",
+          resident_email: "res@example.com",
+          property_id: "prop-z",
+          assigned_property_id: null,
+          occupancy_start: "2026-11-01",
+          updated_at: "2026-10-10T00:00:00Z",
+          row_data: { bucket: "pending", propertyLabel: "New House" },
+        },
+      ],
+    });
+    const contacts = await resolveResidentManagerContacts(db as never, {
+      residentUserId: "res-1",
+      residentEmail: "res@example.com",
+      nowMs: NOW,
+    });
+    expect(contacts).toEqual([
+      expect.objectContaining({ managerUserId: "mgr-z", propertyLabel: "New House", status: "upcoming" }),
+    ]);
+  });
+
   it("falls through to a charge when there is neither lease nor application", async () => {
     const db = createMemoryDb({
       portal_lease_pipeline_records: [],
@@ -251,5 +305,51 @@ describe("resolveResidentManagerPhones", () => {
       profiles: [{ id: "mgr-a", full_name: "Ghost", phone: "  ", email: null }],
     });
     expect(await resolveResidentManagerPhones(db as never, { residentUserId: "res-1", nowMs: NOW })).toEqual([]);
+  });
+
+  it("normalizes a free-form profile phone into E.164 before it reaches the card", async () => {
+    // `PATCH /api/profile` only trims the phone it stores — no E.164
+    // normalization — so a stored value like "(510) 309-8345" must not reach
+    // the card's `tel:`/`sms:` hrefs unnormalized.
+    workNumber.mockResolvedValueOnce(null);
+    workEmail.mockResolvedValueOnce(null);
+    const db = createMemoryDb({
+      manager_automation_settings: [shareProfile],
+      portal_lease_pipeline_records: [lease()],
+      profiles: [{ id: "mgr-a", full_name: "Test Manager", phone: "(510) 309-8345", email: "manager@test.proplane.local" }],
+    });
+    const [contact] = await resolveResidentManagerPhones(db as never, { residentUserId: "res-1", nowMs: NOW });
+    expect(contact).toMatchObject({ phone: "+15103098345", phoneKind: "profile" });
+  });
+
+  it("drops an unnormalizable profile phone rather than emit a broken tel/sms link", async () => {
+    workNumber.mockResolvedValueOnce(null);
+    workEmail.mockResolvedValueOnce(null);
+    const db = createMemoryDb({
+      manager_automation_settings: [shareProfile],
+      portal_lease_pipeline_records: [lease()],
+      profiles: [{ id: "mgr-a", full_name: "Test Manager", phone: "call the office", email: "manager@test.proplane.local" }],
+    });
+    const [contact] = await resolveResidentManagerPhones(db as never, { residentUserId: "res-1", nowMs: NOW });
+    expect(contact).toMatchObject({ phone: null, phoneKind: null, email: "manager@test.proplane.local" });
+  });
+});
+
+describe("applicationRowLinksResident (shared with resident-manager-scope.ts)", () => {
+  // The contact resolver above calls this exact predicate for "which
+  // applications count" so the messaging scope and the contact card cannot
+  // drift apart.
+  it("links a pending application", () => {
+    expect(applicationRowLinksResident({ bucket: "pending" })).toBe(true);
+  });
+  it("does not link a rejected application", () => {
+    expect(applicationRowLinksResident({ bucket: "rejected" })).toBe(false);
+  });
+  it("does not link a withdrawn application, even with bucket still pending", () => {
+    expect(applicationRowLinksResident({ bucket: "pending", withdrawnAt: "2026-10-05T00:00:00Z" })).toBe(false);
+  });
+  it("does not link garbage row_data", () => {
+    expect(applicationRowLinksResident(null)).toBe(false);
+    expect(applicationRowLinksResident("nope")).toBe(false);
   });
 });

@@ -64,6 +64,14 @@
     {
       "path": "/api/cron/release-vendor-work-identities",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/report-rent-monthly",
+      "schedule": "0 9 5 * *"
+    },
+    {
+      "path": "/api/cron/run-autopay",
+      "schedule": "0 8 * * *"
     }
   ]
 }

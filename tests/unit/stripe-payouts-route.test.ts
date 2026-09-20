@@ -63,6 +63,7 @@ function makeFakeDb(seedRows: Row[] = []) {
   const rows: Row[] = [...seedRows];
   let nextId = 1;
   const failUpdatesOnce: { remaining: number } = { remaining: 0 };
+  const failInsertOnce: { error: { code?: string; message: string } | null } = { error: null };
   const applyFilters = (filters: Array<(r: Row) => boolean>) => rows.filter((r) => filters.every((f) => f(r)));
   const client = {
     from(table: string) {
@@ -113,6 +114,11 @@ function makeFakeDb(seedRows: Row[] = []) {
         insert: (row: Row) => ({
           select: () => ({
             maybeSingle: async () => {
+              if (failInsertOnce.error) {
+                const error = failInsertOnce.error;
+                failInsertOnce.error = null;
+                return { data: null, error };
+              }
               const conflict = rows.some(
                 (r) => r.stripe_connect_account_id === row.stripe_connect_account_id && r.status === "pending" && r.initiated_in_app,
               );
@@ -129,7 +135,7 @@ function makeFakeDb(seedRows: Row[] = []) {
       };
     },
   };
-  return { client, rows, failUpdatesOnce };
+  return { client, rows, failUpdatesOnce, failInsertOnce };
 }
 
 let fakeDb = makeFakeDb();
@@ -337,6 +343,18 @@ describe("POST /api/stripe/payouts/create — 409 duplicate in-flight click", ()
     );
     expect(second.status).toBe(409);
     expect(fakeDb.rows).toHaveLength(1); // no second row claimed
+  });
+
+  it("an insert failure that is NOT the unique-index conflict is a 500, never reported as a payout already in progress", async () => {
+    fakeDb.failInsertOnce.error = { code: "42501", message: "permission denied for table stripe_payouts" };
+    const res = await managerCreate(
+      jsonRequest("http://x/api/stripe/payouts/create", { amountCents: 5000, method: "standard" }),
+    );
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(String(body.error)).not.toMatch(/already in progress/i);
+    expect(fakeDb.rows).toHaveLength(0);
+    expect((fakeStripe.payouts.create as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
   });
 
   it("reconciles a pending claim against Stripe before a new click — a payout Stripe has since paid no longer blocks", async () => {

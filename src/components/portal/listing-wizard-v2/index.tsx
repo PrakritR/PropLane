@@ -48,6 +48,8 @@ import {
   listingSubmissionFingerprint,
   listingWizardHasUnsavedInput,
 } from "@/lib/manager-listing-draft-autosave";
+import { track } from "@/lib/analytics/track-client";
+import { isNativeRuntimeSync } from "@/lib/native/detect-native";
 
 export { listingReadiness } from "@/components/portal/listing-wizard-v2/listing-editor";
 
@@ -194,6 +196,20 @@ export function ListingWizardV2({
   useEffect(() => {
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
+
+  // Guard against reload while there is unsaved input (web only).
+  useEffect(() => {
+    if (!dirty || isNativeRuntimeSync()) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      // Legacy browsers show whatever string is set on returnValue.
+      event.returnValue = "";
+      return "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty]);
+
   // A draft opened by id was written before this editor opened (a resumed
   // draft, an imported property), so with nothing unsaved it IS saved.
   const saveState = busy ? "Saving…" : dirty ? "Unsaved changes" : editing || initialDraftId ? "Saved" : "Not saved yet";
@@ -262,13 +278,14 @@ export function ListingWizardV2({
       stepRef.current = stepIndex;
       const ok = await persist(submissionRef.current, stepIndex, { notify: false });
       if (ok) {
+        track("listing_editor_close_save", { editing });
         setSaveFail(null);
         onClose();
         return;
       }
       setSaveFail({ message: lastPersistErrorRef.current, stepIndex });
     },
-    [onClose, persist],
+    [editing, onClose, persist],
   );
 
   // The Review step's Save button. Close failures open one dialog; an
@@ -348,6 +365,7 @@ export function ListingWizardV2({
               variant="danger"
               data-attr="listing-wizard-close-without-saving"
               onClick={() => {
+                track("listing_editor_leave_unsaved", { editing });
                 setSaveFail(null);
                 onClose();
               }}

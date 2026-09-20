@@ -24,6 +24,8 @@ import { resolveActiveManagerWorkEmail } from "@/lib/manager-assistant-email/man
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
 import { resolveActiveManagerSendNumber } from "@/lib/sms/manager-number-provisioning.server";
 import { orFilterForIdentity } from "@/lib/supabase/or-filter";
+import { normalizeE164 } from "@/lib/phone-e164";
+import { applicationRowLinksResident } from "@/lib/resident-manager-scope";
 
 export type ResidentManagerContact = {
   managerUserId: string;
@@ -112,12 +114,6 @@ type ChargeRow = {
   row_data: Record<string, unknown> | null;
 };
 
-/** Same rule as resident-manager-scope.ts: a rejected or withdrawn application links nobody. */
-function applicationStillLinks(rowData: Record<string, unknown>): boolean {
-  const bucket = String(rowData.bucket ?? "").trim().toLowerCase();
-  return bucket !== "rejected" && bucket !== "withdrawn";
-}
-
 function propertyLabelOf(rowData: Record<string, unknown>, ...fallbacks: Array<string | null>): string | null {
   return (
     text(rowData.propertyLabel) ??
@@ -134,10 +130,12 @@ function propertyLabelOf(rowData: Record<string, unknown>, ...fallbacks: Array<s
  * are exactly when a former resident most needs to reach someone, and they are
  * only surfaced when nothing current exists.
  *
- * Leases are the strongest evidence and win outright. With no lease at all, a
- * live application, then a charge, names the manager instead — that is the
- * applicant and the just-approved resident, who have a manager to reach but no
- * signed lease yet.
+ * A LIVE lease is the strongest evidence and wins outright. Absent one — either
+ * no lease at all, or only an ended one — a live application, then a charge,
+ * names the manager instead. This matters for a former resident whose lease
+ * ended and who has since applied to a different manager's house: the ended
+ * lease alone must not block that live application from surfacing, so the
+ * fallbacks are gated on "no LIVE tenancy yet", not "no lease row at all".
  */
 export async function resolveResidentManagerContacts(
   db: SupabaseClient,
@@ -199,7 +197,15 @@ export async function resolveResidentManagerContacts(
     });
   }
 
-  if (byManager.size === 0 && email) {
+  // Gate the fallbacks on whether a LIVE tenancy has been found so far, not on
+  // whether any manager has been found at all. A former resident whose lease
+  // ended keeps that manager in `byManager`, but an ended tenancy is not
+  // "current" — if they have since applied to a different manager's house,
+  // that live application must still surface rather than being hidden behind
+  // the stale, ended one.
+  const hasLiveContact = () => [...byManager.values()].some((c) => c.status !== "ended");
+
+  if (!hasLiveContact() && email) {
     // Applications are keyed by email only (they predate the account).
     const { data: apps } = await db
       .from("manager_application_records")
@@ -210,7 +216,7 @@ export async function resolveResidentManagerContacts(
     for (const row of (apps ?? []) as ApplicationRow[]) {
       const managerUserId = text(row.manager_user_id);
       const rowData = row.row_data ?? {};
-      if (!managerUserId || !applicationStillLinks(rowData)) continue;
+      if (!managerUserId || !applicationRowLinksResident(rowData)) continue;
       const application = (rowData.application ?? {}) as Record<string, unknown>;
       const leaseStart = text(application.leaseStart) ?? text(rowData.leaseStart) ?? text(row.occupancy_start);
       remember({
@@ -222,7 +228,7 @@ export async function resolveResidentManagerContacts(
     }
   }
 
-  if (byManager.size === 0) {
+  if (!hasLiveContact()) {
     let chargeQuery = db
       .from("portal_household_charge_records")
       .select("manager_user_id, updated_at, row_data")
@@ -277,7 +283,12 @@ export async function resolveResidentManagerPhones(
       const shareProfile = settings?.shareProfileContactWithoutWorkChannel === true;
       const profilePhone = shareProfile ? text(profile?.phone) : null;
       const accountEmail = shareProfile ? (text(profile?.email)?.toLowerCase() ?? null) : null;
-      const phone = text(workPhone) ?? profilePhone;
+      // `profiles.phone` is free-form trimmed text (`PATCH /api/profile` never
+      // normalizes it), yet this value is interpolated verbatim into a
+      // `tel:`/`sms:` href. Normalize through the codebase's one E.164
+      // normalizer before it ever reaches the card; a value that cannot be
+      // normalized is dropped rather than emitted as a broken link.
+      const phone = normalizeE164(workPhone) ?? normalizeE164(profilePhone);
       const email = text(workEmail)?.toLowerCase() ?? accountEmail;
       return {
         ...contact,
@@ -285,7 +296,7 @@ export async function resolveResidentManagerPhones(
         // number, as it did before there was a name to show.
         managerName: text(profile?.full_name),
         phone,
-        phoneKind: phone ? (text(workPhone) ? "work" : "profile") : null,
+        phoneKind: phone ? (normalizeE164(workPhone) ? "work" : "profile") : null,
         email,
         emailKind: email ? (text(workEmail) ? "work" : "account") : null,
       } satisfies ResidentManagerContact;

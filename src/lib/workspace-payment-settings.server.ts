@@ -19,6 +19,17 @@ import { normalizeServiceFeeChoice, type ServiceFeePayer } from "@/lib/payment-p
 export type WorkspacePaymentSettings = {
   serviceFeePayer: ServiceFeePayer | null;
   serviceFeeWaiverCode?: string;
+  /**
+   * Whether residents on this workspace may enroll in autopay at all — the
+   * gate `GET/PUT /api/resident/autopay` refuses against. `undefined`/absent
+   * means the default, On.
+   */
+  autopayEnabled?: boolean;
+  /**
+   * Whether a declined autopay run may retry once, three days later. Absent
+   * means the default, On (retry once).
+   */
+  autopayRetryEnabled?: boolean;
 };
 
 function readSettings(raw: unknown): WorkspacePaymentSettings {
@@ -32,7 +43,19 @@ function readSettings(raw: unknown): WorkspacePaymentSettings {
         ? normalizeServiceFeeChoice(payer)
         : null,
     serviceFeeWaiverCode: code || undefined,
+    autopayEnabled: typeof record.autopayEnabled === "boolean" ? record.autopayEnabled : undefined,
+    autopayRetryEnabled: typeof record.autopayRetryEnabled === "boolean" ? record.autopayRetryEnabled : undefined,
   };
+}
+
+/** Whether residents on this workspace's payment setup may enroll in autopay. Default On. */
+export function workspaceAutopayEnabled(settings: WorkspacePaymentSettings): boolean {
+  return settings.autopayEnabled !== false;
+}
+
+/** Whether a declined autopay run may retry once, three days later. Default On. */
+export function workspaceAutopayRetryEnabled(settings: WorkspacePaymentSettings): boolean {
+  return settings.autopayRetryEnabled !== false;
 }
 
 /** Every workspace this owner holds, with the payment setup each one carries. */
@@ -121,16 +144,38 @@ export async function saveWorkspacePaymentSettings(
   db: SupabaseClient,
   ownerUserId: string,
   workspaceId: string,
-  next: WorkspacePaymentSettings,
+  /**
+   * A partial patch, merged onto whatever the workspace already has —
+   * `serviceFeePayer` omitted (vs. explicitly `null`) leaves the stored
+   * choice untouched, which is what lets a caller save the autopay toggles
+   * alone without accidentally clearing the fee-payer choice, and vice versa.
+   */
+  next: Partial<WorkspacePaymentSettings>,
 ): Promise<{ saved: boolean }> {
   const id = workspaceId.trim();
   if (!id) return { saved: false };
+  // Read-modify-write: this function is called with a partial patch (only the
+  // fields the caller is changing), so a fee-payer-only save must not blank
+  // out the autopay toggles already on the row, and vice versa.
+  const { data: existingRow, error: existingErr } = await db
+    .from("portal_workspaces")
+    .select("payment_settings")
+    .eq("owner_user_id", ownerUserId)
+    .eq("id", id)
+    .maybeSingle();
+  if (existingErr) throw existingErr;
+  const existing = readSettings(existingRow?.payment_settings);
+  const merged: WorkspacePaymentSettings = { ...existing, ...next };
   const payload =
-    next.serviceFeePayer === null
+    merged.serviceFeePayer === null &&
+    merged.autopayEnabled === undefined &&
+    merged.autopayRetryEnabled === undefined
       ? null
       : {
-          serviceFeePayer: next.serviceFeePayer,
-          ...(next.serviceFeeWaiverCode ? { serviceFeeWaiverCode: next.serviceFeeWaiverCode } : {}),
+          ...(merged.serviceFeePayer ? { serviceFeePayer: merged.serviceFeePayer } : {}),
+          ...(merged.serviceFeeWaiverCode ? { serviceFeeWaiverCode: merged.serviceFeeWaiverCode } : {}),
+          ...(merged.autopayEnabled !== undefined ? { autopayEnabled: merged.autopayEnabled } : {}),
+          ...(merged.autopayRetryEnabled !== undefined ? { autopayRetryEnabled: merged.autopayRetryEnabled } : {}),
         };
   const { data, error } = await db
     .from("portal_workspaces")

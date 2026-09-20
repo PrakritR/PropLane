@@ -397,6 +397,7 @@ answer. Fail closed to `true`.
 | Lease execution | `docs/agents/lease-generation.md` | Per-signature SHA-256 of the document that party saw; signed body is immutable |
 | Uploaded leases | `docs/agents/lease-generation.md` | Parse is derived, never a guess; one send gate (`leaseSendGateBlocker`) |
 | Resident payments | `docs/agents/resident-payments.md` | `resolveServiceFeePayerFor` is the only fee-payer resolver |
+| Rent reporting | `docs/agents/rent-reporting.md` | Consent gates every export; late derives from the ledger; a stopped row skips the next cycle; PropLane is a reseller behind one partner interface |
 | Documents | `docs/agents/documents-module.md` | Private bucket; bytes only via server-minted signed URLs |
 | Public listing payload | `docs/agents/lease-generation.md` | Explicit allowlist (`publicListingProjection`) for both anonymous readers |
 | Demo / sandbox | `docs/agents/demo-sandbox.md` | `/demo` never writes real rows; snapshot ships empty |
@@ -424,6 +425,7 @@ answer. Fail closed to `true`.
 | Property import | `docs/agents/portfolio-import.md` | The drafts are the import; the model answers only through the tool and cites rows; rent is what the tenant pays, never market rent |
 | Address prefill | `docs/agents/listing-prefill.md` | Facts from RentCast only; never fetch a listing page — ad text arrives by paste; default-only fill with marks and undo; nothing sets the rent |
 | Automated communication | `docs/agents/automated-communication.md` | One spine: action events + reminder rules; inbox is the record; a manager's own copy is an Assistant notice; cross-party copies send as the manager; nothing automates a regulated notice |
+| Listing syndication | `docs/agents/listing-syndication.md` | Zillow Rental Network only; the feed is a `publicListingProjection` map, nothing wider; a listing missing a street address or a real photo is excluded, never given a placeholder |
 
 ## There are no "work orders" in the product — only services
 

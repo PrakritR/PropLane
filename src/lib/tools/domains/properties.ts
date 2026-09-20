@@ -208,6 +208,37 @@ export const getPropertyDetailsTool = defineTool({
   },
 });
 
+export const listingSyndicationStatusTool = defineTool({
+  name: "listing_syndication_status",
+  description:
+    "Read-only: whether one of the current landlord's properties is opted into the Zillow Rental Network (Zillow, Trulia, HotPads) feed, and the feed's current answer for it (sent / live / rejected, with reasons). Pass a property id from list_properties. There is no write tool for this — turn syndication on or off from the listing's Review step in the portal.",
+  kind: "read",
+  inputSchema: z
+    .object({
+      propertyId: z.string().min(1).describe("The property id, from list_properties."),
+    })
+    .strict(),
+  handler: async (ctx, input) => {
+    const rec = await loadOwnedPropertyRecord(ctx, input.propertyId);
+    if (!rec) return { found: false, message: "No property with that id belongs to this landlord." };
+    const sub = listingSubmissionOf(rec);
+    const syndication = asObject(sub?.syndication);
+    const zillow = asObject(syndication?.zillow);
+    if (!zillow) {
+      return { found: true, zillow: { enabled: false, status: null, sentAt: null, reasons: [] } };
+    }
+    return {
+      found: true,
+      zillow: {
+        enabled: zillow.enabled === true,
+        status: typeof zillow.status === "string" ? zillow.status : null,
+        sentAt: typeof zillow.sentAt === "string" ? zillow.sentAt : null,
+        reasons: Array.isArray(zillow.reasons) ? zillow.reasons.filter((r): r is string => typeof r === "string") : [],
+      },
+    };
+  },
+});
+
 export type DraftPropertyFields = {
   title: string;
   address: string;

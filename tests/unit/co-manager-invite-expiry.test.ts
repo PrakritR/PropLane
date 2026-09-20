@@ -35,19 +35,32 @@ describe("teamInvitePendingExpiryLabel", () => {
   });
 });
 
-describe("the panel no longer claims an invite was sent when nothing was", () => {
-  const PANEL = readFileSync(
-    join(process.cwd(), "src/components/portal/pro-account-links-panel.tsx"),
+/**
+ * PRP-205's fix lived in the old three-path invite chooser (mint on open, a
+ * "Don't message team member" checkbox, a "Continue" step). That chooser is
+ * gone — `docs/agents/co-manager-access.md` "The invite sheet
+ * (`workspace-invite-sheet.tsx`) is the one manager invite surface" — and with
+ * it the case this block used to guard: an invite created with nobody told.
+ * The new sheet always attempts a real send (email/SMS/code) and never shows
+ * a success toast without checking the result, so the equivalent guard now
+ * lives on the sheet's send path. Behavioral coverage:
+ * `tests/unit/workspace-invite-sheet.test.tsx` ("a failed text toasts the
+ * real reason ... rather than pretending to send").
+ */
+describe("the invite sheet no longer claims a send succeeded when it failed", () => {
+  const SHEET = readFileSync(
+    join(process.cwd(), "src/components/portal/workspace-invite-sheet.tsx"),
     "utf8",
   );
 
-  it("says what actually happened, and what the invitee must do", () => {
-    expect(PANEL).toContain("Invite created, but nothing was sent.");
-    expect(PANEL).not.toContain('"Invite sent. Waiting for their approval."');
+  it("a failed text reports the real reason and offers the fallback, never a canned 'sent' toast", () => {
+    expect(SHEET).toContain("if (!smsResult.ok)");
+    expect(SHEET).toContain("Copy the link and send it yourself instead.");
   });
 
-  it("the local-link path says it too", () => {
-    expect(PANEL).toContain("Nothing was sent — tell them to open PropLane → Co-managers.");
+  it("a failed email delivery is reported before any success toast can fire", () => {
+    expect(SHEET).toContain("if (!result.ok) {");
+    expect(SHEET).toContain("showToast(result.message);");
   });
 });
 
