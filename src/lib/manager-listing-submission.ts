@@ -504,7 +504,11 @@ export type ManagerSharedSpaceSubmission = {
   photoDataUrls: string[];
   /** Optional shared-space video shown in listing details. */
   videoDataUrl?: string | null;
-  /** Rooms with access (same room may have access to multiple shared spaces). */
+  /**
+   * Rooms with access (same room may have access to multiple shared spaces).
+   * Empty means Everyone, and a list naming every current room reads the
+   * same; the encoding lives in `src/lib/listing-shared-space-access.ts`.
+   */
   roomAccessIds: string[];
 };
 
