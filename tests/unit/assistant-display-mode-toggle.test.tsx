@@ -86,6 +86,7 @@ describe("assistant display mode", () => {
     await waitFor(() => expect(fab()).not.toBeNull());
     expect(rail()).toBeNull();
     expect(dock()).toBeNull();
+    expect(screen.queryByLabelText("Expand PropLane Assistant")).toBeNull();
   });
 
   it("toggles the popup closed when Ask PropLane is clicked again", async () => {
@@ -158,7 +159,7 @@ describe("assistant display mode", () => {
     expect(readAssistantDisplayMode(USER)).toBe("popup");
   });
 
-  it("collapses the dock rail to a narrow strip like the left sidebar", async () => {
+  it("collapses the dock rail without reserving a white strip", async () => {
     renderPortal();
     fireEvent.click(askPropLane());
     fireEvent.click(await screen.findByLabelText("Pin PropLane Assistant to the right side"));
@@ -166,8 +167,9 @@ describe("assistant display mode", () => {
 
     fireEvent.click(screen.getByLabelText("Collapse PropLane Assistant"));
     await waitFor(() => expect(dock()).toBeNull());
-    expect(rail()!.className).toContain("w-[58px]");
+    expect(rail()).toBeNull();
     expect(screen.getByLabelText("Expand PropLane Assistant")).toBeTruthy();
+    expect(document.querySelector('[data-attr="portal-assistant-dock-expand"]')?.closest("header")).not.toBeNull();
 
     fireEvent.click(screen.getByLabelText("Expand PropLane Assistant"));
     await waitFor(() => expect(dock()).not.toBeNull());
@@ -182,10 +184,15 @@ describe("assistant display mode", () => {
     await waitFor(() => expect(rail()).not.toBeNull());
     expect(readAssistantDisplayMode(USER)).toBe("docked");
 
-    // A reload reads the stored preference back.
+    // A reload reads the stored preference back. The harness remounts with
+    // the default collapsed cookie, so the docked choice must still be on
+    // (expand control in the top bar) even when the panel itself is folded.
     first.unmount();
     renderPortal();
-    await waitFor(() => expect(rail()).not.toBeNull());
+    await waitFor(() =>
+      expect(screen.getByLabelText("Expand PropLane Assistant")).toBeTruthy(),
+    );
+    expect(rail()).toBeNull();
     expect(
       await screen.findByRole("radio", { name: /Pinned to the right/ }),
     ).toHaveProperty("ariaChecked", "true");
