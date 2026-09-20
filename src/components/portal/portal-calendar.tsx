@@ -229,6 +229,7 @@ function PortalCalendarManager({
     [availabilityCopySourcePropertyId, managerProperties, activeCalendarPropertyFilters],
   );
   const [weekActionsHost, setWeekActionsHost] = useState<HTMLDivElement | null>(null);
+  const [weekPrimaryActionHost, setWeekPrimaryActionHost] = useState<HTMLDivElement | null>(null);
 
   const soleCalendarPropertyId = calendarEditingPropertyId;
 
@@ -617,14 +618,19 @@ function PortalCalendarManager({
   */
   const calendarSettingsButton = null;
 
+  // One band, in order: Filter · Availability · Share · + (PLAN-0920-1058 area
+  // 1d). "Availability" (the copy/clear/copy-to-houses menu, portaled from
+  // `PortalCalendarPanels`) folds in Google Calendar connect as an extra row
+  // so the persistent icon set never grows past four; "+" is the band's one
+  // primary, portaled separately so it always renders last, after Share.
   const calendarCommandActions =
     portal === "manager" ? (
       <>
         {calendarFilterSheet}
         {calendarSettingsButton}
-        {calendarGoogleCalendarButton}
-        {calendarShareTourButton}
         <div ref={setWeekActionsHost} className="flex items-center" data-slot="calendar-week-actions-host" />
+        {calendarShareTourButton}
+        <div ref={setWeekPrimaryActionHost} className="flex items-center" data-slot="calendar-primary-action-host" />
       </>
     ) : null;
 
@@ -751,6 +757,8 @@ function PortalCalendarManager({
             }
             compactAvailability
             weekActionsHost={weekActionsHost}
+            weekPrimaryActionHost={weekPrimaryActionHost}
+            extraAvailabilityAction={calendarGoogleCalendarButton}
             availabilityHeading={
               portal === "manager"
                 ? schedulingHub && availabilityView

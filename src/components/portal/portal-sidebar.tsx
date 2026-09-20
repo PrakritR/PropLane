@@ -544,29 +544,40 @@ export function PortalSidebar({
     const ordered = orderNativeBottomNavItems(navItems, definition.kind);
     return ordered
       .filter((item) => !isHiddenFromMobileNav(definition.kind, item.section))
-      .flatMap((item) =>
+      .map((item) =>
         item.subItems?.length
-          ? item.subItems.map((sub) => ({
+          ? {
+              // A section with sub-tabs (Payments) nests them under its own
+              // row — the sheet used to flatten these into separate top-level
+              // rows ("Incoming", "Outgoing") that lost the "Payments"
+              // context the desktop sidebar keeps (PLAN-0920-1058 area 1d).
               section: item.section,
-              sectionTabId: sub.sectionTabId,
-              label: sub.label,
-              href: sub.href,
+              label: item.label,
+              href: item.href,
               locked: isSectionLocked(item.section),
               lockedNavigable: isSectionLockNavigable(item.section),
               count: navCounts[item.section] ?? 0,
               countTone: portalNavCountTone(item.section),
-            }))
-          : [
-              {
+              subItems: item.subItems.map((sub) => ({
                 section: item.section,
-                label: item.label,
-                href: item.href,
+                sectionTabId: sub.sectionTabId,
+                label: sub.label,
+                href: sub.href,
                 locked: isSectionLocked(item.section),
                 lockedNavigable: isSectionLockNavigable(item.section),
                 count: navCounts[item.section] ?? 0,
                 countTone: portalNavCountTone(item.section),
-              },
-            ],
+              })),
+            }
+          : {
+              section: item.section,
+              label: item.label,
+              href: item.href,
+              locked: isSectionLocked(item.section),
+              lockedNavigable: isSectionLockNavigable(item.section),
+              count: navCounts[item.section] ?? 0,
+              countTone: portalNavCountTone(item.section),
+            },
       );
   }, [navItems, definition.kind, navCounts, isSectionLocked, isSectionLockNavigable]);
 

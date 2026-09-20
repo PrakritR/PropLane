@@ -83,7 +83,7 @@ export function PortalAssistantDockRail({
           <AssistantDockPanel
             managerName={managerName}
             onCollapse={toggleAssistantDock}
-            onUndockToPopup={undockToPopup}
+            onClose={undockToPopup}
             inputId={ASSISTANT_DOCK_INPUT_ID}
             className="h-full"
           />

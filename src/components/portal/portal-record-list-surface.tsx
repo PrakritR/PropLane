@@ -113,8 +113,11 @@ export function PortalRecordListSurface({
     : null;
   /*
    * What an empty tab shows: the caller's card (`emptyCard`), or the caller's
-   * own `empty` node with the add action as a real button beneath it, or a
-   * card built from `add` alone. Never the dashed box.
+   * own `empty` node, or a card titled from `add` alone. Never the dashed box,
+   * and never a second labeled Add button here — the band's + (or a page with
+   * no band, its own primary) is already the one way to add, so an empty card
+   * keeps only its title and any caller-supplied non-add actions (PLAN-0920-1058
+   * area 1d, "1a · The list page" § header icon set).
    */
   const emptyBody = !isEmpty ? null : emptyCard ? (
     <PortalListEmptyCard
@@ -123,29 +126,15 @@ export function PortalRecordListSurface({
       tone={emptyCard.tone}
       clear={emptyCard.clear}
       sibling={emptyCard.sibling}
-      actions={emptyCard.actions ?? (addAction ? [addAction] : [])}
+      actions={emptyCard.actions ?? []}
     />
   ) : empty ? (
-    <div>
-      {empty}
-      {addAction ? (
-        <div className="mt-3 flex justify-center">
-          <Button
-            type="button"
-            className="rounded-full"
-            onClick={addAction.onClick}
-            disabled={addAction.disabled}
-            data-attr={addAction.dataAttr}
-          >
-            {addAction.label}
-          </Button>
-        </div>
-      ) : null}
-    </div>
+    <div>{empty}</div>
   ) : addAction ? (
     // A list that reaches here with only an add label still gets the one card,
-    // titled off that label ("Add lease" → "No leases yet") — never a generic line.
-    <PortalListEmptyCard title={portalEmptyTitleFromAddLabel(addAction.label)} actions={[addAction]} />
+    // titled off that label ("Add lease" → "No leases yet") — never a generic
+    // line, and never its own Add button beneath the title.
+    <PortalListEmptyCard title={portalEmptyTitleFromAddLabel(addAction.label)} />
   ) : null;
   return (
     <RowSelectionModeContext.Provider value={selectable ? false : null}>

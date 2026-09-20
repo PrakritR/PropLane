@@ -1,13 +1,107 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
-import { Search } from "lucide-react";
+import { Children, Fragment, isValidElement, useEffect, useRef, type ReactElement, type ReactNode } from "react";
+import {
+  BookOpen,
+  CalendarClock,
+  CalendarOff,
+  CalendarPlus,
+  Copy,
+  Phone,
+  Search,
+  Settings2,
+  Share2,
+  SlidersHorizontal,
+  Wrench,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { DestinationNav, type DestinationNavItem } from "@/components/ui/destination-nav";
 import { HorizontalScrollCapture, HORIZONTAL_SCROLL_ATTR } from "@/components/portal/portal-horizontal-scroll";
 import { usePublishTitleActions } from "@/components/portal/portal-title-actions-slot";
 import { syncPortalMobileTopChrome } from "@/lib/portal-mobile-top-chrome";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { cn } from "@/lib/utils";
+
+/**
+ * The list command band's whole icon vocabulary (`docs/portal-list-section-layout.md`
+ * § "Command bar: icons only, one filled primary") — Filter · Settings ·
+ * Share · Copy are the common case, the rest are the section-specific glyphs
+ * already documented there (Calendar's Availability included).
+ */
+const PORTAL_LIST_BAND_ALLOWED_ICONS = new Set<LucideIcon>([
+  SlidersHorizontal, // Filter
+  Settings2, // Settings / Defaults
+  Share2, // Share link
+  Copy, // Copy link
+  CalendarPlus, // Add availability
+  CalendarOff, // Block dates
+  BookOpen, // Vendor catalog
+  Wrench, // Payment setup
+  Phone, // Set up messaging
+  CalendarClock, // Availability (Calendar band)
+]);
+
+/** `Add <noun>` — the one accessible-name shape a list band's primary uses. */
+export function portalListAddPrimaryLabel(nounLabel: string): string {
+  return `Add ${nounLabel}`;
+}
+
+/** Flatten Fragments/arrays into a flat list of real elements, same shape as record-action-menu's leaf walk. */
+function flattenBandChildren(node: ReactNode): ReactElement[] {
+  const out: ReactElement[] = [];
+  Children.forEach(node, (child) => {
+    if (!isValidElement(child)) return;
+    if (child.type === Fragment || child.type === "div") {
+      out.push(...flattenBandChildren((child.props as { children?: ReactNode }).children));
+      return;
+    }
+    out.push(child);
+  });
+  return out;
+}
+
+/**
+ * Dev-only contract check for the list command band: only the documented
+ * icon vocabulary, never a visibly labeled pill, never a ✕, and the primary's
+ * accessible name reads "Add <noun>". This reports rather than throws —
+ * several shipped panels (Properties' primary still says "Create", the
+ * vendor catalog toolbar still has a ✕) have not adopted the rule yet, and a
+ * throwing assertion would crash their render instead of just naming the gap
+ * for the worker that owns that file to fix.
+ */
+function assertPortalListBandContract(filterRow: ReactNode, actions: ReactNode, primary: ReactNode) {
+  if (process.env.NODE_ENV === "production") return;
+  for (const leaf of [...flattenBandChildren(filterRow), ...flattenBandChildren(actions)]) {
+    if (leaf.type === PortalIconAction) {
+      const icon = (leaf.props as { icon?: LucideIcon }).icon;
+      if (icon === X) {
+        console.error("[portal-list-control-stack] a list band never draws a ✕ — found one in filterRow/actions.");
+      } else if (icon && !PORTAL_LIST_BAND_ALLOWED_ICONS.has(icon)) {
+        console.error(
+          `[portal-list-control-stack] an icon outside the documented list-band vocabulary reached filterRow/actions: ${icon.displayName ?? icon.name ?? "unknown icon"} (docs/portal-list-section-layout.md).`,
+        );
+      }
+      continue;
+    }
+    const props = leaf.props as { children?: ReactNode };
+    const visibleText = typeof props.children === "string" ? props.children.trim() : "";
+    if (visibleText && (leaf.type === "button" || leaf.type === "a")) {
+      console.error(
+        `[portal-list-control-stack] a labeled pill ("${visibleText}") reached the list band — utilities are icon-only (PortalIconAction).`,
+      );
+    }
+  }
+  if (isValidElement(primary) && primary.type === PortalPrimaryIconAction) {
+    const label = (primary.props as { label?: string }).label ?? "";
+    if (!/^Add\s/i.test(label)) {
+      console.error(
+        `[portal-list-control-stack] the band's primary accessible name is "${label}" — it must read "Add <noun>" (portalListAddPrimaryLabel).`,
+      );
+    }
+  }
+}
 
 /**
  * Appendix F — Communication-style list chrome (exactly three bands above data):
@@ -71,6 +165,7 @@ export function PortalListControlStack({
    */
   primary?: ReactNode;
 }) {
+  assertPortalListBandContract(filterRow, actions, primary);
   const showDestinations = Boolean(destinationRow) || (destinations && destinations.length > 0);
   const showFindRow = Boolean(filterRow || search);
   const destinationRef = useRef<HTMLDivElement>(null);
