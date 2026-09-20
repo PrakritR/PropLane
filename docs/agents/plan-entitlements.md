@@ -173,6 +173,22 @@ subscription) and reported back by `GET /api/manager/subscription` as
 The Adjust sheet reuses this existing plumbing rather than inventing a second
 scheduling mechanism.
 
+## Workspaces, work numbers and seats
+
+`WORKSPACE_PLAN_ENTITLEMENTS` (`src/lib/workspaces/types.ts`) is the third axis:
+Free 1 workspace, Pro 1, **Business 2** (PLAN-0920; previously 3).
+`loadWorkspacePlan` (`src/lib/workspaces/server.ts`) never strands an existing
+account below what it already owns — `workspaceLimit` is
+`max(plan cap + purchased extra_workspace, the account's current owned
+workspace count)`, so a Business account already holding 3 keeps all 3 and can
+still edit, add houses to, and manage every one of them; it just cannot open a
+4th without the add-on. `includedWorkNumbers(tier, workspaceCount)`
+(`src/lib/plan-addons.ts`) is Pro 1 regardless of workspace count, Business one
+per workspace, Free none; every workspace holds at most 2 numbers
+(`maxWorkNumbersForWorkspaces`). See [comms-billing.md § Add-ons](comms-billing.md)
+for the extra-workspace, extra-work-number and extra-seat add-ons and how
+`ensureAddonPrice` keeps every add-on always purchasable.
+
 ## Admin Billing (staff view + per-account overrides)
 
 `/admin/billing` is a LENS on the accounts already in `/admin/axis-users`, not a

@@ -1,6 +1,9 @@
 /** Shared copy for manager Plan page and public partner pricing — keep amounts aligned with `MANAGER_TIER_MONTHLY_USD`. */
 
 import { commsAllowanceFeatureText } from "@/lib/comms-billing/allowances";
+import { WORKSPACE_PLAN_ENTITLEMENTS } from "@/lib/workspaces/types";
+
+const BUSINESS_WORKSPACES = WORKSPACE_PLAN_ENTITLEMENTS.business.workspaces;
 
 export type PlanTierId = "free" | "pro" | "business";
 
@@ -93,7 +96,7 @@ export const MANAGER_PLAN_TIERS: ManagerPlanTierDefinition[] = [
       { text: "Payment collection & charges", included: true },
       { text: "Residents, leases & services", included: true },
       { text: "Inbox & up to 20 co-managers", included: true },
-      { text: "3 workspaces, a work number in each", included: true },
+      { text: `${BUSINESS_WORKSPACES} workspaces, a work number in each`, included: true },
       { text: commsAllowanceFeatureText("business"), included: true },
       { text: "Processing fees separate; account approval required for coverage", included: true },
       { text: "Priority admin support", included: true },

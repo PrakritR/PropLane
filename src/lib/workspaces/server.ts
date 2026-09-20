@@ -207,13 +207,16 @@ export async function loadWorkspacePlan(
   const extra = addons.ok ? addons.quantities : EMPTY_PLAN_ADDON_QUANTITIES;
   const planPropertyLimit = unknown ? null : maxPropertiesForManagerTier(tier);
   const planTeamLimit = unknown ? null : maxAccountLinksForTier(tier);
+  // A legacy account with no committed plan keeps the database ceiling.
+  const computedWorkspaceLimit = entitlements
+    ? Math.min(entitlements.workspaces + addonUnitsForCap(extra, "extra_workspace", tier), WORKSPACE_LIMIT)
+    : WORKSPACE_LIMIT;
   return {
     tier,
     unknown,
-    // A legacy account with no committed plan keeps the database ceiling.
-    workspaceLimit: entitlements
-      ? Math.min(entitlements.workspaces + addonUnitsForCap(extra, "extra_workspace", tier), WORKSPACE_LIMIT)
-      : WORKSPACE_LIMIT,
+    // Grandfathered: a plan cap (e.g. Business 3 -> 2, PLAN-0920) never
+    // strands a workspace the account already owns.
+    workspaceLimit: Math.max(computedWorkspaceLimit, owned.length),
     propertyLimit: planPropertyLimit === null ? null : planPropertyLimit + addonUnitsForCap(extra, "extra_listing", tier),
     recordsPerWorkspace: WORKSPACE_PROPERTY_LIMIT,
     teamLimit: planTeamLimit === null ? null : planTeamLimit + addonUnitsForCap(extra, "extra_seat", tier),

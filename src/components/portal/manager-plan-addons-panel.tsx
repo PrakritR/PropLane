@@ -2,16 +2,21 @@
 
 import Link from "next/link";
 import { Minus, Plus } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalSettingsGroup, PortalSettingsRow, PortalSettingsSection } from "@/components/portal/portal-settings-ui";
 import { Button } from "@/components/ui/button";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
 import { formatAddonPrice, type PlanAddonId } from "@/lib/plan-addons";
-import { cn } from "@/lib/utils";
 
 const ENDPOINT = "/api/manager/plan-addons";
+
+/** The fact that follows the per-unit price on each add-on's row label (PLAN-0920 UI mock). */
+const ADDON_ROW_FACT: Partial<Record<PlanAddonId, string>> = {
+  extra_work_number: "up to 2 per workspace",
+  extra_workspace: "includes a work number",
+};
 
 type AddonRow = {
   id: PlanAddonId;
@@ -31,18 +36,31 @@ type AddonsPayload = {
   monthlyTotalCents: number;
 };
 
+function quantitiesOf(addons: AddonRow[]): Partial<Record<PlanAddonId, number>> {
+  return Object.fromEntries(addons.map((a) => [a.id, a.quantity]));
+}
+
+function formatSignedAddonPrice(cents: number): string {
+  return cents < 0 ? `-${formatAddonPrice(-cents)}` : `+${formatAddonPrice(cents)}`;
+}
+
 /**
- * Settings → Billing & plan → Add-ons. One row per add-on with the price for
- * this plan and an Add / Remove stepper; Free sees the prices and an upgrade
- * link instead of steppers. Quantities are set server-side, which validates
- * the plan, the cap and the Stripe subscription item before anything is
- * written — the row here only ever reflects what the server answered.
+ * Settings → Billing & plan → Add-ons. Steppers only ever change LOCAL draft
+ * state; nothing is sent to the server until Buy (PLAN-0920). A banner
+ * appears the moment any row differs from what the account already holds,
+ * with the combined monthly delta, and one Buy commits every changed row as
+ * a single prorated batch — quantities are re-read from that response, never
+ * assumed from the click. Free sees the prices and an upgrade link instead
+ * of steppers. Add-ons are always purchasable: a row is never disabled for a
+ * missing Stripe price (the server creates one from the catalog before the
+ * first charge) — only at a real plan/workspace cap.
  */
 export function ManagerPlanAddonsPanel() {
   const { isNative } = useIsNativeApp();
   const [data, setData] = useState<AddonsPayload | null>(null);
+  const [draft, setDraft] = useState<Partial<Record<PlanAddonId, number>>>({});
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<PlanAddonId | null>(null);
+  const [buying, setBuying] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const mounted = useRef(true);
 
@@ -53,6 +71,7 @@ export function ManagerPlanAddonsPanel() {
       if (!response.ok) throw new Error(body.error || "We couldn’t load your add-ons.");
       if (!mounted.current) return;
       setData(body);
+      setDraft(quantitiesOf(body.addons));
       setError(null);
     } catch (e) {
       if (mounted.current) setError(e instanceof Error ? e.message : "We couldn’t load your add-ons.");
@@ -67,30 +86,56 @@ export function ManagerPlanAddonsPanel() {
     };
   }, [load]);
 
-  const setQuantity = async (row: AddonRow, quantity: number) => {
-    setBusy(row.id);
+  const step = (row: AddonRow, delta: number) => {
+    setDraft((prev) => {
+      const current = prev[row.id] ?? row.quantity;
+      const max = row.maxQuantity ?? 100;
+      return { ...prev, [row.id]: Math.max(0, Math.min(max, current + delta)) };
+    });
+  };
+
+  // Rows whose local draft differs from the account's committed quantity —
+  // exactly what Buy will send, and what drives the banner and its delta.
+  const changes = useMemo(() => {
+    if (!data) return [];
+    return data.addons
+      .filter((row) => (draft[row.id] ?? row.quantity) !== row.quantity)
+      .map((row) => ({ addonId: row.id, quantity: draft[row.id] ?? row.quantity }));
+  }, [data, draft]);
+
+  const deltaCents = useMemo(() => {
+    if (!data) return 0;
+    return changes.reduce((sum, change) => {
+      const row = data.addons.find((a) => a.id === change.addonId);
+      return row ? sum + (change.quantity - row.quantity) * row.monthlyCents : sum;
+    }, 0);
+  }, [data, changes]);
+
+  const buy = async () => {
+    if (!changes.length) return;
+    setBuying(true);
     setNotice(null);
     try {
       const response = await fetch(ENDPOINT, {
-        method: "POST",
+        method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ addonId: row.id, quantity }),
+        body: JSON.stringify({ changes }),
       });
       const body = (await response.json()) as AddonsPayload & { error?: string; stripeSynced?: boolean };
-      if (!response.ok) throw new Error(body.error || "We couldn’t update that add-on.");
+      if (!response.ok) throw new Error(body.error || "We couldn’t update your add-ons. Nothing changed.");
       if (!mounted.current) return;
+      // Quantities always come back from the server response — never assumed
+      // from what was clicked — so an all-or-nothing Stripe failure or a
+      // partial catch-up on reload never drifts from what was actually billed.
       setData(body);
+      setDraft(quantitiesOf(body.addons));
       setError(null);
-      setNotice(
-        quantity > row.quantity
-          ? `${row.label} added. Your next invoice includes it${body.stripeSynced ? ", prorated from today" : ""}.`
-          : `${row.label} removed${body.stripeSynced ? "; the unused part of this month is credited" : ""}.`,
-      );
+      setNotice(`Add-ons updated${body.stripeSynced ? ", prorated from today" : ""}.`);
     } catch (e) {
-      if (mounted.current) setNotice(e instanceof Error ? e.message : "We couldn’t update that add-on.");
+      if (mounted.current) setNotice(e instanceof Error ? e.message : "We couldn’t update your add-ons. Nothing changed.");
     } finally {
-      if (mounted.current) setBusy(null);
+      if (mounted.current) setBuying(false);
     }
   };
 
@@ -133,15 +178,17 @@ export function ManagerPlanAddonsPanel() {
           ) : null}
           <PortalSettingsGroup>
             {data.addons.map((row) => {
-              const atCap = row.maxQuantity !== null && row.quantity >= row.maxQuantity;
+              const quantity = draft[row.id] ?? row.quantity;
+              const atCap = row.maxQuantity !== null && quantity >= row.maxQuantity;
+              const fact = ADDON_ROW_FACT[row.id];
               return (
                 <PortalSettingsRow
                   key={row.id}
                   label={
-                    <span className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="flex flex-wrap items-baseline gap-x-1">
                       {row.label}
                       <span className="text-[12.5px] font-normal text-muted">
-                        {formatAddonPrice(row.monthlyCents)}/mo each
+                        {` · ${formatAddonPrice(row.monthlyCents)}/mo each${fact ? ` · ${fact}` : ""}`}
                       </span>
                     </span>
                   }
@@ -151,34 +198,23 @@ export function ManagerPlanAddonsPanel() {
                       <button
                         type="button"
                         aria-label={`Remove one ${row.unit}`}
-                        disabled={busy !== null || row.quantity === 0 || !row.purchasable}
-                        title={!row.purchasable ? "Not available for purchase yet" : undefined}
-                        onClick={() => void setQuantity(row, row.quantity - 1)}
-                        className={cn(
-                          "grid size-9 place-items-center rounded-full border border-border bg-card text-foreground transition hover:border-primary/40 disabled:opacity-40",
-                        )}
+                        disabled={buying || quantity === 0}
+                        onClick={() => step(row, -1)}
+                        className="grid size-9 place-items-center rounded-full border border-border bg-card text-foreground transition hover:border-primary/40 disabled:opacity-40"
                         data-attr={`plan-addon-${row.id}-remove`}
                       >
                         <Minus className="size-4" aria-hidden />
                       </button>
                       <span className="w-8 text-center text-sm font-semibold tabular-nums" data-attr={`plan-addon-${row.id}-quantity`}>
-                        {row.quantity}
+                        {quantity}
                       </span>
                       <button
                         type="button"
                         aria-label={`Add one ${row.unit}`}
-                        disabled={busy !== null || atCap || !row.purchasable}
-                        title={
-                          !row.purchasable
-                            ? "Not available for purchase yet"
-                            : atCap
-                              ? `Your plan can hold up to ${row.maxQuantity} of these`
-                              : undefined
-                        }
-                        onClick={() => void setQuantity(row, row.quantity + 1)}
-                        className={cn(
-                          "grid size-9 place-items-center rounded-full border border-border bg-card text-foreground transition hover:border-primary/40 disabled:opacity-40",
-                        )}
+                        disabled={buying || atCap}
+                        title={atCap ? `Your plan can hold up to ${row.maxQuantity} of these` : undefined}
+                        onClick={() => step(row, 1)}
+                        className="grid size-9 place-items-center rounded-full border border-border bg-card text-foreground transition hover:border-primary/40 disabled:opacity-40"
                         data-attr={`plan-addon-${row.id}-add`}
                       >
                         <Plus className="size-4" aria-hidden />
@@ -191,6 +227,19 @@ export function ManagerPlanAddonsPanel() {
               );
             })}
           </PortalSettingsGroup>
+          {canEdit && changes.length > 0 ? (
+            <div
+              className="flex items-center justify-between gap-3 rounded-xl bg-muted/30 px-4 py-2.5"
+              data-attr="plan-addons-commit-banner"
+            >
+              <span className="text-sm text-muted" data-attr="plan-addons-delta">
+                {formatSignedAddonPrice(deltaCents)}/mo from today, prorated
+              </span>
+              <Button onClick={buy} loading={buying} data-attr="plan-addons-buy">
+                Buy
+              </Button>
+            </div>
+          ) : null}
           {notice ? (
             <p role="status" className="text-sm text-muted" data-attr="plan-addons-notice">
               {notice}

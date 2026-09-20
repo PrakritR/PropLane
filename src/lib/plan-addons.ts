@@ -112,10 +112,37 @@ export function planAddonsMonthlyTotalCents(tier: PaidPlanTier, quantities: Plan
  * Work numbers a plan includes before add-ons. Free has none; Pro one; on
  * Business every workspace comes with its own line.
  */
-export function includedWorkNumbersForTier(tier: string | null | undefined, workspaceCount: number): number {
+export function includedWorkNumbers(tier: string | null | undefined, workspaceCount: number): number {
   if (tier === "pro") return 1;
   if (tier === "business") return Math.max(1, workspaceCount);
   return 0;
+}
+
+/**
+ * Every workspace holds at most 2 work numbers (1 included + 1 extra, or on
+ * Pro's single workspace 1 included + 1 extra too). Pure of any table read so
+ * both the panel's displayed cap and the route's write-time validation share
+ * one answer.
+ */
+export function maxWorkNumbersForWorkspaces(totalWorkspaces: number): number {
+  return Math.max(0, totalWorkspaces) * 2;
+}
+
+/** The `extra_work_number` quantity a plan may hold once `totalWorkspaces` (included + `extra_workspace`) is known. */
+export function maxExtraWorkNumberQuantity(tier: string | null | undefined, totalWorkspaces: number): number {
+  return Math.max(0, maxWorkNumbersForWorkspaces(totalWorkspaces) - includedWorkNumbers(tier, totalWorkspaces));
+}
+
+/**
+ * The `extra_workspace` quantity a plan may hold: the product cap from the
+ * catalog (Pro: up to 2, i.e. 3 total; Business: no product cap) narrowed by
+ * the database ceiling so a purchase can never promise more than
+ * `create_portal_workspace_with_limit` will actually create.
+ */
+export function maxExtraWorkspaceQuantity(tier: PaidPlanTier, includedWorkspaces: number, workspaceLimit: number): number {
+  const productCap = planAddon("extra_workspace").maxQuantity[tier];
+  const ceiling = Math.max(0, workspaceLimit - includedWorkspaces);
+  return productCap === null ? ceiling : Math.min(productCap, ceiling);
 }
 
 /** The Stripe Price id for one add-on on one plan, from env; ignores non-`price_` values. */
@@ -123,6 +150,16 @@ export function stripePriceIdForPlanAddon(id: PlanAddonId, tier: PaidPlanTier): 
   const key = `STRIPE_PRICE_ADDON_${id.toUpperCase()}_${tier.toUpperCase()}`;
   const raw = process.env[key]?.trim();
   return raw?.startsWith("price_") ? raw : undefined;
+}
+
+/**
+ * The Stripe lookup_key an auto-created Price (and its Product, given the same
+ * value as an explicit id) is filed under — stable across restarts so
+ * `ensureAddonPrice` never creates a duplicate. Never change the format
+ * without a migration: it is how an existing Price is found again.
+ */
+export function planAddonLookupKey(id: PlanAddonId, tier: PaidPlanTier): string {
+  return `proplane_addon_${id}_${tier}`;
 }
 
 export function formatAddonPrice(cents: number): string {
