@@ -14,6 +14,9 @@ const scheduleWrite = vi.fn(async () => true);
 const scheduleSync = vi.fn(async () => true);
 
 vi.mock("@/components/providers/app-ui-provider", () => ({ useAppUi: () => ({ showToast: vi.fn() }) }));
+vi.mock("@/components/portal/pro-task-form-modal", () => ({
+  ManagerTaskFormModal: () => <div data-testid="manager-task-form" />,
+}));
 vi.mock("@/lib/rental-application/data", () => ({ getPropertyById: () => undefined }));
 vi.mock("@/lib/manager-calendar-tour-meetings", () => ({ buildScheduledTourMeetings: () => [] }));
 vi.mock("@/lib/demo-admin-scheduling", async (importOriginal) => {
@@ -117,6 +120,7 @@ describe("vendor calendar navigation", () => {
       if (mode === "day") expect(document.querySelectorAll('[data-slot="calendar-day-header"]')).toHaveLength(1);
       if (mode === "week") expect(document.querySelectorAll('[data-slot="calendar-week-date"]')).toHaveLength(7);
       if (mode === "month") expect(document.querySelectorAll('[data-slot="calendar-month-grid"] button')).toHaveLength(31);
+      expect(screen.queryByTestId("manager-task-form")).toBeNull();
       unmount();
     }
   });

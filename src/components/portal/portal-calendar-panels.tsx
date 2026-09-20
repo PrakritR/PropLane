@@ -3966,7 +3966,7 @@ export function PortalCalendarPanels({
         />
       </Modal>
       {selectedBlockModal}
-      {userId ? (
+      {userId && !isVendorViewer && !readOnly ? (
         <ManagerTaskFormModal
           open={taskFormOpen}
           onClose={() => {
