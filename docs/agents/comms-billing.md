@@ -40,9 +40,12 @@ quantity is written; without the Price the Add button is disabled ("not availabl
 purchase yet"). Comp and admin grants record quantities without Stripe.
 
 Annual subscriptions receive the same monthly credit. Credit resets on the first of
-each month at 00:00 UTC. Existing managers keep their higher current allowance during
-the migration month; the new allowance starts next reset. An upgrade adds only the
-positive allowance difference once; downgrades take effect at the next reset.
+each month at 00:00 UTC. The one-month migration grace that let an existing manager
+keep a higher legacy allowance has ended (PLAN-0920-1400): `wallet.server.ts`'s
+`legacyAllowanceCentsForTier` now equals the plan's own `includedAllowanceCents`, so
+`greatest(allowance, legacy)` in `comms_wallet_snapshot` is a no-op and the plan's own
+allowance always applies — a Business account reads exactly $100.00. An upgrade adds
+only the positive allowance difference once; downgrades take effect at the next reset.
 
 The paid allowance is 50% of monthly subscription price in **retail usage credit**,
 not provider cost. Rates include operational overhead; provider and carrier costs can
@@ -51,11 +54,14 @@ used only for that meter; Free spends only purchased packs. Incoming messages, v
 
 ## Purchases and stops
 
-Manual one-time packs: **$5, $10, $25, $50**. Purchased credit carries forward without
-expiry and is spent after included credit. A saved card never authorizes automatic
-recharge or overage. Insufficient credit blocks new outgoing SMS, calls and work-number
-AI. Incoming SMS is stored first and uses available credit only; unavoidable excess
-is absorbed by PropLane. Message history and the assigned number remain available.
+Credit is bought from **Settings → Billing & plan → Extra usage**: a typed whole-dollar
+amount from **$5 to $500** (default $20), not a fixed pack — `isValidCommsCreditAmountCents`
+in `credit-packs.ts` is the one bound the checkout route, `credit-purchase.server.ts`, and
+the webhook fulfillment all enforce. Purchased credit carries forward without expiry and
+is spent after included credit. A saved card never authorizes automatic recharge or
+overage. Insufficient credit blocks new outgoing SMS, calls and work-number AI. Incoming
+SMS is stored first and uses available credit only; unavoidable excess is absorbed by
+PropLane. Message history and the assigned number remain available.
 
 `COMMS_PAYG_BILLING_ENABLED=1` now enables **manual credit checkout only**. It defaults
 off until the migrations and signed Stripe webhook are available. The former
@@ -120,14 +126,20 @@ unreadable plans fail closed.
 
 The admin Billing list reads communication credit from `comms_wallet_snapshots`
 (`loadCommsWalletTotals`): one read-only round trip that runs the canonical snapshot
-per owner with `p_apply=false`, so staff see the preserved migration-month grant and
-unspent purchased packs exactly as the dispatcher does. Never derive a staff balance from
+per owner with `p_apply=false`, so staff see the same plan allowance and unspent
+purchased credit exactly as the dispatcher does. Never derive a staff balance from
 the plan table plus usage. An owner whose wallet cannot be computed shows "comms —".
 
 - `GET /api/manager/comms-billing`: read-only balance, usage, rates and recent purchases.
 - `PATCH /api/manager/comms-billing`: `{ monthlyBudgetCents }`, alert only. Cannot clear a pause.
-- `POST /api/manager/comms-billing/checkout`: server-priced pack and UUID operation id;
-  owner derives from authenticated manager context. Co-manager access grants no spending authority.
+- `POST /api/manager/comms-billing/checkout`: server-validated whole-dollar amount
+  ($5–$500) and UUID operation id; owner derives from authenticated manager context.
+  Co-manager access grants no spending authority.
+- `GET /api/manager/usage-summary`: read-only communication, listing, workspace, work-number
+  and co-manager usage for Settings → Billing & plan's Usage section (one summary read,
+  `resolveEffectiveManagerSkuTier` drives every cap).
+- `GET /api/manager/invoices`: read-only Stripe invoices plus credit-purchase receipts for
+  the Invoices table; every hosted URL is server-minted, never client-constructed.
 - Signed `/api/stripe/webhook`: exact paid amount, USD, purpose, checkout identity and
   owner checks before atomic credit fulfillment. Duplicate events grant once. Refunds
   reconcile cumulatively; disputes remove credit and pause for staff review. Won disputes
