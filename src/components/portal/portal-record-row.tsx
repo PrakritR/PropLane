@@ -288,11 +288,12 @@ export function PortalApplicantRecordRow({
   name,
   kind = "applicant",
   tileLabel,
-  // A person defaults to a round tile (leadingShape default per variant); a
-  // place's own row (PortalPropertyRecordRow) defaults to its existing
-  // rectangular photo instead — never forwarded to it as `rest`, since that
-  // wrapper's own clip is sized for a photo, not this tile.
-  leadingShape = "round",
+  // Every existing caller (residents, tours, applications, leases, vendors,
+  // bookings, payments) renders this tile with none opting into a shape, so
+  // the default must keep the pre-`leadingShape` look — the wide rounded
+  // square tile — rather than silently turning every one of them into a
+  // circular avatar. A caller wanting the round shape passes it explicitly.
+  leadingShape = "square",
   ...rest
 }: Omit<Parameters<typeof PortalPropertyRecordRow>[0], "title" | "leading" | "meta" | "leadingShape"> & {
   name: string;

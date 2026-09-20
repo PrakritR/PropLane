@@ -249,7 +249,7 @@ describe("ManagerPaymentsLedgerPanel", () => {
     expect(amount).toBeTruthy();
   });
 
-  it("keeps the dashed add row for the EMPTY ledger only — a populated list adds from the page head", () => {
+  it("never renders a second labeled Add here — the page band's icon action is the one way to add, empty or populated", () => {
     const { unmount } = render(
       <ManagerPaymentsLedgerPanel
         rows={[sampleRow()]}
@@ -270,7 +270,11 @@ describe("ManagerPaymentsLedgerPanel", () => {
         onAddPayment={() => undefined}
       />,
     );
-    expect(screen.getByRole("button", { name: /Add charge/i })).toBeTruthy();
+    // The empty card deliberately keeps only its title — the band's
+    // `PortalPrimaryIconAction` ("Add charge" in pro-payments.tsx) is the add
+    // affordance now, not a labeled button inside this panel.
+    expect(screen.queryByRole("button", { name: /Add charge/i })).toBeNull();
+    expect(screen.getByText("No charges yet")).toBeInTheDocument();
   });
 
   it("renders action menus on grouped charge rows", () => {
