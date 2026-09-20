@@ -23,6 +23,7 @@ import {
 } from "@/lib/inbox-message-timeline";
 import { ChevronDown, ChevronLeft, ChevronRight, Check, Clock, FileText, Paperclip, Plus, Send, Smile, Sparkles, X } from "lucide-react";
 import { PortalEmptyIcon, PortalEmptyState } from "@/components/portal/portal-empty-state";
+import { AssistantMarkdown } from "@/components/portal/assistant-markdown";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
@@ -1239,7 +1240,13 @@ export function InboxBubble({
               {message.subject}
             </p>
           ) : null}
-          <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message.body || " "}</p>
+          {assistant ? (
+            <div className="break-words [overflow-wrap:anywhere]">
+              <AssistantMarkdown text={message.body || " "} />
+            </div>
+          ) : (
+            <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message.body || " "}</p>
+          )}
           {message.attachments?.length ? (
             <div className="mt-2 flex flex-wrap gap-2">
               {message.attachments.map((att) => (
