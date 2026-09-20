@@ -1,11 +1,12 @@
 /**
- * The work number(s) a resident may text, for THEIR managers only.
+ * How a resident reaches THEIR managers: a phone and an email per manager.
  *
  * The caller never names a manager: it is derived server-side from the
  * resident's own tenancies, so this cannot be used to look up an arbitrary
- * manager's number. Only numbers confirmed sendable are returned — a number
- * that cannot receive a text is worse than none, because the resident texts it
- * and hears nothing.
+ * manager's details. The work number and work email lead when provisioned;
+ * otherwise the manager's own profile phone and account email fill in, so a
+ * resident whose manager has not set up a work line is still told how to
+ * reach them. A work number that cannot receive a text is never returned.
  */
 import { NextResponse } from "next/server";
 import { authorizeResidentRole } from "@/lib/auth/resident-role-access";
@@ -44,7 +45,9 @@ export async function GET() {
         contacts: contacts.map((contact) => ({
           managerName: contact.managerName,
           phone: contact.phone,
-          assistantEmail: contact.assistantEmail,
+          phoneKind: contact.phoneKind,
+          email: contact.email,
+          emailKind: contact.emailKind,
           propertyLabel: contact.propertyLabel,
           leaseStart: contact.leaseStart,
           leaseEnd: contact.leaseEnd,
@@ -54,6 +57,6 @@ export async function GET() {
       { headers: { "Cache-Control": "private, no-store" } },
     );
   } catch {
-    return NextResponse.json({ error: "Could not load your manager's number." }, { status: 500 });
+    return NextResponse.json({ error: "Could not load your manager's contact details." }, { status: 500 });
   }
 }

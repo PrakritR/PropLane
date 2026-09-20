@@ -6,7 +6,8 @@ import { CommunicationStatusFilterDraft, type CommunicationStatus } from "@/comp
 import { CommunicationRowActions } from "@/components/portal/communication-row-actions";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
-import { Button } from "@/components/ui/button";
+import { PenSquare } from "lucide-react";
+import { PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
 import { CommunicationInboxInitialState } from "@/components/portal/communication-inbox-initial-state";
 import { ResidentInboxPanel, type ResidentInboxPanelHandle } from "@/components/portal/resident-inbox-panel";
 import { RoleSmsPanel } from "@/components/portal/role-sms-panel";
@@ -20,7 +21,6 @@ import {
   type InboxListSegment,
 } from "@/components/portal/portal-inbox-ui";
 import { PortalCommunicationShell } from "@/components/portal/portal-communication-shell";
-import { PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { canonicalResidentAgentThreadId } from "@/lib/agent/resident-inbox-agent-ids";
 import {
   mergeUnifiedInboxItems,
@@ -107,6 +107,7 @@ function ResidentUnifiedInbox({
   onThreadSelectedChange,
   commBase,
   onAddConversation,
+  listActions,
   residentUserId,
 }: {
   inboxRef: React.RefObject<ResidentInboxPanelHandle | null>;
@@ -121,6 +122,8 @@ function ResidentUnifiedInbox({
   onThreadSelectedChange?: (selected: boolean) => void;
   commBase: string;
   onAddConversation?: () => void;
+  /** Icon actions drawn beside Search, the manager's toolbar shape. */
+  listActions?: React.ReactNode;
   residentUserId?: string | null;
 }) {
   const { userId, ready: sessionReady } = usePortalSession({ userId: residentUserId ?? null });
@@ -382,16 +385,27 @@ function ResidentUnifiedInbox({
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <ResidentManagerNumberCard />
       <div className={PORTAL_INBOX_LIST_TOOLBAR_CLASS}>
-        <div className="relative min-w-0">
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search messages"
-            aria-label="Search messages"
-            className="portal-inbox-search h-9 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
-            data-attr="resident-inbox-search"
-          />
+        {/* Search + the tools that act on the list, in one row — the same
+            shape as the manager's Communication (PLAN-0914-1345), so Filter
+            and New message are icon buttons beside the field rather than
+            text pills in the title band. */}
+        <div className="flex min-w-0 items-center gap-1">
+          <div className="relative min-w-0 flex-1">
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search messages"
+              aria-label="Search messages"
+              className="portal-inbox-search h-9 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
+              data-attr="resident-inbox-search"
+            />
+          </div>
+          {listActions ? (
+            <div className="flex shrink-0 items-center gap-0.5 [&_button]:shrink-0 [&_a]:shrink-0" data-attr="communication-list-actions">
+              {listActions}
+            </div>
+          ) : null}
         </div>
         {initialListReady && merged.length > 0 ? (
           <p className="hidden px-1 text-[11px] text-muted sm:block">
@@ -534,8 +548,10 @@ export function ResidentCommunication({
       activeCount={status === "active" ? 0 : 1}
       compactPanel
       filterFieldCount={1}
-      // Content width — see the note on the manager's sheet.
-      className="md:w-auto md:max-w-none"
+      constrainDropdownToTitleBand={false}
+      // The same plain filter glyph the manager's list row uses; the word
+      // lives in the tooltip and the active count in the accessible name.
+      commandStripTrigger
       mobileFlushBody
       dataAttr="resident-communication-filter-open"
     >
@@ -546,25 +562,18 @@ export function ResidentCommunication({
   const openCompose = () => inboxRef.current?.openCompose();
 
   const communicationNewMessageButton = (
-    <Button
-      type="button"
-      variant="primary"
-      className={PORTAL_HEADER_PRIMARY_ACTION_BTN}
+    <PortalPrimaryIconAction
+      icon={PenSquare}
+      label="New message"
       data-attr="communication-new-message"
-      aria-label="New message"
       onClick={openCompose}
-    >
-      <span className="sm:hidden" aria-hidden="true">
-        Message
-      </span>
-      <span className="hidden sm:inline">New message</span>
-    </Button>
+    />
   );
 
-  // Band-only shape: this aside is UNGATED, so it renders once at every
-  // breakpoint. Never pair it with a separate mobile actions row — that draws
-  // every control twice on a phone. Guarded by
-  // tests/unit/portal-inline-title-band-duplicate-controls.test.tsx.
+  // Both tools sit beside the list's own Search, inside the list card, on
+  // every breakpoint — never in the title band as well. One place means each
+  // control reaches a phone exactly once (guarded by
+  // tests/unit/portal-inline-title-band-duplicate-controls.test.tsx).
   const communicationCommandActions = (
     <>
       {communicationFilterSheet}
@@ -575,8 +584,6 @@ export function ResidentCommunication({
   return (
     <PortalCommunicationShell
       title="Inbox"
-
-      titleAside={communicationCommandActions}
       hideTitleOnMobileNav
       hideMobileFilterRow={threadOpen}
       mobileThreadReading={threadOpen}
@@ -594,7 +601,8 @@ export function ResidentCommunication({
         onThreadOpenChange={setThreadOpen}
         onThreadSelectedChange={setThreadSelected}
         commBase={commBase}
-        onAddConversation={() => inboxRef.current?.openCompose()}
+        onAddConversation={openCompose}
+        listActions={communicationCommandActions}
         residentUserId={residentUserId}
       />
     </PortalCommunicationShell>

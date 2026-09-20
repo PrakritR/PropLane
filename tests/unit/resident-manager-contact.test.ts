@@ -12,11 +12,18 @@ import { describe, expect, it, vi } from "vitest";
 import {
   classifyTenancy,
   resolveResidentManagerContacts,
+  resolveResidentManagerPhones,
 } from "@/lib/resident-manager-contact.server";
 import { createMemoryDb } from "./support/memory-supabase";
 
+const workNumber = vi.fn(async (): Promise<string | null> => "+12065559000");
+const workEmail = vi.fn(async (): Promise<string | null> => null);
+
 vi.mock("@/lib/sms/manager-number-provisioning.server", () => ({
-  resolveActiveManagerSendNumber: vi.fn(async () => "+12065559000"),
+  resolveActiveManagerSendNumber: () => workNumber(),
+}));
+vi.mock("@/lib/manager-assistant-email/manager-assistant-email.server", () => ({
+  resolveActiveManagerWorkEmail: () => workEmail(),
 }));
 
 const NOW = Date.parse("2026-10-15T12:00:00Z");
@@ -115,5 +122,116 @@ describe("resolveResidentManagerContacts", () => {
   it("returns nothing without an identity to scope by", async () => {
     const db = createMemoryDb({ portal_lease_pipeline_records: [lease()] }) as never;
     await expect(resolveResidentManagerContacts(db, {})).resolves.toEqual([]);
+  });
+});
+
+describe("resolveResidentManagerContacts before a lease exists", () => {
+  it("names the manager of a live application when there is no lease", async () => {
+    // An applicant paying an application fee is already talking to this
+    // manager in their inbox; the card must not say they have nobody to reach.
+    const db = createMemoryDb({
+      portal_lease_pipeline_records: [],
+      manager_application_records: [
+        {
+          manager_user_id: "mgr-a",
+          resident_email: "res@example.com",
+          property_id: "prop-a",
+          assigned_property_id: null,
+          occupancy_start: "2026-11-01",
+          updated_at: "2026-10-01T00:00:00Z",
+          row_data: { bucket: "pending", propertyLabel: "Proof Oak House" },
+        },
+      ],
+    });
+    const contacts = await resolveResidentManagerContacts(db as never, { residentEmail: "res@example.com", nowMs: NOW });
+    expect(contacts).toEqual([
+      expect.objectContaining({ managerUserId: "mgr-a", propertyLabel: "Proof Oak House", leaseStart: "2026-11-01", status: "upcoming" }),
+    ]);
+  });
+
+  it("ignores a rejected or withdrawn application", async () => {
+    const db = createMemoryDb({
+      portal_lease_pipeline_records: [],
+      manager_application_records: [
+        { manager_user_id: "mgr-a", resident_email: "res@example.com", property_id: "prop-a", updated_at: "2026-10-01T00:00:00Z", row_data: { bucket: "rejected" } },
+        { manager_user_id: "mgr-b", resident_email: "res@example.com", property_id: "prop-b", updated_at: "2026-09-01T00:00:00Z", row_data: { bucket: "withdrawn" } },
+      ],
+      portal_household_charge_records: [],
+    });
+    expect(await resolveResidentManagerContacts(db as never, { residentEmail: "res@example.com", nowMs: NOW })).toEqual([]);
+  });
+
+  it("falls through to a charge when there is neither lease nor application", async () => {
+    const db = createMemoryDb({
+      portal_lease_pipeline_records: [],
+      manager_application_records: [],
+      portal_household_charge_records: [
+        { manager_user_id: "mgr-c", resident_user_id: "res-1", resident_email: "res@example.com", updated_at: "2026-10-01T00:00:00Z", row_data: { propertyLabel: "Ash Flats 6" } },
+      ],
+    });
+    const contacts = await resolveResidentManagerContacts(db as never, { residentUserId: "res-1", residentEmail: "res@example.com", nowMs: NOW });
+    expect(contacts).toEqual([expect.objectContaining({ managerUserId: "mgr-c", propertyLabel: "Ash Flats 6", status: "current" })]);
+  });
+
+  it("never lets an application outrank a lease", async () => {
+    const db = createMemoryDb({
+      portal_lease_pipeline_records: [lease()],
+      manager_application_records: [
+        { manager_user_id: "mgr-z", resident_email: "res@example.com", property_id: "prop-z", updated_at: "2026-10-10T00:00:00Z", row_data: { bucket: "pending" } },
+      ],
+    });
+    const contacts = await resolveResidentManagerContacts(db as never, { residentUserId: "res-1", residentEmail: "res@example.com", nowMs: NOW });
+    expect(contacts.map((c) => c.managerUserId)).toEqual(["mgr-a"]);
+  });
+});
+
+describe("resolveResidentManagerPhones", () => {
+  const profileA = { id: "mgr-a", full_name: "Test Manager", phone: "+15103098345", email: "Manager@test.proplane.local" };
+
+  it("falls back to the manager's profile phone and account email when no work channel is set up", async () => {
+    // The card used to vanish for exactly this manager — reachable, just not
+    // provisioned. Now the resident is told the phone and email they do have.
+    workNumber.mockResolvedValueOnce(null);
+    workEmail.mockResolvedValueOnce(null);
+    const db = createMemoryDb({ portal_lease_pipeline_records: [lease()], profiles: [profileA] });
+    const [contact] = await resolveResidentManagerPhones(db as never, { residentUserId: "res-1", nowMs: NOW });
+    expect(contact).toMatchObject({
+      managerName: "Test Manager",
+      phone: "+15103098345",
+      phoneKind: "profile",
+      email: "manager@test.proplane.local",
+      emailKind: "account",
+    });
+  });
+
+  it("lets the work number and work email win over the profile when they exist", async () => {
+    workNumber.mockResolvedValueOnce("+12065559000");
+    workEmail.mockResolvedValueOnce("oakhouse@mail.proplane.com");
+    const db = createMemoryDb({ portal_lease_pipeline_records: [lease()], profiles: [profileA] });
+    const [contact] = await resolveResidentManagerPhones(db as never, { residentUserId: "res-1", nowMs: NOW });
+    expect(contact).toMatchObject({
+      phone: "+12065559000",
+      phoneKind: "work",
+      email: "oakhouse@mail.proplane.com",
+      emailKind: "work",
+    });
+  });
+
+  it("mixes per channel: a work number with the account email", async () => {
+    workNumber.mockResolvedValueOnce("+12065559000");
+    workEmail.mockResolvedValueOnce(null);
+    const db = createMemoryDb({ portal_lease_pipeline_records: [lease()], profiles: [profileA] });
+    const [contact] = await resolveResidentManagerPhones(db as never, { residentUserId: "res-1", nowMs: NOW });
+    expect(contact).toMatchObject({ phoneKind: "work", email: "manager@test.proplane.local", emailKind: "account" });
+  });
+
+  it("drops a manager who has no phone and no email anywhere", async () => {
+    workNumber.mockResolvedValueOnce(null);
+    workEmail.mockResolvedValueOnce(null);
+    const db = createMemoryDb({
+      portal_lease_pipeline_records: [lease()],
+      profiles: [{ id: "mgr-a", full_name: "Ghost", phone: "  ", email: null }],
+    });
+    expect(await resolveResidentManagerPhones(db as never, { residentUserId: "res-1", nowMs: NOW })).toEqual([]);
   });
 });
