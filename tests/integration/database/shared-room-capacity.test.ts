@@ -51,6 +51,7 @@ describe.skipIf(!configuredPort)("shared-room PostgreSQL transaction guard", () 
     `);
     await db.query(await readFile("supabase/migrations/20260906070000_shared_room_capacity.sql", "utf8"));
     await db.query(await readFile("supabase/migrations/20260912150000_shared_room_capacity_normalization_occupancy_start.sql", "utf8"));
+    await db.query(await readFile("supabase/migrations/20260920230000_resident_slot_arbitration.sql", "utf8"));
   });
   afterAll(async () => {
     for (const client of connections) {
@@ -68,6 +69,17 @@ describe.skipIf(!configuredPort)("shared-room PostgreSQL transaction guard", () 
     const application = (suffix: string, start = "2030-10-01", end = "2030-10-31") => ({
       id: `AXIS-${propertyId}-${suffix}`, managerUserId: owner, bucket: "approved", propertyId,
       assignedRoomChoice: `${propertyId}::r`, application: { leaseStart: start, leaseEnd: end },
+    });
+    return { propertyId, application };
+  };
+  const residentSlotFixture = async (capacity = 2) => {
+    const propertyId = `test-${randomUUID()}`;
+    await db.query("insert into manager_property_records(id,manager_user_id,property_data,row_data) values($1,$2,$3,$4)",
+      [propertyId, owner, { listingSubmission: { rooms: [{ id: "r", name: "Room 1", occupancyCapacity: capacity,
+        residentPricing: "per_resident", residentPrices: Array.from({ length: capacity }, () => ({ monthlyRent: 900 })) }] } }, {}]);
+    const application = (suffix: string, slot: number, start = "2030-10-01", end = "2030-10-31") => ({
+      id: `AXIS-${propertyId}-${suffix}`, managerUserId: owner, bucket: "approved", propertyId,
+      assignedRoomChoice: `${propertyId}::r`, application: { leaseStart: start, leaseEnd: end, residentSlot: slot },
     });
     return { propertyId, application };
   };
@@ -99,6 +111,35 @@ describe.skipIf(!configuredPort)("shared-room PostgreSQL transaction guard", () 
       expect(await waiting).toBe("P4001"); await b.query("rollback");
       expect((await db.query("select count(*)::int n from manager_application_records where row_data->>'propertyId'=$1", [propertyId])).rows[0].n).toBe(2);
     } finally { await a.query("rollback"); await b.query("rollback"); }
+  });
+
+  it("allows exactly one resident-slot winner when two concurrent approvals claim the same slot", async () => {
+    // PLAN-0920-0631 race fix: bed capacity alone (2 beds free) would let BOTH
+    // land; this proves the slot itself is arbitrated the same way the bed is.
+    const { application, propertyId } = await residentSlotFixture(2);
+    const a = await connect(), b = await connect(); const blocked = await waitForLock(b);
+    try {
+      await a.query("begin isolation level read committed"); await b.query("begin isolation level read committed");
+      await insert(a, application("winner", 1));
+      const waiting = insert(b, application("loser", 1)).then(() => "succeeded", (error: { code: string }) => error.code);
+      await blocked(); await a.query("commit");
+      expect(await waiting).toBe("P4001"); await b.query("rollback");
+      expect((await db.query("select count(*)::int n from manager_application_records where row_data->>'propertyId'=$1", [propertyId])).rows[0].n).toBe(1);
+    } finally { await a.query("rollback"); await b.query("rollback"); }
+  });
+
+  it("still approves a different resident slot in the same room", async () => {
+    const { application } = await residentSlotFixture(2);
+    await insert(db, application("first", 1));
+    await expect(insert(db, application("second", 2))).resolves.toBeDefined();
+  });
+
+  it("does not arbitrate a stale residentSlot once the room drops per-resident pricing", async () => {
+    const { application, propertyId } = await residentSlotFixture(2);
+    await insert(db, application("first", 1));
+    await db.query("update manager_property_records set property_data=jsonb_set(property_data,'{listingSubmission,rooms,0,residentPricing}','\"same\"') where id=$1", [propertyId]);
+    // Second bed is still free by headcount; the flat-priced room's stale slot=1 must not block it.
+    await expect(insert(db, application("second", 1))).resolves.toBeDefined();
   });
 
   it("aborts a stale repeatable-read snapshot instead of admitting a second resident", async () => {
