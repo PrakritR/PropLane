@@ -64,6 +64,10 @@
     {
       "path": "/api/cron/report-rent-monthly",
       "schedule": "0 9 5 * *"
+    },
+    {
+      "path": "/api/cron/run-autopay",
+      "schedule": "0 7 * * *"
     }
   ]
 }

@@ -2,6 +2,7 @@
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
 import { recordDelightMoment } from "@/lib/native/app-review";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { ResidentAutopayCard } from "@/components/portal/resident-autopay-card";
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -1849,6 +1850,14 @@ export function ResidentPaymentsPanel({
           <p className="mb-3 px-1 text-sm text-muted" data-attr="resident-payments-platform-copy">
             Pay rent through PropLane secure checkout — bank transfer, card, Apple Pay, or Google Pay.
           </p>
+        ) : null}
+        {!paymentsLockedEmpty ? (
+          <div className="mb-3">
+            <ResidentAutopayCard
+              onManagePaymentMethods={() => setPaymentMethodModalOpen(true)}
+              onPayChargeNow={(chargeId) => openPayConfirm([chargeId], paymentMethod)}
+            />
+          </div>
         ) : null}
         {showPayActions && selectedIds.size === 0 ? <div className="mb-3 flex justify-end">{payButton}</div> : null}<PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={<PortalAdaptiveActionRow actions={paySelectionActions} />}>{paymentsBody}</PortalRecordListSurface>
       </ManagerPortalPageShell>

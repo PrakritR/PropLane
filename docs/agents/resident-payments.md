@@ -505,3 +505,76 @@ resident-reported month is history and stays. Retaining profiles by email alone
 is how a moved resident got two "Rent — October" rows at two prices.
 
 Coverage: `tests/unit/lease-signed-terms.test.ts`.
+
+## Autopay: one run per charge, the SAME builder and fee resolver as a manual payment (PLAN-0920-1051 Wave 1)
+
+Autopay covers **recurring charges only** — `rent` and `utilities`
+(`AUTOPAY_RECURRING_KINDS` in `src/lib/resident-autopay.server.ts`). One-off
+charges (fees, deposits, damages) are never enrolled and still need a manual
+Pay. It runs **on the due date by default**; the resident may move it up to 5
+days earlier (`run_days_before_due`, 0-5, captain decision 2026-09-20).
+
+**Enrollment is per resident per household**
+(`resident_autopay_settings`, unique on `(resident_user_id, household_key)`),
+where `household_key` is the same `lower(residentEmail)|propertyId` key
+`recurringRentProfileKey` already groups a resident's recurring charges by
+(`src/lib/resident-autopay.server.ts`'s `residentAutopayHouseholdKey`).
+`resolveResidentAutopayHousehold` is the one place that resolves "the
+resident's current household" from their charges — the `/api/resident/autopay`
+route and the `set_autopay` agent tool both call it, so chat and the Payments
+page can never disagree about what is enrolled.
+
+**The double-charge guard is a unique constraint, not a lock.**
+`resident_autopay_runs.charge_id` is UNIQUE; `claimRun` inserts a `claimed` row
+before charging anything, and a unique-violation on that insert means another
+pass already claimed this charge, so the caller skips. `listAutopayDueCharges`
+(the daily `/api/cron/run-autopay` cron) only lists a charge that is unpaid,
+recurring-kind, enrolled, and has NO run row yet at all — of any status.
+
+**The off-session PaymentIntent reuses the manual checkout's own resolvers,
+never a forked fee calculation.** `chargeAutopay`
+(`src/lib/resident-autopay.server.ts`) calls the exact same
+`loadHouseholdChargesForCheckout` (ownership/eligibility) and
+`resolveHouseholdChargeFeePayer` (extracted from
+`stripe-household-charge-checkout.server.ts`, also used by
+`createHouseholdChargeCheckout`) that a manual payment uses, then
+`residentServiceFeeBreakdown` for the numbers — the SAME single source of
+truth this file describes above. Only the Stripe object differs: a manual
+payment creates a Checkout Session (someone is present to complete it); autopay
+creates a PaymentIntent directly with `confirm: true, off_session: true`,
+setting `transfer_data.destination` and `application_fee_amount` straight on
+the PaymentIntent instead of nested under a session's `payment_intent_data`.
+Marking the charge paid also reuses the manual path's own per-charge core
+(`markOneHouseholdChargePaid` in `stripe-household-charge.ts`), so the ledger
+write-through, reminder cancellation, and outbound webhook are identical
+either way. `payment_intent.succeeded` / `.payment_failed` additively update
+the `resident_autopay_runs` row in `stripe-webhook-financials.ts`; a declined
+PaymentIntent still carries `metadata.charge_id`, so the EXISTING
+`handlePaymentIntentFailed` flips the charge to `failed` (and creates an NSF
+fee if the manager's billing settings call for one) exactly like a declined
+manual payment, and the autopay-specific handler only additionally updates the
+run row and sends the decline notice.
+
+**A manager setting gates enrollment, per workspace** — `payment_settings`
+jsonb on `portal_workspaces`, alongside `serviceFeePayer` (see above):
+`autopayEnabled` (default On) and `autopayRetryEnabled` (default On, meaning a
+declined run may retry once). `workspaceAutopayEnabled` /
+`workspaceAutopayRetryEnabled` (`workspace-payment-settings.server.ts`) are the
+readers; `GET/PUT /api/resident/autopay` refuses to turn autopay on when the
+workspace has it off, and the cron only retries a failed run when the same
+workspace's retry setting still allows it.
+
+**The one allowed retry is three-plus days after a decline, tracked without a
+separate counter column.** `retryAutopayRun` transitions the existing `failed`
+row back to `claimed` in place (the unique `charge_id` means a retry cannot
+claim a second row); `chargeAutopay`'s `attempt: 2` tags a second failure's
+reason with the `[retry] ` prefix, which is what `retryAutopayRun` reads to
+refuse a third attempt.
+
+**Resident notice on decline**: `notifyAutopayDeclined` sends "Autopay could
+not pay `<charge title>` — `<decline reason>`. Nothing was charged." through
+the same `deliverPaymentReminder` path a manual reminder uses, so it lands
+wherever the resident already receives payment notices per their preferences.
+
+Coverage: `tests/unit/resident-autopay.test.ts`,
+`tests/unit/resident-payments-autopay.test.tsx`.

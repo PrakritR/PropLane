@@ -25,7 +25,7 @@ import {
   scheduleMessageTool,
   cancelScheduledMessageTool,
 } from "./domains/resident/messaging";
-import { startRentPaymentTool } from "./domains/resident/payments";
+import { setAutopayTool, startRentPaymentTool } from "./domains/resident/payments";
 import { rentReportingStatusTool } from "./domains/resident/rent-reporting";
 import { getResidentLinksTool } from "./domains/portal-links";
 import { residentListOpenTourSlotsTool, residentRequestTourTool } from "./domains/tours";
@@ -82,6 +82,7 @@ const ALL_RESIDENT_TOOLS: ResidentTool[] = [
   // Payments
   startRentPaymentTool,
   rentReportingStatusTool,
+  setAutopayTool,
   // Tours. Available in the application phase too — touring is exactly what a
   // resident does before they are approved.
   residentListOpenTourSlotsTool,
@@ -110,6 +111,14 @@ const TOOL_SECTION: Record<string, string> = {
   [cancelScheduledMessageTool.name]: "communication",
 };
 
+/**
+ * Autopay is a standing enrollment change — the resident should see and pick
+ * a saved payment method, not confirm it blind over SMS — so it is available
+ * only on the resident portal chat, never on resident SMS (which shares this
+ * same registry otherwise).
+ */
+const PORTAL_ONLY_TOOLS = new Set([setAutopayTool.name]);
+
 /** Tools available while the resident is still in the application phase. */
 const APPLICATION_PHASE_TOOLS = new Set([
   "get_resident_links",
@@ -137,6 +146,7 @@ export const residentAgentRegistry: ToolRegistry<ResidentAgentContext> = buildRe
 export function buildResidentRegistry(ctx: ResidentAgentContext): ToolRegistry<ResidentAgentContext> {
   const tools = ALL_RESIDENT_TOOLS.filter((tool) => {
     if (ctx.phase === "application" && !APPLICATION_PHASE_TOOLS.has(tool.name)) return false;
+    if (ctx.channel === "sms" && PORTAL_ONLY_TOOLS.has(tool.name)) return false;
     const section = TOOL_SECTION[tool.name];
     if (section && !residentSectionAllowedForManagerTier(section, ctx.managerTier)) return false;
     return true;

@@ -9,6 +9,8 @@ import { emitHouseholdChargeTransition } from "@/lib/domain-action-events.server
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { enqueueWebhookEvent } from "@/lib/webhooks/deliver.server";
 import { webhookEventBuilders } from "@/lib/webhooks/events";
+import { markHouseholdChargePaidFromPaymentIntent } from "@/lib/stripe-household-charge";
+import { notifyAutopayDeclined } from "@/lib/resident-autopay.server";
 
 export async function resolveUserIdByConnectAccountId(
   db: SupabaseClient,
@@ -219,6 +221,86 @@ export async function handleStripeDisputeEvent(db: SupabaseClient, dispute: Stri
   if (!managerUserId) return;
 
   await upsertStripeDisputeRecord(db, dispute, managerUserId, payment?.source_charge_id ?? null);
+}
+
+/**
+ * The one settle path for an autopay off-session PaymentIntent
+ * (`metadata.autopay_run_id`): mark the run row succeeded and mark the charge
+ * paid through the SAME per-charge core a manual Checkout payment uses
+ * (`markHouseholdChargePaidFromPaymentIntent`), so the ledger write-through,
+ * reminder cancellation, and outbound webhook are identical either way.
+ * `chargeAutopay` already does this synchronously when Stripe confirms
+ * in-request; this is the webhook's own idempotent settle for the (normal)
+ * case where confirmation arrives asynchronously, and it no-ops harmlessly if
+ * the charge is already paid.
+ */
+export async function handleAutopayPaymentIntentSucceeded(
+  db: SupabaseClient,
+  paymentIntent: Stripe.PaymentIntent,
+): Promise<void> {
+  const runId = paymentIntent.metadata?.autopay_run_id?.trim();
+  const chargeId = paymentIntent.metadata?.charge_id?.trim();
+  if (!runId || !chargeId) return;
+
+  await markHouseholdChargePaidFromPaymentIntent(db, paymentIntent, chargeId);
+
+  await db
+    .from("resident_autopay_runs")
+    .update({
+      status: "succeeded",
+      stripe_payment_intent_id: paymentIntent.id,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", runId)
+    .neq("status", "succeeded");
+}
+
+/**
+ * The declined side of an autopay PaymentIntent: mark the run failed and tell
+ * the resident. `handlePaymentIntentFailed` (below) already flips the
+ * underlying charge to `failed` + creates an NSF fee when the manager's
+ * billing settings call for one, exactly like a declined manual payment — this
+ * only additionally updates the autopay run row and sends the
+ * autopay-specific decline notice, so the two failure paths never duplicate
+ * each other's writes.
+ */
+export async function handleAutopayPaymentIntentFailed(
+  db: SupabaseClient,
+  paymentIntent: Stripe.PaymentIntent,
+): Promise<void> {
+  const runId = paymentIntent.metadata?.autopay_run_id?.trim();
+  const chargeId = paymentIntent.metadata?.charge_id?.trim();
+  const managerUserId = paymentIntent.metadata?.manager_user_id?.trim();
+  if (!runId) return;
+
+  const failureReason =
+    paymentIntent.last_payment_error?.message?.trim() || "The payment was declined.";
+
+  const { data: existingRun } = await db
+    .from("resident_autopay_runs")
+    .select("id, status")
+    .eq("id", runId)
+    .maybeSingle();
+  if (!existingRun || existingRun.status === "failed" || existingRun.status === "succeeded") return;
+
+  await db
+    .from("resident_autopay_runs")
+    .update({ status: "failed", failure_reason: failureReason, updated_at: new Date().toISOString() })
+    .eq("id", runId);
+
+  if (chargeId && managerUserId) {
+    const { data: row } = await db
+      .from("portal_household_charge_records")
+      .select("row_data")
+      .eq("id", chargeId)
+      .maybeSingle();
+    const charge = row?.row_data as HouseholdCharge | null;
+    if (charge) {
+      await notifyAutopayDeclined(db, { charge, managerId: managerUserId, declineMessage: failureReason }).catch(
+        () => undefined,
+      );
+    }
+  }
 }
 
 export async function handlePaymentIntentFailed(

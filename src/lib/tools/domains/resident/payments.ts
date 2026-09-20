@@ -12,9 +12,22 @@ import {
   loadHouseholdChargesForCheckout,
   MAX_BULK_CHARGES,
 } from "@/lib/stripe-household-charge-checkout.server";
+import { listResidentSavedPaymentMethods } from "@/lib/stripe-resident-customer";
+import {
+  autopayNextScheduledChargeLabel,
+  resolveResidentAutopayHousehold,
+  saveResidentAutopaySettings,
+} from "@/lib/resident-autopay.server";
+import { loadWorkspacePaymentSettingsForProperty, workspaceAutopayEnabled } from "@/lib/workspace-payment-settings.server";
+import { formatPacificDate } from "@/lib/pacific-time";
 
 function centsLabel(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
+}
+
+async function loadResidentStripeCustomerId(ctx: ResidentAgentContext): Promise<string | null> {
+  const { data } = await ctx.db.from("profiles").select("stripe_customer_id").eq("id", ctx.userId).maybeSingle();
+  return data?.stripe_customer_id?.trim() || null;
 }
 
 export const startRentPaymentTool = defineWriteTool({
@@ -102,5 +115,127 @@ export const startRentPaymentTool = defineWriteTool({
     }
 
     return { reply: `Your secure Stripe checkout is ready — ${centsLabel(result.totalCents)} total, with no added fees, for ${result.chargeIds.length} charge${result.chargeIds.length === 1 ? "" : "s"}. Open the link to pay.`, checkoutUrl: result.url, resultSummary: { chargeCount: result.chargeIds.length, totalCents: result.totalCents } };
+  },
+});
+
+/**
+ * Portal-only (see `PORTAL_ONLY_TOOLS` in resident-index.ts) — autopay is a
+ * standing enrollment change, not something to confirm blind over SMS. Turns
+ * autopay on/off (and the run-days-before-due) for the resident's current
+ * household, reusing the exact same household resolution and settings writer
+ * the /api/resident/autopay route uses, so chat and the Payments page can
+ * never disagree about what "on" means.
+ */
+export const setAutopayTool = defineWriteTool({
+  name: "set_autopay",
+  description:
+    "Turn autopay on or off for the resident's rent and recurring charges (utilities), or change how many days before the due date it runs (0-5). One-off charges (fees, deposits) are never covered by autopay.",
+  inputSchema: z
+    .object({
+      enabled: z.boolean().describe("true to turn autopay on, false to turn it off."),
+      daysBeforeDue: z
+        .number()
+        .int()
+        .min(0)
+        .max(5)
+        .optional()
+        .describe("How many days before the due date autopay runs (0 = on the due date). Ignored when enabled is false."),
+    })
+    .strict(),
+  preview: async (ctx: ResidentAgentContext, input) => {
+    const managerId = ctx.activeManagerId ?? ctx.managerIds[0];
+    if (!managerId) throw new Error("No linked property manager found.");
+    const household = await resolveResidentAutopayHousehold(ctx.db, { residentEmail: ctx.email, managerId });
+    if (!household) throw new Error("You don't have any recurring rent or utility charges to enroll yet.");
+
+    if (input.enabled) {
+      const workspaceSettings = await loadWorkspacePaymentSettingsForProperty(ctx.db, managerId, household.propertyId);
+      if (!workspaceAutopayEnabled(workspaceSettings)) {
+        throw new Error("Your property manager has turned off autopay.");
+      }
+      const stripeCustomerId = await loadResidentStripeCustomerId(ctx);
+      if (!stripeCustomerId) {
+        throw new Error("Add a bank or card on the Payments page before turning on autopay.");
+      }
+      const methods = await listResidentSavedPaymentMethods(getStripe(), stripeCustomerId);
+      const method = methods.find((m) => m.isDefault) ?? methods[0];
+      if (!method) {
+        throw new Error("Add a bank or card on the Payments page before turning on autopay.");
+      }
+      const runDaysBeforeDue = input.daysBeforeDue ?? 0;
+      const nextCharge = autopayNextScheduledChargeLabel(household.nextCharge, runDaysBeforeDue, (date) =>
+        formatPacificDate(date, { month: "short", day: "numeric" }),
+      );
+      return {
+        confirmedInput: input,
+        kind: "set_autopay",
+        title: "Turn on autopay",
+        summary: `Autopay will pay rent and utilities using ${method.label}, ${runDaysBeforeDue === 0 ? "on the due date" : `${runDaysBeforeDue} day${runDaysBeforeDue === 1 ? "" : "s"} before it's due`}.`,
+        fields: [
+          { label: "Pays with", value: method.label },
+          { label: "Runs", value: runDaysBeforeDue === 0 ? "On the due date" : `${runDaysBeforeDue} day${runDaysBeforeDue === 1 ? "" : "s"} before due` },
+          ...(nextCharge ? [{ label: "Next payment", value: nextCharge }] : []),
+        ],
+        confirmLabel: "Turn on autopay",
+      };
+    }
+
+    return {
+      confirmedInput: input,
+      kind: "set_autopay",
+      title: "Turn off autopay",
+      summary: "Autopay will stop paying rent and utilities automatically. You'll need to pay each charge yourself.",
+      fields: [{ label: "Autopay", value: "Off" }],
+      confirmLabel: "Turn off autopay",
+    };
+  },
+  handler: async (ctx: ResidentAgentContext, input) => {
+    const audit = await writeAuditLog(ctx, {
+      action: "set_autopay",
+      toolName: "set_autopay",
+      inputSummary: { enabled: input.enabled, daysBeforeDue: input.daysBeforeDue ?? null },
+    });
+    if (!audit.recorded) {
+      throw new Error("Could not record the action; autopay was not changed.");
+    }
+
+    const managerId = ctx.activeManagerId ?? ctx.managerIds[0];
+    if (!managerId) throw new Error("No linked property manager found.");
+    const household = await resolveResidentAutopayHousehold(ctx.db, { residentEmail: ctx.email, managerId });
+    if (!household) throw new Error("You don't have any recurring rent or utility charges to enroll yet.");
+
+    let paymentMethodId: string | null = null;
+    if (input.enabled) {
+      const workspaceSettings = await loadWorkspacePaymentSettingsForProperty(ctx.db, managerId, household.propertyId);
+      if (!workspaceAutopayEnabled(workspaceSettings)) {
+        throw new Error("Your property manager has turned off autopay.");
+      }
+      const stripeCustomerId = await loadResidentStripeCustomerId(ctx);
+      if (!stripeCustomerId) {
+        throw new Error("Add a bank or card on the Payments page before turning on autopay.");
+      }
+      const methods = await listResidentSavedPaymentMethods(getStripe(), stripeCustomerId);
+      const method = methods.find((m) => m.isDefault) ?? methods[0];
+      if (!method) {
+        throw new Error("Add a bank or card on the Payments page before turning on autopay.");
+      }
+      paymentMethodId = method.id;
+    }
+
+    const saved = await saveResidentAutopaySettings(ctx.db, {
+      residentUserId: ctx.userId,
+      managerId,
+      householdKey: household.householdKey,
+      enabled: input.enabled,
+      paymentMethodId,
+      runDaysBeforeDue: input.daysBeforeDue ?? 0,
+    });
+
+    return {
+      reply: saved.enabled
+        ? "Autopay is on for your rent and utility charges."
+        : "Autopay is now off. You'll need to pay each charge yourself.",
+      resultSummary: { enabled: saved.enabled, runDaysBeforeDue: saved.runDaysBeforeDue },
+    };
   },
 });
