@@ -96,6 +96,7 @@ export function PortalPropertyRecordRow({
   checked = false,
   onSelectedChange,
   onOpen,
+  omitActionView = false,
   dataAttr,
 }: {
   title: string;
@@ -121,6 +122,8 @@ export function PortalPropertyRecordRow({
    * nothing would announce itself to a screen reader as actionable.
    */
   onOpen?: () => void;
+  /** Bookings ⋯ is Edit + Delete — RecordActionMenu adds View when `onOpen` is set. */
+  omitActionView?: boolean;
   dataAttr?: string;
 }) {
   const selectable = Boolean(onSelectedChange);
@@ -180,7 +183,7 @@ export function PortalPropertyRecordRow({
     >
       {selectable ? (
         <RowSelectCheckbox
-              onOpenRecord={onOpen}
+          onOpenRecord={omitActionView ? undefined : onOpen}
           wrapperClassName="mr-0 self-center"
           checked={checked}
           onChange={(e) => onSelectedChange?.(e.target.checked)}
