@@ -59,7 +59,7 @@ For an **application-collected** (new) account, the onboard routes instead
 respond `409 { code: "USE_IN_APP_IDENTITY" }` — the client opens the
 Verify-identity sheet rather than the embedded component.
 
-`payout_identity_status` (migration `20260920210000_payout_identity_status.sql`)
+`payout_identity_status` (migration `20260920213000_payout_identity_status.sql`)
 is a display-only cache of the identity status per owner, refreshed by the
 `account.updated` webhook (`handleStripeAccountUpdated` in
 `src/lib/stripe-webhook-financials.ts`) — the identity route itself always

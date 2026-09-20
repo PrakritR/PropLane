@@ -13,7 +13,7 @@ import {
  * TWO work numbers, and one physical number may serve two workspaces (its
  * thread shows in every holding workspace, either can send from it). The
  * many-to-many `workspace_work_numbers` join table
- * (`20260920210000_work_numbers_per_workspace.sql`) is the only truth for
+ * (`20260920214000_work_numbers_per_workspace.sql`) is the only truth for
  * "which numbers does this workspace hold" — never `manager_sms_numbers`'s
  * own `workspace_id` column alone, which stays the number's fixed HOME
  * placement (one row per home workspace; that shape is untouched, see the

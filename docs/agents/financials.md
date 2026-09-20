@@ -155,7 +155,7 @@ keeps finishing through Stripe's embedded `account_onboarding` /
   legacy `"express"` account, which keeps the embedded component — the
   `onboard` routes 409 `USE_IN_APP_IDENTITY` for the former instead of
   returning `mode: "embedded"`. `payout_identity_status` (migration
-  `20260920210000_payout_identity_status.sql`) is a display-only status cache
+  `20260920213000_payout_identity_status.sql`) is a display-only status cache
   per owner, refreshed by the `account.updated` webhook — applied to dev/test
   only so far.
 
