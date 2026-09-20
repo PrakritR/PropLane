@@ -1,3 +1,4 @@
+import { earliestRoomOpening } from "@/lib/room-availability-style";
 import { getListingRichContent } from "@/data/listing-rich-content";
 import type { ListingFloorCard, ListingRoomRow } from "@/data/listing-rich-content";
 import type { MockProperty } from "@/data/types";
@@ -598,13 +599,14 @@ export type BrowseSortId = "price-asc" | "price-desc" | "neighborhood";
 
 function cardAvailability(rows: RoomListingRow[]): Pick<PropertyBrowseCard, "availabilityLabel" | "availabilityKind" | "availableNowCount"> {
   let nowCount = 0;
-  let later: string | null = null;
+  const laterOpenings: string[] = [];
   for (const row of rows) {
     const kind = classifyRoomAvailability(row.availabilityRaw);
     if (kind === "now") nowCount += 1;
-    else if (kind === "later" && later === null) later = row.availabilityRaw.trim();
+    else if (kind === "later") laterOpenings.push(row.availabilityRaw);
   }
   if (nowCount > 0) return { availabilityLabel: "Available now", availabilityKind: "now", availableNowCount: nowCount };
+  const later = earliestRoomOpening(laterOpenings);
   if (later) return { availabilityLabel: later, availabilityKind: "later", availableNowCount: 0 };
   return { availabilityLabel: "Not available", availabilityKind: "unavailable", availableNowCount: 0 };
 }

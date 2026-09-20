@@ -92,3 +92,20 @@ export function roomAvailabilityTextClasses(tone: RoomAvailabilityTone): string 
       return "text-muted";
   }
 }
+
+export function earliestRoomOpening(openings: string[]): string | null {
+  let earliest: string | null = null;
+  let earliestTime = Infinity;
+  for (const raw of openings) {
+    const text = raw.trim();
+    if (!text || text === "—") continue;
+    const fragment = text.replace(/^available\s+(?:(?:after|from|on|starting)\s+)?/i, "");
+    const parsed = Date.parse(fragment);
+    const time = Number.isFinite(parsed) ? parsed : Infinity;
+    if (earliest === null || time < earliestTime) {
+      earliest = text;
+      earliestTime = time;
+    }
+  }
+  return earliest;
+}

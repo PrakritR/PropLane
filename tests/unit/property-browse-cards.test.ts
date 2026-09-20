@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { MockProperty } from "@/data/types";
 import {
   buildPropertyBrowseCards,
+  aggregateRoomRowsToPropertyCards,
   demoOnlyBrowseCardPlaceholderImage,
   filterRoomListings,
   sortPropertyBrowseCards,
@@ -311,5 +312,20 @@ describe("buildPropertyBrowseCards — propertyIds filter (shared 'these homes' 
     const properties = [mockProperty({ id: "a" }), mockProperty({ id: "b" })];
     const cards = buildPropertyBrowseCards(properties, { filters: { propertyIds: ["a", "does-not-exist"] } });
     expect(cards.map((c) => c.propertyId)).toEqual(["a"]);
+  });
+});
+
+describe("browse card opening order", () => {
+  it("chooses now, then the earliest date, then undated future text", () => {
+    const [row] = filterRoomListings([mockProperty({ id: "opening-order" })], {
+      zipRaw: "", radiusMiles: 50, maxBudgetNum: null, bathroom: "any",
+    });
+    expect(row).toBeDefined();
+    const cardFor = (openings: string[]) => aggregateRoomRowsToPropertyCards(
+      openings.map((availabilityRaw, i) => ({ ...row!, roomId: `r${i}`, availabilityRaw })),
+    )[0]!;
+    expect(cardFor(["Waitlist", "Available after Dec 1, 2099", "Available after Oct 1, 2099"]).availabilityLabel).toBe("Available after Oct 1, 2099");
+    expect(cardFor(["Available after Oct 1, 2099", "Available now"]).availabilityLabel).toBe("Available now");
+    expect(cardFor(["Waitlist", "Available soon"]).availabilityLabel).toBe("Waitlist");
   });
 });
