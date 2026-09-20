@@ -124,6 +124,18 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     resident: { ids: ["resident_user_id"], emails: ["resident_email"], preserveFinancial: true },
   },
   {
+    table: "resident_autopay_settings",
+    phase: 1,
+    manager: { ids: ["manager_id"] },
+    resident: { ids: ["resident_user_id"] },
+  },
+  {
+    table: "resident_autopay_runs",
+    phase: 1,
+    manager: { ids: ["manager_id"] },
+    resident: { ids: ["resident_user_id"] },
+  },
+  {
     table: "manager_reclassification_log",
     phase: 1,
     manager: { ids: ["manager_user_id"] },

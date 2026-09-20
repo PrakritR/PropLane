@@ -160,6 +160,106 @@ export async function revertHouseholdChargeProcessingFromStripeSession(
 }
 
 /**
+ * Marks ONE pending household charge paid — the core both
+ * `markHouseholdChargePaidFromStripeSession` (a Checkout Session, one or many
+ * charges) and `markHouseholdChargePaidFromPaymentIntent` (a raw off-session
+ * PaymentIntent, autopay's one charge) share, so a paid charge always gets the
+ * exact same ledger write, reminder cancellation, transition event and
+ * outbound webhook regardless of which Stripe object confirmed it.
+ *
+ * `stripeReference` is stored as `stripeCheckoutSessionId` on the charge row
+ * for back-compat with every reader of that field — it holds a Checkout
+ * Session id for a manual payment and a PaymentIntent id for an autopay run,
+ * and either is a stable link back to what actually settled the payment.
+ */
+async function markOneHouseholdChargePaid(
+  db: SupabaseClient,
+  chargeId: string,
+  opts: {
+    expectedManagerUserId?: string;
+    stripeReference: string;
+    stripePaymentStatus: string;
+    /** Distinguishes the transition id between session- and PI-driven marks for the same charge. */
+    transitionSuffix: string;
+  },
+): Promise<{ marked: boolean; alreadyPaid: boolean; charge?: HouseholdCharge }> {
+  const { data: row, error } = await db
+    .from("portal_household_charge_records")
+    .select("id, row_data, status")
+    .eq("id", chargeId)
+    .maybeSingle();
+  if (error || !row) return { marked: false, alreadyPaid: false };
+
+  const charge = row.row_data as HouseholdCharge | null;
+  if (!charge?.id) return { marked: false, alreadyPaid: false };
+
+  const now = new Date().toISOString();
+
+  if (row.status === "paid" || charge.status === "paid") {
+    await syncLedgerPaymentEntry(db, charge, charge.paidAt, opts.stripeReference).catch((err) => {
+      console.error("[stripe-household-charge] ledger heal for already-paid charge failed", err);
+    });
+    return { marked: true, alreadyPaid: true, charge };
+  }
+
+  const chargeManagerUserId = charge.managerUserId?.trim() ?? "";
+  if (opts.expectedManagerUserId && chargeManagerUserId && chargeManagerUserId !== opts.expectedManagerUserId) {
+    return { marked: false, alreadyPaid: false };
+  }
+
+  const nextCharge: HouseholdCharge = {
+    ...charge,
+    status: "paid",
+    paidAt: now,
+    balanceLabel: "$0.00",
+  };
+
+  const { error: upsertErr } = await db.from("portal_household_charge_records").upsert(
+    {
+      id: chargeId,
+      manager_user_id: charge.managerUserId,
+      resident_user_id: charge.residentUserId,
+      resident_email: charge.residentEmail.trim().toLowerCase(),
+      property_id: charge.propertyId,
+      kind: charge.kind,
+      status: "paid",
+      row_data: {
+        ...nextCharge,
+        stripeCheckoutSessionId: opts.stripeReference,
+        stripePaymentStatus: opts.stripePaymentStatus,
+      },
+      updated_at: now,
+    },
+    { onConflict: "id" },
+  );
+  if (upsertErr) return { marked: false, alreadyPaid: false };
+
+  await syncLedgerPaymentEntry(db, nextCharge, now, opts.stripeReference);
+  const managerUserId = charge.managerUserId?.trim() || opts.expectedManagerUserId || "";
+  if (managerUserId) {
+    await cancelFuturePaymentRemindersForCharge(db, managerUserId, chargeId).catch(() => undefined);
+    await emitHouseholdChargeTransition(db, {
+      managerUserId,
+      previousStatus: charge.status,
+      charge: nextCharge,
+      transitionId: `${chargeId}:payment_received:${opts.transitionSuffix}`,
+    }).catch(() => undefined);
+    // Outbound webhooks: ids, amount and status only, and never throws here.
+    await enqueueWebhookEvent(
+      managerUserId,
+      "payment.succeeded",
+      webhookEventBuilders["payment.succeeded"]({
+        chargeId,
+        propertyId: nextCharge.propertyId,
+        amountCents: Math.round(parseMoneyAmount(nextCharge.amountLabel) * 100),
+        kind: nextCharge.kind,
+      }),
+    );
+  }
+  return { marked: true, alreadyPaid: false, charge: nextCharge };
+}
+
+/**
  * Marks a pending household charge paid after Stripe confirms funds (sync or async ACH).
  */
 export async function markHouseholdChargePaidFromStripeSession(
@@ -193,83 +293,45 @@ export async function markHouseholdChargePaidFromStripeSession(
 
   let marked = 0;
   let alreadyPaid = false;
-  const now = new Date().toISOString();
 
   for (const chargeId of idsToMark) {
-    const { data: row, error } = await db
-      .from("portal_household_charge_records")
-      .select("id, row_data, status")
-      .eq("id", chargeId)
-      .maybeSingle();
-
-    if (error || !row) continue;
-
-    const charge = row.row_data as HouseholdCharge | null;
-    if (!charge?.id) continue;
-
-    if (row.status === "paid" || charge.status === "paid") {
-      alreadyPaid = true;
+    const result = await markOneHouseholdChargePaid(db, chargeId, {
+      expectedManagerUserId,
+      stripeReference: session.id,
+      stripePaymentStatus: session.payment_status,
+      transitionSuffix: session.id,
+    });
+    if (result.marked) {
       marked += 1;
-      await syncLedgerPaymentEntry(db, charge, charge.paidAt, session.id).catch((err) => {
-        console.error("[stripe-household-charge] ledger heal for already-paid charge failed", err);
-      });
-      continue;
-    }
-
-    const chargeManagerUserId = charge.managerUserId?.trim() ?? "";
-    if (expectedManagerUserId && chargeManagerUserId && chargeManagerUserId !== expectedManagerUserId) {
-      continue;
-    }
-
-    const nextCharge: HouseholdCharge = {
-      ...charge,
-      status: "paid",
-      paidAt: now,
-      balanceLabel: "$0.00",
-    };
-
-    const { error: upsertErr } = await db.from("portal_household_charge_records").upsert(
-      {
-        id: chargeId,
-        manager_user_id: charge.managerUserId,
-        resident_user_id: charge.residentUserId,
-        resident_email: charge.residentEmail.trim().toLowerCase(),
-        property_id: charge.propertyId,
-        kind: charge.kind,
-        status: "paid",
-        row_data: {
-          ...nextCharge,
-          stripeCheckoutSessionId: session.id,
-          stripePaymentStatus: session.payment_status,
-        },
-        updated_at: now,
-      },
-      { onConflict: "id" },
-    );
-
-    if (!upsertErr) {
-      marked += 1;
-      await syncLedgerPaymentEntry(db, nextCharge, now, session.id);
-      const managerUserId = charge.managerUserId?.trim() || expectedManagerUserId;
-      if (managerUserId) {
-        await cancelFuturePaymentRemindersForCharge(db, managerUserId, chargeId).catch(() => undefined);
-        await emitHouseholdChargeTransition(db, {
-          managerUserId,
-          previousStatus: charge.status,
-          charge: nextCharge,
-          transitionId: `${chargeId}:payment_received:${session.id}`,
-        }).catch(() => undefined);
-        // Outbound webhooks: ids, amount and status only, and never throws here.
-        await enqueueWebhookEvent(managerUserId, "payment.succeeded", webhookEventBuilders["payment.succeeded"]({
-          chargeId,
-          propertyId: nextCharge.propertyId,
-          amountCents: Math.round(parseMoneyAmount(nextCharge.amountLabel) * 100),
-          kind: nextCharge.kind,
-        }));
-      }
+      if (result.alreadyPaid) alreadyPaid = true;
     }
   }
 
   if (marked === 0) return { ok: false };
   return { ok: true, chargeId: idsToMark[0], alreadyPaid };
+}
+
+/**
+ * Marks the ONE charge an autopay off-session PaymentIntent paid, on
+ * `payment_intent.succeeded`. Reuses the exact same per-charge core as a
+ * manual Checkout payment — same ledger write-through, reminder cancellation,
+ * transition event and outbound webhook — so an autopay success is
+ * indistinguishable from a manual one everywhere downstream except the
+ * `resident_autopay_runs` row (updated separately by the caller).
+ */
+export async function markHouseholdChargePaidFromPaymentIntent(
+  db: SupabaseClient,
+  paymentIntent: Stripe.PaymentIntent,
+  chargeId: string,
+): Promise<{ ok: boolean; alreadyPaid?: boolean }> {
+  if (paymentIntent.status !== "succeeded") return { ok: false };
+  const expectedManagerUserId = paymentIntent.metadata?.manager_user_id?.trim() || undefined;
+  const result = await markOneHouseholdChargePaid(db, chargeId, {
+    expectedManagerUserId,
+    stripeReference: paymentIntent.id,
+    stripePaymentStatus: paymentIntent.status,
+    transitionSuffix: paymentIntent.id,
+  });
+  if (!result.marked) return { ok: false };
+  return { ok: true, alreadyPaid: result.alreadyPaid };
 }
