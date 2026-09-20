@@ -30,12 +30,17 @@ import {
   propertyDetailHref,
   PROPERTY_DETAIL_TAB_LABELS,
   residentDetailHref,
+  serviceRequestDetailHref,
   vendorDetailHref,
+  workOrderDetailHref,
   type LeaseDetailTabId,
   type LeasePipelineTabId,
   type ManagerTourBucketId,
   type PaymentDirectionId,
+  type ServiceDetailTabId,
+  type ServiceRequestBucketId,
   type TourDetailTabId,
+  type WorkOrderBucketId,
 } from "@/lib/portal-detail-routes";
 
 /**
@@ -122,6 +127,9 @@ export type RecordSectionContext = {
   leaseListTab?: LeasePipelineTabId;
   /** tour */
   tourBucket?: ManagerTourBucketId;
+  /** service — an add-on request or a maintenance work order share the one rail. */
+  serviceKind?: "request" | "work-order";
+  serviceBucket?: ServiceRequestBucketId | WorkOrderBucketId;
 };
 
 type OwnGroup = { label: string; ids: Array<{ id: string; label: string }> };
@@ -335,7 +343,16 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     phonePrimary: "assign-vendor",
     hasDocuments: true,
     hasActivity: true,
-    href: (ctx) => genericHref(ctx.basePath ?? "/portal", "services/work-orders"),
+    href: (ctx) => {
+      const basePath = ctx.basePath ?? "/portal";
+      const serviceKind = ctx.serviceKind ?? "work-order";
+      if (serviceKind === "request") {
+        const bucket = (ctx.serviceBucket as ServiceRequestBucketId) ?? "pending";
+        return (recordId, tab) => serviceRequestDetailHref(basePath, bucket, recordId, tab as ServiceDetailTabId);
+      }
+      const bucket = (ctx.serviceBucket as WorkOrderBucketId) ?? "open";
+      return (recordId, tab) => workOrderDetailHref(basePath, bucket, recordId, tab as ServiceDetailTabId);
+    },
   },
   task: {
     basePathDefault: "/portal",

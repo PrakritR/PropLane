@@ -118,9 +118,6 @@ function buildPortalNavItems(
       return true;
     })
     .flatMap((section) => {
-      if (section.section === "background-checks") {
-        return [];
-      }
       if (
         section.section === "payments" &&
         section.tabs.some((tab) => tab.id === "incoming" || tab.id === "outgoing")
@@ -166,38 +163,16 @@ function buildPortalNavItems(
         ];
       }
       if (section.section === "applications") {
+        // Screening nests inside the application record's own Screening tab now
+        // (docs/agents/record-page.md, PLAN-0920-1058 area 1c) — no second
+        // sidebar sub-item for it.
         const appBase = `${definition.basePath}/applications/pending`;
-        if (definition.kind === "resident") {
-          return [
-            {
-              section: section.section,
-              label: section.label,
-              href: appBase,
-              prefetchHrefs: [appBase],
-            },
-          ];
-        }
-        const bgBase = `${definition.basePath}/background-checks/pending_review`;
         return [
           {
             section: section.section,
             label: section.label,
             href: appBase,
-            prefetchHrefs: [appBase, bgBase],
-            subItems: [
-              {
-                sectionTabId: "application",
-                label: "Application",
-                href: appBase,
-                prefetchHrefs: [appBase],
-              },
-              {
-                sectionTabId: "background-check",
-                label: "Background check",
-                href: bgBase,
-                prefetchHrefs: [bgBase],
-              },
-            ],
+            prefetchHrefs: [appBase],
           },
         ];
       }
@@ -294,9 +269,7 @@ export function PortalSidebar({
 
   const activeSection = useMemo(() => {
     const parts = pathname.split("/").filter(Boolean);
-    const section = parts[1] ?? "dashboard";
-    if (section === "background-checks") return "applications";
-    return section;
+    return parts[1] ?? "dashboard";
   }, [pathname]);
 
   const navItems = useMemo(() => {
@@ -314,11 +287,6 @@ export function PortalSidebar({
       const teamsIdx = parts.indexOf("teams");
       const tab = parts[teamsIdx + 1];
       return tab === "managers" || tab === "vendors" ? tab : "managers";
-    }
-    if (activeSection === "applications") {
-      const bgIdx = parts.indexOf("background-checks");
-      if (bgIdx >= 0) return "background-check";
-      return "application";
     }
     return null;
   }, [activeSection, pathname]);

@@ -45,7 +45,6 @@ import {
   loadManagerTours,
   loadManagerBookings,
   loadManagerApplications,
-  loadManagerBackgroundChecks,
   loadManagerDocumentsPanel,
   loadManagerFinancesPanel,
   loadManagerCommunication,
@@ -806,7 +805,7 @@ export async function renderPortalSection(
         if (tabParts.length === 1) {
           redirect(`${def.basePath}/services/requests/pending`);
         }
-        if (tabParts.length > 3) notFound();
+        if (tabParts.length > 4) notFound();
         const bucketRaw = tabParts[1]!;
         const requestBucket = REQUEST_BUCKETS.includes(bucketRaw as typeof REQUEST_BUCKETS[number])
           ? (bucketRaw as typeof REQUEST_BUCKETS[number])
@@ -818,7 +817,7 @@ export async function renderPortalSection(
         if (tabParts.length === 1) {
           redirect(`${def.basePath}/services/work-orders/open`);
         }
-        if (tabParts.length > 3) notFound();
+        if (tabParts.length > 4) notFound();
         const bucketRaw = tabParts[1]!;
         const workOrderBucket = WO_BUCKETS.includes(bucketRaw as typeof WO_BUCKETS[number])
           ? (bucketRaw as typeof WO_BUCKETS[number])
@@ -844,6 +843,16 @@ export async function renderPortalSection(
         servicesTab === "work-orders" && tabParts.length >= 3
           ? decodeURIComponent(tabParts[2]!)
           : undefined;
+      // A service record's own rail tab (docs/agents/record-page.md).
+      const { parseServiceDetailTab } = await import("@/lib/portal-detail-routes");
+      const serviceDetailTabRaw = tabParts.length >= 4 ? tabParts[3]! : undefined;
+      const serviceDetailTab =
+        serviceRequestId || workOrderId ? parseServiceDetailTab(serviceDetailTabRaw) : undefined;
+      if ((serviceRequestId || workOrderId) && serviceDetailTabRaw && serviceDetailTab !== serviceDetailTabRaw) {
+        redirect(
+          `${def.basePath}/services/${servicesTab}/${tabParts[1]}/${encodeURIComponent(tabParts[2]!)}/${serviceDetailTab}`,
+        );
+      }
 
       const ManagerAllServicesPanel = await loadManagerAllServicesPanel();
       return subscriptionGated(
@@ -854,6 +863,7 @@ export async function renderPortalSection(
           workOrderBucket={workOrderBucket}
           serviceRequestId={serviceRequestId}
           workOrderId={workOrderId}
+          serviceDetailTab={serviceDetailTab}
         />,
         kind,
         "services",
@@ -999,26 +1009,20 @@ export async function renderPortalSection(
     }
 
     if (section === "background-checks") {
+      // Screening now nests inside the application record's own Screening tab
+      // (docs/agents/record-page.md, PLAN-0920-1058 area 1c) — the standalone
+      // list is gone, so every old link redirects into Applications. A
+      // record-carrying link has no reliable bucket to recover here (buckets
+      // are resolved client-side from local rows), so it lands on a fixed
+      // bucket the same way the older "screenings" alias below does.
       const BG_TABS = ["pending_review", "passed", "flagged"] as const;
-      if (!tabParts?.length) {
-        redirect(`${def.basePath}/background-checks/pending_review`);
+      const tabRaw = tabParts?.[0];
+      if (tabRaw && !BG_TABS.includes(tabRaw as typeof BG_TABS[number])) notFound();
+      const applicationId = tabParts && tabParts.length >= 2 ? tabParts[1] : undefined;
+      if (applicationId) {
+        redirect(`${def.basePath}/applications/pending/${encodeURIComponent(decodeURIComponent(applicationId))}/screening`);
       }
-      if (tabParts.length > 2) notFound();
-      const tabRaw = tabParts[0]!;
-      const bgTab = BG_TABS.includes(tabRaw as typeof BG_TABS[number])
-        ? (tabRaw as typeof BG_TABS[number])
-        : "pending_review";
-      if (tabRaw !== bgTab) {
-        redirect(`${def.basePath}/background-checks/${bgTab}`);
-      }
-      const applicationId = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
-      const ManagerBackgroundChecks = await loadManagerBackgroundChecks();
-      return subscriptionGated(
-        <ManagerBackgroundChecks tab={bgTab} basePath={def.basePath} applicationId={applicationId} />,
-        kind,
-        "background-checks",
-        managerOwnerSubscriptionTier,
-      );
+      redirect(`${def.basePath}/applications/pending`);
     }
 
     if (section === "applications") {
@@ -1039,8 +1043,11 @@ export async function renderPortalSection(
         redirect(`${def.basePath}/applications/${applicationTab}`);
       }
       const applicationId = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
-      const applicationDetailTab =
-        tabParts.length >= 3 ? parseApplicationDetailTab(tabParts[2]) : "application";
+      const applicationDetailTabRaw = tabParts.length >= 3 ? tabParts[2] : undefined;
+      const applicationDetailTab = applicationId ? parseApplicationDetailTab(applicationDetailTabRaw) : undefined;
+      if (applicationId && applicationDetailTabRaw && applicationDetailTab !== applicationDetailTabRaw) {
+        redirect(`${def.basePath}/applications/${applicationTab}/${encodeURIComponent(applicationId)}/${applicationDetailTab}`);
+      }
       const ManagerApplications = await loadManagerApplications();
       return subscriptionGated(
         <ManagerApplications

@@ -714,33 +714,61 @@ export function applicationListHref(basePath: string, tab: ApplicationListTabId)
   return `${basePath}/applications/${tab}`;
 }
 
-export const APPLICATION_DETAIL_TABS = ["application", "background-check"] as const;
+/**
+ * An application record's own routed tabs (PLAN-0920-1058, area 1c) — the
+ * `application` kind's OWN sections in `src/lib/portals/record-sections.ts`
+ * plus the shared trio. Screening now nests here instead of a separate
+ * top-level list; `"background-check"` still parses (old links, sent
+ * messages, bookmarks) and resolves to `"screening"`.
+ */
+export const APPLICATION_DETAIL_TABS = [
+  "overview",
+  "applicants",
+  "screening",
+  "decision",
+  "communication",
+  "documents",
+  "activity",
+] as const;
 export type ApplicationDetailTabId = (typeof APPLICATION_DETAIL_TABS)[number];
+export const DEFAULT_APPLICATION_DETAIL_TAB: ApplicationDetailTabId = "overview";
 
 export const APPLICATION_DETAIL_TAB_LABELS: Record<ApplicationDetailTabId, string> = {
-  application: "Application",
-  "background-check": "Background check",
+  overview: "Overview",
+  applicants: "Applicants",
+  screening: "Screening",
+  decision: "Decision",
+  communication: "Communication",
+  documents: "Documents",
+  activity: "Activity",
 };
 
 export function parseApplicationDetailTab(raw: string | undefined | null): ApplicationDetailTabId {
+  if (raw === "application") return DEFAULT_APPLICATION_DETAIL_TAB;
+  if (raw === "background-check") return "screening";
   if (raw && (APPLICATION_DETAIL_TABS as readonly string[]).includes(raw)) {
     return raw as ApplicationDetailTabId;
   }
-  return "application";
+  return DEFAULT_APPLICATION_DETAIL_TAB;
 }
 
 export function applicationDetailHref(
   basePath: string,
   bucket: ApplicationBucketId,
   applicationId: string,
-  detailTab: ApplicationDetailTabId = "application",
+  detailTab: ApplicationDetailTabId = DEFAULT_APPLICATION_DETAIL_TAB,
 ): string {
   const base = `${basePath}/applications/${bucket}/${encodeURIComponent(applicationId)}`;
-  return detailTab === "application" ? base : `${base}/${detailTab}`;
+  return detailTab === DEFAULT_APPLICATION_DETAIL_TAB ? base : `${base}/${detailTab}`;
 }
 
-export function applicationScreeningDetailHref(basePath: string, applicationId: string): string {
-  return backgroundCheckDetailHref(basePath, "pending_review", applicationId);
+/** The application's own nested Screening tab — replaces the old standalone background-check record route. */
+export function applicationScreeningDetailHref(
+  basePath: string,
+  bucket: ApplicationBucketId,
+  applicationId: string,
+): string {
+  return applicationDetailHref(basePath, bucket, applicationId, "screening");
 }
 
 /** Manager background-check list buckets (screening workflow). */
@@ -1059,12 +1087,40 @@ export function serviceRequestListHref(basePath: string, bucket: ServiceRequestB
   return `${basePath}/services/requests/${bucket}`;
 }
 
+/**
+ * A service record's own routed tabs (PLAN-0920-1058, area 1c) — the
+ * `service` kind's OWN sections in `src/lib/portals/record-sections.ts`, not
+ * the generic vendor/resident/payments set task and inspection share
+ * (`ServiceRecordTabId` below). Shared by both add-on requests and work
+ * orders since both route through the one Services rail.
+ */
+export const SERVICE_DETAIL_TABS = [
+  "overview",
+  "vendor-bids",
+  "schedule",
+  "invoice",
+  "communication",
+  "documents",
+  "activity",
+] as const;
+export type ServiceDetailTabId = (typeof SERVICE_DETAIL_TABS)[number];
+export const DEFAULT_SERVICE_DETAIL_TAB: ServiceDetailTabId = "overview";
+
+export function parseServiceDetailTab(raw: string | undefined | null): ServiceDetailTabId {
+  if (raw && (SERVICE_DETAIL_TABS as readonly string[]).includes(raw)) {
+    return raw as ServiceDetailTabId;
+  }
+  return DEFAULT_SERVICE_DETAIL_TAB;
+}
+
 export function serviceRequestDetailHref(
   basePath: string,
   bucket: ServiceRequestBucketId,
   requestId: string,
+  tab: ServiceDetailTabId = DEFAULT_SERVICE_DETAIL_TAB,
 ): string {
-  return `${basePath}/services/requests/${bucket}/${encodeURIComponent(requestId)}`;
+  const path = `${basePath}/services/requests/${bucket}/${encodeURIComponent(requestId)}`;
+  return tab === DEFAULT_SERVICE_DETAIL_TAB ? path : `${path}/${tab}`;
 }
 
 /** Manager work order buckets (Appendix D5). */
@@ -1086,10 +1142,10 @@ export function workOrderDetailHref(
   basePath: string,
   bucket: WorkOrderBucketId,
   workOrderId: string,
-  tab: ServiceRecordTabId = "overview",
+  tab: ServiceDetailTabId = DEFAULT_SERVICE_DETAIL_TAB,
 ): string {
   const path = `${basePath}/services/work-orders/${bucket}/${encodeURIComponent(workOrderId)}`;
-  return tab === "overview" ? path : `${path}/${tab}`;
+  return tab === DEFAULT_SERVICE_DETAIL_TAB ? path : `${path}/${tab}`;
 }
 
 /** Routed tabs shared by service, task, and inspection records. */

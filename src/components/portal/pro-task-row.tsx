@@ -205,13 +205,15 @@ export function TaskTableRow({
         className={cn("flex min-h-9 min-w-0 flex-1 flex-col justify-center text-left md:min-w-0", TASK_COL_TITLE)}
       >
         <span className="flex min-w-0 items-center gap-1">
+          {/* Title reads "what · who" — the task, then who it is assigned to (never a raw record id). */}
           <span className={cn("truncate text-[14px] font-semibold text-foreground", task.completed && "text-muted line-through")}>
             {task.title}
+            {assigneeName ? <span className="font-normal text-muted"> · {onViewer ? "You" : assigneeName}</span> : null}
           </span>
           <ChevronRight className="size-3.5 shrink-0 text-muted/60 md:hidden" aria-hidden />
         </span>
         {context ? <span className="truncate text-[12px] text-muted">{context}</span> : null}
-        {/* Phone second line: property, and the assignee only when it is not the viewer. */}
+        {/* Phone second line: property, and the assignee avatar only when it is not the viewer. */}
         {(showPropertyOnPhone && propertyLabel) || (assigneeName && !onViewer) ? (
           <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[12px] text-muted md:hidden">
             {showPropertyOnPhone && propertyLabel ? <span className="truncate">{propertyLabel}</span> : null}

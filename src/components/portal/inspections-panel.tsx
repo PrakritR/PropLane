@@ -121,12 +121,18 @@ export function buildInspectionRows(kind: InspectionKind, residencies: Inspectio
   // A room whose own configuration requires this inspection says so on the person's row.
   // A separate "required" banner above the list drew the same resident twice.
   const requiredFor = (residency: InspectionResidency | undefined): boolean => residency?.requiredKinds?.includes(kind) ?? false;
+  // A trailing " · " with nothing after it is worse than no room segment at all — only
+  // append when the raw value resolves to a real room name (never a fabricated one).
+  const roomSuffix = (raw: string | undefined): string => {
+    const label = raw ? inspectionRoomLabel(raw) : "";
+    return label ? ` · ${label}` : "";
+  };
   const rows: InspectionRow[] = forKind.map(report => {
     const residency = byId.get(report.application_id);
     return {
       key: `report:${report.id}`,
       name: residency?.name || report.resident_name,
-      address: `${residency?.property || report.property_label}${(residency?.room || report.room_label) ? ` · ${inspectionRoomLabel(residency?.room || report.room_label)}` : ""}`,
+      address: `${residency?.property || report.property_label}${roomSuffix(residency?.room || report.room_label)}`,
       tenancy: tenancyLine(residency),
       photos: photoLine(report.photos),
       required: requiredFor(residency),
@@ -142,7 +148,7 @@ export function buildInspectionRows(kind: InspectionKind, residencies: Inspectio
     rows.push({
       key: `residency:${residency.id}`,
       name: residency.name,
-      address: `${residency.property}${residency.room ? ` · ${inspectionRoomLabel(residency.room)}` : ""}`,
+      address: `${residency.property}${roomSuffix(residency.room)}`,
       tenancy: tenancyLine(residency),
       photos: "No photos yet",
       required: requiredFor(residency),
@@ -440,9 +446,14 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
     {embeddedScope && !loading && embeddedPrimaryReport ? (
       <div className="mx-1 space-y-4 rounded-2xl border border-border bg-card/50 p-5" data-attr="inspection-embedded-resume">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
+          <div className="space-y-1">
             <p className="text-base font-semibold">{kindLabel(kind)} photos</p>
-            <p className="text-sm text-muted">{tenancyDate(embeddedPrimaryReport.inspection_date) || embeddedPrimaryReport.inspection_date} · {photoLine(embeddedPrimaryReport.photos)}</p>
+            <p className="flex flex-wrap items-center gap-2.5 text-sm text-muted">
+              <PortalRowFact icon={CalendarDays} srLabel="Tenancy">
+                {tenancyDate(embeddedPrimaryReport.inspection_date) || embeddedPrimaryReport.inspection_date}
+              </PortalRowFact>
+              <PortalRowFact icon={Camera} srLabel="Photos">{photoLine(embeddedPrimaryReport.photos)}</PortalRowFact>
+            </p>
           </div>
         </div>
         <Button onClick={openEmbeddedInspection} disabled={busy} data-attr="inspection-embedded-continue">

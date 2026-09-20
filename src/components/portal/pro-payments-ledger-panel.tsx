@@ -102,6 +102,13 @@ function isRemindableRow(row: DemoManagerPaymentLedgerRow): boolean {
   return !isPaidRow(row) && Boolean(row.householdChargeId || row.id);
 }
 
+/** Day-only, matching the due fact's format (`dueDateInputToLabel`) — one date shape on the row. */
+function formatReminderRowDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return formatScheduledSendAt(iso);
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
 function paymentReminderMetaHint(
   row: DemoManagerPaymentLedgerRow,
   scheduledMessages: ScheduledPaymentMessage[],
@@ -109,11 +116,9 @@ function paymentReminderMetaHint(
   if (!row.householdChargeId || isPaidRow(row)) return null;
   const reminders = manageableRemindersForCharge(scheduledMessages, row.householdChargeId);
   const summary = summariseScheduledSends(reminders);
+  // At most one glyph fact on the row — the soonest queued send, never a count of the rest.
   if (summary.count > 0 && summary.nextSendAt) {
-    const next = formatScheduledSendAt(summary.nextSendAt);
-    return summary.count === 1
-      ? `Next reminder ${next}`
-      : `Next reminder ${next} (+${summary.count - 1} more)`;
+    return `Reminder ${formatReminderRowDate(summary.nextSendAt)}`;
   }
   const hasScheduled = reminders.some((message) => message.status === "scheduled");
   const hasActive = reminders.some((message) => message.status !== "cancelled" && message.status !== "sent");

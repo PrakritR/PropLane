@@ -30,8 +30,6 @@ export const SIDEBAR_EXCLUDED_SECTIONS = new Set<string>([
   "bugs-feedback",
   /** App download lives under Settings; the redesign dropped it from every nav. */
   "app",
-  /** Nested under Leasing → Application submenu; not a second sidebar row. */
-  "background-checks",
 ]);
 
 /**

@@ -324,7 +324,7 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
   return <div className="min-w-0 space-y-5" data-attr="inspection-editor">
     {/* The type, the date and the room say everything the old meta row and its paragraph of
         instructions said, in the place a person already reads. */}
-    <PortalDetailHeader bare hideBackText title={activeArea?.label ?? report.resident_name} subtitle={`${report.kind === "move-in" ? "Move-in" : "Move-out"} · ${inspectionRoomLabel(report.room_label) || "Assigned room"} · ${report.property_label}`} avatarName={!activeArea ? report.resident_name : undefined} onBack={back} backLabel={backLabel} dataAttrBack="inspection-back" />
+    <PortalDetailHeader bare hideBackText title={activeArea?.label ?? report.resident_name} subtitle={[report.kind === "move-in" ? "Move-in" : "Move-out", inspectionRoomLabel(report.room_label), report.property_label].filter(Boolean).join(" · ")} avatarName={!activeArea ? report.resident_name : undefined} onBack={back} backLabel={backLabel} dataAttrBack="inspection-back" />
     {(busy || dirty || submittedByResident) && <p role="status" className="px-2 text-sm text-muted">{busy ? "Saving…" : dirty ? "Changes waiting to save" : role === "resident" ? "Submitted. Ask your manager to reopen this to add more." : `Resident submitted ${new Date(submission!.at).toLocaleDateString()}.`}</p>}
     {error && <p role="alert" className="rounded-xl border border-border p-3 text-sm">{error} {dirty ? "Your unsaved notes remain here." : ""}</p>}
     {notice && <p role="status" className="px-2 text-sm text-muted">{notice}</p>}
