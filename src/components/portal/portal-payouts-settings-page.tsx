@@ -131,11 +131,14 @@ export function PortalPayoutsSettingsPage({
     }
   }, [apiBase]);
 
-  // Bank accounts: prefer the dedicated list route another worker is
-  // building. Its absence today (any non-2xx, including a 404) is expected,
-  // not an error — fall back to the single external account the balance
-  // endpoint already carries, read-only (no ⋯ menu — there is nothing this
-  // page can act on through the old status endpoint alone).
+  // Bank accounts: prefer the dedicated list route
+  // (`GET …/bank-accounts` → `{ destinations: PayoutDestination[] }`,
+  // default-for-currency sorted first). Its absence (any non-2xx, including
+  // a 404) is expected, not an error — fall back to the single external
+  // account the balance endpoint already carries, read-only (no ⋯ menu —
+  // there is nothing this page can act on through the old status endpoint
+  // alone). `PayoutDestination.status` includes "errored", which a bank row
+  // never was — fold it into "verifying" rather than claiming "verified".
   const loadBankAccounts = useCallback(async () => {
     try {
       const res = await fetch(`${connectBase}/bank-accounts`, { credentials: "include" });
@@ -143,12 +146,20 @@ export function PortalPayoutsSettingsPage({
         setBankRoute("fallback");
         return;
       }
-      const body = (await res.json().catch(() => null)) as BankAccountRow[] | null;
-      if (!Array.isArray(body)) {
+      const body = (await res.json().catch(() => null)) as { destinations?: unknown } | null;
+      if (!body || !Array.isArray(body.destinations)) {
         setBankRoute("fallback");
         return;
       }
-      setBankRows(body);
+      const rows = body.destinations as Array<{
+        id: string;
+        kind: "bank" | "card";
+        label: string;
+        last4: string;
+        status: "verified" | "verifying" | "errored";
+        default: boolean;
+      }>;
+      setBankRows(rows.map((r) => ({ ...r, status: r.status === "verified" ? "verified" : "verifying" })));
       setBankRoute("live");
     } catch {
       setBankRoute("fallback");

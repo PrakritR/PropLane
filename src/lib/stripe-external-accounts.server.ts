@@ -94,16 +94,29 @@ function toPayoutDestination(ea: Stripe.ExternalAccount): PayoutDestination | nu
   return null;
 }
 
-/** Live list of payout destinations straight from Stripe — never the display cache. Never returns full account/card numbers, only last4. */
-export async function listPayoutDestinations(stripe: Stripe, accountId: string): Promise<PayoutDestination[]> {
-  const account = await stripe.accounts.retrieve(accountId);
+/**
+ * Destinations off an `Account` object already in hand — no Stripe call.
+ * Default-for-currency sorts first (the Withdraw sheet's "To" picker and the
+ * Bank accounts list both want the default account on top); ties keep
+ * Stripe's own order. Shared by {@link listPayoutDestinations} and
+ * `stripe-payouts-readiness.server.ts`, which already has the account from
+ * its own balance/create read and would otherwise pay for a second
+ * `accounts.retrieve`.
+ */
+export function payoutDestinationsFromAccount(account: Stripe.Account): PayoutDestination[] {
   const externalAccounts = account.external_accounts?.data ?? [];
   const destinations: PayoutDestination[] = [];
   for (const ea of externalAccounts) {
     const destination = toPayoutDestination(ea);
     if (destination) destinations.push(destination);
   }
-  return destinations;
+  return destinations.sort((a, b) => Number(b.default) - Number(a.default));
+}
+
+/** Live list of payout destinations straight from Stripe — never the display cache. Never returns full account/card numbers, only last4. */
+export async function listPayoutDestinations(stripe: Stripe, accountId: string): Promise<PayoutDestination[]> {
+  const account = await stripe.accounts.retrieve(accountId);
+  return payoutDestinationsFromAccount(account);
 }
 
 /**

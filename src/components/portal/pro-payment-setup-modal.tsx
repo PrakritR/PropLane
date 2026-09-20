@@ -56,6 +56,12 @@ export function ManagerPaymentSetupPanel({
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [stripeState, setStripeState] = useState<StripeSetupState>("unlinked");
   const [stripeIssue, setStripeIssue] = useState<string | null>(null);
+  // The ONE payouts-ready decision (`stripe-payouts-readiness.server.ts`,
+  // read off the SAME `/api/stripe/connect/status` response this panel
+  // already fetches) — never a second hand-rolled check of `stripeState`,
+  // which answers a different question (can this account accept resident
+  // payments at all, not "can it withdraw").
+  const [payoutsReady, setPayoutsReady] = useState(false);
   const [skuTier, setSkuTier] = useState<ManagerSkuTier | null>(null);
   const [paymentWaiverGranted, setPaymentWaiverGranted] = useState<boolean | null>(null);
   const [canEditBankAccount, setCanEditBankAccount] = useState(true);
@@ -120,6 +126,7 @@ export function ManagerPaymentSetupPanel({
     if (demo) {
       setStripeState("ready");
       setStripeIssue(null);
+      setPayoutsReady(true);
       return;
     }
     try {
@@ -129,6 +136,7 @@ export function ManagerPaymentSetupPanel({
         chargesEnabled?: boolean;
         transfersEnabled?: boolean;
         paymentReady?: boolean;
+        payoutsReady?: boolean;
         connected?: boolean;
         accountId?: string | null;
         stripeError?: string | null;
@@ -143,12 +151,14 @@ export function ManagerPaymentSetupPanel({
         setIsCoManagerForPayout(body.isCoManagerForPayout === true);
         setStripeState("unknown");
         setStripeIssue(body.error ?? "Couldn't check your Stripe status. Try again.");
+        setPayoutsReady(false);
         return;
       }
       setCanEditBankAccount(body.canEditBankAccount !== false);
       setIsCoManagerForPayout(body.isCoManagerForPayout === true);
       const nextState = stripeSetupStateFromStatus(body);
       setStripeState(nextState);
+      setPayoutsReady(body.payoutsReady === true);
       setStripeIssue(
         nextState === "unknown"
           ? body.stripeError ?? body.message ?? "Couldn't check your Stripe status. Try again."
@@ -159,6 +169,7 @@ export function ManagerPaymentSetupPanel({
     } catch {
       setStripeState("unknown");
       setStripeIssue("Couldn't check your Stripe status. Try again.");
+      setPayoutsReady(false);
     }
   }, [demo]);
 
@@ -399,8 +410,10 @@ export function ManagerPaymentSetupPanel({
 
   // Plain words, never a pill (AGENTS.md § No subtext): "Ready" once payouts
   // can actually go out, "Set up" for every other state — incomplete, unknown
-  // or never linked all lead to the same door.
-  const payoutsRowState = stripeState === "ready" ? "Ready" : "Set up";
+  // or never linked all lead to the same door. Reads the one payouts-ready
+  // field the status response carries (`stripe-payouts-readiness.server.ts`),
+  // not `stripeState` (a different, charges-acceptance question).
+  const payoutsRowState = payoutsReady ? "Ready" : "Set up";
 
   /* PropLane pays is always offered: the option itself is the door to the code
      field, and the code — not a grant on the account — is what applies it. */

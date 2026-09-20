@@ -95,10 +95,14 @@ describe("PortalPayoutsSettingsPage — ready state", () => {
         const url = String(input);
         if (url.endsWith("/payouts/balance")) return new Response(JSON.stringify(readyBalance), { status: 200 });
         if (url.endsWith("/bank-accounts")) {
+          // The real route (`GET .../bank-accounts`) answers
+          // `{ destinations: [...] }`, never a bare array.
           return new Response(
-            JSON.stringify([
-              { id: "ba_1", kind: "bank", label: "Chase Checking", last4: "1487", status: "verified", default: true },
-            ]),
+            JSON.stringify({
+              destinations: [
+                { id: "ba_1", kind: "bank", label: "Chase Checking", last4: "1487", status: "verified", default: true },
+              ],
+            }),
             { status: 200 },
           );
         }
@@ -109,6 +113,46 @@ describe("PortalPayoutsSettingsPage — ready state", () => {
     await screen.findByText("$4,280.00");
     await waitFor(() => expect(screen.getByText(/Chase Checking/)).toBeInTheDocument());
     expect(screen.getByRole("button", { name: /Actions for/ })).toBeInTheDocument();
+  });
+
+  it("passes the live destination's real id to the Withdraw sheet, so a real destinationId reaches create", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/payouts/balance")) return new Response(JSON.stringify(readyBalance), { status: 200 });
+        if (url.endsWith("/bank-accounts")) {
+          return new Response(
+            JSON.stringify({
+              destinations: [
+                { id: "ba_2", kind: "bank", label: "Chase Checking", last4: "1487", status: "verified", default: true },
+              ],
+            }),
+            { status: 200 },
+          );
+        }
+        if (url.endsWith("/payouts/create")) {
+          return new Response(
+            JSON.stringify({ payoutId: "po_1", amountCents: 428_000, feeCents: 0, netCents: 428_000, method: "standard" }),
+            { status: 200 },
+          );
+        }
+        return new Response(JSON.stringify({}), { status: 200 });
+      }),
+    );
+    render(<PortalPayoutsSettingsPage portal="vendor" />);
+    await screen.findByText("$4,280.00");
+    fireEvent.click(screen.getByRole("button", { name: "Withdraw" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm withdrawal" }));
+    await waitFor(() => {
+      const createCall = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.find(([input]) =>
+        String(input).endsWith("/payouts/create"),
+      );
+      expect(createCall).toBeDefined();
+      const [, init] = createCall!;
+      expect(JSON.parse((init as RequestInit).body as string)).toMatchObject({ destinationId: "ba_2" });
+    });
   });
 
   it("opens the Withdraw sheet from the Balance section", async () => {

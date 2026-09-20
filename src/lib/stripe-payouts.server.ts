@@ -12,7 +12,6 @@ import {
   netCentsForPayout,
   normalizePayoutHistoryRow,
   normalizePayoutStatus,
-  resolveSetupState,
   toStripePayoutSchedule,
   validatePayoutAgainstBalance,
   type CreatePayoutInput,
@@ -25,6 +24,7 @@ import {
   type StripePayoutDbRow,
   type VendorPayoutCandidate,
 } from "@/lib/stripe-payouts";
+import { resolvePayoutsReadiness } from "@/lib/stripe-payouts-readiness.server";
 
 const CURRENCY = "usd";
 
@@ -66,10 +66,6 @@ export function emptyPayoutSnapshot(): PayoutSnapshot {
 
 function currencyAmount(rows: Array<{ amount: number; currency: string }> | undefined, currency: string): number {
   return rows?.find((r) => r.currency === currency)?.amount ?? 0;
-}
-
-function requirementList(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
 }
 
 /** Picks the bank account payouts should describe: default-for-currency first, else the first bank account. */
@@ -378,12 +374,7 @@ export async function readPayoutSnapshot(
   ]);
 
   const bank = bankInfoFromAccount(account);
-  const setup = resolveSetupState({
-    detailsSubmitted: Boolean(account.details_submitted),
-    currentlyDue: requirementList(account.requirements?.currently_due),
-    pendingVerification: requirementList(account.requirements?.pending_verification),
-    hasExternalAccount: bank !== null,
-  });
+  const setup = resolvePayoutsReadiness(account);
 
   const schedule = fromStripePayoutSchedule(account.settings?.payouts?.schedule ?? null);
   const availableCents = currencyAmount(balance.available, CURRENCY);
@@ -427,19 +418,32 @@ export async function createInAppPayout(
     stripe.balance.retrieve({}, { stripeAccount: opts.accountId }),
   ]);
   const bank = bankInfoFromAccount(account);
-  const setup = resolveSetupState({
-    detailsSubmitted: Boolean(account.details_submitted),
-    currentlyDue: requirementList(account.requirements?.currently_due),
-    pendingVerification: requirementList(account.requirements?.pending_verification),
-    hasExternalAccount: bank !== null,
-  });
+  const setup = resolvePayoutsReadiness(account);
+
+  // A `destinationId` names a specific external account/card off THIS
+  // account's own live destination list — never trusted as-is. Omitted, the
+  // payout goes to the account's default external account (unchanged
+  // behavior). Instant specifically needs a debit CARD destination (the
+  // Withdraw sheet's own "needs a debit card" copy); a bank account's own
+  // `instant_available_payout_methods` is the fallback signal only for the
+  // no-destination (default-account) path below.
+  let destination: (typeof setup.destinations)[number] | null = null;
+  if (opts.input.destinationId) {
+    destination = setup.destinations.find((d) => d.id === opts.input.destinationId) ?? null;
+    if (!destination) {
+      return { ok: false, status: 400, error: "That destination is not on this account." };
+    }
+    if (opts.input.method === "instant" && destination.kind !== "card") {
+      return { ok: false, status: 400, error: "Instant payouts need a debit card destination." };
+    }
+  }
 
   const validation = validatePayoutAgainstBalance(
     opts.input,
     {
       availableCents: currencyAmount(balance.available, CURRENCY),
       instantAvailableCents: currencyAmount(balance.instant_available, CURRENCY),
-      bankInstantEligible: bank?.instantEligible ?? false,
+      bankInstantEligible: destination ? destination.kind === "card" : (bank?.instantEligible ?? false),
     },
     setup,
   );
@@ -494,7 +498,12 @@ export async function createInAppPayout(
 
   try {
     const payout = await stripe.payouts.create(
-      { amount: stripeAmount, currency: CURRENCY, method: opts.input.method },
+      {
+        amount: stripeAmount,
+        currency: CURRENCY,
+        method: opts.input.method,
+        ...(destination ? { destination: destination.id } : {}),
+      },
       { stripeAccount: opts.accountId, idempotencyKey: `in-app-payout:${claimId}` },
     );
 

@@ -65,10 +65,11 @@ export function PayoutWithdrawSheet({
   availableCents: number;
   instantAvailableCents: number;
   /**
-   * Destination accounts for the "To" picker. Today this is always a single
-   * synthesized entry from the balance's one bank/card — the create route
-   * has no `destinationId` yet, so picking a non-default account is a no-op
-   * until the bank-accounts route and multi-destination create support land.
+   * Destination accounts for the "To" picker, default-for-currency first —
+   * real rows from `GET …/bank-accounts` when that route answers, or a
+   * single synthesized entry from the balance's one bank/card as a fallback.
+   * Picking one sends its id as `destinationId`; the server re-validates it
+   * against the account's own live destination list.
    */
   accounts: PayoutWithdrawAccount[];
   onSuccess: (result: { payoutId: string; amountCents: number; method: "standard" | "instant" }) => void;
@@ -146,11 +147,17 @@ export function PayoutWithdrawSheet({
   async function confirmWithdrawal() {
     setError(null);
     try {
+      // "default" is the synthetic single-entry fallback id
+      // (`bankToWithdrawAccounts`) used only when the real bank-accounts
+      // route is unavailable — never a real Stripe destination id, so it is
+      // never sent; the server then falls back to the account's own default
+      // external account, same as before `destinationId` existed.
+      const destinationId = account && account.id !== "default" ? account.id : undefined;
       const res = await fetch(`${apiBase}/payouts/create`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amountCents, method }),
+        body: JSON.stringify({ amountCents, method, ...(destinationId ? { destinationId } : {}) }),
       });
       const body = (await res.json().catch(() => ({}))) as {
         payoutId?: string;

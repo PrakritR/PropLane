@@ -136,4 +136,29 @@ describe("PayoutWithdrawSheet — confirm step and submit", () => {
     expect(onSuccess).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Continue" })).toBeInTheDocument();
   });
+
+  it("sends the picked destination's real id as destinationId, never the synthetic fallback id", async () => {
+    const realAccount = { id: "ba_real_1", label: "Chase Checking", last4: "1487", kind: "bank" as const, instantEligible: false };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({ payoutId: "po_2", amountCents: 428_000, feeCents: 0, netCents: 428_000, method: "standard" }),
+          { status: 200 },
+        ),
+      ),
+    );
+    render(<PayoutWithdrawSheet {...baseProps({ accounts: [realAccount] })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm withdrawal" }));
+    await vi.waitFor(() =>
+      expect((fetch as unknown as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1),
+    );
+    const [, init] = (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    expect(JSON.parse(init.body as string)).toEqual({
+      amountCents: 428_000,
+      method: "standard",
+      destinationId: "ba_real_1",
+    });
+  });
 });

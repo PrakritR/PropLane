@@ -22,7 +22,6 @@ import {
   FilterFieldsAccordion,
   filterMultiSelectSummary,
 } from "@/components/portal/filter-field-lists";
-import { PortalPayoutsPanel } from "@/components/portal/portal-payouts-panel";
 import { VendorQuoteWizard } from "@/components/portal/vendor-quote-wizard";
 import { PORTAL_DETAIL_BTN, PortalTableDetailActions } from "@/components/portal/portal-data-table";
 import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
@@ -765,17 +764,10 @@ export function VendorFinancesPanel({
     return <VendorInvoicesView tabItems={financeTabItems} tabId={tabId} />;
   }
 
-  if (tabId === "payouts") {
-    // The Payouts page owns its own command bar (search + settings), balance,
-    // bank and history — the old CSV export / reminder / payment-methods
-    // toolbar and the shared "Request payment" primary moved off this tab
-    // (PLAN-0920-0853); Payments still export from Invoices.
-    return (
-      <VendorFinancesChrome tabId={tabId} tabItems={financeTabItems}>
-        <PortalPayoutsPanel portal="vendor" />
-      </VendorFinancesChrome>
-    );
-  }
+  // "payouts" never reaches this component — `render-portal-section.tsx`
+  // redirects that tab straight to Settings → Payouts (PLAN-0920-1500) before
+  // `VendorFinancesPanel` is ever mounted with that tabId. The pill stays in
+  // `VENDOR_FINANCE_TABS` as a door to it.
 
   const incomeEmpty = portalEmptyCopy("finances.income");
   const filtersHideRows = allRows.length > 0 && filteredRows.length === 0;

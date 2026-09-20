@@ -10,6 +10,7 @@ import {
   retrieveManagerConnectAccountOrNull,
 } from "@/lib/stripe-connect";
 import { retryFailedVendorPayoutsForVendor } from "@/lib/stripe-vendor-payout";
+import { resolvePayoutsReadiness } from "@/lib/stripe-payouts-readiness.server";
 
 export const runtime = "nodejs";
 
@@ -75,6 +76,9 @@ export async function GET() {
       if (paymentReady) {
         await retryFailedVendorPayoutsForVendor(db, userId).catch(() => undefined);
       }
+      // See the manager twin — the ONE payouts-ready decision, distinct from
+      // `paymentReady`'s charges-acceptance signal.
+      const payoutsReady = resolvePayoutsReadiness(acct).ready;
       return NextResponse.json({
         connected: true,
         accountId: acct.id,
@@ -82,6 +86,7 @@ export async function GET() {
         payoutsEnabled: Boolean(acct.payouts_enabled),
         transfersEnabled,
         paymentReady,
+        payoutsReady,
         transfersStatus: acct.capabilities?.transfers ?? null,
         detailsSubmitted: Boolean(acct.details_submitted),
       });

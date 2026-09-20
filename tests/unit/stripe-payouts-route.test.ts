@@ -162,12 +162,25 @@ function makeFakeStripe(config: FakeStripeConfig) {
         external_accounts: {
           data: [
             {
+              id: "ba_default",
               object: "bank_account",
+              // Readiness (`stripe-payouts-readiness.server.ts`) requires a
+              // VERIFIED destination, not merely "some external account" —
+              // matches every test in this file expecting `setup.ready`.
+              status: "verified",
               last4: "4421",
               bank_name: "Chase",
               account_type: "checking",
               available_payout_methods: config.bankInstantEligible ? ["standard", "instant"] : ["standard"],
               default_for_currency: true,
+            },
+            {
+              id: "card_debit",
+              object: "card",
+              brand: "Visa",
+              last4: "4242",
+              funding: "debit",
+              default_for_currency: false,
             },
           ],
         },
