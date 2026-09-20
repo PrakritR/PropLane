@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import { Input, Select } from "@/components/ui/input";
 import {
   ManagerPortalPageShell,
@@ -313,24 +313,20 @@ function SubmitInvoiceModal({
   }
 
   return (
-    <Modal
+    <PortalDialog
       open={open}
       title={editingInvoice ? "Edit invoice" : "Submit invoice"}
       onClose={() => {
         if (!saving) onClose();
       }}
-      footer={
-        <div className="flex items-center justify-end gap-2">
-          <Button
-            variant="primary"
-            onClick={handleSubmit}
-            disabled={saving || totalCents === 0}
-            data-attr="vendor-invoice-submit"
-          >
-            {saving ? "Submitting…" : editingInvoice ? `Save ${formatInvoiceMoney(totalCents)}` : `Submit ${formatInvoiceMoney(totalCents)}`}
-          </Button>
-        </div>
-      }
+      dismissBlocked={saving}
+      primaryAction={{
+        label: saving ? "Submitting…" : editingInvoice ? `Save ${formatInvoiceMoney(totalCents)}` : `Submit ${formatInvoiceMoney(totalCents)}`,
+        onClick: handleSubmit,
+        disabled: saving || totalCents === 0,
+        loading: saving,
+        dataAttr: "vendor-invoice-submit",
+      }}
     >
       <div className="space-y-4">
         {showManagerPicker && !editingInvoice ? (
@@ -445,7 +441,7 @@ function SubmitInvoiceModal({
 
         {error ? <p className="text-sm text-danger">{error}</p> : null}
       </div>
-    </Modal>
+    </PortalDialog>
   );
 }
 

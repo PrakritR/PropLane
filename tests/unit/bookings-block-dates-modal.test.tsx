@@ -66,11 +66,15 @@ describe("BookingsBlockDatesModal — resident", () => {
   afterEach(cleanup);
 
   it("puts the primary button bottom-right, not bottom-left", () => {
+    // PortalDialog's shared footer (docs/agents/ui-change-checklist.md § Pop-ups):
+    // one text secondary (left) + one filled primary (right), laid out
+    // `justify-between` rather than the old hand-rolled `justify-end` row.
     const { view } = open();
     const button = attr(view, "bookings-block-dates-save")!;
     const footer = button.parentElement!;
-    expect(footer.className).toContain("justify-end");
+    expect(footer.className).toContain("justify-between");
     expect(footer.className).not.toContain("justify-start");
+    expect(footer.lastElementChild).toBe(button);
   });
 
   it("saves with no one by default, and with the picked resident's name and email", async () => {

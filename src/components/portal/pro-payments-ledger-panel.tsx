@@ -26,7 +26,7 @@ import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/comp
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { PortalRecordRelatedPanel } from "@/components/portal/portal-record-related-panel";
-import { Bell, CalendarDays } from "lucide-react";
+import { Bell, CalendarDays, Trash2 } from "lucide-react";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { RESIDENT_DETAIL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -43,7 +43,9 @@ import {
   shortTermStayTotalAmount,
 } from "@/lib/short-term-stay-pricing";
 import { Input } from "@/components/ui/input";
-import { Modal, ModalFooter, MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
+import { MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
+import { PortalDialog } from "@/components/portal/portal-dialog";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import {
   PortalBulkMessageCarouselModal,
 } from "@/components/portal/portal-bulk-message-carousel-modal";
@@ -813,49 +815,38 @@ export function ManagerPaymentsLedgerPanel({
     const stay = isStayTotalRow(row);
     const parsed = stay ? parseShortTermStayChargeTitle(row.chargeTitle) : null;
     return (
-      <Modal
+      <PortalDialog
         open
-        title="Edit payment"
-        onClose={cancelEdit}
-        dense
-        dataAttr="payments-edit-modal"
-        footer={
-          <ModalFooter className="justify-between gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-full"
+        title={
+          <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
+            <span className="min-w-0 truncate">Edit payment</span>
+            <PortalIconAction
+              icon={Trash2}
+              label="Delete"
+              tone="danger"
               data-attr="payments-edit-delete"
               onClick={() => removePayment(row)}
-            >
-              Delete
-            </Button>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              {isMarkableAsPaid(row) ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="rounded-full"
-                  data-attr="payments-edit-mark-paid"
-                  onClick={() => {
-                    void recordPaid(row, "Marked as paid.");
-                    cancelEdit();
-                  }}
-                >
-                  Mark as paid
-                </Button>
-              ) : null}
-              <Button
-                type="button"
-                variant="primary"
-                className="rounded-full"
-                data-attr="payments-edit-save"
-                onClick={() => saveEdit(row)}
-              >
-                Save
-              </Button>
-            </div>
-          </ModalFooter>
+            />
+          </span>
+        }
+        onClose={cancelEdit}
+        dataAttr="payments-edit-modal"
+        primaryAction={{
+          label: "Save",
+          onClick: () => saveEdit(row),
+          dataAttr: "payments-edit-save",
+        }}
+        secondaryAction={
+          isMarkableAsPaid(row)
+            ? {
+                label: "Mark as paid",
+                onClick: () => {
+                  void recordPaid(row, "Marked as paid.");
+                  cancelEdit();
+                },
+                dataAttr: "payments-edit-mark-paid",
+              }
+            : undefined
         }
       >
         <div className="space-y-3">
@@ -939,7 +930,7 @@ export function ManagerPaymentsLedgerPanel({
             </div>
           </div>
         </div>
-      </Modal>
+      </PortalDialog>
     );
   };
 

@@ -12,19 +12,25 @@
  *
  *  - Keep editing — the safe default (primary, autofocused). Esc and an
  *    outside click mean this too, so nothing is discarded by accident.
- *  - Try again — run the same single save once more.
- *  - Leave without saving — the only destructive choice, so it is the quiet
- *    text button, never the default.
+ *  - Try again — the text secondary; run the same single save once more.
+ *  - Leave without saving — the only destructive choice, so it lives as a
+ *    `PortalIconAction` (trash, danger tone) in the header, never a third
+ *    footer button (`docs/agents/ui-change-checklist.md` § Pop-ups).
  *
  * Built on the Radix Dialog primitive this app already uses for its modals (the
  * same one `ui/modal.tsx` wraps and `import-upload-step` opens directly), with
  * `role="alertdialog"` and focus trapped. It portals above the listing editor's
- * own full-screen overlay (z-80), so its z-index sits higher.
+ * own full-screen overlay (z-80), so its z-index sits higher — this is NOT a
+ * `PortalDialog`: that shared shape has no `alertdialog` role, no control over
+ * stacking above the editor's own overlay, and no "focus the safe button"
+ * autofocus hook, all load-bearing for a data-loss-prevention confirm.
  */
 
 import { useRef } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
+import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { usePortalContainer } from "@/components/ui/portal-container-context";
 
 export function ListingSaveFailedDialog({
@@ -67,25 +73,28 @@ export function ListingSaveFailedDialog({
             }}
             className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 motion-reduce:animate-none"
           >
-            <Dialog.Title className="text-lg font-bold tracking-tight text-foreground">
-              Couldn&rsquo;t save this listing
-            </Dialog.Title>
+            <div className="flex items-start justify-between gap-3">
+              <Dialog.Title className="min-w-0 flex-1 text-lg font-bold tracking-tight text-foreground">
+                Couldn&rsquo;t save this listing
+              </Dialog.Title>
+              <PortalIconAction
+                icon={Trash2}
+                label="Leave without saving"
+                tone="danger"
+                data-attr="listing-save-failed-leave"
+                onClick={() => onLeaveWithoutSaving()}
+              />
+            </div>
             <Dialog.Description
               className="mt-2 text-sm leading-relaxed text-muted"
               data-attr="listing-save-failed-reason"
             >
               {reason}
             </Dialog.Description>
-            <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
               <Button
-                variant="danger"
-                data-attr="listing-save-failed-leave"
-                onClick={() => onLeaveWithoutSaving()}
-              >
-                Leave without saving
-              </Button>
-              <Button
-                variant="secondary"
+                variant="ghost"
+                className="rounded-full"
                 data-attr="listing-save-failed-retry"
                 onClick={() => onTryAgain()}
               >
@@ -94,6 +103,7 @@ export function ListingSaveFailedDialog({
               <Button
                 ref={keepRef}
                 variant="primary"
+                className="rounded-full"
                 data-attr="listing-save-failed-keep"
                 onClick={() => onKeepEditing()}
               >
