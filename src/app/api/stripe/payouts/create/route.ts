@@ -8,7 +8,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { resolveManagerConnectAccountId } from "@/lib/stripe-connect";
-import { createInAppPayout } from "@/lib/stripe-payouts.server";
+import { createInAppPayout, stripePayoutErrorResponse } from "@/lib/stripe-payouts.server";
 import { validateCreatePayoutRequestBody } from "@/lib/stripe-payouts";
 
 export const runtime = "nodejs";
@@ -74,10 +74,9 @@ export async function POST(req: Request) {
           { status: 503 },
         );
       }
-      return NextResponse.json({ error: msg }, { status: 400 });
+      return stripePayoutErrorResponse("stripe/payouts/create POST", e);
     }
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return stripePayoutErrorResponse("stripe/payouts/create POST", e);
   }
 }

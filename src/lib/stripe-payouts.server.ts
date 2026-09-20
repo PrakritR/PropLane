@@ -1,5 +1,6 @@
 import "server-only";
 
+import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
@@ -342,4 +343,26 @@ export async function writePayoutSchedule(
   });
   const schedule = fromStripePayoutSchedule(account.settings?.payouts?.schedule ?? null);
   return { ...schedule, nextPayoutAt: computeNextPayoutDate(schedule) };
+}
+
+/**
+ * Security-review follow-up: a caught Stripe (or other library) error's OWN
+ * message must never reach the client. Stripe's account-access error embeds
+ * the Connect account id verbatim ("This API key does not have access to
+ * account acct_123... (or that account does not exist)."), and other thrown
+ * errors can carry equally internal detail — neither belongs in a payout
+ * response body. Log the real message server-side (still diagnosable from
+ * logs) and answer with one generic message instead.
+ *
+ * This is only for the UNEXPECTED-error fallback in a route's catch block.
+ * It is never the right call for a validation failure — those already carry
+ * our own crafted message (`validateCreatePayoutRequestBody`,
+ * `validateScheduleRequestBody`, `STRIPE_NOT_CONFIGURED`, the payout-owner
+ * resolution errors, etc.) and must keep returning that message verbatim, at
+ * their own status code, without going through this helper.
+ */
+export function stripePayoutErrorResponse(context: string, e: unknown): NextResponse {
+  const message = e instanceof Error ? e.message : String(e);
+  console.error(`[${context}]`, message);
+  return NextResponse.json({ error: "Something went wrong processing that request. Please try again." }, { status: 500 });
 }

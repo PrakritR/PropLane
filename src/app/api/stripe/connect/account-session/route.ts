@@ -9,6 +9,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { ensureManagerConnectAccountId } from "@/lib/stripe-connect-account";
 import { createAccountSession, isEmbeddedComponent } from "@/lib/stripe-connect-embedded";
+import { stripePayoutErrorResponse } from "@/lib/stripe-payouts.server";
 
 export const runtime = "nodejs";
 
@@ -74,10 +75,9 @@ export async function POST(req: Request) {
             "Stripe is not configured (missing STRIPE_SECRET_KEY). Add keys in your environment to enable live embedded payout setup.",
         });
       }
-      return NextResponse.json({ error: msg }, { status: 400 });
+      return stripePayoutErrorResponse("stripe/connect/account-session POST", e);
     }
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return stripePayoutErrorResponse("stripe/connect/account-session POST", e);
   }
 }

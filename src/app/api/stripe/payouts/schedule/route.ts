@@ -8,7 +8,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { resolveManagerConnectAccountId } from "@/lib/stripe-connect";
-import { writePayoutSchedule } from "@/lib/stripe-payouts.server";
+import { stripePayoutErrorResponse, writePayoutSchedule } from "@/lib/stripe-payouts.server";
 import { validateScheduleRequestBody } from "@/lib/stripe-payouts";
 
 export const runtime = "nodejs";
@@ -60,10 +60,9 @@ export async function PUT(req: Request) {
           { status: 503 },
         );
       }
-      return NextResponse.json({ error: msg }, { status: 400 });
+      return stripePayoutErrorResponse("stripe/payouts/schedule PUT", e);
     }
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return stripePayoutErrorResponse("stripe/payouts/schedule PUT", e);
   }
 }

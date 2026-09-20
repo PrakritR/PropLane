@@ -8,7 +8,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { resolveManagerConnectAccountId } from "@/lib/stripe-connect";
-import { emptyPayoutSnapshot, readPayoutSnapshot } from "@/lib/stripe-payouts.server";
+import { emptyPayoutSnapshot, readPayoutSnapshot, stripePayoutErrorResponse } from "@/lib/stripe-payouts.server";
 
 export const runtime = "nodejs";
 
@@ -57,10 +57,9 @@ export async function GET() {
       if (msg.includes("STRIPE_SECRET_KEY") || msg.includes("Missing STRIPE")) {
         return NextResponse.json({ ...emptyPayoutSnapshot(), demo: true });
       }
-      return NextResponse.json({ error: msg }, { status: 400 });
+      return stripePayoutErrorResponse("stripe/payouts/balance GET", e);
     }
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return stripePayoutErrorResponse("stripe/payouts/balance GET", e);
   }
 }
