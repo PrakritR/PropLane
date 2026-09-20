@@ -21,6 +21,12 @@ import {
   normalizeBackgroundCheckStatus,
   resolveBackgroundCheckStatus,
 } from "@/lib/application-background-check";
+import {
+  openResidentSlots,
+  type OpenResidentSlot,
+  type RoomResidentSlotPlacement,
+} from "@/lib/rental-application/room-occupancy";
+import type { RoomPricingLike, RoomResidentPrice } from "@/lib/room-pricing";
 
 export const MANAGER_APPLICATIONS_EVENT = "axis:manager-applications";
 const MANAGER_APPLICATIONS_SESSION_KEY_PREFIX = "axis:manager-applications:v2";
@@ -1010,3 +1016,85 @@ export function signedRentLabelForRow(
 }
 
 export { enrichApplicationForLease, resolveApplicationPersonalFields } from "@/lib/application-personal-fields";
+
+/* ─────────────── rent per resident: which room, which slot (PLAN-0920-0631) ─────────────── */
+
+function slotFlexibleLocalDate(value: string | undefined | null): Date | null {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const [y, m, dd] = raw.split("-").map(Number);
+    const dt = new Date(y!, m! - 1, dd!);
+    return Number.isNaN(dt.getTime()) ? null : dt;
+  }
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(raw)) {
+    const [m, dd, y] = raw.split("/").map(Number);
+    const dt = new Date(y!, m! - 1, dd!);
+    return Number.isNaN(dt.getTime()) ? null : dt;
+  }
+  const dt = new Date(raw);
+  return Number.isNaN(dt.getTime()) ? null : new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+}
+
+/**
+ * Which resident slot(s) of `row`'s room are open, for the approval picker
+ * and Add resident — the browser-side read of the SAME decision
+ * `openResidentSlots` makes; `/api/manager-applications` re-derives it
+ * server-side inside the write that takes the bed, so this client read is a
+ * preview the server always re-checks, never the source of truth for a write.
+ *
+ * `room` is resolved by the caller (the listing room `row`'s
+ * `assignedRoomChoice`/`roomChoice1` names) — this module reads application
+ * rows, never the property catalog, to avoid a module cycle. Empty when
+ * `room` is absent or does not price per resident.
+ */
+export function openResidentSlotsForApplicationRow(
+  row: Pick<DemoApplicantRow, "id" | "application" | "assignedPropertyId" | "assignedRoomChoice" | "signedMonthlyRent" | "name" | "email">,
+  room: RoomPricingLike | null | undefined,
+  options: { at?: Date } = {},
+): OpenResidentSlot[] {
+  if (!room) return [];
+  const selfId = normalizeApplicationAxisId(String(row.id ?? ""));
+  const targetChoice =
+    row.assignedRoomChoice?.trim() || effectiveApplicationForRow(row)?.roomChoice1?.trim() || "";
+
+  const placements: RoomResidentSlotPlacement[] = [];
+  for (const sibling of readManagerApplicationRows()) {
+    if (sibling.bucket !== "approved" || sibling.withdrawnAt) continue;
+    if (normalizeApplicationAxisId(String(sibling.id ?? "")) === selfId) continue;
+    const siblingEffective = effectiveApplicationForRow(sibling);
+    const siblingChoice = sibling.assignedRoomChoice?.trim() || siblingEffective?.roomChoice1?.trim() || "";
+    if (!siblingChoice || siblingChoice !== targetChoice) continue;
+    const start =
+      slotFlexibleLocalDate(sibling.manualResidentDetails?.moveInDate) ??
+      slotFlexibleLocalDate(siblingEffective?.leaseStart);
+    if (!start) continue;
+    const end =
+      slotFlexibleLocalDate(sibling.manualResidentDetails?.moveOutDate) ??
+      slotFlexibleLocalDate(siblingEffective?.leaseEnd);
+    placements.push({
+      id: String(sibling.id ?? ""),
+      start,
+      end,
+      residentSlot: sibling.application?.residentSlot,
+      holderName: sibling.name || sibling.email || null,
+    });
+  }
+
+  return openResidentSlots({ room, placements, at: options.at ?? new Date() });
+}
+
+/** The four application fields a resident-slot pick writes — never trust a caller's own figures over these. */
+export function residentSlotOverrideFields(price: RoomResidentPrice): {
+  residentSlot: number;
+  managerRentOverride: string;
+  managerUtilitiesOverride?: string;
+  managerSecurityDepositOverride?: string;
+} {
+  return {
+    residentSlot: price.slot,
+    managerRentOverride: String(price.monthlyRent),
+    ...(price.utilitiesEstimate ? { managerUtilitiesOverride: price.utilitiesEstimate } : {}),
+    ...(price.securityDeposit ? { managerSecurityDepositOverride: price.securityDeposit } : {}),
+  };
+}

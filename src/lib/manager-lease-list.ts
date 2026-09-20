@@ -5,11 +5,14 @@ import {
   formatCompactPlacementLine,
   stripPropertyRoomCountSuffix,
 } from "@/lib/portal-mobile-preview";
-import { getPropertyById } from "@/lib/rental-application/data";
+import { getPropertyById, parseRoomChoiceValue } from "@/lib/rental-application/data";
 import {
   clusterRowsByResident,
   type ResidentCluster,
 } from "@/lib/resident-row-clustering";
+import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { formatRoomPriceAmount, roomPricesPerResident, roomResidentPriceForSlot } from "@/lib/room-pricing";
+import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 
 export type ManagerLeaseListCluster = ResidentCluster<LeasePipelineRow>;
 
@@ -89,6 +92,28 @@ export function leaseRowPlaceLine(row: LeasePipelineRow): string {
  */
 export function leaseStageFact(row: LeasePipelineRow): string | undefined {
   return row.stageLabel?.trim() || row.status?.trim() || undefined;
+}
+
+/**
+ * "Resident 2 of 2 · $800/mo" — which rent a lease's application holds when
+ * its room prices per resident (PLAN-0920-0631). `undefined` for every other
+ * lease, so an ordinary single-rent room's row is unaffected.
+ */
+export function leaseResidentSlotFact(row: LeasePipelineRow): string | undefined {
+  const slot = row.application?.residentSlot;
+  if (!Number.isInteger(slot) || (slot as number) < 1) return undefined;
+  const roomChoice = (row.roomChoice || row.application?.roomChoice1 || "").trim();
+  if (!roomChoice) return undefined;
+  const { propertyId, listingRoomId } = parseRoomChoiceValue(roomChoice);
+  if (!listingRoomId) return undefined;
+  const property = getPropertyById(propertyId);
+  if (!property?.listingSubmission || property.listingSubmission.v !== 1) return undefined;
+  const submission = normalizeManagerListingSubmissionV1(property.listingSubmission);
+  const room = submission.rooms.find((r) => r.id === listingRoomId);
+  if (!room || !roomPricesPerResident(room)) return undefined;
+  const capacity = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
+  const rent = roomResidentPriceForSlot(room, slot as number)?.monthlyRent;
+  return rent ? `Resident ${slot} of ${capacity} · ${formatRoomPriceAmount(rent)}/mo` : `Resident ${slot} of ${capacity}`;
 }
 
 /** " · Renewal requested" / " · Signed off-platform" — what the update stamp carries after the date. */

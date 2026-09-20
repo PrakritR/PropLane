@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
@@ -52,10 +53,18 @@ import {
   MANAGER_APPLICATIONS_EVENT,
   deleteManagerApplicationFromServer,
   normalizeApplicationAxisId,
+  openResidentSlotsForApplicationRow,
   readManagerApplicationRows,
+  residentSlotOverrideFields,
   syncManagerApplicationsFromServer,
   writeManagerApplicationRows,
 } from "@/lib/manager-applications-storage";
+import {
+  ApplicationResidentSlotPicker,
+  defaultOpenResidentSlot,
+} from "@/components/portal/application-resident-slot-picker";
+import type { OpenResidentSlot } from "@/lib/rental-application/room-occupancy";
+import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import {
   MANAGER_PORTFOLIO_REFRESH_EVENTS,
   applicationVisibleToPortalUser,
@@ -81,7 +90,12 @@ import {
   type PortalDownloadResult,
 } from "@/lib/portal-document-download";
 import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
-import { getBundleChoiceLabel, getRoomChoiceLabel } from "@/lib/rental-application/data";
+import {
+  getBundleChoiceLabel,
+  getPropertyById,
+  getRoomChoiceLabel,
+  parseRoomChoiceValue,
+} from "@/lib/rental-application/data";
 import type { ApplicationGroupMember } from "@/lib/rental-application/application-groups";
 import {
   inProgressApplicationResumeUrl,
@@ -163,6 +177,29 @@ function applicationRowCanMoveToPending(row: DemoApplicantRow): boolean {
 
 function applicationRowPropertyId(row: DemoApplicantRow): string {
   return row.assignedPropertyId?.trim() || row.propertyId?.trim() || row.application?.propertyId?.trim() || "";
+}
+
+/**
+ * The listing room this application is placed in — the manager's final
+ * `assignedRoomChoice`, else the applicant's own first choice — for the
+ * per-resident approval pick (PLAN-0920-0631). Undefined for a whole-property
+ * placement or a row that names no room.
+ */
+function roomForApplicationRow(row: DemoApplicantRow) {
+  const choice = row.assignedRoomChoice?.trim() || row.application?.roomChoice1?.trim() || "";
+  if (!choice) return undefined;
+  const { propertyId, listingRoomId } = parseRoomChoiceValue(choice);
+  if (!listingRoomId) return undefined;
+  const property = getPropertyById(propertyId);
+  if (!property?.listingSubmission || property.listingSubmission.v !== 1) return undefined;
+  const sub = normalizeManagerListingSubmissionV1(property.listingSubmission);
+  return sub.rooms.find((r) => r.id === listingRoomId);
+}
+
+/** Open resident slots for this application's room, or `[]` when it does not price per resident. */
+function residentSlotsForApplicationRow(row: DemoApplicantRow): OpenResidentSlot[] {
+  const room = roomForApplicationRow(row);
+  return room ? openResidentSlotsForApplicationRow(row, room) : [];
 }
 
 function applicationRowsForPropertyFilters(rows: DemoApplicantRow[], propertyFilters: string[]): DemoApplicantRow[] {
@@ -542,6 +579,13 @@ export function ManagerApplications({
   );
   const [approvePreviewRow, setApprovePreviewRow] = useState<DemoApplicantRow | null>(null);
   const [approveError, setApproveError] = useState<string | null>(null);
+  // The "Rent for this resident" step (PLAN-0920-0631): shown BEFORE the notify
+  // preview only when the room prices per resident. `slotPickOptions` is the
+  // browser-side preview; the server re-derives it inside the write that takes
+  // the bed, so a stale picker can never write a taken rent.
+  const [slotPickRow, setSlotPickRow] = useState<DemoApplicantRow | null>(null);
+  const [slotPickOptions, setSlotPickOptions] = useState<OpenResidentSlot[]>([]);
+  const [selectedResidentSlot, setSelectedResidentSlot] = useState<number | null>(null);
   const [rejectPreviewRows, setRejectPreviewRows] = useState<DemoApplicantRow[] | null>(null);
   const [rejectBusy, setRejectBusy] = useState(false);
   const [approveBusyId, setApproveBusyId] = useState<string | null>(null);
@@ -1070,6 +1114,49 @@ export function ManagerApplications({
     return result;
   };
 
+  /**
+   * Writes a resident-slot pick onto the application's own overrides — the
+   * SAME fields `managerRentOverride`/`managerUtilitiesOverride`/
+   * `managerSecurityDepositOverride` a negotiated rent already uses, plus
+   * `residentSlot` for display — BEFORE the approval write, so the upsert
+   * `setRowBucket` sends already carries them. `serverConfirmed` skips an
+   * extra background mirror here; the very next `setRowBucket` call is the
+   * authoritative server write, and the server re-reads the slot's price
+   * itself rather than trusting this local one.
+   */
+  const persistResidentSlotPick = (rowId: string, price: OpenResidentSlot["price"]) => {
+    const patch = residentSlotOverrideFields(price);
+    const next = readManagerApplicationRows().map((r) =>
+      r.id === rowId && r.application ? { ...r, application: { ...r.application, ...patch } } : r,
+    );
+    writeManagerApplicationRows(next, { serverConfirmed: true, skipLeaseSeed: true });
+    setRows(readManagerApplicationRows());
+  };
+
+  const closeSlotPick = () => {
+    setSlotPickRow(null);
+    setSlotPickOptions([]);
+    setSelectedResidentSlot(null);
+  };
+
+  /**
+   * Approve's real entry point (the icon action and the single-selection bulk
+   * button both call this instead of opening the notify preview directly).
+   * A room priced per resident stops here for the "Rent for this resident"
+   * pick; every other room opens the notify preview exactly as before.
+   */
+  const beginApprovalPreview = (row: DemoApplicantRow) => {
+    setApproveError(null);
+    const slots = residentSlotsForApplicationRow(row);
+    if (slots.length > 0) {
+      setSlotPickRow(row);
+      setSlotPickOptions(slots);
+      setSelectedResidentSlot(defaultOpenResidentSlot(slots));
+      return;
+    }
+    setApprovePreviewRow(row);
+  };
+
   // Declared AFTER `setRowBucket`, which it calls. It used to sit above the
   // definition and relied on hoisting, which stops the compiler tracking the
   // dependency. The dep list is unchanged and still deliberately omits it.
@@ -1094,6 +1181,17 @@ export function ManagerApplications({
     if (picked.length === 0) return;
     void (async () => {
       for (const candidate of picked) {
+        // A per-resident room has no manager present to pick a rent, so
+        // auto-approve takes the lowest OPEN one — the same default the
+        // picker itself opens on. The server still re-derives and can still
+        // refuse it if two candidates raced for the same slot.
+        const candidateRow = rows.find((r) => r.id === candidate.id);
+        if (candidateRow) {
+          const slots = residentSlotsForApplicationRow(candidateRow);
+          const defaultSlot = defaultOpenResidentSlot(slots);
+          const chosen = defaultSlot != null ? slots.find((s) => s.slot === defaultSlot) : undefined;
+          if (chosen) persistResidentSlotPick(candidateRow.id, chosen.price);
+        }
         // Sequential on purpose: each approval writes charges and provisions an account, and the
         // shared transition is not built to run concurrently against the same local store.
         await setRowBucket(candidate.id, "approved");
@@ -1343,10 +1441,7 @@ export function ManagerApplications({
             icon={Check}
             label="Approve"
             data-attr="application-approve"
-            onClick={() => {
-              setApproveError(null);
-              setApprovePreviewRow(row);
-            }}
+            onClick={() => beginApprovalPreview(row)}
           />
         ) : null}
         {row.bucket === "pending" ? (
@@ -1598,6 +1693,43 @@ export function ManagerApplications({
           }}
         />
       ) : null}
+      <Modal
+        open={slotPickRow !== null}
+        title="Rent for this resident"
+        onClose={closeSlotPick}
+        dataAttr="application-resident-slot-modal"
+        footer={
+          <ModalFooter>
+            <Button variant="ghost" onClick={closeSlotPick}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              disabled={selectedResidentSlot == null}
+              onClick={() => {
+                const chosen = slotPickOptions.find((s) => s.slot === selectedResidentSlot);
+                if (!slotPickRow || !chosen || chosen.holder) return;
+                persistResidentSlotPick(slotPickRow.id, chosen.price);
+                setApprovePreviewRow(slotPickRow);
+                closeSlotPick();
+              }}
+            >
+              Continue
+            </Button>
+          </ModalFooter>
+        }
+      >
+        {slotPickRow ? (
+          <p className="mb-3 text-sm text-muted">
+            {applicantDisplayName(slotPickRow)} · {applicationRoomLabel(slotPickRow)} · {slotPickOptions.length} residents per room
+          </p>
+        ) : null}
+        <ApplicationResidentSlotPicker
+          slots={slotPickOptions}
+          value={selectedResidentSlot}
+          onChange={setSelectedResidentSlot}
+        />
+      </Modal>
       <PortalNotificationPreviewModal
         open={approvePreviewRow !== null}
         title="Approve application"
@@ -1961,7 +2093,7 @@ export function ManagerApplications({
                     className={PORTAL_BULK_BAR_BTN}
                     data-attr="applications-bulk-approve"
                     onClick={() => {
-                      if (selectedApprovableRows.length === 1) setApprovePreviewRow(selectedApprovableRows[0]!);
+                      if (selectedApprovableRows.length === 1) beginApprovalPreview(selectedApprovableRows[0]!);
                     }}
                   >
                     Approve
