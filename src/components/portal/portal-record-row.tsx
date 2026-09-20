@@ -246,23 +246,33 @@ export function PortalRowFact({ icon: Icon, children, srLabel }: { icon: LucideI
 }
 
 /**
- * The Properties row, for a person — an applicant, a co-signer.
+ * The Properties row, for a person — an applicant, a resident, a lease, a
+ * charge, a vendor, a tour guest.
  *
  * Same card, same slots: an initials tile where the home has its photo, the
  * name as the title, "Alder Row · Room 2" as the address line, glyph facts,
- * chips on the left, the date in bold and a status chip on the right, and the
- * ⋯ the list surface draws for a selectable row.
+ * the figure that matters (an amount, a date) in bold on the right, and the ⋯
+ * the list surface draws for a selectable row. No pills: the tab says the
+ * bucket, and anything else the row must say is a plain fact with a glyph
+ * (`tests/unit/portal-list-rows-no-pills.test.ts`).
  */
 export function PortalApplicantRecordRow({
   name,
   kind = "applicant",
+  tileLabel,
   ...rest
 }: Omit<Parameters<typeof PortalPropertyRecordRow>[0], "title" | "leading" | "meta"> & {
   name: string;
   /** A co-signer gets a person glyph rather than initials, and sits under its applicant. */
   kind?: "applicant" | "cosigner";
+  /**
+   * Whose initials fill the tile when they are not the title's — a payment row
+   * is titled by the resident but a vendor payout by the payee, and the tile
+   * should always be the person the ⋯ acts for.
+   */
+  tileLabel?: string;
 }) {
-  const initials = name
+  const initials = (tileLabel ?? name)
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)

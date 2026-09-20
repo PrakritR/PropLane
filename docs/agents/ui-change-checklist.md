@@ -42,6 +42,18 @@ Compose with **`PortalRecordListSurface`** — not hand-rolled wrappers.
 2. **Flat rows** — `PortalPropertyRecordRow` / `PortalPersonRecordRow` / `PortalServiceRecordRow` (not top-level tables)
 3. **ADD footer** — `PortalListAddRow` with unique `ariaLabel`
 4. **Per-record ⋯ menus** — use the shared `PortalRecordListSurface` action context. No Select strip, list checkboxes, or floating bulk bar.
+5. **No pills on rows.** A row is tile · title · place line · glyph facts ·
+   figure · ⋯. Never a `Badge` or status chip on it: the tab already says the
+   bucket (Approved, Pending, Signed, Paid), and anything else the row must say
+   — a Draft inside the Manager-review bucket, a flagged screening, an existing
+   resident — is plain grey fact text with a glyph (`PortalRowFact`). "Added by
+   you", "Approved · Active", "Needs photos" are the kind of thing that never
+   comes back. Guard: `tests/unit/portal-list-rows-no-pills.test.ts`.
+6. **Search box in the command bar.** Every list tab passes `search` to
+   `PortalListControlStack` ("Search leases"), filters the current bucket's
+   rows through `matchesPortalListSearch` (`src/lib/portal-list-search.ts`),
+   and shows `portalEmptyNoMatchTitle` with a Clear search action on no match.
+   Tab counts stay the bucket totals.
 
 Reference: manager **Properties** tab.
 
