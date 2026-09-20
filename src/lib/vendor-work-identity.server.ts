@@ -41,10 +41,15 @@ export type VendorWorkIdentityProvider = {
   emailConfigured(): boolean;
   smsConfigured(): boolean;
   emailDomainReadiness(domain: string): Promise<{ domainId: string | null; sendReady: boolean; receiveReady: boolean }>;
-  provisionSms(input: { webhookUrl: string; statusCallbackUrl: string }): Promise<{
+  findSmsByOperation(operationId: string): Promise<{
     phoneNumber: string;
     phoneSid: string;
-    messagingServiceSid: string;
+  } | null>;
+  purchaseSms(input: { operationId: string; webhookUrl: string; statusCallbackUrl: string }): Promise<{
+    phoneNumber: string;
+    phoneSid: string;
+  }>;
+  attachSms(input: { phoneSid: string; messagingServiceSid: string }): Promise<{
     attached: boolean;
     carrierReady: boolean;
   }>;
@@ -124,10 +129,16 @@ export function createVendorWorkIdentityProvider(): VendorWorkIdentityProvider {
         receiveReady: verified && payload.receiving === true && Boolean(process.env.RESEND_INBOUND_WEBHOOK_SECRET?.trim()),
       };
     },
-    async provisionSms({ webhookUrl, statusCallbackUrl }) {
+    async findSmsByOperation(operationId) {
       const client = createTwilioRestClient();
-      const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim();
-      if (!client || !messagingServiceSid) throw new Error("SMS provider is not configured");
+      if (!client) throw new Error("SMS provider is not configured");
+      const rows = await client.incomingPhoneNumbers.list({ friendlyName: `proplane-vendor-${operationId}`, limit: 1 });
+      const row = rows[0];
+      return row?.sid && row.phoneNumber ? { phoneSid: row.sid, phoneNumber: row.phoneNumber } : null;
+    },
+    async purchaseSms({ operationId, webhookUrl, statusCallbackUrl }) {
+      const client = createTwilioRestClient();
+      if (!client) throw new Error("SMS provider is not configured");
       const available = await client.availablePhoneNumbers("US").local.list({ smsEnabled: true, limit: 1 });
       const candidate = available[0]?.phoneNumber;
       if (!candidate) throw new Error("no SMS-capable number is available");
@@ -136,19 +147,21 @@ export function createVendorWorkIdentityProvider(): VendorWorkIdentityProvider {
       // second number until an operator/provider reconciliation resolves it.
       const number = await client.incomingPhoneNumbers.create({
         phoneNumber: candidate,
+        friendlyName: `proplane-vendor-${operationId}`,
         smsUrl: webhookUrl,
         statusCallback: statusCallbackUrl,
-      });
-      const attached = await client.messaging.v1.services(messagingServiceSid).phoneNumbers.create({
-        phoneNumberSid: number.sid,
       });
       return {
         phoneNumber: number.phoneNumber,
         phoneSid: number.sid,
-        messagingServiceSid,
-        attached: Boolean(attached.sid),
-        carrierReady: Boolean(number.capabilities?.sms) && Boolean(attached.sid),
       };
+    },
+    async attachSms({ phoneSid, messagingServiceSid }) {
+      const client = createTwilioRestClient();
+      if (!client) throw new Error("SMS provider is not configured");
+      const attachment = await client.messaging.v1.services(messagingServiceSid).phoneNumbers.create({ phoneNumberSid: phoneSid });
+      const number = await client.incomingPhoneNumbers(phoneSid).fetch();
+      return { attached: Boolean(attachment.sid), carrierReady: Boolean(number.capabilities?.sms) && Boolean(attachment.sid) };
     },
     async inspectSms({ phoneSid, messagingServiceSid }) {
       const client = createTwilioRestClient();
@@ -308,17 +321,30 @@ export async function setupVendorWorkIdentity(
     const webhookUrl = smsWebhookUrl();
     const callbackUrl = smsStatusCallbackUrl();
     if (!webhookUrl || !callbackUrl) throw new Error("SMS webhook configuration is unavailable");
-    const sms = await provider.provisionSms({ webhookUrl, statusCallbackUrl: callbackUrl });
-    const ready = sms.attached && sms.carrierReady;
+    // Recover an interrupted purchase by its durable friendlyName before any
+    // purchase attempt.  A missing result is the only case allowed to buy.
+    const prior = await provider.findSmsByOperation(claim.operation_id);
+    const purchased = prior ?? await provider.purchaseSms({ operationId: claim.operation_id, webhookUrl, statusCallbackUrl: callbackUrl });
+    const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID!.trim();
+    // Persist the externally allocated SID before attempting attachment.  An
+    // attachment timeout can then be inspected/reconciled without another buy.
     const { error: identityPersistError } = await db.from("vendor_work_identities").update({
-        sms_state: ready ? "ready" : "blocked",
-        phone_number: sms.phoneNumber, phone_number_sid: sms.phoneSid, messaging_service_sid: sms.messagingServiceSid,
-        carrier_ready: sms.carrierReady, sms_send_ready: ready, sms_receive_ready: ready,
-        attachment_state: ready ? "attached" : "failed", quarantined_at: null, quarantine_reason: null, last_error: ready ? null : "sms_not_attached_or_carrier_unready", updated_at: new Date().toISOString(),
-      }).eq("id", ensured);
+      phone_number: purchased.phoneNumber, phone_number_sid: purchased.phoneSid, messaging_service_sid: messagingServiceSid,
+      sms_state: "reconciling", attachment_state: "reconciling", updated_at: new Date().toISOString(),
+    }).eq("id", ensured);
     if (identityPersistError) throw new ProviderAmbiguousError("purchased vendor number persistence failed");
-    const { error: operationPersistError } = await db.from("vendor_work_identity_operations").update({ state: ready ? "succeeded" : "failed", provider_reference: sms.phoneSid, error_code: ready ? null : "sms_not_ready", updated_at: new Date().toISOString() }).eq("id", claim.operation_id);
+    const { error: operationPersistError } = await db.from("vendor_work_identity_operations").update({ state: "reconciling", provider_reference: purchased.phoneSid, updated_at: new Date().toISOString() }).eq("id", claim.operation_id);
     if (operationPersistError) throw new ProviderAmbiguousError("vendor provider operation persistence failed");
+    const attachment = await provider.attachSms({ phoneSid: purchased.phoneSid, messagingServiceSid });
+    const ready = attachment.attached && attachment.carrierReady;
+    const { error: readyError } = await db.from("vendor_work_identities").update({
+      sms_state: ready ? "ready" : "reconciling", carrier_ready: attachment.carrierReady, sms_send_ready: ready, sms_receive_ready: ready,
+      attachment_state: attachment.attached ? "attached" : "reconciling", quarantined_at: ready ? null : new Date().toISOString(),
+      quarantine_reason: ready ? null : "sms_attachment_or_carrier_unready", updated_at: new Date().toISOString(),
+    }).eq("id", ensured);
+    if (readyError) throw new ProviderAmbiguousError("vendor SMS readiness persistence failed");
+    const { error: operationReadyError } = await db.from("vendor_work_identity_operations").update({ state: ready ? "succeeded" : "reconciling", error_code: ready ? null : "sms_not_ready", updated_at: new Date().toISOString() }).eq("id", claim.operation_id);
+    if (operationReadyError) throw new ProviderAmbiguousError("vendor SMS operation readiness persistence failed");
   } catch (error) {
     await setReconcileState(db, ensured, claim.operation_id, channel, error);
   }
