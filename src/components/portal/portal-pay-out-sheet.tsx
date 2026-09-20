@@ -48,6 +48,8 @@ export function PortalPayOutSheet({
   instantAvailableCents,
   bank,
   onSuccess,
+  initialAmountCents,
+  initialMethod,
 }: {
   open: boolean;
   onClose: () => void;
@@ -58,6 +60,17 @@ export function PortalPayOutSheet({
   instantAvailableCents: number;
   bank: PortalPayOutBank;
   onSuccess: (result: { payoutId: string; amountCents: number; method: "standard" | "instant" }) => void;
+  /**
+   * Prefills the amount/speed instead of "everything available" — used to
+   * route a failed payout's Retry through this same confirmation sheet
+   * rather than resubmitting silently. `stripe_payouts.amount_cents` always
+   * holds the GROSS amount the user originally typed (`createInAppPayout`
+   * never overwrites it with Stripe's net Instant `payout.amount`), so the
+   * original row's `amountCents`/`method` can be handed straight through —
+   * the server recomputes the fee fresh off that gross figure on submit.
+   */
+  initialAmountCents?: number;
+  initialMethod?: "standard" | "instant";
 }) {
   const [amountInput, setAmountInput] = useState("");
   const [method, setMethod] = useState<"standard" | "instant">("standard");
@@ -66,10 +79,15 @@ export function PortalPayOutSheet({
 
   useEffect(() => {
     if (!open) return;
-    setAmountInput((availableCents / 100).toFixed(2));
-    setMethod("standard");
+    const prefillCents = initialAmountCents ?? availableCents;
+    setAmountInput((prefillCents / 100).toFixed(2));
+    setMethod(initialMethod ?? "standard");
     setError(null);
-  }, [open, availableCents]);
+    // Re-derive only when the sheet (re)opens or the prefill itself changes —
+    // `availableCents` ticking on an unrelated balance refresh must not blow
+    // away what the user is mid-typing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialAmountCents, initialMethod]);
 
   const amountCents = parseDollarsToCents(amountInput);
   const previewFeeCents = Math.round(amountCents * 0.01);
