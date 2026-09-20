@@ -48,7 +48,7 @@ describe("resident and vendor dashboard presentation parity", () => {
     expect(services).not.toContain("Update your maintenance request. Your property manager sees these changes.");
   });
 
-  it("uses icon utilities and factual empty state on the vendor dashboard without changing shared dashboard panels", () => {
+  it("uses shared dashboard panels with icon utilities and factual vendor empty states", () => {
     const dashboard = read("src/components/portal/vendor-dashboard.tsx");
     expect(dashboard).not.toContain("portalDashboardWelcomeSubtitle");
     expect(dashboard).not.toContain("No jobs yet");
@@ -57,10 +57,21 @@ describe("resident and vendor dashboard presentation parity", () => {
     expect(dashboard).not.toContain("Needs a reply");
     expect(dashboard).not.toContain("Set up messaging in Settings");
     expect(dashboard).not.toContain("Manage services →");
-    expect(dashboard).toContain("VendorUpcomingPanel");
+    expect(dashboard).toContain("KpiCard");
+    expect(dashboard).toContain("AttentionPanel");
+    expect(dashboard).toContain("UpcomingPanel");
+    expect(dashboard).not.toContain("VendorMetric");
+    expect(dashboard).not.toContain("VendorAttentionPanel");
+    expect(dashboard).not.toContain("VendorUpcomingPanel");
     expect(dashboard).toContain("No upcoming visits.");
     expect(dashboard).toContain("PortalIconAction");
     expect(dashboard).toContain('label="Manage services"');
     expect(dashboard).toContain('label="Open calendar"');
+
+    const shared = read("src/components/portal/pro-dashboard-kpis.tsx");
+    expect(shared).toContain('emptyCopy = "Nothing is waiting on you. Nice."');
+    expect(shared).toContain('emptyCopy = "Nothing scheduled in the next two weeks."');
+    expect(shared).toContain("hideRowDetail = false");
+    expect(shared).toContain("aside ?? (");
   });
 });
