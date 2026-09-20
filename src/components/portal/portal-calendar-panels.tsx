@@ -112,7 +112,7 @@ import {
   compactTaskRoomLabel,
   taskNotesPreview,
 } from "@/lib/manager-task-display";
-type CalendarMode = "day" | "week" | "month";
+export type CalendarMode = "day" | "week" | "month";
 type RecurrenceCadence = "once" | "weekly" | "biweekly" | "monthly";
 type DragSelection = {
   dateStr: string;
@@ -453,6 +453,23 @@ function addMonths(d: Date, n: number): Date {
   const x = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0, 0);
   x.setMonth(x.getMonth() + n);
   return x;
+}
+
+/** Calendar navigation is noon-anchored so DST cannot skip a local date. */
+export function shiftCalendarAnchor(anchor: Date, mode: CalendarMode, direction: -1 | 1): Date {
+  if (mode === "month") return addMonths(anchor, direction);
+  return addDays(anchor, mode === "week" ? direction * 7 : direction);
+}
+
+/** A fresh value prevents a mutating Date caller from changing the clock anchor. */
+export function calendarTodayAnchor(today: Date): Date {
+  return new Date(today);
+}
+
+export function calendarVisibleDateCount(mode: CalendarMode, anchor: Date): number {
+  if (mode === "day") return 1;
+  if (mode === "week") return 7;
+  return buildMonthCells(anchor.getFullYear(), anchor.getMonth()).filter(Boolean).length;
 }
 
 function buildMonthCells(year: number, month: number): (number | null)[] {
@@ -811,6 +828,7 @@ export function PortalCalendarPanels({
   editKind = "tours",
   calendarRefreshSignal,
   defaultViewMode = "week",
+  viewMode: controlledViewMode,
   pinMonthSchedule = false,
   tourScopeLabel,
   unavailableMessage = "Sign in to manage your availability.",
@@ -857,6 +875,8 @@ export function PortalCalendarPanels({
   onDefaultTourGridEnabledChange,
   weekActionsHost,
   vendorViewer = false,
+  hideViewModeControl = false,
+  onVendorAvailabilityEdit,
 }: {
   storageKey: string | null;
   availabilityStorageKeys?: string[];
@@ -864,6 +884,8 @@ export function PortalCalendarPanels({
   editKind?: AvailabilityKind;
   calendarRefreshSignal?: number;
   defaultViewMode?: CalendarMode;
+  /** Route-owned calendar mode. When provided, navigation updates this panel without remounting it. */
+  viewMode?: CalendarMode;
   pinMonthSchedule?: boolean;
   tourScopeLabel?: string;
   unavailableMessage?: string;
@@ -889,6 +911,10 @@ export function PortalCalendarPanels({
    * still key off `vendorDayFlexibility`.
    */
   vendorViewer?: boolean;
+  /** The portal route owns mode navigation, so do not render a second picker. */
+  hideViewModeControl?: boolean;
+  /** Vendor edits are delegated to the canonical vendor-availability editor. */
+  onVendorAvailabilityEdit?: (dateStr: string, slotIdx?: number) => void;
   otherProperties?: { id: string; name: string }[];
   onCopyWeekToHouses?: (propertyIds: string[], weekDateStrs: string[], scope: "week" | "entire") => void;
   scheduledTourFilter?: ScheduledTourFilter;
@@ -1009,7 +1035,8 @@ export function PortalCalendarPanels({
     () => AVAILABILITY_KINDS.some((kind) => (kindKeysMap[kind]?.length ?? 0) > 0),
     [kindKeysMap],
   );
-  const [viewMode, setViewMode] = useState<CalendarMode>(defaultViewMode);
+  const [uncontrolledViewMode, setViewMode] = useState<CalendarMode>(defaultViewMode);
+  const viewMode = controlledViewMode ?? uncontrolledViewMode;
   const [monthPick, setMonthPick] = useState<{ start: string | null; end: string | null }>({ start: null, end: null });
   const [uncontrolledAnchorDate, setUncontrolledAnchorDate] = useState(() => new Date());
   const anchorDate = anchorDateProp ?? uncontrolledAnchorDate;
@@ -2106,13 +2133,11 @@ export function PortalCalendarPanels({
   };
 
   const shiftAnchor = (dir: -1 | 1) => {
-    if (viewMode === "month") setAnchorDate((d) => addMonths(d, dir));
-    else if (viewMode === "week") setAnchorDate((d) => addDays(d, dir * 7));
-    else setAnchorDate((d) => addDays(d, dir));
+    setAnchorDate((date) => shiftCalendarAnchor(date, viewMode, dir));
   };
 
   const jumpToToday = useCallback(() => {
-    setAnchorDate(new Date(today));
+    setAnchorDate(calendarTodayAnchor(today));
     setMonthPick({ start: null, end: null });
   }, [today]);
 
@@ -3024,6 +3049,15 @@ export function PortalCalendarPanels({
                 >
                   ←
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-7 shrink-0 rounded-full px-2 text-xs"
+                  onClick={jumpToToday}
+                  data-attr="calendar-today"
+                >
+                  Today
+                </Button>
                 <p className={cn("shrink-0 whitespace-nowrap px-0.5 text-center text-foreground", CALENDAR_COMPACT_TOOLBAR_TEXT, "lg:text-sm lg:font-semibold")}>
                   <span className="md:hidden">{formatWeekRangeMonSunNumeric(weekMonday)}</span>
                   <span className="hidden md:inline lg:hidden">{formatWeekRangeMonSunShort(weekMonday)}</span>
@@ -3109,6 +3143,10 @@ export function PortalCalendarPanels({
                       finishDragSelection();
                     }}
                     onClick={(e: MouseEvent<HTMLButtonElement>) => {
+                      if (vendorViewer && !meeting && !coManagerOpen) {
+                        onVendorAvailabilityEdit?.(ds, slotIdx);
+                        return;
+                      }
                       if (defaultOpen) {
                         if (canEditAvailability) removeDefaultSlot(ds, slotIdx);
                         return;
@@ -3528,39 +3566,47 @@ export function PortalCalendarPanels({
       <div className="border-b border-border bg-card px-5 py-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted">
-              {viewMode === "day" ? "Day view" : viewMode === "week" ? "Week view" : "Month view"}
-            </p>
-            <h2 className="mt-1 truncate text-xl font-semibold text-foreground">{formatNavTitle(anchorDate, viewMode)}</h2>
+            {vendorViewer ? null : (
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted">
+                {viewMode === "day" ? "Day view" : viewMode === "week" ? "Week view" : "Month view"}
+              </p>
+            )}
+            <h2 className={cn("truncate text-xl font-semibold text-foreground", vendorViewer ? "" : "mt-1")}>{formatNavTitle(anchorDate, viewMode)}</h2>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1 rounded-full border border-border bg-card p-0.5">
               <Button type="button" variant="outline" className="h-9 rounded-full px-3 text-xs" onClick={jumpToToday}>
                 Today
               </Button>
-              <Button type="button" variant="outline" className="h-9 rounded-full px-3 text-xs" onClick={() => shiftAnchor(-1)}>
+              <Button type="button" variant="outline" className="h-9 rounded-full px-3 text-xs" onClick={() => shiftAnchor(-1)} aria-label={`Previous ${viewMode}`}>
                 ←
               </Button>
-              <Button type="button" variant="outline" className="h-9 rounded-full px-3 text-xs" onClick={() => shiftAnchor(1)}>
+              <Button type="button" variant="outline" className="h-9 rounded-full px-3 text-xs" onClick={() => shiftAnchor(1)} aria-label={`Next ${viewMode}`}>
                 →
               </Button>
             </div>
-            <PortalSegmentedControl<CalendarMode>
-              options={[
-                { id: "day", label: "Day" },
-                { id: "week", label: "Week" },
-                { id: "month", label: "Month" },
-              ]}
-              value={viewMode}
-              onChange={setViewMode}
-            />
-            <div className="rounded-full bg-accent/30 px-4 py-2 text-sm font-semibold text-muted">
-              {viewMode === "month" ? monthBlocksCount : gridPaintedMeetings.length} blocks
-            </div>
-            {viewMode !== "month" ? renderTimeWindowControl() : null}
-            <Button type="button" variant="outline" className="h-9 rounded-full px-3 text-xs" onClick={openBlockModal}>
-              Create block
-            </Button>
+            {hideViewModeControl ? null : (
+              <PortalSegmentedControl<CalendarMode>
+                options={[
+                  { id: "day", label: "Day" },
+                  { id: "week", label: "Week" },
+                  { id: "month", label: "Month" },
+                ]}
+                value={viewMode}
+                onChange={setViewMode}
+              />
+            )}
+            {vendorViewer ? null : (
+              <div className="rounded-full bg-accent/30 px-4 py-2 text-sm font-semibold text-muted">
+                {viewMode === "month" ? monthBlocksCount : gridPaintedMeetings.length} blocks
+              </div>
+            )}
+            {!vendorViewer && viewMode !== "month" ? renderTimeWindowControl() : null}
+            {!vendorViewer ? (
+              <Button type="button" variant="outline" className="h-9 rounded-full px-3 text-xs" onClick={openBlockModal}>
+                Create block
+              </Button>
+            ) : null}
           </div>
         </div>
       </div>
@@ -3574,7 +3620,7 @@ export function PortalCalendarPanels({
               </div>
             ))}
           </div>
-          <div className="mt-1 grid grid-cols-7 gap-1">
+          <div className="mt-1 grid grid-cols-7 gap-1" data-slot="calendar-month-grid">
             {monthCells.map((day, i) => {
               if (!day) return <div key={`pad-${i}`} className="aspect-square" />;
               const cellDate = new Date(monthYear, monthIndex, day, 12, 0, 0, 0);
@@ -3587,6 +3633,10 @@ export function PortalCalendarPanels({
                   type="button"
                   onClick={() => {
                     setAnchorDate(cellDate);
+                    if (vendorViewer) {
+                      onVendorAvailabilityEdit?.(ds);
+                      return;
+                    }
                     if (pinMonthSchedule) {
                       setMonthPick((prev) => {
                         if (!prev.start || (prev.start && prev.end)) return { start: ds, end: null };
@@ -3615,7 +3665,7 @@ export function PortalCalendarPanels({
             {fullWeekDates.map((d) => {
               const ds = toLocalDateStr(d);
               return (
-                <div key={ds} className="overflow-hidden rounded-2xl border border-border bg-card">
+                <div key={ds} className="overflow-hidden rounded-2xl border border-border bg-card" data-slot="calendar-week-date">
                   <div className={`bg-accent/30 px-4 py-3 [html[data-theme=dark]_&]:portal-calendar-week-banner`}>
                     <p className="text-sm font-semibold text-foreground">{d.toLocaleDateString(undefined, { weekday: "long" })}</p>
                     <p className="text-xs text-muted">{d.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</p>
@@ -3637,6 +3687,13 @@ export function PortalCalendarPanels({
                               >
                                 {meetingCalendarGridLabel(meeting)}
                               </button>
+                            ) : vendorViewer ? (
+                              <button
+                                type="button"
+                                className="h-full w-full rounded-xl border border-dashed border-border"
+                                aria-label={`Edit availability at ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`}
+                                onClick={() => onVendorAvailabilityEdit?.(ds, slotIdx)}
+                              />
                             ) : (
                               <div className="h-full rounded-xl border border-dashed border-border" />
                             )}
@@ -3655,7 +3712,7 @@ export function PortalCalendarPanels({
       {viewMode === "day" ? (
         <div className={PORTAL_CALENDAR_FRAME}>
           <div className={`grid grid-cols-[72px_minmax(0,1fr)] ${CALENDAR_GRID_GAP}`}>
-            <div className={`col-span-2 px-3 py-3 text-center ${CALENDAR_HEADER_CELL}`}>
+            <div className={`col-span-2 px-3 py-3 text-center ${CALENDAR_HEADER_CELL}`} data-slot="calendar-day-header">
               <p className="text-sm font-semibold text-foreground">{anchorDate.toLocaleDateString(undefined, { weekday: "long" })}</p>
               <p className="text-xs text-muted">{anchorDate.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</p>
             </div>
@@ -3677,6 +3734,13 @@ export function PortalCalendarPanels({
                       >
                         {meetingCalendarGridLabel(meeting)}
                       </button>
+                    ) : vendorViewer ? (
+                      <button
+                        type="button"
+                        className="h-full w-full rounded-xl border border-dashed border-border"
+                        aria-label={`Edit availability at ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`}
+                        onClick={() => onVendorAvailabilityEdit?.(ds, slotIdx)}
+                      />
                     ) : (
                       <div className="h-full rounded-xl border border-dashed border-border" />
                     )}
@@ -3796,9 +3860,9 @@ export function PortalCalendarPanels({
 
   return (
     <>
-      <div className="grid gap-4 xl:grid-cols-[1.25fr_0.95fr]">
+      <div className={cn("grid gap-4", vendorViewer ? "" : "xl:grid-cols-[1.25fr_0.95fr]")}>
         {scheduleCard}
-        {availabilityCard}
+        {vendorViewer ? null : availabilityCard}
       </div>
 
       <Modal

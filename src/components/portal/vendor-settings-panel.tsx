@@ -136,6 +136,7 @@ function todayDateInputValue(): string {
 let demoAvailabilityRuleCounter = 0;
 
 export const VENDOR_AVAILABILITY_CHANGED_EVENT = "axis:vendor-availability-changed";
+export const VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT = "axis:vendor-availability-edit-request";
 
 function notifyAvailabilityChanged(rules?: VendorAvailabilityRule[]) {
   if (typeof window !== "undefined") {
@@ -166,11 +167,30 @@ export function VendorAvailabilityEditor() {
     const next = await fetchVendorAvailability();
     setRules(next);
     setLoaded(true);
-    notifyAvailabilityChanged();
+    notifyAvailabilityChanged(next);
   };
 
   useEffect(() => {
     void reload();
+  }, []);
+
+  useEffect(() => {
+    const openCanonicalEditor = (event: Event) => {
+      const detail = (event as CustomEvent<{ date?: string; slotIdx?: number }>).detail;
+      if (!detail?.date) return;
+      const minutes = typeof detail.slotIdx === "number" ? detail.slotIdx * 30 : null;
+      setOpenEditingId(null);
+      setOpenDraft({
+        date: detail.date,
+        allDay: minutes === null,
+        start: minutes === null ? "09:00" : minuteOfDayToTimeInputValue(minutes),
+        end: minutes === null ? "17:00" : minuteOfDayToTimeInputValue(Math.min(24 * 60, minutes + 30)),
+        note: "",
+      });
+      setOpenFormOpen(true);
+    };
+    window.addEventListener(VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT, openCanonicalEditor);
+    return () => window.removeEventListener(VENDOR_AVAILABILITY_EDIT_REQUEST_EVENT, openCanonicalEditor);
   }, []);
 
   const weeklyByDay = useMemo(() => {
