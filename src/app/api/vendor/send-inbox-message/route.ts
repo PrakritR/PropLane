@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireVendorApiAccess } from "@/lib/auth/vendor-api-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { sendVendorSponsoredOutbound } from "@/lib/vendor-sponsored-outbound.server";
+import { normalizeInboxAttachmentUrls } from "@/lib/inbox-attachments.server";
 
 export const runtime = "nodejs";
 
@@ -50,6 +51,7 @@ export async function POST(req: Request) {
         threadId,
         recipientUserId: recipientUserId === "__admin__" ? undefined : recipientUserId,
         recipientAdmin: recipientUserId === "__admin__",
+        attachmentUrls: normalizeInboxAttachmentUrls(Array.isArray(body.attachmentUrls) ? body.attachmentUrls : [], access.actor.userId),
       },
     ));
   }

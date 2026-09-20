@@ -20,6 +20,7 @@ export type VendorDeliveryProvider = {
 export function createVendorWorkIdentityDeliveryProvider(): VendorDeliveryProvider {
   return {
     configured(channel) {
+      if (process.env.VENDOR_WORK_IDENTITY_PROVIDER_ENABLED !== "1") return false;
       return channel === "email"
         ? Boolean(process.env.RESEND_API_KEY?.trim())
         : Boolean(createTwilioRestClient());

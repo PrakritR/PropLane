@@ -3,6 +3,8 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { filterRecipientsBySenderScope } from "@/lib/inbox-recipient-scope";
 import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
+import { attachmentMetaFromUrls } from "@/lib/inbox-attachments";
+import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import {
   commitInboxThreadReply,
   deliverPortalMessageThreadSide,
@@ -16,7 +18,7 @@ import {
   type VendorIdentityChannel,
 } from "@/lib/vendor-work-identity-delivery.server";
 
-type Recipient = { userId: string; email: string; role: string };
+type Recipient = { userId: string | null; email: string; role: string; phone?: string | null };
 
 export type VendorSponsoredOutboundRequest = {
   channel: VendorIdentityChannel;
@@ -28,6 +30,7 @@ export type VendorSponsoredOutboundRequest = {
   /** Server resolves this profile and then proves it is a linked manager/co-manager. */
   recipientUserId?: string;
   recipientAdmin?: boolean;
+  attachmentUrls?: string[];
 };
 
 export type VendorSponsoredOutboundResult =
@@ -80,7 +83,11 @@ export async function sendVendorSponsoredOutbound(
   provider: VendorDeliveryProvider = createVendorWorkIdentityDeliveryProvider(),
 ): Promise<VendorSponsoredOutboundResult> {
   const subject = request.subject.trim();
-  const text = request.text.trim();
+  const attachments = attachmentMetaFromUrls(request.attachmentUrls ?? []);
+  const attachmentNote = attachments.length
+    ? `\n\nAttachments:\n${attachments.map((attachment) => `${resolveEmailLinkBaseUrl().replace(/\/$/, "")}${attachment.url}`).join("\n")}`
+    : "";
+  const text = `${request.text.trim()}${attachmentNote}`.trim();
   const threadId = request.threadId?.trim() || "";
   const recipientUserId = request.recipientUserId?.trim() || "";
   if (!subject || !text || !request.sendId.trim() || (threadId ? Boolean(recipientUserId || request.recipientAdmin) : !(recipientUserId || request.recipientAdmin))) {
@@ -95,17 +102,32 @@ export async function sendVendorSponsoredOutbound(
   // Conversation rows persist the other party under row_data.email.  Treat an
   // absent value as a refusal rather than falling back to a client-supplied To.
   const threadEmail = target ? String(target.rowData.email ?? "").trim().toLowerCase() : "";
-  const recipient = request.recipientAdmin && !target
+  const resolvedRecipient = request.recipientAdmin && !target
     ? { userId: "", email: PRIMARY_ADMIN_EMAIL.trim().toLowerCase(), role: "admin" }
     : target
     ? await profileByEmail(db, threadEmail)
     : await profileById(db, recipientUserId);
+  // Inbound vendor threads may belong to an external person without a portal
+  // profile. Their normalized destination is server-written thread metadata;
+  // never substitute a request To field here.
+  const recipient = resolvedRecipient ?? (target && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(threadEmail)
+    ? {
+        userId: null,
+        email: threadEmail,
+        role: "external",
+        phone: String(target.rowData.recipientPhone ?? target.rowData.counterpartyPhone ?? "").trim() || null,
+      }
+    : null);
   if (!recipient) return { ok: false, error: "recipient_unlinked" };
+
+  // The exact directory/account-link relationship is the source of the portal
+  // scope. A multi-role manager may retain a legacy profiles.role of resident.
+  if (!target && !request.recipientAdmin) recipient.role = "manager";
 
   // A reply is addressed only from an already-authorized vendor thread.  A
   // customer who contacted a valid work identity need not also appear in the
   // manager directory; new compose remains exact-link/admin only.
-  if (!target && !request.recipientAdmin && !(await vendorMayReachManager(db, actor.userId, recipient.userId))) {
+  if (!target && !request.recipientAdmin && !(await vendorMayReachManager(db, actor.userId, recipient.userId!))) {
     return { ok: false, error: "recipient_unlinked" };
   }
 
@@ -123,7 +145,9 @@ export async function sendVendorSponsoredOutbound(
     {
       vendorUserId: actor.userId,
       channel: request.channel,
-      recipient: request.channel === "email" ? recipient.email : String((await db.from("profiles").select("phone").eq("id", recipient.userId).maybeSingle()).data?.phone ?? ""),
+      recipient: request.channel === "email"
+        ? recipient.email
+        : recipient.phone ?? String((await db.from("profiles").select("phone").eq("id", recipient.userId ?? "").maybeSingle()).data?.phone ?? ""),
       recipientUserId: recipient.userId || null,
       subject,
       text,
@@ -138,11 +162,12 @@ export async function sendVendorSponsoredOutbound(
   );
   if (!delivered.ok || !delivered.sent) return { ok: false, error: "delivery_refused", reason: delivered.reason };
 
-  const messageId = `vendor-sponsored:${request.channel}:${request.sendId}`;
+  const messageId = `vendor-sponsored:${request.sendId}`;
   if (target) {
     await commitInboxThreadReply(db, target, {
       fromName: actor.name || "PropLane vendor",
       text,
+      attachments,
       messageId,
       channel: request.channel,
       subject,
@@ -156,13 +181,13 @@ export async function sendVendorSponsoredOutbound(
         scope: scopeForRole("vendor"), folder: "sent", ownerUserId: actor.userId, participantEmail: null,
         otherPartyEmail: recipient.email, fallbackId: `vendor-sponsored-sent:${actor.userId}:${recipient.userId}`,
         fromName: actor.name || "PropLane vendor", subject, body: text, preview, when, unread: false, outbound: true,
-        messageId, channel: request.channel, messageSubject: subject,
+        messageId, channel: request.channel, messageSubject: subject, attachments,
       }),
       deliverPortalMessageThreadSide(db, {
         scope: scopeForRole(recipient.role), folder: "inbox", ownerUserId: recipient.userId || null, participantEmail: recipient.email,
         otherPartyEmail: actor.email, fallbackId: `vendor-sponsored-inbox:${actor.userId}:${recipient.userId}`,
         fromName: actor.name || "PropLane vendor", subject, body: text, preview, when, unread: true, outbound: false,
-        messageId, channel: request.channel, messageSubject: subject,
+        messageId, channel: request.channel, messageSubject: subject, attachments,
       }),
     ]);
   }

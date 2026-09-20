@@ -586,6 +586,7 @@ export const VendorInboxPanel = forwardRef<
         );
       };
       const subject = thread.subject.startsWith("Re:") ? thread.subject : `Re: ${thread.subject}`;
+      const sendId = crypto.randomUUID();
       let emailOk = false;
       let smsOk = false;
       let failureMessage = "";
@@ -601,7 +602,8 @@ export const VendorInboxPanel = forwardRef<
                 subject,
                 text,
                 channel: "email",
-                sendId: crypto.randomUUID(),
+                sendId,
+                attachmentUrls: attachmentUrls.length ? attachmentUrls : undefined,
               }),
             });
             const data = (await res.json().catch(() => ({}))) as {
@@ -628,7 +630,8 @@ export const VendorInboxPanel = forwardRef<
                   subject,
                   text,
                   channel: "sms",
-                  sendId: crypto.randomUUID(),
+                  sendId,
+                  attachmentUrls: attachmentUrls.length ? attachmentUrls : undefined,
                 }),
               });
               const data = (await res.json().catch(() => ({}))) as {
