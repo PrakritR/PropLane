@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ManagerInbox } from "@/components/portal/pro-inbox";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
@@ -18,13 +19,9 @@ import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { SaveStatus } from "@/components/ui/save-status";
 import { useAutosaveDraft } from "@/hooks/use-autosave-draft";
 import { useManagerMessagingNumberStatus } from "@/hooks/use-manager-messaging-number-status";
-import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
-import {
-  MANAGER_WORK_ORDERS_EVENT,
-  readManagerWorkOrderRows,
-  syncManagerWorkOrdersFromServer,
-} from "@/lib/manager-work-orders-storage";
+import type { ManagerVendorSummary } from "@/lib/manager-vendor-summary.server";
+import { invalidateManagerVendorSummary, loadManagerVendorSummary } from "@/lib/manager-vendor-summary-client";
 import {
   persistManagerVendorToServer,
   readManagerVendorCategorySettings,
@@ -33,6 +30,7 @@ import {
   type ManagerVendorRow,
 } from "@/lib/manager-vendors-storage";
 import { formatPacificDateTime } from "@/lib/pacific-time";
+import { MANAGER_WORK_ORDERS_EVENT } from "@/lib/manager-work-orders-storage";
 import {
   cadenceId,
   cadenceLabel,
@@ -52,7 +50,9 @@ import {
   type VendorMessaging,
 } from "@/lib/vendor-messaging";
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
+import { vendorDetailHref } from "@/lib/portal-detail-routes";
 import { cn } from "@/lib/utils";
+import { ArrowRight, BriefcaseBusiness, CircleDollarSign, Contact, Star } from "lucide-react";
 
 export type VendorDetailTab = "overview" | "profile" | "jobs" | "pricing" | "reviews" | "check-ins" | "communication";
 
@@ -220,21 +220,15 @@ function greeting(language: string, name: string): string {
   return language === "es" ? `Hola ${name}` : `Hi ${name}`;
 }
 
-function jobLabel(row: DemoManagerWorkOrderRow): { status: string; tone: "ok" | "warn" | "mut" } {
-  if (row.automationStatus === "paid" || row.paidAt) return { status: "Paid", tone: "ok" };
-  if (row.vendorMarkedDoneAt || row.automationStatus === "vendor_marked_done") return { status: "Awaiting approval", tone: "warn" };
-  if (row.bucket === "completed" || /done|complete/i.test(row.status ?? "")) return { status: "Done", tone: "ok" };
-  if (row.scheduledAtIso) return { status: `Scheduled · ${formatPacificDateTime(row.scheduledAtIso)}`, tone: "mut" };
-  return { status: "Assigned · no time yet", tone: "warn" };
-}
-
-function jobMoney(cents: number | undefined): string {
+function jobMoney(cents: number | null | undefined): string {
   return cents == null ? "—" : `$${(cents / 100).toFixed(2)}`;
 }
 
 export function ManagerVendorDetail({
   row,
   managerUserId,
+  basePath = "/portal",
+  onNavigate,
   tab: tabProp,
   extraNeedsYou = [],
   onEdit: _onEdit,
@@ -242,6 +236,8 @@ export function ManagerVendorDetail({
 }: {
   row: ManagerVendorRow;
   managerUserId: string | null;
+  basePath?: string;
+  onNavigate: (href: string) => void;
   tab?: VendorDetailTab;
   extraNeedsYou?: readonly { id: string; title: string; detail: string }[];
   onEdit?: () => void;
@@ -308,6 +304,7 @@ export function ManagerVendorDetail({
       }
       const ok = await persistManagerVendorToServer(nextRow);
       if (!ok) throw new Error("Could not save vendor.");
+      invalidateManagerVendorSummary(managerUserId, row.id);
     },
     [managerUserId, row],
   );
@@ -324,24 +321,25 @@ export function ManagerVendorDetail({
     [managerUserId],
   );
 
-  // Jobs: work orders assigned to this vendor.
-  const [woTick, setWoTick] = useState(0);
+  // History amounts are server-projected from stable directory identity, invoices, bids and payouts.
+  const [summary, setSummary] = useState<ManagerVendorSummary | null>(null);
+  const [summaryState, setSummaryState] = useState<"loading" | "ready" | "error">("loading");
   useEffect(() => {
-    void syncManagerWorkOrdersFromServer().catch(() => undefined);
-    const onChange = () => setWoTick((n) => n + 1);
-    window.addEventListener(MANAGER_WORK_ORDERS_EVENT, onChange);
-    return () => window.removeEventListener(MANAGER_WORK_ORDERS_EVENT, onChange);
-  }, []);
-  const jobs = useMemo(() => {
-    void woTick;
-    return readManagerWorkOrderRows().filter(
-      (wo) => wo.vendorId === row.id || (wo.assignee?.type === "vendor" && wo.assignee.id === row.id),
-    );
-  }, [woTick, row.id]);
-  const openJobs = jobs.filter((j) => j.bucket !== "completed" && j.automationStatus !== "paid" && !j.paidAt);
-  const ratings = jobs
-    .filter((job) => job.bucket === "completed" && typeof job.residentConfirmation?.rating === "number")
-    .map((job) => ({ id: job.id, rating: job.residentConfirmation!.rating!, title: job.title }));
+    let cancelled = false;
+    setSummaryState("loading");
+    void loadManagerVendorSummary(managerUserId, row.id)
+      .then((next) => { if (!cancelled) { setSummary(next); setSummaryState("ready"); } })
+      .catch(() => { if (!cancelled) { setSummary(null); setSummaryState("error"); } });
+    return () => { cancelled = true; };
+  }, [managerUserId, row.id]);
+  useEffect(() => {
+    const invalidate = () => invalidateManagerVendorSummary(managerUserId, row.id);
+    window.addEventListener(MANAGER_WORK_ORDERS_EVENT, invalidate);
+    return () => window.removeEventListener(MANAGER_WORK_ORDERS_EVENT, invalidate);
+  }, [managerUserId, row.id]);
+  const jobs = summary?.jobs ?? [];
+  const openJobs = jobs.filter((job) => job.status !== "completed" && job.status !== "paid");
+  const ratings = jobs.filter((job) => job.residentRating != null).map((job) => ({ id: job.id, rating: job.residentRating!, title: job.title }));
 
   const callName = draft.preferredName.trim() || draft.name.trim().split(" ")[0] || "there";
   const reach = resolveVendorChannel({
@@ -355,24 +353,44 @@ export function ManagerVendorDetail({
   const fact = (label: string, value: string) => (
     <div className="flex min-h-11 items-center justify-between gap-3 border-b border-border/60 py-2 last:border-b-0">
       <span className="text-[13px] font-medium">{label}</span>
-      <span className="min-w-0 truncate text-right text-[13.5px]">{value || "—"}</span>
+      <span className="min-w-0 break-words text-right text-[13.5px]">{value || "—"}</span>
     </div>
   );
 
-  const profileFacts = (
-    <div className="px-3 pb-4 sm:px-4" data-attr="vendor-profile-facts">
-      {fact("Name", draft.name)}
-      {fact("Call them", callName)}
-      {fact("Trades", draft.trades.join(", "))}
-      {fact("Phone", draft.phone)}
-      {fact("Email", draft.email)}
-      {fact("Reach them by", vendorChannelLabel(reach.channel))}
-      {fact("Language", draft.preferredLanguage === "es" ? "Español" : "English")}
-      {fact("Status", draft.active ? "Active" : "Inactive")}
-      {fact("Portal account", row.vendorUserId ? "Signed up" : row.invitedAt ? `Invite sent ${formatPacificDateTime(row.invitedAt)}` : "Not invited")}
-      {fact("Properties", draft.propertyIds.length ? propertyOptions.filter((o) => draft.propertyIds.includes(o.id)).map((o) => o.label).join(", ") : "Every property")}
-      {draft.notes.trim() ? fact("Notes", draft.notes) : null}
+  const propertyLabels = draft.propertyIds.length
+    ? propertyOptions.filter((option) => draft.propertyIds.includes(option.id)).map((option) => option.label).join(", ")
+    : "Every property";
+  const profileCards = (
+    <div className="grid gap-3 px-3 pb-4 sm:grid-cols-2 sm:px-4" data-attr="vendor-profile-facts">
+      <section className="min-w-0 rounded-xl border border-border bg-card p-4" data-attr="vendor-profile-business">
+        <h2 className="text-sm font-semibold">Business</h2>
+        {fact("Name", draft.name)}
+        {fact("Call them", callName)}
+        {fact("Trades", draft.trades.join(", "))}
+        {fact("Service area", propertyLabels)}
+        {fact("Status", draft.active ? "Active" : "Inactive")}
+      </section>
+      <section className="min-w-0 rounded-xl border border-border bg-card p-4" data-attr="vendor-profile-contact">
+        <h2 className="text-sm font-semibold">Contact</h2>
+        {fact("Phone", draft.phone)}
+        {fact("Email", draft.email)}
+        {fact("Reach them by", vendorChannelLabel(reach.channel))}
+        {fact("Language", draft.preferredLanguage === "es" ? "Español" : "English")}
+        {fact("Portal account", row.vendorUserId ? "Signed up" : row.invitedAt ? `Invite sent ${formatPacificDateTime(row.invitedAt)}` : "Not invited")}
+      </section>
+      <section className="min-w-0 rounded-xl border border-border bg-card p-4 sm:col-span-2" data-attr="vendor-profile-about">
+        <h2 className="text-sm font-semibold">About</h2>
+        <p className="mt-3 break-words text-sm text-foreground">{draft.notes.trim() || "—"}</p>
+      </section>
     </div>
+  );
+
+  const overviewLink = (title: string, destination: VendorDetailTab) => (
+    <PortalIconAction
+      icon={ArrowRight}
+      label={`View ${title.toLowerCase()}`}
+      onClick={() => onNavigate(vendorDetailHref(basePath, row.id, destination))}
+    />
   );
 
   return (
@@ -389,36 +407,39 @@ export function ManagerVendorDetail({
 
       {tab === "overview" ? (
         <div className="space-y-4 px-3 pb-4 sm:px-4" data-attr="vendor-overview">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-attr="vendor-overview-metrics">
+            {[["Hourly", row.typicalRates?.[0]?.hourlyCents != null ? jobMoney(row.typicalRates[0].hourlyCents) : "—"], ["Typical service", row.typicalRates?.[0]?.serviceCents != null ? jobMoney(row.typicalRates[0].serviceCents) : "—"], ["Your completed jobs", summaryState === "ready" ? String(summary?.completedJobCount ?? 0) : "—"], ["Your job ratings", summaryState === "ready" && summary?.ratingAverage != null ? `${summary.ratingAverage} / 5` : "—"]].map(([label, value]) => (
+              <div key={label} className="rounded-xl border border-border bg-card p-3"><span className="block text-xs font-medium text-muted">{label}</span><strong className="mt-1 block text-base">{value}</strong></div>
+            ))}
+          </div>
+          <div className="grid gap-3 lg:grid-cols-2" data-attr="vendor-overview-desktop" data-mobile-layout="390-compact">
+            <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><Contact className="size-4" aria-hidden />Profile</h2>{overviewLink("Profile", "profile")}</div>{fact("Trade", draft.trades.join(", "))}{fact("Work contact", draft.email || draft.phone)}</section>
+            <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><CircleDollarSign className="size-4" aria-hidden />Pricing</h2>{overviewLink("Pricing", "pricing")}</div>{fact("Hourly", row.typicalRates?.[0]?.hourlyCents != null ? `${jobMoney(row.typicalRates[0].hourlyCents)} / hr` : "—")}{fact("Typical service", row.typicalRates?.[0]?.serviceCents != null ? jobMoney(row.typicalRates[0].serviceCents) : "—")}</section>
+            <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><BriefcaseBusiness className="size-4" aria-hidden />Jobs</h2>{overviewLink("Jobs", "jobs")}</div>{jobs.slice(0, 2).map((job) => <div key={job.id} className="border-b border-border/60 py-2 last:border-b-0"><p className="truncate text-sm font-medium">{job.title}</p><p className="truncate text-[13px] text-muted">{[job.propertyName, job.unit].filter(Boolean).join(" · ")}</p></div>)}{summaryState === "ready" && jobs.length === 0 ? <p className="py-3 text-sm text-muted">No services with you yet</p> : null}</section>
+            <section className="min-w-0 rounded-xl border border-border bg-card p-4"><div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-sm font-semibold"><Star className="size-4" aria-hidden />Reviews</h2>{overviewLink("Reviews", "reviews")}</div>{fact("Rated jobs", summaryState === "ready" ? String(summary?.ratingCount ?? 0) : "—")}{fact("Average", summaryState === "ready" && summary?.ratingAverage != null ? `${summary.ratingAverage} / 5` : "—")}</section>
+          </div>
           {extraNeedsYou.length ? (
             <div className="space-y-2" data-attr="vendor-needs-you">
-              <h2 className="text-sm font-semibold">Needs you</h2>
               {extraNeedsYou.map((item) => (
-                <div key={item.id} className="rounded-xl border border-border bg-card px-3 py-2.5">
-                  <p className="text-[13.5px] font-medium">{item.title}</p>
-                  <p className="text-[13px]">{item.detail}</p>
-                </div>
+                <div key={item.id} className="rounded-xl border border-border bg-card px-3 py-2.5"><strong className="text-[13.5px]">{item.title}</strong></div>
               ))}
             </div>
-          ) : null}
-          {profileFacts}
-          {openJobs.length ? (
-            <p className="text-[13.5px]">{openJobs.length} open {openJobs.length === 1 ? "job" : "jobs"}</p>
           ) : null}
         </div>
       ) : null}
 
-      {tab === "profile" ? profileFacts : null}
+      {tab === "profile" ? profileCards : null}
 
       {tab === "pricing" ? (
-        <div className="px-3 pb-4 sm:px-4" data-attr="vendor-detail-pricing">
-          {fact("Typical rate", row.typicalRates?.[0]?.hourlyCents != null ? `$${(row.typicalRates[0].hourlyCents / 100).toFixed(2)} / hour` : "—")}
-          {fact("Typical service", row.typicalRates?.[0]?.serviceCents != null ? `$${(row.typicalRates[0].serviceCents / 100).toFixed(2)}` : "—")}
+        <div className="grid gap-3 px-3 pb-4 sm:grid-cols-2 sm:px-4" data-attr="vendor-detail-pricing">
+          <section className="min-w-0 rounded-xl border border-border bg-card p-4" data-attr="vendor-pricing-published"><h2 className="text-sm font-semibold">Published rates</h2>{fact("Hourly", row.typicalRates?.[0]?.hourlyCents != null ? `${jobMoney(row.typicalRates[0].hourlyCents)} / hr` : "—")}{fact("Typical service", row.typicalRates?.[0]?.serviceCents != null ? jobMoney(row.typicalRates[0].serviceCents) : "—")}</section>
+          <section className="min-w-0 rounded-xl border border-border bg-card p-4" data-attr="vendor-pricing-history"><h2 className="text-sm font-semibold">Your completed jobs</h2>{fact("Jobs", summaryState === "ready" ? String(summary?.completedJobCount ?? 0) : "—")}{fact("Final invoiced", summary?.completedInvoiceTotalCents == null ? "—" : jobMoney(summary.completedInvoiceTotalCents))}{fact("Average final invoice", summary?.completedInvoiceAverageCents == null ? "—" : jobMoney(summary.completedInvoiceAverageCents))}</section>
         </div>
       ) : null}
 
       {tab === "reviews" ? (
         <div className="px-3 pb-4 sm:px-4" data-attr="vendor-detail-reviews">
-          {ratings.length === 0 ? <p className="py-8 text-center text-sm">No completed-service ratings from your portfolio yet.</p> : (
+          {summaryState === "loading" ? <p className="py-8 text-center text-sm">Loading ratings…</p> : summaryState === "error" ? <p className="py-8 text-center text-sm">Could not load ratings.</p> : ratings.length === 0 ? <p className="py-8 text-center text-sm">No completed-service ratings from your portfolio yet.</p> : (
             <ul className="divide-y divide-border rounded-xl border border-border">
               {ratings.map((rating) => <li key={rating.id} className="flex items-center justify-between px-3 py-2.5 text-sm"><span>{rating.title}</span><strong>{rating.rating} / 5</strong></li>)}
             </ul>
@@ -467,29 +488,21 @@ export function ManagerVendorDetail({
 
       {tab === "jobs" ? (
         <div className="px-3 pb-4 sm:px-4">
-          {jobs.length === 0 ? (
+          {summaryState === "loading" ? <p className="py-8 text-center text-sm">Loading services…</p> : summaryState === "error" ? <p className="py-8 text-center text-sm">Could not load services.</p> : jobs.length === 0 ? (
             <p className="py-8 text-center text-sm">No services assigned to {callName} yet.</p>
           ) : (
             <ul className="divide-y divide-border rounded-xl border border-border">
               {jobs.map((job) => {
-                const l = jobLabel(job);
-                const acceptedQuote = job.biddingResolvedAt ? job.vendorCostCents : undefined;
-                const hasFinalAmount = job.vendorCostCents != null || job.materialsCostCents != null;
-                const finalAmount =
-                  job.vendorMarkedDoneAt || job.automationStatus === "vendor_marked_done" || job.automationStatus === "paid" || job.paidAt
-                    ? (hasFinalAmount ? (job.vendorCostCents ?? 0) + (job.materialsCostCents ?? 0) : undefined)
-                    : undefined;
-                const paidAmount = job.automationStatus === "paid" || job.paidAt ? finalAmount : undefined;
                 return (
                   <li key={job.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium text-foreground">{job.title}</p>
                       <p className="truncate text-[13px]">
-                        {[job.propertyName, job.unit, job.residentName].filter(Boolean).join(" · ")}
+                        {[job.propertyName, job.unit].filter(Boolean).join(" · ")}
                       </p>
-                      <p className="text-[13px]">Accepted quote {jobMoney(acceptedQuote)} · Final invoice {jobMoney(finalAmount)} · Paid {jobMoney(paidAmount)}</p>
+                      <p className="text-[13px]">Accepted quote {jobMoney(job.acceptedQuoteCents)} · Final invoice {jobMoney(job.finalInvoiceCents)} · Paid {jobMoney(job.paidCents)}</p>
                     </div>
-                    <span className="shrink-0 text-[13px]">{l.status}</span>
+                    <span className="shrink-0 text-[13px]">{job.status}</span>
                   </li>
                 );
               })}

@@ -633,6 +633,8 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
             <ManagerVendorDetail
               row={routeVendor}
               managerUserId={userId}
+              basePath={basePath}
+              onNavigate={navigate}
               tab={vendorTab}
               extraNeedsYou={personRecordNeedsYouItems({
                 kind: "vendor",
@@ -697,7 +699,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           currentLabel={VENDOR_DETAIL_TAB_LABELS[catalogDetailTab]}
           defaultDisclosureOpen={catalogDetailTab === "overview"}
         >
-          <ManagerVendorCatalogDetail catalogId={catalogDetailId} vendor={catalogDetail} tab={catalogDetailTab} />
+          <ManagerVendorCatalogDetail catalogId={catalogDetailId} vendor={catalogDetail} tab={catalogDetailTab} basePath={basePath} />
         </PortalRecordSectionChrome>
       </PortalRecordDetailPage>
     ) : directoryTab === "catalog" && catalogRows.length === 0 ? (

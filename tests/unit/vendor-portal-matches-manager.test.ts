@@ -21,7 +21,6 @@ describe("vendor portal matches manager chrome", () => {
     expect(vendorPortal.sections.find((s) => s.section === "financials")?.tabs.map((t) => t.id)).toEqual([
       "income",
       "invoices",
-      "payouts",
     ]);
   });
 
@@ -62,11 +61,11 @@ describe("vendor portal matches manager chrome", () => {
     expect(dash).toContain("KpiCard");
   });
 
-  it("calendar and payouts fold into the shared surfaces", () => {
+  it("calendar and finance setup fold into the shared surfaces", () => {
     expect(read("src/components/portal/portal-calendar.tsx")).toContain('portal === "vendor"');
     expect(read("src/lib/render-portal-section.tsx")).toContain('portal="vendor"');
-    expect(read("src/lib/render-portal-section.tsx")).toContain("/financials/payouts");
-    expect(vendorLinkPaths().payments).toBe("/vendor/financials/payouts");
+    expect(read("src/lib/render-portal-section.tsx")).toContain("/financials/income");
+    expect(vendorLinkPaths().payments).toBe("/vendor/financials/income");
   });
 
   it("has no Tasks nav and redirects /vendor/tasks to services", () => {
@@ -94,11 +93,11 @@ describe("vendor portal matches manager chrome", () => {
     expect(read("src/lib/vendor-availability.ts")).toContain("convertFlexibleWeeklyRulesToWindows");
   });
 
-  it("finances uses a filter sheet, request payment, and send reminder", () => {
+  it("finances uses a filter sheet, request payment, and payout setup", () => {
     const finances = read("src/components/portal/vendor-finances-panel.tsx");
     expect(finances).toContain("PortalFilterSortSheet");
     expect(finances).toContain("Request payment");
-    expect(finances).toContain("Send reminder");
+    expect(finances).toContain("Payout setup");
     expect(finances).not.toContain("ReportFilterBar");
     expect(finances).toContain("VendorQuoteWizard");
     expect(read("src/components/portal/vendor-quote-wizard.tsx")).not.toContain("VendorAddChooser");

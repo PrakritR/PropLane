@@ -8,6 +8,8 @@ import {
   DEFAULT_FLEXIBLE_TIMING_RANK,
   flexibleWeekdaysFromRules,
   normalizeFlexibleTimingRank,
+  pacificDateTimeParts,
+  pacificWallClockToUtc,
   resolveNextAvailableSlot,
   vendorEventRulesToBusyWindows,
   type VendorAvailabilityRule,
@@ -46,6 +48,94 @@ function toRule(rule: RuleRecord): VendorAvailabilityRule {
 }
 
 export type VendorBusyWindow = { startIso: string; endIso: string };
+
+type ScheduledServiceRow = {
+  scheduledAtIso?: unknown;
+  bucket?: unknown;
+};
+
+/**
+ * Dated availability is a promise about a specific Pacific wall-clock range.
+ * Never let that promise cover an already-booked service for this vendor.
+ */
+type AvailabilityScheduleCandidate =
+  | { kind: "weekly"; weekday: number; startMinute: number; endMinute: number }
+  | { kind: "date"; specificDate: string; startMinute: number; endMinute: number };
+
+function pacificDateKey(parts: { year: number; month: number; day: number }): string {
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+}
+
+function nextPacificDateKey(date: string): string {
+  const [year, month, day] = date.split("-").map(Number);
+  const next = new Date(Date.UTC(year, month - 1, day + 1));
+  return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}-${String(next.getUTCDate()).padStart(2, "0")}`;
+}
+
+function candidateIntervalsForService(candidate: AvailabilityScheduleCandidate, serviceStart: number, serviceEnd: number) {
+  if (candidate.kind === "date") {
+    const [year, month, day] = candidate.specificDate.split("-").map(Number);
+    if (!year || !month || !day) return [];
+    return [[
+      pacificWallClockToUtc(year, month, day, candidate.startMinute).getTime(),
+      pacificWallClockToUtc(year, month, day, candidate.endMinute).getTime(),
+    ]];
+  }
+
+  const first = pacificDateKey(pacificDateTimeParts(new Date(serviceStart)));
+  const last = pacificDateKey(pacificDateTimeParts(new Date(Math.max(serviceStart, serviceEnd - 1))));
+  const intervals: Array<[number, number]> = [];
+  for (let date = first; date <= last; date = nextPacificDateKey(date)) {
+    const [year, month, day] = date.split("-").map(Number);
+    const instant = pacificWallClockToUtc(year, month, day, candidate.startMinute);
+    if (pacificDateTimeParts(instant).weekday !== candidate.weekday) continue;
+    intervals.push([
+      instant.getTime(),
+      pacificWallClockToUtc(year, month, day, candidate.endMinute).getTime(),
+    ]);
+  }
+  return intervals;
+}
+
+/** Reads every scheduled service for this vendor; range paging avoids a hidden default row cap. */
+async function loadVendorScheduledServices(db: SupabaseClient, vendorUserId: string): Promise<Array<{ id: string; row_data: unknown }>> {
+  const rows: Array<{ id: string; row_data: unknown }> = [];
+  const pageSize = 500;
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await db
+      .from("portal_work_order_records")
+      .select("id, row_data")
+      .eq("vendor_user_id", vendorUserId)
+      .order("id", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(error.message);
+    const page = (data ?? []) as Array<{ id: string; row_data: unknown }>;
+    rows.push(...page);
+    if (page.length < pageSize) return rows;
+  }
+}
+
+export async function vendorAvailabilityConflictsWithScheduledService(
+  db: SupabaseClient,
+  vendorUserId: string,
+  candidate: AvailabilityScheduleCandidate,
+): Promise<boolean> {
+  const services = await loadVendorScheduledServices(db, vendorUserId);
+  return services.some((record) => {
+    const row = record.row_data as ScheduledServiceRow | null;
+    const scheduledAtIso = typeof row?.scheduledAtIso === "string" ? row.scheduledAtIso : null;
+    const bucket = typeof row?.bucket === "string" ? row.bucket.toLowerCase() : "";
+    if (!scheduledAtIso || bucket === "completed" || bucket === "cancelled") return false;
+    const serviceStart = new Date(scheduledAtIso).getTime();
+    if (!Number.isFinite(serviceStart)) return false;
+    // Calendar rendering and the manager scheduler both use the canonical
+    // vendor visit length today. Keep the save guard on that same interval.
+    const serviceEnd = serviceStart + DEFAULT_VISIT_DURATION_MINUTES * 60_000;
+    return candidateIntervalsForService(candidate, serviceStart, serviceEnd).some(
+      ([candidateStart, candidateEnd]) => Number.isFinite(candidateStart) && Number.isFinite(candidateEnd) && candidateStart < serviceEnd && candidateEnd > serviceStart,
+    );
+  });
+}
 
 async function readScheduleRecordPayload(db: SupabaseClient, id: string): Promise<unknown> {
   const { data } = await db.from("portal_schedule_records").select("row_data").eq("id", id).maybeSingle();
