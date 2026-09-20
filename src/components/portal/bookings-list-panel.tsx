@@ -6,10 +6,6 @@ import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { PortalSegmentedControl } from "@/components/portal/portal-metrics";
-import {
-  BookingsDayDetailModal,
-  type BookingsDayEntry,
-} from "@/components/portal/bookings-day-detail-modal";
 import { bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import type { PropertyBookingEntry } from "@/lib/channel-calendar/property-bookings";
 import {
@@ -18,7 +14,8 @@ import {
   formatBookingStayRange,
   type BookingsListTabId,
 } from "@/lib/channel-calendar/bookings-ui";
-import { bookingEntriesForDayKey } from "@/lib/channel-calendar/property-bookings";
+import { bookingRecordHref } from "@/lib/portal-detail-routes";
+import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { dateKey, startOfLocalDay } from "@/lib/room-availability-calendar";
 
 const LIST_TABS: { id: BookingsListTabId; label: string }[] = [
@@ -33,16 +30,23 @@ function guestName(entry: PropertyBookingEntry): string {
     : entry.summary;
 }
 
+/**
+ * The calendar hub's alternate "List" layout — a row opens the booking's own
+ * record page, same as the Upcoming/In-house/Past tabs (PLAN-0920-1058, area
+ * 1e). This surface has no per-row edit sheet of its own; open the record (or
+ * the Upcoming/In-house/Past tab) to edit a manager-made hold.
+ */
 export function ManagerBookingsListPanel({
   entries,
-  onOpenDay,
+  basePath = "/portal",
+  showToast,
 }: {
   entries: PropertyBookingEntry[];
-  onOpenDay?: (dayKey: string) => void;
+  basePath?: string;
+  showToast?: (message: string) => void;
 }) {
+  const navigate = usePortalNavigate();
   const [listTab, setListTab] = useState<BookingsListTabId>("all");
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [detailDayKey, setDetailDayKey] = useState<string | null>(null);
 
   const todayKey = useMemo(() => dateKey(startOfLocalDay(new Date())), []);
 
@@ -60,87 +64,68 @@ export function ManagerBookingsListPanel({
     [entries, todayKey],
   );
 
-  const openEntry = (entry: PropertyBookingEntry) => {
-    const key = entry.start;
-    if (onOpenDay) {
-      onOpenDay(key);
-      return;
+  const copyLink = async (entry: PropertyBookingEntry) => {
+    const href = bookingRecordHref(basePath, bookingEntryKey(entry));
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}${href}`);
+      showToast?.("Link copied.");
+    } catch {
+      showToast?.("Could not copy the link.");
     }
-    setDetailDayKey(key);
-    setDetailOpen(true);
   };
 
-  const detailEntries = useMemo<BookingsDayEntry[]>(
-    () => (detailDayKey ? bookingEntriesForDayKey(entries, detailDayKey) : []),
-    [detailDayKey, entries],
-  );
-
-  const detailLabel = useMemo(() => {
-    if (!detailDayKey) return "";
-    const [y, m, d] = detailDayKey.split("-").map(Number);
-    if (!y || !m || !d) return detailDayKey;
-    return new Date(y, m - 1, d).toLocaleDateString("en-US", {
-      weekday: "long",
-      month: "long",
-      day: "numeric",
-    });
-  }, [detailDayKey]);
-
   return (
-    <>
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
-        <PortalSectionActionRow variant="header">
-          <PortalSegmentedControl
-            options={LIST_TABS.map((tab) => ({
-              id: tab.id,
-              label: `${tab.label} (${tabCounts[tab.id]})`,
-            }))}
-            value={listTab}
-            onChange={setListTab}
-            size="sm"
-            ariaLabel="Bookings list filter"
-          />
-        </PortalSectionActionRow>
+    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
+      <PortalSectionActionRow variant="header">
+        <PortalSegmentedControl
+          options={LIST_TABS.map((tab) => ({
+            id: tab.id,
+            label: `${tab.label} (${tabCounts[tab.id]})`,
+          }))}
+          value={listTab}
+          onChange={setListTab}
+          size="sm"
+          ariaLabel="Bookings list filter"
+        />
+      </PortalSectionActionRow>
 
-        <PortalRecordListSurface
-          isEmpty={filtered.length === 0}
-          emptyCard={{
-            title: listTab === "all" ? "No bookings yet" : listTab === "check_ins" ? "No arrivals coming up" : "No departures coming up",
-            section: "bookings",
-          }}
-          dataAttr="bookings-list-panel"
-        >
-          {filtered.map((entry) => {
-            const name = guestName(entry);
-            const subtitle = [
-              formatBookingStayRange(entry.start, entry.end, entry.openEnded),
-              entry.roomLabel,
-              entry.propertyLabel,
-            ]
-              .filter(Boolean)
-              .join(" · ");
-            return (
+      <PortalRecordListSurface
+        isEmpty={filtered.length === 0}
+        emptyCard={{
+          title: listTab === "all" ? "No bookings yet" : listTab === "check_ins" ? "No arrivals coming up" : "No departures coming up",
+          section: "bookings",
+        }}
+        dataAttr="bookings-list-panel"
+      >
+        {filtered.map((entry) => {
+          const key = bookingEntryKey(entry);
+          const name = guestName(entry);
+          const subtitle = [
+            formatBookingStayRange(entry.start, entry.end, entry.openEnded),
+            entry.roomLabel,
+            entry.propertyLabel,
+          ]
+            .filter(Boolean)
+            .join(" · ");
+          const href = bookingRecordHref(basePath, key);
+          return (
+            <BookingsRowOverflow
+              key={key}
+              label={name}
+              onMessage={() => navigate(bookingRecordHref(basePath, key, "communication"))}
+              onCopyLink={() => void copyLink(entry)}
+            >
               <PortalPersonRecordRow
-                key={bookingEntryKey(entry)}
                 name={name}
                 subtitle={subtitle}
-                onOpen={() => openEntry(entry)}
-                dataAttr={`bookings-list-row-${bookingEntryKey(entry)}`}
-                trailing={
-                  <BookingsRowOverflow label={name} onEdit={() => openEntry(entry)} />
-                }
+                onOpen={() => navigate(href)}
+                omitActionView
+                dataAttr={`bookings-list-row-${key}`}
               />
-            );
-          })}
-        </PortalRecordListSurface>
-      </div>
-
-      <BookingsDayDetailModal
-        open={detailOpen}
-        onClose={() => setDetailOpen(false)}
-        dayLabel={detailLabel}
-        entries={detailEntries}
-      />
-    </>
+            </BookingsRowOverflow>
+          );
+        })}
+      </PortalRecordListSurface>
+    </div>
   );
 }

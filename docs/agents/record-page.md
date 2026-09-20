@@ -34,4 +34,14 @@ slot, hidden below `lg`.
 
 Not every action id has a real handler yet — an unwired one shows "Coming soon" rather than a silent no-op.
 Property and Resident keep their own already-working header actions instead of the registry's generic set, so
-real functionality it does not cover 1:1 yet is never dropped.
+real functionality it does not cover 1:1 yet is never dropped. Bookings' `record-payment` header action is a
+narrower case: it is dropped from the header entirely (never rendered, never "Coming soon") on any booking
+without a verified charge path, per the plan's own "omit — never Coming soon" rule for that one id.
+
+## The day page pattern
+
+A calendar's day cell is a page, not a pop-up (`/portal/bookings/<yyyy-mm-dd>`, PLAN-0920-1058 area 1e) —
+`src/components/portal/bookings-day-page.tsx`. Rows group by the record's own grouping key (property, for
+Bookings) and open the record page directly; there is no day-detail modal and no assistant chip in its header.
+Any future "what happened on this day" screen (Tasks, Inspections) should follow the same shape rather than a
+bespoke pop-up.

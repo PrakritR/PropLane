@@ -341,7 +341,7 @@ export function BookingsBlockDatesModal({
                     </div>
                     <BookingsRowOverflow
                       label={name}
-                      onEdit={() =>
+                      onEditDates={() =>
                         applyEditingBlock(
                           entry,
                           setPropertyId,
@@ -355,7 +355,7 @@ export function BookingsBlockDatesModal({
                           residentOptions,
                         )
                       }
-                      onDelete={
+                      onCancel={
                         onDeleteBlock && entry.blockId
                           ? () => void onDeleteBlock(entry.blockId!)
                           : undefined

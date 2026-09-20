@@ -1153,21 +1153,42 @@ export async function renderPortalSection(
     }
 
     if (section === "bookings") {
-      const { MANAGER_BOOKING_BUCKETS, parseManagerBookingBucket } = await import(
+      const { MANAGER_BOOKING_BUCKETS, parseManagerBookingBucket, isBookingDayKeySegment } = await import(
         "@/lib/portal-detail-routes"
       );
       if (!tabParts?.length) {
         redirect(`${def.basePath}/bookings/calendar`);
       }
       const segmentRaw = tabParts[0]!;
-      if (!MANAGER_BOOKING_BUCKETS.includes(segmentRaw as (typeof MANAGER_BOOKING_BUCKETS)[number])) {
-        notFound();
-      }
-      if (tabParts.length > 1) notFound();
-      const bucket = parseManagerBookingBucket(segmentRaw);
       const ManagerBookings = await loadManagerBookings();
+      // The day page (`/bookings/2026-09-01`) replaces the old day pop-up —
+      // a date can never collide with a bucket keyword.
+      if (isBookingDayKeySegment(segmentRaw)) {
+        if (tabParts.length > 1) notFound();
+        return subscriptionGated(
+          <ManagerBookings dayKey={segmentRaw} basePath={def.basePath} />,
+          kind,
+          "bookings",
+          managerOwnerSubscriptionTier,
+        );
+      }
+      if (MANAGER_BOOKING_BUCKETS.includes(segmentRaw as (typeof MANAGER_BOOKING_BUCKETS)[number])) {
+        if (tabParts.length > 1) notFound();
+        const bucket = parseManagerBookingBucket(segmentRaw);
+        return subscriptionGated(
+          <ManagerBookings bucket={bucket} basePath={def.basePath} />,
+          kind,
+          "bookings",
+          managerOwnerSubscriptionTier,
+        );
+      }
+      // Anything else is a booking record id (`bookingEntryKey`, opaque and
+      // URL-encoded) — the booking record page, per docs/agents/record-page.md.
+      if (tabParts.length > 2) notFound();
+      const bookingId = decodeURIComponent(segmentRaw);
+      const bookingTab = tabParts.length === 2 ? decodeURIComponent(tabParts[1]!) : undefined;
       return subscriptionGated(
-        <ManagerBookings bucket={bucket} basePath={def.basePath} />,
+        <ManagerBookings bookingId={bookingId} bookingTab={bookingTab} basePath={def.basePath} />,
         kind,
         "bookings",
         managerOwnerSubscriptionTier,

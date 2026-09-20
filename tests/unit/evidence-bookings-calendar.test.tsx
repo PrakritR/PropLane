@@ -137,10 +137,13 @@ describe("evidence · one house's Bookings calendar shows both channels", () => 
     // Both channels on one screen. PRP-333 split the single grid into buckets,
     // so they now land in different tabs by date rather than side by side: the
     // Airbnb import (Aug 18-22) is Upcoming and the PropLane lease (Aug 4-12)
-    // is in-house on the pinned clock. Assert each where it actually lives —
-    // the guarantee is that the PropLane half is drawn at all, which is what
-    // used to be missing and made a let room read as free.
-    expect(view.container.textContent).toContain("Airbnb");
+    // is in-house on the pinned clock. The month grid no longer prints a
+    // channel name per cell (PLAN-0920-1058, area 1e: names belong on the day
+    // page, not 30 identical cells) — the guarantee here is that the Airbnb
+    // stay is still counted in that day's occupancy, not silently dropped.
+    const airbnbDay = document.querySelector('[data-attr="portfolio-booking-day-2026-08-18"]');
+    expect(airbnbDay?.textContent).toContain("1/1");
+    expect(airbnbDay?.textContent).toContain("1 in");
     fireEvent.click(document.querySelector('button[data-attr="bookings-bucket-inhouse"]')!);
     await act(async () => {
       await Promise.resolve();
