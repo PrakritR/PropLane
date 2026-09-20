@@ -20,17 +20,23 @@ export type CommsWallet = {
   paused: boolean;
 };
 
-const LEGACY_ALLOWANCE_CENTS: Record<CommsPlanTier, number> = {
-  free: 250,
-  pro: 1500,
-  business: 15000,
-};
+/**
+ * The migration-month grace ended (PLAN-0920-1400): this used to read HIGHER
+ * than the plan's own allowance so an existing manager kept their old, larger
+ * monthly credit for one cutover month. It now equals the plan's own included
+ * allowance, so `greatest(allowance, legacy)` in `comms_wallet_snapshot` is a
+ * no-op and the plan's own allowance is always what applies — a Business
+ * account reads exactly $100.00, never a stale $150 override.
+ */
+function legacyAllowanceCentsForTier(tier: CommsPlanTier): number {
+  return includedAllowanceCents(tier) ?? 0;
+}
 
 export function commsPlanBudgetForTier(tier: CommsPlanTier) {
   return {
     tier,
     allowance: includedAllowanceCents(tier) ?? 0,
-    legacy: LEGACY_ALLOWANCE_CENTS[tier],
+    legacy: legacyAllowanceCentsForTier(tier),
   };
 }
 
