@@ -9,7 +9,12 @@ import {
   isReservedMailboxLocal,
   isValidMailboxLocal,
 } from "@/lib/manager-assistant-email/assistant-email-address";
-import { allocateAssistantMailboxLocal } from "@/lib/manager-assistant-email/assistant-mailbox-local.server";
+import {
+  allocateAssistantMailboxLocal,
+  findActiveMailboxLocalAlias,
+  reclaimMailboxLocalAlias,
+  releaseMailboxLocalAsAlias,
+} from "@/lib/manager-assistant-email/assistant-mailbox-local.server";
 import {
   isPureCoManagerWorkspace,
   readSelectedWorkspaceIdSafely,
@@ -135,21 +140,52 @@ export async function resolveManagerIdByAssistantEmailToken(
   return (await resolveAssistantMailboxByToken(db, token))?.managerUserId ?? null;
 }
 
+/**
+ * A local part released by a rename within its cooldown, resolved to the
+ * SAME `manager_assistant_emails` row it always belonged to — a rename
+ * updates that row's `mailbox_local` in place rather than minting a new one,
+ * so the row an alias points at is simply that row's current (renamed)
+ * state. This is the one place inbound mail addressed to a just-renamed-away
+ * local still finds a home; past the cooldown it falls through to the
+ * ordinary not-found behavior below.
+ */
+async function resolveAssistantMailboxByAlias(
+  db: SupabaseClient,
+  mailboxLocal: string,
+): Promise<AssistantMailboxTarget | null> {
+  const alias = await findActiveMailboxLocalAlias(db, mailboxLocal);
+  if (!alias) return null;
+  const { data, error } = await db
+    .from("manager_assistant_emails")
+    .select("manager_user_id, workspace_id, provision_state")
+    .eq("id", alias.assistantEmailId)
+    .maybeSingle();
+  if (error) {
+    console.warn("assistant-email alias mailbox lookup failed", error.message);
+    return null;
+  }
+  if (!data || data.provision_state !== "active") return null;
+  return mailboxTarget(data);
+}
+
 async function resolveAssistantMailboxByLocal(
   db: SupabaseClient,
   mailboxLocal: string,
 ): Promise<AssistantMailboxTarget | null> {
+  const trimmed = mailboxLocal.trim().toLowerCase();
   const { data, error } = await db
     .from("manager_assistant_emails")
     .select("manager_user_id, workspace_id, provision_state")
-    .eq("mailbox_local", mailboxLocal.trim().toLowerCase())
+    .eq("mailbox_local", trimmed)
     .maybeSingle();
   if (error) {
     console.warn("assistant-email mailbox lookup failed", error.message);
     return null;
   }
-  if (!data || data.provision_state !== "active") return null;
-  return mailboxTarget(data);
+  if (data && data.provision_state === "active") return mailboxTarget(data);
+  // No ACTIVE row holds this local any more — it may still be inside a
+  // renamed-away workspace's 30-day cooldown.
+  return resolveAssistantMailboxByAlias(db, trimmed);
 }
 
 /** Resolve the mailbox from any supported assistant To address (legacy plus or assist-*). */
@@ -466,11 +502,20 @@ export type MailboxLocalCheckResult =
  * no-op save); any other workspace's active local part is `taken`, exactly
  * like the DB's own unique constraint, but checked ahead of the write so the
  * UI can disable Save before the manager ever submits it.
+ *
+ * A local part still inside another workspace's 30-day released-alias
+ * cooldown is also `taken` — mail addressed to it is still routed to its
+ * previous owner, so a second workspace must not be able to claim it out
+ * from under them. `ownerUserId`, when passed, lets that PREVIOUS owner
+ * reclaim their own alias (checked by the alias's `owner_user_id`, never by
+ * whichever workspace currently calls this); omitted, the alias always
+ * blocks the claim.
  */
 export async function checkWorkspaceAssistantMailboxLocal(
   db: SupabaseClient,
   workspaceId: string,
   local: string,
+  ownerUserId?: string,
 ): Promise<MailboxLocalCheckResult> {
   const trimmed = local.trim().toLowerCase();
   if (trimmed.length < 3) {
@@ -490,13 +535,19 @@ export async function checkWorkspaceAssistantMailboxLocal(
     .eq("provision_state", "active")
     .maybeSingle();
   if (error) throw new Error(error.message);
-  if (!data) return { ok: true, state: "available" };
-
-  const holderWorkspaceId = String(data.workspace_id ?? "").trim();
-  if (holderWorkspaceId && holderWorkspaceId === workspaceId.trim()) {
-    return { ok: true, state: "current" };
+  if (data) {
+    const holderWorkspaceId = String(data.workspace_id ?? "").trim();
+    if (holderWorkspaceId && holderWorkspaceId === workspaceId.trim()) {
+      return { ok: true, state: "current" };
+    }
+    return { ok: false, state: "taken", message: "That address is already in use." };
   }
-  return { ok: false, state: "taken", message: "That address is already in use." };
+
+  const alias = await findActiveMailboxLocalAlias(db, trimmed);
+  if (alias && alias.ownerUserId !== ownerUserId) {
+    return { ok: false, state: "taken", message: "That address is already in use." };
+  }
+  return { ok: true, state: "available" };
 }
 
 /**
@@ -508,7 +559,11 @@ export async function checkWorkspaceAssistantMailboxLocal(
  *
  * One address per workspace: mail to the OLD local part stops resolving the
  * instant this commits, because the row's `mailbox_local` is what inbound
- * resolution reads.
+ * resolution reads directly — but the old local part is held as a released
+ * alias for `RELEASED_MAILBOX_ALIAS_DAYS` (30) so another workspace cannot
+ * immediately claim it and start receiving mail senders still address to
+ * this workspace, and inbound mail to it still reaches this same row until
+ * the alias expires.
  */
 export async function setWorkspaceAssistantMailboxLocal(
   db: SupabaseClient,
@@ -521,11 +576,19 @@ export async function setWorkspaceAssistantMailboxLocal(
   const row = await ensureManagerAssistantEmail(db, managerUserId, workspace);
 
   const trimmed = local.trim().toLowerCase();
-  const check = await checkWorkspaceAssistantMailboxLocal(db, workspace.id, trimmed);
+  const check = await checkWorkspaceAssistantMailboxLocal(db, workspace.id, trimmed, managerUserId);
   if (!check.ok) return check;
   if (check.state === "current") {
     return { ok: true, address: row.address };
   }
+
+  const oldLocal = row.mailboxLocal;
+  const { data: idRow } = await db
+    .from("manager_assistant_emails")
+    .select("id")
+    .eq("inbox_token", row.inboxToken)
+    .maybeSingle();
+  const assistantEmailId = String((idRow as { id?: string } | null)?.id ?? "").trim();
 
   const { error } = await db
     .from("manager_assistant_emails")
@@ -538,5 +601,19 @@ export async function setWorkspaceAssistantMailboxLocal(
     }
     throw new Error(error.message);
   }
+
+  if (oldLocal && oldLocal !== trimmed && assistantEmailId) {
+    await releaseMailboxLocalAsAlias(db, {
+      mailboxLocal: oldLocal,
+      assistantEmailId,
+      ownerUserId: managerUserId,
+    });
+  }
+  // Renaming back onto a local this same owner still holds as an alias
+  // reclaims it outright, rather than leaving a stale alias behind that
+  // would otherwise block nobody (it already points at this row) but would
+  // needlessly survive until its own cooldown lapsed.
+  await reclaimMailboxLocalAlias(db, trimmed, managerUserId);
+
   return { ok: true, address: assistantMailboxAddress(trimmed) };
 }
