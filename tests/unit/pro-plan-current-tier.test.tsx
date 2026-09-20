@@ -87,7 +87,7 @@ describe("Plan section reads one resolved tier, even with a scheduled downgrade"
     // this page is built around (`resolveEffectiveManagerSkuTier`'s client
     // twin) is a single value threaded through both spots below.
     await waitFor(() => {
-      expect(screen.getByText("Paid Business plan")).toBeTruthy();
+      expect(screen.getByText("Business plan")).toBeTruthy();
     });
 
     // The banner states what it is SCHEDULED to become (Pro) — a different
@@ -97,6 +97,6 @@ describe("Plan section reads one resolved tier, even with a scheduled downgrade"
     expect(screen.getByRole("button", { name: "Undo" })).toBeTruthy();
 
     // No stray "current plan" claim for anything other than Business.
-    expect(screen.queryByText("Paid Pro plan")).toBeNull();
+    expect(screen.queryByText("Pro plan")).toBeNull();
   });
 });

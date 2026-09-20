@@ -609,7 +609,7 @@ export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boole
     ? `Free trial of ${tierLabel(currentTier)}`
     : currentTier === "free"
       ? "Free plan"
-      : `Paid ${tierLabel(currentTier)} plan`;
+      : `${tierLabel(currentTier)} plan`;
 
   /** The scheduled-change banner and its Undo — the full-cancellation state
    * (`cancelAtPeriodEnd`) is shown in Cancellation below instead, so this
@@ -664,7 +664,7 @@ export function ManagerPlan(props: { embedded?: boolean; showCurrentPlan?: boole
                       ? `${currentBilling === "annual" ? "Annual" : "Monthly"}${renewalLabel ? ` · renews ${renewalLabel}` : ""}`
                       : isTrialBilling
                         ? "14-day trial · no card on file"
-                        : `${tierLabel(currentTier)} (not Stripe-managed)`}
+                        : "Complimentary"}
                 </p>
               </div>
               {isTrialBilling && currentTier !== "free" ? (

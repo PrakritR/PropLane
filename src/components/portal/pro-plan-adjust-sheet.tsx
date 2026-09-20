@@ -157,9 +157,7 @@ export function PlanAdjustSheet({
                 <div className="flex w-full items-center justify-between gap-3">
                   <span className="text-sm font-bold text-foreground">{tierLabel(tier)}</span>
                   {isCurrent ? (
-                    <span className="rounded-full bg-primary px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-                      Current
-                    </span>
+                    <span className="text-sm text-muted">Current</span>
                   ) : null}
                 </div>
                 <p className="text-sm tabular-nums text-muted">{priceLine(TIER_MONTHLY_USD[tier])}</p>
@@ -175,10 +173,7 @@ export function PlanAdjustSheet({
           </p>
         ) : null}
 
-        <div className="flex flex-wrap justify-start gap-2">
-          <Button type="button" variant="outline" className="rounded-full" disabled={busy} onClick={close}>
-            Cancel
-          </Button>
+        <div className="flex justify-end">
           <Button
             type="button"
             variant="primary"
