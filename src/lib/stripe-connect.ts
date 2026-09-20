@@ -2,13 +2,39 @@ import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
-/** Controller config for manager recipient accounts (destination charges; platform collects). */
+/**
+ * Controller config for NEW manager/vendor recipient accounts (destination
+ * charges; platform collects). PropLane owns requirement collection and the
+ * account never gets a Stripe-hosted dashboard — identity and bank details
+ * are gathered by PropLane's own in-app forms (`stripe-connect-identity.server.ts`),
+ * never Stripe's hosted or embedded onboarding. See PLAN-0920-1500.
+ *
+ * Accounts created before this change are `stripe_dashboard.type: "express"`
+ * with `requirement_collection: "stripe"` — those are untouched and keep
+ * finishing any remaining requirements via the embedded component already in
+ * `stripe-connect-embedded.ts` (Decide 2 of the plan: "keep them"). Use
+ * {@link isApplicationCollected} to tell the two apart at runtime.
+ */
 export const AXIS_CONNECT_CONTROLLER = {
   fees: { payer: "application" as const },
   losses: { payments: "application" as const },
-  requirement_collection: "stripe" as const,
-  stripe_dashboard: { type: "express" as const },
+  requirement_collection: "application" as const,
+  stripe_dashboard: { type: "none" as const },
 };
+
+/**
+ * True for an account PropLane collects requirements for directly (new
+ * accounts, created with {@link AXIS_CONNECT_CONTROLLER}) — its identity/bank
+ * form is PropLane's own, driven by `stripe-connect-identity.server.ts`.
+ * False for a legacy `stripe_dashboard.type: "express"` account, which keeps
+ * finishing onboarding through Stripe's embedded component
+ * (`stripe-connect-embedded.ts`). Checked on the account object itself
+ * (never assumed from when it was created) so a manually-migrated or
+ * differently-configured account is never misclassified.
+ */
+export function isApplicationCollected(account: Stripe.Account): boolean {
+  return account.controller?.stripe_dashboard?.type === "none";
+}
 
 export type ManagerConnectValidation =
   | { ok: true; accountId: string }
