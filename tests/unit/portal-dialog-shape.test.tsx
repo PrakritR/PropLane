@@ -182,11 +182,23 @@ describe("PortalDialog adoption — source guard", () => {
   const adopted: Array<{ file: string; marker?: string }> = [
     { file: "src/components/portal/confirm-delete-modal.tsx" },
     { file: "src/components/portal/portal-delete-account-button.tsx" },
+    { file: "src/components/portal/portal-notification-preview-modal.tsx" },
     {
       file: "src/components/portal/portal-notification-preview-modal.tsx",
       marker: "export function PortalBulkPaymentReminderPreviewModal(",
     },
     { file: "src/components/portal/pro-properties.tsx" },
+    { file: "src/components/portal/schedule-service-visit-modal.tsx" },
+    { file: "src/components/portal/pro-work-orders-panel.tsx" },
+    { file: "src/components/portal/pro-create-service-request-modal.tsx" },
+    { file: "src/components/portal/inspection-editor.tsx" },
+    { file: "src/components/portal/bookings-block-dates-modal.tsx" },
+    { file: "src/components/portal/pro-communication-compose-modal.tsx" },
+    { file: "src/components/portal/share-lead-link-modal.tsx" },
+    { file: "src/components/portal/manager-invite-link-modal.tsx" },
+    { file: "src/components/portal/vendor-finances-panel.tsx" },
+    { file: "src/components/portal/resident-payments-panel.tsx" },
+    { file: "src/components/portal/pro-payments-ledger-panel.tsx" },
   ];
 
   it("every adopted dialog renders through PortalDialog, not a hand-rolled Modal footer", () => {

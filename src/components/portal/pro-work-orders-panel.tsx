@@ -7,6 +7,7 @@ import { Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   PortalDataTableEmpty,
@@ -1358,29 +1359,28 @@ export function ManagerWorkOrdersPanel({
         })}
       </PortalRecordListSurface>
 
-      <Modal
+      <PortalDialog
         open={Boolean(completeRow)}
         onClose={() => setCompleteRow(null)}
+        dismissBlocked={completeBusy}
         title="Complete service"
-        description={
-          completeRow ? `${completeRow.propertyName} · ${completeRow.title}` : undefined
-        }
-        footer={
-          completeRow ? (
-            <ModalFooter>
-              <Button type="button" variant="primary" onClick={() => submitComplete()} disabled={completeBusy}>
-                {completeBusy
-                  ? "Completing…"
-                  : completeDraft.notifyResident && completeRow.residentEmail?.includes("@")
-                    ? "Complete & notify"
-                    : "Complete & log expenses"}
-              </Button>
-            </ModalFooter>
-          ) : undefined
-        }
+        primaryAction={{
+          label: completeBusy
+            ? "Completing…"
+            : completeRow && completeDraft.notifyResident && completeRow.residentEmail?.includes("@")
+              ? "Complete & notify"
+              : "Complete & log expenses",
+          onClick: () => submitComplete(),
+          disabled: completeBusy || !completeRow,
+          loading: completeBusy,
+        }}
       >
         {completeRow ? (
           <div className="space-y-3">
+            <div>
+              <p className="text-sm font-medium text-foreground">{completeRow.title}</p>
+              <p className="mt-0.5 text-xs text-muted">{completeRow.propertyName}</p>
+            </div>
             <label className="flex flex-col gap-1 text-xs font-medium text-muted">
               Category
               <Select
@@ -1495,7 +1495,7 @@ export function ManagerWorkOrdersPanel({
             ) : null}
           </div>
         ) : null}
-      </Modal>
+      </PortalDialog>
 
       <Modal
         open={Boolean(approvePayRow)}

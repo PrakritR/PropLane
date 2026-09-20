@@ -2,13 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Modal, ModalFooter } from "@/components/ui/modal";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import { Input, Select } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { useIsNativeApp, useIsSmallPortalViewport } from "@/hooks/use-is-native-app";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { logDemoOutboundEmail } from "@/lib/demo-outbound-mail";
 import {
@@ -129,9 +128,6 @@ export function ShareLeadLinkModal({
 }) {
   const { showToast } = useAppUi();
   const { userId: managerUserId } = useManagerUserId();
-  const { isNative } = useIsNativeApp();
-  const isSmallViewport = useIsSmallPortalViewport();
-  const useFullPageModal = isNative === true || isSmallViewport;
   const multiEnabled = properties.length > 1;
   const [propertyIds, setPropertyIds] = useState<string[]>([]);
   const [roomChoice, setRoomChoice] = useState("");
@@ -472,26 +468,17 @@ export function ShareLeadLinkModal({
 
   const title = kind === "listing" ? "Send listing" : kind === "apply" ? "Send application" : "Send tour link";
 
-  const actionFooter =
-    properties.length > 0 ? (
-      <ModalFooter>
-        <Button type="button" variant="primary" className="rounded-full" disabled={propertyIds.length === 0} onClick={openSendPreview}>
-          Preview & send
-        </Button>
-      </ModalFooter>
-    ) : undefined;
-
   return (
     <>
-      <Modal
+      <PortalDialog
         open={open}
         title={title}
         onClose={onClose}
-        dense
-        panelClassName="max-w-lg"
-        fullPage={useFullPageModal}
-        fullScreenMobile={useFullPageModal}
-        footer={actionFooter}
+        primaryAction={{
+          label: "Preview & send",
+          onClick: openSendPreview,
+          disabled: propertyIds.length === 0,
+        }}
       >
         <div className="max-h-[min(60vh,28rem)] space-y-3 overflow-y-auto pr-0.5 [scrollbar-width:thin]">
           {properties.length === 0 ? (
@@ -809,7 +796,7 @@ export function ShareLeadLinkModal({
             </>
           )}
         </div>
-      </Modal>
+      </PortalDialog>
 
       <PortalNotificationPreviewModal
         open={sendPreviewOpen}

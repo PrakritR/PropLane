@@ -6,9 +6,8 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
-import { Modal, ModalFooter } from "@/components/ui/modal";
+import { PortalDialog } from "@/components/portal/portal-dialog";
 import { RadixSegmentedTabs } from "@/components/ui/radix-segmented-tabs";
 import { BookingsRowOverflow } from "@/components/portal/bookings-row-overflow";
 import {
@@ -248,49 +247,39 @@ export function BookingsBlockDatesModal({
   const airbnbBusy = airbnbFooter.busy || airbnbFooter.syncing;
   const airbnbIds = propertyIds ?? propertyOptions.map((property) => property.id);
 
-  const footer =
-    pane === "airbnb" ? (
-      <ModalFooter className="justify-start">
-        <Button
-          type="button"
-          variant="outline"
-          disabled={airbnbBusy || airbnbFooter.syncableCount === 0}
-          data-attr="channel-calendar-sync-all"
-          onClick={() => void airbnbActionsRef.current?.syncAll()}
-        >
-          {airbnbFooter.syncing ? "Syncing…" : "Sync all"}
-        </Button>
-        <Button
-          type="button"
-          variant="primary"
-          disabled={!airbnbFooter.canSave || airbnbBusy}
-          data-attr="channel-calendar-save-link"
-          onClick={() => void airbnbActionsRef.current?.save()}
-        >
-          {airbnbFooter.busy ? "Saving…" : "Save & sync"}
-        </Button>
-      </ModalFooter>
-    ) : (
-      <ModalFooter>
-        <Button
-          type="button"
-          variant="primary"
-          disabled={!canSave}
-          data-attr="bookings-block-dates-save"
-          onClick={() => save()}
-        >
-          {busy ? "Saving…" : "Add booking"}
-        </Button>
-      </ModalFooter>
-    );
-
   return (
-    <Modal
+    <PortalDialog
       open={open}
       onClose={onClose}
       title={pane === "airbnb" ? "Link calendars" : "Add booking"}
       dataAttr="bookings-block-dates-modal"
-      footer={footer}
+      primaryAction={
+        pane === "airbnb"
+          ? {
+              label: airbnbFooter.busy ? "Saving…" : "Save & sync",
+              onClick: () => airbnbActionsRef.current?.save(),
+              disabled: !airbnbFooter.canSave || airbnbBusy,
+              loading: airbnbFooter.busy,
+              dataAttr: "channel-calendar-save-link",
+            }
+          : {
+              label: busy ? "Saving…" : "Add booking",
+              onClick: () => save(),
+              disabled: !canSave,
+              loading: busy,
+              dataAttr: "bookings-block-dates-save",
+            }
+      }
+      secondaryAction={
+        pane === "airbnb"
+          ? {
+              label: airbnbFooter.syncing ? "Syncing…" : "Sync all",
+              onClick: () => airbnbActionsRef.current?.syncAll(),
+              disabled: airbnbBusy || airbnbFooter.syncableCount === 0,
+              dataAttr: "channel-calendar-sync-all",
+            }
+          : undefined
+      }
     >
       <div className="space-y-4">
         <RadixSegmentedTabs
@@ -536,6 +525,6 @@ export function BookingsBlockDatesModal({
           />
         </div>
       </div>
-    </Modal>
+    </PortalDialog>
   );
 }
