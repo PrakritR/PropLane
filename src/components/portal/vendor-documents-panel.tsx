@@ -16,6 +16,7 @@ import {
 } from "@/components/portal/portal-data-table";
 import { DocumentInlineViewer, triggerDocumentDownload } from "@/components/portal/resident-other-documents";
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { VendorUploadDocumentWorkspace } from "@/components/portal/vendor-upload-document-workspace";
 import { isDemoModeActive, subscribeDemoPath } from "@/lib/demo/demo-session";
 import { safeFormatDateTime } from "@/lib/pacific-time";
@@ -344,20 +345,22 @@ export function VendorDocumentsPanel({
         className="mb-2 max-lg:mb-1.5"
         variant="command"
         filterRow={
-          <label className="flex items-center gap-2 text-xs font-semibold text-muted">
+          <div className="flex items-center gap-2 text-xs font-semibold text-muted">
             Source
-            <select
+            <FieldSingleSelect
+              label="Document source"
+              hideLabel
               value={source}
-              onChange={(event) => setSource(event.target.value as "all" | "mine" | "managers")}
-              className="h-9 rounded-lg border border-border bg-card px-2 text-sm font-semibold text-foreground"
-              aria-label="Document source"
-              data-attr="vendor-documents-source"
-            >
-              <option value="all">All</option>
-              <option value="mine">Mine</option>
-              <option value="managers">From managers</option>
-            </select>
-          </label>
+              onChange={(next) => setSource(next as "all" | "mine" | "managers")}
+              options={[
+                { value: "all", label: "All" },
+                { value: "mine", label: "Mine" },
+                { value: "managers", label: "From managers" },
+              ]}
+              variant="pill"
+              dataAttr="vendor-documents-source"
+            />
+          </div>
         }
         search={
           {

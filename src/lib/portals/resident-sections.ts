@@ -77,7 +77,7 @@ export const RESIDENT_PAYMENTS_LEGACY_TABS: Record<string, { status?: string } |
     charges: {},
   });
 
-/** Sidebar during application phase: Application, Communication, and Settings. */
+/** Sidebar during application phase: Application, Communication, and Dashboard. Account/Settings stays reachable from the top-right profile control, not the sidebar. */
 export const RESIDENT_APPLICATION_PHASE_PORTAL_SECTIONS: PortalSection[] = [
   { section: "tour", label: "Tour", tabs: [] },
   { section: "applications", label: "Application", tabs: [] },

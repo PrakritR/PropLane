@@ -102,6 +102,7 @@ export const DELETE_ORDER = [
   "vendor_business_profiles",
   "vendor_availability_rules",
   "vendor_invites",
+  "vendor_work_identities",
   "action_event_deliveries",
   "webhook_deliveries",
   "prospect_sms_ingress",

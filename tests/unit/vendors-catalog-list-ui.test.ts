@@ -58,9 +58,14 @@ describe("vendors catalog list chrome", () => {
   });
 
   it("gives the catalog profile an X back to the list", () => {
+    // The page chrome (PortalRecordDetailPage + the X back button) is owned by the
+    // panel, the same split already used for the real vendor detail (see
+    // pro-vendor-detail.tsx / portal-parity-tranche.test.ts) — pro-vendor-catalog-detail.tsx
+    // renders only the tabbed content.
+    const panel = read("src/components/portal/pro-vendors-panel.tsx");
     const detail = read("src/components/portal/pro-vendor-catalog-detail.tsx");
-    expect(detail).toContain("vendor-catalog-back");
+    expect(panel).toContain("vendor-catalog-back");
+    expect(panel).toContain("PortalRecordDetailPage");
     expect(detail).toContain("About");
-    expect(detail).toContain("PortalRecordDetailPage");
   });
 });

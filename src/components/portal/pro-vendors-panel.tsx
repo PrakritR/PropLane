@@ -741,7 +741,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
                 actions: (
                   <>
                     <Button type="button" data-attr="vendor-catalog-row-view" onClick={openProfile}>
-                      View
+                      View profile
                     </Button>
                     <Button
                       type="button"
@@ -749,7 +749,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
                       disabled={Boolean(existing)}
                       onClick={add}
                     >
-                      {existing ? "Added" : "Add"}
+                      {existing ? "Added" : "Add to your vendors"}
                     </Button>
                   </>
                 ),

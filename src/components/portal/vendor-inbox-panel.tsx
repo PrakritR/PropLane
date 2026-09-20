@@ -627,7 +627,7 @@ export const VendorInboxPanel = forwardRef<
               delivery?: "sending" | "sent" | "failed";
             };
             emailOk = res.ok && data.ok === true;
-            if (emailOk && data.delivery) authorizedDeliveries.push(data.delivery);
+            if (emailOk) authorizedDeliveries.push(data.delivery ?? "sent");
             if (!emailOk) failureMessage = data.error?.trim() ?? "";
           } catch {
             failureMessage = "";
@@ -657,7 +657,7 @@ export const VendorInboxPanel = forwardRef<
                 delivery?: "sending" | "sent" | "failed";
               };
               smsOk = res.ok && data.ok === true;
-              if (smsOk && data.delivery) authorizedDeliveries.push(data.delivery);
+              if (smsOk) authorizedDeliveries.push(data.delivery ?? "sent");
               if (!smsOk) failureMessage = data.error?.trim() || failureMessage;
             } catch {
               // Preserve any explicit refusal from the other channel.
@@ -682,11 +682,18 @@ export const VendorInboxPanel = forwardRef<
           // preauthorization refusal above rolls the optimistic bubble back.
           const delivery = aggregateVendorSponsoredDelivery(authorizedDeliveries);
           const delivered = markThreadMessageDelivery(withReply, replyId, delivery);
-          // Sponsored sends are projected by the server after durable
-          // authorization. Never POST the optimistic whole thread back over
-          // that projection: doing so used a client-only id and duplicated a
-          // single logical reply. The forced read below is canonical.
-          setLocal((rows) => rows.map((item) => item.id === thread.id ? delivered : item));
+          const persisted = currentRows.map((item) =>
+            item.id === thread.id ? delivered : item,
+          );
+          setLocal(persisted);
+          // Persist with the same `vendor-sponsored:${sendId}` id the server
+          // will later project this reply under, so the durable copy and the
+          // forced read below merge on that id instead of duplicating.
+          await upsertPersistedInboxRows(
+            VENDOR_INBOX_STORAGE_KEY,
+            [delivered],
+            persisted,
+          ).catch(() => false);
         }
       } finally {
         persistInboxRef.current = true;
