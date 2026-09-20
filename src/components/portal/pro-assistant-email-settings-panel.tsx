@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AlertCircle, CheckCircle2, Mail } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSelectedWorkspaceId } from "@/hooks/use-selected-workspace-id";
@@ -10,7 +10,9 @@ import {
   PortalSettingsGroup,
   PortalSettingsSection,
 } from "@/components/portal/portal-settings-ui";
+import { ChannelRow, ChannelRowMenu, type ChannelRowMenuItem } from "@/components/portal/portal-channel-row";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { copyTextToClipboard } from "@/lib/manager-property-links";
 import {
   assistantEmailEntitlementIsUnverified,
@@ -69,8 +71,17 @@ export function workEmailAudienceLabel(status: ManagerAssistantEmailStatus): str
   return "Nobody yet";
 }
 
-export function ManagerAssistantEmailSettingsPanel() {
+/**
+ * The Channels row for the work email (PLAN-0920-1530). One row, one ⋯ menu
+ * (Copy address · Share with residents · Rename) — the old standalone "Work
+ * email" card, its Availability/Status/Who-can-write-in fields, and the
+ * bottom read-only copy box are gone; every fact it carried now lives either
+ * on this row or in Settings → Communication → Automation (`workEmailAudienceLabel`,
+ * read by `CommunicationSettingsPanel`).
+ */
+export function ManagerAssistantEmailChannelRow() {
   const { showToast } = useAppUi();
+  const router = useRouter();
   const [status, setStatus] = useState<ManagerAssistantEmailStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [pendingAction, setPendingAction] = useState<"request" | "refresh" | null>(null);
@@ -84,6 +95,8 @@ export function ManagerAssistantEmailSettingsPanel() {
   const [addressCheck, setAddressCheck] = useState<MailboxLocalCheckResult | null>(null);
   const [checkingAddress, setCheckingAddress] = useState(false);
   const [savingAddress, setSavingAddress] = useState(false);
+  /** Rename is opened from the row's ⋯ menu rather than always being live. */
+  const [renaming, setRenaming] = useState(false);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -186,6 +199,7 @@ export function ManagerAssistantEmailSettingsPanel() {
       setStatus(body);
       setAddressCheck(null);
       if (body.address) {
+        setRenaming(false);
         showToast(
           `Work email changed to ${body.address}. Mail to the old address no longer reaches you.`,
         );
@@ -286,34 +300,25 @@ export function ManagerAssistantEmailSettingsPanel() {
 
   if (loading && !status) {
     return (
-      <PortalSettingsSection
-        title="Work email"
-      >
-        <PortalSettingsGroup>
-          <p className="px-4 py-4 text-sm text-muted">Loading…</p>
-        </PortalSettingsGroup>
-      </PortalSettingsSection>
+      <div className="border-b border-border/70 px-4 py-3 text-[13px] text-muted last:border-0" data-attr="assistant-email-loading">
+        Loading work email…
+      </div>
     );
   }
 
   if (error && !status) {
     return (
-      <PortalSettingsSection title="Work email">
-        <PortalSettingsGroup>
-          <div className="space-y-3 px-4 py-4">
-            <p className="text-sm text-muted">{error}</p>
-            <Button type="button" variant="outline" onClick={() => load()} data-attr="assistant-email-retry">
-              Try again
-            </Button>
-          </div>
-        </PortalSettingsGroup>
-      </PortalSettingsSection>
+      <div className="flex items-center justify-between gap-3 border-b border-border/70 px-4 py-3 last:border-0">
+        <span className="text-[13px] text-muted">{error}</span>
+        <Button type="button" variant="ghost" className="min-h-9 px-3 text-xs" onClick={() => load()} data-attr="assistant-email-retry">
+          Try again
+        </Button>
+      </div>
     );
   }
 
   if (!status) return null;
 
-  const planMessage = assistantEmailUpsellMessage(status.planTier, status.entitlement);
   const isCoManager = status.workspaceRole === "co_manager";
   const unverifiedEntitlement = assistantEmailEntitlementIsUnverified(status.entitlement);
 
@@ -389,214 +394,126 @@ export function ManagerAssistantEmailSettingsPanel() {
     );
   }
 
+  const planMessage = assistantEmailUpsellMessage(status.planTier, status.entitlement);
+
+  // One ⋯ menu covers every action the old card spread across four buttons
+  // (Copy, Save, Request, View plans, Refresh eligibility, Refresh status,
+  // Tell residents). Only the actions this exact state can actually take are
+  // offered — never a disabled item with no explanation, since a row has no
+  // room for one.
+  const menuItems: ChannelRowMenuItem[] = [];
+  if (status.address) {
+    menuItems.push({ key: "copy", label: "Copy address", onClick: () => void copyAddress() });
+    if (status.canUse) {
+      menuItems.push({
+        key: "share",
+        label: "Share with residents",
+        onClick: () => window.dispatchEvent(new CustomEvent(WORK_CONTACT_ANNOUNCE_EVENT)),
+      });
+    }
+    menuItems.push({
+      key: "rename",
+      label: "Rename",
+      onClick: () => {
+        setLocalInput(addressLocal);
+        setAddressCheck(null);
+        setRenaming(true);
+      },
+    });
+  } else if (status.canRequest) {
+    menuItems.push({
+      key: "request",
+      label: pendingAction === "request" ? "Requesting…" : "Request work email",
+      disabled: pendingAction !== null,
+      onClick: () => void postAction("request_address"),
+    });
+  }
+  if (planMessage && !unverifiedEntitlement) {
+    menuItems.push({
+      key: "view-plan",
+      label: "View plans",
+      onClick: () => router.push("/portal/profile?tab=billing"),
+    });
+  } else if (!status.address && !status.canRequest && !status.entitlement.eligible && !unverifiedEntitlement) {
+    menuItems.push({
+      key: "refresh-eligibility",
+      label: pendingAction === "refresh" ? "Checking…" : "Refresh eligibility",
+      disabled: pendingAction !== null,
+      onClick: () => void postAction("refresh_eligibility"),
+    });
+  }
+  if (
+    status.state === "assigned_send_off" ||
+    status.state === "assigned_plan_hold" ||
+    status.state === "storage_unavailable"
+  ) {
+    menuItems.push({
+      key: "refresh-status",
+      label: loading ? "Checking…" : "Refresh status",
+      disabled: loading,
+      onClick: () => void load(),
+    });
+  }
+
+  const channel = renaming ? (
+    <span className="flex min-w-0 flex-wrap items-center gap-1.5" data-attr="assistant-email-rename-row">
+      <Input
+        aria-label="Work email address"
+        data-attr="assistant-email-local"
+        value={localInput}
+        onChange={(event) => setLocalInput(event.target.value.toLowerCase())}
+        disabled={savingAddress}
+        spellCheck={false}
+        autoComplete="off"
+        autoCapitalize="off"
+        maxLength={32}
+        className="w-32 min-w-0 py-1.5 text-[13px] font-semibold"
+      />
+      <span className="shrink-0 text-[13.5px] font-semibold text-muted">@{addressDomain}</span>
+      <Button
+        type="button"
+        variant="ghost"
+        className="min-h-9 px-2.5 text-xs"
+        disabled={savingAddress}
+        onClick={() => {
+          setRenaming(false);
+          setLocalInput(addressLocal);
+          setAddressCheck(null);
+        }}
+        data-attr="assistant-email-rename-cancel"
+      >
+        Cancel
+      </Button>
+      <Button
+        type="button"
+        className="min-h-9 px-2.5 text-xs"
+        disabled={!canSaveAddress}
+        loading={savingAddress}
+        onClick={() => saveAddress()}
+        data-attr="assistant-email-save"
+      >
+        Save
+      </Button>
+    </span>
+  ) : (
+    <>{status.address ?? "Work email"}</>
+  );
+
   return (
-    <PortalSettingsSection
-      title="Work email"
-    >
-      <PortalSettingsGroup>
-        {status.address ? (
-          <>
-            <PortalSettingsField
-              label="Work email"
-              value={
-                <span className="flex min-w-0 flex-wrap items-center gap-1">
-                  <input
-                    aria-label="Work email address"
-                    data-attr="assistant-email-local"
-                    value={localInput}
-                    onChange={(event) => setLocalInput(event.target.value.toLowerCase())}
-                    disabled={savingAddress}
-                    spellCheck={false}
-                    autoComplete="off"
-                    autoCapitalize="off"
-                    maxLength={32}
-                    className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-[13.5px] font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-60"
-                  />
-                  <span className="shrink-0 text-[13.5px] font-semibold text-muted">
-                    @{addressDomain}
-                  </span>
-                </span>
-              }
-              action={
-                <div className="flex items-center gap-1.5">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="min-h-10 px-3 text-xs"
-                    onClick={() => copyAddress()}
-                    data-attr="assistant-email-copy"
-                  >
-                    Copy
-                  </Button>
-                  <Button
-                    type="button"
-                    className="min-h-10 px-3 text-xs"
-                    disabled={!canSaveAddress}
-                    loading={savingAddress}
-                    onClick={() => saveAddress()}
-                    data-attr="assistant-email-save"
-                  >
-                    Save
-                  </Button>
-                </div>
-              }
-            />
-            <PortalSettingsField
-              label="Availability"
-              value={addressAvailabilityLabel(addressCheck, checkingAddress)}
-            />
-          </>
-        ) : (
-          <PortalSettingsField label="Work email" value="Not assigned" />
-        )}
-        <PortalSettingsField label="Status" value={workEmailStatusLabel(status)} />
-        <PortalSettingsField label="Who can write in" value={workEmailAudienceLabel(status)} />
-        <div className="space-y-4 px-4 py-4">
-          {status.state === "ready" ? (
-            <div className="flex items-start gap-2 text-sm text-foreground">
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
-              <p>
-                Your address is live. Anyone on your team can email it from their PropLane profile
-                email to talk to PropLane Assistant; your residents can email it about their home
-                and prospects about your listings. Everything appears in{" "}
-                <strong>Communication</strong>.
-              </p>
-            </div>
-          ) : status.state === "storage_unavailable" ? (
-            <p className="text-sm leading-relaxed text-muted" role="status">
-              Work email storage is not ready on this environment yet. A database migration must be
-              applied before setup can complete.
-            </p>
-          ) : status.state === "assigned_send_off" ? (
-            /* The email's version of the number's "registered, but texting is
-               switched off for this workspace". Saying "ready" here would send
-               a manager chasing their mail provider for a PropLane setting —
-               and would hand residents an address that swallows their mail. */
-            <p className="text-sm leading-relaxed text-muted">
-              {status.sendingAvailable && !status.receivingAvailable
-                ? "Your address is assigned, but PropLane can't receive email on this deployment yet, so nothing that is sent to it gets answered."
-                : "Your address is assigned, but email is switched off for this workspace, so nothing sends or replies yet."}{" "}
-              This is a PropLane setting, not something to chase with your mail provider. We are not
-              showing this address to residents or on your listings while it cannot answer.
-            </p>
-          ) : status.state === "assigned_plan_hold" ? (
-            /* The other reason the same address goes quiet, and the opposite
-               advice: this one IS theirs to fix. */
-            <div className="space-y-3">
-              <p className="text-sm leading-relaxed text-muted">
-                {planMessage ??
-                  "Your address is assigned, but it is paused until your plan is active again."}{" "}
-                While it is paused we are not showing it to residents or on your listings, because it
-                cannot answer.
-              </p>
-              {unverifiedEntitlement ? null : (
-                <Button asChild variant="outline" data-attr="assistant-email-open-billing">
-                  <Link href="/portal/profile?tab=billing">View plans</Link>
-                </Button>
-              )}
-            </div>
-          ) : planMessage ? (
-            <div className="space-y-3">
-              <p className="text-sm leading-relaxed text-muted">{planMessage}</p>
-              {unverifiedEntitlement ? null : (
-                <Button asChild variant="outline" data-attr="assistant-email-open-billing">
-                  <Link href="/portal/profile?tab=billing">View plans</Link>
-                </Button>
-              )}
-            </div>
-          ) : unverifiedEntitlement ? (
-            <p className="text-sm leading-relaxed text-muted">
-              We&apos;re confirming your plan. Reload the page if this doesn&apos;t clear.
-            </p>
-          ) : !status.provisioningAvailable ? (
-            <p className="text-sm leading-relaxed text-muted">
-              Work email setup is in a limited rollout. We&apos;ll make the request available here
-              when your account is eligible.
-            </p>
-          ) : (
-            <div className="flex items-start gap-2 text-sm text-muted">
-              <Mail className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-              <p>
-                Request one address for your workspace. You and your team can email it to ask about
-                your portfolio, your residents can email it about their home, and prospects can
-                email it about your listings. You can change its name here after it is assigned.
-              </p>
-            </div>
-          )}
-
-          {error ? (
-            <div className="flex items-start gap-2 text-sm text-danger" role="alert">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-              <p>{error}</p>
-            </div>
-          ) : null}
-
-          {!status.entitlement.eligible && !unverifiedEntitlement ? (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={pendingAction !== null}
-              aria-busy={pendingAction === "refresh"}
-              onClick={() => postAction("refresh_eligibility")}
-              data-attr="assistant-email-eligibility-refresh"
-            >
-              {pendingAction === "refresh" ? "Checking…" : "Refresh eligibility"}
-            </Button>
-          ) : null}
-
-          {/* They said yes during setup but cannot act on it yet — usually a
-              plan that does not include it. Saying so is the whole point of
-              recording the intent; dropping it silently would leave them
-              waiting for an address nobody is setting up. */}
-          {status.requestedAtSignup && !status.canRequest && !status.address ? (
-            <p className="text-xs text-muted" data-attr="assistant-email-signup-intent">
-              You asked for a PropLane work email when you created this account. It is waiting on
-              your plan — once it is included, you can request it here.
-            </p>
-          ) : null}
-
-          {status.canRequest ? (
-            <Button
-              type="button"
-              onClick={() => postAction("request_address")}
-              loading={pendingAction === "request"}
-              data-attr="assistant-email-request"
-            >
-              <Mail className="h-4 w-4" aria-hidden />
-              Request work email
-            </Button>
-          ) : null}
-
-          {/* Same rule as the number's broadcast: only ever advertise a channel
-              that can actually carry a reply. */}
-          {status.canUse ? (
-            <Button
-              type="button"
-              variant="outline"
-              className="min-h-10 rounded-full px-4 text-xs"
-              onClick={() => window.dispatchEvent(new CustomEvent(WORK_CONTACT_ANNOUNCE_EVENT))}
-              data-attr="assistant-email-announce-residents-open"
-            >
-              Tell residents about this address
-            </Button>
-          ) : null}
-
-          {status.state === "assigned_send_off" ||
-          status.state === "assigned_plan_hold" ||
-          status.state === "storage_unavailable" ? (
-            <Button
-              type="button"
-              variant="ghost"
-              className="min-h-10 rounded-full px-3 text-xs"
-              disabled={loading}
-              onClick={() => load()}
-              data-attr="assistant-email-status-refresh"
-            >
-              {loading ? "Checking…" : "Refresh status"}
-            </Button>
-          ) : null}
+    <>
+      <ChannelRow
+        icon={Mail}
+        channel={channel}
+        workspace="All workspaces"
+        status={renaming ? addressAvailabilityLabel(addressCheck, checkingAddress) : workEmailStatusLabel(status)}
+        menu={renaming ? undefined : <ChannelRowMenu label="Work email actions" items={menuItems} dataAttr="channel-email-menu" />}
+        dataAttr="channel-row-email"
+      />
+      {error ? (
+        <div className="border-b border-border/70 px-4 py-2 text-xs font-medium text-danger last:border-0" role="alert">
+          {error}
         </div>
-      </PortalSettingsGroup>
-    </PortalSettingsSection>
+      ) : null}
+    </>
   );
 }
