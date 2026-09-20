@@ -351,6 +351,12 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    // Workspace rung of the settings scope (PLAN-0920-0845); owned by the workspace owner.
+    table: "workspace_automation_settings",
+    phase: 2,
+    manager: { ids: ["owner_user_id"] },
+  },
+  {
     // Address-prefill lookups this manager spent each month (docs/agents/listing-prefill.md).
     table: "listing_prefill_usage",
     phase: 1,
@@ -420,6 +426,12 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     table: "manager_assistant_emails",
     phase: 2,
     manager: { ids: ["manager_user_id"] },
+  },
+  {
+    // A renamed work email held as an alias for 30 days; cascades from the email row too.
+    table: "manager_assistant_email_aliases",
+    phase: 2,
+    manager: { ids: ["owner_user_id"] },
   },
   {
     table: "manager_sms_numbers",
