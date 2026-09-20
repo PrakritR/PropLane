@@ -87,10 +87,13 @@ Phase 3 excludes non-income accounts properly.
 **Payments → Payouts** (`/portal/payments/payouts`, vendor twin
 `/vendor/financials/payouts`) is the one payout UI — balance, a single "Pay
 out" action (Standard or Instant), the bank card, the payout schedule, and
-history. Stripe's Express Dashboard and Account Links are gone; identity and
-bank linking are Stripe's embedded `account_onboarding` /
-`account_management` components mounted inside PropLane's own modal (see
-[`stripe-connect-ach-setup.md`](../stripe-connect-ach-setup.md)).
+history. Stripe's Express Dashboard and Account Links are gone. Identity
+verification for a **new** account is PropLane's own in-app form, driven by
+`account.requirements.currently_due` (PLAN-0920-1500 Part C — see
+[`stripe-connect-ach-setup.md`](../stripe-connect-ach-setup.md) for the full
+model, the routes, and the test-mode identity values); a **legacy** account
+keeps finishing through Stripe's embedded `account_onboarding` /
+`account_management` components mounted inside PropLane's own modal.
 
 - **Pure logic** — `src/lib/stripe-payouts.ts`: Instant fee (flat 1%, no
   floor — Stripe's Connect Instant Payouts pricing has no minimum fee, only a
@@ -122,6 +125,25 @@ bank linking are Stripe's embedded `account_onboarding` /
 - A newly created Connect account defaults to **automatic weekly payouts
   (Friday)** (`createAxisConnectAccount` in `src/lib/stripe-connect.ts`); the
   in-app "Pay out" button works regardless of the schedule interval.
+- **Identity verification** — `src/lib/stripe-connect-identity.server.ts`:
+  `getIdentityRequirements` maps Stripe's `currently_due`/`past_due` to a
+  typed field list (an unmapped key sets `fallbackToEmbedded`, never dropped
+  silently); `submitIdentity` applies an `account_token`/`person_token` from
+  the browser's Stripe.js `createToken('account'|'person', …)` for every
+  sensitive field (SSN, ID number, tax ID never travel as plain values) plus
+  plain non-sensitive fields, and stamps `tos_acceptance` from the
+  server-derived date/IP/user agent on every submit.
+  `GET`/`POST /api/stripe/connect/identity` (vendor twin under
+  `/api/vendor/stripe-connect/identity`); document upload proxies to Stripe
+  Files through `…/identity/document` and returns only a file id.
+  `isApplicationCollected()` in `src/lib/stripe-connect.ts` distinguishes a
+  new (`stripe_dashboard.type: "none"`) account, which uses this form, from a
+  legacy `"express"` account, which keeps the embedded component — the
+  `onboard` routes 409 `USE_IN_APP_IDENTITY` for the former instead of
+  returning `mode: "embedded"`. `payout_identity_status` (migration
+  `20260920210000_payout_identity_status.sql`) is a display-only status cache
+  per owner, refreshed by the `account.updated` webhook — applied to dev/test
+  only so far.
 
 # Financials Phase 3: security deposit trust sub-ledger
 
