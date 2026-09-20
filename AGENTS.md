@@ -73,16 +73,19 @@ or `docs/agents/*`. Do not invent a second source of truth for the same concern.
 
 # Landing rule
 
-**Prakrit: prompt branch → `prakrit` (captain integrate) → `main`; agents working
+**Prakrit: standing keeper → `prakrit` (captain integrate) → `main`; agents working
 for Akhil after his explicit ship request: his prompt branch → `main`. QA on
 `staging` by default, subject only to the dated policy above. Live from
 `production`.**
-An agent branch is created when the prompt starts and deleted when it merges.
-Commit and push that prompt branch only (fast-forward only, never force). Open a PR only on request.
+Prakrit keeps six standing agent branches and the captain integration worktree
+open. His roster and integration authorization live in
+[`docs/agents/AGENTS-prakrit.md`](docs/agents/AGENTS-prakrit.md).
+Do not create a branch per prompt or delete a standing keeper after integration.
+Commit and push the assigned keeper (fast-forward only, never force). Open a PR only on request.
 If a push is not a fast-forward, stop.
 
 **Agent handoff:** `npm run sandbox:open -- </route>` and put the Review URL in the reply.
-**Prakrit captain integration:** `npm run ship:to-prakrit -- --source <prompt-branch>`.
+**Prakrit captain integration:** `npm run ship:to-prakrit -- --source <keeper>`.
 Akhil's explicit release authority bypasses this integration rung only, never
 staging or fast-forward rules.
 Details: `docs/agents/sandbox-open-review.md`.
@@ -95,7 +98,7 @@ There is no long-lived `dev` branch.
 Prakrit's path:
 
 ```
-agent/<lane>/…  →  prakrit  →  main  →  staging  →  production
+standing keeper → prakrit  →  main  →  staging  →  production
 (no deploy)       integrate  localhost  QA preview  live + TestFlight
                   (captain)  dev DB     staging DB  live production DB
 ```
