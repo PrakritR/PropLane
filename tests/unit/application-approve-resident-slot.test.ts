@@ -29,7 +29,8 @@ let STORED_ROWS: {
 }[] = [];
 let UPSERTS: { id: string; manager_user_id: string | null; row_data: DemoApplicantRow }[] = [];
 
-vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: vi.fn(async () => false) }));
+vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: vi.fn(async () => IS_ADMIN) }));
+let IS_ADMIN = false;
 vi.mock("@/lib/auth/provision-approved-resident", () => ({
   provisionApprovedResidentAccount: vi.fn(async () => ({ ok: true })),
 }));
@@ -177,6 +178,7 @@ beforeEach(() => {
   PROPERTY_READ_ERROR = false;
   SIBLING_READ_ERROR = false;
   UPSERTS = [];
+  IS_ADMIN = false;
 });
 
 describe("POST /api/manager-applications — approving a per-resident room's slot pick", () => {
@@ -288,6 +290,31 @@ describe("POST /api/manager-applications — approving a per-resident room's slo
     const approvingRow: DemoApplicantRow = {
       ...grace,
       bucket: "approved",
+      application: { ...grace.application!, residentSlot: 2, managerRentOverride: "1" },
+    };
+    const res = await upsert(approvingRow);
+
+    expect(res.status).toBe(409);
+    expect(res.body.blocked).toBe("capacity");
+    expect(UPSERTS).toHaveLength(0);
+  });
+
+  it("fails CLOSED (refuses the approval) when the row's managerUserId is blank, instead of keeping the client's override", async () => {
+    // Only an ADMIN caller skips the manager write-owner resolution that
+    // would otherwise overwrite `row.managerUserId` — so a blank id here
+    // reaches `resolveApprovedResidentSlot` exactly as the client sent it.
+    // A blank manager id means the property lookup right after this (scoped
+    // by `manager_user_id`) can never be verified, and this must refuse
+    // exactly like the DB-error paths above, not fall through as
+    // "inapplicable" and let the client's unverified override land.
+    IS_ADMIN = true;
+    const grace = applicationRow("AXIS-GRACE", { managerUserId: "" });
+    STORED_ROWS = [{ id: grace.id, row_data: grace, manager_user_id: OWNER }];
+
+    const approvingRow: DemoApplicantRow = {
+      ...grace,
+      bucket: "approved",
+      managerUserId: "",
       application: { ...grace.application!, residentSlot: 2, managerRentOverride: "1" },
     };
     const res = await upsert(approvingRow);
