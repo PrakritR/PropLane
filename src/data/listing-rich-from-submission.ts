@@ -130,11 +130,14 @@ import type {
 } from "@/data/listing-rich-content";
 import {
   roomHeadlineAmount,
+  roomHeadlinePriceIsFrom,
   roomHeadlinePriceLabel,
   roomIsDailyPriced,
   roomIsWeeklyPriced,
   roomMonthlyEquivalent,
   roomPricePeriod,
+  roomPricesPerResident,
+  roomResidentRentLines,
   roomShortLeaseListingNote,
 } from "@/lib/room-pricing";
 
@@ -288,9 +291,13 @@ function buildListingFloorCard(
             : "Included"
           : normalizeLeaseRentPriceLabel(roomHeadlinePriceLabel(r), "month"),
       pricePeriod: roomPricePeriod(r),
-      priceMonthlyEquivalent: roomIsDailyPriced(r) || roomIsWeeklyPriced(r) ? roomMonthlyEquivalent(r) : undefined,
+      priceMonthlyEquivalent:
+        roomIsDailyPriced(r) || roomIsWeeklyPriced(r) || roomPricesPerResident(r) ? roomMonthlyEquivalent(r) : undefined,
       shortLeaseNote: roomShortLeaseListingNote(r) ?? undefined,
       priceHeadlineAmount: roomHeadlineAmount(r) ?? undefined,
+      ...(roomHeadlinePriceIsFrom(r) && !entireHome
+        ? { priceFrom: true, residentRentLines: roomResidentRentLines(r) }
+        : {}),
       availability: "Available now",
       bathroomShareCount: bathroomShareCountForRoom(r.id, sub),
       modal: {
@@ -593,7 +600,9 @@ function perRoomBundleSummaryLine(r: ManagerRoomSubmission, sub: ManagerListingS
     ? roomHeadlinePriceLabel(r)
     : isEntireHomeListing(sub) && r.monthlyRent <= 0
       ? "Included in lease"
-      : `$${r.monthlyRent}`;
+      : roomPricesPerResident(r)
+        ? roomHeadlinePriceLabel(r)
+        : `$${r.monthlyRent}`;
   let s = `${r.name.trim()}: ${rentLabel}`;
   if (utilLine !== "—") s += ` · utilities ${utilLine}`;
   if (f) s += ` · ${f}`;

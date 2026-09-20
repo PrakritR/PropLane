@@ -17,11 +17,7 @@ import { managerTaskListHref } from "@/lib/portal-detail-routes";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { normalizeManagerTasks, type ManagerTask } from "@/lib/manager-tasks";
 import { materializeReminders } from "@/lib/reminders/queue.server";
-import {
-  createSettingsScopeCache,
-  resolveReminderSettingsForRow,
-  type SettingsScopeCache,
-} from "@/lib/reminders/settings.server";
+import { loadReminderSettingsResolver, type ReminderSettingsResolver } from "@/lib/reminders/settings.server";
 import {
   loadManagerReminderRecipients,
   loadTeamReminderRecipients,
@@ -78,7 +74,7 @@ async function sweepManagerTasks(
   db: SupabaseClient,
   managerUserId: string,
   tasks: readonly ManagerTask[],
-  cache: SettingsScopeCache,
+  reminderResolver: ReminderSettingsResolver,
   managerRecipient: ManagerReminderRecipient | undefined,
   now: Date,
 ): Promise<number> {
@@ -86,10 +82,9 @@ async function sweepManagerTasks(
   let queued = 0;
 
   for (const task of remindableTasks(tasks, now)) {
-    const propertyId = task.propertyId ?? null;
-    // A house with its own reminder rules gets them; a task with no property, or
-    // an un-customized house, falls through workspace then account (phase C).
-    const settings = await resolveReminderSettingsForRow(db, cache, managerUserId, propertyId);
+    // A house's own reminder rule wins when it has one (PLAN-0916-1040);
+    // resolved per task since one manager's task blob spans every house.
+    const settings = reminderResolver.resolve(managerUserId, task.propertyId ?? null);
     const rule = settings.rules.task;
     if (!rule.enabled) continue;
     const anchorIso = taskAnchorIso(task);
@@ -110,7 +105,7 @@ async function sweepManagerTasks(
       ...teamReminderRecipients(
         await loadTeamReminderRecipients(db, managerUserId, rule.teamUserIds ?? [], {
           module: REMINDER_SUBJECT_CO_MANAGER_MODULE.task,
-          propertyId,
+          propertyId: task.propertyId ?? null,
         }),
       ),
     );
@@ -169,7 +164,10 @@ export async function sweepTaskReminders(db: SupabaseClient, now: Date = new Dat
   );
   if (rows.length === 0) return 0;
 
-  const cache = createSettingsScopeCache();
+  const reminderResolver = await loadReminderSettingsResolver(
+    db,
+    rows.map((row) => row.manager_user_id),
+  );
   const managerRecipients = await loadManagerReminderRecipients(
     db,
     rows.map((row) => row.manager_user_id),
@@ -183,7 +181,7 @@ export async function sweepTaskReminders(db: SupabaseClient, now: Date = new Dat
       db,
       row.manager_user_id,
       tasks,
-      cache,
+      reminderResolver,
       managerRecipients.get(row.manager_user_id),
       now,
     );

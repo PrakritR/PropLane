@@ -10,7 +10,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ChevronRight } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { INSPECTIONS_CHANGED, loadInspectionList, type InspectionList } from "@/lib/inspections/client";
 import type { InspectionKind } from "@/lib/inspections/model";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -114,9 +113,9 @@ export function ResidentInspectionNextSteps({
                 <span className="block text-sm text-muted">{step.detail}</span>
               </span>
               {step.done ? (
-                <Badge tone="success">Done</Badge>
+                <span className="text-xs text-muted">Done</span>
               ) : step.required ? (
-                <Badge tone="info">Required</Badge>
+                <span className="text-xs text-muted">Required</span>
               ) : null}
               <ChevronRight className="size-4 shrink-0 text-muted" aria-hidden />
             </Link>

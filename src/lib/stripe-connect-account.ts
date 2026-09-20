@@ -12,7 +12,21 @@ import {
 export async function ensureManagerConnectAccountId(
   stripe: Stripe,
   db: SupabaseClient,
-  opts: { userId: string; email?: string; axisPortal?: "portal" | "vendor" },
+  opts: {
+    userId: string;
+    email?: string;
+    axisPortal?: "portal" | "vendor";
+    /**
+     * Default `true` (unchanged behavior for every existing caller): a saved
+     * account id Stripe can no longer retrieve is cleared and a fresh one is
+     * created automatically. Pass `false` for a flow where clearing the saved
+     * id is itself a user-facing decision (the onboard routes' `relink` flag)
+     * — a stale id then surfaces as a normal Stripe-access error instead of
+     * being silently wiped, so the caller can ask for explicit confirmation
+     * before replacing it.
+     */
+    allowClearStale?: boolean;
+  },
 ): Promise<string> {
   const { data: profile } = await db
     .from("profiles")
@@ -25,6 +39,9 @@ export async function ensureManagerConnectAccountId(
   if (accountId) {
     const existing = await retrieveManagerConnectAccountOrNull(stripe, accountId);
     if (!existing) {
+      if (opts.allowClearStale === false) {
+        throw new Error(`Stripe does not have access to account ${accountId}.`);
+      }
       await clearManagerConnectAccountId(db, opts.userId);
       accountId = null;
     }
@@ -50,7 +67,7 @@ export async function ensureManagerConnectAccountId(
 export async function ensureVendorConnectAccountId(
   stripe: Stripe,
   db: SupabaseClient,
-  opts: { userId: string; email?: string },
+  opts: { userId: string; email?: string; allowClearStale?: boolean },
 ): Promise<string> {
   return ensureManagerConnectAccountId(stripe, db, { ...opts, axisPortal: "vendor" });
 }

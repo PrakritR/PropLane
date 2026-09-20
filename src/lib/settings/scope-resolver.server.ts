@@ -83,8 +83,13 @@ function cacheKey(parts: (string | null | undefined)[]): string {
   return parts.map((part) => part ?? "\u0000").join("\u0001");
 }
 
-/** Postgres `42P01` (undefined_table) or a PostgREST schema-cache "does not exist" message. */
-function isMissingRelationError(error: unknown): boolean {
+/**
+ * Postgres `42P01` (undefined_table) or a PostgREST schema-cache "does not
+ * exist" message — exported so other batch loaders over the same
+ * missing-table-tolerant tables (`workspace_automation_settings`) can share
+ * the one tolerance rule rather than reimplementing it.
+ */
+export function isMissingRelationError(error: unknown): boolean {
   const code = (error as { code?: unknown } | null)?.code;
   if (code === "42P01") return true;
   const message = String((error as { message?: unknown } | null)?.message ?? "").toLowerCase();

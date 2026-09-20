@@ -2,9 +2,10 @@
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
-import { portalEmptyCopy } from "@/lib/portal-empty-copy";
+import { portalEmptyCopy, portalEmptyNoMatchTitle } from "@/lib/portal-empty-copy";
+import { matchesPortalListSearch } from "@/lib/portal-list-search";
 
-import { Settings, UserRound, X } from "lucide-react";
+import { Mail, Phone, Settings, UserRound, X } from "lucide-react";
 import { getSettingsEntryPoint } from "@/components/portal/settings-entry-points";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
@@ -73,7 +74,7 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalDataTableEmpty, PORTAL_DETAIL_BTN, PortalTableDetailActions } from "@/components/portal/portal-data-table";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
-import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
+import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 
 const vendorsSettingsEntry = getSettingsEntryPoint("vendors");
 
@@ -105,10 +106,6 @@ function vendorRowMeta(row: ManagerVendorRow): string | undefined {
   if (row.vendorPriority === "primary") return "Primary";
   if (row.vendorPriority === "secondary") return "Secondary";
   return undefined;
-}
-
-function vendorRowPreview(row: ManagerVendorRow): string {
-  return [row.email, row.phone].filter(Boolean).join(" · ") || row.trade || "—";
 }
 
 export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
@@ -152,6 +149,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   const [catalogSeed, setCatalogSeed] = useState<AxisCatalogVendor | null>(null);
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState(false);
+  const [vendorSearch, setVendorSearch] = useState("");
 
   const directoryTab = parseVendorDirectoryTab(searchParams?.get("tab"));
   const catalogDetailId = searchParams?.get("catalog")?.trim() || null;
@@ -194,6 +192,23 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       (row) => assignedIdsInWorkspace(row.propertyIds ?? [], workspacePropertyIds).length > 0,
     );
   }, [tick, userId, bare, workspacePropertyIds]);
+
+  // The search box narrows the current tab only; the tab counts stay the totals.
+  const visibleVendors = useMemo(
+    () =>
+      vendors.filter((row) =>
+        matchesPortalListSearch(
+          vendorSearch,
+          row.name,
+          row.trade,
+          ...(row.trades ?? []),
+          row.email,
+          row.phone,
+          vendorRowMeta(row),
+        ),
+      ),
+    [vendors, vendorSearch],
+  );
 
   const routeVendorId = vendorIdProp?.trim() || null;
   const routeVendor = useMemo(() => {
@@ -649,6 +664,18 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   }
 
   const catalogRows = listManagerCatalogVendors(vendors);
+  const visibleCatalogRows = catalogRows.filter((row) =>
+    matchesPortalListSearch(vendorSearch, row.name, row.trade, row.city, row.description),
+  );
+  const noMatchCard = (dataAttr: string, clearDataAttr: string) => (
+    <PortalListEmptyCard
+      section="vendors"
+      title={portalEmptyNoMatchTitle("vendors", vendorSearch)}
+      tone="muted"
+      clear={{ label: "Clear search", onClick: () => setVendorSearch(""), dataAttr: clearDataAttr }}
+      dataAttr={dataAttr}
+    />
+  );
   const catalogDetail = catalogDetailId
     ? catalogRows.find((row) => row.catalogId === catalogDetailId) ?? null
     : null;
@@ -681,9 +708,11 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         actions={[{ label: "Add vendor", onClick: () => openAddVendorForm(), dataAttr: "vendors-catalog-empty-add" }]}
         dataAttr="vendors-catalog-empty"
       />
+    ) : directoryTab === "catalog" && visibleCatalogRows.length === 0 ? (
+      noMatchCard("vendors-catalog-empty", "vendors-catalog-empty-clear-search")
     ) : directoryTab === "catalog" ? (
       <div className={PORTAL_LIST_PAGE_BODY}>
-        {catalogRows.map((row) => {
+        {visibleCatalogRows.map((row) => {
           const existing = findRosterCatalogMatch(vendors, row);
           const openProfile = () => navigate(vendorCatalogDetailHref(basePath, row.catalogId));
           const addOrOpen = () => {
@@ -746,21 +775,43 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         }
         dataAttr="vendors-empty"
       />
+    ) : visibleVendors.length === 0 ? (
+      noMatchCard("vendors-empty", "vendors-empty-clear-search")
     ) : (
       <div className={PORTAL_LIST_PAGE_BODY}>
-        {vendors.map((row) => (
-          <PortalPersonRecordRow
-            key={row.id}
-            name={row.name}
-            subtitle={row.trade || undefined}
-            preview={vendorRowPreview(row)}
-            meta={vendorRowMeta(row)}
-            checked={selectedIds.has(row.id)}
-            onSelectedChange={() => toggleSelected(row.id)}
-            onOpen={() => openVendorDetail(row)}
-            dataAttr="vendor-list-row"
-          />
-        ))}
+        {visibleVendors.map((row) => {
+          const phone = row.phone.trim();
+          const email = row.email.trim();
+          const meta = vendorRowMeta(row);
+          return (
+            <PortalApplicantRecordRow
+              key={row.id}
+              name={row.name}
+              address={row.trade.trim() || "—"}
+              facts={
+                phone || email || meta ? (
+                  <>
+                    {phone ? (
+                      <PortalRowFact icon={Phone} srLabel="Phone">
+                        {phone}
+                      </PortalRowFact>
+                    ) : null}
+                    {email ? (
+                      <PortalRowFact icon={Mail} srLabel="Email">
+                        {email}
+                      </PortalRowFact>
+                    ) : null}
+                    {meta ? <span data-attr="vendor-row-meta">{meta}</span> : null}
+                  </>
+                ) : undefined
+              }
+              checked={selectedIds.has(row.id)}
+              onSelectedChange={() => toggleSelected(row.id)}
+              onOpen={() => openVendorDetail(row)}
+              dataAttr="vendor-list-row"
+            />
+          );
+        })}
       </div>
     );
 
@@ -898,6 +949,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         activeDestinationId={directoryTab}
         destinationAriaLabel="Vendor lists"
         stickyDestinations={false}
+        search={{ value: vendorSearch, onChange: setVendorSearch, placeholder: "Search vendors", dataAttr: "vendors-search" }}
         actions={vendorToolbar}
         primary={bare ? undefined : addVendorAction}
       />
@@ -918,6 +970,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         destinations={vendorDestinations}
         activeDestinationId={directoryTab}
         destinationAriaLabel="Vendor lists"
+        search={{ value: vendorSearch, onChange: setVendorSearch, placeholder: "Search vendors", dataAttr: "vendors-search" }}
         actions={vendorToolbar}
         primary={addVendorAction}
       />

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
@@ -23,10 +23,6 @@ vi.mock("@/lib/demo/demo-session", () => ({ isDemoModeActive: () => false }));
 vi.mock("@/lib/manager-subscription-client", () => ({
   loadManagerSubscriptionTierClient: vi.fn(async () => "pro"),
   loadManagerPaymentWaiverGrantedClient: vi.fn(async () => false),
-}));
-const openStripeConnectOnboarding = vi.fn(async () => undefined);
-vi.mock("@/lib/stripe-connect-onboarding-client", () => ({
-  openStripeConnectOnboarding: (...args: unknown[]) => openStripeConnectOnboarding(...args),
 }));
 vi.mock("@/components/ui/modal", () => ({
   Modal: ({ open, children, footer }: { open: boolean; children: ReactNode; footer?: ReactNode }) =>
@@ -66,16 +62,18 @@ async function mount() {
   });
 }
 
-it("shows the server's refusal instead of a generic retry message", async () => {
-  await mount();
-  expect(screen.getByText(AMBIGUOUS)).toBeTruthy();
-});
-
 it("does not leave bank editing enabled when the payout owner could not be resolved", async () => {
+  // PLAN-0920-0853 moved identity, bank and balance to the dedicated Payouts
+  // page — this row is a door to it, not its own Stripe card, so the specific
+  // server refusal text (`AMBIGUOUS`) no longer renders inline here. What
+  // still matters, and what this asserts: a 409 `canEditBankAccount` refusal
+  // keeps this row from opening the door at all, and the click surfaces some
+  // explanation rather than silently doing nothing.
   await mount();
   const link = document.querySelector<HTMLButtonElement>('[data-attr="manager-payment-stripe-link"]');
   expect(link).toBeTruthy();
+  const hrefBefore = window.location.href;
   await act(async () => { link!.click(); });
-  expect(openStripeConnectOnboarding).not.toHaveBeenCalled();
+  expect(window.location.href).toBe(hrefBefore);
   expect(showToast).toHaveBeenCalledWith(expect.stringContaining("Only the property owner"));
 });

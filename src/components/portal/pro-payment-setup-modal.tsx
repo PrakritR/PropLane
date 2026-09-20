@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CreditCard } from "lucide-react";
+import { ChevronRight, CreditCard } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
@@ -9,7 +9,7 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { isProcessingCoverageCodeShape } from "@/lib/processing-coverage-codes";
 import { useWorkspaces } from "@/components/portal/workspace-provider";
-import { openStripeConnectOnboarding } from "@/lib/stripe-connect-onboarding-client";
+import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
 import {
   DEFAULT_MANAGER_MANUAL_PAYMENT_SETTINGS,
   MANAGER_MANUAL_PAYMENT_SETTINGS_EVENT,
@@ -60,12 +60,11 @@ export function ManagerPaymentSetupPanel({
   const { showToast } = useAppUi();
   const { reportSource } = useSettingsPropertyScope();
   const demo = isDemoModeActive();
+  const portalBasePath = usePaidPortalBasePath();
   const [draft, setDraft] = useState<ManagerManualPaymentSettingsView>(() => draftFromSettings(null));
   const [loading, setLoading] = useState(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
-  const [stripeBusy, setStripeBusy] = useState(false);
   const [stripeState, setStripeState] = useState<StripeSetupState>("unlinked");
-  const [stripeIssue, setStripeIssue] = useState<string | null>(null);
   const [skuTier, setSkuTier] = useState<ManagerSkuTier | null>(null);
   const [paymentWaiverGranted, setPaymentWaiverGranted] = useState<boolean | null>(null);
   const [canEditBankAccount, setCanEditBankAccount] = useState(true);
@@ -126,7 +125,6 @@ export function ManagerPaymentSetupPanel({
   const loadStripeStatus = useCallback(async () => {
     if (demo) {
       setStripeState("ready");
-      setStripeIssue(null);
       return;
     }
     try {
@@ -149,23 +147,13 @@ export function ManagerPaymentSetupPanel({
         setCanEditBankAccount(false);
         setIsCoManagerForPayout(body.isCoManagerForPayout === true);
         setStripeState("unknown");
-        setStripeIssue(body.error ?? "Couldn't check your Stripe status. Try again.");
         return;
       }
       setCanEditBankAccount(body.canEditBankAccount !== false);
       setIsCoManagerForPayout(body.isCoManagerForPayout === true);
-      const nextState = stripeSetupStateFromStatus(body);
-      setStripeState(nextState);
-      setStripeIssue(
-        nextState === "unknown"
-          ? body.stripeError ?? body.message ?? "Couldn't check your Stripe status. Try again."
-          : nextState === "incomplete"
-            ? "Finish onboarding (identity + bank details) so resident payments can deposit."
-            : null,
-      );
+      setStripeState(stripeSetupStateFromStatus(body));
     } catch {
       setStripeState("unknown");
-      setStripeIssue("Couldn't check your Stripe status. Try again.");
     }
   }, [demo]);
 
@@ -350,17 +338,14 @@ export function ManagerPaymentSetupPanel({
     }
   }
 
-  async function linkStripe() {
+  function openPayouts() {
     if (!canEditBankAccount) {
       showToast("Only the property owner (or a co-manager with Bank account access) can change payout bank details.");
       return;
     }
-    setStripeBusy(true);
-    try {
-      await openStripeConnectOnboarding({ showToast });
-    } finally {
-      setStripeBusy(false);
-    }
+    // Identity, bank and the balance all live on the Payouts page now — this
+    // row is a door to it, never its own Stripe popup (PLAN-0920-0853).
+    window.location.href = `${portalBasePath}/payments/payouts`;
   }
 
   const tier = skuTier ?? "free";
@@ -374,21 +359,10 @@ export function ManagerPaymentSetupPanel({
     waiverGranted: paymentWaiverGranted === true,
   });
 
-  const stripeStatus =
-    stripeState === "ready"
-      ? { label: "Connected", tone: "confirmed" as const }
-      : stripeState === "incomplete"
-        ? { label: "Finish setup", tone: "pending" as const }
-        : stripeState === "unknown"
-          ? { label: "Unavailable", tone: "warning" as const }
-          : { label: "Not linked", tone: "info" as const };
-
-  const stripeAction =
-    stripeState === "ready"
-      ? "Manage"
-      : stripeState === "incomplete"
-        ? busyLabel(stripeBusy, "Finish setup")
-        : busyLabel(stripeBusy, "Link Stripe");
+  // Plain words, never a pill (AGENTS.md § No subtext): "Ready" once payouts
+  // can actually go out, "Set up" for every other state — incomplete, unknown
+  // or never linked all lead to the same door.
+  const payoutsRowState = stripeState === "ready" ? "Ready" : "Set up";
 
   /* PropLane pays is always offered: the option itself is the door to the code
      field, and the code — not a grant on the account — is what applies it. */
@@ -508,31 +482,22 @@ export function ManagerPaymentSetupPanel({
 
       {section !== "fee" ? (
         <>
-          <div
-            className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2.5"
+          <button
+            type="button"
+            onClick={openPayouts}
             data-testid="payment-setup-stripe-card"
+            data-attr="manager-payment-stripe-link"
+            className="flex w-full items-center justify-between gap-3 rounded-xl border border-border px-3 py-2.5 text-left transition hover:border-primary/30"
           >
             <div className="flex min-w-0 items-center gap-2">
               <CreditCard className="h-4 w-4 shrink-0 text-primary" aria-hidden />
-              <span className="text-sm font-semibold text-foreground">Stripe payouts</span>
-              {stripeState !== "unlinked" && stripeState !== "incomplete" ? (
-                <Badge tone={stripeStatus.tone}>{stripeStatus.label}</Badge>
-              ) : null}
+              <span className="text-sm font-semibold text-foreground">Payouts</span>
             </div>
-            <button
-              type="button"
-              onClick={() => void linkStripe()}
-              disabled={stripeBusy}
-              data-attr="manager-payment-stripe-link"
-              className="shrink-0 text-sm font-semibold text-primary hover:underline disabled:opacity-50"
-            >
-              {stripeAction} →
-            </button>
-          </div>
-
-          {stripeIssue && stripeState !== "incomplete" ? (
-            <p className="text-xs leading-relaxed text-[var(--status-pending-fg)]">{stripeIssue}</p>
-          ) : null}
+            <span className="flex shrink-0 items-center gap-1 text-sm font-medium text-muted">
+              {payoutsRowState}
+              <ChevronRight className="h-4 w-4" aria-hidden />
+            </span>
+          </button>
 
           {isCoManagerForPayout ? (
             <p className="text-xs leading-relaxed text-muted">
@@ -661,8 +626,4 @@ export function ManagerPaymentSetupModal({
       />
     </Modal>
   );
-}
-
-function busyLabel(busy: boolean, label: string) {
-  return busy ? "Opening…" : label;
 }

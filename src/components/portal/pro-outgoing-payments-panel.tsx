@@ -4,11 +4,6 @@ import { useCallback, useEffect, useMemo, useState, type ComponentProps } from "
 import { Button } from "@/components/ui/button";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
-import {
-  ApplicationHouseholdCluster,
-  PortalListClusterSelectCheckbox,
-  togglePortalListClusterSelection,
-} from "@/components/portal/application-household-list";
 import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
 import { ManagerOutgoingPaymentDetail } from "@/components/portal/pro-outgoing-payment-detail";
@@ -21,9 +16,10 @@ import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/comp
 import { PortalRecordRelatedPanel } from "@/components/portal/portal-record-related-panel";
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
+import { CalendarDays } from "lucide-react";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
-import { DataList } from "@/components/ui/data-list";
 import type { DemoManagerOutgoingPaymentRow, DemoManagerWorkOrderRow, ManagerPaymentBucket } from "@/data/demo-portal";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
@@ -39,20 +35,30 @@ import { paymentDetailHref, paymentListHref, parsePaymentRecordTab, vendorDetail
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 
-function outgoingRowMeta(
-  row: DemoManagerOutgoingPaymentRow,
-  options?: { includeProperty?: boolean; includePayee?: boolean },
-): string {
-  const parts: string[] = [];
-  if (options?.includeProperty && row.propertyName?.trim()) {
-    parts.push(row.propertyName.trim());
+/** The payee a payout is titled by — an em dash or blank means nobody is named yet. */
+function outgoingPayeeLabel(row: DemoManagerOutgoingPaymentRow): string {
+  const payee = row.payeeLabel?.trim() ?? "";
+  return payee && payee !== "—" ? payee : "";
+}
+
+/**
+ * The due fact on a payout row, in ONE format: a raw ISO day becomes the
+ * display date, and a label that already says "Due" or "Before" is kept —
+ * the same rule the incoming ledger applies to its charges.
+ */
+function formatOutgoingDue(due: string | undefined): string {
+  const trimmed = due?.trim() ?? "";
+  if (!trimmed) return "";
+  const iso = /^(?:(due|before)\s+)?(\d{4})-(\d{2})-(\d{2})$/i.exec(trimmed);
+  if (iso) {
+    const d = new Date(Number(iso[2]), Number(iso[3]) - 1, Number(iso[4]), 12, 0, 0, 0);
+    if (!Number.isNaN(d.getTime())) {
+      const prefix = iso[1] ? iso[1][0]!.toUpperCase() + iso[1].slice(1).toLowerCase() : "Due";
+      return `${prefix} ${d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`;
+    }
   }
-  if (options?.includePayee && row.payeeLabel?.trim() && row.payeeLabel.trim() !== "—") {
-    parts.push(row.payeeLabel.trim());
-  }
-  if (row.dueDate?.trim()) parts.push(row.dueDate.trim());
-  if (row.statusLabel?.trim()) parts.push(row.statusLabel.trim());
-  return parts.join(" · ") || "—";
+  if (/^(due|before)\b/i.test(trimmed)) return trimmed;
+  return `Due ${trimmed}`;
 }
 
 export function ManagerOutgoingPaymentsPanel({
@@ -137,114 +143,58 @@ export function ManagerOutgoingPaymentsPanel({
     });
   }, []);
 
-  const toggleClusterSelection = useCallback((ids: readonly string[]) => {
-    togglePortalListClusterSelection(setSelectedIds, ids);
-  }, []);
-
-  const renderPaymentDataList = (
-    listRows: DemoManagerOutgoingPaymentRow[],
-    options?: { omitPropertyInMeta?: boolean; omitPayeeInMeta?: boolean },
-  ) => (
-    <DataList
-      hideColumnHeaders
-      selectable={showSelection}
-      rows={listRows.map((row) => ({
-        id: row.id,
-        data: row,
-        primary: row.chargeTitle,
-        meta: outgoingRowMeta(row, {
-          includeProperty: !options?.omitPropertyInMeta,
-          includePayee: !options?.omitPayeeInMeta,
-        }),
-        trailing: (
-          <span className="text-sm font-semibold tabular-nums text-foreground">{row.amountLabel}</span>
-        ),
-        selected: showSelection ? selectedIds.has(row.id) : undefined,
-        onSelectedChange: showSelection ? () => toggleSelected(row.id) : undefined,
-        onClick: () => openPaymentDetail(row),
-      }))}
-      columns={[
-        { id: "payment", header: "Payment", cell: (row) => row.chargeTitle },
-        {
-          id: "amount",
-          header: "Amount",
-          cell: (row) => row.amountLabel,
-          headerClassName: "text-right",
-          cellClassName: "text-right tabular-nums",
-        },
-      ]}
-    />
-  );
-
-  const renderGroupedList = () => {
-    const dataAttr =
-      groupMode === "house" ? "outgoing-payments-house-groups" : "outgoing-payments-payee-groups";
-
+  // The page hands the rows over already sorted; flattening the clusters in
+  // that order keeps a payee's payouts adjacent, and in house mode a
+  // property's rows sit together payee by payee. The grouping box is gone —
+  // the card row says who and where.
+  const orderedRows = useMemo(() => {
     if (isPropertyClusterList(groupMode, paymentClusters)) {
-      return (
-        <div className="space-y-3" data-attr={dataAttr}>
-          {(paymentClusters as ManagerOutgoingPropertyCluster[]).map((cluster) => (
-            <ApplicationHouseholdCluster
-              key={cluster.key}
-              headerLeading={
-                showSelection ? (
-                  <PortalListClusterSelectCheckbox
-                    ids={cluster.rows.map((row) => row.id)}
-                    selectedIds={selectedIds}
-                    onToggleCluster={toggleClusterSelection}
-                    ariaLabel={`Select all payments for ${cluster.propertyLabel}`}
-                  />
-                ) : null
-              }
-              header={
-                <>
-                  <span className="truncate text-xs font-semibold text-foreground">
-                    {cluster.propertyLabel}
-                  </span>
-                  <span className="sr-only">{cluster.rows.length === 1 ? "1 payment" : `${cluster.rows.length} payments`}</span>
-                </>
-              }
-            >
-              {renderPaymentDataList(cluster.rows, { omitPropertyInMeta: true, omitPayeeInMeta: false })}
-            </ApplicationHouseholdCluster>
-          ))}
-        </div>
+      return (paymentClusters as ManagerOutgoingPropertyCluster[]).flatMap((cluster) =>
+        clusterManagerOutgoingPaymentRowsByMode(cluster.rows, "resident").flatMap((payee) => payee.rows),
       );
     }
+    return (paymentClusters as ManagerOutgoingPayeeCluster[]).flatMap((cluster) => cluster.rows);
+  }, [groupMode, paymentClusters]);
 
-    return (
-      <div className="space-y-3" data-attr={dataAttr}>
-        {(paymentClusters as ManagerOutgoingPayeeCluster[]).map((cluster) => (
-          <ApplicationHouseholdCluster
-            key={cluster.key}
-            headerLeading={
-              showSelection ? (
-                <PortalListClusterSelectCheckbox
-                  ids={cluster.rows.map((row) => row.id)}
-                  selectedIds={selectedIds}
-                  onToggleCluster={toggleClusterSelection}
-                  ariaLabel={`Select all payments for ${cluster.residentLabel}`}
-                />
-              ) : null
+  /**
+   * One white card per payout — the Properties row for a person. The payee is
+   * the title and fills the tile; the payment, its category and the property
+   * make the place line; the due date is a glyph fact; the amount sits bold on
+   * the right, green once paid; the ⋯ the list surface draws carries the
+   * row's actions. No grouping box, no pill: the tab says the bucket.
+   */
+  const renderGroupedList = () => (
+    <div data-attr={groupMode === "house" ? "outgoing-payments-house-groups" : "outgoing-payments-payee-groups"}>
+      {orderedRows.map((row) => {
+        const payee = outgoingPayeeLabel(row);
+        const place = [payee ? row.chargeTitle : "", row.categoryLabel, row.propertyName]
+          .map((part) => part?.trim() ?? "")
+          .filter(Boolean)
+          .join(" · ");
+        const due = formatOutgoingDue(row.dueDate);
+        return (
+          <PortalApplicantRecordRow
+            key={row.id}
+            name={payee || row.chargeTitle}
+            tileLabel={payee || undefined}
+            address={place}
+            facts={due ? <PortalRowFact icon={CalendarDays}>{due}</PortalRowFact> : undefined}
+            trailing={
+              row.bucket === "paid" ? (
+                <span className="tabular-nums text-[var(--status-confirmed-fg)]">{row.amountLabel}</span>
+              ) : (
+                <span className="tabular-nums">{row.amountLabel}</span>
+              )
             }
-            header={
-              <>
-                <span className="truncate text-xs font-semibold text-foreground">
-                  {cluster.residentLabel}
-                </span>
-                {cluster.propertyLabel ? (
-                  <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
-                ) : null}
-                <span className="sr-only">{cluster.rows.length === 1 ? "1 payment" : `${cluster.rows.length} payments`}</span>
-              </>
-            }
-          >
-            {renderPaymentDataList(cluster.rows, { omitPropertyInMeta: true, omitPayeeInMeta: true })}
-          </ApplicationHouseholdCluster>
-        ))}
-      </div>
-    );
-  };
+            checked={showSelection && selectedIds.has(row.id)}
+            onSelectedChange={showSelection ? () => toggleSelected(row.id) : undefined}
+            onOpen={() => openPaymentDetail(row)}
+            dataAttr="outgoing-payment-list-row"
+          />
+        );
+      })}
+    </div>
+  );
 
   const deleteExpense = async (
     row: DemoManagerOutgoingPaymentRow,

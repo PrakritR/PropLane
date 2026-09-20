@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { ManagerPortalPageShell, PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { openStripeConnectOnboarding } from "@/lib/stripe-connect-onboarding-client";
+import { StripeConnectEmbedded } from "@/components/stripe-connect-embedded";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { track } from "@/lib/analytics/track-client";
 
@@ -66,8 +66,14 @@ export function PortalStripeConnectPanel({
 }) {
   const { showToast } = useAppUi();
   const router = useRouter();
-  const [busy, setBusy] = useState(false);
+  // Both flows now open a local embedded modal instead of an async popup, so
+  // there is no longer a real in-flight gap to disable buttons for; kept as a
+  // constant so the existing `disabled={busy}` / "Opening…" branches below
+  // still compile unchanged.
+  const busy = false;
   const [manageOpen, setManageOpen] = useState(false);
+  const [onboardOpen, setOnboardOpen] = useState(false);
+  const [manageEmbeddedOpen, setManageEmbeddedOpen] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [status, setStatus] = useState<ConnectStatus | null>(null);
   const [statusLoaded, setStatusLoaded] = useState(false);
@@ -161,26 +167,34 @@ export function PortalStripeConnectPanel({
     }
   }, [analyticsScope, status]);
 
+  // Identity + bank onboarding runs INSIDE this modal now — never a popup tab,
+  // never an Account Link (PLAN-0920-0853). `startConnect` keeps returning a
+  // resolved boolean so existing callers' `.then((opened) => …)` fallback
+  // (to the Payouts page) still works for demo mode, the one case that never
+  // opens the flow.
   const startConnect = useCallback(async (): Promise<boolean> => {
-    setBusy(true);
+    if (isDemoModeActive()) {
+      showToast("Demo mode — payouts are already linked to a sandbox account.");
+      return false;
+    }
     setActionError(null);
     if (analyticsScope === "vendor") {
       track("payout_setup_started");
       payoutSetupStartedThisSession.current = true;
     }
-    const opened = await openStripeConnectOnboarding({
-      apiBase,
-      showToast: (message) => {
-        if (message.startsWith("Could not") || message.includes("pop-ups")) {
-          setActionError(message);
-        }
-        showToast(message);
-      },
-    });
-    if (opened) setActionError(null);
-    setBusy(false);
-    return opened;
-  }, [apiBase, showToast, analyticsScope]);
+    setOnboardOpen(true);
+    return true;
+  }, [analyticsScope, showToast]);
+
+  const closeOnboarding = useCallback(() => {
+    setOnboardOpen(false);
+    void loadStatus();
+  }, [loadStatus]);
+
+  const closeManageEmbedded = useCallback(() => {
+    setManageEmbeddedOpen(false);
+    void loadStatus();
+  }, [loadStatus]);
 
   const openBankManagement = useCallback(() => {
     if (isDemoModeActive()) {
@@ -190,15 +204,12 @@ export function PortalStripeConnectPanel({
     router.push(payoutsPath);
   }, [payoutsPath, router]);
 
+  // A bank already linked is managed on the Payouts page (Gets paid to's own
+  // ⋯ → Change bank, backed by Stripe's embedded account management) — this
+  // never re-runs onboarding.
   const handleLinkedBankClick = useCallback(() => {
-    if (isDemoModeActive()) {
-      openBankManagement();
-      return;
-    }
-    void startConnect().then((opened) => {
-      if (!opened) openBankManagement();
-    });
-  }, [openBankManagement, startConnect]);
+    openBankManagement();
+  }, [openBankManagement]);
 
   const ready =
     status &&
@@ -218,6 +229,18 @@ export function PortalStripeConnectPanel({
         dataAttrPrefix={dataAttrPrefix}
         onConnectDone={onConnectDone}
       />
+    </Modal>
+  );
+
+  const onboardModal = (
+    <Modal open={onboardOpen} title="Link bank" onClose={closeOnboarding} panelClassName="max-w-lg" scrollableContent={false}>
+      <StripeConnectEmbedded connectBase={apiBase} component="account_onboarding" onExit={closeOnboarding} />
+    </Modal>
+  );
+
+  const manageEmbeddedModal = (
+    <Modal open={manageEmbeddedOpen} title="Bank account" onClose={closeManageEmbedded} panelClassName="max-w-lg" scrollableContent={false}>
+      <StripeConnectEmbedded connectBase={apiBase} component="account_management" onExit={closeManageEmbedded} />
     </Modal>
   );
 
@@ -258,17 +281,20 @@ export function PortalStripeConnectPanel({
     const openSetup = onOpenPaymentSetup ?? (() => void startConnect());
 
     return (
-      <Button
-        type="button"
-        variant={needsFinish ? "primary" : "outline"}
-        className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN}`}
-        disabled={busy}
-        onClick={() => openSetup()}
-        data-attr={`${dataAttrPrefix}-link`}
-        title={blockingError ?? (needsFinish ? "Finish payment setup (bank)" : "Open payment setup")}
-      >
-        {busy ? "Opening…" : label}
-      </Button>
+      <>
+        <Button
+          type="button"
+          variant={needsFinish ? "primary" : "outline"}
+          className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN}`}
+          disabled={busy}
+          onClick={() => openSetup()}
+          data-attr={`${dataAttrPrefix}-link`}
+          title={blockingError ?? (needsFinish ? "Finish payment setup (bank)" : "Open payment setup")}
+        >
+          {busy ? "Opening…" : label}
+        </Button>
+        {onboardModal}
+      </>
     );
   }
 
@@ -319,7 +345,7 @@ export function PortalStripeConnectPanel({
             {busy ? "Opening…" : ready ? "Update" : "Link"}
           </button>
         </div>
-        {ready ? bankManageModal : null}
+        {ready ? bankManageModal : onboardModal}
       </>
     );
   }
@@ -381,10 +407,9 @@ export function PortalStripeConnectPanel({
                 variant="outline"
                 data-attr={`${dataAttrPrefix}-update`}
                 className="rounded-full"
-                disabled={busy}
-                onClick={() => startConnect()}
+                onClick={() => setManageEmbeddedOpen(true)}
               >
-                {busy ? "Opening…" : "Update bank details"}
+                Update bank details
               </Button>
             </div>
           ) : (
@@ -410,8 +435,20 @@ export function PortalStripeConnectPanel({
   );
 
   if (variant === "embedded") {
-    return body;
+    return (
+      <>
+        {body}
+        {onboardModal}
+        {manageEmbeddedModal}
+      </>
+    );
   }
 
-  return <ManagerPortalPageShell title="Bank account">{body}</ManagerPortalPageShell>;
+  return (
+    <ManagerPortalPageShell title="Bank account">
+      {body}
+      {onboardModal}
+      {manageEmbeddedModal}
+    </ManagerPortalPageShell>
+  );
 }

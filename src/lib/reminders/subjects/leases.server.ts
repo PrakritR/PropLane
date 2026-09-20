@@ -16,10 +16,7 @@ import {
 import { REMINDER_SUBJECT_CO_MANAGER_MODULE } from "@/lib/co-manager-notification-recipients.server";
 import { materializeReminders } from "@/lib/reminders/queue.server";
 import type { ReminderRecipient } from "@/lib/reminders/queue.server";
-import {
-  createSettingsScopeCache,
-  resolveReminderSettingsForRow,
-} from "@/lib/reminders/settings.server";
+import { loadReminderSettingsResolver } from "@/lib/reminders/settings.server";
 
 const MAX_ROWS = 500;
 const MAX_AGE_DAYS = 180;
@@ -106,15 +103,16 @@ export async function sweepLeaseReminders(db: SupabaseClient, now: Date = new Da
   if (candidates.length === 0) return 0;
 
   const managerIds = candidates.map((entry) => entry.managerUserId);
-  const cache = createSettingsScopeCache();
-  const managerRecipients = await loadManagerReminderRecipients(db, managerIds);
+  const [reminderResolver, managerRecipients] = await Promise.all([
+    loadReminderSettingsResolver(db, managerIds),
+    loadManagerReminderRecipients(db, managerIds),
+  ]);
   const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
 
   let queued = 0;
   for (const entry of candidates) {
-    // A house with its own reminder rules gets them; a lease with no property,
-    // or an un-customized house, falls through workspace then account (phase C).
-    const settings = await resolveReminderSettingsForRow(db, cache, entry.managerUserId, entry.lease.propertyId ?? null);
+    // A house's own reminder override wins when it has one (PLAN-0916-1040).
+    const settings = reminderResolver.resolve(entry.managerUserId, entry.lease.propertyId ?? null);
     const managerRecipient = managerRecipients.get(entry.managerUserId);
     const teamRecipients = teamReminderRecipients(
       await loadTeamReminderRecipients(
@@ -222,14 +220,15 @@ export async function sweepCountersignOverdue(db: SupabaseClient, now: Date = ne
     .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
   if (candidates.length === 0) return 0;
   const managerIds = candidates.map((entry) => entry.managerUserId);
-  const cache = createSettingsScopeCache();
-  const managerRecipients = await loadManagerReminderRecipients(db, managerIds);
+  const [reminderResolver, managerRecipients] = await Promise.all([
+    loadReminderSettingsResolver(db, managerIds),
+    loadManagerReminderRecipients(db, managerIds),
+  ]);
   const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
   let queued = 0;
   for (const entry of candidates) {
-    // A house with its own reminder rules gets them; a lease with no property,
-    // or an un-customized house, falls through workspace then account (phase C).
-    const settings = await resolveReminderSettingsForRow(db, cache, entry.managerUserId, entry.lease.propertyId ?? null);
+    // A house's own reminder override wins when it has one (PLAN-0916-1040).
+    const settings = reminderResolver.resolve(entry.managerUserId, entry.lease.propertyId ?? null);
     if (!settings.rules.countersign_overdue.enabled) continue;
     const manager = managerRecipients.get(entry.managerUserId);
     const recipients: ReminderRecipient[] = manager
@@ -298,13 +297,12 @@ export async function sweepRenewalOfferExpiry(db: SupabaseClient, now: Date = ne
     })
     .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
   if (candidates.length === 0) return 0;
-  const cache = createSettingsScopeCache();
+  const reminderResolver = await loadReminderSettingsResolver(db, candidates.map((entry) => entry.managerUserId));
   const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
   let queued = 0;
   for (const entry of candidates) {
-    // A house with its own reminder rules gets them; a lease with no property,
-    // or an un-customized house, falls through workspace then account (phase C).
-    const settings = await resolveReminderSettingsForRow(db, cache, entry.managerUserId, entry.lease.propertyId ?? null);
+    // A house's own reminder override wins when it has one (PLAN-0916-1040).
+    const settings = reminderResolver.resolve(entry.managerUserId, entry.lease.propertyId ?? null);
     if (!settings.rules.renewal_offer_expiry.enabled) continue;
     queued += await materializeReminders(
       db,

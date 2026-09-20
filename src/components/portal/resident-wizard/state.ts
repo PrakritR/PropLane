@@ -170,6 +170,13 @@ export type AddPersonForm = {
   utilities: string;
   moveInFee: string;
   securityDeposit: string;
+  /**
+   * Which resident slot (1-based) of a per-resident room this Add-resident
+   * pick holds (PLAN-0920-0631) — set by the Lease step's picker, read by
+   * `commit.ts` to stamp `application.residentSlot`. Absent for every room
+   * that does not price per resident.
+   */
+  residentSlot?: number;
   otherFeeLabel: string;
   otherFeeAmount: string;
   rentDueDay: "1" | "15" | "last";

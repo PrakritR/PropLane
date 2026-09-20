@@ -17,7 +17,7 @@ vi.mock("@/lib/reminders/queue.server", () => ({
 vi.mock("@/lib/reminders/manager-recipients.server", () => ({
   loadManagerReminderRecipients: () =>
     Promise.resolve(new Map([["mgr-1", { email: "manager@example.com", name: "Morgan" }]])),
-  loadTeamReminderRecipients: () => Promise.resolve([]),
+  loadTeamReminderRecipientsByManager: () => Promise.resolve(new Map()),
   teamRecipientsScopedToSubject: () => [],
   teamReminderRecipients: () => [],
 }));
@@ -35,15 +35,21 @@ const rule = (over: Record<string, unknown> = {}) => ({
 });
 
 let paymentManagerRule = rule();
-const resolveReminderSettingsForRow = vi.fn(() =>
-  Promise.resolve({
-    rules: { payment_manager: paymentManagerRule, delinquency_manager: rule({ enabled: false }) },
-    quietHours: { enabled: false },
-  }),
-);
+/** House `mgr-house-override` gets its own `payment_manager` rule, keyed off `propertyId`. */
+let paymentManagerOverrideRule: ReturnType<typeof rule> | null = null;
+const OVERRIDE_PROPERTY_ID = "mgr-house-override";
+
+const settingsFor = (propertyId: string | null) => ({
+  rules: {
+    payment_manager: propertyId === OVERRIDE_PROPERTY_ID && paymentManagerOverrideRule ? paymentManagerOverrideRule : paymentManagerRule,
+  },
+  quietHours: { enabled: false },
+});
+
 vi.mock("@/lib/reminders/settings.server", () => ({
-  createSettingsScopeCache: () => ({}),
-  resolveReminderSettingsForRow: (...args: unknown[]) => resolveReminderSettingsForRow(...(args as [])),
+  loadReminderSettingsForManagers: () => Promise.resolve(new Map([["mgr-1", settingsFor(null)]])),
+  loadReminderSettingsResolver: () =>
+    Promise.resolve({ resolve: (_managerUserId: string, propertyId: string | null) => settingsFor(propertyId) }),
 }));
 
 import { sweepPaymentManagerReminders } from "@/lib/reminders/subjects/payments.server";
@@ -87,8 +93,8 @@ function fakeSweepDb(rows: unknown[]) {
 
 beforeEach(() => {
   materialize.mockClear();
-  resolveReminderSettingsForRow.mockClear();
   paymentManagerRule = rule();
+  paymentManagerOverrideRule = null;
 });
 
 describe("sweepPaymentManagerReminders", () => {
@@ -184,13 +190,17 @@ describe("sweepPaymentManagerReminders", () => {
     expect(secondCall.anchorIso).toBe(firstCall.anchorIso);
   });
 
-  it("resolves settings per charge's property (phase C); a charge with no property still resolves to the account value", async () => {
-    await sweepPaymentManagerReminders(fakeSweepDb([chargeRow("charge-1")]), NOW);
-    expect(resolveReminderSettingsForRow).toHaveBeenCalledWith(expect.anything(), expect.anything(), "mgr-1", "mgr-house-1");
-
-    resolveReminderSettingsForRow.mockClear();
-    materialize.mockClear();
-    await sweepPaymentManagerReminders(fakeSweepDb([chargeRow("charge-2", { propertyId: undefined })]), NOW);
-    expect(resolveReminderSettingsForRow).toHaveBeenCalledWith(expect.anything(), expect.anything(), "mgr-1", null);
+  it("PLAN-0916-1040: a house override fires where the workspace rule is off — resolved per charge's own propertyId", async () => {
+    paymentManagerRule = rule({ enabled: false });
+    paymentManagerOverrideRule = rule({ enabled: true });
+    const rows = [
+      chargeRow("charge-plain", { propertyId: "mgr-house-1" }),
+      chargeRow("charge-overridden", { propertyId: OVERRIDE_PROPERTY_ID }),
+    ];
+    const queued = await sweepPaymentManagerReminders(fakeSweepDb(rows), NOW);
+    expect(queued).toBe(1);
+    expect(materialize).toHaveBeenCalledTimes(1);
+    const input = materialize.mock.calls[0]![1] as Record<string, unknown>;
+    expect(input.subjectId).toBe("charge-overridden");
   });
 });

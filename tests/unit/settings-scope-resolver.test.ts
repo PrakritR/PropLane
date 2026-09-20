@@ -16,6 +16,32 @@ import { savePropertyOverride } from "@/lib/settings/property-overrides.server";
  * to exercise the missing-migration fallback.
  */
 type Row = Record<string, unknown>;
+
+/**
+ * Project a row through a PostgREST-style select string, including the
+ * `alias:col->path->path` computed-column syntax `loadPropertyOverride`
+ * (WS7 egress) uses — a plain column name is copied as-is.
+ */
+function projectSelect(row: Row, select?: string): Row {
+  if (!select) return row;
+  const result: Row = {};
+  for (const part of select.split(",").map((s) => s.trim()).filter(Boolean)) {
+    const aliasMatch = /^(\w+):(.+)$/.exec(part);
+    if (aliasMatch) {
+      const [, alias, pathExpr] = aliasMatch;
+      const segments = pathExpr!.split("->").map((s) => s.trim());
+      let value: unknown = row[segments[0]!];
+      for (const seg of segments.slice(1)) {
+        value = value && typeof value === "object" ? (value as Row)[seg] : undefined;
+      }
+      result[alias!] = value ?? null;
+    } else {
+      result[part] = row[part];
+    }
+  }
+  return result;
+}
+
 function makeDb(tables: Record<string, Row[]>, missingTables: Set<string> = new Set()): SupabaseClient {
   return {
     from(table: string) {
@@ -36,8 +62,10 @@ function makeDb(tables: Record<string, Row[]>, missingTables: Set<string> = new 
       }
       const rows = tables[table] ?? (tables[table] = []);
       const filters: Array<(r: Row) => boolean> = [];
+      let selectCols: string | undefined;
       const builder: Record<string, unknown> = {
-        select() {
+        select(cols?: string) {
+          selectCols = cols;
           return builder;
         },
         update(obj: Row) {
@@ -73,11 +101,11 @@ function makeDb(tables: Record<string, Row[]>, missingTables: Set<string> = new 
         },
         maybeSingle() {
           const match = rows.filter((r) => filters.every((f) => f(r)))[0] ?? null;
-          return Promise.resolve({ data: match, error: null });
+          return Promise.resolve({ data: match ? projectSelect(match, selectCols) : null, error: null });
         },
         then(resolve: (v: { data: Row[] | null; error: null }) => unknown) {
           const matched = rows.filter((r) => filters.every((f) => f(r)));
-          return resolve({ data: matched, error: null });
+          return resolve({ data: matched.map((r) => projectSelect(r, selectCols)), error: null });
         },
       };
       return builder as never;

@@ -1,79 +1,40 @@
 import { isDemoModeActive } from "@/lib/demo/demo-session";
-import { openAppUrl, shouldUseInAppConnectFlow } from "@/lib/native/open-url";
 
-type OnboardResponse = {
-  url?: string;
-  demo?: boolean;
-  message?: string;
-  error?: string;
+export type StripeConnectEmbeddedComponent = "account_onboarding" | "account_management";
+
+export type StripeConnectAccountSession = {
+  clientSecret: string;
+  publishableKey: string;
 };
 
 /**
- * Opens Stripe Connect Express onboarding in a new browser tab (or in-app WebView
- * on native). Must be called from a direct user gesture so popup blockers allow the tab.
+ * Fetches an Account Session client secret for a Stripe Connect embedded
+ * component (identity + bank onboarding, or bank management).
+ *
+ * Onboarding and account management run INSIDE PropLane's own modal now
+ * (`StripeConnectEmbedded`) — this never opens a new tab, never mints an
+ * Account Link or an Express login link the way the old popup flow did
+ * (PLAN-0920-0853). Connect.js calls this again on its own whenever the
+ * mounted component needs a fresh secret, so it is a plain fetch rather than
+ * something that owns a popup or navigation.
  */
-export async function openStripeConnectOnboarding(opts: {
-  apiBase?: string;
-  showToast: (message: string) => void;
-}): Promise<boolean> {
-  const apiBase = opts.apiBase ?? "/api/stripe/connect";
-
+export async function fetchStripeConnectAccountSession(opts: {
+  /** `/api/stripe/connect` for a manager, `/api/vendor/stripe-connect` for a vendor. */
+  connectBase: string;
+  component: StripeConnectEmbeddedComponent;
+}): Promise<StripeConnectAccountSession> {
   if (isDemoModeActive()) {
-    opts.showToast("Demo mode — payouts are already linked to a sandbox account.");
-    return false;
+    throw new Error("Demo mode — payouts are already linked to a sandbox account.");
   }
-
-  const useInAppFlow = shouldUseInAppConnectFlow();
-  let popup: Window | null = null;
-
-  if (!useInAppFlow) {
-    popup = window.open("about:blank", "_blank");
-    if (!popup) {
-      const message = "Could not open a new tab. Allow pop-ups for this site and try again.";
-      opts.showToast(message);
-      return false;
-    }
-
-    try {
-      popup.document.title = "Opening Stripe…";
-      popup.document.body.innerHTML =
-        '<p style="font-family:system-ui,sans-serif;padding:2rem;color:#444">Opening secure bank setup…</p>';
-    } catch {
-      /* cross-origin once navigated */
-    }
+  const res = await fetch(`${opts.connectBase}/account-session`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ component: opts.component }),
+  });
+  const body = (await res.json().catch(() => ({}))) as Partial<StripeConnectAccountSession> & { error?: string };
+  if (!res.ok || !body.clientSecret || !body.publishableKey) {
+    throw new Error(body.error ?? "Could not start Stripe.");
   }
-
-  try {
-    const res = await fetch(`${apiBase}/onboard`, {
-      method: "POST",
-      credentials: "include",
-    });
-    const body = (await res.json()) as OnboardResponse;
-    if (!res.ok) {
-      const message = body.error ?? "Could not start bank linking.";
-      popup?.close();
-      opts.showToast(message);
-      return false;
-    }
-    if (body.demo && body.message) {
-      popup?.close();
-      opts.showToast(body.message);
-      return false;
-    }
-    if (body.url) {
-      if (useInAppFlow) {
-        void openAppUrl(body.url);
-        return true;
-      }
-      popup!.location.href = body.url;
-      return true;
-    }
-    popup?.close();
-    opts.showToast("Stripe did not return an onboarding URL.");
-    return false;
-  } catch {
-    popup?.close();
-    opts.showToast("Could not start bank linking.");
-    return false;
-  }
+  return { clientSecret: body.clientSecret, publishableKey: body.publishableKey };
 }

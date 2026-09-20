@@ -1,10 +1,10 @@
 # Listing wizard: the Default card
 
-The Rooms, Bathrooms and Shared spaces steps of the v2 listing wizard
+The Rooms and Bathrooms steps of the v2 listing wizard
 (`src/components/portal/listing-wizard-v2/listing-editor.tsx`) each start with
-one **Default** card — "Default room", "Default bathroom", "Default shared
-space" — and one card per record. The Pricing step's two top cards are the
-same Default room.
+one **Default** card — "Default room", "Default bathroom" — and one card per
+record. The Pricing step's two top cards are the same Default room. The Shared
+spaces step has no Default card: a shared space is its own record (see below).
 
 ## The Default card is a card, not a record
 
@@ -12,11 +12,10 @@ A record still carries its own copy of every value. The Default card is what
 the top card shows on reopen, never a source a reader downstream resolves:
 the public listing, the preview rail, the assistant and the resident's move-in
 page read `room.photoDataUrls`, `room.moveInInstructions` and so on exactly as
-before. Three optional blocks on the submission hold the cards
-(`houseDefaults`, `bathroomDefaults`, `sharedSpaceDefaults`,
-`src/lib/manager-listing-submission.ts`); an older listing without them infers
-each card from its records (`houseDefaultsForSubmission`,
-`bathroomDefaultsForSubmission`, `sharedSpaceDefaultsForSubmission`).
+before. Two optional blocks on the submission hold the cards
+(`houseDefaults`, `bathroomDefaults`, `src/lib/manager-listing-submission.ts`);
+an older listing without them infers each card from its records
+(`houseDefaultsForSubmission`, `bathroomDefaultsForSubmission`).
 
 ## A record follows the Default card **per field**
 
@@ -43,12 +42,30 @@ each card from its records (`houseDefaultsForSubmission`,
   inferred only when **every** record carries the same one.
 
 Library: `src/lib/listing-house-defaults.ts` (rooms),
-`src/lib/listing-record-defaults.ts` (bathrooms and shared spaces).
-"Who may use it" on a shared space is not a Default-card field: Everyone is an
-empty `roomAccessIds` (a list naming every current room reads the same), and
-Reset writes Everyone (`src/lib/listing-shared-space-access.ts`).
-`roomsFollowingDefaults` is the older per-record reading the previous wizard
-still uses; the v2 Rooms step does not call it.
+`src/lib/listing-record-defaults.ts` (bathrooms, plus the shared-space readers
+below). `roomsFollowingDefaults` is the older per-record reading the previous
+wizard still uses; the v2 Rooms step does not call it.
+
+## A shared space is its own record
+
+The Shared spaces step (PLAN-0920-0631) draws one card per space and nothing
+above them: name, Duplicate, ✕ and the chevron; rows Type, Floor and Who may
+use it; More ▾ holds What is in it, Size (sq ft, `sizeSqft`, like a room's),
+Description, Photos and Video. There is no
+"Default shared space" card, no "This shared space only · Reset" tick, no
+per-row Reset and no "Make all the same". A new space starts on the listing's
+ground floor (`floorLevelSelectOptions(listingStoriesId, "")[0]`) with
+Everyone allowed and everything else blank. "Who may use it" is Everyone as an
+empty `roomAccessIds` (a list naming every current room reads the same,
+`src/lib/listing-shared-space-access.ts`).
+
+The stored `sharedSpaceDefaults` block is **legacy**: a listing saved while
+the card existed still carries it, the normaliser keeps it and
+`sharedSpaceDefaultsForSubmission` still reads it (the address-prefill path
+fills a blank space from it), but the wizard never draws or writes it. Every
+space always held its own copy of every value, so an old listing reads
+exactly as before. Guard:
+`tests/unit/listing-shared-spaces-no-default.test.ts`.
 
 ## Fees live on the card that charges them
 
@@ -138,7 +155,8 @@ Specs: `tests/unit/listing-wizard-v2-cards.test.tsx`,
 `tests/unit/listing-application-fee.test.ts`,
 `tests/unit/listing-wizard-v2-basics-bathrooms.test.tsx`,
 `tests/unit/listing-house-defaults.test.ts`,
-`tests/unit/listing-record-defaults.test.ts`.
+`tests/unit/listing-record-defaults.test.ts`,
+`tests/unit/listing-shared-spaces-no-default.test.ts`.
 
 ## The Rooms step names its top card "All rooms" (PLAN-0914-1734)
 

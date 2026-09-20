@@ -60,9 +60,9 @@ export function ManagerBackgroundChecksGroupedTable({
         <ClusterNavRow
           key={row.id}
           primary={applicationSubmittedLabel(row)}
-          meta={applicationPropertyMeta(row)}
+          // The screening state rides in the meta line as plain text — never a pill.
+          meta={[applicationPropertyMeta(row), backgroundCheckStatusPill(row)?.label].filter(Boolean).join(" · ")}
           icon={<Search className="h-4 w-4" aria-hidden />}
-          statusPill={backgroundCheckStatusPill(row)}
           checked={selectable && selectedIds?.has(row.id)}
           onCheck={selectable && onToggleSelected ? () => onToggleSelected(row.id) : undefined}
           onOpen={() => onOpenApplication(row)}
@@ -80,7 +80,6 @@ export function ManagerBackgroundChecksGroupedTable({
             primary={sub.fullName || "Co-signer"}
             meta={sub.email || `Co-signer for ${applicantDisplayName(row)}`}
             icon={<UserRound className="h-4 w-4" aria-hidden />}
-            statusPill={{ label: "Co-signer", tone: "info" }}
             checked={selectable && selectedIds?.has(selectionId)}
             onCheck={selectable && onToggleSelected ? () => onToggleSelected(selectionId) : undefined}
             onOpen={() => onOpenCosigner(row, index)}

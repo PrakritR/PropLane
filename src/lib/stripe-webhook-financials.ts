@@ -9,6 +9,7 @@ import { emitHouseholdChargeTransition } from "@/lib/domain-action-events.server
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { enqueueWebhookEvent } from "@/lib/webhooks/deliver.server";
 import { webhookEventBuilders } from "@/lib/webhooks/events";
+import { feeCentsForMethod, normalizePayoutStatus } from "@/lib/stripe-payouts";
 
 export async function resolveUserIdByConnectAccountId(
   db: SupabaseClient,
@@ -82,42 +83,115 @@ export async function handleStripeTransferReversed(db: SupabaseClient, transfer:
     .eq("entry_type", "payment");
 }
 
+/**
+ * Best-effort last4 for the payout's destination bank account. The webhook
+ * payload only gives `destination` as an id string (not expanded), so this
+ * is one extra platform-level API call; a failure here must never fail the
+ * payout write — it just means `destinationLast4` stays whatever was already
+ * stored (or null for a payout that only ever arrives via webhook).
+ */
+async function resolveDestinationLast4(
+  stripe: Stripe | undefined,
+  connectAccountId: string,
+  destination: Stripe.Payout["destination"],
+): Promise<string | null> {
+  if (!stripe) return null;
+  const destinationId = typeof destination === "string" ? destination : destination?.id;
+  if (!destinationId) return null;
+  try {
+    const account = await stripe.accounts.retrieveExternalAccount(connectAccountId, destinationId);
+    return "last4" in account && typeof account.last4 === "string" ? account.last4 : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether the Connect account's owner is a vendor rather than a manager —
+ * decided from `profile_roles` (a vendor role with no manager role; legacy
+ * `profiles.role` when no role rows exist), never from how many listings the
+ * owner happens to have. A manager who set up payouts before creating a
+ * listing, or who deleted every listing, is still a manager.
+ */
+async function isVendorOwnedAccount(db: SupabaseClient, ownerUserId: string): Promise<boolean> {
+  const { data: roleRows } = await db.from("profile_roles").select("role").eq("user_id", ownerUserId);
+  const roles = new Set((roleRows ?? []).map((r) => String((r as { role?: unknown }).role ?? "").toLowerCase()));
+  if (roles.size > 0) return roles.has("vendor") && !roles.has("manager");
+  const { data: profile } = await db.from("profiles").select("role").eq("id", ownerUserId).maybeSingle();
+  return String((profile as { role?: unknown } | null)?.role ?? "").toLowerCase() === "vendor";
+}
+
 export async function upsertStripePayoutRecord(
   db: SupabaseClient,
   managerUserId: string,
   payout: Stripe.Payout,
   connectAccountId: string,
+  stripe?: Stripe,
 ): Promise<void> {
-  const status = payout.status ?? "pending";
-  const allowed = new Set(["paid", "pending", "in_transit", "failed", "canceled"]);
-  const normalized = allowed.has(status) ? status : "pending";
+  const normalized = normalizePayoutStatus(payout.status ?? "pending", payout.failure_code);
+  const method = payout.method === "instant" || payout.method === "standard" ? payout.method : null;
+  const [destinationLast4, vendorOwned, existing] = await Promise.all([
+    resolveDestinationLast4(stripe, connectAccountId, payout.destination),
+    isVendorOwnedAccount(db, managerUserId),
+    db
+      .from("stripe_payouts")
+      .select("amount_cents, fee_cents, initiated_in_app")
+      .eq("stripe_payout_id", payout.id)
+      .maybeSingle()
+      .then((r) => r.data as { amount_cents: number; fee_cents: number | null; initiated_in_app: boolean } | null),
+  ]);
 
-  await db.from("stripe_payouts").upsert(
-    {
-      manager_user_id: managerUserId,
-      stripe_payout_id: payout.id,
-      stripe_connect_account_id: connectAccountId,
-      amount_cents: payout.amount,
-      currency: payout.currency ?? "usd",
-      status: normalized,
-      arrival_date: payout.arrival_date ? new Date(payout.arrival_date * 1000).toISOString().slice(0, 10) : null,
-      failure_message: payout.failure_message ?? null,
-      row_data: { id: payout.id, status: payout.status, method: payout.method, type: payout.type },
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "stripe_payout_id" },
-  );
+  // An in-app "Pay out" already knows the GROSS amount the user typed and its
+  // fee (computed off that gross); for Instant, Stripe's `payout.amount` is
+  // deliberately the NET amount we requested (see `createInAppPayout`), which
+  // is not the same number — so a row this app already claimed keeps its own
+  // amount/fee rather than being overwritten by the webhook's raw figures. A
+  // row this webhook is the first to see (an automatic, Stripe-scheduled
+  // payout PropLane never initiated) has no such gross/net split — standard
+  // only, fee 0 — so `payout.amount` is authoritative there.
+  const appClaimedInstant = Boolean(existing?.initiated_in_app) && method === "instant";
+  const amountCents = appClaimedInstant ? (existing!.amount_cents ?? payout.amount) : payout.amount;
+  const feeCents = appClaimedInstant
+    ? (existing!.fee_cents ?? feeCentsForMethod("instant", amountCents))
+    : method
+      ? feeCentsForMethod(method, payout.amount)
+      : null;
+
+  const patch: Record<string, unknown> = {
+    manager_user_id: managerUserId,
+    stripe_payout_id: payout.id,
+    stripe_connect_account_id: connectAccountId,
+    amount_cents: amountCents,
+    currency: payout.currency ?? "usd",
+    status: normalized,
+    method,
+    fee_cents: feeCents,
+    arrival_date: payout.arrival_date ? new Date(payout.arrival_date * 1000).toISOString().slice(0, 10) : null,
+    failure_message: payout.failure_message ?? null,
+    row_data: { id: payout.id, status: payout.status, method: payout.method, type: payout.type },
+    updated_at: new Date().toISOString(),
+  };
+  if (destinationLast4) patch.destination_last4 = destinationLast4;
+  if (vendorOwned) patch.vendor_user_id = managerUserId;
+  // `initiated_in_app` is deliberately omitted from the patch: an in-app "Pay
+  // out" already set it true when it claimed this row before calling Stripe,
+  // and Postgres upsert only touches columns present in the patch, so leaving
+  // it out here preserves that value. A row this webhook is INSERTing fresh
+  // gets the column default of `false`.
+
+  await db.from("stripe_payouts").upsert(patch, { onConflict: "stripe_payout_id" });
 }
 
 export async function handleConnectPayoutEvent(
   db: SupabaseClient,
   payout: Stripe.Payout,
   connectAccountId: string | null | undefined,
+  stripe?: Stripe,
 ): Promise<void> {
   if (!connectAccountId) return;
   const managerUserId = await resolveUserIdByConnectAccountId(db, connectAccountId);
   if (!managerUserId) return;
-  await upsertStripePayoutRecord(db, managerUserId, payout, connectAccountId);
+  await upsertStripePayoutRecord(db, managerUserId, payout, connectAccountId, stripe);
 }
 
 async function ledgerPaymentForStripeCharge(

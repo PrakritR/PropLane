@@ -7,7 +7,6 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import {
-  clearManagerConnectAccountId,
   connectAccountReadyForAchPayouts,
   connectAccountTransfersActive,
   ensureConnectAccountTransfersRequested,
@@ -69,13 +68,13 @@ export async function GET() {
       const stripe = getStripe();
       const existing = await retrieveManagerConnectAccountOrNull(stripe, accountId);
       if (!existing) {
-        // Clearing rewrites the OWNER's profile, so it needs the same authority a
-        // bank change needs — a read-only co-manager reports the stale state and
-        // leaves the row alone.
-        if (payout.canEditBankAccount) await clearManagerConnectAccountId(service, payoutOwnerUserId);
+        // A status read never rewrites the owner's profile: the saved id is
+        // kept and reported as `needsRelink`, and only the user's explicit
+        // Reconnect (`/onboard` with `{ relink: true }`) may replace it.
         return NextResponse.json({
           connected: false,
-          accountId: null,
+          accountId,
+          needsRelink: true,
           chargesEnabled: false,
           payoutsEnabled: false,
           transfersEnabled: false,
@@ -84,8 +83,7 @@ export async function GET() {
           payoutOwnerUserId,
           canEditBankAccount: payout.canEditBankAccount,
           isCoManagerForPayout: payout.isCoManagerForPayout,
-          stripeError:
-            "Your saved Stripe payout account is no longer linked to this platform. Connect again below.",
+          stripeError: "We couldn't reach your saved Stripe account. Reconnect to start over.",
         });
       }
 
@@ -128,17 +126,17 @@ export async function GET() {
             "Stripe is not configured on the server; cannot refresh Connect status. Keys present = live status.",
         });
       }
+      const needsRelink = isStripeConnectAccountAccessError(msg);
       return NextResponse.json({
-        connected: true,
+        connected: !needsRelink,
         accountId,
+        needsRelink,
         chargesEnabled: false,
         payoutsEnabled: false,
         transfersEnabled: false,
         paymentReady: false,
         detailsSubmitted: false,
-        stripeError: isStripeConnectAccountAccessError(msg)
-          ? "Your saved Stripe payout account is no longer linked to this platform. Connect again below."
-          : msg,
+        stripeError: needsRelink ? "We couldn't reach your saved Stripe account. Reconnect to start over." : msg,
       });
     }
   } catch (e) {

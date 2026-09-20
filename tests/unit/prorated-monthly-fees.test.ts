@@ -7,11 +7,13 @@
  * appears, a Seattle-folded fee is already inside the rent line, and the lease document
  * prints the same rows the ledger bills.
  */
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   readHouseholdCharges,
   recordApprovedApplicationCharges,
   removeResidentHouseholdPaymentData,
+  seedDemoHouseholdCharges,
+  type HouseholdCharge,
 } from "@/lib/household-charges";
 import { cachePublicExtraListings } from "@/lib/demo-property-pipeline";
 import { proratedFeeLines, leaseStartProration } from "@/lib/lease-first-period-proration";
@@ -105,6 +107,10 @@ beforeEach(() => {
   window.localStorage.clear();
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("proratedFeeLines", () => {
   const sep21 = leaseStartProration("2026-09-21");
   it("splits a monthly fee on the calendar fraction and skips $0", () => {
@@ -171,6 +177,76 @@ describe("the ledger bills a monthly fee into both partial months", () => {
     const rows = rowsFor(email);
     expect(rows.filter((c) => c.kind === "prorated_fee")).toHaveLength(1);
     expect(rows.filter((c) => c.kind === "prorated_last_month_fee")).toHaveLength(1);
+  });
+
+  it("reads its own fee rows back as current, so a Payments mount never rebuilds them", () => {
+    const email = "fees-settled@example.com";
+    removeResidentHouseholdPaymentData(email);
+    const propertyId = "prop-fees-settled";
+    seed(propertyId, [PARKING]);
+    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
+    const before = rowsFor(email).map((c) => ({ id: c.id, createdAt: c.createdAt, amountLabel: c.amountLabel, title: c.title }));
+    expect(before.some((c) => c.id.includes("prorated_fee"))).toBe(true);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.now() + 60_000));
+    expect(recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, false, { leaseExecuted: true })).toBe(false);
+    const after = rowsFor(email).map((c) => ({ id: c.id, createdAt: c.createdAt, amountLabel: c.amountLabel, title: c.title }));
+    expect(after).toEqual(before);
+  });
+
+  it("never bills a fee line onto a lease signed before fees prorated until the manager regenerates", () => {
+    const email = "fees-legacy@example.com";
+    removeResidentHouseholdPaymentData(email);
+    const propertyId = "prop-fees-legacy";
+    seed(propertyId, []);
+    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
+    const before = rowsFor(email).map((c) => ({ id: c.id, createdAt: c.createdAt }));
+    expect(rowsFor(email).some((c) => c.kind === "prorated_fee" || c.kind === "prorated_last_month_fee")).toBe(false);
+
+    seed(propertyId, [PARKING]);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.now() + 60_000));
+    expect(recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, false, { leaseExecuted: true })).toBe(false);
+    expect(rowsFor(email).map((c) => ({ id: c.id, createdAt: c.createdAt }))).toEqual(before);
+
+    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
+    expect(rowsFor(email).filter((c) => c.kind === "prorated_fee")).toHaveLength(1);
+    expect(rowsFor(email).filter((c) => c.kind === "prorated_last_month_fee")).toHaveLength(1);
+    expect(recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, false, { leaseExecuted: true })).toBe(false);
+  });
+
+  it("keeps a manager-added early move-out fee stamped with the application id through every rebuild", () => {
+    const email = "fees-emo@example.com";
+    removeResidentHouseholdPaymentData(email);
+    const propertyId = "prop-fees-emo";
+    seed(propertyId, [PARKING]);
+    const row = applicant(propertyId, email);
+    const emoFee: HouseholdCharge = {
+      id: "hc_mgr_emo_lease-1",
+      createdAt: "2026-12-01T00:00:00.000Z",
+      applicationId: row.id,
+      residentEmail: email,
+      residentName: row.name,
+      residentUserId: null,
+      propertyId,
+      propertyLabel: "8th Ave House",
+      managerUserId: MANAGER_ID,
+      kind: "early_move_out_fee",
+      title: "Early move-out fee",
+      amountLabel: "$1455.00",
+      balanceLabel: "$1455.00",
+      status: "pending",
+      blocksLeaseUntilPaid: false,
+      dueDateLabel: "By Jun 15, 2027",
+    };
+    seedDemoHouseholdCharges([...readHouseholdCharges(), emoFee]);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
+    expect(rowsFor(email).find((c) => c.id === emoFee.id)).toMatchObject({ kind: "early_move_out_fee", amountLabel: "$1455.00", status: "pending" });
+    expect(recordApprovedApplicationCharges(row, MANAGER_ID, false, { leaseExecuted: true })).toBe(false);
+    const rows = rowsFor(email);
+    expect(rows.filter((c) => c.kind === "early_move_out_fee")).toHaveLength(1);
+    expect(rows.find((c) => c.id === emoFee.id)?.createdAt).toBe(emoFee.createdAt);
+    expect(rows.filter((c) => c.kind === "prorated_fee")).toHaveLength(1);
   });
 
   it("skips a $0 fee and bills nothing extra on a Seattle listing (the fee is inside rent)", () => {

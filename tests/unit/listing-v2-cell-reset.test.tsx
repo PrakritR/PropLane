@@ -110,15 +110,16 @@ describe("per-field Reset on the listing cards", () => {
     expect(screen.queryByRole("button", { name: /Reset type of Upstairs/ })).toBeNull();
   });
 
-  it("shared spaces: Reset on Floor puts that one space back on every shared space", () => {
+  it("shared spaces: a space's floor is its own — no Every card to follow and no Reset", () => {
     const seen: ManagerListingSubmissionV1[] = [];
     open("spaces", (s) => seen.push(s));
-    const floors = optionValues("Floor for every shared space");
-    pick("Floor for every shared space", floors[0]!);
+    expect(screen.queryByRole("button", { name: "Floor for every shared space" })).toBeNull();
     openCard("Kitchen");
+    const floors = optionValues("Floor for Kitchen");
+    expect(floors.length).toBeGreaterThan(1);
     pick("Floor for Kitchen", floors[1]!);
     expect(seen.at(-1)!.sharedSpaces!.find((s) => s.id === "s1")?.location).toBe(floors[1]);
-    fireEvent.click(screen.getByRole("button", { name: /Reset floor for Kitchen/ }));
-    expect(seen.at(-1)!.sharedSpaces!.find((s) => s.id === "s1")?.location).toBe(floors[0]);
+    expect(seen.at(-1)!.sharedSpaces!.find((s) => s.id === "s2")?.location ?? "").toBe("");
+    expect(screen.queryByRole("button", { name: /Reset floor for Kitchen/ })).toBeNull();
   });
 });

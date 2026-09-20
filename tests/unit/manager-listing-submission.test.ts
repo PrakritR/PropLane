@@ -168,6 +168,38 @@ describe("manager-listing-submission", () => {
     expect(sub.sharedSpaces[0]?.spaceKind).toBe("laundry");
   });
 
+  it("preserves a shared space's sizeSqft and drops a non-numeric one (PRP-481)", () => {
+    const sub = normalizeManagerListingSubmissionV1({
+      ...createDefaultListingSubmission(),
+      sharedSpaces: [
+        {
+          id: "ss-1",
+          name: "Kitchen",
+          location: "",
+          detail: "",
+          amenitiesText: "",
+          photoDataUrls: [],
+          videoDataUrl: null,
+          roomAccessIds: [],
+          sizeSqft: 180,
+        },
+        {
+          id: "ss-2",
+          name: "Laundry room",
+          location: "",
+          detail: "",
+          amenitiesText: "",
+          photoDataUrls: [],
+          videoDataUrl: null,
+          roomAccessIds: [],
+          sizeSqft: "not a number" as unknown as number,
+        },
+      ],
+    });
+    expect(sub.sharedSpaces[0]?.sizeSqft).toBe(180);
+    expect(sub.sharedSpaces[1]?.sizeSqft).toBeUndefined();
+  });
+
   it("creates default submission with one empty room row", () => {
     const sub = createDefaultListingSubmission();
     expect(sub.v).toBe(1);

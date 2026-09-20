@@ -1,9 +1,7 @@
 import "server-only";
 
-import {
-  coManagerModuleAllowed,
-  normalizePropertyCoManagerPermissions,
-} from "@/lib/co-manager-permissions";
+import { INVITE_PERMISSION_COLUMNS, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
+import { coManagerModuleAllowed } from "@/lib/co-manager-permissions";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceRoleClient>;
@@ -42,16 +40,13 @@ export async function coManagerCanEditOwnerBankAccount(
 ): Promise<boolean> {
   const { data: links } = await db
     .from("account_link_invites")
-    .select("assigned_property_ids, property_co_manager_permissions, co_manager_permissions")
+    .select(INVITE_PERMISSION_COLUMNS)
     .eq("invitee_user_id", coManagerUserId)
     .eq("inviter_user_id", ownerUserId)
     .eq("status", "accepted");
   for (const link of links ?? []) {
     const assigned = Array.isArray(link.assigned_property_ids) ? link.assigned_property_ids.map(String) : [];
-    const perms = normalizePropertyCoManagerPermissions(
-      link.property_co_manager_permissions ?? link.co_manager_permissions,
-      assigned,
-    );
+    const perms = readPropertyPermissionsFromRow(link as Parameters<typeof readPropertyPermissionsFromRow>[0]);
     if (assigned.some((propertyId) => coManagerModuleAllowed(perms, propertyId, "bankAccount", "edit"))) {
       return true;
     }

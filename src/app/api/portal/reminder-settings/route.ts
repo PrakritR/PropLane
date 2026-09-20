@@ -8,11 +8,23 @@
  * does not know.
  *
  * `?propertyId=` and `?workspaceId=` scope a read or write to one house or one
- * workspace: `resolveSettingsScope` resolves property override → workspace row
- * → account row → default. `assertSettingsScopeOwned` refuses a `propertyId`
- * or `workspaceId` that is not this manager's own — phase A+B never lets one
- * manager name another's workspace here. Editing "All properties, all
- * workspaces" (neither param) never touches an override.
+ * workspace — resolution is house override (PER KIND — a house that
+ * customizes one reminder kind stores only that kind, every other kind keeps
+ * tracking the rung below it, `mergeReminderSettingsOverride`) → workspace row
+ * → account row → default. Editing "All properties, all workspaces" (neither
+ * param) never touches an override.
+ *
+ * The per-module co-manager check runs in front of every path. For a
+ * `propertyId`, the owner (and the caller's grant on it) is resolved first
+ * through `resolveReminderKindsSettingsPropertyOwner` — a `propertyId`
+ * outside this manager's workspace, or one a co-manager has no grant for, is
+ * a 403, never a silent fallback. `assertSettingsScopeOwned` then resolves
+ * (and, for an explicit `workspaceId`, cross-checks) that owner's workspace —
+ * it runs against the ALREADY-authorized owner, so it only resolves ids, it
+ * never re-decides access. A bare `workspaceId` (no property) still requires
+ * literal ownership: co-manager delegation exists only at the property rung
+ * today. A co-manager acting on a house they do not own writes to the
+ * OWNER's row.
  *
  * `scope` keeps its pre-existing two-value meaning ("property" | "workspace")
  * for callers that predate the workspace rung. `source` is the new, truthful
@@ -21,7 +33,10 @@
 import { NextResponse } from "next/server";
 import {
   loadReminderSettings,
+  loadReminderWorkspaceOverride,
   saveReminderSettings,
+  mergeReminderSettingsOverride,
+  isEmptyOverride,
 } from "@/lib/reminders/settings.server";
 import {
   DEFAULT_REMINDER_RULES,
@@ -33,33 +48,34 @@ import {
 } from "@/lib/reminders/rules";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import type { CoManagerPermissionLevel } from "@/lib/co-manager-permissions";
 import {
   ALL_REMINDER_SUBJECT_KINDS,
   assertReminderKindCoManagerAccess,
   assertReminderKindsCoManagerAccess,
+  resolveReminderKindsSettingsPropertyOwner,
 } from "@/lib/auth/manager-settings-module-access.server";
 import {
   clearPropertyOverride,
   ForeignPropertyError,
   listPropertyOverrides,
+  loadPropertyOverride,
   savePropertyOverride,
 } from "@/lib/settings/property-overrides.server";
-import {
-  resolveSettingsScope,
-  saveWorkspaceNamespaceSettings,
-  type SettingsResolutionSource,
-} from "@/lib/settings/scope-resolver.server";
+import { saveWorkspaceNamespaceSettings, type SettingsResolutionSource } from "@/lib/settings/scope-resolver.server";
 import {
   assertSettingsScopeOwned,
   resolveSettingsScopeParams,
   trackSettingsScopeChanged,
-  writeRungFromSource,
+  type ParsedSettingsScope,
 } from "@/lib/scope/settings-scope";
 
 export const runtime = "nodejs";
 
 const NAMESPACE = "reminderRules" as const;
 const ANALYTICS_MODULE = "reminders";
+
+type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
 async function requireManager() {
   const supabaseAuth = await createSupabaseServerClient();
@@ -89,19 +105,91 @@ function legacyScope(source: SettingsResolutionSource): "property" | "workspace"
   return source === "property" ? "property" : "workspace";
 }
 
+type ReminderScopeAccess =
+  | { ok: true; ownerUserId: string; propertyId: string | null; workspaceId: string | null }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Resolve which manager's row a scoped reminder-settings call acts on, and
+ * authorize it. A `propertyId` resolves (and authorizes) its owner first,
+ * per kind, through `resolveReminderKindsSettingsPropertyOwner`
+ * (PLAN-0916-1040) — the only rung with co-manager delegation today.
+ * `assertSettingsScopeOwned` then runs against that ALREADY-authorized
+ * owner purely to resolve (and cross-check) the workspace id; since the
+ * owner trivially owns their own scope, this never re-decides access. With
+ * no `propertyId`, a named `workspaceId` still requires literal ownership,
+ * and the per-kind module check runs against the caller directly.
+ */
+async function resolveReminderScope(
+  ctx: { db: Db; userId: string },
+  scope: ParsedSettingsScope,
+  kinds: readonly ReminderSubjectKind[],
+  level: CoManagerPermissionLevel,
+): Promise<ReminderScopeAccess> {
+  if (scope.propertyId) {
+    const owner = await resolveReminderKindsSettingsPropertyOwner(ctx.db, ctx.userId, scope.propertyId, kinds, level);
+    if (!owner.ok) return owner;
+    const scopeAccess = await assertSettingsScopeOwned(ctx.db, owner.ownerUserId, scope);
+    if (!scopeAccess.ok) return scopeAccess;
+    return { ok: true, ownerUserId: owner.ownerUserId, propertyId: scopeAccess.propertyId, workspaceId: scopeAccess.workspaceId };
+  }
+  const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope);
+  if (!scopeAccess.ok) return scopeAccess;
+  const access =
+    kinds.length === 1
+      ? await assertReminderKindCoManagerAccess(ctx.db, ctx.userId, kinds[0]!, level)
+      : await assertReminderKindsCoManagerAccess(ctx.db, ctx.userId, kinds, level);
+  if (!access.ok) return access;
+  return { ok: true, ownerUserId: scopeAccess.ownerUserId, propertyId: scopeAccess.propertyId, workspaceId: scopeAccess.workspaceId };
+}
+
+/**
+ * Reminder rules for `(ownerUserId, propertyId?, workspaceId?)` through the
+ * full three-rung scope: account row → workspace row → house override, each
+ * merged onto the last PER KIND (`mergeReminderSettingsOverride`), so a kind
+ * absent from a partial keeps tracking the rung below it. `source` names
+ * whichever rung actually held a non-empty override.
+ */
 async function loadCurrent(
-  db: ReturnType<typeof createSupabaseServiceRoleClient>,
-  managerUserId: string,
+  db: Db,
+  ownerUserId: string,
   propertyId: string | null,
   workspaceId: string | null,
 ): Promise<{ settings: ReminderSettings; source: SettingsResolutionSource }> {
-  const { value, source } = await resolveSettingsScope(
-    db,
-    { managerUserId, propertyId, workspaceId },
-    NAMESPACE,
-    { normalize: normalizeReminderSettings, loadAccount: (d, m) => loadReminderSettings(d, m) },
-  );
-  return { settings: value, source };
+  const account = await loadReminderSettings(db, ownerUserId);
+  let settings = account;
+  let source: SettingsResolutionSource = "account";
+
+  if (workspaceId) {
+    const workspaceRaw = await loadReminderWorkspaceOverride(db, workspaceId);
+    if (!isEmptyOverride(workspaceRaw)) {
+      settings = mergeReminderSettingsOverride(account, workspaceRaw);
+      source = "workspace";
+    }
+  }
+
+  if (propertyId) {
+    const propertyRaw = await loadPropertyOverride(db, ownerUserId, propertyId, NAMESPACE);
+    if (!isEmptyOverride(propertyRaw)) {
+      settings = mergeReminderSettingsOverride(settings, propertyRaw);
+      source = "property";
+    }
+  }
+
+  return { settings, source };
+}
+
+/**
+ * Merge `patch`'s own top-level keys onto whatever `reminderRules` raw value
+ * is already stored on a workspace row, and save — the workspace-rung
+ * counterpart to `savePropertyOverride`'s per-kind partial merge, so an
+ * untouched kind (or another house on this workspace) keeps tracking the
+ * account value rather than being frozen at today's blob.
+ */
+async function patchWorkspaceReminderOverride(db: Db, workspaceId: string, ownerUserId: string, patch: Record<string, unknown>): Promise<void> {
+  const existingRaw = await loadReminderWorkspaceOverride(db, workspaceId);
+  const existing = existingRaw && typeof existingRaw === "object" && !Array.isArray(existingRaw) ? (existingRaw as Record<string, unknown>) : {};
+  await saveWorkspaceNamespaceSettings(db, workspaceId, ownerUserId, NAMESPACE, { ...existing, ...patch });
 }
 
 export async function GET(req: Request) {
@@ -109,14 +197,14 @@ export async function GET(req: Request) {
     const ctx = await requireManager();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const scope = resolveSettingsScopeParams(req.url);
-    const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope);
-    if (!scopeAccess.ok) return NextResponse.json({ error: scopeAccess.error }, { status: scopeAccess.status });
-    const { ownerUserId, propertyId, workspaceId } = scopeAccess;
     // A GET always returns every subject's rule (loadReminderSettings fills in
-    // every kind), so read access must be checked against every kind's module —
-    // never just the loosest one. The same read gate covers the house scope.
-    const access = await assertReminderKindsCoManagerAccess(ctx.db, ctx.userId, ALL_REMINDER_SUBJECT_KINDS, "read");
+    // every kind), so read access must be checked against every kind's module
+    // — never just the loosest one. Scoped to a house, that check also
+    // resolves which manager's row to read (owner, or the owner behind an
+    // authorized co-manager grant).
+    const access = await resolveReminderScope(ctx, scope, ALL_REMINDER_SUBJECT_KINDS, "read");
     if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+    const { ownerUserId, propertyId, workspaceId } = access;
     const [{ settings, source }, overriddenPropertyIds] = await Promise.all([
       loadCurrent(ctx.db, ownerUserId, propertyId, workspaceId),
       listPropertyOverrides(ctx.db, ownerUserId, NAMESPACE),
@@ -147,48 +235,71 @@ export async function PATCH(req: Request) {
       reset?: unknown;
     };
     const scope = resolveSettingsScopeParams(req.url, body);
-    const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope);
-    if (!scopeAccess.ok) return NextResponse.json({ error: scopeAccess.error }, { status: scopeAccess.status });
-    const { ownerUserId, propertyId, workspaceId } = scopeAccess;
 
     // Reset — clear the whole house override. Every reminder kind is affected,
-    // so it is authorized like an edit to every kind.
+    // so it is authorized (and its owner resolved) like an edit to every kind.
     if (body.reset === true) {
-      if (!propertyId) {
+      if (!scope.propertyId) {
         return NextResponse.json({ error: "Reset needs a property." }, { status: 400 });
       }
-      const access = await assertReminderKindsCoManagerAccess(ctx.db, ctx.userId, ALL_REMINDER_SUBJECT_KINDS, "edit");
+      const access = await resolveReminderScope(ctx, scope, ALL_REMINDER_SUBJECT_KINDS, "edit");
       if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+      const { ownerUserId, workspaceId } = access;
+      const propertyId = access.propertyId!;
       await clearPropertyOverride(ctx.db, ownerUserId, propertyId, NAMESPACE);
       const { settings, source } = await loadCurrent(ctx.db, ownerUserId, null, workspaceId);
       const overriddenPropertyIds = await listPropertyOverrides(ctx.db, ownerUserId, NAMESPACE);
-      await trackSettingsScopeChanged(ctx.db, ctx.userId, { module: ANALYTICS_MODULE, rung: writeRungFromSource(source), ownerUserId, workspaceId });
+      await trackSettingsScopeChanged(ctx.db, ctx.userId, { module: ANALYTICS_MODULE, rung: "property", ownerUserId, workspaceId });
       return NextResponse.json({ settings, scope: legacyScope(source), inherited: true, overriddenPropertyIds, source });
     }
 
-    // Single-kind patch: authorize exactly the one subject this PATCH touches.
+    // Single-kind patch: authorize exactly the one subject this PATCH touches,
+    // and resolve the owner whose row this house-scoped edit lands on.
     if (body.kind && body.rule && typeof body.kind === "string") {
       const kind = body.kind as ReminderSubjectKind;
       if (!REMINDER_SUBJECT_KINDS.includes(kind)) {
         return NextResponse.json({ error: "Unknown reminder subject." }, { status: 400 });
       }
-      const access = await assertReminderKindCoManagerAccess(ctx.db, ctx.userId, kind, "edit");
+      const access = await resolveReminderScope(ctx, scope, [kind], "edit");
       if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
-      // Merge onto the CURRENT scope's rules: a house patch edits the house's own
-      // override (created on first edit), a workspace patch edits the workspace row.
+      const { ownerUserId, propertyId, workspaceId } = access;
+      // Merge onto the CURRENT effective rule (house → workspace → account) so
+      // a partial rule patch cannot blank fields this PATCH did not touch.
       const { settings: current } = await loadCurrent(ctx.db, ownerUserId, propertyId, workspaceId);
-      const nextSettings = normalizeReminderSettings({
-        ...current,
-        rules: {
-          ...current.rules,
-          [kind]: normalizeRule({ ...current.rules[kind], ...(body.rule as Record<string, unknown>) }, DEFAULT_REMINDER_RULES[kind]),
-        },
+      const normalizedRule = normalizeRule(
+        { ...current.rules[kind], ...(body.rule as Record<string, unknown>) },
+        DEFAULT_REMINDER_RULES[kind],
+        kind,
+      );
+      const nextSettings = normalizeReminderSettings({ ...current, rules: { ...current.rules, [kind]: normalizedRule } });
+      let rung: "property" | "workspace" | "account";
+      if (propertyId) {
+        // Only the touched kind is written — every sibling kind on this house
+        // keeps resolving to whatever the workspace/account holds.
+        await savePropertyOverride(ctx.db, ownerUserId, propertyId, NAMESPACE, { [kind]: normalizedRule });
+        rung = "property";
+      } else if (workspaceId) {
+        await patchWorkspaceReminderOverride(ctx.db, workspaceId, ownerUserId, { [kind]: normalizedRule });
+        rung = "workspace";
+      } else {
+        await saveReminderSettings(ctx.db, ownerUserId, nextSettings);
+        rung = "account";
+      }
+      const overriddenPropertyIds = await listPropertyOverrides(ctx.db, ownerUserId, NAMESPACE);
+      await trackSettingsScopeChanged(ctx.db, ctx.userId, { module: ANALYTICS_MODULE, rung, ownerUserId, workspaceId });
+      return NextResponse.json({
+        settings: nextSettings,
+        scope: propertyId ? ("property" as const) : ("workspace" as const),
+        inherited: false,
+        overriddenPropertyIds,
+        source: rung,
       });
-      return NextResponse.json(await persist(ctx, ownerUserId, propertyId, workspaceId, nextSettings));
     }
 
     // Bulk patch (quiet hours + several rules). Merge onto what is stored so a
-    // partial patch cannot blank sibling rules.
+    // partial patch cannot blank sibling rules. `quietHours` is a workspace-
+    // wide clock setting, never a per-house override, so a house-scoped bulk
+    // patch only ever applies the `rules` entries it names.
     const incoming =
       body.settings && typeof body.settings === "object" && !Array.isArray(body.settings)
         ? (body.settings as Record<string, unknown>)
@@ -197,58 +308,67 @@ export async function PATCH(req: Request) {
       incoming.rules && typeof incoming.rules === "object" && !Array.isArray(incoming.rules)
         ? (incoming.rules as Record<string, unknown>)
         : {};
-    const touchedKinds: readonly ReminderSubjectKind[] =
-      "quietHours" in incoming
-        ? ALL_REMINDER_SUBJECT_KINDS
-        : (Object.keys(incomingRules).filter((k): k is ReminderSubjectKind =>
-            (REMINDER_SUBJECT_KINDS as readonly string[]).includes(k),
-          ) as ReminderSubjectKind[]);
-    if (touchedKinds.length > 0) {
-      const access = await assertReminderKindsCoManagerAccess(ctx.db, ctx.userId, touchedKinds, "edit");
-      if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
-    }
+    const touchedRuleKinds = Object.keys(incomingRules).filter((k): k is ReminderSubjectKind =>
+      (REMINDER_SUBJECT_KINDS as readonly string[]).includes(k),
+    ) as ReminderSubjectKind[];
+    const touchesQuietHours = "quietHours" in incoming || "automationSendMode" in incoming;
+    const touchedKinds: readonly ReminderSubjectKind[] = touchesQuietHours ? ALL_REMINDER_SUBJECT_KINDS : touchedRuleKinds;
+
+    // A patch touching zero rule kinds and no quiet hours has nothing to
+    // authorize against a specific module, but a scoped request still needs a
+    // real grant behind it — never resolve a foreign owner for free. Gate it
+    // exactly like a full read, the least a scoped request may do.
+    const access =
+      touchedKinds.length > 0
+        ? await resolveReminderScope(ctx, scope, touchedKinds, "edit")
+        : await resolveReminderScope(ctx, scope, ALL_REMINDER_SUBJECT_KINDS, "read");
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+    const { ownerUserId, propertyId, workspaceId } = access;
 
     const { settings: current } = await loadCurrent(ctx.db, ownerUserId, propertyId, workspaceId);
-    const nextSettings = normalizeReminderSettings({
-      ...current,
-      ...incoming,
-      rules: { ...current.rules, ...incomingRules },
-    });
-    return NextResponse.json(await persist(ctx, ownerUserId, propertyId, workspaceId, nextSettings));
+    const patchEntries: Record<string, unknown> = {};
+    for (const kind of touchedRuleKinds) {
+      patchEntries[kind] = normalizeRule(
+        { ...current.rules[kind], ...(incomingRules[kind] as Record<string, unknown>) },
+        DEFAULT_REMINDER_RULES[kind],
+        kind,
+      );
+    }
+
+    if (propertyId) {
+      const nextSettings = normalizeReminderSettings({ ...current, rules: { ...current.rules, ...patchEntries } });
+      if (Object.keys(patchEntries).length > 0) {
+        await savePropertyOverride(ctx.db, ownerUserId, propertyId, NAMESPACE, patchEntries);
+        await trackSettingsScopeChanged(ctx.db, ctx.userId, { module: ANALYTICS_MODULE, rung: "property", ownerUserId, workspaceId });
+      }
+      const overriddenPropertyIds = await listPropertyOverrides(ctx.db, ownerUserId, NAMESPACE);
+      return NextResponse.json({ settings: nextSettings, scope: "property", inherited: false, overriddenPropertyIds, source: "property" });
+    }
+
+    if (workspaceId) {
+      const nextSettings = normalizeReminderSettings({
+        ...current,
+        ...(touchesQuietHours ? incoming : {}),
+        rules: { ...current.rules, ...patchEntries },
+      });
+      if (Object.keys(patchEntries).length > 0 || touchesQuietHours) {
+        await patchWorkspaceReminderOverride(ctx.db, workspaceId, ownerUserId, {
+          ...patchEntries,
+          ...(touchesQuietHours ? { quietHours: nextSettings.quietHours, automationSendMode: nextSettings.automationSendMode } : {}),
+        });
+        await trackSettingsScopeChanged(ctx.db, ctx.userId, { module: ANALYTICS_MODULE, rung: "workspace", ownerUserId, workspaceId });
+      }
+      const overriddenPropertyIds = await listPropertyOverrides(ctx.db, ownerUserId, NAMESPACE);
+      return NextResponse.json({ settings: nextSettings, scope: "workspace", inherited: false, overriddenPropertyIds, source: "workspace" });
+    }
+
+    const nextSettings = normalizeReminderSettings({ ...current, ...incoming, rules: { ...current.rules, ...incomingRules } });
+    await saveReminderSettings(ctx.db, ownerUserId, nextSettings);
+    await trackSettingsScopeChanged(ctx.db, ctx.userId, { module: ANALYTICS_MODULE, rung: "account", ownerUserId, workspaceId: null });
+    const overriddenPropertyIds = await listPropertyOverrides(ctx.db, ownerUserId, NAMESPACE);
+    return NextResponse.json({ settings: nextSettings, scope: "workspace", inherited: false, overriddenPropertyIds, source: "account" });
   } catch (e) {
     if (e instanceof ForeignPropertyError) return foreign();
     return NextResponse.json({ error: e instanceof Error ? e.message : "Failed" }, { status: 500 });
   }
-}
-
-/**
- * Write the resolved settings to the right rung: a house's own override, a
- * workspace row, or the account row. Returns the settings plus the scope
- * metadata the client uses to render the "Uses workspace/account defaults" /
- * "Reset" state.
- */
-async function persist(
-  ctx: { db: ReturnType<typeof createSupabaseServiceRoleClient>; userId: string },
-  ownerUserId: string,
-  propertyId: string | null,
-  workspaceId: string | null,
-  settings: ReminderSettings,
-) {
-  const rung: "property" | "workspace" | "account" = propertyId ? "property" : workspaceId ? "workspace" : "account";
-  if (propertyId) {
-    await savePropertyOverride(ctx.db, ownerUserId, propertyId, NAMESPACE, settings);
-  } else if (workspaceId) {
-    await saveWorkspaceNamespaceSettings(ctx.db, workspaceId, ownerUserId, NAMESPACE, settings);
-  } else {
-    await saveReminderSettings(ctx.db, ownerUserId, settings);
-  }
-  const overriddenPropertyIds = await listPropertyOverrides(ctx.db, ownerUserId, NAMESPACE);
-  await trackSettingsScopeChanged(ctx.db, ctx.userId, { module: ANALYTICS_MODULE, rung, ownerUserId, workspaceId });
-  return {
-    settings,
-    scope: propertyId ? ("property" as const) : ("workspace" as const),
-    inherited: false,
-    overriddenPropertyIds,
-    source: rung,
-  };
 }

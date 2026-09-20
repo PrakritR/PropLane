@@ -188,12 +188,26 @@ describe("resolveResidentManagerContacts before a lease exists", () => {
 describe("resolveResidentManagerPhones", () => {
   const profileA = { id: "mgr-a", full_name: "Test Manager", phone: "+15103098345", email: "Manager@test.proplane.local" };
 
-  it("falls back to the manager's profile phone and account email when no work channel is set up", async () => {
-    // The card used to vanish for exactly this manager — reachable, just not
-    // provisioned. Now the resident is told the phone and email they do have.
+  const shareProfile = { manager_user_id: "mgr-a", row_data: { shareProfileContactWithoutWorkChannel: true } };
+
+  it("hides the manager's profile phone and account email when no work channel is set up and sharing is off", async () => {
+    // A profile phone is a personal line and this resolver also serves
+    // applicants the manager has not accepted, so with the Communication
+    // setting off (the default) nothing personal is disclosed (captain, 2026-09-20).
     workNumber.mockResolvedValueOnce(null);
     workEmail.mockResolvedValueOnce(null);
     const db = createMemoryDb({ portal_lease_pipeline_records: [lease()], profiles: [profileA] });
+    expect(await resolveResidentManagerPhones(db as never, { residentUserId: "res-1", nowMs: NOW })).toEqual([]);
+  });
+
+  it("shows the profile phone and account email when the manager turned sharing on", async () => {
+    workNumber.mockResolvedValueOnce(null);
+    workEmail.mockResolvedValueOnce(null);
+    const db = createMemoryDb({
+      portal_lease_pipeline_records: [lease()],
+      profiles: [profileA],
+      manager_automation_settings: [shareProfile],
+    });
     const [contact] = await resolveResidentManagerPhones(db as never, { residentUserId: "res-1", nowMs: NOW });
     expect(contact).toMatchObject({
       managerName: "Test Manager",
@@ -217,10 +231,14 @@ describe("resolveResidentManagerPhones", () => {
     });
   });
 
-  it("mixes per channel: a work number with the account email", async () => {
+  it("mixes per channel: a work number with the account email, once sharing is on", async () => {
     workNumber.mockResolvedValueOnce("+12065559000");
     workEmail.mockResolvedValueOnce(null);
-    const db = createMemoryDb({ portal_lease_pipeline_records: [lease()], profiles: [profileA] });
+    const db = createMemoryDb({
+      portal_lease_pipeline_records: [lease()],
+      profiles: [profileA],
+      manager_automation_settings: [shareProfile],
+    });
     const [contact] = await resolveResidentManagerPhones(db as never, { residentUserId: "res-1", nowMs: NOW });
     expect(contact).toMatchObject({ phoneKind: "work", email: "manager@test.proplane.local", emailKind: "account" });
   });

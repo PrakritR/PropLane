@@ -38,13 +38,14 @@ describe("founder/admin cannot reach the property portal in production", () => {
       expect(reachablePortalRoles(account)).toEqual(["admin"]);
     });
 
-    it("does not block a non-primary admin who also explicitly holds the manager role", () => {
-      // Holding `manager` is itself the deliberate grant (e.g. via "add another
-      // portal type"), so this admin+manager account is not blocked.
+    it("still blocks a non-primary admin who also holds the manager role — that role is self-grantable", () => {
+      // An admin can hand themselves `manager` through the get-started
+      // "Set up as a property manager" flow, so the role is not a grant the
+      // production control may key on.
       const account = ctx(["admin", "manager"]);
-      expect(adminBlockedFromManagerPortal(account)).toBe(false);
-      expect(isPortalRoleReachable(account, "manager")).toBe(true);
-      expect(reachablePortalRoles(account)).toEqual(["admin", "manager"]);
+      expect(adminBlockedFromManagerPortal(account)).toBe(true);
+      expect(isPortalRoleReachable(account, "manager")).toBe(false);
+      expect(reachablePortalRoles(account)).toEqual(["admin"]);
     });
 
     it("lets the primary admin reach both admin and property portals", () => {

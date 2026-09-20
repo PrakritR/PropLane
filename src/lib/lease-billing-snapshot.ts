@@ -19,6 +19,7 @@ import {
   proratedFeeLines,
 } from "@/lib/lease-first-period-proration";
 import { monthlyFeesBilledSeparately } from "@/lib/rent-fold-in";
+import { feeAppliesToResidentSlot, type ListingFeeRow } from "@/lib/listing-fees";
 import { resolveLeaseProrationInputForApplicant } from "@/lib/lease-proration-settings";
 import type { LeaseGenerationContext } from "@/lib/generated-lease";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
@@ -213,6 +214,23 @@ function dueAtSigningFromCharges(
   return sum;
 }
 
+/**
+ * Drops a fee whose row is scoped to resident slots that do not include this application's
+ * slot (PLAN-0920-0631) — "Parking $50" scoped to Resident 1 never appears on Resident 2's
+ * document. A fee row with no `residentSlots`, or an application with no `residentSlot` (not
+ * a per-resident room), passes through untouched — identical to today for every listing that
+ * does not price per resident.
+ */
+function filterFeeLinesForResidentSlot<T extends { id: string }>(
+  lines: T[],
+  sub: { customFees?: readonly { id: string }[] } | null | undefined,
+  residentSlot: number | null | undefined,
+): T[] {
+  if (!lines.length) return lines;
+  const feeById = new Map((sub?.customFees ?? []).map((fee) => [fee.id, fee as unknown as ListingFeeRow]));
+  return lines.filter((line) => feeAppliesToResidentSlot(feeById.get(line.id) ?? {}, residentSlot));
+}
+
 export type LeaseRowBillingRef = {
   axisId?: string | null;
   residentEmail: string;
@@ -316,10 +334,12 @@ export function buildLeaseBillingSnapshot(
     oneTimeCustomFeeReceived[c.customFeeId] = (oneTimeCustomFeeReceived[c.customFeeId] ?? 0) +
       chargeReceivedAmount(c);
   }
+  const residentSlot = applicant.application?.residentSlot;
   const customOneTimeFeesDue = (sub?.customFees ?? []).reduce((sum, fee) => {
     const presetId = (fee as { presetId?: string }).presetId;
     if (presetId && presetId !== "custom") return sum;
     if (!isShortTerm && fee.frequency !== "one-time") return sum;
+    if (!feeAppliesToResidentSlot(fee as ListingFeeRow, residentSlot)) return sum;
     return sum + (oneTimeCustomFeeBalances[fee.id] ?? parseMoneyLabel(isShortTerm ? fee.shortTermAmount ?? "0" : fee.amount ?? "0"));
   }, 0);
   const stayRentDue = stayRent != null ? remainingForKind("stay_total", stayRent) : undefined;
@@ -354,7 +374,11 @@ export function buildLeaseBillingSnapshot(
     leaseTerm: applicant.application?.leaseTerm,
     rentalType: applicant.application?.rentalType,
   };
-  const separatelyBilledFees = !isShortTerm && sub ? monthlyFeesBilledSeparately(sub, listing, feeBillingCtx) : [];
+  const separatelyBilledFees = filterFeeLinesForResidentSlot(
+    !isShortTerm && sub ? monthlyFeesBilledSeparately(sub, listing, feeBillingCtx) : [],
+    sub,
+    residentSlot,
+  );
   const endsInsideFirstMonth = intraMonthStaySpan(leaseStart, leaseEnd) !== null;
   const feeLinesFromCharges = (kind: HouseholdChargeKind): LeaseBillingFeeLine[] =>
     placementCharges

@@ -7,7 +7,6 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -724,7 +723,6 @@ export function ManagerTaskList({
                 {[location, request.status].filter(Boolean).join(" · ")}
               </span>
             </span>
-            <Badge tone="info">Service</Badge>
             <Link
               href={serviceRequestDetailHref(basePath, bucket, request.id)}
               className="text-xs font-semibold text-primary"

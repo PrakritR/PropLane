@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { assertAutomationSettingsCoManagerAccess } from "@/lib/auth/manager-settings-module-access.server";
+import { assertAutomationSettingsCoManagerAccess, resolveSettingsPropertyOwner } from "@/lib/auth/manager-settings-module-access.server";
 import { loadAutomatedMessageSettings, saveAutomatedMessageSettings } from "@/lib/automated-messages-settings.server";
 import { automatedMessageDefaults } from "@/lib/automated-messages-defaults.server";
 import {
   normalizeAutomatedMessageSettings,
   type AutomatedMessageSettings,
 } from "@/lib/automated-messages-settings";
+import type { CoManagerPermissionLevel } from "@/lib/co-manager-permissions";
 import {
   clearPropertyOverride,
   ForeignPropertyError,
@@ -24,12 +25,20 @@ import {
   resolveSettingsScopeParams,
   trackSettingsScopeChanged,
   writeRungFromSource,
+  type ParsedSettingsScope,
 } from "@/lib/scope/settings-scope";
 
 export const runtime = "nodejs";
 
 const NAMESPACE = "automatedMessages" as const;
 const ANALYTICS_MODULE = "automated_messages";
+// Mirrors `assertAutomationSettingsCoManagerAccess`'s own choice of module —
+// this blob has no per-field "kind" tag to authorize against (see that
+// function's docstring), so a house-scoped call is gated on the same one
+// module, never the loosest available choice.
+const AUTOMATED_MESSAGES_MODULE = "payments" as const;
+
+type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
 function foreign(): NextResponse {
   return NextResponse.json({ error: "That property is not in your workspace." }, { status: 403 });
@@ -57,8 +66,40 @@ async function requireManager() {
   return { db, userId: user.id };
 }
 
+type ScopeAccess =
+  | { ok: true; ownerUserId: string; propertyId: string | null; workspaceId: string | null }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Resolve which manager's row a scoped automated-messages call acts on, and
+ * authorize it. A `propertyId` resolves (and authorizes) its owner first
+ * through `resolveSettingsPropertyOwner` (PLAN-0916-1040) — the only rung
+ * with co-manager delegation today. `assertSettingsScopeOwned` then runs
+ * against that ALREADY-authorized owner purely to resolve the workspace id.
+ * With no `propertyId`, a named `workspaceId` still requires literal
+ * ownership, and the module check runs against the caller directly.
+ */
+async function resolveScope(
+  ctx: { db: Db; userId: string },
+  scope: ParsedSettingsScope,
+  level: CoManagerPermissionLevel,
+): Promise<ScopeAccess> {
+  if (scope.propertyId) {
+    const owner = await resolveSettingsPropertyOwner(ctx.db, ctx.userId, scope.propertyId, AUTOMATED_MESSAGES_MODULE, level);
+    if (!owner.ok) return owner;
+    const scopeAccess = await assertSettingsScopeOwned(ctx.db, owner.ownerUserId, scope);
+    if (!scopeAccess.ok) return scopeAccess;
+    return { ok: true, ownerUserId: owner.ownerUserId, propertyId: scopeAccess.propertyId, workspaceId: scopeAccess.workspaceId };
+  }
+  const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope);
+  if (!scopeAccess.ok) return scopeAccess;
+  const access = await assertAutomationSettingsCoManagerAccess(ctx.db, ctx.userId, level);
+  if (!access.ok) return access;
+  return { ok: true, ownerUserId: scopeAccess.ownerUserId, propertyId: scopeAccess.propertyId, workspaceId: scopeAccess.workspaceId };
+}
+
 async function loadCurrent(
-  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  db: Db,
   managerUserId: string,
   propertyId: string | null,
   workspaceId: string | null,
@@ -76,12 +117,10 @@ export async function GET(req: Request) {
   try {
     const ctx = await requireManager();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-    const access = await assertAutomationSettingsCoManagerAccess(ctx.db, ctx.userId, "read");
-    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
     const scope = resolveSettingsScopeParams(req.url);
-    const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope);
-    if (!scopeAccess.ok) return NextResponse.json({ error: scopeAccess.error }, { status: scopeAccess.status });
-    const { ownerUserId, propertyId, workspaceId } = scopeAccess;
+    const access = await resolveScope(ctx, scope, "read");
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+    const { ownerUserId, propertyId, workspaceId } = access;
     const [{ settings, source }, overriddenPropertyIds] = await Promise.all([
       loadCurrent(ctx.db, ownerUserId, propertyId, workspaceId),
       listPropertyOverrides(ctx.db, ownerUserId, NAMESPACE),
@@ -104,8 +143,6 @@ export async function PATCH(req: Request) {
   try {
     const ctx = await requireManager();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-    const access = await assertAutomationSettingsCoManagerAccess(ctx.db, ctx.userId, "edit");
-    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
     const body = (await req.json().catch(() => ({}))) as {
       settings?: unknown;
       propertyId?: unknown;
@@ -113,19 +150,14 @@ export async function PATCH(req: Request) {
       reset?: unknown;
     };
     const scope = resolveSettingsScopeParams(req.url, body);
-    const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, scope);
-    if (!scopeAccess.ok) return NextResponse.json({ error: scopeAccess.error }, { status: scopeAccess.status });
-    const { ownerUserId, propertyId, workspaceId } = scopeAccess;
+    const access = await resolveScope(ctx, scope, "edit");
+    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+    const { ownerUserId, propertyId, workspaceId } = access;
 
-    // No property or workspace → the account store (its own per-key merge).
-    if (!propertyId && !workspaceId) {
-      const settings = await saveAutomatedMessageSettings(ctx.db, ownerUserId, body.settings ?? body);
-      const overriddenPropertyIds = await listPropertyOverrides(ctx.db, ownerUserId, NAMESPACE);
-      await trackSettingsScopeChanged(ctx.db, ctx.userId, { module: ANALYTICS_MODULE, rung: "account", ownerUserId, workspaceId: null });
-      return NextResponse.json({ settings, scope: "workspace", inherited: false, overriddenPropertyIds, source: "account" });
-    }
-
-    // Reset — clear the whole house override.
+    // Reset — clear the whole house override. Checked BEFORE the "no
+    // property or workspace" branch, so `{ reset: true }` with no house
+    // selected 400s instead of falling into that branch and being read as
+    // "save these (garbage) account settings".
     if (body.reset === true) {
       if (!propertyId) return NextResponse.json({ error: "Reset needs a property." }, { status: 400 });
       await clearPropertyOverride(ctx.db, ownerUserId, propertyId, NAMESPACE);
@@ -133,6 +165,14 @@ export async function PATCH(req: Request) {
       const overriddenPropertyIds = await listPropertyOverrides(ctx.db, ownerUserId, NAMESPACE);
       await trackSettingsScopeChanged(ctx.db, ctx.userId, { module: ANALYTICS_MODULE, rung: writeRungFromSource(source), ownerUserId, workspaceId });
       return NextResponse.json({ settings, scope: legacyScope(source), inherited: true, overriddenPropertyIds, source });
+    }
+
+    // No property or workspace → the account store (its own per-key merge).
+    if (!propertyId && !workspaceId) {
+      const settings = await saveAutomatedMessageSettings(ctx.db, ownerUserId, body.settings ?? body);
+      const overriddenPropertyIds = await listPropertyOverrides(ctx.db, ownerUserId, NAMESPACE);
+      await trackSettingsScopeChanged(ctx.db, ctx.userId, { module: ANALYTICS_MODULE, rung: "account", ownerUserId, workspaceId: null });
+      return NextResponse.json({ settings, scope: "workspace", inherited: false, overriddenPropertyIds, source: "account" });
     }
 
     // Workspace patch — merge onto the CURRENT effective settings, store on the workspace row.

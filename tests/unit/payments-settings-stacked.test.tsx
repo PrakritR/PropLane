@@ -6,7 +6,11 @@
  * Payment setup, Processing fee, Late fees, Incoming reminders, Outgoing
  * reminders. The Stripe "Finish setup" pill and its orange sentence — the
  * two elements the phase's build note called out — are gone for the
- * incomplete-onboarding state; the "Finish setup →" link itself stays.
+ * incomplete-onboarding state. PLAN-0920-0853 later replaced the Stripe card
+ * itself with a plain "Payouts" door to a dedicated page (identity, bank and
+ * balance all live there now), so the row's own incomplete-state wording is
+ * the plain "Set up" word, not a "Finish setup →" link — the row itself
+ * still stays reachable, which is what this file's last test now checks.
  */
 import { readFileSync } from "node:fs";
 import { act, cleanup, render, screen } from "@testing-library/react";
@@ -111,8 +115,10 @@ describe("ManagerPaymentSetupPanel: the incomplete-onboarding pill and sentence 
     expect(screen.queryByText(/Finish onboarding \(identity \+ bank details\)/)).not.toBeInTheDocument();
   });
 
-  it("keeps the Finish setup link itself", async () => {
+  it("keeps the payouts row reachable, showing Set up while onboarding is incomplete", async () => {
     await mountIncomplete();
-    expect(screen.getByRole("button", { name: /Finish setup/ })).toBeInTheDocument();
+    const card = screen.getByTestId("payment-setup-stripe-card");
+    expect(card.tagName).toBe("BUTTON");
+    expect(card).toHaveTextContent("Set up");
   });
 });

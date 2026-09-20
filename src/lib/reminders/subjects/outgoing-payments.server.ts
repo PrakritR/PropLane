@@ -9,15 +9,12 @@ import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { MANAGER_BILL_SELECT, mapManagerBillRow } from "@/lib/manager-bills";
 import {
   loadManagerReminderRecipients,
-  loadTeamReminderRecipients,
+  loadTeamReminderRecipientsByManager,
   teamRecipientsScopedToSubject,
   teamReminderRecipients,
 } from "@/lib/reminders/manager-recipients.server";
 import { materializeReminders } from "@/lib/reminders/queue.server";
-import {
-  createSettingsScopeCache,
-  resolveReminderSettingsForRow,
-} from "@/lib/reminders/settings.server";
+import { loadReminderSettingsForManagers, loadReminderSettingsResolver } from "@/lib/reminders/settings.server";
 import { withinHorizon } from "@/lib/reminders/subjects/records.server";
 
 const MAX_ROWS = 500;
@@ -67,23 +64,36 @@ export async function sweepOutgoingPaymentReminders(db: SupabaseClient, now: Dat
   if (entries.length === 0) return 0;
 
   const managerUserIds = entries.map((entry) => entry.managerUserId);
-  const cache = createSettingsScopeCache();
-  const managerRecipients = await loadManagerReminderRecipients(db, managerUserIds);
+  // The team roster prefetch below is batched ONE QUERY PER MANAGER (not per
+  // house), so it still keys off the WORKSPACE'S teamUserIds; a house override
+  // that names a different team roster for `outgoing_payment` is applied to
+  // every OTHER setting on this kind (enabled, timing, audience) below, just
+  // not to which co-managers the batched roster fetch considers.
+  const [settingsByManager, reminderResolver, managerRecipients] = await Promise.all([
+    loadReminderSettingsForManagers(db, managerUserIds),
+    loadReminderSettingsResolver(db, managerUserIds),
+    loadManagerReminderRecipients(db, managerUserIds),
+  ]);
+  const teamRecipientsByManager = await loadTeamReminderRecipientsByManager(
+    db,
+    managerUserIds.map((managerUserId) => ({
+      managerUserId,
+      teamUserIds: settingsByManager.get(managerUserId)?.rules.outgoing_payment.teamUserIds ?? [],
+    })),
+  );
   const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
 
   let queued = 0;
   for (const entry of entries) {
-    const propertyId = entry.bill.propertyId ?? null;
-    // A house with its own reminder rules gets them; a bill with no property, or
-    // an un-customized house, falls through workspace then account (phase C).
-    const settings = await resolveReminderSettingsForRow(db, cache, entry.managerUserId, propertyId);
+    // A house's own reminder override wins when it has one (PLAN-0916-1040).
+    const settings = reminderResolver.resolve(entry.managerUserId, entry.bill.propertyId ?? null);
     if (!settings.rules.outgoing_payment.enabled) continue;
     const managerRecipient = managerRecipients.get(entry.managerUserId);
     const teamRecipients = settings.rules.outgoing_payment.audience.team
       ? teamReminderRecipients(
           teamRecipientsScopedToSubject(
-            await loadTeamReminderRecipients(db, entry.managerUserId, settings.rules.outgoing_payment.teamUserIds ?? []),
-            propertyId,
+            teamRecipientsByManager.get(entry.managerUserId) ?? [],
+            entry.bill.propertyId,
             "financials",
           ),
         )

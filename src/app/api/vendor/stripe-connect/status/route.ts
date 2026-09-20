@@ -3,7 +3,6 @@ import { requireVendorApiAccess } from "@/lib/auth/vendor-api-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import {
-  clearManagerConnectAccountId,
   connectAccountReadyForAchPayouts,
   connectAccountTransfersActive,
   ensureConnectAccountTransfersRequested,
@@ -55,16 +54,18 @@ export async function GET() {
       const stripe = getStripe();
       const existing = await retrieveManagerConnectAccountOrNull(stripe, accountId);
       if (!existing) {
-        await clearManagerConnectAccountId(db, userId);
+        // Never cleared on a read — see the manager twin. Reported as
+        // `needsRelink`; only an explicit Reconnect replaces the saved id.
         return NextResponse.json({
           connected: false,
-          accountId: null,
+          accountId,
+          needsRelink: true,
           chargesEnabled: false,
           payoutsEnabled: false,
           transfersEnabled: false,
           paymentReady: false,
           detailsSubmitted: false,
-          stripeError: "Your saved Stripe payout account is no longer linked to this platform. Connect again below.",
+          stripeError: "We couldn't reach your saved Stripe account. Reconnect to start over.",
         });
       }
 
@@ -100,17 +101,17 @@ export async function GET() {
             "Stripe is not configured on the server; cannot refresh Connect status. Keys present = live status.",
         });
       }
+      const needsRelink = isStripeConnectAccountAccessError(msg);
       return NextResponse.json({
-        connected: true,
+        connected: !needsRelink,
         accountId,
+        needsRelink,
         chargesEnabled: false,
         payoutsEnabled: false,
         transfersEnabled: false,
         paymentReady: false,
         detailsSubmitted: false,
-        stripeError: isStripeConnectAccountAccessError(msg)
-          ? "Your saved Stripe payout account is no longer linked to this platform. Connect again below."
-          : msg,
+        stripeError: needsRelink ? "We couldn't reach your saved Stripe account. Reconnect to start over." : msg,
       });
     }
   } catch (e) {

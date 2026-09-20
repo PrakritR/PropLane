@@ -28,13 +28,25 @@ price is set. One exception at charge time: a resident's own negotiated monthly 
 (a `managerRentOverride` or a signed/renewed rent) still beats the room's daily basis,
 exactly as it already beats the room's listing monthly rent.
 
+**Per-resident rent is monthly only.** A shared room (`occupancyCapacity >= 2`)
+may price each resident on its own (`residentPricing: "per_resident"` +
+`residentPrices`, PLAN-0920-0631; rules in `docs/agents/shared-room-capacity.md`).
+That is a MONTHLY room's feature: `roomPricesPerResident` reads false on any room
+whose `rentBasis` is `"daily"` or `"weekly"` with a rate behind it, so such a room
+keeps one rate for every resident and its headline stays `$X/day` / `$X/week`
+whatever rows it stores. Nothing strips the rows on a basis change — flipping the
+room back to monthly brings them back.
+
 - **Single source of truth:** `src/lib/room-pricing.ts` (`roomIsDailyPriced`,
-  `roomHeadlinePriceLabel`, `roomMonthlyEquivalent`, etc.). Use it for any new
-  price surface instead of reading `monthlyRent` directly.
+  `roomHeadlinePriceLabel`, `roomMonthlyEquivalent`, `roomPricesPerResident`,
+  `roomResidentPrices`, etc.). Use it for any new price surface instead of reading
+  `monthlyRent` directly. On a per-resident room the headline is the LOWEST slot
+  rent, printed `from $800/mo` (`roomHeadlinePriceIsFrom`).
 - **Aggregate labels** (rent ranges, "starting at", estimated totals, browse-card
   sort/budget) normalize daily rooms to a monthly-equivalent
   (`dailyRentPrice × DAILY_RENT_MONTH_ESTIMATE_DAYS`, 30 days) so mixed listings
-  stay coherent as `/mo`; each room's OWN row still shows its true `$X/day`.
+  stay coherent as `/mo`; each room's OWN row still shows its true `$X/day`. A
+  per-resident room contributes its lowest slot rent to every aggregate.
 - **Charges:** the daily basis threads through `recordApprovedApplicationCharges`
   and the recurring generator via `RecurringRentProfile.dailyRentPrice` in
   `src/lib/household-charges.ts`. It extends the existing daily proration to full

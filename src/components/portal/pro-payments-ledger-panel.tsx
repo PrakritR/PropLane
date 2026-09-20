@@ -8,21 +8,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Badge } from "@/components/ui/badge";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
-import {
-  ApplicationHouseholdCluster,
-  PortalListClusterSelectCheckbox,
-  togglePortalListClusterSelection,
-} from "@/components/portal/application-household-list";
-
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { DataList } from "@/components/ui/data-list";
+import { PortalApplicantRecordRow, PortalRowFact } from "@/components/portal/portal-record-row";
 import { PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 import type { DemoManagerPaymentLedgerRow, ManagerPaymentBucket, ManagerPaymentDirection } from "@/data/demo-portal";
 import { PortalRecordDetailPage, PortalRecordActions } from "@/components/portal/portal-record-detail-page";
 import {
   clusterManagerPaymentLedgerRowsByMode,
+  paymentLedgerResidentLabel,
   type ManagerPaymentPropertyCluster,
   type ManagerPaymentResidentCluster,
 } from "@/lib/manager-payment-ledger-grouping";
@@ -32,6 +26,7 @@ import { PortalRecordSectionChrome, PortalRecordHeaderIconActions } from "@/comp
 import { recordSections } from "@/lib/portals/record-sections";
 import { renderRecordSection } from "@/components/portal/record-section-renderers";
 import { PortalRecordRelatedPanel } from "@/components/portal/portal-record-related-panel";
+import { Bell, CalendarDays } from "lucide-react";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { RESIDENT_DETAIL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -62,15 +57,10 @@ import {
   patchScheduledMessage,
   restoreFutureRemindersForPendingCharge,
 } from "@/components/portal/payment-schedule-ui";
-import { PaymentScheduledMessagesLead } from "@/components/portal/payment-scheduled-lead";
 import type { ScheduledPaymentMessage } from "@/lib/scheduled-payment-messages";
 import { manageableRemindersForCharge, formatScheduledSendAt } from "@/lib/scheduled-payment-messages";
-import { scheduledSendBadgeLabel, summariseScheduledSends } from "@/lib/scheduled-send-summary";
-import { moveInSubtotalForLedgerRows } from "@/lib/move-in-charge-group";
-import {
-  combineScheduledPaymentMessages,
-  scheduledMessagesTouchingCharges,
-} from "@/lib/combined-payment-reminders";
+import { summariseScheduledSends } from "@/lib/scheduled-send-summary";
+import { combineScheduledPaymentMessages } from "@/lib/combined-payment-reminders";
 import { paymentReminderRecipientLabel } from "@/lib/payment-reminder-ui";
 import {
   buildCombinedPaymentReminderBody,
@@ -131,32 +121,26 @@ function paymentReminderMetaHint(
   return null;
 }
 
+/**
+ * The due fact on a charge row, in ONE format. A due label arrives either as a
+ * display date ("Oct 1, 2026"), a phrase ("Before move-in"), or — for a charge
+ * whose source never formatted it — a raw ISO day ("2026-10-01"); the list
+ * used to print two date formats on one screen. Every ISO day becomes the
+ * display date here, and a label that already says "Due" or "Before" is kept.
+ */
 function formatDueMeta(due: string): string {
   const trimmed = due.trim();
   if (!trimmed) return "";
+  const match = /^(?:(due|before)\s+)?(\d{4}-\d{2}-\d{2})$/i.exec(trimmed);
+  if (match) {
+    const label = dueDateInputToLabel(match[2]!);
+    if (label) {
+      const prefix = match[1] ? match[1][0]!.toUpperCase() + match[1].slice(1).toLowerCase() : "Due";
+      return `${prefix} ${label}`;
+    }
+  }
   if (/^(due|before)\b/i.test(trimmed)) return trimmed;
   return `Due ${trimmed}`;
-}
-
-function ledgerRowMetaLine(
-  row: DemoManagerPaymentLedgerRow,
-  scheduledMessages: ScheduledPaymentMessage[],
-  options?: { includeProperty?: boolean; includeReminder?: boolean },
-): string {
-  const includeProperty = options?.includeProperty ?? true;
-  const includeReminder = options?.includeReminder ?? true;
-  const parts: string[] = [];
-  if (includeProperty) {
-    const property = ledgerRowPropertyLine(row);
-    if (property !== "—") parts.push(property);
-  }
-  const due = formatDueMeta(row.dueDate ?? "");
-  if (due) parts.push(due);
-  if (includeReminder) {
-    const reminder = paymentReminderMetaHint(row, scheduledMessages);
-    if (reminder) parts.push(reminder);
-  }
-  return parts.join(" · ");
 }
 
 function dueDateDisplayToInputValue(display: string): string {
@@ -183,10 +167,6 @@ function formatLedgerRoomLabel(roomNumber: string): string {
 
 function isStayTotalRow(row: DemoManagerPaymentLedgerRow): boolean {
   return row.chargeKind === "stay_total" || /^Stay total \(/i.test(row.chargeTitle);
-}
-
-function ledgerRowPrimaryLabel(row: DemoManagerPaymentLedgerRow): string {
-  return row.chargeTitle;
 }
 
 function ledgerRowPropertyLine(row: DemoManagerPaymentLedgerRow): string {
@@ -268,13 +248,6 @@ export function ManagerPaymentsLedgerPanel({
   const displayScheduledMessages = useMemo(
     () => combineScheduledPaymentMessages(scheduledMessages),
     [scheduledMessages],
-  );
-  const clusterScheduledBadgeLabel = useCallback(
-    (chargeIds: ReadonlySet<string>) =>
-      scheduledSendBadgeLabel(
-        summariseScheduledSends(scheduledMessagesTouchingCharges(displayScheduledMessages, chargeIds)),
-      ),
-    [displayScheduledMessages],
   );
   const [returningDepositId, setReturningDepositId] = useState<string | null>(null);
   const navigate = usePortalNavigate();
@@ -388,17 +361,16 @@ export function ManagerPaymentsLedgerPanel({
     });
   };
 
-  const toggleClusterSelection = (ids: readonly string[]) => {
-    togglePortalListClusterSelection(setSelectedIds, ids);
-  };
-
-  const openChargeRemindersModal = (row: DemoManagerPaymentLedgerRow) => {
-    if (!row.householdChargeId) {
-      showToast("This payment has no charge id yet. Sync payments and try again.");
-      return;
-    }
-    setChargeRemindersRow(row);
-  };
+  const openChargeRemindersModal = useCallback(
+    (row: DemoManagerPaymentLedgerRow) => {
+      if (!row.householdChargeId) {
+        showToast("This payment has no charge id yet. Sync payments and try again.");
+        return;
+      }
+      setChargeRemindersRow(row);
+    },
+    [showToast],
+  );
 
   const markSelectedAsPaid = async () => {
     const targets = rows.filter((row) => selectedIds.has(row.id) && isMarkableAsPaid(row));
@@ -1448,6 +1420,32 @@ export function ManagerPaymentsLedgerPanel({
       });
     }
 
+    // The reminder used to be a boxed lead on the row that opened this sheet;
+    // now it is a fact, so the ⋯ carries the way in.
+    if (singleSelectedRow?.householdChargeId && !isPaidRow(singleSelectedRow)) {
+      const row = singleSelectedRow;
+      actions.push({
+        id: "scheduled-reminders",
+        keepPriority: 3,
+        node: (
+          <Button
+            type="button"
+            variant="outline"
+            className={PAYMENTS_BULK_BAR_BTN}
+            data-attr="payments-scheduled-reminders"
+            onClick={() => openChargeRemindersModal(row)}
+          >
+            Scheduled reminders
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem data-attr="payments-scheduled-reminders" onSelect={() => openChargeRemindersModal(row)}>
+            Scheduled reminders
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
     if (activeBucket === "paid" && selectedRows.length > 0) {
       actions.push({
         id: "move-pending",
@@ -1521,6 +1519,7 @@ export function ManagerPaymentsLedgerPanel({
     markSelectedAsPaid,
     moveSelectedToPending,
     openBulkReminderPreview,
+    openChargeRemindersModal,
     openReminderPreview,
     remindableSelectedRows,
     selectedIds.size,
@@ -1564,58 +1563,56 @@ export function ManagerPaymentsLedgerPanel({
     };
   }, [embeddedInResident]);
 
-  const chargeListColumns = [
-    { id: "charge", header: "Charge", cell: (row: DemoManagerPaymentLedgerRow) => ledgerRowPrimaryLabel(row) },
-    { id: "property", header: "Property", cell: (row: DemoManagerPaymentLedgerRow) => ledgerRowPropertyLine(row) },
-    { id: "due", header: "Due", cell: (row: DemoManagerPaymentLedgerRow) => row.dueDate || "—" },
-    {
-      id: "amount",
-      header: "Amount",
-      cell: (row: DemoManagerPaymentLedgerRow) => row.lineAmount,
-      headerClassName: "text-right",
-      cellClassName: "text-right tabular-nums",
-    },
-  ] as const;
+  /**
+   * One white card per charge — the Properties row for a person (AGENTS.md →
+   * Portal UI system: "Every list tab copies Properties"). The resident is the
+   * title and fills the tile; the charge and where it belongs make the place
+   * line; the due date and the next reminder are glyph facts; the amount sits
+   * bold on the right, green once it is paid; and the ⋯ the list surface draws
+   * carries the row's actions. No grouping box and no pill: the tab says the
+   * bucket (`tests/unit/portal-list-rows-no-pills.test.ts`).
+   */
+  const renderChargeRow = (row: DemoManagerPaymentLedgerRow) => {
+    const property = ledgerRowPropertyLine(row);
+    const due = formatDueMeta(row.dueDate ?? "");
+    const reminder = paymentReminderMetaHint(row, displayScheduledMessages);
+    return (
+      <PortalApplicantRecordRow
+        key={row.id}
+        name={paymentLedgerResidentLabel(row)}
+        address={property === "—" ? row.chargeTitle : `${row.chargeTitle} · ${property}`}
+        facts={
+          due || reminder ? (
+            <>
+              {due ? <PortalRowFact icon={CalendarDays}>{due}</PortalRowFact> : null}
+              {reminder ? (
+                <PortalRowFact icon={Bell}>
+                  <span data-attr="payment-row-reminder">{reminder}</span>
+                </PortalRowFact>
+              ) : null}
+            </>
+          ) : undefined
+        }
+        trailing={
+          row.bucket === "paid" ? (
+            <span className="tabular-nums text-[var(--status-confirmed-fg)]">{row.lineAmount}</span>
+          ) : (
+            <span className="tabular-nums">{row.lineAmount}</span>
+          )
+        }
+        checked={showSelection && selectedIds.has(row.id)}
+        onSelectedChange={showSelection ? () => toggleSelected(row.id) : undefined}
+        onOpen={() => openPaymentDetail(row)}
+        dataAttr="payment-list-row"
+      />
+    );
+  };
 
-  const renderChargeDataList = (
-    listRows: DemoManagerPaymentLedgerRow[],
-    options?: { omitPropertyInMeta?: boolean },
-  ) => (
-    <DataList
-      hideColumnHeaders
-      selectable={showSelection}
-      rows={listRows.map((row) => {
-        return {
-          id: row.id,
-          data: row,
-          primary: ledgerRowPrimaryLabel(row),
-          meta: ledgerRowMetaLine(row, displayScheduledMessages, {
-            includeProperty: !options?.omitPropertyInMeta,
-            includeReminder: false,
-          }),
-          leading: (
-            <PaymentScheduledMessagesLead
-              row={row}
-              scheduledMessages={displayScheduledMessages}
-              onOpenReminders={openChargeRemindersModal}
-            />
-          ),
-          trailing: (
-            <span className="text-sm font-semibold tabular-nums text-foreground">{row.lineAmount}</span>
-          ),
-          selected: showSelection ? selectedIds.has(row.id) : undefined,
-          onSelectedChange:
-            showSelection ? () => toggleSelected(row.id) : undefined,
-          onClick: () => openPaymentDetail(row),
-        };
-      })}
-      columns={[...chargeListColumns]}
-    />
-  );
+  const renderChargeList = (listRows: DemoManagerPaymentLedgerRow[]) => <>{listRows.map(renderChargeRow)}</>;
 
   const renderResidentStatusSections = () => {
     // One section only (or none) reads better as the plain list it already was.
-    if (residentStatusSections.length <= 1) return renderChargeDataList(rows);
+    if (residentStatusSections.length <= 1) return renderChargeList(rows);
     return (
       <div className="space-y-4" data-attr="payments-resident-status-sections">
         {residentStatusSections.map((section) => (
@@ -1630,115 +1627,30 @@ export function ManagerPaymentsLedgerPanel({
               </span>
               <span className="text-xs text-muted tabular-nums">{section.rows.length}</span>
             </div>
-            {renderChargeDataList(section.rows)}
+            {renderChargeList(section.rows)}
           </div>
         ))}
       </div>
     );
   };
 
-  // The resident pays their move-in as ONE total; the manager reads the same
-  // number over the same lines. The lines below it stay separate ledger entries.
-  const renderMoveInSubtotal = (clusterRows: DemoManagerPaymentLedgerRow[]) => {
-    const subtotal = moveInSubtotalForLedgerRows(clusterRows);
-    if (!subtotal) return null;
-    return (
-      <span className="truncate text-xs text-muted" data-attr="payments-cluster-move-in-total">
-        Move-in total <span className="font-semibold tabular-nums text-foreground">{subtotal.totalLabel}</span> ·{" "}
-        {subtotal.count} items
-      </span>
-    );
-  };
+  // The page hands the rows over already sorted; flattening the clusters in
+  // that order keeps a resident's charges adjacent (resident then due), and in
+  // house mode a property's rows sit together resident by resident. The
+  // grouping box itself is gone — the card row says who and where.
+  const orderedLedgerRows = useMemo(() => {
+    if (embeddedInResident) return rows;
+    if (isPropertyClusterList(groupMode, ledgerClusters)) {
+      return (ledgerClusters as ManagerPaymentPropertyCluster[]).flatMap((cluster) =>
+        clusterManagerPaymentLedgerRowsByMode(cluster.rows, "resident").flatMap((resident) => resident.rows),
+      );
+    }
+    return (ledgerClusters as ManagerPaymentResidentCluster[]).flatMap((cluster) => cluster.rows);
+  }, [embeddedInResident, groupMode, ledgerClusters, rows]);
 
   const renderManagerGroupedLedger = () => (
-    <div
-      className="space-y-3"
-      data-attr={groupMode === "house" ? "payments-house-groups" : "payments-resident-groups"}
-    >
-      {isPropertyClusterList(groupMode, ledgerClusters)
-        ? (ledgerClusters as ManagerPaymentPropertyCluster[]).map((cluster) => (
-            <ApplicationHouseholdCluster
-              key={cluster.key}
-              headerLeading={
-                showSelection ? (
-                  <PortalListClusterSelectCheckbox
-                    ids={cluster.rows.map((row) => row.id)}
-                    selectedIds={selectedIds}
-                    onToggleCluster={toggleClusterSelection}
-                    ariaLabel={`Select all charges for ${cluster.propertyLabel}`}
-                  />
-                ) : null
-              }
-              header={
-                <>
-                  <span className="truncate text-xs font-semibold text-foreground">
-                    {cluster.propertyLabel}
-                  </span>
-                  <span className="sr-only">{cluster.rows.length === 1 ? "1 charge" : `${cluster.rows.length} charges`}</span>
-                  {renderMoveInSubtotal(cluster.rows)}
-                  {(() => {
-                    const chargeIds = new Set(
-                      cluster.rows
-                        .map((row) => row.householdChargeId)
-                        .filter((id): id is string => Boolean(id)),
-                    );
-                    const label = clusterScheduledBadgeLabel(chargeIds);
-                    return label ? (
-                      <Badge tone="pending">
-                        <span data-attr="payments-cluster-scheduled">{label}</span>
-                      </Badge>
-                    ) : null;
-                  })()}
-                </>
-              }
-            >
-              {renderChargeDataList(cluster.rows, { omitPropertyInMeta: true })}
-            </ApplicationHouseholdCluster>
-          ))
-        : (ledgerClusters as ManagerPaymentResidentCluster[]).map((cluster) => (
-            <ApplicationHouseholdCluster
-              key={cluster.key}
-              headerLeading={
-                showSelection ? (
-                  <PortalListClusterSelectCheckbox
-                    ids={cluster.rows.map((row) => row.id)}
-                    selectedIds={selectedIds}
-                    onToggleCluster={toggleClusterSelection}
-                    ariaLabel={`Select all charges for ${cluster.residentLabel}`}
-                  />
-                ) : null
-              }
-              header={
-                <>
-                  <span className="truncate text-xs font-semibold text-foreground">{cluster.residentLabel}</span>
-                  {cluster.residentEmail &&
-                  cluster.residentEmail.toLowerCase() !== cluster.residentLabel.trim().toLowerCase() ? (
-                    <span className="truncate text-xs text-muted">{cluster.residentEmail}</span>
-                  ) : null}
-                  {cluster.propertyLabel ? (
-                    <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
-                  ) : null}
-                  <span className="sr-only">{cluster.rows.length === 1 ? "1 charge" : `${cluster.rows.length} charges`}</span>
-                  {renderMoveInSubtotal(cluster.rows)}
-                  {(() => {
-                    const chargeIds = new Set(
-                      cluster.rows
-                        .map((row) => row.householdChargeId)
-                        .filter((id): id is string => Boolean(id)),
-                    );
-                    const label = clusterScheduledBadgeLabel(chargeIds);
-                    return label ? (
-                      <Badge tone="pending">
-                        <span data-attr="payments-cluster-scheduled">{label}</span>
-                      </Badge>
-                    ) : null;
-                  })()}
-                </>
-              }
-            >
-              {renderChargeDataList(cluster.rows, { omitPropertyInMeta: true })}
-            </ApplicationHouseholdCluster>
-          ))}
+    <div data-attr={groupMode === "house" ? "payments-house-groups" : "payments-resident-groups"}>
+      {orderedLedgerRows.map(renderChargeRow)}
     </div>
   );
 

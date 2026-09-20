@@ -30,6 +30,13 @@ import { validateResidentApplicationRowForPersistence } from "@/lib/rental-appli
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { bestEffortFailed } from "@/lib/observability/best-effort";
+import { parseRoomChoiceValue } from "@/lib/rental-application/data";
+import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { parseFlexibleLocalDate } from "@/lib/rental-application/lease-dates";
+import {
+  openResidentSlots,
+  type RoomResidentSlotPlacement,
+} from "@/lib/rental-application/room-occupancy";
 
 export const runtime = "nodejs";
 
@@ -61,6 +68,141 @@ function idVariants(id: string): string[] {
       [trimmed, trimmed.toUpperCase(), normalized, normalized.toUpperCase()].filter(Boolean),
     ),
   ];
+}
+
+function storedResidentSlot(row: DemoApplicantRow): number | undefined {
+  const slot = Number(row.application?.residentSlot);
+  return Number.isInteger(slot) && slot >= 1 ? slot : undefined;
+}
+
+function residentSlotAlreadyPlaced(previous: DemoApplicantRow, row: DemoApplicantRow, choice: string): boolean {
+  if (previous.bucket !== "approved" || previous.withdrawnAt) return false;
+  const previousChoice = (previous.assignedRoomChoice || previous.application?.roomChoice1 || "").trim();
+  if (previousChoice !== choice) return false;
+  return storedResidentSlot(previous) === storedResidentSlot(row);
+}
+
+/**
+ * The one server-side re-check for a resident-slot pick (PLAN-0920-0631):
+ * given a row about to be written into `approved`, re-derive which slot of
+ * its room is actually open — from the SAME `openResidentSlots` decision the
+ * browser's picker previews — and refuse a slot the browser's stale picker
+ * would have shown taken.
+ *
+ * A no-op for a room that does not price per resident (never touches
+ * `row.application`). For one that does, this NEVER trusts the client's own
+ * rent/utilities/deposit: it always overwrites them from the slot's resolved
+ * price, so a tampered or stale request can only ever land the server's own
+ * figures.
+ */
+async function resolveApprovedResidentSlot(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  row: DemoApplicantRow,
+  previous: DemoApplicantRow | null,
+): Promise<{ ok: true; row: DemoApplicantRow } | { ok: false; error: string }> {
+  if (row.bucket !== "approved" || row.withdrawnAt) return { ok: true, row };
+  const choice = (row.assignedRoomChoice || row.application?.roomChoice1 || "").trim();
+  if (!choice) return { ok: true, row };
+  if (previous && residentSlotAlreadyPlaced(previous, row, choice)) return { ok: true, row };
+  const { propertyId, listingRoomId } = parseRoomChoiceValue(choice);
+  if (!listingRoomId) return { ok: true, row };
+  const managerUserId = row.managerUserId?.trim();
+  if (!managerUserId) return { ok: true, row };
+
+  const { data: propertyRecord, error: propertyError } = await db
+    .from("manager_property_records")
+    .select("row_data")
+    // Scoped to the manager this application is attributed to — `propertyId`
+    // comes from the client-controlled room choice, so an unscoped lookup
+    // would resolve (and then trust the pricing of) ANY manager's property
+    // row, not just one the acting manager owns.
+    .eq("id", propertyId)
+    .eq("manager_user_id", managerUserId)
+    .maybeSingle();
+  // Fail CLOSED: a read failure here must never fall through to trusting
+  // whatever rent/utilities/deposit the client already had on the row —
+  // refuse the write rather than risk letting an unverified override land.
+  if (propertyError) {
+    return { ok: false, error: "Could not verify this room right now — try again." };
+  }
+  const property = (propertyRecord as { row_data?: { listingSubmission?: unknown } } | null)?.row_data;
+  if (!property?.listingSubmission) return { ok: true, row };
+  const sub = normalizeManagerListingSubmissionV1(
+    property.listingSubmission as Parameters<typeof normalizeManagerListingSubmissionV1>[0],
+  );
+  const room = sub.rooms.find((r) => r.id === listingRoomId);
+  if (!room) return { ok: true, row };
+
+  const { data: siblingRecords, error: siblingError } = await db
+    .from("manager_application_records")
+    .select("id,row_data")
+    .eq("manager_user_id", managerUserId)
+    .eq("row_data->>bucket", "approved")
+    .order("created_at", { ascending: true });
+  // Fail CLOSED here too — without the sibling rows, a taken slot cannot be
+  // detected, so a stale/tampered pick could land alongside an unverified
+  // price override instead of being refused.
+  if (siblingError) {
+    return { ok: false, error: "Could not verify open resident slots right now — try again." };
+  }
+
+  const selfId = normalizeApplicationAxisId(String(row.id ?? ""));
+  const placements: RoomResidentSlotPlacement[] = [];
+  for (const record of siblingRecords ?? []) {
+    const sibling = record.row_data as DemoApplicantRow | null;
+    if (!sibling || sibling.withdrawnAt) continue;
+    if (normalizeApplicationAxisId(String(sibling.id ?? record.id ?? "")) === selfId) continue;
+    const siblingChoice = (sibling.assignedRoomChoice || sibling.application?.roomChoice1 || "").trim();
+    if (!siblingChoice || siblingChoice !== choice) continue;
+    const start =
+      parseFlexibleLocalDate(sibling.manualResidentDetails?.moveInDate) ??
+      parseFlexibleLocalDate(sibling.application?.leaseStart);
+    if (!start) continue;
+    const end =
+      parseFlexibleLocalDate(sibling.manualResidentDetails?.moveOutDate) ??
+      parseFlexibleLocalDate(sibling.application?.leaseEnd);
+    placements.push({
+      id: String(sibling.id ?? record.id ?? ""),
+      start,
+      end,
+      residentSlot: sibling.application?.residentSlot,
+      holderName: sibling.name || sibling.email || null,
+    });
+  }
+
+  const slots = openResidentSlots({ room, placements, at: new Date(), term: row.application?.leaseTerm });
+  if (slots.length === 0) return { ok: true, row }; // room does not price per resident
+
+  const wantSlotRaw = Number(row.application?.residentSlot);
+  const wantSlot = Number.isInteger(wantSlotRaw) && wantSlotRaw >= 1 ? wantSlotRaw : undefined;
+  const chosen = wantSlot ? slots.find((s) => s.slot === wantSlot) : slots.find((s) => !s.holder);
+  if (!chosen) {
+    return {
+      ok: false,
+      error: "That rent is no longer open for this room — refresh and pick another resident slot.",
+    };
+  }
+  if (chosen.holder) {
+    return {
+      ok: false,
+      error: `That rent is already held by ${chosen.holder.name} — refresh and pick another resident slot.`,
+    };
+  }
+  if (!row.application) return { ok: true, row };
+  const price = chosen.price;
+  return {
+    ok: true,
+    row: {
+      ...row,
+      application: {
+        ...row.application,
+        residentSlot: price.slot,
+        managerRentOverride: String(price.monthlyRent),
+        managerUtilitiesOverride: price.utilitiesEstimate ?? row.application.managerUtilitiesOverride,
+        managerSecurityDepositOverride: price.securityDeposit ?? row.application.managerSecurityDepositOverride,
+      },
+    },
+  };
 }
 
 /**
@@ -712,6 +854,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Could not load existing applications." }, { status: 500 });
       }
       let blockedWithdrawnApprovals = 0;
+      let blockedResidentSlots = 0;
       for (const row of rows) {
         // Attribute each row to its correct owner and enforce edit access on
         // foreign (linked-owner) rows. Admins keep the client-supplied owner.
@@ -726,10 +869,23 @@ export async function POST(req: Request) {
           blockedWithdrawnApprovals += 1;
           continue;
         }
-        const anchored = anchorServerOwnedSmsConsent(
+        let anchored = anchorServerOwnedSmsConsent(
           guarded.row,
           (stored?.row_data ?? null) as DemoApplicantRow | null,
         );
+        // Same re-check the single-row upsert applies (PLAN-0920-0631): a room
+        // priced per resident re-derives openness here too, since a mirror
+        // batch can carry a fresh approval same as the single-row path can.
+        const slotCheck = await resolveApprovedResidentSlot(
+          db,
+          anchored,
+          (stored?.row_data ?? null) as DemoApplicantRow | null,
+        );
+        if (!slotCheck.ok) {
+          blockedResidentSlots += 1;
+          continue;
+        }
+        anchored = slotCheck.row;
         const previousRow = (stored?.row_data ?? null) as DemoApplicantRow | null;
         await persistNormalizedRow(db, stored?.id ?? anchored.id, anchored, stored ?? null);
         await revokeMaterializedApplicationConsentAfterWrite(db, stored, anchored);
@@ -746,6 +902,17 @@ export async function POST(req: Request) {
             ok: false,
             error: "This application was withdrawn by the applicant and can no longer be approved.",
             blockedWithdrawnApprovals,
+          },
+          { status: 409 },
+        );
+      }
+      if (blockedResidentSlots > 0) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "A resident's picked rent was already taken — refresh and pick another.",
+            blocked: "capacity",
+            blockedResidentSlots,
           },
           { status: 409 },
         );
@@ -1089,6 +1256,18 @@ export async function POST(req: Request) {
         guarded.row,
         (storedLoad.record?.row_data ?? null) as DemoApplicantRow | null,
       );
+      // Reserve the SLOT the same way the bed itself is reserved: re-derived
+      // here, inside this same write, never trusted from the client. A room
+      // that does not price per resident is untouched by this call.
+      const slotCheck = await resolveApprovedResidentSlot(
+        db,
+        row,
+        (storedLoad.record?.row_data ?? null) as DemoApplicantRow | null,
+      );
+      if (!slotCheck.ok) {
+        return NextResponse.json({ error: slotCheck.error, blocked: "capacity" }, { status: 409 });
+      }
+      row = slotCheck.row;
     }
     const priorLoad = await loadStoredApplicationRecord(db, requestedRowId);
     if (priorLoad.error) {

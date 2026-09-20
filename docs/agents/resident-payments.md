@@ -303,7 +303,8 @@ PropLane's real cost lives in PropLane's own Stripe balance. Do not post a
 **Every pre-Stripe confirmation states the exact total, itemizing any service
 fee the resident pays.** The resident payments panel resolves its manager's
 fee-payer once (`/api/portal/resident-service-fee`) and, when the resident pays,
-itemizes the fee in BOTH the "Continue to Stripe?" confirm dialog and the
+itemizes the fee in BOTH the confirm dialog (whose button reads "Pay <total>",
+never "Continue to Stripe" — every payment happens inside PropLane) and the
 embedded-checkout breakdown — computed from `residentProcessingFeeCents` /
 `residentProcessingFeeDisplayLabel`, the SAME functions checkout uses, so the
 disclosure can never understate what Stripe collects (a QA sweep on 2026-07-21
