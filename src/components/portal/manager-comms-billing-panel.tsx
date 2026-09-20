@@ -175,6 +175,13 @@ export function ManagerCommsBillingPanel() {
       ) : null}
       {summary && !error ? (
         <div className="overflow-hidden rounded-2xl border border-border bg-card">
+          {/*
+           * One balance row: the number that matters (remaining credit) plus
+           * the one action (Top up). Included-vs-purchased, the reset date,
+           * and next month's allowance move into "Credit details" below —
+           * still there, no longer a second and third always-visible block
+           * competing with the balance for attention.
+           */}
           <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-semibold">Remaining</p>
@@ -184,6 +191,7 @@ export function ManagerCommsBillingPanel() {
               >
                 {formatUsdFromCents(summary.wallet.remainingCents)}
               </p>
+              <p className="mt-1 text-xs text-muted">Resets {resetLabel}</p>
             </div>
             {canBuy ? (
               <Button
@@ -194,7 +202,7 @@ export function ManagerCommsBillingPanel() {
                   setCheckoutError(null);
                 }}
               >
-                Buy credit
+                Top up
               </Button>
             ) : purchasesPaused ? (
               <span className="rounded-full bg-accent px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-muted">
@@ -202,40 +210,6 @@ export function ManagerCommsBillingPanel() {
               </span>
             ) : null}
           </div>
-          <div className="grid min-w-0 border-t border-border sm:grid-cols-2">
-            <div className="p-5">
-              <p className="text-sm font-semibold">Included this month</p>
-              <progress
-                className="my-3 h-2 w-full overflow-hidden rounded-full accent-primary"
-                max={Math.max(summary.wallet.allowanceCents, 1)}
-                value={includedUsedCents}
-                aria-label="Included communication credit used"
-              />
-              <p className="text-sm tabular-nums">
-                {formatUsdFromCents(includedUsedCents)} of{" "}
-                {formatUsdFromCents(summary.wallet.allowanceCents)}
-              </p>
-            </div>
-            <div className="border-t border-border p-5 sm:border-l sm:border-t-0">
-              <p className="text-sm font-semibold">Purchased</p>
-              <p className="mt-3 text-2xl font-semibold tabular-nums">
-                {formatUsdFromCents(summary.wallet.purchasedRemainingCents)}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center justify-between gap-4 border-t border-border px-5 py-3.5 text-sm">
-            <span className="font-medium">Resets</span>
-            <strong>{resetLabel}</strong>
-          </div>
-          {summary.wallet.allowanceCents !==
-          summary.wallet.nextAllowanceCents ? (
-            <div className="flex items-center justify-between gap-4 border-t border-border px-5 py-3.5 text-sm">
-              <span className="font-medium">Next month</span>
-              <strong>
-                {formatUsdFromCents(summary.wallet.nextAllowanceCents)}
-              </strong>
-            </div>
-          ) : null}
           {purchaseId ? (
             <div
               className="space-y-2 border-t border-border px-5 py-3.5"
@@ -255,6 +229,44 @@ export function ManagerCommsBillingPanel() {
               </Button>
             </div>
           ) : null}
+          <details className="border-t border-border text-sm">
+            <summary className="cursor-pointer list-none px-5 py-3.5 font-medium [&::-webkit-details-marker]:hidden">
+              <span className="flex items-center justify-between gap-4">
+                Credit details
+                <span aria-hidden>▸</span>
+              </span>
+            </summary>
+            <div className="space-y-0">
+              <div className="border-t border-border p-5">
+                <p className="text-sm font-semibold">Included this month</p>
+                <progress
+                  className="my-3 h-2 w-full overflow-hidden rounded-full accent-primary"
+                  max={Math.max(summary.wallet.allowanceCents, 1)}
+                  value={includedUsedCents}
+                  aria-label="Included communication credit used"
+                />
+                <p className="text-sm tabular-nums">
+                  {formatUsdFromCents(includedUsedCents)} of{" "}
+                  {formatUsdFromCents(summary.wallet.allowanceCents)}
+                </p>
+              </div>
+              <div className="flex items-center justify-between gap-4 border-t border-border px-5 py-3.5">
+                <span className="font-medium">Purchased</span>
+                <strong className="tabular-nums">
+                  {formatUsdFromCents(summary.wallet.purchasedRemainingCents)}
+                </strong>
+              </div>
+              {summary.wallet.allowanceCents !==
+              summary.wallet.nextAllowanceCents ? (
+                <div className="flex items-center justify-between gap-4 border-t border-border px-5 py-3.5">
+                  <span className="font-medium">Next month</span>
+                  <strong>
+                    {formatUsdFromCents(summary.wallet.nextAllowanceCents)}
+                  </strong>
+                </div>
+              ) : null}
+            </div>
+          </details>
           <details className="border-t border-border text-sm">
             <summary className="cursor-pointer list-none px-5 py-3.5 font-medium [&::-webkit-details-marker]:hidden">
               <span className="flex items-center justify-between gap-4">
@@ -361,7 +373,7 @@ export function ManagerCommsBillingPanel() {
       ) : null}
       <Modal
         open={buyOpen}
-        title="Buy credit"
+        title="Top up"
         onClose={close}
         assistantStrip={false}
         scrollableContent
