@@ -49,15 +49,12 @@ describe("in-app payment exits — resident slice never leaves PropLane", () => 
     expect(offendingLines(relativePath)).toEqual([]);
   });
 
-  // Covered by a LATER slice of PLAN-0920-0853 (Set up payouts card, Stripe's
-  // embedded onboarding/account-management components replacing Account
-  // Links and login links). Left as `it.todo` — not skipped silently, but
-  // recorded — so the integrator flips these on once that edit lands, rather
-  // than this guard staying green while the onboard routes still exit.
-  it.todo(
-    "src/app/api/stripe/connect/onboard/route.ts never mints or links a hosted Stripe URL (PLAN-0920-0853, later slice)",
-  );
-  it.todo(
-    "src/app/api/vendor/stripe-connect/onboard/route.ts never mints or links a hosted Stripe URL (PLAN-0920-0853, later slice)",
-  );
+  // The onboard routes stopped minting Account Links and login links in the
+  // server slice of PLAN-0920-0853; the embedded modal replaced them.
+  it.each([
+    join("src", "app", "api", "stripe", "connect", "onboard", "route.ts"),
+    join("src", "app", "api", "vendor", "stripe-connect", "onboard", "route.ts"),
+  ])("%s never mints or links a hosted Stripe URL", (relativePath) => {
+    expect(offendingLines(relativePath)).toEqual([]);
+  });
 });
