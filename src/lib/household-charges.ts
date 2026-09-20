@@ -3410,6 +3410,19 @@ function chargeMatchesApprovedDraft(
 }
 
 /**
+ * Whether this application's ledger already carries a prorated monthly-fee line. The live
+ * re-sync only compares fee drafts for a lease that was billed with them: a lease signed
+ * before fees prorated keeps the rows its document printed until the manager regenerates.
+ */
+function ledgerHasProratedFeeLines(applicationId: string): boolean {
+  return readAll().some(
+    (c) =>
+      !c.utilityAllocationId && !c.migrationSourceId && c.applicationId === applicationId &&
+      (c.kind === "prorated_fee" || c.kind === "prorated_last_month_fee") && !isManagerAddedOneOffCharge(c),
+  );
+}
+
+/**
  * The partial-month lines of every monthly fee billed separately, in the exact shape the
  * ledger stores them. One source for the record pass and the draft comparison, so a live
  * re-sync can never read the rows it wrote as stale.
@@ -3627,7 +3640,7 @@ function buildApprovedStandardChargeDrafts(
     }
   }
 
-  const monthlyFeeSet = opts.allowListingDefaults
+  const monthlyFeeSet = opts.allowListingDefaults && ledgerHasProratedFeeLines(opts.applicationId)
     ? monthlyFeesBilledSeparately(sub, listingProperty, {
         leaseStart: opts.leaseStart,
         leaseEnd: opts.leaseEnd,

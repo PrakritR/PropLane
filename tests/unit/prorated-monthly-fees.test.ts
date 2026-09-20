@@ -194,6 +194,27 @@ describe("the ledger bills a monthly fee into both partial months", () => {
     expect(after).toEqual(before);
   });
 
+  it("never bills a fee line onto a lease signed before fees prorated until the manager regenerates", () => {
+    const email = "fees-legacy@example.com";
+    removeResidentHouseholdPaymentData(email);
+    const propertyId = "prop-fees-legacy";
+    seed(propertyId, []);
+    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
+    const before = rowsFor(email).map((c) => ({ id: c.id, createdAt: c.createdAt }));
+    expect(rowsFor(email).some((c) => c.kind === "prorated_fee" || c.kind === "prorated_last_month_fee")).toBe(false);
+
+    seed(propertyId, [PARKING]);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.now() + 60_000));
+    expect(recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, false, { leaseExecuted: true })).toBe(false);
+    expect(rowsFor(email).map((c) => ({ id: c.id, createdAt: c.createdAt }))).toEqual(before);
+
+    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
+    expect(rowsFor(email).filter((c) => c.kind === "prorated_fee")).toHaveLength(1);
+    expect(rowsFor(email).filter((c) => c.kind === "prorated_last_month_fee")).toHaveLength(1);
+    expect(recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, false, { leaseExecuted: true })).toBe(false);
+  });
+
   it("keeps a manager-added early move-out fee stamped with the application id through every rebuild", () => {
     const email = "fees-emo@example.com";
     removeResidentHouseholdPaymentData(email);
