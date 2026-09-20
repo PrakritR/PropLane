@@ -36,7 +36,9 @@ export type ResidentManagerContact = {
   /**
    * The phone the resident can reach this manager on, E.164. The provisioned
    * work number wins when it can send; otherwise the phone on the manager's
-   * own profile. Null only when the manager has neither.
+   * own profile, but ONLY when they opted in
+   * (`shareProfileContactWithoutWorkChannel`, default off). Null when the
+   * manager has neither, or has not opted in.
    */
   phone: string | null;
   /**
@@ -46,8 +48,8 @@ export type ResidentManagerContact = {
   phoneKind: "work" | "profile" | null;
   /**
    * The email the resident can write to. The workspace work email wins when
-   * provisioned; otherwise the manager's account email. Null only when the
-   * manager has neither.
+   * provisioned; otherwise the manager's account email under the same opt-in
+   * as `phone`. Null when the manager has neither, or has not opted in.
    */
   email: string | null;
   emailKind: "work" | "account" | null;

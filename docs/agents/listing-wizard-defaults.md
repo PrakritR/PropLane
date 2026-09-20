@@ -50,7 +50,8 @@ wizard still uses; the v2 Rooms step does not call it.
 
 The Shared spaces step (PLAN-0920-0631) draws one card per space and nothing
 above them: name, Duplicate, ✕ and the chevron; rows Type, Floor and Who may
-use it; More ▾ holds What is in it, Description, Photos and Video. There is no
+use it; More ▾ holds What is in it, Size (sq ft, `sizeSqft`, like a room's),
+Description, Photos and Video. There is no
 "Default shared space" card, no "This shared space only · Reset" tick, no
 per-row Reset and no "Make all the same". A new space starts on the listing's
 ground floor (`floorLevelSelectOptions(listingStoriesId, "")[0]`) with

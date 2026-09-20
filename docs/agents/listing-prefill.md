@@ -43,9 +43,12 @@ import wrote) and "Undo" restores the exact previous values
    The estimate itself stays a reference line on the Pricing step
    (`RentEstimateLine`).
 7. **Shared spaces are a default, not a fact.** A by-the-room home with no
-   shared spaces gets Kitchen & dining and Living / lounge cards from the
-   Default shared space; a whole-place home gets none. The records provider
-   knows nothing about shared spaces.
+   shared spaces gets Kitchen & dining and Living / lounge cards, each filled
+   from `sharedSpaceDefaultsForSubmission` (the listing's stored legacy
+   `sharedSpaceDefaults` block, else what its existing spaces agree on — the
+   wizard no longer draws a Default shared space card, see
+   `listing-wizard-defaults.md`); a whole-place home gets none. The records
+   provider knows nothing about shared spaces.
 8. **`prefill` and `yearBuilt` are manager-only.** `houseSizeSqft` and
    `lotSizeSqft` are public facts; `prefill` (what was filled and from where)
    and `yearBuilt` (a compliance input) are deliberately not on

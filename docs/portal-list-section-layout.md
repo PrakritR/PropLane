@@ -79,7 +79,7 @@ Use `PortalListSectionShell` as a thin alias when building new sections:
 | 5 | **Divider** below header/filter block | Provided by `ManagerPortalPageShell` (always-on `border-b`) |
 | 6 | **Table body** uses `PORTAL_DATA_TABLE_WRAP` + `PORTAL_DATA_TABLE_SCROLL` + table tokens | See `portal-data-table.tsx` |
 | 7 | **Empty state** is `PortalDataTableEmpty` directly — no extra bordered box around it | |
-| 8 | **Status badges** use `portal-badge-*` + ring, `text-[11px]`, `px-2.5 py-0.5` | Match Residents portal column |
+| 8 | **Status badges** use `portal-badge-*` + ring, `text-[11px]`, `px-2.5 py-0.5` — never on a list row (AGENTS.md → Portal UI system, "No pills on rows"); detail views and the admin inbox table only | `tests/unit/portal-list-rows-no-pills.test.ts` |
 | 9 | **Secondary filters** (date, property) as flat toolbar rows in body (`mb-4`), not inside a nested card | Finances, Documents |
 
 ### Rule 3 — the two legal header-action shapes
