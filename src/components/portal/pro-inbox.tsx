@@ -101,7 +101,10 @@ import {
   patchScheduledMessage,
   useScheduledPaymentMessages,
 } from "@/components/portal/payment-schedule-ui";
-import { scheduledItemsForRecipient } from "@/lib/inbox-scheduled-thread";
+import {
+  automationChannelDefaultsFromSettings,
+  scheduledItemsForRecipient,
+} from "@/lib/inbox-scheduled-thread";
 import { readPortalApiError } from "@/lib/portal-api-error";
 import { MANAGER_APPLICATIONS_EVENT } from "@/lib/manager-applications-storage";
 import {
@@ -286,7 +289,11 @@ export const ManagerInbox = forwardRef<
   const navigate = usePortalNavigate();
   const portalBase = usePaidPortalBasePath();
   const inboxBase = embeddedInCommunication && commBase ? `${commBase}/inbox` : `${portalBase}/inbox`;
-  const { messages: scheduledMessages, reload: reloadAutomationScheduled } = useScheduledPaymentMessages({
+  const {
+    messages: scheduledMessages,
+    settings: reminderAutomationSettings,
+    reload: reloadAutomationScheduled,
+  } = useScheduledPaymentMessages({
     includeHidden: false,
   });
   const [manualScheduledMessages, setManualScheduledMessages] = useState<ScheduledInboxMessageRecord[]>([]);
@@ -1471,9 +1478,14 @@ export const ManagerInbox = forwardRef<
   const threadScheduledItems = useMemo(
     () =>
       activeThread
-        ? scheduledItemsForRecipient(activeThread.email, manualScheduledMessages, scheduledMessages)
+        ? scheduledItemsForRecipient(
+            activeThread.email,
+            manualScheduledMessages,
+            scheduledMessages,
+            automationChannelDefaultsFromSettings(reminderAutomationSettings),
+          )
         : [],
-    [activeThread, manualScheduledMessages, scheduledMessages],
+    [activeThread, manualScheduledMessages, reminderAutomationSettings, scheduledMessages],
   );
 
   const reloadScheduled = useCallback(() => {

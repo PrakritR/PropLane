@@ -2578,6 +2578,7 @@ export function PortalCalendarPanels({
               tourEndIso={selectedBlock.meeting.endIso}
               recipientEmail={selectedBlock.meeting.email}
               recipientName={selectedBlock.meeting.name}
+              recipientPhone={selectedBlock.meeting.phone?.trim() || undefined}
               propertyTitle={
                 selectedBlock.meeting.propertyTitle
                   ? `${selectedBlock.meeting.propertyTitle}${selectedBlock.meeting.roomLabel ? ` · ${selectedBlock.meeting.roomLabel}` : ""}`

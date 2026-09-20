@@ -3258,6 +3258,7 @@ export function ManagerResidents({
                                   activeBucket={chargeBucket}
                                   scheduledMessages={scheduledPaymentMessages}
                                   reminderScheduleSummary={residentReminderScheduleSummary}
+                                  reminderAutomationSettings={residentReminderSettings}
                                   onOpenReminderSettings={() => setResidentPaymentSettingsOpen(true)}
                                   onScheduleChanged={() => void reloadResidentPaymentSchedule()}
                                   onRowsChanged={() => {

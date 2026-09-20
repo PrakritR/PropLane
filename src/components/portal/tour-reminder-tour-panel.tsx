@@ -29,6 +29,7 @@ export function TourReminderTourPanel({
   tourEndIso,
   recipientEmail,
   recipientName,
+  recipientPhone,
   propertyTitle,
   instructions,
   managerPortalBase = "/portal",
@@ -38,6 +39,8 @@ export function TourReminderTourPanel({
   tourEndIso: string;
   recipientEmail?: string;
   recipientName?: string;
+  /** Guest's number, when they left one — the same source the tour-guest compose reads. */
+  recipientPhone?: string;
   propertyTitle?: string;
   instructions?: string;
   managerPortalBase?: string;
@@ -243,10 +246,16 @@ export function TourReminderTourPanel({
             body={editingReminder.body}
             meta="Placeholders are filled when the reminder sends."
             source="automation"
+            channel={editingReminder.deliverViaSms && !editingReminder.deliverViaEmail ? "sms" : "email"}
+            deliverViaEmail={editingReminder.deliverViaEmail !== false}
+            deliverViaSms={editingReminder.deliverViaSms === true}
+            emailAvailable={Boolean(editingReminder.recipientEmail?.includes("@"))}
+            smsAvailable={Boolean(recipientPhone?.trim())}
             editable={editingReminder.status === "scheduled"}
             busy={detailBusy}
             presentation="detail"
             recipient={editingReminder.recipientEmail}
+            recipientPhone={recipientPhone?.trim() || undefined}
             sendAt={editingReminder.sendAt}
             onCancel={() => void toggleCancelled(editingReminder, true).then(() => setEditingReminder(null))}
             onSendNow={() => {}}

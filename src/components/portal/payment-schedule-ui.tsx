@@ -35,7 +35,10 @@ import {
   useReportSettingsSaveStatus,
 } from "@/components/portal/settings-save-status-context";
 import { sendAutomationScheduledMessageNow } from "@/components/portal/portal-inbox-selection";
-import { threadScheduledItemFromAutomationMessage } from "@/lib/inbox-scheduled-thread";
+import {
+  automationChannelDefaultsFromSettings,
+  threadScheduledItemFromAutomationMessage,
+} from "@/lib/inbox-scheduled-thread";
 import { applyReminderTemplate, type ReminderTemplateParams } from "@/lib/payment-reminder-email";
 import { encodeScheduledMessagePathId } from "@/lib/scheduled-message-path-id";
 import {
@@ -263,6 +266,8 @@ export function ChargeRemindersModal({
   dueDate,
   messages,
   scheduleSummary,
+  automationSettings,
+  smsAvailable = false,
   onMessageSaved,
   onToggleCancel,
   onOpenSettings,
@@ -276,6 +281,14 @@ export function ChargeRemindersModal({
   messages: ScheduledPaymentMessage[];
   /** Default schedule label shown above the per-charge timeline. */
   scheduleSummary?: string;
+  /**
+   * The manager's payment-reminder delivery settings. A reminder with no
+   * channel override of its own sends on these, so the edit card has to show
+   * them — otherwise it displays email-only over a reminder that texts.
+   */
+  automationSettings?: ManagerAutomationSettings | null;
+  /** Whether this resident can be reached by SMS at all. */
+  smsAvailable?: boolean;
   onMessageSaved?: () => void;
   onToggleCancel: (message: ScheduledPaymentMessage, cancelled: boolean) => void | Promise<void>;
   onOpenSettings?: () => void;
@@ -353,8 +366,13 @@ export function ChargeRemindersModal({
     }
   };
 
+  const automationChannelDefaults = useMemo(
+    () => automationChannelDefaultsFromSettings(automationSettings),
+    [automationSettings],
+  );
+
   const editingScheduled = editingMessage
-    ? threadScheduledItemFromAutomationMessage(editingMessage)
+    ? threadScheduledItemFromAutomationMessage(editingMessage, automationChannelDefaults)
     : null;
 
   return (
@@ -498,6 +516,12 @@ export function ChargeRemindersModal({
           body={editingMessage.body}
           meta={editingScheduled.meta}
           source="automation"
+          channel={editingScheduled.channel}
+          deliverViaEmail={editingScheduled.deliverViaEmail}
+          deliverViaSms={editingScheduled.deliverViaSms}
+          emailAvailable
+          smsAvailable={smsAvailable}
+          channelEditable={editingMessage.status === "scheduled"}
           editable={editingMessage.status === "scheduled"}
           emailAvailable={capability.status === "ready" && capability.email?.available === true}
           smsAvailable={capability.status === "ready" && capability.sms?.available === true}

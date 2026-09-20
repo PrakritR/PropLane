@@ -111,7 +111,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       .maybeSingle();
     const managerName = profile?.full_name?.trim() || profile?.email?.trim() || "Your property manager";
     const apiKey = process.env.RESEND_API_KEY?.trim() ?? "";
-    const from = await managerOutboundFromHeader(auth.db, auth.userId);
+    const from = await managerOutboundFromHeader(auth.db, ownerUserId);
     const todayKey = new Date().toISOString().slice(0, 10);
 
     const dedupPlan = paymentReminderDedupPlan({
@@ -149,6 +149,9 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       text: message.body,
       html: reminderHtmlFromText(message.body),
       slotLabel: message.typeLabel,
+      // Identical fallback to the cron path: a channel the manager set on THIS
+      // reminder wins, absence means the automation default. `??`, not `||`, so
+      // "do not email this one" survives.
       managerDeliverViaEmail: message.deliverViaEmail ?? automationSettings.paymentReminderDeliverViaEmail,
       managerDeliverViaSms: message.deliverViaSms ?? automationSettings.paymentReminderDeliverViaSms,
       managerDeliverViaInbox: automationSettings.paymentReminderDeliverViaInbox,
