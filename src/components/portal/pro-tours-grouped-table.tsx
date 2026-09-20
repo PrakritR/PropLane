@@ -123,6 +123,7 @@ export function ManagerToursGroupedTable({
               </>
             }
             checked={selectable && selectedIds?.has(row.id)}
+            selectLabel={`${row.guestName} · ${row.whenLabel}`}
             onSelectedChange={select(row.id)}
             onOpen={() => onRowClick(row)}
             dataAttr="tour-list-row"

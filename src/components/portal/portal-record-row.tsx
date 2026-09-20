@@ -97,10 +97,17 @@ export function PortalPropertyRecordRow({
   onSelectedChange,
   onOpen,
   omitActionView = false,
+  selectLabel,
   dataAttr,
 }: {
   title: string;
   address: string;
+  /**
+   * What the ⋯ and the hidden selection box call this row when the title alone
+   * is ambiguous — a guest with two tours is "Maya Chen · Thu, Sep 17, 4:00 PM".
+   * Defaults to the title.
+   */
+  selectLabel?: string;
   summary?: string;
   /** Bed / bath / room counts drawn as glyphs under the address. */
   meta?: { beds?: number; baths?: number; rooms?: number | null };
@@ -183,7 +190,7 @@ export function PortalPropertyRecordRow({
           wrapperClassName="mr-0 self-center"
           checked={checked}
           onChange={(e) => onSelectedChange?.(e.target.checked)}
-          aria-label={`Select ${title}`}
+          aria-label={`Select ${selectLabel ?? title}`}
         />
       ) : null}
       {leading ? <div className="mr-3 shrink-0 self-start">{leading}</div> : null}
