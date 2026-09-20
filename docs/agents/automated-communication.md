@@ -36,8 +36,8 @@ The **Notifications** hub holds globals only: alert destination, digest, quiet h
 
 | Tab | Rows (reminders) | Messages sent automatically (events) |
 | --- | --- | --- |
-| Services | Acknowledge new requests (promise), unassigned / emergency escalations, add-on decision, approved-but-unpaid, offers expire, tell me when no vendor answers, require On my way, ask resident to confirm the fix (+ auto-close), share ratings, offer expiring (vendor), no On my way, invoice nudge, invoice approval, vendor document expiry, visit reminders (You / Team / Resident / **Vendor**) | filed, offered, expiring, expired, filled, declined, accepted, scheduled, rescheduled, cancelled, on the way, done, confirmed, reopened, auto-closed, rated, invoiced, invoice approved/disputed, paid; add-on submitted/approved/denied/returned |
-| Lease | Lease ending (you 90/60/30, resident 60/30), renewal offer expiry, countersignature overdue, move-in (7/1), payment method missing, move-out (30/7/1), schedule move-out inspection, deposit accounting (+ deadline days), signing reminders, document signature reminder | created, sent, signed by resident, countersigned, fully signed, voided, move-out date set, lease extended |
+| Services | Acknowledge new requests (promise), unassigned / emergency escalations, **vendor silent after accept (re-offer)**, add-on decision, approved-but-unpaid, offers expire, tell me when no vendor answers, require On my way, ask resident to confirm the fix (+ auto-close), share ratings, offer expiring (vendor), no On my way, invoice nudge, invoice approval, vendor document expiry, visit reminders (You / Team / Resident / **Vendor**) | filed, offered, expiring, expired, filled, declined, accepted, scheduled, rescheduled, cancelled, on the way, done, confirmed, reopened, auto-closed, rated, invoiced, invoice approved/disputed, paid, **vendor silent**; add-on submitted/approved/denied/returned |
+| Lease | Lease ending (you 90/60/30, resident 60/30), **renewal offer (60d)**, renewal offer expiry, countersignature overdue, move-in (7/1), payment method missing, move-out (30/7/1), **move-out instructions (14d)**, **deposit return notice (day of)**, schedule move-out inspection, deposit accounting (+ deadline days), signing reminders, document signature reminder | created, sent, signed by resident, countersigned, fully signed, voided, move-out date set, lease extended |
 | Applications | Response promise, decision reminder, approved-no-lease, incomplete application (applicant / you), post-tour apply link | submitted, approved, declined, withdrawn |
 | Tours | Guest and manager tour reminders, request unanswered, offer other times, no-show prompt, tour-interest follow-up | confirmed, cancelled by guest, claimed by a teammate (team) |
 | Payments | Rent reminder schedule, my payment alerts, delinquency, outgoing payments | charge created, processing, received, partial, failed, refunded, late fee applied, deposit received |
@@ -59,6 +59,51 @@ filed → (unassigned 24h / emergency 1h → manager) → offered (expires; vend
 ```
 
 The confirmation token is random, stored hashed on `row_data.residentConfirmation`, and lapses after seven days (`work-order-resident-confirmation.server.ts`).
+
+## Three more moments (PLAN-0915 area 4)
+
+**Escalations (Services).** "Unassigned request" (`work_order_unassigned`, 1 day) and
+"Emergency unassigned" (`work_order_unassigned_emergency`, 1 hour → you + co-managers by
+default) are ordinary `reminderRules` kinds, resolved per work order's property through
+`resolveReminderSettingsForRow`, same as every other Services reminder. "Vendor silent after
+accept" is different in kind: it is an ACTION, not a message. A work order whose vendor
+accepted but never scheduled the visit is unassigned and re-offered to the next-best declined
+bid — `sweepVendorSilentAfterAccept` (`subjects/services.server.ts`) reuses
+`sendWorkOrderVendorOffers` (`work-order-offers.server.ts`) for the actual re-offer, no second
+notification path. Its enable/hours (`reofferAfterVendorSilentHours`, default 24h) live in
+`serviceAutomation` beside `requireOnMyWay` and `notifyWhenNoVendorAnswers`, resolved by the
+same `resolveServiceAutomationSettingsForRow`. With nobody left to re-offer to, the manager is
+told once (`vendor_silent` work-order event) and the job stamps `vendorSilentEscalatedAt` so it
+stops re-checking every tick.
+
+**Lease-ending sequence (Leases).** Three resident-facing `reminderRules` kinds, swept
+alongside `lease_ending`/`move_out` in `subjects/tenancy.server.ts`'s existing `SWEEPS` list:
+
+| Kind | Fires | Anchor |
+| --- | --- | --- |
+| `lease_renewal_offer` | 60 days before | the lease end date |
+| `move_out_instructions` | 14 days before | an explicit move-out date |
+| `deposit_return_notice` | day of (the smallest valid lead) | an explicit move-out date |
+
+All three are informational — a nudge and a pointer, never the regulated notice itself. Deposit
+*accounting* (the figure, the deadline) stays the existing manager-only `deposit_accounting`
+kind; `deposit_return_notice` only tells the resident today is the day and where the real
+accounting will land.
+
+**Vendor settings honoured at send, not only offers.** Two gaps, both closed here. First,
+`sendVendorNotification` (`vendor-notification-delivery.ts`) — the ad hoc vendor email behind a
+scheduled visit and a bid-offer request — used to send a raw, unconditional Resend email and
+never text, bypassing the vendor's own Settings → Notifications topic on/off, quiet hours, and
+phone opt-out entirely. It now routes through `deliverPortalInboxMessage`'s `eventCategory` +
+`vendorTopic` gate, the same `resolveChannels` → `resolveVendorChannels` every reminder's vendor
+copy already used. Second, a reminder materialized for a vendor recipient (an offer expiring, an
+invoice nudge, a document expiring) was pushed out of quiet hours using the MANAGER's workspace
+`reminderRules.quietHours` — the same window applied to every recipient — never the vendor's own
+window. `ReminderRecipient.quietHours` (`queue.server.ts`) lets a caller attach a per-recipient
+override; the three vendor-audience sweeps in `subjects/services.server.ts` now load it via
+`loadVendorQuietHoursForUsers` (`vendor-notification-settings.server.ts`) and attach it to the
+vendor recipient, so a vendor's own quiet hours — not the manager's — decide when THEIR copy
+actually sends.
 
 ## What is deliberately not automated
 

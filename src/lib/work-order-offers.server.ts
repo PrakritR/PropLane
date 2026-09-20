@@ -248,6 +248,65 @@ export async function declineWorkOrderVendorOffer(
   return { ok: true };
 }
 
+/**
+ * "Vendor silent after accept" (PLAN-0915 area 4): the accepted vendor never
+ * scheduled the visit. Unassigns them and offers the job to the next-best
+ * declined bid (lowest price first), reusing the exact `sendWorkOrderVendorOffers`
+ * path a manager's own "Invite for bids" send uses — no second notification
+ * path for what is still, from the vendor's side, an ordinary new offer.
+ */
+export async function reofferWorkOrderToNextVendor(
+  db: Db,
+  input: {
+    workOrderId: string;
+    managerUserId: string;
+    managerEmail: string;
+    managerName?: string;
+    row: DemoManagerWorkOrderRow;
+    now?: Date;
+  },
+): Promise<{ ok: true; vendorId: string } | { ok: false; reason: "no_candidate" }> {
+  const now = input.now ?? new Date();
+  const { data: declinedBids } = await db
+    .from("work_order_bids")
+    .select("vendor_directory_id, amount_cents")
+    .eq("work_order_id", input.workOrderId)
+    .eq("status", "declined")
+    .not("vendor_directory_id", "is", null)
+    .order("amount_cents", { ascending: true });
+  const candidateId = ((declinedBids ?? []) as { vendor_directory_id: string | null }[])
+    .map((bid) => String(bid.vendor_directory_id ?? "").trim())
+    .find((id) => id && id !== input.row.vendorId);
+  if (!candidateId) return { ok: false, reason: "no_candidate" };
+
+  // Unassign the silent vendor first so the offer path reads the job as open —
+  // exactly what a manager pulling the assignment by hand would leave behind.
+  const unassignedRow: DemoManagerWorkOrderRow = {
+    ...input.row,
+    vendorId: undefined,
+    vendorName: undefined,
+    vendorAssignedAt: undefined,
+    biddingOpen: false,
+    biddingResolvedAt: undefined,
+  };
+  const { error } = await db
+    .from("portal_work_order_records")
+    .update({ vendor_user_id: null, row_data: unassignedRow, updated_at: now.toISOString() })
+    .eq("id", input.workOrderId);
+  if (error) throw error;
+
+  const actor: WorkOrderActor = {
+    userId: input.managerUserId,
+    email: input.managerEmail,
+    fullName: input.managerName?.trim() || "PropLane Automation",
+    admin: false,
+    role: "manager",
+  };
+  const result = await sendWorkOrderVendorOffers(db, actor, { workOrderId: input.workOrderId, vendorIds: [candidateId] });
+  if (!result.ok || result.sent.length === 0) return { ok: false, reason: "no_candidate" };
+  return { ok: true, vendorId: candidateId };
+}
+
 /** Best-effort: the decline is recorded whether or not the manager's notification lands. */
 async function notifyManagerOfDeclinedOffer(
   db: Db,

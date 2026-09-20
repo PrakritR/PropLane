@@ -1,12 +1,22 @@
 /**
- * Delivers a vendor-facing notification: best-effort email via Resend (skipped
- * for @axis.local demo addresses), an audit-log row, and an Axis inbox message
- * once the vendor has a linked auth user. Shared by every vendor notification
- * path (visit scheduled, bid offer request) so there is one place that does the
- * Resend call + audit log + inbox delivery, rather than duplicating it per route.
+ * Delivers a vendor-facing notification: email, an audit-log row, and an Axis
+ * inbox message once the vendor has a linked auth user. Shared by every vendor
+ * notification path (visit scheduled, bid offer request) so there is one place
+ * that does the send + audit log + inbox delivery, rather than duplicating it
+ * per route.
+ *
+ * PLAN-0915 area 4: this now routes through `deliverPortalInboxMessage`'s
+ * `eventCategory` + `vendorTopic` gate — the SAME per-recipient channel
+ * resolution (`resolveChannels` → `resolveVendorChannels`) every reminder
+ * already uses for a vendor recipient — instead of a raw, unconditional Resend
+ * call. Before this fix, a vendor's own Settings → Notifications topic
+ * on/off, quiet hours, and phone opt-out were only honored for a REMINDER's
+ * vendor copy; this ad hoc send (a visit notice, a bid offer) bypassed every
+ * one of them and never texted at all.
  */
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
-import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
+import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
+import type { VendorNotificationTopic } from "@/lib/vendor-notification-settings";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
@@ -20,6 +30,14 @@ export type VendorNotificationParams = {
   vendorUserId?: string | null;
   subject: string;
   body: string;
+  /**
+   * Which vendor Settings → Notifications row gates this send. Defaults to
+   * "schedule" — a visit notice or reminder; pass "offers" for a bid/offer
+   * request so it is gated by the same row the offer's own reminder uses.
+   */
+  topic?: VendorNotificationTopic;
+  /** An emergency work order: the vendor's own quiet-hours bypass applies, when they opted in. */
+  urgent?: boolean;
 };
 
 export async function sendVendorNotification(
@@ -28,45 +46,7 @@ export async function sendVendorNotification(
   params: VendorNotificationParams,
 ): Promise<{ emailSent: boolean; inboxDelivered: boolean; skippedDemoEmail: boolean }> {
   const vendorEmail = params.vendorEmail.trim().toLowerCase();
-  const skippedDemoEmail = vendorEmail.endsWith("@axis.local");
-
-  let emailSent = false;
-  const apiKey = process.env.RESEND_API_KEY?.trim();
-  if (vendorEmail.includes("@") && !skippedDemoEmail && apiKey) {
-    const from = await managerOutboundFromHeader(db, actor.userId);
-    const html = `<p style="white-space:pre-wrap;font-family:sans-serif;font-size:15px;line-height:1.6;color:#1e293b">${params.body
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")}</p><hr style="margin:24px 0;border:none;border-top:1px solid #e2e8f0"><p style="font-family:sans-serif;font-size:12px;color:#94a3b8">Sent via PropLane portal</p>`;
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to: [vendorEmail], subject: params.subject, text: params.body, html }),
-    });
-    emailSent = res.ok;
-  }
-
-  const outboundId = `outbound_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const { error: auditError } = await db.from("portal_outbound_mail_records").upsert(
-    {
-      id: outboundId,
-      recipient_email: vendorEmail,
-      subject: params.subject,
-      channel: "email",
-      row_data: {
-        id: outboundId,
-        to: vendorEmail,
-        subject: params.subject,
-        body: params.body,
-        sentAt: new Date().toISOString(),
-        emailSent,
-      },
-    },
-    { onConflict: "id" },
-  );
-  if (auditError) {
-    console.error("sendVendorNotification: audit log write failed", auditError);
-  }
+  const skippedDemoEmail = shouldSkipOutboundEmail(vendorEmail);
 
   let vendorUserId = params.vendorUserId ?? null;
   if (!vendorUserId && params.vendorDirectoryId) {
@@ -78,21 +58,21 @@ export async function sendVendorNotification(
     vendorUserId = (vendorRow?.vendor_user_id as string | null) ?? null;
   }
 
-  let inboxDelivered = false;
-  if (vendorUserId) {
-    const delivery = await deliverPortalInboxMessage(db, {
-      senderUserId: actor.userId,
-      senderEmail: actor.email,
-      fromName: actor.fullName || "PropLane Portal",
-      subject: params.subject,
-      text: params.body,
-      toUserIds: [vendorUserId],
-      deliverToPortalInbox: true,
-      deliverViaEmail: false,
-      deliverViaSms: false,
-    });
-    inboxDelivered = delivery.ok;
-  }
+  const delivery = await deliverPortalInboxMessage(db, {
+    senderUserId: actor.userId,
+    senderEmail: actor.email,
+    fromName: actor.fullName || "PropLane Portal",
+    subject: params.subject,
+    text: params.body,
+    ...(vendorUserId ? { toUserIds: [vendorUserId] } : { toEmails: [vendorEmail] }),
+    deliverViaEmail: true,
+    deliverViaSms: true,
+    eventCategory: "maintenance",
+    vendorTopic: params.topic ?? "schedule",
+    urgent: params.urgent,
+  });
 
-  return { emailSent, inboxDelivered, skippedDemoEmail };
+  if (!delivery.ok) return { emailSent: false, inboxDelivered: false, skippedDemoEmail };
+  const emailSent = delivery.emailOutcomes.some((outcome) => outcome.status === "submitted");
+  return { emailSent, inboxDelivered: Boolean(vendorUserId), skippedDemoEmail };
 }

@@ -496,6 +496,15 @@ const PLAN_0915_META: Partial<Record<ReminderSubjectKind, ReminderSubjectSetting
     subject: "Schedule {counterpartyName}’s move-out inspection", body: ["{counterpartyName} moves out of {propertyTitle} on {dueDateLabel}. Schedule the move-out inspection.", "", "{url}"], preview: { dueDateLabel: "Nov 30, 2026", url: "https://prop-lane.space/portal/inspections" } }),
   deposit_accounting: compactMeta({ directions: ["before"], timingLabel: "Remind me before the deadline", counterparty: "Resident", recipientPreview: "Your team",
     subject: "{counterpartyName}’s deposit accounting is due {duePhrase}", body: ["The deposit accounting for {counterpartyName} ({propertyTitle}) is due on {dueDateLabel}.", "", "Prepare it: {url}"], preview: { dueDateLabel: "Dec 21, 2026", duePhrase: "in 14 days", url: "https://prop-lane.space/portal/payments" } }),
+  // Lease-ending sequence (PLAN-0915 area 4). Informational — never a
+  // regulated notice: no statute citation, no accounting figure, just what is
+  // coming and where to go for it.
+  lease_renewal_offer: compactMeta({ directions: ["before"], timingLabel: "Send before the lease ends", counterparty: "Resident",
+    subject: "Renew your lease at {propertyTitle}?", body: ["Your lease at {propertyTitle} ends on {dueDateLabel} ({duePhrase}). If you would like to stay, let your property manager know — they can send a renewal offer.", "", "{url}"], preview: { dueDateLabel: "Nov 30, 2026", duePhrase: "in 60 days" } }),
+  move_out_instructions: compactMeta({ directions: ["before"], timingLabel: "Send before move-out", counterparty: "Resident",
+    subject: "Moving out {dueDateLabel} — what to do", body: ["Your move-out date is {dueDateLabel} ({duePhrase}).", "• Return all keys", "• Leave the room clean and empty", "• Give us a forwarding address", "", "{url}"], preview: { dueDateLabel: "Nov 30, 2026", duePhrase: "in 14 days", url: "https://prop-lane.space/resident/lease" } }),
+  deposit_return_notice: compactMeta({ directions: ["before"], timingLabel: "Send on move-out day", counterparty: "Resident",
+    subject: "Your deposit is being processed", body: ["Today is your move-out date at {propertyTitle}. Your security deposit accounting will follow once the move-out inspection is complete.", "", "{url}"], preview: { url: "https://prop-lane.space/resident/payments" } }),
   // ---- Applications ----
   application_documents: compactMeta({ directions: ["after"], timingLabel: "Remind after requested", counterparty: "Applicant", recipientPreview: "Alex Prospect",
     subject: "Documents still needed for {propertyTitle}", body: ["Your property manager asked for {title} {duePhrase} and has not received it yet.", "", "Upload: {url}"], preview: { title: "pay stubs (last 2)", duePhrase: "2 days ago", url: "https://prop-lane.space/resident/applications" } }),
