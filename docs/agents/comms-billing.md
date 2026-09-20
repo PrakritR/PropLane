@@ -21,7 +21,7 @@ environment after the deploy: `POST /api/admin/release-free-work-numbers` (admin
 
 ## Add-ons
 
-Past the bundle a paying account adds one unit at a time from Settings → Billing & plan
+Past the bundle a paying account adds units from Settings → Billing & plan
 (`src/lib/plan-addons.ts`, quantities in `manager_plan_addons`, route
 `/api/manager/plan-addons`). Each quota reads its plan cap PLUS the add-on quantity
 (`manager-property-quota.server.ts`, `workspaces/server.ts`, `/api/pro/account-links`).
@@ -30,14 +30,29 @@ Past the bundle a paying account adds one unit at a time from Settings → Billi
 | --- | --- | --- |
 | Extra property listing | $8/mo | $6/mo |
 | Extra work number | $5/mo | $5/mo |
-| Extra workspace | $15/mo (up to 2, i.e. 3 total) | $30/mo |
+| Extra workspace | $15/mo (up to 2, i.e. 3 total) | $30/mo (up to the database ceiling, `WORKSPACE_LIMIT`) |
 | Extra co-manager seat | $5/mo | $5/mo |
 
-A Stripe-managed subscription needs one Price per add-on and plan in env —
-`STRIPE_PRICE_ADDON_<EXTRA_LISTING|EXTRA_WORK_NUMBER|EXTRA_WORKSPACE|EXTRA_SEAT>_<PRO|BUSINESS>`
-— and the route adds/updates/removes a subscription item with proration before the
-quantity is written; without the Price the Add button is disabled ("not available for
-purchase yet"). Comp and admin grants record quantities without Stripe.
+**Add-ons are always purchasable (PLAN-0920).** A row is never disabled for a missing
+Stripe Price: `ensureAddonPrice()` (`plan-addons.server.ts`) resolves it in order — the
+env override `STRIPE_PRICE_ADDON_<EXTRA_LISTING|EXTRA_WORK_NUMBER|EXTRA_WORKSPACE|EXTRA_SEAT>_<PRO|BUSINESS>`,
+then an existing Price under the add-on's stable `lookup_key`
+(`planAddonLookupKey`, `proplane_addon_<id>_<tier>`), then creates the Product + Price
+from the catalog — idempotent across processes and cached per process. Comp and admin
+grants record quantities without Stripe (`getManagerPurchaseSku` has no billable
+subscription, so nothing is sent to Stripe at all).
+
+The panel's steppers change only local draft state; nothing is sent until the manager
+presses **Buy**, which applies every changed row as ONE Stripe subscription update
+(`setManagerPlanAddonQuantities`, `PATCH /api/manager/plan-addons` with
+`{ changes: [{ addonId, quantity }] }`) — all-or-nothing and prorated. On any Stripe
+failure nothing is written and the caller's existing quantities are returned unchanged;
+on success the panel re-reads quantities from the response, never from the click. The
+older single-item `{ addonId, quantity }` body still works on both `PATCH` and `POST`
+for backward compatibility. Caps: `extra_work_number` total is capped at 2 per workspace
+(`maxExtraWorkNumberQuantity`, `includedWorkNumbers` + purchased `extra_workspace`
+together set the workspace count); `extra_workspace` is capped by the product limit on
+Pro and by `WORKSPACE_LIMIT` on Business (`maxExtraWorkspaceQuantity`).
 
 Annual subscriptions receive the same monthly credit. Credit resets on the first of
 each month at 00:00 UTC. Existing managers keep their higher current allowance during
