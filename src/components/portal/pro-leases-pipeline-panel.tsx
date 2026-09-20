@@ -18,11 +18,15 @@ import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import { buildLeaseReadyForResidentMessage } from "@/lib/resident-portal-login-copy";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { ManagerLeasesGroupedTable } from "@/components/portal/pro-leases-grouped-table";
-import { portalEmptyCopy, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
+import { portalEmptyCopy, portalEmptyNoMatchTitle, type PortalEmptyCopyKey } from "@/lib/portal-empty-copy";
 import { leaseDetailHref, leaseListHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { matchesPortalListSearch } from "@/lib/portal-list-search";
 import {
   clusterManagerLeaseListRows,
+  leaseRowPlaceLine,
+  leaseStageFact,
+  leaseUpdatedShort,
   sortManagerLeaseClustersForBucket,
 } from "@/lib/manager-lease-list";
 import type { ManagerLeaseTab } from "@/data/demo-portal";
@@ -116,6 +120,8 @@ export function ManagerLeasesPipelinePanel({
   onDetailOpenChange,
   onAddLease,
   emptyCard,
+  searchQuery = "",
+  onClearSearch,
 }: {
   rows: LeasePipelineRow[];
   tab: ManagerLeaseTab;
@@ -128,6 +134,9 @@ export function ManagerLeasesPipelinePanel({
   onAddLease?: () => void;
   /** The tab's empty card (title, sibling, pill) — the page owns the copy and the tab counts. */
   emptyCard?: ComponentProps<typeof PortalRecordListSurface>["emptyCard"];
+  /** The command-bar search box: narrows this bucket's rows; the tab counts stay the bucket totals. */
+  searchQuery?: string;
+  onClearSearch?: () => void;
 }) {
   const { showToast } = useAppUi();
   const confirm = useConfirm();
@@ -274,14 +283,34 @@ export function ManagerLeasesPipelinePanel({
   void refreshKey;
   const bucketRows = useMemo(() => rows.filter((r) => leaseRowMatchesManagerTab(r, tab) && workspaceContainsProperty(r.propertyId || r.application?.propertyId)), [rows, tab]);
 
+  // The search box narrows the bucket BEFORE clustering, so a resident whose
+  // leases no longer match simply has no rows; the tab count is still the bucket.
+  const searchedRows = useMemo(
+    () =>
+      searchQuery.trim()
+        ? bucketRows.filter((row) =>
+            matchesPortalListSearch(
+              searchQuery,
+              row.residentName,
+              row.residentEmail,
+              leaseRowPlaceLine(row),
+              leaseStageFact(row),
+              leaseUpdatedShort(row),
+            ),
+          )
+        : bucketRows,
+    [bucketRows, searchQuery],
+  );
+  const searchHidesAll = bucketRows.length > 0 && searchedRows.length === 0;
+
   const leaseClusters = useMemo(
-    () => sortManagerLeaseClustersForBucket(clusterManagerLeaseListRows(bucketRows), tab),
-    [bucketRows, tab],
+    () => sortManagerLeaseClustersForBucket(clusterManagerLeaseListRows(searchedRows), tab),
+    [searchedRows, tab],
   );
 
   const selectedLeaseRows = useMemo(
-    () => bucketRows.filter((row) => selectedIds.has(row.id)),
-    [bucketRows, selectedIds],
+    () => searchedRows.filter((row) => selectedIds.has(row.id)),
+    [searchedRows, selectedIds],
   );
 
   const leaseRowSendBlockedReason = useCallback(
@@ -1041,13 +1070,22 @@ export function ManagerLeasesPipelinePanel({
     <>
       {leaseModals}
       <PortalRecordListSurface
-        isEmpty={bucketRows.length === 0}
+        isEmpty={searchedRows.length === 0}
         emptyCard={
-          emptyCard ?? {
-            title: portalEmptyCopy(`leases.${tab}` as PortalEmptyCopyKey).title,
-            section: "leases",
-            actions: onAddLease ? [{ label: "Add lease", onClick: onAddLease, dataAttr: "leases-list-add" }] : [],
-          }
+          searchHidesAll
+            ? {
+                title: portalEmptyNoMatchTitle("leases", searchQuery),
+                section: "leases",
+                tone: "muted",
+                clear: onClearSearch
+                  ? { label: "Clear search", onClick: onClearSearch, dataAttr: "leases-empty-clear-search" }
+                  : undefined,
+              }
+            : (emptyCard ?? {
+                title: portalEmptyCopy(`leases.${tab}` as PortalEmptyCopyKey).title,
+                section: "leases",
+                actions: onAddLease ? [{ label: "Add lease", onClick: onAddLease, dataAttr: "leases-list-add" }] : [],
+              })
         }
         onBulkClear={() => setSelectedIds(new Set())}
         bulkCount={selectedIds.size}
