@@ -1,8 +1,8 @@
 /**
  * "Who manages this resident RIGHT NOW" — the one resolver behind every
- * resident-facing view of their manager's work number.
+ * resident-facing view of how to reach their manager.
  *
- * The number is deliberately NOT stored on the resident. A resident moves: they
+ * The contact is deliberately NOT stored on the resident. A resident moves: they
  * sign at a different house, sometimes under a different manager, and the
  * number they are told to text has to become the new one the moment that lease
  * is real. Deriving it on every read means a new lease changes the answer just
@@ -12,6 +12,12 @@
  * A resident mid-move gets BOTH managers with dates rather than one picked
  * silently: that is exactly the moment the two houses are easiest to confuse,
  * and misrouting a message then is worse than showing an extra line.
+ *
+ * Before a lease exists, the manager is whoever holds the resident's live
+ * application or charges — the same evidence `managerIdsOwningResident`
+ * (resident-manager-scope.ts) accepts for "which managers may this resident
+ * message". An applicant paying an application fee is already talking to that
+ * manager in their inbox; the card must not pretend they have nobody to reach.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveActiveManagerWorkEmail } from "@/lib/manager-assistant-email/manager-assistant-email.server";
@@ -26,10 +32,24 @@ export type ResidentManagerContact = {
    * on every message they receive, so it discloses nothing new.
    */
   managerName: string | null;
-  /** Sendable work number in E.164, or null when they have none yet. */
+  /**
+   * The phone the resident can reach this manager on, E.164. The provisioned
+   * work number wins when it can send; otherwise the phone on the manager's
+   * own profile. Null only when the manager has neither.
+   */
   phone: string | null;
-  /** Manager's PropLane assistant inbox, when provisioned. */
-  assistantEmail: string | null;
+  /**
+   * What `phone` is. A work number is a texting line that never rings, so the
+   * card offers Text only; a profile phone is a real line and also gets Call.
+   */
+  phoneKind: "work" | "profile" | null;
+  /**
+   * The email the resident can write to. The workspace work email wins when
+   * provisioned; otherwise the manager's account email. Null only when the
+   * manager has neither.
+   */
+  email: string | null;
+  emailKind: "work" | "account" | null;
   /** House this tenancy is for — rendered only when there are several. */
   propertyLabel: string | null;
   leaseStart: string | null;
@@ -74,11 +94,47 @@ export function classifyTenancy(
   return "current";
 }
 
+type ApplicationRow = {
+  manager_user_id: string | null;
+  property_id: string | null;
+  assigned_property_id: string | null;
+  occupancy_start: string | null;
+  updated_at: string | null;
+  row_data: Record<string, unknown> | null;
+};
+
+type ChargeRow = {
+  manager_user_id: string | null;
+  updated_at: string | null;
+  row_data: Record<string, unknown> | null;
+};
+
+/** Same rule as resident-manager-scope.ts: a rejected or withdrawn application links nobody. */
+function applicationStillLinks(rowData: Record<string, unknown>): boolean {
+  const bucket = String(rowData.bucket ?? "").trim().toLowerCase();
+  return bucket !== "rejected" && bucket !== "withdrawn";
+}
+
+function propertyLabelOf(rowData: Record<string, unknown>, ...fallbacks: Array<string | null>): string | null {
+  return (
+    text(rowData.propertyLabel) ??
+    text(rowData.propertyName) ??
+    text(rowData.property) ??
+    fallbacks.map((value) => text(value)).find((value): value is string => Boolean(value)) ??
+    null
+  );
+}
+
 /**
- * Every tenancy that can still justify showing a manager's number, newest
+ * Every tenancy that can still justify showing a manager's contact, newest
  * first. Ended tenancies are kept: move-out questions and the deposit return
  * are exactly when a former resident most needs to reach someone, and they are
  * only surfaced when nothing current exists.
+ *
+ * Leases are the strongest evidence and win outright. With no lease at all, a
+ * live application, then a charge, names the manager instead — that is the
+ * applicant and the just-approved resident, who have a manager to reach but no
+ * signed lease yet.
  */
 export async function resolveResidentManagerContacts(
   db: SupabaseClient,
@@ -87,46 +143,95 @@ export async function resolveResidentManagerContacts(
   const email = args.residentEmail?.trim().toLowerCase() ?? "";
   const userId = args.residentUserId?.trim() ?? "";
   if (!email && !userId) return [];
+  const nowMs = args.nowMs ?? Date.now();
 
-  let query = db
-    .from("portal_lease_pipeline_records")
-    .select("manager_user_id, property_id, status, updated_at, row_data")
-    .order("updated_at", { ascending: false })
-    .limit(50);
   // Scope by the resident's OWN identity. Both columns are theirs; neither is
   // supplied by the caller of the API above this.
   const scope = orFilterForIdentity([
     ["resident_user_id", userId],
     ["resident_email", email],
   ]);
-  query = scope ? query.or(scope) : query.eq("resident_user_id", "");
 
-  const { data, error } = await query;
-  if (error) return [];
-
-  const nowMs = args.nowMs ?? Date.now();
   const byManager = new Map<string, ResidentManagerContact>();
-  for (const row of (data ?? []) as LeaseRow[]) {
+  const remember = (contact: ResidentManagerContact) => {
+    // One row per manager — a resident with several records under the same
+    // manager needs that contact once, not once per record. Rows arrive
+    // newest first, so the first is the one worth keeping.
+    if (!byManager.has(contact.managerUserId)) byManager.set(contact.managerUserId, contact);
+  };
+  const blank = (managerUserId: string): ResidentManagerContact => ({
+    managerUserId,
+    managerName: null,
+    phone: null,
+    phoneKind: null,
+    email: null,
+    emailKind: null,
+    propertyLabel: null,
+    leaseStart: null,
+    leaseEnd: null,
+    status: "current",
+  });
+
+  let leaseQuery = db
+    .from("portal_lease_pipeline_records")
+    .select("manager_user_id, property_id, status, updated_at, row_data")
+    .order("updated_at", { ascending: false })
+    .limit(50);
+  leaseQuery = scope ? leaseQuery.or(scope) : leaseQuery.eq("resident_user_id", "");
+  const { data: leases, error: leaseError } = await leaseQuery;
+  if (leaseError) return [];
+  for (const row of (leases ?? []) as LeaseRow[]) {
     const managerUserId = text(row.manager_user_id);
     if (!managerUserId) continue;
     const rowData = row.row_data ?? {};
     const application = (rowData.application ?? {}) as Record<string, unknown>;
     const leaseStart = text(application.leaseStart) ?? text(rowData.leaseStart);
     const leaseEnd = text(application.leaseEnd) ?? text(rowData.leaseEnd);
-    const contact: ResidentManagerContact = {
-      managerUserId,
-      managerName: null,
-      phone: null,
-      assistantEmail: null,
-      propertyLabel: text(rowData.propertyLabel) ?? text(rowData.propertyName) ?? text(row.property_id),
+    remember({
+      ...blank(managerUserId),
+      propertyLabel: propertyLabelOf(rowData, row.property_id),
       leaseStart,
       leaseEnd,
       status: classifyTenancy(leaseStart, leaseEnd, nowMs),
-    };
-    // One row per manager — a resident with several leases under the same
-    // manager needs that number once, not once per lease. Rows arrive newest
-    // first, so the first is the one worth keeping.
-    if (!byManager.has(managerUserId)) byManager.set(managerUserId, contact);
+    });
+  }
+
+  if (byManager.size === 0 && email) {
+    // Applications are keyed by email only (they predate the account).
+    const { data: apps } = await db
+      .from("manager_application_records")
+      .select("manager_user_id, property_id, assigned_property_id, occupancy_start, updated_at, row_data")
+      .eq("resident_email", email)
+      .order("updated_at", { ascending: false })
+      .limit(25);
+    for (const row of (apps ?? []) as ApplicationRow[]) {
+      const managerUserId = text(row.manager_user_id);
+      const rowData = row.row_data ?? {};
+      if (!managerUserId || !applicationStillLinks(rowData)) continue;
+      const application = (rowData.application ?? {}) as Record<string, unknown>;
+      const leaseStart = text(application.leaseStart) ?? text(rowData.leaseStart) ?? text(row.occupancy_start);
+      remember({
+        ...blank(managerUserId),
+        propertyLabel: propertyLabelOf(rowData, row.assigned_property_id, row.property_id),
+        leaseStart,
+        status: classifyTenancy(leaseStart, null, nowMs),
+      });
+    }
+  }
+
+  if (byManager.size === 0) {
+    let chargeQuery = db
+      .from("portal_household_charge_records")
+      .select("manager_user_id, updated_at, row_data")
+      .order("updated_at", { ascending: false })
+      .limit(25);
+    chargeQuery = scope ? chargeQuery.or(scope) : chargeQuery.eq("resident_user_id", "");
+    const { data: charges } = await chargeQuery;
+    for (const row of (charges ?? []) as ChargeRow[]) {
+      const managerUserId = text(row.manager_user_id);
+      if (!managerUserId) continue;
+      remember({ ...blank(managerUserId), propertyLabel: propertyLabelOf(row.row_data ?? {}) });
+    }
   }
 
   const all = [...byManager.values()];
@@ -135,9 +240,14 @@ export async function resolveResidentManagerContacts(
 }
 
 /**
- * The resolver plus the numbers, filtered to those that can ACTUALLY receive a
- * text or email. A number that is not sendable is worse than none: the resident
- * texts it and hears nothing, which reads as being ignored by their manager.
+ * The resolver plus the ways to reach each manager.
+ *
+ * A work number that cannot actually send is dropped rather than shown: the
+ * resident would text it and hear nothing, which reads as being ignored. But
+ * "no work channel yet" is NOT "unreachable" — most managers put a phone and an
+ * email on their profile long before they provision a work line, and the
+ * resident's card used to vanish for exactly those managers. So each channel
+ * falls back to the profile, and a contact is kept whenever either resolves.
  */
 export async function resolveResidentManagerPhones(
   db: SupabaseClient,
@@ -146,24 +256,31 @@ export async function resolveResidentManagerPhones(
   const contacts = await resolveResidentManagerContacts(db, args);
   const withChannels = await Promise.all(
     contacts.map(async (contact) => {
-      const [phone, assistantEmail, profileRow] = await Promise.all([
+      const [workPhone, workEmail, profileRow] = await Promise.all([
         resolveActiveManagerSendNumber(db, contact.managerUserId).catch(() => null),
         resolveActiveManagerWorkEmail(db, contact.managerUserId).catch(() => null),
         Promise.resolve(
-          db.from("profiles").select("full_name").eq("id", contact.managerUserId).maybeSingle(),
+          db.from("profiles").select("full_name, phone, email").eq("id", contact.managerUserId).maybeSingle(),
         )
           .then((res) => res.data)
           .catch(() => null),
       ]);
+      const profile = (profileRow ?? null) as { full_name?: unknown; phone?: unknown; email?: unknown } | null;
+      const profilePhone = text(profile?.phone);
+      const accountEmail = text(profile?.email)?.toLowerCase() ?? null;
+      const phone = text(workPhone) ?? profilePhone;
+      const email = text(workEmail)?.toLowerCase() ?? accountEmail;
       return {
         ...contact,
         // An absent name is not an error — the card simply leads with the
         // number, as it did before there was a name to show.
-        managerName: text((profileRow as { full_name?: unknown } | null)?.full_name),
+        managerName: text(profile?.full_name),
         phone,
-        assistantEmail,
-      };
+        phoneKind: phone ? (text(workPhone) ? "work" : "profile") : null,
+        email,
+        emailKind: email ? (text(workEmail) ? "work" : "account") : null,
+      } satisfies ResidentManagerContact;
     }),
   );
-  return withChannels.filter((contact) => Boolean(contact.phone || contact.assistantEmail));
+  return withChannels.filter((contact) => Boolean(contact.phone || contact.email));
 }

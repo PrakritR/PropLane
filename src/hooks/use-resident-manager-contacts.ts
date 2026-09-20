@@ -15,8 +15,12 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
 
 export type ResidentManagerContact = {
   managerName: string | null;
+  /** Work number when it can send, otherwise the manager's profile phone. */
   phone: string | null;
-  assistantEmail: string | null;
+  phoneKind: "work" | "profile" | null;
+  /** Work email when provisioned, otherwise the manager's account email. */
+  email: string | null;
+  emailKind: "work" | "account" | null;
   propertyLabel: string | null;
   leaseStart: string | null;
   leaseEnd: string | null;
@@ -55,7 +59,7 @@ function load(): Promise<ResidentManagerContact[]> {
           ? (body as { contacts?: ResidentManagerContact[] }).contacts
           : null;
       const next = Array.isArray(rows)
-        ? rows.filter((row) => Boolean(row?.phone?.trim() || row?.assistantEmail?.trim()))
+        ? rows.filter((row) => Boolean(row?.phone?.trim() || row?.email?.trim()))
         : [];
       cached = next;
       return next;
