@@ -12,6 +12,7 @@ import {
   connectAccountReadyForAchPayouts,
   connectAccountTransfersActive,
   ensureConnectAccountTransfersRequested,
+  isApplicationCollected,
   isStripeConnectAccountAccessError,
   clearManagerConnectAccountId,
   resolveManagerConnectAccountId,
@@ -27,6 +28,13 @@ export const runtime = "nodejs";
  * onboarding — the client mounts `account_onboarding` via
  * `/api/stripe/connect/account-session` in PropLane's own modal, so this
  * route no longer mints or returns any Stripe-hosted URL.
+ *
+ * PLAN-0920-1500 Part C: a NEW (application-collected) account never gets
+ * `mode: "embedded"` from this route — it 409s `USE_IN_APP_IDENTITY`, and the
+ * client opens PropLane's own Verify-identity sheet instead
+ * (`/api/stripe/connect/identity`). A legacy `stripe_dashboard.type: "express"`
+ * account is untouched and keeps finishing through the embedded response
+ * below (Decide 2 of the plan: "keep them").
  *
  * A saved account id Stripe can no longer retrieve is NEVER cleared silently
  * — that used to happen on every access error, even on a routine load, which
@@ -110,6 +118,22 @@ export async function POST(req: Request) {
       });
 
       const acct = await ensureConnectAccountTransfersRequested(stripe, accountId);
+
+      // PLAN-0920-1500 Part C: a new (application-collected) account never
+      // gets a hosted or embedded onboarding step from this route — identity
+      // and bank details are PropLane's own in-app forms. A legacy
+      // `stripe_dashboard.type: "express"` account keeps the embedded-mode
+      // response below (Decide 2: "keep them").
+      if (isApplicationCollected(acct)) {
+        return NextResponse.json(
+          {
+            code: "USE_IN_APP_IDENTITY",
+            accountId,
+            error: "Finish verification in Payouts — identity and bank details are collected in PropLane.",
+          },
+          { status: 409 },
+        );
+      }
 
       return NextResponse.json({
         mode: "embedded" as const,

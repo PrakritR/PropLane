@@ -7,6 +7,7 @@ import {
   connectAccountReadyForAchPayouts,
   connectAccountTransfersActive,
   ensureConnectAccountTransfersRequested,
+  isApplicationCollected,
   isStripeConnectAccountAccessError,
   resolveManagerConnectAccountId,
   retrieveManagerConnectAccountOrNull,
@@ -30,6 +31,12 @@ export const runtime = "nodejs";
  * request time and genuinely can't be retrieved. A saved account Stripe CAN
  * still retrieve is healthy — relink is refused with 409 and the id is left
  * untouched.
+ *
+ * PLAN-0920-1500 Part C: a NEW (application-collected) account never gets
+ * `mode: "embedded"` here either — it 409s `USE_IN_APP_IDENTITY` and the
+ * vendor's Verify-identity sheet opens instead
+ * (`/api/vendor/stripe-connect/identity`). A legacy express account is
+ * untouched and keeps the embedded response below.
  */
 export async function POST(req: Request) {
   try {
@@ -79,6 +86,17 @@ export async function POST(req: Request) {
       });
 
       const acct = await ensureConnectAccountTransfersRequested(stripe, accountId);
+
+      if (isApplicationCollected(acct)) {
+        return NextResponse.json(
+          {
+            code: "USE_IN_APP_IDENTITY",
+            accountId,
+            error: "Finish verification in Payouts — identity and bank details are collected in PropLane.",
+          },
+          { status: 409 },
+        );
+      }
 
       return NextResponse.json({
         mode: "embedded" as const,
