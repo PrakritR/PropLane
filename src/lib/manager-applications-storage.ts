@@ -7,6 +7,7 @@ import type { RentalWizardFormState } from "@/lib/rental-application/types";
 import {
   computeLeaseEndDate,
   normalizeIsoDateInput,
+  parseFlexibleLocalDate,
   resolvePlacementLeaseDates,
   shouldAutoComputeLeaseEnd,
 } from "@/lib/rental-application/lease-dates";
@@ -1019,23 +1020,6 @@ export { enrichApplicationForLease, resolveApplicationPersonalFields } from "@/l
 
 /* ─────────────── rent per resident: which room, which slot (PLAN-0920-0631) ─────────────── */
 
-function slotFlexibleLocalDate(value: string | undefined | null): Date | null {
-  const raw = String(value ?? "").trim();
-  if (!raw) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-    const [y, m, dd] = raw.split("-").map(Number);
-    const dt = new Date(y!, m! - 1, dd!);
-    return Number.isNaN(dt.getTime()) ? null : dt;
-  }
-  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(raw)) {
-    const [m, dd, y] = raw.split("/").map(Number);
-    const dt = new Date(y!, m! - 1, dd!);
-    return Number.isNaN(dt.getTime()) ? null : dt;
-  }
-  const dt = new Date(raw);
-  return Number.isNaN(dt.getTime()) ? null : new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
-}
-
 /**
  * Which resident slot(s) of `row`'s room are open, for the approval picker
  * and Add resident — the browser-side read of the SAME decision
@@ -1066,12 +1050,12 @@ export function openResidentSlotsForApplicationRow(
     const siblingChoice = sibling.assignedRoomChoice?.trim() || siblingEffective?.roomChoice1?.trim() || "";
     if (!siblingChoice || siblingChoice !== targetChoice) continue;
     const start =
-      slotFlexibleLocalDate(sibling.manualResidentDetails?.moveInDate) ??
-      slotFlexibleLocalDate(siblingEffective?.leaseStart);
+      parseFlexibleLocalDate(sibling.manualResidentDetails?.moveInDate) ??
+      parseFlexibleLocalDate(siblingEffective?.leaseStart);
     if (!start) continue;
     const end =
-      slotFlexibleLocalDate(sibling.manualResidentDetails?.moveOutDate) ??
-      slotFlexibleLocalDate(siblingEffective?.leaseEnd);
+      parseFlexibleLocalDate(sibling.manualResidentDetails?.moveOutDate) ??
+      parseFlexibleLocalDate(siblingEffective?.leaseEnd);
     placements.push({
       id: String(sibling.id ?? ""),
       start,

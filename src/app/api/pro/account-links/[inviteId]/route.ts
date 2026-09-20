@@ -15,7 +15,7 @@ import {
   type TeamRoleId,
 } from "@/lib/co-manager-team-roles";
 import { normalizeWorkspacePermissions } from "@/lib/workspace-co-manager-permissions";
-import { canActOnMember, parseHouseScope, roleAssignableBy, type WorkspaceRole } from "@/lib/workspaces/membership";
+import { canActOnMember, canManageWorkspaceMembers, parseHouseScope, roleAssignableBy, type WorkspaceRole } from "@/lib/workspaces/membership";
 import { actorWorkspaceStanding, workspaceAdminCount, workspaceHouseIds } from "@/lib/workspaces/membership.server";
 import { isCrossSandboxPortalPair, CROSS_SANDBOX_PORTAL_PAIR_ERROR } from "@/lib/portal-sandbox-accounts";
 import { scopedRelationshipDeletesForRevokedInvite } from "@/lib/pro-relationships";
@@ -87,7 +87,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
       const standing = await actorWorkspaceStanding(svc, user.id, inviteWorkspaceId);
       if (standing?.rights.members) actorRole = standing.role;
     }
-    const actorManages = actorRole === "owner" || (actorRole != null && actorRole !== "custom" && actorRole !== "viewer" && actorRole !== "leasing" && actorRole !== "bookkeeper" && actorRole !== "maintenance" && actorRole !== "property_manager");
+    const actorManages = canManageWorkspaceMembers(actorRole);
     const targetRole = resolveInviteTeamRole(invite.team_role, readPropertyPermissionsFromRow(invite));
     const guardMemberAction = async (): Promise<NextResponse | null> => {
       if (actorRole === "owner") return null;
@@ -176,14 +176,34 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
         if (refused) return refused;
       }
 
+      const requestedWorkspaceId =
+        body?.workspaceId !== undefined
+          ? (typeof body.workspaceId === "string" ? body.workspaceId.trim() || null : null)
+          : undefined;
+      let nextWorkspaceId: string | null = invite.workspace_id ?? null;
+      if (requestedWorkspaceId !== undefined && requestedWorkspaceId !== nextWorkspaceId) {
+        if (actorRole !== "owner") {
+          return NextResponse.json({ error: "Only the workspace owner can move a member to another workspace." }, { status: 403 });
+        }
+        if (!requestedWorkspaceId) {
+          return NextResponse.json({ error: "A membership belongs to a workspace." }, { status: 400 });
+        }
+        const target = await actorWorkspaceStanding(svc, invite.inviter_user_id, requestedWorkspaceId);
+        if (!target || target.role !== "owner") {
+          return NextResponse.json({ error: "That workspace is not yours." }, { status: 403 });
+        }
+        nextWorkspaceId = target.workspaceId;
+      }
+      const houseWorkspaceId = nextWorkspaceId ?? "";
+
       const nextHouseScope = body?.houseScope !== undefined ? parseHouseScope(body.houseScope) : parseHouseScope(invite.house_scope);
       let nextAssigned = patchProps ? asStringArray(body?.assignedPropertyIds) : asStringArray(invite.assigned_property_ids);
-      if (nextHouseScope === "all" && inviteWorkspaceId) {
+      if (nextHouseScope === "all" && houseWorkspaceId) {
         // The workspace decides: every house it holds now, and the database
         // keeps the list current after this write.
-        nextAssigned = await workspaceHouseIds(svc, invite.inviter_user_id, inviteWorkspaceId);
-      } else if (inviteWorkspaceId && patchProps) {
-        const houses = new Set(await workspaceHouseIds(svc, invite.inviter_user_id, inviteWorkspaceId));
+        nextAssigned = await workspaceHouseIds(svc, invite.inviter_user_id, houseWorkspaceId);
+      } else if (houseWorkspaceId && (patchProps || houseWorkspaceId !== inviteWorkspaceId)) {
+        const houses = new Set(await workspaceHouseIds(svc, invite.inviter_user_id, houseWorkspaceId));
         if (nextAssigned.some((pid) => !houses.has(pid))) {
           return NextResponse.json({ error: "Choose houses from this workspace only." }, { status: 400 });
         }
@@ -277,10 +297,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
           : body?.workspacePermissions !== undefined
             ? normalizeWorkspacePermissions(body.workspacePermissions)
             : normalizeWorkspacePermissions(invite.workspace_permissions);
-      const nextWorkspaceId =
-        body?.workspaceId !== undefined
-          ? (typeof body.workspaceId === "string" ? body.workspaceId.trim() || null : null)
-          : invite.workspace_id ?? null;
       const stampedWorkspace = stampTeamRolePermissions(nextTeamRole);
       const nextWorkspaceDefaults =
         stampedWorkspace ??

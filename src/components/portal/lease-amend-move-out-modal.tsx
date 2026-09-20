@@ -591,7 +591,13 @@ export function LeaseAmendMoveOutModal({
           ...(canWaiveEarlyMoveOutFee && direction === "decrease" ? { waiveEarlyMoveOutFee: !chargeEarlyMoveOutFee } : {}),
         }),
       });
-      const json = (await res.json()) as { ok?: boolean; error?: string; direction?: string; earlyMoveOutFee?: number | null };
+      const json = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        direction?: string;
+        earlyMoveOutFee?: number | null;
+        earlyMoveOutFeeFailed?: boolean;
+      };
       if (!res.ok || !json.ok) {
         showToast(json.error ?? "Failed to update move-out date.");
       } else {
@@ -599,9 +605,11 @@ export function LeaseAmendMoveOutModal({
         onSuccess();
         const msg =
           json.direction === "decrease"
-            ? json.earlyMoveOutFee
-              ? `Move-out date updated and the $${json.earlyMoveOutFee.toFixed(2)} early move-out fee added. The lease needs to be re-signed.`
-              : "Move-out date updated. The lease needs to be re-signed."
+            ? json.earlyMoveOutFeeFailed
+              ? "Move-out date updated, but the early move-out fee could not be added — add it from Payments. The lease needs to be re-signed."
+              : json.earlyMoveOutFee
+                ? `Move-out date updated and the $${json.earlyMoveOutFee.toFixed(2)} early move-out fee added. The lease needs to be re-signed.`
+                : "Move-out date updated. The lease needs to be re-signed."
             : "Lease extended. The lease needs to be re-signed.";
         showToast(msg);
       }
