@@ -40,9 +40,15 @@ begin
     end if;
     return v_id;
   end if;
+  -- A disabled but unreleased identity can have its own release queue row.
+  -- Count that provider resource once, then separately reserve only orphaned
+  -- (or already-released identity) queue rows left by account cleanup.
   if (
-    (select count(*) from public.vendor_work_identities where released_at is null) +
-    (select count(*) from public.vendor_work_identity_release_queue where state <> 'released')
+    (select count(*) from public.vendor_work_identities i where i.released_at is null) +
+    (select count(*)
+      from public.vendor_work_identity_release_queue q
+      left join public.vendor_work_identities i on i.id = q.identity_id
+      where q.state <> 'released' and (i.id is null or i.released_at is not null))
   ) >= (select max_active_identities from public.vendor_work_identity_runtime where singleton = true) then
     return null;
   end if;
@@ -57,7 +63,7 @@ $$;
 -- reconciling and is deliberately not claimed again without an authoritative
 -- provider inspection.
 create or replace function public.claim_vendor_work_identity_releases(p_limit integer default 20)
-returns table(id uuid, phone_number_sid text)
+returns table(id uuid, identity_id uuid, phone_number_sid text)
 language plpgsql security definer set search_path = public, pg_temp as $$
 begin
   return query
@@ -71,9 +77,9 @@ begin
     update public.vendor_work_identity_release_queue q
       set state = 'calling_provider', attempts = q.attempts + 1, updated_at = now()
     from candidates c where q.id = c.id
-    returning q.id, q.phone_number_sid
+    returning q.id, q.identity_id, q.phone_number_sid
   )
-  select claimed.id, claimed.phone_number_sid from claimed;
+  select claimed.id, claimed.identity_id, claimed.phone_number_sid from claimed;
 end;
 $$;
 revoke execute on function public.claim_vendor_work_identity_releases(integer) from public, anon, authenticated;

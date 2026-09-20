@@ -101,17 +101,17 @@ export type VendorSponsoredOutboundResult =
   | { ok: false; error: "invalid_request" | "recipient_unlinked" | "conversation_unavailable" | "delivery_refused"; reason?: string };
 
 async function profileById(db: SupabaseClient, id: string): Promise<Recipient | null> {
-  const { data } = await db.from("profiles").select("id,email,role").eq("id", id).maybeSingle();
+  const { data } = await db.from("profiles").select("id,email,role,phone").eq("id", id).maybeSingle();
   const email = String(data?.email ?? "").trim().toLowerCase();
   const userId = String(data?.id ?? "").trim();
-  return userId && email ? { userId, email, role: String(data?.role ?? "").trim().toLowerCase() } : null;
+  return userId && email ? { userId, email, role: String(data?.role ?? "").trim().toLowerCase(), phone: String(data?.phone ?? "").trim() || null } : null;
 }
 
 async function profileByEmail(db: SupabaseClient, email: string): Promise<Recipient | null> {
-  const { data } = await db.from("profiles").select("id,email,role").eq("email", email).maybeSingle();
+  const { data } = await db.from("profiles").select("id,email,role,phone").eq("email", email).maybeSingle();
   const resolved = String(data?.email ?? "").trim().toLowerCase();
   const userId = String(data?.id ?? "").trim();
-  return userId && resolved ? { userId, email: resolved, role: String(data?.role ?? "").trim().toLowerCase() } : null;
+  return userId && resolved ? { userId, email: resolved, role: String(data?.role ?? "").trim().toLowerCase(), phone: String(data?.phone ?? "").trim() || null } : null;
 }
 
 /** Exact vendor-user linkage only — never the legacy directory email fallback. */
@@ -171,7 +171,12 @@ export async function sendVendorSponsoredOutbound(
   if (target && !binding) return { ok: false, error: "conversation_unavailable" };
   const boundRecipient = binding?.recipient ?? "";
   const resolvedRecipient = request.recipientAdmin && !target
-    ? { userId: "", email: PRIMARY_ADMIN_EMAIL.trim().toLowerCase(), role: "admin" }
+    // Email has historically delivered to the primary-admin mailbox even when
+    // that account has no profile. SMS cannot do that: obtain the actual
+    // profile phone first and fail closed if it is absent or malformed.
+    ? request.channel === "sms"
+      ? await profileByEmail(db, PRIMARY_ADMIN_EMAIL.trim().toLowerCase())
+      : { userId: null, email: PRIMARY_ADMIN_EMAIL.trim().toLowerCase(), role: "admin", phone: null }
     : target
     ? binding?.recipient_user_id
       ? await profileById(db, binding.recipient_user_id)
@@ -200,6 +205,10 @@ export async function sendVendorSponsoredOutbound(
         }
     : null);
   if (!recipient) return { ok: false, error: "recipient_unlinked" };
+  const deliveryRecipient = request.channel === "email" ? recipient.email : normalizeE164(recipient.phone ?? "");
+  // Resolve and validate the actual channel destination during preflight. The
+  // exact same value is later passed to delivery and stored in the reply binding.
+  if (!deliveryRecipient) return { ok: false, error: "recipient_unlinked" };
 
   // The exact directory/account-link relationship is the source of the portal
   // scope. A multi-role manager may retain a legacy profiles.role of resident.
@@ -228,9 +237,7 @@ export async function sendVendorSponsoredOutbound(
     {
       vendorUserId: actor.userId,
       channel: request.channel,
-      recipient: request.channel === "email"
-        ? recipient.email
-        : recipient.phone ?? String((await db.from("profiles").select("phone").eq("id", recipient.userId ?? "").maybeSingle()).data?.phone ?? ""),
+      recipient: deliveryRecipient,
       recipientUserId: binding?.recipient_user_id ?? recipient.userId ?? null,
       subject,
       text,
@@ -286,7 +293,7 @@ export async function sendVendorSponsoredOutbound(
       vendorUserId: actor.userId,
       threadId: sentCopy.threadId,
       channel: request.channel,
-      recipient: request.channel === "email" ? recipient.email : String(recipient.phone ?? ""),
+      recipient: deliveryRecipient,
       recipientUserId: recipient.userId,
       messageId,
     });

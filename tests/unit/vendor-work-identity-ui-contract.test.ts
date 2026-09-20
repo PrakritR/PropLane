@@ -9,6 +9,7 @@ describe("vendor work identity UI contract", () => {
     expect(card).toContain("/api/vendor/work-identity");
     expect(card).toContain("Send {capability(\"email\")?.sendReady");
     expect(card).toContain("Receive {capability(\"sms\")?.receiveReady");
+    expect(settings).toContain("Free · covered by PropLane");
   });
   it("renders disabled, unavailable, capacity, failed-read and retry states", () => {
     for (const source of [card, settings]) {

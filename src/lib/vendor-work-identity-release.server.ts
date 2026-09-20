@@ -16,6 +16,11 @@ export async function releaseQueuedVendorWorkIdentities(db: SupabaseClient, limi
     try {
       const sid = String(row.phone_number_sid ?? "").trim();
       if (sid && !(await releaseTwilioNumber(sid))) throw new Error("twilio_release_failed");
+      const identityId = String(row.identity_id ?? "").trim();
+      if (identityId) {
+        const { error: identityError } = await db.from("vendor_work_identities").update({ lifecycle_state: "released", email_state: "released", sms_state: "released", released_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", identityId);
+        if (identityError) throw new Error(identityError.message);
+      }
       const { error: saved } = await db.from("vendor_work_identity_release_queue").update({ state: "released", released_at: new Date().toISOString(), last_error: null, updated_at: new Date().toISOString() }).eq("id", id);
       if (saved) throw new Error(saved.message);
       released += 1;
@@ -24,7 +29,8 @@ export async function releaseQueuedVendorWorkIdentities(db: SupabaseClient, limi
       // A failed remove may mean a lost response after Twilio accepted it.
       // Reconciliation owns the next provider inspection; this worker never
       // blindly calls remove twice.
-      await db.from("vendor_work_identity_release_queue").update({ state: "reconciling", last_error: cause instanceof Error ? cause.message : "release_outcome_unknown", updated_at: new Date().toISOString() }).eq("id", id);
+      const { error: reconcileError } = await db.from("vendor_work_identity_release_queue").update({ state: "reconciling", last_error: cause instanceof Error ? cause.message : "release_outcome_unknown", updated_at: new Date().toISOString() }).eq("id", id);
+      if (reconcileError) throw new Error(reconcileError.message);
     }
   }
   return { released, failed };
@@ -57,16 +63,19 @@ export async function reconcileVendorWorkIdentityReleases(
     const id = String(row.id ?? ""); const sid = String(row.phone_number_sid ?? "").trim();
     const status = sid ? await inspect(sid) : "absent";
     if (status === "absent") {
-      await db.from("vendor_work_identity_release_queue").update({ state: "released", released_at: new Date().toISOString(), last_error: null, updated_at: new Date().toISOString() }).eq("id", id);
       const identityId = String(row.identity_id ?? "").trim();
       if (identityId) {
         // This may match no row after account deletion; that is expected. For
         // partial portal cleanup it closes the surviving identity lifecycle.
-        await db.from("vendor_work_identities").update({ lifecycle_state: "released", email_state: "released", sms_state: "released", released_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", identityId);
+        const { error: identityError } = await db.from("vendor_work_identities").update({ lifecycle_state: "released", email_state: "released", sms_state: "released", released_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", identityId);
+        if (identityError) throw new Error(identityError.message);
       }
+      const { error: queueError } = await db.from("vendor_work_identity_release_queue").update({ state: "released", released_at: new Date().toISOString(), last_error: null, updated_at: new Date().toISOString() }).eq("id", id);
+      if (queueError) throw new Error(queueError.message);
       released += 1;
     } else if (status === "owned") {
-      await db.from("vendor_work_identity_release_queue").update({ state: "failed", last_error: "provider_resource_still_owned", updated_at: new Date().toISOString() }).eq("id", id);
+      const { error: queueError } = await db.from("vendor_work_identity_release_queue").update({ state: "failed", last_error: "provider_resource_still_owned", updated_at: new Date().toISOString() }).eq("id", id);
+      if (queueError) throw new Error(queueError.message);
       quarantined += 1;
     } else {
       unavailable += 1;

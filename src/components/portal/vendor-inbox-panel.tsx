@@ -468,7 +468,7 @@ export const VendorInboxPanel = forwardRef<
   );
 
   const handleComposeSend = useCallback(
-    (p: ScopedInboxSendPayload) => {
+    async (p: ScopedInboxSendPayload) => {
       if (p.includesAxisAdmin && isDemoModeActive()) {
         appendPortalMessageToAdminInbox({
           role: "vendor",
@@ -478,41 +478,52 @@ export const VendorInboxPanel = forwardRef<
           body: p.body.trim(),
         });
       }
-      setComposeOpen(false);
-      void (async () => {
-        try {
-          const res = await fetch("/api/vendor/send-inbox-message", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({
-              recipientUserIds: p.directRecipientUserIds,
-              broadcastCategories: p.broadcastCategories,
-              includesAxisAdmin: p.includesAxisAdmin,
-              subject: p.subject.trim(),
-              text: p.body.trim(),
-              channel: "email",
-              sendId: p.sendId,
-            }),
-          });
-          const data = (await res.json().catch(() => ({}))) as { ok?: boolean };
-          if (!res.ok || !data.ok) {
-            showToast("Message could not be sent.");
-            return;
-          }
-          invalidatePersistedInboxCache(VENDOR_INBOX_STORAGE_KEY);
-          const rows = await syncPersistedInboxFromServer(VENDOR_INBOX_STORAGE_KEY, { force: true });
-          setLocal(rows as InboxThread[]);
+      try {
+        const res = await fetch("/api/vendor/send-inbox-message", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            recipientUserIds: p.directRecipientUserIds,
+            broadcastCategories: p.broadcastCategories,
+            includesAxisAdmin: p.includesAxisAdmin,
+            subject: p.subject.trim(),
+            text: p.body.trim(),
+            channel: "email",
+            sendId: p.sendId,
+          }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          delivery?: "sent" | "sending" | "failed" | "mixed" | "refused";
+        };
+        if (!res.ok || !data.ok) {
+          showToast("Message could not be sent.");
+          return false;
+        }
+        invalidatePersistedInboxCache(VENDOR_INBOX_STORAGE_KEY);
+        const rows = await syncPersistedInboxFromServer(VENDOR_INBOX_STORAGE_KEY, { force: true });
+        setLocal(rows as InboxThread[]);
+        if (data.delivery === "sent" || !data.delivery) {
+          setComposeOpen(false);
           showToast(
             p.includesAxisAdmin && !p.includesDirectoryRecipients
               ? "Message sent to PropLane admin."
               : "Message sent.",
           );
           navigate("/vendor/communication/email/sent");
-        } catch {
-          showToast("Message could not be sent.");
+          return true;
         }
-      })();
+        if (data.delivery === "failed") showToast("Message delivery failed. Draft kept for retry.");
+        else if (data.delivery === "sending") showToast("Message is still sending. Draft kept for retry.");
+        else showToast("Some deliveries failed or are still sending. Draft kept for retry.");
+        // Returning false preserves the compose fields and its child send ids.
+        // A retry therefore reuses the server outbox fences for each recipient.
+        return false;
+      } catch {
+        showToast("Message could not be sent.");
+        return false;
+      }
     },
     [navigate, showToast],
   );
