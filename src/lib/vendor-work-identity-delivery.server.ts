@@ -41,19 +41,33 @@ export async function deliverVendorWorkIdentity(
   if (operationError || !operation?.operation_id) return { ok: false, reason: "operation_unavailable" };
   const { data: outboxData, error: outboxError } = await db.rpc("claim_vendor_work_identity_outbound", { p_vendor_user_id: input.vendorUserId, p_identity_id: row.id, p_operation_id: operation.operation_id, p_idempotency_key: input.idempotencyKey, p_channel: input.channel, p_recipient: recipient, p_subject: input.subject, p_body: input.text });
   const outbox = (Array.isArray(outboxData) ? outboxData[0] : outboxData) as { outbox_id?: string; claimed?: boolean; blocked_reason?: string } | null;
-  if (outboxError || !outbox?.outbox_id) return { ok: false, reason: outbox?.blocked_reason ?? "cap_or_outbox_blocked" };
+  if (outboxError || !outbox?.outbox_id) {
+    const reason = outbox?.blocked_reason ?? "cap_or_outbox_blocked";
+    await db.from("vendor_work_identity_operations").update({ state: "failed", error_code: reason, updated_at: new Date().toISOString() }).eq("id", operation.operation_id);
+    return { ok: false, reason };
+  }
   if (!operation.claimed || !outbox.claimed) {
-    const { data: existing } = await db.from("vendor_work_identity_outbox").select("status,provider_message_id").eq("id", outbox.outbox_id).maybeSingle();
-    return { ok: true, sent: (existing as { status?: string } | null)?.status === "sent", providerMessageId: (existing as { provider_message_id?: string | null } | null)?.provider_message_id ?? null };
+    const { data: existing, error: replayError } = await db.from("vendor_work_identity_outbox").select("status,provider_message_id,blocked_reason").eq("id", outbox.outbox_id).maybeSingle();
+    if (replayError || !existing) return { ok: false, reason: "replay_state_unavailable" };
+    const replay = existing as { status?: string; provider_message_id?: string | null; blocked_reason?: string | null };
+    if (replay.status === "sent") return { ok: true, sent: true, providerMessageId: replay.provider_message_id ?? null };
+    if (replay.status === "reconciling" || replay.status === "authorized" || replay.status === "calling_provider") return { ok: false, sent: false, reason: "provider_outcome_unknown", providerMessageId: replay.provider_message_id ?? null };
+    return { ok: false, sent: false, reason: replay.blocked_reason ?? "provider_rejected", providerMessageId: replay.provider_message_id ?? null };
   }
   const { error: callingError } = await db.from("vendor_work_identity_operations").update({ state: "calling_provider", updated_at: new Date().toISOString() }).eq("id", operation.operation_id);
   if (callingError) return { ok: false, reason: "operation_unavailable" };
   const { data: attempt, error: attemptError } = await db.from("vendor_work_identity_delivery_attempts").insert({ outbox_id: outbox.outbox_id, attempt_number: 1, state: "calling_provider" }).select("id").maybeSingle();
-  if (attemptError || !(attempt as { id?: string } | null)?.id) return { ok: false, reason: "attempt_unavailable" };
+  if (attemptError || !(attempt as { id?: string } | null)?.id) {
+    await db.from("vendor_work_identity_operations").update({ state: "failed", error_code: "attempt_unavailable", updated_at: new Date().toISOString() }).eq("id", operation.operation_id);
+    await db.from("vendor_work_identity_outbox").update({ status: "blocked", blocked_reason: "attempt_unavailable", updated_at: new Date().toISOString() }).eq("id", outbox.outbox_id);
+    return { ok: false, reason: "attempt_unavailable" };
+  }
   let providerAccepted = false;
+  let acceptedId: string | null = null;
   try {
     const result = email ? await provider.email({ from, to: recipient, subject: input.subject, text: input.text, idempotencyKey: input.idempotencyKey }) : await provider.sms({ from, to: recipient, text: input.text, idempotencyKey: input.idempotencyKey });
     providerAccepted = true;
+    acceptedId = result.id;
     const { error: attemptPersistError } = await db.from("vendor_work_identity_delivery_attempts").update({ state: "sent", provider_message_id: result.id }).eq("id", (attempt as { id: string }).id);
     if (attemptPersistError) throw new Error(attemptPersistError.message);
     const { error: persistError } = await db.from("vendor_work_identity_outbox").update({ status: "sent", provider_message_id: result.id, sent_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", outbox.outbox_id);
@@ -63,9 +77,9 @@ export async function deliverVendorWorkIdentity(
     return { ok: true, sent: true, providerMessageId: result.id };
   } catch (error) {
     const reconcile = providerAccepted || uncertain(error);
-    await db.from("vendor_work_identity_delivery_attempts").update({ state: reconcile ? "reconciling" : "failed", error_code: reconcile ? "provider_outcome_unknown" : "provider_rejected" }).eq("id", (attempt as { id: string }).id);
-    await db.from("vendor_work_identity_operations").update({ state: reconcile ? "reconciling" : "failed", error_code: reconcile ? "provider_outcome_unknown" : "provider_rejected", updated_at: new Date().toISOString() }).eq("id", operation.operation_id);
-    const { error: persistError } = await db.from("vendor_work_identity_outbox").update({ status: reconcile ? "reconciling" : "failed", blocked_reason: reconcile ? "provider_outcome_unknown" : "provider_rejected", updated_at: new Date().toISOString() }).eq("id", outbox.outbox_id);
+    await db.from("vendor_work_identity_delivery_attempts").update({ state: reconcile ? "reconciling" : "failed", provider_message_id: acceptedId, error_code: reconcile ? "provider_outcome_unknown" : "provider_rejected" }).eq("id", (attempt as { id: string }).id);
+    await db.from("vendor_work_identity_operations").update({ state: reconcile ? "reconciling" : "failed", provider_reference: acceptedId, error_code: reconcile ? "provider_outcome_unknown" : "provider_rejected", updated_at: new Date().toISOString() }).eq("id", operation.operation_id);
+    const { error: persistError } = await db.from("vendor_work_identity_outbox").update({ status: reconcile ? "reconciling" : "failed", provider_message_id: acceptedId, blocked_reason: reconcile ? "provider_outcome_unknown" : "provider_rejected", updated_at: new Date().toISOString() }).eq("id", outbox.outbox_id);
     if (persistError) throw new Error(persistError.message);
     return { ok: false, reason: reconcile ? "provider_outcome_unknown" : "provider_rejected" };
   }
