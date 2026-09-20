@@ -6,6 +6,7 @@ import { assertCoManagerModuleAccess, type CoManagerAccessResult } from "@/lib/a
 import type { CoManagerPermissionId, CoManagerPermissionLevel } from "@/lib/co-manager-permissions";
 import { REMINDER_SUBJECT_CO_MANAGER_MODULE } from "@/lib/co-manager-notification-recipients.server";
 import { REMINDER_SUBJECT_KINDS, type ReminderSubjectKind } from "@/lib/reminders/rules";
+import { resolvePropertyOwnerUserId } from "@/lib/property-owner.server";
 
 /**
  * Co-manager module gate for the account-level manager settings surfaces
@@ -137,4 +138,69 @@ export async function assertAutomationSettingsCoManagerAccess(
   level: CoManagerPermissionLevel = "read",
 ): Promise<CoManagerAccessResult> {
   return assertModule(db, userId, "payments", level);
+}
+
+export type SettingsPropertyOwnerResult =
+  | { ok: true; ownerUserId: string }
+  | { ok: false; status: 403 | 404; error: string };
+
+/**
+ * The house-scoped counterpart to the module gates above (PLAN-0916-1040).
+ *
+ * These six settings routes are otherwise scoped ONE ROW PER MANAGER (see the
+ * file docstring), so the module gates above never see a real `propertyId`
+ * and are a no-op for every request they can receive TODAY. A per-property
+ * Operations override changes that: a house's override lives on
+ * `manager_property_records`, owned by the PROPERTY OWNER, which a
+ * co-manager acting on that house is never. This resolves — and authorizes —
+ * which user id a property-scoped settings call should act on: the caller
+ * when they own the property outright, or the property's owner when the
+ * caller has an accepted co-manager grant for it at `permissionModule`/
+ * `level`, reusing the exact same `assertCoManagerModuleAccess` gate every
+ * other co-manager-aware route already uses — never a wider check. This is a
+ * permission-gated read/write, never an ownership transfer: every write still
+ * lands on the owner's own row.
+ */
+export async function resolveSettingsPropertyOwner(
+  db: ServiceClient,
+  userId: string,
+  propertyId: string,
+  permissionModule: CoManagerPermissionId,
+  level: CoManagerPermissionLevel,
+): Promise<SettingsPropertyOwnerResult> {
+  const owner = await resolvePropertyOwnerUserId(db, propertyId);
+  if (!owner) return { ok: false, status: 403, error: "That property is not in your workspace." };
+  if (owner === userId) return { ok: true, ownerUserId: userId };
+  const access = await assertCoManagerModuleAccess(db, userId, propertyId, permissionModule, {
+    ownerManagerUserId: owner,
+    level,
+  });
+  if (!access.ok) return access;
+  return { ok: true, ownerUserId: owner };
+}
+
+/** `resolveSettingsPropertyOwner` for every module a set of reminder kinds touches, rejecting on the first that fails. */
+export async function resolveReminderKindsSettingsPropertyOwner(
+  db: ServiceClient,
+  userId: string,
+  propertyId: string,
+  kinds: readonly ReminderSubjectKind[],
+  level: CoManagerPermissionLevel,
+): Promise<SettingsPropertyOwnerResult> {
+  const owner = await resolvePropertyOwnerUserId(db, propertyId);
+  if (!owner) return { ok: false, status: 403, error: "That property is not in your workspace." };
+  if (owner === userId) return { ok: true, ownerUserId: userId };
+  // No kind to check a module for is never "no check needed" for a caller who
+  // is NOT the owner — fail closed rather than resolve a foreign owner for a
+  // co-manager with zero grants on this property.
+  if (kinds.length === 0) return { ok: false, status: 403, error: "You do not have access to this section for this property." };
+  const modules = [...new Set(kinds.map(reminderKindCoManagerModule))];
+  for (const permissionModule of modules) {
+    const access = await assertCoManagerModuleAccess(db, userId, propertyId, permissionModule, {
+      ownerManagerUserId: owner,
+      level,
+    });
+    if (!access.ok) return access;
+  }
+  return { ok: true, ownerUserId: owner };
 }

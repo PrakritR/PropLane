@@ -35,11 +35,21 @@ const rule = (over: Record<string, unknown> = {}) => ({
 });
 
 let paymentManagerRule = rule();
+/** House `mgr-house-override` gets its own `payment_manager` rule, keyed off `propertyId`. */
+let paymentManagerOverrideRule: ReturnType<typeof rule> | null = null;
+const OVERRIDE_PROPERTY_ID = "mgr-house-override";
+
+const settingsFor = (propertyId: string | null) => ({
+  rules: {
+    payment_manager: propertyId === OVERRIDE_PROPERTY_ID && paymentManagerOverrideRule ? paymentManagerOverrideRule : paymentManagerRule,
+  },
+  quietHours: { enabled: false },
+});
+
 vi.mock("@/lib/reminders/settings.server", () => ({
-  loadReminderSettingsForManagers: () =>
-    Promise.resolve(
-      new Map([["mgr-1", { rules: { payment_manager: paymentManagerRule }, quietHours: { enabled: false } }]]),
-    ),
+  loadReminderSettingsForManagers: () => Promise.resolve(new Map([["mgr-1", settingsFor(null)]])),
+  loadReminderSettingsResolver: () =>
+    Promise.resolve({ resolve: (_managerUserId: string, propertyId: string | null) => settingsFor(propertyId) }),
 }));
 
 import { sweepPaymentManagerReminders } from "@/lib/reminders/subjects/payments.server";
@@ -84,6 +94,7 @@ function fakeSweepDb(rows: unknown[]) {
 beforeEach(() => {
   materialize.mockClear();
   paymentManagerRule = rule();
+  paymentManagerOverrideRule = null;
 });
 
 describe("sweepPaymentManagerReminders", () => {
@@ -177,5 +188,19 @@ describe("sweepPaymentManagerReminders", () => {
     expect(secondCall.kind).toBe(firstCall.kind);
     expect(secondCall.subjectId).toBe(firstCall.subjectId);
     expect(secondCall.anchorIso).toBe(firstCall.anchorIso);
+  });
+
+  it("PLAN-0916-1040: a house override fires where the workspace rule is off — resolved per charge's own propertyId", async () => {
+    paymentManagerRule = rule({ enabled: false });
+    paymentManagerOverrideRule = rule({ enabled: true });
+    const rows = [
+      chargeRow("charge-plain", { propertyId: "mgr-house-1" }),
+      chargeRow("charge-overridden", { propertyId: OVERRIDE_PROPERTY_ID }),
+    ];
+    const queued = await sweepPaymentManagerReminders(fakeSweepDb(rows), NOW);
+    expect(queued).toBe(1);
+    expect(materialize).toHaveBeenCalledTimes(1);
+    const input = materialize.mock.calls[0]![1] as Record<string, unknown>;
+    expect(input.subjectId).toBe("charge-overridden");
   });
 });

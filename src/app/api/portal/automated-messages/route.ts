@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { assertAutomationSettingsCoManagerAccess } from "@/lib/auth/manager-settings-module-access.server";
+import { assertAutomationSettingsCoManagerAccess, resolveSettingsPropertyOwner } from "@/lib/auth/manager-settings-module-access.server";
 import { loadAutomatedMessageSettings, saveAutomatedMessageSettings } from "@/lib/automated-messages-settings.server";
 import { automatedMessageDefaults } from "@/lib/automated-messages-defaults.server";
 import {
@@ -19,6 +19,11 @@ import {
 export const runtime = "nodejs";
 
 const NAMESPACE = "automatedMessages" as const;
+// Mirrors `assertAutomationSettingsCoManagerAccess`'s own choice of module —
+// this blob has no per-field "kind" tag to authorize against (see that
+// function's docstring), so a house-scoped call is gated on the same one
+// module, never the loosest available choice.
+const AUTOMATED_MESSAGES_MODULE = "payments" as const;
 
 function readPropertyId(url: string): string | null {
   const raw = new URL(url).searchParams.get("propertyId");
@@ -52,15 +57,22 @@ export async function GET(req: Request) {
   try {
     const ctx = await requireManager();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-    const access = await assertAutomationSettingsCoManagerAccess(ctx.db, ctx.userId, "read");
-    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
     const propertyId = readPropertyId(req.url);
+    let ownerUserId = ctx.userId;
+    if (propertyId) {
+      const owner = await resolveSettingsPropertyOwner(ctx.db, ctx.userId, propertyId, AUTOMATED_MESSAGES_MODULE, "read");
+      if (!owner.ok) return NextResponse.json({ error: owner.error }, { status: owner.status });
+      ownerUserId = owner.ownerUserId;
+    } else {
+      const access = await assertAutomationSettingsCoManagerAccess(ctx.db, ctx.userId, "read");
+      if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
+    }
     const [{ settings, scope, inherited }, overriddenPropertyIds] = await Promise.all([
-      resolveOperationsOverride(ctx.db, ctx.userId, propertyId, NAMESPACE, {
-        loadWorkspace: () => loadAutomatedMessageSettings(ctx.db, ctx.userId),
+      resolveOperationsOverride(ctx.db, ownerUserId, propertyId, NAMESPACE, {
+        loadWorkspace: () => loadAutomatedMessageSettings(ctx.db, ownerUserId),
         normalize: normalizeAutomatedMessageSettings,
       }),
-      listPropertyOverrides(ctx.db, ctx.userId, NAMESPACE),
+      listPropertyOverrides(ctx.db, ownerUserId, NAMESPACE),
     ]);
     return NextResponse.json({ settings, scope, inherited, overriddenPropertyIds, defaults: automatedMessageDefaults() });
   } catch (e) {
@@ -73,39 +85,52 @@ export async function PATCH(req: Request) {
   try {
     const ctx = await requireManager();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-    const access = await assertAutomationSettingsCoManagerAccess(ctx.db, ctx.userId, "edit");
-    if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
     const body = (await req.json().catch(() => ({}))) as { settings?: unknown; propertyId?: unknown; reset?: unknown };
     const propertyId =
       typeof body.propertyId === "string" && body.propertyId.trim()
         ? body.propertyId.trim()
         : readPropertyId(req.url);
 
-    // No property → the workspace store (its own per-key merge).
-    if (!propertyId) {
-      const settings = await saveAutomatedMessageSettings(ctx.db, ctx.userId, body.settings ?? body);
-      const overriddenPropertyIds = await listPropertyOverrides(ctx.db, ctx.userId, NAMESPACE);
-      return NextResponse.json({ settings, scope: "workspace", inherited: false, overriddenPropertyIds });
+    let ownerUserId = ctx.userId;
+    if (propertyId) {
+      const owner = await resolveSettingsPropertyOwner(ctx.db, ctx.userId, propertyId, AUTOMATED_MESSAGES_MODULE, "edit");
+      if (!owner.ok) return NextResponse.json({ error: owner.error }, { status: owner.status });
+      ownerUserId = owner.ownerUserId;
+    } else {
+      const access = await assertAutomationSettingsCoManagerAccess(ctx.db, ctx.userId, "edit");
+      if (!access.ok) return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
-    // Reset — clear the whole house override.
+    // Reset — clear the whole house override. Checked BEFORE the "no
+    // property" branch, so `{ reset: true }` with no house selected 400s
+    // instead of falling into that branch and being read as "save these
+    // (garbage) workspace settings" — the same ordering
+    // `reminder-settings`/`task-automation-settings` already use.
     if (body.reset === true) {
-      await clearPropertyOverride(ctx.db, ctx.userId, propertyId, NAMESPACE);
-      const settings = await loadAutomatedMessageSettings(ctx.db, ctx.userId);
-      const overriddenPropertyIds = await listPropertyOverrides(ctx.db, ctx.userId, NAMESPACE);
+      if (!propertyId) return NextResponse.json({ error: "Reset needs a property." }, { status: 400 });
+      await clearPropertyOverride(ctx.db, ownerUserId, propertyId, NAMESPACE);
+      const settings = await loadAutomatedMessageSettings(ctx.db, ownerUserId);
+      const overriddenPropertyIds = await listPropertyOverrides(ctx.db, ownerUserId, NAMESPACE);
       return NextResponse.json({ settings, scope: "workspace", inherited: true, overriddenPropertyIds });
+    }
+
+    // No property → the workspace store (its own per-key merge).
+    if (!propertyId) {
+      const settings = await saveAutomatedMessageSettings(ctx.db, ownerUserId, body.settings ?? body);
+      const overriddenPropertyIds = await listPropertyOverrides(ctx.db, ownerUserId, NAMESPACE);
+      return NextResponse.json({ settings, scope: "workspace", inherited: false, overriddenPropertyIds });
     }
 
     // House patch — merge onto the CURRENT effective settings (override or
     // workspace), then store the whole blob as this house's override.
-    const { settings: current } = await resolveOperationsOverride(ctx.db, ctx.userId, propertyId, NAMESPACE, {
-      loadWorkspace: () => loadAutomatedMessageSettings(ctx.db, ctx.userId),
+    const { settings: current } = await resolveOperationsOverride(ctx.db, ownerUserId, propertyId, NAMESPACE, {
+      loadWorkspace: () => loadAutomatedMessageSettings(ctx.db, ownerUserId),
       normalize: normalizeAutomatedMessageSettings,
     });
     const incoming = normalizeAutomatedMessageSettings(body.settings ?? body);
     const merged: AutomatedMessageSettings = { ...current, ...incoming };
-    await savePropertyOverride(ctx.db, ctx.userId, propertyId, NAMESPACE, merged);
-    const overriddenPropertyIds = await listPropertyOverrides(ctx.db, ctx.userId, NAMESPACE);
+    await savePropertyOverride(ctx.db, ownerUserId, propertyId, NAMESPACE, merged);
+    const overriddenPropertyIds = await listPropertyOverrides(ctx.db, ownerUserId, NAMESPACE);
     return NextResponse.json({ settings: merged, scope: "property", inherited: false, overriddenPropertyIds });
   } catch (e) {
     if (e instanceof ForeignPropertyError) return foreign();

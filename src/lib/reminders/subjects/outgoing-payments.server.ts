@@ -14,7 +14,7 @@ import {
   teamReminderRecipients,
 } from "@/lib/reminders/manager-recipients.server";
 import { materializeReminders } from "@/lib/reminders/queue.server";
-import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
+import { loadReminderSettingsForManagers, loadReminderSettingsResolver } from "@/lib/reminders/settings.server";
 import { withinHorizon } from "@/lib/reminders/subjects/records.server";
 
 const MAX_ROWS = 500;
@@ -64,8 +64,14 @@ export async function sweepOutgoingPaymentReminders(db: SupabaseClient, now: Dat
   if (entries.length === 0) return 0;
 
   const managerUserIds = entries.map((entry) => entry.managerUserId);
-  const [settingsByManager, managerRecipients] = await Promise.all([
+  // The team roster prefetch below is batched ONE QUERY PER MANAGER (not per
+  // house), so it still keys off the WORKSPACE'S teamUserIds; a house override
+  // that names a different team roster for `outgoing_payment` is applied to
+  // every OTHER setting on this kind (enabled, timing, audience) below, just
+  // not to which co-managers the batched roster fetch considers.
+  const [settingsByManager, reminderResolver, managerRecipients] = await Promise.all([
     loadReminderSettingsForManagers(db, managerUserIds),
+    loadReminderSettingsResolver(db, managerUserIds),
     loadManagerReminderRecipients(db, managerUserIds),
   ]);
   const teamRecipientsByManager = await loadTeamReminderRecipientsByManager(
@@ -79,8 +85,9 @@ export async function sweepOutgoingPaymentReminders(db: SupabaseClient, now: Dat
 
   let queued = 0;
   for (const entry of entries) {
-    const settings = settingsByManager.get(entry.managerUserId);
-    if (!settings?.rules.outgoing_payment.enabled) continue;
+    // A house's own reminder override wins when it has one (PLAN-0916-1040).
+    const settings = reminderResolver.resolve(entry.managerUserId, entry.bill.propertyId ?? null);
+    if (!settings.rules.outgoing_payment.enabled) continue;
     const managerRecipient = managerRecipients.get(entry.managerUserId);
     const teamRecipients = settings.rules.outgoing_payment.audience.team
       ? teamReminderRecipients(

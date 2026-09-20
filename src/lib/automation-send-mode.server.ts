@@ -7,7 +7,7 @@ import {
   type AutomationSendModeSettings,
 } from "@/lib/automation-send-mode";
 import { resolvePropertyOwnerUserId } from "@/lib/property-owner.server";
-import { loadReminderSettingsForProperty } from "@/lib/reminders/settings.server";
+import { loadReminderSettings, loadReminderSettingsForProperty } from "@/lib/reminders/settings.server";
 
 /**
  * The ONE place the bus asks "auto-send or draft-for-review?" for an event.
@@ -19,8 +19,11 @@ import { loadReminderSettingsForProperty } from "@/lib/reminders/settings.server
  * happened to act. A co-manager approving an application on the owner's
  * house is governed by the owner's setting.
  *
- * A read failure means the defaults, never silence: the bus still delivers,
- * it just does so the way an untouched account would.
+ * A property lookup failure (a foreign or since-deleted property id, a
+ * transient read error) falls back to the WORKSPACE'S OWN send mode, never
+ * silently to the built-in auto/auto default — a manager who customized it
+ * is never silently overridden. Only a failure reading the workspace itself
+ * falls all the way through to the built-in default.
  */
 export async function resolveAutomationSendModeForEvent(
   db: SupabaseClient,
@@ -29,14 +32,19 @@ export async function resolveAutomationSendModeForEvent(
   const fallback = input.managerUserId.trim();
   if (!fallback) return DEFAULT_AUTOMATION_SEND_MODE_SETTINGS;
   const owner = (await resolvePropertyOwnerUserId(db, input.propertyId)) ?? fallback;
+  const propertyId = input.propertyId?.trim() ? input.propertyId.trim() : null;
   try {
     // The house's own reminder override wins when it has one (its
     // `automationSendMode` rides in the `reminderRules` blob); otherwise the
     // workspace value. A missing property resolves to the workspace rule.
-    const propertyId = input.propertyId?.trim() ? input.propertyId.trim() : null;
     const settings = await loadReminderSettingsForProperty(db, owner, propertyId);
     return settings.automationSendMode;
   } catch {
-    return DEFAULT_AUTOMATION_SEND_MODE_SETTINGS;
+    try {
+      const workspace = await loadReminderSettings(db, owner);
+      return workspace.automationSendMode;
+    } catch {
+      return DEFAULT_AUTOMATION_SEND_MODE_SETTINGS;
+    }
   }
 }
