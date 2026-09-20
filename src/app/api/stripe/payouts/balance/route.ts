@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { assertCoManagerBankAccountAccess } from "@/lib/auth/co-manager-bank-account-access";
 import {
   resolveStripePayoutContext,
   stripePayoutContextError,
@@ -29,6 +30,13 @@ export async function GET() {
         { error: stripePayoutContextError(payout.unresolvedReason) },
         { status: payout.unresolvedReason === "ambiguous_owner" ? 409 : 500 },
       );
+    }
+    // Same read-level gate every other payouts route enforces — a co-manager
+    // needs the bank-account grant (at least "read") to see the owner's
+    // balance and payout history at all.
+    const access = await assertCoManagerBankAccountAccess(service, user.id, payout.payoutOwnerUserId, "read");
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
     }
 
     const accountId = await resolveManagerConnectAccountId(service, payout.payoutOwnerUserId);
