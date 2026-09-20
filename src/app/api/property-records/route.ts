@@ -337,21 +337,26 @@ export async function POST(req: Request) {
     // A listing edit (the wizard, a background mirror, the demo pipeline)
     // rebuilds `row_data` from its OWN fields and never names Operations
     // settings — carry a house's existing reminder / automation override
-    // forward unless the request explicitly sets that key, so publishing a
-    // listing edit never silently wipes it (PLAN-0916-1040).
-    if (
-      body.rowData !== undefined &&
-      existingRowData &&
-      OPERATIONS_SETTINGS_KEY in existingRowData &&
-      body.rowData &&
-      typeof body.rowData === "object" &&
-      !Array.isArray(body.rowData) &&
-      !(OPERATIONS_SETTINGS_KEY in (body.rowData as Record<string, unknown>))
-    ) {
-      rowDataForWrite0 = {
-        ...(body.rowData as Record<string, unknown>),
-        [OPERATIONS_SETTINGS_KEY]: existingRowData[OPERATIONS_SETTINGS_KEY],
-      };
+    // forward regardless of what the request's `rowData` says, so publishing
+    // a listing edit never silently wipes it (PLAN-0916-1040).
+    //
+    // Security-review follow-up: `operationsSettings` is the store behind
+    // house overrides for reminders, automated messages, and task automation
+    // — each gated by its own co-manager module check in the dedicated PATCH
+    // routes (`/api/portal/{reminder-settings,automated-messages,task-automation-settings}`).
+    // This route is NOT one of those gates, so it must never take that key
+    // from a client body: doing so would let any caller who can reach this
+    // route (an owner, or a co-manager with only `properties` access) write
+    // overrides those other routes' checks would have refused. The body's
+    // `operationsSettings` is always discarded — the existing row's value is
+    // carried forward verbatim, and a brand-new row has none to carry.
+    if (body.rowData !== undefined && body.rowData && typeof body.rowData === "object" && !Array.isArray(body.rowData)) {
+      const sanitizedRowData = { ...(body.rowData as Record<string, unknown>) };
+      delete sanitizedRowData[OPERATIONS_SETTINGS_KEY];
+      if (existingRowData && OPERATIONS_SETTINGS_KEY in existingRowData) {
+        sanitizedRowData[OPERATIONS_SETTINGS_KEY] = existingRowData[OPERATIONS_SETTINGS_KEY];
+      }
+      rowDataForWrite0 = sanitizedRowData;
     }
     const propertyDataForWrite0 =
       body.propertyData !== undefined ? body.propertyData : (existing?.property_data ?? null);

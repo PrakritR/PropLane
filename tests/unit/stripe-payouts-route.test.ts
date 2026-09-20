@@ -189,9 +189,13 @@ let fakeStripe = makeFakeStripe({ availableCents: 100_000, instantAvailableCents
 vi.mock("@/lib/stripe", () => ({ getStripe: () => fakeStripe }));
 
 let connectAccountId: string | null = "acct_owner";
-vi.mock("@/lib/stripe-connect", () => ({
-  resolveManagerConnectAccountId: async () => connectAccountId,
-}));
+vi.mock("@/lib/stripe-connect", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/stripe-connect")>("@/lib/stripe-connect");
+  return {
+    ...actual,
+    resolveManagerConnectAccountId: async () => connectAccountId,
+  };
+});
 
 let vendorAccess: { ok: true; actor: { userId: string; email: string } } | { ok: false; status: 401 | 403 } = {
   ok: true,
@@ -203,7 +207,9 @@ vi.mock("@/lib/auth/vendor-api-access", () => ({
 
 import { POST as managerCreate } from "@/app/api/stripe/payouts/create/route";
 import { PUT as managerSchedule } from "@/app/api/stripe/payouts/schedule/route";
+import { GET as managerBalance } from "@/app/api/stripe/payouts/balance/route";
 import { POST as vendorCreate } from "@/app/api/vendor/payouts/create/route";
+import { GET as vendorBalance } from "@/app/api/vendor/payouts/balance/route";
 
 function jsonRequest(url: string, body: unknown, method = "POST") {
   return new Request(url, { method, body: JSON.stringify(body) });
@@ -524,5 +530,75 @@ describe("POST /api/vendor/payouts/create — vendor scoping", () => {
       vendor_user_id: "vendor-1",
       stripe_connect_account_id: "acct_owner",
     });
+  });
+});
+
+describe("Security review — a thrown Stripe error's own message never reaches the response body", () => {
+  // Stripe's real "does not have access to account" text embeds the Connect
+  // account id verbatim. Every route below used to return that message
+  // straight through (`{ error: msg }` at 400, or `e.message` at 500); now
+  // it must be logged server-side and answered with one generic message.
+  const stripeAccountLeak = () =>
+    new Error("This API key does not have access to account acct_owner (or that account does not exist).");
+
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  });
+
+  function expectNoLeakButLogged(status: number, body: Record<string, unknown>) {
+    expect(status).toBe(500);
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain("acct_owner");
+    expect(serialized).not.toContain("does not have access");
+    expect(
+      consoleErrorSpy.mock.calls.some((call) => call.some((arg) => String(arg).includes("acct_owner"))),
+    ).toBe(true);
+  }
+
+  // Balance GET recognizes this exact "account no longer reachable" signature
+  // and answers with `needsRelink` (see stripe-connect-onboard-relink.test.ts)
+  // instead of the generic 500 — a different, equally leak-free path: the
+  // raw Stripe message never reaches the body either way.
+  function expectNoLeakViaRelink(status: number, body: Record<string, unknown>) {
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ needsRelink: true });
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain("acct_owner");
+    expect(serialized).not.toContain("does not have access");
+  }
+
+  it("manager balance GET", async () => {
+    (fakeStripe.accounts.retrieve as ReturnType<typeof vi.fn>).mockRejectedValueOnce(stripeAccountLeak());
+    const res = await managerBalance();
+    expectNoLeakViaRelink(res.status, await res.json());
+  });
+
+  it("vendor balance GET", async () => {
+    (fakeStripe.accounts.retrieve as ReturnType<typeof vi.fn>).mockRejectedValueOnce(stripeAccountLeak());
+    const res = await vendorBalance();
+    expectNoLeakViaRelink(res.status, await res.json());
+  });
+
+  it("manager create POST", async () => {
+    (fakeStripe.accounts.retrieve as ReturnType<typeof vi.fn>).mockRejectedValueOnce(stripeAccountLeak());
+    const res = await managerCreate(
+      jsonRequest("http://x/api/stripe/payouts/create", { amountCents: 5000, method: "standard" }),
+    );
+    expectNoLeakButLogged(res.status, await res.json());
+  });
+
+  it("vendor create POST", async () => {
+    (fakeStripe.accounts.retrieve as ReturnType<typeof vi.fn>).mockRejectedValueOnce(stripeAccountLeak());
+    const res = await vendorCreate(
+      jsonRequest("http://x/api/vendor/payouts/create", { amountCents: 5000, method: "standard" }),
+    );
+    expectNoLeakButLogged(res.status, await res.json());
+  });
+
+  it("manager schedule PUT", async () => {
+    (fakeStripe.accounts.update as ReturnType<typeof vi.fn>).mockRejectedValueOnce(stripeAccountLeak());
+    const res = await managerSchedule(jsonRequest("http://x/api/stripe/payouts/schedule", { interval: "manual" }, "PUT"));
+    expectNoLeakButLogged(res.status, await res.json());
   });
 });

@@ -106,8 +106,15 @@ async function resolveApprovedResidentSlot(
   if (previous && residentSlotAlreadyPlaced(previous, row, choice)) return { ok: true, row };
   const { propertyId, listingRoomId } = parseRoomChoiceValue(choice);
   if (!listingRoomId) return { ok: true, row };
+  // Fail CLOSED like the DB-error paths below: a blank manager id means the
+  // property lookup right after this (scoped by `manager_user_id`) can never
+  // be verified, so letting the write through unchecked here would have let
+  // an unverifiable approval land with whatever room/price the client sent —
+  // exactly the unverified override this function exists to refuse.
   const managerUserId = row.managerUserId?.trim();
-  if (!managerUserId) return { ok: true, row };
+  if (!managerUserId) {
+    return { ok: false, error: "Could not verify this room right now — try again." };
+  }
 
   const { data: propertyRecord, error: propertyError } = await db
     .from("manager_property_records")
