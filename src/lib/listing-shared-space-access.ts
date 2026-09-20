@@ -6,7 +6,8 @@
  * still has access — the same rule as fee “all rooms”.
  *
  * There is no “nobody” encoding. Clearing the last room or unticking Everyone
- * while every room is still selected stays Everyone.
+ * while every room is still selected stays Everyone, and a stored list whose
+ * ids all belong to rooms that no longer exist reads as Everyone too.
  */
 
 export const EVERYONE_ACCESS_VALUE = "__everyone__";
@@ -17,8 +18,9 @@ export function sharedSpaceIsEveryone(
 ): boolean {
   if (roomIds.length === 0) return true;
   const ids = roomAccessIds ?? [];
-  if (ids.length === 0) return true;
-  return roomIds.every((id) => ids.includes(id));
+  const current = roomIds.filter((id) => ids.includes(id));
+  if (current.length === 0) return true;
+  return current.length === roomIds.length;
 }
 
 export function encodeSharedSpaceEveryone(): string[] {

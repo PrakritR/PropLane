@@ -324,10 +324,6 @@ function buildListingFloorCard(
   };
 }
 
-function sharedSpaceAccessLine(ids: string[], sub: ManagerListingSubmissionV1): string {
-  return sharedSpaceAccessNames(ids, sub.rooms);
-}
-
 function bundleRowHasContent(b: ManagerBundleRow): boolean {
   return Boolean(
     b.label.trim() ||
@@ -1276,7 +1272,7 @@ export function listingRichFromManagerSubmission(
   const sharedSpaces: ListingSharedRow[] =
     sharedFromForm.length > 0
       ? sharedFromForm.map((s) => {
-          const access = sharedSpaceAccessLine(s.roomAccessIds ?? [], sub);
+          const access = sharedSpaceAccessNames(s.roomAccessIds, sub.rooms);
           const spaceAmenities = splitRoomAmenityLines(s.amenitiesText ?? "");
           const legacyFromHouse = legacySharedLabelsFromHouseAmenities(sub, s.name);
           const merged = [...new Set([...spaceAmenities, ...legacyFromHouse])];

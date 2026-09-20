@@ -32,7 +32,7 @@ import {
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 import type { LeaseGenerationContext } from "@/lib/generated-lease";
 import { PROPERTY_LEASE_TEMPLATE_PLACEHOLDER, formatLeaseAddressForDisplay } from "@/lib/property-lease-preview";
-import { sharedSpaceAccessNames } from "@/lib/listing-shared-space-access";
+import { sharedSpaceAccessNames, sharedSpaceIsEveryone } from "@/lib/listing-shared-space-access";
 import { jointLeasePartiesParagraph } from "@/lib/bundle-group/joint-lease";
 import { leaseCss, type LeaseJurisdictionTemplateConfig } from "@/lib/lease-templates/types";
 import { resolveJurisdiction } from "@/lib/lease-jurisdiction";
@@ -184,12 +184,12 @@ function sharedSpacesLeaseHtml(raw: ManagerListingSubmissionV1 | undefined): str
   if (!entries.length) {
     return "<p>Common kitchen, bath, and living areas as shared among residents.</p>";
   }
+  const roomIds = sub.rooms.map((room) => room.id);
   const items = entries.map((s) => {
-    const names = sharedSpaceAccessNames(s.roomAccessIds, sub.rooms);
-    const head =
-      names && names !== "Everyone"
-        ? `${s.name.trim()} — access includes: ${names}`
-        : s.name.trim();
+    const names = sharedSpaceIsEveryone(s.roomAccessIds, roomIds)
+      ? ""
+      : sharedSpaceAccessNames(s.roomAccessIds, sub.rooms);
+    const head = names ? `${s.name.trim()} — access includes: ${names}` : s.name.trim();
     const d = s.detail.trim();
     return escapeHtml(d ? `${head}. ${d}` : `${head}.`);
   });

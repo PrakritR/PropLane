@@ -24,6 +24,18 @@ describe("sharedSpaceIsEveryone", () => {
   it("is Everyone when there are no rooms", () => {
     expect(sharedSpaceIsEveryone(["r1"], [])).toBe(true);
   });
+
+  it("reads a list of only stale ids as Everyone, never nobody", () => {
+    expect(sharedSpaceIsEveryone(["gone-1", "gone-2"], rooms)).toBe(true);
+    expect(sharedSpaceAccessMenuSelected(["gone-1"], rooms)).toEqual([EVERYONE_ACCESS_VALUE, ...rooms]);
+    expect(sharedSpaceAccessTriggerLabel(["gone-1"], rooms)).toBe("Everyone");
+    expect(sharedSpaceAccessNames(["gone-1"], [{ id: "r1", name: "Room A" }])).toBe("Everyone");
+  });
+
+  it("ignores stale ids when judging full coverage", () => {
+    expect(sharedSpaceIsEveryone(["gone-1", "r1", "r2", "r3"], rooms)).toBe(true);
+    expect(sharedSpaceIsEveryone(["gone-1", "r1"], rooms)).toBe(false);
+  });
 });
 
 describe("encodeSharedSpaceAccessPick", () => {
