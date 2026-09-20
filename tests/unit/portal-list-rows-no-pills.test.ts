@@ -30,6 +30,8 @@ const LIST_ROW_SOURCES = [
   "src/components/portal/application-household-list.tsx",
   "src/components/portal/application-review-nav-cluster.tsx",
   "src/components/portal/resident-inspection-next-steps.tsx",
+  "src/components/portal/vendor-documents-panel.tsx",
+  "src/components/portal/vendor-finances-panel.tsx",
 ];
 
 const PILL_PATTERNS: Array<{ label: string; re: RegExp }> = [

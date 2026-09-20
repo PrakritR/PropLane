@@ -73,10 +73,11 @@ export function PortalPersonRecordRow({
 /**
  * Property-style card row.
  *
- * Title, the address, a line of detail; on the right, a status chip
- * ("1 / 2 occupied") and the money in bold — the two things a manager scans a
- * list of homes for. On a phone the chip drops under the title and the money
- * stays on the right, so the row is still two lines and a glance.
+ * Title, the address, a line of detail; on the right, the money in bold — the
+ * thing a manager scans a list of homes for. No status chip: the tab says the
+ * bucket, anything else is a plain fact with a glyph. On a phone the money
+ * drops under the title so the title keeps its width, and the row is still two
+ * lines and a glance.
  *
  * No chevron after the title: the whole row is the link and hover says so; the
  * old "2 ›" read as a count (PLAN-0914-1345). Bed / bath / room counts come as
@@ -89,7 +90,6 @@ export function PortalPropertyRecordRow({
   meta,
   facts,
   badge,
-  chip,
   trailing,
   leading,
   selected = false,
@@ -107,8 +107,6 @@ export function PortalPropertyRecordRow({
   /** Any other glyph facts on that same line — a person row's date, email, household. */
   facts?: ReactNode;
   badge?: ReactNode;
-  /** Status chip — occupancy, stage — shown beside the money. */
-  chip?: ReactNode;
   /** The money, right-aligned and bold. */
   trailing?: ReactNode;
   /** A thumbnail or glyph before the text — what makes one row recognisable among twenty. */
@@ -153,22 +151,20 @@ export function PortalPropertyRecordRow({
         </p>
       ) : null}
       {summary ? <p className="truncate text-xs text-muted">{summary}</p> : null}
-      {badge || chip || trailing ? (
+      {badge || trailing ? (
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
           {badge}
-          {/* On a phone the chip and the money sit under the title, so the title
-              keeps its width; on desktop both move to the right edge. */}
-          {chip ? <span className="md:hidden">{chip}</span> : null}
+          {/* On a phone the money sits under the title, so the title keeps its
+              width; on desktop it moves to the right edge. */}
           {trailing ? <span className="text-[13px] font-bold text-foreground md:hidden">{trailing}</span> : null}
         </div>
       ) : null}
     </>
   );
   const aside =
-    chip || trailing ? (
+    trailing ? (
       <div className="ml-2 hidden shrink-0 flex-col items-end justify-center gap-1 self-center text-right md:flex">
-        {trailing ? <span className="whitespace-nowrap text-[14px] font-bold text-foreground">{trailing}</span> : null}
-        {chip}
+        <span className="whitespace-nowrap text-[14px] font-bold text-foreground">{trailing}</span>
       </div>
     ) : null;
   return (
@@ -210,32 +206,6 @@ export function PortalPropertyRecordRow({
   );
 }
 
-/** A small status chip for a list row — "1 / 2 occupied", "Vacant". */
-export function PortalRowStatusChip({
-  tone = "neutral",
-  children,
-  dataAttr,
-}: {
-  tone?: "ok" | "warn" | "neutral";
-  children: ReactNode;
-  dataAttr?: string;
-}) {
-  return (
-    <span
-      data-attr={dataAttr}
-      className={cn(
-        "inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold",
-        tone === "ok"
-          ? "bg-[var(--status-confirmed-bg)] text-[var(--status-confirmed-fg)]"
-          : tone === "warn"
-            ? "bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)]"
-            : "bg-[var(--secondary)] text-muted",
-      )}
-    >
-      {children}
-    </span>
-  );
-}
 
 /** One glyph fact on a record row — an icon and a short value. */
 export function PortalRowFact({ icon: Icon, children, srLabel }: { icon: LucideIcon; children: ReactNode; srLabel?: string }) {

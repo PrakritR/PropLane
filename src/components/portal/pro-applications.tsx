@@ -7,7 +7,6 @@ import { cn } from "@/lib/utils";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
-import { Badge } from "@/components/ui/badge";
 import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
