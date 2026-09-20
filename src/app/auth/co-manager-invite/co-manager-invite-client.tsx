@@ -15,6 +15,12 @@ type Preview = {
   inviterDisplayName: string;
   propertyLabels: string[];
   teamRoleLabel?: string | null;
+  workspaceName?: string | null;
+  /** all = every house in the workspace, the ones added later included. */
+  houseScope?: "all" | "selected";
+  houseCount?: number;
+  /** "Edit applications · View properties" — what the role lets them do. */
+  canDo?: string | null;
   expiresAt?: string | null;
 };
 
@@ -90,6 +96,11 @@ export function CoManagerInviteClient() {
         setPreview({
           inviterDisplayName: body.inviterDisplayName,
           propertyLabels: Array.isArray(body.propertyLabels) ? body.propertyLabels : [],
+          teamRoleLabel: body.teamRoleLabel ?? null,
+          workspaceName: body.workspaceName ?? null,
+          houseScope: body.houseScope === "all" ? "all" : "selected",
+          houseCount: typeof body.houseCount === "number" ? body.houseCount : (Array.isArray(body.propertyLabels) ? body.propertyLabels.length : 0),
+          canDo: body.canDo ?? null,
           expiresAt: body.expiresAt,
         });
       } catch {
@@ -153,28 +164,38 @@ export function CoManagerInviteClient() {
         <>
           <h1 className="text-center text-xl font-semibold text-foreground">Invite to workspace</h1>
           <p className="mt-2 text-center text-sm text-muted">
-            <span className="font-semibold text-foreground">{preview.inviterDisplayName}</span> invited you to
-            their workspace on PropLane.
+            <span className="font-semibold text-foreground">{preview.inviterDisplayName}</span> invited you to{" "}
+            {preview.workspaceName ? (
+              <span className="font-semibold text-foreground">{preview.workspaceName}</span>
+            ) : (
+              "their workspace"
+            )}{" "}
+            on PropLane.
           </p>
-          {preview.teamRoleLabel ? (
-            <p className="mt-2 text-center text-sm text-foreground" data-attr="co-manager-invite-role">
-              Role: {preview.teamRoleLabel}
-            </p>
-          ) : null}
-          {preview.propertyLabels.length > 0 ? (
-            <div className="mt-4 rounded-2xl border border-border bg-accent/20 px-4 py-3">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted">Properties</p>
-              <ul className="mt-1 space-y-1 text-sm text-foreground">
-                {preview.propertyLabels.map((label) => (
-                  <li key={label}>{label}</li>
-                ))}
-              </ul>
+          <dl className="mt-4 divide-y divide-border rounded-2xl border border-border bg-accent/20 px-4" data-attr="co-manager-invite-terms">
+            {preview.teamRoleLabel ? (
+              <div className="flex items-baseline justify-between gap-3 py-2.5 text-sm">
+                <dt className="text-muted">Role</dt>
+                <dd className="font-semibold text-foreground" data-attr="co-manager-invite-role">{preview.teamRoleLabel}</dd>
+              </div>
+            ) : null}
+            <div className="flex items-baseline justify-between gap-3 py-2.5 text-sm">
+              <dt className="text-muted">Houses</dt>
+              <dd className="text-right font-semibold text-foreground" data-attr="co-manager-invite-houses">
+                {preview.houseScope === "all"
+                  ? `All houses in ${preview.workspaceName ?? "the workspace"} (${preview.houseCount ?? 0} today, and any added later)`
+                  : preview.propertyLabels.length > 0
+                    ? preview.propertyLabels.join(" · ")
+                    : "Assigned after you join"}
+              </dd>
             </div>
-          ) : (
-            <p className="mt-4 text-sm text-muted">
-              Houses will be assigned after you join, or they may already be waiting on this invite.
-            </p>
-          )}
+            {preview.canDo ? (
+              <div className="flex items-baseline justify-between gap-3 py-2.5 text-sm">
+                <dt className="text-muted">You can</dt>
+                <dd className="text-right text-foreground" data-attr="co-manager-invite-can-do">{preview.canDo}</dd>
+              </div>
+            ) : null}
+          </dl>
           {signedIn ? (
             <>
               {joinError ? <p className="mt-4 text-sm text-rose-600">{joinError}</p> : null}

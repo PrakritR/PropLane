@@ -1503,6 +1503,16 @@ executed lease never stated.
   Month** — the daily `utilitiesOnly` mode keeps its own **Prorated Utilities** heading. The
   collapse used to happen only in that daily mode, so a monthly-priced intra-month lease
   printed a first-month figure the ledger never billed.
+- **Monthly fees join both partial months (PLAN-0920-0423).** Every monthly fee billed
+  separately (`monthlyFeesBilledSeparately`) and above $0 gets one line per partial month:
+  `prorated_fee` at the start (due with move-in, part of the signing total via
+  `firstPeriodFees`) and `prorated_last_month_fee` at the end (due with the last-month rent).
+  `proratedFeeLines` in `lease-first-period-proration.ts` is the one calculation: calendar
+  fraction, or the fee's own `dailyRate` × days when the room is "Set per day". The recurring
+  profile still starts the first FULL month and skips the partial last month for that fee. A
+  Seattle-folded fee is inside rent and gets no separate line; a $0 fee gets none. The
+  snapshot exposes `proratedFeeLines` / `proratedLastMonthFeeLines` so both documents print
+  the ledger's rows. Coverage: `tests/unit/prorated-monthly-fees.test.ts`.
 - **The snapshot carries the last-month amounts, and they are NOT part of `dueAtSigning`.**
   `buildLeaseBillingSnapshot` exposes `proratedLastMonthRent` / `proratedLastMonthUtilities`
   so the document prints the ledger's own figures, but `SIGNING_CHARGE_KINDS` deliberately
@@ -1698,7 +1708,7 @@ listing value; there are no jurisdiction-level commercial defaults.
 
 | Field | Renders when set | Unset behavior |
 | --- | --- | --- |
-| `longTermBreakLeaseFee` | fixed early-termination fee | absent |
+| `longTermBreakLeaseFee` | the **early move-out fee** (wizard label and lease wording since PLAN-0920-0423; the field name is historical) | absent |
 | `longTermLeaseUpFeePercent` | percentage lease-up fee | absent |
 | `longTermHoldoverDailyRate` | per-day holdover charge | absent — the no-conversion statement renders either way |
 | `longTermReturnedPaymentFee` | returned-payment fee | fee sentence absent; general actual-cost language remains |
@@ -1714,6 +1724,22 @@ listing value; there are no jurisdiction-level commercial defaults.
 been removed from new listings and the Washington config. Only saved listing
 values render. Missing, blank, or zero fees are omitted. Existing saved values
 are preserved because a migration cannot determine which managers chose them.
+
+**Updated 2026-09-20 (PLAN-0920-0423):** a NEW listing now arrives with these
+charges *prefilled on the listing itself* (`src/lib/lease-charge-defaults.ts`):
+early move-out fee = one month of the Default room rent, holdover = 1.5 days of
+it, returned payment $35, trash $50, deposit labor $45/hr, reissue $25, lease-up
+left blank. They are visible, marked "Filled" in the wizard and editable; the two
+rent-based ones follow the rent until typed over (`leaseChargeDefaultKeys`). This
+does not reopen the Sep 5 decision: the builder still prints only what the
+listing saves, and an existing listing's blanks stay blank.
+
+**The early move-out fee bills.** When a signed lease's end date moves earlier
+(`amendLeaseMoveOutDate`, resident or manager), the fee the listing names is
+charged once as `early_move_out_fee` (id `hc_mgr_emo_<leaseId>`, due by the new
+move-out date), written through `upsertManagerCharges` so the ledger entry lands
+beside it. The manager's modal can waive it; the resident's modal states the
+exact amount before confirming (`describeMoveOutChange`).
 
 `lateFeeAmount` and `lateFeeEnabled` already existed. The long form uses the listing's
 configured late fee when supplied and omits the late-fee paragraph when it is disabled or

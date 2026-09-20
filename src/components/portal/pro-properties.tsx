@@ -279,6 +279,7 @@ export function ManagerProperties({
             portfolioSynced,
             coManagerLinksKnown: linksKnown,
             incomingTeam: hasIncomingAcceptedTeamLink(readCachedAccountLinkInvites()),
+            onError: (m) => showToast(`Could not start your first listing: ${m} Press Create to try again.`),
           });
           if (seeded) {
             setPropCount(countManagerManagedPropertiesForUser(scopeUserId));
@@ -399,6 +400,14 @@ export function ManagerProperties({
     return true;
   };
   /**
+   * "Add property" clicked while workspaces are still loading, or while this
+   * account owns none yet, is not a dead end — the manager gets told what is
+   * happening and the click is replayed exactly once, the moment the
+   * workspaces load (or the default one gets created). Shared by both the
+   * `wait` and `no-owned` branches below.
+   */
+  const pendingAddRetryRef = useRef(false);
+  /**
    * "Add property" can only save into a workspace the manager OWNS (the records
    * API refuses a co-managed one). Resolve that BEFORE the editor opens rather
    * than after the form is filled in. Returns true when the editor may open now.
@@ -409,8 +418,29 @@ export function ManagerProperties({
       case "open":
         return true;
       case "wait":
+        showToast("Loading your workspaces…");
+        pendingAddRetryRef.current = true;
         return false;
       case "no-owned":
+        if (workspaces && !workspaces.workspaces.some((w) => w.owned)) {
+          // No workspace of any kind is owned yet — a brand-new account that
+          // has not been given its default workspace. Create it rather than
+          // stopping at a toast the manager has no way to act on.
+          showToast("Setting up your workspace…");
+          pendingAddRetryRef.current = true;
+          void workspaces
+            .mutate({ action: "initialize" })
+            .then(() => {
+              if (!pendingAddRetryRef.current) return;
+              pendingAddRetryRef.current = false;
+              tryOpenAdd();
+            })
+            .catch((e) => {
+              pendingAddRetryRef.current = false;
+              showToast(e instanceof Error ? e.message : "Could not set up your workspace.");
+            });
+          return false;
+        }
         showToast("You need a workspace you own to add a property.");
         return false;
       case "switch":
@@ -453,6 +483,17 @@ export function ManagerProperties({
     setResumeDraftId(null);
     setWizardOpen(true);
   };
+  // "Add property" clicked mid-load is not a dead click: the workspaces
+  // context finishing its load is the signal to replay the one queued intent.
+  // The `no-owned` -> initialize path resolves its own retry directly off the
+  // `mutate` promise (workspaces.loading never flips for it), so this effect
+  // only needs to watch the load flag itself.
+  useEffect(() => {
+    if (!pendingAddRetryRef.current || !workspaces || workspaces.loading) return;
+    pendingAddRetryRef.current = false;
+    tryOpenAdd();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaces?.loading]);
   // After a workspace switch triggered by "Add property" from a co-managed
   // workspace, the page remounts under the now-owned workspace; re-open Add here
   // (once the plan tier is known so canOpenAdd can pass).

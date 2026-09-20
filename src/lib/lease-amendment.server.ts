@@ -1,4 +1,7 @@
 import { emitLeaseDateChange } from "@/lib/domain-action-events.server";
+import type { HouseholdCharge } from "@/lib/household-charges";
+import { upsertManagerCharges } from "@/lib/household-charges.server";
+import { leaseEndProration } from "@/lib/lease-first-period-proration";
 import { formatPacificDate } from "@/lib/pacific-time";
 import { buildAiGeneratedLeaseHtml, leaseContextFromApplication } from "@/lib/generated-lease";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -119,6 +122,96 @@ function formatAvailabilityLabel(isoDate: string): string {
  * Defaults to "resident" so a new caller discloses the LESS, not the more.
  */
 export type MoveOutAvailabilityAudience = "manager" | "resident";
+
+/** The listing's early move-out fee in dollars, or null when the listing names none. */
+export function earlyMoveOutFeeForProperty(property: MockProperty | undefined | null): number | null {
+  const raw = property?.listingSubmission;
+  if (!raw || raw.v !== 1) return null;
+  const fee = Number(normalizeManagerListingSubmissionV1(raw).longTermBreakLeaseFee ?? 0);
+  return Number.isFinite(fee) && fee > 0 ? fee : null;
+}
+
+function moveOutDueLabel(newLeaseEnd: string): string {
+  const parts = newLeaseEnd.split("-").map(Number);
+  const dt = parts.length === 3 ? new Date(parts[0]!, parts[1]! - 1, parts[2]!) : null;
+  return dt && !Number.isNaN(dt.getTime())
+    ? `By ${formatPacificDate(dt, { month: "short", day: "numeric", year: "numeric" })}`
+    : "By move-out";
+}
+
+/** What an earlier end date costs: the fee (if any) and the final partial month's day count. */
+export type MoveOutChangeTerms = {
+  earlyMoveOutFee: number | null;
+  earlyMoveOutFeeDueLabel: string | null;
+  finalMonth: { billableDays: number; daysInMonth: number; label: string } | null;
+};
+
+/**
+ * The early move-out fee charge for a lease whose end date moves EARLIER, or null when
+ * nothing bills: the date did not move earlier, the listing names no fee, or the manager
+ * waived it. Pure, so the decision is testable without a database.
+ *
+ * The id is keyed on the lease and carries the manager-added prefix, so a rebuild of the
+ * resident's charges never wipes it and a second date change never creates a second fee.
+ */
+export function earlyMoveOutFeeChargeForLease(input: {
+  leaseId: string;
+  leaseRow: LeasePipelineRow;
+  ownerId: string;
+  propertyId: string;
+  propertyLabel: string;
+  fee: number | null;
+  direction: "extend" | "decrease" | "same";
+  newLeaseEnd: string;
+  waive?: boolean;
+  nowIso?: string;
+}): HouseholdCharge | null {
+  if (input.direction !== "decrease" || input.waive || !(input.fee != null && input.fee > 0)) return null;
+  const label = `$${input.fee.toFixed(2)}`;
+  return {
+    id: `hc_mgr_emo_${input.leaseId}`,
+    createdAt: input.nowIso ?? new Date().toISOString(),
+    applicationId: input.leaseRow.axisId,
+    residentEmail: input.leaseRow.residentEmail,
+    residentName: input.leaseRow.residentName,
+    residentUserId: input.leaseRow.residentUserId ?? null,
+    propertyId: input.propertyId,
+    propertyLabel: input.propertyLabel,
+    managerUserId: input.ownerId,
+    kind: "early_move_out_fee",
+    title: "Early move-out fee",
+    amountLabel: label,
+    balanceLabel: label,
+    status: "pending",
+    blocksLeaseUntilPaid: false,
+    dueDateLabel: moveOutDueLabel(input.newLeaseEnd),
+  };
+}
+
+export async function describeMoveOutChange(
+  db: SupabaseClient,
+  leaseRow: LeasePipelineRow,
+  leaseRecord: { property_id?: string | null },
+  newLeaseEnd: string,
+): Promise<MoveOutChangeTerms> {
+  const currentEnd = leaseRow.application?.leaseEnd ?? "";
+  if (!(newLeaseEnd < currentEnd)) return { earlyMoveOutFee: null, earlyMoveOutFeeDueLabel: null, finalMonth: null };
+  const proration = leaseEndProration(newLeaseEnd);
+  const finalMonth = proration.prorated
+    ? { billableDays: proration.billableDays, daysInMonth: proration.daysInMonth, label: proration.label }
+    : null;
+  const propertyId = leaseRecord.property_id ?? leaseRow.propertyId ?? "";
+  let fee: number | null = null;
+  if (propertyId) {
+    const { data: propRecord } = await db
+      .from("manager_property_records")
+      .select("id, property_data, row_data")
+      .eq("id", propertyId)
+      .maybeSingle();
+    fee = propRecord ? earlyMoveOutFeeForProperty(propertyFromRecord(propRecord)) : null;
+  }
+  return { earlyMoveOutFee: fee, earlyMoveOutFeeDueLabel: fee ? moveOutDueLabel(newLeaseEnd) : null, finalMonth };
+}
 
 /** "YYYY-MM-DD" to local midnight, matching how room occupancy dates are compared. */
 function ymdToLocalDate(value: string): Date | null {
@@ -333,7 +426,11 @@ export async function amendLeaseMoveOutDate(
     row_data: unknown;
   },
   newLeaseEnd: string,
-): Promise<{ ok: true; direction: "extend" | "decrease"; newLeaseEnd: string } | { ok: false; error: string }> {
+  options: { waiveEarlyMoveOutFee?: boolean } = {},
+): Promise<
+  | { ok: true; direction: "extend" | "decrease"; newLeaseEnd: string; earlyMoveOutFee: number | null }
+  | { ok: false; error: string }
+> {
   const leaseRow = leaseRecord.row_data as LeasePipelineRow;
   if (!hasBothLeaseSignatures(leaseRow) || leaseRow.status === "Voided") {
     return { ok: false, error: "Only fully signed leases can be renewed or extended." };
@@ -427,6 +524,45 @@ export async function amendLeaseMoveOutDate(
   }
 
   const direction = newLeaseEnd < currentEnd ? "decrease" : "extend";
+
+  // The early move-out fee the lease names, charged ONCE when the end date moves earlier.
+  // The date change is committed above; the charge is written through the same server
+  // upsert every other charge path uses (ledger sync included, per financials.md).
+  let earlyMoveOutFee: number | null = null;
+  if (direction === "decrease" && !options.waiveEarlyMoveOutFee) {
+    try {
+      const propertyId = leaseRecord.property_id ?? leaseRow.propertyId ?? "";
+      const { data: propRecord } = propertyId
+        ? await db.from("manager_property_records").select("id, property_data, row_data").eq("id", propertyId).maybeSingle()
+        : { data: null };
+      const property = propRecord ? propertyFromRecord(propRecord) : undefined;
+      const charge = earlyMoveOutFeeChargeForLease({
+        leaseId: leaseRecord.id,
+        leaseRow,
+        ownerId,
+        propertyId,
+        propertyLabel: property?.title || leaseRow.unit || "Property",
+        fee: earlyMoveOutFeeForProperty(property),
+        direction,
+        newLeaseEnd,
+        nowIso: iso,
+      });
+      if (charge) {
+        const { data: existingFee } = await db
+          .from("portal_household_charge_records")
+          .select("id")
+          .eq("id", charge.id)
+          .maybeSingle();
+        if (!existingFee) {
+          await upsertManagerCharges(db, ownerId, [charge as unknown as Record<string, unknown>]);
+        }
+        earlyMoveOutFee = Number(charge.amountLabel.replace(/[^0-9.]/g, ""));
+      }
+    } catch {
+      /* the date change stands; the fee can be added by hand from Payments */
+    }
+  }
+
   // Tell both sides. Best-effort: the date change is committed above and must
   // survive a notification outage.
   await emitLeaseDateChange(db, {
@@ -435,7 +571,7 @@ export async function amendLeaseMoveOutDate(
     newLeaseEnd,
     direction,
   }).catch(() => undefined);
-  return { ok: true, direction, newLeaseEnd };
+  return { ok: true, direction, newLeaseEnd, earlyMoveOutFee };
 }
 
 export type LeaseRenewalTerms = {

@@ -929,6 +929,7 @@ export function ManagerLeasesPipelinePanel({
           checkUrl="/api/manager/amend-lease"
           amendUrl="/api/manager/amend-lease"
           amendBody={{ leaseId: amendLeaseRow.id }}
+          canWaiveEarlyMoveOutFee
           renew={{
             leaseId: amendLeaseRow.id,
             currentTerm: amendLeaseRow.application?.leaseTerm ?? "",

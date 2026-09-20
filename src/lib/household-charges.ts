@@ -56,6 +56,7 @@ import { executedLeaseForRow, freezeSignedLeaseTerms, persistFrozenSignedLeaseTe
 import {
   leaseEndProration,
   leaseFirstPeriodProration,
+  proratedFeeLines,
   leaseStartProration,
   proratedLastMonthAmount,
 } from "@/lib/lease-first-period-proration";
@@ -122,6 +123,12 @@ export type HouseholdChargeKind =
   | "utilities"
   | "prorated_utilities"
   | "prorated_last_month_utilities"
+  /** A monthly fee (parking, storage…) prorated into the partial first month; `customFeeId` names the fee. */
+  | "prorated_fee"
+  /** The same fee prorated into the partial last month, created up front and due near the end of the term. */
+  | "prorated_last_month_fee"
+  /** The listing's early move-out fee, charged once when a signed lease's end date moves earlier. */
+  | "early_move_out_fee"
   | "security_deposit"
   | "move_in_fee"
   | "other_cost"
@@ -414,13 +421,34 @@ function postHouseholdPayload(body: unknown) {
   void postHouseholdPayloadAwait(body).catch(() => { /* fire-and-forget */ });
 }
 
+/**
+ * How long an AWAITED charge write may wait for the server before it is reported as
+ * failed. A native WebView request that stalls mid-flight (network handoff, app
+ * backgrounded) can settle neither way; without this bound the Save button that
+ * awaits `confirmed` spun forever. Matches the reminder send's own bound.
+ */
+const HOUSEHOLD_WRITE_TIMEOUT_MS = 20_000;
+let householdWriteTimeoutMs = HOUSEHOLD_WRITE_TIMEOUT_MS;
+
+/** Test seam: shorten the awaited-write bound. `null` restores the default. */
+export function setHouseholdWriteTimeoutMsForTests(ms: number | null): void {
+  householdWriteTimeoutMs = ms ?? HOUSEHOLD_WRITE_TIMEOUT_MS;
+}
+
+function householdWriteSignal(): AbortSignal | undefined {
+  if (typeof AbortSignal === "undefined" || typeof AbortSignal.timeout !== "function") return undefined;
+  return AbortSignal.timeout(householdWriteTimeoutMs);
+}
+
 async function postHouseholdPayloadAwait(body: unknown): Promise<boolean> {
   if (!isBrowser() || isDemoModeActive()) return false;
   if (householdWritesForbidden()) return false;
+  const signal = householdWriteSignal();
   const res = await fetch("/api/portal-household-charges", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    ...(signal ? { signal } : {}),
   });
   return res.ok;
 }
@@ -817,6 +845,8 @@ const PENDING_UPFRONT_MOVE_IN_KINDS = new Set<HouseholdChargeKind>([
   "prorated_last_month_rent",
   "prorated_utilities",
   "prorated_last_month_utilities",
+  "prorated_fee",
+  "prorated_last_month_fee",
   "security_deposit",
   "move_in_fee",
   "other_cost",
@@ -886,6 +916,11 @@ function chargeBusinessKey(charge: HouseholdCharge): string {
   // Custom fees each get their own key, per fee AND per month (recurring), so multiple
   // custom fees never collide on `other_cost|applicationId` and a monthly fee emits exactly
   // once per month across repeated syncs.
+  // A fee's partial-month lines carry no rentMonth, so without the kind the first- and
+  // last-month lines of one fee would collapse onto a single key.
+  if (charge.customFeeId && (charge.kind === "prorated_fee" || charge.kind === "prorated_last_month_fee")) {
+    return `${charge.kind}|${charge.residentEmail.trim().toLowerCase()}|${charge.propertyId}|${charge.customFeeId}`;
+  }
   if (charge.customFeeId) {
     return `custom_fee|${charge.residentEmail.trim().toLowerCase()}|${charge.propertyId}|${charge.customFeeId}|${charge.rentMonth ?? ""}`;
   }
@@ -1233,8 +1268,19 @@ export function isStaleRecurringHouseholdCharge(
 
     const daysInEndMonth = new Date(leaseEndYear, leaseEndMonthNum, 0).getDate();
     const partialLastMonth = leaseEndDay != null && leaseEndDay > 0 && leaseEndDay < daysInEndMonth;
-    // Only rent/utilities have an upfront prorated-last-month charge that would duplicate the
-    // recurring row; custom fees are flat (full each month), so this dedup does not apply.
+    // A monthly fee's partial last month is billed up front by `prorated_last_month_fee`,
+    // so the flat recurring row for that same month is a duplicate.
+    if (isCustomRecurring && partialLastMonth && charge.rentMonth === leaseEndMonth) {
+      const emailLower = prof.residentEmail.trim().toLowerCase();
+      const hasUpfrontFee = allCharges.some(
+        (c) =>
+          c.kind === "prorated_last_month_fee" &&
+          c.customFeeId === charge.customFeeId &&
+          c.residentEmail.trim().toLowerCase() === emailLower &&
+          c.propertyId === prof.propertyId,
+      );
+      if (hasUpfrontFee) return true;
+    }
     if (!isCustomRecurring && partialLastMonth && charge.rentMonth === leaseEndMonth) {
       const hasUpfront =
         charge.kind === "rent"
@@ -1320,12 +1366,23 @@ export function chargeDueLabel(charge: HouseholdCharge): string {
     case "utilities":
     case "prorated_utilities":
       return "Before move-in";
+    case "prorated_fee":
+      return "Before move-in";
     case "prorated_last_month_rent":
     case "prorated_last_month_utilities":
+    case "prorated_last_month_fee":
       return "By lease end";
+    case "early_move_out_fee":
+      return "By move-out";
     default:
       return new Date(charge.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
   }
+}
+
+/** "Parking" → "parking" for "Prorated parking"; an acronym ("HOA / community") keeps its case. */
+function proratedFeeNoun(label: string): string {
+  const t = label.trim() || "fee";
+  return t.length > 1 && t[1] === t[1]!.toLowerCase() && t[1] !== t[1]!.toUpperCase() ? t[0]!.toLowerCase() + t.slice(1) : t;
 }
 
 function chargeTitle(kind: HouseholdChargeKind): string {
@@ -1350,6 +1407,12 @@ function chargeTitle(kind: HouseholdChargeKind): string {
       return "Prorated utilities";
     case "prorated_last_month_utilities":
       return "Prorated last month's utilities";
+    case "prorated_fee":
+      return "Prorated fee";
+    case "prorated_last_month_fee":
+      return "Prorated last month's fee";
+    case "early_move_out_fee":
+      return "Early move-out fee";
     case "security_deposit":
       return "Security deposit";
     case "move_in_fee":
@@ -2417,6 +2480,16 @@ function syncAllRecurringRentCharges(): boolean {
       (c) => c.kind === kind && c.residentEmail.trim().toLowerCase() === emailLower && c.propertyId === propertyId,
     );
   };
+  const hasUpfrontProratedLastFeeCharge = (residentEmail: string, propertyId: string, feeId: string) => {
+    const emailLower = residentEmail.trim().toLowerCase();
+    return [...existing, ...newCharges].some(
+      (c) =>
+        c.kind === "prorated_last_month_fee" &&
+        c.customFeeId === feeId &&
+        c.residentEmail.trim().toLowerCase() === emailLower &&
+        c.propertyId === propertyId,
+    );
+  };
 
   // Build a map of profile id → profile for stale-charge cleanup
   const profileById = new Map(profiles.map((p) => [p.id, p]));
@@ -2586,6 +2659,9 @@ function syncAllRecurringRentCharges(): boolean {
       // syncs; an amount change only affects months not yet emitted.
       for (const fee of profile.monthlyFees ?? []) {
         if (!(fee.amount > 0)) continue;
+        // A partial last month is billed up front by `prorated_last_month_fee` — never also
+        // the flat month here.
+        if (isPartialLastMonth && hasUpfrontProratedLastFeeCharge(profile.residentEmail, profile.propertyId, fee.id)) continue;
         const feeKey = `custom_fee|${emailLower}|${profile.propertyId}|${fee.id}|${rentMonth}`;
         const alreadyFee =
           activeExisting.some((c) => chargeBusinessKey(c) === feeKey) ||
@@ -3889,11 +3965,17 @@ export function recordApprovedApplicationCharges(
   // Also wipe pending recurring rent/utilities for this resident+property so updated amounts are used.
   const rows = readAll().filter((charge) => {
     if (charge.utilityAllocationId || charge.migrationSourceId) return true;
-    if (charge.applicationId === applicationId && charge.kind !== "application_fee" && charge.kind !== "holding_deposit" && charge.status === "pending") return false;
+    // A figure the manager typed by hand outranks the listing's, for EVERY kind. The
+    // guard below on rent/utilities predates this clause honouring it, so a hand-edited
+    // "Prorated first month's rent" was wiped here and rebuilt from the listing seconds
+    // after the manager was told "Payment updated." The kept row's business key makes
+    // the rebuild skip its own copy (see pushCharge).
+    if (charge.applicationId === applicationId && charge.kind !== "application_fee" && charge.kind !== "holding_deposit" && charge.status === "pending" && !charge.manualAmountOverrideAt) return false;
     if (
       charge.status === "pending" &&
       isPendingUpfrontMoveInCharge(charge) &&
       !isManagerAddedOneOffCharge(charge) &&
+      !charge.manualAmountOverrideAt &&
       charge.residentEmail.trim().toLowerCase() === emailLowerForFilter &&
       charge.propertyId === propertyId
     ) {
@@ -4119,6 +4201,34 @@ export function recordApprovedApplicationCharges(
     }
   }
 
+  // Monthly fees billed SEPARATELY (parking, storage…) join both partial months, one line
+  // per fee above $0, on the same day count as rent — "Prorated parking (10/30 days from
+  // lease start)". A Seattle-folded fee is inside the rent line and already prorates with
+  // it, which is why only the separately-billed set is read here. A $0 fee is skipped
+  // exactly like $0 utilities. The recurring profile still starts the first FULL month.
+  const monthlyFeeSet = monthlyFeesBilledSeparately(sub, prop, {
+    leaseStart,
+    leaseEnd,
+    leaseTerm: row.application?.leaseTerm,
+    rentalType: row.application?.rentalType,
+  });
+  if (allowListingDefaults && monthlyFeeSet.length > 0) {
+    const firstPeriod = leaseFirstPeriodProration(leaseStart, leaseEnd, endsInsideFirstMonth);
+    for (const line of proratedFeeLines(monthlyFeeSet, firstPeriod, prorateMethod)) {
+      const noun = proratedFeeNoun(line.label);
+      pushCharge(
+        "prorated_fee",
+        line.amount,
+        line.useDailyRate
+          ? `Prorated ${noun} (${firstPeriod.billableDays} days × ${formatRoomPriceAmount(line.dailyRate)}/day)`
+          : `Prorated ${noun} (${firstPeriod.label})`,
+        false,
+        moveInDue,
+        line.id,
+      );
+    }
+  }
+
   const lastMonthRentCharge = !endsInsideFirstMonth && (rentAmount > 0 || (dailyBasisRate && dailyBasisRate > 0) || (billedWeeklyBasisRate && billedWeeklyBasisRate > 0))
     ? lastMonthChargeForLeaseEnd(rentAmount, leaseEnd, "rent", prorateMethod, dailyRentRate, dailyBasisRate, billedWeeklyBasisRate, monthlyFoldIn)
     : null;
@@ -4147,6 +4257,22 @@ export function recordApprovedApplicationCharges(
       false,
       lastMonthUtilitiesCharge.dueDateLabel,
     );
+  }
+  if (allowListingDefaults && !endsInsideFirstMonth && monthlyFeeSet.length > 0) {
+    const lastPeriod = leaseEndProration(leaseEnd);
+    for (const line of proratedFeeLines(monthlyFeeSet, lastPeriod, prorateMethod)) {
+      const noun = proratedFeeNoun(line.label);
+      pushCharge(
+        "prorated_last_month_fee",
+        line.amount,
+        line.useDailyRate
+          ? `Prorated last month's ${noun} (${lastPeriod.billableDays} days × ${formatRoomPriceAmount(line.dailyRate)}/day)`
+          : `Prorated last month's ${noun}`,
+        false,
+        lastPeriod.dueDateLabel,
+        line.id,
+      );
+    }
   }
 
   // Per-room deposit override: when the resolved room carries its own securityDeposit it
@@ -4227,12 +4353,6 @@ export function recordApprovedApplicationCharges(
   // after move-in. The move-in month itself is covered by the upfront first-month/prorated
   // charges above; monthly custom fees begin with the first full recurring month (they are a
   // flat monthly service, not prorated, and are not charged for the partial move-in month).
-  const monthlyFeeSet = monthlyFeesBilledSeparately(sub, prop, {
-    leaseStart,
-    leaseEnd,
-    leaseTerm: row.application?.leaseTerm,
-    rentalType: row.application?.rentalType,
-  });
   let computedStartMonth: string | undefined;
   if (leaseStart && (rentAmount > 0 || utilities.amount > 0 || (dailyBasisRate && dailyBasisRate > 0) || (billedWeeklyBasisRate && billedWeeklyBasisRate > 0) || monthlyFeeSet.length > 0)) {
     const [leaseYearRaw, leaseMonthRaw] = leaseStart.split("-").map(Number);

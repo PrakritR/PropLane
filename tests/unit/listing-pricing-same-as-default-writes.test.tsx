@@ -93,7 +93,7 @@ describe("Same as default room stores the Default room's numbers on the record",
     expect(room1.utilitiesEstimate).toBe("0");
     expect(room1.securityDeposit).toBe("250");
     expect(sameAsDefault().checked).toBe(true);
-    expect(screen.getAllByText("$1,050 · +$0 utilities · $250 deposit · listed $1,050")).toHaveLength(2);
+    expect(screen.getAllByText("$1,050 · +$0 utilities · $250 deposit · listed $1,050 · partial months automatic")).toHaveLength(2);
 
     // Review now agrees with the card.
     expect(listingReadiness(latest!).find((c) => c.id === "rooms")).toMatchObject({ label: "2 rooms, all priced", state: "done" });

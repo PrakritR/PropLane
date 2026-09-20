@@ -142,7 +142,7 @@ describe("long-term lease parity", () => {
     // Seattle's renewal-offer duty must survive into the compact document.
     expect(first).toContain("between 60 and 90 days before the end of the lease term");
     expect(first).toContain("Residents do not have exclusive possession of shared areas");
-    expect(first).toContain("break lease fee of <strong>$900.00</strong>");
+    expect(first).toContain("early move-out fee of <strong>$900.00</strong>");
     expect(first).toContain("RCW 59.18.310");
     expect(first).toContain("Hall bath");
     expect(first).toContain("Lease Summary");
@@ -152,9 +152,9 @@ describe("long-term lease parity", () => {
     expect(first).toContain("Total payment due at signing: <strong>$600.00</strong>");
     expect(first).not.toContain("Greek Row");
     expect(first).not.toContain("additional authorized occupant");
-    expect(changed).toContain("break lease fee of <strong>$750.00</strong>");
+    expect(changed).toContain("early move-out fee of <strong>$750.00</strong>");
     expect(changed).toContain("$55.00 per day");
-    expect(changed).not.toContain("break lease fee of <strong>$900.00</strong>");
+    expect(changed).not.toContain("early move-out fee of <strong>$900.00</strong>");
     expect(changed).not.toContain("$45.00 per day");
   });
 
@@ -177,7 +177,7 @@ describe("long-term lease parity", () => {
     );
 
     expect(html).not.toContain("Holdover:");
-    expect(html).not.toContain("Break lease fee");
+    expect(html).not.toContain("Early move-out fee");
     expect(html).not.toContain("lease-up fee");
     expect(html).not.toContain("stop-payment or reissuance fee");
     expect(html).not.toContain("Trash rules:");
@@ -204,7 +204,7 @@ describe("long-term lease parity", () => {
       longTermContext({ longTermBreakLeaseFee: "-$900", longTermHoldoverDailyRate: "fee 45" }),
       SEATTLE_LEASE_CONFIG,
     );
-    expect(html).not.toContain("break lease fee of <strong>$900.00</strong>");
+    expect(html).not.toContain("early move-out fee of <strong>$900.00</strong>");
     expect(html).not.toContain("$45.00 per day");
   });
 

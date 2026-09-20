@@ -22,13 +22,23 @@ function oauthFullName(user: User): string | null {
 }
 
 async function hasManagerPortalAccess(supabase: SupabaseClient, userId: string): Promise<boolean> {
-  const { data: roleRow } = await supabase
+  const { data: managerRow } = await supabase
     .from("profile_roles")
     .select("role")
     .eq("user_id", userId)
     .eq("role", "manager")
     .maybeSingle();
-  if (roleRow) return true;
+  if (managerRow) return true;
+  // An admin `profile_roles` row also counts: an admin who has explicitly added
+  // the property portal (or the primary admin, who always holds both) already
+  // has manager-portal access and must never be treated as resident-only.
+  const { data: adminRow } = await supabase
+    .from("profile_roles")
+    .select("role")
+    .eq("user_id", userId)
+    .eq("role", "admin")
+    .maybeSingle();
+  if (adminRow) return true;
   const { data: profile } = await supabase.from("profiles").select("role").eq("id", userId).maybeSingle();
   return profile?.role === "manager" || profile?.role === "admin";
 }
@@ -57,21 +67,36 @@ async function isResidentOnlyAccount(supabase: SupabaseClient, userId: string): 
  * second sign-in / any already-provisioned account returns unchanged. Callers that
  * must commit Free immediately (pricing free-select, admin backfill) pass
  * `trialForNewManager: false`.
+ *
+ * `allowResidentUpgrade` lifts the resident-only refusal below. It defaults to
+ * false so an OAuth sign-in callback — which never carries explicit intent to
+ * become a manager — keeps refusing to silently upgrade a resident account.
+ * The explicit "add another portal type" flow (get-started, add-portal mode)
+ * passes `true`: a signed-in resident who clicks "Set up as a property
+ * manager" there has said so on purpose.
  */
 export async function ensureFreeManagerPortalAccess(
   supabase: SupabaseClient,
   user: User,
-  opts?: { trialForNewManager?: boolean },
+  opts?: { trialForNewManager?: boolean; allowResidentUpgrade?: boolean },
 ): Promise<EnsureFreeManagerResult> {
   const trialForNewManager = opts?.trialForNewManager !== false;
+  const allowResidentUpgrade = opts?.allowResidentUpgrade === true;
   const email = user.email?.trim().toLowerCase() ?? "";
   if (!email) return { status: "skipped", reason: "no_email" };
-  if (await isResidentOnlyAccount(supabase, user.id)) return { status: "skipped", reason: "resident_only" };
+  if (!allowResidentUpgrade && (await isResidentOnlyAccount(supabase, user.id))) {
+    return { status: "skipped", reason: "resident_only" };
+  }
 
   const fullName = oauthFullName(user);
   const purchase = await findManagerPurchaseForAccount(supabase, user.id, email);
 
   if (purchase && isManagerOnboardingComplete(purchase)) {
+    // A completed purchase matched by email/user id always ends up holding the
+    // manager role row — an account reached through this branch (e.g. a
+    // resident upgrading via a completed purchase on their email) must not
+    // stay without one.
+    await ensureProfileRoleRow(supabase, user.id, "manager");
     try {
       const { scheduleManagerMessagingReady } = await import("@/lib/proplane-sms-transport.server");
       scheduleManagerMessagingReady(user.id);

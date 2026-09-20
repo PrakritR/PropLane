@@ -1,4 +1,6 @@
 import type { PropertyCoManagerPermissions } from "@/lib/co-manager-permissions";
+import type { TeamRoleId } from "@/lib/co-manager-team-roles";
+import type { HouseScope, WorkspaceRole } from "@/lib/workspaces/membership";
 
 /** Hard ceiling enforced in the database; the plan below narrows it per tier. */
 export const WORKSPACE_LIMIT = 10;
@@ -26,13 +28,21 @@ export const WORKSPACE_PLAN_ENTITLEMENTS: Record<
 };
 
 export type WorkspaceMember = {
+  /** The membership row (an account link pinned to this workspace). */
+  linkId: string;
   userId: string;
   name: string;
   email: string;
-  /** Houses in THIS workspace the member is assigned to. */
+  role: TeamRoleId;
+  houseScope: HouseScope;
+  /** Houses in THIS workspace the member reaches right now. */
   propertyIds: string[];
   /** Modules granted on at least one of those houses. */
   modules: string[];
+  status: "accepted" | "pending";
+  joinedAt: string | null;
+  /** Held the on-by-default Add properties / Team flags before rights followed the role. */
+  legacyRights: boolean;
 };
 
 export type WorkspacePlan = {
@@ -56,10 +66,15 @@ export type PortalWorkspace = {
   /** Display names from the property record itself, so the pane never depends on a client cache. */
   propertyLabels?: Record<string, string>;
   propertyPermissions: PropertyCoManagerPermissions;
-  /** Managers the owner has granted access on houses in this workspace (owned workspaces only). */
+  /** This workspace's members. Present for the owner and for an admin of the workspace. */
   members?: WorkspaceMember[];
-  /** Viewer may create listings here (owner, or teammate with Add properties). */
+  /** The viewer's standing here: owner, or the role on their membership row. */
+  viewerRole?: WorkspaceRole | null;
+  viewerHouseScope?: HouseScope;
+  /** Viewer may create listings here (owner, admin, property manager). */
   canAddProperties?: boolean;
+  /** Viewer may invite, edit and remove members here (owner or admin). */
+  canManageMembers?: boolean;
 };
 export type WorkspacePayload = {
   workspaces: PortalWorkspace[];

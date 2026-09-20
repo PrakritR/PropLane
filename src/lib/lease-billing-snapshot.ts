@@ -12,13 +12,22 @@ import { resolvePlacementValuesForRow } from "@/lib/rental-application/placement
 import { computeLeasePaymentAtSigning } from "@/lib/rental-application/listing-fees-display";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { getPropertyById } from "@/lib/rental-application/data";
-import { computeProratedFirstMonthTotals, leaseFirstPeriodProration } from "@/lib/lease-first-period-proration";
+import {
+  computeProratedFirstMonthTotals,
+  leaseEndProration,
+  leaseFirstPeriodProration,
+  proratedFeeLines,
+} from "@/lib/lease-first-period-proration";
+import { monthlyFeesBilledSeparately } from "@/lib/rent-fold-in";
 import { resolveLeaseProrationInputForApplicant } from "@/lib/lease-proration-settings";
 import type { LeaseGenerationContext } from "@/lib/generated-lease";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 import { resolveSubmissionRoom } from "@/lib/listing-room-resolution";
 import { resolveStayPricing } from "@/lib/room-pricing";
-import { shortTermStayNightCount, shortTermStayTotalAmount } from "@/lib/short-term-stay-pricing";
+import { intraMonthStaySpan, shortTermStayNightCount, shortTermStayTotalAmount } from "@/lib/short-term-stay-pricing";
+
+/** One monthly fee's prorated line, as the ledger bills it. */
+export type LeaseBillingFeeLine = { id: string; label: string; amount: number };
 
 /** Dollar amounts that match household charges / placement (what actually bills). */
 export type LeaseBillingSnapshot = {
@@ -48,6 +57,12 @@ export type LeaseBillingSnapshot = {
   proratedUtilities?: number;
   proratedLastMonthRent?: number;
   proratedLastMonthUtilities?: number;
+  /** Monthly fees prorated into the first partial month — `prorated_fee` charges. */
+  proratedFeeLines?: LeaseBillingFeeLine[];
+  /** Monthly fees prorated into the final partial month — `prorated_last_month_fee` charges. */
+  proratedLastMonthFeeLines?: LeaseBillingFeeLine[];
+  /** Outstanding balance of the first-month fee lines (what signing still collects). */
+  firstPeriodFeesDue?: number;
   applicationFee?: number;
   /** Dollars CLEARED toward the deposit (holding portion included). Never waived or clearing. */
   securityDepositReceived?: number;
@@ -68,6 +83,7 @@ const SIGNING_CHARGE_KINDS: HouseholdChargeKind[] = [
   "payment_at_signing",
   "prorated_rent",
   "prorated_utilities",
+  "prorated_fee",
   "other_cost",
 ];
 
@@ -329,6 +345,46 @@ export function buildLeaseBillingSnapshot(
         })
       : null;
 
+  // Monthly fees prorated into the partial months. Computed from the listing through the
+  // SAME helper the ledger uses; a charge that exists for the fee wins (its amount may have
+  // been hand-edited), so the document prints what actually bills.
+  const feeBillingCtx = {
+    leaseStart,
+    leaseEnd,
+    leaseTerm: applicant.application?.leaseTerm,
+    rentalType: applicant.application?.rentalType,
+  };
+  const separatelyBilledFees = !isShortTerm && sub ? monthlyFeesBilledSeparately(sub, listing, feeBillingCtx) : [];
+  const endsInsideFirstMonth = intraMonthStaySpan(leaseStart, leaseEnd) !== null;
+  const feeLinesFromCharges = (kind: HouseholdChargeKind): LeaseBillingFeeLine[] =>
+    placementCharges
+      .filter((c) => c.kind === kind && c.customFeeId && !chargeIsVoided(c))
+      .map((c) => ({ id: c.customFeeId!, label: c.title, amount: chargeAmount(c) }));
+  const mergeFeeLines = (computed: LeaseBillingFeeLine[], billed: LeaseBillingFeeLine[]): LeaseBillingFeeLine[] => {
+    const billedById = new Map(billed.map((l) => [l.id, l]));
+    const merged = computed.map((l) => ({ ...l, amount: billedById.get(l.id)?.amount ?? l.amount }));
+    for (const l of billed) if (!computed.some((c) => c.id === l.id)) merged.push(l);
+    return merged.filter((l) => l.amount > 0);
+  };
+  const proratedFeeLinesSnapshot = mergeFeeLines(
+    proratedFeeLines(separatelyBilledFees, leaseFirstPeriodProration(leaseStart, leaseEnd, true), prorationSettings.method)
+      .map((l) => ({ id: l.id, label: l.label, amount: l.amount })),
+    feeLinesFromCharges("prorated_fee"),
+  );
+  const proratedLastMonthFeeLinesSnapshot = endsInsideFirstMonth
+    ? []
+    : mergeFeeLines(
+        proratedFeeLines(separatelyBilledFees, leaseEndProration(leaseEnd), prorationSettings.method)
+          .map((l) => ({ id: l.id, label: l.label, amount: l.amount })),
+        feeLinesFromCharges("prorated_last_month_fee"),
+      );
+  const firstPeriodFeeCharges = placementCharges.filter((c) => c.kind === "prorated_fee" && !c.rentMonth);
+  const firstPeriodFeesDue = isShortTerm
+    ? 0
+    : firstPeriodFeeCharges.length
+      ? firstPeriodFeeCharges.reduce((sum, c) => sum + chargeOutstandingAmount(c), 0)
+      : proratedFeeLinesSnapshot.reduce((sum, l) => sum + l.amount, 0);
+
   const chargeProratedRent = sumByKind(charges, "prorated_rent");
   const chargeProratedUtilities = sumByKind(charges, "prorated_utilities");
   const chargeProratedLastMonthRent = sumByKind(charges, "prorated_last_month_rent");
@@ -374,6 +430,7 @@ export function buildLeaseBillingSnapshot(
         moveInFee: moveInFeeDue,
         monthlyRent: firstPeriodRentDue,
         monthlyUtilities: firstPeriodUtilitiesDue,
+        firstPeriodFees: firstPeriodFeesDue,
         otherSigningCost: otherCostDue,
         customOneTimeFees: customOneTimeFeesDue,
       },
@@ -396,6 +453,7 @@ export function buildLeaseBillingSnapshot(
           monthlyUtilities,
           proratedRent: resolvedProratedRent,
           proratedUtilities: resolvedProratedUtilities,
+          firstPeriodFees: firstPeriodFeesDue,
           otherSigningCost: otherCostDue,
           customOneTimeFees: customOneTimeFeesDue,
         },
@@ -428,6 +486,9 @@ export function buildLeaseBillingSnapshot(
     proratedUtilities: resolvedProratedUtilities,
     proratedLastMonthRent: chargeProratedLastMonthRent,
     proratedLastMonthUtilities: chargeProratedLastMonthUtilities,
+    proratedFeeLines: proratedFeeLinesSnapshot,
+    proratedLastMonthFeeLines: proratedLastMonthFeeLinesSnapshot,
+    firstPeriodFeesDue,
     applicationFee,
     securityDepositReceived,
     moveInFeeReceived,

@@ -32,6 +32,7 @@ import {
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 import type { LeaseGenerationContext } from "@/lib/generated-lease";
 import { PROPERTY_LEASE_TEMPLATE_PLACEHOLDER, formatLeaseAddressForDisplay } from "@/lib/property-lease-preview";
+import { sharedSpaceAccessNames, sharedSpaceIsEveryone } from "@/lib/listing-shared-space-access";
 import { jointLeasePartiesParagraph } from "@/lib/bundle-group/joint-lease";
 import { leaseCss, type LeaseJurisdictionTemplateConfig } from "@/lib/lease-templates/types";
 import { resolveJurisdiction } from "@/lib/lease-jurisdiction";
@@ -42,12 +43,16 @@ import {
 import { buildCompactRoomLeaseBody, clearedInFull } from "@/lib/lease-templates/build-compact-room-lease-html";
 import {
   computeProratedFirstMonthTotals,
+  leaseEndProration,
   leaseFirstPeriodProration,
   computeProratedLastMonthTotals,
+  proratedFeeLines,
   prorationMonthLabel,
+  type ProratedFeeLine,
   type ProratedLastMonthRateBasis,
   type ProratedLastMonthTotals,
 } from "@/lib/lease-first-period-proration";
+import { monthlyFeesBilledSeparately } from "@/lib/rent-fold-in";
 import { resolveStayPricing, roomShortLeaseSurcharge, tenancyPaysShortLeaseSurcharge } from "@/lib/room-pricing";
 import { listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
 import { resolveSubmissionRoom, submissionRoomRentLabel } from "@/lib/listing-room-resolution";
@@ -183,14 +188,12 @@ function sharedSpacesLeaseHtml(raw: ManagerListingSubmissionV1 | undefined): str
   if (!entries.length) {
     return "<p>Common kitchen, bath, and living areas as shared among residents.</p>";
   }
+  const roomIds = sub.rooms.map((room) => room.id);
   const items = entries.map((s) => {
-    const names = (s.roomAccessIds ?? [])
-      .map((id) => sub.rooms.find((r) => r.id === id)?.name?.trim())
-      .filter(Boolean)
-      .join(", ");
-    const head = names.length
-      ? `${s.name.trim()} — access includes: ${names}`
-      : s.name.trim();
+    const names = sharedSpaceIsEveryone(s.roomAccessIds, roomIds)
+      ? ""
+      : sharedSpaceAccessNames(s.roomAccessIds, sub.rooms);
+    const head = names ? `${s.name.trim()} — access includes: ${names}` : s.name.trim();
     const d = s.detail.trim();
     return escapeHtml(d ? `${head}. ${d}` : `${head}.`);
   });
@@ -278,6 +281,8 @@ type ProrateOptions = {
   method?: "auto" | "daily_rate";
   dailyRentRate?: number;
   dailyUtilitiesRate?: number;
+  /** Monthly fees billed separately, prorated into this partial month (parking, storage…). */
+  feeLines?: readonly ProratedFeeLine[];
   /**
    * Daily-basis mode. Rent already bills each month by its real day count, so prorating it
    * would misread the day rate as a monthly figure — but utilities are still a monthly
@@ -315,8 +320,16 @@ function lastMonthRateBasisDisplay(basis: ProratedLastMonthRateBasis | null): st
   return basis.useDailyRate ? `${fmtUsd(basis.dailyRate)}/day` : `${fmtUsd(basis.monthlyAmount)}/mo`;
 }
 
-function lastMonthBlock(totals: ProratedLastMonthTotals): string {
+function lastMonthBlock(totals: ProratedLastMonthTotals, feeLines: readonly ProratedFeeLine[] = []): string {
   if (!totals.applies) return "";
+  const feesTotal = feeLines.reduce((sum, f) => sum + f.amount, 0);
+  const grandTotal = Number((totals.total + feesTotal).toFixed(2));
+  const feeRows = feeLines
+    .map(
+      (f) =>
+        `<tr><td>Last month&apos;s ${escapeHtml(f.label)}</td><td>${f.useDailyRate ? `${fmtUsd(f.dailyRate)}/day` : `${fmtUsd(f.monthlyAmount)}/mo`}</td><td>${totals.billableDays} / ${totals.daysInMonth}</td><td>${fmtUsd(f.amount)}</td></tr>`,
+    )
+    .join("\n  ");
   const dueSentence = totals.dueDateLabel
     ? ` These amounts are billed with the move-in charges and are due ${escapeHtml(totals.dueDateLabel.replace(/^By /, ""))}.`
     : "";
@@ -328,7 +341,8 @@ function lastMonthBlock(totals: ProratedLastMonthTotals): string {
   <tr><th>Item</th><th>Rate basis</th><th>Days billed</th><th>Prorated amount</th></tr>
   ${totals.proratedRent > 0 ? `<tr><td>Last month&apos;s rent</td><td>${lastMonthRateBasisDisplay(totals.rentBasis)}</td><td>${totals.billableDays} / ${totals.daysInMonth}</td><td>${fmtUsd(totals.proratedRent)}</td></tr>` : ""}
   ${totals.proratedUtilities > 0 ? `<tr><td>Last month&apos;s utilities estimate</td><td>${lastMonthRateBasisDisplay(totals.utilitiesBasis)}</td><td>${totals.billableDays} / ${totals.daysInMonth}</td><td>${fmtUsd(totals.proratedUtilities)}</td></tr>` : ""}
-  <tr class="total-row"><td colspan="3"><strong>Total due for the final month</strong></td><td><strong>${fmtUsd(totals.total)}</strong></td></tr>
+  ${feeRows}
+  <tr class="total-row"><td colspan="3"><strong>Total due for the final month</strong></td><td><strong>${fmtUsd(grandTotal)}</strong></td></tr>
 </table>
 `;
 }
@@ -372,7 +386,15 @@ function proratedBlock(
       prorate?.method === "daily_rate" && prorate.dailyUtilitiesRate && prorate.dailyUtilitiesRate > 0;
     const finalProratedRent = totals.proratedRent;
     const finalProratedUtils = totals.proratedUtilities;
-    const total = totals.total;
+    const feeLines = prorate?.feeLines ?? [];
+    const feesTotal = feeLines.reduce((sum, f) => sum + f.amount, 0);
+    const total = Number((totals.total + feesTotal).toFixed(2));
+    const feeRows = feeLines
+      .map(
+        (f) =>
+          `<tr><td>${escapeHtml(f.label)}</td><td>${f.useDailyRate ? `${fmtUsd(f.dailyRate)}/day` : fmtUsd(f.monthlyAmount)}</td><td>${remaining} / ${dim}</td><td>${fmtUsd(f.amount)}</td></tr>`,
+      )
+      .join("\n  ");
     // The header must describe the figure actually printed in the column: a room with no
     // dailyUtilitiesRate shows its MONTHLY estimate even in utilities-only mode.
     const rateCol = (utilitiesOnly ? useManualUtils : useManual) ? "Daily rate" : "Monthly rate";
@@ -400,6 +422,7 @@ function proratedBlock(
   <tr><th>Item</th><th>${rateCol}</th><th>${utilitiesOnly || span ? "Days billed" : "Days remaining"}</th><th>Prorated amount</th></tr>
   ${utilitiesOnly ? "" : `<tr><td>Rent</td><td>${rentRateDisplay}</td><td>${remaining} / ${dim}</td><td>${fmtUsd(finalProratedRent)}</td></tr>`}
   ${finalProratedUtils != null && (utilitiesOnly ? finalProratedUtils > 0 : utilRateDisplay != null) ? `<tr><td>Utilities estimate</td><td>${utilRateDisplay ?? (finalProratedUtils > 0 ? fmtUsd(finalProratedUtils) : "—")}</td><td>${remaining} / ${dim}</td><td>${fmtUsd(finalProratedUtils)}</td></tr>` : ""}
+  ${feeRows}
   <tr class="total-row"><td colspan="3"><strong>${utilitiesOnly ? "Prorated utilities due" : span ? "Prorated total due for the term" : "Prorated total due first month"}</strong></td><td><strong>${fmtUsd(total)}</strong></td></tr>
 </table>
 ${closing}
@@ -610,6 +633,25 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
         listingProperty: list,
       });
   const rentFoldsMonthlyFees = listingFoldsAllMonthlyFeesIntoRent(subNorm, list);
+  // The monthly fees that bill as their OWN charge, for the partial-month lines below. The
+  // same resolver the ledger reads, so a fee prorated here is a fee the ledger prorates.
+  const separatelyBilledMonthlyFees =
+    subNorm && !propertyTemplatePreview ? monthlyFeesBilledSeparately(subNorm, list, leaseFeeBillingContext) : [];
+  // A ledger line (possibly hand-edited) wins over the recomputation, exactly as rent does.
+  const mergeDocFeeLines = (
+    computed: ProratedFeeLine[],
+    ledger: ReadonlyArray<{ id: string; label: string; amount: number }> | undefined,
+  ): ProratedFeeLine[] => {
+    if (!ledger) return computed;
+    const byId = new Map(ledger.map((l) => [l.id, l]));
+    const merged = computed.map((c) => (byId.has(c.id) ? { ...c, amount: byId.get(c.id)!.amount } : c));
+    for (const l of ledger) {
+      if (!computed.some((c) => c.id === l.id) && l.amount > 0) {
+        merged.push({ id: l.id, label: l.label, monthlyAmount: l.amount, amount: l.amount, useDailyRate: false, dailyRate: 0 });
+      }
+    }
+    return merged.filter((l) => l.amount > 0);
+  };
   const foldedIntoRentFees = leaseDocFees.foldedIntoRent
     .map((line) => ({ label: line.label.trim() || "Fee", amount: parseAmount(line.amount) ?? 0 }))
     .filter((line) => line.amount > 0);
@@ -892,7 +934,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
     : "applicable law";
   const terminationFeeExhibitRows = [
     longTermBreakLeaseFee != null && longTermBreakLeaseFee > 0
-      ? `  <tr><td>Break lease fee</td><td class="amount">${fmtUsd(longTermBreakLeaseFee)}</td><td>If early termination</td></tr>`
+      ? `  <tr><td>Early move-out fee</td><td class="amount">${fmtUsd(longTermBreakLeaseFee)}</td><td>If early termination</td></tr>`
       : "",
     longTermLeaseUpFeePercent != null
       ? `  <tr><td>Lease-up fee (up to)</td><td class="amount">${longTermLeaseUpFeePercent}% of one month&apos;s rent</td><td>If early termination</td></tr>`
@@ -910,12 +952,24 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
       : "No pets or animals of any kind are permitted on the Premises without prior written consent of Landlord.";
   const paymentMethod = "Payment shall be made via the PropLane portal or by a method agreed in writing with Landlord.";
 
+  const proratedFeeLinesDoc: ProratedFeeLine[] = propertyTemplatePreview
+    ? []
+    : mergeDocFeeLines(
+        proratedFeeLines(
+          separatelyBilledMonthlyFees,
+          leaseFirstPeriodProration(a.leaseStart ?? "", a.leaseEnd ?? "", true),
+          specificRoom?.prorateMethod,
+        ),
+        leaseBilling?.proratedFeeLines,
+      );
+  const proratedFeesTotalDoc = proratedFeeLinesDoc.reduce((sum, f) => sum + f.amount, 0);
   const proratedSection = propertyTemplatePreview
     ? ""
     : proratedBlock(monthlyRentStr, utilitiesStr, a.leaseStart ?? "", a.leaseEnd ?? "", {
     method: specificRoom?.prorateMethod,
     dailyRentRate: specificRoom?.dailyRentRate,
     dailyUtilitiesRate: specificRoom?.dailyUtilitiesRate,
+    feeLines: proratedFeeLinesDoc,
     utilitiesOnly: isDailyBasis,
     utilitiesAmount: utilitiesNum ?? 0,
     ledgerProratedRent: leaseBilling?.proratedRent,
@@ -976,6 +1030,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
     monthlyUtilities: leaseBilling?.monthlyUtilities ?? utilitiesNum ?? 0,
     proratedRent: signingProratedRent,
     proratedUtilities: signingProratedUtilities,
+    firstPeriodFees: leaseBilling?.firstPeriodFeesDue ?? proratedFeesTotalDoc,
     customOneTimeFees: customFeesTotalNum,
     otherSigningCost: showOtherSigningCost ? (otherCostNum ?? 0) : 0,
   };
@@ -1037,6 +1092,14 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
         ledgerProratedLastMonthUtilities: leaseBilling?.proratedLastMonthUtilities,
       });
   const showProratedLastMonth = Boolean(lastMonthTotals?.applies);
+  const proratedLastMonthFeeLinesDoc: ProratedFeeLine[] =
+    stripPreviewIdentity || endsInsideFirstMonth || !showProratedLastMonth
+      ? []
+      : mergeDocFeeLines(
+          proratedFeeLines(separatelyBilledMonthlyFees, leaseEndProration(a.leaseEnd ?? ""), specificRoom?.prorateMethod),
+          leaseBilling?.proratedLastMonthFeeLines,
+        );
+  const proratedLastMonthFeesTotalDoc = proratedLastMonthFeeLinesDoc.reduce((sum, f) => sum + f.amount, 0);
 
   const monthlyDueDay = sub?.rentDueDayMode === "last_of_month" ? "last calendar day" : "1st calendar day";
   const lateFeeAmount = !propertyTemplatePreview && sub?.lateFeeEnabled !== false
@@ -1401,6 +1464,9 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
     proratedUtilitiesAmount > 0
       ? `<tr><th>Prorated utilities${firstMonthSuffix}</th><td class="amount">${fmtUsd(proratedUtilitiesAmount)}</td></tr>`
       : "",
+    ...proratedFeeLinesDoc.map(
+      (f) => `<tr><th>Prorated ${escapeHtml(f.label.toLowerCase())}${firstMonthSuffix}</th><td class="amount">${fmtUsd(f.amount)}</td></tr>`,
+    ),
   ]
     .filter(Boolean)
     .join("\n    ");
@@ -1411,6 +1477,9 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
     showProratedLastMonth && lastMonthTotals && lastMonthTotals.proratedUtilities > 0
       ? `<tr><th>Last month&apos;s utilities${lastMonthSuffix}</th><td class="amount">${fmtUsd(lastMonthTotals.proratedUtilities)}</td></tr>`
       : "",
+    ...proratedLastMonthFeeLinesDoc.map(
+      (f) => `<tr><th>Last month&apos;s ${escapeHtml(f.label.toLowerCase())}${lastMonthSuffix}</th><td class="amount">${fmtUsd(f.amount)}</td></tr>`,
+    ),
   ]
     .filter(Boolean)
     .join("\n    ");
@@ -1441,7 +1510,7 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
   ${paySigningIncludesNote ? `<p class="fee-note">Due at signing includes: ${paySigningIncludesNote}.</p>` : ""}
   ${
     showProratedLastMonth && lastMonthTotals
-      ? `<p class="fee-note">The final month is partial (${escapeHtml(lastMonthTotals.label)}), so last month&apos;s rent and utilities are billed at ${fmtUsd(lastMonthTotals.total)}${lastMonthTotals.dueDateLabel ? `, due ${escapeHtml(lastMonthTotals.dueDateLabel.replace(/^By /, ""))}` : ""}.</p>`
+      ? `<p class="fee-note">The final month is partial (${escapeHtml(lastMonthTotals.label)}), so last month&apos;s rent${proratedLastMonthFeeLinesDoc.length ? ", utilities and recurring charges" : " and utilities"} are billed at ${fmtUsd(Number((lastMonthTotals.total + proratedLastMonthFeesTotalDoc).toFixed(2)))}${lastMonthTotals.dueDateLabel ? `, due ${escapeHtml(lastMonthTotals.dueDateLabel.replace(/^By /, ""))}` : ""}.</p>`
       : ""
   }
 </div>`
@@ -1492,6 +1561,8 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
         received: billing?.oneTimeCustomFeeReceived?.[fee.id],
       })),
       billableMonthlyCustomFees,
+      proratedFeeLines: proratedFeeLinesDoc.map((f) => ({ label: f.label, amount: f.amount })),
+      proratedLastMonthFeeLines: proratedLastMonthFeeLinesDoc.map((f) => ({ label: f.label, amount: f.amount })),
       supplementalOneTimeLeaseFees,
       rentCompositionHtml,
       rentIncludesSummary,
@@ -1628,7 +1699,7 @@ ${lateFeeHtml}
 ${rentDisclosureHtml}
 
 ${showProratedFirstMonth && proratedSection ? proratedSection.replace(PRORATED_SECTION_TOKEN, String(nextSection())) : ""}
-${showProratedLastMonth && lastMonthTotals ? lastMonthBlock(lastMonthTotals).replace(LAST_MONTH_SECTION_TOKEN, String(nextSection())) : ""}
+${showProratedLastMonth && lastMonthTotals ? lastMonthBlock(lastMonthTotals, proratedLastMonthFeeLinesDoc).replace(LAST_MONTH_SECTION_TOKEN, String(nextSection())) : ""}
 
 <h2>${nextSection()}. Security Deposit &amp; Move-In Charges</h2>
 <table class="fee-table">
@@ -1759,7 +1830,7 @@ ${
   hasConfiguredEarlyTerminationTerm
     ? `<p>If Resident vacates prior to lease expiration or without proper notice, Resident shall be liable for:</p>
 <ul>
-  ${longTermBreakLeaseFee != null && longTermBreakLeaseFee > 0 ? `<li>A break lease fee of <strong>${fmtUsd(longTermBreakLeaseFee)}</strong></li>` : ""}
+  ${longTermBreakLeaseFee != null && longTermBreakLeaseFee > 0 ? `<li>An early move-out fee of <strong>${fmtUsd(longTermBreakLeaseFee)}</strong></li>` : ""}
   ${longTermLeaseUpFeePercent != null ? `<li>A prorated lease-up fee of up to <strong>${longTermLeaseUpFeePercent}% of one month&apos;s rent</strong></li>` : ""}
   <li>Ongoing rent, utilities, and recurring charges until a replacement resident takes possession or the lease term ends (whichever occurs first)${
       config.earlyTerminationStatuteRef ? `, in accordance with ${escapeHtml(config.earlyTerminationStatuteRef)}` : ""

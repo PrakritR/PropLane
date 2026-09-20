@@ -89,18 +89,24 @@ export function hasAdminRole(ctx: PortalAccessContext): boolean {
 }
 
 /**
- * In the live production deployment an admin (founder/ops) identity must NOT be
- * able to cross into the manager/property portal — an ops account should never
- * operate as a landlord on the real site. The block is lifted outside
- * production (local, preview) so day-to-day and staging work is unaffected, and
- * it keys on the `admin` role, which genuine manager accounts never hold, so
- * real managers are untouched.
+ * In the live production deployment an admin-ONLY (founder/ops) identity must
+ * NOT be able to cross into the manager/property portal — an ops account
+ * should never operate as a landlord on the real site. The block is lifted
+ * outside production (local, preview) so day-to-day and staging work is
+ * unaffected, and it keys on the `admin` role, which genuine manager accounts
+ * never hold, so real managers are untouched.
  *
  * The sole primary admin (`PRIMARY_ADMIN_EMAIL`) is exempt: that account is
- * intentionally both ops and property manager on production.
+ * intentionally both ops and property manager on production. Any other admin
+ * who also holds the `manager` role — e.g. by explicitly adding the property
+ * portal through "add another portal type" — is exempt too: holding the
+ * `manager` role is itself the explicit, deliberate grant this block exists
+ * to require, so an admin-only account stays blocked while an admin+manager
+ * account is not.
  */
 export function adminBlockedFromManagerPortal(ctx: PortalAccessContext): boolean {
   if (isPrimaryAdminEmail(ctx.user?.email)) return false;
+  if (hasRole(ctx, "manager")) return false;
   return hasAdminRole(ctx) && isProductionRuntime();
 }
 

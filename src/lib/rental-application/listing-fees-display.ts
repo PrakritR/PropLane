@@ -114,6 +114,11 @@ export type LeaseSigningAmounts = {
   monthlyUtilities: number;
   proratedRent?: number;
   proratedUtilities?: number;
+  /**
+   * Monthly fees prorated into the first partial month (parking, storage…). They ride with
+   * the first month's rent line, so they count toward signing exactly when that line does.
+   */
+  firstPeriodFees?: number;
   /** One-time custom fees that bill before move-in. */
   customOneTimeFees?: number;
   otherSigningCost?: number;
@@ -155,6 +160,7 @@ export function computeLeasePaymentAtSigning(
     const rent =
       amounts.proratedRent != null && amounts.proratedRent >= 0 ? amounts.proratedRent : amounts.monthlyRent;
     sum += rent;
+    sum += amounts.firstPeriodFees ?? 0;
   }
   if (includes.includes("first_month_utilities")) {
     const util =

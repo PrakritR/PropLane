@@ -75,6 +75,13 @@ export type ListingFeeRow = ManagerCustomFeeRow & {
   presetId?: ListingFeePresetId | "custom";
   dueAtSigning?: boolean;
   shortTermOnly?: boolean;
+  /**
+   * What this MONTHLY fee bills per day in a partial first or last month when the
+   * room's partial months are "Set per day" (`prorateMethod === "daily_rate"`).
+   * Ignored while the room prorates automatically. A missing rate falls back to the
+   * calendar fraction (amount × days ÷ days in month), never to zero.
+   */
+  dailyRate?: number;
 };
 
 export type ListingFeePresetMeta = {
@@ -177,7 +184,7 @@ export const LISTING_FEE_PRESETS: readonly ListingFeePresetMeta[] = [
   },
   {
     presetId: "break_lease_fee",
-    defaultLabel: "Break lease fee",
+    defaultLabel: "Early move-out fee",
     cadence: "one-time",
     requiredInWizard: false,
   },
@@ -287,6 +294,8 @@ export function normalizeListingFeeRow(raw: ListingFeeRow): ListingFeeRow {
     // save. Absent stays absent, and absent means "every lease type / every room".
     leaseTypes: normalizeFeeScopeIds(row.leaseTypes),
     roomIds: normalizeFeeScopeIds(row.roomIds),
+    // The per-day figure for a "Set per day" partial month. Kept only when positive.
+    dailyRate: typeof row.dailyRate === "number" && Number.isFinite(row.dailyRate) && row.dailyRate > 0 ? row.dailyRate : undefined,
   };
 }
 

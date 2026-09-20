@@ -264,7 +264,20 @@ export function firstListingDashboardRedirectStorageKey(userId: string): string 
  */
 export async function ensureManagerFirstListingDraft(
   managerUserId: string,
-  opts?: { email?: string | null; portfolioSynced?: boolean; coManagerLinksKnown?: boolean; incomingTeam?: boolean },
+  opts?: {
+    email?: string | null;
+    portfolioSynced?: boolean;
+    coManagerLinksKnown?: boolean;
+    incomingTeam?: boolean;
+    /**
+     * Receives the server's explanation when the seed write is refused, so the
+     * caller can tell the manager WHY the first-listing draft did not appear
+     * instead of leaving it silently absent. A failed seed is still
+     * recoverable — the manager can press Create — this only gives that dead
+     * end a voice.
+     */
+    onError?: (message: string) => void;
+  },
 ): Promise<{ draftId: string; created: boolean } | null> {
   const userId = managerUserId.trim();
   if (!userId) return null;
@@ -291,6 +304,7 @@ export async function ensureManagerFirstListingDraft(
   const draftId = await saveManagerPropertyDraftToServer(createNewListingWizardSubmission(), userId, {
     stepIndex: 0,
     maxStepReached: 0,
+    onError: opts?.onError,
   });
   if (!draftId) return null;
   return { draftId, created: true };

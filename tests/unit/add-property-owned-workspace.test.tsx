@@ -96,4 +96,49 @@ describe("resolveAddPropertyWorkspaceAction", () => {
       expect(action.kind).not.toBe("open");
     }
   });
+
+  /**
+   * "Add property" clicked while workspaces are still loading used to return
+   * `wait` and stop with no feedback. `pro-properties.tsx` now toasts and
+   * queues one retry, resolved by calling this same function again once the
+   * caller's `loading` flag has flipped false — the same context, re-read.
+   * This proves that replay actually reaches a settled answer rather than
+   * looping back to `wait` forever.
+   */
+  it("resolves to a settled action once the loading flag the caller is waiting on flips false", () => {
+    const loadingCtx = { loading: true, active: null, workspaces: [] };
+    expect(resolveAddPropertyWorkspaceAction(loadingCtx)).toEqual({ kind: "wait" });
+
+    // The retry re-reads the SAME workspace list with loading now false —
+    // this is exactly the call `pro-properties.tsx` replays.
+    const settled = resolveAddPropertyWorkspaceAction({ ...loadingCtx, loading: false });
+    expect(settled.kind).not.toBe("wait");
+    expect(settled).toEqual({ kind: "open" });
+  });
+
+  /**
+   * `no-owned` is the branch `pro-properties.tsx` uses to decide whether to
+   * create the manager's default workspace (`workspaces.mutate({ action:
+   * "initialize" })`) before replaying the click. That decision only makes
+   * sense when the account owns nothing at all, so the invariant this locks
+   * down is: whenever the gate reports `no-owned`, there is no owned
+   * workspace anywhere in the list it was given — never "owned but not
+   * writable", which would be a bug in `canCreateHere` instead.
+   */
+  it("no-owned implies zero owned workspaces in the given list, never merely zero writable ones", () => {
+    const cases: Array<Pick<PortalWorkspace, "id" | "owned" | "canAddProperties">[]> = [
+      [ws("shared", false)],
+      [ws("shared", false), ws("other", false)],
+      [{ id: "shared", owned: false, canAddProperties: false }],
+    ];
+    for (const workspaces of cases) {
+      const action = resolveAddPropertyWorkspaceAction({
+        loading: false,
+        active: workspaces[0]!,
+        workspaces,
+      });
+      expect(action.kind).toBe("no-owned");
+      expect(workspaces.some((w) => w.owned)).toBe(false);
+    }
+  });
 });

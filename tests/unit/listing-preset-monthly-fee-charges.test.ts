@@ -160,8 +160,13 @@ describe("preset monthly fees with no legacy billing field", () => {
     recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
 
     const rows = feeRows(email, "cf-other");
-    expect(rows.map((r) => r.rentMonth)).toEqual(["2026-04", "2026-05", "2026-06"]);
+    // June (move-out, 12/30 days) is a prorated last-month line, not a flat month (PLAN-0920-0423).
+    expect(rows.map((r) => r.rentMonth)).toEqual(["2026-04", "2026-05"]);
     expect(rows.every((r) => r.amountLabel === "$150.00")).toBe(true);
+    const lastMonth = readHouseholdCharges().find(
+      (c) => c.residentEmail.toLowerCase() === email && c.kind === "prorated_last_month_fee" && c.customFeeId === "cf-other",
+    );
+    expect(lastMonth?.amountLabel).toBe("$60.00");
   });
 
   it("bills nothing after the manager unchecks the fee", () => {
@@ -187,7 +192,7 @@ describe("preset monthly fees with no legacy billing field", () => {
     recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
 
     const rows = feeRows(email, "cf-parking");
-    expect(rows.map((r) => r.rentMonth)).toEqual(["2026-04", "2026-05", "2026-06"]);
+    expect(rows.map((r) => r.rentMonth)).toEqual(["2026-04", "2026-05"]);
     expect(rows.every((r) => r.amountLabel === "$75.00")).toBe(true);
   });
 
@@ -215,6 +220,6 @@ describe("preset monthly fees with no legacy billing field", () => {
     recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
     recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
 
-    expect(feeRows(email, "cf-other").map((r) => r.rentMonth)).toEqual(["2026-04", "2026-05", "2026-06"]);
+    expect(feeRows(email, "cf-other").map((r) => r.rentMonth)).toEqual(["2026-04", "2026-05"]);
   });
 });

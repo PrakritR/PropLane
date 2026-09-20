@@ -7,40 +7,70 @@
 number is the owner's; a co-manager sends and reads on it within their inbox
 grant. See `docs/agents/sms-system.md` "One work number per WORKSPACE".
 
+**A membership is one row per (owner, manager, WORKSPACE).** Since
+`20260920180000_workspace_memberships.sql`, `account_link_invites` is unique
+per pair per workspace (`account_link_invites_unique_active_pair_ws`), every
+row carries `workspace_id`, a `team_role`, and a `house_scope`:
+
+- `all` — every house in the workspace, now and later. The database keeps
+  `assigned_property_ids` current: `sync_workspace_membership_houses` on the
+  row's own write, `propagate_workspace_houses_to_memberships` when a house
+  joins, leaves or changes hands on `manager_property_records`. A house that
+  joined after the row was written has no per-house map entry yet;
+  `readPropertyPermissionsFromRow` fills an EMPTY entry from the row's flat
+  `co_manager_permissions` (the role stamp) on an `all` row only. Every
+  reader must select `house_scope` (`INVITE_PERMISSION_COLUMNS`).
+- `selected` — the listed houses. A house that leaves the workspace is pruned
+  from the row and its map by the same trigger.
+
+The same person can be Admin in one workspace and Viewer in another; removing
+them from one workspace (`PATCH … action: revoke`) touches that row only.
+Pure rules live in `src/lib/workspaces/membership.ts`; server lookups
+(`actorWorkspaceStanding`, `workspaceAdminCount`, `previewHouseMove`) in
+`membership.server.ts`. Coverage: `tests/unit/workspace-membership.test.ts`.
+
+**Workspace rights follow the role, never a per-link flag.** Owner and
+**Admin** (new; `full` is the legacy stamp and lists as Admin) invite, edit and
+remove members and add or move houses in THAT workspace; Property manager may
+add houses; every other role acts only inside its modules
+(`workspaceRightsForRole`). An Admin may stamp up to Admin, never touch the
+owner, and never remove or demote the last Admin (`canActOnMember`,
+`roleAssignableBy`). The pre-migration on-by-default flags were moved to
+`legacy_workspace_permissions` and shown to the owner as a review note on the
+member row; the next save clears them. `workspace_permissions` survives only
+on a Custom row. `resolveCreateListingOwner` reads the membership OF THE
+TARGET WORKSPACE; a membership elsewhere grants nothing there.
+
 **The team is shown per workspace, never as its own list.** Settings →
-Workspaces renders "Managers & permissions" inside every owned workspace card:
-you, each co-manager who holds a house there (grouped by the houses granted —
-one person can sit under two cards), that card's pending invites, and that
-card's Invite (picker scoped to the card's houses). A grant with no houses yet
-sits under the default workspace only (`grantBelongsToWorkspace`,
-`src/lib/workspaces/team-scope.ts`). Row actions are **Edit** (the member page)
-and **Disconnect**; the word "Remove" is not used for taking someone off the
-team. `ProAccountLinksPanel`'s `renderWorkspaces` owns this; the same panel
-still serves `/portal/teams/managers/<id>`.
+Workspaces renders "Members" inside every workspace card the viewer runs (their
+own, and any where they are Admin): the owner, each membership row of that
+workspace with Role · Houses ("All houses" / "3 of 10 houses") · Joined, that
+card's pending invites, and that card's Invite. Row actions are **Edit** (the
+member sheet: role, house scope, houses, Custom grid, "Also in") and **Remove
+from <workspace>**. `ProAccountLinksPanel`'s `renderWorkspaces` owns this; the
+same panel still serves `/portal/teams/managers/<id>`. Moving a house asks the
+server (`move-preview`) who loses, keeps and gains it and says so before the
+click; an Admin may move between workspaces they administer.
 
 **A co-manager link grants nothing until a module is granted.** Assignment is
 NOT the grant: an accepted `account_link_invites` row whose per-property
-permissions entry is absent or `{}` confers **no access**. Grants are
+permissions entry is absent or `{}` confers **no access** (an `all` row's
+empty entry is filled from its stamp, see above). Grants are
 per-property, per module, and carry LEVELS: legacy `true` = read+edit+delete;
 the granular form is `{ read, edit, delete }` (`edit`/`delete` imply `read`).
 Model + level helpers live in `src/lib/co-manager-permissions.ts`
 (`hasCoManagerPermissionLevel[ForProperty]`).
 
-**Team role is a stamp + a label, never authorization.** Invite uses one Role
-dropdown (Viewer, Leasing, Property manager, Bookkeeper, Maintenance, Full
-access, Custom). A named role writes the permission map; Custom keeps the
-current map. Gates still read `property_co_manager_permissions`. A forged
-`teamRole: "full"` with an empty map grants nothing. Catalog:
-`src/lib/co-manager-team-roles.ts`. Column: `account_link_invites.team_role`
-(copied from `manager_invite_links.team_role` on redeem). Null on existing
-rows lists as Co-manager.
-
-**Workspace grants sit beside the 13 modules.** `workspace_permissions`
-(`addProperties`, `teams`) is empty-object-means-no-access. Add properties
-lets a teammate create a listing into that workspace as the owner
-(`resolveCreateListingOwner`); the new house is appended to their assigned
-ids. Invite teammates is the existing `teams` edit path. Houses and all 13
-modules edit on one member sheet — no nested "Untitled property" modal.
+**Team role is a stamp + a label, never authorization.** Invite asks three
+things — how to send it, Role, Houses (All houses in this workspace, the
+default, or Only selected) — and shows a read-only "Role can" table; the
+13-module grid appears only on Custom. Roles: Viewer, Leasing, Property
+manager, Bookkeeper, Maintenance, Admin, Custom (`TEAM_ROLE_INVITE_OPTIONS`).
+A named role writes the permission map; Custom keeps the current map. Gates
+still read `property_co_manager_permissions`. A forged `teamRole: "admin"`
+with an empty map grants nothing. Catalog: `src/lib/co-manager-team-roles.ts`.
+Column: `account_link_invites.team_role` (copied from
+`manager_invite_links.team_role` on redeem, with `house_scope`).
 
 **Shareable invite links do not need a PropLane ID.** Workspace Invite (and
 vendor Invite) always offers three methods: **link**, **message**, and

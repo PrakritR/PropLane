@@ -31,11 +31,16 @@ import {
   normalizeListingPaymentWaiverCode,
 } from "@/lib/payment-policy";
 import { isProcessingCoverageCodeShape } from "@/lib/processing-coverage-codes";
-import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { uploadListingImageFiles } from "@/lib/listing-media-client";
 import { ListingAddressAutocomplete } from "@/components/portal/listing-address-autocomplete";
 import { FieldMark, FoundOnlineCard } from "@/components/portal/listing-wizard-v2/found-online-card";
 import { prefillMarkFor } from "@/lib/listing-prefill/apply";
+import {
+  leaseChargeDefaultMark,
+  resolvedLeaseChargeValue,
+  withoutLeaseChargeDefault,
+  type LeaseChargeDefaultKey,
+} from "@/lib/lease-charge-defaults";
 import type { PrefillAddressInput } from "@/lib/listing-prefill/types";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { buildListingModalAssistantContext } from "@/lib/listing-assistant-context";
@@ -109,6 +114,15 @@ import {
   type SharedSpaceDefaults,
   type SharedSpaceInheritField,
 } from "@/lib/listing-record-defaults";
+import {
+  encodeSharedSpaceAccessPick,
+  encodeSharedSpaceEveryone,
+  retainSharedSpaceAccessAfterRoomsChange,
+  sharedSpaceAccessMenuSelected,
+  sharedSpaceAccessOptions,
+  sharedSpaceAccessTriggerLabel,
+  sharedSpaceIsEveryone,
+} from "@/lib/listing-shared-space-access";
 import { listingLeaseTypeScopeOptions } from "@/lib/listing-fee-scope";
 import { LONG_TERM_LEASE_TERM as DEFAULT_QUOTE_TERM } from "@/lib/rental-application/lease-terms";
 import { ListingPricingSections } from "@/components/portal/listing-wizard-v2/listing-pricing-step";
@@ -557,10 +571,23 @@ function StepBasics({
   const roomCount = sub.rooms?.length || sub.listingBedroomSlots || 1;
   const setRentModel = (id: "shared_home" | "entire_home") => patch({ listingPlaceCategoryId: id, rentalModelStamp: id });
   const setBedrooms = (next: number) => {
+    const prevIds = (sub.rooms ?? []).map((room) => room.id);
     const applied = applyListingBedroomSlots({ ...sub, listingBedroomSlots: next }, next);
     // A refusal means the count could not be honoured; keep the rooms the
     // manager has rather than writing a number they do not match.
-    patch(applied.ok ? { ...applied.sub, listingBedroomSlots: next } : { listingBedroomSlots: next });
+    if (!applied.ok) {
+      patch({ listingBedroomSlots: next });
+      return;
+    }
+    const nextIds = (applied.sub.rooms ?? []).map((room) => room.id);
+    patch({
+      ...applied.sub,
+      listingBedroomSlots: next,
+      sharedSpaces: (applied.sub.sharedSpaces ?? sub.sharedSpaces ?? []).map((space) => ({
+        ...space,
+        roomAccessIds: retainSharedSpaceAccessAfterRoomsChange(space.roomAccessIds, prevIds, nextIds),
+      })),
+    });
   };
   /**
    * The bathroom count makes the bathroom cards, the way the bedroom count
@@ -1341,7 +1368,25 @@ function StepRooms({
   const wholePlace = sub.listingPlaceCategoryId === "entire_home";
   const noun = wholePlace ? "bedroom" : "room";
 
-  const writeRooms = (next: ManagerRoomSubmission[]) => patch({ rooms: next });
+  const writeRooms = (next: ManagerRoomSubmission[]) => {
+    const prevIds = rooms.map((room) => room.id);
+    const nextIds = next.map((room) => room.id);
+    const idSetChanged =
+      prevIds.length !== nextIds.length ||
+      prevIds.some((id) => !nextIds.includes(id)) ||
+      nextIds.some((id) => !prevIds.includes(id));
+    if (!idSetChanged) {
+      patch({ rooms: next });
+      return;
+    }
+    patch({
+      rooms: next,
+      sharedSpaces: (sub.sharedSpaces ?? []).map((space) => ({
+        ...space,
+        roomAccessIds: retainSharedSpaceAccessAfterRoomsChange(space.roomAccessIds, prevIds, nextIds),
+      })),
+    });
+  };
   /** A hand edit: whichever tracked fields the patch names become this room's own. Name, photos of the room's own, dates mark nothing. */
   const writeRoom = (id: string, roomPatch: Partial<ManagerRoomSubmission>) => {
     for (const key of Object.keys(roomPatch) as (keyof ManagerRoomSubmission)[]) {
@@ -1956,11 +2001,12 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
 /* ── shared spaces ── */
 
 
-/** "Everyone" is an empty list nowhere, and every room everywhere — both read as not narrowed. */
+/** "Everyone" is an empty list, or every current room — both read as not narrowed. */
 function spaceIsNarrowed(space: ManagerSharedSpaceSubmission, rooms: readonly ManagerRoomSubmission[]): boolean {
-  const ids = space.roomAccessIds ?? [];
-  if (ids.length === 0) return false;
-  return rooms.some((r) => !ids.includes(r.id));
+  return !sharedSpaceIsEveryone(
+    space.roomAccessIds,
+    rooms.map((room) => room.id),
+  );
 }
 
 const SPACE_HELP = {
@@ -1993,10 +2039,7 @@ function SharedSpaceCardBody({
 }) {
   const kinds = SHARED_SPACE_KIND_OPTIONS.map((o) => ({ value: o.id, label: o.label }));
   const roomLabel = (r: ManagerRoomSubmission, i: number) => r.name.trim() || `Room ${i + 1}`;
-  const selectedRooms = ((space.roomAccessIds ?? []).length > 0 ? space.roomAccessIds : rooms.map((r) => r.id))
-    .map((id) => rooms.findIndex((r) => r.id === id))
-    .filter((i) => i >= 0)
-    .map((i) => roomLabel(rooms[i]!, i));
+  const roomIds = rooms.map((room) => room.id);
   return (
     <>
       <FactRow first label="Type">
@@ -2007,14 +2050,25 @@ function SharedSpaceCardBody({
       </FactRow>
       {wholePlace || rooms.length === 0 ? null : (
         <FactRow label={<span className="inline-flex items-center gap-1.5">Who may use it <ColumnHelp title="Who may use it" text={SPACE_HELP.who} /></span>} own={isOwn("access")} onReset={() => onReset("access")} resetLabel={`Reset who may use ${who} to every room`}>
-          <MultiPick
+          <CheckboxMultiSelect
+            hideLabel
             label={`Who may use ${who}`}
-            options={rooms.map(roomLabel)}
-            selected={selectedRooms}
-            allowOther={false}
+            dataAttr="listing-v2-space-who"
+            variant="cell"
+            className={cn("min-w-[150px] max-w-[220px]", !isOwn("access") && "border-dashed text-muted")}
+            options={sharedSpaceAccessOptions(rooms.map((room, i) => ({ id: room.id, name: roomLabel(room, i) })))}
+            selected={sharedSpaceAccessMenuSelected(space.roomAccessIds, roomIds)}
+            selectionTriggerLabel={sharedSpaceAccessTriggerLabel(space.roomAccessIds, roomIds)}
             emptyLabel="Everyone"
-            inherited={!isOwn("access")}
-            onChange={(next) => onChange({ roomAccessIds: rooms.filter((r, i) => next.includes(roomLabel(r, i))).map((r) => r.id) })}
+            onChange={(next) =>
+              onChange({
+                roomAccessIds: encodeSharedSpaceAccessPick({
+                  nextSelected: next,
+                  roomIds,
+                  previousAccessIds: space.roomAccessIds,
+                }),
+              })
+            }
           />
         </FactRow>
       )}
@@ -2074,7 +2128,7 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
   };
   const resetField = (space: ManagerSharedSpaceSubmission, field: SharedSpaceInheritField) => {
     if (field === "access") {
-      writeSpace(space.id, { ...space, roomAccessIds: rooms.map((r) => r.id) });
+      writeSpace(space.id, { ...space, roomAccessIds: encodeSharedSpaceEveryone() });
       return;
     }
     own.clear(space.id, field);
@@ -2083,7 +2137,7 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
   const copyDefaultsInto = (space: ManagerSharedSpaceSubmission) => {
     let next = space;
     for (const field of SHARED_SPACE_DEFAULT_FIELDS) next = writeSharedSpaceField(next, field, defaults[field]);
-    return { ...next, roomAccessIds: rooms.map((room) => room.id) };
+    return { ...next, roomAccessIds: encodeSharedSpaceEveryone() };
   };
   const sharedSpaceFields: readonly SharedSpaceInheritField[] = [...SHARED_SPACE_DEFAULT_FIELDS, "access"];
   const [unticked, setUnticked] = useState<Set<string>>(new Set());
@@ -2127,11 +2181,11 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
     patch({ sharedSpaces: spaces.map((sp) => (followers.includes(sp) ? writeSharedSpaceField(sp, field, value) : sp)), sharedSpaceDefaults: next });
   }
   const toggle = (id: string) => setOpen((prev) => (prev === id ? null : id));
-  const accessSummary = (space: ManagerSharedSpaceSubmission) => {
-    if (!spaceIsNarrowed(space, rooms)) return "Everyone";
-    const n = (space.roomAccessIds ?? []).filter((id) => rooms.some((r) => r.id === id)).length;
-    return `${n} ${n === 1 ? "room" : "rooms"}`;
-  };
+  const accessSummary = (space: ManagerSharedSpaceSubmission) =>
+    sharedSpaceAccessTriggerLabel(
+      space.roomAccessIds,
+      rooms.map((room) => room.id),
+    );
   const summaryFor = (space: ManagerSharedSpaceSubmission) =>
     [SHARED_SPACE_KIND_OPTIONS.find((o) => o.id === space.spaceKind)?.label, space.location || defaults.location || "Floor not set", wholePlace ? "" : accessSummary(space)]
       .filter(Boolean)
@@ -2231,8 +2285,8 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
           const base = spaces[0];
           const id = `space-${Date.now()}`;
           const blank = base
-            ? { ...base, id, name: "", photoDataUrls: [], videoDataUrl: null, detail: "", roomAccessIds: rooms.map((r) => r.id), location: defaults.location || base.location }
-            : ({ id, name: "", location: defaults.location, roomAccessIds: rooms.map((r) => r.id) } as never);
+            ? { ...base, id, name: "", photoDataUrls: [], videoDataUrl: null, detail: "", roomAccessIds: encodeSharedSpaceEveryone(), location: defaults.location || base.location }
+            : ({ id, name: "", location: defaults.location, roomAccessIds: encodeSharedSpaceEveryone() } as never);
           patch({ sharedSpaces: [...spaces, copyDefaultsInto(blank)] });
           setOpen(id);
         }}
@@ -2341,6 +2395,15 @@ function LeaseTypesField({ sub, patch }: { sub: ManagerListingSubmissionV1; patc
  * the answer every other price on the screen depends on.
  */
 function LeaseDocumentGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+  /**
+   * A charge still at its prefilled default shows the "Filled" mark and, when it follows
+   * the rent, the figure the CURRENT rent gives. Typing drops the mark and the typed value
+   * stands (`lease-charge-defaults.ts`).
+   */
+  const chargeMark = (key: LeaseChargeDefaultKey) => <FieldMark kind={leaseChargeDefaultMark(sub, key)} />;
+  const chargeValue = (key: LeaseChargeDefaultKey) => money(resolvedLeaseChargeValue(sub, key));
+  const writeCharge = (key: LeaseChargeDefaultKey, value: string) =>
+    patch({ [key]: value, leaseChargeDefaultKeys: withoutLeaseChargeDefault(sub, key) } as Partial<ManagerListingSubmissionV1>);
   return (
     <>
       <Field label="Lease template">
@@ -2353,27 +2416,27 @@ function LeaseDocumentGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
 
       <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">Charges the lease names</p>
       <FieldRow cols={2}>
-        <Field label="Break-lease fee">
-          <Input value={money(sub.longTermBreakLeaseFee)} onChange={(e) => patch({ longTermBreakLeaseFee: e.target.value })} />
+        <Field label="Early move-out fee" labelAside={chargeMark("longTermBreakLeaseFee")}>
+          <Input value={chargeValue("longTermBreakLeaseFee")} onChange={(e) => writeCharge("longTermBreakLeaseFee", e.target.value)} data-attr="listing-v2-lease-early-move-out-fee" />
         </Field>
-        <Field label="Holdover / day">
-          <Input value={money(sub.longTermHoldoverDailyRate)} onChange={(e) => patch({ longTermHoldoverDailyRate: e.target.value })} />
-        </Field>
-      </FieldRow>
-      <FieldRow cols={2}>
-        <Field label="Returned payment fee">
-          <Input value={money(sub.longTermReturnedPaymentFee)} onChange={(e) => patch({ longTermReturnedPaymentFee: e.target.value })} />
-        </Field>
-        <Field label="Trash violation fee">
-          <Input value={money(sub.longTermTrashViolationFee)} onChange={(e) => patch({ longTermTrashViolationFee: e.target.value })} />
+        <Field label="Holdover / day" labelAside={chargeMark("longTermHoldoverDailyRate")}>
+          <Input value={chargeValue("longTermHoldoverDailyRate")} onChange={(e) => writeCharge("longTermHoldoverDailyRate", e.target.value)} />
         </Field>
       </FieldRow>
       <FieldRow cols={2}>
-        <Field label="Deposit labor rate / hour">
-          <Input value={money(sub.longTermDepositLaborRate)} onChange={(e) => patch({ longTermDepositLaborRate: e.target.value })} />
+        <Field label="Returned payment fee" labelAside={chargeMark("longTermReturnedPaymentFee")}>
+          <Input value={chargeValue("longTermReturnedPaymentFee")} onChange={(e) => writeCharge("longTermReturnedPaymentFee", e.target.value)} />
         </Field>
-        <Field label="Deposit reissue fee">
-          <Input value={money(sub.longTermDepositReissueFee)} onChange={(e) => patch({ longTermDepositReissueFee: e.target.value })} />
+        <Field label="Trash violation fee" labelAside={chargeMark("longTermTrashViolationFee")}>
+          <Input value={chargeValue("longTermTrashViolationFee")} onChange={(e) => writeCharge("longTermTrashViolationFee", e.target.value)} />
+        </Field>
+      </FieldRow>
+      <FieldRow cols={2}>
+        <Field label="Deposit labor rate / hour" labelAside={chargeMark("longTermDepositLaborRate")}>
+          <Input value={chargeValue("longTermDepositLaborRate")} onChange={(e) => writeCharge("longTermDepositLaborRate", e.target.value)} />
+        </Field>
+        <Field label="Deposit reissue fee" labelAside={chargeMark("longTermDepositReissueFee")}>
+          <Input value={chargeValue("longTermDepositReissueFee")} onChange={(e) => writeCharge("longTermDepositReissueFee", e.target.value)} />
         </Field>
       </FieldRow>
       <FieldRow cols={2}>
@@ -2927,71 +2990,14 @@ const READINESS_STEP: Record<string, (typeof LISTING_V2_STEPS)[number]["id"]> = 
   processing: "pricing",
 };
 
-/**
- * The two doors a renter has to the manager, as the listing will print them.
- *
- * Neither is a field on the listing: the work number and the work email are
- * resolved from the OWNING manager's account, server-side, and the stored
- * listing blob is never trusted for them (see `listing-contact-card.tsx`). So
- * the editor cannot ask for a phone or an email here — it shows what the
- * listing will carry, and points at Settings when a door is missing.
- */
-export type ListingContactDoors = {
-  /** The work number, E.164, or null when the listing prints no Text button. */
-  phone: string | null;
-  /** The work email, or null when the listing prints no Email button. */
-  email: string | null;
-  /** Saves the draft and opens Settings → Messaging, where the doors are set up. */
-  onSetUp?: () => void;
-};
-
-function ReachYouCard({ contact }: { contact: ListingContactDoors }) {
-  const phoneLabel = contact.phone ? formatSmsPhoneLabel(contact.phone) : null;
-  const setUp = contact.onSetUp ? (
-    <button
-      type="button"
-      onClick={contact.onSetUp}
-      data-attr="listing-v2-contact-set-up"
-      className="shrink-0 rounded-full border border-border bg-card px-3 py-1 text-[12.5px] font-bold text-foreground hover:bg-accent/40"
-    >
-      Set up
-    </button>
-  ) : (
-    <span className="text-[13px] text-muted">Not set</span>
-  );
-  const value = (text: string | null) =>
-    text ? (
-      <span className="flex min-w-0 items-center gap-2 text-[13px] text-foreground">
-        <span className="truncate">{text}</span>
-        <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full border border-emerald-200 bg-emerald-50 text-[10px] font-extrabold text-emerald-700">
-          ✓
-        </span>
-      </span>
-    ) : (
-      setUp
-    );
-  return (
-    <div className="mt-8 max-w-[620px]" data-attr="listing-v2-reach-you">
-      <b className="text-[13px] font-bold text-foreground">How renters reach you</b>
-      <div className="mt-2 overflow-hidden rounded-2xl border border-border bg-card">
-        <FactRow label="Text" first>
-          {value(phoneLabel)}
-        </FactRow>
-        <FactRow label="Email">{value(contact.email)}</FactRow>
-      </div>
-    </div>
-  );
-}
 
 function StepReview({
   sub,
   onJump,
-  contact,
 }: {
   sub: ManagerListingSubmissionV1;
   /** Take the manager to the step that closes a gap, rather than describing it. */
   onJump: (stepId: (typeof LISTING_V2_STEPS)[number]["id"]) => void;
-  contact?: ListingContactDoors;
 }) {
   const checks = listingReadiness(sub);
   const done = checks.filter((c) => c.state === "done").length;
@@ -3045,7 +3051,6 @@ function StepReview({
           })}
         </ul>
       </div>
-      {contact ? <ReachYouCard contact={contact} /> : null}
     </StepColumn>
   );
 }
@@ -3067,7 +3072,6 @@ export function ListingEditorV2({
   leadingStep,
   headerCenter,
   basicsLead,
-  contact,
   initialStep,
 }: {
   submission: ManagerListingSubmissionV1;
@@ -3103,8 +3107,6 @@ export function ListingEditorV2({
   headerCenter?: ReactNode;
   /** Drawn on Basics under its heading, ahead of Property type — Create's "Start from a file" strip. */
   basicsLead?: ReactNode;
-  /** What the Review step says about how renters reach the manager. */
-  contact?: ListingContactDoors;
   /** Open on this listing step — Import jumps to Rooms / Review without walking Basics. */
   initialStep?: ListingV2StepId;
 }) {
@@ -3250,7 +3252,6 @@ export function ListingEditorV2({
           <StepReview
             sub={submission}
             onJump={(id) => goTo(LISTING_V2_STEPS.findIndex((s) => s.id === id))}
-            contact={contact}
           />
         );
     }

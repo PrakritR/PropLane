@@ -21,8 +21,17 @@
  *    Default room is every room's; one added on a room is that room's; the tab
  *    it is added on decides the lease types (the three lease types, or the two
  *    stay types). There is no separate fees section and no More ▾: everything
- *    a card knows is simply listed (the captain, 2026-09-15).
- * 4. **What a resident pays** (side panel) — signing ticks live there: Every
+ *    a card knows is simply listed (the captain, 2026-09-15). A house-wide fee
+ *    shows on a room card as an inherited row: ✕ takes that room out of the
+ *    fee's `roomIds`, and typing an amount splits a room-only copy off it, with
+ *    Reset folding the room back in.
+ * 4. **Partial months** — on the lease types that can start mid-month
+ *    (long-term, custom dates) every card ends with "Automatic" ticked; unticked,
+ *    the card asks for rent, utilities and each monthly fee per day
+ *    (`prorateMethod` / `dailyRentRate` / `dailyUtilitiesRate` on the room and
+ *    the Default card, `dailyRate` on the fee row). A room follows the Default
+ *    card here exactly as it does for rent.
+ * 5. **What a resident pays** (side panel) — signing ticks live there: Every
  *    room is house policy; pick a room to override and Reset to follow again.
  *
  * Nothing new is stored besides `applicationFeeByLeaseType` and an optional
@@ -62,7 +71,7 @@ import {
   type RemovedStandardListingFeeRowId,
 } from "@/lib/listing-fees";
 import { SEATTLE_RENT_RULE_NOTE, listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
-import { AIRBNB_LEASE_TERM, LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import { AIRBNB_LEASE_TERM, CUSTOM_LEASE_TERM, LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { isStayLeaseTerm } from "@/lib/listing-quote";
 import { LONG_TERM_UTILITIES_PAYMENT_OPTIONS } from "@/lib/listing-utilities-payment";
 import {
@@ -278,9 +287,17 @@ function feeScopeForTab(sub: ManagerListingSubmissionV1, term: string): string[]
  * records the old fees section held; typing one of their names adopts the
  * preset, so billing and the lease document treat it exactly as before.
  */
-function FeeRows({ sub, patch, roomId, term }: { sub: ManagerListingSubmissionV1; patch: Patch; roomId: string | null; term: string }) {
+/** Write a card's fee rows back, keeping the presets no card lists so a write never drops the deposit. */
+function writeCardFeeRows(sub: ManagerListingSubmissionV1, patch: Patch, next: ListingFeeRow[], extra?: Partial<ManagerListingSubmissionV1>) {
+  const held = listingFeesForWizard(sub).filter((f) => f.presetId && CARD_HIDDEN_PRESETS.has(f.presetId));
+  const nextSub = applyListingFeesToSubmission(sub, [...next, ...held]);
+  patch(extra ? ensureSubmissionListingFees({ ...nextSub, ...extra }) : nextSub);
+}
+
+function FeeRows({ sub, patch, roomId, roomName, term }: { sub: ManagerListingSubmissionV1; patch: Patch; roomId: string | null; roomName?: string; term: string }) {
   const rows = useMemo(() => cardFeeRows(sub), [sub]);
   const stay = isStayTerm(term);
+  const allRoomIds = (sub.rooms ?? []).map((r) => r.id);
   /* A standard slot with no amount is a fee the product offers, not one this listing charges — unless it was just adopted. */
   const [revealed, setRevealed] = useState<string[]>([]);
   const single = (f: ListingFeeRow) => (f.roomIds ?? []).length === 1;
@@ -290,12 +307,33 @@ function FeeRows({ sub, patch, roomId, term }: { sub: ManagerListingSubmissionV1
   const shared = roomId
     ? rows.filter((f) => !mine.includes(f) && isListingFeeAmountFilled(f.amount ?? "") && feeAppliesToLeaseType(f, term) && feeAppliesToRoom(f, roomId))
     : [];
-  const held = () => listingFeesForWizard(sub).filter((f) => f.presetId && CARD_HIDDEN_PRESETS.has(f.presetId));
-  const writeRows = (next: ListingFeeRow[], extra?: Partial<ManagerListingSubmissionV1>) => {
-    const nextSub = applyListingFeesToSubmission(sub, [...next, ...held()]);
-    patch(extra ? ensureSubmissionListingFees({ ...nextSub, ...extra }) : nextSub);
-  };
+  const writeRows = (next: ListingFeeRow[], extra?: Partial<ManagerListingSubmissionV1>) => writeCardFeeRows(sub, patch, next, extra);
   const write = (id: string, next: Partial<ListingFeeRow>) => writeRows(rows.map((f) => (f.id === id ? { ...f, ...next } : f)));
+  /** The rooms a house-wide fee still reaches once this room is taken out of it. */
+  const withoutThisRoom = (f: ListingFeeRow) => ((f.roomIds ?? []).length ? f.roomIds! : allRoomIds).filter((id) => id !== roomId);
+  const who = roomName ?? "every room";
+  /**
+   * The name a room-only copy of a house-wide fee carries. A standard fee's
+   * own name cannot be reused: `normalizeListingFeeRow` reads a custom row
+   * named "Parking" back as THE parking preset, and one preset row exists per
+   * listing — so the copy would swallow the shared fee. Such a copy is
+   * "Parking – Room 9"; any other name is carried over as it is.
+   */
+  const splitLabel = (fee: ListingFeeRow) =>
+    LISTING_FEE_PRESETS.some((p) => p.defaultLabel.toLowerCase() === fee.label.trim().toLowerCase()) ? `${fee.label.trim()} – ${who}` : fee.label;
+  const isSplitName = (own: ListingFeeRow, from: ListingFeeRow) => {
+    const a = own.label.trim().toLowerCase();
+    const b = from.label.trim().toLowerCase();
+    return a === b || a === `${b} – ${who.toLowerCase()}`;
+  };
+  /**
+   * The house-wide fee a room-only row was split off from: same name, priced,
+   * on this tab, and no longer reaching this room. Reset folds the room back in.
+   */
+  const splitOf = (own: ListingFeeRow) =>
+    roomId
+      ? rows.find((f) => f.id !== own.id && !onThisCard(f) && !feeAppliesToRoom(f, roomId) && isSplitName(own, f) && isListingFeeAmountFilled(f.amount ?? "") && feeAppliesToLeaseType(f, term))
+      : undefined;
   const add = () => {
     const row: ListingFeeRow = {
       ...emptyCustomFeeRow(),
@@ -306,14 +344,50 @@ function FeeRows({ sub, patch, roomId, term }: { sub: ManagerListingSubmissionV1
     };
     writeRows([...rows, row]);
   };
-  const remove = (fee: ListingFeeRow) => {
-    if (!fee.presetId || fee.presetId === "custom") return writeRows(rows.filter((f) => f.id !== fee.id));
-    // A standard fee is a slot the product offers; removing it is remembered so a resync does not bring it back.
+  /** Remove a fee everywhere, plus whatever rows ride along with the write. A standard fee's removal is remembered so a resync does not bring it back. */
+  const removeEverywhere = (fee: ListingFeeRow, next: ListingFeeRow[]) => {
+    if (!fee.presetId || fee.presetId === "custom") return writeRows(next);
     const rowId = listingFeeRowIdForPresetId(fee.presetId);
     const removed = new Set(parseRemovedStandardListingFeeRows(sub));
     if (rowId) removed.add(rowId as RemovedStandardListingFeeRowId);
     setRevealed((prev) => prev.filter((id) => id !== fee.id));
-    writeRows(rows.filter((f) => f.id !== fee.id), { removedStandardListingFeeRows: [...removed] });
+    writeRows(next, { removedStandardListingFeeRows: [...removed] });
+  };
+  const remove = (fee: ListingFeeRow) => removeEverywhere(fee, rows.filter((f) => f.id !== fee.id));
+  /** ✕ on an inherited row: this room alone stops paying the house-wide fee; every other room keeps it. */
+  const removeForRoom = (fee: ListingFeeRow) => {
+    const ids = withoutThisRoom(fee);
+    if (!ids.length) return remove(fee);
+    write(fee.id, { roomIds: ids });
+  };
+  /**
+   * Typing on an inherited row splits it: a room-only copy at the typed amount
+   * (always `custom` — a preset id may exist once) and the house-wide fee no
+   * longer reaching this room. Keyed by the fee it came from, so the box keeps
+   * focus while the manager is still typing.
+   */
+  const split = (fee: ListingFeeRow, amount: string) => {
+    const own: ListingFeeRow = {
+      ...emptyCustomFeeRow(),
+      presetId: "custom",
+      label: splitLabel(fee),
+      amount,
+      ...patchListingFeeCadence(listingFeeCadence(fee)),
+      leaseTypes: fee.leaseTypes,
+      roomIds: [roomId!],
+      refundable: fee.refundable,
+      creditsTowardSecurity: fee.creditsTowardSecurity,
+      dailyRate: fee.dailyRate,
+    };
+    const ids = withoutThisRoom(fee);
+    if (!ids.length) return removeEverywhere(fee, [...rows.filter((f) => f.id !== fee.id), own]);
+    writeRows([...rows.map((f) => (f.id === fee.id ? { ...f, roomIds: ids } : f)), own]);
+  };
+  /** Reset on a split row: drop the room-only copy and let the house-wide fee reach this room again. */
+  const unsplit = (own: ListingFeeRow, from: ListingFeeRow) => {
+    const ids = [...(from.roomIds ?? []), roomId!];
+    const every = allRoomIds.every((id) => ids.includes(id));
+    writeRows(rows.filter((f) => f.id !== own.id).map((f) => (f.id === from.id ? { ...f, roomIds: every ? undefined : ids } : f)));
   };
   /** The standard fees a name can adopt from this tab. */
   const presets = LISTING_FEE_PRESETS.filter((p) => !CARD_HIDDEN_PRESETS.has(p.presetId) && Boolean(p.shortTermOnly) === stay);
@@ -338,6 +412,16 @@ function FeeRows({ sub, patch, roomId, term }: { sub: ManagerListingSubmissionV1
   };
   const listId = `listing-v2-fee-names-${roomId ?? "all"}-${stay ? "stay" : "lease"}`;
   const cadences = stay ? STAY_CADENCES : MONTHLY_CADENCES;
+  /* One list, in catalogue order: a split row takes its house-wide fee's key so the amount box survives the swap under the caret. */
+  type Listed = { key: string; fee: ListingFeeRow; inherited: boolean; from: ListingFeeRow | undefined };
+  const listed = rows.flatMap((fee): Listed[] => {
+    if (mine.includes(fee)) {
+      const from = splitOf(fee);
+      return [{ key: from?.id ?? fee.id, fee, inherited: false, from }];
+    }
+    if (shared.includes(fee)) return [{ key: fee.id, fee, inherited: true, from: undefined }];
+    return [];
+  });
   return (
     <>
       <FactRow label="Other fees">
@@ -350,43 +434,181 @@ function FeeRows({ sub, patch, roomId, term }: { sub: ManagerListingSubmissionV1
           <option key={p.presetId} value={p.defaultLabel} />
         ))}
       </datalist>
-      {mine.map((fee) => {
+      {listed.map(({ key, fee, inherited, from }) => {
         const name = fee.label || "Fee";
         const isPreset = Boolean(fee.presetId && fee.presetId !== "custom");
         const oneTime = listingFeeCadence(fee) === "one-time";
+        const amountLabel = roomId ? `${name} amount for ${who}` : `${name} amount`;
         return (
-          <div key={fee.id} className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1.5 border-t border-border bg-foreground/[0.025] px-3.5 py-2 pl-7" data-attr="listing-v2-fee-row">
+          <div key={key} className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1.5 border-t border-border bg-foreground/[0.025] px-3.5 py-2 pl-7" data-attr="listing-v2-fee-row" data-inherited={inherited ? "true" : undefined}>
             <input
               aria-label="Fee name"
-              list={isPreset ? undefined : listId}
+              list={isPreset || inherited ? undefined : listId}
               value={fee.label}
-              readOnly={isPreset}
+              readOnly={isPreset || inherited}
               placeholder="Parking"
               onChange={(e) => rename(fee, e.target.value)}
               className={cn(
-                "min-h-[36px] min-w-[120px] flex-1 rounded-lg border bg-card px-2.5 text-[13.5px] font-semibold text-foreground outline-none focus:border-primary",
-                isPreset ? "border-transparent bg-transparent px-0" : "border-border",
+                "min-h-[36px] min-w-[120px] flex-1 rounded-lg border bg-card px-2.5 text-[13.5px] font-semibold outline-none focus:border-primary",
+                isPreset || inherited ? "border-transparent bg-transparent px-0" : "border-border",
+                inherited ? "text-muted" : "text-foreground",
               )}
             />
+            {from ? (
+              <button
+                type="button"
+                onClick={() => unsplit(fee, from)}
+                data-attr="listing-v2-fee-reset"
+                aria-label={`Reset ${name} for ${who} to every room`}
+                title="Back to the Default card"
+                className="inline-flex shrink-0 items-center gap-1 text-[11.5px] font-bold text-[var(--status-approved-fg)] hover:underline"
+              >
+                <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />
+                Reset
+              </button>
+            ) : null}
             <span className="flex items-center gap-1.5">
-              <MoneyInput label={`${name} amount`} value={moneyValue(fee.amount)} placeholder="0" onChange={(v) => write(fee.id, { amount: sanitizeMoneyInput(v) })} />
-              <RowSelectCell ariaLabel={`How often ${name} is charged`} value={listingFeeCadence(fee)} options={cadences.map((c) => ({ value: c, label: CADENCE_SHORT[c] }))} onChange={(v) => write(fee.id, patchListingFeeCadence(v as ListingFeeCadence))} />
-              {oneTime && fee.presetId !== "holding_deposit" ? (
+              {inherited ? (
+                <MoneyInput label={amountLabel} value="" inherited placeholder={moneyValue(fee.amount) || "0"} onChange={(v) => split(fee, sanitizeMoneyInput(v))} />
+              ) : (
+                <MoneyInput label={amountLabel} value={moneyValue(fee.amount)} placeholder="0" onChange={(v) => write(fee.id, { amount: sanitizeMoneyInput(v) })} />
+              )}
+              <RowSelectCell
+                ariaLabel={`How often ${name} is charged${roomId ? ` for ${who}` : ""}`}
+                value={listingFeeCadence(fee)}
+                options={cadences.map((c) => ({ value: c, label: CADENCE_SHORT[c] }))}
+                inherited={inherited}
+                disabled={inherited}
+                onChange={(v) => write(fee.id, patchListingFeeCadence(v as ListingFeeCadence))}
+              />
+              {!inherited && oneTime && fee.presetId !== "holding_deposit" ? (
                 <label className="flex cursor-pointer items-center gap-1 text-[12px] font-semibold text-foreground/70" title="The resident gets this back">
                   <input type="checkbox" checked={Boolean(fee.refundable || fee.creditsTowardSecurity)} data-attr="listing-fee-refundable" onChange={(e) => write(fee.id, { refundable: e.target.checked, creditsTowardSecurity: e.target.checked ? fee.creditsTowardSecurity : false })} className="h-3.5 w-3.5 accent-[var(--pl-blue)]" />
                   Refundable
                 </label>
               ) : null}
-              <button type="button" aria-label={`Remove ${name}`} data-attr="listing-v2-fee-remove" onClick={() => remove(fee)} className="grid h-7 w-7 place-items-center rounded-md text-muted hover:bg-foreground/[0.06] hover:text-foreground">✕</button>
+              {inherited ? (
+                <button type="button" aria-label={`Remove ${name} for ${who}`} data-attr="listing-v2-fee-remove-room" onClick={() => removeForRoom(fee)} className="grid h-7 w-7 place-items-center rounded-md text-muted hover:bg-foreground/[0.06] hover:text-foreground">✕</button>
+              ) : (
+                <button type="button" aria-label={`Remove ${name}${roomId ? ` for ${who}` : ""}`} data-attr="listing-v2-fee-remove" onClick={() => remove(fee)} className="grid h-7 w-7 place-items-center rounded-md text-muted hover:bg-foreground/[0.06] hover:text-foreground">✕</button>
+              )}
             </span>
           </div>
         );
       })}
-      {shared.map((f) => (
-        <FactRow key={f.id} sub label={f.label}>
-          <span className="text-[13px] text-foreground/70">{usd(num(f.amount ?? ""))} {CADENCE_SHORT[listingFeeCadence(f)]} · {(f.roomIds ?? []).length ? `${f.roomIds!.length} rooms` : "all rooms"}</span>
-        </FactRow>
-      ))}
+    </>
+  );
+}
+
+/* ─────────────────────── partial months ─────────────────────── */
+
+/** Only a lease that can start mid-month splits one: long-term and custom dates, never month-to-month or a stay. */
+const proratesOnTab = (term: string) => term === LONG_TERM_LEASE_TERM || term === CUSTOM_LEASE_TERM;
+/** A month's figure as the per-day placeholder: the calendar split, rounded up. */
+const perDay = (monthly: number) => (monthly > 0 ? String(Math.ceil(monthly / 30)) : "");
+
+/** One per-day box: what it shows, what it suggests, and whether it is the card's own or follows the Default card. */
+type DayRate = {
+  text: string;
+  placeholder: string;
+  inherited?: boolean;
+  own?: boolean;
+  onChange: (raw: string) => void;
+  onReset?: () => void;
+  resetLabel?: string;
+};
+
+/**
+ * The monthly fees a card bills per day when its partial months are set per
+ * day: the Default card's (and the whole place's) are the fees with no room
+ * scope; a room adds the fees scoped to it alone. A fee at $0 has no day rate.
+ */
+function dailyFeeRows(sub: ManagerListingSubmissionV1, roomId: string | null, term: string): ListingFeeRow[] {
+  return cardFeeRows(sub).filter((f) => {
+    if (listingFeeCadence(f) !== "monthly" || !(num(f.amount ?? "") > 0) || !feeAppliesToLeaseType(f, term)) return false;
+    const ids = f.roomIds ?? [];
+    return ids.length === 0 || (roomId !== null && ids.length === 1 && ids[0] === roomId);
+  });
+}
+
+/**
+ * "Partial months · Automatic" and, unticked, the per-day rows under it: rent,
+ * utilities (only while the card's utilities are above $0) and one row per
+ * monthly fee. The row follows the Default card on a room the way Rent /mo
+ * does: grey while following, Reset once the room has its own answer.
+ */
+function ProrateRows({
+  sub,
+  patch,
+  term,
+  roomId,
+  name,
+  automatic,
+  inherited = false,
+  own = false,
+  onAutomatic,
+  onReset,
+  resetLabel,
+  rent,
+  util,
+  dataAttr,
+}: {
+  sub: ManagerListingSubmissionV1;
+  patch: Patch;
+  term: string;
+  roomId: string | null;
+  /** "every room", the room's name, or "the whole place" — for the boxes' labels. */
+  name: string;
+  automatic: boolean;
+  inherited?: boolean;
+  own?: boolean;
+  onAutomatic: (next: boolean) => void;
+  onReset?: () => void;
+  resetLabel?: string;
+  rent: DayRate;
+  /** Absent while the card's utilities are $0 or blank: there is nothing to split per day. */
+  util: DayRate | null;
+  dataAttr: string;
+}) {
+  const rows = useMemo(() => cardFeeRows(sub), [sub]);
+  const fees = dailyFeeRows(sub, roomId, term);
+  const writeFeeDay = (fee: ListingFeeRow, raw: string) =>
+    writeCardFeeRows(sub, patch, rows.map((f) => (f.id === fee.id ? { ...f, dailyRate: num(sanitizeMoneyInput(raw)) || undefined } : f)));
+  const dayRow = (label: string, rate: DayRate, attr: string) => (
+    <FactRow sub label={label} own={rate.own} onReset={rate.onReset} resetLabel={rate.resetLabel}>
+      <MoneyInput label={`${label.replace(" /day", "")} per day for ${name}`} value={rate.text} inherited={rate.inherited} placeholder={rate.placeholder} dataAttr={attr} onChange={rate.onChange} />
+    </FactRow>
+  );
+  return (
+    <>
+      <FactRow label="Partial months" own={own} onReset={onReset} resetLabel={resetLabel}>
+        <label className="flex cursor-pointer items-center gap-2.5 py-1.5">
+          <input
+            type="checkbox"
+            checked={automatic}
+            aria-label={`Partial months automatic for ${name}`}
+            data-attr={`${dataAttr}-automatic`}
+            onChange={(e) => onAutomatic(e.target.checked)}
+            className="h-4 w-4 shrink-0 rounded border-border"
+          />
+          <span className={cn("min-w-0 text-[13px] font-semibold", inherited ? "text-muted" : "text-foreground")}>Automatic</span>
+        </label>
+      </FactRow>
+      {automatic ? null : (
+        <>
+          {dayRow("Rent /day", rent, `${dataAttr}-rent`)}
+          {util ? dayRow("Utilities /day", util, `${dataAttr}-utilities`) : null}
+          {fees.map((fee) => {
+            const feeName = fee.label || "Fee";
+            const shared = roomId !== null && (fee.roomIds ?? []).length === 0;
+            return dayRow(
+              `${feeName} /day`,
+              { text: fee.dailyRate ? String(fee.dailyRate) : "", placeholder: perDay(num(fee.amount ?? "")), inherited: shared, onChange: (v) => writeFeeDay(fee, v) },
+              `${dataAttr}-fee`,
+            );
+          })}
+        </>
+      )}
     </>
   );
 }
@@ -420,19 +642,47 @@ function MonthlyCards({
   const base = isBase(term);
   const [open, setOpen] = useState<string | null>(null);
   const [unticked, setUnticked] = useState<Set<string>>(new Set());
+  /* Partial months show only where a lease can start mid-month; the fields are the room's long-term ones on every such tab. */
+  const prorate = proratesOnTab(feeScopeTerm);
+  /* A blank Default method means automatic, so a room set per day is its own even before the card was ever touched. */
+  const prorateDefaults: ListingHouseDefaults = { ...defaults, prorateMethod: defaults.prorateMethod || "auto" };
+  const prorateOf = (room: ManagerRoomSubmission) => {
+    const method = room.prorateMethod || defaults.prorateMethod || "auto";
+    const rateOwn = (room.dailyRentRate ?? 0) > 0 && room.dailyRentRate !== defaults.dailyRentRate;
+    const utilOwn = (room.dailyUtilitiesRate ?? 0) > 0 && room.dailyUtilitiesRate !== defaults.dailyUtilitiesRate;
+    return {
+      automatic: method !== "daily_rate",
+      own: !roomInheritsDefault(room, prorateDefaults, "prorateMethod"),
+      rate: room.dailyRentRate || defaults.dailyRentRate || 0,
+      rateOwn,
+      utilRate: room.dailyUtilitiesRate || defaults.dailyUtilitiesRate || 0,
+      utilOwn,
+      any: prorate && (!roomInheritsDefault(room, prorateDefaults, "prorateMethod") || rateOwn || utilOwn),
+    };
+  };
+  /** Copy the Default card's partial-month answer onto the room — method and both rates — never a blank. */
+  const resetProrate = (room: ManagerRoomSubmission): ManagerRoomSubmission => ({
+    ...resetRoomFieldToDefault(room, "prorateMethod", prorateDefaults),
+    dailyRentRate: defaults.dailyRentRate || undefined,
+    dailyUtilitiesRate: defaults.dailyUtilitiesRate || undefined,
+  });
   const values = (room: ManagerRoomSubmission) => ({
     rent: termValue(room, term, "rent", defaults, termDefaults),
     util: termValue(room, term, "util", defaults, termDefaults),
     dep: termValue(room, term, "deposit", defaults, termDefaults),
     modeOwn: base ? !roomInheritsDefault(room, defaults, "pricingMode") : false,
+    prorateOwn: prorateOf(room).any,
   });
   /** The term's Default room, one field: what it holds, and long-term's figure as the placeholder until it holds anything. */
   const termDef = (field: ListingTermPriceField) => termPriceFieldText(termDefaults?.[term], field);
   const ltText = (field: ListingTermPriceField) =>
     field === "monthlyRent" ? (defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : "") : moneyValue(defaults[field]);
+  /** What the Default card shows on this tab: its own figure, or long-term's until it has one. */
+  const defRent = num(base ? ltText("monthlyRent") : termDef("monthlyRent") || ltText("monthlyRent"));
+  const defUtil = num(base ? ltText("utilitiesEstimate") : termDef("utilitiesEstimate") || ltText("utilitiesEstimate"));
   const sameAsAll = (room: ManagerRoomSubmission) => {
     const v = values(room);
-    return !unticked.has(room.id) && v.rent.src !== "own" && v.util.src !== "own" && v.dep.src !== "own" && !v.modeOwn;
+    return !unticked.has(room.id) && v.rent.src !== "own" && v.util.src !== "own" && v.dep.src !== "own" && !v.modeOwn && !v.prorateOwn;
   };
   /** Tick: every number on this tab follows the card again. Untick: freeze what the card shows as the room's own. */
   const setSameAsAll = (room: ManagerRoomSubmission, same: boolean) => {
@@ -443,15 +693,21 @@ function MonthlyCards({
       return out;
     });
     const v = values(room);
+    const p = prorateOf(room);
+    /* Partial months ride along only on a tab that shows them. */
+    const followProrate = (r: ManagerRoomSubmission) => (prorate ? resetProrate(r) : r);
+    const frozenProrate: Partial<ManagerRoomSubmission> = prorate
+      ? { prorateMethod: p.automatic ? "auto" : "daily_rate", dailyRentRate: p.rate || undefined, dailyUtilitiesRate: p.utilRate || undefined }
+      : {};
     if (same) {
-      if (base) onRoom(room.id, { ...resetRoomField(resetRoomField(resetRoomField(room, "monthlyRent", defaults), "utilitiesEstimate", defaults), "securityDeposit", defaults), pricingMode: undefined });
+      if (base) onRoom(room.id, followProrate({ ...resetRoomField(resetRoomField(resetRoomField(room, "monthlyRent", defaults), "utilitiesEstimate", defaults), "securityDeposit", defaults), pricingMode: undefined }));
       else {
         const all = { ...(room.termPricing ?? {}) };
         delete all[term];
-        onRoom(room.id, { ...room, termPricing: Object.keys(all).length > 0 ? all : undefined });
+        onRoom(room.id, followProrate({ ...room, termPricing: Object.keys(all).length > 0 ? all : undefined }));
       }
-    } else if (base) onRoom(room.id, { ...room, monthlyRent: num(v.rent.text), utilitiesEstimate: moneyValue(v.util.text), securityDeposit: moneyValue(v.dep.text) });
-    else onRoom(room.id, writeTerm(writeTerm(writeTerm(room, term, "monthlyRent", v.rent.text), term, "utilitiesEstimate", moneyValue(v.util.text)), term, "securityDeposit", moneyValue(v.dep.text)));
+    } else if (base) onRoom(room.id, { ...room, monthlyRent: num(v.rent.text), utilitiesEstimate: moneyValue(v.util.text), securityDeposit: moneyValue(v.dep.text), ...frozenProrate });
+    else onRoom(room.id, { ...writeTerm(writeTerm(writeTerm(room, term, "monthlyRent", v.rent.text), term, "utilitiesEstimate", moneyValue(v.util.text)), term, "securityDeposit", moneyValue(v.dep.text)), ...frozenProrate });
   };
   const listed = (rent: number, util: number, mode: string) => (mode === "flexible" ? `from ${usd(rent)}` : usd(rent + util));
   const untouch = (id: string) => setUnticked((prev) => { if (!prev.has(id)) return prev; const out = new Set(prev); out.delete(id); return out; });
@@ -512,6 +768,32 @@ function MonthlyCards({
               )}
             </FactRow>
             <FeeRows sub={sub} patch={patch} roomId={null} term={feeScopeTerm} />
+            {prorate ? (
+              <ProrateRows
+                sub={sub}
+                patch={patch}
+                term={feeScopeTerm}
+                roomId={null}
+                name="every room"
+                automatic={defaults.prorateMethod !== "daily_rate"}
+                onAutomatic={(next) => onDefault("prorateMethod", next ? "auto" : "daily_rate")}
+                rent={{
+                  text: defaults.dailyRentRate > 0 ? String(defaults.dailyRentRate) : "",
+                  placeholder: perDay(defRent) || "35",
+                  onChange: (v) => onDefault("dailyRentRate", num(sanitizeMoneyInput(v))),
+                }}
+                util={
+                  defUtil > 0
+                    ? {
+                        text: defaults.dailyUtilitiesRate > 0 ? String(defaults.dailyUtilitiesRate) : "",
+                        placeholder: perDay(defUtil),
+                        onChange: (v) => onDefault("dailyUtilitiesRate", num(sanitizeMoneyInput(v))),
+                      }
+                    : null
+                }
+                dataAttr="listing-v2-price-prorate-default"
+              />
+            ) : null}
           </div>
         }
       />
@@ -530,11 +812,13 @@ function MonthlyCards({
           else onRoom(room.id, writeTerm(room, term, field, sanitizeMoneyInput(v)));
         };
         const rentN = num(rent.text), utilN = num(util.text), depN = num(dep.text);
+        const p = prorateOf(room);
         const summary = [
           rentN > 0 ? usd(rentN) : "Rent not set",
           `+${usd(utilN)} utilities`,
           `${usd(depN)} deposit`,
           `listed ${listed(rentN, utilN, mode)}`,
+          ...(prorate ? [p.automatic ? "partial months automatic" : p.rate > 0 ? `partial months ${usd(p.rate)}/day` : "partial months per day"] : []),
         ].join(" · ");
         const isOpen = open === room.id;
         return (
@@ -589,7 +873,54 @@ function MonthlyCards({
                   <span className="text-[13.5px] font-semibold text-foreground">{listed(rentN, utilN, mode)}</span>
                 )}
             </FactRow>
-            <FeeRows sub={sub} patch={patch} roomId={room.id} term={feeScopeTerm} />
+            <FeeRows sub={sub} patch={patch} roomId={room.id} roomName={name} term={feeScopeTerm} />
+            {prorate ? (
+              <ProrateRows
+                sub={sub}
+                patch={patch}
+                term={feeScopeTerm}
+                roomId={room.id}
+                name={name}
+                automatic={p.automatic}
+                inherited={!p.own}
+                own={p.own}
+                onAutomatic={(next) => {
+                  untouch(room.id);
+                  onRoom(room.id, { ...room, prorateMethod: next ? "auto" : "daily_rate" });
+                }}
+                onReset={() => onRoom(room.id, resetProrate(room))}
+                resetLabel={`Reset partial months for ${name} to the row above`}
+                rent={{
+                  text: p.rateOwn ? String(room.dailyRentRate) : "",
+                  inherited: !p.rateOwn,
+                  own: p.rateOwn,
+                  placeholder: (defaults.dailyRentRate > 0 ? String(defaults.dailyRentRate) : perDay(rentN)) || "35",
+                  onChange: (v) => {
+                    untouch(room.id);
+                    onRoom(room.id, { ...room, dailyRentRate: num(sanitizeMoneyInput(v)) || undefined });
+                  },
+                  onReset: () => onRoom(room.id, { ...room, dailyRentRate: defaults.dailyRentRate || undefined }),
+                  resetLabel: `Reset rent per day for ${name} to the row above`,
+                }}
+                util={
+                  utilN > 0
+                    ? {
+                        text: p.utilOwn ? String(room.dailyUtilitiesRate) : "",
+                        inherited: !p.utilOwn,
+                        own: p.utilOwn,
+                        placeholder: defaults.dailyUtilitiesRate > 0 ? String(defaults.dailyUtilitiesRate) : perDay(utilN),
+                        onChange: (v) => {
+                          untouch(room.id);
+                          onRoom(room.id, { ...room, dailyUtilitiesRate: num(sanitizeMoneyInput(v)) || undefined });
+                        },
+                        onReset: () => onRoom(room.id, { ...room, dailyUtilitiesRate: defaults.dailyUtilitiesRate || undefined }),
+                        resetLabel: `Reset utilities per day for ${name} to the row above`,
+                      }
+                    : null
+                }
+                dataAttr="listing-v2-price-prorate-room"
+              />
+            ) : null}
             <EditorDone onClick={() => setOpen(null)} dataAttr="listing-v2-price-done" />
           </RecordCard>
         );
@@ -677,7 +1008,7 @@ function StayCards({
             <FactRow label="Rent /week" own={!weekInh} onReset={() => onRoom(room.id, { ...room, weeklyRentPrice: undefined })} resetLabel={`Reset weekly rent for ${name} to every room`}>
               <MoneyInput label={`${name} rent per week`} value={weekInh ? "" : room.weeklyRentPrice ? String(room.weeklyRentPrice) : ""} inherited={weekInh} placeholder={defaults.weeklyRentPrice > 0 ? String(defaults.weeklyRentPrice) : "395"} onChange={(v) => { untouch(room.id); onRoom(room.id, { ...room, weeklyRentPrice: num(sanitizeMoneyInput(v)) || undefined }); }} />
             </FactRow>
-            <FeeRows sub={sub} patch={patch} roomId={room.id} term={term} />
+            <FeeRows sub={sub} patch={patch} roomId={room.id} roomName={name} term={term} />
             <EditorDone onClick={() => setOpen(null)} dataAttr="listing-v2-stay-done" />
           </RecordCard>
         );
@@ -710,28 +1041,33 @@ function WholePlaceCard({ sub, patch, term }: { sub: ManagerListingSubmissionV1;
           onChange={(v) => write({ entireHomeUtilitiesPaymentModel: v as ManagerListingSubmissionV1["entireHomeUtilitiesPaymentModel"] })}
         />
       </FactRow>
-      <FactRow label="Partial month">
-        <RowSelectCell
-          ariaLabel="Prorate a partial month"
-          value={sub.entireHomeProrateMethod ?? "auto"}
-          options={[
-            { value: "auto", label: "Worked out automatically" },
-            { value: "daily_rate", label: "Per-day rate" },
-          ]}
-          onChange={(v) => write({ entireHomeProrateMethod: v as ManagerListingSubmissionV1["entireHomeProrateMethod"] })}
-        />
-      </FactRow>
-      {sub.entireHomeProrateMethod === "daily_rate" ? (
-        <>
-          <FactRow sub label="Rent /day">
-            <MoneyInput label="Prorated rent per day" value={sub.entireHomeDailyRentRate ? String(sub.entireHomeDailyRentRate) : ""} onChange={(v) => write({ entireHomeDailyRentRate: num(sanitizeMoneyInput(v)) || undefined })} />
-          </FactRow>
-          <FactRow sub label="Utilities /day">
-            <MoneyInput label="Prorated utilities per day" value={sub.entireHomeDailyUtilitiesRate ? String(sub.entireHomeDailyUtilitiesRate) : ""} onChange={(v) => write({ entireHomeDailyUtilitiesRate: num(sanitizeMoneyInput(v)) || undefined })} />
-          </FactRow>
-        </>
-      ) : null}
       <FeeRows sub={sub} patch={patch} roomId={null} term={term} />
+      {proratesOnTab(term) ? (
+        <ProrateRows
+          sub={sub}
+          patch={patch}
+          term={term}
+          roomId={null}
+          name="the whole place"
+          automatic={sub.entireHomeProrateMethod !== "daily_rate"}
+          onAutomatic={(next) => write({ entireHomeProrateMethod: next ? "auto" : "daily_rate" })}
+          rent={{
+            text: sub.entireHomeDailyRentRate ? String(sub.entireHomeDailyRentRate) : "",
+            placeholder: perDay(sub.entireHomeMonthlyRent ?? 0) || "35",
+            onChange: (v) => write({ entireHomeDailyRentRate: num(sanitizeMoneyInput(v)) || undefined }),
+          }}
+          util={
+            num(moneyValue(sub.entireHomeUtilitiesEstimate)) > 0
+              ? {
+                  text: sub.entireHomeDailyUtilitiesRate ? String(sub.entireHomeDailyUtilitiesRate) : "",
+                  placeholder: perDay(num(moneyValue(sub.entireHomeUtilitiesEstimate))),
+                  onChange: (v) => write({ entireHomeDailyUtilitiesRate: num(sanitizeMoneyInput(v)) || undefined }),
+                }
+              : null
+          }
+          dataAttr="listing-v2-price-prorate-whole"
+        />
+      ) : null}
     </Card>
   );
 }

@@ -156,6 +156,19 @@ describe("processManagerAssistantInboundEmail", () => {
     expect(result).toEqual({ handled: false });
   });
 
+  /**
+   * Reserved local parts (`support`, `admin`, …) are never a mailbox local, no
+   * matter how the manager scheme evolves — `admin` is not the legacy `assist-`
+   * shape either, so this pins the general rule, not just the `support@` case.
+   */
+  it("returns handled:false for admin@ — a reserved local, never a mailbox", async () => {
+    const result = await processManagerAssistantInboundEmail(db, {
+      ...parsed,
+      toEmails: ["admin@prop-lane.space"],
+    });
+    expect(result).toEqual({ handled: false });
+  });
+
   it("runs the agent and sends a reply for a verified manager", async () => {
     const result = await processManagerAssistantInboundEmail(db, parsed);
     expect(result).toMatchObject({ handled: true, replied: true, role: "manager" });
@@ -163,6 +176,35 @@ describe("processManagerAssistantInboundEmail", () => {
     expect(mocks.mirrorAssistantEmailTurnToInbox).toHaveBeenCalled();
     expect(mocks.deliverManagerEmailReply).toHaveBeenCalledWith(
       expect.objectContaining({ toEmail: "mgr@example.com" }),
+    );
+  });
+
+  /**
+   * The custom local part (Settings → "set_address") is a normal `<local>@`
+   * address like `assist-<slug>@`, not a legacy plus token — this file mocks
+   * `resolveAssistantMailboxByInboundAddresses` itself, so it pins that the
+   * front door (`isAssistantEmailAddress`, real/unmocked) still recognises a
+   * `frontdesk@…` To address as in-domain and lets it reach that resolver, the
+   * same as it does for the legacy `assistant+<token>@…` form.
+   */
+  it("still passes a custom-local-part address (e.g. frontdesk@) to the mailbox resolver", async () => {
+    const result = await processManagerAssistantInboundEmail(db, {
+      ...parsed,
+      toEmails: ["frontdesk@prop-lane.space"],
+    });
+    expect(result).toMatchObject({ handled: true, replied: true, role: "manager" });
+    expect(mocks.resolveManagerIdByAssistantInboundAddresses).toHaveBeenCalledWith(
+      db,
+      ["frontdesk@prop-lane.space"],
+    );
+  });
+
+  it("still passes the legacy assistant+<token>@ form to the mailbox resolver", async () => {
+    const result = await processManagerAssistantInboundEmail(db, parsed);
+    expect(result).toMatchObject({ handled: true, replied: true });
+    expect(mocks.resolveManagerIdByAssistantInboundAddresses).toHaveBeenCalledWith(
+      db,
+      parsed.toEmails,
     );
   });
 

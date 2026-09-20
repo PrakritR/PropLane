@@ -334,3 +334,66 @@ describe("pricing as cards", () => {
     expect(document.querySelector('[data-attr="listing-v2-add-bundle"]')).toBeNull();
   });
 });
+
+describe("a house-wide fee on a room card", () => {
+  const twoRooms = () =>
+    seeded({
+      allowedLeaseTerms: ["Long-term"],
+      rooms: [
+        { ...createDefaultListingSubmission().rooms[0]!, id: "r8", name: "Room 8", monthlyRent: 1100 },
+        { ...createDefaultListingSubmission().rooms[0]!, id: "r9", name: "Room 9", monthlyRent: 1100 },
+      ],
+    });
+  /** A $60 monthly Parking fee added on the Default card, the way a manager adds one. */
+  const addParking = () => {
+    fireEvent.click(document.querySelector('[data-attr="listing-v2-default-fee-add"]')!);
+    fireEvent.change(screen.getByLabelText("Fee name"), { target: { value: "Parking" } });
+    fireEvent.change(screen.getByLabelText("Parking amount"), { target: { value: "60" } });
+  };
+  const parking = (sub: ManagerListingSubmissionV1) => sub.customFees.find((f) => (f as { presetId?: string }).presetId === "parking_monthly");
+  // A custom row named exactly "Parking" is read back as the parking preset, so the room's copy carries the room's name.
+  const roomOnly = (sub: ManagerListingSubmissionV1) => sub.customFees.filter((f) => (f as { presetId?: string }).presetId === "custom" && f.label === "Parking – Room 9");
+
+  it("shows as an inherited row, and ✕ takes only that room out of it", () => {
+    const seen: ManagerListingSubmissionV1[] = [];
+    open("pricing", twoRooms(), (s) => seen.push(s));
+    addParking();
+    expect(parking(seen.at(-1)!)?.roomIds).toBeUndefined();
+    openCard("Room 9 prices");
+    const row = screen.getByLabelText("Parking amount for Room 9") as HTMLInputElement;
+    expect(row.value).toBe("");
+    expect(row.placeholder).toBe("60");
+    expect(row.className).toContain("border-dashed");
+    expect(document.querySelector('[data-attr="listing-v2-fee-row"][data-inherited="true"]')).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Parking for Room 9" }));
+    // Room 8 still pays it; Room 9 no longer does, and the Default card's fee is not gone.
+    expect(parking(seen.at(-1)!)?.roomIds).toEqual(["r8"]);
+    expect(parking(seen.at(-1)!)?.amount).toBe("60");
+    expect(screen.queryByLabelText("Parking amount for Room 9")).toBeNull();
+  });
+
+  it("typing an amount splits a room-only copy off the shared fee; Reset folds it back in", () => {
+    const seen: ManagerListingSubmissionV1[] = [];
+    open("pricing", twoRooms(), (s) => seen.push(s));
+    addParking();
+    openCard("Room 9 prices");
+    fireEvent.change(screen.getByLabelText("Parking amount for Room 9"), { target: { value: "75" } });
+    let own = roomOnly(seen.at(-1)!);
+    expect(own).toHaveLength(1);
+    expect(own[0]!.amount).toBe("75");
+    expect(own[0]!.roomIds).toEqual(["r9"]);
+    expect(own[0]!.frequency).toBe("monthly");
+    expect(parking(seen.at(-1)!)?.roomIds).toEqual(["r8"]);
+    expect(parking(seen.at(-1)!)?.amount).toBe("60");
+    // The row is Room 9's own now: the amount stays under the caret and Reset is offered.
+    const ownBox = screen.getByLabelText("Parking – Room 9 amount for Room 9") as HTMLInputElement;
+    expect(ownBox.value).toBe("75");
+    // Clicking Reset blurs the box first, the way a pointer does.
+    fireEvent.blur(ownBox);
+    fireEvent.click(screen.getByRole("button", { name: "Reset Parking – Room 9 for Room 9 to every room" }));
+    own = roomOnly(seen.at(-1)!);
+    expect(own).toHaveLength(0);
+    expect(parking(seen.at(-1)!)?.roomIds).toBeUndefined();
+    expect((screen.getByLabelText("Parking amount for Room 9") as HTMLInputElement).value).toBe("");
+  });
+});

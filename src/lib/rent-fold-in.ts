@@ -35,7 +35,18 @@ import type { ManagerCustomFeeRow, ManagerListingSubmissionV1 } from "@/lib/mana
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { listingFoldsAllMonthlyFeesIntoRent, type RentRuleAddress } from "@/lib/seattle-rent-rule";
 
-export type MonthlyFeeLine = { id: string; label: string; amount: number };
+export type MonthlyFeeLine = {
+  id: string;
+  label: string;
+  amount: number;
+  /** Per-day figure for a "Set per day" partial month (`ListingFeeRow.dailyRate`). */
+  dailyRate?: number;
+};
+
+function feeDailyRate(fee: { dailyRate?: unknown }): number | undefined {
+  const n = fee.dailyRate;
+  return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : undefined;
+}
 
 export const MONTH_TO_MONTH_SURCHARGE_FEE_ID = "preset:mtm_surcharge";
 export const MONTH_TO_MONTH_SURCHARGE_LABEL = "Month-to-month surcharge";
@@ -80,7 +91,7 @@ export function selfBillingPresetFees(
     if (!matchesCadence) return [];
     const amount = listingPresetFeeAmountIfEnabled(sub, presetId);
     if (!(amount > 0)) return [];
-    return [{ id: fee.id, label: fee.label?.trim() || "Fee", amount }];
+    return [{ id: fee.id, label: fee.label?.trim() || "Fee", amount, dailyRate: feeDailyRate(fee as { dailyRate?: unknown }) }];
   });
 }
 
@@ -97,7 +108,7 @@ function recurringGenuinelyCustomFees(
     .map((fee) => {
       const cadence = listingFeeCadence(fee);
       const amount = listingFeeMonthlyEquivalent(parseMoneyAmount(fee.amount ?? ""), cadence);
-      return { id: fee.id, label: fee.label?.trim() || "Custom fee", amount };
+      return { id: fee.id, label: fee.label?.trim() || "Custom fee", amount, dailyRate: feeDailyRate(fee as { dailyRate?: unknown }) };
     })
     .filter((fee) => fee.amount > 0);
 }

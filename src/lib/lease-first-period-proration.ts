@@ -160,6 +160,55 @@ export function computeProratedFirstMonthTotals(input: ProratedFirstMonthCompute
   };
 }
 
+export type ProratedFeeLineInput = {
+  id: string;
+  label: string;
+  /** Monthly amount, dollars. */
+  amount: number;
+  /** Per-day figure used only when the room's partial months are "Set per day". */
+  dailyRate?: number;
+};
+
+export type ProratedFeeLine = {
+  id: string;
+  label: string;
+  monthlyAmount: number;
+  amount: number;
+  useDailyRate: boolean;
+  dailyRate: number;
+};
+
+/**
+ * One prorated line per MONTHLY fee billed separately (parking, storage…), for a partial
+ * first or last month. Shared by the ledger and both lease documents so the two can never
+ * disagree.
+ *
+ *  - Automatic: amount × billable days ÷ days in the month, like rent.
+ *  - Set per day (`method === "daily_rate"`): the fee's own `dailyRate` × billable days
+ *    when it carries one; a fee with no per-day rate falls back to the calendar fraction,
+ *    never to zero.
+ *  - A fee at $0 is skipped, exactly like $0 utilities. A full month yields nothing.
+ */
+export function proratedFeeLines(
+  fees: readonly ProratedFeeLineInput[],
+  proration: LeaseBoundaryProration,
+  method?: "auto" | "daily_rate",
+): ProratedFeeLine[] {
+  if (!proration.prorated || !(proration.billableDays > 0)) return [];
+  const out: ProratedFeeLine[] = [];
+  for (const fee of fees) {
+    if (!(fee.amount > 0)) continue;
+    const useDailyRate = method === "daily_rate" && (fee.dailyRate ?? 0) > 0;
+    const dailyRate = useDailyRate ? (fee.dailyRate ?? 0) : 0;
+    const amount = useDailyRate
+      ? Number((proration.billableDays * dailyRate).toFixed(2))
+      : Number((fee.amount * proration.factor).toFixed(2));
+    if (!(amount > 0)) continue;
+    out.push({ id: fee.id, label: fee.label, monthlyAmount: fee.amount, amount, useDailyRate, dailyRate });
+  }
+  return out;
+}
+
 /** "September 2026" — the calendar month a prorated amount belongs to, for lease copy. */
 export function prorationMonthLabel(date: string | undefined): string {
   const parsed = parseFlexibleLocalDate(date ?? "");

@@ -28,6 +28,12 @@ import { parseMoneyAmount } from "@/lib/parse-money";
 import type { UtilitiesPaymentModel } from "@/lib/listing-utilities-payment";
 import { normalizeUtilitiesPaymentModel } from "@/lib/listing-utilities-payment";
 import type { ListingHouseDefaults } from "@/lib/listing-house-defaults";
+import {
+  isLeaseChargeDefaultKey,
+  refreshMarkedLeaseChargeDefaults,
+  seedLeaseChargeDefaults,
+  type LeaseChargeDefaultKey,
+} from "@/lib/lease-charge-defaults";
 import type { BathroomDefaults, SharedSpaceDefaults } from "@/lib/listing-record-defaults";
 import type { LeaseUtilityLine } from "@/lib/lease-utilities";
 import { normalizeLeaseUtilities } from "@/lib/lease-utilities";
@@ -504,7 +510,11 @@ export type ManagerSharedSpaceSubmission = {
   photoDataUrls: string[];
   /** Optional shared-space video shown in listing details. */
   videoDataUrl?: string | null;
-  /** Rooms with access (same room may have access to multiple shared spaces). */
+  /**
+   * Rooms with access (same room may have access to multiple shared spaces).
+   * Empty means Everyone, and a list naming every current room reads the
+   * same; the encoding lives in `src/lib/listing-shared-space-access.ts`.
+   */
   roomAccessIds: string[];
 };
 
@@ -875,6 +885,12 @@ export type ManagerListingSubmissionV1 = {
   longTermDisputeVenue?: string;
   /** Whether a resident must provide a paid professional-cleaning invoice at move-out. */
   longTermProfessionalCleaningRequired?: boolean;
+  /**
+   * The lease charges still at their PREFILLED default (`lease-charge-defaults.ts`). The
+   * wizard marks these "Filled" and the two rent-based ones follow the rent until typed
+   * over. Absent on every listing saved before the defaults existed.
+   */
+  leaseChargeDefaultKeys?: LeaseChargeDefaultKey[];
   /** When true, residents can pay rent via Axis ACH (low platform fee). Default true. */
   axisPaymentsEnabled?: boolean;
   rooms: ManagerRoomSubmission[];
@@ -1707,6 +1723,15 @@ export function normalizeManagerListingSubmissionV1(
   sub: ManagerListingSubmissionV1,
   opts: NormalizeManagerListingSubmissionOptions = {},
 ): ManagerListingSubmissionV1 {
+  // The rent-based lease charges that are still marked as defaults follow the rent this
+  // listing holds NOW, so a rent typed after the listing was created reaches the lease.
+  return refreshMarkedLeaseChargeDefaults(normalizeManagerListingSubmissionV1Base(sub, opts));
+}
+
+function normalizeManagerListingSubmissionV1Base(
+  sub: ManagerListingSubmissionV1,
+  opts: NormalizeManagerListingSubmissionOptions = {},
+): ManagerListingSubmissionV1 {
   const legacy = sub as ManagerListingSubmissionV1 & LegacyListingSubmissionFields;
   const fallbackUtil = legacy.utilitiesMonthly?.trim() ?? "";
 
@@ -2443,6 +2468,12 @@ export function normalizeManagerListingSubmissionV1(
     longTermDisputeVenue:
       typeof sub.longTermDisputeVenue === "string" ? sub.longTermDisputeVenue.trim() : undefined,
     longTermProfessionalCleaningRequired: sub.longTermProfessionalCleaningRequired === true ? true : undefined,
+    leaseChargeDefaultKeys: (() => {
+      const raw = (sub as { leaseChargeDefaultKeys?: unknown }).leaseChargeDefaultKeys;
+      if (!Array.isArray(raw)) return undefined;
+      const keys = raw.filter(isLeaseChargeDefaultKey);
+      return keys.length ? keys : undefined;
+    })(),
     axisPaymentsEnabled: sub.axisPaymentsEnabled !== false,
     acceptedPaymentMethods: Array.isArray(sub.acceptedPaymentMethods)
       ? sub.acceptedPaymentMethods.filter(
@@ -3211,12 +3242,16 @@ export function resolveServiceOfferPricing(offer: {
  * only Application fee visible — every other standard row is removed until added.
  */
 export function createNewListingWizardSubmission(): ManagerListingSubmissionV1 {
-  return ensureSubmissionListingFees({
-    ...createDefaultListingSubmission(),
-    allowedLeaseTerms: ["12-Month"],
-    holdingDeposit: "",
-    removedStandardListingFeeRows: defaultRemovedStandardListingFeeRowsForNewListing(),
-  });
+  // Every charge the lease names arrives prefilled and marked (PLAN-0920-0423); the two
+  // rent-based ones fill in once the manager types a rent.
+  return seedLeaseChargeDefaults(
+    ensureSubmissionListingFees({
+      ...createDefaultListingSubmission(),
+      allowedLeaseTerms: ["12-Month"],
+      holdingDeposit: "",
+      removedStandardListingFeeRows: defaultRemovedStandardListingFeeRowsForNewListing(),
+    }),
+  );
 }
 
 /** Browse/search location label derived from structured city/state, with neighborhood fallback. */

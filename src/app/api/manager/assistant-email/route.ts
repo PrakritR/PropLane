@@ -6,6 +6,7 @@ import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 import { getManagerPortalNavSubscriptionTier } from "@/lib/manager-access-server";
 import { assistantEmailEligibilityError } from "@/lib/manager-assistant-email/assistant-email-eligibility-copy";
 import {
+  checkWorkspaceAssistantMailboxLocal,
   ensureManagerAssistantEmail,
   isAssistantEmailProvisioningEnabled,
   isAssistantEmailReceivingEnabled,
@@ -14,6 +15,7 @@ import {
   loadWorkspaceAssistantEmail,
   probeAssistantEmailStorageReady,
   resolveWorkspaceWorkEmails,
+  setWorkspaceAssistantMailboxLocal,
   WorkspaceEmailSharedError,
   WorkspaceNotOwnedError,
 } from "@/lib/manager-assistant-email/manager-assistant-email.server";
@@ -179,10 +181,15 @@ export async function POST(req: Request) {
 
   const parsedBody = await req.json().catch(() => ({}) as unknown);
   const body = parsedBody && typeof parsedBody === "object" && !Array.isArray(parsedBody)
-    ? (parsedBody as { action?: unknown })
+    ? (parsedBody as { action?: unknown; local?: unknown })
     : {};
   const action = body.action === undefined ? "request_address" : body.action;
-  if (action !== "request_address" && action !== "refresh_eligibility") {
+  if (
+    action !== "request_address" &&
+    action !== "refresh_eligibility" &&
+    action !== "check_address" &&
+    action !== "set_address"
+  ) {
     return NextResponse.json({ error: "Unknown work-email action." }, { status: 400 });
   }
   let workspace: ActiveWorkspace;
@@ -190,6 +197,68 @@ export async function POST(req: Request) {
     workspace = await resolveActiveWorkspaceFromRequest(actor.db, actor.userId);
   } catch {
     return NextResponse.json({ error: "Workspace unavailable. Try again." }, { status: 503 });
+  }
+
+  if (action === "check_address") {
+    const local = typeof body.local === "string" ? body.local : "";
+    // A cheap read, but still an authenticated per-user throttle so a page
+    // holding a key down cannot turn this into a lookup flood.
+    const limit = await rateLimit(`work-email-address-check:${actor.userId}`, 30, 60_000);
+    if (limit.unavailable) {
+      return NextResponse.json(
+        { error: "Work email address checks are temporarily unavailable. Please try again shortly." },
+        { status: 503, headers: { "Retry-After": "60", "Cache-Control": "private, no-store" } },
+      );
+    }
+    if (!limit.ok) {
+      return NextResponse.json(
+        { error: "Please slow down before checking another address." },
+        { status: 429, headers: { "Retry-After": "60", "Cache-Control": "private, no-store" } },
+      );
+    }
+    const result = await checkWorkspaceAssistantMailboxLocal(actor.db, workspace.id, local);
+    return NextResponse.json(result, { headers: { "Cache-Control": "private, no-store" } });
+  }
+
+  if (action === "set_address") {
+    // One address per workspace, minted/renamed only by its owner — same
+    // refusal `request_address` already gives a co-manager.
+    if (!workspace.owned) {
+      return NextResponse.json(
+        {
+          error:
+            "This workspace already has a work email. Mail goes out from the address its owner set up.",
+          code: "workspace_not_owned",
+        },
+        { status: 403, headers: { "Cache-Control": "private, no-store" } },
+      );
+    }
+    const local = typeof body.local === "string" ? body.local : "";
+    let result: Awaited<ReturnType<typeof setWorkspaceAssistantMailboxLocal>>;
+    try {
+      result = await setWorkspaceAssistantMailboxLocal(actor.db, actor.userId, workspace, local);
+    } catch (cause) {
+      if (cause instanceof WorkspaceEmailSharedError || cause instanceof WorkspaceNotOwnedError) {
+        return NextResponse.json(
+          { error: cause.message, code: cause.code },
+          { status: cause instanceof WorkspaceNotOwnedError ? 403 : 409, headers: { "Cache-Control": "private, no-store" } },
+        );
+      }
+      return NextResponse.json(
+        { error: "Could not change your work email. Try again shortly." },
+        { status: 500, headers: { "Cache-Control": "private, no-store" } },
+      );
+    }
+    if (!result.ok) {
+      return NextResponse.json(
+        { error: result.message, state: result.state },
+        { status: result.state === "taken" ? 409 : 400, headers: { "Cache-Control": "private, no-store" } },
+      );
+    }
+    track("assistant_email_local_changed", actor.userId, {});
+    return NextResponse.json(await buildStatus(actor.db, actor.userId, workspace), {
+      headers: { "Cache-Control": "private, no-store" },
+    });
   }
 
   if (action === "refresh_eligibility") {

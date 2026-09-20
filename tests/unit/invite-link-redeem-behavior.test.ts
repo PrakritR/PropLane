@@ -29,6 +29,8 @@ type Link = {
   revoked_at: string | null;
   created_at: string;
   label: string | null;
+  team_role?: string | null;
+  house_scope?: string | null;
 };
 
 let link: Link;
@@ -164,6 +166,29 @@ describe("redeeming a manager invite link", () => {
     // The scope comes off the stored link, never the redeemer.
     expect(invite.assigned_property_ids).toEqual(["prop-1"]);
     expect(link.used_count).toBe(1);
+  });
+
+  // A row from a redeemed link with an empty flat `co_manager_permissions`
+  // read as no access for any house that joined an "all houses" workspace
+  // later (see readPropertyPermissionsFromRow / PRP report).
+  it("sets co_manager_permissions from the link's team_role, not left empty", async () => {
+    link = makeLink({ team_role: "admin", house_scope: "all" });
+
+    await redeemInviteLink(makeDb(), { token: "t", redeemerUserId: "peer-1" });
+
+    const invite = inserted.account_link_invites?.[0] as Record<string, unknown>;
+    expect(invite.co_manager_permissions).toBeDefined();
+    expect(Object.keys(invite.co_manager_permissions as object).length).toBeGreaterThan(0);
+  });
+
+  it("falls back to the per-house map's flat grant when the link names no team_role", async () => {
+    link = makeLink({ team_role: null, house_scope: "all" });
+
+    await redeemInviteLink(makeDb(), { token: "t", redeemerUserId: "peer-1" });
+
+    const invite = inserted.account_link_invites?.[0] as Record<string, unknown>;
+    expect(invite.co_manager_permissions).toBeDefined();
+    expect(Object.keys(invite.co_manager_permissions as object).length).toBeGreaterThan(0);
   });
 
   it("hands the use back when the invite insert fails, so a one-time link survives", async () => {

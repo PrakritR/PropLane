@@ -45,7 +45,7 @@ describe("co-manager open invite token", () => {
 });
 
 describe("co-manager open invite surfaces", () => {
-  it("Add modal uses three invite paths with the property picker always visible", () => {
+  it("Add modal uses three invite paths, a role, and a house scope before any picker", () => {
     const panel = readFileSync(
       join(process.cwd(), "src/components/portal/pro-account-links-panel.tsx"),
       "utf8",
@@ -55,7 +55,10 @@ describe("co-manager open invite surfaces", () => {
     expect(panel).toContain('data-attr="co-manager-proplane-id-input"');
     expect(panel).toContain('data-attr="co-manager-link-continue"');
     expect(panel).toContain('dataAttr="co-manager-invite-properties"');
-    expect(panel).toContain('label="Properties"');
+    // Houses default to the whole workspace; the picker appears for "Only selected".
+    expect(panel).toContain('dataAttr="co-manager-invite-house-scope"');
+    expect(panel).toContain('label="Selected houses"');
+    expect(panel).toContain("<RoleCanTable");
     expect(panel).not.toContain('data-attr="co-manager-invite-link-open"');
     expect(panel).not.toContain("Select at least one property for this invite.");
 
