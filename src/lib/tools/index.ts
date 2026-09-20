@@ -76,6 +76,7 @@ import {
 import {
   listPropertiesTool,
   getPropertyDetailsTool,
+  listingSyndicationStatusTool,
   createPropertyTool,
   updatePropertyTool,
   updateRoomRentTool,
@@ -170,6 +171,7 @@ export const agentRegistry = buildRegistry([
   getApplicationDetailsTool,
   listPropertiesTool,
   getPropertyDetailsTool,
+  listingSyndicationStatusTool,
   getListingCreationChecklistTool,
   getListingMediaInventoryTool,
   listInboxThreadsTool,

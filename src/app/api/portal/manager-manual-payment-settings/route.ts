@@ -27,6 +27,8 @@ import {
   loadWorkspacePaymentSettings,
   loadWorkspaceServiceFeePayerForProperty,
   saveWorkspacePaymentSettings,
+  workspaceAutopayEnabled,
+  workspaceAutopayRetryEnabled,
 } from "@/lib/workspace-payment-settings.server";
 import { assertManualPaymentSettingsCoManagerAccess } from "@/lib/auth/manager-settings-module-access.server";
 import {
@@ -94,10 +96,19 @@ function parsePropertyServiceFeePayerUpdates(
 async function workspacePaymentSettingsPublic(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   userId: string,
-): Promise<Record<string, { serviceFeePayer: ServiceFeePayer | null }>> {
+): Promise<
+  Record<string, { serviceFeePayer: ServiceFeePayer | null; autopayEnabled: boolean; autopayRetryEnabled: boolean }>
+> {
   const all = await loadWorkspacePaymentSettings(db, userId);
   return Object.fromEntries(
-    Object.entries(all).map(([id, value]) => [id, { serviceFeePayer: value.serviceFeePayer }]),
+    Object.entries(all).map(([id, value]) => [
+      id,
+      {
+        serviceFeePayer: value.serviceFeePayer,
+        autopayEnabled: workspaceAutopayEnabled(value),
+        autopayRetryEnabled: workspaceAutopayRetryEnabled(value),
+      },
+    ]),
   );
 }
 
@@ -180,6 +191,8 @@ export async function PATCH(req: Request) {
       workspaceId,
       workspaceServiceFeePayer,
       workspaceServiceFeeWaiverCode,
+      workspaceAutopayEnabled: workspaceAutopayEnabledPatch,
+      workspaceAutopayRetryEnabled: workspaceAutopayRetryEnabledPatch,
       ...rest
     } = body;
     const feePayerUpdates = parsePropertyServiceFeePayerUpdates(propertyServiceFeePayers);
@@ -211,7 +224,18 @@ export async function PATCH(req: Request) {
      * authorization, as everywhere else in this route.
      */
     let workspaceSaved = false;
-    if (typeof workspaceId === "string" && workspaceId.trim()) {
+    // Whether the caller sent EACH field at all, not just whether it parsed to
+    // a real value — `saveWorkspacePaymentSettings` merges onto the existing
+    // row, so a field this save never mentioned must never be forced to null.
+    const feePayerProvided = workspaceServiceFeePayer !== undefined;
+    const autopayEnabledProvided = typeof workspaceAutopayEnabledPatch === "boolean";
+    const autopayRetryProvided = typeof workspaceAutopayRetryEnabledPatch === "boolean";
+    if (
+      typeof workspaceId === "string" &&
+      workspaceId.trim() &&
+      (feePayerProvided || autopayEnabledProvided || autopayRetryProvided)
+    ) {
+      // A workspace id in the body is scope, never a grant: the caller must own it.
       const scopeAccess = await assertSettingsScopeOwned(ctx.db, ctx.userId, { workspaceId: workspaceId.trim() });
       if (!scopeAccess.ok) return NextResponse.json({ error: scopeAccess.error }, { status: scopeAccess.status });
       const choice =
@@ -233,15 +257,18 @@ export async function PATCH(req: Request) {
           ? normalizeListingPaymentWaiverCode(workspaceServiceFeeWaiverCode)
           : "";
       const workspaceCodeMatches = choice === "proplane" && listingPaymentWaiverCodeMatchesServer(workspaceCode);
-      if (choice === "proplane" && !workspaceCodeMatches && settings.adminServiceFeeOverride !== "proplane") {
+      if (feePayerProvided && choice === "proplane" && !workspaceCodeMatches && settings.adminServiceFeeOverride !== "proplane") {
         return NextResponse.json({ error: LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID }, { status: 400 });
       }
       /* The code is kept with the workspace so checkout can re-validate it —
          the same way a listing keeps its own. A `proplane` the staff override
          backs is stored codeless; the override answers first at checkout. */
       const result = await saveWorkspacePaymentSettings(ctx.db, ctx.userId, workspaceId.trim(), {
-        serviceFeePayer: choice,
-        ...(workspaceCodeMatches ? { serviceFeeWaiverCode: workspaceCode } : {}),
+        ...(feePayerProvided
+          ? { serviceFeePayer: choice, ...(workspaceCodeMatches ? { serviceFeeWaiverCode: workspaceCode } : {}) }
+          : {}),
+        ...(autopayEnabledProvided ? { autopayEnabled: workspaceAutopayEnabledPatch as boolean } : {}),
+        ...(autopayRetryProvided ? { autopayRetryEnabled: workspaceAutopayRetryEnabledPatch as boolean } : {}),
       });
       if (!result.saved) {
         return NextResponse.json({ error: "That workspace is not available." }, { status: 404 });

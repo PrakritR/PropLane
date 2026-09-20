@@ -19,6 +19,10 @@ export type InviteMessageFacts = {
   email?: string;
   vendorName?: string;
   trade?: string;
+  /** "Leasing" — the role stamp this invite carries (workspace kind only). */
+  roleLabel?: string;
+  /** "All houses" or "3 of 10 houses" — what the role reaches (workspace kind only). */
+  reach?: string;
 };
 
 function clean(value: string | undefined): string {
@@ -46,7 +50,13 @@ export function formatInviteMessageBody(facts: InviteMessageFacts): string {
     if (trade) lines.push(`Trade: ${trade}`);
   } else {
     const workspace = clean(facts.workspaceName) || "a workspace";
-    lines.push(`${inviter} invited you to ${workspace} on PropLane.`);
+    const role = clean(facts.roleLabel);
+    const reach = clean(facts.reach);
+    lines.push(
+      role && reach
+        ? `${inviter} invited you to ${workspace} on PropLane, as ${role} over ${reach}.`
+        : `${inviter} invited you to ${workspace} on PropLane.`,
+    );
     const houses = (facts.propertyLabels ?? []).map((label) => label.trim()).filter(Boolean);
     lines.push(houses.length > 0 ? `Houses: ${houses.join(", ")}` : "Houses: no houses yet");
   }

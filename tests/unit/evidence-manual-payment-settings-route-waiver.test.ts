@@ -113,6 +113,8 @@ vi.mock("@/lib/workspace-payment-settings.server", () => ({
         : { serviceFeePayer: next.serviceFeePayer, ...(next.serviceFeeWaiverCode ? { serviceFeeWaiverCode: next.serviceFeeWaiverCode } : {}) };
     return { saved: true };
   },
+  workspaceAutopayEnabled: (settings: { autopayEnabled?: boolean }) => settings.autopayEnabled !== false,
+  workspaceAutopayRetryEnabled: (settings: { autopayRetryEnabled?: boolean }) => settings.autopayRetryEnabled !== false,
 }));
 
 vi.mock("@/lib/manager-access-server", () => ({
@@ -262,7 +264,7 @@ describe("evidence · PATCH manager-manual-payment-settings, workspace scope", (
     expect(ok.status).toBe(200);
     expect(workspaceStored[WS]).toEqual({ serviceFeePayer: "proplane", serviceFeeWaiverCode: "FREE100" });
     const echoed = ok.json.workspacePaymentSettings as Record<string, Record<string, unknown>>;
-    expect(echoed[WS]).toEqual({ serviceFeePayer: "proplane" });
+    expect(echoed[WS]).toEqual({ serviceFeePayer: "proplane", autopayEnabled: true, autopayRetryEnabled: true });
     expect(JSON.stringify(ok.json)).not.toContain("FREE100");
   });
 

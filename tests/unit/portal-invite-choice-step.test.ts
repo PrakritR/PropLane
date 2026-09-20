@@ -20,13 +20,14 @@ describe("portal invite choice step", () => {
     expect(CHOICE).toContain("Create Invite Link");
   });
 
-  it("defaults manager invites to three paths, with properties always on the first step", () => {
-    expect(PANEL).toContain("PortalInvitePaths");
+  it("manager invites go through the sheet — one step, no chooser or Continue", () => {
+    expect(PANEL).not.toContain("PortalInvitePaths");
     expect(PANEL).not.toContain("PortalInviteChoiceStep");
-    expect(PANEL).toContain('data-attr="co-manager-proplane-id-input"');
-    expect(PANEL).toContain('data-attr="co-manager-link-continue"');
+    expect(PANEL).not.toContain('data-attr="co-manager-proplane-id-input"');
+    expect(PANEL).not.toContain('data-attr="co-manager-link-continue"');
     expect(PANEL).not.toContain('data-attr="co-manager-copy-open-invite"');
     expect(PANEL).not.toContain('data-attr="co-manager-use-proplane-id"');
+    expect(PANEL).toContain("<WorkspaceInviteSheet");
   });
 
   it("sends vendor invites through Continue into New message", () => {

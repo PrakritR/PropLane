@@ -37,7 +37,24 @@ Forbidden:
   Schedule for later
 
 Invite **methods** (link / message / PropLane code) are tabs on the step
-*before* this chrome. They are not a second compose.
+*before* this chrome, for the **vendor invite modal only**
+(`pro-vendor-form-modal.tsx`); they are not a second compose. The manager
+workspace invite has no such chooser — see the next section.
+
+## The manager workspace invite is the one deliberate exception
+
+`workspace-invite-sheet.tsx`'s Send row has no chooser and no New-message
+step: a phone or email recipient goes straight out through
+`deliverManagerDirectoryMessage` with the auto-formatted body
+(`formatInviteMessageBody`/`formatInviteMessageSubject`) the moment Send is
+pressed, and a PropLane-code recipient instead POSTs the addressed invite
+directly to `/api/pro/account-links`. There is nothing to preview or edit
+first. This is narrower than the dominant chrome above on purpose — the sheet
+already shows the recipient, the role, and the houses before Send is
+pressable — and it replaces the old three-path chooser → Continue →
+New-message flow that used to exist for this one surface. The vendor invite
+keeps that older chooser → Continue → New-message shape unchanged; do not
+collapse it to match the sheet without a separate decision.
 
 ## Body is auto-formatted from every fact
 

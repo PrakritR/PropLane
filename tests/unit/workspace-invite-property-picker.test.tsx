@@ -6,16 +6,17 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
 describe("workspace invite property picker", () => {
   const PANEL = read("src/components/portal/pro-account-links-panel.tsx");
+  const SHEET = read("src/components/portal/workspace-invite-sheet.tsx");
 
-  it("shows the property picker on every invite path, not only after PropLane ID lookup", () => {
-    expect(PANEL).toContain('dataAttr="co-manager-invite-properties"');
-    expect(PANEL).toContain("handleLinkPropertySelectionChange(ids)");
-    expect(PANEL).toContain("Default every house currently in this workspace");
-    expect(PANEL).not.toContain("No properties available for team invites yet.");
+  it("shows a house picker for 'Only selected houses', defaulting to every house in the workspace", () => {
+    expect(SHEET).toContain('dataAttr="workspace-invite-selected-houses"');
+    expect(SHEET).toContain('houseScope === "all" ? workspace.propertyIds : selectedHouseIds');
+    expect(SHEET).not.toContain("No properties available for team invites yet.");
   });
 
-  it("scopes the picker to the workspace whose Invite was pressed", () => {
-    expect(PANEL).toContain("for (const id of pickerPropertyIds)");
+  it("scopes the sheet — and its house picker — to the workspace whose Invite was pressed", () => {
     expect(PANEL).toContain("openLinkModal(workspace.id)");
+    expect(PANEL).toContain("workspace={inviteWorkspace}");
+    expect(SHEET).toContain("workspace.propertyIds.map((id) => ({");
   });
 });

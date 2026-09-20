@@ -1084,6 +1084,31 @@ export type ManagerListingSubmissionV1 = {
   certificateOfOccupancyDate?: string;
   /** Seattle Rental Registration and Inspection Ordinance number (`seattle-rrio`). */
   rrioRegistrationNumber?: string;
+
+  /**
+   * Third-party syndication opt-in state — today just the Zillow Rental
+   * Network (Zillow, Trulia, HotPads), toggled from the Review step. Manager-
+   * internal operational state, not marketing copy: `publicListingProjection`
+   * is an allowlist and this key is deliberately not on it. The feed route
+   * (`/api/feeds/zillow/[feedKey]`) reads it from the raw stored row before
+   * projecting, never from the public payload.
+   */
+  syndication?: ListingSyndicationState;
+};
+
+export type ListingSyndicationZillowStatus = "sent" | "live" | "rejected";
+
+export type ListingSyndicationZillowState = {
+  enabled: boolean;
+  /** ISO timestamp of the most recent opt-in. */
+  sentAt?: string;
+  status?: ListingSyndicationZillowStatus;
+  /** Why the feed excluded this listing (e.g. "no_street_address", "no_photo"). */
+  reasons?: string[];
+};
+
+export type ListingSyndicationState = {
+  zillow?: ListingSyndicationZillowState;
 };
 
 /** Fee fields must be filled with a dollar amount; use 0 when there is no charge. */

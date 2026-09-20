@@ -35,11 +35,16 @@ remove members and add or move houses in THAT workspace; Property manager may
 add houses; every other role acts only inside its modules
 (`workspaceRightsForRole`). An Admin may stamp up to Admin, never touch the
 owner, and never remove or demote the last Admin (`canActOnMember`,
-`roleAssignableBy`). The pre-migration on-by-default flags were moved to
-`legacy_workspace_permissions` and shown to the owner as a review note on the
-member row; the next save clears them. `workspace_permissions` survives only
-on a Custom row. `resolveCreateListingOwner` reads the membership OF THE
-TARGET WORKSPACE; a membership elsewhere grants nothing there.
+`roleAssignableBy`). A delegate whose own membership is `selected` cannot mint
+an `all` link either: `mintInviteLink` caps the houses to the ones they hold
+AND stores the link as `selected`, because an `all` row would auto-fill a
+house that joins later from the role stamp with no cap re-applied
+(`tests/unit/mint-invite-link-delegate-house-cap.test.ts`). The pre-migration
+on-by-default flags were moved to `legacy_workspace_permissions` and shown to
+the owner as a review note on the member row; the next save clears them.
+`workspace_permissions` survives only on a Custom row.
+`resolveCreateListingOwner` reads the membership OF THE TARGET WORKSPACE; a
+membership elsewhere grants nothing there.
 
 **The team is shown per workspace, never as its own list.** Settings →
 Workspaces renders "Members" inside every workspace card the viewer runs (their
@@ -61,9 +66,9 @@ the granular form is `{ read, edit, delete }` (`edit`/`delete` imply `read`).
 Model + level helpers live in `src/lib/co-manager-permissions.ts`
 (`hasCoManagerPermissionLevel[ForProperty]`).
 
-**Team role is a stamp + a label, never authorization.** Invite asks three
-things — how to send it, Role, Houses (All houses in this workspace, the
-default, or Only selected) — and shows a read-only "Role can" table; the
+**Team role is a stamp + a label, never authorization.** The invite sheet's
+one access control sets Role and Houses (All houses in this workspace, the
+default, or Only selected) and shows a read-only "Role can" table; the
 13-module grid appears only on Custom. Roles: Viewer, Leasing, Property
 manager, Bookkeeper, Maintenance, Admin, Custom (`TEAM_ROLE_INVITE_OPTIONS`).
 A named role writes the permission map; Custom keeps the current map. Gates
@@ -72,13 +77,65 @@ with an empty map grants nothing. Catalog: `src/lib/co-manager-team-roles.ts`.
 Column: `account_link_invites.team_role` (copied from
 `manager_invite_links.team_role` on redeem, with `house_scope`).
 
-**Shareable invite links do not need a PropLane ID.** Workspace Invite (and
-vendor Invite) always offers three methods: **link**, **message**, and
-**PropLane code**. Email is a Send via channel on the next page (New message),
-never an invite-method tab. See `docs/agents/send-message-compose.md`.
-Houses default to every house currently in that workspace. The accept screen
-is titled **Invite to workspace**, names the workspace, and offers Message
-the inviter.
+**Shareable invite links do not need a PropLane ID.** Houses default to every
+house currently in the workspace. See `docs/agents/send-message-compose.md`
+for how Send resolves a channel. The accept screen is titled **Invite to
+workspace**, names the workspace, and offers Message the inviter.
+
+**The invite sheet (`workspace-invite-sheet.tsx`) is the one manager invite
+surface** — opened by `ProAccountLinksPanel.openLinkModal`, no separate
+chooser step or "Continue" page. It holds exactly one active manager link per
+workspace, but **opening the sheet and changing the access chip never mint
+anything**: on open it only READS the workspace's active link
+(`GET /api/pro/invite-links?workspaceId=`) to hydrate Role, Houses, and (for
+Custom) the workspace-level grant, and changing any of those only updates
+local state. Minting or reusing a link happens ONLY at the moment Copy or
+Send is pressed, through `resolveLinkForCurrentTerms`: when the on-screen
+terms still match the held link, it reuses that link's URL (revealing it if
+not already in hand); otherwise it mints a fresh one with
+`replaceActive: true` so a URL already sent can never gain more power than
+whoever holds it agreed to, and the previous link is revoked in the same call
+(`mintInviteLink`, `docs/agents/co-manager-access.md` "Mint stores a hash..."
+above). The reveal call is `POST /api/pro/invite-links/[linkId]/link` with no
+body, which **reveals** the stored ciphertext rather than rotating (rotate is
+the separate `{ rotate: true }` call two sections below).
+Sending by email goes out through the manager directory message path
+(`deliverManagerDirectoryMessage`) with the auto-formatted body from
+`formatInviteMessageBody`; that path only ever resolves an existing account or
+an email address, so phone instead texts straight from the manager's own work
+number (`POST /api/pro/invite-links/send-sms`, the same
+`sendFromManagerWorkNumber` transport `record-share-link/send` and
+`send-lead-invite` use for an ad hoc phone recipient) and fails with the real
+reason (most commonly no work number provisioned yet) rather than pretending
+to send. The client sends only `linkId`, never the text: the route re-reads
+the link, proves it belongs to this workspace, and composes the body itself
+with `formatInviteMessageBody` — a workspace admin is not a licence to send
+arbitrary text from a PropLane-owned number
+(`tests/unit/invite-link-send-sms-route.test.ts`). A PropLane code recipient
+instead POSTs directly to `/api/pro/account-links` as an addressed invite (no
+message step) and is the ONLY one of the three that creates an
+`account_link_invites` row before redemption — it alone stamps `invited_via`
+("code") and `invited_at` (`20260920190000_invite_delivery.sql`). Phone and
+email sends carry no such row (the invite lives entirely in the link until
+redeemed), so "Who has access" shows them only for the current sheet session
+(`sentThisSession`, cleared on reopen), never durably. The old three-path
+chooser (`PortalInvitePaths`, "how to send it" step) is **gone from the
+manager invite**; it is kept only for the vendor invite modal
+(`pro-vendor-form-modal.tsx`), which still owns its own Continue → New
+message flow. Coverage: `tests/unit/workspace-invite-sheet.test.tsx`.
+
+**Transfer ownership (`transfer-ownership-dialog.tsx`)** promotes a workspace
+member to owner of one or more of that workspace's houses, opened from the
+member row's ⋯ menu or the member sheet's footer (owner only,
+`pro-team-blocks.tsx` / `renderDetailFooter`). It issues one
+`POST /api/pro/properties/[propertyId]/transfer-ownership` per selected house,
+in order, and stops at the first failure — reporting how many moved and
+naming the houses that did not, never rolling back or silently retrying.
+Submit is gated on typing the workspace's name to confirm. The former owner
+chooses what role (if any) they keep on the moved houses afterward — Admin,
+Property manager, Viewer, Custom, or **Nothing** (an empty grant, same "empty
+means no access" rule as everywhere else in this file) — and stays a member
+of those houses under that role rather than losing them outright.
 
 Mint stores a hash plus encrypted ciphertext so **Copy returns the same live
 URL**. Rotate is a separate action (`POST /api/pro/invite-links/[linkId]/link`

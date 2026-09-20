@@ -77,6 +77,9 @@ export function ManagerPaymentSetupPanel({
    * manager set three of nine houses and leave the rest on whatever they had.
    */
   const [workspaceFeePayers, setWorkspaceFeePayers] = useState<Record<string, ServiceFeePayer | null>>({});
+  const [workspaceAutopaySettings, setWorkspaceAutopaySettings] = useState<
+    Record<string, { autopayEnabled: boolean; autopayRetryEnabled: boolean }>
+  >({});
   const workspaceCtx = useWorkspaces();
   /* Only workspaces the signed-in manager owns can have their payment setup
      changed here; a co-manager's access to someone else's house is unchanged. */
@@ -187,7 +190,10 @@ export function ManagerPaymentSetupPanel({
       const data = (await res.json().catch(() => ({}))) as {
         settings?: ManagerManualPaymentSettingsView;
         propertyServiceFeePayers?: Record<string, ServiceFeePayer | null>;
-        workspacePaymentSettings?: Record<string, { serviceFeePayer?: ServiceFeePayer | null }>;
+        workspacePaymentSettings?: Record<
+          string,
+          { serviceFeePayer?: ServiceFeePayer | null; autopayEnabled?: boolean; autopayRetryEnabled?: boolean }
+        >;
         source?: SettingsResolutionSource;
         error?: string;
       };
@@ -202,6 +208,17 @@ export function ManagerPaymentSetupPanel({
           Object.entries(data.workspacePaymentSettings ?? {}).map(([id, value]) => [
             id,
             value?.serviceFeePayer ?? null,
+          ]),
+        ),
+      );
+      setWorkspaceAutopaySettings(
+        Object.fromEntries(
+          Object.entries(data.workspacePaymentSettings ?? {}).map(([id, value]) => [
+            id,
+            {
+              autopayEnabled: value?.autopayEnabled !== false,
+              autopayRetryEnabled: value?.autopayRetryEnabled !== false,
+            },
           ]),
         ),
       );
@@ -267,6 +284,8 @@ export function ManagerPaymentSetupPanel({
       /* Sent with a `proplane` workspace choice; the route checks it against
          the server-only list and refuses the save without a match. */
       workspaceServiceFeeWaiverCode?: string;
+      workspaceAutopayEnabled?: boolean;
+      workspaceAutopayRetryEnabled?: boolean;
     },
     savingId: string,
     opts?: {
@@ -292,6 +311,15 @@ export function ManagerPaymentSetupPanel({
       if (patch.workspaceId && patch.workspaceServiceFeePayer !== undefined) {
         setWorkspaceFeePayers((prev) => ({ ...prev, [patch.workspaceId!]: patch.workspaceServiceFeePayer ?? null }));
       }
+      if (patch.workspaceId && (patch.workspaceAutopayEnabled !== undefined || patch.workspaceAutopayRetryEnabled !== undefined)) {
+        setWorkspaceAutopaySettings((prev) => ({
+          ...prev,
+          [patch.workspaceId!]: {
+            autopayEnabled: patch.workspaceAutopayEnabled ?? prev[patch.workspaceId!]?.autopayEnabled ?? true,
+            autopayRetryEnabled: patch.workspaceAutopayRetryEnabled ?? prev[patch.workspaceId!]?.autopayRetryEnabled ?? true,
+          },
+        }));
+      }
       if (patch.serviceFeePayer) {
         setDraft((prev) => draftFromSettings({ ...prev, ...patch, axisPaymentsEnabled: true }));
       }
@@ -313,6 +341,10 @@ export function ManagerPaymentSetupPanel({
       const data = (await res.json().catch(() => ({}))) as {
         settings?: ManagerManualPaymentSettingsView;
         propertyServiceFeePayers?: Record<string, ServiceFeePayer | null>;
+        workspacePaymentSettings?: Record<
+          string,
+          { serviceFeePayer?: ServiceFeePayer | null; autopayEnabled?: boolean; autopayRetryEnabled?: boolean }
+        >;
         error?: string;
       };
       if (!res.ok) {
@@ -327,6 +359,20 @@ export function ManagerPaymentSetupPanel({
       }
       if (data.propertyServiceFeePayers) {
         setPropertyFeePayers((prev) => ({ ...prev, ...data.propertyServiceFeePayers }));
+      }
+      if (data.workspacePaymentSettings) {
+        setWorkspaceAutopaySettings((prev) => ({
+          ...prev,
+          ...Object.fromEntries(
+            Object.entries(data.workspacePaymentSettings ?? {}).map(([id, value]) => [
+              id,
+              {
+                autopayEnabled: value?.autopayEnabled !== false,
+                autopayRetryEnabled: value?.autopayRetryEnabled !== false,
+              },
+            ]),
+          ),
+        }));
       }
       showToast("Payment setup saved.");
       return true;
@@ -476,6 +522,30 @@ export function ManagerPaymentSetupPanel({
     );
   };
 
+  /** The autopay toggles in force for the workspace being edited — default On when never saved. */
+  const savedWorkspaceAutopay = workspaceAutopaySettings[activeWorkspaceId] ?? {
+    autopayEnabled: true,
+    autopayRetryEnabled: true,
+  };
+
+  const applyWorkspaceAutopayEnabled = (enabled: boolean) => {
+    if (!activeWorkspaceId || savedWorkspaceAutopay.autopayEnabled === enabled) return;
+    setWorkspaceAutopaySettings((prev) => ({
+      ...prev,
+      [activeWorkspaceId]: { ...savedWorkspaceAutopay, autopayEnabled: enabled },
+    }));
+    void persistSettings({ workspaceId: activeWorkspaceId, workspaceAutopayEnabled: enabled }, "autopay-enabled");
+  };
+
+  const applyWorkspaceAutopayRetryEnabled = (enabled: boolean) => {
+    if (!activeWorkspaceId || savedWorkspaceAutopay.autopayRetryEnabled === enabled) return;
+    setWorkspaceAutopaySettings((prev) => ({
+      ...prev,
+      [activeWorkspaceId]: { ...savedWorkspaceAutopay, autopayRetryEnabled: enabled },
+    }));
+    void persistSettings({ workspaceId: activeWorkspaceId, workspaceAutopayRetryEnabled: enabled }, "autopay-retry");
+  };
+
   return (
     <div className="space-y-4">
       {loading ? <p className="text-sm text-muted">Loading…</p> : null}
@@ -592,6 +662,33 @@ export function ManagerPaymentSetupPanel({
               </div>
             </div>
           ) : null}
+        </section>
+      ) : null}
+
+      {activeWorkspaceId ? (
+        <section className="space-y-4">
+          <FieldSingleSelect
+            label="Residents can set up autopay"
+            value={savedWorkspaceAutopay.autopayEnabled ? "on" : "off"}
+            options={[
+              { value: "on", label: "On" },
+              { value: "off", label: "Off" },
+            ]}
+            onChange={(next) => applyWorkspaceAutopayEnabled(next === "on")}
+            disabled={loading || (!settingsLoaded && !demo) || savingKey === "autopay-enabled"}
+            dataAttr="manager-autopay-enabled-select"
+          />
+          <FieldSingleSelect
+            label="Autopay retries a declined payment"
+            value={savedWorkspaceAutopay.autopayRetryEnabled ? "once" : "never"}
+            options={[
+              { value: "once", label: "Once, 3 days later" },
+              { value: "never", label: "Never" },
+            ]}
+            onChange={(next) => applyWorkspaceAutopayRetryEnabled(next === "once")}
+            disabled={loading || (!settingsLoaded && !demo) || savingKey === "autopay-retry"}
+            dataAttr="manager-autopay-retry-select"
+          />
         </section>
       ) : null}
     </div>

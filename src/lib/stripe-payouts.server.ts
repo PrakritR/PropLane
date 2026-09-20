@@ -403,7 +403,7 @@ export async function readPayoutSnapshot(
 
 export type CreateInAppPayoutResult =
   | { ok: true; payoutId: string; amountCents: number; feeCents: number; netCents: number; arrivalDate: string | null; method: PayoutMethod }
-  | { ok: false; status: 422 | 409 | 400; error: string };
+  | { ok: false; status: 422 | 409 | 400 | 500; error: string };
 
 /**
  * Idempotent, claim-before-call create — the same pattern as
@@ -467,7 +467,15 @@ export async function createInAppPayout(
 
   if (claimError || !claimed) {
     // Unique-index conflict on the partial index = a payout is already in flight.
-    return { ok: false, status: 409, error: "A payout is already in progress for this account." };
+    // Anything else (outage, grant, schema drift) is an infrastructure failure,
+    // not a pending payout, and must not be reported to the manager as one.
+    if (isUniqueViolation(claimError)) {
+      return { ok: false, status: 409, error: "A payout is already in progress for this account." };
+    }
+    console.error(
+      `[stripe-payouts] could not claim a payout row for ${opts.accountId}: ${claimError?.message ?? "no row returned"}`,
+    );
+    return { ok: false, status: 500, error: "Could not start the payout. Try again in a moment." };
   }
   const claimId = (claimed as { id: string }).id;
 

@@ -9,6 +9,7 @@ import {
   axisPaymentsEnabledOnListing,
   resolveServiceFeePayerFor,
   type ResidentAxisPaymentMethod,
+  type ServiceFeePayer,
 } from "@/lib/payment-policy";
 import { getStripe } from "@/lib/stripe";
 import {
@@ -43,6 +44,54 @@ export function chargeOwnedByUser(charge: HouseholdCharge, userId: string, email
   const e = email.trim().toLowerCase();
   if (charge.residentUserId && charge.residentUserId === userId) return true;
   return Boolean(e && charge.residentEmail.trim().toLowerCase() === e);
+}
+
+/**
+ * Resolve who pays the service fee for a batch of already-loaded charges (all
+ * on the same manager and, per the caller's own mixed-payer guard, the same
+ * property choice) — the exact precedence `createHouseholdChargeCheckout`
+ * applies, extracted so autopay's off-session PaymentIntent charges through
+ * the SAME resolver rather than re-deriving the fee payer for a Checkout
+ * Session it will never create.
+ */
+export async function resolveHouseholdChargeFeePayer(
+  db: SupabaseClient,
+  managerUserId: string,
+  loaded: Pick<LoadedHouseholdChargeForCheckout, "charge" | "propertyFeePayer" | "propertyFeeWaiverCode">[],
+): Promise<{ ok: true; feePayer: ServiceFeePayer; managerTier: string } | HouseholdChargeCheckoutFailure> {
+  const { tier: managerTierRaw, promoCode, readFailed } = await getManagerPurchaseSku(managerUserId);
+  if (readFailed) return { ok: false, status: 500, error: "Payment plan could not be verified. Try again." };
+  const managerTier = normalizeManagerSkuTier(managerTierRaw) ?? "free";
+  const managerSettings = await loadManagerManualPaymentSettings(db, managerUserId);
+  const propertyChoices = [...new Set(loaded.map((row) => row.propertyFeePayer ?? "inherit"))];
+  if (propertyChoices.length > 1) {
+    return {
+      ok: false,
+      status: 422,
+      code: "MIXED_SERVICE_FEE_PAYERS",
+      error: "These charges are on properties with different processing-fee settings. Pay them separately.",
+    };
+  }
+
+  /* Payment setup is answered per workspace, so a house with no choice of its
+     own follows the workspace it belongs to before falling back to the
+     account. Every charge here is on one property (the mixed-payer guard
+     above), so one lookup answers for the batch. */
+  const workspace = await loadWorkspacePaymentSettingsForProperty(db, managerUserId, loaded[0]?.charge.propertyId);
+
+  const feePayer = resolveServiceFeePayerFor({
+    tier: managerTier,
+    adminOverride: managerSettings.adminServiceFeeOverride,
+    propertyChoice: loaded[0]?.propertyFeePayer ?? null,
+    workspaceChoice: workspace.serviceFeePayer,
+    managerChoice: managerSettings.serviceFeePayer,
+    /* The workspace's own code counts alongside the account grant and the
+       listing's code: PropLane pays is applied per workspace by a code. */
+    waiverGranted:
+      resolveAccountOrListingWaiverGrantedServer(promoCode, loaded[0]?.propertyFeeWaiverCode) ||
+      listingPaymentWaiverCodeMatchesServer(workspace.serviceFeeWaiverCode),
+  });
+  return { ok: true, feePayer, managerTier };
 }
 
 export type HouseholdChargeCheckoutFailure = {
@@ -224,42 +273,9 @@ export async function createHouseholdChargeCheckout(
     if (!resolved.ok) return resolved;
     const { loaded, managerUserId } = resolved;
 
-    const { tier: managerTierRaw, promoCode, readFailed } = await getManagerPurchaseSku(managerUserId);
-    if (readFailed) throw new Error("Payment plan could not be verified. Try again.");
-    const managerTier = normalizeManagerSkuTier(managerTierRaw) ?? "free";
-    const managerSettings = await loadManagerManualPaymentSettings(db, managerUserId);
-    const propertyChoices = [...new Set(loaded.map((row) => row.propertyFeePayer ?? "inherit"))];
-    if (propertyChoices.length > 1) {
-      return {
-        ok: false,
-        status: 422,
-        code: "MIXED_SERVICE_FEE_PAYERS",
-        error: "These charges are on properties with different processing-fee settings. Pay them separately.",
-      };
-    }
-
-    /* Payment setup is answered per workspace, so a house with no choice of its
-       own follows the workspace it belongs to before falling back to the
-       account. Every charge here is on one property (the mixed-payer guard
-       above), so one lookup answers for the batch. */
-    const workspace = await loadWorkspacePaymentSettingsForProperty(
-      db,
-      managerUserId,
-      loaded[0]?.charge.propertyId,
-    );
-
-    const feePayer = resolveServiceFeePayerFor({
-      tier: managerTier,
-      adminOverride: managerSettings.adminServiceFeeOverride,
-      propertyChoice: loaded[0]?.propertyFeePayer ?? null,
-      workspaceChoice: workspace.serviceFeePayer,
-      managerChoice: managerSettings.serviceFeePayer,
-      /* The workspace's own code counts alongside the account grant and the
-         listing's code: PropLane pays is applied per workspace by a code. */
-      waiverGranted:
-        resolveAccountOrListingWaiverGrantedServer(promoCode, loaded[0]?.propertyFeeWaiverCode) ||
-        listingPaymentWaiverCodeMatchesServer(workspace.serviceFeeWaiverCode),
-    });
+    const feePayerResolved = await resolveHouseholdChargeFeePayer(db, managerUserId, loaded);
+    if (!feePayerResolved.ok) return feePayerResolved;
+    const { feePayer, managerTier } = feePayerResolved;
     const stripe = getStripe();
     const connect = await resolveAndValidateManagerConnectForPayments(stripe, db, managerUserId);
     if (!connect.ok) {

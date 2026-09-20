@@ -2,13 +2,15 @@
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
 import { recordDelightMoment } from "@/lib/native/app-review";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { ResidentAutopayCard } from "@/components/portal/resident-autopay-card";
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { track } from "@/lib/analytics/track-client";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/input";
+import { Select, Input } from "@/components/ui/input";
+import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal } from "@/components/ui/modal";
 import { MODAL_LARGE_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -165,6 +167,42 @@ function isPaymentStatusBucket(value: string | undefined): value is PaymentStatu
   return value === "overdue" || value === "pending" || value === "paid";
 }
 
+type RentReportingLastSubmission = { period: string; status: string; sentAt: string | null };
+
+type RentReportingCardState = {
+  eligible: boolean;
+  addonAvailable: boolean;
+  upgradeRequired: boolean;
+  status: "active" | "paused" | "stopped";
+  reportedAs: string | null;
+  lastSubmission: RentReportingLastSubmission | null;
+  bureaus: string;
+};
+
+const RENT_REPORTING_BUREAUS_FALLBACK = "Experian · TransUnion · Equifax";
+
+const RENT_REPORTING_STATUS_LABELS: Record<string, string> = {
+  on_time: "on time",
+  late_30: "30 days late",
+  late_60: "60 days late",
+  late_90: "90+ days late",
+  unpaid: "unpaid",
+};
+
+/** "Sep 5 · August rent · on time" from a raw submission row. */
+function rentReportingLastReportLabel(submission: RentReportingLastSubmission): string {
+  const [yearRaw, monthRaw] = submission.period.split("-").map(Number);
+  const monthLabel = new Date(Date.UTC(yearRaw ?? new Date().getUTCFullYear(), (monthRaw ?? 1) - 1, 1)).toLocaleString(
+    "en-US",
+    { month: "long", timeZone: "UTC" },
+  );
+  const sentLabel = submission.sentAt
+    ? new Date(submission.sentAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+    : "—";
+  const statusLabel = RENT_REPORTING_STATUS_LABELS[submission.status] ?? submission.status;
+  return `${sentLabel} · ${monthLabel} rent · ${statusLabel}`;
+}
+
 export function ResidentPaymentsPanel({
   initialStatus,
   bucket: bucketProp,
@@ -237,6 +275,90 @@ export function ResidentPaymentsPanel({
     // evidence — a prospect owes those — so it takes a tenancy charge.
     return chargesImplyTenancy(readChargesForResident(email, userId));
   }, [applicationTick, email, tick, userId]);
+
+  const [rentReporting, setRentReporting] = useState<RentReportingCardState | null>(null);
+  const [rentReportingConsentOpen, setRentReportingConsentOpen] = useState(false);
+  const [rentReportingLegalName, setRentReportingLegalName] = useState("");
+  const [rentReportingDob, setRentReportingDob] = useState("");
+  const [rentReportingBusy, setRentReportingBusy] = useState(false);
+  const [rentReportingError, setRentReportingError] = useState<string | null>(null);
+
+  const loadRentReporting = useCallback(async () => {
+    try {
+      const response = await fetch("/api/resident/rent-reporting", { credentials: "include", cache: "no-store" });
+      const body = (await response.json()) as Partial<RentReportingCardState> & { error?: string };
+      if (!response.ok) return;
+      setRentReporting({
+        eligible: body.eligible === true,
+        addonAvailable: body.addonAvailable === true,
+        upgradeRequired: body.upgradeRequired === true,
+        status: (body.status as RentReportingCardState["status"]) ?? "stopped",
+        reportedAs: body.reportedAs ?? null,
+        lastSubmission: body.lastSubmission ?? null,
+        bureaus: body.bureaus ?? RENT_REPORTING_BUREAUS_FALLBACK,
+      });
+    } catch {
+      /* the card just stays hidden on a failed read */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!email || !paymentsUnlocked || bucket !== "pending") return;
+    void loadRentReporting();
+  }, [email, paymentsUnlocked, bucket, loadRentReporting]);
+
+  const rentReportingToggle = async (next: string) => {
+    if (!rentReporting || rentReportingBusy) return;
+    if (next === "on") {
+      setRentReportingError(null);
+      setRentReportingConsentOpen(true);
+      return;
+    }
+    setRentReportingBusy(true);
+    try {
+      const response = await fetch("/api/resident/rent-reporting", {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "stop" }),
+      });
+      if (response.ok) {
+        track("rent_reporting_consent", { state: "off" });
+        await loadRentReporting();
+      }
+    } finally {
+      setRentReportingBusy(false);
+    }
+  };
+
+  const submitRentReportingConsent = async () => {
+    setRentReportingError(null);
+    setRentReportingBusy(true);
+    try {
+      const response = await fetch("/api/resident/rent-reporting", {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "start",
+          legalName: rentReportingLegalName,
+          dob: rentReportingDob,
+          consent: true,
+        }),
+      });
+      const body = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Could not turn on rent reporting.");
+      track("rent_reporting_consent", { state: "on" });
+      setRentReportingConsentOpen(false);
+      setRentReportingLegalName("");
+      setRentReportingDob("");
+      await loadRentReporting();
+    } catch (e) {
+      setRentReportingError(e instanceof Error ? e.message : "Could not turn on rent reporting.");
+    } finally {
+      setRentReportingBusy(false);
+    }
+  };
 
   useEffect(() => {
     if (!availablePaymentMethods.includes(paymentMethod)) {
@@ -1253,6 +1375,53 @@ export function ResidentPaymentsPanel({
         <PortalDataTableEmpty icon="payment" message="No charges yet." variant="stacked" />
       ) : (
         <>
+          {bucket === "pending" && rentReporting && (rentReporting.addonAvailable || rentReporting.upgradeRequired) ? (
+            <div className="mb-4 rounded-xl border border-border bg-card p-4" data-attr="resident-rent-reporting-card">
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-sm font-semibold text-foreground">Report my rent to credit bureaus</span>
+                {rentReporting.upgradeRequired ? (
+                  <Link href="/pricing" className="text-sm font-semibold text-primary hover:underline" data-attr="resident-rent-reporting-upgrade">
+                    Upgrade
+                  </Link>
+                ) : (
+                  <FieldSingleSelect
+                    label="Report my rent to credit bureaus"
+                    hideLabel
+                    variant="cell"
+                    wrapperClassName="w-28"
+                    value={rentReporting.status === "active" ? "on" : "off"}
+                    onChange={(next) => void rentReportingToggle(next)}
+                    disabled={rentReportingBusy}
+                    options={[
+                      { value: "on", label: "On" },
+                      { value: "off", label: "Off" },
+                    ]}
+                    dataAttr="resident-rent-reporting-toggle"
+                  />
+                )}
+              </div>
+              {rentReporting.status === "active" ? (
+                <div className="mt-3 space-y-2 border-t border-border pt-3">
+                  {rentReporting.reportedAs ? (
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-sm text-muted">Reported as</span>
+                      <span className="text-sm font-medium text-foreground">{rentReporting.reportedAs}</span>
+                    </div>
+                  ) : null}
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-sm text-muted">Last report</span>
+                    <span className="text-sm font-medium text-foreground" data-attr="resident-rent-reporting-last-report">
+                      {rentReporting.lastSubmission ? rentReportingLastReportLabel(rentReporting.lastSubmission) : "Not sent yet"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-sm text-muted">Bureaus</span>
+                    <span className="text-sm font-medium text-foreground">{rentReporting.bureaus}</span>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           {showBulkCheckoutBar && checkout ? (
             <div className="mb-4 rounded-xl border border-border bg-card p-3 sm:p-4">
               {renderCheckoutBlock(
@@ -1290,6 +1459,58 @@ export function ResidentPaymentsPanel({
 
   const paymentModals = (
     <>
+    <Modal
+      open={rentReportingConsentOpen}
+      onClose={() => {
+        if (rentReportingBusy) return;
+        setRentReportingConsentOpen(false);
+        setRentReportingError(null);
+      }}
+      title="Turn on rent reporting"
+      description="PropLane will send your rent payment history for this lease to Experian, TransUnion and Equifax each month, starting with the payments already made under this lease. On-time payments can raise your score; a payment more than 30 days late is reported as late. You can turn this off at any time, and reporting stops the next cycle."
+      panelClassName="max-w-md"
+      footer={
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button type="button" variant="outline" disabled={rentReportingBusy} onClick={() => setRentReportingConsentOpen(false)}>
+            Not now
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            disabled={rentReportingBusy || !rentReportingLegalName.trim() || !rentReportingDob.trim()}
+            onClick={() => submitRentReportingConsent()}
+          >
+            I agree, turn it on
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {rentReportingError ? (
+          <p role="alert" className="text-sm text-danger">
+            {rentReportingError}
+          </p>
+        ) : null}
+        <label className="block space-y-1.5">
+          <span className="text-sm font-medium text-foreground">Legal name on your credit file</span>
+          <Input
+            value={rentReportingLegalName}
+            onChange={(e) => setRentReportingLegalName(e.target.value)}
+            placeholder="Full legal name"
+            data-attr="resident-rent-reporting-legal-name"
+          />
+        </label>
+        <label className="block space-y-1.5">
+          <span className="text-sm font-medium text-foreground">Date of birth</span>
+          <Input
+            type="date"
+            value={rentReportingDob}
+            onChange={(e) => setRentReportingDob(e.target.value)}
+            data-attr="resident-rent-reporting-dob"
+          />
+        </label>
+      </div>
+    </Modal>
     <Modal
       open={paymentMethodModalOpen}
       onClose={() => {
@@ -1629,6 +1850,14 @@ export function ResidentPaymentsPanel({
           <p className="mb-3 px-1 text-sm text-muted" data-attr="resident-payments-platform-copy">
             Pay rent through PropLane secure checkout — bank transfer, card, Apple Pay, or Google Pay.
           </p>
+        ) : null}
+        {!paymentsLockedEmpty ? (
+          <div className="mb-3">
+            <ResidentAutopayCard
+              onManagePaymentMethods={() => setPaymentMethodModalOpen(true)}
+              onPayChargeNow={(chargeId) => openPayConfirm([chargeId], paymentMethod)}
+            />
+          </div>
         ) : null}
         {showPayActions && selectedIds.size === 0 ? <div className="mb-3 flex justify-end">{payButton}</div> : null}<PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={<PortalAdaptiveActionRow actions={paySelectionActions} />}>{paymentsBody}</PortalRecordListSurface>
       </ManagerPortalPageShell>
