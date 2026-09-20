@@ -353,8 +353,11 @@ export function PortalSidebar({
   }, [activeSectionSubTab]);
 
   const navGroups = useMemo(() => groupNavItems(definition.kind, navItems), [definition.kind, navItems]);
+  // "settings" (Settings/profile) is the trailing group added in `nav-groups.ts`
+  // for pro/manager, resident, and vendor — it gets the same bottom-pinned
+  // treatment as "account"/"more" so it lands just above "Need help?".
   const firstTrailingGroupIdx = useMemo(
-    () => navGroups.findIndex((g) => g.id === "account" || g.id === "more"),
+    () => navGroups.findIndex((g) => g.id === "account" || g.id === "more" || g.id === "settings"),
     [navGroups],
   );
 

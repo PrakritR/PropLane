@@ -163,7 +163,12 @@ export function PortalSettingsSectionClient({
   const showList = mobileListOpen || !tab;
 
   return (
-    <ManagerPortalPageShell title="Settings" hideTitleOnMobileNav>
+    // The left rail below already names every module ("Applications", "Tours",
+    // …) and the active one repeats its own name as a `PortalSettingsSection`
+    // title — a generic "Settings" header row above both was always a third,
+    // redundant label. Same header-less shell as `PortalProfileClient`'s Settings
+    // pane; keep a semantic h1 (sr-only) for a11y/SEO without the visual duplicate.
+    <ManagerPortalPageShell title="Settings" navigationProvidesTitle hideTitleOnMobileNav>
       <div className="lg:flex lg:items-start lg:gap-10">
         <nav
           aria-label="Settings sections"

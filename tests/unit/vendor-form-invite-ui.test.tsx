@@ -49,7 +49,7 @@ function show(onClose = vi.fn()) {
   return onClose;
 }
 function fill(email = "vendor@example.test") {
-  fireEvent.change(screen.getByLabelText("Vendor name"), { target: { value: "Apex Plumbing" } });
+  fireEvent.change(screen.getByLabelText("Invite by first name"), { target: { value: "Apex Plumbing" } });
   fireEvent.change(screen.getByLabelText("Email"), { target: { value: email } });
 }
 function next() {
@@ -123,9 +123,9 @@ describe("three-path vendor invitation", () => {
     show();
     expect(screen.getByLabelText("Invite by")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Continue to Contact/ })).toBeInTheDocument();
-    expect(screen.queryByLabelText("Vendor name")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Invite by first name")).not.toBeInTheDocument();
     next();
-    expect(screen.getByLabelText("Vendor name")).toBeInTheDocument();
+    expect(screen.getByLabelText("Invite by first name")).toBeInTheDocument();
   });
 
   it("rejects missing name and malformed email before any write", async () => {

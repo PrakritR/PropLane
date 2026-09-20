@@ -710,10 +710,11 @@ export function PortalProfileClient({
   return (
     <ManagerPortalPageShell
       title="Settings"
-      // Billing has its own compact plan status + pricing hierarchy. Keeping
-      // the generic Settings header above it wastes the first viewport and
-      // competes with the financial decision the manager came to make.
-      navigationProvidesTitle={paneGroup.id === "billing"}
+      // Every pane names itself in the left rail (`PortalSettingsNav`) — a
+      // second, generic "Settings" header row above it is always redundant,
+      // not just for Billing's own compact plan status. Keep a semantic h1
+      // (sr-only) for a11y/SEO without the visual duplicate.
+      navigationProvidesTitle
       // The mobile/native app bar already reads "Settings" — same as every
       // other manager section, drop the duplicate in-page title on phones.
       hideTitleOnMobileNav
