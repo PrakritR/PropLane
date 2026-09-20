@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { readSmsSuppressionState } from "@/lib/sms-consent";
+import { isShieldedRecipient } from "@/lib/protected-accounts.server";
 import { normalizeE164 } from "@/lib/twilio";
 import { quietHoursBlocks, type SmsSendClass } from "@/lib/sms/number-registration-policy";
 import { createTwilioRestClient } from "@/lib/twilio-client.server";
@@ -113,6 +114,9 @@ export async function deliverVendorWorkIdentity(
     const suppression = await readSmsSuppressionState(db, recipient, { userId: input.recipientUserId ?? null });
     if (!suppression.ok) return { ok: false, reason: suppression.error };
     if (suppression.optedOut) return { ok: false, reason: "recipient_opted_out" };
+    // Vendor-sponsored SMS bypasses the manager dispatcher, so it must apply
+    // the non-production protected-contact shield at this transport boundary.
+    if (await isShieldedRecipient({ phone: recipient })) return { ok: false, reason: "protected_recipient" };
   }
   const kind = email ? "send_email" : "send_sms";
   const { data: operationData, error: operationError } = await db.rpc("claim_vendor_work_identity_operation", { p_vendor_user_id: input.vendorUserId, p_identity_id: row.id, p_operation_kind: kind, p_idempotency_key: input.idempotencyKey });

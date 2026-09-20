@@ -9,6 +9,7 @@ beforeAll(async () => {
   db = new PGlite();
   await db.exec("create role anon; create role authenticated; create role service_role; create schema auth; create table auth.users(id uuid primary key);");
   await db.exec(readFileSync("supabase/migrations/20260920150000_vendor_sponsored_work_identity.sql", "utf8"));
+  await db.exec(readFileSync("supabase/migrations/20260920161000_vendor_work_identity_reply_bindings.sql", "utf8"));
   await db.query("insert into auth.users(id) values($1)", [vendor]);
   await db.exec("update vendor_work_identity_runtime set enabled=true,max_active_identities=2,outbound_message_cap=3 where singleton=true");
 }, 30_000);
@@ -26,4 +27,19 @@ it("claims one operation once and reserves an outbound payload exactly once", as
   const outboxReplay = (await db.query<{ claimed: boolean }>("select * from claim_vendor_work_identity_outbound($1,$2,$3,'logical-send','email','manager@test.proplane','other','Changed','Body')", [vendor, identity, first.operation_id])).rows[0]!;
   expect(outboxReplay.claimed).toBe(false);
   expect((await db.query("select count(*)::int count from vendor_work_identity_usage_events")).rows).toEqual([{ count: 1 }]);
+});
+
+it("keeps reply authorization binding immutable and service-role-only", async () => {
+  const identity = (await db.query<{ id: string }>("select ensure_vendor_work_identity($1,$2) id", [vendor, "vendor@test.proplane"])).rows[0]!.id;
+  await db.query("insert into vendor_work_identity_reply_bindings(identity_id,vendor_user_id,thread_id,channel,recipient) values($1,$2,'thread-1','email','manager@test.proplane')", [identity, vendor]);
+  await expect(db.query("insert into vendor_work_identity_reply_bindings(identity_id,vendor_user_id,thread_id,channel,recipient) values($1,$2,'thread-1','email','attacker@test.proplane')", [identity, vendor])).rejects.toThrow();
+  expect((await db.query("select recipient from vendor_work_identity_reply_bindings where vendor_user_id=$1 and thread_id='thread-1'", [vendor])).rows).toEqual([{ recipient: "manager@test.proplane" }]);
+});
+
+it("joins fresh setup request ids to one in-flight channel operation", async () => {
+  const identity = (await db.query<{ id: string }>("select ensure_vendor_work_identity($1,$2) id", [vendor, "vendor@test.proplane"])).rows[0]!.id;
+  const first = (await db.query<{ operation_id: string; claimed: boolean; state: string }>("select * from claim_vendor_work_identity_operation($1,$2,'setup_email','00000000-0000-4000-8000-000000000011')", [vendor, identity])).rows[0]!;
+  const fresh = (await db.query<{ operation_id: string; claimed: boolean; state: string }>("select * from claim_vendor_work_identity_operation($1,$2,'setup_email','00000000-0000-4000-8000-000000000012')", [vendor, identity])).rows[0]!;
+  expect(first).toMatchObject({ claimed: true, state: "claimed" });
+  expect(fresh).toEqual({ operation_id: first.operation_id, claimed: false, state: "claimed" });
 });

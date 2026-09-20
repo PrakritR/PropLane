@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const suppression = vi.hoisted(() => vi.fn());
+const shield = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/sms-consent", () => ({ readSmsSuppressionState: suppression }));
+vi.mock("@/lib/protected-accounts.server", () => ({ isShieldedRecipient: shield }));
 import { deliverVendorWorkIdentity } from "@/lib/vendor-work-identity-delivery.server";
 
 const provider = { configured: vi.fn().mockReturnValue(true), email: vi.fn().mockResolvedValue({ id: "email-1" }), sms: vi.fn().mockResolvedValue({ id: "sms-1" }) };
@@ -11,11 +13,12 @@ function db(opts: { ready?: boolean; runtime?: boolean; claimed?: boolean; cap?:
   return { db:{from,rpc} as never,writes };
 }
 const base={vendorUserId:"v",channel:"email" as const,recipient:"r@test.com",subject:"Hi",text:"Body",idempotencyKey:"k"};
-beforeEach(()=>{vi.clearAllMocks(); suppression.mockResolvedValue({ok:true,optedOut:false});});
+beforeEach(()=>{vi.clearAllMocks(); suppression.mockResolvedValue({ok:true,optedOut:false}); shield.mockResolvedValue(false);});
 describe("vendor sponsored delivery",()=>{
  it("blocks unconfigured provider without send",async()=>{provider.configured.mockReturnValueOnce(false);const x=db();expect((await deliverVendorWorkIdentity(x.db,base,provider)).reason).toBe("provider_unconfigured");expect(provider.email).not.toHaveBeenCalled();});
  it("uses exact ready email From and persists accepted id",async()=>{const x=db();await deliverVendorWorkIdentity(x.db,base,provider);expect(provider.email).toHaveBeenCalledWith(expect.objectContaining({from:"vendor@prop.test"}));expect(x.writes).toContainEqual(expect.objectContaining({table:"vendor_work_identity_outbox"}));});
  it("keeps SMS independent and suppresses before provider",async()=>{suppression.mockResolvedValue({ok:true,optedOut:true});const x=db();const r=await deliverVendorWorkIdentity(x.db,{...base,channel:"sms",recipient:"+12065550000"},provider);expect(r.reason).toBe("recipient_opted_out");expect(provider.sms).not.toHaveBeenCalled();});
+ it("fails closed for a protected SMS recipient before provider transport",async()=>{shield.mockResolvedValue(true);const x=db();const r=await deliverVendorWorkIdentity(x.db,{...base,channel:"sms",recipient:"+12065550000"},provider);expect(r.reason).toBe("protected_recipient");expect(provider.sms).not.toHaveBeenCalled();});
  it("fails closed when an operation replay has no durable outbox",async()=>{const x=db({claimed:false});const r=await deliverVendorWorkIdentity(x.db,base,provider);expect(r.reason).toBe("replay_state_unavailable");expect(provider.email).not.toHaveBeenCalled();});
  it("returns a durable sent replay without calling the provider",async()=>{const x=db({replay:"sent"});const r=await deliverVendorWorkIdentity(x.db,base,provider);expect(r).toMatchObject({ok:true,sent:true,providerMessageId:"prior"});expect(provider.email).not.toHaveBeenCalled();});
  it("repairs a sent replay while runtime is paused without another provider call",async()=>{const x=db({replay:"sent",runtime:false});const r=await deliverVendorWorkIdentity(x.db,base,provider);expect(r).toMatchObject({ok:true,sent:true,providerMessageId:"prior"});expect(provider.email).not.toHaveBeenCalled();});

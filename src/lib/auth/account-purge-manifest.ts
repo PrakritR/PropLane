@@ -819,6 +819,7 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   vendor_work_identity_outbox: "Child of vendor_work_identities; removed by identity cascade after release is queued.",
   vendor_work_identity_delivery_attempts: "Child of vendor_work_identity_outbox; removed by outbox cascade.",
   vendor_work_identity_usage_events: "Child of vendor_work_identities; removed by identity cascade and never used for billing.",
+  vendor_work_identity_reply_bindings: "Child of vendor_work_identities; service-role reply authorization facts are removed by identity cascade after release is queued.",
   vendor_work_identity_release_queue: "Retained provider-release work with copied external IDs; it must survive account deletion until reconciled.",
   listing_prefill_cache: "Provider answers keyed by normalized street address; holds no account data.",
   payment_reminder_channel_deliveries: "Child of payment_reminder_occurrences; deleted by cascade.",

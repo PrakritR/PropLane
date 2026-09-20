@@ -19,6 +19,7 @@ import {
   useVendorBusinessProfile,
   VendorBusinessProfilePane,
   VendorNotificationsPane,
+  VendorWorkIdentityPane,
   VendorWorkContactsPane,
   VendorWorkspaceAccessPane,
 } from "@/components/portal/vendor-business-settings";
@@ -66,6 +67,8 @@ const SETTINGS_TAB_PARAM = "tab";
 type VendorSettingsGroupId =
   | "business"
   | "work-contacts"
+  | "work-number"
+  | "work-email"
   | "workspaces"
   | "notifications"
   | "profile"
@@ -80,7 +83,7 @@ type VendorSettingsGroupId =
 type VendorSettingsGroup = {
   id: VendorSettingsGroupId;
   label: string;
-  description: string;
+  description?: string;
   icon: ComponentType<{ className?: string }>;
   group: "Business" | "Availability" | "Account";
 };
@@ -1037,6 +1040,18 @@ export function VendorSettingsPanel() {
         group: "Business",
       },
       {
+        id: "work-number",
+        label: "Work number",
+        icon: Smartphone,
+        group: "Business",
+      },
+      {
+        id: "work-email",
+        label: "Work email",
+        icon: Contact,
+        group: "Business",
+      },
+      {
         id: "workspaces",
         label: "Workspace access",
         description: "Manager workspaces you are linked into and the houses assigned to you.",
@@ -1177,6 +1192,10 @@ export function VendorSettingsPanel() {
         return <VendorBusinessProfilePane ctx={business} />;
       case "work-contacts":
         return <VendorWorkContactsPane ctx={business} />;
+      case "work-number":
+        return <VendorWorkIdentityPane channel="sms" />;
+      case "work-email":
+        return <VendorWorkIdentityPane channel="email" />;
       case "workspaces":
         return <VendorWorkspaceAccessPane ctx={business} propertyLabel={(id) => resolvePropertyLabelForId(id)} />;
       case "notifications":

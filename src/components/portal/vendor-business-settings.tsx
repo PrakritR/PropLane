@@ -20,7 +20,7 @@ import {
   PortalSettingsGroup,
   PortalSettingsSection,
 } from "@/components/portal/portal-settings-ui";
-import { formatTourContactPhoneDisplay } from "@/lib/tour-contact-quality";
+import type { VendorWorkIdentityResponse } from "@/lib/vendor-work-identity";
 
 export type VendorBusinessProfileView = {
   businessName: string;
@@ -212,11 +212,6 @@ export function VendorWorkContactsPane({ ctx }: { ctx: Ctx }) {
                   onChange={(e) => setDraft({ ...draft, workPhone: e.target.value })}
                   data-attr="vendor-work-phone"
                 />
-                {ctx.profile.workPhone ? (
-                  <span className="text-[11px] text-muted">
-                    Saved as {formatTourContactPhoneDisplay(ctx.profile.workPhone)}
-                  </span>
-                ) : null}
               </label>
               <label className="flex flex-col gap-1 text-xs font-medium text-muted">
                 <span className="inline-flex items-center gap-1.5">
@@ -247,6 +242,41 @@ export function VendorWorkContactsPane({ ctx }: { ctx: Ctx }) {
       </PortalSettingsGroup>
     </PortalSettingsSection>
   );
+}
+
+/** Provider readiness is separate from the saved business contact model. */
+export function VendorWorkIdentityPane({ channel }: { channel: "email" | "sms" }) {
+  const [identity, setIdentity] = useState<VendorWorkIdentityResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const load = useCallback(async () => {
+    setLoading(true); setFailed(false);
+    try {
+      const res = await fetch("/api/vendor/work-identity", { credentials: "include", cache: "no-store" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.identity) throw new Error("unavailable");
+      setIdentity(body.identity as VendorWorkIdentityResponse);
+    } catch { setFailed(true); } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  const value = identity?.[channel];
+  const status = !value ? "Unavailable" : value.blockedReason === "provider_disabled" ? "Disabled" : value.blockedReason === "provider_unconfigured" ? "Unavailable" : value.blockedReason === "platform_capacity_reached" ? "Capacity reached" : value.state === "provisioning" || value.state === "reconciling" ? "Pending" : value.state === "blocked" || value.state === "quarantined" ? "Failed" : value.state === "disabled" || value.state === "released" ? "Disabled" : value.sendReady && value.receiveReady ? "Ready" : value.state === "ready" ? value.sendReady ? "Send ready" : value.receiveReady ? "Receive ready" : "Failed" : "Not set up";
+  const setup = async () => {
+    setSaving(true); setFailed(false);
+    try {
+      const res = await fetch("/api/vendor/work-identity", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channel, idempotencyKey: crypto.randomUUID() }) });
+      if (!res.ok) throw new Error("unavailable");
+      const body = await res.json(); setIdentity(body.identity as VendorWorkIdentityResponse); setFailed(false);
+    } catch { setFailed(true); } finally { setSaving(false); }
+  };
+  return <PortalSettingsSection title={channel === "email" ? "Work email" : "Work number"}>
+    <PortalSettingsGroup><PortalSettingsFormBody>
+      {loading ? <p className="px-4 py-4 text-sm text-muted" role="status">Loading</p> : failed ? <p className="px-4 py-4 text-sm text-danger" role="alert">Could not load <button type="button" className="font-semibold underline" onClick={() => void load()}>Retry</button></p> : <div className="flex items-center justify-between gap-3"><span className="text-sm font-medium">{status}</span>{value?.value ? <span className="text-sm text-muted">{value.value}</span> : null}<span className="text-xs">Send {value?.sendReady ? "ready" : "unavailable"} · Receive {value?.receiveReady ? "ready" : "unavailable"}</span></div>}
+    </PortalSettingsFormBody>
+    <div className="border-t border-border px-4 py-4"><Button variant="primary" disabled={loading || saving || !value?.canSetup} onClick={() => setup()}>{saving ? "Saving…" : "Set up"}</Button></div>
+    </PortalSettingsGroup>
+  </PortalSettingsSection>;
 }
 
 export function VendorWorkspaceAccessPane({

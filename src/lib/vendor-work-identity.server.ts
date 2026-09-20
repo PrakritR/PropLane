@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createTwilioRestClient } from "@/lib/twilio-client.server";
 import { isSmsCommUiEnabled } from "@/lib/sms-comm-ui-flag.server";
+import { isProvisioningEnabled } from "@/lib/sms/number-registration-policy";
 import type {
   VendorWorkIdentityResponse,
   VendorWorkIdentityState,
@@ -297,6 +298,9 @@ export async function setupVendorWorkIdentity(
 ): Promise<VendorWorkIdentityResponse> {
   const runtime = await loadRuntime(db);
   if (!runtime?.enabled || (channel === "email" ? !provider.emailConfigured() : !provider.smsConfigured())) return getVendorWorkIdentity(db, vendorUserId, provider);
+  // Sponsored numbers are still real provider purchases. The platform-wide
+  // provisioning kill switch governs them just as it governs manager lines.
+  if (channel === "sms" && !isProvisioningEnabled(process.env)) return getVendorWorkIdentity(db, vendorUserId, provider);
   const domain = channel === "email" ? configuredDomain() : null;
   if (channel === "email" && !domain) return getVendorWorkIdentity(db, vendorUserId, provider);
   const { data: ensured, error: ensureError } = await db.rpc("ensure_vendor_work_identity", {
@@ -380,7 +384,7 @@ export async function reconcileVendorWorkIdentity(
   const identity = await loadIdentity(db, vendorUserId);
   if (!identity || !provider.smsConfigured()) return getVendorWorkIdentity(db, vendorUserId, provider);
   let phoneSid = identity.phone_number_sid;
-  let messagingServiceSid = identity.messaging_service_sid ?? process.env.TWILIO_MESSAGING_SERVICE_SID?.trim() ?? null;
+  const messagingServiceSid = identity.messaging_service_sid ?? process.env.TWILIO_MESSAGING_SERVICE_SID?.trim() ?? null;
   let operation: ReconcileOperation | null = null;
   if (!phoneSid) {
     const { data, error } = await db.from("vendor_work_identity_operations")
