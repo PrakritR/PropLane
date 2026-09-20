@@ -45,15 +45,9 @@ import {
   MANAGER_COMMUNICATION_SEND_VIA_SECTIONS,
   deliverViaFromManagerSettings,
 } from "@/lib/manager-communication-deliver-via";
-import {
-  ManagerSmsWorkNumberHint,
-  ManagerWorkEmailCopyControl,
-  ManagerWorkNumberCopyControl,
-} from "@/components/portal/pro-sms-work-number-hint";
-import {
-  isManagerAssistantEmailStatus,
-  managerWorkEmailInUse,
-} from "@/lib/manager-assistant-email/manager-assistant-email-status";
+import { ManagerSmsWorkNumberHint } from "@/components/portal/pro-sms-work-number-hint";
+import { isManagerAssistantEmailStatus } from "@/lib/manager-assistant-email/manager-assistant-email-status";
+import { workEmailAudienceLabel } from "@/components/portal/pro-assistant-email-settings-panel";
 import { normalizeE164 } from "@/lib/phone-e164";
 import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
 import {
@@ -1662,7 +1656,8 @@ export function CommunicationSettingsPanel({
   const [draft, setDraft] = useState<ManagerAutomationSettings>(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
   const [savedSnapshot, setSavedSnapshot] = useState(() => JSON.stringify(DEFAULT_MANAGER_AUTOMATION_SETTINGS));
   const [smsSetup, setSmsSetup] = useState<{ phone: string | null; canSend: boolean } | null>(null);
-  const [workEmail, setWorkEmail] = useState<string | null>(null);
+  /** "Who can email the assistant" — the Channels row's audience fact, moved here (PLAN-0920-1530). */
+  const [workEmailAudience, setWorkEmailAudience] = useState<string | null>(null);
 
   const anySmsEnabled = useMemo(
     () =>
@@ -1682,7 +1677,7 @@ export function CommunicationSettingsPanel({
             setDraft(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
             setSavedSnapshot(JSON.stringify(DEFAULT_MANAGER_AUTOMATION_SETTINGS));
             setSmsSetup(null);
-            setWorkEmail(null);
+            setWorkEmailAudience(null);
           }
           return;
         }
@@ -1717,8 +1712,8 @@ export function CommunicationSettingsPanel({
           );
           const emailBody =
             emailRes && emailRes.ok ? ((await emailRes.json()) as unknown) : null;
-          setWorkEmail(
-            isManagerAssistantEmailStatus(emailBody) ? managerWorkEmailInUse(emailBody) : null,
+          setWorkEmailAudience(
+            isManagerAssistantEmailStatus(emailBody) ? workEmailAudienceLabel(emailBody) : null,
           );
         }
       } catch (e) {
@@ -1827,6 +1822,13 @@ export function CommunicationSettingsPanel({
             dataAttr="communication-inbox-ai-draft-auto-send"
           />
         </PortalSettingsRow>
+        {workEmailAudience ? (
+          <PortalSettingsRow label="Who can email the assistant">
+            <span className="text-[13px] font-medium text-foreground" data-attr="communication-who-can-email-assistant">
+              {workEmailAudience}
+            </span>
+          </PortalSettingsRow>
+        ) : null}
         <PortalSettingsRow label="Share my profile phone and email when no work number or work email is set">
           <PortalSettingsToggle
             checked={draft.shareProfileContactWithoutWorkChannel}
@@ -1837,20 +1839,6 @@ export function CommunicationSettingsPanel({
           />
         </PortalSettingsRow>
       </PortalSettingsGroup>
-      {smsSetup?.phone ? (
-        <ManagerWorkNumberCopyControl
-          phone={smsSetup.phone}
-          className="mt-4 rounded-xl border border-border bg-accent/30 px-3 py-2.5"
-          dataAttr="communication-work-number-copy"
-        />
-      ) : null}
-      {workEmail ? (
-        <ManagerWorkEmailCopyControl
-          email={workEmail}
-          className="mt-4 rounded-xl border border-border bg-accent/30 px-3 py-2.5"
-          dataAttr="communication-work-email-copy"
-        />
-      ) : null}
       <ManagerSmsWorkNumberHint
         show={anySmsEnabled && !(smsSetup?.canSend === true && Boolean(smsSetup?.phone))}
         phone={smsSetup?.phone ?? null}
