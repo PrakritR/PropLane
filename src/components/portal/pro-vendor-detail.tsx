@@ -54,7 +54,7 @@ import {
 import { VENDOR_TRADE_OPTIONS } from "@/lib/work-order-taxonomy";
 import { cn } from "@/lib/utils";
 
-export type VendorDetailTab = "overview" | "profile" | "jobs" | "check-ins" | "communication";
+export type VendorDetailTab = "overview" | "profile" | "jobs" | "pricing" | "reviews" | "check-ins" | "communication";
 
 /** The editable subset of a vendor row. Everything else on the row is left untouched by a save. */
 type VendorDraft = {
@@ -221,9 +221,15 @@ function greeting(language: string, name: string): string {
 }
 
 function jobLabel(row: DemoManagerWorkOrderRow): { status: string; tone: "ok" | "warn" | "mut" } {
+  if (row.automationStatus === "paid" || row.paidAt) return { status: "Paid", tone: "ok" };
+  if (row.vendorMarkedDoneAt || row.automationStatus === "vendor_marked_done") return { status: "Awaiting approval", tone: "warn" };
   if (row.bucket === "completed" || /done|complete/i.test(row.status ?? "")) return { status: "Done", tone: "ok" };
   if (row.scheduledAtIso) return { status: `Scheduled · ${formatPacificDateTime(row.scheduledAtIso)}`, tone: "mut" };
   return { status: "Assigned · no time yet", tone: "warn" };
+}
+
+function jobMoney(cents: number | undefined): string {
+  return cents == null ? "—" : `$${(cents / 100).toFixed(2)}`;
 }
 
 export function ManagerVendorDetail({
@@ -333,6 +339,9 @@ export function ManagerVendorDetail({
     );
   }, [woTick, row.id]);
   const openJobs = jobs.filter((j) => jobLabel(j).status !== "Done");
+  const ratings = jobs
+    .filter((job) => job.bucket === "completed" && typeof job.residentConfirmation?.rating === "number")
+    .map((job) => ({ id: job.id, rating: job.residentConfirmation!.rating!, title: job.title }));
 
   const callName = draft.preferredName.trim() || draft.name.trim().split(" ")[0] || "there";
   const reach = resolveVendorChannel({
@@ -400,6 +409,23 @@ export function ManagerVendorDetail({
 
       {tab === "profile" ? profileFacts : null}
 
+      {tab === "pricing" ? (
+        <div className="px-3 pb-4 sm:px-4" data-attr="vendor-detail-pricing">
+          {fact("Typical rate", row.typicalRates?.[0]?.hourlyCents != null ? `$${(row.typicalRates[0].hourlyCents / 100).toFixed(2)} / hour` : "—")}
+          {fact("Typical service", row.typicalRates?.[0]?.serviceCents != null ? `$${(row.typicalRates[0].serviceCents / 100).toFixed(2)}` : "—")}
+        </div>
+      ) : null}
+
+      {tab === "reviews" ? (
+        <div className="px-3 pb-4 sm:px-4" data-attr="vendor-detail-reviews">
+          {ratings.length === 0 ? <p className="py-8 text-center text-sm">No completed-service ratings from your portfolio yet.</p> : (
+            <ul className="divide-y divide-border rounded-xl border border-border">
+              {ratings.map((rating) => <li key={rating.id} className="flex items-center justify-between px-3 py-2.5 text-sm"><span>{rating.title}</span><strong>{rating.rating} / 5</strong></li>)}
+            </ul>
+          )}
+        </div>
+      ) : null}
+
       {tab === "communication" ? (
         <div className="min-h-[520px] px-1 sm:px-2" data-attr="vendor-detail-inbox">
           <div className="px-2 pb-2 sm:px-3">
@@ -447,6 +473,12 @@ export function ManagerVendorDetail({
             <ul className="divide-y divide-border rounded-xl border border-border">
               {jobs.map((job) => {
                 const l = jobLabel(job);
+                const acceptedQuote = job.biddingResolvedAt ? job.vendorCostCents : undefined;
+                const finalAmount =
+                  job.vendorMarkedDoneAt || job.automationStatus === "vendor_marked_done" || job.automationStatus === "paid" || job.paidAt
+                    ? (job.vendorCostCents ?? 0) + (job.materialsCostCents ?? 0)
+                    : undefined;
+                const paidAmount = job.automationStatus === "paid" || job.paidAt ? finalAmount : undefined;
                 return (
                   <li key={job.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
                     <div className="min-w-0 flex-1">
@@ -454,6 +486,7 @@ export function ManagerVendorDetail({
                       <p className="truncate text-[13px]">
                         {[job.propertyName, job.unit, job.residentName].filter(Boolean).join(" · ")}
                       </p>
+                      <p className="text-[13px]">Accepted quote {jobMoney(acceptedQuote)} · Final invoice {jobMoney(finalAmount)} · Paid {jobMoney(paidAmount)}</p>
                     </div>
                     <span className="shrink-0 text-[13px]">{l.status}</span>
                   </li>

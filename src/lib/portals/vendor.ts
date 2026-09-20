@@ -33,7 +33,6 @@ export const vendorPortal: PortalDefinition = {
         { id: "shared", label: "From managers" },
       ],
     },
-    { section: "profile", label: "Settings", tabs: [] },
   ],
 };
 
@@ -47,5 +46,4 @@ export const VENDOR_PORTAL_SMOKE_PATHS = [
   { label: "Invoices", path: "/vendor/financials/invoices" },
   { label: "Payouts", path: "/vendor/financials/payouts" },
   { label: "Documents", path: "/vendor/documents/mine" },
-  { label: "Settings", path: "/vendor/profile" },
 ] as const;

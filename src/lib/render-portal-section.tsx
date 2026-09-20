@@ -446,6 +446,17 @@ export async function renderPortalSection(
     return <PortalSettingsSectionClient tab={tab} basePath={def.basePath} />;
   }
 
+  // Account entry remains reachable from the top-right profile control, but it
+  // is intentionally absent from resident and vendor sidebars/registries.
+  if (kind === "resident" && section === "profile") {
+    if (tabParts?.length) notFound();
+    return <ResidentProfileSection />;
+  }
+  if (kind === "vendor" && section === "profile") {
+    if (tabParts?.length) notFound();
+    return <VendorSettingsPanel />;
+  }
+
   const meta = findSection(def, section);
   if (!meta) notFound();
 
@@ -1268,11 +1279,6 @@ export async function renderPortalSection(
     return <ResidentTourPanel basePath={def.basePath} inquiryId={legacyInquiryId} />;
   }
 
-  if (kind === "resident" && section === "profile") {
-    if (tabParts?.length) notFound();
-    return <ResidentProfileSection />;
-  }
-
   if (kind === "resident" && section === "payments") {
     const PAY_BUCKETS = ["pending", "overdue", "paid"] as const;
     if (!tabParts?.length) {
@@ -1623,10 +1629,6 @@ export async function renderPortalSection(
     return <VendorDocumentsPanel tabId={documentsTab} basePath={def.basePath} />;
   }
 
-  if (kind === "vendor" && section === "profile") {
-    if (tabParts?.length) notFound();
-    return <VendorSettingsPanel />;
-  }
 
   if (!meta.tabs.length) {
     if (tabParts?.length) notFound();

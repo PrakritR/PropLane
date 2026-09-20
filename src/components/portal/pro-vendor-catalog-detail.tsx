@@ -19,14 +19,12 @@ export function ManagerVendorCatalogDetail({
   alreadyOwned,
   backHref,
   onAdd,
-  onOpen,
 }: {
   catalogId?: string;
   vendor?: AxisCatalogVendor | null;
   alreadyOwned?: boolean;
   backHref: string;
   onAdd: (row: AxisCatalogVendor) => void;
-  onOpen?: () => void;
 }) {
   const row = vendor ?? axisCatalogVendorById(catalogId ?? "");
   if (!row) {
@@ -53,15 +51,9 @@ export function ManagerVendorCatalogDetail({
       hideBackText
       dataAttrBack="vendor-catalog-back"
       actions={
-        alreadyOwned ? (
-          <Button type="button" onClick={onOpen} data-attr="vendor-catalog-open">
-            Open
-          </Button>
-        ) : (
-          <Button type="button" onClick={() => onAdd(row)} data-attr="vendor-catalog-add">
-            Add to your vendors
-          </Button>
-        )
+        <Button type="button" disabled={alreadyOwned} onClick={() => onAdd(row)} data-attr="vendor-catalog-add">
+          {alreadyOwned ? "Added" : "Add"}
+        </Button>
       }
     >
       <div className="space-y-4" data-attr="vendor-catalog-detail">

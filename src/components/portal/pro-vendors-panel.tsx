@@ -669,10 +669,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           }
           openAddVendorForm(row.trade, row);
         }}
-        onOpen={() => {
-          const existing = catalogDetail ? findRosterCatalogMatch(vendors, catalogDetail) : undefined;
-          if (existing) navigate(vendorDetailHref(basePath, existing.id));
-        }}
       />
     ) : directoryTab === "catalog" && catalogRows.length === 0 ? (
       <PortalListEmptyCard
@@ -687,13 +683,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         {catalogRows.map((row) => {
           const existing = findRosterCatalogMatch(vendors, row);
           const openProfile = () => navigate(vendorCatalogDetailHref(basePath, row.catalogId));
-          const addOrOpen = () => {
-            if (existing) {
-              navigate(vendorDetailHref(basePath, existing.id));
-              return;
-            }
-            openAddVendorForm(row.trade, row);
-          };
+          const add = () => openAddVendorForm(row.trade, row);
           return (
             <RecordActionContext.Provider
               key={row.catalogId}
@@ -703,14 +693,15 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
                 actions: (
                   <>
                     <Button type="button" data-attr="vendor-catalog-row-view" onClick={openProfile}>
-                      View profile
+                      View
                     </Button>
                     <Button
                       type="button"
-                      data-attr={existing ? "vendor-catalog-row-open" : "vendor-catalog-row-add"}
-                      onClick={addOrOpen}
+                      data-attr="vendor-catalog-row-add"
+                      disabled={Boolean(existing)}
+                      onClick={add}
                     >
-                      {existing ? "Open" : "Add to your vendors"}
+                      {existing ? "Added" : "Add"}
                     </Button>
                   </>
                 ),

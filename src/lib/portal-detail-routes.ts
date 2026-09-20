@@ -1114,13 +1114,15 @@ export function vendorCatalogDetailHref(basePath: string, catalogId: string): st
 }
 
 /** Routed detail tabs for a manager vendor — same chrome as a resident. */
-export const VENDOR_DETAIL_TABS = ["overview", "profile", "jobs", "check-ins", "communication"] as const;
+export const VENDOR_DETAIL_TABS = ["overview", "profile", "jobs", "pricing", "reviews", "check-ins", "communication"] as const;
 export type VendorDetailTabId = (typeof VENDOR_DETAIL_TABS)[number];
 
 export const VENDOR_DETAIL_TAB_LABELS: Record<VendorDetailTabId, string> = {
   overview: "Overview",
   profile: "Profile",
   jobs: "Jobs",
+  pricing: "Pricing",
+  reviews: "Reviews",
   "check-ins": "Check-ins",
   communication: "Communication",
 };
@@ -1129,13 +1131,15 @@ export const VENDOR_DETAIL_TAB_DESCRIPTIONS: Record<VendorDetailTabId, string> =
   overview: "Status, houses, and what needs you",
   profile: "Name, trade, phone, email",
   jobs: "Work assigned to this vendor",
+  pricing: "Rates for this vendor",
+  reviews: "Ratings from your completed services",
   "check-ins": "Scheduled questions",
   communication: "Messages with this vendor",
 };
 
 export const VENDOR_RAIL_GROUPS: Array<{ label: string; ids: VendorDetailTabId[] }> = [
   { label: "Vendor", ids: ["overview", "profile"] },
-  { label: "Work", ids: ["jobs", "check-ins"] },
+  { label: "Work", ids: ["jobs", "pricing", "reviews", "check-ins"] },
   { label: "Contact", ids: ["communication"] },
 ];
 
