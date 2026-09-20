@@ -4,7 +4,7 @@ import { readWorkspaceCookie } from "@/lib/workspaces/cookie";
 import { track } from "@/lib/analytics/posthog";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { assertCoManagerModuleAccess } from "@/lib/auth/co-manager-access";
-import { asStringArray, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
+import { asStringArray, INVITE_PERMISSION_COLUMNS, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -372,7 +372,7 @@ export async function POST(req: Request) {
     if (appendCreatedListingToInviteId) {
       const invite = await db
         .from("account_link_invites")
-        .select("assigned_property_ids, property_co_manager_permissions, co_manager_permissions")
+        .select(INVITE_PERMISSION_COLUMNS)
         .eq("id", appendCreatedListingToInviteId)
         .maybeSingle();
       if (!invite.error && invite.data) {

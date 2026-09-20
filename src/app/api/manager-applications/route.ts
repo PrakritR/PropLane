@@ -32,6 +32,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { bestEffortFailed } from "@/lib/observability/best-effort";
 import { parseRoomChoiceValue } from "@/lib/rental-application/data";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { parseFlexibleLocalDate } from "@/lib/rental-application/lease-dates";
 import {
   openResidentSlots,
   type RoomResidentSlotPlacement,
@@ -69,22 +70,16 @@ function idVariants(id: string): string[] {
   ];
 }
 
-/** Local-midnight parse for the two date shapes an application row stores. */
-function slotFlexibleLocalDate(value: unknown): Date | null {
-  const raw = String(value ?? "").trim();
-  if (!raw) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-    const [y, m, dd] = raw.split("-").map(Number);
-    const dt = new Date(y!, m! - 1, dd!);
-    return Number.isNaN(dt.getTime()) ? null : dt;
-  }
-  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(raw)) {
-    const [m, dd, y] = raw.split("/").map(Number);
-    const dt = new Date(y!, m! - 1, dd!);
-    return Number.isNaN(dt.getTime()) ? null : dt;
-  }
-  const dt = new Date(raw);
-  return Number.isNaN(dt.getTime()) ? null : new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+function storedResidentSlot(row: DemoApplicantRow): number | undefined {
+  const slot = Number(row.application?.residentSlot);
+  return Number.isInteger(slot) && slot >= 1 ? slot : undefined;
+}
+
+function residentSlotAlreadyPlaced(previous: DemoApplicantRow, row: DemoApplicantRow, choice: string): boolean {
+  if (previous.bucket !== "approved" || previous.withdrawnAt) return false;
+  const previousChoice = (previous.assignedRoomChoice || previous.application?.roomChoice1 || "").trim();
+  if (previousChoice !== choice) return false;
+  return storedResidentSlot(previous) === storedResidentSlot(row);
 }
 
 /**
@@ -103,10 +98,12 @@ function slotFlexibleLocalDate(value: unknown): Date | null {
 async function resolveApprovedResidentSlot(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
   row: DemoApplicantRow,
+  previous: DemoApplicantRow | null,
 ): Promise<{ ok: true; row: DemoApplicantRow } | { ok: false; error: string }> {
   if (row.bucket !== "approved" || row.withdrawnAt) return { ok: true, row };
   const choice = (row.assignedRoomChoice || row.application?.roomChoice1 || "").trim();
   if (!choice) return { ok: true, row };
+  if (previous && residentSlotAlreadyPlaced(previous, row, choice)) return { ok: true, row };
   const { propertyId, listingRoomId } = parseRoomChoiceValue(choice);
   if (!listingRoomId) return { ok: true, row };
   const managerUserId = row.managerUserId?.trim();
@@ -133,7 +130,8 @@ async function resolveApprovedResidentSlot(
     .from("manager_application_records")
     .select("id,row_data")
     .eq("manager_user_id", managerUserId)
-    .eq("row_data->>bucket", "approved");
+    .eq("row_data->>bucket", "approved")
+    .order("created_at", { ascending: true });
   if (siblingError) return { ok: true, row };
 
   const selfId = normalizeApplicationAxisId(String(row.id ?? ""));
@@ -145,12 +143,12 @@ async function resolveApprovedResidentSlot(
     const siblingChoice = (sibling.assignedRoomChoice || sibling.application?.roomChoice1 || "").trim();
     if (!siblingChoice || siblingChoice !== choice) continue;
     const start =
-      slotFlexibleLocalDate(sibling.manualResidentDetails?.moveInDate) ??
-      slotFlexibleLocalDate(sibling.application?.leaseStart);
+      parseFlexibleLocalDate(sibling.manualResidentDetails?.moveInDate) ??
+      parseFlexibleLocalDate(sibling.application?.leaseStart);
     if (!start) continue;
     const end =
-      slotFlexibleLocalDate(sibling.manualResidentDetails?.moveOutDate) ??
-      slotFlexibleLocalDate(sibling.application?.leaseEnd);
+      parseFlexibleLocalDate(sibling.manualResidentDetails?.moveOutDate) ??
+      parseFlexibleLocalDate(sibling.application?.leaseEnd);
     placements.push({
       id: String(sibling.id ?? record.id ?? ""),
       start,
@@ -866,7 +864,11 @@ export async function POST(req: Request) {
         // Same re-check the single-row upsert applies (PLAN-0920-0631): a room
         // priced per resident re-derives openness here too, since a mirror
         // batch can carry a fresh approval same as the single-row path can.
-        const slotCheck = await resolveApprovedResidentSlot(db, anchored);
+        const slotCheck = await resolveApprovedResidentSlot(
+          db,
+          anchored,
+          (stored?.row_data ?? null) as DemoApplicantRow | null,
+        );
         if (!slotCheck.ok) {
           blockedResidentSlots += 1;
           continue;
@@ -1245,7 +1247,11 @@ export async function POST(req: Request) {
       // Reserve the SLOT the same way the bed itself is reserved: re-derived
       // here, inside this same write, never trusted from the client. A room
       // that does not price per resident is untouched by this call.
-      const slotCheck = await resolveApprovedResidentSlot(db, row);
+      const slotCheck = await resolveApprovedResidentSlot(
+        db,
+        row,
+        (storedLoad.record?.row_data ?? null) as DemoApplicantRow | null,
+      );
       if (!slotCheck.ok) {
         return NextResponse.json({ error: slotCheck.error, blocked: "capacity" }, { status: 409 });
       }

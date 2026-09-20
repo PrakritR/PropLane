@@ -1,4 +1,5 @@
 import { emitLeaseDateChange } from "@/lib/domain-action-events.server";
+import { bestEffortFailed } from "@/lib/observability/best-effort";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import { upsertManagerCharges } from "@/lib/household-charges.server";
 import { leaseEndProration } from "@/lib/lease-first-period-proration";
@@ -428,7 +429,14 @@ export async function amendLeaseMoveOutDate(
   newLeaseEnd: string,
   options: { waiveEarlyMoveOutFee?: boolean } = {},
 ): Promise<
-  | { ok: true; direction: "extend" | "decrease"; newLeaseEnd: string; earlyMoveOutFee: number | null }
+  | {
+      ok: true;
+      direction: "extend" | "decrease";
+      newLeaseEnd: string;
+      earlyMoveOutFee: number | null;
+      /** The date change stands but the fee charge could not be written; add it from Payments. */
+      earlyMoveOutFeeFailed: boolean;
+    }
   | { ok: false; error: string }
 > {
   const leaseRow = leaseRecord.row_data as LeasePipelineRow;
@@ -529,6 +537,7 @@ export async function amendLeaseMoveOutDate(
   // The date change is committed above; the charge is written through the same server
   // upsert every other charge path uses (ledger sync included, per financials.md).
   let earlyMoveOutFee: number | null = null;
+  let earlyMoveOutFeeFailed = false;
   if (direction === "decrease" && !options.waiveEarlyMoveOutFee) {
     try {
       const propertyId = leaseRecord.property_id ?? leaseRow.propertyId ?? "";
@@ -558,8 +567,9 @@ export async function amendLeaseMoveOutDate(
         }
         earlyMoveOutFee = Number(charge.amountLabel.replace(/[^0-9.]/g, ""));
       }
-    } catch {
-      /* the date change stands; the fee can be added by hand from Payments */
+    } catch (error) {
+      earlyMoveOutFeeFailed = true;
+      bestEffortFailed("early move-out fee charge", { lease: leaseRecord.id, owner: ownerId, newLeaseEnd })(error);
     }
   }
 
@@ -571,7 +581,7 @@ export async function amendLeaseMoveOutDate(
     newLeaseEnd,
     direction,
   }).catch(() => undefined);
-  return { ok: true, direction, newLeaseEnd, earlyMoveOutFee };
+  return { ok: true, direction, newLeaseEnd, earlyMoveOutFee, earlyMoveOutFeeFailed };
 }
 
 export type LeaseRenewalTerms = {

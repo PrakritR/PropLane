@@ -7,13 +7,16 @@ import { samePhone, detectManagerSelfReply } from "@/lib/sms/manager-relay.serve
 import { filterSmsInboxOwnerIds, type ManagerSmsAccess } from "@/lib/sms/manager-sms-access";
 import type { AgentContext } from "@/lib/tools/context";
 import { normalizeE164 } from "@/lib/phone-e164";
-import { normalizePropertyCoManagerPermissions, type PropertyCoManagerPermissions } from "@/lib/co-manager-permissions";
+import type { PropertyCoManagerPermissions } from "@/lib/co-manager-permissions";
+import { INVITE_PERMISSION_COLUMNS, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
 
 type LinkRow = {
   inviter_user_id?: string | null;
-  assigned_property_ids?: unknown;
+  assigned_property_ids: unknown;
   property_co_manager_permissions?: unknown;
   co_manager_permissions?: unknown;
+  house_scope?: string | null;
+  team_role?: string | null;
 };
 
 async function loadIncomingAssignedProperties(
@@ -37,7 +40,7 @@ async function loadIncomingAssignedProperties(
 
   let query = db
     .from("account_link_invites")
-    .select("inviter_user_id, assigned_property_ids, property_co_manager_permissions, co_manager_permissions")
+    .select(`inviter_user_id, ${INVITE_PERMISSION_COLUMNS}`)
     .eq("status", "accepted")
     .eq("invitee_user_id", invitee);
   if (inviterUserId?.trim()) query = query.eq("inviter_user_id", inviterUserId.trim());
@@ -77,9 +80,7 @@ async function loadIncomingAssignedProperties(
       : [];
     if (assigned.length === 0) continue;
     ownerIds.add(ownerId);
-    permissionsByOwner[ownerId] = normalizePropertyCoManagerPermissions(
-      row.property_co_manager_permissions ?? row.co_manager_permissions, assigned,
-    );
+    permissionsByOwner[ownerId] = readPropertyPermissionsFromRow(row);
     for (const id of assigned) propertyIds.add(id);
   }
 

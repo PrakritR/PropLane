@@ -1,11 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { INVITE_PERMISSION_COLUMNS, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
 import {
   loadCoManagerNotificationRecipients,
   type CoManagerNotificationRecipient,
 } from "@/lib/co-manager-notification-recipients.server";
 import {
   coManagerModuleAllowed,
-  normalizePropertyCoManagerPermissions,
   type CoManagerPermissionId,
   type PropertyCoManagerPermissions,
 } from "@/lib/co-manager-permissions";
@@ -91,7 +91,7 @@ export async function loadTeamReminderRecipients(
   try {
     const { data: links, error } = await db
       .from("account_link_invites")
-      .select("invitee_user_id, assigned_property_ids, property_co_manager_permissions")
+      .select(`invitee_user_id, ${INVITE_PERMISSION_COLUMNS}`)
       .eq("status", "accepted")
       .eq("inviter_user_id", ownerId);
     if (error && !String(error.message ?? "").toLowerCase().includes("account_link_invites")) {
@@ -110,10 +110,7 @@ export async function loadTeamReminderRecipients(
         : [];
       scopeByUserId.set(id, {
         assignedPropertyIds,
-        permissions: normalizePropertyCoManagerPermissions(
-          (row as { property_co_manager_permissions?: unknown }).property_co_manager_permissions,
-          assignedPropertyIds,
-        ),
+        permissions: readPropertyPermissionsFromRow(row as Parameters<typeof readPropertyPermissionsFromRow>[0]),
       });
     }
   } catch {

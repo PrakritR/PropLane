@@ -90,6 +90,7 @@ export async function POST(req: NextRequest) {
       newLeaseEnd: result.newLeaseEnd,
       direction: result.direction,
       earlyMoveOutFee: result.earlyMoveOutFee,
+      earlyMoveOutFeeFailed: result.earlyMoveOutFeeFailed,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unexpected error.";
