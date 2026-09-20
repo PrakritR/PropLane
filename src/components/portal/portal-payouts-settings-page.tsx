@@ -16,6 +16,7 @@ import {
   HistorySection,
   ScheduleCard,
   type PortalPayoutBalance,
+  type PortalPayoutHistoryRow,
   type PortalPayoutsPortalKind,
 } from "@/components/portal/portal-payouts-panel";
 import { PayoutWithdrawSheet, type PayoutWithdrawAccount } from "@/components/portal/payout-withdraw-sheet";
@@ -103,6 +104,7 @@ export function PortalPayoutsSettingsPage({
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [retryRow, setRetryRow] = useState<PortalPayoutHistoryRow | null>(null);
   // Independent per-sheet open state — Verify and Add a bank account must
   // never share one flag, or opening one (fallback or custom) also pops the
   // other's fallback modal open behind it.
@@ -162,6 +164,7 @@ export function PortalPayoutsSettingsPage({
 
   const closeWithdraw = useCallback(() => {
     setWithdrawOpen(false);
+    setRetryRow(null);
   }, []);
 
   const closeVerify = useCallback(() => {
@@ -444,13 +447,12 @@ export function PortalPayoutsSettingsPage({
           }
         }}
         onRetry={(row) => {
+          // Same as portal-payouts-panel.tsx's own Retry — route through the
+          // SAME confirmation sheet a fresh Withdraw uses, prefilled with the
+          // failed row's own (gross) amount/method, never a one-click resend.
           track("payout_withdraw_started", { portal, retry: true });
+          setRetryRow(row);
           setWithdrawOpen(true);
-          // Retry prefill is intentionally not wired here yet — the settings
-          // page's Withdraw sheet always opens fresh; retrying a failed
-          // payout with its original amount/method stays on the existing
-          // `/payments/payouts` page, which already covers it.
-          void row;
         }}
       />
 
@@ -462,6 +464,8 @@ export function PortalPayoutsSettingsPage({
         availableCents={balance.availableCents}
         instantAvailableCents={balance.instantAvailableCents}
         accounts={withdrawAccounts}
+        initialAmountCents={retryRow?.amountCents}
+        initialMethod={retryRow?.method}
         onSuccess={(result) => {
           closeWithdraw();
           track("payout_withdraw_completed", { portal, method: result.method, amount_cents: result.amountCents });
