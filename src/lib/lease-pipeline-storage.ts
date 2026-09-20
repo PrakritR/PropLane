@@ -2782,10 +2782,10 @@ function leaseGenerationContextForRow(
       billed.leasedRoom?.state?.trim() ||
       billed.submission?.state?.trim(),
     );
-    if (!hasState) {
+    if (!hasState && billed.listingProperty) {
       return {
         ...billed,
-        listingProperty: { ...(billed.listingProperty ?? {}), state: "WA" },
+        listingProperty: { ...billed.listingProperty, state: "WA" },
       };
     }
   }

@@ -517,10 +517,6 @@ export function ChargeRemindersModal({
           meta={editingScheduled.meta}
           source="automation"
           channel={editingScheduled.channel}
-          deliverViaEmail={editingScheduled.deliverViaEmail}
-          deliverViaSms={editingScheduled.deliverViaSms}
-          emailAvailable
-          smsAvailable={smsAvailable}
           channelEditable={editingMessage.status === "scheduled"}
           editable={editingMessage.status === "scheduled"}
           emailAvailable={capability.status === "ready" && capability.email?.available === true}
