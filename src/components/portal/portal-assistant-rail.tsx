@@ -87,7 +87,7 @@ export function PortalAssistantRail({
             managerName={managerName}
             endpoint={endpoint}
             onCollapse={toggleAssistantDock}
-            onUndockToPopup={undockToPopup}
+            onClose={undockToPopup}
             className="h-full"
           />
         </div>

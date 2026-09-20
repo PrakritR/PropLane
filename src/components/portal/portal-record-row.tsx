@@ -6,6 +6,29 @@ import { Bath, BedDouble, DoorOpen, UserRound, type LucideIcon } from "lucide-re
 import { InboxAvatar, InboxConversationRow } from "@/components/portal/portal-inbox-ui";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 
+/**
+ * A row's trailing status, in plain coloured text — never a pill or `Badge`
+ * (`tests/unit/portal-list-rows-no-pills.test.ts`). The tab already says the
+ * bucket; this is for the rare fact a row still has to say on top of that
+ * ("Draft" inside Manager review, a flagged screening).
+ */
+export type PortalRecordRowStatusWord = { tone: "ok" | "warn" | "bad" | "neutral"; text: string };
+
+const STATUS_WORD_TONE_CLASS: Record<PortalRecordRowStatusWord["tone"], string> = {
+  ok: "text-emerald-600 dark:text-emerald-400",
+  warn: "text-amber-600 dark:text-amber-400",
+  bad: "text-red-600 dark:text-red-400",
+  neutral: "text-muted",
+};
+
+/** Plain coloured text, never a pill — the one way a row draws a status word. */
+export function PortalRecordRowStatus({ tone, text }: PortalRecordRowStatusWord) {
+  return <span className={cn("text-[13px] font-semibold", STATUS_WORD_TONE_CLASS[tone])}>{text}</span>;
+}
+
+/** Avatar/tile shape: square for a place, round for a person — see `leadingShape` below. */
+export type PortalRecordRowLeadingShape = "square" | "round";
+
 /** Person-centric list row (residents, applications, vendors). */
 export function PortalPersonRecordRow({
   name,
@@ -90,8 +113,11 @@ export function PortalPropertyRecordRow({
   meta,
   facts,
   badge,
+  statusWord,
   trailing,
+  amount,
   leading,
+  leadingShape,
   selected = false,
   checked = false,
   onSelectedChange,
@@ -113,11 +139,18 @@ export function PortalPropertyRecordRow({
   meta?: { beds?: number; baths?: number; rooms?: number | null };
   /** Any other glyph facts on that same line — a person row's date, email, household. */
   facts?: ReactNode;
+  /** @deprecated Pass `statusWord` — plain coloured text, never a pill. Kept so existing callers still compile. */
   badge?: ReactNode;
-  /** The money, right-aligned and bold. */
+  /** The row's trailing status, in coloured text — never a pill. */
+  statusWord?: PortalRecordRowStatusWord;
+  /** @deprecated Pass `amount` — a plain string keeps every row's money in one format. Kept so existing callers still compile. */
   trailing?: ReactNode;
+  /** The money, right-aligned and bold. */
+  amount?: string;
   /** A thumbnail or glyph before the text — what makes one row recognisable among twenty. */
   leading?: ReactNode;
+  /** Clips `leading` to a shape: square for a place, round for a person. Unset keeps the caller's own shape (no clip) — every existing row before this prop shipped. */
+  leadingShape?: PortalRecordRowLeadingShape;
   selected?: boolean;
   checked?: boolean;
   onSelectedChange?: (selected: boolean) => void;
@@ -133,6 +166,11 @@ export function PortalPropertyRecordRow({
 }) {
   const selectable = Boolean(onSelectedChange);
   const openable = Boolean(onOpen);
+  // `statusWord`/`amount` are the current props; `badge`/`trailing` are the
+  // deprecated ReactNode-shaped ones a handful of panels still pass. A caller
+  // migrating one row at a time gets identical output either way.
+  const badgeContent = statusWord ? <PortalRecordRowStatus {...statusWord} /> : badge;
+  const trailingContent = trailing ?? (amount != null ? amount : undefined);
   const body = (
     <>
       <p className="flex min-w-0 items-center gap-1 text-[15px] font-semibold leading-tight text-foreground">
@@ -158,20 +196,20 @@ export function PortalPropertyRecordRow({
         </p>
       ) : null}
       {summary ? <p className="truncate text-xs text-muted">{summary}</p> : null}
-      {badge || trailing ? (
+      {badgeContent || trailingContent ? (
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-          {badge}
+          {badgeContent}
           {/* On a phone the money sits under the title, so the title keeps its
               width; on desktop it moves to the right edge. */}
-          {trailing ? <span className="text-[13px] font-bold text-foreground md:hidden">{trailing}</span> : null}
+          {trailingContent ? <span className="text-[13px] font-bold text-foreground md:hidden">{trailingContent}</span> : null}
         </div>
       ) : null}
     </>
   );
   const aside =
-    trailing ? (
+    trailingContent ? (
       <div className="ml-2 hidden shrink-0 flex-col items-end justify-center gap-1 self-center text-right md:flex">
-        <span className="whitespace-nowrap text-[14px] font-bold text-foreground">{trailing}</span>
+        <span className="whitespace-nowrap text-[14px] font-bold text-foreground">{trailingContent}</span>
       </div>
     ) : null;
   return (
@@ -193,7 +231,17 @@ export function PortalPropertyRecordRow({
           aria-label={`Select ${selectLabel ?? title}`}
         />
       ) : null}
-      {leading ? <div className="mr-3 shrink-0 self-start">{leading}</div> : null}
+      {leading ? (
+        <div
+          className={cn(
+            "mr-3 shrink-0 self-start",
+            leadingShape === "square" && "overflow-hidden rounded-[10px]",
+            leadingShape === "round" && "overflow-hidden rounded-full",
+          )}
+        >
+          {leading}
+        </div>
+      ) : null}
       {openable ? (
         <button
           type="button"
@@ -240,8 +288,13 @@ export function PortalApplicantRecordRow({
   name,
   kind = "applicant",
   tileLabel,
+  // A person defaults to a round tile (leadingShape default per variant); a
+  // place's own row (PortalPropertyRecordRow) defaults to its existing
+  // rectangular photo instead — never forwarded to it as `rest`, since that
+  // wrapper's own clip is sized for a photo, not this tile.
+  leadingShape = "round",
   ...rest
-}: Omit<Parameters<typeof PortalPropertyRecordRow>[0], "title" | "leading" | "meta"> & {
+}: Omit<Parameters<typeof PortalPropertyRecordRow>[0], "title" | "leading" | "meta" | "leadingShape"> & {
   name: string;
   /** A co-signer gets a person glyph rather than initials, and sits under its applicant. */
   kind?: "applicant" | "cosigner";
@@ -251,6 +304,8 @@ export function PortalApplicantRecordRow({
    * should always be the person the ⋯ acts for.
    */
   tileLabel?: string;
+  /** Square keeps today's wide rectangular tile; round gives a circular avatar. */
+  leadingShape?: PortalRecordRowLeadingShape;
 }) {
   const initials = (tileLabel ?? name)
     .split(/\s+/)
@@ -258,16 +313,28 @@ export function PortalApplicantRecordRow({
     .slice(0, 2)
     .map((part) => part[0]!.toUpperCase())
     .join("");
+  const tileRounding = leadingShape === "round" ? "rounded-full" : "rounded-[10px]";
   return (
     <PortalPropertyRecordRow
       title={name}
       leading={
         kind === "cosigner" ? (
-          <div aria-hidden className="grid h-[4.125rem] w-[4.125rem] place-items-center rounded-[10px] bg-accent/60 text-muted/80 max-md:h-[3.125rem] max-md:w-[3.125rem]">
+          <div aria-hidden className={cn("grid h-[4.125rem] w-[4.125rem] place-items-center bg-accent/60 text-muted/80 max-md:h-[3.125rem] max-md:w-[3.125rem]", tileRounding)}>
             <UserRound className="size-[22px]" strokeWidth={1.5} />
           </div>
         ) : (
-          <div aria-hidden className="grid h-[4.125rem] w-[5.5rem] place-items-center rounded-[10px] bg-primary/[0.08] text-[20px] font-extrabold tracking-wide text-primary max-md:h-[3.125rem] max-md:w-16 max-md:text-[16px]">
+          <div
+            aria-hidden
+            className={cn(
+              "grid place-items-center bg-primary/[0.08] text-[20px] font-extrabold tracking-wide text-primary max-md:text-[16px]",
+              tileRounding,
+              // A round avatar reads as a circle only when it is square; a
+              // square tile keeps its existing wider, photo-like proportions.
+              leadingShape === "round"
+                ? "h-[4.125rem] w-[4.125rem] max-md:h-[3.125rem] max-md:w-[3.125rem]"
+                : "h-[4.125rem] w-[5.5rem] max-md:h-[3.125rem] max-md:w-16",
+            )}
+          >
             {initials || "?"}
           </div>
         )

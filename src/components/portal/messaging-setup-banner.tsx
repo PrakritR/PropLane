@@ -76,19 +76,25 @@ export function ManagerMessagingSetupBanner() {
    */
   return (
     <div
-      className="flex shrink-0 items-center gap-3 border-b border-border bg-card px-[max(1rem,env(safe-area-inset-left,0px))] py-1 pe-[max(0.5rem,env(safe-area-inset-right,0px))] text-[13px] leading-snug text-foreground lg:px-6"
+      className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-border bg-card px-[max(1rem,env(safe-area-inset-left,0px))] py-1.5 pe-[max(0.5rem,env(safe-area-inset-right,0px))] text-[13px] leading-snug text-foreground lg:px-6"
       data-attr="manager-messaging-setup-banner"
       role="status"
     >
       <span className="h-5 w-[3px] shrink-0 rounded-full bg-primary" aria-hidden />
-      <p className="min-w-0 flex-1 truncate font-medium">Phone number not set up.</p>
-      <Link
-        href={MANAGER_MESSAGING_SETTINGS_HREF}
-        data-attr="manager-messaging-setup-banner-link"
-        className="inline-flex min-h-11 shrink-0 items-center rounded-full border border-border bg-card px-3 text-[12.5px] font-semibold text-foreground hover:bg-accent/40"
-      >
-        Set up messaging
-      </Link>
+      {/* One line + a text link — never truncated, never a pill button
+          (PLAN-0920-1058 area 1d, "1d · The pop-up" § icon chrome rule applied
+          to every utility, banners included). */}
+      <p className="min-w-0 font-medium">
+        Phone number not set up.{" "}
+        <Link
+          href={MANAGER_MESSAGING_SETTINGS_HREF}
+          data-attr="manager-messaging-setup-banner-link"
+          // PRP-350: still a ≥44px phone tap target, just no pill chrome around it.
+          className="inline-flex min-h-11 items-center font-semibold text-primary underline underline-offset-2 hover:text-primary/80"
+        >
+          Set up messaging
+        </Link>
+      </p>
       <button
         type="button"
         onClick={() => {
@@ -101,7 +107,7 @@ export function ManagerMessagingSetupBanner() {
         }}
         aria-label="Dismiss"
         data-attr="manager-messaging-setup-banner-dismiss"
-        className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-muted hover:bg-accent/40 hover:text-foreground"
+        className="ml-auto grid h-11 w-11 shrink-0 place-items-center rounded-full text-muted hover:bg-accent/40 hover:text-foreground"
       >
         <X className="h-4 w-4" aria-hidden />
       </button>

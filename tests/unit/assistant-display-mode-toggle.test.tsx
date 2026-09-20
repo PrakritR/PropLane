@@ -143,15 +143,16 @@ describe("assistant display mode", () => {
     expect(panel!.className).not.toContain("relative");
   });
 
-  it("unpins from the dock header, back to the popup default", async () => {
+  it("closes from the dock header, back to the popup default", async () => {
+    // The rail's header used to offer only an "Unpin" (AppWindow) icon; it now
+    // gets a real ✕ close alongside the collapse-to-strip control
+    // (PLAN-0920-1058 area 1d), which does the same underlying unpin-to-popup.
     renderPortal();
     fireEvent.click(askPropLane());
     fireEvent.click(await screen.findByLabelText("Pin PropLane Assistant to the right side"));
     await waitFor(() => expect(rail()).not.toBeNull());
 
-    fireEvent.click(
-      screen.getByLabelText("Unpin PropLane Assistant, use the floating popup instead"),
-    );
+    fireEvent.click(screen.getByLabelText("Close PropLane Assistant"));
 
     await waitFor(() => expect(rail()).toBeNull());
     await waitFor(() => expect(document.querySelector(".axis-assistant-panel")).not.toBeNull());

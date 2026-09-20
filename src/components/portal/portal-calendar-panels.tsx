@@ -25,8 +25,15 @@ import {
 } from "@/lib/manager-availability-kinds";
 import { mergeOpenRuns, formatOpenRunKindsLabel, type OpenRun } from "@/lib/calendar-open-runs";
 import { Modal, ModalFooter, MODAL_HEADER_CLOSE_CLASS } from "@/components/ui/modal";
-import { Copy, Eraser, House, Plus, X } from "lucide-react";
-import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { CalendarClock, Plus, X } from "lucide-react";
+import { PortalIconAction, PortalPrimaryIconAction } from "@/components/portal/portal-icon-action";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { PortalNotificationPreviewModal, type NotificationConfirmDraft } from "@/components/portal/portal-notification-preview-modal";
 import { TourReminderTourPanel } from "@/components/portal/tour-reminder-tour-panel";
 import { PORTAL_CALENDAR_FRAME, PortalSegmentedControl } from "./portal-metrics";
@@ -856,6 +863,8 @@ export function PortalCalendarPanels({
   onDefaultTourHoursChange,
   onDefaultTourGridEnabledChange,
   weekActionsHost,
+  weekPrimaryActionHost,
+  extraAvailabilityAction,
   vendorViewer = false,
 }: {
   storageKey: string | null;
@@ -881,8 +890,12 @@ export function PortalCalendarPanels({
   editableDefaultTourHours?: boolean;
   onDefaultTourHoursChange?: (startSlot: number, endSlotExclusive: number) => void;
   onDefaultTourGridEnabledChange?: (enabled: boolean) => void;
-  /** Command-bar host for copy / add / clear / house actions. */
+  /** Command-bar host for the "Availability" utility icon (copy / clear / house actions). */
   weekActionsHost?: HTMLElement | null;
+  /** Command-bar host for the standalone "+" (Add availability) primary icon — rendered after Share, per the one Filter · Availability · Share · + band shape. */
+  weekPrimaryActionHost?: HTMLElement | null;
+  /** An extra row folded into the Availability menu (Connect Google Calendar) so the band never grows past four icons. */
+  extraAvailabilityAction?: ReactNode;
   /**
    * Vendor calendar: skip the manager assignment directory (403 on
    * `/api/portal-vendors`) without turning on Flexible / Add work. Those
@@ -2946,42 +2959,59 @@ export function PortalCalendarPanels({
     const compactGridTopGap = flowScroll ? "mt-0" : "mt-2";
     const compactMobileTopGap = flowScroll ? "mt-0" : "mt-2 max-lg:mt-4";
     const copyToHousesDisabled = !onCopyWeekToHouses || !otherProperties?.length;
-    const availabilityWeekActions =
-      !vendorMode && canEditAvailability ? (
-        <div className="flex shrink-0 items-center" data-slot="calendar-week-actions">
-          <PortalIconAction
-            icon={Copy}
-            label="Copy previous week"
-            data-attr="calendar-copy-previous-week"
-            onClick={copyPreviousWeek}
-          />
-          <PortalIconAction
-            icon={Plus}
-            label="Add availability"
-            data-attr="calendar-create-block"
-            onClick={openBlockModal}
-          />
-          <PortalIconAction
-            icon={Eraser}
-            label="Clear week"
-            data-attr="calendar-clear-week"
-            onClick={clearCurrentWeek}
-          />
-          {isVendorViewer ? null : (
-            <PortalIconAction
-              icon={House}
-              label={copyToHousesDisabled ? "Add another house to copy availability" : "Copy to houses"}
-              data-attr="calendar-copy-to-houses"
-              disabled={copyToHousesDisabled}
-              onClick={() => {
-                setSelectedHouseIds(new Set());
-                setCopyToHousesScope("week");
-                setUpdateToHousesOpen(true);
-              }}
-            />
-          )}
-        </div>
-      ) : null;
+    const canEditWeek = !vendorMode && canEditAvailability;
+    // One "Availability" icon holds every bulk/utility action (copy, clear,
+    // copy to houses, connect Google Calendar) so the persistent command band
+    // stays Filter · Availability · Share · + — never six loose icons
+    // (PLAN-0920-1058 area 1d). "Add availability" is the band's one primary
+    // instead of living inside the menu.
+    const showAvailabilityMenu = canEditWeek || Boolean(extraAvailabilityAction);
+    const availabilityMenuAction = showAvailabilityMenu ? (
+      <div className="flex shrink-0 items-center" data-slot="calendar-week-actions">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <PortalIconAction icon={CalendarClock} label="Availability" data-attr="calendar-availability-menu" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" data-attr="calendar-availability-menu-content">
+            {canEditWeek ? (
+              <>
+                <DropdownMenuItem data-attr="calendar-copy-previous-week" onSelect={copyPreviousWeek}>
+                  Copy previous week
+                </DropdownMenuItem>
+                <DropdownMenuItem data-attr="calendar-clear-week" onSelect={clearCurrentWeek}>
+                  Clear week
+                </DropdownMenuItem>
+                {isVendorViewer ? null : (
+                  <DropdownMenuItem
+                    data-attr="calendar-copy-to-houses"
+                    disabled={copyToHousesDisabled}
+                    onSelect={() => {
+                      setSelectedHouseIds(new Set());
+                      setCopyToHousesScope("week");
+                      setUpdateToHousesOpen(true);
+                    }}
+                  >
+                    {copyToHousesDisabled ? "Add another house to copy availability" : "Copy to houses"}
+                  </DropdownMenuItem>
+                )}
+              </>
+            ) : null}
+            {canEditWeek && extraAvailabilityAction ? <DropdownMenuSeparator /> : null}
+            {extraAvailabilityAction ? <div className="px-1 py-1">{extraAvailabilityAction}</div> : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    ) : null;
+    const availabilityAddAction = canEditWeek ? (
+      <div className="flex shrink-0 items-center" data-slot="calendar-week-add-action">
+        <PortalPrimaryIconAction
+          icon={Plus}
+          label="Add availability"
+          data-attr="calendar-create-block"
+          onClick={openBlockModal}
+        />
+      </div>
+    ) : null;
     return (
       <>
         <div className={compactShellClass} ref={compactShellRef}>
@@ -3044,8 +3074,11 @@ export function PortalCalendarPanels({
                   </>
                 ) : null}
               </div>
-              <div className="flex min-w-0 items-center justify-end">
-                {weekActionsHost ? createPortal(availabilityWeekActions, weekActionsHost) : availabilityWeekActions}
+              <div className="flex min-w-0 items-center justify-end gap-1">
+                {weekActionsHost ? createPortal(availabilityMenuAction, weekActionsHost) : availabilityMenuAction}
+                {weekPrimaryActionHost
+                  ? createPortal(availabilityAddAction, weekPrimaryActionHost)
+                  : availabilityAddAction}
               </div>
             </div>
           </div>

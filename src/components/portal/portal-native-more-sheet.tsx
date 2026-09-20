@@ -35,6 +35,12 @@ export type PortalMoreNavItem = {
   count?: number;
   /** Communication and Application use the blue alert pill; inventory stays muted. */
   countTone?: "muted" | "alert";
+  /**
+   * A section with sub-tabs (Payments' Incoming/Outgoing) nests them under
+   * this row's label, exactly as the desktop sidebar does — never flattened
+   * into separate top-level rows that lose the "Payments" context.
+   */
+  subItems?: PortalMoreNavItem[];
 };
 
 function moreSheetCountTone(item: PortalMoreNavItem): "muted" | "alert" {
@@ -174,16 +180,41 @@ export function PortalNativeMoreSheet({
                   </p>
                 ) : null}
                 <ul className="space-y-1">
-                  {group.items.map((item) => (
-                    <li key={item.sectionTabId ? `${item.section}-${item.sectionTabId}` : item.section}>
-                      <MoreNavRow
-                        item={item}
-                        active={isMoreNavItemActive(item)}
-                        showNavIcons={showNavIcons}
-                        onNavigate={closeSheet}
-                      />
-                    </li>
-                  ))}
+                  {group.items.map((item) =>
+                    item.subItems?.length ? (
+                      <li key={item.section}>
+                        <p className="flex items-center gap-3 px-3 pb-1 pt-1.5 text-sm font-semibold text-foreground">
+                          {showNavIcons ? (
+                            <span className="shrink-0" aria-hidden>
+                              <PortalNavIcon section={item.section} active={isMoreNavItemActive(item)} />
+                            </span>
+                          ) : null}
+                          {item.label}
+                        </p>
+                        <ul className="ml-1 flex flex-col gap-1 border-l border-border/70 pl-2">
+                          {item.subItems.map((sub) => (
+                            <li key={`${sub.section}-${sub.sectionTabId}`}>
+                              <MoreNavRow
+                                item={sub}
+                                active={isMoreNavItemActive(sub)}
+                                showNavIcons={showNavIcons}
+                                onNavigate={closeSheet}
+                              />
+                            </li>
+                          ))}
+                        </ul>
+                      </li>
+                    ) : (
+                      <li key={item.sectionTabId ? `${item.section}-${item.sectionTabId}` : item.section}>
+                        <MoreNavRow
+                          item={item}
+                          active={isMoreNavItemActive(item)}
+                          showNavIcons={showNavIcons}
+                          onNavigate={closeSheet}
+                        />
+                      </li>
+                    ),
+                  )}
                 </ul>
               </div>
             ))}
