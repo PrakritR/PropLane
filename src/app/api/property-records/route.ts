@@ -13,6 +13,7 @@ import { MANAGER_PROPERTY_LIMIT_ERROR_CODE } from "@/lib/manager-access";
 import { assertManagerPropertyListingQuota } from "@/lib/manager-property-quota.server";
 import { propertyRowsToSnapshot, type ManagerPropertyRecordStatus } from "@/lib/persisted-property-records";
 import { reconcileListingServiceFeeOnWrite } from "@/lib/listing-service-fee-write.server";
+import { OPERATIONS_SETTINGS_KEY } from "@/lib/settings/property-overrides.server";
 import { resolveCreateListingOwner } from "@/lib/auth/workspace-add-property.server";
 import {
   buildAllModulesGrant,
@@ -322,8 +323,30 @@ export async function POST(req: Request) {
     // `rowData` (pending bucket). Treat an omitted field as "leave unchanged",
     // not "clear" — `?? null` on a missing JSON key was wiping seeded row_data
     // the first time a manager opened Properties after `npm run test:seed`.
-    const rowDataForWrite0 =
-      body.rowData !== undefined ? body.rowData : (existing?.row_data ?? null);
+    const existingRowData =
+      existing?.row_data && typeof existing.row_data === "object" && !Array.isArray(existing.row_data)
+        ? (existing.row_data as Record<string, unknown>)
+        : null;
+    let rowDataForWrite0: unknown = body.rowData !== undefined ? body.rowData : (existing?.row_data ?? null);
+    // A listing edit (the wizard, a background mirror, the demo pipeline)
+    // rebuilds `row_data` from its OWN fields and never names Operations
+    // settings — carry a house's existing reminder / automation override
+    // forward unless the request explicitly sets that key, so publishing a
+    // listing edit never silently wipes it (PLAN-0916-1040).
+    if (
+      body.rowData !== undefined &&
+      existingRowData &&
+      OPERATIONS_SETTINGS_KEY in existingRowData &&
+      body.rowData &&
+      typeof body.rowData === "object" &&
+      !Array.isArray(body.rowData) &&
+      !(OPERATIONS_SETTINGS_KEY in (body.rowData as Record<string, unknown>))
+    ) {
+      rowDataForWrite0 = {
+        ...(body.rowData as Record<string, unknown>),
+        [OPERATIONS_SETTINGS_KEY]: existingRowData[OPERATIONS_SETTINGS_KEY],
+      };
+    }
     const propertyDataForWrite0 =
       body.propertyData !== undefined ? body.propertyData : (existing?.property_data ?? null);
 
