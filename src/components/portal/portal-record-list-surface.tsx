@@ -20,6 +20,7 @@ import {
   type PortalListEmptyAction,
   type PortalListEmptySibling,
 } from "@/components/portal/portal-list-empty-card";
+import { PortalRecordShareHost } from "@/components/portal/portal-record-share-host";
 import { cn } from "@/lib/utils";
 import { WORKSPACE_SELECTION_EVENT } from "@/lib/workspaces/selection";
 import { portalEmptyTitleFromAddLabel } from "@/lib/portal-empty-copy";
@@ -148,6 +149,7 @@ export function PortalRecordListSurface({
   ) : null;
   return (
     <RowSelectionModeContext.Provider value={selectable ? false : null}>
+      <PortalRecordShareHost>
       <RecordActionContext.Provider value={selectable ? { actions: bulkActions, clear: () => clearRef.current?.(), scope: `${pathname}:${scopeRevision}` } : null}>
       <div className={cn(PORTAL_LIST_PAGE_BODY, className)} data-attr={dataAttr}>
         {loading ? <div role="status" aria-label="Loading records" className="space-y-3 rounded-2xl border border-border bg-card p-5">
@@ -177,6 +179,7 @@ export function PortalRecordListSurface({
         ) : null}
       </div>
       </RecordActionContext.Provider>
+      </PortalRecordShareHost>
     </RowSelectionModeContext.Provider>
   );
 }

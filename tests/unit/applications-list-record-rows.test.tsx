@@ -132,4 +132,21 @@ describe("an application is a Properties-style card", () => {
     const more = screen.getByRole("button", { name: /Actions for Ethan Wright/ });
     expect(more).toBeTruthy();
   });
+
+  it("puts Run background check on the ⋯ menu after Share", async () => {
+    mount([single(row({}))], {
+      actions: (
+        <>
+          <button type="button">Share</button>
+          <button type="button">Run background check</button>
+          <button type="button">Approve</button>
+        </>
+      ),
+    });
+    fireEvent.keyDown(screen.getByRole("button", { name: /Actions for Ethan Wright/ }), { key: "ArrowDown" });
+    const menu = await screen.findByRole("menu");
+    const labels = Array.from(menu.querySelectorAll('[role="menuitem"]')).map((el) => el.textContent);
+    expect(labels.indexOf("Share")).toBeGreaterThanOrEqual(0);
+    expect(labels.indexOf("Run background check")).toBe(labels.indexOf("Share") + 1);
+  });
 });

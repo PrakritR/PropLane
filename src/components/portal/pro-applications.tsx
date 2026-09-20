@@ -835,6 +835,8 @@ export function ManagerApplications({
   const canBulkSendReminder =
     singleListSelectedRow != null && showCompletionReminderForRow(singleListSelectedRow);
   const canBulkShare = singleListSelectedRow != null;
+  const canBulkRunBackgroundCheck =
+    singleListSelectedRow != null && applicationShowsBackgroundCheck(singleListSelectedRow);
   const canBulkDownload = singleListSelectedRow != null;
   const canBulkMoveToPending =
     singleListSelectedRow != null && applicationRowCanMoveToPending(singleListSelectedRow);
@@ -1919,6 +1921,17 @@ export function ManagerApplications({
                     dataAttr="applications-bulk-share"
                     recordTitle={bulkShareRecordTitle}
                   />
+                ) : null}
+                {canBulkRunBackgroundCheck && singleListSelectedRow ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={PORTAL_BULK_BAR_BTN}
+                    data-attr="applications-bulk-run-background-check"
+                    onClick={() => openDetailScreeningModal(singleListSelectedRow)}
+                  >
+                    Run background check
+                  </Button>
                 ) : null}
                 {canBulkApprove ? (
                   <Button
