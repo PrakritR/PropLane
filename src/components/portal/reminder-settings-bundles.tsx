@@ -5,6 +5,7 @@ import {
   ManagerReminderRuleSettingsPanel,
   type ManagerReminderRuleSettingsHandle,
 } from "@/components/portal/manager-reminder-rule-settings";
+import type { SettingsSourceNamespace } from "@/components/portal/settings-property-scope";
 import {
   PaymentAutomationSettingsPanel,
   type PaymentAutomationSettingsHandle,
@@ -42,6 +43,7 @@ function HiddenReminderRulePanel({
   teamMembers,
   formRef,
   disabled,
+  sourceNamespace,
 }: {
   hidden: boolean;
   kind: ReminderSubjectKind;
@@ -49,6 +51,7 @@ function HiddenReminderRulePanel({
   teamMembers: WorkAssignmentTeamMember[];
   formRef: React.RefObject<ManagerReminderRuleSettingsHandle | null>;
   disabled?: boolean;
+  sourceNamespace?: SettingsSourceNamespace;
 }) {
   return (
     <div className={hidden ? "hidden" : undefined} aria-hidden={hidden}>
@@ -58,6 +61,7 @@ function HiddenReminderRulePanel({
         teamMembers={teamMembers}
         formRef={formRef}
         disabled={disabled}
+        sourceNamespace={sourceNamespace}
       />
     </div>
   );
@@ -244,6 +248,7 @@ export function OutgoingPaymentRemindersSettingsBundle({
         teamMembers={teamMembers}
         formRef={outgoingRef}
         disabled={disabled}
+        sourceNamespace="outgoing-payment-reminders"
       />
     </div>
   );
@@ -367,6 +372,7 @@ export function IncomingPaymentRemindersSettingsBundle({
         teamMembers={teamMembers}
         formRef={managerRef}
         disabled={disabled}
+        sourceNamespace="incoming-payment-reminders"
       />
     </div>
   );

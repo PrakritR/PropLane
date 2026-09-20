@@ -42,7 +42,17 @@ export type SettingsSourceNamespace =
   | "task-automation-settings"
   | "automation-settings"
   | "manager-application-settings"
-  | "manager-tour-settings";
+  | "manager-tour-settings"
+  /** PLAN-0920-0845 phase E: Incoming/Outgoing payment reminders now stack in the same
+      Payments module at once, so they can no longer share the generic "reminder-settings"
+      key without one overwriting the other's tag. */
+  | "incoming-payment-reminders"
+  | "outgoing-payment-reminders"
+  /** Phase E: the Payment setup / Processing fee sections split out of one combined panel. */
+  | "processing-fee-settings"
+  /** Phase E: late fee amount + grace days live on each listing only — no workspace/account
+      rung — so this namespace's source is always "property" once a scope resolves. */
+  | "late-fee-settings";
 
 type ScopeContextValue = {
   /** "" = All workspaces (the account rung). */
