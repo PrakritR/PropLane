@@ -14,7 +14,7 @@ vi.mock("@/components/providers/app-ui-provider", () => ({ useAppUi: () => ({ sh
 
 import { WorkspaceSwitcher, workspaceInitials } from "@/components/portal/workspace-switcher";
 
-function workspace(id: string, name: string, owned = true, propertyIds: string[] = []) {
+function workspace(id: string, name: string, owned = true, propertyIds: string[] = [], livePropertyCount = propertyIds.length) {
   return {
     id,
     name,
@@ -22,12 +22,15 @@ function workspace(id: string, name: string, owned = true, propertyIds: string[]
     owned,
     isDefault: id === "w1",
     propertyIds,
+    livePropertyCount,
     propertyPermissions: {},
   } as WorkspaceContextValue["workspaces"][number];
 }
 
 function setContext(over: Partial<WorkspaceContextValue> = {}) {
-  const w1 = workspace("w1", "My workspace", true, ["p1", "p2", "p3"]);
+  // A workspace record count can include drafts/unlisted rows the live count
+  // never does (PRP-481) — three records, only two of them live.
+  const w1 = workspace("w1", "My workspace", true, ["p1", "p2", "p3"], 2);
   const w2 = workspace("w2", "Ballard houses", false, ["p9"]);
   ctx.value = {
     workspaces: [w1, w2],
@@ -61,12 +64,13 @@ describe("workspaceInitials", () => {
 });
 
 describe("the header switcher", () => {
-  it("names the workspace with its role and property count", () => {
+  it("names the workspace with its role and LIVE property count, not the record count (PRP-481)", () => {
     setContext();
     render(<WorkspaceSwitcher />);
     const trigger = screen.getByRole("button", { name: "Switch workspace: My workspace" });
     expect(trigger.textContent).toContain("MW");
-    expect(trigger.textContent).toContain("Owner · 3 properties");
+    // The active workspace holds 3 records (propertyIds) but only 2 are live.
+    expect(trigger.textContent).toContain("Owner · 2 properties");
   });
 
   it("lists every workspace, then settings, invite, and New workspace with the cap", async () => {

@@ -50,7 +50,7 @@ export function WorkspaceSwitcher({
   if (!ctx) return null;
   const name = ctx.loading ? "Loading…" : (ctx.active?.name ?? "My workspace");
   const role = ctx.active ? (ctx.active.owned ? "Owner" : "Shared access") : "";
-  const propertyCount = ctx.active?.propertyIds.length ?? 0;
+  const propertyCount = ctx.active?.livePropertyCount ?? 0;
   const meta = [role, ctx.active ? `${propertyCount} ${propertyCount === 1 ? "property" : "properties"}` : ""]
     .filter(Boolean)
     .join(" · ");
@@ -147,7 +147,7 @@ export function WorkspaceSwitcher({
                   holds the homes, without opening settings first. */}
               <span className="ml-2 text-xs text-muted">
                 {workspace.owned ? "Owned" : "Shared"} ·{" "}
-                {workspace.propertyIds.length} {workspace.propertyIds.length === 1 ? "home" : "homes"}
+                {workspace.livePropertyCount ?? 0} {(workspace.livePropertyCount ?? 0) === 1 ? "home" : "homes"}
               </span>
             </span>
             {workspace.id === ctx.active?.id && <Check className="size-4" aria-hidden />}

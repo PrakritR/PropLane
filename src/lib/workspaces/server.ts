@@ -57,10 +57,10 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
       else addPropertyWorkspaceIds.add(`owner:${link.inviter_user_id}`);
     }
   }
-  const ownedProperties = await db.from("manager_property_records").select("id,workspace_id,row_data").eq("manager_user_id", userId);
+  const ownedProperties = await db.from("manager_property_records").select("id,workspace_id,row_data,status").eq("manager_user_id", userId);
   if (ownedProperties.error) throw new Error("Could not load workspace properties. Please retry.");
   const linkedProperties = assigned.size
-    ? await db.from("manager_property_records").select("id,workspace_id,row_data").in("id", [...assigned])
+    ? await db.from("manager_property_records").select("id,workspace_id,row_data,status").in("id", [...assigned])
     : { data: [], error: null };
   if (linkedProperties.error) throw new Error("Could not load shared workspace properties. Please retry.");
   const sharedIds = [...new Set([
@@ -105,6 +105,13 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
 
   return [...rows.values()].map((w) => {
     const propertyIds = [...new Set(properties.filter((p) => p.workspace_id === w.id).map((p) => p.id))];
+    // Same predicate Properties → Listed uses (`statusForBucket(2)` and
+    // `getPublicListings()`): status "live" only. `propertyIds` above keeps
+    // drafts/unlisted because it drives scoping (`workspaceContainsProperty`);
+    // this is a display count only.
+    const livePropertyCount = properties.filter(
+      (p) => p.workspace_id === w.id && (p as { status?: string }).status === "live",
+    ).length;
     const ownedHere = w.owner_user_id === userId;
     const members: WorkspaceMember[] = ownedHere
       ? (grantsOut.data ?? [])
@@ -135,6 +142,7 @@ export async function loadWorkspaces(db: SupabaseClient, userId: string): Promis
       id: w.id, name: w.name, ownerUserId: w.owner_user_id,
       owned: ownedHere, isDefault: w.is_default,
       propertyIds,
+      livePropertyCount,
       propertyLabels: Object.fromEntries(
         properties.filter((p) => p.workspace_id === w.id).map((p) => [p.id, labelFor(p as { id: string; row_data?: unknown })]),
       ),
