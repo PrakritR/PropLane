@@ -23,13 +23,19 @@ import {
 } from "lucide-react";
 import {
   inspectionDetailHref,
+  leaseDetailHref,
   managerTaskDetailHref,
+  managerTourDetailHref,
   paymentRecordDetailHref,
   propertyDetailHref,
   PROPERTY_DETAIL_TAB_LABELS,
   residentDetailHref,
   vendorDetailHref,
+  type LeaseDetailTabId,
+  type LeasePipelineTabId,
+  type ManagerTourBucketId,
   type PaymentDirectionId,
+  type TourDetailTabId,
 } from "@/lib/portal-detail-routes";
 
 /**
@@ -112,6 +118,10 @@ export type RecordSectionContext = {
   inspectionKind?: "move-in" | "move-out";
   /** task */
   taskListTab?: string;
+  /** lease */
+  leaseListTab?: LeasePipelineTabId;
+  /** tour */
+  tourBucket?: ManagerTourBucketId;
 };
 
 type OwnGroup = { label: string; ids: Array<{ id: string; label: string }> };
@@ -259,7 +269,11 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     phonePrimaryLabel: "Send for signature",
     hasDocuments: true,
     hasActivity: true,
-    href: (ctx) => genericHref(ctx.basePath ?? "/portal", "leases"),
+    href: (ctx) => {
+      const basePath = ctx.basePath ?? "/portal";
+      const listTab = ctx.leaseListTab ?? "manager";
+      return (recordId, tab) => leaseDetailHref(basePath, listTab, recordId, tab as LeaseDetailTabId);
+    },
   },
   application: {
     basePathDefault: "/portal",
@@ -389,7 +403,11 @@ const MANAGER_DEFS: Record<ManagerRecordKind, KindDef> = {
     phonePrimary: "confirm",
     hasDocuments: false,
     hasActivity: true,
-    href: (ctx) => genericHref(ctx.basePath ?? "/portal", "tours"),
+    href: (ctx) => {
+      const basePath = ctx.basePath ?? "/portal";
+      const bucket = ctx.tourBucket ?? "pending";
+      return (recordId, tab) => managerTourDetailHref(basePath, bucket, recordId, tab as TourDetailTabId);
+    },
   },
   booking: {
     basePathDefault: "/portal",

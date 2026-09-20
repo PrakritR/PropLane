@@ -49,10 +49,13 @@ export function ManagerLeases({
   tab: tabProp = "manager",
   basePath = "/portal",
   leaseId: leaseIdProp,
+  leaseDetailTab,
 }: {
   tab?: ManagerLeaseTab;
   basePath?: string;
   leaseId?: string;
+  /** The lease record's own rail tab (docs/agents/record-page.md); undefined = Overview. */
+  leaseDetailTab?: import("@/lib/portal-detail-routes").LeaseDetailTabId;
 }) {
   const navigate = usePortalNavigate();
   const { userId, ready: authReady } = useManagerUserId();
@@ -253,6 +256,7 @@ export function ManagerLeases({
           managerUserId={userId}
           residentAccountEmails={residentAccountEmails}
           leaseId={leaseIdProp}
+          leaseDetailTab={leaseDetailTab}
           listBasePath={basePath}
           onAddLease={() => setAddLeaseOpen(true)}
         />
@@ -324,6 +328,7 @@ export function ManagerLeases({
           managerUserId={userId}
           residentAccountEmails={residentAccountEmails}
           leaseId={leaseIdProp}
+          leaseDetailTab={leaseDetailTab}
           listBasePath={basePath}
           onAddLease={() => setAddLeaseOpen(true)}
           searchQuery={listSearch}

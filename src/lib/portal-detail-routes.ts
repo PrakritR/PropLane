@@ -522,12 +522,32 @@ export function managerTourListHref(basePath: string, bucket: ManagerTourBucketI
   return `${basePath}/tours/${bucket}`;
 }
 
+/** Tour record rail tabs (PLAN-0920-1058, area 1c): the record's own sections plus the shared trio. */
+export const TOUR_DETAIL_TABS = [
+  "overview",
+  "prospect",
+  "slot",
+  "follow-up",
+  "communication",
+  "activity",
+] as const;
+export type TourDetailTabId = (typeof TOUR_DETAIL_TABS)[number];
+
+export function parseTourDetailTab(raw: string | undefined | null): TourDetailTabId {
+  if (raw && (TOUR_DETAIL_TABS as readonly string[]).includes(raw)) {
+    return raw as TourDetailTabId;
+  }
+  return "overview";
+}
+
 export function managerTourDetailHref(
   basePath: string,
   bucket: ManagerTourBucketId,
   tourId: string,
+  tab: TourDetailTabId = "overview",
 ): string {
-  return `${basePath}/tours/${bucket}/${encodeURIComponent(tourId)}`;
+  const base = `${basePath}/tours/${bucket}/${encodeURIComponent(tourId)}`;
+  return tab === "overview" ? base : `${base}/${tab}`;
 }
 
 export function propertyTourListHref(
@@ -943,8 +963,34 @@ export function leaseListHref(basePath: string, tab: LeasePipelineTabId): string
   return `${basePath}/leases/${tab}`;
 }
 
-export function leaseDetailHref(basePath: string, tab: LeasePipelineTabId, leaseId: string): string {
-  return `${basePath}/leases/${tab}/${encodeURIComponent(leaseId)}`;
+/** Lease record rail tabs (PLAN-0920-1058, area 1c): the record's own sections plus the shared trio. */
+export const LEASE_DETAIL_TABS = [
+  "overview",
+  "terms",
+  "signatures",
+  "amendments",
+  "payments",
+  "communication",
+  "documents",
+  "activity",
+] as const;
+export type LeaseDetailTabId = (typeof LEASE_DETAIL_TABS)[number];
+
+export function parseLeaseDetailTab(raw: string | undefined | null): LeaseDetailTabId {
+  if (raw && (LEASE_DETAIL_TABS as readonly string[]).includes(raw)) {
+    return raw as LeaseDetailTabId;
+  }
+  return "overview";
+}
+
+export function leaseDetailHref(
+  basePath: string,
+  tab: LeasePipelineTabId,
+  leaseId: string,
+  detailTab: LeaseDetailTabId = "overview",
+): string {
+  const base = `${basePath}/leases/${tab}/${encodeURIComponent(leaseId)}`;
+  return detailTab === "overview" ? base : `${base}/${detailTab}`;
 }
 
 /** Manager payments direction + status bucket (Appendix D5). */
