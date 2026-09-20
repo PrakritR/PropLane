@@ -4,7 +4,7 @@ import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/stripe";
 import { resolveAppOrigin } from "@/lib/app-url";
-import { COMMS_CREDIT_PURPOSE, isCommsCreditPack } from "./credit-packs";
+import { COMMS_CREDIT_PURPOSE, isValidCommsCreditAmountCents } from "./credit-packs";
 
 export async function createCommsCreditCheckout(
   db: SupabaseClient,
@@ -13,8 +13,8 @@ export async function createCommsCreditCheckout(
   creditCents: number,
   req: Request,
 ) {
-  if (!isCommsCreditPack(creditCents))
-    throw new Error("Choose an available credit amount.");
+  if (!isValidCommsCreditAmountCents(creditCents))
+    throw new Error("Enter a whole-dollar amount from $5 to $500.");
   const { error: insertError } = await db
     .from("manager_comms_credit_purchases")
     .insert({
@@ -199,7 +199,7 @@ export async function fulfillCommsCreditPurchase(
     !paymentId ||
     session.mode !== "payment" ||
     session.currency !== "usd" ||
-    !isCommsCreditPack(credit) ||
+    !isValidCommsCreditAmountCents(credit) ||
     session.amount_subtotal !== credit ||
     session.amount_total !== credit ||
     session.client_reference_id !== owner ||

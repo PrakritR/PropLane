@@ -143,6 +143,36 @@ not enforce. Coverage: `tests/unit/plan-comms-allowance-copy.test.ts`.
 No subscription grants payment-processing coverage; only the staff-owned
 account override does — [resident-payments.md](resident-payments.md).
 
+## Settings → Billing & plan page shape
+
+`src/components/portal/pro-plan.tsx` (`ManagerPlan`) owns the whole page, in
+this order: Plan (one resolved `effectiveTier`, no pill, a scheduled-change
+banner with Undo when one is pending) → Usage
+(`manager-usage-panel.tsx`'s `ManagerUsagePanel` — communication, listings,
+workspaces, work numbers, co-managers as bars) → Extra usage
+(`ManagerExtraUsagePanel` — typed-dollar credit purchase via
+`use-credit-checkout.ts`, alert threshold, usage rates) → Add-ons
+(`ManagerPlanAddonsPanel`, mounted, not re-implemented) → Payment
+(`ManagerPaymentMethodsPanel`) → Invoices (`GET /api/manager/invoices`) →
+Cancellation. The three plan cards from the pre-PLAN-0920-1400 page live
+behind the **Adjust plan** sheet (`pro-plan-adjust-sheet.tsx`), never inline.
+
+Every tier read on the page goes through one resolved `effectiveTier`
+(`resolveEffectiveManagerSkuTier`) — the header, Usage's plan label and the
+Adjust sheet's "Current" tag all read the same value, never a second
+`tier`/`isBusiness` check that could disagree with it.
+
+**A plan change never applies immediately unless it is a same-tier
+Monthly→Annual switch** (proration, effective today — Stripe's own
+`useProration` branch in `POST /api/stripe/subscription/update-tier`).
+Annual→Monthly and any tier downgrade (Business→Pro) are scheduled at the
+current period's end via that same route's `scheduledDowngrade` metadata
+plumbing (`META_SCHEDULED_TIER`/`META_SCHEDULED_BILLING` on the Stripe
+subscription) and reported back by `GET /api/manager/subscription` as
+`scheduledDowngrade`; `action: "cancel_downgrade"` on the same route is Undo.
+The Adjust sheet reuses this existing plumbing rather than inventing a second
+scheduling mechanism.
+
 ## Admin Billing (staff view + per-account overrides)
 
 `/admin/billing` is a LENS on the accounts already in `/admin/axis-users`, not a
