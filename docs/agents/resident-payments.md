@@ -523,14 +523,29 @@ where `household_key` is the same `lower(residentEmail)|propertyId` key
 `resolveResidentAutopayHousehold` is the one place that resolves "the
 resident's current household" from their charges — the `/api/resident/autopay`
 route and the `set_autopay` agent tool both call it, so chat and the Payments
-page can never disagree about what is enrolled.
+page can never disagree about what is enrolled. A resident with more than one
+tenancy under the same manager names it with an optional `propertyId` (query on
+GET, body on PUT, tool input), validated against the charges they actually
+hold; absent, the pick is deterministic — the property of the soonest-due
+unpaid recurring charge, ties broken by `propertyId` ascending. Its
+`nextCharge` (the "Next payment" preview) is the soonest unpaid charge with no
+run row yet, i.e. exactly what the sweep will pick up.
 
 **The double-charge guard is a unique constraint, not a lock.**
 `resident_autopay_runs.charge_id` is UNIQUE; `claimRun` inserts a `claimed` row
 before charging anything, and a unique-violation on that insert means another
 pass already claimed this charge, so the caller skips. `listAutopayDueCharges`
-(the daily `/api/cron/run-autopay` cron) only lists a charge that is unpaid,
-recurring-kind, enrolled, and has NO run row yet at all — of any status.
+(the daily `/api/cron/run-autopay` cron, `0 8 * * *` UTC) lists a charge that
+is unpaid, recurring-kind, enrolled, has NO run row yet at all — of any status
+— and whose run date (due date minus days-before) is **today or earlier in
+Pacific time** (`pacificCalendarDateYmd`), so a pass that was skipped or a
+resident who enrolled after the due date is still paid; the run row, not the
+date match, is the double-charge guard. The PaymentIntent is created with
+`idempotencyKey: autopay:<runId>:<attempt>`, so a lost response to a confirmed
+create can never become a second debit on retry. The cron re-reads
+`workspaceAutopayEnabled` per property on BOTH passes: a manager turning
+autopay off stops every debit, not just new enrollments. Its auth fails closed
+on Vercel (`CRON_SECRET` required outside localhost), like `comms-billing-invoice`.
 
 **The off-session PaymentIntent reuses the manual checkout's own resolvers,
 never a forked fee calculation.** `chargeAutopay`
@@ -565,12 +580,17 @@ readers; `GET/PUT /api/resident/autopay` refuses to turn autopay on when the
 workspace has it off, and the cron only retries a failed run when the same
 workspace's retry setting still allows it.
 
-**The one allowed retry is three-plus days after a decline, tracked without a
-separate counter column.** `retryAutopayRun` transitions the existing `failed`
-row back to `claimed` in place (the unique `charge_id` means a retry cannot
-claim a second row); `chargeAutopay`'s `attempt: 2` tags a second failure's
-reason with the `[retry] ` prefix, which is what `retryAutopayRun` reads to
-refuse a third attempt.
+**The one allowed retry is three-plus days after a decline, tracked by the
+`attempt` column on the run row** (`AUTOPAY_MAX_ATTEMPTS = 2`). `retryAutopayRun`
+transitions the existing `failed` row back to `claimed` in place and bumps
+`attempt` (the unique `charge_id` means a retry cannot claim a second row); the
+update is conditional on the row still being `failed` at that attempt and
+reports whether it transitioned, so two overlapping passes cannot both charge.
+A failed row at the max is never retried, whether the failure was recorded
+synchronously by `chargeAutopay` or days later by the webhook — an ACH decline
+always arrives asynchronously, which is why a string tag on `failure_reason`
+was not enough. The webhook ignores a redelivered decline whose
+`metadata.autopay_attempt` is older than the row's current attempt.
 
 **Resident notice on decline**: `notifyAutopayDeclined` sends "Autopay could
 not pay `<charge title>` — `<decline reason>`. Nothing was charged." through

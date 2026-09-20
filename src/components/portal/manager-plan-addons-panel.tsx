@@ -212,6 +212,8 @@ const RENT_REPORTING_ENDPOINT = "/api/manager/rent-reporting-addon";
 type RentReportingAddonPayload = {
   tier: "free" | "pro" | "business" | null;
   canHoldAddon: boolean;
+  /** False until a furnisher partner is signed — the row reads "Coming soon" and cannot be turned on. */
+  partnerLive?: boolean;
   enabled: boolean;
   reporting: number;
   total: number;
@@ -270,7 +272,19 @@ function RentReportingAddonRow({ disabled }: { disabled: boolean }) {
   return (
     <PortalSettingsGroup className="mt-4">
       <PortalSettingsRow label="Rent reporting">
-        {data.canHoldAddon ? (
+        {data.partnerLive !== true ? (
+          <FieldSingleSelect
+            label="Rent reporting"
+            hideLabel
+            variant="cell"
+            wrapperClassName="w-32"
+            value="coming_soon"
+            onChange={() => undefined}
+            disabled
+            options={[{ value: "coming_soon", label: "Coming soon" }]}
+            dataAttr="rent-reporting-addon-coming-soon"
+          />
+        ) : data.canHoldAddon ? (
           <FieldSingleSelect
             label="Rent reporting"
             hideLabel
@@ -291,7 +305,7 @@ function RentReportingAddonRow({ disabled }: { disabled: boolean }) {
           </Link>
         )}
       </PortalSettingsRow>
-      {data.canHoldAddon && data.enabled ? (
+      {data.partnerLive === true && data.canHoldAddon && data.enabled ? (
         <PortalSettingsRow label="Residents reporting">
           <span className="text-sm font-semibold tabular-nums" data-attr="rent-reporting-addon-count">
             {data.reporting} of {data.total}

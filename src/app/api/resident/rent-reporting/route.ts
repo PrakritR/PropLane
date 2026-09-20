@@ -11,7 +11,11 @@ import {
   startRentReportingConsent,
   stopRentReportingConsent,
 } from "@/lib/rent-reporting/consent.server";
-import { RENT_REPORTING_BUREAUS_LABEL } from "@/lib/rent-reporting/partner";
+import {
+  isRentReportingPartnerLive,
+  RENT_REPORTING_BUREAUS_LABEL,
+  RENT_REPORTING_COMING_SOON,
+} from "@/lib/rent-reporting/partner";
 
 export const runtime = "nodejs";
 
@@ -77,6 +81,10 @@ export async function GET() {
   const ctx = await requireResident();
   if (!ctx) return NextResponse.json({ error: "Residents only." }, { status: 403 });
 
+  if (!isRentReportingPartnerLive()) {
+    return NextResponse.json({ eligible: false, comingSoon: true }, { headers: NO_STORE });
+  }
+
   const tenancy = await loadResidentTenancy(ctx.db, ctx.userId, ctx.email);
   if (!tenancy) return NextResponse.json({ eligible: false }, { headers: NO_STORE });
 
@@ -131,6 +139,10 @@ export async function PUT(req: NextRequest) {
   }
 
   if (body.action !== "start") return NextResponse.json({ error: "Unknown action." }, { status: 400 });
+
+  if (!isRentReportingPartnerLive()) {
+    return NextResponse.json({ error: RENT_REPORTING_COMING_SOON }, { status: 403 });
+  }
 
   const tierResult = await getEffectiveManagerSkuTier(tenancy.managerUserId);
   if (!tierResult.ok) return NextResponse.json({ error: tierResult.error }, { status: 503 });

@@ -1,6 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { HouseholdCharge, HouseholdChargeKind } from "@/lib/household-charges";
+import { householdChargeDueDate, type HouseholdCharge, type HouseholdChargeKind } from "@/lib/household-charges";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { loadListingByPropertyId } from "@/lib/payment-automation-server";
 import { lateFeePolicyFromSubmission } from "@/lib/payment-policy";
@@ -65,15 +65,16 @@ export type RentReportingPeriodRow = {
   status: RentReportingSubmissionStatus;
 };
 
-function chargeDueDate(charge: HouseholdCharge, period: string): string | null {
-  const parsed = charge.dueDateLabel?.trim();
-  if (parsed) {
-    const d = new Date(parsed);
-    if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
-  }
-  // Fall back to the 1st of the reported month — every rent charge has a due day,
-  // but a legacy row without a parseable label should not silently vanish from export.
-  return `${period}-01`;
+/**
+ * The charge's due date as an ISO calendar day, from the ledger's own resolver
+ * (`rentMonth` + `dueDay` + `dueDayMode` for recurring rent, the label otherwise) —
+ * never re-parsed here, never defaulted to the 1st. A charge the resolver cannot
+ * date is skipped by the caller rather than bucketed from a guessed date.
+ */
+function chargeDueDate(charge: HouseholdCharge): string | null {
+  const due = householdChargeDueDate(charge);
+  if (!due) return null;
+  return `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, "0")}-${String(due.getDate()).padStart(2, "0")}`;
 }
 
 /** The one rent-kind charge for this resident/property/period, if any exists yet. */
@@ -89,7 +90,7 @@ function rentChargeForPeriod(charges: HouseholdCharge[], propertyId: string, per
         c.propertyId === propertyId &&
         RENT_CHARGE_KINDS.has(c.kind) &&
         !c.rentMonth &&
-        (c.dueDateLabel ?? "").slice(0, 7) === period,
+        chargeDueDate(c)?.slice(0, 7) === period,
     ) ?? null
   );
 }
@@ -142,9 +143,11 @@ export async function buildRentReportingRowsForPeriod(
 
     const listing = listingByPropertyId.get(propertyId) ?? null;
     const graceDays = listing ? lateFeePolicyFromSubmission(listing).graceDays : 5;
-    const dueDate = chargeDueDate(rentCharge, period);
+    const dueDate = chargeDueDate(rentCharge);
     if (!dueDate) continue;
-    const paidAt = rentCharge.status === "paid" || rentCharge.status === "partially_paid" ? (rentCharge.paidAt ?? null) : null;
+    // A partial payment is not a paid month: the charge stays unpaid (and its
+    // late clock keeps running from the due date) until the balance clears.
+    const paidAt = rentCharge.status === "paid" ? (rentCharge.paidAt ?? null) : null;
     const lateFeeWaived = lateFeeWaivedFor(charges, rentCharge.id);
     const amountCents = Math.round(parseMoneyAmount(rentCharge.amountLabel) * 100);
     const status = deriveRentReportingSubmissionStatus({

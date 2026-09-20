@@ -56,13 +56,20 @@ vi.mock("@/lib/manager-outbound-identity.server", () => ({
 }));
 
 import {
+  AUTOPAY_MAX_ATTEMPTS,
   AUTOPAY_RECURRING_KINDS,
   chargeAutopay,
   claimRun,
   listAutopayDueCharges,
   listFailedAutopayRunsEligibleForRetry,
+  resolveResidentAutopayHousehold,
   retryAutopayRun,
 } from "@/lib/resident-autopay.server";
+
+/** Noon Pacific on the given calendar day — one instant whose Pacific date is unambiguous on any test machine. */
+function pacificNoon(ymd: string): Date {
+  return new Date(`${ymd}T12:00:00-07:00`);
+}
 
 function charge(overrides: Partial<HouseholdCharge> = {}): HouseholdCharge {
   return {
@@ -104,6 +111,9 @@ function queryBuilder<T>(rows: T[], rowView: (row: T) => Record<string, unknown>
       filtered = filtered.filter((r) => vals.includes(rowView(r)[col]));
       return builder;
     },
+    limit() {
+      return builder;
+    },
     async maybeSingle() {
       return { data: filtered[0] ?? null, error: null };
     },
@@ -142,6 +152,9 @@ function makeFakeDb(tables: {
               queryBuilder(charges, (r) => ({
                 id: r.id,
                 resident_user_id: r.row_data.residentUserId,
+                resident_email: r.row_data.residentEmail,
+                manager_user_id: r.row_data.managerUserId,
+                kind: r.row_data.kind,
                 status: r.row_data.status,
               })),
           };
@@ -166,14 +179,19 @@ function makeFakeDb(tables: {
             update: (patch: Record<string, unknown>) => {
               const builder = {
                 _preds: [] as Array<[string, unknown]>,
+                _selected: false,
                 eq(col: string, val: unknown) {
                   builder._preds.push([col, val]);
                   return builder;
                 },
-                then(resolve: (r: { error: null }) => void) {
-                  const row = runs.find((r) => builder._preds.every(([c, v]) => r[c] === v));
-                  if (row) Object.assign(row, patch);
-                  resolve({ error: null });
+                select() {
+                  builder._selected = true;
+                  return builder;
+                },
+                then(resolve: (r: { data: Record<string, unknown>[] | null; error: null }) => void) {
+                  const matched = runs.filter((r) => builder._preds.every(([c, v]) => r[c] === v));
+                  for (const row of matched) Object.assign(row, patch);
+                  resolve({ data: builder._selected ? matched.map((r) => ({ id: r.id })) : null, error: null });
                 },
               };
               return builder;
@@ -201,7 +219,7 @@ describe("AUTOPAY_RECURRING_KINDS", () => {
 
 describe("listAutopayDueCharges", () => {
   it("lists an enrolled resident's recurring charge due today, minus days-before-due", async () => {
-    const today = new Date(2026, 8, 28); // Sep 28, 2026 local
+    const today = pacificNoon("2026-09-28");
     const dueOct1 = charge({ id: "hc_due", dueDateLabel: "October 1, 2026" });
     const { db } = makeFakeDb({
       resident_autopay_settings: [
@@ -225,13 +243,78 @@ describe("listAutopayDueCharges", () => {
         residentUserId: "res_1",
         residentEmail: "resident@example.com",
         managerId: "mgr_1",
+        propertyId: "prop_1",
         paymentMethodId: "pm_1",
       },
     ]);
   });
 
+  it("lists a charge whose run date has already passed (missed pass, late enrollment) — the run row, not the date, guards double charging", async () => {
+    const today = pacificNoon("2026-10-03");
+    const dueOct1 = charge({ id: "hc_due", dueDateLabel: "October 1, 2026" });
+    const { db } = makeFakeDb({
+      resident_autopay_settings: [
+        {
+          id: "s1",
+          resident_user_id: "res_1",
+          manager_id: "mgr_1",
+          household_key: "resident@example.com|prop_1",
+          enabled: true,
+          payment_method_id: "pm_1",
+          run_days_before_due: 0,
+        },
+      ],
+      portal_household_charge_records: [{ id: "hc_due", row_data: dueOct1 }],
+    });
+
+    expect((await listAutopayDueCharges(db, today)).map((d) => d.chargeId)).toEqual(["hc_due"]);
+  });
+
+  it("does not list a charge that already has a run row, whatever its status", async () => {
+    const today = pacificNoon("2026-10-03");
+    const dueOct1 = charge({ id: "hc_due", dueDateLabel: "October 1, 2026" });
+    const { db } = makeFakeDb({
+      resident_autopay_settings: [
+        {
+          id: "s1",
+          resident_user_id: "res_1",
+          manager_id: "mgr_1",
+          household_key: "resident@example.com|prop_1",
+          enabled: true,
+          payment_method_id: "pm_1",
+          run_days_before_due: 0,
+        },
+      ],
+      portal_household_charge_records: [{ id: "hc_due", row_data: dueOct1 }],
+      resident_autopay_runs: [{ id: "run_1", charge_id: "hc_due", status: "failed", attempt: 1 }],
+    });
+
+    expect(await listAutopayDueCharges(db, today)).toEqual([]);
+  });
+
+  it("decides the run day in Pacific time: 23:30 Pacific on Sep 30 (06:30 UTC Oct 1) is still Sep 30", async () => {
+    const lateSep30Pacific = new Date("2026-10-01T06:30:00Z");
+    const dueOct1 = charge({ id: "hc_due", dueDateLabel: "October 1, 2026" });
+    const { db } = makeFakeDb({
+      resident_autopay_settings: [
+        {
+          id: "s1",
+          resident_user_id: "res_1",
+          manager_id: "mgr_1",
+          household_key: "resident@example.com|prop_1",
+          enabled: true,
+          payment_method_id: "pm_1",
+          run_days_before_due: 0,
+        },
+      ],
+      portal_household_charge_records: [{ id: "hc_due", row_data: dueOct1 }],
+    });
+
+    expect(await listAutopayDueCharges(db, lateSep30Pacific)).toEqual([]);
+  });
+
   it("excludes a one-off charge kind even when enrolled and due today", async () => {
-    const today = new Date(2026, 8, 28);
+    const today = pacificNoon("2026-09-28");
     const feeCharge = charge({ id: "hc_fee", kind: "other_cost", dueDateLabel: "September 28, 2026" });
     const { db } = makeFakeDb({
       resident_autopay_settings: [
@@ -253,7 +336,7 @@ describe("listAutopayDueCharges", () => {
   });
 
   it("does not list a charge not yet due (days-before math not yet reached)", async () => {
-    const today = new Date(2026, 8, 20); // Sep 20
+    const today = pacificNoon("2026-09-20");
     const dueOct1 = charge({ id: "hc_due", dueDateLabel: "October 1, 2026" });
     const { db } = makeFakeDb({
       resident_autopay_settings: [
@@ -331,6 +414,37 @@ describe("chargeAutopay — fee-payer parity with a manual checkout", () => {
     expect(args.payment_method).toBe("pm_bank_1");
     expect(args.metadata.autopay_run_id).toBe("run_1");
     expect(args.metadata.charge_id).toBe("hc_1");
+    expect(args.metadata.autopay_attempt).toBe("1");
+    // One PaymentIntent per (run, attempt): a lost response never becomes a second debit.
+    expect(paymentIntentsCreate.mock.calls[0][1]).toEqual({ idempotencyKey: "autopay:run_1:1" });
+  });
+
+  it("keys the retry attempt's PaymentIntent separately and records the attempt in metadata", async () => {
+    const rentCharge = charge();
+    loadHouseholdChargesForCheckout.mockResolvedValue({
+      ok: true,
+      managerUserId: "mgr_1",
+      loaded: [{ id: "hc_1", charge: rentCharge, managerUserId: "mgr_1", propertyFeePayer: null, propertyFeeWaiverCode: null }],
+    });
+    resolveHouseholdChargeFeePayer.mockResolvedValue({ ok: true, feePayer: "resident", managerTier: "pro" });
+    resolveAndValidateManagerConnectForPayments.mockResolvedValue({ ok: true, accountId: "acct_123" });
+    paymentMethodsRetrieve.mockResolvedValue({ type: "us_bank_account" });
+    paymentIntentsCreate.mockResolvedValue({ id: "pi_456", status: "processing" });
+
+    const { db } = makeFakeDb({ profiles: { res_1: { stripe_customer_id: "cus_1" } } });
+    const result = await chargeAutopay(db, {
+      id: "run_1",
+      chargeId: "hc_1",
+      residentUserId: "res_1",
+      residentEmail: "resident@example.com",
+      managerId: "mgr_1",
+      paymentMethodId: "pm_bank_1",
+      attempt: 2,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(paymentIntentsCreate.mock.calls[0][0].metadata.autopay_attempt).toBe("2");
+    expect(paymentIntentsCreate.mock.calls[0][1]).toEqual({ idempotencyKey: "autopay:run_1:2" });
   });
 
   it("fails the run and records a reason when the manager has no ready Connect account", async () => {
@@ -370,31 +484,47 @@ describe("chargeAutopay — fee-payer parity with a manual checkout", () => {
 describe("retryAutopayRun", () => {
   it("refuses a retry before 3 days have passed", async () => {
     const { db } = makeFakeDb({});
-    const result = await retryAutopayRun(
-      db,
-      { id: "run_1", updatedAt: new Date().toISOString(), failureReason: "declined" },
-      new Date(),
-    );
+    const result = await retryAutopayRun(db, { id: "run_1", updatedAt: new Date().toISOString(), attempt: 1 }, new Date());
     expect(result.retried).toBe(false);
   });
 
-  it("allows exactly one retry, then refuses a second", async () => {
+  it("allows exactly one retry (bumping the row's attempt), then refuses a second", async () => {
     const now = new Date("2026-01-10T00:00:00.000Z");
     const failedAt = new Date("2026-01-06T00:00:00.000Z").toISOString();
-    const { db } = makeFakeDb({
-      resident_autopay_runs: [{ id: "run_1", charge_id: "hc_1", status: "failed", updated_at: failedAt }],
+    const { db, runs } = makeFakeDb({
+      resident_autopay_runs: [
+        { id: "run_1", charge_id: "hc_1", status: "failed", attempt: 1, failure_reason: "declined", updated_at: failedAt },
+      ],
     });
 
-    const first = await retryAutopayRun(db, { id: "run_1", updatedAt: failedAt, failureReason: "declined" }, now);
-    expect(first.retried).toBe(true);
+    const first = await retryAutopayRun(db, { id: "run_1", updatedAt: failedAt, attempt: 1 }, now);
+    expect(first).toEqual({ retried: true, attempt: 2 });
+    expect(runs[0]).toMatchObject({ status: "claimed", attempt: 2, failure_reason: null });
 
-    // After chargeAutopay's attempt:2 failure path would tag the reason.
+    // The webhook (or the sync path) fails the second attempt WITHOUT any
+    // string tag — the attempt counter alone is what spends the retry.
+    Object.assign(runs[0]!, { status: "failed", failure_reason: "declined again", updated_at: now.toISOString() });
     const second = await retryAutopayRun(
       db,
-      { id: "run_1", updatedAt: now.toISOString(), failureReason: "[retry] declined again" },
+      { id: "run_1", updatedAt: now.toISOString(), attempt: AUTOPAY_MAX_ATTEMPTS },
       new Date("2026-01-20T00:00:00.000Z"),
     );
     expect(second.retried).toBe(false);
+    expect(runs[0]!.status).toBe("failed");
+  });
+
+  it("reports retried: false when another pass already transitioned the row (no double claim)", async () => {
+    const now = new Date("2026-01-10T00:00:00.000Z");
+    const failedAt = new Date("2026-01-06T00:00:00.000Z").toISOString();
+    const { db } = makeFakeDb({
+      resident_autopay_runs: [{ id: "run_1", charge_id: "hc_1", status: "failed", attempt: 1, updated_at: failedAt }],
+    });
+
+    const first = await retryAutopayRun(db, { id: "run_1", updatedAt: failedAt, attempt: 1 }, now);
+    expect(first.retried).toBe(true);
+    // An overlapping invocation listed the same failed row a moment earlier.
+    const overlapping = await retryAutopayRun(db, { id: "run_1", updatedAt: failedAt, attempt: 1 }, now);
+    expect(overlapping.retried).toBe(false);
   });
 });
 
@@ -410,10 +540,11 @@ describe("listFailedAutopayRunsEligibleForRetry", () => {
 
     const { db } = makeFakeDb({
       resident_autopay_runs: [
-        { id: "run_eligible", charge_id: "hc_eligible", resident_user_id: "res_a", manager_id: "mgr_1", status: "failed", failure_reason: "declined", updated_at: oldEnough },
-        { id: "run_too_recent", charge_id: "hc_too_recent", resident_user_id: "res_x", manager_id: "mgr_1", status: "failed", failure_reason: "declined", updated_at: tooRecent },
-        { id: "run_retried", charge_id: "hc_retried", resident_user_id: "res_b", manager_id: "mgr_1", status: "failed", failure_reason: "[retry] declined", updated_at: oldEnough },
-        { id: "run_paid", charge_id: "hc_paid", resident_user_id: "res_c", manager_id: "mgr_1", status: "failed", failure_reason: "declined", updated_at: oldEnough },
+        { id: "run_eligible", charge_id: "hc_eligible", resident_user_id: "res_a", manager_id: "mgr_1", status: "failed", attempt: 1, failure_reason: "declined", updated_at: oldEnough },
+        { id: "run_too_recent", charge_id: "hc_too_recent", resident_user_id: "res_x", manager_id: "mgr_1", status: "failed", attempt: 1, failure_reason: "declined", updated_at: tooRecent },
+        // Spent its retry; the failure was recorded by the webhook with no tag at all.
+        { id: "run_retried", charge_id: "hc_retried", resident_user_id: "res_b", manager_id: "mgr_1", status: "failed", attempt: 2, failure_reason: "declined", updated_at: oldEnough },
+        { id: "run_paid", charge_id: "hc_paid", resident_user_id: "res_c", manager_id: "mgr_1", status: "failed", attempt: 1, failure_reason: "declined", updated_at: oldEnough },
       ],
       portal_household_charge_records: [
         { id: "hc_eligible", row_data: eligibleCharge },
@@ -429,5 +560,62 @@ describe("listFailedAutopayRunsEligibleForRetry", () => {
 
     const candidates = await listFailedAutopayRunsEligibleForRetry(db, now);
     expect(candidates.map((c) => c.chargeId)).toEqual(["hc_eligible"]);
+    expect(candidates[0]).toMatchObject({ attempt: 1, updatedAt: oldEnough });
+  });
+});
+
+describe("resolveResidentAutopayHousehold", () => {
+  const twoTenancies = [
+    { id: "hc_b_oct", row_data: charge({ id: "hc_b_oct", propertyId: "prop_b", dueDateLabel: "October 1, 2026" }) },
+    { id: "hc_a_nov", row_data: charge({ id: "hc_a_nov", propertyId: "prop_a", dueDateLabel: "November 1, 2026" }) },
+    { id: "hc_a_sep", row_data: charge({ id: "hc_a_sep", propertyId: "prop_a", dueDateLabel: "September 1, 2026", status: "paid", balanceLabel: "$0.00" }) },
+  ];
+
+  it("picks the property of the soonest-due unpaid recurring charge when none is named, and the same one every call", async () => {
+    const { db } = makeFakeDb({ portal_household_charge_records: twoTenancies });
+    const first = await resolveResidentAutopayHousehold(db, { residentEmail: "resident@example.com", managerId: "mgr_1" });
+    const again = await resolveResidentAutopayHousehold(db, { residentEmail: "resident@example.com", managerId: "mgr_1" });
+    expect(first).toMatchObject({ propertyId: "prop_b", householdKey: "resident@example.com|prop_b" });
+    expect(first?.nextCharge?.id).toBe("hc_b_oct");
+    expect(again).toEqual(first);
+  });
+
+  it("breaks a due-date tie by propertyId ascending", async () => {
+    const { db } = makeFakeDb({
+      portal_household_charge_records: [
+        { id: "hc_z", row_data: charge({ id: "hc_z", propertyId: "prop_z", dueDateLabel: "October 1, 2026" }) },
+        { id: "hc_a", row_data: charge({ id: "hc_a", propertyId: "prop_a", dueDateLabel: "October 1, 2026" }) },
+      ],
+    });
+    const household = await resolveResidentAutopayHousehold(db, { residentEmail: "resident@example.com", managerId: "mgr_1" });
+    expect(household?.propertyId).toBe("prop_a");
+  });
+
+  it("honours a named propertyId the resident actually holds a recurring charge for, and refuses one they do not", async () => {
+    const { db } = makeFakeDb({ portal_household_charge_records: twoTenancies });
+    const named = await resolveResidentAutopayHousehold(db, {
+      residentEmail: "resident@example.com",
+      managerId: "mgr_1",
+      propertyId: "prop_a",
+    });
+    expect(named).toMatchObject({ propertyId: "prop_a", householdKey: "resident@example.com|prop_a" });
+    expect(named?.nextCharge?.id).toBe("hc_a_nov");
+
+    const foreign = await resolveResidentAutopayHousehold(db, {
+      residentEmail: "resident@example.com",
+      managerId: "mgr_1",
+      propertyId: "prop_someone_elses",
+    });
+    expect(foreign).toBeNull();
+  });
+
+  it("never previews a charge that already has a run row — the sweep will not pick it up", async () => {
+    const { db } = makeFakeDb({
+      portal_household_charge_records: twoTenancies,
+      resident_autopay_runs: [{ id: "run_1", charge_id: "hc_b_oct", status: "failed", attempt: 1 }],
+    });
+    const household = await resolveResidentAutopayHousehold(db, { residentEmail: "resident@example.com", managerId: "mgr_1" });
+    expect(household?.propertyId).toBe("prop_b");
+    expect(household?.nextCharge).toBeNull();
   });
 });

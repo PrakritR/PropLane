@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { isProductionRuntime } from "@/lib/server-env";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { loadWorkspacePaymentSettingsForProperty, workspaceAutopayRetryEnabled } from "@/lib/workspace-payment-settings.server";
+import {
+  loadWorkspacePaymentSettingsForProperty,
+  workspaceAutopayEnabled,
+  workspaceAutopayRetryEnabled,
+  type WorkspacePaymentSettings,
+} from "@/lib/workspace-payment-settings.server";
 import {
   chargeAutopay,
   claimRun,
@@ -12,10 +17,16 @@ import {
 import { track } from "@/lib/analytics/posthog";
 
 export const runtime = "nodejs";
+export const maxDuration = 300;
 
 function isAuthorized(req: Request): boolean {
   const cronSecret = process.env.CRON_SECRET?.trim();
-  if (!cronSecret) return !isProductionRuntime();
+  if (!cronSecret) {
+    // Same rule as comms-billing-invoice: preview deployments are public and
+    // hold real credentials, so secretless access is a localhost convenience
+    // only. This one moves money, so it fails closed everywhere else.
+    return !process.env.VERCEL_ENV && !isProductionRuntime();
+  }
   return req.headers.get("authorization") === `Bearer ${cronSecret}`;
 }
 
@@ -24,7 +35,9 @@ function isAuthorized(req: Request): boolean {
  * `charge_id` insert is the double-charge guard, so running this twice in one
  * day (a redelivered cron trigger, an overlapping manual invocation) never
  * charges a charge a second time — the second `claimRun` call for the same
- * charge just returns `claimed: false` and is skipped.
+ * charge just returns `claimed: false` and is skipped. Both passes re-read the
+ * manager's workspace setting per property: a manager who turns autopay off
+ * after residents enrolled stops every debit, not just new enrollments.
  */
 export async function GET(req: Request) {
   if (!isAuthorized(req)) {
@@ -38,8 +51,29 @@ export async function GET(req: Request) {
   let failed = 0;
   const errors: string[] = [];
 
+  const workspaceSettingsCache = new Map<string, Promise<WorkspacePaymentSettings>>();
+  const workspaceSettingsFor = (managerId: string, propertyId: string) => {
+    const key = `${managerId}|${propertyId}`;
+    let pending = workspaceSettingsCache.get(key);
+    if (!pending) {
+      pending = loadWorkspacePaymentSettingsForProperty(db, managerId, propertyId);
+      workspaceSettingsCache.set(key, pending);
+    }
+    return pending;
+  };
+
   const due = await listAutopayDueCharges(db, now);
   for (const item of due) {
+    try {
+      if (!workspaceAutopayEnabled(await workspaceSettingsFor(item.managerId, item.propertyId))) {
+        skipped++;
+        continue;
+      }
+    } catch (e) {
+      skipped++;
+      errors.push(`${item.chargeId}: ${e instanceof Error ? e.message : String(e)}`);
+      continue;
+    }
     const claim = await claimRun(db, {
       chargeId: item.chargeId,
       residentUserId: item.residentUserId,
@@ -57,6 +91,7 @@ export async function GET(req: Request) {
         residentEmail: item.residentEmail,
         managerId: item.managerId,
         paymentMethodId: item.paymentMethodId,
+        attempt: 1,
       });
       if (result.ok) {
         charged++;
@@ -73,28 +108,17 @@ export async function GET(req: Request) {
   }
 
   // The one allowed retry, three-plus days after a decline, and only when the
-  // manager's own workspace setting still allows it.
+  // manager's own workspace settings still allow autopay AND the retry.
   let retried = 0;
   const retryCandidates = await listFailedAutopayRunsEligibleForRetry(db, now);
   for (const candidate of retryCandidates) {
     try {
-      const workspaceSettings = await loadWorkspacePaymentSettingsForProperty(db, candidate.managerId, candidate.propertyId);
-      if (!workspaceAutopayRetryEnabled(workspaceSettings)) continue;
-
-      const { data: runRow } = await db
-        .from("resident_autopay_runs")
-        .select("id, updated_at, failure_reason")
-        .eq("id", candidate.runId)
-        .maybeSingle();
-      if (!runRow) continue;
+      const workspaceSettings = await workspaceSettingsFor(candidate.managerId, candidate.propertyId);
+      if (!workspaceAutopayEnabled(workspaceSettings) || !workspaceAutopayRetryEnabled(workspaceSettings)) continue;
 
       const claim = await retryAutopayRun(
         db,
-        {
-          id: String(runRow.id),
-          updatedAt: String(runRow.updated_at),
-          failureReason: (runRow.failure_reason as string | null) ?? null,
-        },
+        { id: candidate.runId, updatedAt: candidate.updatedAt, attempt: candidate.attempt },
         now,
       );
       if (!claim.retried) continue;
@@ -106,7 +130,7 @@ export async function GET(req: Request) {
         residentEmail: candidate.residentEmail,
         managerId: candidate.managerId,
         paymentMethodId: candidate.paymentMethodId,
-        attempt: 2,
+        attempt: claim.attempt,
       });
       retried++;
       track("autopay_run_result", candidate.residentUserId, { status: result.ok ? "succeeded" : "failed" });

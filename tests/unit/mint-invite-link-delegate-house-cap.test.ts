@@ -119,6 +119,11 @@ describe("mintInviteLink caps a delegate's property set, not just permission lev
     // Never the workspace owner's full three-house set.
     expect(result.link.assignedPropertyIds).toEqual(["house-A"]);
     expect(insertedLink?.assigned_property_ids).toEqual(["house-A"]);
+    // Stored as "selected", never "all": an "all" row is re-expanded to every
+    // workspace house by the membership trigger on redemption, which would
+    // hand the capped ids straight back.
+    expect(insertedLink?.house_scope).toBe("selected");
+    expect(result.link.houseScope).toBe("selected");
     // The stamp itself is fine (Admin on the one house they hold) — the bug
     // was reaching houses outside that grant at all, not the grant's shape.
     expect(result.link.propertyPermissions["house-B"]).toBeUndefined();

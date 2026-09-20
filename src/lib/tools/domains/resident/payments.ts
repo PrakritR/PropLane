@@ -147,13 +147,31 @@ export const setAutopayTool = defineWriteTool({
         .max(5)
         .optional()
         .describe("How many days before the due date autopay runs (0 = on the due date). Ignored when enabled is false."),
+      propertyId: z
+        .string()
+        .trim()
+        .min(1)
+        .optional()
+        .describe(
+          "Only when the resident rents more than one home from this manager: the property id of the home to enroll. Leave out to use the home with the soonest unpaid rent.",
+        ),
     })
     .strict(),
   preview: async (ctx: ResidentAgentContext, input) => {
     const managerId = ctx.activeManagerId ?? ctx.managerIds[0];
     if (!managerId) throw new Error("No linked property manager found.");
-    const household = await resolveResidentAutopayHousehold(ctx.db, { residentEmail: ctx.email, managerId });
-    if (!household) throw new Error("You don't have any recurring rent or utility charges to enroll yet.");
+    const household = await resolveResidentAutopayHousehold(ctx.db, {
+      residentEmail: ctx.email,
+      managerId,
+      propertyId: input.propertyId ?? null,
+    });
+    if (!household) {
+      throw new Error(
+        input.propertyId
+          ? "That home has no recurring rent or utility charges to enroll."
+          : "You don't have any recurring rent or utility charges to enroll yet.",
+      );
+    }
 
     if (input.enabled) {
       const workspaceSettings = await loadWorkspacePaymentSettingsForProperty(ctx.db, managerId, household.propertyId);
@@ -200,7 +218,7 @@ export const setAutopayTool = defineWriteTool({
     const audit = await writeAuditLog(ctx, {
       action: "set_autopay",
       toolName: "set_autopay",
-      inputSummary: { enabled: input.enabled, daysBeforeDue: input.daysBeforeDue ?? null },
+      inputSummary: { enabled: input.enabled, daysBeforeDue: input.daysBeforeDue ?? null, propertyId: input.propertyId ?? null },
     });
     if (!audit.recorded) {
       throw new Error("Could not record the action; autopay was not changed.");
@@ -208,8 +226,18 @@ export const setAutopayTool = defineWriteTool({
 
     const managerId = ctx.activeManagerId ?? ctx.managerIds[0];
     if (!managerId) throw new Error("No linked property manager found.");
-    const household = await resolveResidentAutopayHousehold(ctx.db, { residentEmail: ctx.email, managerId });
-    if (!household) throw new Error("You don't have any recurring rent or utility charges to enroll yet.");
+    const household = await resolveResidentAutopayHousehold(ctx.db, {
+      residentEmail: ctx.email,
+      managerId,
+      propertyId: input.propertyId ?? null,
+    });
+    if (!household) {
+      throw new Error(
+        input.propertyId
+          ? "That home has no recurring rent or utility charges to enroll."
+          : "You don't have any recurring rent or utility charges to enroll yet.",
+      );
+    }
 
     let paymentMethodId: string | null = null;
     if (input.enabled) {
@@ -242,7 +270,7 @@ export const setAutopayTool = defineWriteTool({
       reply: saved.enabled
         ? "Autopay is on for your rent and utility charges."
         : "Autopay is now off. You'll need to pay each charge yourself.",
-      resultSummary: { enabled: saved.enabled, runDaysBeforeDue: saved.runDaysBeforeDue },
+      resultSummary: { enabled: saved.enabled, runDaysBeforeDue: saved.runDaysBeforeDue, propertyId: household.propertyId },
     };
   },
 });

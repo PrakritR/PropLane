@@ -117,6 +117,13 @@ function createFakeDb(seed: Record<string, Row[]> = {}) {
 
 let db: ReturnType<typeof createFakeDb>;
 let tier: "free" | "pro" | "business" = "pro";
+/** The tests below exercise the live pipeline; the "coming soon" block flips this off. */
+let partnerLive = true;
+
+vi.mock("@/lib/rent-reporting/partner", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/rent-reporting/partner")>();
+  return { ...actual, isRentReportingPartnerLive: () => partnerLive };
+});
 
 vi.mock("@/lib/auth/resident-role-access", () => ({
   authorizeResidentRole: async () => true,
@@ -162,7 +169,30 @@ beforeEach(() => {
   vi.stubEnv("DATA_ENCRYPTION_KEYS_JSON", JSON.stringify({ "key-1": randomBytes(32).toString("base64") }));
   db = createFakeDb();
   tier = "pro";
+  partnerLive = true;
   seedTenancy();
+});
+
+describe("no live partner (the shipped default)", () => {
+  beforeEach(() => {
+    partnerLive = false;
+    db.store.manager_automation_settings = [
+      { manager_user_id: "mgr-1", row_data: { rentReportingAddon: { enabled: true } } },
+    ];
+  });
+
+  it("GET hides the card even for an eligible tenancy with the add-on on", async () => {
+    const res = await GET();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ eligible: false, comingSoon: true });
+  });
+
+  it("refuses to start, so nobody consents to reporting that does not happen", async () => {
+    const res = await put({ action: "start", legalName: "Jamie Rivera", dob: "1990-05-01", consent: true });
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toMatch(/coming soon/i);
+    expect(db.store.resident_rent_reporting ?? []).toHaveLength(0);
+  });
 });
 
 describe("add-on gating", () => {

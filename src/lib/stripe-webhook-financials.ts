@@ -10,7 +10,7 @@ import { parseMoneyAmount } from "@/lib/parse-money";
 import { enqueueWebhookEvent } from "@/lib/webhooks/deliver.server";
 import { webhookEventBuilders } from "@/lib/webhooks/events";
 import { markHouseholdChargePaidFromPaymentIntent } from "@/lib/stripe-household-charge";
-import { notifyAutopayDeclined } from "@/lib/resident-autopay.server";
+import { notifyAutopayDeclined, runAttempt } from "@/lib/resident-autopay.server";
 import { feeCentsForMethod, normalizePayoutStatus } from "@/lib/stripe-payouts";
 
 export async function resolveUserIdByConnectAccountId(
@@ -352,15 +352,22 @@ export async function handleAutopayPaymentIntentFailed(
 
   const { data: existingRun } = await db
     .from("resident_autopay_runs")
-    .select("id, status")
+    .select("id, status, attempt")
     .eq("id", runId)
     .maybeSingle();
   if (!existingRun || existingRun.status === "failed" || existingRun.status === "succeeded") return;
+  // A redelivered decline for an earlier attempt must not fail the row while
+  // a later attempt is in flight; the row's `attempt` is the counter both
+  // paths share.
+  const rowAttempt = runAttempt(existingRun.attempt);
+  const intentAttempt = runAttempt(paymentIntent.metadata?.autopay_attempt);
+  if (intentAttempt < rowAttempt) return;
 
   await db
     .from("resident_autopay_runs")
     .update({ status: "failed", failure_reason: failureReason, updated_at: new Date().toISOString() })
-    .eq("id", runId);
+    .eq("id", runId)
+    .eq("attempt", rowAttempt);
 
   if (chargeId && managerUserId) {
     const { data: row } = await db

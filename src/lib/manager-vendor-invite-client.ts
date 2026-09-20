@@ -193,12 +193,14 @@ export async function deliverManagerDirectoryMessage(
  * Text a workspace invite to a phone with no PropLane account yet, through
  * the manager's provisioned work number. `phone` must already be E.164
  * (`normalizeE164` from `@/lib/phone-e164`) — this never guesses at a raw
- * string the way the shared inbox pipeline would.
+ * string the way the shared inbox pipeline would. The message body is
+ * composed by the server from `linkId` and the workspace; the client never
+ * supplies text to send from the work number.
  */
 export async function sendWorkspaceInviteSms(input: {
   workspaceId: string;
   phone: string;
-  text: string;
+  linkId: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     const res = await fetch("/api/pro/invite-links/send-sms", {

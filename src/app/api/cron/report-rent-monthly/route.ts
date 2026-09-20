@@ -10,7 +10,13 @@ export const runtime = "nodejs";
 
 function isAuthorized(req: Request): boolean {
   const cronSecret = process.env.CRON_SECRET?.trim();
-  if (!cronSecret) return !isProductionRuntime();
+  if (!cronSecret) {
+    // Same rule as comms-billing-invoice: preview deployments are public and
+    // hold real credentials, so secretless access is a localhost convenience
+    // only. This one submits consumer credit data, so it fails closed
+    // everywhere else.
+    return !process.env.VERCEL_ENV && !isProductionRuntime();
+  }
   return req.headers.get("authorization") === `Bearer ${cronSecret}`;
 }
 

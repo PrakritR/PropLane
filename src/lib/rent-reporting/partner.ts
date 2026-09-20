@@ -41,6 +41,15 @@ export type RentReportingPartnerReceipt = {
 };
 
 export interface RentReportingPartner {
+  /**
+   * True only for a signed furnisher that actually reports to the bureaus.
+   * While this is false the product shows rent reporting as "Coming soon":
+   * the resident card and consent sheet do not render, the manager add-on
+   * cannot be turned on, and the assistant answers that it is not available
+   * yet — so nobody consents to, or is told about, reporting that does not
+   * happen. Nothing else changes when a live partner is wired in.
+   */
+  readonly live: boolean;
   /** Enroll a resident with the partner; returns the partner's own subject id. */
   enroll(subject: RentReportingSubject): Promise<{ partnerSubjectId: string }>;
   /** Submit one period's rows for one or more subjects. Returns a receipt per row, keyed by reportingId+period. */
@@ -60,6 +69,8 @@ function submissionKey(reportingId: string, period: string): string {
  * (`export.server.ts` / the monthly cron route) with no other code changing.
  */
 export class StubRentReportingPartner implements RentReportingPartner {
+  readonly live = false;
+
   async enroll(subject: RentReportingSubject): Promise<{ partnerSubjectId: string }> {
     return { partnerSubjectId: `stub_${subject.reportingId}` };
   }
@@ -93,3 +104,11 @@ export function getRentReportingPartner(): RentReportingPartner {
   if (!sharedPartner) sharedPartner = new StubRentReportingPartner();
   return sharedPartner;
 }
+
+/** Whether a live furnisher is wired — the one gate every rent-reporting surface reads. */
+export function isRentReportingPartnerLive(): boolean {
+  return getRentReportingPartner().live === true;
+}
+
+/** Copy every surface uses while no live partner is signed. */
+export const RENT_REPORTING_COMING_SOON = "Rent reporting is coming soon.";

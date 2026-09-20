@@ -22,6 +22,7 @@ import { getStripe } from "@/lib/stripe";
 import { deliverPaymentReminder, reminderHtmlFromText } from "@/lib/payment-reminder-delivery";
 import { loadManagerAutomationSettings, DEFAULT_MANAGER_AUTOMATION_SETTINGS } from "@/lib/payment-automation-settings";
 import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.server";
+import { pacificCalendarDateYmd } from "@/lib/pacific-time";
 
 /**
  * Autopay only covers rent and recurring charges — one-off charges (fees,
@@ -29,6 +30,9 @@ import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.serve
  * decision, PLAN-0920-1051 Wave 1.
  */
 export const AUTOPAY_RECURRING_KINDS: ReadonlySet<HouseholdChargeKind> = new Set(["rent", "utilities"]);
+
+/** The first charge plus the one allowed retry — `resident_autopay_runs.attempt` never passes this. */
+export const AUTOPAY_MAX_ATTEMPTS = 2;
 
 /** The same `residentEmail|propertyId` key `recurringRentProfileKey` groups a resident's recurring charges by. */
 export function residentAutopayHouseholdKey(residentEmail: string, propertyId: string): string {
@@ -112,17 +116,31 @@ export async function saveResidentAutopaySettings(
 
 export type ResidentAutopayHousehold = { propertyId: string; householdKey: string; nextCharge: HouseholdCharge | null };
 
+function compareByDueThen(a: HouseholdCharge, b: HouseholdCharge, tieBreak: (c: HouseholdCharge) => string): number {
+  const at = householdChargeDueDate(a)?.getTime() ?? Infinity;
+  const bt = householdChargeDueDate(b)?.getTime() ?? Infinity;
+  if (at !== bt) return at - bt;
+  return tieBreak(a).localeCompare(tieBreak(b));
+}
+
 /**
- * The resident's current household for autopay: the property behind their
- * nearest recurring (rent/utilities) charge with this manager — the same
- * grouping `recurringRentProfileKey` already uses for a recurring rent
- * profile. A resident with no recurring charge yet has no household to
- * enroll. Shared by the settings route and the `set_autopay` agent tool so
- * both resolve "the resident's household" identically.
+ * The resident's current household for autopay — the same
+ * `residentEmail|propertyId` grouping `recurringRentProfileKey` already uses
+ * for a recurring rent profile. A resident with more than one tenancy under
+ * this manager names the one they mean with `propertyId`, which must be a
+ * property they actually hold a recurring charge for; otherwise the pick is
+ * deterministic — the property of the soonest-due unpaid recurring charge,
+ * ties broken by `propertyId` ascending — so GET/PUT on the settings route
+ * and the `set_autopay` tool always land on the same household. A resident
+ * with no recurring charge yet has no household to enroll.
+ *
+ * `nextCharge` is the soonest unpaid recurring charge for that property that
+ * has no run row yet — i.e. exactly what {@link listAutopayDueCharges} will
+ * pick up — so the enroll preview never names a charge the sweep will not pay.
  */
 export async function resolveResidentAutopayHousehold(
   db: SupabaseClient,
-  input: { residentEmail: string; managerId: string },
+  input: { residentEmail: string; managerId: string; propertyId?: string | null },
 ): Promise<ResidentAutopayHousehold | null> {
   const { data: rows, error } = await db
     .from("portal_household_charge_records")
@@ -135,17 +153,40 @@ export async function resolveResidentAutopayHousehold(
 
   const charges = (rows ?? [])
     .map((row) => row.row_data as HouseholdCharge | null)
-    .filter((charge): charge is HouseholdCharge => Boolean(charge?.id));
+    .filter((charge): charge is HouseholdCharge => Boolean(charge?.id && charge?.propertyId));
   if (charges.length === 0) return null;
 
-  const propertyId = charges[0]!.propertyId;
+  const requestedPropertyId = input.propertyId?.trim() ?? "";
+  let propertyId: string;
+  if (requestedPropertyId) {
+    if (!charges.some((c) => c.propertyId === requestedPropertyId)) return null;
+    propertyId = requestedPropertyId;
+  } else {
+    const soonestUnpaid = charges
+      .filter(isUnpaidHouseholdCharge)
+      .sort((a, b) => compareByDueThen(a, b, (c) => c.propertyId))[0];
+    propertyId = soonestUnpaid?.propertyId ?? [...new Set(charges.map((c) => c.propertyId))].sort()[0]!;
+  }
   const householdKey = residentAutopayHouseholdKey(input.residentEmail, propertyId);
 
   const unpaid = charges
     .filter((c) => c.propertyId === propertyId && isUnpaidHouseholdCharge(c))
-    .sort((a, b) => (householdChargeDueDate(a)?.getTime() ?? Infinity) - (householdChargeDueDate(b)?.getTime() ?? Infinity));
+    .sort((a, b) => compareByDueThen(a, b, (c) => c.id));
+  const alreadyRun = new Set<string>();
+  if (unpaid.length > 0) {
+    const { data: runRows, error: runErr } = await db
+      .from("resident_autopay_runs")
+      .select("charge_id")
+      .in(
+        "charge_id",
+        unpaid.map((c) => c.id),
+      );
+    if (runErr) throw new Error(runErr.message);
+    for (const row of runRows ?? []) alreadyRun.add(String(row.charge_id));
+  }
+  const nextCharge = unpaid.find((c) => !alreadyRun.has(c.id)) ?? null;
 
-  return { propertyId, householdKey, nextCharge: unpaid[0] ?? null };
+  return { propertyId, householdKey, nextCharge };
 }
 
 /** "Oct 1 · $1,510.00" — the run date (due date minus days-before) and amount, for GET/set_autopay to show. */
@@ -157,8 +198,7 @@ export function autopayNextScheduledChargeLabel(
   if (!charge) return null;
   const due = householdChargeDueDate(charge);
   if (!due) return null;
-  const runDate = new Date(due);
-  runDate.setDate(runDate.getDate() - runDaysBeforeDue);
+  const runDate = autopayRunDate(due, runDaysBeforeDue);
   const amountCents = householdChargeAmountCents(charge);
   const amount = `$${(amountCents / 100).toFixed(2)}`;
   return `${formatDate(runDate)} · ${amount}`;
@@ -169,20 +209,39 @@ export type AutopayDueItem = {
   residentUserId: string;
   residentEmail: string;
   managerId: string;
+  propertyId: string;
   paymentMethodId: string;
 };
 
-function sameLocalDay(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+/**
+ * The calendar day a due date resolves to. `householdChargeDueDate` anchors
+ * the day at local noon, so its own calendar fields are the day it means on
+ * any server; "today" is the Pacific calendar date, the same frame every
+ * resident-facing due-date label (`formatPacificDate`) is rendered in.
+ */
+function calendarYmd(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+/** Due date minus the resident's days-before-due, as the Pacific-frame calendar day the charge should run on. */
+export function autopayRunDate(due: Date, runDaysBeforeDue: number): Date {
+  const runDate = new Date(due);
+  runDate.setDate(runDate.getDate() - runDaysBeforeDue);
+  return runDate;
 }
 
 /**
- * Enrolled residents whose due date, minus their chosen run-days-before-due,
- * lands on `today` — recurring-kind, unpaid, and with no run row yet (a run
- * row of ANY status blocks a same-pass re-list; the retry path is separate
- * and explicit, never this listing).
+ * Enrolled residents whose run date (due date minus their chosen
+ * run-days-before-due) is `today` or earlier in Pacific time — recurring-kind,
+ * unpaid, and with no run row yet (a run row of ANY status blocks a re-list;
+ * the retry path is separate and explicit, never this listing). Listing
+ * every past-due run date rather than only today's means a charge missed by
+ * a skipped pass, or one already due when the resident enrolled, is still
+ * paid; the unique run row per charge is what keeps that from ever charging
+ * twice.
  */
 export async function listAutopayDueCharges(db: SupabaseClient, today: Date = new Date()): Promise<AutopayDueItem[]> {
+  const todayYmd = pacificCalendarDateYmd(today);
   const { data: settingsRows, error: settingsErr } = await db
     .from("resident_autopay_settings")
     .select("id, resident_user_id, manager_id, household_key, enabled, payment_method_id, run_days_before_due")
@@ -230,15 +289,14 @@ export async function listAutopayDueCharges(db: SupabaseClient, today: Date = ne
 
     const due = householdChargeDueDate(charge);
     if (!due) continue;
-    const runDate = new Date(due);
-    runDate.setDate(runDate.getDate() - settings.runDaysBeforeDue);
-    if (!sameLocalDay(runDate, today)) continue;
+    if (calendarYmd(autopayRunDate(due, settings.runDaysBeforeDue)) > todayYmd) continue;
 
     out.push({
       chargeId: String(row.id),
       residentUserId,
       residentEmail: charge.residentEmail,
       managerId,
+      propertyId: charge.propertyId,
       paymentMethodId: settings.paymentMethodId!,
     });
   }
@@ -301,9 +359,6 @@ export type ChargeAutopayResult =
   | { ok: true; paymentIntentId: string }
   | { ok: false; reason: string; declined?: boolean };
 
-/** Prefixed onto a retry attempt's failure reason — see {@link retryAutopayRun}'s "used its one retry" check. */
-const RETRY_FAILURE_TAG = "[retry] ";
-
 /**
  * Charge ONE claimed autopay run: an off-session PaymentIntent on the
  * connected account, using the SAME amount/fee/transfer computation a manual
@@ -322,12 +377,12 @@ export async function chargeAutopay(
     residentEmail: string;
     managerId: string;
     paymentMethodId: string;
-    /** 2 marks this as the one allowed retry attempt — see {@link retryAutopayRun}. */
+    /** The run row's `attempt` — 1 for the first charge, 2 for the one allowed retry (see {@link retryAutopayRun}). */
     attempt?: number;
   },
 ): Promise<ChargeAutopayResult> {
-  const failTag = (run.attempt ?? 1) > 1 ? RETRY_FAILURE_TAG : "";
-  const fail = (reason: string) => updateRun(db, run.id, { status: "failed", failureReason: `${failTag}${reason}` });
+  const attempt = Math.max(1, Math.round(run.attempt ?? 1));
+  const fail = (reason: string) => updateRun(db, run.id, { status: "failed", failureReason: reason });
 
   const resolved = await loadHouseholdChargesForCheckout(db, {
     userId: run.residentUserId,
@@ -393,25 +448,29 @@ export async function chargeAutopay(
   }
 
   try {
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: fee.totalCents,
-      currency: "usd",
-      customer: customerId,
-      payment_method: run.paymentMethodId,
-      off_session: true,
-      confirm: true,
-      transfer_data: { destination: connect.accountId },
-      ...(fee.applicationFeeCents > 0 ? { application_fee_amount: fee.applicationFeeCents } : {}),
-      metadata: {
-        purpose: HOUSEHOLD_CHARGE_CHECKOUT_PURPOSE,
-        autopay_run_id: run.id,
-        charge_id: run.chargeId,
-        manager_user_id: managerUserId,
-        resident_email: run.residentEmail.trim().toLowerCase(),
-        payment_method: method,
-        fee_payer: feePayer,
+    const paymentIntent = await stripe.paymentIntents.create(
+      {
+        amount: fee.totalCents,
+        currency: "usd",
+        customer: customerId,
+        payment_method: run.paymentMethodId,
+        off_session: true,
+        confirm: true,
+        transfer_data: { destination: connect.accountId },
+        ...(fee.applicationFeeCents > 0 ? { application_fee_amount: fee.applicationFeeCents } : {}),
+        metadata: {
+          purpose: HOUSEHOLD_CHARGE_CHECKOUT_PURPOSE,
+          autopay_run_id: run.id,
+          autopay_attempt: String(attempt),
+          charge_id: run.chargeId,
+          manager_user_id: managerUserId,
+          resident_email: run.residentEmail.trim().toLowerCase(),
+          payment_method: method,
+          fee_payer: feePayer,
+        },
       },
-    });
+      { idempotencyKey: `autopay:${run.id}:${attempt}` },
+    );
     // The webhook (payment_intent.succeeded / .payment_failed) is the
     // authoritative settle path — a synchronous card decline still arrives
     // there too, but marking succeeded here when Stripe already confirmed it
@@ -482,29 +541,36 @@ export async function notifyAutopayDeclined(
 /**
  * A declined run may retry ONCE, three days after it failed. `charge_id` is
  * UNIQUE, so a retry cannot claim a second row for the same charge — it
- * transitions the existing failed row back to `claimed` in place instead, and
- * {@link chargeAutopay}'s `attempt: 2` tags the failure reason with
- * {@link RETRY_FAILURE_TAG} if it fails again, which is what stops a THIRD
- * attempt: a failure reason already carrying that tag means the one retry is
- * spent.
+ * transitions the existing failed row back to `claimed` in place and bumps
+ * `attempt`, the counter that stops a THIRD attempt: a failed row already at
+ * {@link AUTOPAY_MAX_ATTEMPTS} is never retried, whether the failure was
+ * recorded synchronously by {@link chargeAutopay} or days later by the
+ * `payment_intent.payment_failed` webhook. The update is conditional on the
+ * row still being `failed` at the same attempt and reports whether it
+ * actually transitioned, so two overlapping passes cannot both claim it.
  */
 export async function retryAutopayRun(
   db: SupabaseClient,
-  failedRun: { id: string; updatedAt: string; failureReason: string | null },
+  failedRun: { id: string; updatedAt: string; attempt: number },
   now: Date = new Date(),
-): Promise<{ retried: boolean }> {
-  if (failedRun.failureReason?.startsWith(RETRY_FAILURE_TAG)) return { retried: false };
+): Promise<{ retried: true; attempt: number } | { retried: false }> {
+  const currentAttempt = Math.max(1, Math.round(failedRun.attempt));
+  if (currentAttempt >= AUTOPAY_MAX_ATTEMPTS) return { retried: false };
   const failedAt = new Date(failedRun.updatedAt);
   const daysSinceFailure = (now.getTime() - failedAt.getTime()) / (1000 * 60 * 60 * 24);
   if (daysSinceFailure < 3) return { retried: false };
 
-  const { error } = await db
+  const nextAttempt = currentAttempt + 1;
+  const { data, error } = await db
     .from("resident_autopay_runs")
-    .update({ status: "claimed", updated_at: now.toISOString() })
+    .update({ status: "claimed", attempt: nextAttempt, failure_reason: null, updated_at: now.toISOString() })
     .eq("id", failedRun.id)
-    .eq("status", "failed");
+    .eq("status", "failed")
+    .eq("attempt", currentAttempt)
+    .select("id");
   if (error) throw new Error(error.message);
-  return { retried: true };
+  if (!data || data.length === 0) return { retried: false };
+  return { retried: true, attempt: nextAttempt };
 }
 
 export type AutopayRetryCandidate = {
@@ -515,7 +581,17 @@ export type AutopayRetryCandidate = {
   managerId: string;
   propertyId: string;
   paymentMethodId: string;
+  /** The failed row's current attempt; {@link retryAutopayRun} bumps it. */
+  attempt: number;
+  /** When the failure was recorded — the three-day clock starts here. */
+  updatedAt: string;
 };
+
+/** `resident_autopay_runs.attempt` as stored; rows from before the column existed read as the first attempt. */
+export function runAttempt(raw: unknown): number {
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 1 ? Math.round(n) : 1;
+}
 
 /**
  * Failed runs that are candidates for the one allowed retry: three-plus days
@@ -530,13 +606,12 @@ export async function listFailedAutopayRunsEligibleForRetry(
 ): Promise<AutopayRetryCandidate[]> {
   const { data: failedRuns, error } = await db
     .from("resident_autopay_runs")
-    .select("id, charge_id, resident_user_id, manager_id, failure_reason, updated_at")
+    .select("id, charge_id, resident_user_id, manager_id, attempt, updated_at")
     .eq("status", "failed");
   if (error) throw new Error(error.message);
 
   const candidates = (failedRuns ?? []).filter((row) => {
-    const failureReason = typeof row.failure_reason === "string" ? row.failure_reason : "";
-    if (failureReason.startsWith(RETRY_FAILURE_TAG)) return false;
+    if (runAttempt(row.attempt) >= AUTOPAY_MAX_ATTEMPTS) return false;
     const updatedAt = new Date(String(row.updated_at));
     const daysSinceFailure = (now.getTime() - updatedAt.getTime()) / (1000 * 60 * 60 * 24);
     return daysSinceFailure >= 3;
@@ -579,6 +654,8 @@ export async function listFailedAutopayRunsEligibleForRetry(
       managerId: String(run.manager_id),
       propertyId: charge.propertyId,
       paymentMethodId: settings.paymentMethodId,
+      attempt: runAttempt(run.attempt),
+      updatedAt: String(run.updated_at),
     });
   }
   return out;

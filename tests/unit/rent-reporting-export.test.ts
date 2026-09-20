@@ -128,4 +128,47 @@ describe("buildRentReportingRowsForPeriod", () => {
     const rows = await buildRentReportingRowsForPeriod(fakeDb([]), "2026-08", [enrollment({})]);
     expect(rows).toEqual([]);
   });
+
+  it("the due date comes from the ledger resolver (rentMonth + dueDay), never a re-parsed or defaulted label", async () => {
+    // Rent due on the 15th, paid on the 16th, with a stale label that says the 1st:
+    // from the resolver this is on time; from the label (or a "-01" default) it
+    // would be bucketed 15 days late.
+    const charges = [
+      {
+        id: "rent-1",
+        residentUserId: "res-1",
+        propertyId: "prop-1",
+        kind: "rent",
+        rentMonth: "2026-08",
+        dueDay: 15,
+        amountLabel: "$1,200.00",
+        status: "paid",
+        paidAt: "2026-08-16",
+        dueDateLabel: "Aug 1, 2026",
+      },
+    ];
+    const rows = await buildRentReportingRowsForPeriod(fakeDb(charges), "2026-08", [enrollment({})]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ dueDate: "2026-08-15", status: "on_time" });
+  });
+
+  it("a partially paid rent charge is reported unpaid until the balance clears", async () => {
+    const charges = [
+      {
+        id: "rent-1",
+        residentUserId: "res-1",
+        propertyId: "prop-1",
+        kind: "rent",
+        rentMonth: "2026-08",
+        amountLabel: "$1,500.00",
+        balanceLabel: "$1,300.00",
+        status: "partially_paid",
+        paidAt: "2026-08-01",
+        dueDateLabel: "Aug 1, 2026",
+      },
+    ];
+    const rows = await buildRentReportingRowsForPeriod(fakeDb(charges), "2026-08", [enrollment({})]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ status: "unpaid", paidDate: null, amountCents: 150000 });
+  });
 });

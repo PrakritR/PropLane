@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 import { planTierCanHoldAddons } from "@/lib/plan-addons";
+import { isRentReportingPartnerLive, RENT_REPORTING_COMING_SOON } from "@/lib/rent-reporting/partner";
 import {
   countActiveRentReportingResidents,
   countCurrentRentPayingResidents,
@@ -25,8 +26,12 @@ export async function GET() {
   const tierResult = await getEffectiveManagerSkuTier(auth.userId);
   if (!tierResult.ok) return NextResponse.json({ error: tierResult.error }, { status: 503 });
   const canHoldAddon = planTierCanHoldAddons(tierResult.tier);
+  const partnerLive = isRentReportingPartnerLive();
   if (!canHoldAddon) {
-    return NextResponse.json({ tier: tierResult.tier, canHoldAddon: false, enabled: false, reporting: 0, total: 0 }, { headers: NO_STORE });
+    return NextResponse.json(
+      { tier: tierResult.tier, canHoldAddon: false, partnerLive, enabled: false, reporting: 0, total: 0 },
+      { headers: NO_STORE },
+    );
   }
   const [settings, reporting, total] = await Promise.all([
     loadRentReportingAddonSettings(auth.db, auth.userId),
@@ -34,7 +39,7 @@ export async function GET() {
     countCurrentRentPayingResidents(auth.db, auth.userId),
   ]);
   return NextResponse.json(
-    { tier: tierResult.tier, canHoldAddon: true, enabled: settings.enabled, reporting, total },
+    { tier: tierResult.tier, canHoldAddon: true, partnerLive, enabled: settings.enabled, reporting, total },
     { headers: NO_STORE },
   );
 }
@@ -55,6 +60,10 @@ export async function POST(req: Request) {
   if (!planTierCanHoldAddons(tierResult.tier)) {
     return NextResponse.json({ error: "Rent reporting is for Pro and Business." }, { status: 403 });
   }
+  const partnerLive = isRentReportingPartnerLive();
+  if (body.enabled && !partnerLive) {
+    return NextResponse.json({ error: RENT_REPORTING_COMING_SOON }, { status: 403 });
+  }
 
   const settings = await saveRentReportingAddonEnabled(auth.db, auth.userId, body.enabled);
   const [reporting, total] = await Promise.all([
@@ -62,7 +71,7 @@ export async function POST(req: Request) {
     countCurrentRentPayingResidents(auth.db, auth.userId),
   ]);
   return NextResponse.json(
-    { tier: tierResult.tier, canHoldAddon: true, enabled: settings.enabled, reporting, total },
+    { tier: tierResult.tier, canHoldAddon: true, partnerLive, enabled: settings.enabled, reporting, total },
     { headers: NO_STORE },
   );
 }

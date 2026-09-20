@@ -57,3 +57,34 @@ describe("ManagerPlanAddonsPanel purchase closure", () => {
     expect(addonsFetchMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("Rent reporting row", () => {
+  function stubFetch(rentReporting: Record<string, unknown>) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes("/api/manager/rent-reporting-addon")) return Response.json(rentReporting);
+        return Response.json({ tier: "business", canHoldAddons: true, monthlyTotalCents: 0, addons: [] });
+      }),
+    );
+  }
+
+  it("reads Coming soon as a disabled control while no furnisher partner is live, even on Business", async () => {
+    stubFetch({ tier: "business", canHoldAddon: true, partnerLive: false, enabled: false, reporting: 0, total: 0 });
+    render(<ManagerPlanAddonsPanel />);
+
+    const control = await screen.findByRole("button", { name: "Rent reporting" });
+    expect(control).toBeDisabled();
+    expect(control).toHaveTextContent("Coming soon");
+    expect(document.querySelector('[data-attr="rent-reporting-addon-toggle"]')).toBeNull();
+  });
+
+  it("offers the On/Off control once a partner is live", async () => {
+    stubFetch({ tier: "business", canHoldAddon: true, partnerLive: true, enabled: false, reporting: 0, total: 0 });
+    render(<ManagerPlanAddonsPanel />);
+
+    const control = await screen.findByRole("button", { name: "Rent reporting" });
+    expect(control).not.toBeDisabled();
+    expect(control).toHaveTextContent("Off");
+  });
+});

@@ -370,11 +370,13 @@ describe("WorkspaceInviteSheet", () => {
     await waitFor(() => expect(sendWorkspaceInviteSms).toHaveBeenCalledTimes(1));
     expect(deliverManagerDirectoryMessage).not.toHaveBeenCalled();
     const [payload] = sendWorkspaceInviteSms.mock.calls[0] as [
-      { workspaceId: string; phone: string; text: string },
+      { workspaceId: string; phone: string; linkId: string; text?: string },
     ];
     expect(payload.workspaceId).toBe("ws-1");
     expect(payload.phone).toBe("+12065551212");
-    expect(payload.text).toContain("Join: https://proplane.test/invite/revealed");
+    // The server composes the text from the link; the client only names it.
+    expect(payload.linkId).toBe("link-existing");
+    expect(payload.text).toBeUndefined();
     await waitFor(() => expect(showToast).toHaveBeenCalledWith(expect.stringContaining("texted")));
   });
 

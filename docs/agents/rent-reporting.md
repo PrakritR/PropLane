@@ -14,6 +14,16 @@ records what would be sent (no network call, no live bureau submission). Swappin
 the signed partner's real client is a one-file change at that one call site; nothing
 else in the app should import a partner SDK directly.
 
+**Until a partner is live, the product says "Coming soon" everywhere.** The
+interface carries `live: boolean` (the stub is `false`) and
+`isRentReportingPartnerLive()` is the one gate every surface reads: the resident
+route answers `{ eligible: false, comingSoon: true }` so the card and consent sheet
+never render, `PUT start` and the manager add-on `POST { enabled: true }` refuse
+with `RENT_REPORTING_COMING_SOON`, the manager add-on row renders a disabled
+"Coming soon" control, and the `rent_reporting_status` tool answers
+`available: false`. Nobody consents to, or is told about, reporting that does not
+happen; nothing else changes when the live partner is wired in.
+
 ## Consent gates every export
 
 A resident enrolls per (resident, property) in `resident_rent_reporting` — `status`
@@ -36,7 +46,10 @@ never runs retroactively and never deletes a submission already sent.
 ## Late derives from the ledger, never model arithmetic
 
 `deriveRentReportingSubmissionStatus` buckets a period's rent charge straight off its
-own due date, paid date, and the manager's configured late-fee grace period
+own due date (from `householdChargeDueDate` — `rentMonth` + `dueDay` + `dueDayMode`,
+never a re-parsed label or a defaulted 1st; an undatable charge is skipped), paid
+date (a `partially_paid` charge is **unpaid** until the balance clears), and the
+manager's configured late-fee grace period
 (`lateFeePolicyFromSubmission`, `src/lib/payment-policy.ts`):
 
 - No paid date yet → `unpaid`.

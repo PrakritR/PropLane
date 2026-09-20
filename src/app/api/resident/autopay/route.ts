@@ -75,16 +75,29 @@ async function loadLatestFailedRun(
   return {
     chargeId: String(runRow.charge_id),
     chargeTitle: charge.title || "your charge",
-    failureReason: String(runRow.failure_reason ?? "The payment was declined.").replace(/^\[retry\]\s*/, ""),
+    failureReason: String(runRow.failure_reason ?? "The payment was declined."),
   };
 }
 
-export async function GET() {
+/** Optional `propertyId` (query on GET, body on PUT) names one of the resident's tenancies; absent, the resolver picks deterministically. */
+function requestedPropertyId(raw: unknown): string | null {
+  return typeof raw === "string" && raw.trim() ? raw.trim() : null;
+}
+
+export async function GET(req: NextRequest) {
   try {
     const ctx = await requireResident();
     if (!ctx) return NextResponse.json({ error: "Residents only." }, { status: 403 });
 
-    const household = await resolveResidentAutopayHousehold(ctx.db, { residentEmail: ctx.email, managerId: ctx.managerId });
+    const propertyId = requestedPropertyId(req.nextUrl.searchParams.get("propertyId"));
+    const household = await resolveResidentAutopayHousehold(ctx.db, {
+      residentEmail: ctx.email,
+      managerId: ctx.managerId,
+      propertyId,
+    });
+    if (!household && propertyId) {
+      return NextResponse.json({ error: "That home has no recurring charges to enroll." }, { status: 404 });
+    }
 
     const stripe = getStripe();
     const savedMethods = ctx.stripeCustomerId ? await listResidentSavedPaymentMethods(stripe, ctx.stripeCustomerId) : [];
@@ -108,6 +121,7 @@ export async function GET() {
     const settings = await loadResidentAutopaySettings(ctx.db, ctx.userId, household.householdKey);
     const failedRun = await loadLatestFailedRun(ctx.db, ctx.userId);
     return NextResponse.json({
+      propertyId: household.propertyId,
       managerAllowsAutopay,
       enabled: settings?.enabled ?? false,
       paymentMethodId: settings?.paymentMethodId ?? null,
@@ -136,11 +150,19 @@ export async function PUT(req: NextRequest) {
       enabled?: boolean;
       paymentMethodId?: string | null;
       runDaysBeforeDue?: number;
+      propertyId?: string | null;
     };
 
-    const household = await resolveResidentAutopayHousehold(ctx.db, { residentEmail: ctx.email, managerId: ctx.managerId });
+    const propertyId = requestedPropertyId(body.propertyId);
+    const household = await resolveResidentAutopayHousehold(ctx.db, {
+      residentEmail: ctx.email,
+      managerId: ctx.managerId,
+      propertyId,
+    });
     if (!household) {
-      return NextResponse.json({ error: "No recurring charges to enroll yet." }, { status: 422 });
+      return propertyId
+        ? NextResponse.json({ error: "That home has no recurring charges to enroll." }, { status: 404 })
+        : NextResponse.json({ error: "No recurring charges to enroll yet." }, { status: 422 });
     }
 
     const workspaceSettings = await loadWorkspacePaymentSettingsForProperty(ctx.db, ctx.managerId, household.propertyId);
@@ -186,6 +208,7 @@ export async function PUT(req: NextRequest) {
     track("autopay_enable", ctx.userId, { enabled: saved.enabled, days_before: saved.runDaysBeforeDue });
 
     return NextResponse.json({
+      propertyId: household.propertyId,
       enabled: saved.enabled,
       paymentMethodId: saved.paymentMethodId,
       runDaysBeforeDue: saved.runDaysBeforeDue,

@@ -373,14 +373,14 @@ export function WorkspaceInviteSheet({
    * replacement when a prior link actually existed to replace.
    */
   const resolveLinkForCurrentTerms = async (): Promise<
-    { ok: true; url: string } | { ok: false; error: string }
+    { ok: true; url: string; linkId: string } | { ok: false; error: string }
   > => {
     if (linkId && termsMatchHeldLink) {
-      if (linkUrl) return { ok: true, url: linkUrl };
+      if (linkUrl) return { ok: true, url: linkUrl, linkId };
       const result = await revealInviteLinkClient(linkId);
       if (!result.ok) return { ok: false, error: result.error };
       setLinkUrl(result.url);
-      return { ok: true, url: result.url };
+      return { ok: true, url: result.url, linkId };
     }
 
     const hadPriorLink = linkId != null;
@@ -405,7 +405,7 @@ export function WorkspaceInviteSheet({
     if (hadPriorLink) {
       showToast("Link updated. Anyone with the old link will need the new one.");
     }
-    return { ok: true, url: result.url };
+    return { ok: true, url: result.url, linkId: result.linkId };
   };
 
   const copyLink = async () => {
@@ -506,7 +506,7 @@ export function WorkspaceInviteSheet({
         const smsResult = await sendWorkspaceInviteSms({
           workspaceId: workspace.id,
           phone: recipient.value,
-          text: body,
+          linkId: linkResult.linkId,
         });
         if (!smsResult.ok) {
           showToast(`${smsResult.error} Copy the link and send it yourself instead.`);

@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { defineTool } from "../../registry";
 import type { ResidentAgentContext } from "../../resident-context";
-import { RENT_REPORTING_BUREAUS_LABEL } from "@/lib/rent-reporting/partner";
+import {
+  isRentReportingPartnerLive,
+  RENT_REPORTING_BUREAUS_LABEL,
+  RENT_REPORTING_COMING_SOON,
+} from "@/lib/rent-reporting/partner";
 
 /**
  * Read-only status check for "did my rent reporting go through". No write tool exists
@@ -12,10 +16,13 @@ import { RENT_REPORTING_BUREAUS_LABEL } from "@/lib/rent-reporting/partner";
 export const rentReportingStatusTool = defineTool({
   name: "rent_reporting_status",
   description:
-    "Get whether the resident has turned on reporting their rent payments to credit bureaus, and their most recent monthly submission if any. Read-only. Use for 'is my rent being reported', 'did last month's payment get reported'. There is no tool to turn this on or off — direct the resident to the 'Report my rent to credit bureaus' card on their Payments page.",
+    "Get whether the resident has turned on reporting their rent payments to credit bureaus, and their most recent monthly submission if any. Read-only. Use for 'is my rent being reported', 'did last month's payment get reported'. When the result says available: false, rent reporting is not offered yet — tell the resident it is coming soon. There is no tool to turn this on or off — direct the resident to the 'Report my rent to credit bureaus' card on their Payments page.",
   kind: "read",
   inputSchema: z.object({}).strict(),
   handler: async (ctx: ResidentAgentContext) => {
+    if (!isRentReportingPartnerLive()) {
+      return { available: false, enrolled: false, message: RENT_REPORTING_COMING_SOON };
+    }
     const { data, error } = await ctx.db
       .from("resident_rent_reporting")
       .select("id, status, consented_at, stopped_at")
@@ -24,7 +31,7 @@ export const rentReportingStatusTool = defineTool({
       .limit(1)
       .maybeSingle();
     if (error) throw new Error(error.message);
-    if (!data) return { enrolled: false, bureaus: RENT_REPORTING_BUREAUS_LABEL };
+    if (!data) return { available: true, enrolled: false, bureaus: RENT_REPORTING_BUREAUS_LABEL };
 
     const { data: submission } = await ctx.db
       .from("rent_reporting_submissions")
@@ -35,6 +42,7 @@ export const rentReportingStatusTool = defineTool({
       .maybeSingle();
 
     return {
+      available: true,
       enrolled: data.status === "active",
       status: data.status as "active" | "paused" | "stopped",
       consentedAt: (data.consented_at as string | null) ?? null,

@@ -36,7 +36,7 @@ function storedTeamRole(raw: unknown): TeamRoleId | null {
   return parsed.ok ? parsed.role : null;
 }
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
-import { parseHouseScope, roleAssignableBy } from "@/lib/workspaces/membership";
+import { parseHouseScope, roleAssignableBy, type HouseScope } from "@/lib/workspaces/membership";
 import { stampTeamRolePermissions } from "@/lib/co-manager-team-roles";
 import { describeCoManagerPermissions, flatCoManagerPermissionsFromProperty } from "@/lib/co-manager-permissions";
 import { actorOwnWorkspaceHouseIds, actorWorkspaceStanding, workspaceHouseIds } from "@/lib/workspaces/membership.server";
@@ -209,7 +209,7 @@ export async function mintInviteLink(
   if (!actorUserId) return { ok: false, status: 401, error: "Sign in to create an invite link." };
 
   const kind = normalizeInviteLinkKind(input.kind);
-  const houseScope = kind === "manager" ? parseHouseScope(input.houseScope) : "selected";
+  let houseScope: HouseScope = kind === "manager" ? parseHouseScope(input.houseScope) : "selected";
 
   // Every kind may carry properties. A vendor link's properties are NOT a
   // module grant (vendors have none) — they become the directory row's
@@ -242,6 +242,7 @@ export async function mintInviteLink(
         // Warning: mint-link-stamp-after-cap).
         const actorHouseIds = new Set(await actorOwnWorkspaceHouseIds(db, actorUserId, ownerUserId, standing.workspaceId));
         propertyIds = propertyIds.filter((id) => actorHouseIds.has(id));
+        houseScope = "selected";
       }
     } else if (propertyIds.length > 0) {
       const inWorkspace = new Set(await workspaceHouseIds(db, ownerUserId, standing.workspaceId));
