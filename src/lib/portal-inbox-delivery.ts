@@ -225,6 +225,12 @@ export async function commitInboxThreadReply(
   if (!freshRow) throw new Error("This conversation is no longer available.");
   const rowData = (freshRow.row_data ?? {}) as Record<string, unknown>;
   const messages = Array.isArray(rowData.messages) ? [...(rowData.messages as unknown[])] : [];
+  // A durable outbound sender may be replayed after its provider accepted the
+  // request.  Keep the thread append idempotent so a retry repairs a failed
+  // companion write without showing the recipient a second sent turn.
+  if (opts.messageId && (rowData.rootMessageId === opts.messageId || messages.some((message) =>
+    (message as { id?: unknown } | null)?.id === opts.messageId,
+  ))) return;
   const when = formatPacificDateTime(new Date());
   messages.push({
     id: opts.messageId ?? `reply-${Date.now().toString(36)}`,

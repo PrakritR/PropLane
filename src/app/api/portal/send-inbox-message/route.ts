@@ -407,6 +407,14 @@ export async function POST(req: Request) {
       portal: senderPortal,
       isAdmin: senderIsAdmin,
     });
+    // External vendor delivery has a sponsored identity and durable outbox.
+    // Do not let legacy callers borrow the generic manager/resident transports.
+    if (String(senderRole ?? "").trim().toLowerCase() === "vendor" && (deliverViaEmail || deliverViaSms)) {
+      return NextResponse.json(
+        { ok: false, error: "Use the vendor sponsored delivery route for external messages." },
+        { status: 409 },
+      );
+    }
 
     const propertyId = String(body.propertyId ?? "").trim();
     if (propertyId && body.fanOutPropertyInbox !== false && toUserIds.length === 1) {

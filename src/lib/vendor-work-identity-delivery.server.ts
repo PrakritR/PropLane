@@ -2,6 +2,8 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { readSmsSuppressionState } from "@/lib/sms-consent";
 import { normalizeE164 } from "@/lib/twilio";
+import { quietHoursBlocks, type SmsSendClass } from "@/lib/sms/number-registration-policy";
+import { createTwilioRestClient } from "@/lib/twilio-client.server";
 
 export type VendorIdentityChannel = "email" | "sms";
 export type VendorDeliveryProvider = {
@@ -10,12 +12,59 @@ export type VendorDeliveryProvider = {
   sms(input: { from: string; to: string; text: string; idempotencyKey: string }): Promise<{ id: string }>;
 };
 
+/**
+ * Provider adapter for the platform-owned identity only.  It deliberately does
+ * not enter the manager work-number dispatcher: a sponsored vendor identity is
+ * neither a manager entitlement nor a manager-funded communication.
+ */
+export function createVendorWorkIdentityDeliveryProvider(): VendorDeliveryProvider {
+  return {
+    configured(channel) {
+      return channel === "email"
+        ? Boolean(process.env.RESEND_API_KEY?.trim())
+        : Boolean(createTwilioRestClient());
+    },
+    async email(input) {
+      const key = process.env.RESEND_API_KEY?.trim();
+      if (!key) throw new Error("email provider is not configured");
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${key}`,
+          "Content-Type": "application/json",
+          "Idempotency-Key": input.idempotencyKey,
+        },
+        body: JSON.stringify({ from: input.from, to: [input.to], subject: input.subject, text: input.text }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) throw new Error(`email provider rejected send (${response.status})`);
+      const payload = (await response.json().catch(() => ({}))) as { id?: unknown };
+      if (typeof payload.id !== "string" || !payload.id) throw new Error("email provider omitted message id");
+      return { id: payload.id };
+    },
+    async sms(input) {
+      const client = createTwilioRestClient();
+      if (!client) throw new Error("SMS provider is not configured");
+      const message = await client.messages.create({
+        from: input.from,
+        to: input.to,
+        body: input.text,
+        ...(process.env.VENDOR_WORK_IDENTITY_SMS_STATUS_CALLBACK_URL?.trim()
+          ? { statusCallback: process.env.VENDOR_WORK_IDENTITY_SMS_STATUS_CALLBACK_URL.trim() }
+          : {}),
+      });
+      if (!message.sid) throw new Error("SMS provider omitted message id");
+      return { id: message.sid };
+    },
+  };
+}
+
 function uncertain(error: unknown) { return /timeout|network|socket|abort|econn/i.test(error instanceof Error ? error.message : String(error)); }
 
 /** Durable vendor-sponsored delivery. This intentionally knows nothing about manager billing. */
 export async function deliverVendorWorkIdentity(
   db: SupabaseClient,
-  input: { vendorUserId: string; channel: VendorIdentityChannel; recipient: string; recipientUserId?: string | null; subject: string; text: string; idempotencyKey: string },
+  input: { vendorUserId: string; channel: VendorIdentityChannel; recipient: string; recipientUserId?: string | null; subject: string; text: string; idempotencyKey: string; contextFingerprint?: string; sendClass?: SmsSendClass },
   provider: VendorDeliveryProvider,
 ): Promise<{ ok: boolean; sent?: boolean; reason?: string; providerMessageId?: string | null }> {
   const { data: runtime, error: runtimeError } = await db.from("vendor_work_identity_runtime").select("enabled").eq("singleton", true).maybeSingle();
@@ -31,6 +80,9 @@ export async function deliverVendorWorkIdentity(
   const ready = email ? row.email_state === "ready" && row.email_send_ready === true && row.email_domain_verified === true : row.sms_state === "ready" && row.sms_send_ready === true;
   if (!from || !ready) return { ok: false, reason: "identity_not_ready" };
   if (!email) {
+    // The route derives this class from the server-owned action type; a browser
+    // cannot mark automation as a manual reply to evade quiet hours.
+    if (quietHoursBlocks(input.sendClass ?? "transactional", new Date())) return { ok: false, reason: "quiet_hours" };
     const suppression = await readSmsSuppressionState(db, recipient, { userId: input.recipientUserId ?? null });
     if (!suppression.ok) return { ok: false, reason: suppression.error };
     if (suppression.optedOut) return { ok: false, reason: "recipient_opted_out" };
@@ -39,7 +91,8 @@ export async function deliverVendorWorkIdentity(
   const { data: operationData, error: operationError } = await db.rpc("claim_vendor_work_identity_operation", { p_vendor_user_id: input.vendorUserId, p_identity_id: row.id, p_operation_kind: kind, p_idempotency_key: input.idempotencyKey });
   const operation = (Array.isArray(operationData) ? operationData[0] : operationData) as { operation_id?: string; claimed?: boolean } | null;
   if (operationError || !operation?.operation_id) return { ok: false, reason: "operation_unavailable" };
-  const { data: outboxData, error: outboxError } = await db.rpc("claim_vendor_work_identity_outbound", { p_vendor_user_id: input.vendorUserId, p_identity_id: row.id, p_operation_id: operation.operation_id, p_idempotency_key: input.idempotencyKey, p_channel: input.channel, p_recipient: recipient, p_subject: input.subject, p_body: input.text });
+  const contextFingerprint = input.contextFingerprint?.trim() || `recipient:${recipient}|subject:${input.subject}|body:${input.text}`;
+  const { data: outboxData, error: outboxError } = await db.rpc("claim_vendor_work_identity_outbound", { p_vendor_user_id: input.vendorUserId, p_identity_id: row.id, p_operation_id: operation.operation_id, p_idempotency_key: input.idempotencyKey, p_channel: input.channel, p_recipient: recipient, p_context_fingerprint: contextFingerprint, p_subject: input.subject, p_body: input.text });
   const outbox = (Array.isArray(outboxData) ? outboxData[0] : outboxData) as { outbox_id?: string; claimed?: boolean; blocked_reason?: string } | null;
   if (outboxError || !outbox?.outbox_id) {
     const reason = outbox?.blocked_reason ?? "cap_or_outbox_blocked";
@@ -47,9 +100,16 @@ export async function deliverVendorWorkIdentity(
     return { ok: false, reason };
   }
   if (!operation.claimed || !outbox.claimed) {
-    const { data: existing, error: replayError } = await db.from("vendor_work_identity_outbox").select("status,provider_message_id,blocked_reason").eq("id", outbox.outbox_id).maybeSingle();
+    const { data: existing, error: replayError } = await db.from("vendor_work_identity_outbox").select("status,provider_message_id,blocked_reason,recipient,context_fingerprint,subject,body,channel").eq("id", outbox.outbox_id).maybeSingle();
     if (replayError || !existing) return { ok: false, reason: "replay_state_unavailable" };
-    const replay = existing as { status?: string; provider_message_id?: string | null; blocked_reason?: string | null };
+    const replay = existing as { status?: string; provider_message_id?: string | null; blocked_reason?: string | null; recipient?: string; context_fingerprint?: string; subject?: string | null; body?: string; channel?: string };
+    if (
+      replay.channel !== input.channel ||
+      String(replay.recipient ?? "").trim().toLowerCase() !== recipient.toLowerCase() ||
+      String(replay.context_fingerprint ?? "") !== contextFingerprint ||
+      String(replay.subject ?? "") !== input.subject ||
+      String(replay.body ?? "") !== input.text
+    ) return { ok: false, sent: false, reason: "idempotency_mismatch" };
     if (replay.status === "sent") return { ok: true, sent: true, providerMessageId: replay.provider_message_id ?? null };
     if (replay.status === "reconciling" || replay.status === "authorized" || replay.status === "calling_provider") return { ok: false, sent: false, reason: "provider_outcome_unknown", providerMessageId: replay.provider_message_id ?? null };
     return { ok: false, sent: false, reason: replay.blocked_reason ?? "provider_rejected", providerMessageId: replay.provider_message_id ?? null };
@@ -65,6 +125,9 @@ export async function deliverVendorWorkIdentity(
   let providerAccepted = false;
   let acceptedId: string | null = null;
   try {
+    // Twilio's Messages API has no idempotency-key parameter. The claimed
+    // operation/outbox is therefore the single provider-call fence; uncertain
+    // outcomes stay reconciling and never receive a blind retry.
     const result = email ? await provider.email({ from, to: recipient, subject: input.subject, text: input.text, idempotencyKey: input.idempotencyKey }) : await provider.sms({ from, to: recipient, text: input.text, idempotencyKey: input.idempotencyKey });
     providerAccepted = true;
     acceptedId = result.id;

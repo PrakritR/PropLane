@@ -30,6 +30,8 @@ create table if not exists public.vendor_work_identities (
   phone_number_sid text,
   messaging_service_sid text,
   carrier_ready boolean not null default false,
+  sms_registration_state text not null default 'not_submitted'
+    check (sms_registration_state in ('not_submitted','pending','registered','failed','deregistering','deregistered')),
   sms_send_ready boolean not null default false,
   sms_receive_ready boolean not null default false,
   sms_state text not null default 'not_started'
@@ -46,10 +48,13 @@ create table if not exists public.vendor_work_identities (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint vendor_work_identity_email_ready_requires_actual_readiness check (
-    email_state <> 'ready' or (email_address is not null and email_provider_id is not null and email_domain_verified and email_send_ready and email_receive_ready)
+    email_state <> 'ready' or (email_address is not null and email_provider_id is not null and email_domain_verified)
   ),
   constraint vendor_work_identity_sms_ready_requires_actual_readiness check (
-    sms_state <> 'ready' or (phone_number is not null and phone_number_sid is not null and messaging_service_sid is not null and attachment_state = 'attached' and carrier_ready and sms_send_ready and sms_receive_ready)
+    sms_state <> 'ready' or (phone_number is not null and phone_number_sid is not null and messaging_service_sid is not null and attachment_state = 'attached' and sms_receive_ready)
+  ),
+  constraint vendor_work_identity_sms_send_requires_registration check (
+    not sms_send_ready or (carrier_ready and sms_registration_state = 'registered')
   )
 );
 create index if not exists vendor_work_identities_state_idx on public.vendor_work_identities (lifecycle_state, updated_at);
@@ -79,6 +84,7 @@ create table if not exists public.vendor_work_identity_outbox (
   idempotency_key text not null,
   channel text not null check (channel in ('email','sms')),
   recipient text not null,
+  context_fingerprint text not null,
   subject text,
   body text not null,
   status text not null default 'authorized' check (status in ('authorized','calling_provider','sent','failed','reconciling','blocked','cancelled')),
@@ -201,6 +207,7 @@ create or replace function public.claim_vendor_work_identity_outbound(
   p_idempotency_key text,
   p_channel text,
   p_recipient text,
+  p_context_fingerprint text,
   p_subject text,
   p_body text
 ) returns table(outbox_id uuid, claimed boolean, blocked_reason text)
@@ -238,8 +245,8 @@ begin
   insert into public.vendor_work_identity_usage_events(identity_id,vendor_user_id,meter,idempotency_key)
     values (p_identity_id,p_vendor_user_id,case when p_channel = 'email' then 'outbound_email' else 'outbound_sms' end,
       'outbound:' || p_vendor_user_id::text || ':' || p_identity_id::text || ':' || p_idempotency_key || ':' || p_channel);
-  insert into public.vendor_work_identity_outbox(identity_id,vendor_user_id,operation_id,idempotency_key,channel,recipient,subject,body)
-    values (p_identity_id,p_vendor_user_id,p_operation_id,p_idempotency_key,p_channel,p_recipient,p_subject,p_body)
+  insert into public.vendor_work_identity_outbox(identity_id,vendor_user_id,operation_id,idempotency_key,channel,recipient,context_fingerprint,subject,body)
+    values (p_identity_id,p_vendor_user_id,p_operation_id,p_idempotency_key,p_channel,p_recipient,p_context_fingerprint,p_subject,p_body)
     returning id into v_existing;
   return query select v_existing, true, null::text;
 end;
@@ -281,9 +288,9 @@ revoke all on table public.vendor_work_identity_runtime, public.vendor_work_iden
   public.vendor_work_identity_release_queue from anon, authenticated;
 revoke execute on function public.ensure_vendor_work_identity(uuid,text),
   public.claim_vendor_work_identity_operation(uuid,uuid,text,text),
-  public.claim_vendor_work_identity_outbound(uuid,uuid,uuid,text,text,text,text,text),
+  public.claim_vendor_work_identity_outbound(uuid,uuid,uuid,text,text,text,text,text,text),
   public.queue_vendor_work_identity_release(uuid) from public, anon, authenticated;
 grant execute on function public.ensure_vendor_work_identity(uuid,text),
   public.claim_vendor_work_identity_operation(uuid,uuid,text,text),
-  public.claim_vendor_work_identity_outbound(uuid,uuid,uuid,text,text,text,text,text),
+  public.claim_vendor_work_identity_outbound(uuid,uuid,uuid,text,text,text,text,text,text),
   public.queue_vendor_work_identity_release(uuid) to service_role;

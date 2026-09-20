@@ -3,6 +3,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createTwilioRestClient } from "@/lib/twilio-client.server";
+import { isSmsCommUiEnabled } from "@/lib/sms-comm-ui-flag.server";
 import type {
   VendorWorkIdentityResponse,
   VendorWorkIdentityState,
@@ -120,15 +121,17 @@ export function createVendorWorkIdentityProvider(): VendorWorkIdentityProvider {
         signal: AbortSignal.timeout(8_000),
       });
       if (!response.ok) throw new Error(`email domain lookup failed (${response.status})`);
-      const payload = (await response.json()) as { id?: unknown; status?: unknown; name?: unknown; receiving?: unknown };
+      const payload = (await response.json()) as { id?: unknown; status?: unknown; name?: unknown; capabilities?: { sending?: unknown; receiving?: unknown } };
       const verified = String(payload.status ?? "").toLowerCase() === "verified" && String(payload.name ?? "").toLowerCase() === domain;
       // Receiving is a separate, real deployment prerequisite.  Resend does
       // not expose inbound webhook readiness on this endpoint, so the signed
       // configured receiver is the persisted platform observation we require.
       return {
         domainId: typeof payload.id === "string" && payload.id === domainId ? payload.id : null,
-        sendReady: verified,
-        receiveReady: verified && payload.receiving === true && Boolean(process.env.RESEND_INBOUND_WEBHOOK_SECRET?.trim()),
+        sendReady: verified && payload.capabilities?.sending === "enabled",
+        // Resend exposes the receiver as the string capability `enabled` or
+        // `disabled`; only enabled admits inbound delivery.
+        receiveReady: verified && payload.capabilities?.receiving === "enabled" && Boolean(process.env.RESEND_INBOUND_WEBHOOK_SECRET?.trim()),
       };
     },
     async findSmsByOperation(operationId) {
@@ -163,7 +166,10 @@ export function createVendorWorkIdentityProvider(): VendorWorkIdentityProvider {
       if (!client) throw new Error("SMS provider is not configured");
       const attachment = await client.messaging.v1.services(messagingServiceSid).phoneNumbers.create({ phoneNumberSid: phoneSid });
       const number = await client.incomingPhoneNumbers(phoneSid).fetch();
-      return { attached: Boolean(attachment.sid), carrierReady: Boolean(number.capabilities?.sms) && Boolean(attachment.sid) };
+      // A capable, attached number can receive inbound traffic, but neither
+      // fact proves its 10DLC registration. Carrier readiness is set only by
+      // the signed provider registration-event ledger during reconciliation.
+      return { attached: Boolean(attachment.sid) && Boolean(number.capabilities?.sms), carrierReady: false };
     },
     async inspectSms({ phoneSid, messagingServiceSid }) {
       const client = createTwilioRestClient();
@@ -175,7 +181,7 @@ export function createVendorWorkIdentityProvider(): VendorWorkIdentityProvider {
       return {
         phoneNumber: number.phoneNumber,
         attached: Boolean(attachment.sid),
-        carrierReady: Boolean(number.capabilities?.sms) && Boolean(attachment.sid),
+        carrierReady: false,
       };
     },
   };
@@ -213,7 +219,7 @@ export function responseFor(input: { identity: IdentityRow | null; runtime: Runt
   const channelBlock = (channelState: VendorWorkIdentityState, configured: boolean): VendorWorkIdentityResponse["email"]["blockedReason"] => {
     if (!runtime?.enabled) return "provider_disabled";
     if (!configured) return "provider_unconfigured";
-    if (channelState === "quarantined" || channelState === "reconciling") return "identity_quarantined";
+    if (channelState === "quarantined" || channelState === "reconciling" || channelState === "blocked") return "identity_quarantined";
     if (channelState === "released") return "identity_released";
     return "none";
   };
@@ -227,8 +233,8 @@ export function responseFor(input: { identity: IdentityRow | null; runtime: Runt
   const smsLifecycleReady = smsState === "ready";
   const emailReceiveReady = emailLifecycleReady && input.emailConfigured && Boolean(identity?.email_receive_ready);
   const smsReceiveReady = smsLifecycleReady && input.smsConfigured && Boolean(identity?.sms_receive_ready);
-  const emailSendReady = emailReceiveReady && Boolean(runtime?.enabled) && !capped && Boolean(identity?.email_send_ready);
-  const smsSendReady = smsReceiveReady && Boolean(runtime?.enabled) && !capped && Boolean(identity?.sms_send_ready);
+  const emailSendReady = emailLifecycleReady && input.emailConfigured && Boolean(runtime?.enabled) && !capped && Boolean(identity?.email_send_ready);
+  const smsSendReady = smsLifecycleReady && input.smsConfigured && Boolean(runtime?.enabled) && !capped && Boolean(identity?.sms_send_ready);
   return {
     sponsoredBy: "proplane",
     email: {
@@ -236,7 +242,7 @@ export function responseFor(input: { identity: IdentityRow | null; runtime: Runt
       value: identity?.email_address ?? null,
       sendReady: emailSendReady,
       receiveReady: emailReceiveReady,
-      canSetup: emailBlocked === "none" && !["ready", "disabled", "released"].includes(emailState),
+      canSetup: emailBlocked === "none" && !["ready", "disabled", "released", "blocked", "quarantined", "reconciling"].includes(emailState),
       blockedReason: emailBlocked,
     },
     sms: {
@@ -244,11 +250,12 @@ export function responseFor(input: { identity: IdentityRow | null; runtime: Runt
       value: identity?.phone_number ?? null,
       sendReady: smsSendReady,
       receiveReady: smsReceiveReady,
-      canSetup: smsBlocked === "none" && !["ready", "disabled", "released"].includes(smsState),
+      canSetup: smsBlocked === "none" && !["ready", "disabled", "released", "blocked", "quarantined", "reconciling"].includes(smsState),
       blockedReason: smsBlocked,
     },
     inboundAvailable: { email: emailReceiveReady, sms: smsReceiveReady },
-    smsUiEnabled: process.env.SMS_COMM_UI_ENABLED === "1",
+    // UI visibility never controls the owned number's inbound routing/storage.
+    smsUiEnabled: isSmsCommUiEnabled(),
     usage: { outboundUsed: input.outboundUsed, outboundCap: cap, capState: cap <= 0 ? "unconfigured" : capped ? "exhausted" : "available" },
   };
 }
@@ -317,14 +324,14 @@ export async function setupVendorWorkIdentity(
   try {
     if (channel === "email") {
       const email = await provider.emailDomainReadiness(domain!);
-      if (!email.sendReady || !email.receiveReady || !email.domainId) {
+      if ((!email.sendReady && !email.receiveReady) || !email.domainId) {
         const { error: emailBlockedError } = await db.from("vendor_work_identities").update({ email_state: "blocked", email_provider_id: email.domainId, email_domain_verified: false, email_send_ready: email.sendReady, email_receive_ready: email.receiveReady, last_error: "email_domain_not_ready", updated_at: new Date().toISOString() }).eq("id", ensured);
         if (emailBlockedError) throw new Error(emailBlockedError.message);
         const { error: emailOperationError } = await db.from("vendor_work_identity_operations").update({ state: "failed", error_code: "email_domain_not_ready", updated_at: new Date().toISOString() }).eq("id", claim.operation_id);
         if (emailOperationError) throw new Error(emailOperationError.message);
         return getVendorWorkIdentity(db, vendorUserId, provider);
       }
-      const { error: emailReadyError } = await db.from("vendor_work_identities").update({ email_state: "ready", email_provider_id: email.domainId, email_domain_verified: true, email_send_ready: true, email_receive_ready: true, updated_at: new Date().toISOString() }).eq("id", ensured);
+      const { error: emailReadyError } = await db.from("vendor_work_identities").update({ email_state: "ready", email_provider_id: email.domainId, email_domain_verified: true, email_send_ready: email.sendReady, email_receive_ready: email.receiveReady, updated_at: new Date().toISOString() }).eq("id", ensured);
       if (emailReadyError) throw new Error(emailReadyError.message);
       const { error: emailOperationReadyError } = await db.from("vendor_work_identity_operations").update({ state: "succeeded", provider_reference: email.domainId, updated_at: new Date().toISOString() }).eq("id", claim.operation_id);
       if (emailOperationReadyError) throw new Error(emailOperationReadyError.message);
@@ -348,11 +355,12 @@ export async function setupVendorWorkIdentity(
     const { error: operationPersistError } = await db.from("vendor_work_identity_operations").update({ state: "reconciling", provider_reference: purchased.phoneSid, updated_at: new Date().toISOString() }).eq("id", claim.operation_id);
     if (operationPersistError) throw new ProviderAmbiguousError("vendor provider operation persistence failed");
     const attachment = await provider.attachSms({ phoneSid: purchased.phoneSid, messagingServiceSid });
-    const ready = attachment.attached && attachment.carrierReady;
+    const ready = attachment.attached;
+    const sendReady = attachment.attached && attachment.carrierReady;
     const { error: readyError } = await db.from("vendor_work_identities").update({
-      sms_state: ready ? "ready" : "reconciling", carrier_ready: attachment.carrierReady, sms_send_ready: ready, sms_receive_ready: ready,
+      sms_state: ready ? "ready" : "reconciling", carrier_ready: attachment.carrierReady, sms_registration_state: sendReady ? "registered" : "pending", sms_send_ready: sendReady, sms_receive_ready: ready,
       attachment_state: attachment.attached ? "attached" : "reconciling", quarantined_at: ready ? null : new Date().toISOString(),
-      quarantine_reason: ready ? null : "sms_attachment_or_carrier_unready", updated_at: new Date().toISOString(),
+      quarantine_reason: ready ? null : "sms_attachment_unready", updated_at: new Date().toISOString(),
     }).eq("id", ensured);
     if (readyError) throw new ProviderAmbiguousError("vendor SMS readiness persistence failed");
     const { error: operationReadyError } = await db.from("vendor_work_identity_operations").update({ state: ready ? "succeeded" : "reconciling", error_code: ready ? null : "sms_not_ready", updated_at: new Date().toISOString() }).eq("id", claim.operation_id);
@@ -412,10 +420,11 @@ export async function reconcileVendorWorkIdentity(
       await provider.attachSms({ phoneSid, messagingServiceSid });
       sms = await provider.inspectSms({ phoneSid, messagingServiceSid });
     }
-    const ready = sms.attached && sms.carrierReady;
+    const ready = sms.attached;
+    const sendReady = sms.attached && sms.carrierReady;
     const { error } = await db.from("vendor_work_identities").update({
       sms_state: ready ? "ready" : "reconciling", phone_number: sms.phoneNumber,
-      carrier_ready: sms.carrierReady, sms_send_ready: ready, sms_receive_ready: ready,
+      carrier_ready: sms.carrierReady, sms_registration_state: sendReady ? "registered" : "pending", sms_send_ready: sendReady, sms_receive_ready: ready,
       attachment_state: sms.attached ? "attached" : "reconciling", quarantined_at: ready ? null : new Date().toISOString(),
       quarantine_reason: ready ? null : "provider_readiness_incomplete", updated_at: new Date().toISOString(),
     }).eq("id", identity.id);

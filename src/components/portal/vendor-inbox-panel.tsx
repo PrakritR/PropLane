@@ -480,20 +480,18 @@ export const VendorInboxPanel = forwardRef<
       setComposeOpen(false);
       void (async () => {
         try {
-          const res = await fetch("/api/portal/send-inbox-message", {
+          const res = await fetch("/api/vendor/send-inbox-message", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
             body: JSON.stringify({
-              fromName: p.senderName,
-              fromEmail: p.senderEmail,
-              toEmails: p.directRecipientEmailLine.split(";").map((e) => e.trim()).filter(Boolean),
-              toBroadcast: p.broadcastCategories,
+              recipientUserIds: p.directRecipientUserIds,
+              broadcastCategories: p.broadcastCategories,
+              includesAxisAdmin: p.includesAxisAdmin,
               subject: p.subject.trim(),
               text: p.body.trim(),
-              deliverToPortalInbox: true,
-              eventCategory: "messages",
-              senderPortal: "vendor",
+              channel: "email",
+              sendId: p.sendId,
             }),
           });
           const data = (await res.json().catch(() => ({}))) as { ok?: boolean };
@@ -594,22 +592,16 @@ export const VendorInboxPanel = forwardRef<
       try {
         if (channels.email) {
           try {
-            const res = await fetch("/api/portal/send-inbox-message", {
+            const res = await fetch("/api/vendor/send-inbox-message", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               credentials: "include",
               body: JSON.stringify({
-                fromName: vendorIdentity.name,
-                fromEmail: vendorIdentity.email,
                 threadId: thread.id,
                 subject,
                 text,
-                toEmails: [thread.email],
-                deliverToPortalInbox: true,
-                deliverViaEmail: true,
-                deliverViaSms: false,
-                senderPortal: "vendor",
-                attachmentUrls: attachmentUrls.length ? attachmentUrls : undefined,
+                channel: "email",
+                sendId: crypto.randomUUID(),
               }),
             });
             const data = (await res.json().catch(() => ({}))) as {
@@ -627,22 +619,16 @@ export const VendorInboxPanel = forwardRef<
             failureMessage ||= "Text messaging is not available right now.";
           } else {
             try {
-              const res = await fetch("/api/portal/send-inbox-message", {
+              const res = await fetch("/api/vendor/send-inbox-message", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "include",
                 body: JSON.stringify({
-                  fromName: vendorIdentity.name,
-                  fromEmail: vendorIdentity.email,
                   threadId: thread.id,
                   subject,
                   text,
-                  toEmails: [thread.email],
-                  deliverToPortalInbox: false,
-                  deliverViaEmail: false,
-                  deliverViaSms: true,
-                  senderPortal: "vendor",
-                  attachmentUrls: attachmentUrls.length ? attachmentUrls : undefined,
+                  channel: "sms",
+                  sendId: crypto.randomUUID(),
                 }),
               });
               const data = (await res.json().catch(() => ({}))) as {

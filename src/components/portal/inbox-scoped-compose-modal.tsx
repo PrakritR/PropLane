@@ -53,6 +53,8 @@ export type ScopedInboxSendPayload = {
   toEmailLine: string;
   /** Same as toEmailLine but with "All management"/"All residents" placeholder addresses stripped. */
   directRecipientEmailLine: string;
+  /** Server-revalidated account ids for role-scoped senders. */
+  directRecipientUserIds: string[];
   includesAxisAdmin: boolean;
   includesDirectoryRecipients: boolean;
   /** Broadcast categories selected ("All management" / "All residents"), resolved to real recipients server-side. */
@@ -382,6 +384,7 @@ export function ScopedInboxComposeModal({
 
     const labels: string[] = [];
     const directEmails: string[] = [];
+    const directRecipientUserIds: string[] = [];
     let includesAxisAdmin = false;
     let includesDirectoryRecipients = false;
     const broadcastCategories: ("management" | "resident")[] = [];
@@ -446,6 +449,7 @@ export function ScopedInboxComposeModal({
       if (!lower || seenEmail.has(lower)) continue;
       seenEmail.add(lower);
       directEmails.push(email);
+      if (contact.userId?.trim()) directRecipientUserIds.push(contact.userId.trim());
       if (lower === broadcastStubForCategory("admin").email.toLowerCase()) {
         includesAxisAdmin = true;
       }
@@ -479,6 +483,7 @@ export function ScopedInboxComposeModal({
       toLabel: labels.join(", "),
       toEmailLine: directEmails.join("; "),
       directRecipientEmailLine: directEmails.join("; "),
+      directRecipientUserIds: [...new Set(directRecipientUserIds)],
       includesAxisAdmin,
       includesDirectoryRecipients,
       broadcastCategories,
@@ -489,7 +494,7 @@ export function ScopedInboxComposeModal({
       propertyId: propertyContext?.propertyId,
       propertyTitle: propertyContext?.propertyTitle,
       managerUserId: propertyContext?.managerUserId,
-      ...(portal === "resident" ? { sendId: sendOperationRef.current.id } : {}),
+      sendId: sendOperationRef.current.id,
     };
     try {
       const sent = await onSend(payload);
