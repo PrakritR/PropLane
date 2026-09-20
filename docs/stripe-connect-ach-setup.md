@@ -45,6 +45,43 @@ through and adds no markup (Decide 2). A newly linked bank defaults to
 **automatic weekly payouts (Friday)** (Decide 1); "Pay out" remains available
 at any time regardless of the schedule.
 
+### Bank accounts, fully in-house (PLAN-0920-1500) — Stripe.js tokens, never a raw number
+
+The "Bank accounts" section of Settings → Payouts (and the "Add a bank
+account" sheet) never sends a routing number, account number, card number, or
+CVC to PropLane's server. Every add path tokenizes in the browser with
+[Stripe.js](https://docs.stripe.com/js) (`@stripe/stripe-js` /
+`@stripe/react-stripe-js`, needs `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`), and the
+server only ever receives a token id or a Financial Connections account id:
+
+- **Link instantly** (recommended) — `POST /api/stripe/connect/financial-connections/session`
+  creates a Financial Connections Session scoped to the manager's own Connect
+  account (`account_holder: { type: "account", account: acctId }`,
+  `permissions: ["payment_method"]`); the client opens Stripe's linking modal
+  in-page with `stripe.collectFinancialConnectionsAccounts({ clientSecret })`
+  (never a new tab), then `POST /api/stripe/connect/financial-connections/attach`
+  turns the linked account into a payout destination.
+- **Routing + account number** — the browser calls
+  `stripe.createToken("bank_account", { routing_number, account_number, … })`
+  and posts only the resulting `btok_…` id to
+  `POST /api/stripe/connect/bank-accounts`. Micro-deposit verification (when
+  Stripe requires it) is `POST /api/stripe/connect/bank-accounts/:id/verify`
+  with the two deposit amounts in cents.
+- **Debit card for Instant payouts** — a Stripe Elements `CardElement` collects
+  the card, `stripe.createToken(cardElement)` returns a `tok_…` id posted to
+  the same `bank-accounts` route. The server rejects (422) any card whose
+  `funding` is not `debit`.
+
+`src/lib/stripe-external-accounts.server.ts` owns every server-side call
+(list / add / set-default / remove / verify) plus the `payout_destinations_cache`
+display cache, refreshed after every mutation and by the
+`account.external_account.created|updated|deleted` webhook
+(`handleExternalAccountEvent` in `src/lib/stripe-webhook-financials.ts`) —
+Stripe itself always stays the source of truth; the cache exists only so a
+future surface can show a fast, non-authoritative list. Removing an account is
+refused (409) while it is the ONLY destination and a payout is pending or in
+transit. Vendor twins live under `/api/vendor/stripe-connect/…`.
+
 ---
 
 ## Part A — Platform setup (you, once)
@@ -100,6 +137,7 @@ Required events:
 
 - `checkout.session.completed`
 - `checkout.session.async_payment_succeeded`
+- `account.external_account.created`, `account.external_account.updated`, `account.external_account.deleted` (bank/card cache refresh)
 
 ---
 

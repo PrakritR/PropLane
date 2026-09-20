@@ -156,6 +156,7 @@ export const DELETE_ORDER = [
   "chart_of_accounts",
   "stripe_disputes",
   "stripe_payouts",
+  "payout_destinations_cache",
   "external_calendar_connections",
   "account_link_invites",
   // Before `manager_invite_links` below, which it references.

@@ -472,6 +472,17 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { ids: ["vendor_user_id"] },
   },
   {
+    // Display cache of a Connect account's bank accounts / debit cards
+    // (PLAN-0920-1500 part B). `owner_user_id` is generic — a manager's own
+    // id for a manager account, a vendor's own id for a vendor account, the
+    // same pattern `profiles.stripe_connect_account_id` already uses — so it
+    // is classified under both scopes; a given row only ever matches one.
+    table: "payout_destinations_cache",
+    phase: 2,
+    manager: { ids: ["owner_user_id"] },
+    vendor: { ids: ["owner_user_id"] },
+  },
+  {
     table: "external_calendar_connections",
     phase: 2,
     manager: { ids: ["manager_user_id"] },
