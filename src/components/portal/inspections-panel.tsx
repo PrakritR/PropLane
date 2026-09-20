@@ -420,7 +420,6 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
         <ClipboardCheck className="h-10 w-10 text-primary" aria-hidden />
         <div className="space-y-2">
           <p className="text-base font-semibold">No {kindLabel(kind).toLowerCase()} photos yet</p>
-          <p className="text-sm text-muted">Photograph the assigned room section by section — the room only, not the whole house. Notes are optional.</p>
         </div>
         <Button onClick={openEmbeddedInspection} disabled={busy || embeddedEditDisabled} data-attr="inspection-embedded-create">
           Add {kindLabel(kind).toLowerCase()} photos
@@ -435,7 +434,6 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
             <p className="text-sm text-muted">{tenancyDate(embeddedPrimaryReport.inspection_date) || embeddedPrimaryReport.inspection_date} · {photoLine(embeddedPrimaryReport.photos)}</p>
           </div>
         </div>
-        <p className="text-sm text-muted">Add photos section by section — room overview, walls, windows, door, lights and the rest of the assigned room.</p>
         <Button onClick={openEmbeddedInspection} disabled={busy} data-attr="inspection-embedded-continue">
           {embeddedPrimaryReport.photos.total ? "Open photos" : "Add photos"}
         </Button>
