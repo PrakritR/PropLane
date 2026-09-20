@@ -1,4 +1,4 @@
-import { earliestRoomOpening } from "@/lib/room-availability-style";
+import { classifyRoomOpening, earliestRoomOpening } from "@/lib/room-availability-style";
 import { getListingRichContent } from "@/data/listing-rich-content";
 import type { ListingFloorCard, ListingRoomRow } from "@/data/listing-rich-content";
 import type { MockProperty } from "@/data/types";
@@ -177,22 +177,10 @@ function availabilityLabel(room: ListingRoomRow, roomChoiceValue: string): strin
 export type RoomAvailabilityKind = "now" | "later" | "unavailable";
 
 export function classifyRoomAvailability(raw: string): RoomAvailabilityKind {
-  const a = raw.trim().toLowerCase();
-  if (!a) return "now";
-  if (/\bunavailable\b|not available|no longer available|fully booked|\bleased\b|\boccupied\b/.test(a)) {
-    return "unavailable";
-  }
-  // "Available now until Sept 19" is a room you can move into today; the date is when it ends.
-  if (/available\s+now\b/.test(a)) return "now";
-  if (
-    /available\s+(after|from|on|starting)|\bwaitlist\b|available soon\b|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\b\.?\s*\d|\d{1,2}\/\d{1,2}/.test(
-      a,
-    )
-  ) {
-    return "later";
-  }
-  if (a.includes("available") || a === "now") return "now";
-  return "later";
+  if (!raw.trim()) return "now";
+  const { kind } = classifyRoomOpening(raw);
+  if (kind === "unknown") return "later";
+  return kind;
 }
 
 /** The short "Private bath" / "Shared bath" a browse card can carry; empty when the listing does not say. */
@@ -550,6 +538,8 @@ export function demoOnlyBrowseCardPlaceholderImage(propertyId: string): string {
 export type PropertyBrowseCard = {
   propertyId: string;
   headlineAddress: string;
+  /** The whole address line (street, city, state, zip) so a search for a city finds the home. */
+  fullAddress: string;
   neighborhood: string;
   /** Empty string means no genuine uploaded photo — render `NoImagePlaceholder` (production) or a demo-only fallback (see `demoOnlyBrowseCardPlaceholderImage`). */
   imageUrl: string;
@@ -597,6 +587,19 @@ export type PropertyBrowseFilters = {
 
 export type BrowseSortId = "price-asc" | "price-desc" | "neighborhood";
 
+/**
+ * The browse search box: a case-insensitive substring match on the whole
+ * address (falling back to the street line) or the neighborhood, so "Seattle"
+ * finds every Seattle home even when its neighborhood name omits the city.
+ * Every field is guarded — a card with no address never throws.
+ */
+export function browseCardMatchesQuery(card: Pick<PropertyBrowseCard, "fullAddress" | "headlineAddress" | "neighborhood">, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  const address = (card.fullAddress ?? "") || (card.headlineAddress ?? "");
+  return address.toLowerCase().includes(q) || (card.neighborhood ?? "").toLowerCase().includes(q);
+}
+
 function cardAvailability(rows: RoomListingRow[]): Pick<PropertyBrowseCard, "availabilityLabel" | "availabilityKind" | "availableNowCount"> {
   let nowCount = 0;
   const laterOpenings: string[] = [];
@@ -625,6 +628,7 @@ export function aggregateRoomRowsToPropertyCards(roomRows: RoomListingRow[]): Pr
       byProperty.set(row.propertyId, {
         propertyId: row.propertyId,
         headlineAddress: row.headlineAddress,
+        fullAddress: row.fullAddress,
         neighborhood: row.neighborhood,
         imageUrl,
         rentNumeric: row.rentNumeric,
