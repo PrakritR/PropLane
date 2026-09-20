@@ -72,6 +72,8 @@ import {
 } from "@/lib/manager-sms-messages";
 import { formatPacificDate } from "@/lib/pacific-time";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
+import { threadPassesCommunicationFilters, type CommunicationThreadFilters } from "@/lib/communication-thread-filters";
+import { recordRoutePath } from "@/lib/portals/record-kinds";
 
 const SMS_THREAD_ID = "text-messages";
 const SMS_OPENED_KEY = "axis_role_sms_opened_resident";
@@ -109,6 +111,7 @@ function ResidentUnifiedInbox({
   onAddConversation,
   listActions,
   residentUserId,
+  threadFilters,
 }: {
   inboxRef: React.RefObject<ResidentInboxPanelHandle | null>;
   smsUiEnabled: boolean;
@@ -125,6 +128,8 @@ function ResidentUnifiedInbox({
   /** Icon actions drawn beside Search, the manager's toolbar shape. */
   listActions?: React.ReactNode;
   residentUserId?: string | null;
+  /** Narrows the list — currently only `recordRefs`/`recordKinds` (record-linked communication). */
+  threadFilters?: CommunicationThreadFilters;
 }) {
   const { userId, ready: sessionReady } = usePortalSession({ userId: residentUserId ?? null });
   const viewerId = resolveCommunicationViewerId(residentUserId, userId);
@@ -244,8 +249,13 @@ function ResidentUnifiedInbox({
 
   const filteredEmail = useMemo(() => {
     const base = filterEmailInboxThreads(emailThreads, { keepSmsLike: !smsUiEnabled });
-    return withPinnedPropLaneAssistantThreads(base, "resident", viewerId, listSegment);
-  }, [emailThreads, listSegment, smsUiEnabled, viewerId]);
+    const withAssistant = withPinnedPropLaneAssistantThreads(base, "resident", viewerId, listSegment);
+    if (!threadFilters) return withAssistant;
+    return withAssistant.filter((t) =>
+      isPropLaneAssistantInboxThread(t) ||
+      threadPassesCommunicationFilters({ filters: threadFilters, contacts: [], counterpartyEmail: t.email, recordRef: t.recordRef }),
+    );
+  }, [emailThreads, listSegment, smsUiEnabled, threadFilters, viewerId]);
 
   const emailItems = useMemo((): UnifiedInboxListItem[] => {
     const q = query.trim().toLowerCase();
@@ -291,6 +301,7 @@ function ResidentUnifiedInbox({
         unreadCount: inboxThreadUnreadCount(t),
         address: homeAddress,
         category: inboxThreadCategoryLabel(t),
+        recordRef: t.recordRef,
         // Sort on the SAME field the row is labelled with — only `thread.time`
         // is normalized; `lastMsg.at` is whatever shape its writer built.
         sortMs: inboxThreadSortMs(t.id, t.time),
@@ -449,6 +460,11 @@ function ResidentUnifiedInbox({
               unreadCount={row.unreadCount}
               address={row.address}
               category={row.category}
+              recordChip={
+                row.recordRef
+                  ? { label: row.recordRef.label, href: recordRoutePath("resident", row.recordRef.kind, row.recordRef.id) }
+                  : undefined
+              }
               selected={selectedKey === row.key}
               onOpen={() => {
                 setSelectedKey(row.key);
@@ -526,6 +542,7 @@ export function ResidentCommunication({
   threadId,
   smsUiEnabled = false,
   residentUserId = null,
+  threadFilters,
 }: {
   /** Routed conversation list segment (Active / Unread / Archived). */
   listSegment?: InboxListSegment;
@@ -535,6 +552,8 @@ export function ResidentCommunication({
   inboxTabId?: ResidentEmailTabId;
   smsUiEnabled?: boolean;
   residentUserId?: string | null;
+  /** Scopes the list to one record (`RecordCommunicationSection`) or one "About" kind. */
+  threadFilters?: CommunicationThreadFilters;
 }) {
   const commBase = `${RESIDENT_PORTAL_BASE_PATH}/communication`;
   const inboxRef = useRef<ResidentInboxPanelHandle>(null);
@@ -605,6 +624,7 @@ export function ResidentCommunication({
         onAddConversation={openCompose}
         listActions={communicationCommandActions}
         residentUserId={residentUserId}
+        threadFilters={threadFilters}
       />
     </PortalCommunicationShell>
   );
