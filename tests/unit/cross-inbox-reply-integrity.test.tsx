@@ -35,8 +35,15 @@ const BASE_THREAD = {
 let managerRows = [{ ...BASE_THREAD }];
 let vendorRows = [{ ...BASE_THREAD }];
 let residentRows = [{ ...BASE_THREAD }];
+let realStorageMode = false;
 const upsertPersistedInboxRows = vi.fn(async () => true);
 const showToast = vi.fn();
+
+function storageRows(key: string, fallback: unknown[]) {
+  if (!realStorageMode) return fallback;
+  const raw = window.localStorage.getItem(key);
+  return raw ? JSON.parse(raw) : fallback;
+}
 
 vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -50,8 +57,8 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
     rows: Array<{ id: string }>,
   ) => rows.find((row) => row.id === id) ?? null,
   inboxThreadCounterpartyEmail: (row: { email?: string }) => row.email ?? "",
-  loadPersistedInbox: (key: string) => key === "manager-inbox" ? managerRows : key === "resident-inbox" ? residentRows : vendorRows,
-  syncPersistedInboxFromServer: (key: string) => Promise.resolve(key === "manager-inbox" ? managerRows : key === "resident-inbox" ? residentRows : vendorRows),
+  loadPersistedInbox: (key: string) => key === "manager-inbox" ? storageRows(key, managerRows) : key === "resident-inbox" ? storageRows(key, residentRows) : storageRows(key, vendorRows),
+  syncPersistedInboxFromServer: (key: string) => Promise.resolve(key === "manager-inbox" ? storageRows(key, managerRows) : key === "resident-inbox" ? storageRows(key, residentRows) : storageRows(key, vendorRows)),
   syncPersistedInboxFromServerWithStatus: (key: string) =>
     Promise.resolve({ rows: key === "manager-inbox" ? managerRows : key === "resident-inbox" ? residentRows : vendorRows, ok: true }),
   persistInbox: () => {},
@@ -60,8 +67,15 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   inboxMutationInFlight: () => false,
   runInboxMutation: (fn: () => unknown) => fn(),
   stagePersistedInboxRows: () => {},
-  upsertPersistedInboxRows: (...args: unknown[]) =>
-    upsertPersistedInboxRows(...(args as [])),
+  upsertPersistedInboxRows: (...args: unknown[]) => {
+    const result = upsertPersistedInboxRows(...(args as []));
+    if (realStorageMode) {
+      const key = String(args[0]);
+      const rows = args[2] as unknown[];
+      window.localStorage.setItem(key, JSON.stringify(rows));
+    }
+    return result;
+  },
   deleteInboxThreadIds: () => Promise.resolve(true),
   inboxThreadSortMs: () => 1,
   formatInboxStamp: () => "Aug 26, 9:45 AM",
@@ -177,6 +191,8 @@ beforeEach(() => {
   managerRows = [{ ...BASE_THREAD, messages: [...BASE_THREAD.messages] }];
   vendorRows = [{ ...BASE_THREAD, messages: [...BASE_THREAD.messages] }];
   residentRows = [{ ...BASE_THREAD, messages: [...BASE_THREAD.messages] }];
+  realStorageMode = false;
+  window.localStorage.clear();
   upsertPersistedInboxRows.mockClear();
   showToast.mockClear();
 });
@@ -187,7 +203,166 @@ afterEach(() => {
 });
 
 describe("manager and vendor inbox reply integrity", () => {
-  it("advances only approved draft A and preserves queued B/C plus newer cache rows", async () => {
+  it("keeps a newer real-storage draft, metadata, message count, and unread state after a deferred refusal", async () => {
+    realStorageMode = true;
+    const draftA = { text: "Draft A", status: "pending_approval" as const, generatedAt: "draft-a", model: "old" };
+    const draftB = { text: "Draft B", status: "pending_approval" as const, generatedAt: "draft-b", model: "new" };
+    const initial = [{ ...BASE_THREAD, unread: false, aiDraft: draftA, aiDraftQueue: [{ text: "Draft C", status: "pending_approval" as const, generatedAt: "draft-c" }] }] as unknown as typeof managerRows;
+    managerRows = initial;
+    window.localStorage.setItem("manager-inbox", JSON.stringify(initial));
+    let refuse!: () => void;
+    const refusal = new Promise<void>((resolve) => { refuse = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("send-inbox-message") && init?.method === "POST") {
+        await refusal;
+        return Response.json({ error: "Delivery refused." }, { status: 403 });
+      }
+      return responseForBackground(String(input));
+    }));
+
+    render(<ManagerInbox tabId="all" suppressCompose suppressListPane controlledExpandedId="thread-1" />);
+    const approval = await screen.findByPlaceholderText("PropLane AI draft…");
+    expect(approval).toHaveValue("Draft A");
+    fireEvent.click(document.querySelector('[data-attr="inbox-ai-draft-send"]') as HTMLButtonElement);
+
+    const newer = [{
+      ...BASE_THREAD,
+      unread: true,
+      aiDraft: draftB,
+      aiDraftQueue: [{ text: "Draft C", status: "pending_approval" as const, generatedAt: "draft-c" }],
+      messages: [...BASE_THREAD.messages],
+    }] as unknown as typeof managerRows;
+    managerRows = newer;
+    window.localStorage.setItem("manager-inbox", JSON.stringify(newer));
+    window.dispatchEvent(new CustomEvent("portal-inbox-changed", { detail: { key: "manager-inbox" } }));
+    await waitFor(() => expect(screen.getByDisplayValue("Draft B")).toBeInTheDocument());
+
+    await act(async () => refuse());
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Delivery refused."));
+    expect(screen.queryByDisplayValue("Draft A")).not.toBeInTheDocument();
+    expect(screen.getByDisplayValue("Draft B")).toBeInTheDocument();
+    const stored = JSON.parse(window.localStorage.getItem("manager-inbox") ?? "[]") as Array<typeof newer[number]>;
+    expect(stored[0]?.messages).toHaveLength(BASE_THREAD.messages.length);
+    expect(stored[0]?.aiDraft).toMatchObject(draftB);
+    expect(stored[0]?.aiDraftQueue).toHaveLength(1);
+    expect(stored[0]?.unread).toBe(true);
+  });
+
+  it("reconciles an approved manager draft from X after X→Y→X, preserving a newer active B", async () => {
+    realStorageMode = true;
+    const draftA = { text: "Draft A", status: "pending_approval" as const, generatedAt: "draft-a" };
+    const draftB = { text: "Draft B", status: "pending_approval" as const, generatedAt: "draft-b" };
+    const draftC = { text: "Draft C", status: "pending_approval" as const, generatedAt: "draft-c" };
+    managerRows = [
+      { ...BASE_THREAD, aiDraft: draftA, aiDraftQueue: [draftB, draftC] },
+      { ...BASE_THREAD, id: "thread-y", from: "Resident Two", email: "resident-two@example.com" },
+    ] as unknown as typeof managerRows;
+    window.localStorage.setItem("manager-inbox", JSON.stringify(managerRows));
+    let resolveSend!: () => void;
+    const delivery = new Promise<void>((resolve) => { resolveSend = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("send-inbox-message") && init?.method === "POST") {
+        await delivery;
+        return Response.json({ ok: true });
+      }
+      return responseForBackground(String(input));
+    }));
+
+    const view = render(<ManagerInbox tabId="all" suppressCompose suppressListPane controlledExpandedId="thread-1" />);
+    await screen.findByPlaceholderText("PropLane AI draft…");
+    fireEvent.click(document.querySelector('[data-attr="inbox-ai-draft-send"]') as HTMLButtonElement);
+    const newerActive = [{
+      ...BASE_THREAD,
+      aiDraft: draftB,
+      aiDraftQueue: [draftC],
+      messages: [...BASE_THREAD.messages],
+    }, { ...BASE_THREAD, id: "thread-y", from: "Resident Two", email: "resident-two@example.com" }] as unknown as typeof managerRows;
+    managerRows = newerActive;
+    window.localStorage.setItem("manager-inbox", JSON.stringify(newerActive));
+    window.dispatchEvent(new CustomEvent("portal-inbox-changed", { detail: { key: "manager-inbox" } }));
+    view.rerender(<ManagerInbox tabId="all" suppressCompose suppressListPane controlledExpandedId="thread-y" />);
+    const yComposer = await screen.findByPlaceholderText("Write a reply…") as HTMLTextAreaElement;
+    fireEvent.change(yComposer, { target: { value: "Y stays selected" } });
+    view.rerender(<ManagerInbox tabId="all" suppressCompose suppressListPane controlledExpandedId="thread-1" />);
+    const currentComposer = await screen.findByPlaceholderText("Write a reply…") as HTMLTextAreaElement;
+    fireEvent.change(currentComposer, { target: { value: "Newest X manual composer" } });
+    await act(async () => resolveSend());
+    await waitFor(() => expect(upsertPersistedInboxRows).toHaveBeenCalled());
+    const persisted = JSON.parse(window.localStorage.getItem("manager-inbox") ?? "[]") as Array<typeof managerRows[number] & { resolvedAiDraftIds?: string[]; aiDraftQueue?: Array<typeof draftC> }>;
+    const source = persisted.find((row) => row.id === "thread-1");
+    expect(source?.messages?.some((message) => message.body === "Draft A")).toBe(true);
+    expect(source?.aiDraft).toMatchObject(draftB);
+    expect(source?.aiDraftQueue).toEqual([draftC]);
+    expect(source?.resolvedAiDraftIds).toEqual(["draft-a"]);
+    expect(currentComposer).toHaveValue("Newest X manual composer");
+
+    view.rerender(<ManagerInbox tabId="all" suppressCompose suppressListPane controlledExpandedId="thread-1" />);
+    await waitFor(() => expect(screen.getByDisplayValue("Draft B")).toBeInTheDocument());
+    const returned = JSON.parse(window.localStorage.getItem("manager-inbox") ?? "[]").find((row: { id: string }) => row.id === "thread-1");
+    expect(returned.resolvedAiDraftIds).toEqual(["draft-a"]);
+    expect(returned.messages.filter((message: { body: string }) => message.body === "Draft A")).toHaveLength(1);
+  });
+
+  it("reconciles an accepted reply onto the initiating X thread for manager, resident, and vendor after navigating to Y", async () => {
+    realStorageMode = true;
+    const cases = [
+      {
+        key: "manager-inbox",
+        attr: "inbox-reply",
+        render: (id: string) => <ManagerInbox tabId="all" embeddedInCommunication externalTitleActions suppressCompose suppressListPane controlledExpandedId={id} />,
+        setRows: (rows: typeof managerRows) => { managerRows = rows; },
+      },
+      {
+        key: "resident-inbox",
+        attr: "resident-inbox-reply",
+        render: (id: string) => <ResidentInboxPanel tabId="all" embeddedInCommunication externalTitleActions suppressListPane controlledExpandedId={id} />,
+        setRows: (rows: typeof residentRows) => { residentRows = rows; },
+      },
+      {
+        key: "vendor-inbox",
+        attr: "vendor-inbox-reply",
+        render: (id: string) => <VendorInboxPanel tabId="all" embeddedInCommunication externalTitleActions suppressListPane controlledExpandedId={id} />,
+        setRows: (rows: typeof vendorRows) => { vendorRows = rows; },
+      },
+    ];
+
+    for (const testCase of cases) {
+      cleanup();
+      window.localStorage.clear();
+      upsertPersistedInboxRows.mockClear();
+      const rows = [
+        { ...BASE_THREAD },
+        { ...BASE_THREAD, id: "thread-y", from: "Resident Two", email: "resident-two@example.com" },
+      ];
+      testCase.setRows(rows);
+      window.localStorage.setItem(testCase.key, JSON.stringify(rows));
+      let resolveSend!: () => void;
+      const delivery = new Promise<void>((resolve) => { resolveSend = resolve; });
+      let sentBody: Record<string, unknown> | undefined;
+      vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("send-inbox-message") && init?.method === "POST") {
+          sentBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+          await delivery;
+          return Response.json({ ok: true });
+        }
+        return responseForBackground(String(input));
+      }));
+
+      const view = render(testCase.render("thread-1"));
+      await typeAndSend(testCase.attr, `${testCase.key} reply from X`);
+      view.rerender(testCase.render("thread-y"));
+      const yComposer = await screen.findByPlaceholderText("Write a reply…") as HTMLTextAreaElement;
+      fireEvent.change(yComposer, { target: { value: "Y composer remains selected" } });
+      await act(async () => resolveSend());
+      await waitFor(() => expect(upsertPersistedInboxRows).toHaveBeenCalled());
+      const stored = JSON.parse(window.localStorage.getItem(testCase.key) ?? "[]") as Array<{ id: string; messages?: Array<{ body: string }> }>;
+      expect(stored.find((row) => row.id === "thread-1")?.messages?.some((message) => message.body === `${testCase.key} reply from X`)).toBe(true);
+      expect(sentBody).toMatchObject({ threadId: "thread-1", toEmails: ["resident@example.com"] });
+      expect(yComposer).toHaveValue("Y composer remains selected");
+    }
+  });
+
+  it("does not advance an AI draft queue when an ordinary reply is sent", async () => {
     const draftA = { text: "Draft A", status: "pending_approval" as const, generatedAt: "draft-a" };
     const draftB = { text: "Draft B", status: "pending_approval" as const, generatedAt: "draft-b" };
     const draftC = { text: "Draft C", status: "pending_approval" as const, generatedAt: "draft-c" };
@@ -204,7 +379,7 @@ describe("manager and vendor inbox reply integrity", () => {
     }));
 
     render(<ManagerInbox tabId="all" embeddedInCommunication externalTitleActions suppressCompose suppressListPane controlledExpandedId="thread-1" />);
-    await typeAndSend("inbox-reply", "Approve only A");
+    await typeAndSend("inbox-reply", "Ordinary reply must not approve A");
     managerRows = [{
       ...BASE_THREAD,
       aiDraft: { ...draftA, model: "newer-metadata" },
@@ -223,9 +398,12 @@ describe("manager and vendor inbox reply integrity", () => {
     }>;
     expect(persisted.map((row) => row.id)).toContain("queue-sibling");
     expect(persisted[0]?.messages?.some((message) => message.id === "late-inbound")).toBe(true);
-    expect(persisted[0]?.aiDraft).toMatchObject({ text: "Draft B", generatedAt: "draft-b" });
-    expect(persisted[0]?.aiDraftQueue).toEqual([expect.objectContaining({ text: "Draft C", generatedAt: "draft-c" })]);
-    expect(persisted[0]?.resolvedAiDraftIds).toContain("draft-a");
+    expect(persisted[0]?.aiDraft).toMatchObject({ text: "Draft A", generatedAt: "draft-a" });
+    expect(persisted[0]?.aiDraftQueue).toEqual([
+      expect.objectContaining({ text: "Draft B", generatedAt: "draft-b" }),
+      expect.objectContaining({ text: "Draft C", generatedAt: "draft-c" }),
+    ]);
+    expect(persisted[0]?.resolvedAiDraftIds ?? []).not.toContain("draft-a");
   });
 
   it("leaves draft A and queued B/C unchanged when manager delivery is refused", async () => {

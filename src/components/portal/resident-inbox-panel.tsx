@@ -1152,17 +1152,10 @@ export const ResidentInboxPanel = forwardRef<
       // must never reach the resident as a failed send: the explicit upsert is
       // the write we trust, and the forced sync below runs unconditionally as
       // the reconciliation.
+      // Conversation navigation only fences active-thread UI. The initiating
+      // viewer still owns this source-thread cache reconciliation.
+      if (!ownsOperation()) return;
       const currentRows = loadPersistedInbox(RESIDENT_INBOX_STORAGE_KEY, RESIDENT_INBOX_THREAD_FALLBACK) as InboxThread[];
-      if (!ownsConversation()) {
-        return {
-          emailRequested: channels.email,
-          smsRequested: channels.sms,
-          proplaneRequested: proplaneAllowed,
-          emailOk,
-          smsOk,
-          proplaneOk,
-        };
-      }
       const currentThread = currentRows.find((t) => t.id === thread.id);
       if (currentThread) {
         const withReply = (currentThread.messages ?? []).some((m) => m.id === replyId)
@@ -1172,9 +1165,8 @@ export const ResidentInboxPanel = forwardRef<
         const persisted = currentRows.map((t) => (t.id === thread.id ? delivered : t));
         setLocal(persisted);
         await upsertPersistedInboxRows(RESIDENT_INBOX_STORAGE_KEY, [delivered], persisted).catch(() => false);
-        if (!ownsConversation()) return;
       }
-      if (ownsConversation()) {
+      if (ownsOperation()) {
         void syncPersistedInboxFromServer(RESIDENT_INBOX_STORAGE_KEY, { force: true }).catch(() => {});
       }
       return {

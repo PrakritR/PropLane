@@ -795,14 +795,9 @@ export const VendorInboxPanel = forwardRef<
           throw new InboxSendRefusal(failureMessage || null);
         }
 
-        if (!ownsConversation()) {
-          return {
-            emailRequested: channels.email,
-            smsRequested: channels.sms,
-            emailOk,
-            smsOk,
-          };
-        }
+        // Conversation navigation only fences active-thread UI. The initiating
+        // viewer still owns this source-thread cache reconciliation.
+        if (!ownsOperation()) return;
         const currentRows = loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, VENDOR_INBOX_FALLBACK) as InboxThread[];
         const currentThread = currentRows.find((item) => item.id === thread.id);
         if (currentThread) {
@@ -821,7 +816,6 @@ export const VendorInboxPanel = forwardRef<
             [delivered],
             persisted,
           ).catch(() => false);
-          if (!ownsConversation()) return;
         }
       } finally {
         // The delivered reply is persisted explicitly above.

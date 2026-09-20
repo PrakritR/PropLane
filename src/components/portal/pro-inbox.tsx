@@ -941,6 +941,7 @@ export const ManagerInbox = forwardRef<
       text: string,
       channels: { email: boolean; sms: boolean; proplane?: boolean },
       attachmentUrls: string[] = [],
+      approvedDraft?: InboxAiDraft,
     ) => {
       const ownsOperation = captureOperationOwnership();
       if (!ownsOperation()) return;
@@ -991,6 +992,7 @@ export const ManagerInbox = forwardRef<
         channel: replyChannel,
         ...(emailAllowed ? { subject } : {}),
       };
+      const optimisticThread = appendReplyToInboxThread(thread, reply);
       setLocal((current) =>
         current.map((row) =>
           row.id === thread.id
@@ -1009,24 +1011,33 @@ export const ManagerInbox = forwardRef<
             const messages = (row.messages ?? []).filter(
               (message) => message.id !== replyId,
             );
-            if (messages.length === (thread.messages ?? []).length) {
-              return {
-                ...row,
-                messages,
-                preview: thread.preview,
-                time: thread.time,
-                unread: thread.unread,
-                aiDraft: thread.aiDraft,
-              };
-            }
+            // A cache event may already have replaced this optimistic reply.
+            // In that case this refusal has no state left to undo.
+            if (messages.length === (row.messages ?? []).length) return row;
             const last = messages[messages.length - 1];
             return {
               ...row,
               messages,
-              preview: last
-                ? last.body.slice(0, 100).replace(/\n/g, " ")
-                : thread.preview,
-              time: last?.at ?? thread.time,
+              // Restore only the fields this append changed, and only while
+              // they still hold this append's values. A cache arrival can
+              // update metadata with or without adding another message.
+              preview: row.preview === optimisticThread.preview
+                ? messages.length === (thread.messages ?? []).length
+                  ? thread.preview
+                  : last
+                    ? last.body.slice(0, 100).replace(/\n/g, " ")
+                    : thread.preview
+                : row.preview,
+              time: row.time === optimisticThread.time
+                ? messages.length === (thread.messages ?? []).length
+                  ? thread.time
+                  : last?.at ?? thread.time
+                : row.time,
+              unread:
+                messages.length === (thread.messages ?? []).length &&
+                row.unread === optimisticThread.unread
+                  ? thread.unread
+                  : row.unread,
             };
           }),
         );
@@ -1158,8 +1169,9 @@ export const ManagerInbox = forwardRef<
           rollbackReply();
           throw new InboxSendRefusal(failureMessage || null);
         }
-        if (!ownsConversation()) return;
-
+        // Navigation may change the active conversation, but this write still
+        // belongs to the initiating viewer and must reconcile its source row.
+        if (!ownsOperation()) return;
         const currentRows = loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []) as InboxThread[];
         const currentThread = currentRows.find((row) => row.id === thread.id);
         if (currentThread) {
@@ -1169,19 +1181,38 @@ export const ManagerInbox = forwardRef<
             ? currentThread
             : appendReplyToInboxThread(currentThread, reply);
           const delivered = markThreadMessageDelivery(withReply, replyId, undefined);
-          const approvedDraft = thread.aiDraft;
-          const currentDraft = currentThread.aiDraft;
           // Resolve exactly the draft this reply approved. `generatedAt` is the
           // durable draft identity; old rows without it retain a conservative
           // structural match. A newer active draft must never be consumed.
-          const approvingCurrentDraft = Boolean(
+          const approvedDraftId = approvedDraft?.generatedAt?.trim();
+          const currentDraft = delivered.aiDraft;
+          const approvedMatchesActive = Boolean(
             approvedDraft &&
               currentDraft &&
-              (approvedDraft.generatedAt?.trim()
-                ? currentDraft.generatedAt?.trim() === approvedDraft.generatedAt.trim()
+              (approvedDraftId
+                ? currentDraft.generatedAt?.trim() === approvedDraftId
                 : currentDraft.text === approvedDraft.text && currentDraft.status === approvedDraft.status),
           );
-          const settled = approvingCurrentDraft ? advanceInboxAiDraft(delivered) : delivered;
+          const alreadyResolved = Boolean(
+            approvedDraftId && delivered.resolvedAiDraftIds?.includes(approvedDraftId),
+          );
+          const settled = !approvedDraft || alreadyResolved
+            ? delivered
+            : approvedMatchesActive
+              ? advanceInboxAiDraft(delivered)
+              : approvedDraftId
+                ? {
+                    ...delivered,
+                    // B remains active. Consume only A if it is now waiting
+                    // in the queue, then retain A's exact resolved identity.
+                    aiDraftQueue: delivered.aiDraftQueue?.filter(
+                      (draft) => draft.generatedAt?.trim() !== approvedDraftId,
+                    ),
+                    resolvedAiDraftIds: [
+                      ...new Set([...(delivered.resolvedAiDraftIds ?? []), approvedDraftId]),
+                    ],
+                  }
+                : delivered;
           const persisted = currentRows.map((row) =>
             row.id === thread.id ? settled : row,
           );
@@ -1191,7 +1222,6 @@ export const ManagerInbox = forwardRef<
             [settled],
             persisted,
           ).catch(() => false);
-          if (!ownsConversation()) return;
         }
       } finally {
         // The delivered reply is persisted explicitly above.
@@ -2152,11 +2182,14 @@ export const ManagerInbox = forwardRef<
     }
     setApprovingDraft(true);
     try {
+      const approvedDraft = activeThread.aiDraft
+        ? { ...activeThread.aiDraft }
+        : undefined;
       const outcome = await handleReply(activeThread.id, text, {
         email: channels.viaEmail,
         sms: channels.viaSms,
         proplane: channels.viaProplane,
-      });
+      }, [], approvedDraft);
       if (!ownsReplyAttempt()) return false;
       if (outcome) showToast(inboxReplySentToastMessage(outcome));
       return true;

@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Renewed inbox correction R1 handoff</title>
+<style>
+  body { max-width: 980px; margin: 40px auto; padding: 0 24px; font: 16px/1.6 system-ui; color: #192433; }
+  code { background: #edf1f6; overflow-wrap: anywhere; }
+  section { border-left: 4px solid #315fa8; padding-left: 18px; margin: 24px 0; }
+  h1, h2 { line-height: 1.25; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { border: 1px solid #ccd4df; padding: 8px 10px; text-align: left; vertical-align: top; }
+</style>
+<body>
+<h1>Renewed inbox correction R1 handoff</h1>
+<p>Execution handoff for the first automatic correction of the renewed inbox work. The correction plan is <code>docs/security/2026-09-20-renewed-inbox-bugbot-review.html</code>. Worktree: <code>/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/9/AXIS-2</code>. Starting HEAD: <code>fcd5c8a0b</code>, with integrated <code>main</code> at <code>05be85d4e</code>. This source-only execution did not mutate Git, so the execution session did not create a new HEAD.</p>
+
+<section>
+<h2>Outcome</h2>
+<p>The two P2 findings are corrected in source. A refused manager reply now removes only its own optimistic message and restores only optimistic fields it still owns. A successful reply now reconciles the initiating source thread from the current cache while the initiating viewer remains authorized, even when the active conversation changes. Active-thread UI effects remain protected by conversation and attempt generations.</p>
+</section>
+
+<h2>Decisions and product behavior</h2>
+<ul>
+  <li>Manager rollback no-ops when an authoritative cache event has already removed the optimistic reply. It never restores <code>aiDraft</code>, queue, resolved identities, or other metadata. It restores <code>preview</code>, <code>time</code>, and <code>unread</code> only while those fields still carry this reply's optimistic values. It also preserves unread state when another message or optimistic operation remains.</li>
+  <li>Conversation ownership controls composer clearing, busy state, errors, toasts, and similar active-thread UI. Viewer ownership controls durable reconciliation of the original source row.</li>
+  <li>The recipient and thread identity come from the initiating conversation captured before the asynchronous delivery begins. Navigation cannot redirect the reply to the newly selected conversation.</li>
+  <li>AI queue advancement now represents an explicit approval action. <code>approveActiveDraft</code> supplies the exact approved draft snapshot to the reply path; an ordinary manual reply no longer implies approval of a pending AI draft. This is an intentional product behavior correction from the old behavior, which advanced any active draft after any accepted manager reply.</li>
+  <li>An approved draft with <code>generatedAt</code> is consumed by exact identity against current storage. If A remains active, it advances normally. If a newer B is active, B stays active, only a queued A is removed, and A is recorded in <code>resolvedAiDraftIds</code> once. Legacy drafts without an identity advance only on a conservative active-draft structural match.</li>
+</ul>
+
+<h2>Changed files</h2>
+<table>
+  <thead><tr><th>File</th><th>Change</th></tr></thead>
+  <tbody>
+    <tr><td><code>src/components/portal/pro-inbox.tsx</code></td><td>Field-owned refusal rollback, viewer-owned delivered reconciliation, and explicit identity-based AI approval consumption.</td></tr>
+    <tr><td><code>src/components/portal/resident-inbox-panel.tsx</code></td><td>Delivered replies reconcile their initiating source thread after navigation while UI effects remain conversation-guarded.</td></tr>
+    <tr><td><code>src/components/portal/vendor-inbox-panel.tsx</code></td><td>Same delivered source-thread reconciliation rule as resident and manager.</td></tr>
+    <tr><td><code>tests/unit/cross-inbox-reply-integrity.test.tsx</code></td><td>Real-localStorage and rendered-DOM deferred races, explicit approval identity, ordinary reply distinction, source recipient capture, and all-role navigation coverage.</td></tr>
+    <tr><td><code>docs/plans/2026-09-20-renewed-r1-handoff.html</code></td><td>This durable execution handoff.</td></tr>
+  </tbody>
+</table>
+
+<h2>Focused acceptance coverage added</h2>
+<ul>
+  <li>A deferred manager refusal receives a same-message-count cache event with a newer active draft, newer metadata, queue state, and unread value. The rendered draft and real localStorage retain the newer state, and the refused message is absent.</li>
+  <li>Explicit manager approval of A completes after X to Y to X. A is delivered and resolved once, a newer active B and queued C survive, and the currently rendered newer X composer remains intact.</li>
+  <li>An ordinary accepted manager reply leaves A, B, C, and resolved draft identities unchanged.</li>
+  <li>Manager, resident, and vendor accepted replies complete after X to Y. Each persists onto X, retains X's original recipient and thread id, and leaves Y's selected composer intact.</li>
+</ul>
+
+<h2>Validation boundary</h2>
+<p>Per root ownership, this execution session ran no Node process, unit test, lint, typecheck, build, browser, server, graph operation, install, database operation, or Git command. The root agent owns all runtime validation and release work. At handoff time, root reported the existing CI lint and integration jobs green, PostgreSQL 16 and 17 CLI jobs green, the prior build TS7006 issue corrected outside this scope in <code>portal-session-keepalive.tsx</code>, and the unit job still pending. Those results predate this source correction and do not validate it.</p>
+
+<h2>Scope and risk</h2>
+<p>No schema, route, API contract, navigation system, attachment behavior, database data, or production state changed. The meaningful product change is that a manual manager reply no longer silently approves an AI draft. The main remaining risk is runtime interaction among storage events, React rerenders, and forced server refresh; the focused tests are designed around those boundaries, but they still require root-owned execution and fresh independent review.</p>
+
+<h2>Fresh review prompt</h2>
+<p>Independently review the correction plan, this handoff, and the diff limited to the three inbox panels plus <code>tests/unit/cross-inbox-reply-integrity.test.tsx</code>. Verify that rollback changes only fields owned by the refused optimistic reply; successful delivery always reconciles the initiating same-viewer source row after X to Y and X to Y to X; UI effects remain generation-guarded; recipient identity stays bound to X; explicit approval consumes only A once from current storage; ordinary replies do not approve AI drafts; and the focused tests fail the pre-correction code. Incorporate root's separate <code>portal-session-keepalive.tsx</code> type-only fix only when assessing the combined build, not the inbox verdict.</p>
+</body>
+</html>

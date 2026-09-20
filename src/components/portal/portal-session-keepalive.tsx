@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 import { detectNativePlatformSync } from "@/lib/native/detect-native";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { clearStaleBrowserAuth } from "@/lib/supabase/safe-browser-session";
@@ -35,7 +36,7 @@ export function PortalSessionKeepalive() {
   useEffect(() => {
     let disposed = false;
     const supabase = createSupabaseBrowserClient();
-    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: authListener } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
       if (disposed) return;
       if (event === "INITIAL_SESSION") {
         portalSessionRefresh.observeInitialSession(session);
