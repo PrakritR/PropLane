@@ -8,6 +8,8 @@ function mockDb(opts: {
   workspaceError?: { message: string } | null;
   links?: Array<{ id: string; workspace_id?: string | null; workspace_permissions?: unknown }>;
   linksError?: { message: string } | null;
+  /** The caller's own default workspace id, returned by `ensure_default_portal_workspace`. */
+  ownDefaultWorkspaceId?: string;
 }): SupabaseClient {
   return {
     from(table: string) {
@@ -34,6 +36,12 @@ function mockDb(opts: {
       }
       throw new Error(`unexpected table ${table}`);
     },
+    rpc: async (fn: string) => {
+      if (fn === "ensure_default_portal_workspace") {
+        return { data: opts.ownDefaultWorkspaceId ?? "own-ws-1", error: null };
+      }
+      throw new Error(`unexpected rpc ${fn}`);
+    },
   } as unknown as SupabaseClient;
 }
 
@@ -59,7 +67,33 @@ describe("resolveCreateListingOwner", () => {
     });
   });
 
-  it("refuses a teammate without addProperties", async () => {
+  it("self-owned create from a non-owned selected workspace resolves to the caller's own workspace (PRP-481)", async () => {
+    // co-1's ambient (cookie) selection is ws-1, owned by someone else, with no
+    // addProperties grant — a stale cookie must not block a self-owned create.
+    const result = await resolveCreateListingOwner(
+      mockDb({
+        workspace: { id: "ws-1", owner_user_id: "owner-1" },
+        links: [{ id: "invite-1", workspace_id: "ws-1", workspace_permissions: { teams: true } }],
+        ownDefaultWorkspaceId: "own-ws-1",
+      }),
+      {
+        callerUserId: "co-1",
+        admin: false,
+        requestedOwnerId: null,
+        workspaceId: "ws-1",
+      },
+    );
+    expect(result).toEqual({
+      ok: true,
+      ownerUserId: "co-1",
+      workspaceId: "own-ws-1",
+    });
+  });
+
+  it("a body workspaceId the caller doesn't own still 403s (PRP-481)", async () => {
+    // Same non-owned, no-grant workspace, but named explicitly (e.g. in the
+    // request body) rather than the ambient cookie selection — refuse rather
+    // than silently substitute a different workspace.
     const result = await resolveCreateListingOwner(
       mockDb({
         workspace: { id: "ws-1", owner_user_id: "owner-1" },
@@ -70,6 +104,7 @@ describe("resolveCreateListingOwner", () => {
         admin: false,
         requestedOwnerId: null,
         workspaceId: "ws-1",
+        explicitWorkspaceId: true,
       },
     );
     expect(result).toEqual({
