@@ -2125,6 +2125,7 @@ export function ProAccountLinksPanel({
               syncWorkspaceRollup();
             }}
             onEditMember={(memberLinkId) => openMemberSheet(memberLinkId)}
+            inviterName={managerDisplayName === "Your property manager" ? (managerEmail ?? "You") : managerDisplayName}
           />
         ) : null}
 

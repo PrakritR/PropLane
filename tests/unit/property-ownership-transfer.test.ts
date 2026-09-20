@@ -36,11 +36,19 @@ function buildQueueDb(responses: Record<string, Resp[]>) {
   const created: Record<string, ReturnType<typeof buildChain>[]> = {};
 
   function buildChain(resp: Resp) {
+    const filterCalls: { method: "eq" | "is"; args: unknown[] }[] = [];
     const self = {
       select: vi.fn(() => self),
       or: vi.fn(() => self),
       in: vi.fn(() => self),
-      eq: vi.fn(() => self),
+      eq: vi.fn((...args: unknown[]) => {
+        filterCalls.push({ method: "eq", args });
+        return self;
+      }),
+      is: vi.fn((...args: unknown[]) => {
+        filterCalls.push({ method: "is", args });
+        return self;
+      }),
       maybeSingle: vi.fn().mockResolvedValue({ data: resp.data ?? null, error: resp.error ?? null }),
       update: vi.fn((payload: unknown) => {
         (self as { updatePayload?: unknown }).updatePayload = payload;
@@ -50,6 +58,7 @@ function buildQueueDb(responses: Record<string, Resp[]>) {
         (self as { insertPayload?: unknown }).insertPayload = payload;
         return self;
       }) as unknown as (payload: unknown) => typeof self,
+      filterCalls,
     };
     return self;
   }
@@ -165,6 +174,53 @@ describe("transferPropertyOwnership", () => {
         expect(payload).not.toMatchObject({ inviter_user_id: "owner-1", invitee_user_id: "new-1" });
       }
     }
+  });
+
+  it("with a null new workspace, looks up the reverse link with .is('workspace_id', null) instead of .eq (security review Low 1)", async () => {
+    const { db, created } = buildQueueDb({
+      manager_property_records: [
+        { data: PROPERTY_ROW, error: null }, // ownership lookup
+        { data: { workspace_id: null }, error: null }, // ownership update .select("workspace_id") — no trigger / not workspace-assigned
+      ],
+      account_link_invites: [
+        { data: LINK_ROW(["prop-1", "prop-2"]), error: null }, // linkRow lookup
+        { data: { assigned_property_ids: ["prop-2"] }, error: null }, // refreshedLinkRow — still has a house
+        { data: LINK_ROW(["prop-2"]), error: null }, // reverseLink lookup — found via .is(), not .eq(null)
+      ],
+      profiles: [
+        { data: PROFILE_ROW("Owner One", "AX-OWNER"), error: null },
+        { data: PROFILE_ROW("New Manager", "AX-NEW"), error: null },
+      ],
+    });
+
+    const { transferPropertyOwnership } = await import("@/lib/property-ownership-transfer");
+
+    const result = await transferPropertyOwnership(db, {
+      propertyId: "prop-1",
+      currentOwnerUserId: "owner-1",
+      newManagerUserId: "new-1",
+      formerOwnerPermissions: { applications: true },
+    });
+
+    expect(result.ok).toBe(true);
+
+    const linkCalls = created.account_link_invites;
+    // select linkRow, select refreshedLinkRow, select reverseLink (found), update the found row — no insert.
+    expect(linkCalls).toHaveLength(4);
+
+    const reverseLookupChain = linkCalls[2] as unknown as {
+      filterCalls: { method: "eq" | "is"; args: unknown[] }[];
+    };
+    expect(reverseLookupChain.filterCalls).toContainEqual({ method: "is", args: ["workspace_id", null] });
+    expect(reverseLookupChain.filterCalls).not.toContainEqual({ method: "eq", args: ["workspace_id", null] });
+
+    // Found the existing reverse link rather than inserting a duplicate.
+    for (const call of linkCalls) {
+      const insertPayload = (call as unknown as { insertPayload?: unknown }).insertPayload;
+      expect(insertPayload).toBeUndefined();
+    }
+    const updateChain = linkCalls[3] as unknown as { updatePayload?: Record<string, unknown> };
+    expect(updateChain.updatePayload).toMatchObject({ assigned_property_ids: expect.arrayContaining(["prop-1", "prop-2"]) });
   });
 
   it("with an empty former-owner map, cancels an exhausted old link and never touches a reverse link", async () => {

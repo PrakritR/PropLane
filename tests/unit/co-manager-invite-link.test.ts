@@ -146,4 +146,43 @@ describe("active invite link per workspace", () => {
     expect(source).toContain("replaceActive?: boolean");
     expect(source).toContain("replaceActive: body.replaceActive === true");
   });
+
+  it("replaceActive aborts the mint rather than inserting when the revoke fails (security review Medium)", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/lib/invite-links/invite-links.server.ts"),
+      "utf8",
+    );
+    // The revoke's own { error } must be read and checked BEFORE the insert
+    // block runs, so a failed revoke can never leave the old (possibly more
+    // powerful) link live alongside a freshly inserted one.
+    expect(source).toContain("const { error: revokeError } = await db");
+    expect(source).toContain("if (revokeError) {");
+    expect(source).toContain("Could not turn off the previous link; nothing changed.");
+    const revokeBlockIndex = source.indexOf("const { error: revokeError } = await db");
+    const insertIndex = source.indexOf(".insert({", revokeBlockIndex);
+    expect(revokeBlockIndex).toBeGreaterThan(-1);
+    expect(insertIndex).toBeGreaterThan(revokeBlockIndex);
+  });
+
+  it("the GET link projection carries houseScope alongside teamRole so the sheet can hydrate from it", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/lib/invite-links/invite-links.server.ts"),
+      "utf8",
+    );
+    expect(source).toContain("houseScope: parseHouseScope(row.house_scope)");
+  });
+
+  it("LINK_COLUMNS and toInviteLinkRow never carry the token or its ciphertext", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/lib/invite-links/invite-links.server.ts"),
+      "utf8",
+    );
+    const columnsMatch = source.match(/const LINK_COLUMNS =\s*\n?\s*"([^"]+)"/);
+    expect(columnsMatch).toBeTruthy();
+    const columns = columnsMatch?.[1] ?? "";
+    expect(columns).not.toContain("token");
+    const rowFnMatch = source.match(/function toInviteLinkRow\([^)]*\)[^{]*\{([\s\S]*?)\n}/);
+    expect(rowFnMatch).toBeTruthy();
+    expect(rowFnMatch?.[1] ?? "").not.toMatch(/token/i);
+  });
 });

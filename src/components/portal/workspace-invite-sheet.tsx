@@ -5,13 +5,17 @@
  * copy the shareable link, and see who already has access. Opened by
  * `ProAccountLinksPanel`'s `openLinkModal(workspaceId)`.
  *
- * The link and the send box share ONE access setting (role + houses). Every
- * time that setting changes, the active link is re-minted with
- * `replaceActive: true` so a URL already sent can never gain more power than
- * whoever sent it agreed to (see `docs/agents/co-manager-access.md`).
+ * The link and the send box share ONE access setting (role + houses). Opening
+ * the sheet only READS the workspace's active link (hydrating role/houses/
+ * permissions from it) and never mints as a side effect. Changing the access
+ * chip only updates local state. A link is minted or re-minted — always with
+ * `replaceActive: true` — only at the moment of Copy link or Send, and only
+ * when the on-screen terms differ from the held link's terms, so an
+ * already-shared URL never gains power without the sender re-confirming it
+ * (see `docs/agents/co-manager-access.md`).
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, Link2 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
@@ -33,15 +37,17 @@ import {
   WorkspaceGrantFields,
 } from "@/components/portal/pro-account-links-panel";
 import type { PortalWorkspace } from "@/lib/workspaces/types";
-import { memberReachLabel, type HouseScope } from "@/lib/workspaces/membership";
+import { memberReachLabel, parseHouseScope, type HouseScope } from "@/lib/workspaces/membership";
 import {
   TEAM_ROLE_INVITE_OPTIONS,
   TEAM_ROLE_LABELS,
+  parseTeamRole,
   stampTeamRolePermissions,
   type TeamRoleId,
 } from "@/lib/co-manager-team-roles";
 import {
   EMPTY_CO_MANAGER_PERMISSIONS,
+  flatCoManagerPermissionsFromProperty,
   normalizePropertyCoManagerPermissions,
   type CoManagerPermissions,
 } from "@/lib/co-manager-permissions";
@@ -153,12 +159,38 @@ function AccessChip({
   );
 }
 
+/** The access terms a held link was minted or hydrated with, for comparison against the live UI. */
+type HeldLinkTerms = {
+  role: TeamRoleId;
+  houseScope: HouseScope;
+  houseIds: string[];
+  permissions: CoManagerPermissions;
+};
+
+function sameIds(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sortedA = [...a].sort();
+  const sortedB = [...b].sort();
+  return sortedA.every((id, i) => id === sortedB[i]);
+}
+
+function termsMatch(held: HeldLinkTerms, current: HeldLinkTerms): boolean {
+  if (held.role !== current.role) return false;
+  if (held.houseScope !== current.houseScope) return false;
+  if (!sameIds(held.houseIds, current.houseIds)) return false;
+  if (held.role === "custom") {
+    return JSON.stringify(held.permissions) === JSON.stringify(current.permissions);
+  }
+  return true;
+}
+
 export function WorkspaceInviteSheet({
   open,
   workspace,
   onClose,
   onChanged,
   onEditMember,
+  inviterName,
 }: {
   open: boolean;
   workspace: PortalWorkspace;
@@ -166,6 +198,8 @@ export function WorkspaceInviteSheet({
   onChanged: () => void;
   /** Opens the existing member's permissions sheet (the panel already owns this flow). */
   onEditMember: (linkId: string) => void;
+  /** The manager sending the invite — used in the emailed/texted message body, never the workspace name. */
+  inviterName: string;
 }) {
   const { showToast } = useAppUi();
 
@@ -180,7 +214,8 @@ export function WorkspaceInviteSheet({
   const [linkId, setLinkId] = useState<string | null>(null);
   const [linkUrl, setLinkUrl] = useState<string | null>(null);
   const [linkLoading, setLinkLoading] = useState(false);
-  const mintedOnceRef = useRef(false);
+  /** The terms the held link (`linkId`) actually carries — null until one is hydrated or minted. */
+  const [heldTerms, setHeldTerms] = useState<HeldLinkTerms | null>(null);
 
   const [pendingInvites, setPendingInvites] = useState<AccountLinkInviteDto[]>([]);
   const [sentThisSession, setSentThisSession] = useState<LocalSentInvite[]>([]);
@@ -207,7 +242,17 @@ export function WorkspaceInviteSheet({
     [houseScope, workspace, selectedHouseIds],
   );
 
-  // Reset and load fresh every time the sheet opens for a (possibly new) workspace.
+  const currentTerms: HeldLinkTerms = useMemo(
+    () => ({ role, houseScope, houseIds, permissions: effectivePermissions }),
+    [role, houseScope, houseIds, effectivePermissions],
+  );
+
+  /** The on-screen access chip exactly describes the link Copy/Send would hand out. */
+  const termsMatchHeldLink = heldTerms != null && termsMatch(heldTerms, currentTerms);
+
+  // Reset and read the workspace's existing link every time the sheet opens
+  // for a (possibly new) workspace. This never mints — Copy link and Send own
+  // that, at the moment the manager actually shares something.
   useEffect(() => {
     if (!open) return;
     setRole("viewer");
@@ -217,9 +262,9 @@ export function WorkspaceInviteSheet({
     setWorkspacePermissions(DEFAULT_NEW_INVITE_WORKSPACE_GRANT);
     setLinkId(null);
     setLinkUrl(null);
+    setHeldTerms(null);
     setSendValue("");
     setSentThisSession([]);
-    mintedOnceRef.current = false;
     let cancelled = false;
     setLinkLoading(true);
     void (async () => {
@@ -227,29 +272,40 @@ export function WorkspaceInviteSheet({
         const res = await fetch(`/api/pro/invite-links?workspaceId=${encodeURIComponent(workspace.id)}`, {
           credentials: "include",
         });
-        const data = (await res.json().catch(() => ({}))) as { link?: { id?: string } | null };
+        const data = (await res.json().catch(() => ({}))) as {
+          link?: {
+            id?: string;
+            teamRole?: string | null;
+            houseScope?: string | null;
+            assignedPropertyIds?: string[];
+            propertyPermissions?: Record<string, unknown>;
+          } | null;
+        };
         if (cancelled) return;
-        if (data.link?.id) {
-          setLinkId(data.link.id);
-          mintedOnceRef.current = true;
-          return;
-        }
-        const result = await mintInviteLinkClient({
-          kind: "manager",
-          workspaceId: workspace.id,
-          assignedPropertyIds: workspace.propertyIds,
-          propertyLabelsById: workspace.propertyLabels,
-          teamRole: "viewer",
-          houseScope: "all",
-        });
-        if (cancelled) return;
-        if (result.ok) {
-          setLinkId(result.linkId);
-          setLinkUrl(result.url);
-        } else {
-          showToast(result.error);
-        }
-        mintedOnceRef.current = true;
+        const link = data.link;
+        if (!link?.id) return; // no link yet — leave the defaults, mint nothing.
+
+        const parsedRole = parseTeamRole(link.teamRole);
+        const nextRole: TeamRoleId = parsedRole.ok && parsedRole.role ? parsedRole.role : "viewer";
+        const nextHouseScope = parseHouseScope(link.houseScope);
+        const assignedIds = Array.isArray(link.assignedPropertyIds) ? link.assignedPropertyIds : [];
+        const nextSelectedHouseIds = nextHouseScope === "selected" ? assignedIds : [];
+        const nextHouseIds = nextHouseScope === "all" ? workspace.propertyIds : nextSelectedHouseIds;
+        const nextCustomPermissions =
+          nextRole === "custom"
+            ? flatCoManagerPermissionsFromProperty(
+                normalizePropertyCoManagerPermissions(link.propertyPermissions, assignedIds),
+              )
+            : EMPTY_CO_MANAGER_PERMISSIONS;
+        const nextPermissions =
+          nextRole === "custom" ? nextCustomPermissions : stampTeamRolePermissions(nextRole) ?? EMPTY_CO_MANAGER_PERMISSIONS;
+
+        setRole(nextRole);
+        setHouseScope(nextHouseScope);
+        setSelectedHouseIds(nextSelectedHouseIds);
+        setCustomPermissions(nextCustomPermissions);
+        setLinkId(link.id);
+        setHeldTerms({ role: nextRole, houseScope: nextHouseScope, houseIds: nextHouseIds, permissions: nextPermissions });
       } finally {
         if (!cancelled) setLinkLoading(false);
       }
@@ -279,98 +335,66 @@ export function WorkspaceInviteSheet({
     void loadPendingInvites();
   }, [open, loadPendingInvites]);
 
+  const changeRole = (next: TeamRoleId) => setRole(next);
+  const changeHouseScope = (next: HouseScope) => setHouseScope(next);
+  const changeSelectedHouseIds = (next: string[]) => setSelectedHouseIds(next);
+  const changeCustomPermissions = (next: CoManagerPermissions) => setCustomPermissions(next);
+
   /**
-   * `role`/`houseScope`/`houseIds`/`effectivePermissions` are this render's
-   * committed state, not the value a caller just changed (`setState` is
-   * async). Every mutator below passes its NEW value through `next` so the
-   * mint always reflects what the manager just picked, not last render's.
+   * The URL for what is on screen right now. Reuses the held link's URL
+   * (revealing it if not already in hand) when its terms still match the
+   * access chip; otherwise mints a fresh link with `replaceActive: true` so
+   * the new URL always matches what is about to be copied or sent, and any
+   * URL already out in the world stops working. Only toasts about a
+   * replacement when a prior link actually existed to replace.
    */
-  const remint = async (
-    reasonToast?: string,
-    next?: { role?: TeamRoleId; houseScope?: HouseScope; houseIds?: string[]; permissions?: CoManagerPermissions },
-  ) => {
-    const nextRole = next?.role ?? role;
-    const nextHouseScope = next?.houseScope ?? houseScope;
-    const nextHouseIds =
-      next?.houseIds ??
-      (next?.houseScope ? (next.houseScope === "all" ? workspace.propertyIds : selectedHouseIds) : houseIds);
-    const nextPermissions =
-      next?.permissions ??
-      (next?.role
-        ? (nextRole === "custom" ? customPermissions : stampTeamRolePermissions(nextRole) ?? EMPTY_CO_MANAGER_PERMISSIONS)
-        : effectivePermissions);
-    setLinkLoading(true);
-    try {
-      const result = await mintInviteLinkClient({
-        kind: "manager",
-        workspaceId: workspace.id,
-        assignedPropertyIds: nextHouseIds,
-        propertyPermissions: normalizePropertyCoManagerPermissions(
-          Object.fromEntries(nextHouseIds.map((id) => [id, nextPermissions])),
-          nextHouseIds,
-        ),
-        propertyLabelsById: workspace.propertyLabels,
-        teamRole: nextRole,
-        houseScope: nextHouseScope,
-        replaceActive: true,
-      });
-      if (result.ok) {
-        setLinkId(result.linkId);
-        setLinkUrl(result.url);
-        if (reasonToast) showToast(reasonToast);
-      } else {
-        showToast(result.error);
-      }
-    } finally {
-      setLinkLoading(false);
+  const resolveLinkForCurrentTerms = async (): Promise<
+    { ok: true; url: string } | { ok: false; error: string }
+  > => {
+    if (linkId && termsMatchHeldLink) {
+      if (linkUrl) return { ok: true, url: linkUrl };
+      const result = await revealInviteLinkClient(linkId);
+      if (!result.ok) return { ok: false, error: result.error };
+      setLinkUrl(result.url);
+      return { ok: true, url: result.url };
     }
-  };
 
-  const changeRole = (next: TeamRoleId) => {
-    setRole(next);
-    if (mintedOnceRef.current) {
-      void remint("Link updated. Anyone with the old link will need the new one.", { role: next });
+    const hadPriorLink = linkId != null;
+    const result = await mintInviteLinkClient({
+      kind: "manager",
+      workspaceId: workspace.id,
+      assignedPropertyIds: houseIds,
+      propertyPermissions: normalizePropertyCoManagerPermissions(
+        Object.fromEntries(houseIds.map((id) => [id, effectivePermissions])),
+        houseIds,
+      ),
+      propertyLabelsById: workspace.propertyLabels,
+      teamRole: role,
+      houseScope,
+      replaceActive: true,
+    });
+    if (!result.ok) return { ok: false, error: result.error };
+    setLinkId(result.linkId);
+    setLinkUrl(result.url);
+    setHeldTerms(currentTerms);
+    if (hadPriorLink) {
+      showToast("Link updated. Anyone with the old link will need the new one.");
     }
-  };
-
-  const changeHouseScope = (next: HouseScope) => {
-    setHouseScope(next);
-    if (mintedOnceRef.current) {
-      void remint("Link updated. Anyone with the old link will need the new one.", { houseScope: next });
-    }
-  };
-
-  const remintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const debouncedRemint = (next?: { houseIds?: string[]; permissions?: CoManagerPermissions }) => {
-    if (remintTimerRef.current) clearTimeout(remintTimerRef.current);
-    remintTimerRef.current = setTimeout(() => {
-      void remint("Link updated. Anyone with the old link will need the new one.", next);
-    }, 500);
-  };
-  useEffect(() => () => {
-    if (remintTimerRef.current) clearTimeout(remintTimerRef.current);
-  }, []);
-
-  const changeSelectedHouseIds = (next: string[]) => {
-    setSelectedHouseIds(next);
-    if (mintedOnceRef.current) debouncedRemint({ houseIds: next });
-  };
-
-  const changeCustomPermissions = (next: CoManagerPermissions) => {
-    setCustomPermissions(next);
-    if (mintedOnceRef.current) debouncedRemint({ permissions: next });
+    return { ok: true, url: result.url };
   };
 
   const copyLink = async () => {
-    let url = linkUrl;
-    if (!url && linkId) {
-      const result = await revealInviteLinkClient(linkId);
+    setLinkLoading(true);
+    let url: string | null = null;
+    try {
+      const result = await resolveLinkForCurrentTerms();
       if (!result.ok) {
         showToast(result.error);
         return;
       }
       url = result.url;
-      setLinkUrl(url);
+    } finally {
+      setLinkLoading(false);
     }
     if (!url) {
       showToast("Could not copy the invite link.");
@@ -430,12 +454,21 @@ export function WorkspaceInviteSheet({
       // today that path can only resolve an existing account or an email
       // address, so a bare phone number with no account cannot be reached
       // this way yet (see PR notes) and the manager falls back to Copy link.
+      //
+      // The link must exist and match what is on screen BEFORE the message is
+      // built — otherwise a sheet opened onto an existing link, never copied,
+      // would email an invite with no URL to accept it with.
+      const linkResult = await resolveLinkForCurrentTerms();
+      if (!linkResult.ok) {
+        showToast(linkResult.error);
+        return;
+      }
       const facts = {
         kind: "workspace" as const,
-        inviterName: workspace.name,
+        inviterName,
         workspaceName: workspace.name,
         propertyLabels: houseIds.map((id) => workspace.propertyLabels?.[id]?.trim() || id),
-        inviteUrl: linkUrl ?? undefined,
+        inviteUrl: linkResult.url,
         roleLabel,
         reach,
       };

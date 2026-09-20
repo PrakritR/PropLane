@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 /**
- * Workspace invite sheet: one active manager link per workspace is read on
- * open (or minted when none exists), a role/houses change re-mints it with
- * `replaceActive: true` so an already-shared URL never gains more power, Send
- * stays gated on the input actually parsing to a phone/email/code, and a
- * PropLane-code recipient creates the account-link row directly.
+ * Workspace invite sheet: opening the sheet only READS the workspace's
+ * active link (hydrating role/houses/permissions from it) and never mints as
+ * a side effect. Copy link and Send are the only two actions that can mint —
+ * and only when the on-screen access chip no longer matches the held link's
+ * terms, always with `replaceActive: true`, so an already-shared URL never
+ * gains power and the emailed/texted invite always carries the URL it
+ * describes.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -16,6 +18,12 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
   useAppUi: () => ({ showToast }),
 }));
 
+const deliverManagerDirectoryMessage = vi.fn(async () => ({ ok: true, message: "sent" }) as const);
+vi.mock("@/lib/manager-vendor-invite-client", () => ({
+  deliverManagerDirectoryMessage: (...args: unknown[]) =>
+    (deliverManagerDirectoryMessage as unknown as (...a: unknown[]) => unknown)(...args),
+}));
+
 import { WorkspaceInviteSheet } from "@/components/portal/workspace-invite-sheet";
 
 afterEach(() => {
@@ -23,6 +31,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   showToast.mockClear();
+  deliverManagerDirectoryMessage.mockClear();
 });
 
 const workspace: PortalWorkspace = {
@@ -37,10 +46,19 @@ const workspace: PortalWorkspace = {
   members: [],
 };
 
+type ExistingLink = {
+  id: string;
+  teamRole?: string | null;
+  houseScope?: string | null;
+  assignedPropertyIds?: string[];
+  propertyPermissions?: Record<string, unknown>;
+} | null;
+
 /** Routes fetch by method + path prefix; each test overrides only what it cares about. */
 function mockFetch(overrides: {
-  existingLink?: { id: string } | null;
+  existingLink?: ExistingLink;
   mintResult?: { url: string; link: { id: string } };
+  revealResult?: { url: string };
   accountLinksPost?: { ok: boolean; body?: unknown };
 }) {
   const calls: { url: string; method: string; body: unknown }[] = [];
@@ -55,6 +73,10 @@ function mockFetch(overrides: {
     }
     if (url === "/api/pro/invite-links" && method === "POST") {
       const result = overrides.mintResult ?? { url: "https://proplane.test/invite/minted", link: { id: "link-minted" } };
+      return new Response(JSON.stringify(result), { status: 200 });
+    }
+    if (/^\/api\/pro\/invite-links\/[^/]+\/link$/.test(url) && method === "POST") {
+      const result = overrides.revealResult ?? { url: "https://proplane.test/invite/revealed" };
       return new Response(JSON.stringify(result), { status: 200 });
     }
     if (url === "/api/pro/account-links" && method === "GET") {
@@ -90,61 +112,133 @@ function renderSheet(props: Partial<Parameters<typeof WorkspaceInviteSheet>[0]> 
       onClose={() => {}}
       onChanged={() => {}}
       onEditMember={() => {}}
+      inviterName="Jamie Rivera"
       {...props}
     />,
   );
 }
 
+function accessChipText() {
+  return document.querySelector('[data-attr="workspace-invite-access"]')?.textContent ?? "";
+}
+
+function clickCopy() {
+  const btn = document.querySelector('[data-attr="workspace-invite-copy"]') as HTMLElement;
+  fireEvent.click(btn);
+}
+
 describe("WorkspaceInviteSheet", () => {
-  it("reads the workspace's link on open, then mints one when none exists yet", async () => {
+  it("reads the workspace's link on open and mints nothing when none exists yet", async () => {
     const { calls } = mockFetch({ existingLink: null });
-    renderSheet();
-
-    await waitFor(() =>
-      expect(calls.some((c) => c.url === "/api/pro/invite-links" && c.method === "POST")).toBe(true),
-    );
-
-    const getCall = calls.find((c) => c.url.startsWith("/api/pro/invite-links?workspaceId="));
-    expect(getCall?.url).toContain("workspaceId=ws-1");
-
-    const mintCall = calls.find((c) => c.url === "/api/pro/invite-links" && c.method === "POST");
-    expect(mintCall?.body).toMatchObject({
-      kind: "manager",
-      workspaceId: "ws-1",
-      assignedPropertyIds: ["prop-a", "prop-b"],
-      teamRole: "viewer",
-      houseScope: "all",
-    });
-  });
-
-  it("skips minting when an active link already exists", async () => {
-    const { calls } = mockFetch({ existingLink: { id: "link-existing" } });
     renderSheet();
 
     await waitFor(() =>
       expect(calls.some((c) => c.url.startsWith("/api/pro/invite-links?workspaceId="))).toBe(true),
     );
+    await flushMicrotasks();
 
+    const getCall = calls.find((c) => c.url.startsWith("/api/pro/invite-links?workspaceId="));
+    expect(getCall?.url).toContain("workspaceId=ws-1");
+    expect(calls.some((c) => c.url === "/api/pro/invite-links" && c.method === "POST")).toBe(false);
+    expect(accessChipText()).toContain("Viewer");
+    expect(accessChipText()).toContain("All houses");
+  });
+
+  it("hydrates role, houses and permissions from an existing link on open, and mints nothing", async () => {
+    const { calls } = mockFetch({
+      existingLink: {
+        id: "link-existing",
+        teamRole: "admin",
+        houseScope: "selected",
+        assignedPropertyIds: ["prop-b"],
+        propertyPermissions: {},
+      },
+    });
+    renderSheet();
+
+    await waitFor(() => expect(accessChipText()).toContain("Admin"));
+    expect(accessChipText()).toContain("Only selected houses");
+    expect(screen.getByText("Selected houses")).toBeTruthy();
     expect(calls.some((c) => c.url === "/api/pro/invite-links" && c.method === "POST")).toBe(false);
   });
 
-  it("re-mints the link with replaceActive: true when the role changes", async () => {
-    const { calls } = mockFetch({ existingLink: { id: "link-existing" } });
+  it("Copy link reuses the held link through the reveal path when the access chip has not changed", async () => {
+    const { calls } = mockFetch({
+      existingLink: {
+        id: "link-existing",
+        teamRole: "viewer",
+        houseScope: "all",
+        assignedPropertyIds: ["prop-a", "prop-b"],
+        propertyPermissions: {},
+      },
+      revealResult: { url: "https://proplane.test/invite/revealed" },
+    });
+    renderSheet();
+    await waitFor(() =>
+      expect(calls.some((c) => c.url.startsWith("/api/pro/invite-links?workspaceId="))).toBe(true),
+    );
+    await flushMicrotasks();
+
+    clickCopy();
+    await waitFor(() =>
+      expect(
+        calls.some((c) => c.url === "/api/pro/invite-links/link-existing/link" && c.method === "POST"),
+      ).toBe(true),
+    );
+
+    expect(calls.some((c) => c.url === "/api/pro/invite-links" && c.method === "POST")).toBe(false);
+    expect(showToast).not.toHaveBeenCalledWith(
+      "Link updated. Anyone with the old link will need the new one.",
+    );
+  });
+
+  it("mints with replaceActive: true, and toasts the replacement, only after the role changes then Copy is pressed", async () => {
+    const { calls } = mockFetch({
+      existingLink: {
+        id: "link-existing",
+        teamRole: "viewer",
+        houseScope: "all",
+        assignedPropertyIds: ["prop-a", "prop-b"],
+        propertyPermissions: {},
+      },
+    });
     renderSheet();
     await flushMicrotasks();
-    expect(calls.some((c) => c.url.startsWith("/api/pro/invite-links?workspaceId="))).toBe(true);
 
     const trigger = document.querySelector('[data-attr="workspace-invite-access"]') as HTMLElement;
-    expect(trigger).toBeTruthy();
     fireEvent.pointerDown(trigger, { button: 0, pointerId: 1, isPrimary: true });
     fireEvent.pointerUp(trigger, { button: 0, pointerId: 1, isPrimary: true });
     const roleOption = screen.getByRole("menuitem", { name: "Admin" });
     fireEvent.click(roleOption);
     await flushMicrotasks();
 
-    const remintCall = calls.find((c) => c.url === "/api/pro/invite-links" && c.method === "POST");
-    expect(remintCall?.body).toMatchObject({ teamRole: "admin", replaceActive: true });
+    // Changing the access chip alone never mints.
+    expect(calls.some((c) => c.url === "/api/pro/invite-links" && c.method === "POST")).toBe(false);
+
+    clickCopy();
+    await flushMicrotasks();
+
+    const mintCall = calls.find((c) => c.url === "/api/pro/invite-links" && c.method === "POST");
+    expect(mintCall?.body).toMatchObject({ teamRole: "admin", replaceActive: true });
     expect(showToast).toHaveBeenCalledWith(
+      "Link updated. Anyone with the old link will need the new one.",
+    );
+  });
+
+  it("does not toast a replacement the first time a link is ever minted", async () => {
+    const { calls } = mockFetch({ existingLink: null });
+    renderSheet();
+    await waitFor(() =>
+      expect(calls.some((c) => c.url.startsWith("/api/pro/invite-links?workspaceId="))).toBe(true),
+    );
+    await flushMicrotasks();
+
+    clickCopy();
+    await waitFor(() =>
+      expect(calls.some((c) => c.url === "/api/pro/invite-links" && c.method === "POST")).toBe(true),
+    );
+
+    expect(showToast).not.toHaveBeenCalledWith(
       "Link updated. Anyone with the old link will need the new one.",
     );
   });
@@ -185,5 +279,66 @@ describe("WorkspaceInviteSheet", () => {
       teamRole: "viewer",
       houseScope: "all",
     });
+  });
+
+  it("emailing an invite always carries a join URL and names the manager, not the workspace, as the inviter", async () => {
+    mockFetch({
+      existingLink: {
+        id: "link-existing",
+        teamRole: "viewer",
+        houseScope: "all",
+        assignedPropertyIds: ["prop-a", "prop-b"],
+        propertyPermissions: {},
+      },
+      revealResult: { url: "https://proplane.test/invite/revealed" },
+    });
+    renderSheet({ inviterName: "Jamie Rivera" });
+    await waitFor(() => expect(accessChipText()).toContain("Viewer"));
+
+    const input = screen.getByLabelText("Add people");
+    fireEvent.change(input, { target: { value: "someone@example.com" } });
+    const send = screen.getByRole("button", { name: "Send" });
+    fireEvent.click(send);
+    await waitFor(() => expect(deliverManagerDirectoryMessage).toHaveBeenCalledTimes(1));
+
+    const [preview] = deliverManagerDirectoryMessage.mock.calls[0] as [
+      { subject: string; body: string },
+      ...unknown[],
+    ];
+    // The manager sends the invite, not the workspace — Low 4.
+    expect(preview.subject).toContain("Jamie Rivera");
+    expect(preview.body).toContain("Join: https://proplane.test/invite/revealed");
+  });
+
+  it("mints a fresh link before emailing when the access chip no longer matches the held link", async () => {
+    const { calls } = mockFetch({
+      existingLink: {
+        id: "link-existing",
+        teamRole: "viewer",
+        houseScope: "all",
+        assignedPropertyIds: ["prop-a", "prop-b"],
+        propertyPermissions: {},
+      },
+      mintResult: { url: "https://proplane.test/invite/fresh", link: { id: "link-fresh" } },
+    });
+    renderSheet();
+    await flushMicrotasks();
+
+    const trigger = document.querySelector('[data-attr="workspace-invite-access"]') as HTMLElement;
+    fireEvent.pointerDown(trigger, { button: 0, pointerId: 1, isPrimary: true });
+    fireEvent.pointerUp(trigger, { button: 0, pointerId: 1, isPrimary: true });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Admin" }));
+    await flushMicrotasks();
+
+    const input = screen.getByLabelText("Add people");
+    fireEvent.change(input, { target: { value: "someone@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await flushMicrotasks();
+
+    const mintCall = calls.find((c) => c.url === "/api/pro/invite-links" && c.method === "POST");
+    expect(mintCall?.body).toMatchObject({ teamRole: "admin", replaceActive: true });
+    expect(deliverManagerDirectoryMessage).toHaveBeenCalledTimes(1);
+    const [preview] = deliverManagerDirectoryMessage.mock.calls[0] as [{ body: string }, ...unknown[]];
+    expect(preview.body).toContain("Join: https://proplane.test/invite/fresh");
   });
 });

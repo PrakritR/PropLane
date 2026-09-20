@@ -219,16 +219,22 @@ export async function transferPropertyOwnership(
   }
 
   if (!coManagerPermissionsAreEmpty(formerOwnerPermissions)) {
-    const { data: reverseLink } = await db
+    let reverseLinkQuery = db
       .from("account_link_invites")
       .select(
         "id, assigned_property_ids, property_co_manager_permissions, co_manager_permissions, payout_percent_for_manager",
       )
       .eq("status", "accepted")
       .eq("inviter_user_id", newManagerUserId)
-      .eq("invitee_user_id", currentOwnerUserId)
-      .eq("workspace_id", newWorkspaceId)
-      .maybeSingle();
+      .eq("invitee_user_id", currentOwnerUserId);
+    // `.eq("workspace_id", null)` is rejected by PostgREST on a uuid column and
+    // silently matches no row, so a null workspace (no trigger, or the
+    // property was never workspace-assigned) needs the `is` filter instead —
+    // otherwise every repeated transfer inserts another duplicate reverse link.
+    reverseLinkQuery = newWorkspaceId
+      ? reverseLinkQuery.eq("workspace_id", newWorkspaceId)
+      : reverseLinkQuery.is("workspace_id", null);
+    const { data: reverseLink } = await reverseLinkQuery.maybeSingle();
 
     if (reverseLink?.id) {
       const reverseAssigned = [...new Set([...asStringArray(reverseLink.assigned_property_ids), propertyId])];

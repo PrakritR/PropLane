@@ -79,6 +79,8 @@ export type InviteLinkRow = {
   revokedAt: string | null;
   createdAt: string;
   teamRole?: TeamRoleId | null;
+  /** Manager links only: 'all' = every house in the workspace, now and later. */
+  houseScope?: "all" | "selected";
 };
 
 type DbRow = {
@@ -152,6 +154,7 @@ function toInviteLinkRow(row: DbRow): InviteLinkRow {
     revokedAt: row.revoked_at,
     createdAt: row.created_at,
     teamRole: storedTeamRole(row.team_role),
+    houseScope: parseHouseScope(row.house_scope),
   };
 }
 
@@ -334,15 +337,24 @@ export async function mintInviteLink(
 
   // When replaceActive is true for a manager link with a workspace, revoke prior
   // active links for that workspace. A URL already sent must never gain power when
-  // the access changes.
+  // the access changes — so if the revoke itself fails, the mint must not
+  // proceed and leave the old (possibly more powerful) link live alongside a
+  // new one.
   if (input.replaceActive && kind === "manager" && workspaceId) {
-    await db
+    const { error: revokeError } = await db
       .from("manager_invite_links")
       .update({ revoked_at: new Date().toISOString(), updated_at: new Date().toISOString() })
       .eq("owner_user_id", ownerUserId)
       .eq("kind", "manager")
       .eq("workspace_id", workspaceId)
       .is("revoked_at", null);
+    if (revokeError) {
+      return {
+        ok: false,
+        status: 500,
+        error: "Could not turn off the previous link; nothing changed.",
+      };
+    }
   }
 
   const { data, error } = await db
