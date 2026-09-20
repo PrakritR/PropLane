@@ -45,6 +45,13 @@ export type ListingRoomRow = {
   shortLeaseNote?: string;
   /** Exact headline number behind `price` (daily rate for daily rooms, monthly rent otherwise) — never re-parse `price`. */
   priceHeadlineAmount?: number;
+  /**
+   * `priceHeadlineAmount` is the LOWEST of several resident rents (a shared room
+   * priced per resident), so a label rebuilt from it must read "from $800/mo".
+   */
+  priceFrom?: boolean;
+  /** "Resident 1 · $900/mo", one per slot, when the room prices per resident. */
+  residentRentLines?: string[];
   availability: string;
   modal: ListingRoomModal;
   /**
@@ -60,12 +67,13 @@ export function listingRoomPriceMetaLine(room: ListingRoomRow): string | undefin
   const amount = room.priceHeadlineAmount;
   if (typeof amount === "number" && Number.isFinite(amount) && amount > 0) {
     const formatted = amount % 1 === 0 ? `$${amount.toLocaleString("en-US")}` : `$${amount.toFixed(2)}`;
+    const prefix = room.priceFrom ? "from " : "";
     parts.push(
       room.pricePeriod === "day"
-        ? `${formatted}/day`
+        ? `${prefix}${formatted}/day`
         : room.pricePeriod === "week"
-          ? `${formatted}/week`
-          : `${formatted}/mo`,
+          ? `${prefix}${formatted}/week`
+          : `${prefix}${formatted}/mo`,
     );
   } else {
     const raw = room.price?.trim();
