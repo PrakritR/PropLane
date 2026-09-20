@@ -12,6 +12,8 @@ function chain(result: { data: unknown; error: unknown }) {
     select: () => q,
     eq: () => q,
     in: () => q,
+    not: () => q,
+    or: () => q,
     order: () => q,
     then: (resolve: (value: { data: unknown; error: unknown }) => unknown, reject?: (reason: unknown) => unknown) =>
       Promise.resolve(result).then(resolve, reject),
