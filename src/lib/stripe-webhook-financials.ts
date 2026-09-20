@@ -1,6 +1,7 @@
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { connectAccountTransfersActive } from "@/lib/stripe-connect";
+import { refreshPayoutDestinationsCacheFromStripe } from "@/lib/stripe-external-accounts.server";
 import { createNsfFeeForFailedPayment } from "@/lib/nsf-fees";
 import { postGlRefundEntry } from "@/lib/reports/gl-posting";
 import { syncLedgerRefundEntry } from "@/lib/reports/ledger-sync";
@@ -192,6 +193,25 @@ export async function handleConnectPayoutEvent(
   const managerUserId = await resolveUserIdByConnectAccountId(db, connectAccountId);
   if (!managerUserId) return;
   await upsertStripePayoutRecord(db, managerUserId, payout, connectAccountId, stripe);
+}
+
+/**
+ * `account.external_account.created|updated|deleted` — a bank account or
+ * debit card was added, changed (e.g. micro-deposit verification landed), or
+ * removed on a connected account. Scoped by `event.account` (never the event
+ * payload's own account id) since these are Connect events delivered to the
+ * platform endpoint. Refreshes the display cache from a fresh Stripe read
+ * rather than trying to reconstruct the row from the webhook payload alone.
+ */
+export async function handleExternalAccountEvent(
+  stripe: Stripe,
+  db: SupabaseClient,
+  connectAccountId: string | null | undefined,
+): Promise<void> {
+  if (!connectAccountId) return;
+  const ownerUserId = await resolveUserIdByConnectAccountId(db, connectAccountId);
+  if (!ownerUserId) return;
+  await refreshPayoutDestinationsCacheFromStripe(stripe, db, ownerUserId, connectAccountId);
 }
 
 async function ledgerPaymentForStripeCharge(
