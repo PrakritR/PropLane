@@ -33,14 +33,20 @@ import { managerOutboundFromHeader } from "@/lib/manager-outbound-identity.serve
 // attacker-controlled input.
 export const RESIDENT_WELCOME_EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
-/** Import / harness inboxes must never receive Resend. SMS to a sheet phone still may. */
+/** Import / harness / unroutable inboxes must never receive Resend. SMS to a sheet phone still may. */
 export function isPlaceholderResidentEmail(email: string): boolean {
   const to = email.trim().toLowerCase();
-  return (
+  if (!to) return true;
+  if (
     to.endsWith("@axis.local") ||
     to.endsWith("@test.proplane.local") ||
     to.endsWith("@import.proplane.local")
-  );
+  ) {
+    return true;
+  }
+  // Sheet junk such as `unkown-email(input)@gmail.com` is not a real inbox.
+  if (/[()<>]/.test(to)) return true;
+  return !RESIDENT_WELCOME_EMAIL_RE.test(to);
 }
 
 function skipExternalWelcomeEmail(to: string, senderEmail: string): boolean {

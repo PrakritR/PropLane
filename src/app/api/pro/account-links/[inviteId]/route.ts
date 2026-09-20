@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { asStringArray, readPropertyPermissionsFromRow, serializeInvite, type InviteRow } from "@/lib/account-link-invite-row";
+import { asStringArray, readPropertyPermissionsFromRow, resolveInviteTeamRole, serializeInvite, type InviteRow } from "@/lib/account-link-invite-row";
 import { looksLikeAccountLinksMissingTable } from "@/lib/account-links";
 import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-scope";
 import {
@@ -15,6 +15,8 @@ import {
   type TeamRoleId,
 } from "@/lib/co-manager-team-roles";
 import { normalizeWorkspacePermissions } from "@/lib/workspace-co-manager-permissions";
+import { canActOnMember, parseHouseScope, roleAssignableBy, type WorkspaceRole } from "@/lib/workspaces/membership";
+import { actorWorkspaceStanding, workspaceAdminCount, workspaceHouseIds } from "@/lib/workspaces/membership.server";
 import { isCrossSandboxPortalPair, CROSS_SANDBOX_PORTAL_PAIR_ERROR } from "@/lib/portal-sandbox-accounts";
 import { scopedRelationshipDeletesForRevokedInvite } from "@/lib/pro-relationships";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -40,6 +42,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
       workspacePermissions?: unknown;
       workspaceId?: string | null;
       teamRole?: unknown;
+      houseScope?: unknown;
       propertyId?: string;
       permissions?: unknown;
     } | null;
@@ -75,6 +78,24 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
       return NextResponse.json({ error: "Invite not found." }, { status: 404 });
     }
 
+    // Who may run this membership: the inviter (the owner), or an Admin of the
+    // workspace the row belongs to. Their standing gates every owner-side
+    // branch below; the invitee keeps the few things that are theirs.
+    const inviteWorkspaceId = String(invite.workspace_id ?? "").trim();
+    let actorRole: WorkspaceRole | null = invite.inviter_user_id === user.id ? "owner" : null;
+    if (!actorRole && inviteWorkspaceId) {
+      const standing = await actorWorkspaceStanding(svc, user.id, inviteWorkspaceId);
+      if (standing?.rights.members) actorRole = standing.role;
+    }
+    const actorManages = actorRole === "owner" || (actorRole != null && actorRole !== "custom" && actorRole !== "viewer" && actorRole !== "leasing" && actorRole !== "bookkeeper" && actorRole !== "maintenance" && actorRole !== "property_manager");
+    const targetRole = resolveInviteTeamRole(invite.team_role, readPropertyPermissionsFromRow(invite));
+    const guardMemberAction = async (): Promise<NextResponse | null> => {
+      if (actorRole === "owner") return null;
+      const adminCount = inviteWorkspaceId ? await workspaceAdminCount(svc, invite.inviter_user_id, inviteWorkspaceId) : 0;
+      const verdict = canActOnMember({ actorRole, targetRole, adminCount });
+      return verdict.ok ? null : NextResponse.json({ error: verdict.reason }, { status: 403 });
+    };
+
     const actionNorm = body?.action != null ? String(body.action).toLowerCase().trim() : "";
     const patchProps = body?.assignedPropertyIds !== undefined;
     const patchPay = body?.payoutPercentForManager !== undefined;
@@ -83,6 +104,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
       body?.propertyCoManagerPermissions !== undefined ||
       body?.workspacePermissions !== undefined ||
       body?.workspaceId !== undefined ||
+      body?.houseScope !== undefined ||
       (body?.propertyId !== undefined && body?.permissions !== undefined) ||
       body?.teamRole !== undefined;
 
@@ -94,8 +116,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
       if (invite.status !== "accepted") {
         return NextResponse.json({ error: "Only an active link can be revoked." }, { status: 409 });
       }
-      if (invite.inviter_user_id !== user.id && invite.invitee_user_id !== user.id) {
+      if (!actorManages && invite.invitee_user_id !== user.id) {
         return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      }
+      if (invite.invitee_user_id !== user.id) {
+        const refused = await guardMemberAction();
+        if (refused) return refused;
       }
       const { data: updated, error: upErr } = await svc
         .from("account_link_invites")
@@ -127,23 +153,41 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
       if (invite.status !== "accepted" && invite.status !== "pending") {
         return NextResponse.json({ error: "Only pending or accepted links can be updated this way." }, { status: 409 });
       }
-      if (invite.status === "pending" && invite.inviter_user_id !== user.id) {
-        return NextResponse.json({ error: "Only the primary manager can change a pending invite." }, { status: 403 });
+      if (invite.status === "pending" && !actorManages) {
+        return NextResponse.json({ error: "Only the workspace owner or an admin can change a pending invite." }, { status: 403 });
       }
-      if (invite.status === "accepted" && invite.inviter_user_id !== user.id && invite.invitee_user_id !== user.id) {
+      if (invite.status === "accepted" && !actorManages && invite.invitee_user_id !== user.id) {
         return NextResponse.json({ error: "Forbidden." }, { status: 403 });
       }
-      if (patchPerms && invite.inviter_user_id !== user.id) {
-        return NextResponse.json({ error: "Only the primary manager can change co-manager permissions." }, { status: 403 });
+      if (patchPerms && !actorManages) {
+        return NextResponse.json({ error: "Only the workspace owner or an admin can change permissions." }, { status: 403 });
       }
       // Security: the property scope defines what the co-manager may reach, so
-      // only the inviter may change it. Previously *either* party could, which
+      // only the owner side may change it. Previously *either* party could, which
       // let the invitee widen their own grant to arbitrary property ids.
-      if (patchProps && invite.inviter_user_id !== user.id) {
-        return NextResponse.json({ error: "Only the primary manager can change the property scope." }, { status: 403 });
+      if (patchProps && !actorManages) {
+        return NextResponse.json({ error: "Only the workspace owner or an admin can change the property scope." }, { status: 403 });
+      }
+      if (actorManages && actorRole !== "owner") {
+        if (patchPay) {
+          return NextResponse.json({ error: "Only the owner can change the payout share." }, { status: 403 });
+        }
+        const refused = await guardMemberAction();
+        if (refused) return refused;
       }
 
-      const nextAssigned = patchProps ? asStringArray(body?.assignedPropertyIds) : asStringArray(invite.assigned_property_ids);
+      const nextHouseScope = body?.houseScope !== undefined ? parseHouseScope(body.houseScope) : parseHouseScope(invite.house_scope);
+      let nextAssigned = patchProps ? asStringArray(body?.assignedPropertyIds) : asStringArray(invite.assigned_property_ids);
+      if (nextHouseScope === "all" && inviteWorkspaceId) {
+        // The workspace decides: every house it holds now, and the database
+        // keeps the list current after this write.
+        nextAssigned = await workspaceHouseIds(svc, invite.inviter_user_id, inviteWorkspaceId);
+      } else if (inviteWorkspaceId && patchProps) {
+        const houses = new Set(await workspaceHouseIds(svc, invite.inviter_user_id, inviteWorkspaceId));
+        if (nextAssigned.some((pid) => !houses.has(pid))) {
+          return NextResponse.json({ error: "Choose houses from this workspace only." }, { status: 400 });
+        }
+      }
       // …and only over properties the inviter actually owns.
       if (patchProps) {
         const ownership = await findPropertyIdsNotOwnedByManager(svc, invite.inviter_user_id, nextAssigned);
@@ -193,6 +237,15 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
       if (!parsedTeamRole.ok) {
         return NextResponse.json({ error: parsedTeamRole.error }, { status: 400 });
       }
+      if (parsedTeamRole.role && !roleAssignableBy(actorRole, parsedTeamRole.role)) {
+        return NextResponse.json({ error: "You cannot hand out a role above your own." }, { status: 403 });
+      }
+      // An Admin demoting the last other Admin would leave the workspace with
+      // nobody to run it but the owner; only the owner may do that.
+      if (parsedTeamRole.role && actorRole !== "owner" && (targetRole === "admin" || targetRole === "full") && parsedTeamRole.role !== "admin" && parsedTeamRole.role !== "full") {
+        const refused = await guardMemberAction();
+        if (refused) return refused;
+      }
       let nextTeamRole: TeamRoleId =
         parsedTeamRole.role ?? inferInviteTeamRole(nextPropertyPerms);
       if (parsedTeamRole.role && parsedTeamRole.role !== "custom") {
@@ -207,10 +260,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
       } else {
         nextTeamRole = inferInviteTeamRole(nextPropertyPerms);
       }
+      // Workspace rights follow the role; explicit flags survive only on a Custom row.
       const nextWorkspacePermissions =
-        body?.workspacePermissions !== undefined
-          ? normalizeWorkspacePermissions(body.workspacePermissions)
-          : normalizeWorkspacePermissions(invite.workspace_permissions);
+        nextTeamRole !== "custom"
+          ? {}
+          : body?.workspacePermissions !== undefined
+            ? normalizeWorkspacePermissions(body.workspacePermissions)
+            : normalizeWorkspacePermissions(invite.workspace_permissions);
       const nextWorkspaceId =
         body?.workspaceId !== undefined
           ? (typeof body.workspaceId === "string" ? body.workspaceId.trim() || null : null)
@@ -232,6 +288,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
           workspace_permissions: nextWorkspacePermissions,
           workspace_id: nextWorkspaceId,
           team_role: nextTeamRole,
+          house_scope: nextHouseScope,
+          // The owner side reviewed this row: the pre-migration flags are settled.
+          ...(actorManages ? { legacy_workspace_permissions: {} } : {}),
         })
         .eq("id", id)
         .eq("status", invite.status)
@@ -322,8 +381,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
     }
 
     if (actionNorm === "cancel") {
-      if (invite.inviter_user_id !== user.id) {
-        return NextResponse.json({ error: "Only the inviter can cancel." }, { status: 403 });
+      if (!actorManages) {
+        return NextResponse.json({ error: "Only the workspace owner or an admin can cancel." }, { status: 403 });
       }
       const { data: updated, error: upErr } = await svc
         .from("account_link_invites")

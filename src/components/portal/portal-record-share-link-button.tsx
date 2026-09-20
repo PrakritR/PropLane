@@ -1,14 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { usePortalRecordShareHost } from "@/components/portal/portal-record-share-host";
 import { PortalRecordShareModal } from "@/components/portal/portal-record-share-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import { RecordActionCloseContext, RecordActionItemsContext } from "@/components/ui/record-action-context";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { cn } from "@/lib/utils";
 
@@ -48,12 +50,22 @@ export function PortalRecordShareLinkButton({
   recordTitle,
 }: Props) {
   const { showToast } = useAppUi();
+  const closeRecordMenu = useContext(RecordActionCloseContext);
+  const inRecordMenu = useContext(RecordActionItemsContext);
+  const shareHost = usePortalRecordShareHost();
   const [open, setOpen] = useState(false);
+  const asMenuItem = menuItem || inRecordMenu;
 
   const openShare = () => {
     if (disabled || !recordId.trim()) return;
+    // Close first: the ⋯ backdrop is z-10050 and frosts a Share dialog at z-90.
+    closeRecordMenu?.();
     if (isDemoModeActive()) {
       showToast("Share is not available in the demo tour.");
+      return;
+    }
+    if (shareHost) {
+      shareHost.openShare({ kind, recordId, recordTitle });
       return;
     }
     setOpen(true);
@@ -61,7 +73,7 @@ export function PortalRecordShareLinkButton({
 
   return (
     <>
-      {menuItem ? (
+      {asMenuItem ? (
         <DropdownMenuItem
           data-attr={dataAttr}
           disabled={disabled}
@@ -93,13 +105,15 @@ export function PortalRecordShareLinkButton({
         </Button>
       )}
 
-      <PortalRecordShareModal
-        open={open}
-        onClose={() => setOpen(false)}
-        kind={kind}
-        recordId={recordId}
-        recordTitle={recordTitle}
-      />
+      {shareHost ? null : (
+        <PortalRecordShareModal
+          open={open}
+          onClose={() => setOpen(false)}
+          kind={kind}
+          recordId={recordId}
+          recordTitle={recordTitle}
+        />
+      )}
     </>
   );
 }

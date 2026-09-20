@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server";
 import {
   asStringArray,
+  readPropertyPermissionsFromRow,
+  resolveInviteTeamRole,
   serializeInvite,
   type InviteRow,
 } from "@/lib/account-link-invite-row";
+import { describeCoManagerPermissions, flatCoManagerPermissionsFromProperty } from "@/lib/co-manager-permissions";
+import { parseHouseScope } from "@/lib/workspaces/membership";
 import { looksLikeAccountLinksMissingTable } from "@/lib/account-links";
 import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-scope";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
@@ -14,7 +18,7 @@ import { maxAccountLinksForTier } from "@/lib/manager-access";
 import { ensureProfileProplaneId, getManagerPurchaseSku } from "@/lib/manager-access-server";
 import { isCrossSandboxPortalPair, CROSS_SANDBOX_PORTAL_PAIR_ERROR } from "@/lib/portal-sandbox-accounts";
 import { labelFromManagerPropertyRecordRow } from "@/lib/co-manager-property-label";
-import { teamRoleListLabel } from "@/lib/co-manager-team-roles";
+import { stampTeamRolePermissions, teamRoleListLabel } from "@/lib/co-manager-team-roles";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { bestEffortFailed } from "@/lib/observability/best-effort";
@@ -56,11 +60,27 @@ async function previewOpenInvite(token: string) {
     }
   }
 
+  // The accept screen says WHAT is being accepted: the workspace, the role,
+  // and whether the houses are the workspace itself (so ones added later
+  // count) or a list.
+  const workspaceId = String((row as { workspace_id?: string | null }).workspace_id ?? "").trim();
+  let workspaceName: string | null = null;
+  if (workspaceId) {
+    const { data: workspace } = await svc.from("portal_workspaces").select("name").eq("id", workspaceId).maybeSingle();
+    workspaceName = String(workspace?.name ?? "").trim() || null;
+  }
+  const teamRole = resolveInviteTeamRole(row.team_role, readPropertyPermissionsFromRow(row as InviteRow));
+  const stamp = stampTeamRolePermissions(teamRole) ?? flatCoManagerPermissionsFromProperty(readPropertyPermissionsFromRow(row as InviteRow));
+
   return NextResponse.json({
     ok: true,
     inviterDisplayName: String(row.inviter_display_name ?? "").trim() || "A property manager",
     propertyLabels,
-    teamRoleLabel: teamRoleListLabel(typeof row.team_role === "string" ? row.team_role : null),
+    teamRoleLabel: teamRoleListLabel(teamRole),
+    workspaceName,
+    houseScope: parseHouseScope((row as { house_scope?: string | null }).house_scope),
+    houseCount: assignedPropertyIds.length,
+    canDo: describeCoManagerPermissions(stamp),
     expiresAt: row.expires_at ?? null,
   });
 }

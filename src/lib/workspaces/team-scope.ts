@@ -34,11 +34,14 @@ export function teamGrantVisibleInWorkspace(
  */
 export function grantBelongsToWorkspace(
   assignedPropertyIds: string[],
-  workspace: { id?: string; propertyIds: string[]; isDefault: boolean; owned: boolean },
+  workspace: { id?: string; propertyIds: string[]; isDefault: boolean; owned: boolean; canManageMembers?: boolean },
   grantWorkspaceId?: string | null,
 ): boolean {
-  if (!workspace.owned) return false;
+  // An admin of a shared workspace runs its team the same way the owner does.
+  if (!workspace.owned && !workspace.canManageMembers) return false;
   const pinned = grantWorkspaceId?.trim() || "";
+  // Every row is pinned since the memberships migration; the house guess
+  // below only serves a row written before it.
   if (pinned) return Boolean(workspace.id && workspace.id === pinned);
   if (assignedPropertyIds.length === 0) return workspace.isDefault;
   return assignedIdsInWorkspace(assignedPropertyIds, workspace.propertyIds).length > 0;

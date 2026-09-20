@@ -32,6 +32,8 @@ const OPEN_INVITE_SELECT = [
   "workspace_id",
   "workspace_permissions",
   "team_role",
+  "house_scope",
+  "legacy_workspace_permissions",
   "status",
   "created_at",
   "responded_at",
@@ -79,6 +81,8 @@ export async function mintOpenCoManagerInvite(params: {
   workspaceId?: string | null;
   workspacePermissions?: WorkspaceCoManagerGrant;
   teamRole?: string | null;
+  /** all = every house in the workspace, kept current by the database. */
+  houseScope?: "all" | "selected";
   tabKind: string;
   requestOrigin?: string;
   existingId?: string;
@@ -106,6 +110,7 @@ export async function mintOpenCoManagerInvite(params: {
     workspace_id: params.workspaceId ?? null,
     workspace_permissions: params.workspacePermissions ?? {},
     team_role: params.teamRole ?? null,
+    house_scope: params.houseScope ?? "selected",
     status: "pending",
     invite_token_hash: hash,
     invitee_plan_inherited: true,
@@ -128,14 +133,19 @@ export async function mintOpenCoManagerInvite(params: {
     return { ok: true, row: data as unknown as OpenInviteRow, inviteUrl, token };
   }
 
-  const { data: existingOpen } = await params.svc
-    .from("account_link_invites")
-    .select("id")
-    .eq("inviter_user_id", params.inviterUserId)
-    .eq("tab_kind", params.tabKind)
-    .eq("status", "pending")
-    .is("invitee_user_id", null)
-    .maybeSingle();
+  // One unused open link per WORKSPACE: minting again for the same workspace
+  // replaces it; another workspace gets its own.
+  const openLinkQuery = () => {
+    const query = params.svc
+      .from("account_link_invites")
+      .select("id")
+      .eq("inviter_user_id", params.inviterUserId)
+      .eq("tab_kind", params.tabKind)
+      .eq("status", "pending")
+      .is("invitee_user_id", null);
+    return params.workspaceId ? query.eq("workspace_id", params.workspaceId) : query.is("workspace_id", null);
+  };
+  const { data: existingOpen } = await openLinkQuery().maybeSingle();
 
   if (existingOpen?.id) {
     return mintOpenCoManagerInvite({ ...params, existingId: String(existingOpen.id) });
@@ -150,14 +160,7 @@ export async function mintOpenCoManagerInvite(params: {
   if (error) {
     const msg = error.message ?? "";
     if (msg.includes("account_link_invites_one_open_pending") || msg.includes("duplicate")) {
-      const { data: raced } = await params.svc
-        .from("account_link_invites")
-        .select("id")
-        .eq("inviter_user_id", params.inviterUserId)
-        .eq("tab_kind", params.tabKind)
-        .eq("status", "pending")
-        .is("invitee_user_id", null)
-        .maybeSingle();
+      const { data: raced } = await openLinkQuery().maybeSingle();
       if (raced?.id) {
         return mintOpenCoManagerInvite({ ...params, existingId: String(raced.id) });
       }

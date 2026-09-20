@@ -1,5 +1,7 @@
 "use client";
 
+import { TEAM_ROLE_LABELS } from "@/lib/co-manager-team-roles";
+
 /**
  * Settings → Workspaces.
  *
@@ -18,7 +20,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Building2, ChevronDown, ChevronUp, Pencil, Trash2 } from "lucide-react";
+import { ArrowRightLeft, Building2, ChevronDown, ChevronUp, Pencil, Trash2 } from "lucide-react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
@@ -184,8 +186,9 @@ function WorkspaceCard({
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-[15px] font-semibold text-foreground">{workspace.name}</h3>
           <p className="text-xs text-muted">
-            {workspace.owned ? "Owner" : "Shared access"}
-            {workspace.isDefault ? " · Default" : ""}
+            {workspace.owned ? "Owner" : workspace.viewerRole && workspace.viewerRole !== "owner" ? TEAM_ROLE_LABELS[workspace.viewerRole] : "Shared access"}
+            {workspace.isDefault && workspace.owned ? " · Default" : ""}
+            {` · ${records} ${records === 1 ? "house" : "houses"}`}
           </p>
         </div>
         {canManage ? (
@@ -226,16 +229,14 @@ function WorkspaceCard({
             <Link href={`/portal/properties/listed/${encodeURIComponent(id)}/preview`} className="min-w-0 flex-1 truncate py-1.5 text-sm font-medium text-primary">
               {workspace.propertyLabels?.[id] ?? resolvePropertyLabelForId(id)}
             </Link>
-            {canManage && ownedCount > 1 ? (
-              <Button variant="ghost" className="h-9 px-2 text-xs" onClick={() => onMove(id)}>
-                Move
-              </Button>
+            {(canManage || workspace.canAddProperties) && ownedCount > 1 ? (
+              <PortalIconAction icon={ArrowRightLeft} label={`Move ${workspace.propertyLabels?.[id] ?? "this house"} to another workspace`} onClick={() => onMove(id)} data-attr="workspace-move-property" />
             ) : null}
           </div>
         ))}
         {workspace.propertyIds.length === 0 ? <p className="px-4 py-3 text-sm text-muted">No properties yet.</p> : null}
       </div>
-      {workspace.owned ? (
+      {workspace.owned || workspace.canManageMembers ? (
         teamSection
       ) : (
         <p className="border-t border-border px-4 py-2.5 text-sm text-muted" data-attr="workspace-shared-access">
@@ -268,6 +269,35 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [moving, setMoving] = useState<{ id: string; destination: string } | null>(null);
+  // Who loses, keeps and gains the house — asked of the server for the chosen
+  // destination, so the dialog states the consequence before the click.
+  const [moveImpact, setMoveImpact] = useState<{ loses: string[]; keeps: string[]; gains: string[] } | null>(null);
+  useEffect(() => {
+    if (!moving) {
+      setMoveImpact(null);
+      return;
+    }
+    let cancelled = false;
+    setMoveImpact(null);
+    void (async () => {
+      try {
+        const response = await fetch("/api/workspaces", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "move-preview", id: moving.destination, propertyId: moving.id }),
+        });
+        const data = (await response.json()) as { loses?: string[]; keeps?: string[]; gains?: string[] };
+        if (!cancelled && response.ok) {
+          setMoveImpact({ loses: data.loses ?? [], keeps: data.keeps ?? [], gains: data.gains ?? [] });
+        }
+      } catch {
+        /* the dialog still moves; the preview is a courtesy */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [moving]);
   // A workspace that still holds houses is deleted through this dialog, which
   // names where the houses go (or, for the only workspace, why they cannot).
   const [deleting, setDeleting] = useState<{ workspace: PortalWorkspace; destination: string | null } | null>(null);
@@ -295,10 +325,11 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
   }, [openNew, pathname, searchParams]);
   if (!ctx) return null;
   const owned = ctx.workspaces.filter((w) => w.owned);
-  // Grants are per house, so a move carries them: name who keeps access before the click.
-  const movingMembers = moving
-    ? (owned.find((w) => w.propertyIds.includes(moving.id))?.members ?? []).filter((m) => m.propertyIds.includes(moving.id))
-    : [];
+  // A house moves between workspaces the viewer RUNS: their own, or shared ones
+  // where they are an Admin. The destination list is that set, same owner only.
+  const movable = ctx.workspaces.filter((w) => w.owned || w.canAddProperties);
+  const movingSource = moving ? movable.find((w) => w.propertyIds.includes(moving.id)) ?? null : null;
+  const moveTargets = movingSource ? movable.filter((w) => w.ownerUserId === movingSource.ownerUserId) : movable;
   const plan = ctx.plan;
   const atWorkspaceCap = plan ? !plan.unknown && plan.usage.workspaces >= plan.workspaceLimit : owned.length >= 3;
   const run = async (body: Record<string, unknown>, after?: () => void) => {
@@ -363,7 +394,7 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
           <WorkspaceCard
             key={workspace.id}
             workspace={workspace}
-            ownedCount={owned.length}
+            ownedCount={movable.filter((w) => w.ownerUserId === workspace.ownerUserId).length}
             canManage={workspace.owned}
             onRename={() => {
               setName(workspace.name);
@@ -385,7 +416,10 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
                 await deleteWorkspace(workspace);
               }
             }}
-            onMove={(propertyId) => setMoving({ id: propertyId, destination: owned.find((w) => w.id !== workspace.id)!.id })}
+            onMove={(propertyId) => {
+              const target = movable.find((w) => w.id !== workspace.id && w.ownerUserId === workspace.ownerUserId);
+              if (target) setMoving({ id: propertyId, destination: target.id });
+            }}
             teamSection={team ? team.section(workspace) : null}
           />
           ))}
@@ -479,16 +513,25 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
           )}
         </ModalFooter>
       </Modal>
-      <Modal open={moving !== null} onClose={() => setMoving(null)} title="Move property">
-        <p className="mb-3 text-sm text-muted">Ownership and existing property permissions stay the same.</p>
-        {movingMembers.length > 0 ? (
-          <p className="mb-3 text-sm text-foreground" data-attr="workspace-move-keeps-access">
-            {movingMembers.map((member) => member.name).join(", ")} {movingMembers.length === 1 ? "keeps" : "keep"} access to this house in the new workspace.{" "}
-            Change it under the workspace&apos;s Managers &amp; permissions.
-          </p>
+      <Modal open={moving !== null} onClose={() => setMoving(null)} title={moving ? `Move ${movingSource?.propertyLabels?.[moving.id] ?? "this house"}` : "Move property"}>
+        {/* The workspace decides who reaches a house: members on All houses in
+            the destination gain it, members of the source lose it unless they
+            also sit in the destination. Said before the click, not after. */}
+        {moveImpact && (moveImpact.loses.length > 0 || moveImpact.keeps.length > 0 || moveImpact.gains.length > 0) ? (
+          <dl className="mb-3 divide-y divide-border rounded-xl border border-border text-sm" data-attr="workspace-move-impact">
+            {moveImpact.loses.length > 0 ? (
+              <div className="flex items-baseline justify-between gap-3 px-3 py-2"><dt className="text-muted">Loses this house</dt><dd className="text-right font-medium text-foreground">{moveImpact.loses.join(" · ")}</dd></div>
+            ) : null}
+            {moveImpact.keeps.length > 0 ? (
+              <div className="flex items-baseline justify-between gap-3 px-3 py-2"><dt className="text-muted">Keeps it</dt><dd className="text-right font-medium text-foreground">{moveImpact.keeps.join(" · ")}</dd></div>
+            ) : null}
+            {moveImpact.gains.length > 0 ? (
+              <div className="flex items-baseline justify-between gap-3 px-3 py-2"><dt className="text-muted">Gains it</dt><dd className="text-right font-medium text-foreground">{moveImpact.gains.join(" · ")}</dd></div>
+            ) : null}
+          </dl>
         ) : null}
         <Select aria-label="Destination workspace" value={moving?.destination ?? ""} onChange={(event) => setMoving((value) => value && { ...value, destination: event.target.value })}>
-          {owned.map((workspace) => (
+          {moveTargets.map((workspace) => (
             <option key={workspace.id} value={workspace.id}>
               {workspace.name}
             </option>

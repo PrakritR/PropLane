@@ -20,6 +20,7 @@ export const TEAM_ROLE_IDS = [
   "property_manager",
   "bookkeeper",
   "maintenance",
+  "admin",
   "full",
   "custom",
 ] as const;
@@ -34,9 +35,16 @@ export const TEAM_ROLE_LABELS: Record<TeamRoleId, string> = {
   property_manager: "Property manager",
   bookkeeper: "Bookkeeper",
   maintenance: "Maintenance",
-  full: "Full access",
+  admin: "Admin",
+  /** Legacy stamp: the same module grant as Admin, kept so stored rows still parse. Lists as Admin. */
+  full: "Admin",
   custom: "Custom",
 };
+
+/** The roles an invite offers. `full` is not offered; it reads as Admin on old rows. */
+export const TEAM_ROLE_INVITE_OPTIONS: { value: TeamRoleId; label: string }[] = TEAM_ROLE_IDS
+  .filter((id) => id !== "full")
+  .map((id) => ({ value: id, label: TEAM_ROLE_LABELS[id] }));
 
 export const TEAM_ROLE_SELECT_OPTIONS: { value: TeamRoleId; label: string }[] = TEAM_ROLE_IDS.map((id) => ({
   value: id,
@@ -108,6 +116,7 @@ const ROLE_STAMPS: Record<Exclude<TeamRoleId, "custom">, CoManagerPermissions> =
     calendar: "edit",
     properties: "view",
   }),
+  admin: allModules("manage"),
   full: allModules("manage"),
 };
 

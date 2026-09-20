@@ -7,10 +7,11 @@ export type WorkspaceCoManagerGrant = {
 
 export const EMPTY_WORKSPACE_GRANT: WorkspaceCoManagerGrant = {};
 
-export const DEFAULT_NEW_INVITE_WORKSPACE_GRANT: WorkspaceCoManagerGrant = {
-  addProperties: true,
-  teams: true,
-};
+/**
+ * A fresh invite grants no workspace rights of its own: they follow the role
+ * (src/lib/workspaces/membership.ts). These flags remain only for Custom rows.
+ */
+export const DEFAULT_NEW_INVITE_WORKSPACE_GRANT: WorkspaceCoManagerGrant = {};
 
 export function normalizeWorkspacePermissions(raw: unknown): WorkspaceCoManagerGrant {
   if (!raw || typeof raw !== "object") return {};

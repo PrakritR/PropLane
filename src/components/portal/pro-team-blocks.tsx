@@ -31,10 +31,14 @@ export type TeamMemberRow = {
   role: "owner" | "co_manager";
   /** Product role stamp on a co-manager (Viewer, Leasing, …). */
   roleLabel?: string;
-  /** "3 houses · Ash Flats 6, Birch Flats 7" */
+  /** "All houses" or "3 of 10 houses" */
   propertiesLabel: string;
   /** ISO date the link became active; null for the owner. */
   joinedAt: string | null;
+  /** A one-line flag under the name, such as a legacy-rights review. */
+  note?: string;
+  /** Menu wording for the destructive action; "Disconnect" when absent. */
+  removeLabel?: string;
   onEdit?: () => void;
   onDisconnect?: () => void;
 };
@@ -126,7 +130,7 @@ export function TeamMembersBlock({ members, embedded = false }: { members: TeamM
     <div className={cn("hidden px-4 pb-1.5 pt-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted/70", MEMBER_GRID)} aria-hidden>
       <span>Member</span>
       <span>Role</span>
-      <span>Properties</span>
+      <span>Houses</span>
       <span>Joined</span>
       <span />
     </div>
@@ -137,8 +141,8 @@ export function TeamMembersBlock({ members, embedded = false }: { members: TeamM
           const pill = ROLE_PILL[m.role];
           const pillLabel = m.role === "co_manager" ? (m.roleLabel ?? pill.label) : pill.label;
           const items = ([
-            m.onEdit ? { id: "edit", label: "Edit permissions", onSelect: m.onEdit, dataAttr: "team-member-edit" } : null,
-            m.onDisconnect ? { id: "disconnect", label: "Disconnect", onSelect: m.onDisconnect, destructive: true, dataAttr: "team-member-disconnect" } : null,
+            m.onEdit ? { id: "edit", label: "Edit", onSelect: m.onEdit, dataAttr: "team-member-edit" } : null,
+            m.onDisconnect ? { id: "disconnect", label: m.removeLabel ?? "Disconnect", onSelect: m.onDisconnect, destructive: true, dataAttr: "team-member-disconnect" } : null,
           ] as (TeamRowMenuItem | null)[]).filter((item): item is TeamRowMenuItem => item != null);
           return (
             <li key={m.id} className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/60 px-4 py-2.5", MEMBER_GRID)} data-attr="team-member-row">
@@ -147,6 +151,11 @@ export function TeamMembersBlock({ members, embedded = false }: { members: TeamM
                 <span className="min-w-0">
                   <span className="block truncate text-[14px] font-semibold text-foreground">{m.name}</span>
                   <span className="block truncate text-[12px] text-muted">{m.detail}</span>
+                  {m.note ? (
+                    <span className="mt-0.5 inline-flex rounded-full bg-[var(--status-pending-bg,rgba(163,74,6,0.12))] px-2 py-px text-[11px] font-semibold text-[var(--status-pending-fg)]" data-attr="team-member-note">
+                      {m.note}
+                    </span>
+                  ) : null}
                 </span>
               </span>
               <span>
@@ -186,12 +195,15 @@ export function TeamPendingInvitesBlock({
   onDecline,
   onOpen,
   expiryLabel,
+  roleLabel,
   embedded = false,
 }: {
   invites: AccountLinkInviteDto[];
   /** Inside a workspace card: plain rows under the members, no card shell. */
   embedded?: boolean;
   propertiesLabel: (inv: AccountLinkInviteDto) => string;
+  /** "Leasing" — the role the invite carries; omitted on lists that do not show roles. */
+  roleLabel?: (inv: AccountLinkInviteDto) => string;
   /** "Expires in 12 days" — the panel owns the wording. */
   expiryLabel: (expiresAt: string | null | undefined) => string;
   onRevoke: (inv: AccountLinkInviteDto) => void;
@@ -221,7 +233,8 @@ export function TeamPendingInvitesBlock({
                 <span className="min-w-0">
                   <span className="block truncate text-[14px] font-semibold text-foreground">{name}</span>
                   <span className="block truncate text-[12px] text-muted">
-                    {outgoing ? "Invited" : `Invited you`} · {propertiesLabel(inv)} · {expiryLabel(inv.expiresAt)}
+                    {outgoing ? "Invited" : `Invited you`}
+                    {roleLabel ? ` · ${roleLabel(inv)}` : ""} · {propertiesLabel(inv)} · {expiryLabel(inv.expiresAt)}
                   </span>
                 </span>
               </button>
