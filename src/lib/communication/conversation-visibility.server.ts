@@ -47,8 +47,13 @@ export type CommunicationScope = {
   untaggedOwnedVisible: boolean;
   /** The active workspace, when the account is partitioned; null = not narrowing. */
   activeWorkspaceId: string | null;
-  /** The viewer's own work lines (phone digits / lower-cased address) → the workspace each belongs to. */
-  workspaceByLine: Map<string, string>;
+  /**
+   * The viewer's own work lines (phone digits / lower-cased address) → every
+   * workspace that line is visible in. A work EMAIL still belongs to exactly
+   * one workspace; a work NUMBER may be shared into a second workspace
+   * (`workspace_work_numbers`), so its thread shows in every holder.
+   */
+  workspaceByLine: Map<string, Set<string>>;
 };
 
 export type VisibilityInput = {
@@ -89,12 +94,12 @@ function threadWorkLines(rowData: unknown): string[] {
   return typeof line === "string" && line.trim() ? [line.trim()] : [];
 }
 
-/** The workspace a house-less conversation belongs to by the line it used, or null when no line places it. */
-function workspaceForLines(scope: CommunicationScope, lines: readonly string[] | undefined): string | null {
+/** Every workspace a house-less conversation is visible in by the line it used, or null when no line places it. */
+function workspaceHoldersForLines(scope: CommunicationScope, lines: readonly string[] | undefined): Set<string> | null {
   if (!lines || scope.workspaceByLine.size === 0) return null;
   for (const line of lines) {
     const found = scope.workspaceByLine.get(lineKey(line));
-    if (found) return found;
+    if (found && found.size > 0) return found;
   }
   return null;
 }
@@ -122,8 +127,8 @@ export function conversationVisible(scope: CommunicationScope, input: Visibility
   // viewer's email: house decides the workspace; no house means default only.
   if (!ownerId || ownerId === scope.viewerId) {
     if (houses.length === 0) {
-      const lineWorkspace = workspaceForLines(scope, input.lines);
-      if (lineWorkspace && scope.activeWorkspaceId) return lineWorkspace === scope.activeWorkspaceId;
+      const holders = workspaceHoldersForLines(scope, input.lines);
+      if (holders && scope.activeWorkspaceId) return holders.has(scope.activeWorkspaceId);
       return scope.untaggedOwnedVisible;
     }
     return houses.some(inWorkspace);
@@ -207,15 +212,59 @@ export async function resolveCommunicationScope(
     // the map empty, which is the default-workspace rule — never wider.
     const ownedIds = workspaces.filter((w) => w.owned).map((w) => w.id);
     if (ownedIds.length > 0) {
-      const [numbers, emails] = await Promise.all([
-        db.from("manager_sms_numbers").select("workspace_id, phone_number").in("workspace_id", ownedIds),
+      const addHolder = (key: string, workspaceId: string) => {
+        if (!key || !workspaceId) return;
+        const set = scope.workspaceByLine.get(key) ?? new Set<string>();
+        set.add(workspaceId);
+        scope.workspaceByLine.set(key, set);
+      };
+
+      // Work numbers: a HOME row places the number, and every workspace that
+      // holds it via the join table (its home included) sees the thread —
+      // a shared-in number is not distinguished from an owned one here. The
+      // join table read is best-effort: an error leaves only the direct
+      // home-number mapping below, never wider than before this change.
+      const [numbers, emails, holds] = await Promise.all([
+        db.from("manager_sms_numbers").select("id, workspace_id, phone_number").in("workspace_id", ownedIds),
         db.from("manager_assistant_emails").select("workspace_id, inbox_token, mailbox_local, provision_state").in("workspace_id", ownedIds),
+        db.from("workspace_work_numbers").select("workspace_id, number_id").in("workspace_id", ownedIds),
       ]);
+      const phoneById = new Map<string, string>();
       for (const row of numbers.data ?? []) {
-        const key = lineKey(row.phone_number);
+        const id = clean((row as { id?: unknown }).id);
+        const phone = clean(row.phone_number);
+        if (id && phone) phoneById.set(id, phone);
+        // Backward-compatible default: even without the join table, a
+        // workspace's own home number places its house-less threads.
         const ws = clean(row.workspace_id);
-        if (key && ws) scope.workspaceByLine.set(key, ws);
+        if (phone && ws) addHolder(lineKey(phone), ws);
       }
+      if (!holds.error && (holds.data ?? []).length > 0) {
+        // A number's home may not be among `ownedIds` when only a SHARED-IN
+        // assignment matched — fetch those homes too so every holder maps.
+        const missingNumberIds = [
+          ...new Set(
+            (holds.data ?? [])
+              .map((r) => clean((r as { number_id?: unknown }).number_id))
+              .filter((id) => id && !phoneById.has(id)),
+          ),
+        ];
+        if (missingNumberIds.length > 0) {
+          const { data: extraNumbers } = await db.from("manager_sms_numbers").select("id, phone_number").in("id", missingNumberIds);
+          for (const row of extraNumbers ?? []) {
+            const id = clean((row as { id?: unknown }).id);
+            const phone = clean((row as { phone_number?: unknown }).phone_number);
+            if (id && phone) phoneById.set(id, phone);
+          }
+        }
+        for (const row of holds.data ?? []) {
+          const numberId = clean((row as { number_id?: unknown }).number_id);
+          const ws = clean(row.workspace_id);
+          const phone = phoneById.get(numberId);
+          if (phone && ws) addHolder(lineKey(phone), ws);
+        }
+      }
+
       const { assistantEmailAddress, assistantMailboxAddress } = await import("@/lib/manager-assistant-email/assistant-email-address");
       for (const row of emails.data ?? []) {
         if (row.provision_state !== "active") continue;
@@ -223,8 +272,8 @@ export async function resolveCommunicationScope(
         if (!ws) continue;
         const local = clean(row.mailbox_local);
         const token = clean(row.inbox_token);
-        if (local) scope.workspaceByLine.set(lineKey(assistantMailboxAddress(local)), ws);
-        if (token) scope.workspaceByLine.set(lineKey(assistantEmailAddress(token)), ws);
+        if (local) addHolder(lineKey(assistantMailboxAddress(local)), ws);
+        if (token) addHolder(lineKey(assistantEmailAddress(token)), ws);
       }
     }
   } catch {

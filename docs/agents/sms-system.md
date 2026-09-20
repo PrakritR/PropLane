@@ -84,6 +84,15 @@ through it or through the workspace-keyed helpers in
 The work EMAIL follows the identical rule — one address per workspace, held by
 its owner. See `docs/agents/inbound-email-inbox.md` "One work email per WORKSPACE".
 
+**A workspace may hold up to 2 numbers (part 3, Sep 2026).** `workspace_work_numbers`
+is the many-to-many join table and the only truth for "which numbers does this
+workspace hold" — `manager_sms_numbers.workspace_id` stays each number's fixed
+HOME placement, untouched. A shared number's thread is ONE thread, visible and
+sendable from every holding workspace (`conversation-visibility.server.ts`,
+`resolveOwnerSendNumberRow`). Manage assignment only through
+`src/lib/sms/work-numbers.server.ts` and `PATCH /api/manager/messaging-number`,
+never by writing the join table directly.
+
 ## Conversation houses (which house a thread is about)
 
 `manager_sms_conversation_houses` — `(conversation_key, property_id, source)`,

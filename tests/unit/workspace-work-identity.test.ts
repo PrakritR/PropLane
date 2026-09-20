@@ -25,7 +25,11 @@ import {
   WorkspaceNotOwnedError,
 } from "@/lib/manager-assistant-email/manager-assistant-email.server";
 import { resolveOwnedWorkNumber } from "@/lib/sms/resolve-owned-work-number.server";
-import { conversationVisible, type CommunicationScope } from "@/lib/communication/conversation-visibility.server";
+import {
+  conversationVisible,
+  resolveCommunicationScope,
+  type CommunicationScope,
+} from "@/lib/communication/conversation-visibility.server";
 
 const ambika = "ambika", prakrit = "prakrit", solo = "solo";
 const AMBIKA_WS = "ws-ambika", PRAKRIT_WS = "ws-prakrit", PRAKRIT_WS2 = "ws-prakrit-seattle";
@@ -225,6 +229,38 @@ describe("outbound goes out from the line of the workspace the message is about"
     const { data } = await resolveOwnerSendNumberRow<{ phone_number: string }>(two() as never, prakrit, cols, {});
     expect(data?.phone_number).toBe("+12065550001");
   });
+
+  it("a workspace with no home number of its own sends from a number it holds via sharing, never a sibling's unrelated line", async () => {
+    const db = seed({
+      manager_sms_numbers: [
+        { id: "n-p1", manager_user_id: prakrit, workspace_id: PRAKRIT_WS, phone_number: "+12065550001", provision_state: "active" },
+      ],
+      portal_workspaces: [
+        { id: PRAKRIT_WS, owner_user_id: prakrit, name: "My workspace", is_default: true, created_at: "2026-02-01" },
+        { id: PRAKRIT_WS2, owner_user_id: prakrit, name: "Seattle rentals", is_default: false, created_at: "2026-03-01" },
+      ],
+      manager_property_records: [
+        { id: "ballard-room", manager_user_id: prakrit, workspace_id: PRAKRIT_WS2, row_data: {} },
+      ],
+      workspace_work_numbers: [
+        { workspace_id: PRAKRIT_WS, number_id: "n-p1", is_primary: true, created_at: "2026-02-02" },
+        { workspace_id: PRAKRIT_WS2, number_id: "n-p1", is_primary: false, created_at: "2026-02-03" },
+      ],
+    });
+    const { data } = await resolveOwnerSendNumberRow<{ phone_number: string }>(db as never, prakrit, cols, { propertyId: "ballard-room" });
+    expect(data?.phone_number).toBe("+12065550001");
+  });
+
+  it("with no shared number held either, a house-less send in an all-new workspace finds nothing to guess with", async () => {
+    const db = seed({
+      manager_sms_numbers: [],
+      portal_workspaces: [
+        { id: PRAKRIT_WS, owner_user_id: prakrit, name: "My workspace", is_default: true, created_at: "2026-02-01" },
+      ],
+    });
+    const { data } = await resolveOwnerSendNumberRow<{ phone_number: string }>(db as never, prakrit, cols, {});
+    expect(data).toBeNull();
+  });
 });
 
 describe("a conversation about no house shows in the workspace whose line carried it", () => {
@@ -237,9 +273,9 @@ describe("a conversation about no house shows in the workspace whose line carrie
     untaggedOwnedVisible: active === PRAKRIT_WS,
     activeWorkspaceId: active,
     workspaceByLine: new Map([
-      ["2065550001", PRAKRIT_WS],
-      ["2065550002", PRAKRIT_WS2],
-      ["assist-seattle@prop-lane.space", PRAKRIT_WS2],
+      ["2065550001", new Set([PRAKRIT_WS])],
+      ["2065550002", new Set([PRAKRIT_WS2])],
+      ["assist-seattle@prop-lane.space", new Set([PRAKRIT_WS2])],
     ]),
   });
 
@@ -259,5 +295,28 @@ describe("a conversation about no house shows in the workspace whose line carrie
     const input = { ownerId: prakrit, houseIds: [] };
     expect(conversationVisible(scope(PRAKRIT_WS), input)).toBe(true);
     expect(conversationVisible(scope(PRAKRIT_WS2), input)).toBe(false);
+  });
+});
+
+describe("a real join-table read: a shared number's thread shows in both holders", () => {
+  it("resolveCommunicationScope maps a shared line to every holding workspace, from the real table", async () => {
+    const db = seed({
+      portal_workspaces: [
+        { id: PRAKRIT_WS, owner_user_id: prakrit, name: "My workspace", is_default: true, created_at: "2026-02-01" },
+        { id: PRAKRIT_WS2, owner_user_id: prakrit, name: "Seattle rentals", is_default: false, created_at: "2026-03-01" },
+      ],
+      manager_sms_numbers: [
+        { id: "n-p1", manager_user_id: prakrit, workspace_id: PRAKRIT_WS, phone_number: "+12065550001", provision_state: "active" },
+      ],
+      workspace_work_numbers: [
+        { workspace_id: PRAKRIT_WS, number_id: "n-p1", is_primary: true, created_at: "2026-02-02" },
+        { workspace_id: PRAKRIT_WS2, number_id: "n-p1", is_primary: false, created_at: "2026-02-03" },
+      ],
+    });
+    const homeScope = await resolveCommunicationScope(db as never, prakrit, "read", { selectedWorkspaceId: PRAKRIT_WS });
+    const sharedScope = await resolveCommunicationScope(db as never, prakrit, "read", { selectedWorkspaceId: PRAKRIT_WS2 });
+    const input = { ownerId: prakrit, houseIds: [], lines: ["+1 (206) 555-0001"] };
+    expect(conversationVisible(homeScope, input)).toBe(true);
+    expect(conversationVisible(sharedScope, input)).toBe(true);
   });
 });

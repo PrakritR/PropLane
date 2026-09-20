@@ -182,3 +182,34 @@ describe("emailThreadHouses — where an email thread's house comes from", () =>
     expect(out.get("t1")).toEqual([]);
   });
 });
+
+describe("a shared work number's thread is visible in every holding workspace", () => {
+  const HOME_WS = "ws-home";
+  const SHARED_WS = "ws-shared";
+  const OTHER_WS = "ws-other";
+
+  it("shows the thread in the home workspace and the workspace it was shared into", () => {
+    const shared = scope({
+      workspaceHouseIds: new Set(),
+      untaggedOwnedVisible: false,
+      activeWorkspaceId: SHARED_WS,
+      workspaceByLine: new Map([["2065550001", new Set([HOME_WS, SHARED_WS])]]),
+    });
+    const home = scope({
+      workspaceHouseIds: new Set(),
+      untaggedOwnedVisible: false,
+      activeWorkspaceId: HOME_WS,
+      workspaceByLine: new Map([["2065550001", new Set([HOME_WS, SHARED_WS])]]),
+    });
+    const elsewhere = scope({
+      workspaceHouseIds: new Set(),
+      untaggedOwnedVisible: false,
+      activeWorkspaceId: OTHER_WS,
+      workspaceByLine: new Map([["2065550001", new Set([HOME_WS, SHARED_WS])]]),
+    });
+    const input = { ownerId: VIEWER, houseIds: [], lines: ["+1 (206) 555-0001"] };
+    expect(conversationVisible(home, input)).toBe(true);
+    expect(conversationVisible(shared, input)).toBe(true);
+    expect(conversationVisible(elsewhere, input)).toBe(false);
+  });
+});
